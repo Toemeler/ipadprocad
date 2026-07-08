@@ -45,6 +45,7 @@ jobs:
       - name: Configure (iOS target)
         working-directory: backend/qcad-core
         run: |
+          {
           set -o pipefail
           echo "qt_host path: ${{ steps.qt_host.outputs.path }}"
           echo "qt_ios path: ${{ steps.qt_ios.outputs.path }}"
@@ -55,7 +56,8 @@ jobs:
             -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DBUILD_QT6=ON 2>&1 | tee ../../ci-configure.log
+            -DBUILD_QT6=ON
+          } 2>&1 | tee ../../ci-configure.log
 
       - name: Build
         working-directory: backend/qcad-core
