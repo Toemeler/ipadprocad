@@ -1,0 +1,11 @@
+CMake Error at /opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake:159 (message):
+  Could not find toolchain file:
+
+   "/lib/cmake/Qt6/qt.toolchain.cmake"
+Call Stack (most recent call first):
+  CMakeLists.txt:10 (project)
+
+
+CMake Error: CMake was unable to find a build program corresponding to "Ninja".  CMAKE_MAKE_PROGRAM is not set.  You probably need to select a different build tool.
+CMake Error: CMAKE_CXX_COMPILER not set, after EnableLanguage
+-- Configuring incomplete, errors occurred!
