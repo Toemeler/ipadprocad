@@ -7,6 +7,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-core-ios:
     runs-on: macos-14
@@ -34,17 +37,34 @@ jobs:
       - name: Configure (iOS target)
         working-directory: backend/qcad-core
         run: |
+          set -o pipefail
           cmake -B build \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.qt-path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="${{ steps.qt_host.outputs.qt-path }}" \
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DBUILD_QT6=ON
+            -DBUILD_QT6=ON 2>&1 | tee ../../ci-configure.log
 
       - name: Build
         working-directory: backend/qcad-core
-        run: cmake --build build -j
+        run: |
+          set -o pipefail
+          cmake --build build -j 2>&1 | tee ../../ci-build.log
+
+      - name: Commit debug logs on failure
+        if: failure()
+        run: |
+          mkdir -p ci-logs
+          cp ci-configure.log ci-logs/ 2>/dev/null || true
+          cp ci-build.log ci-logs/ 2>/dev/null || true
+          cp backend/qcad-core/build/CMakeFiles/CMakeError.log ci-logs/ 2>/dev/null || true
+          cp backend/qcad-core/build/CMakeFiles/CMakeOutput.log ci-logs/ 2>/dev/null || true
+          git config user.email "ci@ipadprocad.local"
+          git config user.name "iPadProCAD CI"
+          git add -f ci-logs
+          git commit -m "CI: debug logs from failed run ${{ github.run_id }}" || exit 0
+          git push origin HEAD:ci-debug-logs --force
 
       - name: Upload build log
         if: always()
