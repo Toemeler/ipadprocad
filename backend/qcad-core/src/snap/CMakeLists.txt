@@ -7,7 +7,7 @@ project(qcadsnap VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(${QT_VER} REQUIRED COMPONENTS Core Widgets Concurrent Gui Network OpenGL Sql Svg Xml PrintSupport Qml)
+find_package(${QT_VER} REQUIRED COMPONENTS Core Concurrent Gui Network Svg Xml)
 qt_standard_project_setup()
 
 if(WIN32)
@@ -70,10 +70,7 @@ endif()
 target_link_libraries(qcadsnap PUBLIC
     Qt::Core
     Qt::Gui
-    Qt::Widgets
     Qt::Network
-    Qt::OpenGL
-    Qt::Sql
     Qt::Svg
     Qt::Xml
     qcadcore
