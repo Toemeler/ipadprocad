@@ -63,6 +63,7 @@ jobs:
             -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
             -DBUILD_QT6=ON
           } 2>&1 | tee ../../ci-configure.log
 

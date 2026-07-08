@@ -86,7 +86,6 @@ add_library(qcadcore SHARED
     RLinetypePattern.cpp RLinetypePattern.h
     RLineweight.cpp RLineweight.h
     RLinkedStorage.cpp RLinkedStorage.h
-    RLocalPeer.cpp RLocalPeer.h
     RLockedFile.cpp RLockedFile.h
     RMainWindow.cpp RMainWindow.h
     RMemoryStorage.cpp RMemoryStorage.h
@@ -137,7 +136,6 @@ add_library(qcadcore SHARED
     RSelectionListener.h
     RSettings.cpp RSettings.h
     RLinetypePatternExporter.cpp RLinetypePatternExporter.h
-    RSingleApplication.cpp RSingleApplication.h
     RSingleton.cpp RSingleton.h
     RSnap.cpp RSnap.h
     RSnapRestriction.h
