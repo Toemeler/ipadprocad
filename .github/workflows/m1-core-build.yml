@@ -22,6 +22,7 @@ jobs:
         with:
           version: '6.7.*'
           target: 'desktop'
+          dir: '${{ github.workspace }}/qt-host'
           cache: true
 
       - name: Capture host Qt path
@@ -36,6 +37,7 @@ jobs:
         with:
           version: '6.7.*'
           target: 'ios'
+          dir: '${{ github.workspace }}/qt-ios'
           cache: true
 
       - name: Capture iOS Qt path
