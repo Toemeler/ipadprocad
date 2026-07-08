@@ -1,3 +1,7 @@
+qt_host path: /Users/runner/work/ipadprocad/Qt/6.7.3/ios
+qt_ios path: /Users/runner/work/ipadprocad/Qt/6.7.3/ios
+ls: /Users/runner/work/ipadprocad/Qt/6.7.3/ios/lib/cmake/Qt6CoreTools: No such file or directory
+no Qt6CoreTools dir at host path
 -- The CXX compiler identification is AppleClang 15.0.0.15000309
 -- Detecting CXX compiler ABI info
 -- Detecting CXX compiler ABI info - done

@@ -21,11 +21,14 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
+          target: 'desktop'
           cache: true
 
       - name: Capture host Qt path
         id: qt_host
-        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+          echo "QT_ROOT_DIR after host install: ${QT_ROOT_DIR}" > env-dump.log
 
       - name: Install Qt6 (iOS)
         id: qt_ios_install
@@ -37,7 +40,9 @@ jobs:
 
       - name: Capture iOS Qt path
         id: qt_ios
-        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+          echo "QT_ROOT_DIR after iOS install: ${QT_ROOT_DIR}" >> env-dump.log
 
       - name: Install Ninja
         run: brew install ninja
@@ -65,10 +70,11 @@ jobs:
           set -o pipefail
           cmake --build build -j 2>&1 | tee ../../ci-build.log
 
-      - name: Commit debug logs on failure
-        if: failure()
+      - name: Commit debug logs
+        if: always()
         run: |
           mkdir -p ci-logs
+          cp env-dump.log ci-logs/ 2>/dev/null || true
           cp ci-configure.log ci-logs/ 2>/dev/null || true
           cp ci-build.log ci-logs/ 2>/dev/null || true
           cp backend/qcad-core/build/CMakeFiles/CMakeError.log ci-logs/ 2>/dev/null || true
@@ -76,7 +82,7 @@ jobs:
           git config user.email "ci@ipadprocad.local"
           git config user.name "iPadProCAD CI"
           git add -f ci-logs
-          git commit -m "CI: debug logs from failed run ${{ github.run_id }}" || exit 0
+          git commit -m "CI: debug logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs --force
 
       - name: Upload build log
