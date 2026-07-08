@@ -16,20 +16,25 @@
  * You should have received a copy of the GNU General Public License
  * along with QCAD.
  */
-#include <QApplication>
+#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QColor>
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
 #include <QImageWriter>
 #include <QPalette>
+#ifndef QCAD_HEADLESS
 #include <QPrinterInfo>
+#endif
 #include <QSettings>
 #include <QString>
 #include <QStringList>
 #include <QSysInfo>
+#ifndef QCAD_HEADLESS
 #include <QStyle>
 #include <QStyleOptionViewItem>
+#endif
 #include <QTranslator>
 #include <QPainter>
 #include <QDebug>
@@ -372,7 +377,7 @@ bool RSettings::testArgument(const QStringList& args, const QString& shortFlag, 
  */
 bool RSettings::isDeployed() {
 #ifdef Q_OS_MAC
-    QDir appDir(QApplication::applicationDirPath());
+    QDir appDir(QCoreApplication::applicationDirPath());
     if (appDir.dirName() == "MacOS") {
         appDir.cdUp();
         // deployed (scripts inside app bundle):
@@ -388,7 +393,7 @@ bool RSettings::isDeployed() {
  * \return Path where all application resources are stored ('scripts', 'patterns', 'ts', 'doc', 'linetypes', ...)
  */
 QString RSettings::getApplicationPath() {
-    QDir ret(QApplication::applicationDirPath());
+    QDir ret(QCoreApplication::applicationDirPath());
 
 #ifdef Q_OS_MAC
     if (ret.dirName() == "MacOS") {
@@ -1251,6 +1256,7 @@ bool RSettings::hasDarkGuiBackground() {
     }
 
     // detect dark QCAD theme:
+#ifndef QCAD_HEADLESS
     if (qApp->styleSheet().contains("IconPostfix:inverse", Qt::CaseInsensitive)) {
         darkGuiBackground = 1;
         return true;
@@ -1260,6 +1266,7 @@ bool RSettings::hasDarkGuiBackground() {
         darkGuiBackground = 0;
         return false;
     }
+#endif // QCAD_HEADLESS
 
 #if defined(Q_OS_MAC)
     // detect macOS dark mode:
@@ -1300,11 +1307,17 @@ bool RSettings::hasDarkGuiBackground() {
  * \return True if a custom stylesheet is present for the whole application. Z.B. a theme is present.
  */
 bool RSettings::hasCustomStyleSheet() {
+#ifdef QCAD_HEADLESS
+    return false;
+#else
     return !qApp->styleSheet().isEmpty();
+#endif
 }
 
 QStringList RSettings::getPrinterNames() {
-#if QT_VERSION >= 0x050300
+#ifdef QCAD_HEADLESS
+    return QStringList();
+#elif QT_VERSION >= 0x050300
     return QPrinterInfo::availablePrinterNames();
 #else
     QList<QPrinterInfo> printers = QPrinterInfo::availablePrinters();
@@ -1317,7 +1330,9 @@ QStringList RSettings::getPrinterNames() {
 }
 
 QString RSettings::getDefaultPrinterName() {
-#if QT_VERSION >= 0x050300
+#ifdef QCAD_HEADLESS
+    return QString();
+#elif QT_VERSION >= 0x050300
     return QPrinterInfo::defaultPrinterName();
 #else
     QPrinterInfo printer = QPrinterInfo::defaultPrinter();
@@ -2133,6 +2148,10 @@ bool RSettings::getAllowMouseMoveInterruptions() {
 }
 
 QColor RSettings::getWidgetSelectionColor(const QWidget* w) {
+#ifdef QCAD_HEADLESS
+    Q_UNUSED(w);
+    return QColor();
+#else
     if (w==NULL) {
         return QColor();
     }
@@ -2151,6 +2170,7 @@ QColor RSettings::getWidgetSelectionColor(const QWidget* w) {
         w->style()->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, &p, w);
     }
     return img.pixelColor(4, 4);                // un-premultiplied QColor
+#endif // QCAD_HEADLESS
 }
 
 void RSettings::resetCache() {

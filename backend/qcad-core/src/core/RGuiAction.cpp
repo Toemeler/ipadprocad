@@ -20,17 +20,21 @@
 #include <QFileInfo>
 #include <QList>
 #include <QMap>
-#include <QMenu>
 #include <QPainter>
 #include <QSvgRenderer>
+#ifndef QCAD_HEADLESS
+#include <QMenu>
 #include <QToolBar>
+#endif
 
 #include "RGuiAction.h"
 #include "RDocument.h"
 #include "RS.h"
 #include "RScriptHandler.h"
 #include "RSettings.h"
+#ifndef QCAD_HEADLESS
 #include "RWidget.h"
+#endif
 
 
 
@@ -602,6 +606,7 @@ QStringList RGuiAction::getWidgetNames() const {
     return getWidgetNamesStatic(this);
 }
 
+#ifndef QCAD_HEADLESS
 void RGuiAction::addToMenu(QMenu* menu) {
     if (menu==NULL) {
         qWarning("RGuiAction::addToMenu: menu is NULL");
@@ -780,6 +785,16 @@ void RGuiAction::removeFromWidget(QAction* action, QWidget* w) {
         w->removeAction(action);
     }
 }
+#else
+// QCAD_HEADLESS: no real widget tree to manage yet (Phase 2 / M4-M5
+// will reintroduce these once the Flutter GUI drives real widgets).
+void RGuiAction::addToMenu(QMenu*) {}
+void RGuiAction::addToToolBar(QToolBar*) {}
+void RGuiAction::fixSeparators(const QWidget*) {}
+void RGuiAction::addSeparatorToWidget(QAction*, QWidget*) {}
+void RGuiAction::addToWidget(QAction*, QWidget*) {}
+void RGuiAction::removeFromWidget(QAction*, QWidget*) {}
+#endif // QCAD_HEADLESS
 
 
 void RGuiAction::updateTransactionListener(RDocument* document, RTransaction* transaction) {
@@ -1276,6 +1291,7 @@ void RGuiAction::clearArguments() {
 }
 
 void RGuiAction::init() {
+#ifndef QCAD_HEADLESS
     RMainWindow* appWin = RMainWindow::getMainWindow();
     QStringList widgetNames = getWidgetNames();
     for (int i=0; i<widgetNames.length(); i++) {
@@ -1285,6 +1301,7 @@ void RGuiAction::init() {
             addToWidget(this, w);
         }
     }
+#endif // QCAD_HEADLESS
 }
 
 QString RGuiAction::getIconPath(const QString& iconFile, bool inverse) {

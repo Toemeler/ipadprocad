@@ -86,6 +86,7 @@ add_library(qcadcore SHARED
     RLinetypePattern.cpp RLinetypePattern.h
     RLineweight.cpp RLineweight.h
     RLinkedStorage.cpp RLinkedStorage.h
+    RLocalPeer.cpp RLocalPeer.h
     RLockedFile.cpp RLockedFile.h
     RMainWindow.cpp RMainWindow.h
     RMemoryStorage.cpp RMemoryStorage.h
@@ -166,7 +167,6 @@ add_library(qcadcore SHARED
     RViewportData.cpp RViewportData.h
     RViewportEntity.cpp RViewportEntity.h
     RWheelEvent.cpp RWheelEvent.h
-    RWidget.cpp RWidget.h
     bridges/RSettingsBridge.cpp bridges/RSettingsBridge.h
     math/RArc.cpp math/RArc.h
     math/RArcProxy.h
@@ -221,6 +221,14 @@ target_include_directories(qcadcore PUBLIC
 target_compile_definitions(qcadcore PRIVATE
     QCADCORE_LIBRARY
     QCAD_DLL
+)
+
+# Phase 1 (M1-M3): pure C++/CLI core, no GUI. Guards out the small set of
+# core/ classes that are directly coupled to QtWidgets (RWidget, RGuiAction's
+# menu/toolbar wiring, RSingleApplication, ...). Reintroduce the guarded
+# code paths in Phase 2 (M4/M5) once the Flutter GUI is wired up.
+target_compile_definitions(qcadcore PUBLIC
+    QCAD_HEADLESS
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")

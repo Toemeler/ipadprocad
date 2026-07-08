@@ -16,7 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with QCAD.
  */
+#ifndef QCAD_HEADLESS
 #include <QLineEdit>
+#endif
 
 #if QT_VERSION >= 0x050000
 #include <QtConcurrent>
@@ -933,6 +935,10 @@ bool RPropertyEditor::checkType(RS::EntityType type, RS::EntityType filter) {
 }
 
 void RPropertyEditor::makeReadOnly(QWidget* control, bool on) {
+#ifdef QCAD_HEADLESS
+    Q_UNUSED(control);
+    Q_UNUSED(on);
+#else
     if (control==NULL) {
         return;
     }
@@ -965,4 +971,5 @@ void RPropertyEditor::makeReadOnly(QWidget* control, bool on) {
     if (le!=NULL) {
         le->setReadOnly(on);
     }
+#endif // QCAD_HEADLESS
 }

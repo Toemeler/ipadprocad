@@ -16,7 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with QCAD.
  */
+#ifndef QCAD_HEADLESS
 #include <QApplication>
+#endif
 #include <QSettings>
 #include <QTime>
 #if QT_VERSION >= 0x060000

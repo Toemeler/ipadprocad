@@ -9,16 +9,20 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 
 ## Status
 
-**M1: Headless-Basis & CI-Setup — in Arbeit, ein konkreter Blocker offen**
+**M1: Headless-Basis & CI-Setup — in Arbeit, letzte bekannte Blocker behoben, Build läuft in CI**
 
 - [x] Headless-relevante QCAD-Core-Quellen vendored (`backend/qcad-core/`, siehe `VENDOR.md` für Quelle/Commit/Lizenz)
 - [x] Root-`CMakeLists.txt` für headless Core-Build (nur `core`, `entity`, `operations`, `io`, `snap`, `spatialindex`, `3rdparty/dxflib`)
 - [x] GitHub Action `.github/workflows/m1-core-build.yml`: kompiliert den Core auf macOS-Runner für iOS-Target (Qt6 + Ninja)
 - [x] Qt6-Cross-Compile-Toolchain-Wiring funktioniert (separate `qt-host`/`qt-ios`-Installationsverzeichnisse, `QT_HOST_PATH`, `CMAKE_TOOLCHAIN_FILE`)
-- [x] `CMAKE_OSX_DEPLOYMENT_TARGET=13.0` gesetzt (erforderlich für `std::filesystem` in Qt6-Headern)
+- [x] `CMAKE_OSX_DEPLOYMENT_TARGET=13.0` gesetzt (behebt `std::filesystem`-Fehler in Qt6-Headern)
 - [x] Qt-Komponenten auf iOS-verfügbares Set getrimmt (kein `Widgets`/`PrintSupport`/`OpenGL`/`Sql`/`Qml` in `find_package`)
-- [x] `RLocalPeer`/`RSingleApplication` (Single-Instance-GUI-Prozess-Helfer) aus `core`-Target entfernt
-- [ ] **Offener Blocker:** `src/core/RMetaTypes.h` inkludiert direkt `QApplication`, `QWidget`, `QDockWidget`, `QListWidget`, `QTreeWidget`, `QTabBar` u.a. — das ist keine Nebensache, sondern zentrale Meta-Type-Registrierung, die im Upstream-Code quer durch `core` genutzt wird. Für einen echten headless Build muss diese Datei chirurgisch entkoppelt werden (z.B. Widget-bezogene `qRegisterMetaType`-Aufrufe hinter ein `#ifdef QCAD_HEADLESS`-Guard setzen), nicht per Ausschluss der ganzen Datei, da andere `core`-Dateien vermutlich Nicht-Widget-Typen daraus brauchen. Das ist die nächste konkrete Aufgabe.
+- [x] `RMetaTypes.h` entkoppelt: alle Widget-/PrintSupport-Includes (`QApplication`, `QWidget`, `QDockWidget`, `QMenu`, `QPrinter`, ...) hinter `#ifndef QCAD_HEADLESS` gesetzt, statt die ganze Datei auszuschließen — Nicht-Widget-Metatypes bleiben nutzbar
+- [x] `QCAD_HEADLESS`-Compile-Definition eingeführt (`target_compile_definitions(qcadcore PUBLIC QCAD_HEADLESS)`), um Widget-gekoppelten Code in `core` gezielt zu guarden statt ganze Dateien auszuschließen
+- [x] `RGuiAction` (Menü-/Toolbar-Verdrahtung), `RSettings` (Stylesheet-/Drucker-/Widget-Farb-Helper), `RPropertyEditor::makeReadOnly`, `RMainWindow` (`QApplication`-Include) chirurgisch entkoppelt: Widget-Funktionalität bleibt für Phase 2 im Code, ist aber unter `QCAD_HEADLESS` inaktiv/stubbed
+- [x] `RWidget` (echte `QWidget`-Subklasse) und `RSingleApplication` (echte `QApplication`-Subklasse) aus dem `qcadcore`-Compile-Target entfernt (Header bleiben im Baum für Phase 2, werden von AUTOMOC im Headless-Build nicht mehr verarbeitet)
+- [x] `RAction.cpp`: direktes `<QWidget>`-Include durch Forward-Declaration ersetzt (nur Zeiger-Nutzung nötig)
+- [ ] Aktueller CI-Lauf (Commit siehe `git log`) validiert diese Änderungen — Ergebnis beim nächsten Sync in diesem Dokument nachtragen
 - [ ] Compiler-Status "100% grün": noch nicht erreicht
 
 ### CI-Debugging-Hinweis

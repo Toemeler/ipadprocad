@@ -18,7 +18,9 @@
  */
 
 #include <QCoreApplication>
-#include <QWidget>
+// QCAD_HEADLESS: no <QWidget> — only a forward-declared pointer is
+// needed here, and postEvent() takes a QObject* anyway.
+class QWidget;
 
 #include "RAction.h"
 #include "RDebug.h"

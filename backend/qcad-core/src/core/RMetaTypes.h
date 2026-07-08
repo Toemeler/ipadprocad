@@ -28,56 +28,31 @@
 #include <QSortFilterProxyModel>
 #include <QAction>
 #include <QActionEvent>
-#include <QApplication>
 #include <QBuffer>
 #include <QByteArray>
-#include <QCloseEvent>
-#include <QComboBox>
 #include <QDateTime>
 #include <QDebug>
-#include <QDialog>
 #include <QDir>
-#include <QDockWidget>
 #include <QDomNode>
-#include <QDragEnterEvent>
-#include <QDragMoveEvent>
-#include <QDragLeaveEvent>
-#include <QDropEvent>
 #include <QEasingCurve>
 #include <QEvent>
-#include <QFocusEvent>
-#include <QFocusFrame>
 #include <QFont>
 #include <QFontMetrics>
 #include <QFontDatabase>
 #include <QFile>
-#include <QFileIconProvider>
-#include <QFileSystemModel>
-#include <QFrame>
 #include <QGestureEvent>
 #include <QGraphicsItem>
-#include <QGraphicsView>
-#include <QGridLayout>
 #include <QHelpEvent>
 #include <QHideEvent>
 #include <QInputMethodEvent>
 #include <QImage>
 #include <QImageWriter>
-#include <QItemDelegate>
 #include <QKeyEvent>
 #include <QLayout>
 #include <QLayoutItem>
-#include <QLineEdit>
 #include <QList>
-#include <QListView>
-#include <QListWidget>
-#include <QListWidgetItem>
 #include <QLocale>
 #include <QMap>
-#include <QMainWindow>
-#include <QMdiArea>
-#include <QMdiSubWindow>
-#include <QMenu>
 #include <QMimeData>
 #include <QModelIndex>
 #include <QMouseEvent>
@@ -89,14 +64,10 @@
 #include <QPair>
 #include <QPinchGesture>
 #include <QPixmap>
-#include <QPlainTextEdit>
 #include <QPoint>
 #include <QPointF>
 #include <QPolygonF>
-#include <QPrinter>
-#include <QPrintDialog>
 #include <QProcess>
-#include <QProgressBar>
 #include <QQuaternion>
 #include <QSet>
 #include <QSettings>
@@ -105,30 +76,65 @@
 #include <QShowEvent>
 #include <QStaticText>
 #include <QStringList>
-#include <QStyledItemDelegate>
-#include <QStyleOption>
-#include <QStyleOptionViewItem>
 #include <QSwipeGesture>
-#include <QTabBar>
 #include <QTemporaryFile>
 #include <QTextCharFormat>
-#include <QTextBrowser>
-#include <QTextEdit>
 #include <QTextLayout>
 #include <QThread>
 #include <QTimer>
-#include <QToolBar>
-#include <QToolButton>
-#include <QTreeView>
-#include <QTreeWidget>
-#include <QTreeWidgetItem>
 #include <QUrl>
 #include <QValidator>
 #include <QVariant>
 #include <QVector>
 #include <QWheelEvent>
-#include <QWidget>
 #include <QXmlStreamWriter>
+
+// QCAD_HEADLESS: the following require QtWidgets / QtPrintSupport,
+// neither of which is linked into the headless core build. Reintroduce
+// in Phase 2 (M4/M5) once the Flutter GUI is wired up to real widgets.
+#ifndef QCAD_HEADLESS
+#include <QApplication>
+#include <QComboBox>
+#include <QCloseEvent>
+#include <QDialog>
+#include <QDockWidget>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
+#include <QFileIconProvider>
+#include <QFileSystemModel>
+#include <QFocusEvent>
+#include <QFocusFrame>
+#include <QFrame>
+#include <QGraphicsView>
+#include <QGridLayout>
+#include <QItemDelegate>
+#include <QLineEdit>
+#include <QListView>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QMainWindow>
+#include <QMdiArea>
+#include <QMdiSubWindow>
+#include <QMenu>
+#include <QPlainTextEdit>
+#include <QPrinter>
+#include <QPrintDialog>
+#include <QProgressBar>
+#include <QStyledItemDelegate>
+#include <QStyleOption>
+#include <QStyleOptionViewItem>
+#include <QTabBar>
+#include <QTextBrowser>
+#include <QTextEdit>
+#include <QToolBar>
+#include <QToolButton>
+#include <QTreeView>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QWidget>
+#endif // QCAD_HEADLESS
 
 //#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
 //#  if QT_VERSION <= 0x050500
@@ -136,7 +142,9 @@
 //#  endif
 //#endif
 
+#ifndef QCAD_HEADLESS
 #include "RSingleApplication.h"
+#endif
 
 #if QT_VERSION <= 0x060000
 
