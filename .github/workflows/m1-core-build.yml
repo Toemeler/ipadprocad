@@ -46,6 +46,9 @@ jobs:
         working-directory: backend/qcad-core
         run: |
           set -o pipefail
+          echo "qt_host path: ${{ steps.qt_host.outputs.path }}"
+          echo "qt_ios path: ${{ steps.qt_ios.outputs.path }}"
+          ls "${{ steps.qt_host.outputs.path }}/lib/cmake/Qt6CoreTools" 2>&1 || echo "no Qt6CoreTools dir at host path"
           cmake -B build \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
