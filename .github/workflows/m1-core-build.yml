@@ -13,17 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Qt6 (host, for tools)
+        id: qt_host
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          cache: true
+
       - name: Install Qt6 (iOS)
+        id: qt_ios
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
           target: 'ios'
-          cache: true
-
-      - name: Install Qt6 (host, for tools)
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.*'
           cache: true
 
       - name: Install Ninja
@@ -34,7 +36,8 @@ jobs:
         run: |
           cmake -B build \
             -G Ninja \
-            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.qt-path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="${{ steps.qt_host.outputs.qt-path }}" \
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DBUILD_QT6=ON
