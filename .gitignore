@@ -1,0 +1,8 @@
+build/
+debug/
+*.o
+*.dSYM/
+.DS_Store
+DerivedData/
+*.xcworkspace/xcuserdata/
+

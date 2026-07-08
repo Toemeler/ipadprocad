@@ -1,0 +1,48 @@
+add_definitions(-DQT_SHAREDPOINTER_TRACK_POINTERS)
+
+if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+
+    # min / max macros in Windows.h break std::numeric_limits<type>::min / max:
+    add_definitions(-DNOMINMAX)
+endif()
+
+if(UNIX)
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+        set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+        add_compile_options(-fPIC)
+    endif()
+endif()
+
+
+if(BUILD_QT6)
+    set(QT_VER Qt6)
+else()
+    set(QT_VER Qt5)
+    macro(qt_standard_project_setup)
+        set(CMAKE_AUTOMOC ON)
+        set(CMAKE_AUTOUIC ON)
+        set(CMAKE_AUTORCC ON)
+    endmacro()
+endif()
+
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+#set(CMAKE_DEBUG_POSTFIX "_debug")
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(RWIN64 TRUE)
+else()
+    set(RWIN32 TRUE)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+endif()
+
+if(APPLE)
+    if(CMAKE_HOST_SYSTEM_VERSION VERSION_GREATER_EQUAL 12.7)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "12.7" CACHE STRING "Minimum macOS version" FORCE)
+    else()
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version" FORCE)
+    endif()
+endif()
