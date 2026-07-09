@@ -243,8 +243,10 @@ jobs:
       - name: Configure (iOS Simulator, x86_64)
         working-directory: backend/qcad-core
         run: |
-          {
+          # pipefail MUSS ausserhalb des { }|tee stehen: innerhalb wirkt es nur
+          # in der Subshell und der Step-Status waere der von tee (immer 0).
           set -o pipefail
+          {
           # The Qt-for-iOS package ships UNIVERSAL archives/objects:
           #   arm64  slice -> platform 2 (iOS device)
           #   x86_64 slice -> platform 7 (iOS Simulator)
@@ -272,8 +274,8 @@ jobs:
       - name: Locate & inspect smoke binary
         working-directory: backend/qcad-core
         run: |
+          set -o pipefail
           {
-            set -o pipefail
             SMOKE="$(find . -name qcad_capi_smoke -type f | head -1)"
             echo "smoke binary (relative): $SMOKE"
             [ -n "$SMOKE" ] || { echo "smoke binary not found"; exit 1; }
@@ -290,17 +292,41 @@ jobs:
         timeout-minutes: 20
         working-directory: backend/qcad-core
         run: |
+          # pipefail MUSS ausserhalb des { }|tee stehen (sonst falsches Gruen:
+          # Run 29043802347 meldete gruen trotz "M3 LOGIC TEST: FAIL" im Log).
+          set -o pipefail
           {
-            set -o pipefail
             SMOKE_ABS="$(cat ../../smoke_path.txt)"
+            APP_DIR="$(dirname "$SMOKE_ABS")"
             echo "smoke: $SMOKE_ABS"
-            # x86_64-Sim-Prozess auf arm64-Runner braucht Rosetta. Ohne Rosetta
-            # haengt/failt der spawn (Ursache des 30-min-Haengers in Run
-            # 29030718031). Install ist idempotent; Fehler tolerieren (evtl.
-            # schon vorhanden).
+            echo "app bundle: $APP_DIR"
+            # x86_64-Sim-Prozess auf arm64-Runner braucht Rosetta.
             sudo softwareupdate --install-rosetta --agree-to-license || true
-            echo "== runtimes =="
-            xcrun simctl list runtimes || true
+            # WICHTIG (Erkenntnis aus Run 29043802347): `simctl spawn` haengt mit
+            # 0 Byte Output. Ursache: das statisch gelinkte Qt-iOS-Platform-Plugin
+            # interponiert main() und startet UIApplicationMain; ohne UI-Kontext
+            # (spawn) laeuft unser main nie an. Daher: als echte App installieren
+            # und mit `launch --console-pty` starten — dann ruft Qt unser main
+            # nach dem UIApplication-Start auf und stdout wird durchgereicht.
+            if [ ! -f "$APP_DIR/Info.plist" ]; then
+              echo "no Info.plist in bundle — writing a minimal one"
+              printf '%s\n' \
+                '<?xml version="1.0" encoding="UTF-8"?>' \
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+                '<plist version="1.0"><dict>' \
+                '  <key>CFBundleIdentifier</key><string>com.ipadprocad.smoke</string>' \
+                '  <key>CFBundleExecutable</key><string>qcad_capi_smoke</string>' \
+                '  <key>CFBundleName</key><string>qcad_capi_smoke</string>' \
+                '  <key>CFBundlePackageType</key><string>APPL</string>' \
+                '  <key>CFBundleVersion</key><string>1</string>' \
+                '  <key>CFBundleShortVersionString</key><string>1.0</string>' \
+                '  <key>MinimumOSVersion</key><string>14.0</string>' \
+                '</dict></plist>' > "$APP_DIR/Info.plist"
+            fi
+            BID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_DIR/Info.plist" 2>/dev/null || true)"
+            [ -n "$BID" ] || BID="com.ipadprocad.smoke"
+            echo "bundle id: $BID"
+            cat "$APP_DIR/Info.plist"
             UDID=""
             for name in "iPhone 15" "iPhone 14" "iPhone SE (3rd generation)" "iPhone 15 Pro"; do
               if UDID="$(xcrun simctl create m3-iphone "$name" 2>/dev/null)"; then
@@ -310,29 +336,26 @@ jobs:
             done
             [ -n "$UDID" ] || { echo "could not create a simulator"; xcrun simctl list devicetypes; exit 1; }
             xcrun simctl boot "$UDID"
-            # bootstatus -b kann unbegrenzt blockieren -> begrenztes Polling.
             for i in $(seq 1 24); do
               STATE="$(xcrun simctl list devices | grep "$UDID" | grep -o 'Booted' || true)"
               [ "$STATE" = "Booted" ] && { echo "sim booted (after ~$((i*5))s)"; break; }
               sleep 5
             done
-            xcrun simctl list devices | grep "$UDID" || true
-            echo "== spawn =="
+            xcrun simctl install "$UDID" "$APP_DIR"
+            echo "== launch (console-pty) =="
             set +e
-            # macOS hat kein timeout(1); perl-alarm als Hard-Timeout (5 min),
-            # sonst kann ein haengender Sim-Prozess den Step blockieren.
-            OUT="$(perl -e 'alarm 300; exec @ARGV or die "exec: $!"' -- xcrun simctl spawn --arch=x86_64 "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
-            if [ $RC -ne 0 ] && ! echo "$OUT" | grep -q "SMOKE:"; then
-              echo "spawn --arch=x86_64 failed (rc=$RC), retrying without --arch"
-              OUT="$(perl -e 'alarm 300; exec @ARGV or die "exec: $!"' -- xcrun simctl spawn "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
-            fi
+            # perl-alarm = Hard-Timeout (5 min); macOS hat kein timeout(1).
+            OUT="$(perl -e 'alarm 300; exec @ARGV or die "exec: $!"' -- xcrun simctl launch --console-pty --terminate-running-process "$UDID" "$BID" 2>&1)"; RC=$?
             set -e
             echo "$OUT"
-            echo "== spawn exit: $RC =="
+            echo "== launch exit: $RC =="
             xcrun simctl shutdown "$UDID" || true
             xcrun simctl delete "$UDID" || true
-            echo "$OUT" | grep -q "SMOKE: PASS" || { echo "M3 LOGIC TEST: FAIL (marker missing)"; exit 1; }
-            [ "$RC" -eq 0 ] || { echo "M3 LOGIC TEST: FAIL (exit $RC)"; exit 1; }
+            # Urteil ueber den Marker, nicht den launch-RC (der RC von
+            # `simctl launch` ist nicht der Exit-Code der App). rc=142 (SIGALRM)
+            # heisst Haenger -> in dem Fall fehlt der Marker ohnehin.
+            echo "$OUT" | grep -q "SMOKE: FAIL" && { echo "M3 LOGIC TEST: FAIL (smoke reported failures)"; exit 1; }
+            echo "$OUT" | grep -q "SMOKE: PASS" || { echo "M3 LOGIC TEST: FAIL (PASS marker missing, launch rc=$RC)"; exit 1; }
             echo "M3 LOGIC TEST: PASS"
           } 2>&1 | tee ../../ci-sim-run.log
 
