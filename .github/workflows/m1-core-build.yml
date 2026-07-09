@@ -68,6 +68,7 @@ jobs:
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_QT6=ON
           } 2>&1 | tee ../../ci-configure.log
 
@@ -85,6 +86,7 @@ jobs:
         working-directory: backend/qcad-core
         run: |
           set -e
+          set -o pipefail
           {
             expected=(
               release/libqcadcore.a
@@ -111,6 +113,7 @@ jobs:
         working-directory: backend/qcad-core
         run: |
           set -e
+          set -o pipefail
           {
             # Merge the C-API wrapper + all core libs into a single archive the
             # app can link directly. libtool resolves duplicate members.
@@ -132,6 +135,7 @@ jobs:
         working-directory: backend/qcad-core
         run: |
           set -e
+          set -o pipefail
           {
             rm -rf release/ipadprocad.xcframework include-public
             mkdir -p include-public
