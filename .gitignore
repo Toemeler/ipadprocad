@@ -6,3 +6,5 @@ debug/
 DerivedData/
 *.xcworkspace/xcuserdata/
 
+release/
+plugins/

@@ -7,7 +7,7 @@ project(qcadcore VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(${QT_VER} REQUIRED COMPONENTS Core Concurrent Gui Network Svg Xml)
+find_package(${QT_VER} REQUIRED COMPONENTS Core Concurrent Gui Network Qml Svg Xml)
 IF(NOT BUILD_QT6)
     find_package(${QT_VER} REQUIRED COMPONENTS Script XmlPatterns)
 ENDIF()
@@ -247,10 +247,9 @@ target_link_libraries(qcadcore PUBLIC
     Qt::Core
     Qt::Gui
     Qt::Network
+    Qt::Qml
     Qt::Svg
     Qt::Xml
-    zlib
-    OpenNURBS
 )
 
 

@@ -117,7 +117,6 @@ target_link_libraries(qcadentity PUBLIC
     Qt::Svg
     Qt::Xml
     qcadcore
-    opennurbs
 )
 
 if(win32-msvc2010)

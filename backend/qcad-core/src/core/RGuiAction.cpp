@@ -523,12 +523,16 @@ int RGuiAction::getGroupSortOrderStatic(const QAction* a, const QWidget* w) {
         return -1;
     }
 
+#ifndef QCAD_HEADLESS
     if (w!=NULL) {
         QString n = QString("GroupSortOrderOverride") + w->objectName();
         if (a->property(n.toUtf8()).isValid()) {
             return a->property(n.toUtf8()).toInt();
         }
     }
+#else
+    Q_UNUSED(w)
+#endif
     if (a->property("GroupSortOrder").isValid()) {
         return a->property("GroupSortOrder").toInt();
     }
@@ -548,12 +552,16 @@ int RGuiAction::getSortOrderStatic(const QAction* a, const QWidget* w) {
     if (a==NULL) {
         return -1;
     }
+#ifndef QCAD_HEADLESS
     if (w!=NULL) {
         QString n = QString("SortOrderOverride") + w->objectName();
         if (a->property(n.toUtf8()).isValid()) {
             return a->property(n.toUtf8()).toInt();
         }
     }
+#else
+    Q_UNUSED(w)
+#endif
     if (a->property("SortOrder").isValid()) {
         return a->property("SortOrder").toInt();
     }

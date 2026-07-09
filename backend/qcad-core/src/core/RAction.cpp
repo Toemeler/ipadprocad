@@ -88,6 +88,7 @@ void RAction::terminate() {
     RGraphicsView* view = getDocumentInterface()->getLastKnownViewWithFocus();
     //RGraphicsViewImage* imageView = dynamic_cast<RGraphicsViewImage*>(view);
 
+#ifndef QCAD_HEADLESS
     if (view!=NULL) {
         QWidget* w = view->getWidget();
 
@@ -96,6 +97,9 @@ void RAction::terminate() {
             QCoreApplication::postEvent(w, event);
         }
     }
+#else
+    Q_UNUSED(view)
+#endif
 
 //    QObject* obj = dynamic_cast<QObject*>(view);
 //    if (obj==NULL) {

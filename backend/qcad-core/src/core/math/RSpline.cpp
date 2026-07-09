@@ -1076,9 +1076,15 @@ double RSpline::getAngleAt(double distance, RS::From from) const {
     if (points.length()!=1) {
         return RNANDOUBLE;
     }
+#ifndef R_NO_OPENNURBS
     double t = getTAtPoint(points[0]);
     ON_3dVector v = curve.DerivativeAt(t);
     return RVector(v.x, v.y).getAngle();
+#else
+    // No NURBS backend in the headless M1 core: spline evaluation is inert
+    // until an opennurbs-backed RSplineProxy is registered (see VENDOR.md).
+    return RNANDOUBLE;
+#endif
 }
 
 QList<RVector> RSpline::getEndPoints() const {
@@ -1720,7 +1726,9 @@ void RSpline::updateFromFitPoints() const {
         this->weights = spline.weights;
         this->tangentStart = spline.tangentStart;
         this->tangentEnd = spline.tangentEnd;
+#ifndef R_NO_OPENNURBS
         this->curve = spline.curve;
+#endif
         this->dirty = false;
     }
     else {

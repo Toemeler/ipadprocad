@@ -40,9 +40,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 if(APPLE)
-    if(CMAKE_HOST_SYSTEM_VERSION VERSION_GREATER_EQUAL 12.7)
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "12.7" CACHE STRING "Minimum macOS version" FORCE)
-    else()
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version" FORCE)
+    # std::filesystem (reached via Qt's QFile / RLockedFile.h) is only available
+    # on iOS 13.0 / macOS 10.15+. The iOS CI passes -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+    # explicitly; honour that instead of force-overriding it, and default to 13.0
+    # when nothing was provided. Must stay >= 13.0 or qfile.h fails to compile.
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum deployment version")
     endif()
 endif()

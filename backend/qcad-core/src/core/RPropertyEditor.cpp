@@ -20,6 +20,11 @@
 #include <QLineEdit>
 #endif
 
+// In headless builds the QLineEdit include above is skipped, so nothing has
+// pulled in QtCore yet; include QtGlobal explicitly so QT_VERSION is defined
+// for the check below (otherwise it reads as 0 and the wrong branch is taken,
+// leaving QtConcurrent::run undeclared).
+#include <QtGlobal>
 #if QT_VERSION >= 0x050000
 #include <QtConcurrent>
 #else

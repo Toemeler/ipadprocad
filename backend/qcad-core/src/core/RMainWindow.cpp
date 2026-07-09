@@ -19,6 +19,7 @@
 #ifndef QCAD_HEADLESS
 #include <QApplication>
 #endif
+#include <QGuiApplication>
 #include <QSettings>
 #include <QTime>
 #if QT_VERSION >= 0x060000
