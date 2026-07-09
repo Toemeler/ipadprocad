@@ -57,9 +57,30 @@ Build-Logs in den Branch `ci-debug-logs` (Step „Commit debug logs"). Von dort 
 sie über `raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/…`
 lesbar.
 
-### Nächster Schritt: M2
-C-Wrapper um den Core + FFI-Anbindung an Flutter (die statischen `.a` werden in die
-iOS-App gelinkt). Siehe `HANDOFF.md`.
+## Status M2
+
+**M2 — C-ABI-Wrapper & iOS-Bundle: erreicht (Wrapper validiert); Dart-FFI noch offen.**
+
+Ein schlanker C-Wrapper (`extern "C"`) kapselt den Core hinter einer stabilen,
+FFI-tauglichen Schnittstelle (opaque Handles, keine C++-Typen an der Grenze).
+Lokal (Linux/Qt6) läuft ein C-Smoke-Test grün; im iOS-CI wird der Wrapper für
+`arm64`/`iphoneos` mitgebaut, auf Architektur verifiziert und zu einer nutzbaren
+Einheit gebündelt (kombinierte `.a` + XCFramework).
+
+- [x] Modul `backend/qcad-core/src/capi/` — `qcad_capi.h` (reines C) + `qcad_capi.cpp` (einziger C++/Qt-Übersetzungseinheit); CMake-Ziel `qcadcapi` (STATIC), ins Root-Build eingehängt
+- [x] ABI-Oberfläche: Dokument anlegen/freigeben; Linie/Kreis/Bogen/Polylinie hinzufügen; Entity-Anzahl; Bounding-Box; DXF laden/speichern (Pfad); Versionstext (Winkel in Radiant, `double`-Koordinaten, `1`=OK/`0`=Fehler)
+- [x] Property-Typen-System selbst registriert: QCADs Bootstrap liegt im ausgeklammerten GUI/Script-Layer, daher ruft `qcad_init()` die `init()`-Kette aller Entity-/Objekttypen selbst auf (privates `RColor`/`RLineweight::init()` ausgelassen — werden intern registriert)
+- [x] Ownership korrekt: `RStorage`/`RSpatialIndex` erben von `RRequireHeap` (`doDelete()` = `delete this`) und werden vom `RDocument`-Destruktor freigegeben → heap-allozieren und nur das `RDocument` löschen (behebt einen Doppel-Free beim Teardown)
+- [x] `RSettings` über `QCoreApplication`-Organisationsname initialisiert (keine „RSettings not initialized"-Warnungen mehr)
+- [x] Lokaler C-Smoke-Test (`src/capi/tests/smoke.c`, Ziel `qcad_capi_smoke`, nur Host): 4 Entities, korrekte Bounding-Box, DXF-Roundtrip erhält die Entity-Anzahl → **PASS**
+- [x] CI baut `qcadcapi` für iOS-Device mit (`-k 0`), prüft alle `.a` auf `arm64`, bündelt sie via `libtool` zu `libipadprocad.a` und packt ein `ipadprocad.xcframework` (`ios-arm64` + Header); Upload als Artefakt `ipadprocad-ios-capi`
+- [x] CI-Fix (wichtige Lektion): iOS-Configure setzt jetzt `-DCMAKE_BUILD_TYPE=Release` (sonst landen die Libs in `debug/` statt `release/`), und `set -o pipefail` in Verify/Bundle/XCFramework verhindert, dass ein per `tee` maskierter Fehler fälschlich „grün" meldet
+- [ ] **Dart-FFI noch offen:** Bindings (`backend/qcad-core/bindings/dart/`) sind geschrieben, aber mangels Dart-SDK im Backend-Build noch nicht ausgeführt/CI-validiert; erste reale Ausführung in M3 (iOS-Device-Test) oder via Desktop-`.so`
+
+### Nächster Schritt: M3
+Headless-Logiktests auf iOS: die C-Smoke-Logik als iOS-Device-Test (XCTest) gegen
+das erzeugte `ipadprocad.xcframework` ausführen und dort die Dart-FFI-Bindings
+erstmals real gegenprüfen. Details/Fallstricke: `HANDOFF.md`.
 
 ## Architektur
 
@@ -70,7 +91,9 @@ backend/qcad-core/     Vendorter, headless-tauglicher QCAD-Core (C++, GPLv3)
   src/operations/      Modifikations-/Transformationsoperationen
   src/io/dxf/          DXF-Import/-Export (auf dxflib)
   src/3rdparty/dxflib/ DXF-Low-Level-Bibliothek (statisch)
-.github/workflows/     CI: iOS-Cross-Compile-Build-Validierung (macOS-Runner)
+  src/capi/            C-ABI-Wrapper (extern "C") für FFI — Ziel libqcadcapi.a
+  bindings/dart/       Dart-FFI-Bindings + Beispiel (noch nicht CI-validiert)
+.github/workflows/     CI: iOS-Cross-Compile + C-API-Bundle (macOS-Runner)
 ```
 
 `gui`, `run` sowie der JS-Actionlayer (`scripts/`) aus dem QCAD-Upstream sind
