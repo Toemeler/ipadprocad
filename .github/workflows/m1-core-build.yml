@@ -287,12 +287,18 @@ jobs:
           } 2>&1 | tee ../../ci-sim-inspect.log
 
       - name: Boot simulator & run headless logic test
+        timeout-minutes: 20
         working-directory: backend/qcad-core
         run: |
           {
             set -o pipefail
             SMOKE_ABS="$(cat ../../smoke_path.txt)"
             echo "smoke: $SMOKE_ABS"
+            # x86_64-Sim-Prozess auf arm64-Runner braucht Rosetta. Ohne Rosetta
+            # haengt/failt der spawn (Ursache des 30-min-Haengers in Run
+            # 29030718031). Install ist idempotent; Fehler tolerieren (evtl.
+            # schon vorhanden).
+            sudo softwareupdate --install-rosetta --agree-to-license || true
             echo "== runtimes =="
             xcrun simctl list runtimes || true
             UDID=""
@@ -304,14 +310,21 @@ jobs:
             done
             [ -n "$UDID" ] || { echo "could not create a simulator"; xcrun simctl list devicetypes; exit 1; }
             xcrun simctl boot "$UDID"
-            xcrun simctl bootstatus "$UDID" -b || true
+            # bootstatus -b kann unbegrenzt blockieren -> begrenztes Polling.
+            for i in $(seq 1 24); do
+              STATE="$(xcrun simctl list devices | grep "$UDID" | grep -o 'Booted' || true)"
+              [ "$STATE" = "Booted" ] && { echo "sim booted (after ~$((i*5))s)"; break; }
+              sleep 5
+            done
+            xcrun simctl list devices | grep "$UDID" || true
             echo "== spawn =="
             set +e
-            # x86_64 simulator binary on an arm64 runner -> Rosetta.
-            OUT="$(xcrun simctl spawn --arch=x86_64 "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
+            # macOS hat kein timeout(1); perl-alarm als Hard-Timeout (5 min),
+            # sonst kann ein haengender Sim-Prozess den Step blockieren.
+            OUT="$(perl -e 'alarm 300; exec @ARGV or die "exec: $!"' -- xcrun simctl spawn --arch=x86_64 "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
             if [ $RC -ne 0 ] && ! echo "$OUT" | grep -q "SMOKE:"; then
-              echo "spawn --arch=x86_64 failed, retrying without --arch"
-              OUT="$(xcrun simctl spawn "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
+              echo "spawn --arch=x86_64 failed (rc=$RC), retrying without --arch"
+              OUT="$(perl -e 'alarm 300; exec @ARGV or die "exec: $!"' -- xcrun simctl spawn "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
             fi
             set -e
             echo "$OUT"
