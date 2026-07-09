@@ -12,6 +12,12 @@ on:
 permissions:
   contents: write
 
+# Bei schnellen aufeinanderfolgenden Pushes den veralteten Run abbrechen
+# (spart Minuten & Artefakt-Storage).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-core-ios:
     runs-on: macos-14
@@ -151,6 +157,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 3
           name: ipadprocad-ios-capi
           path: |
             backend/qcad-core/release/libipadprocad.a
@@ -177,6 +184,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 3
           name: core-capi-build-log
           path: backend/qcad-core/build/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore
@@ -378,6 +386,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 3
           name: ipadprocad-m3-sim-logic
           path: |
             ci-sim-run.log
