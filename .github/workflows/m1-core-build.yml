@@ -308,8 +308,11 @@ jobs:
             # (spawn) laeuft unser main nie an. Daher: als echte App installieren
             # und mit `launch --console-pty` starten — dann ruft Qt unser main
             # nach dem UIApplication-Start auf und stdout wird durchgereicht.
-            if [ ! -f "$APP_DIR/Info.plist" ]; then
-              echo "no Info.plist in bundle — writing a minimal one"
+            # Die von CMake generierte Default-Info.plist hat LEERE Pflichtfelder
+            # (CFBundleIdentifier/-Version leer -> "does not contain
+            # CFBundleVersion" beim simctl install, Run 29045268701). Daher
+            # IMMER mit einer minimalen gueltigen Plist ueberschreiben.
+            echo "writing minimal Info.plist (overwriting CMake default)"
               printf '%s\n' \
                 '<?xml version="1.0" encoding="UTF-8"?>' \
                 '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
@@ -322,9 +325,7 @@ jobs:
                 '  <key>CFBundleShortVersionString</key><string>1.0</string>' \
                 '  <key>MinimumOSVersion</key><string>14.0</string>' \
                 '</dict></plist>' > "$APP_DIR/Info.plist"
-            fi
-            BID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_DIR/Info.plist" 2>/dev/null || true)"
-            [ -n "$BID" ] || BID="com.ipadprocad.smoke"
+            BID="com.ipadprocad.smoke"
             echo "bundle id: $BID"
             cat "$APP_DIR/Info.plist"
             UDID=""
