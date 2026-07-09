@@ -152,17 +152,39 @@ CI-Job: `m3-ios-sim-logic` in `.github/workflows/m1-core-build.yml`.
 M4) und Device-Hardware-Test (kein iOS-Gerät im CI; Device-Build/Archiv ist via
 `build-core-ios` weiter grün abgedeckt).
 
-## M2 — verbleibende Schritte
-1. **Dart-FFI real ausführen:** `bindings/dart/qcad_ffi.dart` (+ `example/
-   qcad_smoke.dart`) gegen eine lauffähige Bibliothek testen. Auf iOS ist die
-   statische Lib in die App gelinkt → `DynamicLibrary.process()`. Für einen
-   Desktop-Test eine SHARED-Variante von `qcadcapi` (.so/.dylib) bauen und
-   `QcadBindings.open(<pfad>)` nutzen. Erwartung wie C-Smoke: 4 Entities,
-   DXF-Roundtrip erhält Anzahl. **Nicht** auf Spline-Geometrie prüfen
-   (`R_NO_OPENNURBS` inaktiv), keine Snap-Funktionen erwarten (Modul zurückgestellt).
-   Benötigt das `ffi`-Pub-Paket (in pubspec der Flutter-App bei M4 ergänzen).
-2. Danach M3: dieselbe Logik als iOS-Device-Test (XCTest) gegen das erzeugte
-   `ipadprocad.xcframework` laufen lassen.
+## Nächster Schritt: M4 — Flutter-App + Canvas + Dart-FFI real
+Ziel: minimale Flutter-iOS-App, die das XCFramework linkt, die Dart-FFI erstmals
+**real ausführt** und ein erstes Canvas rendert. Empfohlene Reihenfolge:
+1. **Flutter-Gerüst anlegen** (`frontend/` im Repo-Root): `flutter create` mit
+   iOS-Target; `ffi: ^2.1.0` in die pubspec; `bindings/dart/qcad_ffi.dart`
+   einbinden (kopieren oder als Paket referenzieren).
+2. **XCFramework linken:** `release/ipadprocad.xcframework` (CI-Artefakt
+   `ipadprocad-ios-capi`) ins iOS-Runner-Projekt (Xcode: Frameworks/„Link
+   Binary"). Zusätzlich müssen die **Qt-iOS-Static-Libs** dazugelinkt werden
+   (das XCFramework enthält nur unseren Code, nicht Qt) — Liste der nötigen
+   libQt6*.a siehe capi/CMakeLists (`Core Concurrent Gui Network Qml Svg Xml`
+   + Bundled*). Alternativ: Kombi-Lib im CI um Qt-Slices erweitern (prüfen).
+3. **Erster echter Dart-FFI-Lauf** = M2-Restschuld: beim App-Start
+   `QcadBindings.process()` + Logik aus `example/qcad_smoke.dart` ausführen,
+   Ergebnis (4 Entities, Roundtrip) auf den Screen loggen. Erwartungen wie
+   C-Smoke; **nicht** auf Splines (`R_NO_OPENNURBS`) oder Snap prüfen.
+4. **Achtung, bekannte Falle:** Qt-iOS interponiert `main()` (UIApplicationMain,
+   siehe Stand M3 Nr. 2). In einer Flutter-App gibt es bereits einen
+   UIApplication-Kontext — vermutlich unkritisch, aber beim Linken darauf
+   achten, dass NICHT Qts main-Wrapper das Flutter-main verdrängt (ggf.
+   Symbol `_qt_main_wrapper`/Plugin-Init prüfen; notfalls libqios weglassen,
+   headless braucht kein Platform-Plugin — Linkliste entsprechend kürzen).
+5. **CI:** eigener Job (macos-14): `flutter build ios --simulator`, App in den
+   Sim installieren/launchen (Muster aus `m3-ios-sim-logic` übernehmen:
+   install + launch --console-pty, Marker-Urteil, pipefail AUSSEN, Timeouts),
+   Marker `DART SMOKE: PASS` prüfen; danach CI-Screenshot (`simctl io
+   screenshot`) als Artefakt (retention-days: 3!).
+6. Danach: GPU-Canvas (CustomPainter/Impeller) mit Entity-Daten über die FFI
+   (dafür C-API um eine Geometrie-Abfrage erweitern, z. B.
+   `qcad_entity_geometry(idx, ...)` — aktuell gibt es nur count/bbox).
+Simulator-Arch beachten: x86_64 (Qt-Slice!) — Flutter-Sim-Builds sind
+standardmäßig universal; ggf. `ONLY_ACTIVE_ARCH`/Arch auf x86_64 zwingen oder
+Qt-Device-Slice-Konflikt wie in M3 umgehen.
 
 ## CI-Logs lesen (wichtig)
 Der Dev-Container erreicht den Actions-Log-Speicher (`blob.core.windows.net`) nicht.
@@ -175,10 +197,15 @@ https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-b
 https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-xcframework.log  # M2: XCFramework
 ```
 Run-Status via API (mit Token): `GET /repos/Toemeler/ipadprocad/actions/runs?branch=main`.
+M3-Logs liegen auf Branch `ci-debug-logs-m3` unter `ci-logs-m3/`
+(`ci-sim-configure/-build/-inspect/-run.log`).
 Der Build-Step nutzt `-k 0` (alle Fehler in einem Lauf). Reine `**.md`-Commits
 triggern kein CI (`paths-ignore`). Workflow-Datei: `.github/workflows/m1-core-build.yml`
-(Anzeigename jetzt „Core + C-API Build (iOS)"; baut Core **und** Wrapper, verifiziert,
-bündelt und lädt `ipadprocad-ios-capi` als Artefakt hoch).
+(zwei Jobs: `build-core-ios` = Core+Wrapper+Bundle+XCFramework fürs Device;
+`m3-ios-sim-logic` = Logiktest im Simulator). CI hat `concurrency:
+cancel-in-progress` (veraltete Runs werden abgebrochen) und Artefakt-Retention
+3 Tage — Storage-Limit war einmal voll; Alt-Artefakte ggf. per API löschen
+(`DELETE /repos/.../actions/artifacts/{id}`).
 
 ## Nützliche Pfade
 ```
@@ -187,8 +214,8 @@ backend/qcad-core/CMakeInclude.txt        gemeinsame Build-Einstellungen (APPLE-
 backend/qcad-core/src/capi/qcad_capi.h    C-ABI (reines C, extern "C")
 backend/qcad-core/src/capi/qcad_capi.cpp  Wrapper-Implementierung (einziger C++/Qt-TU)
 backend/qcad-core/src/capi/CMakeLists.txt Ziel qcadcapi (STATIC) + optional qcad_capi_smoke
-backend/qcad-core/src/capi/tests/smoke.c  C-Smoke-Test (Host)
-backend/qcad-core/bindings/dart/qcad_ffi.dart          Dart-FFI-Bindings (noch nicht CI-validiert)
+backend/qcad-core/src/capi/tests/smoke.c  C/iOS-Smoke-Test (Host + iOS-Sim; TMPDIR-portabel)
+backend/qcad-core/bindings/dart/qcad_ffi.dart          Dart-FFI-Bindings (Ausfuehrung = M4 Schritt 3)
 backend/qcad-core/bindings/dart/example/qcad_smoke.dart Dart-Beispiel (Desktop/iOS)
 backend/qcad-core/src/core/               RDocument, RDocumentInterface, RStorage, RSpatialIndexSimple, RSettings
 backend/qcad-core/src/io/dxf/             RDxfImporter/RDxfExporter (direkt genutzt, ohne Registry)
