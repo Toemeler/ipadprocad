@@ -46,9 +46,11 @@ cd ipadprocad
     (arm64/iphoneos, Qt 6.7) grün; kombinierte Lib + XCFramework in CI erzeugt.
   - **Offener Rest von M2:** Dart-FFI-Bindings sind geschrieben, aber **noch nicht
     ausgeführt/CI-validiert** (kein Dart-SDK im Backend-Build). Siehe „Stand M2".
-- M3 — Headless-Logiktests auf iOS (C-Smoke-Logik als XCTest/Device-Test gegen das
-  XCFramework; dort auch die Dart-FFI erstmals real ausführen).
-- M4 — Flutter-GPU-Canvas + CI-Screenshots (XCFramework in die App linken, Dart-FFI verdrahten).
+- **M3 — Headless-Logiktest auf iOS: ERLEDIGT (Simulator, echt grün, Logs geprüft).**
+  Siehe „Stand M3". Offener Rest: Dart-FFI erstmals real ausführen → braucht die
+  Flutter/Dart-Runtime, verschoben in M4 (dort ohnehin verdrahtet).
+- M4 — Flutter-GPU-Canvas + CI-Screenshots (XCFramework in die App linken, Dart-FFI
+  verdrahten **und erstmals real ausführen**).
 - M5 — Touch-/Pencil-Werkzeuge (hier `snap`/`grid` reaktivieren).
 
 ## Stand M1 (Ausgangsbasis)
@@ -109,6 +111,46 @@ _arc/_polyline`, `qcad_entity_count`, `qcad_bounding_box`, `qcad_load_dxf`,
    und der Schritt wird fälschlich grün.
 6. Der M1-Symbolhinweis (`isMacDarkMode()`) trat nicht auf: Der Linux-Smoke linkt
    sauber, die iOS-Libs archivieren sauber. `_main` liefert erst die App (M4).
+
+## Stand M3 (Headless-Logiktest auf iOS — ERLEDIGT)
+**Was läuft:** Die C-Smoke-Logik (4 Entities, BBox `[0,0]..[100,75]`, DXF-Roundtrip)
+läuft als App im **iOS-Simulator** und meldet `SMOKE: PASS` (Run zu Commit
+`06982a8`, Log `ci-sim-run.log` auf Branch `ci-debug-logs-m3` — geprüft; der
+DXF-Pfad im Log liegt im Sim-App-Container, d.h. echte iOS-Sandbox).
+CI-Job: `m3-ios-sim-logic` in `.github/workflows/m1-core-build.yml`.
+
+**Erkenntnisse/Fallstricke (Reihenfolge = Debug-Historie):**
+1. **Qt-iOS-Prebuilt ist universal, aber schief:** `libQt6*.a` enthalten
+   arm64 = **Device** (platform 2) und x86_64 = **Simulator** (platform 7).
+   Es gibt KEINEN arm64-Simulator-Slice → Sim-Build mit
+   `-DCMAKE_OSX_ARCHITECTURES=x86_64` (läuft via Rosetta auf dem arm64-Runner;
+   `softwareupdate --install-rosetta` im CI nötig). Deployment 14.0 (Qt-Objekte
+   haben minos 14.0). arm64-Sim-Configure geht durch, scheitert erst am Link.
+2. **`simctl spawn` funktioniert NICHT:** Das statisch gelinkte Qt-iOS-
+   Platform-Plugin interponiert `main()` und startet `UIApplicationMain`; unter
+   `spawn` (kein UI-Kontext) hängt das ewig mit 0 Byte Output. Lösung:
+   **`simctl install` + `simctl launch --console-pty`** — Qt ruft unser `main`
+   nach dem UIApplication-Start auf, stdout kommt durch. Urteil über den
+   `SMOKE: PASS/FAIL`-Marker, nicht den launch-Exit-Code.
+3. **CMake-Default-`Info.plist` ist unbrauchbar** (leere Pflichtfelder →
+   Install-Fehler „does not contain CFBundleVersion"). Der CI-Step überschreibt
+   sie immer mit einer minimalen Plist (Bundle-ID `com.ipadprocad.smoke`).
+4. **Falsches Grün, zweite Ausprägung:** `set -o pipefail` INNERHALB von
+   `{ …; } | tee` wirkt nur in der Subshell — der Step wird trotz `exit 1` grün.
+   pipefail muss VOR dem Block in der äußeren Shell stehen. (Ein Run war so
+   fälschlich grün trotz `M3 LOGIC TEST: FAIL` im Log.)
+5. **Hänger-Schutz:** Sim-Step hat `timeout-minutes: 20`; `bootstatus -b` durch
+   begrenztes Polling ersetzt; `launch` mit perl-`alarm`-Hard-Timeout (macOS hat
+   kein `timeout(1)`).
+6. `smoke.c` nutzt jetzt `TMPDIR` (iOS-Sandbox hat kein beschreibbares `/tmp`);
+   Apple-Link ohne `--start-group` (ld64 löst den Archiv-Zyklus selbst, Branch
+   in `src/capi/CMakeLists.txt`).
+7. M3-Logs: `ci-logs-m3/` auf Branch `ci-debug-logs-m3`
+   (`ci-sim-configure/-build/-inspect/-run.log`).
+
+**Bewusst NICHT erledigt:** Dart-FFI-Ausführung (braucht Flutter/Dart-Runtime →
+M4) und Device-Hardware-Test (kein iOS-Gerät im CI; Device-Build/Archiv ist via
+`build-core-ios` weiter grün abgedeckt).
 
 ## M2 — verbleibende Schritte
 1. **Dart-FFI real ausführen:** `bindings/dart/qcad_ffi.dart` (+ `example/
