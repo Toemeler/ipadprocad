@@ -9,34 +9,77 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 
 ## Status
 
-**M1: Headless-Basis & CI-Setup — in Arbeit, letzte bekannte Blocker behoben, Build läuft in CI**
+**M1 — Headless-Core-Build & iOS-CI: erreicht (grün).**
 
-- [x] Headless-relevante QCAD-Core-Quellen vendored (`backend/qcad-core/`, siehe `VENDOR.md` für Quelle/Commit/Lizenz)
-- [x] Root-`CMakeLists.txt` für headless Core-Build (nur `core`, `entity`, `operations`, `io`, `snap`, `spatialindex`, `3rdparty/dxflib`)
-- [x] GitHub Action `.github/workflows/m1-core-build.yml`: kompiliert den Core auf macOS-Runner für iOS-Target (Qt6 + Ninja)
-- [x] Qt6-Cross-Compile-Toolchain-Wiring funktioniert (separate `qt-host`/`qt-ios`-Installationsverzeichnisse, `QT_HOST_PATH`, `CMAKE_TOOLCHAIN_FILE`)
-- [x] `CMAKE_OSX_DEPLOYMENT_TARGET=13.0` gesetzt (behebt `std::filesystem`-Fehler in Qt6-Headern)
-- [x] Qt-Komponenten auf iOS-verfügbares Set getrimmt (kein `Widgets`/`PrintSupport`/`OpenGL`/`Sql`/`Qml` in `find_package`)
-- [x] `RMetaTypes.h` entkoppelt: alle Widget-/PrintSupport-Includes (`QApplication`, `QWidget`, `QDockWidget`, `QMenu`, `QPrinter`, ...) hinter `#ifndef QCAD_HEADLESS` gesetzt, statt die ganze Datei auszuschließen — Nicht-Widget-Metatypes bleiben nutzbar
-- [x] `QCAD_HEADLESS`-Compile-Definition eingeführt (`target_compile_definitions(qcadcore PUBLIC QCAD_HEADLESS)`), um Widget-gekoppelten Code in `core` gezielt zu guarden statt ganze Dateien auszuschließen
-- [x] `RGuiAction` (Menü-/Toolbar-Verdrahtung), `RSettings` (Stylesheet-/Drucker-/Widget-Farb-Helper), `RPropertyEditor::makeReadOnly`, `RMainWindow` (`QApplication`-Include) chirurgisch entkoppelt: Widget-Funktionalität bleibt für Phase 2 im Code, ist aber unter `QCAD_HEADLESS` inaktiv/stubbed
-- [x] `RWidget` (echte `QWidget`-Subklasse) und `RSingleApplication` (echte `QApplication`-Subklasse) aus dem `qcadcore`-Compile-Target entfernt (Header bleiben im Baum für Phase 2, werden von AUTOMOC im Headless-Build nicht mehr verarbeitet)
-- [x] `RAction.cpp`: direktes `<QWidget>`-Include durch Forward-Declaration ersetzt (nur Zeiger-Nutzung nötig)
-- [ ] Aktueller CI-Lauf (Commit siehe `git log`) validiert diese Änderungen — Ergebnis beim nächsten Sync in diesem Dokument nachtragen
-- [ ] Compiler-Status "100% grün": noch nicht erreicht
+Der vendored QCAD-Core kompiliert und linkt sauber, sowohl lokal unter Linux
+(Qt 6, `g++`) als auch im GitHub-Actions-CI als iOS-Cross-Compile (macOS-Runner,
+Xcode, Qt 6.7.3, `arm64`). Der CI-Lauf erzeugt fehlerfrei die statischen
+Bibliotheken `libqcadcore.a`, `libqcadentity.a`, `libqcadoperations.a`,
+`libqcaddxf.a` und `libdxflib.a`.
+
+- [x] Headless-relevante QCAD-Core-Quellen vendored (`backend/qcad-core/`, siehe `VENDOR.md`)
+- [x] Root-`CMakeLists.txt` baut den headless Core (Module: `core`, `entity`, `operations`, `io/dxf`, `3rdparty/dxflib`)
+- [x] GitHub Action `.github/workflows/m1-core-build.yml`: Cross-Compile auf macOS-Runner für iOS (Qt6 + Ninja), Build mit `-k 0` (keep-going), damit ein Lauf alle Fehler zeigt
+- [x] Qt6-Cross-Compile-Toolchain (separate `qt-host`/`qt-ios`-Installationen, `QT_HOST_PATH`, `CMAKE_TOOLCHAIN_FILE`)
+- [x] **Statische Bibliotheken** (kein Shared): iOS lädt keine freistehenden `.dylib`; die App linkt die `.a` später per FFI ein. Statische Archive haben zudem keinen Link-Schritt, was die iOS-typischen `_main`-/Plattform-Plugin-Linkfehler vermeidet.
+- [x] iOS-Zielkontext = **Device** (`iphoneos`, `arm64`). `install-qt-action` (target `ios`) liefert Device-Qt-Bibliotheken; ein Simulator-Ziel würde am Plattform-Mismatch scheitern. Für reine Cross-Compile-Validierung ist der Device-Build passend und braucht keine Signatur.
+- [x] `CMAKE_OSX_DEPLOYMENT_TARGET=13.0` (behebt `std::filesystem`-Fehler in Qt6-Headern); der vorher in `CMakeInclude.txt` erzwungene Wert `12.7` überschreibt den Kommandozeilenwert nicht mehr
+- [x] `CMAKE_POSITION_INDEPENDENT_CODE=ON` (statisches `dxflib` in andere Ziele linkbar)
+- [x] QtWidgets-Kopplung im Core headless gekapselt (`QCAD_HEADLESS`): `RAction`, `RGuiAction`, `RMainWindow`, `RPropertyEditor` u. a.
+- [x] iOS-Portabilität: `QProcess` (auf iOS nicht vorhanden) in `RSPlatform`/`RMetaTypes` hinter `QT_CONFIG(process)` gekapselt; Dark-Mode-Erkennung (`isMacDarkMode`) auf `Q_OS_MACOS` eingegrenzt (statt `Q_OS_MAC`, das iOS einschließt)
+- [x] `RMath`: Ausdrucksauswertung via `QJSEngine` (Qt6 `Qml`) korrekt angebunden
+
+### Bewusst zurückgestellte Module (reversibel, dokumentiert)
+
+Diese drei Abhängigkeiten sind für ein sauberes, schlankes M1 deaktiviert. Jede
+ist isoliert und mit wenigen Handgriffen reaktivierbar:
+
+1. **opennurbs (NURBS-Splines)** — Compile-Flag `R_NO_OPENNURBS`. `RSpline` nutzt
+   den opennurbs-freien Fallback; Spline-Auswertung (Punkt/Winkel) ist inaktiv,
+   bis ein opennurbs-gestützter `RSplineProxy` registriert wird. opennurbs bringt
+   ~430 Dateien inkl. eigenem zlib/freetype mit und würde jeden iOS-CI-Lauf
+   aufblähen. Reaktivierung: `src/3rdparty/opennurbs` vendorn und das Flag entfernen
+   (betrifft nur `RSpline`). **Relevanz:** Splines gehören zum DXF-Ziel — vor
+   Produktivnutzung zu vervollständigen.
+2. **spatialindex „Navel" (libspatialindex)** — nicht vendorte R-Tree-Bibliothek.
+   Der Core nutzt stattdessen das mitgelieferte, eigenständige `RSpatialIndexSimple`
+   (voll funktionsfähig, für sehr große Zeichnungen weniger performant).
+   Reaktivierung: `src/3rdparty/spatialindexnavel` vendorn + `add_subdirectory(src/spatialindex)`.
+3. **snap + grid (Interaktions-Ebene)** — Snapping/Raster gehören zur Touch-/
+   Pencil-Bedienung, nicht zum headless Core; `snap` ist ein Blatt-Ziel und hängt
+   am nicht vendorten `grid`. Reaktivierung im Touch-Meilenstein: `src/grid` + `src/snap`
+   vendorn + `add_subdirectory(src/snap)`.
 
 ### CI-Debugging-Hinweis
-Der Entwicklungscontainer kann `blob.core.windows.net` (GitHub-Actions-Log-Speicher) nicht erreichen. Der Workflow committet deshalb bei jedem Lauf Konfigurations-/Build-Logs nach `ci-debug-logs` (siehe `.github/workflows/m1-core-build.yml`, Step "Commit debug logs") — das ist der Weg, wie Logs zwischen CI-Lauf und Chat-Session ausgetauscht werden, bis M1 grün ist.
+Der Entwicklungscontainer erreicht `blob.core.windows.net` (GitHub-Actions-Log-
+Speicher) nicht. Der Workflow committet deshalb bei jedem Lauf die Konfigurations-/
+Build-Logs in den Branch `ci-debug-logs` (Step „Commit debug logs"). Von dort sind
+sie über `raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/…`
+lesbar.
+
+### Nächster Schritt: M2
+C-Wrapper um den Core + FFI-Anbindung an Flutter (die statischen `.a` werden in die
+iOS-App gelinkt). Siehe `HANDOFF.md`.
 
 ## Architektur
 
 ```
 backend/qcad-core/     Vendorter, headless-tauglicher QCAD-Core (C++, GPLv3)
-.github/workflows/     CI: Build-Validierung auf macOS/iOS-Simulator-Toolchain
+  src/core/            Dokumentmodell, Geometrie/Mathematik, RSpatialIndexSimple
+  src/entity/          Entity-Typen (Linie, Kreis, Bogen, Polylinie, Spline, …)
+  src/operations/      Modifikations-/Transformationsoperationen
+  src/io/dxf/          DXF-Import/-Export (auf dxflib)
+  src/3rdparty/dxflib/ DXF-Low-Level-Bibliothek (statisch)
+.github/workflows/     CI: iOS-Cross-Compile-Build-Validierung (macOS-Runner)
 ```
 
-`gui`, `run` sowie der JS-Actionlayer (`scripts/`) aus dem QCAD-Upstream sind bewusst nicht enthalten — diese werden erst in Phase 2 (M4/M5) relevant, wenn die Flutter-GUI entsteht.
+`gui`, `run` sowie der JS-Actionlayer (`scripts/`) aus dem QCAD-Upstream sind
+bewusst nicht enthalten — sie werden erst in Phase 2 (M4/M5) mit der Flutter-GUI
+relevant.
 
 ## Lizenz
 
-Der vendorte QCAD-Core steht unter GPLv3 (siehe `backend/qcad-core/LICENSE.txt`, `gpl-3.0.txt`, `gpl-3.0-exceptions.txt`). `dxflib` steht unter GPLv2+. Lizenzkompatibilität mit der finalen App-Distribution ist vor Produktiv-Release zu klären.
+Der vendorte QCAD-Core steht unter GPLv3 (`backend/qcad-core/LICENSE.txt`,
+`gpl-3.0.txt`, `gpl-3.0-exceptions.txt`), `dxflib` unter GPLv2+. Die
+Lizenzkompatibilität mit der finalen App-Distribution ist vor Produktiv-Release
+zu klären.
