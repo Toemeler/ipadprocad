@@ -240,18 +240,24 @@ jobs:
             find "$QTIOS" -iname '*simulator*' 2>/dev/null | head -20 || true
           } 2>&1 | tee ci-qt-ios-layout.log
 
-      - name: Configure (iOS Simulator, arm64)
+      - name: Configure (iOS Simulator, x86_64)
         working-directory: backend/qcad-core
         run: |
           {
           set -o pipefail
+          # The Qt-for-iOS package ships UNIVERSAL archives/objects:
+          #   arm64  slice -> platform 2 (iOS device)
+          #   x86_64 slice -> platform 7 (iOS Simulator)
+          # There is no arm64-simulator slice, so the simulator logic test must
+          # be built for x86_64 (runs via Rosetta on the arm64 runner).
+          # Qt's prebuilt resource objects have minos 14.0 -> deployment 14.0.
           cmake -B build-sim \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_QT6=ON \
             -DQCAD_CAPI_SMOKE=ON
@@ -261,32 +267,7 @@ jobs:
         working-directory: backend/qcad-core
         run: |
           set -o pipefail
-          # First attempt: plain simulator link.
-          if cmake --build build-sim -j -- -k 0 2>&1 | tee ../../ci-sim-build.log; then
-            echo "sim build ok (no workaround needed)"
-            exit 0
-          fi
-          # The aqt/online-installer Qt for iOS ships DEVICE-only slices (arm64,
-          # platform=iOS), including the prebuilt resource objects
-          # (objects-Release/.../qrc_*_init.cpp.o). ld then aborts with
-          #   "building for 'iOS-simulator', but linking in object file built for 'iOS'"
-          # The code itself is arm64 and only calls libSystem/UIKit symbols that
-          # exist in the simulator SDK too, so we relink with the classic linker
-          # and ld's platform check disabled. This affects ONLY this CI logic
-          # test; the shipping device build (build-core-ios) links normally.
-          echo "== retrying with -ld_classic + LD_NO_PLATFORM_CHECK=1 ==" | tee -a ../../ci-sim-build.log
-          cmake -B build-sim \
-            -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
-            -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
-            -DCMAKE_OSX_SYSROOT=iphonesimulator \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_QT6=ON \
-            -DQCAD_CAPI_SMOKE=ON \
-            -DCMAKE_EXE_LINKER_FLAGS="-Wl,-ld_classic" 2>&1 | tee -a ../../ci-sim-build.log
-          LD_NO_PLATFORM_CHECK=1 cmake --build build-sim -j -- -k 0 2>&1 | tee -a ../../ci-sim-build.log
+          cmake --build build-sim -j -- -k 0 2>&1 | tee ../../ci-sim-build.log
 
       - name: Locate & inspect smoke binary
         working-directory: backend/qcad-core
@@ -326,7 +307,12 @@ jobs:
             xcrun simctl bootstatus "$UDID" -b || true
             echo "== spawn =="
             set +e
-            OUT="$(xcrun simctl spawn "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
+            # x86_64 simulator binary on an arm64 runner -> Rosetta.
+            OUT="$(xcrun simctl spawn --arch=x86_64 "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
+            if [ $RC -ne 0 ] && ! echo "$OUT" | grep -q "SMOKE:"; then
+              echo "spawn --arch=x86_64 failed, retrying without --arch"
+              OUT="$(xcrun simctl spawn "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
+            fi
             set -e
             echo "$OUT"
             echo "== spawn exit: $RC =="
