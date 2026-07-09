@@ -43,3 +43,5 @@ add_subdirectory(src/operations)
 add_subdirectory(src/io)
 add_subdirectory(src/entity)
 add_subdirectory(src/core)
+# M2: C-ABI wrapper (extern "C") over the static core, for Dart FFI / iOS.
+add_subdirectory(src/capi)

@@ -1,4 +1,4 @@
-name: M1 - Headless Core Build (iOS)
+name: Core + C-API Build (iOS)  # M1 core (green) + M2 C-ABI wrapper & iOS bundle
 
 on:
   push:
@@ -59,6 +59,8 @@ jobs:
           echo "qt_host path: ${{ steps.qt_host.outputs.path }}"
           echo "qt_ios path: ${{ steps.qt_ios.outputs.path }}"
           ls "${{ steps.qt_host.outputs.path }}/lib/cmake/Qt6CoreTools" 2>&1 || echo "no Qt6CoreTools dir at host path"
+          # QCAD_CAPI_SMOKE stays OFF on iOS: there is no link step for .a there,
+          # so the executable smoke test only runs on the Linux host build.
           cmake -B build \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
@@ -69,22 +71,96 @@ jobs:
             -DBUILD_QT6=ON
           } 2>&1 | tee ../../ci-configure.log
 
-      - name: Build
+      - name: Build (core + C-API wrapper)
         working-directory: backend/qcad-core
         run: |
           set -o pipefail
           # -k 0 (keep-going): surface ALL compile errors in a single run rather
           # than stopping at the first — needed for fast iOS-portability iteration.
-          # The step still fails (nonzero) if anything failed, but the log is complete.
+          # The static qcadcapi target is part of the tree (root CMakeLists), so
+          # this builds the M2 wrapper for arm64/iphoneos alongside the core.
           cmake --build build -j -- -k 0 2>&1 | tee ../../ci-build.log
+
+      - name: Verify static libraries (incl. C-API)
+        working-directory: backend/qcad-core
+        run: |
+          set -e
+          {
+            expected=(
+              release/libqcadcore.a
+              release/libqcadentity.a
+              release/libqcadoperations.a
+              release/libdxflib.a
+              plugins/libqcaddxf.a
+              release/libqcadcapi.a
+            )
+            missing=0
+            for f in "${expected[@]}"; do
+              if [ -f "$f" ]; then
+                echo "OK   $f"
+                lipo -info "$f" 2>/dev/null || true
+              else
+                echo "MISSING $f"
+                missing=1
+              fi
+            done
+            [ "$missing" -eq 0 ] || { echo "One or more expected libraries are missing."; exit 1; }
+          } 2>&1 | tee ../../ci-verify.log
+
+      - name: Bundle combined static library (iOS arm64)
+        working-directory: backend/qcad-core
+        run: |
+          set -e
+          {
+            # Merge the C-API wrapper + all core libs into a single archive the
+            # app can link directly. libtool resolves duplicate members.
+            libtool -static -o release/libipadprocad.a \
+              release/libqcadcapi.a \
+              release/libqcadcore.a \
+              release/libqcadentity.a \
+              release/libqcadoperations.a \
+              plugins/libqcaddxf.a \
+              release/libdxflib.a
+            echo "Combined library:"
+            ls -la release/libipadprocad.a
+            lipo -info release/libipadprocad.a
+          } 2>&1 | tee ../../ci-bundle.log
+
+      - name: Package XCFramework (best-effort)
+        id: xcframework
+        continue-on-error: true
+        working-directory: backend/qcad-core
+        run: |
+          set -e
+          {
+            rm -rf release/ipadprocad.xcframework include-public
+            mkdir -p include-public
+            cp src/capi/qcad_capi.h include-public/
+            xcodebuild -create-xcframework \
+              -library release/libipadprocad.a -headers include-public \
+              -output release/ipadprocad.xcframework
+            echo "XCFramework created:"
+            find release/ipadprocad.xcframework -maxdepth 2 -print
+          } 2>&1 | tee ../../ci-xcframework.log
+
+      - name: Upload iOS artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipadprocad-ios-capi
+          path: |
+            backend/qcad-core/release/libipadprocad.a
+            backend/qcad-core/src/capi/qcad_capi.h
+            backend/qcad-core/release/ipadprocad.xcframework
+          if-no-files-found: warn
 
       - name: Commit debug logs
         if: always()
         run: |
           mkdir -p ci-logs
-          cp env-dump.log ci-logs/ 2>/dev/null || true
-          cp ci-configure.log ci-logs/ 2>/dev/null || true
-          cp ci-build.log ci-logs/ 2>/dev/null || true
+          for l in env-dump ci-configure ci-build ci-verify ci-bundle ci-xcframework; do
+            cp "$l.log" ci-logs/ 2>/dev/null || true
+          done
           cp backend/qcad-core/build/CMakeFiles/CMakeError.log ci-logs/ 2>/dev/null || true
           cp backend/qcad-core/build/CMakeFiles/CMakeOutput.log ci-logs/ 2>/dev/null || true
           git config user.email "ci@ipadprocad.local"
@@ -97,6 +173,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m1-core-build-log
+          name: core-capi-build-log
           path: backend/qcad-core/build/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore
