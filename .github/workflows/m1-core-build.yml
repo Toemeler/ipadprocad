@@ -61,7 +61,7 @@ jobs:
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
-            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
             -DBUILD_QT6=ON
