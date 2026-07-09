@@ -17,7 +17,7 @@ else()
     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../../debug)
 endif()
 
-add_library(qcaddxf SHARED
+add_library(qcaddxf STATIC
     RDxfExporter.cpp RDxfExporter.h
     RDxfExporterFactory.cpp RDxfExporterFactory.h
     RDxfImporter.cpp RDxfImporter.h

@@ -24,7 +24,7 @@ else()
     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../debug)
 endif()
 
-add_library(qcadcore SHARED
+add_library(qcadcore STATIC
     RAction.cpp RAction.h
     RActionAdapter.h
     RArcExporter.cpp RArcExporter.h

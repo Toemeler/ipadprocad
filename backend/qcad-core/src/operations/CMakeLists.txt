@@ -20,7 +20,7 @@ else()
     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../debug)
 endif()
 
-add_library(qcadoperations SHARED
+add_library(qcadoperations STATIC
     RAddObjectOperation.cpp RAddObjectOperation.h
     RAddObjectsOperation.cpp RAddObjectsOperation.h
     RChangePropertyOperation.cpp RChangePropertyOperation.h

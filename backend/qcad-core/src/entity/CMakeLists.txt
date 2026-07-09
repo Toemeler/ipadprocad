@@ -20,7 +20,7 @@ else()
     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../debug)
 endif()
 
-add_library(qcadentity SHARED
+add_library(qcadentity STATIC
     RArcData.cpp RArcData.h
     RArcEntity.cpp RArcEntity.h
     RAttributeData.cpp RAttributeData.h

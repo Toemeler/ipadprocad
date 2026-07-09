@@ -57,7 +57,7 @@
 #include "RUnit.h"
 #include "RVersion.h"
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include "detectmacdarkmode.h"
 #endif
 
@@ -1223,7 +1223,7 @@ QString RSettings::getRelativeCoordinatePrefix() {
  */
 bool RSettings::isDarkMode() {
     if (darkMode==-1) {
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
         darkMode = (isMacDarkMode() ? 1 : 0);
 #elif defined(Q_OS_WIN32)
 
@@ -1268,7 +1268,7 @@ bool RSettings::hasDarkGuiBackground() {
     }
 #endif // QCAD_HEADLESS
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
     // detect macOS dark mode:
     if (isMacDarkMode()) {
         darkGuiBackground = 1;
