@@ -67,14 +67,23 @@ endif()
 option(QCAD_CAPI_SMOKE "Build the C-ABI smoke test executable" OFF)
 if(QCAD_CAPI_SMOKE)
     add_executable(qcad_capi_smoke tests/smoke.c)
-    # core/entity/operations have circular static-link references; wrap the
-    # archives in a link group so the linker rescans them.
-    target_link_libraries(qcad_capi_smoke PRIVATE
-        -Wl,--start-group
-        qcadcapi qcadcore qcadentity qcadoperations qcaddxf dxflib
-        -Wl,--end-group
-        Qt::Core Qt::Concurrent Qt::Gui Qt::Network Qt::Qml Qt::Svg Qt::Xml
-    )
+    # core/entity/operations have circular static-link references. GNU ld needs
+    # an explicit link group to rescan the archives; Apple's ld64 resolves the
+    # cycle on its own and *rejects* --start-group/--end-group, so branch on it.
+    # (This target now also builds for iphonesimulator in M3, where ld64 is used.)
+    if(APPLE)
+        target_link_libraries(qcad_capi_smoke PRIVATE
+            qcadcapi qcadcore qcadentity qcadoperations qcaddxf dxflib
+            Qt::Core Qt::Concurrent Qt::Gui Qt::Network Qt::Qml Qt::Svg Qt::Xml
+        )
+    else()
+        target_link_libraries(qcad_capi_smoke PRIVATE
+            -Wl,--start-group
+            qcadcapi qcadcore qcadentity qcadoperations qcaddxf dxflib
+            -Wl,--end-group
+            Qt::Core Qt::Concurrent Qt::Gui Qt::Network Qt::Qml Qt::Svg Qt::Xml
+        )
+    endif()
     set_target_properties(qcad_capi_smoke PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../release)
 endif()

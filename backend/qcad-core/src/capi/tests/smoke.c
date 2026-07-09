@@ -13,6 +13,8 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 static int g_failures = 0;
 
@@ -55,7 +57,20 @@ int main(void) {
         printf("bbox: [%.3f, %.3f] .. [%.3f, %.3f]\n", minx, miny, maxx, maxy);
     }
 
-    const char *path = "/tmp/ipadprocad_smoke.dxf";
+    /* Portable temp path: an iOS / simulator sandbox has no writable /tmp, so
+     * honour TMPDIR (set by the OS and by `simctl spawn`) and fall back to /tmp
+     * on hosts (Linux) where it is unset. Keeps the Linux smoke behaviour. */
+    char path[1024];
+    const char *tmpdir = getenv("TMPDIR");
+    if (tmpdir == NULL || tmpdir[0] == '\0') {
+        tmpdir = "/tmp";
+    }
+    if (tmpdir[strlen(tmpdir) - 1] == '/') {
+        snprintf(path, sizeof(path), "%sipadprocad_smoke.dxf", tmpdir);
+    } else {
+        snprintf(path, sizeof(path), "%s/ipadprocad_smoke.dxf", tmpdir);
+    }
+    printf("dxf path: %s\n", path);
     CHECK(qcad_save_dxf(doc, path, NULL), "save DXF (default R2000)");
 
     qcad_document *reloaded = qcad_document_new();

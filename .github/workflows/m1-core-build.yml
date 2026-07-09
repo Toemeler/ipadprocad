@@ -180,3 +180,153 @@ jobs:
           name: core-capi-build-log
           path: backend/qcad-core/build/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # M3 — headless logic test on iOS. Builds the C-API + core + smoke for the
+  # iphonesimulator (arm64) using the same CMake/Qt path proven for the device
+  # in build-core-ios, then runs the smoke INSIDE a booted iOS Simulator via
+  # `simctl spawn` and asserts "SMOKE: PASS". This exercises the real QCAD core
+  # logic (entity create/count/bbox + DXF round-trip) on the iOS runtime.
+  # NOTE: exercising the Dart FFI on-device needs the Flutter/Dart runtime and
+  # is deferred to M4 (see HANDOFF.md).
+  # ---------------------------------------------------------------------------
+  m3-ios-sim-logic:
+    name: M3 headless logic test (iOS Simulator)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6 (host, for tools)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'desktop'
+          dir: '${{ github.workspace }}/qt-host'
+          cache: true
+
+      - name: Capture host Qt path
+        id: qt_host
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Qt6 (iOS)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'ios'
+          dir: '${{ github.workspace }}/qt-ios'
+          cache: true
+
+      - name: Capture iOS Qt path
+        id: qt_ios
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Inspect Qt iOS layout (diagnostic)
+        run: |
+          {
+            echo "iOS Qt path: ${{ steps.qt_ios.outputs.path }}"
+            echo "== lib (top) =="
+            ls -la "${{ steps.qt_ios.outputs.path }}/lib" | head -60 || true
+            echo "== *simulator* entries =="
+            find "${{ steps.qt_ios.outputs.path }}" -iname '*simulator*' 2>/dev/null | head -60 || true
+            echo "== libQt6Core* =="
+            find "${{ steps.qt_ios.outputs.path }}" -iname 'libQt6Core*' 2>/dev/null | head -60 || true
+          } 2>&1 | tee ci-qt-ios-layout.log
+
+      - name: Configure (iOS Simulator, arm64)
+        working-directory: backend/qcad-core
+        run: |
+          {
+          set -o pipefail
+          cmake -B build-sim \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_QT6=ON \
+            -DQCAD_CAPI_SMOKE=ON
+          } 2>&1 | tee ../../ci-sim-configure.log
+
+      - name: Build (core + C-API + smoke, simulator)
+        working-directory: backend/qcad-core
+        run: |
+          set -o pipefail
+          cmake --build build-sim -j -- -k 0 2>&1 | tee ../../ci-sim-build.log
+
+      - name: Locate & inspect smoke binary
+        working-directory: backend/qcad-core
+        run: |
+          {
+            set -o pipefail
+            SMOKE="$(find . -name qcad_capi_smoke -type f | head -1)"
+            echo "smoke binary (relative): $SMOKE"
+            [ -n "$SMOKE" ] || { echo "smoke binary not found"; exit 1; }
+            SMOKE_ABS="$(cd "$(dirname "$SMOKE")" && pwd)/$(basename "$SMOKE")"
+            echo "$SMOKE_ABS" > ../../smoke_path.txt
+            echo "smoke binary (abs): $SMOKE_ABS"
+            file "$SMOKE_ABS" || true
+            lipo -info "$SMOKE_ABS" || true
+            echo "== build-version load command (expect platform 7 = iOS Simulator) =="
+            otool -l "$SMOKE_ABS" | grep -A5 -i 'LC_BUILD_VERSION' | head -40 || true
+          } 2>&1 | tee ../../ci-sim-inspect.log
+
+      - name: Boot simulator & run headless logic test
+        working-directory: backend/qcad-core
+        run: |
+          {
+            set -o pipefail
+            SMOKE_ABS="$(cat ../../smoke_path.txt)"
+            echo "smoke: $SMOKE_ABS"
+            echo "== runtimes =="
+            xcrun simctl list runtimes || true
+            UDID=""
+            for name in "iPhone 15" "iPhone 14" "iPhone SE (3rd generation)" "iPhone 15 Pro"; do
+              if UDID="$(xcrun simctl create m3-iphone "$name" 2>/dev/null)"; then
+                echo "created sim '$name' -> $UDID"; break
+              fi
+              UDID=""
+            done
+            [ -n "$UDID" ] || { echo "could not create a simulator"; xcrun simctl list devicetypes; exit 1; }
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b || true
+            echo "== spawn =="
+            set +e
+            OUT="$(xcrun simctl spawn "$UDID" "$SMOKE_ABS" 2>&1)"; RC=$?
+            set -e
+            echo "$OUT"
+            echo "== spawn exit: $RC =="
+            xcrun simctl shutdown "$UDID" || true
+            xcrun simctl delete "$UDID" || true
+            echo "$OUT" | grep -q "SMOKE: PASS" || { echo "M3 LOGIC TEST: FAIL (marker missing)"; exit 1; }
+            [ "$RC" -eq 0 ] || { echo "M3 LOGIC TEST: FAIL (exit $RC)"; exit 1; }
+            echo "M3 LOGIC TEST: PASS"
+          } 2>&1 | tee ../../ci-sim-run.log
+
+      - name: Commit M3 debug logs
+        if: always()
+        run: |
+          mkdir -p ci-logs-m3
+          for l in ci-qt-ios-layout ci-sim-configure ci-sim-build ci-sim-inspect ci-sim-run; do
+            cp "$l.log" ci-logs-m3/ 2>/dev/null || true
+          done
+          cp backend/qcad-core/build-sim/CMakeFiles/CMakeError.log ci-logs-m3/ 2>/dev/null || true
+          git config user.email "ci@ipadprocad.local"
+          git config user.name "iPadProCAD CI"
+          git add -f ci-logs-m3
+          git commit -m "CI(M3): iOS-sim logic-test logs from run ${{ github.run_id }}" || exit 0
+          git push origin HEAD:ci-debug-logs-m3 --force
+
+      - name: Upload M3 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipadprocad-m3-sim-logic
+          path: |
+            ci-sim-run.log
+            ci-sim-build.log
+          if-no-files-found: warn
