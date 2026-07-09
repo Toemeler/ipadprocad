@@ -291,6 +291,7 @@ bool RS::showInFileManager(const QString& filePath) {
     param += QDir::toNativeSeparators(fileInfo.canonicalFilePath());
     QProcess::startDetached(explorer, param);
 #elif defined(Q_OS_MAC)
+#if QT_CONFIG(process)
     // open Finder:
     QStringList scriptArgs;
     scriptArgs.append("-e");
@@ -302,6 +303,11 @@ bool RS::showInFileManager(const QString& filePath) {
     scriptArgs.append("-e");
     scriptArgs.append("tell application \"Finder\" to activate");
     QProcess::execute("/usr/bin/osascript", scriptArgs);
+#else
+    // QProcess is unavailable on iOS (no subprocess support), and there is no
+    // desktop file manager to reveal a file in.
+    Q_UNUSED(fileInfo)
+#endif
 #else
     // start default file browser:
     QProcess p;

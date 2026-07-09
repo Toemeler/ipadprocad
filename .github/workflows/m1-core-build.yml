@@ -71,7 +71,10 @@ jobs:
         working-directory: backend/qcad-core
         run: |
           set -o pipefail
-          cmake --build build -j 2>&1 | tee ../../ci-build.log
+          # -k 0 (keep-going): surface ALL compile errors in a single run rather
+          # than stopping at the first — needed for fast iOS-portability iteration.
+          # The step still fails (nonzero) if anything failed, but the log is complete.
+          cmake --build build -j -- -k 0 2>&1 | tee ../../ci-build.log
 
       - name: Commit debug logs
         if: always()

@@ -262,7 +262,9 @@ Q_DECLARE_METATYPE(QPrinter*)
 Q_DECLARE_METATYPE(QPrintDialog*)
 #endif
 Q_DECLARE_METATYPE(QProgressBar*)
+#if QT_CONFIG(process)
 Q_DECLARE_METATYPE(QProcess::ProcessError*)
+#endif
 Q_DECLARE_METATYPE(QQuaternion*)
 Q_DECLARE_METATYPE(QRect*)
 Q_DECLARE_METATYPE(const QRect*)
