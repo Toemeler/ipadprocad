@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../snap.dart';
@@ -47,6 +48,28 @@ class _Viewport2DState extends State<Viewport2D> {
 
   // ---- snapping + gestures (M6) ----
   static const _snapPx = 12.0, _gripPx = 12.0;
+  int _pointers = 0;
+  Offset? _clickDown;
+  DateTime _clickTime = DateTime.now();
+
+  void _handleClick(Offset local, Size size) {
+    final app = widget.app;
+    _focus.requestFocus();
+    if (app.tool != Tool.none) {
+      app.toolClick(_snapped(_toWorld(local, size)));
+      if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
+      return;
+    }
+    if (app.inEditMode) {
+      final cpScreen = _worldToScreen(Offset.zero, size);
+      if ((local - cpScreen).distance <= 6) {
+        setState(() => _projCpSelected = !_projCpSelected);
+        return;
+      }
+    }
+    _tapNoTool(_toWorld(local, size));
+  }
+
   String _gesture = 'none'; // none|panzoom|grip|box
   double _scaleStartZoom = 1;
   Offset? _boxStartW;
@@ -246,29 +269,48 @@ class _Viewport2DState extends State<Viewport2D> {
               app.setHover(_snapped(w));
             }
           },
+          // Tool clicks are handled on RAW pointer events, not via
+          // GestureDetector.onTap: the ScaleGestureRecognizer (pan/zoom,
+          // grips, box select) wins the gesture arena as soon as the finger
+          // slides a few pixels, which silently swallowed every tap and made
+          // drawing impossible. The Listener sees pointers regardless of the
+          // arena.
+          onPointerDown: (e) {
+            _pointers++;
+            if (_pointers > 1) {
+              _clickDown = null; // second finger: pan/zoom, never a click
+              return;
+            }
+            _clickDown = e.localPosition;
+            _clickTime = DateTime.now();
+          },
+          onPointerMove: (e) {
+            final d = _clickDown;
+            if (d != null && (e.localPosition - d).distance > 14) {
+              _clickDown = null; // it's a drag
+            }
+          },
+          onPointerCancel: (e) {
+            _pointers = (_pointers - 1).clamp(0, 10);
+            _clickDown = null;
+          },
+          onPointerUp: (e) {
+            _pointers = (_pointers - 1).clamp(0, 10);
+            final d = _clickDown;
+            _clickDown = null;
+            if (d == null) return;
+            if (DateTime.now().difference(_clickTime).inMilliseconds > 700) {
+              return;
+            }
+            if ((e.localPosition - d).distance > 14) return;
+            _handleClick(e.localPosition, size);
+          },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             // one finger: grip drag / box select; two fingers: pan + zoom
             onScaleStart: (d) => _scaleStart(d, size),
             onScaleUpdate: (d) => _scaleUpdate(d, size),
             onScaleEnd: (d) => _scaleEnd(),
-            onTapUp: (d) {
-              _focus.requestFocus();
-              if (app.tool != Tool.none) {
-                app.toolClick(_snapped(_toWorld(d.localPosition, size)));
-                if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
-              } else if (app.inEditMode) {
-                // only projected (yellow) stuff is interactive
-                final cpScreen = _worldToScreen(Offset.zero, size);
-                if ((d.localPosition - cpScreen).distance <= 6) {
-                  setState(() => _projCpSelected = !_projCpSelected);
-                } else {
-                  _tapNoTool(_toWorld(d.localPosition, size));
-                }
-              } else {
-                _tapNoTool(_toWorld(d.localPosition, size));
-              }
-            },
             child: MouseRegion(
               cursor: app.tool == Tool.none
                   ? SystemMouseCursors.basic
@@ -294,6 +336,8 @@ class _Viewport2DState extends State<Viewport2D> {
         size.height / 2 - (w.dy - app.pan.dy) * app.zoom);
   }
 }
+
+bool _overlayErrorLogged = false;
 
 class _ViewportPainter extends CustomPainter {
   final AppState app;
@@ -333,6 +377,21 @@ class _ViewportPainter extends CustomPainter {
       for (var i = 0; i < gs.length; i++) {
         paintGeo(canvas, gs[i], map, app.zoom,
             app.selection.contains(i) ? sel : p);
+      }
+      // Trim preview: draw the picked entity red, then repaint what survives
+      // in the normal colour — the red remainder is exactly what gets cut.
+      if (app.tool == Tool.trim && app.hoverWorld != null) {
+        final tp = app.trimPreview(app.hoverWorld!);
+        if (tp != null) {
+          final red = Paint()
+            ..color = const Color(0xFFE0554F)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.4;
+          paintGeo(canvas, tp.$1, map, app.zoom, red);
+          for (final k in tp.$2) {
+            paintGeo(canvas, k, map, app.zoom, p);
+          }
+        }
       }
       // sketch point grips (Inventor shows them whenever no tool is active)
       if (app.tool == Tool.none) {
@@ -388,6 +447,9 @@ class _ViewportPainter extends CustomPainter {
     }
 
     // ---- constraint glyphs + dimensions (M7) ----
+    // Guarded: a painter exception aborts the whole frame, which would look
+    // exactly like "the app draws nothing".
+    try {
     if (s != null) {
       final gs2 = app.displayGeometry(s);
       if (app.showConstraints) {
@@ -419,6 +481,13 @@ class _ViewportPainter extends CustomPainter {
       final pd = app.pendingDim;
       if (pd != null && pd.textPos != null) {
         _paintDimension(canvas, gs2, pd, map);
+      }
+    }
+
+    } catch (err, st) {
+      if (!_overlayErrorLogged) {
+        _overlayErrorLogged = true;
+        Log.e('paint', 'constraint/dimension overlay failed', err, st);
       }
     }
 
@@ -544,22 +613,37 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
   Offset t = map(c.textPos!.dx, c.textPos!.dy);
   switch (c.dimKind) {
     case 'dist':
+    case 'distx':
+    case 'disty':
       if (c.pts.length < 2 ||
           c.pts.any((q) => q.ent >= gs.length)) return;
       final a = getPt(gs[c.pts[0].ent], c.pts[0].pt);
       final b = getPt(gs[c.pts[1].ent], c.pts[1].pt);
       final sa = map(a.dx, a.dy), sb = map(b.dx, b.dy);
-      final dir = sb - sa;
+      // measuring direction: along the geometry (aligned), or along the
+      // screen axes for the horizontal/vertical distance variants
+      final Offset dir = c.dimKind == 'distx'
+          ? const Offset(1, 0)
+          : c.dimKind == 'disty'
+              ? const Offset(0, 1)
+              : (sb - sa);
       if (dir.distance < 1e-6) return;
       final n = Offset(-dir.dy, dir.dx) / dir.distance;
       // offset of the dim line = projection of textPos on the normal
+      // project both points onto the dimension line through the text pos
+      final u = dir / dir.distance;
+      Offset onLine(Offset q) {
+        final rel = q - t;
+        return t + u * (rel.dx * u.dx + rel.dy * u.dy);
+      }
+
+      final da = onLine(sa), db = onLine(sb);
       final off = ((t - sa).dx * n.dx + (t - sa).dy * n.dy);
-      final da = sa + n * off, db = sb + n * off;
       canvas.drawLine(sa, da, p); // extension lines
       canvas.drawLine(sb, db, p);
       canvas.drawLine(da, db, p); // dimension line
-      _arrow(canvas, da, dir / dir.distance, p);
-      _arrow(canvas, db, -dir / dir.distance, p);
+      _arrow(canvas, da, u, p);
+      _arrow(canvas, db, -u, p);
       label = v.toStringAsFixed(2);
       t = (da + db) / 2 + n * (off >= 0 ? 10 : -10);
       break;

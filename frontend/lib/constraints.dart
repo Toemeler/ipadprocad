@@ -378,6 +378,25 @@ void _applyDimension(
       final h = d / d.distance * (v / 2);
       pair(a.ent, a.pt, b.ent, b.pt, m - h, m + h);
       break;
+    case 'distx':
+    case 'disty':
+      if (c.pts.length < 2) return;
+      final a2 = c.pts[0], b2 = c.pts[1];
+      if (a2.ent >= gs.length || b2.ent >= gs.length) return;
+      final pa2 = getPt(gs[a2.ent], a2.pt), pb2 = getPt(gs[b2.ent], b2.pt);
+      final horiz = c.dimKind == 'distx';
+      final cur2 = horiz ? pb2.dx - pa2.dx : pb2.dy - pa2.dy;
+      if (cur2.abs() < 1e-9) return;
+      final target2 = v * (cur2 < 0 ? -1 : 1);
+      final dd = (target2 - cur2) / 2;
+      pair(
+          a2.ent,
+          a2.pt,
+          b2.ent,
+          b2.pt,
+          horiz ? Offset(pa2.dx - dd, pa2.dy) : Offset(pa2.dx, pa2.dy - dd),
+          horiz ? Offset(pb2.dx + dd, pb2.dy) : Offset(pb2.dx, pb2.dy + dd));
+      break;
     case 'rad':
     case 'dia':
       if (c.ents.isEmpty || c.ents[0] >= gs.length) return;
@@ -524,6 +543,12 @@ double measureDim(List<Geo> gs, Constraint c) {
       return (getPt(gs[c.pts[0].ent], c.pts[0].pt) -
               getPt(gs[c.pts[1].ent], c.pts[1].pt))
           .distance;
+    case 'distx':
+    case 'disty':
+      if (c.pts.length < 2) return 0;
+      final d = getPt(gs[c.pts[0].ent], c.pts[0].pt) -
+          getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      return (c.dimKind == 'distx' ? d.dx : d.dy).abs();
     case 'rad':
       return gs[c.ents[0]].data[2];
     case 'dia':

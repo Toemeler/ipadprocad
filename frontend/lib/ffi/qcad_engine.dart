@@ -37,10 +37,24 @@ abstract class Engine {
 
   /// Creates a backend-powered engine if the C symbols are linked in,
   /// otherwise the Dart fallback.
+  static _Bindings? _cachedBindings;
+
   static Engine create() {
     // Heavily instrumented: each native call is bracketed by a flushed log
     // line, so if the C++ side crashes hard, the log's last line names the
     // exact native call that killed the process.
+    // Rebuilds (grip edits, modify tools, constraint solves) call create()
+    // constantly; after the first success we reuse the probed bindings and
+    // only open a fresh document.
+    final cached = _cachedBindings;
+    if (cached != null) {
+      try {
+        return _FfiEngine(cached);
+      } catch (err, st) {
+        Log.e('ffi', 'qcad_document_new on cached bindings failed', err, st);
+        return _FallbackEngine();
+      }
+    }
     try {
       final proc = Log.step('ffi', 'DynamicLibrary.process()',
           () => DynamicLibrary.process());
@@ -55,7 +69,8 @@ abstract class Engine {
           () => e.allGeometry().length == 1);
       Log.step('ffi', 'probe qcad_document_free()', () => e.dispose());
       if (!ok) throw StateError('geometry round-trip failed');
-      final engine = _FfiEngine(_Bindings(proc));
+      _cachedBindings = b;
+      final engine = _FfiEngine(b);
       Log.i('ffi', 'REAL backend active (qcad-ffi)');
       return engine;
     } catch (err, st) {

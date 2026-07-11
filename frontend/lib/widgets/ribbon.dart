@@ -317,12 +317,16 @@ class _RibbonState extends State<Ribbon> {
           arrow: true,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(id: 'line', label: 'Line', icon: IC['line34']!, onFly: toggleFly,
+                onDefault: () => _startTool(Tool.line),
                 active: _toolGroup[app.tool] == 'line'),
             _Big(id: 'circle', label: 'Circle', icon: IC['circle34']!, onFly: toggleFly,
+                onDefault: () => _startTool(Tool.circleCenter),
                 active: _toolGroup[app.tool] == 'circle'),
             _Big(id: 'arc', label: 'Arc', icon: IC['arc34']!, onFly: toggleFly,
+                onDefault: () => _startTool(Tool.arcThreePoint),
                 active: _toolGroup[app.tool] == 'arc'),
             _Big(id: 'rect', label: 'Rectangle', icon: IC['rect34']!, onFly: toggleFly,
+                onDefault: () => _startTool(Tool.rectTwoPoint),
                 active: _toolGroup[app.tool] == 'rect'),
             Padding(
               padding: const EdgeInsets.only(left: 8),
@@ -552,14 +556,16 @@ class _Big extends StatelessWidget {
   final void Function(String, BuildContext)? onFly;
   final bool showDd;
   final bool active;
+  final VoidCallback? onDefault; // button body = default tool (Inventor)
   const _Big({this.id, required this.label, required this.icon, this.onFly,
-      this.active = false})
+      this.active = false, this.onDefault})
       : showDd = true;
   const _Big.plain({required this.label, required this.icon})
       : id = null,
         onFly = null,
         showDd = false,
-        active = false;
+        active = false,
+        onDefault = null;
 
   @override
   Widget build(BuildContext context) {
@@ -568,7 +574,8 @@ class _Big extends StatelessWidget {
         width: 62,
         child: _Hover(
           activeHighlight: active,
-          onTap: id != null && onFly != null ? () => onFly!(id!, ctx) : null,
+          onTap: onDefault ??
+              (id != null && onFly != null ? () => onFly!(id!, ctx) : null),
           child: Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -576,8 +583,18 @@ class _Big extends StatelessWidget {
               const SizedBox(height: 3),
               Text(label, style: ts(11.5, T.text)),
               if (showDd) ...[
-                const SizedBox(height: 3),
-                Text('▼', style: ts(7.5, T.dim)),
+                const SizedBox(height: 1),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: id != null && onFly != null
+                      ? () => onFly!(id!, ctx)
+                      : null,
+                  child: SizedBox(
+                    width: 40,
+                    height: 14,
+                    child: Center(child: Text('▼', style: ts(7.5, T.dim))),
+                  ),
+                ),
               ],
             ]),
           ),

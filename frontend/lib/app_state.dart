@@ -354,6 +354,7 @@ class AppState extends ChangeNotifier {
 
   /// The C-API is add-only, so edits rebuild the document from scratch.
   void _rebuildEngine(SketchModel s, List<Geo> gs) {
+    Log.i('engine', 'rebuild with ${gs.length} entities');
     s.engine.dispose();
     s.engine = Engine.create();
     for (final g in gs) {
@@ -377,6 +378,7 @@ class AppState extends ChangeNotifier {
       }
     }
     _committed(s);
+    Log.i('engine', 'rebuild done, geometry=${s.geometry.length}');
   }
 
   // ---- tools ----
@@ -386,15 +388,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Inventor's Esc behaviour: the first press ends the current chain / pick
+  /// set but KEEPS the command running, the second exits the command, a
+  /// further press clears the selection.
   void cancelTool() {
-    if (tool == Tool.none) selection.clear(); // Esc again: deselect
-    toolPoints.clear();
-    tool = Tool.none;
     snap = null;
-    modEntity = null;
+    pendingDim = null;
+    final hadPicks =
+        toolPoints.isNotEmpty || conPts.isNotEmpty || conEnts.isNotEmpty ||
+            modEntity != null;
+    toolPoints.clear();
     conPts.clear();
     conEnts.clear();
-    pendingDim = null;
+    modEntity = null;
+    if (tool != Tool.none && hadPicks) {
+      notifyListeners(); // command stays active for the next chain
+      return;
+    }
+    if (tool != Tool.none) {
+      tool = Tool.none;
+      notifyListeners();
+      return;
+    }
+    selection.clear();
     notifyListeners();
   }
 
@@ -408,6 +424,9 @@ class AppState extends ChangeNotifier {
   /// variable tools (splines) commit via [finishVariableTool] (Enter).
   void toolClick(Offset w) {
     final s = current;
+    Log.i('click', 'toolClick tool=$tool sketch=${s?.name} '
+        'w=(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
+        'picks=${toolPoints.length}');
     if (s == null || tool == Tool.none) return;
     if (modifyTools.contains(tool)) {
       _modifyClick(s, w);
@@ -702,46 +721,83 @@ class AppState extends ChangeNotifier {
   }
 
   void _dimensionClick(SketchModel s, Offset w) {
-    if (pendingDim != null) return; // dialog open
-    final pt = _nearestPointRef(s, w);
+    if (pendingDim != null) return; // value dialog is open
     final ent = _pickEntity(s, w);
-    if (pt != null && conEnts.isEmpty) {
-      conPts.add(pt);
-      if (conPts.length == 2) {
-        pendingDim = Constraint(CType.dimension,
-            pts: List.of(conPts), dimKind: 'dist', textPos: w);
-      }
-      return;
-    }
-    if (ent != null && conPts.isEmpty) {
-      conEnts.add(ent);
+    final pt = _nearestPointRef(s, w);
+    // Phase 1 — build the pick set. A second LINE turns a length dimension
+    // into an angle dimension, exactly like Inventor.
+    if (conPts.isEmpty && ent != null && !conEnts.contains(ent)) {
       final g = s.geometry[ent];
-      if (conEnts.length == 1 && g.type == Geo.circle) {
-        pendingDim = Constraint(CType.dimension,
-            ents: List.of(conEnts), dimKind: 'dia', textPos: w);
-      } else if (conEnts.length == 1 && g.type == Geo.arc) {
-        pendingDim = Constraint(CType.dimension,
-            ents: List.of(conEnts), dimKind: 'rad', textPos: w);
-      } else if (conEnts.length == 2) {
-        pendingDim = Constraint(CType.dimension,
-            ents: List.of(conEnts), dimKind: 'ang', textPos: w);
+      final firstIsLine =
+          conEnts.isEmpty || s.geometry[conEnts[0]].type == Geo.line;
+      if (conEnts.isEmpty ||
+          (conEnts.length == 1 && g.type == Geo.line && firstIsLine)) {
+        conEnts.add(ent);
+        return;
       }
+    }
+    if (conEnts.isEmpty && conPts.length < 2 && pt != null) {
+      conPts.add(pt);
       return;
     }
-    // click on empty space: placement point
-    if (conPts.isEmpty && conEnts.length == 1 &&
-        s.geometry[conEnts[0]].type == Geo.line) {
-      // single line -> its length (endpoint distance)
-      pendingDim = Constraint(CType.dimension,
-          pts: [PRef(conEnts[0], 0), PRef(conEnts[0], 1)],
-          dimKind: 'dist',
+    // Phase 2 — this click places the dimension.
+    _placeDimension(s, w);
+  }
+
+  /// Inventor picks the dimension type from where you place it: roughly
+  /// along the geometry's normal = aligned, above/below = horizontal
+  /// distance, left/right = vertical distance.
+  String _distKind(SketchModel s, PRef a, PRef b, Offset at) {
+    final pa = getPt(s.geometry[a.ent], a.pt);
+    final pb = getPt(s.geometry[b.ent], b.pt);
+    final d = pb - pa;
+    if (d.distance < 1e-9) return 'dist';
+    final n = Offset(-d.dy, d.dx) / d.distance;
+    final v = at - (pa + pb) / 2;
+    if (v.distance < 1e-9) return 'dist';
+    final vn = v / v.distance;
+    final alongNormal = (vn.dx * n.dx + vn.dy * n.dy).abs();
+    if (alongNormal > 0.866) return 'dist'; // within 30 deg of the normal
+    return v.dy.abs() >= v.dx.abs() ? 'distx' : 'disty';
+  }
+
+  void _placeDimension(SketchModel s, Offset w) {
+    Constraint? d;
+    if (conEnts.length == 2) {
+      d = Constraint(CType.dimension,
+          ents: List.of(conEnts), dimKind: 'ang', textPos: w);
+    } else if (conEnts.length == 1) {
+      final g = s.geometry[conEnts[0]];
+      if (g.type == Geo.circle) {
+        d = Constraint(CType.dimension,
+            ents: List.of(conEnts), dimKind: 'dia', textPos: w);
+      } else if (g.type == Geo.arc) {
+        d = Constraint(CType.dimension,
+            ents: List.of(conEnts), dimKind: 'rad', textPos: w);
+      } else if (g.type == Geo.line) {
+        final a = PRef(conEnts[0], 0), b = PRef(conEnts[0], 1);
+        d = Constraint(CType.dimension,
+            pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
+      }
+    } else if (conPts.length == 2) {
+      d = Constraint(CType.dimension,
+          pts: List.of(conPts),
+          dimKind: _distKind(s, conPts[0], conPts[1], w),
           textPos: w);
-      conEnts.clear();
     }
-    if (pendingDim != null) {
-      pendingDim!.textPos = w;
-      pendingDim!.value = measureDim(current!.geometry, pendingDim!);
-    }
+    if (d == null) return;
+    d.value = measureDim(s.geometry, d);
+    pendingDim = d;
+  }
+
+  /// Trim hover preview: the entity plus what would survive the cut, so the
+  /// viewport can paint the doomed span red (Inventor's trim highlight).
+  (Geo, List<Geo>)? trimPreview(Offset w) {
+    final s = current;
+    if (s == null || tool != Tool.trim) return null;
+    final i = _pickEntity(s, w);
+    if (i == null) return null;
+    return (s.geometry[i], trimEntity(s.geometry, i, w));
   }
 
   /// Called by the viewport once the user confirmed the dimension value.
