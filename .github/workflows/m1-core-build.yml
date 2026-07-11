@@ -500,12 +500,21 @@ jobs:
           {
           QTIOS="${{ steps.qt_ios.outputs.path }}"
           CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
-          # every Qt static archive except the qios platform plugin tree
-          QTLIBS="$(find "$QTIOS/lib" -maxdepth 1 -name '*.a' ! -iname '*qios*' | sort | tr '\n' ' ')"
+          # Only the Qt components the C-API actually uses (same set the CMake
+          # smoke links: Core/Concurrent/Gui/Network/Qml/Svg/Xml) plus Qt's
+          # bundled third-party archives (libqt*.a: pcre2, harfbuzz, freetype,
+          # libpng, ...). The all-archives glob pulled a member with IOKit
+          # references -> undefined symbols (run 29143155984). IOKit is linked
+          # explicitly since Qt6Core on iOS references it for device info.
+          QTLIBS=""
+          for c in Core Concurrent Gui Network Qml QmlMeta QmlModels QmlWorkerScript Svg Xml; do
+            [ -f "$QTIOS/lib/libQt6$c.a" ] && QTLIBS="$QTLIBS $QTIOS/lib/libQt6$c.a"
+          done
+          QTLIBS="$QTLIBS $(find "$QTIOS/lib" -maxdepth 1 -name 'libqt[a-z]*.a' ! -iname '*qios*' | sort | tr '\n' ' ')"
           echo "Qt archives linked:"; echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
           printf '_qcad_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
           IPHONEOS_DEPLOYMENT_TARGET = 14.0
           XC
           # strip the heredoc's leading indentation xcconfig can't handle
