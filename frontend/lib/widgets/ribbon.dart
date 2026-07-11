@@ -373,11 +373,18 @@ class _RibbonState extends State<Ribbon> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             SizedBox(
               width: 66,
-              child: _Big.plain(label: 'Dimension', icon: CN['dim']!),
+              child: _Hover(
+                activeHighlight: app.tool == Tool.dimension,
+                onTap: () => _startTool(Tool.dimension),
+                child: const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: _BigPlainBody(label: 'Dimension'),
+                ),
+              ),
             ),
             Padding(
               padding: const EdgeInsets.only(left: 6),
-              child: _ConGrid(),
+              child: _ConGrid(app: app, onTool: _startTool),
             ),
           ]),
         ),
@@ -674,7 +681,24 @@ class _SmallRow extends StatelessWidget {
   }
 }
 
+class _BigPlainBody extends StatelessWidget {
+  final String label;
+  const _BigPlainBody({required this.label});
+  @override
+  Widget build(BuildContext context) {
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      svg(CN['dim']!, 34),
+      const SizedBox(height: 3),
+      Text(label, style: ts(11.5, T.text)),
+    ]);
+  }
+}
+
 class _ConGrid extends StatelessWidget {
+  final AppState app;
+  final void Function(Tool) onTool;
+  const _ConGrid({required this.app, required this.onTool});
+
   static const cons = [
     ('autodim', 'Automatic Dimensions and Constraints'),
     ('coincident', 'Coincident'),
@@ -692,6 +716,27 @@ class _ConGrid extends StatelessWidget {
     ('symmetric', 'Symmetric'),
     ('equal', 'Equal'),
   ];
+  bool _isActive(String key) {
+    if (key == 'autodim') return app.autoConstrain;
+    if (key == 'showcons') return app.showConstraints;
+    final t = _toolOf[key];
+    return t != null && app.tool == t;
+  }
+
+  void _tap(String key) {
+    if (key == 'autodim') {
+      app.toggleAutoConstrain();
+      return;
+    }
+    if (key == 'showcons') {
+      app.toggleShowConstraints();
+      return;
+    }
+    if (key == 'conset') return; // settings dialog: later milestone
+    final t = _toolOf[key];
+    if (t != null) onTool(t);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -711,6 +756,8 @@ class _ConGrid extends StatelessWidget {
                       height: 27,
                       child: _Hover(
                           hoverBg: T.hover7,
+                          activeHighlight: _isActive(cons[row * 5 + col].$1),
+                          onTap: () => _tap(cons[row * 5 + col].$1),
                           child: Center(
                               child: svg(CN[cons[row * 5 + col].$1]!, 18))),
                     ),
@@ -802,29 +849,28 @@ class _FlyMenu extends StatelessWidget {
   const _FlyMenu({required this.items, required this.onPick});
   @override
   Widget build(BuildContext context) {
-    // Material AND container both paint T.fly so the menu is guaranteed
-    // opaque on iOS (was rendering see-through on device).
+    // Rendered with the most primitive paints available (ColoredBox, no
+    // BoxShadow): the drop shadow's saveLayer rendered the menu see-through
+    // on the iPadOS beta (Impeller), so the shadow is gone for now.
     return Material(
-      color: T.fly,
-      elevation: 8,
-      shadowColor: const Color(0x8C000000),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 186),
-        decoration: BoxDecoration(
+      type: MaterialType.transparency,
+      child: ClipRect(
+        child: ColoredBox(
           color: T.fly,
-          border: Border.all(color: T.sep),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x8C000000), blurRadius: 22, offset: Offset(0, 8))
-          ],
-        ),
-        child: Column(
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 186),
+            decoration: BoxDecoration(
+              border: Border.all(color: T.sep),
+            ),
+            child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (var i = 0; i < items.length; i++)
               _FlyRow(item: items[i], first: i == 0, last: i == items.length - 1, onPick: onPick),
           ],
+            ),
+          ),
         ),
       ),
     );

@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../constraints.dart';
 import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -122,6 +123,66 @@ class _Viewport2DState extends State<Viewport2D> {
     }
   }
 
+  void _tapNoTool(Offset w) {
+    final app = widget.app;
+    final dim = app.dimensionAt(w, 14 / app.zoom);
+    if (dim != null) {
+      _editDimValue(dim);
+      return;
+    }
+    app.selectAt(w, 10 / app.zoom);
+  }
+
+  Future<void> _showDimDialog(Constraint d) async {
+    final v = await _askValue(
+        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension',
+        d.value ?? 0);
+    if (!mounted) return;
+    if (v == null) {
+      widget.app.cancelDimension();
+    } else {
+      widget.app.confirmDimension(v);
+    }
+  }
+
+  Future<void> _editDimValue(Constraint d) async {
+    final v = await _askValue(
+        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0);
+    if (v != null && mounted) widget.app.setDimensionValue(d, v);
+  }
+
+  Future<double?> _askValue(String title, double current) async {
+    final c = TextEditingController(text: current.toStringAsFixed(2));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.fly,
+        title: Text(title,
+            style: const TextStyle(
+                fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600)),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(fontSize: 13, color: T.text),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel',
+                  style: TextStyle(fontSize: 12.5, color: T.dim))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('OK',
+                  style: TextStyle(fontSize: 12.5, color: T.blue))),
+        ],
+      ),
+    );
+    if (ok != true) return null;
+    return double.tryParse(c.text.replaceAll(',', '.'));
+  }
+
   void _scaleEnd() {
     final app = widget.app;
     switch (_gesture) {
@@ -194,16 +255,17 @@ class _Viewport2DState extends State<Viewport2D> {
               _focus.requestFocus();
               if (app.tool != Tool.none) {
                 app.toolClick(_snapped(_toWorld(d.localPosition, size)));
+                if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
               } else if (app.inEditMode) {
                 // only projected (yellow) stuff is interactive
                 final cpScreen = _worldToScreen(Offset.zero, size);
                 if ((d.localPosition - cpScreen).distance <= 6) {
                   setState(() => _projCpSelected = !_projCpSelected);
                 } else {
-                  app.selectAt(_toWorld(d.localPosition, size), 10 / app.zoom);
+                  _tapNoTool(_toWorld(d.localPosition, size));
                 }
               } else {
-                app.selectAt(_toWorld(d.localPosition, size), 10 / app.zoom);
+                _tapNoTool(_toWorld(d.localPosition, size));
               }
             },
             child: MouseRegion(
@@ -324,6 +386,41 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    // ---- constraint glyphs + dimensions (M7) ----
+    if (s != null) {
+      final gs2 = app.displayGeometry(s);
+      if (app.showConstraints) {
+        final seen = <String, int>{};
+        for (final (pos, raw) in constraintGlyphs(gs2, s.constraints)) {
+          final label = raw.split('#').first;
+          final key = '${pos.dx.toStringAsFixed(2)},${pos.dy.toStringAsFixed(2)}';
+          final slot = seen[key] = (seen[key] ?? 0) + 1;
+          final o = map(pos.dx, pos.dy) + Offset(8.0 + 15.0 * (slot - 1), -12);
+          final tp = TextPainter(
+              text: TextSpan(
+                  text: label,
+                  style: const TextStyle(
+                      fontSize: 10, color: Color(0xFFEFD37A))),
+              textDirection: TextDirection.ltr)
+            ..layout();
+          canvas.drawRect(
+              Rect.fromLTWH(o.dx - 2, o.dy - 1, tp.width + 4, tp.height + 2),
+              Paint()..color = const Color(0xB2333333));
+          tp.paint(canvas, o);
+        }
+      }
+      for (final c in s.constraints) {
+        if (c.type == CType.dimension && c.textPos != null) {
+          _paintDimension(canvas, gs2, c, map);
+        }
+      }
+      // dimension being placed follows the cursor
+      final pd = app.pendingDim;
+      if (pd != null && pd.textPos != null) {
+        _paintDimension(canvas, gs2, pd, map);
+      }
+    }
+
     // ---- modify-tool ghost preview (dashed look via lighter blue) ----
     if (app.hoverWorld != null && s != null) {
       final ghost = app.modifyGhost(s, app.hoverWorld!);
@@ -433,6 +530,78 @@ class _ViewportPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ViewportPainter old) => true;
+}
+
+void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
+    Offset Function(double, double) map) {
+  final p = Paint()
+    ..color = const Color(0xFFB8C4A8)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  String label;
+  final v = c.value ?? measureDim(gs, c);
+  Offset t = map(c.textPos!.dx, c.textPos!.dy);
+  switch (c.dimKind) {
+    case 'dist':
+      if (c.pts.length < 2 ||
+          c.pts.any((q) => q.ent >= gs.length)) return;
+      final a = getPt(gs[c.pts[0].ent], c.pts[0].pt);
+      final b = getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      final sa = map(a.dx, a.dy), sb = map(b.dx, b.dy);
+      final dir = sb - sa;
+      if (dir.distance < 1e-6) return;
+      final n = Offset(-dir.dy, dir.dx) / dir.distance;
+      // offset of the dim line = projection of textPos on the normal
+      final off = ((t - sa).dx * n.dx + (t - sa).dy * n.dy);
+      final da = sa + n * off, db = sb + n * off;
+      canvas.drawLine(sa, da, p); // extension lines
+      canvas.drawLine(sb, db, p);
+      canvas.drawLine(da, db, p); // dimension line
+      _arrow(canvas, da, dir / dir.distance, p);
+      _arrow(canvas, db, -dir / dir.distance, p);
+      label = v.toStringAsFixed(2);
+      t = (da + db) / 2 + n * (off >= 0 ? 10 : -10);
+      break;
+    case 'rad':
+    case 'dia':
+      if (c.ents.isEmpty || c.ents[0] >= gs.length) return;
+      final g = gs[c.ents[0]];
+      final ce = map(g.data[0], g.data[1]);
+      final d = t - ce;
+      if (d.distance < 1e-6) return;
+      canvas.drawLine(ce, t, p);
+      label = (c.dimKind == 'rad' ? 'R' : '\u2300') + v.toStringAsFixed(2);
+      break;
+    case 'ang':
+      if (c.ents.length < 2 ||
+          c.ents.any((e) => e >= gs.length || gs[e].type != Geo.line)) {
+        return;
+      }
+      label = '${v.toStringAsFixed(1)}\u00b0';
+      break;
+    default:
+      return;
+  }
+  final tp = TextPainter(
+      text: TextSpan(
+          text: label,
+          style: const TextStyle(fontSize: 11, color: Color(0xFFDDE6CF))),
+      textDirection: TextDirection.ltr)
+    ..layout();
+  final bg = Rect.fromCenter(
+      center: t, width: tp.width + 6, height: tp.height + 3);
+  canvas.drawRect(bg, Paint()..color = const Color(0xCC212830));
+  tp.paint(canvas, bg.topLeft + const Offset(3, 1.5));
+}
+
+void _arrow(Canvas c, Offset tip, Offset dir, Paint p) {
+  final n = Offset(-dir.dy, dir.dx);
+  final path = Path()
+    ..moveTo(tip.dx, tip.dy)
+    ..lineTo(tip.dx + dir.dx * 8 + n.dx * 2.6, tip.dy + dir.dy * 8 + n.dy * 2.6)
+    ..lineTo(tip.dx + dir.dx * 8 - n.dx * 2.6, tip.dy + dir.dy * 8 - n.dy * 2.6)
+    ..close();
+  c.drawPath(path, Paint()..color = p.color);
 }
 
 void _dashedLine(Canvas c, Offset a, Offset b, Paint p,

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'constraints.dart';
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'modify.dart';
@@ -29,7 +30,16 @@ enum Tool {
   fillet, chamfer, point,
   // modify tools (operate on the geometry list, engine gets rebuilt)
   move, mcopy, mrotate, mscale, mstretch, moffset, trim, extendT, split,
+  // constraint tools + dimension
+  cCoincident, cCollinear, cConcentric, cFix, cParallel, cPerpendicular,
+  cHorizontal, cVertical, cTangent, cSmooth, cSymmetric, cEqual, dimension,
 }
+
+const constraintTools = {
+  Tool.cCoincident, Tool.cCollinear, Tool.cConcentric, Tool.cFix,
+  Tool.cParallel, Tool.cPerpendicular, Tool.cHorizontal, Tool.cVertical,
+  Tool.cTangent, Tool.cSmooth, Tool.cSymmetric, Tool.cEqual,
+};
 
 const modifyTools = {
   Tool.move, Tool.mcopy, Tool.mrotate, Tool.mscale, Tool.mstretch,
@@ -40,6 +50,7 @@ class SketchModel {
   final String name;
   Engine engine; // non-final: rebuilt after grip edits (C-API is add-only)
   List<Geo> geometry = [];
+  final List<Constraint> constraints = [];
   final List<String> layers = []; // "Layer 1".."Layer N"
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create();
@@ -165,6 +176,10 @@ class AppState extends ChangeNotifier {
       if (f.existsSync()) {
         s.engine.loadDxf(f.path);
         s.refresh();
+        final cf = File('${_sketchDir.path}/$name.cons.json');
+        if (cf.existsSync()) {
+          s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
+        }
       }
       sketches[name] = s;
     }
@@ -233,12 +248,32 @@ class AppState extends ChangeNotifier {
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
   int? modEntity; // entity picked in the first phase of Offset
+  bool autoConstrain = true; // Constrain panel: Automatic toggle
+  bool showConstraints = true; // Constrain panel: Show Constraints toggle
+
+  void toggleAutoConstrain() {
+    autoConstrain = !autoConstrain;
+    notifyListeners();
+  }
+
+  void toggleShowConstraints() {
+    showConstraints = !showConstraints;
+    notifyListeners();
+  }
+  // constraint tool pick buffers
+  final List<PRef> conPts = [];
+  final List<int> conEnts = [];
+  // dimension being placed, waiting for its value dialog (viewport shows it)
+  Constraint? pendingDim;
 
   /// Geometry with an in-progress grip drag applied (painter reads this).
   List<Geo> displayGeometry(SketchModel s) {
     if (dragGrip == null || dragPos == null) return s.geometry;
     final gs = List<Geo>.from(s.geometry);
     gs[dragGrip!.entity] = moveGrip(gs[dragGrip!.entity], dragGrip!, dragPos!);
+    // keep constraints satisfied while dragging; the dragged point is pinned
+    solveConstraints(gs, s.constraints,
+        pinned: {(dragGrip!.entity, dragGrip!.idx)}, iterations: 25);
     return gs;
   }
 
@@ -357,6 +392,9 @@ class AppState extends ChangeNotifier {
     tool = Tool.none;
     snap = null;
     modEntity = null;
+    conPts.clear();
+    conEnts.clear();
+    pendingDim = null;
     notifyListeners();
   }
 
@@ -373,6 +411,16 @@ class AppState extends ChangeNotifier {
     if (s == null || tool == Tool.none) return;
     if (modifyTools.contains(tool)) {
       _modifyClick(s, w);
+      notifyListeners();
+      return;
+    }
+    if (constraintTools.contains(tool)) {
+      _constraintClick(s, w);
+      notifyListeners();
+      return;
+    }
+    if (tool == Tool.dimension) {
+      _dimensionClick(s, w);
       notifyListeners();
       return;
     }
@@ -415,6 +463,10 @@ class AppState extends ChangeNotifier {
         final gs = List<Geo>.from(s.geometry)
           ..removeAt(i)
           ..addAll(trimEntity(s.geometry, i, w));
+        final remapped = remapAfterRemove(s.constraints, i);
+        s.constraints
+          ..clear()
+          ..addAll(remapped);
         _rebuildEngine(s, gs);
         selection.clear();
         return;
@@ -434,6 +486,10 @@ class AppState extends ChangeNotifier {
         final gs = List<Geo>.from(s.geometry)
           ..removeAt(i)
           ..addAll(parts);
+        final remapped = remapAfterRemove(s.constraints, i);
+        s.constraints
+          ..clear()
+          ..addAll(remapped);
         _rebuildEngine(s, gs);
         selection.clear();
         return;
@@ -543,32 +599,209 @@ class AppState extends ChangeNotifier {
     return [for (final i in selection) transformGeo(s.geometry[i], f)];
   }
 
+  // ---- constraints + dimensions (M7) ----
+  PRef? _nearestPointRef(SketchModel s, Offset w) {
+    PRef? best;
+    var bd = 10 / zoom;
+    for (var e = 0; e < s.geometry.length; e++) {
+      for (var p2 = 0; p2 < ptCount(s.geometry[e]); p2++) {
+        final d = (getPt(s.geometry[e], p2) - w).distance;
+        if (d < bd) {
+          bd = d;
+          best = PRef(e, p2);
+        }
+      }
+    }
+    return best;
+  }
+
+  void _solveAndRebuild(SketchModel s, [List<Geo>? base]) {
+    final gs = List<Geo>.from(base ?? s.geometry);
+    solveConstraints(gs, s.constraints);
+    _rebuildEngine(s, gs);
+  }
+
+  void _constraintClick(SketchModel s, Offset w) {
+    final pt = _nearestPointRef(s, w);
+    final ent = _pickEntity(s, w);
+    switch (tool) {
+      case Tool.cCoincident:
+        if (pt == null) return;
+        conPts.add(pt);
+        if (conPts.length == 2) {
+          s.constraints
+              .add(Constraint(CType.coincident, pts: List.of(conPts)));
+          conPts.clear();
+          _solveAndRebuild(s);
+        }
+        return;
+      case Tool.cHorizontal:
+      case Tool.cVertical:
+        final t = tool == Tool.cHorizontal ? CType.horizontal : CType.vertical;
+        // Inventor: a line -> immediately; two points -> aligned points
+        if (ent != null && s.geometry[ent].type == Geo.line && conPts.isEmpty) {
+          s.constraints.add(Constraint(t, ents: [ent]));
+          _solveAndRebuild(s);
+          return;
+        }
+        if (pt == null) return;
+        conPts.add(pt);
+        if (conPts.length == 2) {
+          s.constraints.add(Constraint(t, pts: List.of(conPts)));
+          conPts.clear();
+          _solveAndRebuild(s);
+        }
+        return;
+      case Tool.cFix:
+        if (pt != null) {
+          s.constraints.add(Constraint(CType.fix, pts: [pt]));
+        } else if (ent != null) {
+          s.constraints.add(Constraint(CType.fix, ents: [ent]));
+        }
+        return;
+      case Tool.cSymmetric:
+        // two points, then the symmetry axis line
+        if (conPts.length < 2) {
+          if (pt != null) conPts.add(pt);
+          return;
+        }
+        if (ent == null || s.geometry[ent].type != Geo.line) return;
+        s.constraints.add(Constraint(CType.symmetric,
+            pts: List.of(conPts), ents: [ent]));
+        conPts.clear();
+        _solveAndRebuild(s);
+        return;
+      case Tool.cCollinear:
+      case Tool.cConcentric:
+      case Tool.cParallel:
+      case Tool.cPerpendicular:
+      case Tool.cTangent:
+      case Tool.cSmooth:
+      case Tool.cEqual:
+        if (ent == null) return;
+        if (conEnts.isNotEmpty && conEnts[0] == ent) return;
+        conEnts.add(ent);
+        if (conEnts.length == 2) {
+          const map = {
+            Tool.cCollinear: CType.collinear,
+            Tool.cConcentric: CType.concentric,
+            Tool.cParallel: CType.parallel,
+            Tool.cPerpendicular: CType.perpendicular,
+            Tool.cTangent: CType.tangent,
+            Tool.cSmooth: CType.smooth,
+            Tool.cEqual: CType.equal,
+          };
+          s.constraints.add(Constraint(map[tool]!, ents: List.of(conEnts)));
+          conEnts.clear();
+          _solveAndRebuild(s);
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
+  void _dimensionClick(SketchModel s, Offset w) {
+    if (pendingDim != null) return; // dialog open
+    final pt = _nearestPointRef(s, w);
+    final ent = _pickEntity(s, w);
+    if (pt != null && conEnts.isEmpty) {
+      conPts.add(pt);
+      if (conPts.length == 2) {
+        pendingDim = Constraint(CType.dimension,
+            pts: List.of(conPts), dimKind: 'dist', textPos: w);
+      }
+      return;
+    }
+    if (ent != null && conPts.isEmpty) {
+      conEnts.add(ent);
+      final g = s.geometry[ent];
+      if (conEnts.length == 1 && g.type == Geo.circle) {
+        pendingDim = Constraint(CType.dimension,
+            ents: List.of(conEnts), dimKind: 'dia', textPos: w);
+      } else if (conEnts.length == 1 && g.type == Geo.arc) {
+        pendingDim = Constraint(CType.dimension,
+            ents: List.of(conEnts), dimKind: 'rad', textPos: w);
+      } else if (conEnts.length == 2) {
+        pendingDim = Constraint(CType.dimension,
+            ents: List.of(conEnts), dimKind: 'ang', textPos: w);
+      }
+      return;
+    }
+    // click on empty space: placement point
+    if (conPts.isEmpty && conEnts.length == 1 &&
+        s.geometry[conEnts[0]].type == Geo.line) {
+      // single line -> its length (endpoint distance)
+      pendingDim = Constraint(CType.dimension,
+          pts: [PRef(conEnts[0], 0), PRef(conEnts[0], 1)],
+          dimKind: 'dist',
+          textPos: w);
+      conEnts.clear();
+    }
+    if (pendingDim != null) {
+      pendingDim!.textPos = w;
+      pendingDim!.value = measureDim(current!.geometry, pendingDim!);
+    }
+  }
+
+  /// Called by the viewport once the user confirmed the dimension value.
+  void confirmDimension(double? value) {
+    final s = current;
+    final d = pendingDim;
+    pendingDim = null;
+    conPts.clear();
+    conEnts.clear();
+    if (s == null || d == null) {
+      notifyListeners();
+      return;
+    }
+    d.value = value ?? measureDim(s.geometry, d);
+    s.constraints.add(d);
+    _solveAndRebuild(s);
+    notifyListeners();
+  }
+
+  void cancelDimension() {
+    pendingDim = null;
+    conPts.clear();
+    conEnts.clear();
+    notifyListeners();
+  }
+
+  /// Edits an existing dimension's value (tap on its text, no tool active).
+  Constraint? dimensionAt(Offset w, double tol) {
+    final s = current;
+    if (s == null) return null;
+    for (final c in s.constraints) {
+      if (c.type == CType.dimension &&
+          c.textPos != null &&
+          (c.textPos! - w).distance < tol) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  void setDimensionValue(Constraint c, double v) {
+    final s = current;
+    if (s == null) return;
+    c.value = v;
+    _solveAndRebuild(s);
+    notifyListeners();
+  }
+
   void _commitTool(SketchModel s) {
     final geos = buildToolGeometry(tool, List.of(toolPoints),
         existing: s.geometry, params: toolParams, expr: toolExpr);
     if (geos != null) {
-      for (final g in geos) {
-        switch (g.type) {
-          case Geo.line:
-            s.engine.addLine(g.data[0], g.data[1], g.data[2], g.data[3]);
-            break;
-          case Geo.circle:
-            s.engine.addCircle(g.data[0], g.data[1], g.data[2]);
-            break;
-          case Geo.arc:
-            s.engine.addArc(g.data[0], g.data[1], g.data[2], g.data[3],
-                g.data[4],
-                reversed: g.data.length > 5 && g.data[5] != 0);
-            break;
-          case Geo.polyline:
-            final n = g.data[1].toInt();
-            s.engine.addPolyline(
-                [for (var i = 0; i < n; i++) ...[g.data[2 + 2 * i], g.data[3 + 2 * i]]],
-                closed: g.data[0] != 0);
-            break;
+      final gs = List<Geo>.from(s.geometry)..addAll(geos);
+      if (autoConstrain) {
+        for (var i = s.geometry.length; i < gs.length; i++) {
+          s.constraints.addAll(inferConstraints(gs, i));
         }
       }
-      _committed(s);
+      solveConstraints(gs, s.constraints);
+      _rebuildEngine(s, gs);
     }
     // CAD-style chaining for plain lines: next line starts at the endpoint
     if (tool == Tool.line && toolPoints.length >= 2) {
@@ -610,6 +843,12 @@ class AppState extends ChangeNotifier {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
     final ok = s.engine.saveDxf(_dxfFile(name).path);
+    try {
+      File('${_sketchDir.path}/$name.cons.json')
+          .writeAsStringSync(encodeConstraints(s.constraints));
+    } catch (e) {
+      Log.w('state', 'constraint sidecar write failed: $e');
+    }
     await _writePreview(name, s);
     s.dirty = false;
     await refreshSaved();
