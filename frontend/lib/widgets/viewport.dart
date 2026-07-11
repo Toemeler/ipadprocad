@@ -14,8 +14,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../snap.dart';
 import '../tools.dart';
-import '../ffi/qcad_engine.dart';
 import '../theme.dart';
 
 class Viewport2D extends StatefulWidget {
@@ -41,6 +41,99 @@ class _Viewport2DState extends State<Viewport2D> {
     final c = Offset(size.width / 2, size.height / 2);
     final d = local - c;
     return Offset(app.pan.dx + d.dx / app.zoom, app.pan.dy - d.dy / app.zoom);
+  }
+
+  // ---- snapping + gestures (M6) ----
+  static const _snapPx = 12.0, _gripPx = 12.0;
+  String _gesture = 'none'; // none|panzoom|grip|box
+  double _scaleStartZoom = 1;
+  Offset? _boxStartW;
+
+  /// Applies object snapping to a world point and publishes the marker.
+  Offset _snapped(Offset w, {Offset? exclude}) {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return w;
+    final sn = computeSnap(app.displayGeometry(s), w, _snapPx / app.zoom,
+        ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
+        exclude: exclude);
+    app.setSnap(sn);
+    return sn?.pos ?? w;
+  }
+
+  void _scaleStart(ScaleStartDetails d, Size size) {
+    final app = widget.app;
+    _scaleStartZoom = app.zoom;
+    if (d.pointerCount >= 2) {
+      _gesture = 'panzoom';
+      return;
+    }
+    if (app.tool != Tool.none) {
+      _gesture = 'none'; // tools are click-driven
+      return;
+    }
+    final w = _toWorld(d.localFocalPoint, size);
+    // grip under the finger?
+    final s = app.current;
+    if (s != null) {
+      Grip? hit;
+      var bd = _gripPx / app.zoom;
+      for (final g in gripsOf(s.geometry)) {
+        final dd = (g.pos - w).distance;
+        if (dd < bd) {
+          bd = dd;
+          hit = g;
+        }
+      }
+      if (hit != null) {
+        _gesture = 'grip';
+        app.beginGripDrag(hit);
+        return;
+      }
+    }
+    _gesture = 'box';
+    _boxStartW = w;
+  }
+
+  void _scaleUpdate(ScaleUpdateDetails d, Size size) {
+    final app = widget.app;
+    if (d.pointerCount >= 2 && _gesture != 'panzoom') {
+      // second finger arrived: abort grip/box, switch to pan/zoom
+      if (_gesture == 'grip') app.endGripDrag();
+      if (_gesture == 'box') app.boxSelectFinish();
+      _gesture = 'panzoom';
+    }
+    switch (_gesture) {
+      case 'panzoom':
+        if (d.scale != 1.0) {
+          final w = _toWorld(d.localFocalPoint, size);
+          app.zoomBy((_scaleStartZoom * d.scale) / app.zoom, aroundWorld: w);
+        }
+        app.panBy(d.focalPointDelta);
+        break;
+      case 'grip':
+        final w = _toWorld(d.localFocalPoint, size);
+        app.updateGripDrag(
+            _snapped(w, exclude: app.dragGrip?.pos));
+        break;
+      case 'box':
+        app.boxSelectUpdate(_boxStartW!, _toWorld(d.localFocalPoint, size));
+        break;
+    }
+  }
+
+  void _scaleEnd() {
+    final app = widget.app;
+    switch (_gesture) {
+      case 'grip':
+        app.endGripDrag();
+        break;
+      case 'box':
+        app.boxSelectFinish();
+        break;
+    }
+    _gesture = 'none';
+    _boxStartW = null;
   }
 
   @override
@@ -87,21 +180,30 @@ class _Viewport2DState extends State<Viewport2D> {
           },
           onPointerHover: (e) {
             if (app.tool != Tool.none) {
-              app.setHover(_toWorld(e.localPosition, size));
+              final w = _toWorld(e.localPosition, size);
+              app.setHover(_snapped(w));
             }
           },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            // one finger: grip drag / box select; two fingers: pan + zoom
+            onScaleStart: (d) => _scaleStart(d, size),
+            onScaleUpdate: (d) => _scaleUpdate(d, size),
+            onScaleEnd: (d) => _scaleEnd(),
             onTapUp: (d) {
               _focus.requestFocus();
               if (app.tool != Tool.none) {
-                app.toolClick(_toWorld(d.localPosition, size));
+                app.toolClick(_snapped(_toWorld(d.localPosition, size)));
               } else if (app.inEditMode) {
                 // only projected (yellow) stuff is interactive
                 final cpScreen = _worldToScreen(Offset.zero, size);
                 if ((d.localPosition - cpScreen).distance <= 6) {
                   setState(() => _projCpSelected = !_projCpSelected);
+                } else {
+                  app.selectAt(_toWorld(d.localPosition, size), 10 / app.zoom);
                 }
+              } else {
+                app.selectAt(_toWorld(d.localPosition, size), 10 / app.zoom);
               }
             },
             child: MouseRegion(
@@ -160,8 +262,28 @@ class _ViewportPainter extends CustomPainter {
         ..color = const Color(0xFFC4C9CE)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
-      for (final g in s.geometry) {
-        paintGeo(canvas, g, map, app.zoom, p);
+      final sel = Paint()
+        ..color = T.blue
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2;
+      final gs = app.displayGeometry(s);
+      for (var i = 0; i < gs.length; i++) {
+        paintGeo(canvas, gs[i], map, app.zoom,
+            app.selection.contains(i) ? sel : p);
+      }
+      // sketch point grips (Inventor shows them whenever no tool is active)
+      if (app.tool == Tool.none) {
+        final gp = Paint()..color = const Color(0xFF7BC96A);
+        for (final g in gripsOf(gs)) {
+          final o = map(g.pos.dx, g.pos.dy);
+          canvas.drawRect(
+              Rect.fromCenter(center: o, width: 4, height: 4), gp);
+        }
+        if (app.dragGrip != null && app.dragPos != null) {
+          final o = map(app.dragPos!.dx, app.dragPos!.dy);
+          canvas.drawRect(Rect.fromCenter(center: o, width: 7, height: 7),
+              Paint()..color = const Color(0xFFE05555));
+        }
       }
     }
 
@@ -181,7 +303,7 @@ class _ViewportPainter extends CustomPainter {
       final geos = s2 == null
           ? null
           : buildToolGeometry(app.tool, probe,
-              existing: s2.geometry,
+              existing: app.displayGeometry(s2),
               params: app.toolParams,
               expr: app.toolExpr);
       if (geos != null) {
@@ -199,6 +321,81 @@ class _ViewportPainter extends CustomPainter {
         canvas.drawRect(
             Rect.fromCenter(center: o, width: 5, height: 5),
             Paint()..color = T.blue);
+      }
+    }
+
+    // ---- snap marker + alignment guides (Inventor green) ----
+    final sn = app.snap;
+    if (sn != null && (app.tool != Tool.none || app.dragGrip != null)) {
+      const green = Color(0xFF58C05C);
+      final o = map(sn.pos.dx, sn.pos.dy);
+      final mp = Paint()
+        ..color = green
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6;
+      switch (sn.kind) {
+        case 'endpoint':
+        case 'vertex':
+          canvas.drawRect(
+              Rect.fromCenter(center: o, width: 9, height: 9), mp);
+          break;
+        case 'midpoint':
+          final path = Path()
+            ..moveTo(o.dx, o.dy - 5)
+            ..lineTo(o.dx - 5, o.dy + 4)
+            ..lineTo(o.dx + 5, o.dy + 4)
+            ..close();
+          canvas.drawPath(path, mp);
+          break;
+        case 'center':
+        case 'origin':
+          canvas.drawCircle(o, 4.5, mp);
+          break;
+        case 'quadrant':
+          final path = Path()
+            ..moveTo(o.dx, o.dy - 5.5)
+            ..lineTo(o.dx + 5.5, o.dy)
+            ..lineTo(o.dx, o.dy + 5.5)
+            ..lineTo(o.dx - 5.5, o.dy)
+            ..close();
+          canvas.drawPath(path, mp);
+          break;
+        case 'on':
+          canvas.drawLine(o + const Offset(-4, -4), o + const Offset(4, 4), mp);
+          canvas.drawLine(o + const Offset(-4, 4), o + const Offset(4, -4), mp);
+          break;
+        case 'align':
+          canvas.drawCircle(o, 2.5, Paint()..color = green);
+          break;
+      }
+      for (final a in sn.alignRefs) {
+        _dashedLine(canvas, map(a.dx, a.dy), o,
+            Paint()
+              ..color = green.withOpacity(0.85)
+              ..strokeWidth = 1);
+      }
+    }
+
+    // ---- box select rectangle (window = solid blue, crossing = dashed
+    // green — exactly Inventor's two modes) ----
+    if (app.boxStart != null && app.boxEnd != null) {
+      final r = Rect.fromPoints(map(app.boxStart!.dx, app.boxStart!.dy),
+          map(app.boxEnd!.dx, app.boxEnd!.dy));
+      if (app.boxCrossing) {
+        canvas.drawRect(r, Paint()..color = const Color(0x2E58C05C));
+        _dashedRect(canvas, r,
+            Paint()
+              ..color = const Color(0xFF58C05C)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1);
+      } else {
+        canvas.drawRect(r, Paint()..color = const Color(0x2E3D9BE9));
+        canvas.drawRect(
+            r,
+            Paint()
+              ..color = T.blue
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1);
       }
     }
 
@@ -222,4 +419,25 @@ class _ViewportPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ViewportPainter old) => true;
+}
+
+void _dashedLine(Canvas c, Offset a, Offset b, Paint p,
+    {double dash = 5, double gap = 4}) {
+  final d = b - a;
+  final len = d.distance;
+  if (len < 1e-6) return;
+  final dir = d / len;
+  var t = 0.0;
+  while (t < len) {
+    final e = math.min(t + dash, len);
+    c.drawLine(a + dir * t, a + dir * e, p);
+    t = e + gap;
+  }
+}
+
+void _dashedRect(Canvas c, Rect r, Paint p) {
+  _dashedLine(c, r.topLeft, r.topRight, p);
+  _dashedLine(c, r.topRight, r.bottomRight, p);
+  _dashedLine(c, r.bottomRight, r.bottomLeft, p);
+  _dashedLine(c, r.bottomLeft, r.topLeft, p);
 }

@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
+import 'snap.dart';
 import 'theme.dart';
 import 'tools.dart';
 
@@ -29,7 +30,7 @@ enum Tool {
 
 class SketchModel {
   final String name;
-  final Engine engine;
+  Engine engine; // non-final: rebuilt after grip edits (C-API is add-only)
   List<Geo> geometry = [];
   final List<String> layers = []; // "Layer 1".."Layer N"
   bool dirty = false;
@@ -215,6 +216,123 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- selection / snapping / grip editing (M6) ----
+  final Set<int> selection = {};
+  Snap? snap; // current snap under the cursor (for the marker + guides)
+  Grip? dragGrip;
+  Offset? dragPos;
+  Offset? boxStart, boxEnd; // world coords while box-selecting
+  bool boxCrossing = false;
+
+  /// Geometry with an in-progress grip drag applied (painter reads this).
+  List<Geo> displayGeometry(SketchModel s) {
+    if (dragGrip == null || dragPos == null) return s.geometry;
+    final gs = List<Geo>.from(s.geometry);
+    gs[dragGrip!.entity] = moveGrip(gs[dragGrip!.entity], dragGrip!, dragPos!);
+    return gs;
+  }
+
+  void setSnap(Snap? sn) {
+    snap = sn;
+    notifyListeners();
+  }
+
+  void selectAt(Offset w, double tol) {
+    final s = current;
+    if (s == null) return;
+    var bestI = -1;
+    var bestD = tol;
+    for (var i = 0; i < s.geometry.length; i++) {
+      final d = distToEntity(s.geometry[i], w);
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    selection.clear();
+    if (bestI >= 0) selection.add(bestI);
+    notifyListeners();
+  }
+
+  void boxSelectUpdate(Offset start, Offset end) {
+    boxStart = start;
+    boxEnd = end;
+    boxCrossing = end.dx < start.dx; // Inventor: right-to-left = crossing
+    notifyListeners();
+  }
+
+  void boxSelectFinish() {
+    final s = current;
+    if (s != null && boxStart != null && boxEnd != null) {
+      final r = Rect.fromPoints(boxStart!, boxEnd!);
+      if (r.width > 1e-9 && r.height > 1e-9) {
+        selection.clear();
+        for (var i = 0; i < s.geometry.length; i++) {
+          if (entityInRect(s.geometry[i], r, crossing: boxCrossing)) {
+            selection.add(i);
+          }
+        }
+      }
+    }
+    boxStart = boxEnd = null;
+    notifyListeners();
+  }
+
+  void clearSelection() {
+    selection.clear();
+    notifyListeners();
+  }
+
+  // grip drag lifecycle -------------------------------------------------
+  void beginGripDrag(Grip g) {
+    dragGrip = g;
+    dragPos = g.pos;
+    notifyListeners();
+  }
+
+  void updateGripDrag(Offset w) {
+    dragPos = w;
+    notifyListeners();
+  }
+
+  void endGripDrag() {
+    final s = current;
+    if (s != null && dragGrip != null && dragPos != null) {
+      _rebuildEngine(s, displayGeometry(s));
+    }
+    dragGrip = null;
+    dragPos = null;
+    snap = null;
+    notifyListeners();
+  }
+
+  /// The C-API is add-only, so edits rebuild the document from scratch.
+  void _rebuildEngine(SketchModel s, List<Geo> gs) {
+    s.engine.dispose();
+    s.engine = Engine.create();
+    for (final g in gs) {
+      switch (g.type) {
+        case Geo.line:
+          s.engine.addLine(g.data[0], g.data[1], g.data[2], g.data[3]);
+          break;
+        case Geo.circle:
+          s.engine.addCircle(g.data[0], g.data[1], g.data[2]);
+          break;
+        case Geo.arc:
+          s.engine.addArc(g.data[0], g.data[1], g.data[2], g.data[3], g.data[4],
+              reversed: g.data.length > 5 && g.data[5] != 0);
+          break;
+        case Geo.polyline:
+          final n = g.data[1].toInt();
+          s.engine.addPolyline(
+              [for (var i = 0; i < n; i++) ...[g.data[2 + 2 * i], g.data[3 + 2 * i]]],
+              closed: g.data[0] != 0);
+          break;
+      }
+    }
+    _committed(s);
+  }
+
   // ---- tools ----
   void selectTool(Tool t) {
     tool = t;
@@ -223,8 +341,10 @@ class AppState extends ChangeNotifier {
   }
 
   void cancelTool() {
+    if (tool == Tool.none) selection.clear(); // Esc again: deselect
     toolPoints.clear();
     tool = Tool.none;
+    snap = null;
     notifyListeners();
   }
 

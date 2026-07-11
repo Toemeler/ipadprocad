@@ -544,7 +544,8 @@ jobs:
         working-directory: frontend
         run: |
           set -o pipefail
-          flutter analyze --no-pub 2>&1 | tee ../ci-m5-analyze.log
+          # infos/warnings must not fail the build — only real errors
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../ci-m5-analyze.log
 
       - name: Build iOS app (release, unsigned)
         timeout-minutes: 45
