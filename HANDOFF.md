@@ -24,40 +24,55 @@ Token NIE in Dateien/.git/config schreiben.
   Geometrie-Query-Checks — Log des naechsten Runs pruefen).
 - **M4 — Mock-Phase ABGESCHLOSSEN** (create-panel.html = verbindliche 1:1-Spec,
   UI-Details siehe Abschnitt unten).
-- **M5 — IN ARBEIT (dieser Stand):**
+- **M5 — Grundausbau ERLEDIGT & CI-validiert (Run 29145382350, alle 3 Jobs
+  gruen, LOGS GEPRUEFT):**
   - `frontend/` KOMPLETT NEU: 1:1-Flutter-Port des Mocks (Ribbon alle 8 Panels
-    + Exit + Home-Sketch-Panel, Flyouts mit exakten Eintraegen, Model-Browser
-    inkl. Origin-Expander/Kontextmenue/Edit-Highlight, Layer-Edit-Modus mit
-    grauen Achsen + gelbem projizierten CP + Finish, Home-View mit Recent-Karten,
-    untere Tab-Leiste). Alter main.dart (8e241b3) ERSETZT.
-    Struktur: lib/main.dart, theme.dart (Palette), svg_icons.dart (Mock-SVGs
-    verbatim, via flutter_svg), app_state.dart (Tabs/Layer/Edit/Tools/Persistenz),
-    ffi/qcad_engine.dart, widgets/{ribbon,model_browser,viewport,home_view,
-    bottom_tabbar}.dart
-  - Echtes Zeichnen ueber Backend: Line, Circle (Center), Rectangle (Two Point,
-    als geschlossene Polyline), Arc (Three Point) — via FFI, Rendering aus dem
-    QCAD-Dokument (Geometrie-Query). Alle uebrigen Buttons wie im Mock sichtbar,
-    ohne Funktion. Ehrlicher Fallback: ohne gelinkte Libs laeuft eine
-    Dart-Engine, Start-Marker meldet `DART SMOKE: PASS (backend=qcad-ffi|dart-fallback)`.
-  - Save/Load: DXF pro Skizze + Preview-PNG in App-Documents; Autosave bei
-    Finish/Tab-Schliessen/Home; Recent-Karten zeigen echte Skizzen (die 6
-    Design-Dummies nur im Erststart ohne gespeicherte Dateien).
-  - Eingabe: Maus/Keyboard; Trackpad-2-Finger-Pan + Pinch-Zoom integriert
-    (PointerPanZoom-Events); Scrollrad zoomt. Esc bricht Tool ab.
-    Touch-Gesten bewusst spaeter.
-  - CI-Job `m5-flutter-ipa` NEU: Device-Libs bauen, Flutter-Scaffold
-    (flutter create + pbxproj/Podfile auf iOS 14.0), FFI-Link per xcconfig
-    (force_load libipadprocad.a + exported_symbols_list `_qcad_*` + ALLE
-    Qt-Static-Archive ausser qios — qios interponiert main!),
-    `flutter build ios --release --no-codesign`, "M5 LINK CHECK"
-    (C-API-Versions-String im Runner-Binary), unsigniertes IPA-Artefakt
-    `ipadprocad-unsigned-ipa` (Sideload via AltStore/Sideloadly, 3 Tage
-    Retention). Logs -> Branch `ci-debug-logs-m5/ci-logs-m5/*`.
-  - **NOCH NICHT VALIDIERT / OFFEN:** Flutter-Code wurde ohne lokales Dart-SDK
-    geschrieben (Container hat kein Flutter, pub.dev nicht erreichbar); erster
-    Beweis ist der CI-Run — LOGS LESEN, gruener Haken reicht nicht.
-    Dart-FFI-Runtime-Smoke laeuft erst ON DEVICE (App-Start-Marker); im CI nur
-    der Link-Check. Sim-Job, der den DART-SMOKE-Marker der App captured: offen.
+    + Exit/Finish + Home-Sketch-Panel, Flyouts mit exakten Eintraegen,
+    Model-Browser inkl. Origin-Expander/Kontextmenue/Edit-Highlight,
+    Layer-Edit-Modus mit grauen Achsen + gelbem projizierten CP, Home-View
+    mit Recent-Karten, untere Tab-Leiste). Alter main.dart (8e241b3) ERSETZT.
+    Struktur: lib/main.dart, theme.dart, svg_icons.dart (Mock-SVGs verbatim,
+    flutter_svg), app_state.dart, ffi/qcad_engine.dart, widgets/{ribbon,
+    model_browser,viewport,home_view,bottom_tabbar}.dart
+  - Echtes Zeichnen ueber das Backend: Line, Circle (Center), Rectangle
+    (Two Point, geschlossene Polyline), Arc (Three Point) via FFI; Rendering
+    aus dem QCAD-Dokument (qcad_entity_ids/qcad_entity_geometry — Linux-Smoke
+    UND iOS-Sim-Smoke PASS inkl. Geometrie-Checks). Uebrige Buttons sichtbar,
+    ohne Funktion. Fallback-Engine (Dart) wenn Libs nicht gelinkt; Start-
+    Marker: `DART SMOKE: PASS (backend=qcad-ffi|dart-fallback)`.
+  - Save/Load: DXF pro Skizze + Preview-PNG in App-Documents (Autosave bei
+    Finish/Tab-Schliessen/Home); Recent-Karten zeigen echte Skizzen, die 6
+    Design-Dummies nur im Erststart.
+  - Eingabe: Maus/Keyboard; Trackpad-2-Finger-Pan + Pinch-Zoom (PointerPanZoom)
+    integriert, Scrollrad zoomt, Esc bricht Tool ab. Touch-Gesten spaeter.
+  - **IPA: CI-Job `m5-flutter-ipa` liefert Artefakt `ipadprocad-unsigned-ipa`**
+    (unsigniert, ~15 MB, Retention 3 Tage — pro Run neu erzeugt). Verifiziert:
+    "M5 LINK CHECK: PASS" + alle 14 `_qcad_*`-Symbole per nm EXPORTIERT im
+    Runner-Binary (DynamicLibrary.process() findet sie). Installation:
+    Artefakt laden, entzippen -> ipadprocad-unsigned.ipa, per Sideloadly oder
+    AltStore aufs iPad (re-signiert mit eigener Apple-ID).
+
+  **CI-Fix-Erkenntnisse M5 (fuer die Zukunft):**
+  - Qt-Static-Link fuer Xcode NICHT per Archiv-Glob: die QQml*Foreign-
+    Registrierungsobjekte GENERIERT der Qt-CMake-Finalizer im Konsumenten-
+    Build, sie existieren nicht im Qt-Paket. Loesung: Device-Smoke mit
+    `-DQCAD_CAPI_SMOKE=ON` bauen und die exakte Linkzeile via
+    `ninja -C build -t commands` extrahieren (Ninja hat KEIN link.txt),
+    mit `ci/parse_link_txt.py` in OTHER_LDFLAGS uebersetzen (cwd=Build-Root).
+  - qcad_* ueberleben per `-force_load libipadprocad.a` +
+    `-Wl,-exported_symbols_list` (`_qcad_*`); qios-Plugin NIE linken
+    (interponiert main). IPHONEOS_DEPLOYMENT_TARGET=14.0 im pbxproj sedden
+    (Target-Settings schlagen xcconfig).
+  - `strings | grep -q` unter pipefail = SIGPIPE-Falle -> `grep -c` nutzen.
+
+  **Offen fuer M6:**
+  - Nutzer-Test des IPA auf dem iPad (App-Start-Marker `DART SMOKE:` in der
+    Konsole pruefen — MUSS `backend=qcad-ffi` melden, nicht dart-fallback).
+  - Sim-CI-Job, der den DART-SMOKE-Marker der Flutter-App captured
+    (M2-Restschuld formal; Symbole sind exportiert, Runtime on device offen).
+  - Weitere Werkzeuge aus der frueheren Tool-Engine (Dimension, Modify, Snap),
+    Layer-Zuordnung im Backend (aktuell eine Backend-Layer "0",
+    Layer-Zuordnung nur Dart-seitig), Touch-Gesten.
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
