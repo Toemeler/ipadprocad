@@ -524,6 +524,26 @@ jobs:
           done
           QTLIBS="$QTLIBS $QTOBJS"
           echo "Qt extra objects: $(echo "$QTOBJS" | wc -w)"
+          echo "== objects-Release layout =="
+          ls "$QTIOS/lib/objects-Release" 2>/dev/null || echo "(none)"
+          # Auto-resolve: locate whatever defines the QQml*Foreign metaobjects
+          # (undefined in runs 29143874907/29144136545) and link it. Search all
+          # archives and loose objects for a DEFINED symbol match.
+          echo "== symbol search: QQmlIntForeign::staticMetaObject =="
+          SYM="QQmlIntForeign16staticMetaObjectE"
+          FOUND=""
+          for a in "$QTIOS"/lib/*.a; do
+            if nm "$a" 2>/dev/null | grep " [SDT] " | grep -q "$SYM"; then
+              echo "defined in archive: $a"; FOUND="$FOUND $a"
+            fi
+          done
+          while IFS= read -r o; do
+            if nm "$o" 2>/dev/null | grep " [SDT] " | grep -q "$SYM"; then
+              echo "defined in object: $o"; FOUND="$FOUND $o"
+            fi
+          done < <(find "$QTIOS/lib/objects-Release" -name '*.o' 2>/dev/null)
+          [ -n "$FOUND" ] || echo "WARNING: defining unit for $SYM not found under $QTIOS/lib"
+          QTLIBS="$QTLIBS $FOUND"
           echo "Qt archives linked:"; echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d' | grep '\.a$'
           printf '_qcad_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
