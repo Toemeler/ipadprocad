@@ -217,57 +217,70 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Dialog-provided tool parameters (polygon sides, fillet radius, equation
+  // string + range, ...). Set by the ribbon before selectTool.
+  Map<String, double> toolParams = {};
+  String toolExpr = '';
+
   /// Handles a committed click at world coordinates for the active tool.
+  /// Fixed-point tools commit automatically once enough points are picked;
+  /// variable tools (splines) commit via [finishVariableTool] (Enter).
   void toolClick(Offset w) {
     final s = current;
     if (s == null || tool == Tool.none) return;
     toolPoints.add(w);
-    switch (tool) {
-      case Tool.line:
-        if (toolPoints.length == 2) {
-          s.engine.addLine(
-              toolPoints[0].dx, toolPoints[0].dy, toolPoints[1].dx, toolPoints[1].dy);
-          // CAD-style chaining: next line starts at the last endpoint
-          final last = toolPoints[1];
-          toolPoints
-            ..clear()
-            ..add(last);
-          _committed(s);
-        }
-        break;
-      case Tool.circleCenter:
-        if (toolPoints.length == 2) {
-          final r = (toolPoints[1] - toolPoints[0]).distance;
-          if (r > 0) s.engine.addCircle(toolPoints[0].dx, toolPoints[0].dy, r);
-          toolPoints.clear();
-          _committed(s);
-        }
-        break;
-      case Tool.rectTwoPoint:
-        if (toolPoints.length == 2) {
-          final a = toolPoints[0], b = toolPoints[1];
-          s.engine.addPolyline(
-              [a.dx, a.dy, b.dx, a.dy, b.dx, b.dy, a.dx, b.dy],
-              closed: true);
-          toolPoints.clear();
-          _committed(s);
-        }
-        break;
-      case Tool.arcThreePoint:
-        if (toolPoints.length == 3) {
-          final arc = arcFrom3Points(toolPoints[0], toolPoints[1], toolPoints[2]);
-          if (arc != null) {
-            s.engine.addArc(arc.$1.dx, arc.$1.dy, arc.$2, arc.$3, arc.$4,
-                reversed: arc.$5);
-          }
-          toolPoints.clear();
-          _committed(s);
-        }
-        break;
-      case Tool.none:
-        break;
+    final meta = toolMeta[tool];
+    if (meta?.fixed != null && toolPoints.length >= meta!.fixed!) {
+      _commitTool(s);
     }
     notifyListeners();
+  }
+
+  /// Enter: commits a variable-length tool (splines) if it has enough points.
+  void finishVariableTool() {
+    final s = current;
+    final meta = toolMeta[tool];
+    if (s == null || meta == null || meta.fixed != null) return;
+    if (toolPoints.length >= meta.minVar) _commitTool(s);
+    notifyListeners();
+  }
+
+  void _commitTool(SketchModel s) {
+    final geos = buildToolGeometry(tool, List.of(toolPoints),
+        existing: s.geometry, params: toolParams, expr: toolExpr);
+    if (geos != null) {
+      for (final g in geos) {
+        switch (g.type) {
+          case Geo.line:
+            s.engine.addLine(g.data[0], g.data[1], g.data[2], g.data[3]);
+            break;
+          case Geo.circle:
+            s.engine.addCircle(g.data[0], g.data[1], g.data[2]);
+            break;
+          case Geo.arc:
+            s.engine.addArc(g.data[0], g.data[1], g.data[2], g.data[3],
+                g.data[4],
+                reversed: g.data.length > 5 && g.data[5] != 0);
+            break;
+          case Geo.polyline:
+            final n = g.data[1].toInt();
+            s.engine.addPolyline(
+                [for (var i = 0; i < n; i++) ...[g.data[2 + 2 * i], g.data[3 + 2 * i]]],
+                closed: g.data[0] != 0);
+            break;
+        }
+      }
+      _committed(s);
+    }
+    // CAD-style chaining for plain lines: next line starts at the endpoint
+    if (tool == Tool.line && toolPoints.length >= 2) {
+      final last = toolPoints.last;
+      toolPoints
+        ..clear()
+        ..add(last);
+    } else {
+      toolPoints.clear();
+    }
   }
 
   void _committed(SketchModel s) {

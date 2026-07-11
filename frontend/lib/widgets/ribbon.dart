@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
 import '../svg_icons.dart';
+import '../tools.dart';
 import '../theme.dart';
 
 Widget svg(String s, double size) =>
@@ -23,42 +24,58 @@ class FlyItem {
 const flyouts = <String, List<FlyItem>>{
   'line': [
     FlyItem('fline', 'Line', 'Line', Tool.line),
-    FlyItem('fmidline', 'Line', 'Midpoint Line'),
-    FlyItem('fsplinecv', 'Spline', 'Control Vertex'),
-    FlyItem('fsplinei', 'Spline', 'Interpolation'),
-    FlyItem('feqcurve', 'Equation Curve', 'Equation Curve'),
-    FlyItem('fbridge', 'Bridge Curve', 'Bridge Curve'),
+    FlyItem('fmidline', 'Line', 'Midpoint Line', Tool.lineMid),
+    FlyItem('fsplinecv', 'Spline', 'Control Vertex', Tool.splineCV),
+    FlyItem('fsplinei', 'Spline', 'Interpolation', Tool.splineInterp),
+    FlyItem('feqcurve', 'Equation Curve', 'Equation Curve', Tool.eqCurve),
+    FlyItem('fbridge', 'Bridge Curve', 'Bridge Curve', Tool.bridge),
   ],
   'circle': [
     FlyItem('fcirclecp', 'Circle', 'Center Point', Tool.circleCenter),
-    FlyItem('fcircletan', 'Circle', 'Tangent'),
-    FlyItem('fellipse', 'Ellipse', 'Ellipse'),
+    FlyItem('fcircletan', 'Circle', 'Tangent', Tool.circleTangent),
+    FlyItem('fellipse', 'Ellipse', 'Ellipse', Tool.ellipse),
   ],
   'arc': [
     FlyItem('farc3', 'Arc', 'Three Point', Tool.arcThreePoint),
-    FlyItem('farctan', 'Arc', 'Tangent'),
-    FlyItem('farccp', 'Arc', 'Center Point'),
+    FlyItem('farctan', 'Arc', 'Tangent', Tool.arcTangent),
+    FlyItem('farccp', 'Arc', 'Center Point', Tool.arcCenter),
   ],
   'rect': [
     FlyItem('frect2p', 'Rectangle', 'Two Point', Tool.rectTwoPoint),
-    FlyItem('frect3p', 'Rectangle', 'Three Point'),
-    FlyItem('frect2pc', 'Rectangle', 'Two Point Center'),
-    FlyItem('frect3pc', 'Rectangle', 'Three Point Center'),
-    FlyItem('fslotcc', 'Slot', 'Center to Center'),
-    FlyItem('fslotov', 'Slot', 'Overall'),
-    FlyItem('fslotcp', 'Slot', 'Center Point'),
-    FlyItem('fslot3a', 'Slot', 'Three Point Arc'),
-    FlyItem('fslotcpa', 'Slot', 'Center Point Arc'),
-    FlyItem('fpolygon', 'Polygon', 'Polygon'),
+    FlyItem('frect3p', 'Rectangle', 'Three Point', Tool.rect3P),
+    FlyItem('frect2pc', 'Rectangle', 'Two Point Center', Tool.rect2PC),
+    FlyItem('frect3pc', 'Rectangle', 'Three Point Center', Tool.rect3PC),
+    FlyItem('fslotcc', 'Slot', 'Center to Center', Tool.slotCC),
+    FlyItem('fslotov', 'Slot', 'Overall', Tool.slotOverall),
+    FlyItem('fslotcp', 'Slot', 'Center Point', Tool.slotCP),
+    FlyItem('fslot3a', 'Slot', 'Three Point Arc', Tool.slot3A),
+    FlyItem('fslotcpa', 'Slot', 'Center Point Arc', Tool.slotCPA),
+    FlyItem('fpolygon', 'Polygon', 'Polygon', Tool.polygon),
   ],
   'fillet': [
-    FlyItem('ffillet', 'Fillet', ''),
-    FlyItem('fchamfer', 'Chamfer', ''),
+    FlyItem('ffillet', 'Fillet', '', Tool.fillet),
+    FlyItem('fchamfer', 'Chamfer', '', Tool.chamfer),
   ],
   'text': [
     FlyItem('ftext', 'Text', ''),
     FlyItem('fgtext', 'Geometry Text', ''),
   ],
+};
+
+/// Which flyout group a tool belongs to (for the active highlight on the
+/// big ribbon buttons). Esc clears the tool and thus the highlight.
+const _toolGroup = <Tool, String>{
+  Tool.line: 'line', Tool.lineMid: 'line', Tool.splineCV: 'line',
+  Tool.splineInterp: 'line', Tool.eqCurve: 'line', Tool.bridge: 'line',
+  Tool.circleCenter: 'circle', Tool.circleTangent: 'circle',
+  Tool.ellipse: 'circle',
+  Tool.arcThreePoint: 'arc', Tool.arcTangent: 'arc', Tool.arcCenter: 'arc',
+  Tool.rectTwoPoint: 'rect', Tool.rect3P: 'rect', Tool.rect2PC: 'rect',
+  Tool.rect3PC: 'rect', Tool.slotCC: 'rect', Tool.slotOverall: 'rect',
+  Tool.slotCP: 'rect', Tool.slot3A: 'rect', Tool.slotCPA: 'rect',
+  Tool.polygon: 'rect',
+  Tool.fillet: 'fillet', Tool.chamfer: 'fillet',
+  Tool.point: 'point',
 };
 
 /// Ribbon widget. Flyout state lives here; flyouts render in an Overlay
@@ -107,7 +124,7 @@ class _RibbonState extends State<Ribbon> {
             items: items,
             onPick: (it) {
               closeFly();
-              if (it.tool != null) widget.app.selectTool(it.tool!);
+              if (it.tool != null) _startTool(it.tool!);
             },
           ),
         ),
@@ -115,6 +132,132 @@ class _RibbonState extends State<Ribbon> {
     );
     Overlay.of(context).insert(_fly!);
     setState(() => _flyId = id);
+  }
+
+  /// Starts a tool; asks for parameters first where Inventor would
+  /// (polygon sides, fillet radius, chamfer distance, equation + range).
+  Future<void> _startTool(Tool t) async {
+    final app = widget.app;
+    switch (t) {
+      case Tool.polygon:
+        final v = await _numDialog('Polygon', [('Sides', '6')]);
+        if (v == null) return;
+        app.toolParams = {'sides': v[0]};
+        break;
+      case Tool.fillet:
+        final v = await _numDialog('Fillet', [('Radius', '5')]);
+        if (v == null) return;
+        app.toolParams = {'radius': v[0]};
+        break;
+      case Tool.chamfer:
+        final v = await _numDialog('Chamfer', [('Distance', '5')]);
+        if (v == null) return;
+        app.toolParams = {'dist': v[0]};
+        break;
+      case Tool.eqCurve:
+        final r = await _equationDialog();
+        if (r == null) return;
+        app.toolExpr = r.$1;
+        app.toolParams = {'x0': r.$2, 'x1': r.$3};
+        break;
+      default:
+        app.toolParams = {};
+    }
+    app.selectTool(t);
+  }
+
+  Future<List<double>?> _numDialog(
+      String title, List<(String, String)> fields) async {
+    final ctrls = [for (final f in fields) TextEditingController(text: f.$2)];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.fly,
+        title: Text(title, style: ts(14, Colors.white, w: FontWeight.w600)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          for (var i = 0; i < fields.length; i++)
+            TextField(
+              controller: ctrls[i],
+              autofocus: i == 0,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              style: ts(13, T.text),
+              decoration: InputDecoration(
+                  labelText: fields[i].$1,
+                  labelStyle: ts(12, T.dim)),
+              onSubmitted: (_) => Navigator.pop(ctx, true),
+            ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel', style: ts(12.5, T.dim))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('OK', style: ts(12.5, T.blue))),
+        ],
+      ),
+    );
+    if (ok != true) return null;
+    final out = <double>[];
+    for (final c in ctrls) {
+      final v = double.tryParse(c.text.replaceAll(',', '.'));
+      if (v == null) return null;
+      out.add(v);
+    }
+    return out;
+  }
+
+  Future<(String, double, double)?> _equationDialog() async {
+    final expr = TextEditingController(text: 'sin(x)*5');
+    final x0 = TextEditingController(text: '0');
+    final x1 = TextEditingController(text: '20');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.fly,
+        title: Text('Equation Curve',
+            style: ts(14, Colors.white, w: FontWeight.w600)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: expr,
+              autofocus: true,
+              style: ts(13, T.text),
+              decoration: InputDecoration(
+                  labelText: 'y = f(x)   (sin, cos, sqrt, ^, pi, ...)',
+                  labelStyle: ts(12, T.dim))),
+          Row(children: [
+            Expanded(
+                child: TextField(
+                    controller: x0,
+                    style: ts(13, T.text),
+                    decoration: InputDecoration(
+                        labelText: 'x min', labelStyle: ts(12, T.dim)))),
+            const SizedBox(width: 10),
+            Expanded(
+                child: TextField(
+                    controller: x1,
+                    style: ts(13, T.text),
+                    decoration: InputDecoration(
+                        labelText: 'x max', labelStyle: ts(12, T.dim)))),
+          ]),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel', style: ts(12.5, T.dim))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('OK', style: ts(12.5, T.blue))),
+        ],
+      ),
+    );
+    if (ok != true) return null;
+    final a = double.tryParse(x0.text.replaceAll(',', '.'));
+    final b = double.tryParse(x1.text.replaceAll(',', '.'));
+    if (a == null || b == null || b <= a) return null;
+    if (ExprParser(expr.text).parse() == null) return null;
+    return (expr.text, a, b);
   }
 
   @override
@@ -173,21 +316,28 @@ class _RibbonState extends State<Ribbon> {
           label: 'Create',
           arrow: true,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _Big(id: 'line', label: 'Line', icon: IC['line34']!, onFly: toggleFly),
-            _Big(id: 'circle', label: 'Circle', icon: IC['circle34']!, onFly: toggleFly),
-            _Big(id: 'arc', label: 'Arc', icon: IC['arc34']!, onFly: toggleFly),
-            _Big(id: 'rect', label: 'Rectangle', icon: IC['rect34']!, onFly: toggleFly),
+            _Big(id: 'line', label: 'Line', icon: IC['line34']!, onFly: toggleFly,
+                active: _toolGroup[app.tool] == 'line'),
+            _Big(id: 'circle', label: 'Circle', icon: IC['circle34']!, onFly: toggleFly,
+                active: _toolGroup[app.tool] == 'circle'),
+            _Big(id: 'arc', label: 'Arc', icon: IC['arc34']!, onFly: toggleFly,
+                active: _toolGroup[app.tool] == 'arc'),
+            _Big(id: 'rect', label: 'Rectangle', icon: IC['rect34']!, onFly: toggleFly,
+                active: _toolGroup[app.tool] == 'rect'),
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _SmallRow(icon: IC['fillet18']!, label: 'Fillet', flyId: 'fillet', onFly: toggleFly),
+                    _SmallRow(icon: IC['fillet18']!, label: 'Fillet', flyId: 'fillet', onFly: toggleFly,
+                        active: _toolGroup[app.tool] == 'fillet'),
                     const SizedBox(height: 2),
                     _SmallRow(icon: IC['text18']!, label: 'Text', flyId: 'text', onFly: toggleFly),
                     const SizedBox(height: 2),
-                    _SmallRow(icon: IC['point18']!, label: 'Point'),
+                    _SmallRow(icon: IC['point18']!, label: 'Point',
+                        onTap: () => _startTool(Tool.point),
+                        active: app.tool == Tool.point),
                   ]),
             ),
           ]),
@@ -335,11 +485,13 @@ class _Hover extends StatefulWidget {
   final VoidCallback? onTap;
   final Color hoverBg;
   final bool hoverBorder;
+  final bool activeHighlight; // Inventor-style: active tool stays lit
   const _Hover(
       {required this.child,
       this.onTap,
       this.hoverBg = T.hover6,
-      this.hoverBorder = true});
+      this.hoverBorder = true,
+      this.activeHighlight = false});
   @override
   State<_Hover> createState() => _HoverState();
 }
@@ -348,6 +500,7 @@ class _HoverState extends State<_Hover> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final act = widget.activeHighlight;
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
@@ -355,10 +508,16 @@ class _HoverState extends State<_Hover> {
         onTap: widget.onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: _h ? widget.hoverBg : Colors.transparent,
+            color: act
+                ? const Color(0xFF3A4149)
+                : (_h ? widget.hoverBg : Colors.transparent),
             borderRadius: BorderRadius.circular(2),
             border: Border.all(
-                color: _h && widget.hoverBorder ? T.border10 : Colors.transparent),
+                color: act
+                    ? const Color(0xFF5A88B5)
+                    : (_h && widget.hoverBorder
+                        ? T.border10
+                        : Colors.transparent)),
           ),
           child: widget.child,
         ),
@@ -373,12 +532,15 @@ class _Big extends StatelessWidget {
   final String icon;
   final void Function(String, BuildContext)? onFly;
   final bool showDd;
-  const _Big({this.id, required this.label, required this.icon, this.onFly})
+  final bool active;
+  const _Big({this.id, required this.label, required this.icon, this.onFly,
+      this.active = false})
       : showDd = true;
   const _Big.plain({required this.label, required this.icon})
       : id = null,
         onFly = null,
-        showDd = false;
+        showDd = false,
+        active = false;
 
   @override
   Widget build(BuildContext context) {
@@ -386,6 +548,7 @@ class _Big extends StatelessWidget {
       return SizedBox(
         width: 62,
         child: _Hover(
+          activeHighlight: active,
           onTap: id != null && onFly != null ? () => onFly!(id!, ctx) : null,
           child: Padding(
             padding: const EdgeInsets.only(top: 4),
@@ -454,8 +617,11 @@ class _SmallRow extends StatelessWidget {
   final String label;
   final String? flyId;
   final void Function(String, BuildContext)? onFly;
+  final VoidCallback? onTap;
+  final bool active;
   const _SmallRow(
-      {required this.icon, required this.label, this.flyId, this.onFly});
+      {required this.icon, required this.label, this.flyId, this.onFly,
+      this.onTap, this.active = false});
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -463,6 +629,8 @@ class _SmallRow extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         _Hover(
           hoverBorder: false,
+          activeHighlight: active,
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -622,8 +790,12 @@ class _FlyMenu extends StatelessWidget {
   const _FlyMenu({required this.items, required this.onPick});
   @override
   Widget build(BuildContext context) {
+    // Material AND container both paint T.fly so the menu is guaranteed
+    // opaque on iOS (was rendering see-through on device).
     return Material(
-      color: Colors.transparent,
+      color: T.fly,
+      elevation: 8,
+      shadowColor: const Color(0x8C000000),
       child: Container(
         constraints: const BoxConstraints(minWidth: 186),
         decoration: BoxDecoration(
@@ -676,7 +848,7 @@ class _FlyRowState extends State<_FlyRow> {
               ? const EdgeInsets.fromLTRB(10, 8, 14, 8)
               : const EdgeInsets.fromLTRB(10, 7, 14, 7),
           decoration: BoxDecoration(
-            color: (_h || widget.first) ? T.flyHov : Colors.transparent,
+            color: (_h || widget.first) ? T.flyHov : T.fly,
             border: widget.last
                 ? null
                 : const Border(

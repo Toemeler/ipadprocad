@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../tools.dart';
 import '../ffi/qcad_engine.dart';
 import '../theme.dart';
 
@@ -54,6 +55,12 @@ class _Viewport2DState extends State<Viewport2D> {
           if (event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.escape) {
             app.cancelTool();
+            return KeyEventResult.handled;
+          }
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.enter ||
+                  event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+            app.finishVariableTool();
             return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -159,58 +166,32 @@ class _ViewportPainter extends CustomPainter {
     }
 
     // ---- in-progress tool preview (blue, like the accent) ----
-    if (app.tool != Tool.none && app.toolPoints.isNotEmpty) {
+    if (app.tool != Tool.none &&
+        (app.toolPoints.isNotEmpty || app.hoverWorld != null)) {
       final prev = Paint()
         ..color = T.blue
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
       final pts = app.toolPoints;
       final hov = app.hoverWorld;
-      switch (app.tool) {
-        case Tool.line:
-          if (hov != null) {
-            canvas.drawLine(map(pts.last.dx, pts.last.dy),
-                map(hov.dx, hov.dy), prev);
-          }
-          break;
-        case Tool.circleCenter:
-          if (hov != null) {
-            final c = map(pts[0].dx, pts[0].dy);
-            canvas.drawCircle(c, (hov - pts[0]).distance * app.zoom, prev);
-          }
-          break;
-        case Tool.rectTwoPoint:
-          if (hov != null) {
-            final a = map(pts[0].dx, pts[0].dy);
-            final b = map(hov.dx, hov.dy);
-            canvas.drawRect(Rect.fromPoints(a, b), prev);
-          }
-          break;
-        case Tool.arcThreePoint:
-          if (pts.length == 1 && hov != null) {
-            canvas.drawLine(
-                map(pts[0].dx, pts[0].dy), map(hov.dx, hov.dy), prev);
-          } else if (pts.length == 2 && hov != null) {
-            final arc = arcFrom3Points(pts[0], pts[1], hov);
-            if (arc != null) {
-              paintGeo(
-                  canvas,
-                  Geo(Geo.arc, [
-                    arc.$1.dx,
-                    arc.$1.dy,
-                    arc.$2,
-                    arc.$3,
-                    arc.$4,
-                    arc.$5 ? 1.0 : 0.0
-                  ]),
-                  map,
-                  app.zoom,
-                  prev);
-            }
-          }
-          break;
-        case Tool.none:
-          break;
+      // ONE source of truth: preview = the exact geometry the commit would
+      // produce with the hover point appended.
+      final probe = [...pts, if (hov != null) hov];
+      final s2 = app.current;
+      final geos = s2 == null
+          ? null
+          : buildToolGeometry(app.tool, probe,
+              existing: s2.geometry,
+              params: app.toolParams,
+              expr: app.toolExpr);
+      if (geos != null) {
+        for (final g in geos) {
+          paintGeo(canvas, g, map, app.zoom, prev);
+        }
+      } else if (hov != null && pts.isNotEmpty) {
+        // not enough points yet: rubber line from the last pick
+        canvas.drawLine(
+            map(pts.last.dx, pts.last.dy), map(hov.dx, hov.dy), prev);
       }
       // committed picks as blue grips
       for (final pt in pts) {

@@ -75,7 +75,10 @@ class IpadProCadApp extends StatelessWidget {
         ),
       ),
       home: Scaffold(
-        body: AnimatedBuilder(
+        // Apple status bar (time etc.) must not overlap the ribbon.
+        body: SafeArea(
+          bottom: false,
+          child: AnimatedBuilder(
           animation: app,
           builder: (context, _) {
             return Column(children: [
@@ -93,7 +96,8 @@ class IpadProCadApp extends StatelessWidget {
               ),
               BottomTabBar(app: app),
             ]);
-          },
+            },
+          ),
         ),
       ),
     );
