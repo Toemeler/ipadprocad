@@ -566,10 +566,64 @@ List<Geo>? _arcSlot((Offset, double, double, double, bool) arc, double r) {
   return x[2] > 1e-9 ? (Offset(x[0], x[1]), x[2]) : null;
 }
 
-/// Fillet arc / chamfer line between the two picked lines. NOTE: the QCAD
-/// C-API has no entity modification yet, so the picked lines are NOT
-/// trimmed — the fillet/chamfer geometry is added on top (trim comes with
-/// the Modify milestone).
+/// Nearest LINE entity INDEX (fillet/chamfer must edit the originals).
+int? _lineNearIdx(List<Geo> geos, Offset p) {
+  var best = -1;
+  var bd = _snap * 4;
+  for (var i = 0; i < geos.length; i++) {
+    if (geos[i].type != Geo.line) continue;
+    final d = _distToSegment(p, Offset(geos[i].data[0], geos[i].data[1]),
+        Offset(geos[i].data[2], geos[i].data[3]));
+    if (d < bd) {
+      bd = d;
+      best = i;
+    }
+  }
+  return best < 0 ? null : best;
+}
+
+/// Fillet/chamfer INCLUDING Inventor's automatic trim: the two picked lines
+/// are shortened back to the tangent points. Returns the geometry to add and
+/// the replacements for the picked lines (by entity index).
+(List<Geo>, Map<int, Geo>)? filletChamferFull(
+    List<Geo> geos, Offset h1, Offset h2,
+    {required double radius, required bool chamfer}) {
+  final i1 = _lineNearIdx(geos, h1), i2 = _lineNearIdx(geos, h2);
+  if (i1 == null || i2 == null || i1 == i2) return null;
+  final made = _filletChamfer(geos, h1, h2, radius: radius, chamfer: chamfer);
+  if (made == null || made.isEmpty) return null;
+  // the ends of the new arc/chamfer line ARE the tangent points
+  final g0 = made.first;
+  late final Offset t1, t2;
+  if (g0.type == Geo.line) {
+    t1 = Offset(g0.data[0], g0.data[1]);
+    t2 = Offset(g0.data[2], g0.data[3]);
+  } else {
+    final c = Offset(g0.data[0], g0.data[1]);
+    t1 = c + Offset(math.cos(g0.data[3]), math.sin(g0.data[3])) * g0.data[2];
+    t2 = c + Offset(math.cos(g0.data[4]), math.sin(g0.data[4])) * g0.data[2];
+  }
+  Geo trim(int idx, Offset tp) {
+    final g = geos[idx];
+    final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+    // the endpoint nearer the tangent point is the one inside the corner
+    return (a - tp).distance <= (b - tp).distance
+        ? Geo(Geo.line, [tp.dx, tp.dy, b.dx, b.dy])
+        : Geo(Geo.line, [a.dx, a.dy, tp.dx, tp.dy]);
+  }
+
+  // match each tangent point to the line it belongs to
+  final g1 = geos[i1];
+  final d1a = _distToSegment(t1, Offset(g1.data[0], g1.data[1]),
+      Offset(g1.data[2], g1.data[3]));
+  final d1b = _distToSegment(t2, Offset(g1.data[0], g1.data[1]),
+      Offset(g1.data[2], g1.data[3]));
+  final tp1 = d1a <= d1b ? t1 : t2;
+  final tp2 = d1a <= d1b ? t2 : t1;
+  return (made, {i1: trim(i1, tp1), i2: trim(i2, tp2)});
+}
+
+/// Fillet arc / chamfer line between the two picked lines.
 List<Geo>? _filletChamfer(List<Geo> geos, Offset h1, Offset h2,
     {required double radius, required bool chamfer}) {
   final l1 = _lineNear(geos, h1), l2 = _lineNear(geos, h2);

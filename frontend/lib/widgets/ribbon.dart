@@ -753,6 +753,7 @@ class _ConGrid extends StatelessWidget {
   bool _isActive(String key) {
     if (key == 'autodim') return app.autoConstrain;
     if (key == 'showcons') return app.showConstraints;
+    if (key == 'conset') return app.showDof;
     final t = _toolOf[key];
     return t != null && app.tool == t;
   }
@@ -766,7 +767,10 @@ class _ConGrid extends StatelessWidget {
       app.toggleShowConstraints();
       return;
     }
-    if (key == 'conset') return; // settings dialog: later milestone
+    if (key == 'conset') {
+      app.toggleShowDof(); // Inventor: View > Degrees of Freedom
+      return;
+    }
     final t = _toolOf[key];
     if (t != null) onTool(t);
   }

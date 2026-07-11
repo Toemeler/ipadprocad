@@ -18,6 +18,7 @@ import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../snap.dart';
+import '../solver.dart';
 import '../tools.dart';
 import '../theme.dart';
 
@@ -158,14 +159,48 @@ class _Viewport2DState extends State<Viewport2D> {
   }
 
   Future<void> _showDimDialog(Constraint d) async {
+    final app = widget.app;
+    if (app.pendingDimRedundant) {
+      final driven = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: T.fly,
+          title: const Text('Over-constrained',
+              style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600)),
+          content: const Text(
+              'Adding this dimension will over-constrain the sketch. '
+              'Keep it as a driven (reference) dimension?',
+              style: TextStyle(fontSize: 13, color: T.text)),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel',
+                    style: TextStyle(fontSize: 12.5, color: T.dim))),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Driven',
+                    style: TextStyle(fontSize: 12.5, color: T.blue))),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (driven == true) {
+        app.confirmDimension(null, driven: true);
+      } else {
+        app.cancelDimension();
+      }
+      return;
+    }
     final v = await _askValue(
-        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension',
-        d.value ?? 0);
+        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0);
     if (!mounted) return;
     if (v == null) {
-      widget.app.cancelDimension();
+      app.cancelDimension();
     } else {
-      widget.app.confirmDimension(v);
+      app.confirmDimension(v);
     }
   }
 
@@ -374,9 +409,36 @@ class _ViewportPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.2;
       final gs = app.displayGeometry(s);
+      // Inventor renders a fully constrained sketch in a distinct colour.
+      final full = app.analysis?.fullyConstrained ?? false;
+      if (full) p.color = const Color(0xFF66B2A0);
       for (var i = 0; i < gs.length; i++) {
         paintGeo(canvas, gs[i], map, app.zoom,
             app.selection.contains(i) ? sel : p);
+      }
+      // Degrees-of-freedom glyphs: arrows on every point that can still move
+      // (they vanish one by one as constraints are added).
+      final an = app.analysis;
+      if (app.showDof && app.tool == Tool.none && an != null && !full) {
+        final dp = Paint()
+          ..color = const Color(0xFFEFD37A)
+          ..strokeWidth = 1.2;
+        for (final (e, pt) in an.freePoints) {
+          if (e >= gs.length || pt >= ptCount(gs[e])) continue;
+          final o = map(getPt(gs[e], pt).dx, getPt(gs[e], pt).dy);
+          for (final d in const [
+            Offset(1, 0),
+            Offset(-1, 0),
+            Offset(0, 1),
+            Offset(0, -1)
+          ]) {
+            final tip = o + d * 9;
+            canvas.drawLine(o + d * 3, tip, dp);
+            final n = Offset(-d.dy, d.dx);
+            canvas.drawLine(tip, tip - d * 3 + n * 2, dp);
+            canvas.drawLine(tip, tip - d * 3 - n * 2, dp);
+          }
+        }
       }
       // Trim preview: draw the picked entity red, then repaint what survives
       // in the normal colour — the red remainder is exactly what gets cut.
@@ -580,6 +642,70 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    // ---- cursor constraint hints (Inventor shows the symbol on the cursor
+    // for every constraint it is about to apply automatically) ----
+    if (s != null && app.hoverWorld != null) {
+      final hints = app.inferredHints(s, app.hoverWorld!);
+      if (hints.isNotEmpty) {
+        final o = map(app.hoverWorld!.dx, app.hoverWorld!.dy) +
+            const Offset(14, 10);
+        for (var i = 0; i < hints.length; i++) {
+          final tp = TextPainter(
+              text: TextSpan(
+                  text: constraintLabel(hints[i]),
+                  style: const TextStyle(
+                      fontSize: 10, color: Color(0xFFEFD37A))),
+              textDirection: TextDirection.ltr)
+            ..layout();
+          final at = o + Offset(i * 16.0, 0);
+          canvas.drawRect(
+              Rect.fromLTWH(at.dx - 2, at.dy - 1, tp.width + 4, tp.height + 2),
+              Paint()..color = const Color(0xCC333333));
+          tp.paint(canvas, at);
+        }
+      }
+    }
+
+    // ---- sketch status: DOF count / Fully Constrained (Inventor status bar)
+    if (s != null && app.analysis != null) {
+      final an = app.analysis!;
+      final txt = an.fullyConstrained
+          ? 'Fully Constrained'
+          : '${an.dof} degree${an.dof == 1 ? '' : 's'} of freedom';
+      final tp = TextPainter(
+          text: TextSpan(
+              text: txt,
+              style: TextStyle(
+                  fontSize: 11,
+                  color: an.fullyConstrained
+                      ? const Color(0xFF66B2A0)
+                      : T.dim)),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      tp.paint(canvas, Offset(10, size.height - tp.height - 8));
+    }
+
+    // ---- transient notice (over-constrained warnings) ----
+    if (app.message != null) {
+      final tp = TextPainter(
+          text: TextSpan(
+              text: app.message!,
+              style: const TextStyle(fontSize: 12, color: Color(0xFFF2D6A2))),
+          textDirection: TextDirection.ltr)
+        ..layout(maxWidth: size.width - 60);
+      final box = Rect.fromLTWH((size.width - tp.width) / 2 - 12,
+          size.height - tp.height - 44, tp.width + 24, tp.height + 12);
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(box, const Radius.circular(4)),
+          Paint()..color = const Color(0xE6402F1F));
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(box, const Radius.circular(4)),
+          Paint()
+            ..color = const Color(0xFF8A6A3A)
+            ..style = PaintingStyle.stroke);
+      tp.paint(canvas, box.topLeft + const Offset(12, 6));
+    }
+
     // ---- projected center point (YELLOW, on top, interactive) ----
     if (app.inEditMode) {
       final o = map(0, 0);
@@ -644,7 +770,9 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       canvas.drawLine(da, db, p); // dimension line
       _arrow(canvas, da, u, p);
       _arrow(canvas, db, -u, p);
-      label = v.toStringAsFixed(2);
+      label = c.driven
+          ? '(${v.toStringAsFixed(2)})'
+          : v.toStringAsFixed(2);
       t = (da + db) / 2 + n * (off >= 0 ? 10 : -10);
       break;
     case 'rad':
@@ -656,6 +784,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       if (d.distance < 1e-6) return;
       canvas.drawLine(ce, t, p);
       label = (c.dimKind == 'rad' ? 'R' : '\u2300') + v.toStringAsFixed(2);
+      if (c.driven) label = '($label)';
       break;
     case 'ang':
       if (c.ents.length < 2 ||
@@ -663,6 +792,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
         return;
       }
       label = '${v.toStringAsFixed(1)}\u00b0';
+      if (c.driven) label = '($label)';
       break;
     default:
       return;

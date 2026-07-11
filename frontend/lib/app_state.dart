@@ -13,6 +13,7 @@ import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'modify.dart';
 import 'snap.dart';
+import 'solver.dart';
 import 'theme.dart';
 import 'tools.dart';
 
@@ -180,6 +181,7 @@ class AppState extends ChangeNotifier {
         if (cf.existsSync()) {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
         }
+        analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
     }
@@ -250,6 +252,26 @@ class AppState extends ChangeNotifier {
   int? modEntity; // entity picked in the first phase of Offset
   bool autoConstrain = true; // Constrain panel: Automatic toggle
   bool showConstraints = true; // Constrain panel: Show Constraints toggle
+  bool showDof = true; // Inventor: Degrees of Freedom glyphs
+  SketchAnalysis? analysis; // DOF + which points may still move
+  String? message; // transient notice (over-constrained warnings)
+
+  void toggleShowDof() {
+    showDof = !showDof;
+    notifyListeners();
+  }
+
+  void toast(String m) {
+    message = m;
+    Log.i('ui', 'notice: $m');
+    notifyListeners();
+    Future.delayed(const Duration(seconds: 4), () {
+      if (message == m) {
+        message = null;
+        notifyListeners();
+      }
+    });
+  }
 
   void toggleAutoConstrain() {
     autoConstrain = !autoConstrain;
@@ -378,7 +400,10 @@ class AppState extends ChangeNotifier {
       }
     }
     _committed(s);
-    Log.i('engine', 'rebuild done, geometry=${s.geometry.length}');
+    _refreshDriven(s);
+    analysis = analyzeSketch(s.geometry, s.constraints);
+    Log.i('engine',
+        'rebuild done, geometry=${s.geometry.length}, dof=${analysis?.dof}');
   }
 
   // ---- tools ----
@@ -634,6 +659,18 @@ class AppState extends ChangeNotifier {
     return best;
   }
 
+  /// Adds a geometric constraint unless it would over-constrain the sketch —
+  /// Inventor shows exactly this warning and discards the constraint.
+  bool _addConstraint(SketchModel s, Constraint c) {
+    if (wouldOverconstrain(s.geometry, s.constraints, c)) {
+      toast('Adding this constraint will over-constrain the sketch.');
+      return false;
+    }
+    s.constraints.add(c);
+    _solveAndRebuild(s);
+    return true;
+  }
+
   void _solveAndRebuild(SketchModel s, [List<Geo>? base]) {
     final gs = List<Geo>.from(base ?? s.geometry);
     solveConstraints(gs, s.constraints);
@@ -648,10 +685,8 @@ class AppState extends ChangeNotifier {
         if (pt == null) return;
         conPts.add(pt);
         if (conPts.length == 2) {
-          s.constraints
-              .add(Constraint(CType.coincident, pts: List.of(conPts)));
+          _addConstraint(s, Constraint(CType.coincident, pts: List.of(conPts)));
           conPts.clear();
-          _solveAndRebuild(s);
         }
         return;
       case Tool.cHorizontal:
@@ -659,23 +694,26 @@ class AppState extends ChangeNotifier {
         final t = tool == Tool.cHorizontal ? CType.horizontal : CType.vertical;
         // Inventor: a line -> immediately; two points -> aligned points
         if (ent != null && s.geometry[ent].type == Geo.line && conPts.isEmpty) {
-          s.constraints.add(Constraint(t, ents: [ent]));
-          _solveAndRebuild(s);
+          _addConstraint(s, Constraint(t, ents: [ent]));
           return;
         }
         if (pt == null) return;
         conPts.add(pt);
         if (conPts.length == 2) {
-          s.constraints.add(Constraint(t, pts: List.of(conPts)));
+          _addConstraint(s, Constraint(t, pts: List.of(conPts)));
           conPts.clear();
-          _solveAndRebuild(s);
         }
         return;
       case Tool.cFix:
+        // Fix grounds geometry WHERE IT IS, so the anchor is captured now.
         if (pt != null) {
-          s.constraints.add(Constraint(CType.fix, pts: [pt]));
+          final q = getPt(s.geometry[pt.ent], pt.pt);
+          _addConstraint(s,
+              Constraint(CType.fix, pts: [pt], anchors: [q.dx, q.dy]));
         } else if (ent != null) {
-          s.constraints.add(Constraint(CType.fix, ents: [ent]));
+          _addConstraint(s,
+              Constraint(CType.fix, ents: [ent],
+                  anchors: List<double>.from(s.geometry[ent].data)));
         }
         return;
       case Tool.cSymmetric:
@@ -685,10 +723,9 @@ class AppState extends ChangeNotifier {
           return;
         }
         if (ent == null || s.geometry[ent].type != Geo.line) return;
-        s.constraints.add(Constraint(CType.symmetric,
-            pts: List.of(conPts), ents: [ent]));
+        _addConstraint(s,
+            Constraint(CType.symmetric, pts: List.of(conPts), ents: [ent]));
         conPts.clear();
-        _solveAndRebuild(s);
         return;
       case Tool.cCollinear:
       case Tool.cConcentric:
@@ -710,9 +747,31 @@ class AppState extends ChangeNotifier {
             Tool.cSmooth: CType.smooth,
             Tool.cEqual: CType.equal,
           };
-          s.constraints.add(Constraint(map[tool]!, ents: List.of(conEnts)));
+          final type = map[tool]!;
+          if (type == CType.tangent) {
+            final t1 = s.geometry[conEnts[0]].type;
+            final t2 = s.geometry[conEnts[1]].type;
+            bool round(int t) => t == Geo.arc || t == Geo.circle;
+            if (!round(t1) && !round(t2)) {
+              toast('Tangent needs at least one curved entity.');
+              conEnts.clear();
+              return;
+            }
+          }
+          if (type == CType.smooth) {
+            // G2 means equal curvature; a straight line has none, so Inventor's
+            // Smooth only makes sense between two curved entities.
+            final t1 = s.geometry[conEnts[0]].type;
+            final t2 = s.geometry[conEnts[1]].type;
+            bool curved(int t) => t == Geo.arc || t == Geo.circle;
+            if (!curved(t1) || !curved(t2)) {
+              toast('Smooth (G2) needs two curved entities.');
+              conEnts.clear();
+              return;
+            }
+          }
+          _addConstraint(s, Constraint(type, ents: List.of(conEnts)));
           conEnts.clear();
-          _solveAndRebuild(s);
         }
         return;
       default:
@@ -790,6 +849,28 @@ class AppState extends ChangeNotifier {
     pendingDim = d;
   }
 
+  /// Constraints that WOULD be applied if the current preview were committed
+  /// — Inventor shows these as symbols next to the cursor while sketching.
+  List<CType> inferredHints(SketchModel s, Offset hover) {
+    if (!autoConstrain || tool == Tool.none || toolPoints.isEmpty) {
+      return const [];
+    }
+    if (modifyTools.contains(tool) || constraintTools.contains(tool)) {
+      return const [];
+    }
+    final geos = buildToolGeometry(tool, [...toolPoints, hover],
+        existing: s.geometry, params: toolParams, expr: toolExpr);
+    if (geos == null || geos.isEmpty) return const [];
+    final gs = [...s.geometry, ...geos];
+    final out = <CType>[];
+    for (var i = s.geometry.length; i < gs.length; i++) {
+      for (final c in inferConstraints(gs, i)) {
+        if (!out.contains(c.type)) out.add(c.type);
+      }
+    }
+    return out;
+  }
+
   /// Trim hover preview: the entity plus what would survive the cut, so the
   /// viewport can paint the doomed span red (Inventor's trim highlight).
   (Geo, List<Geo>)? trimPreview(Offset w) {
@@ -800,8 +881,18 @@ class AppState extends ChangeNotifier {
     return (s.geometry[i], trimEntity(s.geometry, i, w));
   }
 
-  /// Called by the viewport once the user confirmed the dimension value.
-  void confirmDimension(double? value) {
+  /// True when the pending dimension would over-constrain the sketch — the
+  /// viewport then offers Inventor's driven (reference) dimension.
+  bool get pendingDimRedundant {
+    final s = current;
+    final d = pendingDim;
+    if (s == null || d == null) return false;
+    return wouldOverconstrain(s.geometry, s.constraints, d);
+  }
+
+  /// Called by the viewport once the user confirmed the dimension.
+  /// [driven] keeps it as a reference dimension (shown in parentheses).
+  void confirmDimension(double? value, {bool driven = false}) {
     final s = current;
     final d = pendingDim;
     pendingDim = null;
@@ -811,7 +902,10 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    d.value = value ?? measureDim(s.geometry, d);
+    d.driven = driven;
+    d.value = driven
+        ? measureDim(s.geometry, d)
+        : (value ?? measureDim(s.geometry, d));
     s.constraints.add(d);
     _solveAndRebuild(s);
     notifyListeners();
@@ -841,12 +935,52 @@ class AppState extends ChangeNotifier {
   void setDimensionValue(Constraint c, double v) {
     final s = current;
     if (s == null) return;
+    if (c.driven) {
+      toast('This is a driven (reference) dimension — it cannot be edited.');
+      return;
+    }
+    final old = c.value;
     c.value = v;
     _solveAndRebuild(s);
+    // a driving dimension must actually be reachable; if the solver could not
+    // satisfy it, roll back instead of leaving the sketch mangled
+    if ((measureDim(s.geometry, c) - v).abs() > 1e-3) {
+      c.value = old;
+      _solveAndRebuild(s);
+      toast('Value cannot be satisfied with the current constraints.');
+    }
     notifyListeners();
   }
 
+  /// Driven dimensions track the geometry, so refresh their measured values.
+  void _refreshDriven(SketchModel s) {
+    for (final c in s.constraints) {
+      if (c.type == CType.dimension && c.driven) {
+        c.value = measureDim(s.geometry, c);
+      }
+    }
+  }
+
   void _commitTool(SketchModel s) {
+    // Fillet/Chamfer edit the two picked lines as well: Inventor trims them
+    // back to the tangent points instead of leaving the corner sticking out.
+    if ((tool == Tool.fillet || tool == Tool.chamfer) &&
+        toolPoints.length >= 2) {
+      final res = filletChamferFull(s.geometry, toolPoints[0], toolPoints[1],
+          radius: toolParams[tool == Tool.fillet ? 'radius' : 'dist'] ?? 5,
+          chamfer: tool == Tool.chamfer);
+      toolPoints.clear();
+      if (res == null) {
+        toast('Pick two non-parallel lines that meet.');
+        return;
+      }
+      final gs = List<Geo>.from(s.geometry);
+      res.$2.forEach((i, g) => gs[i] = g);
+      gs.addAll(res.$1);
+      solveConstraints(gs, s.constraints);
+      _rebuildEngine(s, gs);
+      return;
+    }
     final geos = buildToolGeometry(tool, List.of(toolPoints),
         existing: s.geometry, params: toolParams, expr: toolExpr);
     if (geos != null) {
