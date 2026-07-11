@@ -492,6 +492,9 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' ios/Runner/Info.plist
+          # flutter create generates a template test referencing MyApp,
+          # which doesn't exist in our app -> would fail flutter analyze
+          rm -f test/widget_test.dart
           flutter pub get
           # Qt-iOS prebuilt objects require minos 14.0 -> raise everywhere.
           # (Target-level pbxproj settings override xcconfig, so patch pbxproj.)

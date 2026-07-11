@@ -11,10 +11,21 @@ import 'package:path_provider/path_provider.dart';
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'theme.dart';
+import 'tools.dart';
 
-/// Drawing tools with real backend support (M5 step 3). Every other ribbon
-/// button exists exactly as in the mock but has no function yet.
-enum Tool { none, line, circleCenter, rectTwoPoint, arcThreePoint }
+/// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
+/// (splines/ellipse/equation curves sampled to polylines — spline support in
+/// the core is deferred, see HANDOFF). Text/Geometry Text stay UI-only until
+/// the core's text module is enabled.
+enum Tool {
+  none,
+  line, lineMid, splineCV, splineInterp, eqCurve, bridge,
+  circleCenter, circleTangent, ellipse,
+  arcThreePoint, arcTangent, arcCenter,
+  rectTwoPoint, rect3P, rect2PC, rect3PC,
+  slotCC, slotOverall, slotCP, slot3A, slotCPA, polygon,
+  fillet, chamfer, point,
+}
 
 class SketchModel {
   final String name;
