@@ -511,7 +511,20 @@ jobs:
             [ -f "$QTIOS/lib/libQt6$c.a" ] && QTLIBS="$QTLIBS $QTIOS/lib/libQt6$c.a"
           done
           QTLIBS="$QTLIBS $(find "$QTIOS/lib" -maxdepth 1 -name 'libqt[a-z]*.a' ! -iname '*qios*' | sort | tr '\n' ' ')"
-          echo "Qt archives linked:"; echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
+          # Static Qt keeps qmltyperegistration + resource init code as loose
+          # object files under lib/objects-Release/<Component>_*/ which CMake
+          # links via INTERFACE properties. Without them: undefined
+          # QQml*Foreign::staticMetaObject (run 29143874907). Append them for
+          # exactly the components above.
+          QTOBJS=""
+          for c in Core Concurrent Gui Network Qml QmlMeta QmlModels QmlWorkerScript Svg Xml; do
+            for d in "$QTIOS/lib/objects-Release/${c}_"*; do
+              [ -d "$d" ] && QTOBJS="$QTOBJS $(find "$d" -name '*.o' | tr '\n' ' ')"
+            done
+          done
+          QTLIBS="$QTLIBS $QTOBJS"
+          echo "Qt extra objects: $(echo "$QTOBJS" | wc -w)"
+          echo "Qt archives linked:"; echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d' | grep '\.a$'
           printf '_qcad_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
           OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
