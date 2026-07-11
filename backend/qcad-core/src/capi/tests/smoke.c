@@ -57,6 +57,36 @@ int main(void) {
         printf("bbox: [%.3f, %.3f] .. [%.3f, %.3f]\n", minx, miny, maxx, maxy);
     }
 
+    /* --- M5: geometry query (qcad_entity_ids / qcad_entity_geometry) --- */
+    {
+        long long ids[16];
+        const int total = qcad_entity_ids(doc, NULL, 0);
+        CHECK(total == 4, "entity_ids total == 4");
+        const int got = qcad_entity_ids(doc, ids, 16);
+        CHECK(got == 4, "entity_ids fills buffer");
+        int type = -1;
+        double data[64];
+        /* first entity added was the line (ids ascend with insertion order) */
+        int need = qcad_entity_geometry(doc, ids[0], &type, data, 64);
+        CHECK(need == 4 && type == 1, "geometry: entity[0] is a line (4 doubles)");
+        CHECK(fabs(data[0] - 0.0) < 1e-9 && fabs(data[2] - 100.0) < 1e-9 &&
+              fabs(data[3] - 50.0) < 1e-9, "geometry: line coordinates match");
+        need = qcad_entity_geometry(doc, ids[1], &type, data, 64);
+        CHECK(need == 3 && type == 2 && fabs(data[2] - 25.0) < 1e-9,
+              "geometry: entity[1] is circle r=25");
+        need = qcad_entity_geometry(doc, ids[2], &type, data, 64);
+        CHECK(need == 6 && type == 3 && fabs(data[2] - 40.0) < 1e-9,
+              "geometry: entity[2] is arc r=40");
+        need = qcad_entity_geometry(doc, ids[3], &type, data, 64);
+        CHECK(need == 2 + 8 && type == 4 && data[0] == 1.0 && data[1] == 4.0,
+              "geometry: entity[3] is closed 4-vertex polyline");
+        /* sizing call: max_doubles = 0 must not write but return the need */
+        need = qcad_entity_geometry(doc, ids[3], &type, NULL, 0);
+        CHECK(need == 10, "geometry: sizing call (max=0) returns need");
+        CHECK(qcad_entity_geometry(doc, 999999, &type, data, 64) == -1,
+              "geometry: unknown id returns -1");
+    }
+
     /* Portable temp path: an iOS / simulator sandbox has no writable /tmp, so
      * honour TMPDIR (set by the OS and by `simctl spawn`) and fall back to /tmp
      * on hosts (Linux) where it is unset. Keeps the Linux smoke behaviour. */

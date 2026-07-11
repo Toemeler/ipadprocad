@@ -79,6 +79,30 @@ int qcad_bounding_box(const qcad_document *doc,
                       double *out_minx, double *out_miny,
                       double *out_maxx, double *out_maxy);
 
+/*
+ * List entity ids. Writes up to `max` ids (ascending) into `out_ids` (may be
+ * NULL if max is 0). Returns the TOTAL number of entities (call once with
+ * max=0 to size the buffer), or -1 on error.
+ */
+int qcad_entity_ids(const qcad_document *doc, long long *out_ids, int max);
+
+/*
+ * Geometry of one entity for rendering (M5).
+ *
+ * Entity type is written to *out_type:
+ *   1 = line      data: x1, y1, x2, y2                       (4 doubles)
+ *   2 = circle    data: cx, cy, r                            (3 doubles)
+ *   3 = arc       data: cx, cy, r, start, end, reversed(0/1) (6 doubles)
+ *   4 = polyline  data: closed(0/1), n, x1, y1, ... xn, yn   (2 + 2n doubles)
+ *   0 = other/unsupported (no data written)
+ *
+ * Writes at most `max_doubles` into `out_data` and returns the number of
+ * doubles the full geometry requires (call with max_doubles=0 to size the
+ * buffer). Returns -1 on error (unknown id, NULL doc/out_type).
+ */
+int qcad_entity_geometry(const qcad_document *doc, long long id,
+                         int *out_type, double *out_data, int max_doubles);
+
 /* ---- DXF I/O ---- */
 
 /* Load a DXF file from `path` into `doc` (adds to existing content). */

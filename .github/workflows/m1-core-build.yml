@@ -392,3 +392,174 @@ jobs:
             ci-sim-run.log
             ci-sim-build.log
           if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # M5 — Flutter app (1:1 UI port) linked against the QCAD core, packaged as an
+  # UNSIGNED IPA for sideloading (AltStore/Sideloadly re-sign on install).
+  #
+  # Link strategy: the combined static lib (libipadprocad.a) is force-loaded
+  # into the Runner binary and the qcad_* symbols are kept in the export trie
+  # (exported_symbols_list) so Dart's DynamicLibrary.process() can dlsym them.
+  # All Qt-for-iOS static archives from <qt-ios>/lib are appended; ld64 only
+  # extracts referenced members. The qios platform plugin is deliberately NOT
+  # linked (it interposes main() -> would hijack Flutter's main, see M3 notes).
+  #
+  # Honest-verdict notes:
+  #  - "M5 LINK CHECK" greps the built Runner binary for the C-API version
+  #    string literal, which survives stripping — proof the core is linked in.
+  #  - The Dart-FFI runtime smoke ("DART SMOKE: PASS (backend=qcad-ffi...)")
+  #    prints at app start ON DEVICE; it is NOT exercised by this job.
+  # ---------------------------------------------------------------------------
+  m5-flutter-ipa:
+    name: M5 Flutter iOS build + unsigned IPA
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6 (host, for tools)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'desktop'
+          dir: '${{ github.workspace }}/qt-host'
+          cache: true
+
+      - name: Capture host Qt path
+        id: qt_host
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Qt6 (iOS)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'ios'
+          dir: '${{ github.workspace }}/qt-ios'
+          cache: true
+
+      - name: Capture iOS Qt path
+        id: qt_ios
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure + build core & C-API (iOS device, arm64)
+        working-directory: backend/qcad-core
+        run: |
+          set -o pipefail
+          {
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_QT6=ON
+          cmake --build build -j -- -k 0
+          libtool -static -o release/libipadprocad.a \
+            release/libqcadcapi.a \
+            release/libqcadcore.a \
+            release/libqcadentity.a \
+            release/libqcadoperations.a \
+            plugins/libqcaddxf.a \
+            release/libdxflib.a
+          lipo -info release/libipadprocad.a
+          } 2>&1 | tee ../../ci-m5-core.log
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Scaffold iOS project (flutter create) + pub get
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          flutter --version
+          flutter create --platforms=ios --org com.ipadprocad --project-name ipadprocad .
+          flutter pub get
+          # Qt-iOS prebuilt objects require minos 14.0 -> raise everywhere.
+          # (Target-level pbxproj settings override xcconfig, so patch pbxproj.)
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/Runner.xcodeproj/project.pbxproj
+          # Generate the CocoaPods setup without compiling, then pin platform.
+          flutter build ios --config-only --release --no-codesign
+          if [ -f ios/Podfile ]; then
+            sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+            sed -i '' "s/^platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+          fi
+          } 2>&1 | tee ../ci-m5-scaffold.log
+
+      - name: Inject FFI link flags (xcconfig)
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          QTIOS="${{ steps.qt_ios.outputs.path }}"
+          CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
+          # every Qt static archive except the qios platform plugin tree
+          QTLIBS="$(find "$QTIOS/lib" -maxdepth 1 -name '*.a' ! -iname '*qios*' | sort | tr '\n' ' ')"
+          echo "Qt archives linked:"; echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
+          printf '_qcad_*\n' > ios/Flutter/qcad_symbols.exp
+          cat > ios/Flutter/ffi.xcconfig <<XC
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          IPHONEOS_DEPLOYMENT_TARGET = 14.0
+          XC
+          # strip the heredoc's leading indentation xcconfig can't handle
+          sed -i '' 's/^          //' ios/Flutter/ffi.xcconfig
+          for f in ios/Flutter/Debug.xcconfig ios/Flutter/Release.xcconfig ios/Flutter/Profile.xcconfig; do
+            [ -f "$f" ] && printf '\n#include "ffi.xcconfig"\n' >> "$f" && echo "patched $f"
+          done
+          cat ios/Flutter/ffi.xcconfig
+          } 2>&1 | tee ../ci-m5-xcconfig.log
+
+      - name: Build iOS app (release, unsigned)
+        timeout-minutes: 45
+        working-directory: frontend
+        run: |
+          # pipefail MUSS ausserhalb des { }|tee stehen (M3-Lektion).
+          set -o pipefail
+          flutter build ios --release --no-codesign 2>&1 | tee ../ci-m5-build.log
+
+      - name: Verify core is linked (M5 LINK CHECK) & package IPA
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          APP="build/ios/iphoneos/Runner.app"
+          [ -d "$APP" ] || { echo "M5 LINK CHECK: FAIL (Runner.app missing)"; exit 1; }
+          if strings "$APP/Runner" | grep -q "iPadProCAD C-API"; then
+            echo "M5 LINK CHECK: PASS (C-API version string present in Runner binary)"
+          else
+            echo "M5 LINK CHECK: FAIL (C-API not linked into Runner)"; exit 1
+          fi
+          nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry ../ipadprocad-unsigned.ipa Payload
+          ls -la ../ipadprocad-unsigned.ipa
+          } 2>&1 | tee ../ci-m5-verify.log
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 3
+          name: ipadprocad-unsigned-ipa
+          path: ipadprocad-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Commit M5 debug logs
+        if: always()
+        run: |
+          mkdir -p ci-logs-m5
+          for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-build ci-m5-verify; do
+            cp "$l.log" ci-logs-m5/ 2>/dev/null || true
+          done
+          git config user.email "ci@ipadprocad.local"
+          git config user.name "iPadProCAD CI"
+          git add -f ci-logs-m5
+          git commit -m "CI(M5): Flutter-IPA build logs from run ${{ github.run_id }}" || exit 0
+          git push origin HEAD:ci-debug-logs-m5 --force

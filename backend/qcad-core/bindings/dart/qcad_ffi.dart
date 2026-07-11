@@ -53,6 +53,14 @@ typedef _AddPolylineDart = int Function(
 typedef _EntityCountNative = Int32 Function(Pointer<Void>);
 typedef _EntityCountDart = int Function(Pointer<Void>);
 
+typedef _EntityIdsNative = Int32 Function(Pointer<Void>, Pointer<Int64>, Int32);
+typedef _EntityIdsDart = int Function(Pointer<Void>, Pointer<Int64>, int);
+
+typedef _EntityGeometryNative = Int32 Function(
+    Pointer<Void>, Int64, Pointer<Int32>, Pointer<Double>, Int32);
+typedef _EntityGeometryDart = int Function(
+    Pointer<Void>, int, Pointer<Int32>, Pointer<Double>, int);
+
 typedef _BBoxNative = Int32 Function(Pointer<Void>, Pointer<Double>,
     Pointer<Double>, Pointer<Double>, Pointer<Double>);
 typedef _BBoxDart = int Function(Pointer<Void>, Pointer<Double>,
@@ -90,6 +98,11 @@ class QcadBindings {
   late final _EntityCountDart entityCount =
       _lib.lookupFunction<_EntityCountNative, _EntityCountDart>(
           'qcad_entity_count');
+  late final _EntityIdsDart entityIds =
+      _lib.lookupFunction<_EntityIdsNative, _EntityIdsDart>('qcad_entity_ids');
+  late final _EntityGeometryDart entityGeometry =
+      _lib.lookupFunction<_EntityGeometryNative, _EntityGeometryDart>(
+          'qcad_entity_geometry');
   late final _BBoxDart boundingBox =
       _lib.lookupFunction<_BBoxNative, _BBoxDart>('qcad_bounding_box');
   late final _LoadDxfDart loadDxf =

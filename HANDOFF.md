@@ -1,223 +1,248 @@
 # HANDOFF — iPadProCAD
 
-Übergabestand für die Fortsetzung in einem neuen Chat. Begründungen/Details im
-README unter „Status".
+Übergabestand für die Fortsetzung in einem neuen Chat.
 
 ## Projekt
 - 2D-CAD für iPad. Frontend: Flutter. Backend: QCAD-Core (C++, GPLv3) per FFI.
 - Ziel-Repo: `github.com/Toemeler/ipadprocad`
-- Upstream-Quelle: `github.com/qcad/qcad` (Vendor-Details: `backend/qcad-core/VENDOR.md`)
-- Methodik: Backend zuerst lokal im Terminal (Linux) bauen, dann per GitHub Actions
-  als iOS-Cross-Compile validieren. Pro Meilenstein pushen und diese Datei aktuell
-  halten. **Nur echten Status berichten** — nie „grün" behaupten, was nicht gebaut
-  wurde; zurückgestellte Teile offen dokumentieren. (Der grüne Haken allein reicht
-  nicht: CI-Logs lesen! Siehe M2-CI-Fix unten — ein per `tee` maskierter Fehler
-  hatte einmal fälschlich „grün" gemeldet.)
+- Upstream: `github.com/qcad/qcad` (Details: `backend/qcad-core/VENDOR.md`)
+- **Nur echten Status berichten** — nie „grün" behaupten, was nicht gebaut wurde.
+  CI-Logs lesen, grüner Haken reicht nicht (tee/pipefail-Fallen, siehe unten).
 
-## Repo & Cold Start (für den neuen Chat)
-```
-git clone https://github.com/Toemeler/ipadprocad.git
-cd ipadprocad
-```
-- **Auth/Push:** Der PAT aus dem vorigen Chat ist widerrufen (der Nutzer widerruft
-  jeden Session-Token nach Gebrauch). Für Pushes einen neuen fine-grained PAT
-  erzeugen (nur dieses Repo; Contents/Actions/Workflows R+W) und **nur inline**
-  verwenden: `git push https://<PAT>@github.com/Toemeler/ipadprocad.git HEAD:main`.
-  Den Token NIE in `.git/config` oder getrackte Dateien schreiben; nach Gebrauch widerrufen.
-- **Lokale Build-Abhängigkeiten (Ubuntu):**
-  `apt-get install -y cmake ninja-build qt6-base-dev qt6-base-dev-tools qt6-declarative-dev libqt6svg6-dev`
-- **Lokaler Build (statische Libs), aus `backend/qcad-core`:**
-  ```
-  cmake -B build -G Ninja -DBUILD_QT6=ON -DCMAKE_BUILD_TYPE=Release
-  cmake --build build -j -- -k 0        # -k 0 = keep-going, zeigt ALLE Fehler
-  ```
-  Artefakte: `release/libqcad*.a`, `plugins/libqcaddxf.a`, `release/libqcadcapi.a`.
-- **Lokaler Wrapper-Smoke-Test (nur Host, optional):**
-  ```
-  cmake -B build -G Ninja -DBUILD_QT6=ON -DCMAKE_BUILD_TYPE=Release -DQCAD_CAPI_SMOKE=ON
-  cmake --build build --target qcad_capi_smoke -- -k 0
-  ./release/qcad_capi_smoke        # erwartet: "SMOKE: PASS"
-  ```
+## Auth/Push
+PAT wird pro Session neu erzeugt und danach widerrufen. Push nur inline:
+`git push https://<PAT>@github.com/Toemeler/ipadprocad.git HEAD:main`
+Token NIE in Dateien/.git/config schreiben.
 
-## Meilensteine
-- **M1 — Headless-Core-Build + iOS-CI: ERLEDIGT (grün, mehrfach reproduziert).**
-- **M2 — C-Wrapper + FFI an Flutter: WRAPPER ERLEDIGT & VALIDIERT.**
-  - C-ABI-Wrapper `src/capi` gebaut; lokal (Linux/Qt6) Smoke grün; iOS-Cross-Compile
-    (arm64/iphoneos, Qt 6.7) grün; kombinierte Lib + XCFramework in CI erzeugt.
-  - **Offener Rest von M2:** Dart-FFI-Bindings sind geschrieben, aber **noch nicht
-    ausgeführt/CI-validiert** (kein Dart-SDK im Backend-Build). Siehe „Stand M2".
-- **M3 — Headless-Logiktest auf iOS: ERLEDIGT (Simulator, echt grün, Logs geprüft).**
-  Siehe „Stand M3". Offener Rest: Dart-FFI erstmals real ausführen → braucht die
-  Flutter/Dart-Runtime, verschoben in M4 (dort ohnehin verdrahtet).
-- M4 — Flutter-GPU-Canvas + CI-Screenshots (XCFramework in die App linken, Dart-FFI
-  verdrahten **und erstmals real ausführen**).
-- M5 — Touch-/Pencil-Werkzeuge (hier `snap`/`grid` reaktivieren).
+## Meilenstein-Status
+- **M1 — Headless-Core-Build + iOS-CI: ERLEDIGT** (statische Libs, arm64/iphoneos).
+- **M2 — C-Wrapper: ERLEDIGT & validiert**; in M5 um Geometrie-Abfrage erweitert
+  (`qcad_entity_ids`, `qcad_entity_geometry`), lokal per Compile-Check gegen die
+  echten QCAD-Header validiert; Runtime-Validierung via erweiterten smoke.c im
+  M3-Sim-CI-Job (Marker lesen!).
+- **M3 — Headless-Logiktest iOS-Simulator: ERLEDIGT** (smoke.c jetzt inkl.
+  Geometrie-Query-Checks — Log des naechsten Runs pruefen).
+- **M4 — Mock-Phase ABGESCHLOSSEN** (create-panel.html = verbindliche 1:1-Spec,
+  UI-Details siehe Abschnitt unten).
+- **M5 — IN ARBEIT (dieser Stand):**
+  - `frontend/` KOMPLETT NEU: 1:1-Flutter-Port des Mocks (Ribbon alle 8 Panels
+    + Exit + Home-Sketch-Panel, Flyouts mit exakten Eintraegen, Model-Browser
+    inkl. Origin-Expander/Kontextmenue/Edit-Highlight, Layer-Edit-Modus mit
+    grauen Achsen + gelbem projizierten CP + Finish, Home-View mit Recent-Karten,
+    untere Tab-Leiste). Alter main.dart (8e241b3) ERSETZT.
+    Struktur: lib/main.dart, theme.dart (Palette), svg_icons.dart (Mock-SVGs
+    verbatim, via flutter_svg), app_state.dart (Tabs/Layer/Edit/Tools/Persistenz),
+    ffi/qcad_engine.dart, widgets/{ribbon,model_browser,viewport,home_view,
+    bottom_tabbar}.dart
+  - Echtes Zeichnen ueber Backend: Line, Circle (Center), Rectangle (Two Point,
+    als geschlossene Polyline), Arc (Three Point) — via FFI, Rendering aus dem
+    QCAD-Dokument (Geometrie-Query). Alle uebrigen Buttons wie im Mock sichtbar,
+    ohne Funktion. Ehrlicher Fallback: ohne gelinkte Libs laeuft eine
+    Dart-Engine, Start-Marker meldet `DART SMOKE: PASS (backend=qcad-ffi|dart-fallback)`.
+  - Save/Load: DXF pro Skizze + Preview-PNG in App-Documents; Autosave bei
+    Finish/Tab-Schliessen/Home; Recent-Karten zeigen echte Skizzen (die 6
+    Design-Dummies nur im Erststart ohne gespeicherte Dateien).
+  - Eingabe: Maus/Keyboard; Trackpad-2-Finger-Pan + Pinch-Zoom integriert
+    (PointerPanZoom-Events); Scrollrad zoomt. Esc bricht Tool ab.
+    Touch-Gesten bewusst spaeter.
+  - CI-Job `m5-flutter-ipa` NEU: Device-Libs bauen, Flutter-Scaffold
+    (flutter create + pbxproj/Podfile auf iOS 14.0), FFI-Link per xcconfig
+    (force_load libipadprocad.a + exported_symbols_list `_qcad_*` + ALLE
+    Qt-Static-Archive ausser qios — qios interponiert main!),
+    `flutter build ios --release --no-codesign`, "M5 LINK CHECK"
+    (C-API-Versions-String im Runner-Binary), unsigniertes IPA-Artefakt
+    `ipadprocad-unsigned-ipa` (Sideload via AltStore/Sideloadly, 3 Tage
+    Retention). Logs -> Branch `ci-debug-logs-m5/ci-logs-m5/*`.
+  - **NOCH NICHT VALIDIERT / OFFEN:** Flutter-Code wurde ohne lokales Dart-SDK
+    geschrieben (Container hat kein Flutter, pub.dev nicht erreichbar); erster
+    Beweis ist der CI-Run — LOGS LESEN, gruener Haken reicht nicht.
+    Dart-FFI-Runtime-Smoke laeuft erst ON DEVICE (App-Start-Marker); im CI nur
+    der Link-Check. Sim-Job, der den DART-SMOKE-Marker der App captured: offen.
 
-## Stand M1 (Ausgangsbasis)
-Der Core kompiliert und linkt fehlerfrei lokal (Linux, Qt6) und im CI als
-iOS-Cross-Compile. Statische Bibliotheken: `libqcadcore.a`, `libqcadentity.a`,
-`libqcadoperations.a`, `libqcaddxf.a` (in `plugins/`), `libdxflib.a`.
-Gebaute Module: `core`, `entity`, `operations`, `io/dxf`, `3rdparty/dxflib`.
-Entscheidungen (statische Libs; iOS-Device arm64, Deployment 13.0, PIC;
-`QCAD_HEADLESS`; `QT_CONFIG(process)` statt `QProcess`; `Q_OS_MACOS`;
-zurückgestellt: `opennurbs`/`R_NO_OPENNURBS`, `spatialindex`-Navel →
-`RSpatialIndexSimple`, `snap`/`grid`). Alles reversibel, im README begründet.
+## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
+Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
+Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,
+Blau (Grips/Akzent) `#3D9BE9`, Constraint-Rot `#E05A56`/`#D65A56`, Gelb `#E8C63F`,
+Viewport `#212830`. Ribbon: `width:100vw`, blaue Linie oben
+(`2px rgba(47,123,214,.85)`) und unten (`.45`), vertikale Panel-Trenner `#3a3f45`.
+Icons: handgezeichnete Inline-SVGs (16/18/26/32/34 px), Sprache: hellgraue
+Geometrie, blaue Quadrat-Grips, rote Constraints mit grauen Cursor-Pfeilen/
+Häkchen, gelbe Blitze, KEIN Grün außer dem Plus im Layer-Icon.
 
-## Stand M2 (C-ABI-Wrapper — aktueller Fokus)
-**Modul:** `backend/qcad-core/src/capi/` — `qcad_capi.h` (reines C) + `qcad_capi.cpp`
-(einziger Ort mit C++/Qt/QCAD-Typen). CMake-Ziel `qcadcapi` (STATIC), ins
-Root-`CMakeLists.txt` als `add_subdirectory(src/capi)` eingehängt → wird bei jedem
-Core-Build mitgebaut. Ausgabe: `release/libqcadcapi.a`.
+**Ribbon-Panels in Reihenfolge (nichts hinzufügen/weglassen):**
+1. **Layer** — ein großer Button „Start / New Layer" (Layer-Stapel-Icon in
+   gestrichelten Ecken + grünes Plus, kleines ▼ unten rechts). Klick = fügt im
+   Model-Browser „Layer N" hinzu (Dummy).
+2. **Create** — große Buttons Line/Circle/Arc/Rectangle (je ▼-Flyout), rechts
+   Spalte: Fillet ▾ / A Text ▾ / + Point. Flyouts (Einträge exakt):
+   - Line: Line·Line, Line·Midpoint Line, Spline·Control Vertex,
+     Spline·Interpolation, Equation Curve, Bridge Curve
+   - Circle: Center Point, Tangent, Ellipse
+   - Arc: Three Point, Tangent, Center Point
+   - Rectangle: Two Point, Three Point, Two Point Center, Three Point Center,
+     Slot Center to Center, Slot Overall, Slot Center Point, Slot Three Point
+     Arc, Slot Center Point Arc, Polygon
+   - Fillet: Fillet, Chamfer   /   Text: Text, Geometry Text
+   Flyout-Einträge zweizeilig (fett + Untertitel), erster Eintrag hervorgehoben.
+   Flyouts öffnen DIREKT unter dem geklickten Element (anchor.bottom).
+3. **Project Geometry** — nur der große Button (isometrische blaue Ebenen),
+   KEIN Dropdown.
+4. **Pattern** — Rectangular (blaues Quadrat-Raster), Circular (blauer
+   Punktring), Mirror (Dreieckpaar), Titel „Pattern".
+5. **Constrain** — großer „Dimension"-Button (weißes |←→|-Glyph) + 5×3-Grid:
+   Reihe1: AutoDim(⚡gelb), Coincident, Collinear, Concentric, Lock(rot);
+   Reihe2: Show Constraints(⚡), Parallel, Perpendicular, Horizontal, Vertical;
+   Reihe3: Constraint Settings, Tangent, Smooth(G2), Symmetric, Equal.
+   Rote Glyphen mit grauen Cursor-Pfeilen/Checks, Hatch-Striche bei H/V.
+   Titel „Constrain ▼".
+6. **Insert** — Image / Points / ACAD (farbige Icons), Titel „Insert".
+7. **Format** — Grid: Driven Dimension (oben, colspan), Kugel + Crosshair
+   (Crosshair im AKTIV-Rahmen blau), darunter Zeile „Show Format" (colspan,
+   darf nicht überlaufen — Grid-Spalten `auto`). Titel „Format ▼".
+8. **Modify** (LETZTER Block) — 3×3: Move/Copy/Rotate | Trim/Extend/Split |
+   Scale/Stretch/Offset, blaue Inventor-Icons, Titel „Modify".
 
-**ABI-Oberfläche** (opaque `qcad_document*`, keine C++-Typen an der Grenze,
-Winkel in Radiant, Koordinaten als `double`, int-Rückgaben 1=OK/0=Fehler):
-`qcad_init`, `qcad_version`, `qcad_document_new/_free`, `qcad_add_line/_circle/
-_arc/_polyline`, `qcad_entity_count`, `qcad_bounding_box`, `qcad_load_dxf`,
-`qcad_save_dxf` (Version NULL/"R12"/"min", Default R2000).
+**Model-Browser links (300px, Inventor-Stil):**
+- Header: Tab „Model ✕", „+", rechts 🔍 und ☰.
+- Baum: blauer Würfel „Sketch1" (nicht Part1); KEIN Representations-Ordner;
+  „Origin"-Ordner mit +/−-Expander → Kinder: X Axis (rot), Y Axis (blau),
+  Center Point (**automatisch projiziert**, blauer Grip, Tooltip);
+  danach Container `#layers` (hier landen „Layer 1..N");
+  unten „End of Sketch" (roter ✕-Kreis).
+- Rechtsklick auf Layer-Zeile → Kontextmenü (Dummy): **Edit** (oberster
+  Eintrag), Copy, Duplicate, „Export only this layer", „Toggle visibility".
+- Rechts daneben Viewport `#212830`.
+- ALLES nur Design-Dummy: „Funktionen" sind Flyouts, Origin-Expander,
+  Layer-Hinzufügen, Kontextmenü, Edit-Modus, Home/Tabs (siehe unten).
 
-**Validierung:**
-- Lokal (Linux/Qt 6.4): `qcad_capi_smoke` = **SMOKE: PASS** — 4 Entities, BBox
-  `[0,0]..[100,75]`, DXF-Roundtrip (speichern→laden) erhält die Entity-Anzahl.
-- iOS-CI (Run #18, Commit `7fa5e9c`): **echt grün** (Logs geprüft). Alle sechs
-  `.a` sind `arm64`; kombinierte `release/libipadprocad.a` (arm64, ~11 MB) via
-  `libtool -static`; `release/ipadprocad.xcframework` (`ios-arm64`, mit Headers)
-  erzeugt. CI-Artefakt: `ipadprocad-ios-capi`.
+**Layer-Edit-Modus (im Mock umgesetzt, Verhalten übernehmen):**
+- „Start New Layer" legt „Layer N" im Browser an UND startet sofort den
+  Edit-Modus für diesen Layer.
+- Edit-Modus für BESTEHENDE Layer: Doppelklick auf die Layer-Zeile ODER
+  Rechtsklick → „Edit".
+- Im Edit-Modus:
+  - Die aktive Layer-Zeile wird im Model-Browser hervorgehoben
+    (Inventor-Stil: Hintergrund `#3A4149`, 1px-Outline `#5A88B5`, Text weiß).
+  - Im Viewport erscheinen X- und Y-Achse als **graue Linien** (`#6b7178`,
+    1px) und der Center Point als **grauer Punkt** — alle drei NICHT
+    interaktiv (pointer-events:none), reine Referenz-Geometrie.
+  - ÜBER dem grauen Center Point liegt ein **gelber projizierter Punkt**
+    (`#E8C63F`, Rand `#9a8320`, Tooltip „Projected Center Point").
+    Regel: **Projiziertes ist GELB. Interagieren kann man NUR mit
+    projizierten oder gezeichneten Elementen**, nie mit der grauen
+    Roh-Geometrie.
+  - Oben rechts im Ribbon erscheint das **Exit-Panel**: großer grüner Haken
+    (`#3FA43C`, dicker Strich), Beschriftung „Finish ▼", Panel-Titel „Exit"
+    (exakt wie Inventor-Screenshot). Klick auf Finish beendet den Edit-Modus
+    (Highlight, Achsen-Overlay und Exit-Panel verschwinden).
 
-**Wichtige Entscheidungen/Fallstricke (unbedingt beachten):**
-1. **Property-Typen-Registrierung:** QCADs Bootstrap (`R*Entity::init()` für alle
-   Typen) liegt im ausgeklammerten GUI/Script-Layer. `qcad_init()` ruft daher den
-   vollständigen Satz selbst auf (Basis `RObject`/`REntity` zuerst, dann 46
-   konkrete Klassen). `RColor::init()`/`RLineweight::init()` sind **privat** →
-   ausgelassen (werden intern registriert). Die Liste wurde aus den vorhandenen
-   `static void init()`-Deklarationen generiert; bei neu gevendorten Entity-Typen
-   die Aufrufliste in `qcad_capi.cpp` neu erzeugen.
-2. **Ownership / kein Doppel-Free:** `RStorage`/`RSpatialIndex` erben von
-   `RRequireHeap` (`doDelete()` = `delete this`). `RDocument::~RDocument()` gibt
-   beide via `doDelete()` frei. Daher Storage + SpatialIndex **heap-allozieren**
-   und **nur** das `RDocument` löschen (Storage/Index selbst zu löschen → Doppel-
-   Free, der Original-Bug). `RDocument`-Ctor ruft `init()` bereits selbst auf.
-3. **RSettings-Init:** `RSettings::isInitialized()` == `!qApp->organizationName().isEmpty()`.
-   `qcad_init()` legt bei Bedarf eine `QCoreApplication` an und setzt Org-/App-Name
-   „iPadProCAD" → keine „RSettings not initialized"-Flut mehr, echtes Settings-
-   Backend. Namen nur setzen, wenn leer (Host/GUI-Build könnte sie stellen).
-4. **Benigne Warnungen (kein Fehler):** `RDxfExporter: unsupported extension data
-   type: 65537` beim Schreiben der Default-Farb-XData von Layer „0" (DXF gültig,
-   Roundtrip ok). `libtool: duplicate member name 'mocs_compilation.cpp.o'` beim
-   Bündeln (je Ziel ein AUTOMOC-Stub; wird korrekt gemerged).
-5. **CI-Fix (falsches Grün behoben, Commit `7fa5e9c`):** (a) iOS-Configure MUSS
-   `-DCMAKE_BUILD_TYPE=Release` setzen, sonst landen die Libs in `debug/` und
-   Verify/Bundle (die in `release/` suchen) laufen ins Leere. (b) `set -o pipefail`
-   in Verify/Bundle/XCFramework, sonst maskiert `tee` einen `exit 1`/libtool-Fehler
-   und der Schritt wird fälschlich grün.
-6. Der M1-Symbolhinweis (`isMacDarkMode()`) trat nicht auf: Der Linux-Smoke linkt
-   sauber, die iOS-Libs archivieren sauber. `_main` liefert erst die App (M4).
+**Untere Tab-Leiste (30px, `#14171B`, wie Inventor):**
+- Links „🏠 Home", daneben ein Tab pro geöffneter Skizze mit ✕ zum Schließen;
+  aktiver Tab heller (`#262B31`) mit 2px blauer Unterkante (`#2f7bd6`);
+  ganz rechts ☰. Schließen des aktiven Tabs wechselt zum letzten offenen
+  Tab, sonst zurück zur Home-View.
 
-## Stand M3 (Headless-Logiktest auf iOS — ERLEDIGT)
-**Was läuft:** Die C-Smoke-Logik (4 Entities, BBox `[0,0]..[100,75]`, DXF-Roundtrip)
-läuft als App im **iOS-Simulator** und meldet `SMOKE: PASS` (Run zu Commit
-`06982a8`, Log `ci-sim-run.log` auf Branch `ci-debug-logs-m3` — geprüft; der
-DXF-Pfad im Log liegt im Sim-App-Container, d.h. echte iOS-Sandbox).
-CI-Job: `m3-ios-sim-logic` in `.github/workflows/m1-core-build.yml`.
+**Home-View (vereinfachte Inventor-Startseite, App-Start-Zustand):**
+- KEIN Model-Browser, KEIN Viewport, im Ribbon werden ALLE Panels versteckt;
+  einziges Panel/Tool: großer Button „Create New Sketch" (Rechteck-Skizzen-
+  Icon mit blauen Grips + grünes Plus), Panel-Titel „Sketch".
+- Inhalt: Überschrift „Recent" + Karten-Grid (190px-Karten `#24282D`,
+  Hover-Rand blau): dunkle Vorschaufläche (radialer Gradient) mit
+  Sketch-Würfel-Icon, darunter Name (fett) + Datum. 6 Dummy-Beispiel-
+  Skizzen ohne Inhalt (Bracket_v2, Flange, Plate_120x80, Gasket,
+  Shaft_Profile, Cam_Outline). KEIN Sortieren/Suchen/Pinnen (bewusst
+  weggelassen — einfacher als Inventor).
+- Klick auf eine Karte öffnet die Skizze (Tab entsteht, Model-Browser-
+  Wurzel zeigt den Skizzennamen); „Create New Sketch" erzeugt
+  Sketch1, Sketch2, … und öffnet sie direkt.
 
-**Erkenntnisse/Fallstricke (Reihenfolge = Debug-Historie):**
-1. **Qt-iOS-Prebuilt ist universal, aber schief:** `libQt6*.a` enthalten
-   arm64 = **Device** (platform 2) und x86_64 = **Simulator** (platform 7).
-   Es gibt KEINEN arm64-Simulator-Slice → Sim-Build mit
-   `-DCMAKE_OSX_ARCHITECTURES=x86_64` (läuft via Rosetta auf dem arm64-Runner;
-   `softwareupdate --install-rosetta` im CI nötig). Deployment 14.0 (Qt-Objekte
-   haben minos 14.0). arm64-Sim-Configure geht durch, scheitert erst am Link.
-2. **`simctl spawn` funktioniert NICHT:** Das statisch gelinkte Qt-iOS-
-   Platform-Plugin interponiert `main()` und startet `UIApplicationMain`; unter
-   `spawn` (kein UI-Kontext) hängt das ewig mit 0 Byte Output. Lösung:
-   **`simctl install` + `simctl launch --console-pty`** — Qt ruft unser `main`
-   nach dem UIApplication-Start auf, stdout kommt durch. Urteil über den
-   `SMOKE: PASS/FAIL`-Marker, nicht den launch-Exit-Code.
-3. **CMake-Default-`Info.plist` ist unbrauchbar** (leere Pflichtfelder →
-   Install-Fehler „does not contain CFBundleVersion"). Der CI-Step überschreibt
-   sie immer mit einer minimalen Plist (Bundle-ID `com.ipadprocad.smoke`).
-4. **Falsches Grün, zweite Ausprägung:** `set -o pipefail` INNERHALB von
-   `{ …; } | tee` wirkt nur in der Subshell — der Step wird trotz `exit 1` grün.
-   pipefail muss VOR dem Block in der äußeren Shell stehen. (Ein Run war so
-   fälschlich grün trotz `M3 LOGIC TEST: FAIL` im Log.)
-5. **Hänger-Schutz:** Sim-Step hat `timeout-minutes: 20`; `bootstatus -b` durch
-   begrenztes Polling ersetzt; `launch` mit perl-`alarm`-Hard-Timeout (macOS hat
-   kein `timeout(1)`).
-6. `smoke.c` nutzt jetzt `TMPDIR` (iOS-Sandbox hat kein beschreibbares `/tmp`);
-   Apple-Link ohne `--start-group` (ld64 löst den Archiv-Zyklus selbst, Branch
-   in `src/capi/CMakeLists.txt`).
-7. M3-Logs: `ci-logs-m3/` auf Branch `ci-debug-logs-m3`
-   (`ci-sim-configure/-build/-inspect/-run.log`).
+## Frühere funktionierende Tool-Engine (Referenz, aktuell NICHT im Mock)
+In einer früheren Iteration dieses Chats existierte eine Canvas-Engine
+(ipadprocad-ribbon.html, überschrieben) mit: Line/Polyline/Circle(CR/2P/3P)/
+Arc(3P/Center)/Rectangle/Ellipse/Point; Move/Copy/Rotate/Mirror/Scale/Erase/
+Offset; Snapping (Endpunkte, Ursprung, projizierte Achsen); Achsen-Projektion;
+**Dimension-Tool wie Inventor** (Shortcut `d`): Linie→Platzieren=Länge,
+2 Punkte=Abstand, 2 Linien=Winkel (Bogen, Strahl-Wahl nach Platzierung),
+Kreis=Radius (R…), Punkt+Linie=Lotabstand; Live-Preview in Rot, Esc bricht ab.
+Diese Logik muss in den finalen Mock bzw. direkt in Flutter neu integriert
+werden (Design hat Vorrang, Verhalten wie beschrieben).
 
-**Bewusst NICHT erledigt:** Dart-FFI-Ausführung (braucht Flutter/Dart-Runtime →
-M4) und Device-Hardware-Test (kein iOS-Gerät im CI; Device-Build/Archiv ist via
-`build-core-ios` weiter grün abgedeckt).
+## Nächste Schritte — M5: Flutter-App (Vorgabe des Nutzers, NICHTS auslassen)
+Der Nutzer hat den nächsten Schritt exakt so definiert:
 
-## Nächster Schritt: M4 — Flutter-App + Canvas + Dart-FFI real
-Ziel: minimale Flutter-iOS-App, die das XCFramework linkt, die Dart-FFI erstmals
-**real ausführt** und ein erstes Canvas rendert. Empfohlene Reihenfolge:
-1. **Flutter-Gerüst anlegen** (`frontend/` im Repo-Root): `flutter create` mit
-   iOS-Target; `ffi: ^2.1.0` in die pubspec; `bindings/dart/qcad_ffi.dart`
-   einbinden (kopieren oder als Paket referenzieren).
-2. **XCFramework linken:** `release/ipadprocad.xcframework` (CI-Artefakt
-   `ipadprocad-ios-capi`) ins iOS-Runner-Projekt (Xcode: Frameworks/„Link
-   Binary"). Zusätzlich müssen die **Qt-iOS-Static-Libs** dazugelinkt werden
-   (das XCFramework enthält nur unseren Code, nicht Qt) — Liste der nötigen
-   libQt6*.a siehe capi/CMakeLists (`Core Concurrent Gui Network Qml Svg Xml`
-   + Bundled*). Alternativ: Kombi-Lib im CI um Qt-Slices erweitern (prüfen).
-3. **Erster echter Dart-FFI-Lauf** = M2-Restschuld: beim App-Start
-   `QcadBindings.process()` + Logik aus `example/qcad_smoke.dart` ausführen,
-   Ergebnis (4 Entities, Roundtrip) auf den Screen loggen. Erwartungen wie
-   C-Smoke; **nicht** auf Splines (`R_NO_OPENNURBS`) oder Snap prüfen.
-4. **Achtung, bekannte Falle:** Qt-iOS interponiert `main()` (UIApplicationMain,
-   siehe Stand M3 Nr. 2). In einer Flutter-App gibt es bereits einen
-   UIApplication-Kontext — vermutlich unkritisch, aber beim Linken darauf
-   achten, dass NICHT Qts main-Wrapper das Flutter-main verdrängt (ggf.
-   Symbol `_qt_main_wrapper`/Plugin-Init prüfen; notfalls libqios weglassen,
-   headless braucht kein Platform-Plugin — Linkliste entsprechend kürzen).
-5. **CI:** eigener Job (macos-14): `flutter build ios --simulator`, App in den
-   Sim installieren/launchen (Muster aus `m3-ios-sim-logic` übernehmen:
-   install + launch --console-pty, Marker-Urteil, pipefail AUSSEN, Timeouts),
-   Marker `DART SMOKE: PASS` prüfen; danach CI-Screenshot (`simctl io
-   screenshot`) als Artefakt (retention-days: 3!).
-6. Danach: GPU-Canvas (CustomPainter/Impeller) mit Entity-Daten über die FFI
-   (dafür C-API um eine Geometrie-Abfrage erweitern, z. B.
-   `qcad_entity_geometry(idx, ...)` — aktuell gibt es nur count/bbox).
-Simulator-Arch beachten: x86_64 (Qt-Slice!) — Flutter-Sim-Builds sind
-standardmäßig universal; ggf. `ONLY_ACTIVE_ARCH`/Arch auf x86_64 zwingen oder
-Qt-Device-Slice-Konflikt wie in M3 umgehen.
+1. **Das GESAMTE Design genau so für Flutter machen.** 1:1-Port des
+   HTML-Mocks (`create-panel.html`) — Design, alle Buttons, Funktionen,
+   Flyouts, Model-Browser, Layer-Edit-Modus, Finish-Button, Home-View,
+   Tab-Leiste, Farben, Icons: **alles exakt gleich wie in diesem Prototyp.**
+   Das ist dem Nutzer sehr wichtig: **1:1 wie im HTML.**
+2. **Eingabe-Optimierung fürs Erste: Keyboard + Maus am iPad.**
+   Touch-Bedienung (Fingergesten auf dem Screen, Long-Press statt
+   Rechtsklick etc.) kommt ERST SPÄTER, nicht in dieser Version.
+   AUSNAHME (gehört in die ERSTE Version): **Pan mit 2 Fingern auf dem
+   Touchpad und Zoom per Pinch auf dem Touchpad** müssen integriert sein.
+3. **Erster Funktionsschritt: einfaches Zeichnen mit dem Backend.**
+   Einfache Linien, Kreise, Rechtecke und ein paar weitere Grundformen
+   werden REAL über das QCAD-Backend (C-API/FFI) umgesetzt.
+   **Alles andere bleibt in der UI integriert/sichtbar, ist aber noch
+   nicht umgesetzt** (Buttons vorhanden wie im Mock, ohne Funktion).
+4. **Saving und Loading auf dem iPad als erster Schritt einrichten,
+   ebenso die Preview-Erstellung** (Vorschaubilder der Skizzen für die
+   Recent-Karten der Home-View).
+5. **Test-IPA-Build erstellen, den der Nutzer auf dem iPad installieren
+   kann** — mit diesen einfachen Funktionen und dem QCAD-Backend.
 
-## CI-Logs lesen (wichtig)
-Der Dev-Container erreicht den Actions-Log-Speicher (`blob.core.windows.net`) nicht.
-Der Workflow committet die Logs in den Branch `ci-debug-logs`:
-```
-https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-configure.log
-https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-build.log
-https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-verify.log       # M2: Lib-Verifikation (lipo/arch)
-https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-bundle.log       # M2: libtool-Kombi-Lib
-https://raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/ci-xcframework.log  # M2: XCFramework
-```
-Run-Status via API (mit Token): `GET /repos/Toemeler/ipadprocad/actions/runs?branch=main`.
-M3-Logs liegen auf Branch `ci-debug-logs-m3` unter `ci-logs-m3/`
-(`ci-sim-configure/-build/-inspect/-run.log`).
-Der Build-Step nutzt `-k 0` (alle Fehler in einem Lauf). Reine `**.md`-Commits
-triggern kein CI (`paths-ignore`). Workflow-Datei: `.github/workflows/m1-core-build.yml`
-(zwei Jobs: `build-core-ios` = Core+Wrapper+Bundle+XCFramework fürs Device;
-`m3-ios-sim-logic` = Logiktest im Simulator). CI hat `concurrency:
-cancel-in-progress` (veraltete Runs werden abgebrochen) und Artefakt-Retention
-3 Tage — Storage-Limit war einmal voll; Alt-Artefakte ggf. per API löschen
-(`DELETE /repos/.../actions/artifacts/{id}`).
+Der Nutzer stellt im neuen Chat **das HTML (`create-panel.html`) und einen
+neuen PAT selbst zur Verfügung.**
+
+### Technische Anknüpfung (aus M4-Planung, weiterhin gültig)
+- `frontend/` neu aufsetzen (flutter create, ffi ^2.1.0), Ribbon/Browser/
+  Canvas/Home/Tabbar als Widgets, SVG-Icons via CustomPainter oder
+  flutter_svg; alten `main.dart` (8e241b3) ersetzen.
+- XCFramework linken (CI-Artefakt `ipadprocad-ios-capi`) + Qt-iOS-Static-Libs
+  (Liste in `src/capi/CMakeLists.txt`); Achtung Qt-main-Wrapper vs.
+  Flutter-main (headless: libqios ggf. weglassen).
+- Erster echter Dart-FFI-Lauf (M2-Restschuld): `bindings/dart/qcad_ffi.dart`,
+  Logik aus `example/qcad_smoke.dart`, Marker `DART SMOKE: PASS`.
+- CI-Job macos-14: `flutter build ios --simulator`, install + launch
+  --console-pty, Marker-Urteil, **pipefail AUSSEN vor dem Block**, Timeouts,
+  Screenshot-Artefakt (retention-days: 3). Für den Nutzer-Test zusätzlich
+  Device-Build/IPA (unsigniert bzw. Sideload-fähig, z. B. via AltStore/
+  Sideloadly — mit Nutzer klären).
+- C-API um Geometrie-Abfrage erweitern (`qcad_entity_geometry(idx,…)`)
+  für echtes Rendering aus dem QCAD-Dokument; Save/Load über vorhandenes
+  `load/save_dxf` (Dokumente + Preview-PNGs im App-Documents-Verzeichnis).
+- Design-Detailhinweise aus der Mock-Review (nicht blockierend, bei
+  Gelegenheit): Touch-Trefferflächen erst relevant, wenn Touch kommt;
+  Platz für Maß-Eingabe/Statuszeile beim Canvas-Layout einplanen.
+
+## Backend-Kurzreferenz (unverändert, Details im README)
+- Build lokal (Ubuntu): cmake+ninja+qt6-base/declarative/svg;
+  `cmake -B build -G Ninja -DBUILD_QT6=ON -DCMAKE_BUILD_TYPE=Release`,
+  `cmake --build build -j -- -k 0`. Smoke: `-DQCAD_CAPI_SMOKE=ON` →
+  `./release/qcad_capi_smoke` = „SMOKE: PASS".
+- C-ABI (`src/capi/qcad_capi.h`): qcad_init/version, document_new/free,
+  add_line/circle/arc/polyline, entity_count, bounding_box, load/save_dxf.
+- Fallstricke: Property-Init-Liste in qcad_capi.cpp (46 Klassen, RColor/
+  RLineweight privat=auslassen); Storage/SpatialIndex heap-allozieren, NUR
+  RDocument löschen (Doppel-Free); RSettings via QCoreApplication+Org-Name;
+  iOS-Configure braucht `-DCMAKE_BUILD_TYPE=Release`; `set -o pipefail` VOR
+  `{…}|tee`-Blöcken (zweimal falsches Grün dadurch!); Qt-iOS-Prebuilt:
+  arm64=Device, x86_64=Simulator (Rosetta), kein arm64-Sim-Slice;
+  `simctl spawn` hängt → install + `launch --console-pty`; Info.plist im CI
+  überschreiben; smoke.c nutzt TMPDIR; Apple-Link ohne --start-group.
+- Spline/opennurbs, spatialindex, snap/grid, Hatch/Text: zurückgestellt
+  (`R_NO_OPENNURBS` etc.) → im UI ausgegraut.
+- CI: `.github/workflows/m1-core-build.yml` (build-core-ios +
+  m3-ios-sim-logic). Logs werden in Branches committet:
+  `ci-debug-logs/ci-logs/*` (M1/M2), `ci-debug-logs-m3/ci-logs-m3/*` (M3).
+  `**.md`-Commits triggern kein CI. Artefakt-Retention 3 Tage.
 
 ## Nützliche Pfade
 ```
-backend/qcad-core/CMakeLists.txt          Root-Build (Modulliste + add_subdirectory(src/capi))
-backend/qcad-core/CMakeInclude.txt        gemeinsame Build-Einstellungen (APPLE-Target)
-backend/qcad-core/src/capi/qcad_capi.h    C-ABI (reines C, extern "C")
-backend/qcad-core/src/capi/qcad_capi.cpp  Wrapper-Implementierung (einziger C++/Qt-TU)
-backend/qcad-core/src/capi/CMakeLists.txt Ziel qcadcapi (STATIC) + optional qcad_capi_smoke
-backend/qcad-core/src/capi/tests/smoke.c  C/iOS-Smoke-Test (Host + iOS-Sim; TMPDIR-portabel)
-backend/qcad-core/bindings/dart/qcad_ffi.dart          Dart-FFI-Bindings (Ausfuehrung = M4 Schritt 3)
-backend/qcad-core/bindings/dart/example/qcad_smoke.dart Dart-Beispiel (Desktop/iOS)
-backend/qcad-core/src/core/               RDocument, RDocumentInterface, RStorage, RSpatialIndexSimple, RSettings
-backend/qcad-core/src/io/dxf/             RDxfImporter/RDxfExporter (direkt genutzt, ohne Registry)
-.github/workflows/m1-core-build.yml       CI (Core + C-API, iOS + Bundle)
+backend/qcad-core/src/capi/               C-ABI (qcad_capi.h/.cpp, tests/smoke.c)
+backend/qcad-core/bindings/dart/          Dart-FFI (noch nie ausgeführt)
+.github/workflows/m1-core-build.yml       CI
+frontend/                                 VERALTETER erster UI-Wurf (ersetzen)
+create-panel.html                         FINALER UI-Mock inkl. Edit-Modus/Home/
+                                          Tabs (vom Nutzer bereitgestellt)
 ```

@@ -8,6 +8,7 @@
  */
 #include "qcad_capi.h"
 
+#include <algorithm>
 #include <string>
 
 #include <QtGlobal>
@@ -284,6 +285,87 @@ int qcad_bounding_box(const qcad_document *doc, double *out_minx,
     if (out_maxx) *out_maxx = mx.x;
     if (out_maxy) *out_maxy = mx.y;
     return 1;
+}
+
+int qcad_entity_ids(const qcad_document *doc, long long *out_ids, int max) {
+    if (doc == nullptr || (max > 0 && out_ids == nullptr)) {
+        return -1;
+    }
+    QSet<REntity::Id> ids = doc->doc->queryAllEntities();
+    QList<REntity::Id> sorted(ids.begin(), ids.end());
+    std::sort(sorted.begin(), sorted.end());
+    const int total = static_cast<int>(sorted.size());
+    const int n = qMin(total, max);
+    for (int i = 0; i < n; ++i) {
+        out_ids[i] = static_cast<long long>(sorted.at(i));
+    }
+    return total;
+}
+
+int qcad_entity_geometry(const qcad_document *doc, long long id,
+                         int *out_type, double *out_data, int max_doubles) {
+    if (doc == nullptr || out_type == nullptr ||
+        (max_doubles > 0 && out_data == nullptr)) {
+        return -1;
+    }
+    QSharedPointer<REntity> e =
+        doc->doc->queryEntity(static_cast<REntity::Id>(id));
+    if (e.isNull()) {
+        return -1;
+    }
+    *out_type = 0;
+    /* Local staging buffer for the fixed-size types; polyline streams. */
+    auto put = [&](int i, double v) {
+        if (out_data != nullptr && i < max_doubles) {
+            out_data[i] = v;
+        }
+    };
+    switch (e->getType()) {
+    case RS::EntityLine: {
+        QSharedPointer<RLineEntity> l = e.dynamicCast<RLineEntity>();
+        if (l.isNull()) return -1;
+        const RLineData &d = l->getData();
+        *out_type = 1;
+        put(0, d.getStartPoint().x); put(1, d.getStartPoint().y);
+        put(2, d.getEndPoint().x);   put(3, d.getEndPoint().y);
+        return 4;
+    }
+    case RS::EntityCircle: {
+        QSharedPointer<RCircleEntity> c = e.dynamicCast<RCircleEntity>();
+        if (c.isNull()) return -1;
+        const RCircleData &d = c->getData();
+        *out_type = 2;
+        put(0, d.getCenter().x); put(1, d.getCenter().y); put(2, d.getRadius());
+        return 3;
+    }
+    case RS::EntityArc: {
+        QSharedPointer<RArcEntity> a = e.dynamicCast<RArcEntity>();
+        if (a.isNull()) return -1;
+        const RArcData &d = a->getData();
+        *out_type = 3;
+        put(0, d.getCenter().x); put(1, d.getCenter().y); put(2, d.getRadius());
+        put(3, d.getStartAngle()); put(4, d.getEndAngle());
+        put(5, d.isReversed() ? 1.0 : 0.0);
+        return 6;
+    }
+    case RS::EntityPolyline: {
+        QSharedPointer<RPolylineEntity> p = e.dynamicCast<RPolylineEntity>();
+        if (p.isNull()) return -1;
+        const RPolylineData &d = p->getData();
+        const QList<RVector> verts = d.getVertices();
+        *out_type = 4;
+        put(0, d.isClosed() ? 1.0 : 0.0);
+        put(1, static_cast<double>(verts.size()));
+        for (int i = 0; i < verts.size(); ++i) {
+            put(2 + 2 * i, verts.at(i).x);
+            put(3 + 2 * i, verts.at(i).y);
+        }
+        return 2 + 2 * static_cast<int>(verts.size());
+    }
+    default:
+        *out_type = 0;
+        return 0;
+    }
 }
 
 int qcad_load_dxf(qcad_document *doc, const char *path) {
