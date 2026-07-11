@@ -1,0 +1,82 @@
+name: SLVS Solver Build  # M9: vendored libslvs — host smoke + iOS static link
+
+# Isolated from the QCAD core workflow: only runs when the solver vendor tree
+# or this file changes. Two jobs:
+#   1) host smoke  — actually SOLVES a constrained rectangle and checks the
+#      result + the driving dimension (runnable proof on ubuntu).
+#   2) iOS static  — the real unknown for path B: does libslvs cross-compile
+#      to a static arm64/iphoneos .a cleanly? lipo confirms the arch.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/slvs/**'
+      - '.github/workflows/slvs-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/slvs/**'
+      - '.github/workflows/slvs-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slvs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slvs-host-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CMake
+        run: sudo apt-get update && sudo apt-get install -y cmake
+      - name: Build + run solver smoke (host)
+        working-directory: backend/slvs
+        run: |
+          set -o pipefail
+          cmake -S . -B build -DSLVS_SMOKE=ON -DCMAKE_BUILD_TYPE=Release 2>&1 | tee cfg-host.log
+          cmake --build build -j 2>&1 | tee build-host.log
+          echo "=== smoke ==="
+          ./build/slvs_smoke | tee smoke.log
+          grep -q "result   = OKAY" smoke.log \
+            || { echo "SMOKE FAIL: solver did not report OKAY"; exit 1; }
+          grep -q "width|AB| = 50.0000" smoke.log \
+            || { echo "SMOKE FAIL: driving dimension not satisfied"; exit 1; }
+          grep -q "P5 on top edge? v=46.5000" smoke.log \
+            || { echo "SMOKE FAIL: point-on-line not satisfied"; exit 1; }
+          echo "SLVS HOST SMOKE: PASS"
+
+  slvs-ios-static:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure + build libslvs static for iOS (arm64/iphoneos)
+        working-directory: backend/slvs
+        run: |
+          set -o pipefail
+          cmake -S . -B build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_BUILD_TYPE=Release 2>&1 | tee cfg-ios.log
+          cmake --build build-ios -j 2>&1 | tee build-ios.log
+      - name: Verify static library arch (lipo)
+        working-directory: backend/slvs
+        run: |
+          set -e
+          set -o pipefail
+          test -f build-ios/libslvs.a || { echo "MISSING build-ios/libslvs.a"; exit 1; }
+          echo "OK  build-ios/libslvs.a"
+          lipo -info build-ios/libslvs.a | tee lipo.log
+          grep -q "arm64" lipo.log || { echo "FAIL: not arm64"; exit 1; }
+          echo "SLVS iOS STATIC: PASS"
+      - name: Upload iOS static lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: libslvs-ios-arm64
+          path: backend/slvs/build-ios/libslvs.a
+          retention-days: 3
