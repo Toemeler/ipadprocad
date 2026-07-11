@@ -50,6 +50,12 @@ def main() -> int:
             i += 1
             continue
         if t.startswith('-l') or t.startswith('-Wl,'):
+            # -Wl,-e,_qt_main_wrapper overrides the process entry point to
+            # Qt's wrapper — the root cause of the double-UIApplicationMain
+            # launch crash. Flutter's Runner must keep its own entry point.
+            if t.startswith('-Wl,-e,'):
+                i += 1
+                continue
             out.append(t)
             i += 1
             continue
