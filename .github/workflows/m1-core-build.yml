@@ -547,7 +547,11 @@ jobs:
           {
           APP="build/ios/iphoneos/Runner.app"
           [ -d "$APP" ] || { echo "M5 LINK CHECK: FAIL (Runner.app missing)"; exit 1; }
-          if strings "$APP/Runner" | grep -q "iPadProCAD C-API"; then
+          # grep -c statt -q: -q beendet grep beim ersten Treffer -> SIGPIPE an
+          # strings -> mit pipefail schlaegt die Pipeline trotz Treffer fehl
+          # (Run 29145123176: "strings: failed to flush output").
+          HITS="$(strings "$APP/Runner" | grep -c "iPadProCAD C-API" || true)"
+          if [ "${HITS:-0}" -gt 0 ]; then
             echo "M5 LINK CHECK: PASS (C-API version string present in Runner binary)"
           else
             echo "M5 LINK CHECK: FAIL (C-API not linked into Runner)"; exit 1
