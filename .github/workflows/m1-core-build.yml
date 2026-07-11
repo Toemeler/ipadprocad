@@ -456,7 +456,13 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_QT6=ON
+            -DBUILD_QT6=ON \
+            -DQCAD_CAPI_SMOKE=ON
+          # The smoke exe is built for the DEVICE here purely to make CMake
+          # emit the authoritative link line (link.txt) incl. the finalizer-
+          # GENERATED Qml type-registration objects. Those exist nowhere in
+          # the Qt package (undefined QQml*Foreign, runs 29143874907/...136545/
+          # ...547027); only the consumer build generates them.
           cmake --build build -j -- -k 0
           libtool -static -o release/libipadprocad.a \
             release/libqcadcapi.a \
@@ -500,51 +506,19 @@ jobs:
           {
           QTIOS="${{ steps.qt_ios.outputs.path }}"
           CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
-          # Only the Qt components the C-API actually uses (same set the CMake
-          # smoke links: Core/Concurrent/Gui/Network/Qml/Svg/Xml) plus Qt's
-          # bundled third-party archives (libqt*.a: pcre2, harfbuzz, freetype,
-          # libpng, ...). The all-archives glob pulled a member with IOKit
-          # references -> undefined symbols (run 29143155984). IOKit is linked
-          # explicitly since Qt6Core on iOS references it for device info.
-          QTLIBS=""
-          for c in Core Concurrent Gui Network Qml QmlMeta QmlModels QmlWorkerScript Svg Xml; do
-            [ -f "$QTIOS/lib/libQt6$c.a" ] && QTLIBS="$QTLIBS $QTIOS/lib/libQt6$c.a"
-          done
-          QTLIBS="$QTLIBS $(find "$QTIOS/lib" -maxdepth 1 -name 'libqt[a-z]*.a' ! -iname '*qios*' | sort | tr '\n' ' ')"
-          # Static Qt keeps qmltyperegistration + resource init code as loose
-          # object files under lib/objects-Release/<Component>_*/ which CMake
-          # links via INTERFACE properties. Without them: undefined
-          # QQml*Foreign::staticMetaObject (run 29143874907). Append them for
-          # exactly the components above.
-          QTOBJS=""
-          for c in Core Concurrent Gui Network Qml QmlMeta QmlModels QmlWorkerScript Svg Xml; do
-            for d in "$QTIOS/lib/objects-Release/${c}_"*; do
-              [ -d "$d" ] && QTOBJS="$QTOBJS $(find "$d" -name '*.o' | tr '\n' ' ')"
-            done
-          done
-          QTLIBS="$QTLIBS $QTOBJS"
-          echo "Qt extra objects: $(echo "$QTOBJS" | wc -w)"
-          echo "== objects-Release layout =="
-          ls "$QTIOS/lib/objects-Release" 2>/dev/null || echo "(none)"
-          # Auto-resolve: locate whatever defines the QQml*Foreign metaobjects
-          # (undefined in runs 29143874907/29144136545) and link it. Search all
-          # archives and loose objects for a DEFINED symbol match.
-          echo "== symbol search: QQmlIntForeign::staticMetaObject =="
-          SYM="QQmlIntForeign16staticMetaObjectE"
-          FOUND=""
-          for a in "$QTIOS"/lib/*.a; do
-            if nm "$a" 2>/dev/null | grep " [SDT] " | grep -q "$SYM"; then
-              echo "defined in archive: $a"; FOUND="$FOUND $a"
-            fi
-          done
-          while IFS= read -r o; do
-            if nm "$o" 2>/dev/null | grep " [SDT] " | grep -q "$SYM"; then
-              echo "defined in object: $o"; FOUND="$FOUND $o"
-            fi
-          done < <(find "$QTIOS/lib/objects-Release" -name '*.o' 2>/dev/null)
-          [ -n "$FOUND" ] || echo "WARNING: defining unit for $SYM not found under $QTIOS/lib"
-          QTLIBS="$QTLIBS $FOUND"
-          echo "Qt archives linked:"; echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d' | grep '\.a$'
+          BUILD="$GITHUB_WORKSPACE/backend/qcad-core/build"
+          # Ninja has no link.txt; ask ninja for the smoke's exact link
+          # command instead (executed with cwd = build root).
+          LINKCMD="$(mktemp)"
+          ninja -C "$BUILD" -t commands | grep -E -- "-o [^ ]*qcad_capi_smoke( |$)" | tail -1 > "$LINKCMD"
+          [ -s "$LINKCMD" ] || { echo "smoke link command not found via ninja -t commands"; exit 1; }
+          cat "$LINKCMD"
+          # Translate the authoritative link line into linker inputs for
+          # Xcode (keeps .o/.a incl. the GENERATED Qml registration objects,
+          # -l*, -framework pairs, -Wl,*; drops driver flags, -o, smoke.c.o).
+          QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
+          echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens):"
+          echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
           printf '_qcad_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
           OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
