@@ -36,6 +36,15 @@ def main() -> int:
             continue
         if t.endswith('.o') or t.endswith('.a'):
             p = t if os.path.isabs(t) else os.path.normpath(os.path.join(cwd, t))
+            # NEVER ship the QIOS platform plugin into the Flutter app: it
+            # contains qt_main_wrapper, which interposes main() and starts a
+            # second UIApplicationMain -> NSAssert in
+            # UIApplicationInstantiateSingleton -> crash on launch
+            # (verified on-device via Runner-2026-07-11-141719.ips).
+            low = os.path.basename(p).lower()
+            if 'qios' in low or 'qiosnsphotolibrarysupport' in low:
+                i += 1
+                continue
             if not p.endswith('/smoke.c.o'):
                 out.append(p)
             i += 1

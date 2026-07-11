@@ -555,6 +555,14 @@ jobs:
           # grep -c statt -q: -q beendet grep beim ersten Treffer -> SIGPIPE an
           # strings -> mit pipefail schlaegt die Pipeline trotz Treffer fehl
           # (Run 29145123176: "strings: failed to flush output").
+          # qt_main_wrapper in the binary = qios plugin linked = the
+          # double-UIApplicationMain launch crash (Runner-…-141719.ips).
+          QTMAIN="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c qt_main_wrapper || true)"
+          QTMAIN2="$(strings "$APP/Runner" | grep -c qt_main_wrapper || true)"
+          if [ "${QTMAIN:-0}" -gt 0 ] || [ "${QTMAIN2:-0}" -gt 0 ]; then
+            echo "M6 QIOS CHECK: FAIL (qt_main_wrapper present — qios plugin linked, app will crash at launch)"; exit 1
+          fi
+          echo "M6 QIOS CHECK: PASS (no qt_main_wrapper in Runner)"
           HITS="$(strings "$APP/Runner" | grep -c "iPadProCAD C-API" || true)"
           if [ "${HITS:-0}" -gt 0 ]; then
             echo "M5 LINK CHECK: PASS (C-API version string present in Runner binary)"
