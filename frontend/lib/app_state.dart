@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
+import 'modify.dart';
 import 'snap.dart';
 import 'theme.dart';
 import 'tools.dart';
@@ -26,7 +27,14 @@ enum Tool {
   rectTwoPoint, rect3P, rect2PC, rect3PC,
   slotCC, slotOverall, slotCP, slot3A, slotCPA, polygon,
   fillet, chamfer, point,
+  // modify tools (operate on the geometry list, engine gets rebuilt)
+  move, mcopy, mrotate, mscale, mstretch, moffset, trim, extendT, split,
 }
+
+const modifyTools = {
+  Tool.move, Tool.mcopy, Tool.mrotate, Tool.mscale, Tool.mstretch,
+  Tool.moffset, Tool.trim, Tool.extendT, Tool.split,
+};
 
 class SketchModel {
   final String name;
@@ -223,6 +231,8 @@ class AppState extends ChangeNotifier {
   Offset? dragPos;
   Offset? boxStart, boxEnd; // world coords while box-selecting
   bool boxCrossing = false;
+  Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
+  int? modEntity; // entity picked in the first phase of Offset
 
   /// Geometry with an in-progress grip drag applied (painter reads this).
   List<Geo> displayGeometry(SketchModel s) {
@@ -266,6 +276,7 @@ class AppState extends ChangeNotifier {
     if (s != null && boxStart != null && boxEnd != null) {
       final r = Rect.fromPoints(boxStart!, boxEnd!);
       if (r.width > 1e-9 && r.height > 1e-9) {
+        lastBoxRect = r;
         selection.clear();
         for (var i = 0; i < s.geometry.length; i++) {
           if (entityInRect(s.geometry[i], r, crossing: boxCrossing)) {
@@ -345,6 +356,7 @@ class AppState extends ChangeNotifier {
     toolPoints.clear();
     tool = Tool.none;
     snap = null;
+    modEntity = null;
     notifyListeners();
   }
 
@@ -359,6 +371,11 @@ class AppState extends ChangeNotifier {
   void toolClick(Offset w) {
     final s = current;
     if (s == null || tool == Tool.none) return;
+    if (modifyTools.contains(tool)) {
+      _modifyClick(s, w);
+      notifyListeners();
+      return;
+    }
     toolPoints.add(w);
     final meta = toolMeta[tool];
     if (meta?.fixed != null && toolPoints.length >= meta!.fixed!) {
@@ -374,6 +391,156 @@ class AppState extends ChangeNotifier {
     if (s == null || meta == null || meta.fixed != null) return;
     if (toolPoints.length >= meta.minVar) _commitTool(s);
     notifyListeners();
+  }
+
+  // ---- modify tools (M6) ----
+  int? _pickEntity(SketchModel s, Offset w) {
+    var best = -1;
+    var bd = 10 / zoom;
+    for (var i = 0; i < s.geometry.length; i++) {
+      final d = distToEntity(s.geometry[i], w);
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    return best < 0 ? null : best;
+  }
+
+  void _modifyClick(SketchModel s, Offset w) {
+    switch (tool) {
+      case Tool.trim:
+        final i = _pickEntity(s, w);
+        if (i == null) return;
+        final gs = List<Geo>.from(s.geometry)
+          ..removeAt(i)
+          ..addAll(trimEntity(s.geometry, i, w));
+        _rebuildEngine(s, gs);
+        selection.clear();
+        return;
+      case Tool.extendT:
+        final i = _pickEntity(s, w);
+        if (i == null) return;
+        final e = extendEntity(s.geometry, i, w);
+        if (e == null) return;
+        final gs = List<Geo>.from(s.geometry)..[i] = e;
+        _rebuildEngine(s, gs);
+        return;
+      case Tool.split:
+        final i = _pickEntity(s, w);
+        if (i == null) return;
+        final parts = splitEntity(s.geometry, i, w);
+        if (parts == null) return;
+        final gs = List<Geo>.from(s.geometry)
+          ..removeAt(i)
+          ..addAll(parts);
+        _rebuildEngine(s, gs);
+        selection.clear();
+        return;
+      case Tool.moffset:
+        if (modEntity == null) {
+          modEntity = _pickEntity(s, w);
+          return;
+        }
+        final o = offsetEntity(s.geometry[modEntity!], w);
+        if (o != null) {
+          _rebuildEngine(s, [...s.geometry, o]); // offset ADDS a copy
+        }
+        modEntity = null;
+        return;
+      case Tool.move:
+      case Tool.mcopy:
+      case Tool.mrotate:
+      case Tool.mscale:
+      case Tool.mstretch:
+        if (selection.isEmpty) {
+          // pick phase: taps (de)select entities until something is selected
+          final i = _pickEntity(s, w);
+          if (i != null) selection.add(i);
+          return;
+        }
+        toolPoints.add(w);
+        final need = (tool == Tool.mrotate || tool == Tool.mscale) ? 3 : 2;
+        if (toolPoints.length < need) return;
+        final f = _modifyTransform();
+        if (f != null) {
+          final gs = List<Geo>.from(s.geometry);
+          if (tool == Tool.mcopy) {
+            for (final i in selection) {
+              gs.add(transformGeo(s.geometry[i], f));
+            }
+          } else if (tool == Tool.mstretch && lastBoxRect != null) {
+            final d = toolPoints[1] - toolPoints[0];
+            for (final i in selection) {
+              gs[i] = stretchGeo(s.geometry[i], lastBoxRect!, d);
+            }
+          } else {
+            for (final i in selection) {
+              gs[i] = transformGeo(s.geometry[i], f);
+            }
+          }
+          _rebuildEngine(s, gs);
+        }
+        toolPoints.clear();
+        return;
+      default:
+        return;
+    }
+  }
+
+  /// The transform described by the picked points of the active modify tool.
+  Offset Function(Offset)? _modifyTransform() {
+    switch (tool) {
+      case Tool.move:
+      case Tool.mcopy:
+      case Tool.mstretch:
+        if (toolPoints.length < 2) return null;
+        return translation(toolPoints[1] - toolPoints[0]);
+      case Tool.mrotate:
+        if (toolPoints.length < 3) return null;
+        final c = toolPoints[0];
+        final a1 = math.atan2(
+            toolPoints[1].dy - c.dy, toolPoints[1].dx - c.dx);
+        final a2 = math.atan2(
+            toolPoints[2].dy - c.dy, toolPoints[2].dx - c.dx);
+        return rotation(c, a2 - a1);
+      case Tool.mscale:
+        if (toolPoints.length < 3) return null;
+        final c = toolPoints[0];
+        final r1 = (toolPoints[1] - c).distance;
+        final r2 = (toolPoints[2] - c).distance;
+        if (r1 < 1e-9) return null;
+        return scaling(c, r2 / r1);
+      default:
+        return null;
+    }
+  }
+
+  /// Ghost preview of the pending modify transform at [hover].
+  List<Geo> modifyGhost(SketchModel s, Offset hover) {
+    if (!modifyTools.contains(tool)) return const [];
+    if (tool == Tool.moffset && modEntity != null) {
+      final o = offsetEntity(s.geometry[modEntity!], hover);
+      return o == null ? const [] : [o];
+    }
+    if (selection.isEmpty || toolPoints.isEmpty) return const [];
+    final probe = [...toolPoints, hover];
+    final saved = List<Offset>.from(toolPoints);
+    toolPoints
+      ..clear()
+      ..addAll(probe);
+    final f = _modifyTransform();
+    toolPoints
+      ..clear()
+      ..addAll(saved);
+    if (f == null) return const [];
+    if (tool == Tool.mstretch && lastBoxRect != null) {
+      final d = hover - toolPoints[0];
+      return [
+        for (final i in selection) stretchGeo(s.geometry[i], lastBoxRect!, d)
+      ];
+    }
+    return [for (final i in selection) transformGeo(s.geometry[i], f)];
   }
 
   void _commitTool(SketchModel s) {

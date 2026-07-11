@@ -259,6 +259,8 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       if (p.isEmpty) return null;
       // sketch point: rendered/exported as a tiny circle marker
       return [_circle(p[0], 0.35)];
+    default:
+      return null; // modify tools have their own click pipeline
   }
 }
 

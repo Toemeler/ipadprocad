@@ -324,6 +324,20 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    // ---- modify-tool ghost preview (dashed look via lighter blue) ----
+    if (app.hoverWorld != null && s != null) {
+      final ghost = app.modifyGhost(s, app.hoverWorld!);
+      if (ghost.isNotEmpty) {
+        final gp = Paint()
+          ..color = T.blue.withOpacity(0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2;
+        for (final g in ghost) {
+          paintGeo(canvas, g, map, app.zoom, gp);
+        }
+      }
+    }
+
     // ---- snap marker + alignment guides (Inventor green) ----
     final sn = app.snap;
     if (sn != null && (app.tool != Tool.none || app.dragGrip != null)) {

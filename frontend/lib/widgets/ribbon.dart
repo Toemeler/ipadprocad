@@ -428,6 +428,12 @@ class _RibbonState extends State<Ribbon> {
     );
   }
 
+  static const _modToolOf = <String, Tool>{
+    'move': Tool.move, 'copy': Tool.mcopy, 'mrotate': Tool.mrotate,
+    'trim': Tool.trim, 'extend': Tool.extendT, 'split': Tool.split,
+    'mscale': Tool.mscale, 'stretch': Tool.mstretch, 'moffset': Tool.moffset,
+  };
+
   Widget _modCol(List<String> keys, List<String> labels, {double leftPad = 8}) {
     return Padding(
       padding: EdgeInsets.only(left: leftPad),
@@ -437,7 +443,13 @@ class _RibbonState extends State<Ribbon> {
           children: [
             for (var i = 0; i < keys.length; i++) ...[
               if (i > 0) const SizedBox(height: 2),
-              _SmallRow(icon: MD[keys[i]]!, label: labels[i]),
+              _SmallRow(
+                  icon: MD[keys[i]]!,
+                  label: labels[i],
+                  onTap: _modToolOf[keys[i]] == null
+                      ? null
+                      : () => _startTool(_modToolOf[keys[i]]!),
+                  active: widget.app.tool == _modToolOf[keys[i]]),
             ]
           ]),
     );
