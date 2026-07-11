@@ -11,6 +11,8 @@ import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart';
 
+import '../log.dart';
+
 /// Geometry snapshot of one entity, mirroring qcad_entity_geometry().
 class Geo {
   static const line = 1, circle = 2, arc = 3, polyline = 4;
@@ -36,16 +38,29 @@ abstract class Engine {
   /// Creates a backend-powered engine if the C symbols are linked in,
   /// otherwise the Dart fallback.
   static Engine create() {
+    // Heavily instrumented: each native call is bracketed by a flushed log
+    // line, so if the C++ side crashes hard, the log's last line names the
+    // exact native call that killed the process.
     try {
-      final b = _Bindings(DynamicLibrary.process());
-      final e = _FfiEngine(b);
-      // round-trip probe so a broken link surfaces immediately
-      e.addLine(0, 0, 1, 1);
-      final ok = e.allGeometry().length == 1;
-      e.dispose();
+      final proc = Log.step('ffi', 'DynamicLibrary.process()',
+          () => DynamicLibrary.process());
+      final b = Log.step('ffi', 'symbol lookup + qcad_init()',
+          () => _Bindings(proc));
+      final ver = Log.step('ffi', 'qcad_version()',
+          () => b.version().toDartString());
+      Log.i('ffi', 'native backend version: $ver');
+      final e = Log.step('ffi', 'qcad_document_new()', () => _FfiEngine(b));
+      Log.step('ffi', 'probe qcad_add_line()', () => e.addLine(0, 0, 1, 1));
+      final ok = Log.step('ffi', 'probe entity_ids/geometry round-trip',
+          () => e.allGeometry().length == 1);
+      Log.step('ffi', 'probe qcad_document_free()', () => e.dispose());
       if (!ok) throw StateError('geometry round-trip failed');
-      return _FfiEngine(_Bindings(DynamicLibrary.process()));
-    } catch (_) {
+      final engine = _FfiEngine(_Bindings(proc));
+      Log.i('ffi', 'REAL backend active (qcad-ffi)');
+      return engine;
+    } catch (err, st) {
+      Log.w('ffi',
+          'falling back to Dart engine — reason: $err\n$st');
       return _FallbackEngine();
     }
   }
@@ -112,7 +127,10 @@ class _Bindings {
   late final _SaveD saveDxf =
       lib.lookupFunction<_SaveN, _SaveD>('qcad_save_dxf');
   _Bindings(this.lib) {
+    Log.i('ffi', 'looking up qcad_init + calling it '
+        '(other symbols resolve lazily on first use)');
     init();
+    Log.i('ffi', 'qcad_init() returned');
   }
 }
 

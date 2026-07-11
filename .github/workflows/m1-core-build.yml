@@ -487,6 +487,11 @@ jobs:
           {
           flutter --version
           flutter create --platforms=ios --org com.ipadprocad --project-name ipadprocad .
+          # Expose the app's Documents dir (incl. logs/ipadprocad_log.txt)
+          # in the iPad Files app for on-device crash debugging.
+          /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' ios/Runner/Info.plist
           flutter pub get
           # Qt-iOS prebuilt objects require minos 14.0 -> raise everywhere.
           # (Target-level pbxproj settings override xcconfig, so patch pbxproj.)

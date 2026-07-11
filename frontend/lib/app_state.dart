@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'ffi/qcad_engine.dart';
+import 'log.dart';
 import 'theme.dart';
 
 /// Drawing tools with real backend support (M5 step 3). Every other ribbon
@@ -65,27 +66,33 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     try {
-      _docsDir = await getApplicationDocumentsDirectory();
-    } catch (_) {
+      _docsDir = await Log.stepAsync('state',
+          'getApplicationDocumentsDirectory (platform channel)',
+          () => getApplicationDocumentsDirectory());
+      Log.i('state', 'docs dir = ${_docsDir!.path}');
+    } catch (e, st) {
+      Log.e('state', 'docs dir failed, using systemTemp', e, st);
       _docsDir = Directory.systemTemp;
     }
-    final probe = Engine.create();
+    final probe = Log.step('state', 'Engine.create (backend probe)',
+        () => Engine.create());
     backendReal = probe.isRealBackend;
     backendInfo = probe.version;
     probe.dispose();
     // Honest FFI smoke marker (M2-Restschuld): a real round trip through the
     // engine that is actually in use, reported truthfully.
-    final smoke = Engine.create();
+    final smoke = Log.step('state', 'Engine.create (smoke)',
+        () => Engine.create());
     smoke.addLine(0, 0, 10, 5);
     smoke.addCircle(5, 5, 2);
     final n = smoke.allGeometry().length;
     smoke.dispose();
-    // ignore: avoid_print
-    print(n == 2
+    Log.i('smoke', n == 2
         ? 'DART SMOKE: PASS (backend=${backendReal ? "qcad-ffi" : "dart-fallback"}, $backendInfo)'
         : 'DART SMOKE: FAIL (geometry round-trip broke, backend=$backendInfo)');
-    await refreshSaved();
+    await Log.stepAsync('state', 'refreshSaved', () => refreshSaved());
     notifyListeners();
+    Log.i('state', 'AppState.init done (backendReal=$backendReal)');
   }
 
   Directory get _sketchDir {
