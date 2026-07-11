@@ -537,6 +537,12 @@ jobs:
           cat ios/Flutter/ffi.xcconfig
           } 2>&1 | tee ../ci-m5-xcconfig.log
 
+      - name: Analyze Dart (surface compile errors clearly)
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub 2>&1 | tee ../ci-m5-analyze.log
+
       - name: Build iOS app (release, unsigned)
         timeout-minutes: 45
         working-directory: frontend
@@ -588,7 +594,7 @@ jobs:
         if: always()
         run: |
           mkdir -p ci-logs-m5
-          for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-build ci-m5-verify; do
+          for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-analyze ci-m5-build ci-m5-verify; do
             cp "$l.log" ci-logs-m5/ 2>/dev/null || true
           done
           git config user.email "ci@ipadprocad.local"

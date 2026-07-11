@@ -524,7 +524,7 @@ List<Geo>? _arcSlot((Offset, double, double, double, bool) arc, double r) {
       n = -n;
       c0 = -c0;
     }
-    return (n, c0, 0);
+    return (n, c0, 0.0);
   }
 
   final a = norm(l1, h1), b = norm(l2, h2), c = norm(l3, h3);
