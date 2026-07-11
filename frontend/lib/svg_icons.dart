@@ -113,8 +113,10 @@ final Map<String, String> CN = {
       '<line x1="4" y1="17" x2="30" y2="17" stroke="$G" stroke-width="1.5"/><line x1="4" y1="10" x2="4" y2="24" stroke="$G" stroke-width="1.5"/><line x1="30" y1="10" x2="30" y2="24" stroke="$G" stroke-width="1.5"/><path d="M4 17l4.5-2.4M4 17l4.5 2.4M30 17l-4.5-2.4M30 17l-4.5 2.4" stroke="$G" stroke-width="1.4"/>'),
   'autodim': S(18,
       '<line x1="3" y1="4" x2="3" y2="12" stroke="$GC" stroke-width="1.2"/><line x1="3" y1="8" x2="9" y2="8" stroke="$GC" stroke-width="1.2"/><path d="M3 8l2.4-1.4M3 8l2.4 1.4" stroke="$GC" stroke-width="1"/>${bolt(9.5, 3.5, 1.15)}'),
+  // two point-markers merging into one shared point (Inventor's coincident
+  // reads as "these two points become the same point")
   'coincident': S(18,
-      '<path d="M5.5 3v8.5H14" stroke="$RD" stroke-width="1.7" fill="none"/>${cursorArrow(8.5, 4.5)}'),
+      '<circle cx="5.6" cy="11" r="2.9" stroke="$RD" stroke-width="1.5" fill="none"/><circle cx="10.1" cy="11" r="2.9" stroke="$RD" stroke-width="1.5" fill="none"/><circle cx="7.85" cy="11" r="1.5" fill="$RD"/>${cursorArrow(11.5, 3.5)}'),
   'collinear': S(18,
       '<line x1="2" y1="12.5" x2="8" y2="9.5" stroke="$RD" stroke-width="1.7"/><line x1="9.5" y1="7.5" x2="15.5" y2="4.5" stroke="$RD" stroke-width="1.7"/>${cursorArrow(4, 3)}'),
   'concentric': S(18,

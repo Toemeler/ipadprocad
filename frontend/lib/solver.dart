@@ -194,7 +194,10 @@ int residualCount(List<Geo> gs, Constraint c) {
   bool pt(int i) => i < c.pts.length && c.pts[i].ent < gs.length;
   switch (c.type) {
     case CType.coincident:
-      return pt(0) && pt(1) ? 2 : 0;
+      if (pt(0) && pt(1)) return 2; // point-on-point
+      // point-on-line: one point pinned onto one straight edge
+      if (pt(0) && ent(0) && gs[c.ents[0]].type == Geo.line) return 1;
+      return 0;
     case CType.fix:
       if (c.pts.isNotEmpty) return pt(0) ? 2 : 0;
       return ent(0) ? _paramCount(gs[c.ents[0]]) : 0;
@@ -297,10 +300,28 @@ List<double> _residuals(List<Geo> gs, List<int> off, List<double> x,
     if (n == 0) continue;
     switch (c.type) {
       case CType.coincident:
-        final a = _pointAt(gs, off, x, c.pts[0]);
-        final b = _pointAt(gs, off, x, c.pts[1]);
-        r.add(a.dx - b.dx);
-        r.add(a.dy - b.dy);
+        if (c.pts.length >= 2) {
+          final a = _pointAt(gs, off, x, c.pts[0]);
+          final b = _pointAt(gs, off, x, c.pts[1]);
+          r.add(a.dx - b.dx);
+          r.add(a.dy - b.dy);
+        } else {
+          // point-on-line: signed perpendicular distance to the edge == 0
+          final q = _pointAt(gs, off, x, c.pts[0]);
+          final l = _lineEnds(gs, off, x, c.ents[0]);
+          if (l == null) {
+            r.add(0);
+          } else {
+            final d = l.$2 - l.$1;
+            final len = d.distance;
+            if (len < 1e-12) {
+              r.add(0);
+            } else {
+              final nrm = Offset(-d.dy, d.dx) / len;
+              r.add((q - l.$1).dx * nrm.dx + (q - l.$1).dy * nrm.dy);
+            }
+          }
+        }
         break;
       case CType.fix:
         if (c.pts.isNotEmpty) {

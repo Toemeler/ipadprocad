@@ -682,10 +682,20 @@ class AppState extends ChangeNotifier {
     final ent = _pickEntity(s, w);
     switch (tool) {
       case Tool.cCoincident:
-        if (pt == null) return;
-        conPts.add(pt);
-        if (conPts.length == 2) {
-          _addConstraint(s, Constraint(CType.coincident, pts: List.of(conPts)));
+        // First pick is always a point. The second pick decides the flavour:
+        // another point -> point-on-point, a line -> point-on-line.
+        if (conPts.isEmpty) {
+          if (pt == null) return;
+          conPts.add(pt);
+          return;
+        }
+        if (pt != null) {
+          _addConstraint(
+              s, Constraint(CType.coincident, pts: [conPts[0], pt]));
+          conPts.clear();
+        } else if (ent != null && s.geometry[ent].type == Geo.line) {
+          _addConstraint(s,
+              Constraint(CType.coincident, pts: [conPts[0]], ents: [ent]));
           conPts.clear();
         }
         return;

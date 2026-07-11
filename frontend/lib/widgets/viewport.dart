@@ -195,7 +195,8 @@ class _Viewport2DState extends State<Viewport2D> {
       return;
     }
     final v = await _askValue(
-        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0);
+        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
+        length: d.dimKind != 'ang');
     if (!mounted) return;
     if (v == null) {
       app.cancelDimension();
@@ -206,11 +207,16 @@ class _Viewport2DState extends State<Viewport2D> {
 
   Future<void> _editDimValue(Constraint d) async {
     final v = await _askValue(
-        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0);
+        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
+        length: d.dimKind != 'ang');
     if (v != null && mounted) widget.app.setDimensionValue(d, v);
   }
 
-  Future<double?> _askValue(String title, double current) async {
+  /// Value entry dialog. When [length] is true the field accepts a unit
+  /// suffix (mm — the default — or cm / m) and the returned value is always
+  /// in millimetres, the sketch's base unit.
+  Future<double?> _askValue(String title, double current,
+      {bool length = false}) async {
     final c = TextEditingController(text: current.toStringAsFixed(2));
     final ok = await showDialog<bool>(
       context: context,
@@ -224,6 +230,14 @@ class _Viewport2DState extends State<Viewport2D> {
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           style: const TextStyle(fontSize: 13, color: T.text),
+          decoration: length
+              ? const InputDecoration(
+                  suffixText: 'mm',
+                  suffixStyle: TextStyle(fontSize: 12, color: T.dim),
+                  helperText: 'Default mm — type cm or m for other units',
+                  helperStyle: TextStyle(fontSize: 10.5, color: T.dim),
+                )
+              : null,
           onSubmitted: (_) => Navigator.pop(ctx, true),
         ),
         actions: [
@@ -239,7 +253,27 @@ class _Viewport2DState extends State<Viewport2D> {
       ),
     );
     if (ok != true) return null;
-    return double.tryParse(c.text.replaceAll(',', '.'));
+    return length
+        ? _parseLengthMm(c.text)
+        : double.tryParse(c.text.replaceAll(',', '.'));
+  }
+
+  /// Parses a length entry into millimetres. Accepts an optional unit suffix:
+  /// `mm` (default), `cm` (×10) or `m` (×1000). Returns null if unparseable.
+  double? _parseLengthMm(String s) {
+    var t = s.trim().toLowerCase().replaceAll(',', '.');
+    var factor = 1.0;
+    if (t.endsWith('mm')) {
+      t = t.substring(0, t.length - 2);
+    } else if (t.endsWith('cm')) {
+      t = t.substring(0, t.length - 2);
+      factor = 10.0;
+    } else if (t.endsWith('m')) {
+      t = t.substring(0, t.length - 1);
+      factor = 1000.0;
+    }
+    final v = double.tryParse(t.trim());
+    return v == null ? null : v * factor;
   }
 
   void _scaleEnd() {
@@ -770,9 +804,8 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       canvas.drawLine(da, db, p); // dimension line
       _arrow(canvas, da, u, p);
       _arrow(canvas, db, -u, p);
-      label = c.driven
-          ? '(${v.toStringAsFixed(2)})'
-          : v.toStringAsFixed(2);
+      label = '${v.toStringAsFixed(2)} mm';
+      if (c.driven) label = '($label)';
       t = (da + db) / 2 + n * (off >= 0 ? 10 : -10);
       break;
     case 'rad':
@@ -783,7 +816,8 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       final d = t - ce;
       if (d.distance < 1e-6) return;
       canvas.drawLine(ce, t, p);
-      label = (c.dimKind == 'rad' ? 'R' : '\u2300') + v.toStringAsFixed(2);
+      label = (c.dimKind == 'rad' ? 'R' : '⌀') +
+          '${v.toStringAsFixed(2)} mm';
       if (c.driven) label = '($label)';
       break;
     case 'ang':

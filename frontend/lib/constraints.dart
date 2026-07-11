@@ -211,7 +211,33 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
       }
     }
   }
-  // coincident endpoints (snapping already made them exactly equal)
+  // Rectangles / polygons are a single closed polyline entity, so the
+  // per-line inference above never sees their edges. Infer horizontal /
+  // vertical per segment instead: a normal (axis-aligned) rectangle then
+  // picks up two horizontal + two vertical constraints, exactly as Inventor
+  // does when you draw one.
+  if (g.type == Geo.polyline) {
+    final n = g.data[1].toInt();
+    final closed = g.data[0] != 0;
+    final segs = closed ? n : n - 1;
+    for (var si = 0; si < segs; si++) {
+      final i = si, k = (si + 1) % n;
+      final d = getPt(g, k) - getPt(g, i);
+      if (d.distance < 1e-9) continue;
+      var m = math.atan2(d.dy, d.dx) % math.pi;
+      if (m < 0) m += math.pi;
+      if (m < _angTol || math.pi - m < _angTol) {
+        out.add(Constraint(CType.horizontal,
+            pts: [PRef(newIdx, i), PRef(newIdx, k)]));
+      } else if ((m - math.pi / 2).abs() < _angTol) {
+        out.add(Constraint(CType.vertical,
+            pts: [PRef(newIdx, i), PRef(newIdx, k)]));
+      }
+    }
+  }
+  // coincident endpoints (snapping already made them exactly equal); if a new
+  // point instead lands on the interior of an existing straight edge, add a
+  // point-on-line coincidence rather than point-on-point.
   for (var p = 0; p < ptCount(g); p++) {
     final q = getPt(g, p);
     var done = false;
@@ -222,6 +248,22 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
               pts: [PRef(j, pj), PRef(newIdx, p)]));
           done = true;
         }
+      }
+    }
+    if (done) continue;
+    for (var j = 0; j < newIdx; j++) {
+      if (gs[j].type != Geo.line) continue;
+      final a = getPt(gs[j], 0), b = getPt(gs[j], 1);
+      if ((q - a).distance < 1e-6 || (q - b).distance < 1e-6) continue;
+      final ab = b - a;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      if (len2 < 1e-18) continue;
+      final tPar = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
+      if (tPar <= 1e-6 || tPar >= 1 - 1e-6) continue; // interior only
+      if ((q - (a + ab * tPar)).distance < 1e-6) {
+        out.add(Constraint(CType.coincident,
+            pts: [PRef(newIdx, p)], ents: [j]));
+        break;
       }
     }
   }
