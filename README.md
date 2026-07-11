@@ -7,80 +7,53 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
-## Status
+## Status (Stand M5)
 
-**M1 — Headless-Core-Build & iOS-CI: erreicht (grün).**
+| Meilenstein | Stand |
+|---|---|
+| **M1** Headless-Core-Build + iOS-CI | ✅ erledigt (statische Libs, arm64/iphoneos) |
+| **M2** C-ABI-Wrapper (`qcad_capi.h`) | ✅ erledigt & validiert; in M5 um Geometrie-Abfrage erweitert |
+| **M3** Headless-Logiktest im iOS-Simulator | ✅ erledigt (`SMOKE: PASS`, inkl. Geometrie-Query-Checks) |
+| **M4** UI-Design als interaktiver HTML-Mock | ✅ abgeschlossen (`create-panel.html` = verbindliche 1:1-Spec) |
+| **M5** Flutter-App (1:1-Port) + echtes Zeichnen + IPA | ✅ Grundausbau erledigt, CI-validiert (Run 29145382350) |
 
-Der vendored QCAD-Core kompiliert und linkt sauber, sowohl lokal unter Linux
-(Qt 6, `g++`) als auch im GitHub-Actions-CI als iOS-Cross-Compile (macOS-Runner,
-Xcode, Qt 6.7.3, `arm64`). Der CI-Lauf erzeugt fehlerfrei die statischen
-Bibliotheken `libqcadcore.a`, `libqcadentity.a`, `libqcadoperations.a`,
-`libqcaddxf.a` und `libdxflib.a`.
+### M5 im Detail
 
-- [x] Headless-relevante QCAD-Core-Quellen vendored (`backend/qcad-core/`, siehe `VENDOR.md`)
-- [x] Root-`CMakeLists.txt` baut den headless Core (Module: `core`, `entity`, `operations`, `io/dxf`, `3rdparty/dxflib`)
-- [x] GitHub Action `.github/workflows/m1-core-build.yml`: Cross-Compile auf macOS-Runner für iOS (Qt6 + Ninja), Build mit `-k 0` (keep-going), damit ein Lauf alle Fehler zeigt
-- [x] Qt6-Cross-Compile-Toolchain (separate `qt-host`/`qt-ios`-Installationen, `QT_HOST_PATH`, `CMAKE_TOOLCHAIN_FILE`)
-- [x] **Statische Bibliotheken** (kein Shared): iOS lädt keine freistehenden `.dylib`; die App linkt die `.a` später per FFI ein. Statische Archive haben zudem keinen Link-Schritt, was die iOS-typischen `_main`-/Plattform-Plugin-Linkfehler vermeidet.
-- [x] iOS-Zielkontext = **Device** (`iphoneos`, `arm64`). `install-qt-action` (target `ios`) liefert Device-Qt-Bibliotheken; ein Simulator-Ziel würde am Plattform-Mismatch scheitern. Für reine Cross-Compile-Validierung ist der Device-Build passend und braucht keine Signatur.
-- [x] `CMAKE_OSX_DEPLOYMENT_TARGET=13.0` (behebt `std::filesystem`-Fehler in Qt6-Headern); der vorher in `CMakeInclude.txt` erzwungene Wert `12.7` überschreibt den Kommandozeilenwert nicht mehr
-- [x] `CMAKE_POSITION_INDEPENDENT_CODE=ON` (statisches `dxflib` in andere Ziele linkbar)
-- [x] QtWidgets-Kopplung im Core headless gekapselt (`QCAD_HEADLESS`): `RAction`, `RGuiAction`, `RMainWindow`, `RPropertyEditor` u. a.
-- [x] iOS-Portabilität: `QProcess` (auf iOS nicht vorhanden) in `RSPlatform`/`RMetaTypes` hinter `QT_CONFIG(process)` gekapselt; Dark-Mode-Erkennung (`isMacDarkMode`) auf `Q_OS_MACOS` eingegrenzt (statt `Q_OS_MAC`, das iOS einschließt)
-- [x] `RMath`: Ausdrucksauswertung via `QJSEngine` (Qt6 `Qml`) korrekt angebunden
+**Frontend (`frontend/`, komplett neu):** 1:1-Flutter-Port des finalen
+HTML-Mocks — Inventor-Sketch-Tab-Ribbon (Panels: Layer, Create, Project
+Geometry, Pattern, Constrain, Insert, Format, Modify + Exit/Finish),
+Flyout-Menüs mit exakten Einträgen, Model-Browser (Origin-Expander,
+Layer-Zeilen mit Kontextmenü/Doppelklick-Edit, Inventor-Highlight),
+Layer-Edit-Modus (graue Referenz-Achsen + gelber projizierter Center Point),
+Home-View mit Recent-Karten und untere Tab-Leiste. Icons: die
+handgezeichneten Mock-SVGs verbatim via `flutter_svg`.
 
-### Bewusst zurückgestellte Module (reversibel, dokumentiert)
+**Echtes Zeichnen über das Backend:** Line, Circle (Center Point), Rectangle
+(Two Point) und Arc (Three Point) laufen real über die QCAD-C-API (Dart-FFI);
+gerendert wird aus dem QCAD-Dokument (`qcad_entity_ids` /
+`qcad_entity_geometry`). Alle übrigen Ribbon-Funktionen sind wie im Mock
+sichtbar, aber noch ohne Funktion. Ohne gelinkte Libs (z. B. Desktop-Dev)
+greift ein ehrlicher Dart-Fallback; der Start-Marker meldet
+`DART SMOKE: PASS (backend=qcad-ffi|dart-fallback)`.
 
-Diese drei Abhängigkeiten sind für ein sauberes, schlankes M1 deaktiviert. Jede
-ist isoliert und mit wenigen Handgriffen reaktivierbar:
+**Persistenz:** DXF pro Skizze + generiertes Preview-PNG im
+App-Documents-Verzeichnis (Autosave bei Finish, Tab-Schließen, Home); die
+Recent-Karten zeigen echte gespeicherte Skizzen.
 
-1. **opennurbs (NURBS-Splines)** — Compile-Flag `R_NO_OPENNURBS`. `RSpline` nutzt
-   den opennurbs-freien Fallback; Spline-Auswertung (Punkt/Winkel) ist inaktiv,
-   bis ein opennurbs-gestützter `RSplineProxy` registriert wird. opennurbs bringt
-   ~430 Dateien inkl. eigenem zlib/freetype mit und würde jeden iOS-CI-Lauf
-   aufblähen. Reaktivierung: `src/3rdparty/opennurbs` vendorn und das Flag entfernen
-   (betrifft nur `RSpline`). **Relevanz:** Splines gehören zum DXF-Ziel — vor
-   Produktivnutzung zu vervollständigen.
-2. **spatialindex „Navel" (libspatialindex)** — nicht vendorte R-Tree-Bibliothek.
-   Der Core nutzt stattdessen das mitgelieferte, eigenständige `RSpatialIndexSimple`
-   (voll funktionsfähig, für sehr große Zeichnungen weniger performant).
-   Reaktivierung: `src/3rdparty/spatialindexnavel` vendorn + `add_subdirectory(src/spatialindex)`.
-3. **snap + grid (Interaktions-Ebene)** — Snapping/Raster gehören zur Touch-/
-   Pencil-Bedienung, nicht zum headless Core; `snap` ist ein Blatt-Ziel und hängt
-   am nicht vendorten `grid`. Reaktivierung im Touch-Meilenstein: `src/grid` + `src/snap`
-   vendorn + `add_subdirectory(src/snap)`.
+**Eingabe (erste Version):** Maus + Keyboard am iPad; Trackpad-2-Finger-Pan
+und Pinch-Zoom sind integriert, Scrollrad zoomt, Esc bricht das aktive Tool
+ab. Touch-Gesten auf dem Screen folgen später.
 
-### CI-Debugging-Hinweis
-Der Entwicklungscontainer erreicht `blob.core.windows.net` (GitHub-Actions-Log-
-Speicher) nicht. Der Workflow committet deshalb bei jedem Lauf die Konfigurations-/
-Build-Logs in den Branch `ci-debug-logs` (Step „Commit debug logs"). Von dort sind
-sie über `raw.githubusercontent.com/Toemeler/ipadprocad/ci-debug-logs/ci-logs/…`
-lesbar.
+**Test-IPA:** Der CI-Job `m5-flutter-ipa` baut die App gegen den QCAD-Core
+und lädt das unsignierte IPA als Artefakt **`ipadprocad-unsigned-ipa`** hoch
+(Retention 3 Tage; bei Ablauf Workflow einfach neu laufen lassen).
+Installation aufs iPad per Sideloadly oder AltStore (re-signiert mit eigener
+Apple-ID). Verifiziert im CI: `M5 LINK CHECK: PASS` und alle 14
+`_qcad_*`-Symbole exportiert im Runner-Binary.
 
-## Status M2
-
-**M2 — C-ABI-Wrapper & iOS-Bundle: erreicht (Wrapper validiert); Dart-FFI noch offen.**
-
-Ein schlanker C-Wrapper (`extern "C"`) kapselt den Core hinter einer stabilen,
-FFI-tauglichen Schnittstelle (opaque Handles, keine C++-Typen an der Grenze).
-Lokal (Linux/Qt6) läuft ein C-Smoke-Test grün; im iOS-CI wird der Wrapper für
-`arm64`/`iphoneos` mitgebaut, auf Architektur verifiziert und zu einer nutzbaren
-Einheit gebündelt (kombinierte `.a` + XCFramework).
-
-- [x] Modul `backend/qcad-core/src/capi/` — `qcad_capi.h` (reines C) + `qcad_capi.cpp` (einziger C++/Qt-Übersetzungseinheit); CMake-Ziel `qcadcapi` (STATIC), ins Root-Build eingehängt
-- [x] ABI-Oberfläche: Dokument anlegen/freigeben; Linie/Kreis/Bogen/Polylinie hinzufügen; Entity-Anzahl; Bounding-Box; DXF laden/speichern (Pfad); Versionstext (Winkel in Radiant, `double`-Koordinaten, `1`=OK/`0`=Fehler)
-- [x] Property-Typen-System selbst registriert: QCADs Bootstrap liegt im ausgeklammerten GUI/Script-Layer, daher ruft `qcad_init()` die `init()`-Kette aller Entity-/Objekttypen selbst auf (privates `RColor`/`RLineweight::init()` ausgelassen — werden intern registriert)
-- [x] Ownership korrekt: `RStorage`/`RSpatialIndex` erben von `RRequireHeap` (`doDelete()` = `delete this`) und werden vom `RDocument`-Destruktor freigegeben → heap-allozieren und nur das `RDocument` löschen (behebt einen Doppel-Free beim Teardown)
-- [x] `RSettings` über `QCoreApplication`-Organisationsname initialisiert (keine „RSettings not initialized"-Warnungen mehr)
-- [x] Lokaler C-Smoke-Test (`src/capi/tests/smoke.c`, Ziel `qcad_capi_smoke`, nur Host): 4 Entities, korrekte Bounding-Box, DXF-Roundtrip erhält die Entity-Anzahl → **PASS**
-- [x] CI baut `qcadcapi` für iOS-Device mit (`-k 0`), prüft alle `.a` auf `arm64`, bündelt sie via `libtool` zu `libipadprocad.a` und packt ein `ipadprocad.xcframework` (`ios-arm64` + Header); Upload als Artefakt `ipadprocad-ios-capi`
-- [x] CI-Fix (wichtige Lektion): iOS-Configure setzt jetzt `-DCMAKE_BUILD_TYPE=Release` (sonst landen die Libs in `debug/` statt `release/`), und `set -o pipefail` in Verify/Bundle/XCFramework verhindert, dass ein per `tee` maskierter Fehler fälschlich „grün" meldet
-- [ ] **Dart-FFI noch offen:** Bindings (`backend/qcad-core/bindings/dart/`) sind geschrieben, aber mangels Dart-SDK im Backend-Build noch nicht ausgeführt/CI-validiert; erste reale Ausführung in M3 (iOS-Device-Test) oder via Desktop-`.so`
-
-### Nächster Schritt: M3
-Headless-Logiktests auf iOS: die C-Smoke-Logik als iOS-Device-Test (XCTest) gegen
-das erzeugte `ipadprocad.xcframework` ausführen und dort die Dart-FFI-Bindings
-erstmals real gegenprüfen. Details/Fallstricke: `HANDOFF.md`.
+Details, CI-Fallstricke (Qt-Static-Link via `ninja -t commands`,
+`exported_symbols_list`, pipefail-Fallen) und offene Punkte für M6:
+siehe `HANDOFF.md`.
 
 ## Architektur
 
@@ -92,13 +65,15 @@ backend/qcad-core/     Vendorter, headless-tauglicher QCAD-Core (C++, GPLv3)
   src/io/dxf/          DXF-Import/-Export (auf dxflib)
   src/3rdparty/dxflib/ DXF-Low-Level-Bibliothek (statisch)
   src/capi/            C-ABI-Wrapper (extern "C") für FFI — Ziel libqcadcapi.a
-  bindings/dart/       Dart-FFI-Bindings + Beispiel (noch nicht CI-validiert)
-.github/workflows/     CI: iOS-Cross-Compile + C-API-Bundle (macOS-Runner)
+  bindings/dart/       Kanonische Dart-FFI-Bindings + Beispiel
+frontend/              Flutter-App (1:1-Port des UI-Mocks, FFI-Anbindung,
+                       Zeichnen/Speichern/Laden/Previews) — siehe frontend/lib/
+ci/                    CI-Hilfsskripte (parse_link_txt.py: Linkzeile -> Xcode)
+.github/workflows/     CI: Core-Build (iOS), Sim-Logiktest, Flutter-IPA-Build
 ```
 
 `gui`, `run` sowie der JS-Actionlayer (`scripts/`) aus dem QCAD-Upstream sind
-bewusst nicht enthalten — sie werden erst in Phase 2 (M4/M5) mit der Flutter-GUI
-relevant.
+bewusst nicht enthalten; die GUI ist die eigene Flutter-App in `frontend/`.
 
 ## Lizenz
 
