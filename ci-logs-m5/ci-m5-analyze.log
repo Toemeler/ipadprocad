@@ -1,0 +1,26 @@
+Analyzing frontend...                                           
+
+   info • The import of 'package:flutter/foundation.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart'. Try removing the import directive • lib/app_state.dart:7:8 • unnecessary_import
+warning • The value of the local variable 'c' isn't used. Try removing the variable or using it • lib/modify.dart:33:13 • unused_local_variable
+   info • The constant name 'BL' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:10:7 • constant_identifier_names
+   info • The constant name 'DIM' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:11:7 • constant_identifier_names
+   info • The constant name 'RD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:12:7 • constant_identifier_names
+   info • The constant name 'YL' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:13:7 • constant_identifier_names
+   info • The constant name 'RDD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:14:7 • constant_identifier_names
+   info • The constant name 'GC' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:15:7 • constant_identifier_names
+   info • The constant name 'BLM' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:16:7 • constant_identifier_names
+   info • The variable name 'IC' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:32:27 • non_constant_identifier_names
+   info • The variable name 'CN' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:111:27 • non_constant_identifier_names
+   info • The variable name 'IN' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:147:27 • non_constant_identifier_names
+   info • The variable name 'MD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:165:27 • non_constant_identifier_names
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • lib/tools.dart:84:7 • prefer_const_declarations
+warning • The declaration '_Big.plain' isn't referenced. Try removing the declaration of '_Big.plain' • lib/widgets/ribbon.dart:558:14 • unused_element
+  error • Undefined name '_toolOf'. Try correcting the name to one that is defined, or defining the name • lib/widgets/ribbon.dart:722:15 • undefined_identifier
+  error • Undefined name '_toolOf'. Try correcting the name to one that is defined, or defining the name • lib/widgets/ribbon.dart:736:15 • undefined_identifier
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:429:28 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:485:31 • deprecated_member_use
+  error • The name 'Geo' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'Geo' • lib/widgets/viewport.dart:535:42 • non_type_as_type_argument
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/widgets/viewport.dart:547:49 • curly_braces_in_flow_control_structures
+  error • Undefined name 'Geo'. Try correcting the name to one that is defined, or defining the name • lib/widgets/viewport.dart:577:61 • undefined_identifier
+
+22 issues found. (ran in 6.1s)

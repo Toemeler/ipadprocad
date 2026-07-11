@@ -1,0 +1,86 @@
+Flutter 3.44.6 • channel stable • https://github.com/flutter/flutter.git
+Framework • revision ee80f08bbf (3 days ago) • 2026-07-08 15:02:06 -0700
+Engine • hash d3a3293399556a85388faf8c6f0723a7a5597aa8 (revision 83675ed276) (11 days ago) • 2026-06-30 16:59:03.000Z
+Tools • Dart 3.12.2 • DevTools 2.57.0
+Recreating project ....
+  ios/Runner.xcworkspace/contents.xcworkspacedata (created)
+  ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist (created)
+  ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings (created)
+  ios/RunnerTests/RunnerTests.swift (created)
+  ios/Runner/Info.plist (created)
+  ios/Runner/Runner-Bridging-Header.h (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@2x.png (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@3x.png (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png (created)
+  ios/Runner/Base.lproj/LaunchScreen.storyboard (created)
+  ios/Runner/Base.lproj/Main.storyboard (created)
+  ios/Runner/AppDelegate.swift (created)
+  ios/Runner/SceneDelegate.swift (created)
+  ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata (created)
+  ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist (created)
+  ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings (created)
+  ios/Runner.xcodeproj/project.pbxproj (created)
+  ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme (created)
+  ios/Flutter/Debug.xcconfig (created)
+  ios/Flutter/Release.xcconfig (created)
+  ios/Flutter/AppFrameworkInfo.plist (created)
+  ios/.gitignore (created)
+  ipadprocad.iml (created)
+  .gitignore (created)
+  README.md (created)
+  analysis_options.yaml (created)
+  .idea/runConfigurations/main_dart.xml (created)
+  .idea/libraries/Dart_SDK.xml (created)
+  .idea/libraries/KotlinJavaRuntime.xml (created)
+  .idea/modules.xml (created)
+  .idea/workspace.xml (created)
+  test/widget_test.dart (created)
+Resolving dependencies...
+Downloading packages...
+Got dependencies.
+Wrote 50 files.
+
+All done!
+You can find general documentation for Flutter at: https://docs.flutter.dev/
+Detailed API documentation is available at: https://api.flutter.dev/
+If you prefer video documentation, consider: https://www.youtube.com/c/flutterdev
+
+In order to run your application, type:
+
+  $ flutter run
+
+Your application code is in ./lib/main.dart.
+
+true
+Resolving dependencies...
+Downloading packages...
+  flutter_lints 3.0.2 (6.0.0 available)
+  lints 3.0.0 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.18.0 (1.19.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  test_api 0.7.11 (0.7.13 available)
+  vector_math 2.2.0 (2.4.0 available)
+Got dependencies!
+7 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Warning: Building for device with codesigning disabled. You will have to manually codesign before deploying to device.
+Building com.ipadprocad.ipadprocad for device (ios-release)...

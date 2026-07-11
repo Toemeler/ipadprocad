@@ -699,6 +699,23 @@ class _ConGrid extends StatelessWidget {
   final void Function(Tool) onTool;
   const _ConGrid({required this.app, required this.onTool});
 
+  /// Maps constraint grid keys to their tools (autodim/showcons/conset are
+  /// toggles/settings, not tools, and are handled before this lookup).
+  static const _toolOf = <String, Tool>{
+    'coincident': Tool.cCoincident,
+    'collinear': Tool.cCollinear,
+    'concentric': Tool.cConcentric,
+    'lock': Tool.cFix,
+    'parallel': Tool.cParallel,
+    'perp': Tool.cPerpendicular,
+    'horiz': Tool.cHorizontal,
+    'vert': Tool.cVertical,
+    'tangent': Tool.cTangent,
+    'smooth': Tool.cSmooth,
+    'symmetric': Tool.cSymmetric,
+    'equal': Tool.cEqual,
+  };
+
   static const cons = [
     ('autodim', 'Automatic Dimensions and Constraints'),
     ('coincident', 'Coincident'),

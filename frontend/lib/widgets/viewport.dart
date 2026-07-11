@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../constraints.dart';
+import '../ffi/qcad_engine.dart' show Geo;
 import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
