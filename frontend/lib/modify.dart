@@ -101,7 +101,7 @@ double _sweepOf(Geo arc) {
     return v;
   }
 
-  return arc.data[5] != 0
+  return (arc.data.length > 5 && arc.data[5] != 0)
       ? norm(arc.data[3] - arc.data[4])
       : norm(arc.data[4] - arc.data[3]);
 }
@@ -172,7 +172,14 @@ Geo? _offsetEntityRaw(Geo g, Offset side) {
       final c = Offset(g.data[0], g.data[1]);
       final r2 = (side - c).distance;
       return r2 > _eps
-          ? Geo(Geo.arc, [c.dx, c.dy, r2, g.data[3], g.data[4], g.data[5]])
+          ? Geo(Geo.arc, [
+              c.dx,
+              c.dy,
+              r2,
+              g.data[3],
+              g.data[4],
+              g.data.length > 5 ? g.data[5] : 0.0
+            ])
           : null;
     case Geo.polyline:
       final n = g.data[1].toInt();
@@ -366,10 +373,17 @@ Geo _subArc(Geo g, double u0, double u1) {
 
 Geo _subArcRaw(Geo g, double u0, double u1) {
   // u in travel direction (0..sweep)
-  final rev = g.data[5] != 0;
+  final rev = g.data.length > 5 && g.data[5] != 0;
   final a1 = rev ? g.data[3] - u0 : g.data[3] + u0;
   final a2 = rev ? g.data[3] - u1 : g.data[3] + u1;
-  return Geo(Geo.arc, [g.data[0], g.data[1], g.data[2], a1, a2, g.data[5]]);
+  return Geo(Geo.arc, [
+    g.data[0],
+    g.data[1],
+    g.data[2],
+    a1,
+    a2,
+    g.data.length > 5 ? g.data[5] : 0.0
+  ]);
 }
 
 // ---------------------------------------------------------------------------

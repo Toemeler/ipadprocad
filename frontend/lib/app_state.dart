@@ -1682,7 +1682,10 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       final c = map(g.data[0], g.data[1]);
       final r = g.data[2] * scale;
       final a1 = g.data[3], a2 = g.data[4];
-      final reversed = g.data[5] != 0;
+      // Defensive: an arc is normally 6 elements, but never let a short one
+      // throw here — a RangeError in paintGeo aborts the whole CustomPainter
+      // and blanks every entity after it. Treat a missing flag as not-reversed.
+      final reversed = g.data.length > 5 && g.data[5] != 0;
       double norm(double x) {
         var v = x % (2 * math.pi);
         if (v < 0) v += 2 * math.pi;
