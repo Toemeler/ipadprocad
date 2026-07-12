@@ -119,8 +119,8 @@ class _Viewport2DState extends State<Viewport2D> {
       final free = app.analysis?.freePoints;
       for (final g in gripsOf(s.geometry)) {
         if (g.entity < s.geometry.length &&
-            !app.geoVisible(s.geometry[g.entity])) {
-          continue; // hidden layer: no grips
+            !app.geoEditable(s.geometry[g.entity])) {
+          continue; // only the layer being edited has grips
         }
         // Only grips that ARE point refs may be tested against freePoints: a
         // circle's radius grips carry idx 1..4 while the circle owns a single
@@ -595,7 +595,7 @@ class _ViewportPainter extends CustomPainter {
       if (app.tool == Tool.none) {
         final gp = Paint()..color = const Color(0xFF7BC96A);
         for (final g in gripsOf(gs)) {
-          if (g.entity < gs.length && !app.geoVisible(gs[g.entity])) continue;
+          if (g.entity < gs.length && !app.geoEditable(gs[g.entity])) continue;
           final o = map(g.pos.dx, g.pos.dy);
           canvas.drawRect(
               Rect.fromCenter(center: o, width: 4, height: 4), gp);
@@ -653,7 +653,11 @@ class _ViewportPainter extends CustomPainter {
       final gs2 = app.displayGeometry(s);
       if (app.showConstraints) {
         final seen = <String, int>{};
-        for (final (pos, raw) in constraintGlyphs(gs2, s.constraints)) {
+        final shown = [
+          for (final c in s.constraints)
+            if (app.constraintVisible(s, c)) c
+        ];
+        for (final (pos, raw) in constraintGlyphs(gs2, shown)) {
           final label = raw.split('#').first;
           final key = '${pos.dx.toStringAsFixed(2)},${pos.dy.toStringAsFixed(2)}';
           final slot = seen[key] = (seen[key] ?? 0) + 1;
@@ -672,7 +676,9 @@ class _ViewportPainter extends CustomPainter {
         }
       }
       for (final c in s.constraints) {
-        if (c.type == CType.dimension && c.textPos != null) {
+        if (c.type == CType.dimension &&
+            c.textPos != null &&
+            app.constraintVisible(s, c)) {
           _paintDimension(canvas, gs2, c, map);
         }
       }

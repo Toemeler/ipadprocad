@@ -213,6 +213,7 @@ class AppState extends ChangeNotifier {
         } catch (e) {
           Log.w('state', 'layer sidecar read failed: $e');
         }
+        _syncLayers(s);
         Log.i('layer', 'loaded "$name": layers=${s.layers} '
             'hidden=${s.hiddenLayers}');
         analysis = analyzeSketch(s.geometry, s.constraints);
@@ -277,6 +278,38 @@ class AppState extends ChangeNotifier {
 
   /// True when [g] should be drawn / picked / snapped at all.
   bool geoVisible(Geo g) => layerVisible(g.layer);
+
+  /// You may only TOUCH what you are editing. Being in Layer 2 must not let you
+  /// trim, drag, constrain or dimension geometry that lives on Layer 1 — the
+  /// layer is the editing scope, not just a paint colour.
+  bool geoEditable(Geo g) => inEditMode && g.layer == editingLayer;
+
+  /// A constraint (incl. dimensions) belongs to the layers of the entities it
+  /// references. It is only shown when ALL of them are visible — otherwise a
+  /// hidden layer would leave its dimensions floating in mid-air.
+  bool constraintVisible(SketchModel s, Constraint c) {
+    for (final p in c.pts) {
+      if (p.ent < 0 || p.ent >= s.geometry.length) continue; // projected CP
+      if (!geoVisible(s.geometry[p.ent])) return false;
+    }
+    for (final e in c.ents) {
+      if (e < 0 || e >= s.geometry.length) continue;
+      if (!geoVisible(s.geometry[e])) return false;
+    }
+    return true;
+  }
+
+  /// Layers that exist in the geometry but not in the layer list (sketches from
+  /// before layers were bound, or a DXF from elsewhere). Without this their
+  /// entities would have no row in the model browser and therefore no eye.
+  void _syncLayers(SketchModel s) {
+    for (final g in s.geometry) {
+      if (!s.layers.contains(g.layer)) {
+        Log.i('layer', 'adopting layer "${g.layer}" found in the geometry');
+        s.layers.add(g.layer);
+      }
+    }
+  }
 
   void toggleLayerVisible(String name) {
     final s = current;
@@ -671,7 +704,7 @@ class AppState extends ChangeNotifier {
     var best = -1;
     var bd = 10 / zoom;
     for (var i = 0; i < s.geometry.length; i++) {
-      if (!geoVisible(s.geometry[i])) continue; // hidden = untouchable
+      if (!geoEditable(s.geometry[i])) continue; // other layers are read-only
       final d = distToEntity(s.geometry[i], w);
       if (d < bd) {
         bd = d;
@@ -830,7 +863,7 @@ class AppState extends ChangeNotifier {
     PRef? best;
     var bd = 10 / zoom;
     for (var e = 0; e < s.geometry.length; e++) {
-      if (!geoVisible(s.geometry[e])) continue; // hidden = untouchable
+      if (!geoEditable(s.geometry[e])) continue; // other layers are read-only
       for (var p2 = 0; p2 < ptCount(s.geometry[e]); p2++) {
         final d = (getPt(s.geometry[e], p2) - w).distance;
         if (d < bd) {
@@ -1319,6 +1352,7 @@ class AppState extends ChangeNotifier {
 
   void _committed(SketchModel s) {
     s.refresh();
+    _syncLayers(s);
     s.dirty = true;
   }
 
