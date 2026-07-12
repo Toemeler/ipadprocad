@@ -138,6 +138,12 @@ class _RibbonState extends State<Ribbon> {
   /// (polygon sides, fillet radius, chamfer distance, equation + range).
   Future<void> _startTool(Tool t) async {
     final app = widget.app;
+    // Nothing may be drawn outside a layer's edit mode — bail BEFORE any
+    // parameter dialog, so the user isn't asked for a radius and then refused.
+    if (!app.inEditMode) {
+      app.toast('Enter a layer to sketch: double-tap it in the model browser.');
+      return;
+    }
     switch (t) {
       case Tool.polygon:
         final v = await _numDialog('Polygon', [('Sides', '6')]);

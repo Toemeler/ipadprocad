@@ -114,7 +114,7 @@ void _unpack(List<Geo> gs, List<int> off, List<double> x) {
         }
         break;
     }
-    gs[e] = Geo(g.type, d);
+    gs[e] = g.withData(d); // withData KEEPS the layer
   }
 }
 
@@ -835,19 +835,19 @@ bool _trySolveWithSlvs(
     switch (g.type) {
       case Geo.line:
         final a = gp(0), b = gp(1);
-        newGs[e] = Geo(Geo.line, [a.dx, a.dy, b.dx, b.dy]);
+        newGs[e] = g.withData([a.dx, a.dy, b.dx, b.dy]);
         break;
       case Geo.circle:
         final c = gp(0);
         final ci = entRef[e]! % 100000000;
-        newGs[e] = Geo(Geo.circle, [c.dx, c.dy, s.circR[ci]]);
+        newGs[e] = g.withData([c.dx, c.dy, s.circR[ci]]);
         break;
       case Geo.arc:
         final c = gp(0), st = gp(1), en = gp(2);
         final rad = (st - c).distance;
         final a0 = math.atan2(st.dy - c.dy, st.dx - c.dx);
         final a1 = math.atan2(en.dy - c.dy, en.dx - c.dx);
-        newGs[e] = Geo(Geo.arc, [c.dx, c.dy, rad, a0, a1]);
+        newGs[e] = g.withData([c.dx, c.dy, rad, a0, a1]);
         break;
       case Geo.polyline:
         final n = g.data[1].toInt();
@@ -857,7 +857,7 @@ bool _trySolveWithSlvs(
           d.add(q.dx);
           d.add(q.dy);
         }
-        newGs[e] = Geo(Geo.polyline, d);
+        newGs[e] = g.withData(d);
         break;
     }
   }

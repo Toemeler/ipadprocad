@@ -259,7 +259,7 @@ Geo moveGrip(Geo g, Grip grip, Offset to) {
       d[3 + 2 * grip.idx] = to.dy;
       break;
   }
-  return Geo(g.type, d);
+  return g.withData(d); // KEEPS the layer
 }
 
 // ---------------------------------------------------------------------------

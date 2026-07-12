@@ -186,6 +186,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
           icon: layerRowIcon,
           label: layer,
           active: active,
+          trailing: _EyeButton(
+            visible: app.layerVisible(layer),
+            onTap: () => app.toggleLayerVisible(layer),
+          ),
         ),
       ),
     );
@@ -197,6 +201,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       required String icon,
       required String label,
       bool active = false,
+      Widget? trailing,
       VoidCallback? onTap}) {
     return _TreeRow(
         indent: indent,
@@ -204,6 +209,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         icon: icon,
         label: label,
         active: active,
+        trailing: trailing,
         onTap: onTap);
   }
 }
@@ -215,11 +221,14 @@ class _TreeRow extends StatefulWidget {
   final String label;
   final bool active;
   final VoidCallback? onTap;
+  /// Right-aligned control (the layer's visibility eye).
+  final Widget? trailing;
   const _TreeRow(
       {required this.indent,
       this.exp,
       required this.icon,
       required this.label,
+      this.trailing,
       this.active = false,
       this.onTap});
   @override
@@ -260,9 +269,12 @@ class _TreeRowState extends State<_TreeRow> {
             const SizedBox(width: 6),
             SvgPicture.string(widget.icon, width: 15, height: 15),
             const SizedBox(width: 6),
-            Text(widget.label,
-                style: ts(12.5, widget.active ? Colors.white : T.mbText),
-                overflow: TextOverflow.ellipsis),
+            Expanded(
+              child: Text(widget.label,
+                  style: ts(12.5, widget.active ? Colors.white : T.mbText),
+                  overflow: TextOverflow.ellipsis),
+            ),
+            if (widget.trailing != null) widget.trailing!,
           ]),
         ),
       ),
@@ -293,6 +305,45 @@ class _CtxRowState extends State<_CtxRow> {
           color: _h ? T.flyHov : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Text(widget.label, style: ts(12.5, T.mbText)),
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Layer visibility toggle. A hidden layer is not drawn, not picked, not
+/// snapped and not grippable — the eye is the single switch for all of it.
+class _EyeButton extends StatefulWidget {
+  final bool visible;
+  final VoidCallback onTap;
+  const _EyeButton({required this.visible, required this.onTap});
+  @override
+  State<_EyeButton> createState() => _EyeButtonState();
+}
+
+class _EyeButtonState extends State<_EyeButton> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.visible;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Icon(
+            on ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+            size: 14,
+            color: on
+                ? (_h ? Colors.white : T.mbDim)
+                : (_h ? T.mbText : T.mbDimmed),
+          ),
         ),
       ),
     );

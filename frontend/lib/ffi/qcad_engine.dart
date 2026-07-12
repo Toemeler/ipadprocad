@@ -14,11 +14,32 @@ import 'package:ffi/ffi.dart';
 import '../log.dart';
 
 /// Geometry snapshot of one entity, mirroring qcad_entity_geometry().
+/// The layer RDocument::init() always creates. Geometry that was never assigned
+/// anywhere lands here — which, once drawing requires edit mode, should never
+/// happen; _rebuildEngine logs it if it does.
+const kDefaultLayer = '0';
+
 class Geo {
   static const line = 1, circle = 2, arc = 3, polyline = 4;
   final int type;
   final List<double> data;
-  const Geo(this.type, this.data);
+
+  /// EVERY entity belongs to exactly one layer. This is not decoration: it is
+  /// what the model browser's eye toggles, what the edit mode scopes tools to,
+  /// and what DXF round-trips (the C-API binds it to the RDocument layer).
+  final String layer;
+
+  const Geo(this.type, this.data, {this.layer = kDefaultLayer});
+
+  /// Same entity, NEW NUMBERS — keeps the layer. Every transform that rebuilds
+  /// a Geo from an existing one must go through here. Using the raw constructor
+  /// instead silently drops the entity onto layer 0, and since the solver
+  /// rewrites every entity on every solve, one missed site would strip the
+  /// whole sketch of its layers at the first drag.
+  Geo withData(List<double> d) => Geo(type, d, layer: layer);
+
+  /// Same geometry, different layer.
+  Geo onLayer(String l) => Geo(type, data, layer: l);
 }
 
 abstract class Engine {
@@ -29,6 +50,9 @@ abstract class Engine {
   bool addArc(double cx, double cy, double r, double a1, double a2,
       {bool reversed = false});
   bool addPolyline(List<double> xy, {bool closed = false});
+
+  /// Creates [name] if missing. Subsequent add* calls land on it.
+  bool setCurrentLayer(String name);
   List<Geo> allGeometry();
   bool saveDxf(String path);
   bool loadDxf(String path);
@@ -107,6 +131,11 @@ typedef _CountN = Int32 Function(Pointer<Void>);
 typedef _CountD = int Function(Pointer<Void>);
 typedef _IdsN = Int32 Function(Pointer<Void>, Pointer<Int64>, Int32);
 typedef _IdsD = int Function(Pointer<Void>, Pointer<Int64>, int);
+typedef _SetLayerN = Int32 Function(Pointer<Void>, Pointer<Utf8>);
+typedef _SetLayerD = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _EntLayerN = Int32 Function(
+    Pointer<Void>, Int64, Pointer<Utf8>, Int32);
+typedef _EntLayerD = int Function(Pointer<Void>, int, Pointer<Utf8>, int);
 typedef _GeoN = Int32 Function(
     Pointer<Void>, Int64, Pointer<Int32>, Pointer<Double>, Int32);
 typedef _GeoD = int Function(
@@ -136,6 +165,10 @@ class _Bindings {
       lib.lookupFunction<_CountN, _CountD>('qcad_entity_count');
   late final _IdsD entityIds =
       lib.lookupFunction<_IdsN, _IdsD>('qcad_entity_ids');
+  late final _SetLayerD setCurrentLayer =
+      lib.lookupFunction<_SetLayerN, _SetLayerD>('qcad_set_current_layer');
+  late final _EntLayerD entityLayer =
+      lib.lookupFunction<_EntLayerN, _EntLayerD>('qcad_entity_layer');
   late final _GeoD entityGeometry =
       lib.lookupFunction<_GeoN, _GeoD>('qcad_entity_geometry');
   late final _IoD loadDxf = lib.lookupFunction<_IoN, _IoD>('qcad_load_dxf');
@@ -188,22 +221,40 @@ class _FfiEngine implements Engine {
   }
 
   @override
+  bool setCurrentLayer(String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return b.setCurrentLayer(_doc, p) != 0;
+    } finally {
+      malloc.free(p);
+    }
+  }
+
+  @override
   List<Geo> allGeometry() {
     final total = b.entityIds(_doc, nullptr, 0);
     if (total <= 0) return const [];
     final ids = malloc<Int64>(total);
     final typeOut = malloc<Int32>(1);
+    const layerCap = 256;
+    final layerBuf = malloc<Uint8>(layerCap).cast<Utf8>();
     try {
       b.entityIds(_doc, ids, total);
       final out = <Geo>[];
       for (var i = 0; i < total; i++) {
         final need = b.entityGeometry(_doc, ids[i], typeOut, nullptr, 0);
         if (need <= 0) continue;
+        // The layer comes from the DOCUMENT, so it survives a DXF round-trip.
+        var layer = kDefaultLayer;
+        if (b.entityLayer(_doc, ids[i], layerBuf, layerCap) != 0) {
+          layer = layerBuf.toDartString();
+        }
         final data = malloc<Double>(need);
         try {
           b.entityGeometry(_doc, ids[i], typeOut, data, need);
           out.add(Geo(typeOut.value,
-              List<double>.generate(need, (j) => data[j])));
+              List<double>.generate(need, (j) => data[j]),
+              layer: layer));
         } finally {
           malloc.free(data);
         }
@@ -212,6 +263,7 @@ class _FfiEngine implements Engine {
     } finally {
       malloc.free(ids);
       malloc.free(typeOut);
+      malloc.free(layerBuf);
     }
   }
 
@@ -258,6 +310,13 @@ class _FfiEngine implements Engine {
 // ---------------------------------------------------------------------------
 class _FallbackEngine implements Engine {
   final List<Geo> _geos = [];
+  String _current = kDefaultLayer;
+
+  @override
+  bool setCurrentLayer(String name) {
+    _current = name.isEmpty ? kDefaultLayer : name;
+    return true;
+  }
   @override
   bool get isRealBackend => false;
   @override
@@ -265,27 +324,29 @@ class _FallbackEngine implements Engine {
 
   @override
   bool addLine(double x1, double y1, double x2, double y2) {
-    _geos.add(Geo(Geo.line, [x1, y1, x2, y2]));
+    _geos.add(Geo(Geo.line, [x1, y1, x2, y2], layer: _current));
     return true;
   }
 
   @override
   bool addCircle(double cx, double cy, double r) {
-    _geos.add(Geo(Geo.circle, [cx, cy, r]));
+    _geos.add(Geo(Geo.circle, [cx, cy, r], layer: _current));
     return true;
   }
 
   @override
   bool addArc(double cx, double cy, double r, double a1, double a2,
       {bool reversed = false}) {
-    _geos.add(Geo(Geo.arc, [cx, cy, r, a1, a2, reversed ? 1.0 : 0.0]));
+    _geos.add(
+        Geo(Geo.arc, [cx, cy, r, a1, a2, reversed ? 1.0 : 0.0], layer: _current));
     return true;
   }
 
   @override
   bool addPolyline(List<double> xy, {bool closed = false}) {
     _geos.add(Geo(Geo.polyline,
-        [closed ? 1.0 : 0.0, xy.length / 2, ...xy]));
+        [closed ? 1.0 : 0.0, xy.length / 2, ...xy],
+        layer: _current));
     return true;
   }
 
@@ -300,21 +361,21 @@ class _FallbackEngine implements Engine {
     for (final g in _geos) {
       switch (g.type) {
         case Geo.line:
-          sb.write('0\nLINE\n8\n0\n10\n${g.data[0]}\n20\n${g.data[1]}\n'
+          sb.write('0\nLINE\n8\n${g.layer}\n10\n${g.data[0]}\n20\n${g.data[1]}\n'
               '11\n${g.data[2]}\n21\n${g.data[3]}\n');
           break;
         case Geo.circle:
-          sb.write('0\nCIRCLE\n8\n0\n10\n${g.data[0]}\n20\n${g.data[1]}\n'
+          sb.write('0\nCIRCLE\n8\n${g.layer}\n10\n${g.data[0]}\n20\n${g.data[1]}\n'
               '40\n${g.data[2]}\n');
           break;
         case Geo.arc:
-          sb.write('0\nARC\n8\n0\n10\n${g.data[0]}\n20\n${g.data[1]}\n'
+          sb.write('0\nARC\n8\n${g.layer}\n10\n${g.data[0]}\n20\n${g.data[1]}\n'
               '40\n${g.data[2]}\n50\n${g.data[3] * 180 / math.pi}\n'
               '51\n${g.data[4] * 180 / math.pi}\n');
           break;
         case Geo.polyline:
           final n = g.data[1].toInt();
-          sb.write('0\nPOLYLINE\n8\n0\n66\n1\n70\n${g.data[0].toInt()}\n');
+          sb.write('0\nPOLYLINE\n8\n${g.layer}\n66\n1\n70\n${g.data[0].toInt()}\n');
           for (var i = 0; i < n; i++) {
             sb.write('0\nVERTEX\n8\n0\n10\n${g.data[2 + 2 * i]}\n'
                 '20\n${g.data[3 + 2 * i]}\n');
@@ -359,6 +420,9 @@ class _FallbackEngine implements Engine {
           }
           double d(String k, [double def = 0]) =>
               double.tryParse(props[k] ?? '') ?? def;
+          // Group code 8 IS the layer. Restore it before adding, otherwise a
+          // save/load round-trip would quietly dump everything onto layer 0.
+          setCurrentLayer(props['8'] ?? kDefaultLayer);
           if (ent == 'LINE') {
             addLine(d('10'), d('20'), d('11'), d('21'));
           } else if (ent == 'CIRCLE') {

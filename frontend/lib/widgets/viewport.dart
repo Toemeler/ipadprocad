@@ -81,7 +81,13 @@ class _Viewport2DState extends State<Viewport2D> {
     final app = widget.app;
     final s = app.current;
     if (s == null) return w;
-    final sn = computeSnap(app.displayGeometry(s), w, _snapPx / app.zoom,
+    // Hidden layers must not attract the cursor either. Snap carries no entity
+    // indices, so filtering the list here is safe (grips below are NOT filtered
+    // — those carry indices and must stay aligned with the geometry list).
+    final visible = [
+      for (final g in app.displayGeometry(s)) if (app.geoVisible(g)) g
+    ];
+    final sn = computeSnap(visible, w, _snapPx / app.zoom,
         ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
         exclude: exclude);
     app.setSnap(sn);
@@ -112,6 +118,10 @@ class _Viewport2DState extends State<Viewport2D> {
       // freePoints == null means the analysis has not run yet: allow the drag.
       final free = app.analysis?.freePoints;
       for (final g in gripsOf(s.geometry)) {
+        if (g.entity < s.geometry.length &&
+            !app.geoVisible(s.geometry[g.entity])) {
+          continue; // hidden layer: no grips
+        }
         // Only grips that ARE point refs may be tested against freePoints: a
         // circle's radius grips carry idx 1..4 while the circle owns a single
         // point (the centre), so filtering them here would make circles
@@ -526,6 +536,7 @@ class _ViewportPainter extends CustomPainter {
         // unpainted — which reads as "all my geometry disappeared". Same for
         // NaN/Inf: Skia drops those paths without a word. Contain both, and say
         // exactly which entity and which numbers did it.
+        if (!app.geoVisible(gs[i])) continue; // layer eye is off
         if (!geoFinite(gs[i])) {
           if (Log.every('paint-nonfinite', 500)) {
             Log.e('paint', 'SKIPPING non-finite ${geoStr(i, gs[i])} '
@@ -584,6 +595,7 @@ class _ViewportPainter extends CustomPainter {
       if (app.tool == Tool.none) {
         final gp = Paint()..color = const Color(0xFF7BC96A);
         for (final g in gripsOf(gs)) {
+          if (g.entity < gs.length && !app.geoVisible(gs[g.entity])) continue;
           final o = map(g.pos.dx, g.pos.dy);
           canvas.drawRect(
               Rect.fromCenter(center: o, width: 4, height: 4), gp);

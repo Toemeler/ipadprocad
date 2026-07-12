@@ -1,5 +1,6 @@
 // iPadProCAD — application state (tabs, layers, edit mode, active tool) and
 // persistence (DXF per sketch + preview PNG in the app Documents directory).
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -54,6 +55,10 @@ class SketchModel {
   List<Geo> geometry = [];
   final List<Constraint> constraints = [];
   final List<String> layers = []; // "Layer 1".."Layer N"
+  /// Layers the eye in the model browser has switched off. Visibility is a VIEW
+  /// property only — hidden geometry keeps its index, so constraint refs (which
+  /// are index-based) stay valid. It is never filtered out of the geometry list.
+  final Set<String> hiddenLayers = {};
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create();
 
@@ -188,6 +193,28 @@ class AppState extends ChangeNotifier {
         if (cf.existsSync()) {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
         }
+        // The layers come back FROM THE DOCUMENT (DXF group code 8), which is
+        // the whole point of binding them in the C-API. Rebuild the layer list
+        // from the geometry, then restore which of them the eye had switched
+        // off (visibility is a view property, so it rides in the sidecar).
+        for (final g in s.geometry) {
+          if (!s.layers.contains(g.layer)) s.layers.add(g.layer);
+        }
+        try {
+          final lf = File('${_sketchDir.path}/$name.layers.json');
+          if (lf.existsSync()) {
+            final j = jsonDecode(lf.readAsStringSync()) as Map<String, dynamic>;
+            for (final l in (j['layers'] as List? ?? const [])) {
+              if (!s.layers.contains(l)) s.layers.add(l as String);
+            }
+            s.hiddenLayers
+                .addAll((j['hidden'] as List? ?? const []).cast<String>());
+          }
+        } catch (e) {
+          Log.w('state', 'layer sidecar read failed: $e');
+        }
+        Log.i('layer', 'loaded "$name": layers=${s.layers} '
+            'hidden=${s.hiddenLayers}');
         analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
@@ -243,6 +270,29 @@ class AppState extends ChangeNotifier {
     s.layers.add(name);
     s.dirty = true;
     enterEdit(name);
+  }
+
+  bool layerVisible(String name) =>
+      current?.hiddenLayers.contains(name) != true;
+
+  /// True when [g] should be drawn / picked / snapped at all.
+  bool geoVisible(Geo g) => layerVisible(g.layer);
+
+  void toggleLayerVisible(String name) {
+    final s = current;
+    if (s == null) return;
+    if (s.hiddenLayers.remove(name)) {
+      Log.i('layer', 'show "$name"');
+    } else {
+      s.hiddenLayers.add(name);
+      Log.i('layer', 'hide "$name"');
+      // You cannot edit what you cannot see.
+      if (editingLayer == name) finishEdit(save: true);
+    }
+    selection.removeWhere((i) =>
+        i < s.geometry.length && !layerVisible(s.geometry[i].layer));
+    s.dirty = true;
+    notifyListeners();
   }
 
   void enterEdit(String layerName) {
@@ -398,6 +448,7 @@ class AppState extends ChangeNotifier {
         lastBoxRect = r;
         selection.clear();
         for (var i = 0; i < s.geometry.length; i++) {
+          if (!geoVisible(s.geometry[i])) continue;
           if (entityInRect(s.geometry[i], r, crossing: boxCrossing)) {
             selection.add(i);
           }
@@ -481,7 +532,21 @@ class AppState extends ChangeNotifier {
     Log.i('engine', 'rebuild with ${gs.length} entities');
     s.engine.dispose();
     s.engine = Engine.create();
+    for (final l in s.layers) {
+      s.engine.setCurrentLayer(l); // make sure every layer exists in the doc
+    }
     for (final g in gs) {
+      // The layer must be set BEFORE the entity is added: the C-API binds the
+      // entity to the CURRENT layer, and that binding is what survives the DXF
+      // round-trip. An entity carrying a layer this sketch does not know is a
+      // bug in some transform that dropped it — say so instead of silently
+      // parking it on layer 0.
+      if (!s.layers.contains(g.layer)) {
+        Log.w('layer',
+            'entity on unknown layer "${g.layer}" (sketch has ${s.layers}): '
+            '${geoStr(-1, g)}');
+      }
+      s.engine.setCurrentLayer(g.layer);
       switch (g.type) {
         case Geo.line:
           s.engine.addLine(g.data[0], g.data[1], g.data[2], g.data[3]);
@@ -510,6 +575,15 @@ class AppState extends ChangeNotifier {
 
   // ---- tools ----
   void selectTool(Tool t) {
+    // A sketch entity has to live on a layer, and the only way to know WHICH
+    // layer is to be editing one. So no tool outside edit mode — that is what
+    // keeps "every line belongs to exactly one layer" true by construction
+    // instead of by hope.
+    if (t != Tool.none && !inEditMode) {
+      Log.i('tool', 'BLOCKED $t — not editing a layer');
+      toast('Enter a layer to sketch: double-tap it in the model browser.');
+      return;
+    }
     tool = t;
     toolPoints.clear();
     notifyListeners();
@@ -555,6 +629,11 @@ class AppState extends ChangeNotifier {
         'w=(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
         'picks=${toolPoints.length}');
     if (s == null || tool == Tool.none) return;
+    if (!inEditMode) {
+      Log.w('tool', 'toolClick with tool=$tool but NOT in edit mode — ignored');
+      cancelTool();
+      return;
+    }
     if (modifyTools.contains(tool)) {
       _modifyClick(s, w);
       notifyListeners();
@@ -592,6 +671,7 @@ class AppState extends ChangeNotifier {
     var best = -1;
     var bd = 10 / zoom;
     for (var i = 0; i < s.geometry.length; i++) {
+      if (!geoVisible(s.geometry[i])) continue; // hidden = untouchable
       final d = distToEntity(s.geometry[i], w);
       if (d < bd) {
         bd = d;
@@ -750,6 +830,7 @@ class AppState extends ChangeNotifier {
     PRef? best;
     var bd = 10 / zoom;
     for (var e = 0; e < s.geometry.length; e++) {
+      if (!geoVisible(s.geometry[e])) continue; // hidden = untouchable
       for (var p2 = 0; p2 < ptCount(s.geometry[e]); p2++) {
         final d = (getPt(s.geometry[e], p2) - w).distance;
         if (d < bd) {
@@ -1196,7 +1277,8 @@ class AppState extends ChangeNotifier {
       }
       final gs = List<Geo>.from(s.geometry);
       res.$2.forEach((i, g) => gs[i] = g);
-      gs.addAll(res.$1);
+      gs.addAll(res.$1); // already carries the picked lines' layer
+
       solveConstraints(gs, s.constraints);
       _rebuildEngine(s, gs);
       return;
@@ -1204,7 +1286,18 @@ class AppState extends ChangeNotifier {
     final geos = buildToolGeometry(tool, List.of(toolPoints),
         existing: s.geometry, params: toolParams, expr: toolExpr);
     if (geos != null) {
-      final gs = List<Geo>.from(s.geometry)..addAll(geos);
+      // The ONE place new geometry enters the sketch — stamp the layer here and
+      // nothing can ever be layerless. toolClick already refuses to run outside
+      // edit mode, so editingLayer is non-null.
+      final layer = editingLayer;
+      if (layer == null) {
+        Log.e('layer', 'commit with no editing layer — dropping the geometry');
+        toolPoints.clear();
+        return;
+      }
+      final placed = [for (final g in geos) g.onLayer(layer)];
+      Log.i('layer', 'commit ${placed.length} entities onto "$layer"');
+      final gs = List<Geo>.from(s.geometry)..addAll(placed);
       if (autoConstrain) {
         for (var i = s.geometry.length; i < gs.length; i++) {
           s.constraints.addAll(inferConstraints(gs, i));
@@ -1267,6 +1360,14 @@ class AppState extends ChangeNotifier {
           .writeAsStringSync(encodeConstraints(s.constraints));
     } catch (e) {
       Log.w('state', 'constraint sidecar write failed: $e');
+    }
+    try {
+      // Empty layers have no geometry to carry them through the DXF, and the
+      // eye state is a view property — both live in a sidecar.
+      File('${_sketchDir.path}/$name.layers.json').writeAsStringSync(jsonEncode(
+          {'layers': s.layers, 'hidden': s.hiddenLayers.toList()}));
+    } catch (e) {
+      Log.w('state', 'layer sidecar write failed: $e');
     }
     await _writePreview(name, s);
     s.dirty = false;

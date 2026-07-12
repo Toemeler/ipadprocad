@@ -606,10 +606,11 @@ int? _lineNearIdx(List<Geo> geos, Offset p) {
   Geo trim(int idx, Offset tp) {
     final g = geos[idx];
     final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
-    // the endpoint nearer the tangent point is the one inside the corner
+    // the endpoint nearer the tangent point is the one inside the corner.
+    // withData keeps the picked line on ITS layer — a fillet must not move it.
     return (a - tp).distance <= (b - tp).distance
-        ? Geo(Geo.line, [tp.dx, tp.dy, b.dx, b.dy])
-        : Geo(Geo.line, [a.dx, a.dy, tp.dx, tp.dy]);
+        ? g.withData([tp.dx, tp.dy, b.dx, b.dy])
+        : g.withData([a.dx, a.dy, tp.dx, tp.dy]);
   }
 
   // match each tangent point to the line it belongs to
@@ -620,7 +621,9 @@ int? _lineNearIdx(List<Geo> geos, Offset p) {
       Offset(g1.data[2], g1.data[3]));
   final tp1 = d1a <= d1b ? t1 : t2;
   final tp2 = d1a <= d1b ? t2 : t1;
-  return (made, {i1: trim(i1, tp1), i2: trim(i2, tp2)});
+  // the new arc/chamfer inherits the layer of the lines it joins
+  final onLayer = [for (final g in made) g.onLayer(g1.layer)];
+  return (onLayer, {i1: trim(i1, tp1), i2: trim(i2, tp2)});
 }
 
 /// Fillet arc / chamfer line between the two picked lines.

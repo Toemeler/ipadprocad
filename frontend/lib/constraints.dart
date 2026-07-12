@@ -168,7 +168,7 @@ Geo setPt(Geo g, int i, Offset to) {
       d[3 + 2 * i] = to.dy;
       break;
   }
-  return Geo(g.type, d);
+  return g.withData(d); // KEEPS the layer
 }
 
 int ptCount(Geo g) {

@@ -106,6 +106,25 @@ int qcad_entity_geometry(const qcad_document *doc, long long id,
 /* ---- DXF I/O ---- */
 
 /* Load a DXF file from `path` into `doc` (adds to existing content). */
+/* --- layers -------------------------------------------------------------
+ * Entities belong to a LAYER, and the layer belongs to the DOCUMENT — that is
+ * what makes it survive a DXF round-trip. Every add_* below goes to the layer
+ * last set with qcad_set_current_layer(); an unset current layer means "0",
+ * the layer RDocument::init() always creates.
+ */
+
+/* Creates the layer if it does not exist yet. 1 = ok, 0 = failed. */
+int qcad_layer_add(qcad_document *doc, const char *name);
+
+/* Subsequent qcad_add_* calls are assigned to this layer (created on demand).
+ * 1 = ok, 0 = failed. */
+int qcad_set_current_layer(qcad_document *doc, const char *name);
+
+/* Writes the layer name of [id] into out (NUL-terminated). 1 = ok, 0 = failed
+ * (unknown entity, or the name does not fit into max bytes). */
+int qcad_entity_layer(const qcad_document *doc, long long id,
+                      char *out, int max);
+
 int qcad_load_dxf(qcad_document *doc, const char *path);
 
 /*

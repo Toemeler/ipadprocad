@@ -9,6 +9,7 @@
 #include "qcad_capi.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include <QtGlobal>
@@ -27,6 +28,7 @@
 #include "RVector.h"
 
 /* Entity data classes we construct directly */
+#include "RLayer.h"
 #include "RLineData.h"
 #include "RCircleData.h"
 #include "RArcData.h"
@@ -119,6 +121,9 @@ struct qcad_document {
     RMemoryStorage *storage;
     RSpatialIndexSimple *spatialIndex;
     RDocument *doc;
+    /* Layer that qcad_add_* assigns to. "0" is the layer RDocument::init()
+     * always creates, so an untouched document still produces valid DXF. */
+    QString currentLayer = QString("0");
     qcad_document()
         : storage(new RMemoryStorage()),
           spatialIndex(new RSpatialIndexSimple()),
@@ -209,14 +214,80 @@ void qcad_document_free(qcad_document *doc) {
     delete doc;
 }
 
+/* Layer id for [name], creating the layer if needed. INVALID_ID on failure. */
+static RObject::Id ensureLayer(qcad_document *doc, const QString &name) {
+    if (doc == nullptr || name.isEmpty()) {
+        return RObject::INVALID_ID;
+    }
+    RObject::Id id = doc->doc->getLayerId(name);
+    if (id != RObject::INVALID_ID) {
+        return id;
+    }
+    QSharedPointer<RObject> layer(new RLayer(doc->doc, name));
+    RTransaction t(doc->doc->getStorage(), "add layer", true);
+    t.addObject(layer);
+    t.end();
+    return doc->doc->getLayerId(name);
+}
+
 static bool addEntity(qcad_document *doc, QSharedPointer<RObject> obj) {
     if (doc == nullptr || obj.isNull()) {
         return false;
+    }
+    /* Bind the entity to the current layer BEFORE it goes into the storage —
+     * this is the whole point: geometry that is not on a layer cannot be shown,
+     * hidden or exported as a layer. */
+    QSharedPointer<REntity> e = obj.dynamicCast<REntity>();
+    if (!e.isNull()) {
+        const RObject::Id lid = ensureLayer(doc, doc->currentLayer);
+        if (lid != RObject::INVALID_ID) {
+            e->setLayerId(lid);
+        }
     }
     RTransaction t(doc->doc->getStorage(), "add entity", true);
     t.addObject(obj);
     t.end();
     return true;
+}
+
+int qcad_layer_add(qcad_document *doc, const char *name) {
+    if (doc == nullptr || name == nullptr) {
+        return 0;
+    }
+    return ensureLayer(doc, QString::fromUtf8(name)) != RObject::INVALID_ID
+        ? 1 : 0;
+}
+
+int qcad_set_current_layer(qcad_document *doc, const char *name) {
+    if (doc == nullptr || name == nullptr) {
+        return 0;
+    }
+    const QString n = QString::fromUtf8(name);
+    if (ensureLayer(doc, n) == RObject::INVALID_ID) {
+        return 0;
+    }
+    doc->currentLayer = n;
+    return 1;
+}
+
+int qcad_entity_layer(const qcad_document *doc, long long id,
+                      char *out, int max) {
+    if (doc == nullptr || out == nullptr || max <= 0) {
+        return 0;
+    }
+    QSharedPointer<REntity> e =
+        doc->doc->queryEntity(static_cast<REntity::Id>(id));
+    if (e.isNull()) {
+        return 0;
+    }
+    const QByteArray n = doc->doc->getLayerName(e->getLayerId()).toUtf8();
+    const int len = n.size();
+    if (len + 1 > max) {
+        return 0;
+    }
+    std::memcpy(out, n.constData(), static_cast<size_t>(len));
+    out[len] = '\0';
+    return 1;
 }
 
 int qcad_add_line(qcad_document *doc, double x1, double y1, double x2, double y2) {

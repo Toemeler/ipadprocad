@@ -18,7 +18,21 @@ const double _eps = 1e-9;
 // ---------------------------------------------------------------------------
 // transforms (Move/Copy/Rotate/Scale/Stretch)
 // ---------------------------------------------------------------------------
+
+/// Every modify operation DERIVES its result from a source entity, so the result
+/// must land on the source's layer. Rebuilding a Geo by type (which is what all
+/// the constructions below do) would silently drop it onto layer 0 — geometry
+/// belongs to a layer, and a trim must not smuggle it out of one. Stamped at the
+/// function boundaries so a new construction inside cannot leak.
+Geo _sameLayer(Geo src, Geo out) => out.onLayer(src.layer);
+List<Geo> _sameLayerAll(Geo src, List<Geo> out) =>
+    [for (final g in out) g.onLayer(src.layer)];
+
 Geo transformGeo(Geo g, Offset Function(Offset) f) {
+  return _sameLayer(g, _transformGeoRaw(g, f));
+}
+
+Geo _transformGeoRaw(Geo g, Offset Function(Offset) f) {
   switch (g.type) {
     case Geo.line:
       final a = f(Offset(g.data[0], g.data[1]));
@@ -104,7 +118,10 @@ Offset Function(Offset) scaling(Offset c, double f) => (p) => c + (p - c) * f;
 /// Stretch: vertices inside [box] translate by [d], the rest stay (Inventor
 /// stretch with a crossing window). Circles translate only if their center
 /// is inside.
-Geo stretchGeo(Geo g, Rect box, Offset d) {
+Geo stretchGeo(Geo g, Rect box, Offset d) =>
+    _sameLayer(g, _stretchGeoRaw(g, box, d));
+
+Geo _stretchGeoRaw(Geo g, Rect box, Offset d) {
   Offset f(Offset p) => box.contains(p) ? p + d : p;
   switch (g.type) {
     case Geo.line:
@@ -131,6 +148,11 @@ Geo stretchGeo(Geo g, Rect box, Offset d) {
 // Offset (parallel copy)
 // ---------------------------------------------------------------------------
 Geo? offsetEntity(Geo g, Offset side) {
+  final r = _offsetEntityRaw(g, side);
+  return r == null ? null : _sameLayer(g, r);
+}
+
+Geo? _offsetEntityRaw(Geo g, Offset side) {
   switch (g.type) {
     case Geo.line:
       final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
@@ -338,6 +360,11 @@ double _arcParam(Geo g, Offset p) {
 }
 
 Geo _subArc(Geo g, double u0, double u1) {
+  // derived from g -> keep its layer
+  return _sameLayer(g, _subArcRaw(g, u0, u1));
+}
+
+Geo _subArcRaw(Geo g, double u0, double u1) {
   // u in travel direction (0..sweep)
   final rev = g.data[5] != 0;
   final a1 = rev ? g.data[3] - u0 : g.data[3] + u0;
@@ -351,7 +378,10 @@ Geo _subArc(Geo g, double u0, double u1) {
 /// Trims the clicked span of entity [i] up to the nearest intersections.
 /// Returns the replacement entities (empty list = delete whole entity, like
 /// Inventor when nothing intersects).
-List<Geo> trimEntity(List<Geo> geos, int i, Offset click) {
+List<Geo> trimEntity(List<Geo> geos, int i, Offset click) =>
+    _sameLayerAll(geos[i], _trimEntityRaw(geos, i, click));
+
+List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
   final g = geos[i];
   final xs = intersectionsWithOthers(geos, i);
   switch (g.type) {
@@ -488,6 +518,11 @@ List<Geo> trimEntity(List<Geo> geos, int i, Offset click) {
 /// Extends the clicked END of entity [i] to the nearest intersection of its
 /// prolongation with other geometry. Returns null if nothing to extend to.
 Geo? extendEntity(List<Geo> geos, int i, Offset click) {
+  final r = _extendEntityRaw(geos, i, click);
+  return r == null ? null : _sameLayer(geos[i], r);
+}
+
+Geo? _extendEntityRaw(List<Geo> geos, int i, Offset click) {
   final g = geos[i];
   const big = 1e6;
   switch (g.type) {
@@ -546,6 +581,11 @@ Geo? extendEntity(List<Geo> geos, int i, Offset click) {
 /// with other geometry, like Inventor). Returns replacements, or null if a
 /// split isn't possible.
 List<Geo>? splitEntity(List<Geo> geos, int i, Offset click) {
+  final r = _splitEntityRaw(geos, i, click);
+  return r == null ? null : _sameLayerAll(geos[i], r);
+}
+
+List<Geo>? _splitEntityRaw(List<Geo> geos, int i, Offset click) {
   final g = geos[i];
   switch (g.type) {
     case Geo.line:
