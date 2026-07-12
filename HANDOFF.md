@@ -262,6 +262,52 @@ Token NIE in Dateien/.git/config schreiben.
   - **Persistenz:** Layerliste kommt beim Laden aus dem Dokument zurueck (DXF
     Gruppencode 8); leere Layer + Auge-Zustand liegen in `<name>.layers.json`.
 
+- **M17-Fix — Ribbon-Buttons waren fast alle tot (Hit-Test), Flyout wieder
+  garantiert gefuellt.** Vom Nutzer gemeldet: „nur ein Werkzeug benutzbar, die
+  Werkzeuge im Dropdown gehen nicht, Dropdown-Hintergrund durchsichtig".
+  - **URSACHE (die eigentliche Lehre):** `GestureDetector` ist per Default
+    `deferToChild`. Das Kind ist ueberall im Ribbon ein `Container` mit
+    **`decoration:`** — und das ist eine `DecoratedBox`, die NIE einen Hit-Test
+    schluckt. (`Container(color:)` waere eine `ColoredBox` und schluckt ihn
+    sehr wohl — genau darum funktionierten die Model-Browser-Zeilen die ganze
+    Zeit.) Getroffen hat also nur, was selbst hit-testbar ist: `Text`
+    (`RenderParagraph.hitTestSelf == true`). Folge: grosse Create-Buttons nur
+    auf dem Label-Wort klickbar, **jede icon-only Zelle (Constrain-Grid,
+    Modify-Grid) komplett tot** (flutter_svg malt in eine RenderBox, die keinen
+    Hit meldet), und im Flyout landete alles ausser dem Label-Text auf der
+    hit-opaken `ColoredBox` des Menues → Tap wurde verschluckt, es passierte
+    schlicht NICHTS.
+  - **FIX:** `behavior: HitTestBehavior.opaque` auf `_Hover` (der Wrapper hinter
+    JEDEM Ribbon-Button) und `_FlyRow`. Das ▼ hatte es schon — darum liess sich
+    das Flyout immer oeffnen, aber nichts darin auswaehlen. Verschachtelung
+    bleibt korrekt: das ▼ liegt tiefer im Hit-Test-Pfad und gewinnt die Arena,
+    der Button-Body startet weiter das Default-Tool (Inventor-Verhalten).
+  - **REGEL:** Jeder Ribbon-/Menue-Tap-Target braucht ein explizites
+    `HitTestBehavior.opaque`. Ein Button, dessen einziges Kind ein Icon ist, ist
+    ohne das nicht anklickbar — und faellt in keinem Analyzer-Lauf auf.
+  - **DURCHSICHTIGES MENUE = LAYOUT-BUG, NICHT PAINT-BUG (die zweite Lehre).**
+    Der Save-Layer/`BoxShadow`-Verdacht aus M7 war FALSCH — darum hat ihn
+    wegzunehmen auch nichts geaendert. Wahre Ursache: ein `Positioned(left/top)`
+    im Stack wird mit UNBESCHRAENKTEN Constraints gelayoutet, und
+    `CrossAxisAlignment.stretch` in einer Column heisst
+    `BoxConstraints.tightFor(width: constraints.maxWidth)` — also
+    **tightFor(width: INFINITY)**. Jede Menuezeile bekam eine unendliche Breite.
+    `BoxConstraints(minWidth: 186)` ist ein BODEN, keine DECKE, hat also nichts
+    abgefangen. Im Debug-Build wirft das („was given an infinite size during
+    layout"); im RELEASE-IPA sind die Asserts aus, die Groesse bleibt unendlich,
+    Impeller verwirft den nicht-finiten `drawRect` (= die Fuellung) und malt nur
+    noch die finiten Glyphen. Ergebnis: Icons und Labels schweben ohne Panel
+    ueber der Skizze.
+  - **FIX:** endliche Breite erzwingen — `ConstrainedBox(minWidth: 186,
+    maxWidth: 320)` + `IntrinsicWidth` (haengt sich weiter an die breiteste
+    Zeile, wie im Mock). Dieselbe Falle im Model-Browser-Kontextmenue
+    (`_CtxRow` nutzt `width: double.infinity` unter demselben unbeschraenkten
+    `Positioned`) → dort `maxWidth: 260` ergaenzt.
+  - **REGEL:** Ein Overlay-Menue darf NIE die unbeschraenkten Constraints des
+    Stacks erben. Immer eine harte Breiten-Decke setzen. Und: ein Fehler, der
+    NUR im Release-IPA auftritt und im Debug wirft, ist fast immer eine
+    verletzte Layout-Invariante — nicht der Rasterizer.
+
 - **OFFENER BUG (naechster Schritt):** Beim Ziehen von Punkten eines KREISES oder
   BOGENS verschwindet die ganze Geometrie, bis losgelassen wird. Verdacht:
   `grip.idx` ist bei Kreisen nur fuer `idx < ptCount` (= 1, der Mittelpunkt) ein

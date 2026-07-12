@@ -534,6 +534,17 @@ class _HoverState extends State<_Hover> {
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
       child: GestureDetector(
+        // THE tap target of every ribbon button. Without an explicit behavior a
+        // GestureDetector is deferToChild, and the child here is a Container
+        // with a *decoration* — that is a DecoratedBox, and a DecoratedBox
+        // never absorbs a hit test (unlike Container(color:), which compiles to
+        // a ColoredBox and does). So only the glyphs inside ever answered a
+        // tap: the Text label of a big Create button worked, while every
+        // icon-only cell — the whole Constrain and Modify grid, drawn by
+        // flutter_svg into a plain RenderBox that reports no hit — was
+        // completely dead. Opaque = the entire button box is the target, which
+        // is the only thing that makes sense for a finger on a ribbon button.
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Container(
           decoration: BoxDecoration(
@@ -904,26 +915,50 @@ class _FlyMenu extends StatelessWidget {
   const _FlyMenu({required this.items, required this.onPick});
   @override
   Widget build(BuildContext context) {
-    // Rendered with the most primitive paints available (ColoredBox, no
-    // BoxShadow): the drop shadow's saveLayer rendered the menu see-through
-    // on the iPadOS beta (Impeller), so the shadow is gone for now.
+    // WHY THE MENU WAS SEE-THROUGH (and why removing the BoxShadow in M7 did
+    // not help): this is a LAYOUT bug, not a paint bug. A Positioned(left/top)
+    // child of a Stack is laid out with UNBOUNDED constraints, and
+    // CrossAxisAlignment.stretch on a Column means
+    // `BoxConstraints.tightFor(width: constraints.maxWidth)` — i.e.
+    // tightFor(width: INFINITY). Every row, and the menu itself, ended up with
+    // a non-finite width. `BoxConstraints(minWidth: 186)` sets a floor, never a
+    // ceiling, so nothing caught it. In a debug build that throws ("was given
+    // an infinite size during layout"); in the RELEASE ipa asserts are off, so
+    // the size stays infinite, Impeller drops the non-finite drawRect — the
+    // fill — and paints only the finite glyphs. Result: icons and labels
+    // floating over the sketch with no panel behind them.
+    //
+    // The fix is to give the menu a finite width: a hard ceiling
+    // (ConstrainedBox) plus IntrinsicWidth so it still hugs its widest row from
+    // 186px up, exactly like the mock. NEVER let a menu inherit the Stack's
+    // unbounded constraints again.
     return Material(
+      // Transparent: paints nothing, only provides the text-style scope.
       type: MaterialType.transparency,
-      child: ClipRect(
-        child: ColoredBox(
-          color: T.fly,
-          child: Container(
-            constraints: const BoxConstraints(minWidth: 186),
-            decoration: BoxDecoration(
-              border: Border.all(color: T.sep),
-            ),
-            child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < items.length; i++)
-              _FlyRow(item: items[i], first: i == 0, last: i == items.length - 1, onPick: onPick),
-          ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 186, maxWidth: 320),
+        child: IntrinsicWidth(
+          child: ColoredBox(
+            // Opaque fill, and hit-opaque: a tap on the menu can never fall
+            // through to the dismiss barrier behind it.
+            color: T.fly,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: T.fly,
+                border: Border.all(color: T.sep),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < items.length; i++)
+                    _FlyRow(
+                        item: items[i],
+                        first: i == 0,
+                        last: i == items.length - 1,
+                        onPick: onPick),
+                ],
+              ),
             ),
           ),
         ),
@@ -955,6 +990,13 @@ class _FlyRowState extends State<_FlyRow> {
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
       child: GestureDetector(
+        // Same deferToChild trap as _Hover, and it is what made the flyout
+        // tools unusable: the row's Container is a DecoratedBox, so a tap only
+        // landed if it hit the label text exactly. Anywhere else in the row —
+        // the icon, the padding, the gap — hit the menu's ColoredBox, which IS
+        // hit-opaque, so the tap was swallowed and NOTHING happened: the menu
+        // just sat there. Opaque = the whole row picks the tool.
+        behavior: HitTestBehavior.opaque,
         onTap: () => widget.onPick(it),
         child: Container(
           padding: oneline

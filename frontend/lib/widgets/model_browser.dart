@@ -50,7 +50,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
           child: Material(
             color: Colors.transparent,
             child: Container(
-              constraints: const BoxConstraints(minWidth: 180),
+              // maxWidth is NOT optional: a Positioned(left/top) child of a
+              // Stack is laid out unbounded, and _CtxRow uses
+              // width: double.infinity — so without a ceiling every row's width
+              // is literally infinite. Release builds have asserts off, the
+              // non-finite fill is dropped by Impeller and the menu renders
+              // without a background (same bug the ribbon flyout had).
+              constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
               padding: const EdgeInsets.symmetric(vertical: 3),
               decoration: BoxDecoration(
                 color: const Color(0xFF212429),
