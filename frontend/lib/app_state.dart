@@ -831,6 +831,14 @@ class AppState extends ChangeNotifier {
   }
 
   void _placeDimension(SketchModel s, Offset w) {
+    final d = buildDimensionAt(s, w);
+    if (d == null) return;
+    pendingDim = d;
+  }
+
+  /// Builds the dimension implied by the current pick set, placed at [w].
+  /// Shared by placement and by the live cursor preview.
+  Constraint? buildDimensionAt(SketchModel s, Offset w) {
     Constraint? d;
     if (conEnts.length == 2) {
       d = Constraint(CType.dimension,
@@ -854,9 +862,19 @@ class AppState extends ChangeNotifier {
           dimKind: _distKind(s, conPts[0], conPts[1], w),
           textPos: w);
     }
-    if (d == null) return;
+    if (d == null) return null;
     d.value = measureDim(s.geometry, d);
-    pendingDim = d;
+    return d;
+  }
+
+  /// The dimension that would be placed if the user clicked at [hover] now —
+  /// used to draw a live preview that follows the cursor (Inventor style).
+  Constraint? dimensionPreview(Offset hover) {
+    if (tool != Tool.dimension || pendingDim != null) return null;
+    final s = current;
+    if (s == null) return null;
+    if (conEnts.isEmpty && conPts.length < 2) return null;
+    return buildDimensionAt(s, hover);
   }
 
   /// Constraints that WOULD be applied if the current preview were committed

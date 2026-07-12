@@ -597,6 +597,12 @@ class _ViewportPainter extends CustomPainter {
       if (pd != null && pd.textPos != null) {
         _paintDimension(canvas, gs2, pd, map);
       }
+      // live preview: once the pick set is chosen, the dimension tracks the
+      // cursor until the click that places it (Inventor behaviour).
+      if (pd == null && app.hoverWorld != null) {
+        final preview = app.dimensionPreview(app.hoverWorld!);
+        if (preview != null) _paintDimension(canvas, gs2, preview, map);
+      }
     }
 
     } catch (err, st) {
