@@ -19,6 +19,8 @@ static double paramVal(const Slvs_System *s, Slvs_hParam h) {
 
 int slvs_shim_version(void) { return 1; }
 
+const char* slvs_shim_id(void) { return "iPadProCAD SLVS shim v1"; }
+
 int slvs_solve(
     int nPts, double *px, double *py, const int *fixed,
     int nLines, const int *la, const int *lb,

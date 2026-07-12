@@ -78,6 +78,11 @@ int slvs_solve(
 /* Library version probe, so the Dart side can confirm the symbol is linked. */
 int slvs_shim_version(void);
 
+/* Distinctive marker string retained in the binary; the iOS build's link
+   check greps for it via `strings` to prove the lib is linked (mirrors the
+   QCAD C-API version-string check). */
+const char* slvs_shim_id(void);
+
 #ifdef __cplusplus
 }
 #endif

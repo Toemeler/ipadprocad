@@ -507,6 +507,20 @@ jobs:
           fi
           } 2>&1 | tee ../ci-m5-scaffold.log
 
+      - name: Build libslvs static (iOS device, arm64)
+        working-directory: backend/slvs
+        run: |
+          set -o pipefail
+          cmake -S . -B build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-ios -j
+          test -f build-ios/libslvs.a || { echo "MISSING build-ios/libslvs.a"; exit 1; }
+          lipo -info build-ios/libslvs.a
+
       - name: Inject FFI link flags (xcconfig)
         working-directory: frontend
         run: |
@@ -515,6 +529,7 @@ jobs:
           QTIOS="${{ steps.qt_ios.outputs.path }}"
           CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
           BUILD="$GITHUB_WORKSPACE/backend/qcad-core/build"
+          SLVS="$GITHUB_WORKSPACE/backend/slvs/build-ios"
           # Ninja has no link.txt; ask ninja for the smoke's exact link
           # command instead (executed with cwd = build root).
           LINKCMD="$(mktemp)"
@@ -527,9 +542,9 @@ jobs:
           QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
           echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens):"
           echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
-          printf '_qcad_*\n' > ios/Flutter/qcad_symbols.exp
+          printf '_qcad_*\n_slvs_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a -force_load $SLVS/libslvs.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
           IPHONEOS_DEPLOYMENT_TARGET = 14.0
           XC
           # strip the heredoc's leading indentation xcconfig can't handle
@@ -578,6 +593,12 @@ jobs:
             echo "M5 LINK CHECK: PASS (C-API version string present in Runner binary)"
           else
             echo "M5 LINK CHECK: FAIL (C-API not linked into Runner)"; exit 1
+          fi
+          SHITS="$(strings "$APP/Runner" | grep -c "iPadProCAD SLVS shim" || true)"
+          if [ "${SHITS:-0}" -gt 0 ]; then
+            echo "SLVS LINK CHECK: PASS (libslvs shim marker present in Runner binary)"
+          else
+            echo "SLVS LINK CHECK: FAIL (libslvs/shim not linked into Runner)"; exit 1
           fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload
