@@ -59,6 +59,12 @@ class SketchModel {
   /// property only — hidden geometry keeps its index, so constraint refs (which
   /// are index-based) stay valid. It is never filtered out of the geometry list.
   final Set<String> hiddenLayers = {};
+  /// Layers the padlock in the model browser has locked. A locked layer is
+  /// still drawn (unlike a hidden one) but cannot be edited: no tool activates
+  /// on it, its geometry cannot be picked, dragged, trimmed, constrained or
+  /// dimensioned, and it cannot be the current editing layer. Like visibility,
+  /// this is app state that rides in the sidecar, not sketch geometry.
+  final Set<String> lockedLayers = {};
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create();
 
@@ -193,29 +199,36 @@ class AppState extends ChangeNotifier {
         if (cf.existsSync()) {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
         }
-        // The layers come back FROM THE DOCUMENT (DXF group code 8), which is
-        // the whole point of binding them in the C-API. Rebuild the layer list
-        // from the geometry, then restore which of them the eye had switched
-        // off (visibility is a view property, so it rides in the sidecar).
-        for (final g in s.geometry) {
-          if (!s.layers.contains(g.layer)) s.layers.add(g.layer);
-        }
+        // Layers survive in TWO places: the entity->layer binding travels in
+        // the DXF (group code 8), while the display order plus empty layers and
+        // the eye/lock state ride in a small sidecar. Prefer the sidecar's
+        // ORDER (what the user arranged in the browser), then adopt any layer
+        // that exists only in the geometry (an imported DXF, or a sketch made
+        // before layers were bound).
+        List<String> ordered = const [];
+        final hidden = <String>{}, locked = <String>{};
         try {
           final lf = File('${_sketchDir.path}/$name.layers.json');
           if (lf.existsSync()) {
             final j = jsonDecode(lf.readAsStringSync()) as Map<String, dynamic>;
-            for (final l in (j['layers'] as List? ?? const [])) {
-              if (!s.layers.contains(l)) s.layers.add(l as String);
-            }
-            s.hiddenLayers
-                .addAll((j['hidden'] as List? ?? const []).cast<String>());
+            ordered = [
+              for (final l in (j['layers'] as List? ?? const [])) l as String
+            ];
+            hidden.addAll((j['hidden'] as List? ?? const []).cast<String>());
+            locked.addAll((j['locked'] as List? ?? const []).cast<String>());
           }
         } catch (e) {
           Log.w('state', 'layer sidecar read failed: $e');
         }
-        _syncLayers(s);
+        s.layers
+          ..clear()
+          ..addAll(ordered);
+        s.hiddenLayers.addAll(hidden);
+        s.lockedLayers.addAll(locked);
+        _syncLayers(s); // append any geometry-only layers the sidecar missed
+        _pruneEmptyBaseLayer(s); // never show an empty phantom "0"
         Log.i('layer', 'loaded "$name": layers=${s.layers} '
-            'hidden=${s.hiddenLayers}');
+            'hidden=${s.hiddenLayers} locked=${s.lockedLayers}');
         analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
@@ -266,7 +279,13 @@ class AppState extends ChangeNotifier {
   void startNewLayer() {
     final s = current;
     if (s == null) return;
-    final n = s.layers.length + 1;
+    // Next free "Layer N": counting s.layers.length breaks once layers are
+    // renamed or deleted, or when the base "0" is present, and would hand out a
+    // name that already exists.
+    var n = 1;
+    while (s.layers.contains('Layer $n')) {
+      n++;
+    }
     final name = 'Layer $n';
     s.layers.add(name);
     s.dirty = true;
@@ -281,8 +300,20 @@ class AppState extends ChangeNotifier {
 
   /// You may only TOUCH what you are editing. Being in Layer 2 must not let you
   /// trim, drag, constrain or dimension geometry that lives on Layer 1 — the
-  /// layer is the editing scope, not just a paint colour.
-  bool geoEditable(Geo g) => inEditMode && g.layer == editingLayer;
+  /// layer is the editing scope, not just a paint colour. A locked layer is
+  /// never editable even while it is the one in edit mode (belt and braces:
+  /// [enterEdit] already refuses to enter a locked layer).
+  bool geoEditable(Geo g) =>
+      inEditMode && g.layer == editingLayer && !layerLocked(g.layer);
+
+  /// True while [name] is locked (padlock in the model browser).
+  bool layerLocked(String name) =>
+      current?.lockedLayers.contains(name) == true;
+
+  /// The mandatory DXF layer "0" is not a user-created layer; it always exists
+  /// in the document. It may hold geometry (an old sketch or an imported DXF),
+  /// but it cannot be renamed or deleted — same rule as AutoCAD.
+  bool isBaseLayer(String name) => name == kDefaultLayer;
 
   /// A constraint (incl. dimensions) belongs to the layers of the entities it
   /// references. It is only shown when ALL of them are visible — otherwise a
@@ -329,6 +360,17 @@ class AppState extends ChangeNotifier {
   }
 
   void enterEdit(String layerName) {
+    final s = current;
+    if (s == null || !s.layers.contains(layerName)) return;
+    if (layerLocked(layerName)) {
+      toast('“$layerName” is locked — unlock it to edit.');
+      return;
+    }
+    // Entering a layer that is switched off would let you draw into something
+    // you cannot see; turn the eye back on first so what you draw is visible.
+    if (!layerVisible(layerName)) {
+      s.hiddenLayers.remove(layerName);
+    }
     editingLayer = layerName;
     notifyListeners();
   }
@@ -340,6 +382,145 @@ class AppState extends ChangeNotifier {
     toolPoints.clear();
     if (save && curTab != null) saveSketch(curTab!);
     notifyListeners();
+  }
+
+  /// Lock / unlock a layer. Locking the layer currently being edited drops you
+  /// out of edit mode first (you cannot edit a locked layer). Selection is
+  /// cleared of anything on the now-locked layer.
+  void toggleLayerLocked(String name) {
+    final s = current;
+    if (s == null || !s.layers.contains(name)) return;
+    if (s.lockedLayers.remove(name)) {
+      Log.i('layer', 'unlock "$name"');
+    } else {
+      s.lockedLayers.add(name);
+      Log.i('layer', 'lock "$name"');
+      if (editingLayer == name) finishEdit(save: true);
+      selection.removeWhere(
+          (i) => i < s.geometry.length && s.geometry[i].layer == name);
+    }
+    s.dirty = true;
+    notifyListeners();
+  }
+
+  /// Rename [oldName] to [newName]. The base layer "0" cannot be renamed. The
+  /// new name must be non-empty and not already in use. Every entity on the old
+  /// layer is re-stamped so the geometry follows the rename (and survives the
+  /// next DXF round-trip on the new name), and the eye/lock/edit state moves
+  /// across with it.
+  bool renameLayer(String oldName, String newName) {
+    final s = current;
+    if (s == null) return false;
+    newName = newName.trim();
+    if (isBaseLayer(oldName)) {
+      toast('The default layer “0” can’t be renamed.');
+      return false;
+    }
+    if (isBaseLayer(newName)) {
+      toast('“0” is reserved for the default layer.');
+      return false;
+    }
+    if (!s.layers.contains(oldName)) return false;
+    if (newName.isEmpty) return false;
+    if (newName == oldName) return true;
+    if (s.layers.contains(newName)) {
+      toast('A layer named “$newName” already exists.');
+      return false;
+    }
+    final gs = [
+      for (final g in s.geometry) g.layer == oldName ? g.onLayer(newName) : g
+    ];
+    final idx = s.layers.indexOf(oldName);
+    s.layers[idx] = newName;
+    if (s.hiddenLayers.remove(oldName)) s.hiddenLayers.add(newName);
+    if (s.lockedLayers.remove(oldName)) s.lockedLayers.add(newName);
+    if (editingLayer == oldName) editingLayer = newName;
+    Log.i('layer', 'rename "$oldName" -> "$newName"');
+    _rebuildEngine(s, gs);
+    if (curTab != null) saveSketch(curTab!);
+    return true;
+  }
+
+  /// Delete a whole layer and everything on it. The base layer "0" cannot be
+  /// deleted. All entities on the layer are removed and the index-based
+  /// constraints are remapped (constraints that referenced the deleted geometry
+  /// are dropped). Returns the number of entities removed.
+  int deleteLayer(String name) {
+    final s = current;
+    if (s == null) return 0;
+    if (isBaseLayer(name)) {
+      toast('The default layer “0” can’t be deleted.');
+      return 0;
+    }
+    if (!s.layers.contains(name)) return 0;
+
+    // Remove the entities on this layer highest-index-first so each removal
+    // keeps the lower indices — and the surviving constraints — valid.
+    final victims = <int>[
+      for (var i = 0; i < s.geometry.length; i++)
+        if (s.geometry[i].layer == name) i
+    ]..sort((a, b) => b.compareTo(a));
+    final gs = List<Geo>.from(s.geometry);
+    var cons = List<Constraint>.from(s.constraints);
+    for (final i in victims) {
+      gs.removeAt(i);
+      cons = remapAfterRemove(cons, i);
+    }
+    s.constraints
+      ..clear()
+      ..addAll(cons);
+
+    s.layers.remove(name);
+    s.hiddenLayers.remove(name);
+    s.lockedLayers.remove(name);
+    if (editingLayer == name) editingLayer = null;
+    selection.clear();
+    Log.i('layer', 'delete "$name" (removed ${victims.length} entities)');
+    _rebuildEngine(s, gs);
+    if (curTab != null) saveSketch(curTab!);
+    return victims.length;
+  }
+
+  /// Move the currently selected geometry onto [target]. This is how a sketch
+  /// whose geometry is stranded on the wrong layer (e.g. everything on the
+  /// default "0") gets sorted out: select it, then move it. Does nothing if
+  /// nothing is selected or the target is locked.
+  int moveSelectionToLayer(String target) {
+    final s = current;
+    if (s == null || !s.layers.contains(target)) return 0;
+    if (selection.isEmpty) {
+      toast('Select geometry first, then move it to a layer.');
+      return 0;
+    }
+    if (layerLocked(target)) {
+      toast('“$target” is locked.');
+      return 0;
+    }
+    final sel = selection.where((i) => i >= 0 && i < s.geometry.length).toSet();
+    final gs = [
+      for (var i = 0; i < s.geometry.length; i++)
+        sel.contains(i) ? s.geometry[i].onLayer(target) : s.geometry[i]
+    ];
+    Log.i('layer', 'move ${sel.length} entities -> "$target"');
+    _rebuildEngine(s, gs);
+    _pruneEmptyBaseLayer(s);
+    selection.clear();
+    if (curTab != null) saveSketch(curTab!);
+    notifyListeners();
+    return sel.length;
+  }
+
+  /// The mandatory "0" is not a user layer. Surface it only while it actually
+  /// holds geometry; once it is emptied (e.g. its contents moved elsewhere)
+  /// drop it from the browser so it never lingers as a phantom row.
+  void _pruneEmptyBaseLayer(SketchModel s) {
+    if (editingLayer == kDefaultLayer) return;
+    if (s.geometry.any((g) => g.layer == kDefaultLayer)) return;
+    if (s.layers.remove(kDefaultLayer)) {
+      s.hiddenLayers.remove(kDefaultLayer);
+      s.lockedLayers.remove(kDefaultLayer);
+      Log.i('layer', 'dropped empty base layer "0" from the browser');
+    }
   }
 
   // ---- selection / snapping / grip editing (M6) ----
@@ -1396,10 +1577,21 @@ class AppState extends ChangeNotifier {
       Log.w('state', 'constraint sidecar write failed: $e');
     }
     try {
-      // Empty layers have no geometry to carry them through the DXF, and the
-      // eye state is a view property — both live in a sidecar.
-      File('${_sketchDir.path}/$name.layers.json').writeAsStringSync(jsonEncode(
-          {'layers': s.layers, 'hidden': s.hiddenLayers.toList()}));
+      // Empty layers have no geometry to carry them through the DXF, so the
+      // display order plus the eye/lock state live in a small sidecar. The
+      // mandatory base "0" is persisted only while it actually holds geometry,
+      // so an emptied "0" never comes back as a phantom row.
+      final hasBaseGeo = s.geometry.any((g) => g.layer == kDefaultLayer);
+      final persistLayers = [
+        for (final l in s.layers)
+          if (!(l == kDefaultLayer && !hasBaseGeo)) l
+      ];
+      File('${_sketchDir.path}/$name.layers.json').writeAsStringSync(jsonEncode({
+        'version': 2,
+        'layers': persistLayers,
+        'hidden': s.hiddenLayers.toList(),
+        'locked': s.lockedLayers.toList(),
+      }));
     } catch (e) {
       Log.w('state', 'layer sidecar write failed: $e');
     }

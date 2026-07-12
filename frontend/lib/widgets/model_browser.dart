@@ -35,6 +35,39 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   void _showCtx(Offset globalPos, String layer) {
     _closeCtx();
+    final app = widget.app;
+    final locked = app.layerLocked(layer);
+    final base = app.isBaseLayer(layer);
+    final selCount = app.selection.length;
+    final items = <Widget>[
+      if (!locked)
+        _ctxItem('Edit', () {
+          _closeCtx();
+          app.enterEdit(layer);
+        }),
+      _ctxItem(app.layerVisible(layer) ? 'Hide' : 'Show', () {
+        _closeCtx();
+        app.toggleLayerVisible(layer);
+      }),
+      _ctxItem(locked ? 'Unlock' : 'Lock', () {
+        _closeCtx();
+        app.toggleLayerLocked(layer);
+      }),
+      if (!base)
+        _ctxItem('Rename…', () {
+          _closeCtx();
+          _promptRename(layer);
+        }),
+      _ctxItem(selCount == 0 ? 'Move selection here' : 'Move $selCount here', () {
+        _closeCtx();
+        app.moveSelectionToLayer(layer);
+      }),
+      if (!base)
+        _ctxItem('Delete layer', () {
+          _closeCtx();
+          _confirmDelete(layer);
+        }, danger: true),
+    ];
     _ctx = OverlayEntry(
       builder: (_) => Stack(children: [
         Positioned.fill(
@@ -62,16 +95,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                       offset: Offset(0, 8))
                 ],
               ),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                _ctxItem('Edit', () {
-                  _closeCtx();
-                  widget.app.enterEdit(layer);
-                }),
-                _ctxItem('Copy', _closeCtx),
-                _ctxItem('Duplicate', _closeCtx),
-                _ctxItem('Export only this layer', _closeCtx),
-                _ctxItem('Toggle visibility', _closeCtx),
-              ]),
+              child: Column(mainAxisSize: MainAxisSize.min, children: items),
             ),
           ),
         ),
@@ -80,8 +104,75 @@ class _ModelBrowserState extends State<ModelBrowser> {
     Overlay.of(context).insert(_ctx!);
   }
 
-  Widget _ctxItem(String label, VoidCallback onTap) {
-    return _CtxRow(label: label, onTap: onTap);
+  Future<void> _promptRename(String layer) async {
+    final ctrl = TextEditingController(text: layer);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF292D33),
+        title: Text('Rename layer', style: ts(14, T.mbText)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          style: ts(13, Colors.white),
+          cursorColor: T.blue,
+          decoration: InputDecoration(
+            hintText: 'Layer name',
+            hintStyle: ts(13, T.mbDim),
+            enabledBorder:
+                const UnderlineInputBorder(borderSide: BorderSide(color: T.sep)),
+            focusedBorder:
+                const UnderlineInputBorder(borderSide: BorderSide(color: T.blue)),
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('Cancel', style: ts(13, T.mbDim))),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(ctrl.text),
+              child: Text('Rename', style: ts(13, T.blue))),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result != null) widget.app.renameLayer(layer, result);
+  }
+
+  Future<void> _confirmDelete(String layer) async {
+    final app = widget.app;
+    final s = app.current;
+    final count =
+        s == null ? 0 : s.geometry.where((g) => g.layer == layer).length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF292D33),
+        title: Text('Delete “$layer”?', style: ts(14, T.mbText)),
+        content: Text(
+          count == 0
+              ? 'This layer is empty and will be removed.'
+              : 'This removes the layer and its $count '
+                  '${count == 1 ? "entity" : "entities"}. This can’t be undone.',
+          style: ts(12.5, T.mbDim),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('Cancel', style: ts(13, T.mbDim))),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Delete', style: ts(13, const Color(0xFFE05A56))),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) widget.app.deleteLayer(layer);
+  }
+
+  Widget _ctxItem(String label, VoidCallback onTap, {bool danger = false}) {
+    return _CtxRow(label: label, onTap: onTap, danger: danger);
   }
 
   @override
@@ -186,10 +277,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
           icon: layerRowIcon,
           label: layer,
           active: active,
-          trailing: _EyeButton(
-            visible: app.layerVisible(layer),
-            onTap: () => app.toggleLayerVisible(layer),
-          ),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            _LockButton(
+              locked: app.layerLocked(layer),
+              onTap: () => app.toggleLayerLocked(layer),
+            ),
+            _EyeButton(
+              visible: app.layerVisible(layer),
+              onTap: () => app.toggleLayerVisible(layer),
+            ),
+          ]),
         ),
       ),
     );
@@ -285,7 +382,8 @@ class _TreeRowState extends State<_TreeRow> {
 class _CtxRow extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
-  const _CtxRow({required this.label, required this.onTap});
+  final bool danger;
+  const _CtxRow({required this.label, required this.onTap, this.danger = false});
   @override
   State<_CtxRow> createState() => _CtxRowState();
 }
@@ -304,7 +402,9 @@ class _CtxRowState extends State<_CtxRow> {
           width: double.infinity,
           color: _h ? T.flyHov : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Text(widget.label, style: ts(12.5, T.mbText)),
+          child: Text(widget.label,
+              style: ts(12.5,
+                  widget.danger ? const Color(0xFFE05A56) : T.mbText)),
         ),
       ),
     );
@@ -342,6 +442,46 @@ class _EyeButtonState extends State<_EyeButton> {
             size: 14,
             color: on
                 ? (_h ? Colors.white : T.mbDim)
+                : (_h ? T.mbText : T.mbDimmed),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Layer lock toggle. A locked layer stays visible but is read-only: no tool
+/// activates on it and its geometry can't be picked, dragged or constrained.
+/// Shown faint when unlocked so it stays discoverable without cluttering the
+/// row; a closed padlock in the accent red once locked.
+class _LockButton extends StatefulWidget {
+  final bool locked;
+  final VoidCallback onTap;
+  const _LockButton({required this.locked, required this.onTap});
+  @override
+  State<_LockButton> createState() => _LockButtonState();
+}
+
+class _LockButtonState extends State<_LockButton> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final locked = widget.locked;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Icon(
+            locked ? Icons.lock_outline : Icons.lock_open_outlined,
+            size: 14,
+            color: locked
+                ? const Color(0xFFD65A56)
                 : (_h ? T.mbText : T.mbDimmed),
           ),
         ),

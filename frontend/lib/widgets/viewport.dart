@@ -480,6 +480,13 @@ class _ViewportPainter extends CustomPainter {
         ..color = const Color(0xFF9A8CF5)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
+      // Geometry on a layer you are NOT editing (or a locked layer) is drawn as
+      // dim reference while a layer is in edit mode, so the active layer's DOF
+      // colours read clearly. Outside edit mode everything keeps its own state.
+      final refPaint = Paint()
+        ..color = const Color(0xFF5C6066)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2;
       final gs = app.displayGeometry(s);
       final free = app.analysis?.freePoints ?? const <(int, int)>{};
       final hasAnalysis = app.analysis != null;
@@ -528,9 +535,12 @@ class _ViewportPainter extends CustomPainter {
       }
 
       for (var i = 0; i < gs.length; i++) {
+        final reference = app.inEditMode && !app.geoEditable(gs[i]);
         final paint = app.selection.contains(i)
             ? sel
-            : (entityFull(i) ? whitePaint : underPaint);
+            : reference
+                ? refPaint
+                : (entityFull(i) ? whitePaint : underPaint);
         // ONE bad entity must not take the whole sketch down with it. A throw
         // in here aborts CustomPainter.paint, so every entity AFTER it stays
         // unpainted — which reads as "all my geometry disappeared". Same for

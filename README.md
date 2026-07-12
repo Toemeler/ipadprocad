@@ -55,6 +55,21 @@ QCAD-Dokument (`qcad_set_current_layer` / `qcad_entity_layer`, intern `RLayer` +
   filtert nie die Geometrieliste (Constraint-Referenzen sind index-basiert) —
   es wird nur übersprungen.
 
+### Layer-Verwaltung (M18, CI/Geräte-Test ausstehend)
+
+Das Layer-System ist zu einer vollständigen Verwaltung ausgebaut (Frontend-only,
+auf dem vorhandenen Backend-Layer-Pfad — keine neue C++-API). Im Kontextmenü
+einer Layer-Zeile: **Lock/Unlock** (gesperrter Layer bleibt sichtbar, ist aber
+read-only), **Rename** und **Delete** (löscht Geometrie + remappt Constraints;
+beides für die Pflichtebene „0" gesperrt) sowie **Move N here** — verschiebt die
+aktuelle Selektion auf den Layer. Letzteres sortiert auch Altbestände: Geometrie,
+die durch einen Prä-M16-Build auf „0" gelandet ist, lässt sich per Box-Select →
+Rechtsklick-Ziel → „Move" umziehen. Die Pflichtebene „0" verhält sich wie in
+AutoCAD (nicht umbenenn-/löschbar) und erscheint nur, solange sie Geometrie
+trägt. Sichtbarkeit + Lock + Reihenfolge liegen versioniert im Sidecar
+(`<name>.layers.json`). **Wichtig:** Der ursprüngliche „alles auf Layer 0"-Fehler
+kam von einem IPA vor M16 — ein frischer Build ist nötig.
+
 ### Diagnose-Log (M15)
 
 Die App schreibt ein ausführliches Log ins Documents-Verzeichnis, sichtbar in der
