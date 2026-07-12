@@ -34,6 +34,21 @@ void main() {
       Log.e('platform', 'uncaught platform error', error, stack);
       return true;
     };
+    // Flutter's default ErrorWidget is a RenderErrorBox, which sizes itself to
+    // constraints.biggest — in release it is a plain light-grey block. Inside
+    // an intrinsically-sized parent (the ribbon) that means ONE broken widget
+    // inflates to full screen height and shoves the rest of the app out of the
+    // layout. Replace it with a bounded, obvious marker so a local failure
+    // stays local; the real exception is already in the log file.
+    ErrorWidget.builder = (FlutterErrorDetails details) {
+      Log.e('widget', 'build failed: ${details.exceptionAsString()}',
+          details.exception, details.stack);
+      return const SizedBox(
+        width: 24,
+        height: 24,
+        child: ColoredBox(color: Color(0x66E05A56)),
+      );
+    };
     Log.step('main', 'setPreferredOrientations (fire-and-forget)', () {
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,

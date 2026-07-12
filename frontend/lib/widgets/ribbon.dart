@@ -774,31 +774,43 @@ class _ConGrid extends StatelessWidget {
     if (t != null) onTool(t);
   }
 
+  static const _cols = 5;
+
+  Widget _cell((String, String) c) => Tooltip(
+        message: c.$2,
+        child: SizedBox(
+          width: 30,
+          height: 27,
+          child: _Hover(
+              hoverBg: T.hover7,
+              activeHighlight: _isActive(c.$1),
+              onTap: () => _tap(c.$1),
+              child: Center(child: svg(CN[c.$1]!, 18))),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    // The row count is DERIVED from `cons` and every cell is bounds-checked.
+    // (A hard-coded 3x5 grid survived the removal of the 'autodim' cell in
+    // M10c: cons went 15 -> 14, cons[14] threw RangeError on every build, the
+    // ErrorWidget expanded to the full viewport height and pushed the model
+    // browser, the viewport and the tab bar off screen. Never index a fixed
+    // grid into a variable-length list again.)
+    final rows = (cons.length + _cols - 1) ~/ _cols;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        for (var row = 0; row < 3; row++)
+        for (var row = 0; row < rows; row++)
           Padding(
             padding: EdgeInsets.only(top: row == 0 ? 0 : 1),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              for (var col = 0; col < 5; col++)
+              for (var col = 0; col < _cols; col++)
                 Padding(
                   padding: EdgeInsets.only(left: col == 0 ? 0 : 1),
-                  child: Tooltip(
-                    message: cons[row * 5 + col].$2,
-                    child: SizedBox(
-                      width: 30,
-                      height: 27,
-                      child: _Hover(
-                          hoverBg: T.hover7,
-                          activeHighlight: _isActive(cons[row * 5 + col].$1),
-                          onTap: () => _tap(cons[row * 5 + col].$1),
-                          child: Center(
-                              child: svg(CN[cons[row * 5 + col].$1]!, 18))),
-                    ),
-                  ),
+                  child: (row * _cols + col) < cons.length
+                      ? _cell(cons[row * _cols + col])
+                      : const SizedBox(width: 30, height: 27),
                 ),
             ]),
           ),
