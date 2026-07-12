@@ -651,7 +651,15 @@ bool _trySolveWithSlvs(
     }
   }
 
-  int? pOf(PRef r) => ptIndex[_pkey(r.ent, r.pt)];
+  // The projected center point (kProjCenter) has no slot in gs, so give libslvs
+  // a real point at the origin, marked FIXED. Added lazily: sketches that never
+  // touch the origin get exactly the system they got before. Without this the
+  // coincidence would be dropped, the solved result would fail the Dart verify,
+  // and every origin-snapped sketch would silently fall back to the Dart solver.
+  int? originPt;
+  int? pOf(PRef r) => r.ent < 0
+      ? (originPt ??= s.addPoint(0, 0, fix: true))
+      : ptIndex[_pkey(r.ent, r.pt)];
   int eOf(int dartEnt) => entRef[dartEnt] ?? 0;
 
   for (final c in cs) {

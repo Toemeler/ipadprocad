@@ -114,6 +114,39 @@ Token NIE in Dateien/.git/config schreiben.
     Faerbung weiss/violett stimmt, Bemassungs-Preview folgt dem Cursor,
     Auto-Constraints ohne Button. IPA-Artefakt aus dem M5-Job (unsigniert).
 
+- **M11-Fix — Fenster wieder heil (Geraete-Test 1): ERLEDIGT.** Auf dem iPad war
+  der Ribbon zerrissen und der Model-Browser weg: ein RangeError im
+  Constrain-Grid liess den Build-Callback werfen, im RELEASE-Build ersetzt
+  Flutter das dann durch ein graues ErrorWidget (kein roter Debug-Screen) —
+  daher der graue Block statt Viewport/Browser. MERKE: grauer Kasten in der App
+  = geworfene Exception, nicht Layout-Pfusch.
+
+- **M12 — Auto-Coincident auf den projizierten Center Point: ERLEDIGT
+  (Geraete-Test 2 offen).** Symptom: eine Rechteck-Ecke rastet per 'origin'-Snap
+  exakt auf den CP, blieb aber frei verschiebbar. Ursache: der projizierte CP ist
+  KEINE Entity — der Viewport malt ihn nur per `map(0,0)`, und
+  `inferConstraints` vergleicht neue Punkte ausschliesslich gegen vorhandene
+  Entities (`j < newIdx`). Zum Ursprung gab es also nichts zu binden.
+  - Loesung: Sentinel `kProjCenter = -1` (`constraints.dart`) als Punkt-Ref auf
+    den CP. `inferConstraints` erzeugt bei `|q| < 1e-6` ein echtes
+    Coincident `PRef(-1,0) <-> PRef(neu,p)` — mit Vorrang vor Endpunkt- und
+    Point-on-Line-Inferenz.
+  - Der Dart-LM-Solver konnte das SCHON: `_pointAt` liefert fuer `ent < 0`
+    Offset.zero (keine freien Parameter), `residualCount` zaehlt 2 Gleichungen
+    -> Punkt ist voll bestimmt, DOF sinkt um 2, Faerbung wird weiss.
+  - libslvs: `pOf` mappt `ent < 0` jetzt auf einen LAZY angelegten Punkt
+    `addPoint(0,0, fix: true)`. Ohne das waere das Constraint stillschweigend
+    gefallen, das Verify-Netz haette gegriffen und JEDE Skizze mit Ursprungs-Snap
+    waere auf den Dart-Solver zurueckgefallen.
+  - Fallstrick mitgefixt: `constraintGlyphs` haette `gs[-1]` indiziert ->
+    RangeError -> grauer Screen (siehe M11-Fix). Guards jetzt ueber `isRealPt`.
+  - Ebenfalls mitgefixt: `remapAfterRemove` hat beim Loeschen einer Entity
+    `anchors` und `driven` verschluckt — Fix-Constraints verloren ihren Anker,
+    Referenzbemassungen wurden wieder treibend.
+  - NICHT enthalten: der CP ist weiterhin nicht als manuelles Constraint-/
+    Bemassungsziel pickbar (`_projCpSelected` im Viewport ist nur ein Farb-
+    Toggle aus dem Mock). Mit dem Sentinel waere das jetzt leicht nachzuruesten.
+
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
 Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,

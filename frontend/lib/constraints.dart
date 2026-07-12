@@ -29,6 +29,21 @@ class PRef {
   static PRef fromJson(Map<String, dynamic> j) => PRef(j['e'], j['p']);
 }
 
+/// Entity index of the PROJECTED CENTER POINT. Inventor projects it into every
+/// sketch as FIXED reference geometry sitting on the world origin. It is not a
+/// sketch entity here (the viewport paints it directly at map(0,0)), so it gets
+/// a negative sentinel index instead of a slot in the geometry list.
+///
+/// Both solvers resolve it to a hard (0,0) with NO free parameters: the Dart
+/// Levenberg-Marquardt path via `_pointAt` (ent < 0 -> Offset.zero) and the
+/// libslvs path via a point added with `fix: true`. A coincidence against it
+/// therefore grounds the sketch point — which is exactly what Inventor does.
+const int kProjCenter = -1;
+
+/// True for point refs that live in the geometry list (i.e. not the projected
+/// center point). Anything dereferencing `gs[ref.ent]` must check this first.
+bool isRealPt(PRef r, List<Geo> gs) => r.ent >= 0 && r.ent < gs.length;
+
 class Constraint {
   final CType type;
   final List<PRef> pts; // point-based participants
@@ -240,6 +255,15 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
   // point-on-line coincidence rather than point-on-point.
   for (var p = 0; p < ptCount(g); p++) {
     final q = getPt(g, p);
+    // Highest priority: the projected center point. Snapping onto it ('origin'
+    // snap) put the point EXACTLY on (0,0), but the center point is not in the
+    // geometry list, so the loops below could never see it and the point stayed
+    // free. Bind it to the fixed sentinel ref instead -> the point is grounded.
+    if (q.distance < 1e-6) {
+      out.add(Constraint(CType.coincident,
+          pts: [const PRef(kProjCenter, 0), PRef(newIdx, p)]));
+      continue;
+    }
     var done = false;
     for (var j = 0; j < newIdx && !done; j++) {
       for (var pj = 0; pj < ptCount(gs[j]) && !done; pj++) {
@@ -298,13 +322,16 @@ List<Constraint> remapAfterRemove(List<Constraint> cs, int removed) {
       continue;
     }
     out.add(Constraint(c.type,
+        // kProjCenter (-1) is never > removed, so the sentinel survives intact.
         pts: [
           for (final p in c.pts) PRef(p.ent > removed ? p.ent - 1 : p.ent, p.pt)
         ],
         ents: [for (final e in c.ents) e > removed ? e - 1 : e],
         value: c.value,
         dimKind: c.dimKind,
-        textPos: c.textPos));
+        textPos: c.textPos,
+        driven: c.driven, // was dropped: reference dims turned driving again
+        anchors: c.anchors)); // was dropped: Fix silently lost its anchor
   }
   return out;
 }
@@ -351,15 +378,21 @@ List<(Offset, String)> constraintGlyphs(List<Geo> gs, List<Constraint> cs) {
     if (c.type == CType.dimension) continue;
     final lb = constraintLabel(c.type);
     if (c.pts.isNotEmpty && c.type == CType.coincident) {
-      if (c.pts[0].ent < gs.length) {
-        out.add((getPt(gs[c.pts[0].ent], c.pts[0].pt), lb));
+      // pts[0] may be the projected center point (kProjCenter), which has no
+      // slot in gs — indexing it would throw. The glyph then belongs on the
+      // sketch point, i.e. the first ref that IS real.
+      for (final r in c.pts) {
+        if (isRealPt(r, gs)) {
+          out.add((getPt(gs[r.ent], r.pt), lb));
+          break;
+        }
       }
       continue;
     }
     for (final e in c.ents.isNotEmpty
         ? c.ents
         : [for (final p in c.pts) p.ent]) {
-      if (e >= gs.length) continue;
+      if (e < 0 || e >= gs.length) continue;
       final n = stack[e] = (stack[e] ?? 0) + 1;
       out.add((mid(gs[e]), '$lb#$n')); // '#n' = stacking slot, painter strips
     }

@@ -801,7 +801,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
     case 'distx':
     case 'disty':
       if (c.pts.length < 2 ||
-          c.pts.any((q) => q.ent >= gs.length)) return;
+          c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) return;
       final a = getPt(gs[c.pts[0].ent], c.pts[0].pt);
       final b = getPt(gs[c.pts[1].ent], c.pts[1].pt);
       final sa = map(a.dx, a.dy), sb = map(b.dx, b.dy);
