@@ -214,6 +214,62 @@ Token NIE in Dateien/.git/config schreiben.
     DOF-Faerbung darueber lesbar bleibt. Picks von Bemassungs-/Constraint-Tools
     bleiben markiert, bis das Kommando fertig ist.
 
+- **M15 — Diagnose-Log auf dem Geraet: ERLEDIGT.** Der Logger existierte, aber
+  `solver.dart` hatte NULL Log-Aufrufe (der Drag-/Solver-Pfad war blind), und
+  `_write` machte `flush:true` PRO ZEILE — bei 60 Solves/s haette das genau die
+  Interaktion abgewuergt, die es aufzeichnen soll.
+  - Jetzt gepuffert (120 Zeilen / 400 ms / Lifecycle), WARN+ERROR sofort
+    synchron (ueberlebt harten Crash). `Log.every(key, ms)` drosselt die
+    60-Hz-Pfade. Rotation bei 8 MB, Commit-SHA per `--dart-define=GIT_SHA`.
+  - `diag.dart`: reproduzierbare Dumps von Geometrie + Constraints, dazu
+    `geoFinite`/`allFinite`/`maxAbs` und `gripStr` (zeigt, ob `grip.idx`
+    ueberhaupt ein Punktindex ist — bei Kreisen ist er das fuer die vier
+    Radius-Grips NICHT).
+  - LOG-PFAD: Dateien-App > Auf meinem iPad > ipadprocad > logs >
+    `ipadprocad_log.txt` (die Info.plist-Keys setzt der M5-Job bereits).
+  - SCHRANKEN (zugleich Fix): `displayGeometry` laeuft INNERHALB von
+    `CustomPainter.paint`. Eine Exception dort bricht den Paint ab, alles danach
+    bleibt ungemalt — das sieht aus, als waere die Geometrie verschwunden. Und
+    NaN/Inf laesst Skia kommentarlos fallen. Beides wird jetzt abgefangen,
+    geloggt und auf die letzte gute Geometrie zurueckgefallen; `solveConstraints`
+    verweigert nicht-endliche Ergebnisse, der Paint-Loop guardet pro Entity.
+
+- **M16 — Geometrie strikt an Layer gebunden + Sichtbarkeits-Auge: ERLEDIGT
+  (Geraete-Test offen).** Vorher kannte die Engine ueberhaupt keine Layer,
+  `s.layers` war eine reine Namensliste, und zeichnen ging auch ohne Edit-Mode —
+  "jede Linie gehoert zu einem Layer" war damit schlicht nicht wahr.
+  - **Backend:** C-API um `qcad_layer_add` / `qcad_set_current_layer` /
+    `qcad_entity_layer` erweitert. `addEntity` bindet die Entity VOR dem
+    Einfuegen an den aktuellen Layer (`RLayer` + `REntity::setLayerId`) —
+    dadurch ueberlebt die Zuordnung den DXF-Roundtrip. Die Export-Liste ist
+    `_qcad_*` (Wildcard), neue Symbole sind also automatisch dabei.
+  - **FALLE (wichtigste Lehre):** `Geo` traegt jetzt einen `layer`, und der
+    SOLVER SCHREIBT BEI JEDEM SOLVE JEDE ENTITY NEU. Ohne `Geo.withData()`
+    (behaelt den Layer) waere nach dem ersten Drag die ganze Skizze auf Layer 0
+    gelandet. Darum: `withData`/`onLayer` statt roher Konstruktor, und
+    Modify/Fillet stempeln den Quell-Layer an den FUNKTIONSGRENZEN
+    (`_sameLayer`/`_sameLayerAll`), nicht an ~20 Konstruktionsstellen.
+  - **Edit-Mode:** `selectTool` und `toolClick` verweigern ausserhalb des
+    Edit-Modes, das Ribbon bricht schon vor dem Parameterdialog ab. Neue
+    Geometrie wird im `_commitTool` zwingend auf `editingLayer` gestempelt — das
+    ist die EINZIGE Stelle, an der Geometrie entsteht. `_rebuildEngine` loggt
+    laut, wenn eine Entity einen dem Sketch unbekannten Layer traegt.
+  - **Auge:** pro Layer im Model Browser. Unsichtbare Layer werden nicht gemalt,
+    nicht gepickt, nicht gesnappt, haben keine Grips und fliegen aus der
+    Selektion. Sichtbarkeit filtert NIE die Geometrieliste — Constraint-Refs
+    sind index-basiert, es wird nur uebersprungen. Snap darf gefiltert werden
+    (`Snap` traegt keine Indizes), Grips NICHT (die tragen welche).
+  - **Persistenz:** Layerliste kommt beim Laden aus dem Dokument zurueck (DXF
+    Gruppencode 8); leere Layer + Auge-Zustand liegen in `<name>.layers.json`.
+
+- **OFFENER BUG (naechster Schritt):** Beim Ziehen von Punkten eines KREISES oder
+  BOGENS verschwindet die ganze Geometrie, bis losgelassen wird. Verdacht:
+  `grip.idx` ist bei Kreisen nur fuer `idx < ptCount` (= 1, der Mittelpunkt) ein
+  Punktindex — die vier Radius-Grips tragen idx 1..4. Der M15-Build loggt genau
+  das (`gripStr`, `moveGrip`-Ein/Ausgabe, Solver-Pfad, NaN-Erkennung); mit dem
+  Log vom Geraet ist die Ursache direkt sichtbar. Die M15-Schranken verhindern
+  bereits, dass der Viewport dabei ausgeloescht wird.
+
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
 Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,

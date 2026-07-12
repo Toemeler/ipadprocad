@@ -7,7 +7,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
-## Status (Stand M5)
+## Status (Stand M16)
 
 | Meilenstein | Stand |
 |---|---|
@@ -15,7 +15,55 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M2** C-ABI-Wrapper (`qcad_capi.h`) | ✅ erledigt & validiert; in M5 um Geometrie-Abfrage erweitert |
 | **M3** Headless-Logiktest im iOS-Simulator | ✅ erledigt (`SMOKE: PASS`, inkl. Geometrie-Query-Checks) |
 | **M4** UI-Design als interaktiver HTML-Mock | ✅ abgeschlossen (`create-panel.html` = verbindliche 1:1-Spec) |
-| **M5** Flutter-App (1:1-Port) + echtes Zeichnen + IPA | ✅ Grundausbau erledigt, CI-validiert (Run 29145382350) |
+| **M5** Flutter-App (1:1-Port) + echtes Zeichnen + IPA | ✅ Grundausbau erledigt, CI-validiert |
+| **M6–M8** Grips/Modify/Snap, Constraints, Bemaßung | ✅ erledigt |
+| **M9–M11** Echter Constraint-Solver (SolveSpace `libslvs` via FFI) | ✅ erledigt, in den iOS-Build gelinkt |
+| **M12–M14** Auto-Coincident auf den Center Point, Lock, live-korrekter Drag | ✅ erledigt |
+| **M15** Diagnose-Log auf dem Gerät (Files-App) | ✅ erledigt |
+| **M16** Geometrie strikt an Layer gebunden + Sichtbarkeits-Auge | ✅ erledigt |
+
+### Constraint-Solver (M9–M14)
+
+Der QCAD-Core hat **keinen** Constraint-Solver (vom Maintainer bestätigt), also
+ist SolveSpace's `libslvs` als zweiter nativer Kern eingebettet
+(`backend/slvs/`, stdlib-only, eigener flacher C-Shim + Host-Test-Gate). QCAD
+bleibt für Geometrie und DXF zuständig, libslvs löst die Constraints.
+
+Der Solver verifiziert jedes native Ergebnis gegen die Dart-Residuen und fällt
+bei Zweifel auf einen Levenberg-Marquardt-Solver in Dart zurück — ein falsches
+Ergebnis kann also nicht durchrutschen.
+
+**Grip-Drag ist eine Bitte, kein Befehl:** der gezogene Punkt wird über
+`Slvs_System.dragged[]` nur *bevorzugt*, nie hart gepinnt. Constraints halten
+also live während des Ziehens: eine vertikale Kante bleibt vertikal, ein
+gegroundeter Punkt bewegt sich nicht, und ein voll bestimmter Punkt lässt sich
+gar nicht erst anfassen. (`SLVS_C_WHERE_DRAGGED` wäre ein *hartes* Constraint
+und würde die echten überstimmen — der Fallstrick ist in `HANDOFF.md`
+dokumentiert.)
+
+### Layer (M16)
+
+Jede Entity gehört zu **genau einem** Layer, und die Bindung sitzt im
+QCAD-Dokument (`qcad_set_current_layer` / `qcad_entity_layer`, intern `RLayer` +
+`REntity::setLayerId`) — dadurch überlebt sie den DXF-Roundtrip.
+
+- **Zeichnen geht nur im Edit-Mode eines Layers.** Ohne Edit-Mode ist kein
+  Werkzeug aktivierbar; neue Geometrie wird beim Commit zwingend auf den
+  editierten Layer gestempelt.
+- **Auge im Model Browser** blendet Layer ein/aus. Unsichtbare Layer werden nicht
+  gemalt, nicht gepickt, nicht gesnappt und haben keine Grips. Sichtbarkeit
+  filtert nie die Geometrieliste (Constraint-Referenzen sind index-basiert) —
+  es wird nur übersprungen.
+
+### Diagnose-Log (M15)
+
+Die App schreibt ein ausführliches Log ins Documents-Verzeichnis, sichtbar in der
+**Dateien-App → Auf meinem iPad → ipadprocad → logs → `ipadprocad_log.txt`**
+(`UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`). Enthält
+Drag-Lifecycle mit vollständigen Sketch-Dumps, Solver-Pfad (slvs vs. LM,
+Verify-Residuum, Fallback-Gründe), jede Exception mit Stacktrace und den
+Commit-SHA des Builds. WARN/ERROR werden sofort synchron geflusht, überleben also
+auch einen harten Crash.
 
 ### M5 im Detail
 
@@ -58,6 +106,9 @@ siehe `HANDOFF.md`.
 ## Architektur
 
 ```
+backend/slvs/          Vendortes SolveSpace libslvs (Constraint-Solver) + C-Shim
+  shim/                Flache C-API (ein slvs_solve()) für Dart-FFI
+  tests/               Host-Test-Gate (shim_test.c) — läuft in der CI
 backend/qcad-core/     Vendorter, headless-tauglicher QCAD-Core (C++, GPLv3)
   src/core/            Dokumentmodell, Geometrie/Mathematik, RSpatialIndexSimple
   src/entity/          Entity-Typen (Linie, Kreis, Bogen, Polylinie, Spline, …)
