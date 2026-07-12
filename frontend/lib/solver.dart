@@ -17,6 +17,8 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'constraints.dart';
+import 'diag.dart';
+import 'log.dart';
 import 'ffi/qcad_engine.dart';
 import 'ffi/slvs_ffi.dart';
 
@@ -609,14 +611,27 @@ int _pkey(int e, int p) => e * 100000 + p;
 bool _trySolveWithSlvs(
     List<Geo> gs, List<Constraint> cs, Set<(int, int)> dragged) {
   final ffi = SlvsFfi.instance();
-  if (ffi == null) return false;
+  if (ffi == null) {
+    if (Log.every('slvs-unavail', 5000)) {
+      Log.w('slvs', 'libslvs NOT linked — running on the Dart fallback solver');
+    }
+    return false;
+  }
   // Bail on anything the shim doesn't model, so we never silently drop a
   // constraint: fall back to the Dart solver instead.
   for (final c in cs) {
-    if (c.type == CType.smooth) return false;
+    if (c.type == CType.smooth) {
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: CType.smooth is not modelled by the shim');
+      }
+      return false;
+    }
     if (c.type == CType.dimension &&
         !const ['dist', 'distx', 'disty', 'rad', 'dia', 'ang']
             .contains(c.dimKind)) {
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: unsupported dimKind=${c.dimKind}');
+      }
       return false;
     }
   }
@@ -794,11 +809,19 @@ bool _trySolveWithSlvs(
   }
 
   final res = ffi.solve(s);
-  // OKAY, or INCONSISTENT-meaning-redundant: WHERE_DRAGGED makes the system
-  // redundant by design, and libslvs reports that as INCONSISTENT even though it
-  // converged. The residual verification further down is the real gate, so a
-  // truly contradictory result still gets rejected.
-  if (!res.usable) return false;
+  // OKAY, or INCONSISTENT-meaning-redundant: libslvs collapses REDUNDANT_OKAY
+  // (a converged solve) into INCONSISTENT. The residual verification further
+  // down is the real gate, so a truly contradictory result still gets rejected.
+  if (!res.usable) {
+    Log.w('slvs',
+        'solve unusable: result=${res.result} dof=${res.dof} '
+        'failed=${res.failed} — falling back to the Dart solver');
+    return false;
+  }
+  if (Log.every('slvs-ok', 200)) {
+    Log.d('slvs', 'result=${res.result} dof=${res.dof} '
+        'pts=${s.px.length} cons=${s.ct.length}');
+  }
 
   // Rebuild geometry into a copy so we can verify before committing.
   final newGs = List<Geo>.from(gs);
@@ -846,7 +869,23 @@ bool _trySolveWithSlvs(
   final ctx = _Ctx();
   _prepare(newGs, off, x, cs, ctx);
   final r = _residuals(newGs, off, x, cs, ctx);
-  if (r.isNotEmpty && _norm(r) > 1e-4) return false;
+  final resid = r.isEmpty ? 0.0 : _norm(r);
+  if (r.isNotEmpty && resid > 1e-4) {
+    Log.w('slvs',
+        'VERIFY FAILED residual=${resid.toStringAsExponential(2)} '
+        '(> 1e-4) — discarding native result, falling back');
+    Log.block('slvs', 'rejected native result', sketchDump(newGs, cs));
+    return false;
+  }
+  // Never let a native result poison the sketch either.
+  if (!allFinite(newGs)) {
+    Log.e('slvs', 'native result is NON-FINITE — discarding');
+    Log.block('slvs', 'rejected native result', sketchDump(newGs, cs));
+    return false;
+  }
+  if (Log.every('slvs-verify', 500)) {
+    Log.d('slvs', 'verify ok residual=${resid.toStringAsExponential(2)}');
+  }
 
   for (var e = 0; e < gs.length; e++) {
     gs[e] = newGs[e];
@@ -860,26 +899,72 @@ const _satisfied = 1e-6;
 void solveConstraints(List<Geo> gs, List<Constraint> cs,
     {Set<(int, int)> dragged = const {}, int iterations = 25}) {
   if (cs.isEmpty || gs.isEmpty) return;
-  // Prefer the native SolveSpace solver; it self-verifies and returns false
-  // (falling through to the Dart loop below) whenever it can't be trusted.
-  if (_trySolveWithSlvs(gs, cs, dragged)) return;
 
-  // Dart fallback. A drag is a WISH, never a command. Freezing the dragged
-  // point (the old behaviour) turned an unreachable cursor position into a
-  // least-squares compromise that bent the CONSTRAINTS instead of the drag:
-  // a "vertical" line went slanted and a grounded point drifted off its anchor.
-  // So: first try to honour the cursor exactly; only if the constraints cannot
-  // hold that way, drop the freeze and let the solver pull the sketch back onto
-  // the constraint manifold. The dragged point then slides along whatever
-  // freedom it actually has, and a point with none simply does not move.
-  if (dragged.isNotEmpty) {
-    final before = List<Geo>.from(gs);
-    if (_lm(gs, cs, dragged, iterations)) return;
-    for (var i = 0; i < gs.length; i++) {
-      gs[i] = before[i];
-    }
+  // The drag solves at ~60 Hz, so the routine lines are throttled. Anomalies
+  // are never throttled.
+  final chatty = Log.every('solve', 200);
+  final snapshot = List<Geo>.from(gs);
+  if (chatty) {
+    Log.d(
+        'solve',
+        'start geo=${gs.length} cons=${cs.length} iters=$iterations '
+        'slvs=${SlvsFfi.available} '
+        'dragged={${dragged.map((d) => 'e${d.$1}.p${d.$2}').join(',')}}');
   }
-  _lm(gs, cs, const {}, iterations);
+
+  var path = '?';
+  try {
+    // Prefer the native SolveSpace solver; it self-verifies and returns false
+    // (falling through to the Dart loop below) whenever it can't be trusted.
+    if (_trySolveWithSlvs(gs, cs, dragged)) {
+      path = 'slvs';
+    } else if (dragged.isNotEmpty) {
+      // Dart fallback. A drag is a WISH, never a command. Freezing the dragged
+      // point turns an unreachable cursor position into a least-squares
+      // compromise that bends the CONSTRAINTS instead of the drag. So: first
+      // try to honour the cursor exactly; only if the constraints cannot hold
+      // that way, drop the freeze and let the solver pull the sketch back onto
+      // the constraint manifold — the point then slides along its real freedom.
+      final before = List<Geo>.from(gs);
+      if (_lm(gs, cs, dragged, iterations)) {
+        path = 'lm-frozen';
+      } else {
+        for (var i = 0; i < gs.length; i++) {
+          gs[i] = before[i];
+        }
+        _lm(gs, cs, const {}, iterations);
+        path = 'lm-relaxed';
+      }
+    } else {
+      _lm(gs, cs, const {}, iterations);
+      path = 'lm';
+    }
+  } catch (err, st) {
+    Log.e('solve', 'SOLVER THREW (path=$path)', err, st);
+    Log.block('solve', 'sketch at throw', sketchDump(snapshot, cs));
+    for (var i = 0; i < gs.length; i++) {
+      gs[i] = snapshot[i];
+    }
+    return;
+  }
+
+  // A solve must NEVER hand back garbage. NaN/Inf coordinates (or a
+  // non-positive radius) make Skia drop the path silently, so the geometry just
+  // vanishes from the screen while the app keeps running — which looks like a
+  // rendering bug and is really a solver bug. Refuse the result, keep the last
+  // good geometry, and dump everything needed to reproduce it.
+  if (!allFinite(gs)) {
+    Log.e('solve', 'NON-FINITE result via $path — REJECTED, keeping last good');
+    Log.block('solve', 'input', sketchDump(snapshot, cs));
+    Log.block('solve', 'rejected output', sketchDump(gs, cs));
+    for (var i = 0; i < gs.length; i++) {
+      gs[i] = snapshot[i];
+    }
+    return;
+  }
+  if (chatty) {
+    Log.d('solve', 'done via $path maxAbs=${maxAbs(gs).toStringAsFixed(3)}');
+  }
 }
 
 /// One Levenberg-Marquardt run; [frozen] points keep their parameters. Returns
@@ -970,7 +1055,16 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
     }
   }
   _unpack(gs, off, x);
-  return err <= _satisfied;
+  final ok = err <= _satisfied;
+  if (Log.every(ok ? 'lm-ok' : 'lm-fail', 300)) {
+    Log.d(
+        'lm',
+        'frozen={${frozen.map((f) => 'e${f.$1}.p${f.$2}').join(',')}} '
+        'params=$total free=${free.length} eqs=${r.length} '
+        'maxIters=$iterations err=${err.toStringAsExponential(2)} '
+        'satisfied=$ok');
+  }
+  return ok;
 }
 
 /// Rank analysis: degrees of freedom + which points can still move.

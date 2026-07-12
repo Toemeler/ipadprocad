@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../diag.dart';
 import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
@@ -130,6 +131,9 @@ class _Viewport2DState extends State<Viewport2D> {
         app.beginGripDrag(hit);
         return;
       }
+      Log.d('gesture', 'no grip under finger at '
+          '(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
+          '-> box select; grips=${gripsOf(s.geometry).length}');
     }
     _gesture = 'box';
     _boxStartW = w;
@@ -517,7 +521,25 @@ class _ViewportPainter extends CustomPainter {
         final paint = app.selection.contains(i)
             ? sel
             : (entityFull(i) ? whitePaint : underPaint);
-        paintGeo(canvas, gs[i], map, app.zoom, paint);
+        // ONE bad entity must not take the whole sketch down with it. A throw
+        // in here aborts CustomPainter.paint, so every entity AFTER it stays
+        // unpainted — which reads as "all my geometry disappeared". Same for
+        // NaN/Inf: Skia drops those paths without a word. Contain both, and say
+        // exactly which entity and which numbers did it.
+        if (!geoFinite(gs[i])) {
+          if (Log.every('paint-nonfinite', 500)) {
+            Log.e('paint', 'SKIPPING non-finite ${geoStr(i, gs[i])} '
+                '(dragging=${app.dragGrip != null})');
+          }
+          continue;
+        }
+        try {
+          paintGeo(canvas, gs[i], map, app.zoom, paint);
+        } catch (err, st) {
+          if (Log.every('paint-throw', 500)) {
+            Log.e('paint', 'paintGeo THREW for ${geoStr(i, gs[i])}', err, st);
+          }
+        }
       }
       // Degrees-of-freedom glyphs: arrows on every point that can still move
       // (they vanish one by one as constraints are added).

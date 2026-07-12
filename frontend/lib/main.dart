@@ -61,11 +61,25 @@ void main() {
     Log.i('main', '>> AppState.init (async, not awaited)');
     app.init().then((_) => Log.i('main', '<< AppState.init OK')).catchError(
         (e, st) => Log.e('main', 'AppState.init FAILED', e, st));
+    // The log must survive the app being backgrounded or killed by iOS: flush
+    // on every lifecycle change, otherwise the last (most interesting) lines
+    // sit in the buffer forever.
+    WidgetsBinding.instance.addObserver(_LogFlusher());
+    Log.i('main', 'LOG FILE: ${Log.path}');
+    Log.i('main', 'build=${Log.build}');
     Log.step('main', 'runApp', () => runApp(IpadProCadApp(app: app)));
     Log.i('main', 'main() completed — first frame pending');
   }, (error, stack) {
     Log.e('zone', 'UNCAUGHT ZONE ERROR', error, stack);
   });
+}
+
+class _LogFlusher extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    Log.i('lifecycle', state.name);
+    Log.flush();
+  }
 }
 
 class IpadProCadApp extends StatelessWidget {

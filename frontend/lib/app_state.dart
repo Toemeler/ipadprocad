@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'constraints.dart';
+import 'diag.dart';
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'modify.dart';
@@ -308,13 +309,56 @@ class AppState extends ChangeNotifier {
   /// Geometry with an in-progress grip drag applied (painter reads this).
   List<Geo> displayGeometry(SketchModel s) {
     if (dragGrip == null || dragPos == null) return s.geometry;
-    final gs = List<Geo>.from(s.geometry);
-    gs[dragGrip!.entity] = moveGrip(gs[dragGrip!.entity], dragGrip!, dragPos!);
-    // The cursor is a WISH: the solver honours it only as far as the constraints
-    // allow, and never at their expense. Live, on every frame.
-    solveConstraints(gs, s.constraints,
-        dragged: {(dragGrip!.entity, dragGrip!.idx)}, iterations: 25);
-    return gs;
+    // NB: this runs INSIDE CustomPainter.paint. A throw here aborts the whole
+    // paint, so every entity after it stays unpainted and the sketch looks like
+    // it vanished. Likewise NaN/Inf: Skia drops those paths silently. Neither
+    // may ever escape this method.
+    try {
+      final grip = dragGrip!;
+      final gs = List<Geo>.from(s.geometry);
+      if (grip.entity < 0 || grip.entity >= gs.length) {
+        Log.e('drag', 'grip points at entity ${grip.entity}, '
+            'geometry has ${gs.length} — ignoring drag');
+        return s.geometry;
+      }
+      final before = gs[grip.entity];
+      gs[grip.entity] = moveGrip(before, grip, dragPos!);
+
+      if (Log.every('drag-frame', 150)) {
+        Log.d('drag',
+            'frame ${gripStr(grip, s.geometry)} '
+            'to=(${dragPos!.dx.toStringAsFixed(3)},'
+            '${dragPos!.dy.toStringAsFixed(3)}) '
+            '=> ${geoStr(grip.entity, gs[grip.entity])}');
+      }
+      if (!geoFinite(gs[grip.entity])) {
+        Log.e('drag', 'moveGrip produced NON-FINITE geometry');
+        Log.block('drag', 'moveGrip', [
+          gripStr(grip, s.geometry),
+          'before: ${geoStr(grip.entity, before)}',
+          'after : ${geoStr(grip.entity, gs[grip.entity])}',
+        ]);
+        return s.geometry;
+      }
+
+      solveConstraints(gs, s.constraints,
+          dragged: {(grip.entity, grip.idx)}, iterations: 25);
+
+      if (!allFinite(gs)) {
+        Log.e('drag', 'display geometry NON-FINITE after solve — '
+            'showing committed geometry instead');
+        Log.block('drag', 'bad display geometry',
+            sketchDump(gs, s.constraints));
+        return s.geometry;
+      }
+      return gs;
+    } catch (err, st) {
+      Log.e('drag', 'displayGeometry THREW — this would have blanked the '
+          'viewport; showing committed geometry instead', err, st);
+      Log.block('drag', 'sketch at throw',
+          sketchDump(s.geometry, s.constraints));
+      return s.geometry;
+    }
   }
 
   void setSnap(Snap? sn) {
@@ -371,16 +415,33 @@ class AppState extends ChangeNotifier {
 
   // grip drag lifecycle -------------------------------------------------
   void beginGripDrag(Grip g) {
+    final a = analysis;
+    final s0 = current;
+    // Fresh throttles so the first frames of every drag are always recorded.
+    for (final k in const [
+      'drag-frame', 'solve', 'lm-ok', 'lm-fail',
+      'slvs-ok', 'slvs-verify', 'slvs-bail'
+    ]) {
+      Log.resetThrottle(k);
+    }
+    Log.i('drag',
+        'BEGIN ${s0 == null ? '(no sketch)' : gripStr(g, s0.geometry)}');
+    if (s0 != null) {
+      Log.i('drag',
+          'dof=${a?.dof} freePoints={'
+          '${a?.freePoints.map((f) => 'e${f.$1}.p${f.$2}').join(',') ?? '?'}}');
+      Log.block('drag', 'sketch at drag start',
+          sketchDump(s0.geometry, s0.constraints));
+    }
     // Second line of defence (the viewport already filters the hit-test): a
     // point with no remaining freedom must not move by hand. Radius grips
     // (idx >= ptCount) are not point refs and stay draggable.
-    final a = analysis;
-    final s0 = current;
     if (a != null &&
         s0 != null &&
         g.entity < s0.geometry.length &&
         g.idx < ptCount(s0.geometry[g.entity]) &&
         !a.freePoints.contains((g.entity, g.idx))) {
+      Log.i('drag', 'REFUSED: that point is fully constrained');
       return;
     }
     dragGrip = g;
@@ -396,10 +457,21 @@ class AppState extends ChangeNotifier {
   void endGripDrag() {
     final s = current;
     if (s != null && dragGrip != null && dragPos != null) {
-      _rebuildEngine(s, displayGeometry(s));
+      Log.i('drag',
+          'END ${gripStr(dragGrip!, s.geometry)} '
+          'at=(${dragPos!.dx.toStringAsFixed(3)},'
+          '${dragPos!.dy.toStringAsFixed(3)})');
+      try {
+        _rebuildEngine(s, displayGeometry(s));
+      } catch (err, st) {
+        Log.e('drag', 'END: rebuild threw', err, st);
+      }
+      Log.block('drag', 'sketch after drag',
+          sketchDump(s.geometry, s.constraints));
     }
     dragGrip = null;
     dragPos = null;
+    Log.flush();
     snap = null;
     notifyListeners();
   }
@@ -705,15 +777,20 @@ class AppState extends ChangeNotifier {
       // edge that is already horizontal + dimensioned. That was the "sometimes
       // I cannot apply Locked" bug.
       if (_alreadyFixed(s, c)) {
+        Log.i('constraint', 'REJECTED ${conStr(-1, c)} — already locked');
         toast('This geometry is already locked.');
         return false;
       }
     } else if (wouldOverconstrain(s.geometry, s.constraints, c)) {
+      Log.i('constraint',
+          'REJECTED ${conStr(-1, c)} — would over-constrain');
       toast('Adding this constraint will over-constrain the sketch.');
       return false;
     }
+    Log.i('constraint', 'ADD ${conStr(s.constraints.length, c)}');
     s.constraints.add(c);
     _solveAndRebuild(s);
+    Log.i('constraint', 'after solve: dof=${analysis?.dof}');
     return true;
   }
 

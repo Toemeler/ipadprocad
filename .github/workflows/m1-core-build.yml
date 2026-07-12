@@ -500,7 +500,8 @@ jobs:
           # (Target-level pbxproj settings override xcconfig, so patch pbxproj.)
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/Runner.xcodeproj/project.pbxproj
           # Generate the CocoaPods setup without compiling, then pin platform.
-          flutter build ios --config-only --release --no-codesign
+          flutter build ios --config-only --release --no-codesign \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7}
           if [ -f ios/Podfile ]; then
             sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
             sed -i '' "s/^platform :ios.*/platform :ios, '14.0'/" ios/Podfile
@@ -568,7 +569,8 @@ jobs:
         run: |
           # pipefail MUSS ausserhalb des { }|tee stehen (M3-Lektion).
           set -o pipefail
-          flutter build ios --release --no-codesign 2>&1 | tee ../ci-m5-build.log
+          flutter build ios --release --no-codesign \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7} 2>&1 | tee ../ci-m5-build.log
 
       - name: Verify core is linked (M5 LINK CHECK) & package IPA
         working-directory: frontend
