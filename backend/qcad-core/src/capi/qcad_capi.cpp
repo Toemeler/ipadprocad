@@ -263,10 +263,18 @@ int qcad_set_current_layer(qcad_document *doc, const char *name) {
         return 0;
     }
     const QString n = QString::fromUtf8(name);
-    if (ensureLayer(doc, n) == RObject::INVALID_ID) {
+    const RObject::Id lid = ensureLayer(doc, n);
+    if (lid == RObject::INVALID_ID) {
         return 0;
     }
     doc->currentLayer = n;
+    /* Make it the DOCUMENT's current layer too. When a new entity is stored,
+     * RTransaction stamps it with doc->getCurrentLayerId() and that OVERRIDES
+     * any layer set on the entity beforehand (RTransaction.cpp: "place entity
+     * on current layer"). Without this the document's current layer stays "0",
+     * so every entity lands on "0" no matter what qcad_set_current_layer or
+     * setLayerId did — which is exactly the "everything goes to layer 0" bug. */
+    doc->doc->setCurrentLayer(lid);
     return 1;
 }
 

@@ -412,11 +412,18 @@ class _Viewport2DState extends State<Viewport2D> {
               cursor: app.tool == Tool.none
                   ? SystemMouseCursors.basic
                   : SystemMouseCursors.precise,
-              child: CustomPaint(
-                size: size,
-                painter: _ViewportPainter(
-                  app: app,
-                  projCpSelected: _projCpSelected,
+              // Clip the painter to the viewport's own box. Without this a
+              // panned/zoomed sketch draws past the top and left edges and,
+              // because the viewport is painted AFTER the ribbon and model
+              // browser in the Column/Row, the stray geometry lands ON TOP of
+              // them. Clipping keeps every drawn line inside the canvas.
+              child: ClipRect(
+                child: CustomPaint(
+                  size: size,
+                  painter: _ViewportPainter(
+                    app: app,
+                    projCpSelected: _projCpSelected,
+                  ),
                 ),
               ),
             ),

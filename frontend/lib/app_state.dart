@@ -123,6 +123,10 @@ class AppState extends ChangeNotifier {
       Log.e('state', 'docs dir failed, using systemTemp', e, st);
       _docsDir = Directory.systemTemp;
     }
+    // Move the log into the SAME Documents directory as the sketches, so it is
+    // actually reachable in Files > On My iPad > ipadprocad > logs. The early
+    // logger uses $HOME (empty on some iOS builds -> temp dir, not file-shared).
+    Log.retarget(_docsDir!.path);
     final probe = Log.step('state', 'Engine.create (backend probe)',
         () => Engine.create());
     backendReal = probe.isRealBackend;
