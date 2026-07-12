@@ -111,6 +111,67 @@ static void test_dragged(void) {
     check("result OKAY", r == SH_RESULT_OKAY);
 }
 
+/* ---- scenario 7: dragging a CONSTRAINED point -----------------------------
+ * The regression that made the app look broken. SH_DRAGGED must be a WISH, not
+ * a command: it used to map to SLVS_C_WHERE_DRAGGED, which is a HARD constraint
+ * and simply outvoted the real ones -- a "vertical" line went slanted under the
+ * cursor and a locked point drifted off its anchor. It now maps to
+ * Slvs_System.dragged[], which only favours the parameter.
+ * Setup = the reported bug: vertical line, bottom end locked on the origin, the
+ * user yanks the top end sideways to (25,55). The x must be REFUSED and the
+ * point must slide along the line instead. */
+static void test_dragged_constrained(void) {
+    printf("[7] drag a constrained point: the constraint wins\n");
+    double px[2] = {0, 25}, py[2] = {0, 55};  /* p1 already sits at the cursor */
+    int fixed[2] = {1, 0};                    /* p0 grounded                   */
+    int la[1] = {0}, lb[1] = {1};
+    int ct[2]  = {SH_VERTICAL, SH_DRAGGED};
+    int ca[2]  = {-1, 1};
+    int cb[2]  = {-1, -1};
+    int ce1[2] = {SH_ENT(1,0), 0};
+    int ce2[2] = {0, 0};
+    double cv[2] = {0, 0};
+    int dof = -1, failed[8];
+    int r = slvs_solve(2, px, py, fixed, 1, la, lb, 0,0,0, 0,0,0,0,0,
+                       2, ct, ca, cb, ce1, ce2, cv, &dof, failed, 8);
+    check("result OKAY", r == SH_RESULT_OKAY);
+    check("vertical held (x refused)", near(px[1], 0.0));
+    check("point slid along (y kept)", near(py[1], 55.0));
+    check("locked end did not move",
+          near(px[0], 0.0) && near(py[0], 0.0));
+    check("one DOF left (length)", dof == 1);
+}
+
+/* ---- scenario 8: the app's actual case ------------------------------------
+ * Rectangle (H/V on all four edges), bottom-left grounded on the origin, user
+ * drags the top-left corner sideways+up. The shape must stay a rectangle, the
+ * grounded corner must not budge, and the width must NOT collapse -- dragged[]
+ * favours the dragged params, so everything else moves as little as possible. */
+static void test_dragged_rectangle(void) {
+    printf("[8] drag a rectangle corner: shape + anchor + width hold\n");
+    double px[4] = {0, 60, 60, 25};   /* p3 already yanked to the cursor */
+    double py[4] = {0,  0, 40, 55};
+    int fixed[4] = {1, 0, 0, 0};
+    int la[4] = {0,1,2,3}, lb[4] = {1,2,3,0};
+    int ct[5]  = {SH_HORIZONTAL, SH_HORIZONTAL, SH_VERTICAL, SH_VERTICAL,
+                  SH_DRAGGED};
+    int ca[5]  = {-1,-1,-1,-1, 3};
+    int cb[5]  = {-1,-1,-1,-1,-1};
+    int ce1[5] = {SH_ENT(1,0), SH_ENT(1,2), SH_ENT(1,1), SH_ENT(1,3), 0};
+    int ce2[5] = {0,0,0,0,0};
+    double cv[5] = {0,0,0,0,0};
+    int dof = -1, failed[8];
+    int r = slvs_solve(4, px, py, fixed, 4, la, lb, 0,0,0, 0,0,0,0,0,
+                       5, ct, ca, cb, ce1, ce2, cv, &dof, failed, 8);
+    check("result OKAY", r == SH_RESULT_OKAY);
+    check("anchor corner unmoved", near(px[0], 0.0) && near(py[0], 0.0));
+    check("left edge still vertical", near(px[3], px[0]));
+    check("bottom edge still horizontal", near(py[1], py[0]));
+    check("top edge still horizontal", near(py[2], py[3]));
+    check("drag reached in y", near(py[3], 55.0));
+    check("width did not collapse", near(px[1], 60.0));
+}
+
 int main(void) {
     printf("slvs_shim version = %d\n\n", slvs_shim_version());
     test_rectangle();
@@ -119,6 +180,8 @@ int main(void) {
     test_xy_dims();
     test_overconstrained();
     test_dragged();
+    test_dragged_constrained();
+    test_dragged_rectangle();
     printf("\n%d failures\n", failures);
     if (failures == 0) printf("ALL SHIM TESTS PASS\n");
     return failures == 0 ? 0 : 1;

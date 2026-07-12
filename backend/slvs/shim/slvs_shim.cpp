@@ -150,6 +150,9 @@ int slvs_solve(
         sys.constraint[sys.constraints++] = \
             Slvs_MakeConstraint(hc++, GFREE, (t), WP, (va), (pa), (pb), (e1), (e2))
 
+    Slvs_hParam draggedP[4];
+    int nDragged = 0;
+
     for (int i = 0; i < nCons; i++) {
         int t = ct[i];
         int a = ca ? ca[i] : -1, b = cb ? cb[i] : -1;
@@ -226,15 +229,44 @@ int slvs_solve(
         case SH_ANGLE:
             ADDC(SLVS_C_ANGLE, v, 0, 0, ENT(e1), ENT(e2)); break;
         case SH_DRAGGED:
-            ADDC(SLVS_C_WHERE_DRAGGED, 0, pa, 0, 0, 0); break;
+            /* NOT SLVS_C_WHERE_DRAGGED. That one is a HARD constraint ("the
+             * point is exactly here"), so it fights the real constraints and
+             * wins: a vertical line goes slanted under the cursor and a locked
+             * point drifts off its anchor.
+             *
+             * The soft mechanism is Slvs_System.dragged[] (slvs.h): "causes the
+             * solver to favor that parameter, and attempt to change it as little
+             * as possible even if that requires it to change other parameters
+             * more". The constraints stay hard; the dragged point simply keeps
+             * as much of the cursor position as its remaining freedom allows.
+             * Collected here, written into sys.dragged before the solve. */
+            if (a >= 0 && a < nPts && nDragged + 1 < 4) {
+                draggedP[nDragged++] = ptU[a];
+                draggedP[nDragged++] = ptV[a];
+            }
+            break;
         default: break;
         }
     }
 
+    /* sys.dragged holds up to 4 PARAMS = 2 points; we only ever drag one. */
+    for (int i = 0; i < nDragged && i < 4; i++) sys.dragged[i] = draggedP[i];
+
     Slvs_Solve(&sys, GFREE);
 
+    /* libslvs folds SolveResult::REDUNDANT_OKAY -- a solve that CONVERGED and
+     * whose system merely contains redundant equations -- into
+     * SLVS_RESULT_INCONSISTENT (see lib.cpp, the switch over SolveResult).
+     * SH_DRAGGED deliberately makes the system redundant whenever the dragged
+     * point has fewer than 2 DOF left, which is the NORMAL case while dragging
+     * a constrained sketch. Slvs_Solve writes the solved parameters back either
+     * way, so hand them to the caller instead of throwing a perfectly good
+     * solution away. The caller verifies every result against the constraint
+     * residuals and falls back to its own solver if it does not hold, so a
+     * genuinely contradictory system is still rejected. */
     int nFailed = 0;
-    if (sys.result == SLVS_RESULT_OKAY) {
+    if (sys.result == SLVS_RESULT_OKAY ||
+        sys.result == SLVS_RESULT_INCONSISTENT) {
         for (int i = 0; i < nPts; i++) {
             px[i] = paramVal(&sys, ptU[i]);
             py[i] = paramVal(&sys, ptV[i]);
@@ -245,7 +277,8 @@ int slvs_solve(
             double dx = px[as_[k]] - px[ac[k]], dy = py[as_[k]] - py[ac[k]];
             ar[k] = sqrt(dx * dx + dy * dy);
         }
-    } else {
+    }
+    if (sys.result != SLVS_RESULT_OKAY) {
         int n = sys.faileds;
         for (int i = 0; i < n && nFailed < failedCap; i++)
             if (failed) failed[nFailed++] = (int)sys.failed[i];

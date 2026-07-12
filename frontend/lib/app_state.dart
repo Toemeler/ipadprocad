@@ -85,6 +85,11 @@ class AppState extends ChangeNotifier {
   Tool tool = Tool.none;
   final List<Offset> toolPoints = [];
   Offset? hoverWorld;
+  /// Entity under the cursor, and — for a polyline — the exact edge under it.
+  /// Inventor highlights whatever the next click would pick; without this the
+  /// user had to guess what they were about to select.
+  int? hoverEnt;
+  (int, int)? hoverEdge;
 
   // ---- viewport transform ----
   double zoom = 1.0;
@@ -305,9 +310,10 @@ class AppState extends ChangeNotifier {
     if (dragGrip == null || dragPos == null) return s.geometry;
     final gs = List<Geo>.from(s.geometry);
     gs[dragGrip!.entity] = moveGrip(gs[dragGrip!.entity], dragGrip!, dragPos!);
-    // keep constraints satisfied while dragging; the dragged point is pinned
+    // The cursor is a WISH: the solver honours it only as far as the constraints
+    // allow, and never at their expense. Live, on every frame.
     solveConstraints(gs, s.constraints,
-        pinned: {(dragGrip!.entity, dragGrip!.idx)}, iterations: 25);
+        dragged: {(dragGrip!.entity, dragGrip!.idx)}, iterations: 25);
     return gs;
   }
 
@@ -848,6 +854,24 @@ class AppState extends ChangeNotifier {
     if (pendingDim != null) return; // value dialog is open
     final ent = _pickEntity(s, w);
     final pt = _nearestPointRef(s, w);
+    // A rectangle / polygon / slot is ONE closed polyline, so clicking an edge
+    // picks the polyline — and buildDimensionAt only ever knew line/circle/arc,
+    // so it silently produced nothing. Resolve the click to the segment under
+    // the cursor and dimension its two vertices: that is a real DRIVING length
+    // dimension, and it reuses the existing point-to-point path including
+    // Inventor's aligned/horizontal/vertical choice at placement time.
+    if (conPts.isEmpty &&
+        conEnts.isEmpty &&
+        ent != null &&
+        s.geometry[ent].type == Geo.polyline) {
+      final seg = polySegmentAt(s, ent, w);
+      if (seg != null) {
+        conPts
+          ..add(seg.$1)
+          ..add(seg.$2);
+        return;
+      }
+    }
     // Phase 1 — build the pick set. A second LINE turns a length dimension
     // into an angle dimension, exactly like Inventor.
     if (conPts.isEmpty && ent != null && !conEnts.contains(ent)) {
@@ -866,6 +890,42 @@ class AppState extends ChangeNotifier {
     }
     // Phase 2 — this click places the dimension.
     _placeDimension(s, w);
+  }
+
+  /// The two vertex refs of the polyline segment of [ent] nearest to [w].
+  (PRef, PRef)? polySegmentAt(SketchModel s, int ent, Offset w) {
+    if (ent < 0 || ent >= s.geometry.length) return null;
+    final g = s.geometry[ent];
+    if (g.type != Geo.polyline) return null;
+    final n = g.data[1].toInt();
+    if (n < 2) return null;
+    final segs = g.data[0] != 0 ? n : n - 1; // closed -> the last edge exists
+    var best = -1;
+    var bd = double.infinity;
+    for (var i = 0; i < segs; i++) {
+      final a = getPt(g, i), b = getPt(g, (i + 1) % n);
+      final d = (w - closestOnSegment(w, a, b)).distance;
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    return (PRef(ent, best), PRef(ent, (best + 1) % n));
+  }
+
+  /// The polyline edge the active tool currently holds picked (two adjacent
+  /// vertices of one polyline) — the viewport keeps it highlighted.
+  (int, int)? get pickedEdge {
+    final s = current;
+    if (s == null || conPts.length != 2) return null;
+    final a = conPts[0], b = conPts[1];
+    if (a.ent != b.ent || a.ent < 0 || a.ent >= s.geometry.length) return null;
+    final g = s.geometry[a.ent];
+    if (g.type != Geo.polyline) return null;
+    final n = g.data[1].toInt();
+    if (n > 0 && (a.pt + 1) % n == b.pt) return (a.ent, a.pt);
+    return null;
   }
 
   /// Inventor picks the dimension type from where you place it: roughly
@@ -1094,6 +1154,15 @@ class AppState extends ChangeNotifier {
 
   void setHover(Offset? w) {
     hoverWorld = w;
+    final s = current;
+    if (s == null || w == null) {
+      hoverEnt = null;
+      hoverEdge = null;
+    } else {
+      hoverEnt = _pickEntity(s, w);
+      final seg = hoverEnt == null ? null : polySegmentAt(s, hoverEnt!, w);
+      hoverEdge = seg == null ? null : (seg.$1.ent, seg.$1.pt);
+    }
     notifyListeners();
   }
 

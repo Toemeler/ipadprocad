@@ -31,6 +31,7 @@ class Sh {
   static const dragged = 19;
 
   static const resultOkay = 0;
+  static const resultInconsistent = 1; // also libslvs's REDUNDANT_OKAY
 
   // Entity-ref encoding (kind 1=line, 2=circle, 3=arc), matches SH_ENT.
   static int ent(int kind, int idx) => kind * 100000000 + idx;
@@ -63,6 +64,13 @@ class SlvsResult {
   final List<int> failed;
   SlvsResult(this.result, this.dof, this.failed);
   bool get ok => result == Sh.resultOkay;
+
+  /// The solve produced usable coordinates. INCONSISTENT is libslvs's collapsed
+  /// code for REDUNDANT_OKAY too — a converged solve whose system merely holds
+  /// redundant equations, which is exactly what WHERE_DRAGGED creates on every
+  /// drag of constrained geometry. The caller verifies the residuals anyway.
+  bool get usable =>
+      result == Sh.resultOkay || result == Sh.resultInconsistent;
 }
 
 /// A sketch flattened to the shim's model: points plus point-indexed entities.
@@ -169,7 +177,10 @@ class SlvsFfi {
           nArcs, ac, as_, ae, ar,
           nCons, ct, ca, cb, ce1, ce2, cval,
           dof, failed, failCap);
-      if (r == Sh.resultOkay) {
+      // Read back whenever the shim produced coordinates — that includes
+      // INCONSISTENT, which is libslvs's collapsed code for REDUNDANT_OKAY (a
+      // converged solve). solver.dart verifies the residuals before trusting it.
+      if (r == Sh.resultOkay || r == Sh.resultInconsistent) {
         for (var i = 0; i < nPts; i++) {
           s.px[i] = px[i];
           s.py[i] = py[i];

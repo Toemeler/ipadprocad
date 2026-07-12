@@ -175,6 +175,45 @@ Token NIE in Dateien/.git/config schreiben.
     die vorige Skizze, und mit dem neuen Grip-Filter waeren die falschen Punkte
     gesperrt gewesen. `_reanalyze()` haengt jetzt an goHome/openSketch/closeTab.
 
+- **M14 — Live-korrekter Drag, Bemassung auf Rechteckkanten, Hover-Highlight:
+  ERLEDIGT (Geraete-Test offen).**
+  - **Drag (der eigentliche Bock).** Symptom: beim Ziehen einer Ecke wurde die
+    "vertikale" Kante schraeg und der gegroundete Punkt wanderte mit; erst beim
+    naechsten sauberen Solve sprang alles zurueck. Kette aus DREI Fehlern:
+    1. `SH_DRAGGED` war auf `SLVS_C_WHERE_DRAGGED` gemappt. Das ist ein HARTES
+       Constraint ("Punkt ist exakt hier") und ueberstimmt damit die echten.
+       Nachgemessen: Vertical + gelocktes Ende + Zug nach (25,55) ergab (25,55)
+       — das Vertical wurde einfach ignoriert.
+       RICHTIG ist `Slvs_System.dragged[]` (slvs.h Z.160): "causes the solver to
+       favor that parameter, and attempt to change it as little as possible".
+       Das ist der WEICHE Wunsch. Ergebnis jetzt: (0,55) — x haelt, y gleitet.
+    2. Der Shim warf konvergierte Loesungen weg: libslvs faltet
+       `REDUNDANT_OKAY` auf `SLVS_RESULT_INCONSISTENT` (lib.cpp), der Shim
+       kopierte Koordinaten aber nur bei OKAY zurueck. Jetzt auch bei
+       INCONSISTENT — das Dart-Verify entscheidet, ob es taugt.
+    3. Der Dart-Fallback fror die gezogenen Parameter ein (`frozen[]`). Bei
+       unerreichbarer Cursor-Position rechnet LM dann einen Least-Squares-
+       Kompromiss, der die CONSTRAINTS verbiegt. Jetzt freeze-then-relax:
+       erst Cursor exakt versuchen, und nur wenn die Constraints so nicht
+       halten, Freeze fallen lassen und die Skizze zurueck auf die
+       Constraint-Mannigfaltigkeit ziehen.
+    - Regressionstests im Host-CI-Gate: `shim_test.c` [7] (Constraint gewinnt,
+      Punkt gleitet, Anker unbewegt) und [8] (Rechteck bleibt Rechteck, Anker
+      haelt, Breite kollabiert nicht).
+  - **Bemassung auf Rechteckkanten.** `buildDimensionAt` kannte nur
+    line/circle/arc — ein Rechteck ist aber EINE geschlossene Polyline, also kam
+    `null` zurueck und es passierte gar nichts. `_dimensionClick` loest den Klick
+    jetzt auf das Segment darunter auf (`polySegmentAt`) und bemasst dessen zwei
+    Ecken: echte treibende Laengenbemassung ueber den vorhandenen
+    Punkt-zu-Punkt-Pfad, inklusive ausgerichtet/horizontal/vertikal.
+    NICHT enthalten: Winkelbemassung zwischen zwei Polyline-Kanten (braucht
+    Entity-Refs auf Linien).
+  - **Hover-/Pick-Highlight.** Es gab gar keinen Entity-Hover-State. Neu:
+    `hoverEnt` / `hoverEdge` (bei Polylines die exakte Kante unter dem Cursor)
+    und `pickedEdge`; der Painter legt einen Halo UNTER die Geometrie, damit die
+    DOF-Faerbung darueber lesbar bleibt. Picks von Bemassungs-/Constraint-Tools
+    bleiben markiert, bis das Kommando fertig ist.
+
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
 Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,

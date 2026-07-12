@@ -11,6 +11,8 @@ class T {
   static const dim = Color(0xFF9EA4AA);
   static const sep = Color(0xFF131518);
   static const blue = Color(0xFF3D9BE9);
+  // Halo under hovered / picked geometry (Inventor's pre-select highlight).
+  static const hover = Color(0xFF7FC8FF);
 
   static const viewport = Color(0xFF212830);
   static const ribbonTop = Color(0xD92F7BD6); // rgba(47,123,214,.85)

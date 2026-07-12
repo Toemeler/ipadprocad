@@ -477,6 +477,42 @@ class _ViewportPainter extends CustomPainter {
         return true;
       }
 
+      // ---- pre-select / pick halo, painted UNDER the geometry so the DOF
+      // colour above it stays readable. Inventor highlights whatever the next
+      // click would grab, and keeps a tool's picks lit until it finishes.
+      final halo = Paint()
+        ..color = T.hover
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0
+        ..strokeCap = StrokeCap.round;
+      void haloEdge(int e, int i0) {
+        if (e < 0 || e >= gs.length) return;
+        final g = gs[e];
+        if (g.type != Geo.polyline) return;
+        final n = g.data[1].toInt();
+        if (n < 2) return;
+        final a = getPt(g, i0), b = getPt(g, (i0 + 1) % n);
+        canvas.drawLine(map(a.dx, a.dy), map(b.dx, b.dy), halo);
+      }
+
+      for (final e in app.conEnts) {
+        if (e >= 0 && e < gs.length) {
+          paintGeo(canvas, gs[e], map, app.zoom, halo);
+        }
+      }
+      final pickedEdge = app.pickedEdge;
+      if (pickedEdge != null) haloEdge(pickedEdge.$1, pickedEdge.$2);
+
+      final he = app.hoverEnt;
+      if (he != null && he < gs.length && app.dragGrip == null) {
+        if (gs[he].type == Geo.polyline) {
+          final hv = app.hoverEdge;
+          if (hv != null) haloEdge(hv.$1, hv.$2);
+        } else {
+          paintGeo(canvas, gs[he], map, app.zoom, halo);
+        }
+      }
+
       for (var i = 0; i < gs.length; i++) {
         final paint = app.selection.contains(i)
             ? sel

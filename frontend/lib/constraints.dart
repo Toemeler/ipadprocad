@@ -5,11 +5,10 @@
 // circle 0 = center, arc 0 = center / 1 = start / 2 = end, polyline i =
 // vertex i.
 //
-// Solver: iterative projection (position-based). Each constraint projects
-// its participants toward satisfaction; ~40 sweeps converge for typical
-// sketches. Points in [pinned] never move (Fix constraints, the grip being
-// dragged). Not Inventor's DOF solver, but it maintains constraints live
-// during grip drags and drives dimension edits.
+// Solver: libslvs (SolveSpace) via FFI, with a Levenberg-Marquardt fallback in
+// solver.dart that is used whenever the native result cannot be verified.
+// Fix constraints ground geometry where it is; the grip being dragged is a soft
+// wish (SolveSpace's dragged[] params) that never overrides a constraint.
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';

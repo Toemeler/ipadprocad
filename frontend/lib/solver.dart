@@ -587,8 +587,12 @@ double _norm(List<double> v) {
 // ---------------------------------------------------------------------------
 // solve
 // ---------------------------------------------------------------------------
-/// Drives all constraints to zero. [pinned] holds (entity, point) pairs whose
-/// parameters must not move (the point under the finger while dragging).
+/// Drives all constraints to zero. [dragged] holds the (entity, point) under
+/// the finger. It is a WISH, never a command: the constraints are hard, and the
+/// dragged point keeps only as much of the cursor position as its remaining
+/// freedom allows. Hard-pinning it instead (the old behaviour) let the drag
+/// outvote the constraints — a "vertical" line went slanted and a grounded
+/// point drifted off its anchor.
 // ---------------------------------------------------------------------------
 // libslvs (SolveSpace) path — real geometric constraint solver via FFI.
 //
@@ -603,7 +607,7 @@ double _norm(List<double> v) {
 int _pkey(int e, int p) => e * 100000 + p;
 
 bool _trySolveWithSlvs(
-    List<Geo> gs, List<Constraint> cs, Set<(int, int)> pinned) {
+    List<Geo> gs, List<Constraint> cs, Set<(int, int)> dragged) {
   final ffi = SlvsFfi.instance();
   if (ffi == null) return false;
   // Bail on anything the shim doesn't model, so we never silently drop a
@@ -626,7 +630,10 @@ bool _trySolveWithSlvs(
     final ids = <int>[];
     for (var p = 0; p < ptCount(g); p++) {
       final q = getPt(g, p);
-      final gi = s.addPoint(q.dx, q.dy, fix: pinned.contains((e, p)));
+      // NB: a dragged point is NOT fixed. Hard-fixing it lets the drag override
+      // the constraints (that is what bent "vertical" lines and pushed grounded
+      // points off their anchor). It gets a SOFT SH_DRAGGED wish below instead.
+      final gi = s.addPoint(q.dx, q.dy);
       ptIndex[_pkey(e, p)] = gi;
       ids.add(gi);
     }
@@ -661,6 +668,15 @@ bool _trySolveWithSlvs(
       ? (originPt ??= s.addPoint(0, 0, fix: true))
       : ptIndex[_pkey(r.ent, r.pt)];
   int eOf(int dartEnt) => entRef[dartEnt] ?? 0;
+
+  // The grip drag is a WISH, never a command: SolveSpace's WHERE_DRAGGED keeps
+  // the point where the cursor put it only as far as the hard constraints allow.
+  // A point with no freedom left simply does not move; one on a line slides
+  // along it.
+  for (final (e, p) in dragged) {
+    final gi = ptIndex[_pkey(e, p)];
+    if (gi != null) s.addCon(Sh.dragged, a: gi);
+  }
 
   for (final c in cs) {
     if (c.driven) continue; // reference dimensions measure but don't drive
@@ -778,7 +794,11 @@ bool _trySolveWithSlvs(
   }
 
   final res = ffi.solve(s);
-  if (!res.ok) return false;
+  // OKAY, or INCONSISTENT-meaning-redundant: WHERE_DRAGGED makes the system
+  // redundant by design, and libslvs reports that as INCONSISTENT even though it
+  // converged. The residual verification further down is the real gate, so a
+  // truly contradictory result still gets rejected.
+  if (!res.usable) return false;
 
   // Rebuild geometry into a copy so we can verify before committing.
   final newGs = List<Geo>.from(gs);
@@ -834,34 +854,61 @@ bool _trySolveWithSlvs(
   return true;
 }
 
+/// Residual norm below which the constraints count as satisfied (world units).
+const _satisfied = 1e-6;
+
 void solveConstraints(List<Geo> gs, List<Constraint> cs,
-    {Set<(int, int)> pinned = const {}, int iterations = 25}) {
+    {Set<(int, int)> dragged = const {}, int iterations = 25}) {
   if (cs.isEmpty || gs.isEmpty) return;
   // Prefer the native SolveSpace solver; it self-verifies and returns false
   // (falling through to the Dart loop below) whenever it can't be trusted.
-  if (_trySolveWithSlvs(gs, cs, pinned)) return;
+  if (_trySolveWithSlvs(gs, cs, dragged)) return;
+
+  // Dart fallback. A drag is a WISH, never a command. Freezing the dragged
+  // point (the old behaviour) turned an unreachable cursor position into a
+  // least-squares compromise that bent the CONSTRAINTS instead of the drag:
+  // a "vertical" line went slanted and a grounded point drifted off its anchor.
+  // So: first try to honour the cursor exactly; only if the constraints cannot
+  // hold that way, drop the freeze and let the solver pull the sketch back onto
+  // the constraint manifold. The dragged point then slides along whatever
+  // freedom it actually has, and a point with none simply does not move.
+  if (dragged.isNotEmpty) {
+    final before = List<Geo>.from(gs);
+    if (_lm(gs, cs, dragged, iterations)) return;
+    for (var i = 0; i < gs.length; i++) {
+      gs[i] = before[i];
+    }
+  }
+  _lm(gs, cs, const {}, iterations);
+}
+
+/// One Levenberg-Marquardt run; [frozen] points keep their parameters. Returns
+/// true only when the constraints are actually SATISFIED at the end — a false
+/// return means the caller must not keep this configuration.
+bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
+    int iterations) {
   final off = _offsets(gs);
   final total = off.last;
-  if (total == 0) return;
+  if (total == 0) return true;
 
   final x = _pack(gs);
-  final frozen = List<bool>.filled(total, false);
-  for (final (e, p) in pinned) {
+  final locked = List<bool>.filled(total, false);
+  for (final (e, p) in frozen) {
     for (final i in paramsOfPoint(gs, off, e, p)) {
-      if (i < total) frozen[i] = true;
+      if (i < total) locked[i] = true;
     }
   }
   final free = <int>[];
   for (var i = 0; i < total; i++) {
-    if (!frozen[i]) free.add(i);
+    if (!locked[i]) free.add(i);
   }
-  if (free.isEmpty) return;
+  if (free.isEmpty) return false;
 
   final ctx = _Ctx();
   _prepare(gs, off, x, cs, ctx);
 
   var r = _residuals(gs, off, x, cs, ctx);
-  if (r.isEmpty) return;
+  if (r.isEmpty) return true;
   var lambda = 1e-3;
   var err = _norm(r);
 
@@ -923,6 +970,7 @@ void solveConstraints(List<Geo> gs, List<Constraint> cs,
     }
   }
   _unpack(gs, off, x);
+  return err <= _satisfied;
 }
 
 /// Rank analysis: degrees of freedom + which points can still move.
