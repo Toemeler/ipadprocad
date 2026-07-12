@@ -33,13 +33,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install CMake
         run: sudo apt-get update && sudo apt-get install -y cmake
-      - name: Build + run solver smoke (host)
+      - name: Build + run solver + shim tests (host)
         working-directory: backend/slvs
         run: |
           set -o pipefail
           cmake -S . -B build -DSLVS_SMOKE=ON -DCMAKE_BUILD_TYPE=Release 2>&1 | tee cfg-host.log
           cmake --build build -j 2>&1 | tee build-host.log
-          echo "=== smoke ==="
+          echo "=== solver smoke ==="
           ./build/slvs_smoke | tee smoke.log
           grep -q "result   = OKAY" smoke.log \
             || { echo "SMOKE FAIL: solver did not report OKAY"; exit 1; }
@@ -47,7 +47,11 @@ jobs:
             || { echo "SMOKE FAIL: driving dimension not satisfied"; exit 1; }
           grep -q "P5 on top edge? v=46.5000" smoke.log \
             || { echo "SMOKE FAIL: point-on-line not satisfied"; exit 1; }
-          echo "SLVS HOST SMOKE: PASS"
+          echo "=== FFI shim tests ==="
+          ./build/shim_test | tee shim.log
+          grep -q "ALL SHIM TESTS PASS" shim.log \
+            || { echo "SHIM FAIL: not all shim scenarios passed"; exit 1; }
+          echo "SLVS HOST + SHIM: PASS"
 
   slvs-ios-static:
     runs-on: macos-14
