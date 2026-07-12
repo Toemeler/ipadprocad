@@ -147,6 +147,34 @@ Token NIE in Dateien/.git/config schreiben.
     Bemassungsziel pickbar (`_projCpSelected` im Viewport ist nur ein Farb-
     Toggle aus dem Mock). Mit dem Sentinel waere das jetzt leicht nachzuruesten.
 
+- **M13 — Voll bestimmte Punkte sind nicht mehr von Hand ziehbar + Lock immer
+  anwendbar: ERLEDIGT (Geraete-Test offen).**
+  - **Grip-Drag:** ein gegroundeter Punkt liess sich weiter mit der Maus greifen
+    und verschieben und sprang beim naechsten Solve zurueck. Ursache:
+    `displayGeometry` PINNT den gezogenen Punkt hart am Cursor
+    (`pinned: {(ent,idx)}`), das schlaegt jedes Constraint — beim Loslassen
+    gewinnt dann wieder das Coincident. Inventor laesst voll bestimmte Geometrie
+    gar nicht erst anfassen: der Grip-Hittest im Viewport ueberspringt jetzt
+    Grips, deren Punkt nicht in `analysis.freePoints` liegt (Geste faellt auf
+    Box-Select durch), `beginGripDrag` guardet zusaetzlich.
+  - **FALLE dabei:** `Grip.idx` ist NICHT immer ein Punktindex — ein Kreis hat
+    genau 1 Punkt (Mittelpunkt), seine Radius-Grips tragen idx 1..4. Der Filter
+    greift darum nur fuer `idx < ptCount(entity)`, sonst waeren Kreise nicht mehr
+    skalierbar gewesen.
+  - **Lock/Fix:** war "manchmal nicht anwendbar", weil `_addConstraint` JEDES
+    Constraint durch `wouldOverconstrain` schickt. Fix traegt 2 Gleichungen pro
+    Punkt bei; hatte das Ziel weniger freie DOF uebrig, stieg der Rang nicht um 2
+    -> abgelehnt. Fix ist aber kein normales geometrisches Constraint: es groundet
+    Geometrie WO SIE IST (Anker = aktuelle, bereits geloeste Position), kann also
+    nie widersprechen — libslvs modelliert es nicht mal als Gleichung, sondern
+    setzt `fixed[gi]=1`. Fix ist jetzt vom Ueberbestimmungs-Test ausgenommen und
+    wird nur noch abgelehnt, wenn dasselbe Ziel (oder die besitzende Entity)
+    schon gelockt ist.
+  - **Mitgefixt:** `analysis` haengt an AppState, wurde aber beim Wechsel auf
+    einen BEREITS OFFENEN Tab nicht neu berechnet — die DOF-Faerbung zeigte dann
+    die vorige Skizze, und mit dem neuen Grip-Filter waeren die falschen Punkte
+    gesperrt gewesen. `_reanalyze()` haengt jetzt an goHome/openSketch/closeTab.
+
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
 Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,

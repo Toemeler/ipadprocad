@@ -166,6 +166,7 @@ class AppState extends ChangeNotifier {
   void goHome() {
     curTab = null;
     finishEdit(save: true);
+    _reanalyze();
     notifyListeners();
   }
 
@@ -187,7 +188,17 @@ class AppState extends ChangeNotifier {
     }
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
+    _reanalyze();
     notifyListeners();
+  }
+
+  /// [analysis] is cached per solve and belongs to [current]. Switching to an
+  /// ALREADY OPEN tab used to leave the previous sketch's analysis in place —
+  /// which mis-coloured the DOF state and (since grips are now filtered by it)
+  /// would lock the wrong points. Recompute whenever the current sketch changes.
+  void _reanalyze() {
+    final s = current;
+    analysis = s == null ? null : analyzeSketch(s.geometry, s.constraints);
   }
 
   void createNewSketch() {
@@ -210,6 +221,7 @@ class AppState extends ChangeNotifier {
         curTab = null;
         editingLayer = null;
       }
+      _reanalyze();
     }
     notifyListeners();
   }
@@ -353,6 +365,18 @@ class AppState extends ChangeNotifier {
 
   // grip drag lifecycle -------------------------------------------------
   void beginGripDrag(Grip g) {
+    // Second line of defence (the viewport already filters the hit-test): a
+    // point with no remaining freedom must not move by hand. Radius grips
+    // (idx >= ptCount) are not point refs and stay draggable.
+    final a = analysis;
+    final s0 = current;
+    if (a != null &&
+        s0 != null &&
+        g.entity < s0.geometry.length &&
+        g.idx < ptCount(s0.geometry[g.entity]) &&
+        !a.freePoints.contains((g.entity, g.idx))) {
+      return;
+    }
     dragGrip = g;
     dragPos = g.pos;
     notifyListeners();
@@ -662,13 +686,44 @@ class AppState extends ChangeNotifier {
   /// Adds a geometric constraint unless it would over-constrain the sketch —
   /// Inventor shows exactly this warning and discards the constraint.
   bool _addConstraint(SketchModel s, Constraint c) {
-    if (wouldOverconstrain(s.geometry, s.constraints, c)) {
+    if (c.type == CType.fix) {
+      // Fix/Lock is NOT an ordinary geometric constraint: it grounds geometry
+      // exactly WHERE IT IS, so its equations are satisfied the moment they are
+      // added and can never contradict what already holds (libslvs does not even
+      // model it as an equation — it just marks the params fixed). Inventor
+      // therefore always allows it; the only nonsense is locking twice.
+      //
+      // Running it through wouldOverconstrain rejected it whenever the target
+      // had fewer free DOF left than Fix contributes equations (2 per point) —
+      // e.g. a corner already coincident with the projected center point, or an
+      // edge that is already horizontal + dimensioned. That was the "sometimes
+      // I cannot apply Locked" bug.
+      if (_alreadyFixed(s, c)) {
+        toast('This geometry is already locked.');
+        return false;
+      }
+    } else if (wouldOverconstrain(s.geometry, s.constraints, c)) {
       toast('Adding this constraint will over-constrain the sketch.');
       return false;
     }
     s.constraints.add(c);
     _solveAndRebuild(s);
     return true;
+  }
+
+  /// True when the same point (or the entity owning it) already carries a Fix.
+  bool _alreadyFixed(SketchModel s, Constraint c) {
+    final p = c.pts.isNotEmpty ? c.pts.first : null;
+    final e = c.ents.isNotEmpty ? c.ents.first : null;
+    for (final x in s.constraints) {
+      if (x.type != CType.fix) continue;
+      if (p != null) {
+        if (x.pts.any((q) => q.ent == p.ent && q.pt == p.pt)) return true;
+        if (x.ents.contains(p.ent)) return true; // whole owner locked
+      }
+      if (e != null && x.ents.contains(e)) return true;
+    }
+    return false;
   }
 
   void _solveAndRebuild(SketchModel s, [List<Geo>? base]) {

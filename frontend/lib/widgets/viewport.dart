@@ -104,7 +104,21 @@ class _Viewport2DState extends State<Viewport2D> {
     if (s != null) {
       Grip? hit;
       var bd = _gripPx / app.zoom;
+      // Inventor: fully constrained geometry cannot be dragged by hand. Skip
+      // those grips entirely instead of starting a drag that the solver undoes
+      // on release (which looked like "the point moves, then snaps back") —
+      // the gesture then falls through to box-select and the point stays put.
+      // freePoints == null means the analysis has not run yet: allow the drag.
+      final free = app.analysis?.freePoints;
       for (final g in gripsOf(s.geometry)) {
+        // Only grips that ARE point refs may be tested against freePoints: a
+        // circle's radius grips carry idx 1..4 while the circle owns a single
+        // point (the centre), so filtering them here would make circles
+        // unresizable. ptCount is the exact boundary.
+        final isPoint = g.idx < ptCount(s.geometry[g.entity]);
+        if (isPoint && free != null && !free.contains((g.entity, g.idx))) {
+          continue;
+        }
         final dd = (g.pos - w).distance;
         if (dd < bd) {
           bd = dd;
