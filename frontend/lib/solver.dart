@@ -18,6 +18,7 @@ import 'dart:ui';
 
 import 'constraints.dart';
 import 'ffi/qcad_engine.dart';
+import 'ffi/slvs_ffi.dart';
 
 /// Result of the rank analysis of a sketch.
 class SketchAnalysis {
@@ -588,9 +589,249 @@ double _norm(List<double> v) {
 // ---------------------------------------------------------------------------
 /// Drives all constraints to zero. [pinned] holds (entity, point) pairs whose
 /// parameters must not move (the point under the finger while dragging).
+// ---------------------------------------------------------------------------
+// libslvs (SolveSpace) path — real geometric constraint solver via FFI.
+//
+// The sketch is decomposed to points + point-indexed entities (a polyline
+// becomes n points + n segments), handed to the native solver, and the
+// solved coordinates written back. The result is then VERIFIED against the
+// Dart residuals; if it doesn't check out (or the symbol isn't linked, or the
+// sketch uses a feature the shim doesn't model), we return false and the
+// caller falls back to the Dart Levenberg-Marquardt loop. This makes enabling
+// libslvs strictly safe: the app can never end up worse than the Dart solver.
+// ---------------------------------------------------------------------------
+int _pkey(int e, int p) => e * 100000 + p;
+
+bool _trySolveWithSlvs(
+    List<Geo> gs, List<Constraint> cs, Set<(int, int)> pinned) {
+  final ffi = SlvsFfi.instance();
+  if (ffi == null) return false;
+  // Bail on anything the shim doesn't model, so we never silently drop a
+  // constraint: fall back to the Dart solver instead.
+  for (final c in cs) {
+    if (c.type == CType.smooth) return false;
+    if (c.type == CType.dimension &&
+        !const ['dist', 'distx', 'disty', 'rad', 'dia', 'ang']
+            .contains(c.dimKind)) {
+      return false;
+    }
+  }
+
+  final s = SlvsSketch();
+  final ptIndex = <int, int>{}; // (ent,pt) packed -> shim point index
+  final entRef = <int, int>{}; //  dart entity index -> Sh.ent(kind, idx)
+
+  for (var e = 0; e < gs.length; e++) {
+    final g = gs[e];
+    final ids = <int>[];
+    for (var p = 0; p < ptCount(g); p++) {
+      final q = getPt(g, p);
+      final gi = s.addPoint(q.dx, q.dy, fix: pinned.contains((e, p)));
+      ptIndex[_pkey(e, p)] = gi;
+      ids.add(gi);
+    }
+    switch (g.type) {
+      case Geo.line:
+        entRef[e] = Sh.ent(1, s.addLine(ids[0], ids[1]));
+        break;
+      case Geo.circle:
+        entRef[e] = Sh.ent(2, s.addCircle(ids[0], g.data[2]));
+        break;
+      case Geo.arc:
+        entRef[e] = Sh.ent(3, s.addArc(ids[0], ids[1], ids[2], g.data[2]));
+        break;
+      case Geo.polyline:
+        final n = g.data[1].toInt();
+        final closed = g.data[0] != 0;
+        final segs = closed ? n : n - 1;
+        for (var k = 0; k < segs; k++) {
+          s.addLine(ids[k], ids[(k + 1) % n]);
+        }
+        break;
+    }
+  }
+
+  int? pOf(PRef r) => ptIndex[_pkey(r.ent, r.pt)];
+  int eOf(int dartEnt) => entRef[dartEnt] ?? 0;
+
+  for (final c in cs) {
+    if (c.driven) continue; // reference dimensions measure but don't drive
+    switch (c.type) {
+      case CType.coincident:
+        if (c.pts.length >= 2) {
+          final a = pOf(c.pts[0]), b = pOf(c.pts[1]);
+          if (a != null && b != null) s.addCon(Sh.coincident, a: a, b: b);
+        } else if (c.pts.isNotEmpty && c.ents.isNotEmpty) {
+          final a = pOf(c.pts[0]);
+          if (a != null) s.addCon(Sh.pointOnLine, a: a, e1: eOf(c.ents[0]));
+        }
+        break;
+      case CType.horizontal:
+      case CType.vertical:
+        final code = c.type == CType.horizontal ? Sh.horizontal : Sh.vertical;
+        if (c.pts.length >= 2) {
+          final a = pOf(c.pts[0]), b = pOf(c.pts[1]);
+          if (a != null && b != null) s.addCon(code, a: a, b: b);
+        } else if (c.ents.isNotEmpty) {
+          s.addCon(code, e1: eOf(c.ents[0]));
+        }
+        break;
+      case CType.parallel:
+        if (c.ents.length >= 2) {
+          s.addCon(Sh.parallel, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+        }
+        break;
+      case CType.perpendicular:
+        if (c.ents.length >= 2) {
+          s.addCon(Sh.perpendicular, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+        }
+        break;
+      case CType.collinear:
+        if (c.ents.length >= 2) {
+          s.addCon(Sh.collinear, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+        }
+        break;
+      case CType.concentric:
+        if (c.ents.length >= 2) {
+          s.addCon(Sh.concentric, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+        }
+        break;
+      case CType.equal:
+        if (c.ents.length >= 2) {
+          s.addCon(Sh.equal, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+        }
+        break;
+      case CType.tangent:
+        if (c.ents.length >= 2) {
+          s.addCon(Sh.tangent, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+        }
+        break;
+      case CType.symmetric:
+        if (c.pts.length >= 2 && c.ents.isNotEmpty) {
+          final a = pOf(c.pts[0]), b = pOf(c.pts[1]);
+          if (a != null && b != null) {
+            s.addCon(Sh.symmetric, a: a, b: b, e1: eOf(c.ents[0]));
+          }
+        }
+        break;
+      case CType.fix:
+        for (final r in c.pts) {
+          final gi = pOf(r);
+          if (gi != null) s.fixed[gi] = 1;
+        }
+        for (final en in c.ents) {
+          if (en < 0 || en >= gs.length) continue;
+          for (var p = 0; p < ptCount(gs[en]); p++) {
+            final gi = ptIndex[_pkey(en, p)];
+            if (gi != null) s.fixed[gi] = 1;
+          }
+        }
+        break;
+      case CType.dimension:
+        final v = c.value;
+        if (v == null) break;
+        switch (c.dimKind) {
+          case 'dist':
+          case 'distx':
+          case 'disty':
+            if (c.pts.length >= 2) {
+              final a = pOf(c.pts[0]), b = pOf(c.pts[1]);
+              if (a != null && b != null) {
+                final code = c.dimKind == 'distx'
+                    ? Sh.distX
+                    : c.dimKind == 'disty'
+                        ? Sh.distY
+                        : Sh.distance;
+                s.addCon(code, a: a, b: b, val: v);
+              }
+            }
+            break;
+          case 'rad':
+            if (c.ents.isNotEmpty) {
+              s.addCon(Sh.radius, e1: eOf(c.ents[0]), val: v);
+            }
+            break;
+          case 'dia':
+            if (c.ents.isNotEmpty) {
+              s.addCon(Sh.diameter, e1: eOf(c.ents[0]), val: v);
+            }
+            break;
+          case 'ang':
+            if (c.ents.length >= 2) {
+              s.addCon(Sh.angle,
+                  e1: eOf(c.ents[0]), e2: eOf(c.ents[1]), val: v);
+            }
+            break;
+        }
+        break;
+      case CType.smooth:
+        return false; // already filtered, but keep the switch exhaustive
+    }
+  }
+
+  final res = ffi.solve(s);
+  if (!res.ok) return false;
+
+  // Rebuild geometry into a copy so we can verify before committing.
+  final newGs = List<Geo>.from(gs);
+  for (var e = 0; e < gs.length; e++) {
+    final g = gs[e];
+    Offset gp(int p) {
+      final gi = ptIndex[_pkey(e, p)]!;
+      return Offset(s.px[gi], s.py[gi]);
+    }
+
+    switch (g.type) {
+      case Geo.line:
+        final a = gp(0), b = gp(1);
+        newGs[e] = Geo(Geo.line, [a.dx, a.dy, b.dx, b.dy]);
+        break;
+      case Geo.circle:
+        final c = gp(0);
+        final ci = entRef[e]! % 100000000;
+        newGs[e] = Geo(Geo.circle, [c.dx, c.dy, s.circR[ci]]);
+        break;
+      case Geo.arc:
+        final c = gp(0), st = gp(1), en = gp(2);
+        final rad = (st - c).distance;
+        final a0 = math.atan2(st.dy - c.dy, st.dx - c.dx);
+        final a1 = math.atan2(en.dy - c.dy, en.dx - c.dx);
+        newGs[e] = Geo(Geo.arc, [c.dx, c.dy, rad, a0, a1]);
+        break;
+      case Geo.polyline:
+        final n = g.data[1].toInt();
+        final d = <double>[g.data[0], g.data[1]];
+        for (var p = 0; p < n; p++) {
+          final q = gp(p);
+          d.add(q.dx);
+          d.add(q.dy);
+        }
+        newGs[e] = Geo(Geo.polyline, d);
+        break;
+    }
+  }
+
+  // Verify with the Dart residuals (driven dims contribute nothing, matching
+  // the mapping). If the native result doesn't satisfy the constraints, bail.
+  final off = _offsets(newGs);
+  final x = _pack(newGs);
+  final ctx = _Ctx();
+  _prepare(newGs, off, x, cs, ctx);
+  final r = _residuals(newGs, off, x, cs, ctx);
+  if (r.isNotEmpty && _norm(r) > 1e-4) return false;
+
+  for (var e = 0; e < gs.length; e++) {
+    gs[e] = newGs[e];
+  }
+  return true;
+}
+
 void solveConstraints(List<Geo> gs, List<Constraint> cs,
     {Set<(int, int)> pinned = const {}, int iterations = 25}) {
   if (cs.isEmpty || gs.isEmpty) return;
+  // Prefer the native SolveSpace solver; it self-verifies and returns false
+  // (falling through to the Dart loop below) whenever it can't be trusted.
+  if (_trySolveWithSlvs(gs, cs, pinned)) return;
   final off = _offsets(gs);
   final total = off.last;
   if (total == 0) return;
