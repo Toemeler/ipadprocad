@@ -74,6 +74,46 @@ Token NIE in Dateien/.git/config schreiben.
     Layer-Zuordnung im Backend (aktuell eine Backend-Layer "0",
     Layer-Zuordnung nur Dart-seitig), Touch-Gesten.
 
+- **M8-Fix / M9–M11 — Parametrik + echter Constraint-Solver (libslvs): ERLEDIGT
+  & CI-validiert (Run 168b35e, beide Workflows alle Jobs gruen, Schritt-Status
+  gelesen). NUR GERAETE-TEST OFFEN.**
+  - QCAD hat KEINEN Constraint-Solver (Maintainer bestaetigt, kein geplant) →
+    Pfad B: SolveSpace-Solver `libslvs` (GPLv3, C-API) via FFI eingebettet,
+    QCAD bleibt fuer Geometrie/DXF.
+  - **M9** `backend/slvs/`: libslvs vendored (nur C++-stdlib, keine Deps),
+    baut STATISCH fuer iOS (arm64/iphoneos, min 14.0) → `build-ios/libslvs.a`.
+    Eigener Workflow `slvs-build.yml` (Host-Smoke + iOS-Static, beide gruen).
+  - **M9.2** FFI-Shim `backend/slvs/shim/slvs_shim.{h,cpp}`: eine flache
+    C-Funktion `slvs_solve(...)` ueber libslvs; deckt alle CTypes +
+    Dimensionen ab (H/V, coincident, point-on-line, parallel/perp, collinear,
+    concentric, equal, tangent, symmetric, dist/dist-x/-y, dia/rad, angle,
+    dragged). `tests/shim_test.c` asserted die realen App-Szenarien numerisch
+    (Rechteck+Breite, Kreis-Durchmesser, Punkt-auf-Linie, X/Y-Mass, Ueber-
+    bestimmung, Drag) → „ALL SHIM TESTS PASS" (Host-CI-Gate).
+  - **M10** Dart: `frontend/lib/ffi/slvs_ffi.dart` (Bindings via
+    DynamicLibrary.process()); `solver.dart` `_trySolveWithSlvs()` zerlegt den
+    Sketch → Punkte+Entities, mappt Constraints, ruft nativ, VERIFIZIERT das
+    Ergebnis ueber die vorhandenen Dart-Residuen und faellt bei Nicht-Erfuellung
+    / ungelinktem Symbol / ungemapptem Feature (smooth) auf den Dart-LM-Solver
+    zurueck → libslvs ist STRIKT SICHER (nie schlechter als vorher).
+  - **M10 UX** (Inventor): Auto-Constraints IMMER an (Button entfernt,
+    `autoConstrain` final true); DOF-Faerbung pro Entity (weiss=voll bestimmt,
+    violett-blau 0xFF9A8CF5=unterbestimmt, blau=selektiert); Live-Bemassungs-
+    Preview (nach Auswahl folgt das Mass dem Cursor, Klick platziert); Masse
+    mm-Default + cm/m-Eingabe; klareres Coincident-Icon; Rechteck/Polyline
+    Auto-H/V + Ecken-Auto-Coincident/Point-on-Line.
+  - **M11** iOS-Link: neuer Job-Schritt baut `libslvs.a`, `ffi.xcconfig`
+    `-force_load libslvs.a` + Export `_slvs_*`, Link-Check greppt den Shim-
+    Marker „iPadProCAD SLVS shim" per `strings` im Runner (analog QCAD-Check,
+    PASS). → auf dem Geraet ist `SlvsFfi.available` true, `solveConstraints`
+    nutzt den echten Solver.
+  - **OFFEN (nur auf dem iPad pruefbar, hier nicht):** Laufzeit-Verhalten des
+    nativen Solvers + der neuen UX auf dem Geraet. Das Verify+Fallback-Netz
+    garantiert nur „nicht schlechter als Dart-Solver", nicht die exakte
+    Wunsch-Semantik. Beim Test: Rechteck geht auf Masseingabe sauber auf,
+    Faerbung weiss/violett stimmt, Bemassungs-Preview folgt dem Cursor,
+    Auto-Constraints ohne Button. IPA-Artefakt aus dem M5-Job (unsigniert).
+
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
 Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,
