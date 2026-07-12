@@ -250,7 +250,7 @@ class AppState extends ChangeNotifier {
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
   int? modEntity; // entity picked in the first phase of Offset
-  bool autoConstrain = true; // Constrain panel: Automatic toggle
+  final bool autoConstrain = true; // always on (Inventor: no toggle button)
   bool showConstraints = true; // Constrain panel: Show Constraints toggle
   bool showDof = true; // Inventor: Degrees of Freedom glyphs
   SketchAnalysis? analysis; // DOF + which points may still move
@@ -274,7 +274,7 @@ class AppState extends ChangeNotifier {
   }
 
   void toggleAutoConstrain() {
-    autoConstrain = !autoConstrain;
+    // Auto-constraints are always on now; no-op kept for any residual caller.
     notifyListeners();
   }
 

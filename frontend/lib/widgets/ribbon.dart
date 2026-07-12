@@ -734,7 +734,6 @@ class _ConGrid extends StatelessWidget {
   };
 
   static const cons = [
-    ('autodim', 'Automatic Dimensions and Constraints'),
     ('coincident', 'Coincident'),
     ('collinear', 'Collinear'),
     ('concentric', 'Concentric'),

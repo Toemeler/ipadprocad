@@ -442,18 +442,37 @@ class _ViewportPainter extends CustomPainter {
         ..color = T.blue
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.2;
+      // Inventor colours each entity by its constraint state: white when fully
+      // defined, violet-blue while still under-constrained, blue when selected.
+      final whitePaint = Paint()
+        ..color = const Color(0xFFFFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4;
+      final underPaint = Paint()
+        ..color = const Color(0xFF9A8CF5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4;
       final gs = app.displayGeometry(s);
-      // Inventor renders a fully constrained sketch in a distinct colour.
-      final full = app.analysis?.fullyConstrained ?? false;
-      if (full) p.color = const Color(0xFF66B2A0);
+      final free = app.analysis?.freePoints ?? const <(int, int)>{};
+      final hasAnalysis = app.analysis != null;
+      bool entityFull(int i) {
+        if (!hasAnalysis) return false;
+        for (var pp = 0; pp < ptCount(gs[i]); pp++) {
+          if (free.contains((i, pp))) return false;
+        }
+        return true;
+      }
+
       for (var i = 0; i < gs.length; i++) {
-        paintGeo(canvas, gs[i], map, app.zoom,
-            app.selection.contains(i) ? sel : p);
+        final paint = app.selection.contains(i)
+            ? sel
+            : (entityFull(i) ? whitePaint : underPaint);
+        paintGeo(canvas, gs[i], map, app.zoom, paint);
       }
       // Degrees-of-freedom glyphs: arrows on every point that can still move
       // (they vanish one by one as constraints are added).
       final an = app.analysis;
-      if (app.showDof && app.tool == Tool.none && an != null && !full) {
+      if (app.showDof && app.tool == Tool.none && an != null) {
         final dp = Paint()
           ..color = const Color(0xFFEFD37A)
           ..strokeWidth = 1.2;
