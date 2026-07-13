@@ -847,7 +847,14 @@ bool _trySolveWithSlvs(
         final rad = (st - c).distance;
         final a0 = math.atan2(st.dy - c.dy, st.dx - c.dx);
         final a1 = math.atan2(en.dy - c.dy, en.dx - c.dx);
-        newGs[e] = g.withData([c.dx, c.dy, rad, a0, a1]);
+        // Keep the 6th element (the reversed/CW flag). An arc is
+        // [cx, cy, r, startAngle, endAngle, reversed]; the SolveSpace points go
+        // in and come back in the same order (center, start, end), so the
+        // winding is unchanged — but dropping data[5] here produced a 5-element
+        // arc that paintGeo (which reads data[5]) threw on, blanking the canvas
+        // mid-drag. That was the "circles/curves go invisible when dragging" bug.
+        newGs[e] = g.withData(
+            [c.dx, c.dy, rad, a0, a1, g.data.length > 5 ? g.data[5] : 0.0]);
         break;
       case Geo.polyline:
         final n = g.data[1].toInt();

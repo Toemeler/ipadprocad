@@ -113,6 +113,48 @@ int main(void) {
     qcad_document_free(reloaded);
     qcad_document_free(doc);
 
+    /* --- layer binding: regression guard for "everything lands on layer 0" ---
+     * qcad_set_current_layer must make NEW entities land on that layer, and the
+     * binding must survive a DXF round-trip. This shipped broken once precisely
+     * because the smoke test never exercised layers: the C-API set its own
+     * current-layer string but not the document's current layer, so RTransaction
+     * stamped every entity with layer "0". */
+    {
+        qcad_document *ld = qcad_document_new();
+        CHECK(ld != NULL, "layer: create document");
+        CHECK(qcad_set_current_layer(ld, "Walls"), "layer: set current layer");
+        CHECK(qcad_add_line(ld, 0, 0, 5, 0), "layer: add line on current layer");
+        long long lids[8];
+        const int ln = qcad_entity_ids(ld, lids, 8);
+        CHECK(ln == 1, "layer: exactly one entity present");
+        char lname[128] = {0};
+        CHECK(ln == 1 && qcad_entity_layer(ld, lids[0], lname, sizeof(lname)),
+              "layer: read entity layer");
+        CHECK(strcmp(lname, "Walls") == 0,
+              "layer: new entity is on the current layer, not \"0\"");
+
+        char lpath[1024];
+        if (tmpdir[strlen(tmpdir) - 1] == '/') {
+            snprintf(lpath, sizeof(lpath), "%sipadprocad_smoke_layer.dxf", tmpdir);
+        } else {
+            snprintf(lpath, sizeof(lpath), "%s/ipadprocad_smoke_layer.dxf", tmpdir);
+        }
+        CHECK(qcad_save_dxf(ld, lpath, NULL), "layer: save DXF");
+
+        qcad_document *lr = qcad_document_new();
+        CHECK(qcad_load_dxf(lr, lpath), "layer: reload DXF");
+        long long rids[8];
+        const int rn = qcad_entity_ids(lr, rids, 8);
+        CHECK(rn == 1, "layer: one entity after reload");
+        char rname[128] = {0};
+        CHECK(rn == 1 && qcad_entity_layer(lr, rids[0], rname, sizeof(rname)),
+              "layer: read entity layer after reload");
+        CHECK(strcmp(rname, "Walls") == 0,
+              "layer: entity layer survives the DXF round-trip");
+        qcad_document_free(lr);
+        qcad_document_free(ld);
+    }
+
     if (g_failures == 0) {
         printf("\nSMOKE: PASS\n");
         return 0;

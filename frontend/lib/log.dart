@@ -81,6 +81,40 @@ class Log {
 
   static String get path => _file?.path ?? '(log unavailable)';
 
+  /// Point the log at the app's REAL Documents directory once path_provider is
+  /// available. [init] runs before any platform channel exists, so it derives
+  /// the path from $HOME — which on iOS can be empty, in which case the log
+  /// falls back to the temp directory that the Files app does NOT expose (so
+  /// "On My iPad > ipadprocad" shows the sketches but no log). Calling this with
+  /// getApplicationDocumentsDirectory().path guarantees the log lands next to
+  /// the sketches, where it can actually be retrieved. Existing lines are
+  /// carried across so the launch/FFI/smoke history is not lost. Never throws.
+  static void retarget(String documentsDir) {
+    if (_broken) return;
+    try {
+      flush();
+      final dir = Directory('$documentsDir/logs');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final newFile = File('${dir.path}/ipadprocad_log.txt');
+      final old = _file;
+      if (old != null && old.path == newFile.path) return; // already there
+      // Carry the history across, then continue in the new location.
+      if (old != null && old.existsSync()) {
+        try {
+          newFile.writeAsStringSync(old.readAsStringSync(),
+              mode: FileMode.append, flush: true);
+          old.deleteSync();
+        } catch (_) {/* keep going even if the old file cannot be moved */}
+      }
+      _file = newFile;
+      i('log', 'retargeted log to Documents: ${newFile.path}');
+      flush();
+    } catch (e) {
+      // ignore: avoid_print
+      print('LOG RETARGET FAILED: $e');
+    }
+  }
+
   /// True at most once per [ms] for [key] — gate for per-frame logging so the
   /// 60 Hz drag loop cannot drown the interesting lines.
   static bool every(String key, int ms) {

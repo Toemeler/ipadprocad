@@ -307,6 +307,92 @@ Token NIE in Dateien/.git/config schreiben.
     Stacks erben. Immer eine harte Breiten-Decke setzen. Und: ein Fehler, der
     NUR im Release-IPA auftritt und im Debug wirft, ist fast immer eine
     verletzte Layout-Invariante — nicht der Rasterizer.
+- **M18 — Produktionsreifes Layer-System (Lock / Rename / Delete / Move + ehrliches
+  "0"): IMPLEMENTIERT, aber LOKAL NICHT GEBAUT.** Das Arbeits-Environment hatte
+  weder Flutter (Dart-SDK-Host blockiert) noch Qt/Cmake, also steht die
+  Verifikation ueber CI (`flutter analyze` + iOS-Build) UND der Geraete-Test noch
+  aus. Frontend-only, nutzt bewusst den vorhandenen Backend-Layer-Pfad
+  (Entity->Layer-Bindung + DXF-Roundtrip) — KEINE neue C++-API, damit der
+  iOS-Build nicht durch ungetesteten Core-Code kippt.
+  - **Ursache des Nutzer-Bugs ("alles landet auf Layer 0"): GEFUNDEN + GEFIXT in
+    M19 (siehe unten).** Die fruehere Vermutung "IPA vor M16" war FALSCH — der
+    Bug steckte im C-API: `qcad_set_current_layer` setzte nur den eigenen
+    QString, aber NICHT den Dokument-Current-Layer, und `RTransaction` stempelt
+    jede neue Entity mit `doc->getCurrentLayerId()` (== "0"). Empirisch mit dem
+    echten QCAD-Core reproduziert und verifiziert.
+  - **Lock:** `SketchModel.lockedLayers`. Gesperrter Layer bleibt sichtbar, ist
+    aber read-only (kein Werkzeug, kein Pick/Drag/Constrain/Dimension, nie
+    Editier-Layer). `geoEditable` + `enterEdit` respektieren es; Padlock im Model
+    Browser neben dem Auge, im Kontextmenue Lock/Unlock.
+  - **Rename:** stempelt alle Entities des Layers via `Geo.onLayer` um (ueberlebt
+    so den DXF-Roundtrip), zieht Eye/Lock/Edit-Status mit. "0" ist gesperrt, und
+    nach "0" umbenennen ist verboten (reserviert).
+  - **Delete:** entfernt die Geometrie hoechster-Index-zuerst und remappt die
+    index-basierten Constraints (`remapAfterRemove`, exakt wie Trim/Split). "0"
+    kann nicht geloescht werden. Mit Bestaetigungsdialog.
+  - **Move (Selektion -> Layer):** re-stempelt die aktuelle Selektion auf den
+    Ziel-Layer. Das ist der Weg, ALTE Skizzen zu retten, deren Geometrie auf "0"
+    gestrandet ist: (ausserhalb des Edit-Mode) alles per Box-Select waehlen ->
+    Rechtsklick Ziel-Layer -> "Move N here".
+  - **Ehrliches "0":** die Pflicht-DXF-Ebene "0" ist wie in AutoCAD nicht
+    umbenennbar/loeschbar und wird NUR angezeigt, solange sie Geometrie traegt;
+    leer fliegt sie aus dem Browser (`_pruneEmptyBaseLayer`) — kein Phantom mehr.
+    Neue Skizzen starten weiterhin ohne Layer (Zeichnen erst nach "Start New
+    Layer", Design-Vorgabe M16).
+  - **Persistenz:** Sidecar jetzt versioniert (v2) mit Reihenfolge + hidden +
+    locked; das alte `{layers,hidden}` wird weiter gelesen. Basis-"0" wird nur mit
+    Geometrie persistiert, damit sie nach dem Leeren nicht zurueckkehrt.
+  - **Reference-Darstellung:** im Edit-Mode wird Geometrie fremder/gesperrter
+    Layer gedimmt (grau, `refPaint`) gemalt, damit die DOF-Farben des aktiven
+    Layers lesbar bleiben.
+  - **Bewusst NICHT enthalten (jeweils mit Grund):** per-Layer-Farbe fuer die
+    Geometrie — kollidiert mit der Inventor-DOF-Faerbung (weiss=voll bestimmt,
+    violett=unterbestimmt), die die App traegt; und Backend-Persistenz der
+    Layer-Attribute (Farbe/Off/Locked) im DXF-Layertable — dafuer waere neue
+    C++-API (`RLayer` get/set + Enumerate) noetig gewesen, die hier ohne Build
+    nicht testbar war. Beides sind saubere Folge-Schritte (siehe unten).
+  - **Geaenderte Dateien:** `frontend/lib/app_state.dart`,
+    `frontend/lib/widgets/model_browser.dart`, `frontend/lib/widgets/viewport.dart`.
+  - **Naechster Schritt fuer Backend-Persistenz (falls gewuenscht):** die
+    C-API-Skizze steht — `qcad_layer_count`/`qcad_layer_name_at` zum Enumerieren
+    plus get/set fuer Farbe (RColor r/g/b), Sichtbarkeit (`RLayer::setOff`) und
+    Lock (`RLayer::setLocked`), jeweils per `RTransaction` wie `ensureLayer`,
+    dann persistiert QCADs DXF-Exporter die Attribute automatisch. Erst mit
+    lokalem Qt-Build testen (Layer-Roundtrip via `save_dxf`/`load_dxf`).
+
+- **M19 — "Alles landet auf Layer 0" GEFIXT (Backend), + Z-Order + Log-Ort.
+  Empirisch verifiziert (echter QCAD-Core, Linux-Build).**
+  - **Root Cause (endlich gefunden):** `RTransaction` stempelt beim Speichern
+    JEDE neue Entity mit `doc->getCurrentLayerId()` und ueberschreibt damit ein
+    zuvor per `setLayerId` gesetztes Layer (RTransaction.cpp ~660: "place entity
+    on current layer"). Das C-API setzte in `qcad_set_current_layer` nur sein
+    eigenes `doc->currentLayer` (QString) + `ensureLayer`, aber NIE den
+    Dokument-Current-Layer. Also blieb `getCurrentLayerId()` == "0", und jede
+    Entity landete auf "0" — obwohl `qcad_set_current_layer` 1 (Erfolg) lieferte
+    und die Layer sogar korrekt angelegt/ins DXF geschrieben wurden.
+  - **Fix (1 Zeile):** in `qcad_set_current_layer` zusaetzlich
+    `doc->doc->setCurrentLayer(lid)`. Danach: Entities landen in-memory auf
+    "Layer 1"/"Layer 2", ueberleben den DXF-Roundtrip, und das DXF zeigt
+    `LINE -> Layer 1` / `CIRCLE -> Layer 2`. Reproduktion + Fix mit dem echten
+    Core auf Linux gebaut und ausgefuehrt (nicht nur Code-Review).
+  - **Smoke-Test erweitert (`tests/smoke.c`):** der Bug konnte nur shippen, weil
+    smoke.c NIE Layer testete. Jetzt: current-layer setzen -> Linie -> pruefen,
+    dass `qcad_entity_layer` den Layer liefert (nicht "0"), + DXF-Roundtrip. CI
+    (Linux-Host UND iOS-Simulator via `simctl`) faellt jetzt bei Regression.
+  - **Z-Order (Frontend):** der Viewport-`CustomPaint` war nicht geclippt, also
+    malte eine ver­schobene/gezoomte Skizze ueber Ribbon (oben) und Model Browser
+    (links) — und weil der Viewport in der Column/Row DANACH gemalt wird, lag die
+    Geometrie obenauf. Fix: `ClipRect` um den Painter (viewport.dart).
+  - **Log-Datei (Frontend):** `Log.init()` leitet den Pfad aus `$HOME` ab (auf
+    iOS teils leer -> Temp-Verzeichnis, das die Files-App NICHT zeigt — daher
+    Skizzen sichtbar, aber kein Log). Neu: `Log.retarget(docsDir)` aus
+    `AppState.init` schiebt das Log (inkl. Historie) ins ECHTE Documents-Verz.
+    neben die Skizzen (`On My iPad > ipadprocad > logs > ipadprocad_log.txt`).
+  - **Altbestand:** bereits auf "0" gestrandete Geometrie (Skizzen vom kaputten
+    Build) bleibt auf "0", bis sie verschoben wird — dafuer ist M18 "Move N here".
+  - **Geaenderte Dateien:** `backend/qcad-core/src/capi/qcad_capi.cpp`,
+    `backend/qcad-core/src/capi/tests/smoke.c`, `frontend/lib/widgets/viewport.dart`,
+    `frontend/lib/log.dart`, `frontend/lib/app_state.dart`.
 
 - **OFFENER BUG (naechster Schritt):** Beim Ziehen von Punkten eines KREISES oder
   BOGENS verschwindet die ganze Geometrie, bis losgelassen wird. Verdacht:
