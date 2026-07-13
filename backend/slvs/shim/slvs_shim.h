@@ -38,6 +38,9 @@ extern "C" {
 #define SH_RADIUS         17  /* circle/arc e1 radius = val                  */
 #define SH_ANGLE          18  /* angle(line e1, line e2) = val degrees       */
 #define SH_DRAGGED        19  /* soft-pin point a where it is (grip drag)    */
+#define SH_PT_LINE_DIST   20  /* perpendicular distance point a to the line
+                                 through points ce1,ce2 (RAW point indices,
+                                 not SH_ENT refs) = val. Shim version >= 2. */
 
 #define SH_RESULT_OKAY               0
 #define SH_RESULT_INCONSISTENT       1

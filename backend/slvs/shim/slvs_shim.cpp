@@ -17,9 +17,12 @@ static double paramVal(const Slvs_System *s, Slvs_hParam h) {
     return 0.0;
 }
 
-int slvs_shim_version(void) { return 1; }
+/* v2: SH_PT_LINE_DIST (perpendicular point-to-line distance dimension). The
+ * Dart side gates on this: a binary older than 2 sends those sketches to the
+ * Dart LM solver instead, so the dimension is never silently dropped. */
+int slvs_shim_version(void) { return 2; }
 
-const char* slvs_shim_id(void) { return "iPadProCAD SLVS shim v1"; }
+const char* slvs_shim_id(void) { return "iPadProCAD SLVS shim v2"; }
 
 int slvs_solve(
     int nPts, double *px, double *py, const int *fixed,
@@ -38,7 +41,8 @@ int slvs_solve(
      * 2*circles + arcs + fixed scaffolding. Constraints may double (collinear
      * expands to parallel + point-on-line). */
     int maxParam = 7 + 2 * nPts + nCircles + 8 + 16;
-    int maxEnt   = 3 + nPts + nLines + 2 * nCircles + nArcs + 16;
+    /* + nCons: SH_PT_LINE_DIST may add one ad-hoc line entity per record */
+    int maxEnt   = 3 + nPts + nLines + 2 * nCircles + nArcs + nCons + 16;
     int maxCon   = 2 * nCons + 8;
 
     sys.param      = (Slvs_Param *)      calloc(maxParam, sizeof(Slvs_Param));
@@ -228,6 +232,32 @@ int slvs_solve(
             ADDC(SLVS_C_DIAMETER, 2.0 * v, 0, 0, ENT(e1), 0); break;
         case SH_ANGLE:
             ADDC(SLVS_C_ANGLE, v, 0, 0, ENT(e1), ENT(e2)); break;
+        case SH_PT_LINE_DIST: {
+            /* Perpendicular distance from point a to the (infinite) line
+             * through points ce1,ce2 — here e1/e2 are RAW point indices, not
+             * SH_ENT refs, so the line may be a polyline segment or any pair
+             * of sketch points that never became a shim line entity. A line
+             * segment entity over existing points adds no parameters, so an
+             * ad-hoc one costs nothing.
+             *
+             * SLVS_C_PT_LINE_DISTANCE is SIGNED in a workplane; sign the
+             * target to keep the point on the side it is on now (same policy
+             * as PROJ_PT_DISTANCE above — Inventor keeps the placement side,
+             * it never mirrors geometry through the line). */
+            if (a < 0 || a >= nPts) break;
+            int ia = e1, ib = e2;
+            if (ia < 0 || ia >= nPts || ib < 0 || ib >= nPts || ia == ib) break;
+            Slvs_hEntity ln = he++;
+            sys.entity[sys.entities++] =
+                Slvs_MakeLineSegment(ln, GFREE, WP, ptH[ia], ptH[ib]);
+            /* SolveSpace's residual is proj/|d| with
+             *   proj = (a.y-b.y)(a.x-p.x) - (a.x-b.x)(a.y-p.y)
+             * (constrainteq.cpp, PointLineDistance, in-workplane branch).
+             * Evaluate exactly that to pick the sign of the target. */
+            double proj = (py[ia] - py[ib]) * (px[ia] - px[a])
+                        - (px[ia] - px[ib]) * (py[ia] - py[a]);
+            ADDC(SLVS_C_PT_LINE_DISTANCE, proj < 0 ? -v : v, pa, 0, ln, 0);
+            break; }
         case SH_DRAGGED:
             /* NOT SLVS_C_WHERE_DRAGGED. That one is a HARD constraint ("the
              * point is exactly here"), so it fights the real constraints and

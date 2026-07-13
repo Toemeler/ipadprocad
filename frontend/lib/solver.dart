@@ -250,6 +250,9 @@ int residualCount(List<Geo> gs, Constraint c) {
           return ent(0) ? 1 : 0;
         case 'ang':
           return ent(0) && ent(1) ? 1 : 0;
+        case 'pline':
+        case 'ang3':
+          return pt(0) && pt(1) && pt(2) ? 1 : 0;
       }
       return 0;
   }
@@ -286,6 +289,22 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
             final cross = d1.dx * d2.dy - d1.dy * d2.dx;
             ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
           }
+        } else if (c.dimKind == 'pline' && c.pts.length >= 3) {
+          // keep the point on the side of the line it is on now — Inventor
+          // never mirrors geometry through the line to satisfy a distance
+          final p = _pointAt(gs, off, x, c.pts[0]);
+          final a = _pointAt(gs, off, x, c.pts[1]);
+          final b = _pointAt(gs, off, x, c.pts[2]);
+          final d = b - a;
+          final cross = (p - a).dx * d.dy - (p - a).dy * d.dx;
+          ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
+        } else if (c.dimKind == 'ang3' && c.pts.length >= 3) {
+          final a = _pointAt(gs, off, x, c.pts[0]);
+          final o = _pointAt(gs, off, x, c.pts[1]);
+          final b = _pointAt(gs, off, x, c.pts[2]);
+          final d1 = a - o, d2 = b - o;
+          final cross = d1.dx * d2.dy - d1.dy * d2.dx;
+          ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
         }
         break;
       default:
@@ -506,6 +525,36 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       final target = (ctx.sign[i] ?? 1.0) * v * math.pi / 180;
       r.add(ang - target);
       break;
+    case 'pline':
+      // signed perpendicular distance of pts[0] to the infinite line through
+      // pts[1],pts[2]; the sign captured in _prepare keeps the point on its
+      // current side (matches the shim's SLVS_C_PT_LINE_DISTANCE signing)
+      final p = _pointAt(gs, off, x, c.pts[0]);
+      final la = _pointAt(gs, off, x, c.pts[1]);
+      final lb = _pointAt(gs, off, x, c.pts[2]);
+      final dl = lb - la;
+      final len = dl.distance;
+      if (len < 1e-12) {
+        r.add((p - la).distance - v);
+        break;
+      }
+      final cross2 = ((p - la).dx * dl.dy - (p - la).dy * dl.dx) / len;
+      r.add(cross2 - (ctx.sign[i] ?? 1.0) * v);
+      break;
+    case 'ang3':
+      final pa = _pointAt(gs, off, x, c.pts[0]);
+      final po = _pointAt(gs, off, x, c.pts[1]);
+      final pb = _pointAt(gs, off, x, c.pts[2]);
+      final e1 = pa - po, e2 = pb - po;
+      final s3 = e1.distance * e2.distance;
+      if (s3 < 1e-12) {
+        r.add(0);
+        break;
+      }
+      final cr = (e1.dx * e2.dy - e1.dy * e2.dx) / s3;
+      final dt = (e1.dx * e2.dx + e1.dy * e2.dy) / s3;
+      r.add(math.atan2(cr, dt) - (ctx.sign[i] ?? 1.0) * v * math.pi / 180);
+      break;
   }
 }
 
@@ -627,10 +676,24 @@ bool _trySolveWithSlvs(
       return false;
     }
     if (c.type == CType.dimension &&
-        !const ['dist', 'distx', 'disty', 'rad', 'dia', 'ang']
+        !const ['dist', 'distx', 'disty', 'rad', 'dia', 'ang', 'pline']
             .contains(c.dimKind)) {
+      // 'ang3' (3-point angle) lands here on purpose: the shim has no 3-point
+      // angle, so the sketch goes to the verified Dart LM solver instead of
+      // silently dropping the dimension.
       if (Log.every('slvs-bail', 2000)) {
         Log.d('slvs', 'bail: unsupported dimKind=${c.dimKind}');
+      }
+      return false;
+    }
+    if (c.type == CType.dimension &&
+        c.dimKind == 'pline' &&
+        ffi.version < 2) {
+      // SH_PT_LINE_DIST needs shim v2; an older linked binary would treat the
+      // record as an unknown code and DROP it — the residual verify would then
+      // reject every solve. Bail up front instead.
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: pline needs shim>=2, have ${ffi.version}');
       }
       return false;
     }
@@ -799,6 +862,20 @@ bool _trySolveWithSlvs(
             if (c.ents.length >= 2) {
               s.addCon(Sh.angle,
                   e1: eOf(c.ents[0]), e2: eOf(c.ents[1]), val: v);
+            }
+            break;
+          case 'pline':
+            // pts = [point, line A, line B]; e1/e2 carry the RAW shim point
+            // indices of A and B (the shim builds an ad-hoc line entity over
+            // them, so this also works for polyline segments that never got
+            // an SH_ENT line ref on the Dart side).
+            if (c.pts.length >= 3) {
+              final p = pOf(c.pts[0]);
+              final a = pOf(c.pts[1]);
+              final b = pOf(c.pts[2]);
+              if (p != null && a != null && b != null) {
+                s.addCon(Sh.ptLineDist, a: p, e1: a, e2: b, val: v);
+              }
             }
             break;
         }

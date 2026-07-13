@@ -1226,45 +1226,93 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Inventor's dimension pick matrix. Every click either EXTENDS the pick
+  /// set (when the clicked point/entity forms a valid combination with what
+  /// is already picked) or PLACES the dimension at the click position.
+  ///
+  /// Supported combinations (all of Inventor's 2D sketch General Dimension
+  /// cases for line/circle/arc/point geometry):
+  ///   line                      length (aligned / horizontal / vertical,
+  ///                             chosen by placement — as before)
+  ///   circle | arc              diameter | radius
+  ///   point + point             distance (aligned / H / V by placement)
+  ///   line + point              perpendicular point-to-line distance
+  ///   line + line               angle; if (near-)parallel: linear distance
+  ///   circle|arc + point        distance point <-> center
+  ///   circle|arc + circle|arc   distance center <-> center
+  ///   circle|arc + line         perpendicular distance center <-> line
+  ///   point + point + point     angle (second pick is the vertex)
+  ///   polyline edge             its two vertices (as before), which then
+  ///                             also combine with a third point into ang3
   void _dimensionClick(SketchModel s, Offset w) {
     if (pendingDim != null) return; // value dialog is open
     final ent = _pickEntity(s, w);
     final pt = _nearestPointRef(s, w);
-    // A rectangle / polygon / slot is ONE closed polyline, so clicking an edge
-    // picks the polyline — and buildDimensionAt only ever knew line/circle/arc,
-    // so it silently produced nothing. Resolve the click to the segment under
-    // the cursor and dimension its two vertices: that is a real DRIVING length
-    // dimension, and it reuses the existing point-to-point path including
-    // Inventor's aligned/horizontal/vertical choice at placement time.
-    if (conPts.isEmpty &&
-        conEnts.isEmpty &&
-        ent != null &&
-        s.geometry[ent].type == Geo.polyline) {
-      final seg = polySegmentAt(s, ent, w);
-      if (seg != null) {
-        conPts
-          ..add(seg.$1)
-          ..add(seg.$2);
+
+    bool isCurve(int e) {
+      final t = s.geometry[e].type;
+      return t == Geo.circle || t == Geo.arc;
+    }
+
+    bool isLine(int e) => s.geometry[e].type == Geo.line;
+
+    // What the pick set currently holds. conEnts keeps lines/circles/arcs,
+    // conPts keeps point refs — mixed sets are now allowed.
+    final nE = conEnts.length, nP = conPts.length;
+
+    // ---- try to EXTEND the pick set ------------------------------------
+    // A point pick wins over an entity pick when both are under the cursor
+    // (endpoints sit ON their entity, and Inventor prefers the vertex too) —
+    // EXCEPT for the very first pick, where clicking a line body should give
+    // the line's length, not one stray endpoint.
+    final preferPoint = pt != null && (nE + nP > 0 || ent == null);
+
+    if (preferPoint && !conPts.contains(pt)) {
+      final ok = (nE == 0 && nP < 2) || //     1st/2nd point of pt-pt / ang3
+          (nE == 0 && nP == 2) || //           3rd point -> 3-point angle
+          (nE == 1 && nP == 0); //             line/curve + point
+      if (ok) {
+        conPts.add(pt);
         return;
       }
     }
-    // Phase 1 — build the pick set. A second LINE turns a length dimension
-    // into an angle dimension, exactly like Inventor.
-    if (conPts.isEmpty && ent != null && !conEnts.contains(ent)) {
+
+    if (ent != null && !conEnts.contains(ent)) {
       final g = s.geometry[ent];
-      final firstIsLine =
-          conEnts.isEmpty || s.geometry[conEnts[0]].type == Geo.line;
-      if (conEnts.isEmpty ||
-          (conEnts.length == 1 && g.type == Geo.line && firstIsLine)) {
+      if (g.type == Geo.polyline) {
+        // A rectangle / polygon / slot is ONE closed polyline, so clicking an
+        // edge picks the polyline. Resolve the click to the segment under the
+        // cursor and pick its two vertices: that is a real DRIVING length
+        // dimension, reusing the point-to-point path (aligned/H/V at
+        // placement) — and those vertices combine with further picks like any
+        // other points (e.g. + line -> perpendicular distance is NOT offered
+        // by Inventor for an edge, so an edge only starts a pt-pt set).
+        if (nE == 0 && nP == 0) {
+          final seg = polySegmentAt(s, ent, w);
+          if (seg != null) {
+            conPts
+              ..add(seg.$1)
+              ..add(seg.$2);
+            return;
+          }
+        }
+      } else if (nP == 0 && nE == 0) {
+        conEnts.add(ent); //                   first pick: line/circle/arc
+        return;
+      } else if (nP == 0 && nE == 1) {
+        // second entity: any line/circle/arc pairing is dimensionable
         conEnts.add(ent);
         return;
+      } else if (nP == 1 && nE == 0 && (isLine(ent) || isCurve(ent))) {
+        conEnts.add(ent); //                   point + line/curve
+        return;
       }
+      // silently fall through to placement — matches Inventor, where a click
+      // that cannot extend the selection places the pending dimension
     }
-    if (conEnts.isEmpty && conPts.length < 2 && pt != null) {
-      conPts.add(pt);
-      return;
-    }
-    // Phase 2 — this click places the dimension.
+
+    // ---- otherwise this click PLACES the dimension ---------------------
+    if (nE + nP == 0) return; // nothing picked yet, click hit empty space
     _placeDimension(s, w);
   }
 
@@ -1330,10 +1378,58 @@ class AppState extends ChangeNotifier {
   /// Builds the dimension implied by the current pick set, placed at [w].
   /// Shared by placement and by the live cursor preview.
   Constraint? buildDimensionAt(SketchModel s, Offset w) {
+    bool isCurve(int e) {
+      final t = s.geometry[e].type;
+      return t == Geo.circle || t == Geo.arc;
+    }
+
+    // A curve participates in distance dimensions through its CENTER point
+    // (Inventor's default; tangent-edge variants are a possible later
+    // refinement). getPt(circle/arc, 0) is the center.
+    PRef center(int e) => PRef(e, 0);
+
     Constraint? d;
     if (conEnts.length == 2) {
-      d = Constraint(CType.dimension,
-          ents: List.of(conEnts), dimKind: 'ang', textPos: w);
+      final e1 = conEnts[0], e2 = conEnts[1];
+      final c1 = isCurve(e1), c2 = isCurve(e2);
+      if (c1 && c2) {
+        // circle/arc + circle/arc -> center-to-center distance
+        final a = center(e1), b = center(e2);
+        d = Constraint(CType.dimension,
+            pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
+      } else if (c1 || c2) {
+        // circle/arc + line -> perpendicular distance center <-> line
+        final ce = c1 ? e1 : e2, le = c1 ? e2 : e1;
+        d = Constraint(CType.dimension,
+            pts: [center(ce), PRef(le, 0), PRef(le, 1)],
+            dimKind: 'pline',
+            textPos: w);
+      } else if (_linesParallel(s, e1, e2)) {
+        // two (near-)parallel lines -> linear distance, like Inventor. The
+        // measured point is an endpoint of the SECOND pick; driving this
+        // value together with a Parallel constraint fully defines the gap.
+        d = Constraint(CType.dimension,
+            pts: [PRef(e2, 0), PRef(e1, 0), PRef(e1, 1)],
+            dimKind: 'pline',
+            textPos: w);
+      } else {
+        d = Constraint(CType.dimension,
+            ents: List.of(conEnts), dimKind: 'ang', textPos: w);
+      }
+    } else if (conEnts.length == 1 && conPts.length == 1) {
+      final e = conEnts[0];
+      if (isCurve(e)) {
+        // point + circle/arc -> distance point <-> center
+        final a = conPts[0], b = center(e);
+        d = Constraint(CType.dimension,
+            pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
+      } else {
+        // point + line -> perpendicular point-to-line distance
+        d = Constraint(CType.dimension,
+            pts: [conPts[0], PRef(e, 0), PRef(e, 1)],
+            dimKind: 'pline',
+            textPos: w);
+      }
     } else if (conEnts.length == 1) {
       final g = s.geometry[conEnts[0]];
       if (g.type == Geo.circle) {
@@ -1347,6 +1443,10 @@ class AppState extends ChangeNotifier {
         d = Constraint(CType.dimension,
             pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
       }
+    } else if (conPts.length == 3) {
+      // 3-point angle, second pick is the vertex (Inventor's order)
+      d = Constraint(CType.dimension,
+          pts: List.of(conPts), dimKind: 'ang3', textPos: w);
     } else if (conPts.length == 2) {
       d = Constraint(CType.dimension,
           pts: List.of(conPts),
@@ -1356,6 +1456,18 @@ class AppState extends ChangeNotifier {
     if (d == null) return null;
     d.value = measureDim(s.geometry, d);
     return d;
+  }
+
+  /// Whether two line entities are parallel within Inventor's snap tolerance
+  /// (~0.5 deg) — decides linear distance vs. angle for a line+line pick.
+  bool _linesParallel(SketchModel s, int e1, int e2) {
+    final g1 = s.geometry[e1], g2 = s.geometry[e2];
+    final d1 = getPt(g1, 1) - getPt(g1, 0);
+    final d2 = getPt(g2, 1) - getPt(g2, 0);
+    final m = d1.distance * d2.distance;
+    if (m < 1e-12) return false;
+    final sinA = (d1.dx * d2.dy - d1.dy * d2.dx).abs() / m;
+    return sinA < 0.0087; // sin(0.5 deg)
   }
 
   /// The dimension that would be placed if the user clicked at [hover] now —

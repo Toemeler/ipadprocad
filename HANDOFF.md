@@ -589,3 +589,66 @@ frontend/                                 VERALTETER erster UI-Wurf (ersetzen)
 create-panel.html                         FINALER UI-Mock inkl. Edit-Modus/Home/
                                           Tabs (vom Nutzer bereitgestellt)
 ```
+
+---
+
+## M21 — Vollständiges Bemaßungssystem (Inventor-Pick-Matrix)
+
+**Was:** Der Dimension-Tool-Click ist jetzt eine Zustandsmaschine über eine
+GEMISCHTE Auswahl (`conPts` + `conEnts` gleichzeitig erlaubt). Jeder Klick
+erweitert die Auswahl, wenn die Kombination gültig ist, sonst platziert er.
+Die Matrix steht in `AppState._dimensionClick` / `buildDimensionAt`
+(app_state.dart) und im README.
+
+**Neue Bemaßungsarten:**
+- `pline` — senkrechter Punkt-Linie-Abstand. `pts = [Punkt, LinieA, LinieB]`
+  (drei PRefs, KEINE Entity-Referenz — funktioniert dadurch auch für
+  Polylinien-Segmente). Nativ: neuer Shim-Code `SH_PT_LINE_DIST` (=20),
+  Shim-Version 2. Der Shim baut eine Ad-hoc-Linien-Entity über die zwei
+  Punkte (kostet keine Parameter) und setzt `SLVS_C_PT_LINE_DISTANCE`.
+- `ang3` — 3-Punkt-Winkel, `pts = [Strahl, SCHEITEL, Strahl]`. Läuft bewusst
+  IMMER über den Dart-LM-Solver (Bail in `_trySolveWithSlvs`): der Shim hat
+  keinen 3-Punkt-Winkel, und ein stummer Drop wäre schlimmer als LM.
+
+**Fallstricke, die schon eingebaut/umschifft sind:**
+1. **Vorzeichen von PT_LINE_DISTANCE.** SolveSpace' Residuum ist
+   `proj = (a.y-b.y)(a.x-p.x) - (a.x-b.x)(a.y-p.y)` (constrainteq.cpp,
+   PointLineDistance, Workplane-Zweig) — das ist das NEGATIVE des "üblichen"
+   cross(b-a, p-a). Der Shim wertet exakt SolveSpace' Ausdruck aus und
+   signiert das Ziel passend, sonst spiegelt der Solver den Punkt durch die
+   Linie. Host-Tests 9/10 prüfen beide Seiten. Der Dart-LM-Pfad friert die
+   Seite analog in `_prepare` ein (`ctx.sign`).
+2. **Versions-Gate.** Ein VOR M21 gebautes IPA hat Shim v1 und würde den
+   unbekannten Code 20 einfach überspringen → jede Verify schlägt fehl →
+   Dauerschleife in den Fallback. Deshalb: `SlvsFfi.version` (aus
+   `slvs_shim_version()`), und `_trySolveWithSlvs` bailt bei
+   `pline && version < 2` sofort. Frischer Build nötig für den nativen Pfad.
+3. **PRef braucht Wert-Gleichheit.** `conPts.contains(pt)` dedupliziert die
+   Auswahl; mit Identity-Equality war jeder Re-Klick "neu". `==`/`hashCode`
+   sind jetzt auf PRef implementiert (constraints.dart).
+4. **Kreis-Kombinationen sind KEINE neuen Arten.** Kreis+Punkt, Kreis+Kreis
+   laufen als gewöhnliche `dist`-Bemaßung über den Mittelpunkts-PRef
+   (`getPt(circle, 0)` = Zentrum) — Serialisierung, slvs-Packung und Renderer
+   existierten schon. Kreis+Linie und parallele Linien laufen als `pline`
+   mit dem Zentrum bzw. einem Endpunkt der zweiten Linie als Messpunkt.
+5. **Parallel-Erkennung** für Linie+Linie (Abstand statt Winkel) liegt bei
+   sin(0.5°) — `_linesParallel`. Inventor bietet bei parallelen Linien den
+   Linearabstand an; ein Winkelmaß zwischen (fast) parallelen Linien wäre
+   ohnehin degeneriert.
+
+**Rendering (viewport.dart `_paintDimension`):** `pline` zeichnet die
+Maßlinie zwischen Punkt und Lot-Fußpunkt (gestrichelte Verlängerung, wenn der
+Fußpunkt außerhalb des Segments liegt). `ang`/`ang3` zeichnen jetzt einen
+echten Winkelbogen durch die Textposition (Scheitel = Schnittpunkt bzw.
+mittlerer Pick), gestrichelte Strahl-Verlängerungen bei `ang3`.
+
+**Tests:** `backend/slvs/tests/shim_test.c` Szenarien 9/10 (CI-Gate "ALL SHIM
+TESTS PASS" deckt sie ab). NEU: `frontend/test/dimension_kinds_test.dart` +
+`dimension_picks_test.dart` (18 Tests) und ein `flutter test`-Gate im
+m5-flutter-ipa-Job. Auf dem Host läuft Engine.create() im Dart-Fallback und
+der Solver ohne libslvs im LM-Pfad — genau die Pfade, die getestet werden
+sollen.
+
+**Offen / Ideen:** Tangenten-Varianten für Kreis-Abstände (Inventor: Auswahl
+Mittelpunkt vs. Tangente beim Platzieren), Bogenlängen-Bemaßung, Winkel über
+Quadranten-Umschaltung beim Platzieren.

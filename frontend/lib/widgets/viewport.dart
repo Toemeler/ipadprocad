@@ -223,8 +223,8 @@ class _Viewport2DState extends State<Viewport2D> {
       return;
     }
     final v = await _askValue(
-        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
-        length: d.dimKind != 'ang');
+        _isAngleKind(d) ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
+        length: !_isAngleKind(d));
     if (!mounted) return;
     if (v == null) {
       app.cancelDimension();
@@ -233,10 +233,13 @@ class _Viewport2DState extends State<Viewport2D> {
     }
   }
 
+  static bool _isAngleKind(Constraint d) =>
+      d.dimKind == 'ang' || d.dimKind == 'ang3';
+
   Future<void> _editDimValue(Constraint d) async {
     final v = await _askValue(
-        d.dimKind == 'ang' ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
-        length: d.dimKind != 'ang');
+        _isAngleKind(d) ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
+        length: !_isAngleKind(d));
     if (v != null && mounted) widget.app.setDimensionValue(d, v);
   }
 
@@ -530,6 +533,15 @@ class _ViewportPainter extends CustomPainter {
       }
       final pickedEdge = app.pickedEdge;
       if (pickedEdge != null) haloEdge(pickedEdge.$1, pickedEdge.$2);
+      // picked POINTS of the constrain/dimension tools (a polyline edge shows
+      // as an edge halo above instead of two lone dots)
+      if (pickedEdge == null) {
+        for (final r in app.conPts) {
+          if (r.ent < 0 || r.ent >= gs.length) continue;
+          final q = getPt(gs[r.ent], r.pt);
+          canvas.drawCircle(map(q.dx, q.dy), 5, halo);
+        }
+      }
 
       final he = app.hoverEnt;
       if (he != null && he < gs.length && app.dragGrip == null) {
@@ -952,10 +964,89 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
           '${v.toStringAsFixed(2)} mm';
       if (c.driven) label = '($label)';
       break;
+    case 'pline':
+      // pts = [point, line A, line B]: perpendicular distance to the line.
+      // Render as a linear dimension between the point and its foot on the
+      // (extended) line; witness the extension with a dashed overshoot when
+      // the foot falls outside the picked segment (Inventor does the same).
+      if (c.pts.length < 3 ||
+          c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) {
+        return;
+      }
+      final pw = getPt(gs[c.pts[0].ent], c.pts[0].pt);
+      final aw = getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      final bw = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final dl = bw - aw;
+      final len2 = dl.dx * dl.dx + dl.dy * dl.dy;
+      if (len2 < 1e-18) return;
+      final tt = ((pw - aw).dx * dl.dx + (pw - aw).dy * dl.dy) / len2;
+      final fw = aw + dl * tt; // foot of the perpendicular (world)
+      final sp = map(pw.dx, pw.dy), sf = map(fw.dx, fw.dy);
+      if (tt < 0 || tt > 1) {
+        // dashed extension from the nearer segment end to the foot
+        final endW = tt < 0 ? aw : bw;
+        final se = map(endW.dx, endW.dy);
+        _dashedLine(canvas, se, sf, p);
+      }
+      final dirP = sp - sf;
+      if (dirP.distance < 1e-6) return;
+      final uP = dirP / dirP.distance;
+      final nP = Offset(-uP.dy, uP.dx);
+      Offset onLineP(Offset q) {
+        final rel = q - t;
+        return t + uP * (rel.dx * uP.dx + rel.dy * uP.dy);
+      }
+
+      final dp = onLineP(sp), df = onLineP(sf);
+      final offP = ((t - sp).dx * nP.dx + (t - sp).dy * nP.dy);
+      canvas.drawLine(sp, dp, p); // extension lines
+      canvas.drawLine(sf, df, p);
+      canvas.drawLine(dp, df, p); // dimension line
+      _arrow(canvas, dp, uP, p);
+      _arrow(canvas, df, -uP, p);
+      label = '${v.toStringAsFixed(2)} mm';
+      if (c.driven) label = '($label)';
+      t = (dp + df) / 2 + nP * (offP >= 0 ? 10 : -10);
+      break;
     case 'ang':
       if (c.ents.length < 2 ||
           c.ents.any((e) => e >= gs.length || gs[e].type != Geo.line)) {
         return;
+      }
+      // arc between the two lines, centered on their intersection, through
+      // the text position (Inventor's look); skip the arc when parallel
+      final l1a = getPt(gs[c.ents[0]], 0), l1b = getPt(gs[c.ents[0]], 1);
+      final l2a = getPt(gs[c.ents[1]], 0), l2b = getPt(gs[c.ents[1]], 1);
+      final ix = _lineIntersect(l1a, l1b, l2a, l2b);
+      if (ix != null) {
+        _angleArc(canvas, map, ix, t, v, p);
+      }
+      label = '${v.toStringAsFixed(1)}\u00b0';
+      if (c.driven) label = '($label)';
+      break;
+    case 'ang3':
+      // pts = [ray end, VERTEX, ray end]
+      if (c.pts.length < 3 ||
+          c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) {
+        return;
+      }
+      final vtx = getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      final ra = getPt(gs[c.pts[0].ent], c.pts[0].pt);
+      final rb = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final sv = map(vtx.dx, vtx.dy);
+      final sa2 = map(ra.dx, ra.dy), sb2 = map(rb.dx, rb.dy);
+      final rr = (t - sv).distance;
+      if (rr > 1e-6) {
+        final a0 = math.atan2((sa2 - sv).dy, (sa2 - sv).dx);
+        final a1 = math.atan2((sb2 - sv).dy, (sb2 - sv).dx);
+        var sweep = a1 - a0;
+        while (sweep <= -math.pi) sweep += 2 * math.pi;
+        while (sweep > math.pi) sweep -= 2 * math.pi;
+        canvas.drawArc(Rect.fromCircle(center: sv, radius: rr), a0, sweep,
+            false, p);
+        // dashed ray extensions out to the arc radius
+        _dashedLine(canvas, sv, sv + (sa2 - sv) / (sa2 - sv).distance * rr, p);
+        _dashedLine(canvas, sv, sv + (sb2 - sv) / (sb2 - sv).distance * rr, p);
       }
       label = '${v.toStringAsFixed(1)}\u00b0';
       if (c.driven) label = '($label)';
@@ -973,6 +1064,29 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       center: t, width: tp.width + 6, height: tp.height + 3);
   canvas.drawRect(bg, Paint()..color = const Color(0xCC212830));
   tp.paint(canvas, bg.topLeft + const Offset(3, 1.5));
+}
+
+/// Intersection of the infinite lines a1-a2 and b1-b2 (world coords), or
+/// null when (near-)parallel.
+Offset? _lineIntersect(Offset a1, Offset a2, Offset b1, Offset b2) {
+  final d1 = a2 - a1, d2 = b2 - b1;
+  final den = d1.dx * d2.dy - d1.dy * d2.dx;
+  if (den.abs() < 1e-12) return null;
+  final t = ((b1 - a1).dx * d2.dy - (b1 - a1).dy * d2.dx) / den;
+  return a1 + d1 * t;
+}
+
+/// Angle-dimension arc: centered on the vertex [vtxWorld], radius chosen so
+/// the arc passes near the label position [t] (screen), sweeping [deg].
+void _angleArc(Canvas canvas, Offset Function(double, double) map,
+    Offset vtxWorld, Offset t, double deg, Paint p) {
+  final sv = map(vtxWorld.dx, vtxWorld.dy);
+  final rr = (t - sv).distance;
+  if (rr < 1e-6) return;
+  final mid = math.atan2((t - sv).dy, (t - sv).dx);
+  final half = deg * math.pi / 360; // deg/2 in radians
+  canvas.drawArc(
+      Rect.fromCircle(center: sv, radius: rr), mid - half, 2 * half, false, p);
 }
 
 void _arrow(Canvas c, Offset tip, Offset dir, Paint p) {

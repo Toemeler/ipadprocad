@@ -26,6 +26,16 @@ class PRef {
   const PRef(this.ent, this.pt);
   Map<String, int> toJson() => {'e': ent, 'p': pt};
   static PRef fromJson(Map<String, dynamic> j) => PRef(j['e'], j['p']);
+
+  // Value equality: the dimension tool's pick set dedups refs with
+  // contains(), and identity equality made every re-click look "new".
+  @override
+  bool operator ==(Object other) =>
+      other is PRef && other.ent == ent && other.pt == pt;
+  @override
+  int get hashCode => Object.hash(ent, pt);
+  @override
+  String toString() => 'PRef($ent,$pt)';
 }
 
 /// Entity index of the PROJECTED CENTER POINT. Inventor projects it into every
@@ -360,6 +370,30 @@ double measureDim(List<Geo> gs, Constraint c) {
       var d = (t2 - t1).abs() % (2 * math.pi);
       if (d > math.pi) d = 2 * math.pi - d;
       return d * 180 / math.pi;
+    case 'pline':
+      // pts = [measured point, line point A, line point B] — the perpendicular
+      // distance to the INFINITE line through A,B (Inventor measures the same
+      // way; the witness line is extended when the foot falls off the segment).
+      if (c.pts.length < 3) return 0;
+      final p = getPt(gs[c.pts[0].ent], c.pts[0].pt);
+      final a = getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      final b = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final d = b - a;
+      final len = d.distance;
+      if (len < 1e-12) return (p - a).distance;
+      return ((p - a).dx * d.dy - (p - a).dy * d.dx).abs() / len;
+    case 'ang3':
+      // pts = [ray end A, VERTEX, ray end B] — Inventor's 3-point angle.
+      if (c.pts.length < 3) return 0;
+      final a = getPt(gs[c.pts[0].ent], c.pts[0].pt);
+      final o = getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      final b = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final d1 = a - o, d2 = b - o;
+      final s = d1.distance * d2.distance;
+      if (s < 1e-12) return 0;
+      final cross = (d1.dx * d2.dy - d1.dy * d2.dx) / s;
+      final dot = (d1.dx * d2.dx + d1.dy * d2.dy) / s;
+      return math.atan2(cross.abs(), dot) * 180 / math.pi;
   }
   return 0;
 }

@@ -172,6 +172,45 @@ static void test_dragged_rectangle(void) {
     check("width did not collapse", near(px[1], 60.0));
 }
 
+/* ---- scenario 9: SH_PT_LINE_DIST (shim v2) ---------------------------------
+ * A locked horizontal line p0-p1 on y=0 and a free point p2 above it at
+ * y=7. Driving the perpendicular distance to 12 must move the point to
+ * y=12 -- on the SAME side (no mirroring through the line), with x free. */
+static void test_pt_line_dist(void) {
+    printf("[9] pt-line distance: drive p2 to 12 above the line\n");
+    double px[3] = {0, 100, 30}, py[3] = {0, 0, 7};
+    int fixed[3] = {1, 1, 0};
+    int la[1] = {0}, lb[1] = {1};
+    int ct[1]  = {SH_PT_LINE_DIST};
+    int ca[1]  = {2}, cb[1] = {-1};
+    int ce1[1] = {0}, ce2[1] = {1};       /* RAW point indices of the line */
+    double cv[1] = {12};
+    int dof = -1, failed[8];
+    int r = slvs_solve(3, px, py, fixed, 1, la, lb, 0,0,0, 0,0,0,0,0,
+                       1, ct, ca, cb, ce1, ce2, cv, &dof, failed, 8);
+    check("result OKAY", r == SH_RESULT_OKAY);
+    check("distance reached (y=12)", near(py[2], 12.0));
+    check("same side (y>0)", py[2] > 0);
+    check("x stayed free (dof 1)", dof == 1);
+}
+
+/* ---- scenario 10: SH_PT_LINE_DIST below the line ----------------------- */
+static void test_pt_line_dist_below(void) {
+    printf("[10] pt-line distance: point below stays below\n");
+    double px[3] = {0, 100, 30}, py[3] = {0, 0, -3};
+    int fixed[3] = {1, 1, 0};
+    int la[1] = {0}, lb[1] = {1};
+    int ct[1]  = {SH_PT_LINE_DIST};
+    int ca[1]  = {2}, cb[1] = {-1};
+    int ce1[1] = {0}, ce2[1] = {1};
+    double cv[1] = {5};
+    int dof = -1, failed[8];
+    int r = slvs_solve(3, px, py, fixed, 1, la, lb, 0,0,0, 0,0,0,0,0,
+                       1, ct, ca, cb, ce1, ce2, cv, &dof, failed, 8);
+    check("result OKAY", r == SH_RESULT_OKAY);
+    check("distance reached (y=-5)", near(py[2], -5.0));
+}
+
 int main(void) {
     printf("slvs_shim version = %d\n\n", slvs_shim_version());
     test_rectangle();
@@ -182,6 +221,8 @@ int main(void) {
     test_dragged();
     test_dragged_constrained();
     test_dragged_rectangle();
+    test_pt_line_dist();
+    test_pt_line_dist_below();
     printf("\n%d failures\n", failures);
     if (failures == 0) printf("ALL SHIM TESTS PASS\n");
     return failures == 0 ? 0 : 1;

@@ -21,6 +21,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M12–M14** Auto-Coincident auf den Center Point, Lock, live-korrekter Drag | ✅ erledigt |
 | **M15** Diagnose-Log auf dem Gerät (Files-App) | ✅ erledigt |
 | **M16** Geometrie strikt an Layer gebunden + Sichtbarkeits-Auge | ✅ erledigt |
+| **M21** Inventor-komplette Bemaßung (alle Pick-Kombinationen) | ✅ erledigt, CI-Gates (Shim-Host-Test + Dart-Tests) |
 
 ### Constraint-Solver (M9–M14)
 
@@ -70,7 +71,41 @@ trägt. Sichtbarkeit + Lock + Reihenfolge liegen versioniert im Sidecar
 (`<name>.layers.json`). **Wichtig:** Der ursprüngliche „alles auf Layer 0"-Fehler
 kam von einem IPA vor M16 — ein frischer Build ist nötig.
 
+### Bemaßung (M21) — Inventors General Dimension, vollständig
+
+Ein Werkzeug, das den Bemaßungstyp aus der Pick-Kombination ableitet — exakt
+wie Inventors General Dimension. Jeder Klick erweitert entweder die Auswahl
+(wenn die Kombination gültig ist) oder platziert die Bemaßung:
+
+| Auswahl | Bemaßung |
+|---|---|
+| Linie | Länge (fluchtend / horizontal / vertikal, per Platzierung) |
+| Kreis / Bogen | Durchmesser / Radius |
+| Punkt + Punkt | Abstand (fluchtend / H / V per Platzierung) |
+| Linie + Punkt | senkrechter Abstand Punkt↔Linie |
+| Linie + Linie | Winkel; (nahezu) parallel → linearer Abstand |
+| Kreis/Bogen + Punkt | Abstand Punkt↔Mittelpunkt |
+| Kreis/Bogen + Kreis/Bogen | Abstand Mittelpunkt↔Mittelpunkt |
+| Kreis/Bogen + Linie | senkrechter Abstand Mittelpunkt↔Linie |
+| Punkt + Punkt + Punkt | Winkel (zweiter Pick = Scheitel) |
+| Polylinien-Kante | ihre zwei Ecken (kombiniert weiter, z. B. + Punkt → Winkel) |
+
+Technisch: zwei neue Bemaßungsarten. `pline` (Punkt-Linie-Abstand) läuft
+nativ über den neuen Shim-Code `SH_PT_LINE_DIST` (Shim v2,
+`SLVS_C_PT_LINE_DISTANCE`, vorzeichenrichtig — der Punkt bleibt auf seiner
+Seite der Linie); ein älteres Binary wird per Versions-Gate erkannt und fällt
+auf den verifizierten Dart-LM-Solver zurück statt die Bemaßung stumm zu
+verlieren. `ang3` (3-Punkt-Winkel) läuft bewusst immer über den LM-Solver
+(der Shim kennt keinen 3-Punkt-Winkel). Alle Mittelpunkt-Kombinationen
+reduzieren sich auf die vorhandene Punkt-Punkt-Distanz (`getPt(circle, 0)` =
+Zentrum), inklusive DXF-Sidecar-Roundtrip. Getestet: Shim-Host-Gate
+(Szenarien 9/10, beide Seiten der Linie) + `frontend/test/` (18 Dart-Tests:
+Messen, LM-Treiben, Überbestimmt-Erkennung, komplette Pick-Matrix); beide
+laufen in der CI.
+
 ### Diagnose-Log (M15)
+
+
 
 Die App schreibt ein ausführliches Log ins Documents-Verzeichnis, sichtbar in der
 **Dateien-App → Auf meinem iPad → ipadprocad → logs → `ipadprocad_log.txt`**

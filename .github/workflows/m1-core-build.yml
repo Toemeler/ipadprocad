@@ -508,6 +508,14 @@ jobs:
           fi
           } 2>&1 | tee ../ci-m5-scaffold.log
 
+      - name: Dart unit tests (solver + dimension system)
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee ../ci-m5-dart-tests.log
+          grep -q "All tests passed" ../ci-m5-dart-tests.log \
+            || { echo "DART TESTS FAIL"; exit 1; }
+
       - name: Build libslvs static (iOS device, arm64)
         working-directory: backend/slvs
         run: |

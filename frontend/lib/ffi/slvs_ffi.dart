@@ -29,6 +29,9 @@ class Sh {
   static const radius = 17;
   static const angle = 18;
   static const dragged = 19;
+  // e1/e2 carry RAW point indices (the line's two points), not ent refs.
+  // Requires shim version >= 2 — callers must gate on [SlvsFfi.version].
+  static const ptLineDist = 20;
 
   static const resultOkay = 0;
   static const resultInconsistent = 1; // also libslvs's REDUNDANT_OKAY
@@ -126,8 +129,12 @@ class SlvsSketch {
 }
 
 class SlvsFfi {
-  SlvsFfi._(this._solve);
+  SlvsFfi._(this._solve, this.version);
   final _SolveD _solve;
+
+  /// slvs_shim_version() of the linked binary. Feature gates:
+  ///   >= 2  SH_PT_LINE_DIST (point-to-line distance dimension)
+  final int version;
 
   static SlvsFfi? _cached;
   static bool _probed = false;
@@ -142,7 +149,7 @@ class SlvsFfi {
       final ver = lib.lookupFunction<_VerN, _VerD>('slvs_shim_version')();
       if (ver <= 0) return null;
       final solve = lib.lookupFunction<_SolveN, _SolveD>('slvs_solve');
-      _cached = SlvsFfi._(solve);
+      _cached = SlvsFfi._(solve, ver);
     } catch (_) {
       _cached = null;
     }
