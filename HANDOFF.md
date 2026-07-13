@@ -402,6 +402,24 @@ Token NIE in Dateien/.git/config schreiben.
   Log vom Geraet ist die Ursache direkt sichtbar. Die M15-Schranken verhindern
   bereits, dass der Viewport dabei ausgeloescht wird.
 
+- **M6–M8 — Grips/Modify/Snap, Constraints, Bemaßung: ERLEDIGT.**
+- **M9–M14 — SolveSpace-Solver (libslvs, FFI) + Dart-LM-Fallback,
+  Auto-Coincident auf den projizierten CP, Lock, live-korrekter Drag:
+  ERLEDIGT.** Architektur: slvs nativ, jede Lösung wird per Residuen-Check
+  verifiziert; scheitert oder bailt slvs, übernimmt der Dart-LM-Solver.
+- **M15 — Diagnose-Log auf dem Gerät (Files-App): ERLEDIGT.**
+- **M16/M17 — Layer-Bindung + Editier-Scope + Auge: ERLEDIGT.**
+- **M18–M20 — Layer-System produktionsreif; "alles auf Layer 0"-Backend-Fix;
+  Bögen verschwanden beim Drag (slvs-Writeback verlor das
+  Richtungs-Flag): ERLEDIGT** (Details in den Commit-Messages 7d8106a,
+  37d707d, 0a89d28).
+- **M21 — Inventor-komplette Bemaßung: ERLEDIGT** (Abschnitt unten).
+- **M22 — Splines produktionsreif: ERLEDIGT** (Abschnitt unten).
+- **M23 — Ellipse = 3 Definitionspunkte: ERLEDIGT** (Abschnitt unten).
+- **M24 — Ellipsen-Feinschliff + Inline-Bemaßungseingabe: ERLEDIGT.**
+- **M25 — Projizierter CP bemaßbar + Mittellinien + Ellipsen-Achsen als
+  gebundene Entities: ERLEDIGT** (Abschnitt unten).
+
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
 Panel `#292D33`, Flyout `#212429`, Hover `#31363D`, Text `#DDE0E3`, Dim `#9EA4AA`,
@@ -818,3 +836,42 @@ Geometrie. LM-Iterationsbudget 25 → 80 (bricht bei Konvergenz früh ab).
 Ellipsen-Commit erzeugt 2 gebundene Achsen (midpoint×2 + coincident≥2),
 Achsen folgen der (gepinnten) Ellipse exakt durch den Solver,
 Centerline-Stil überlebt den Engine-Roundtrip. 36 gesamt, alle grün.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M25, für die nächste Session)
+
+**Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
+Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
+Layer-System mit Editier-Scope/Lock/Auge, Snapping (Vertex, Mittelpunkt,
+Zentrum, Quadranten, projizierter CP), Grips mit Inventor-Semantik,
+Constraints (coincident, collinear, concentric, fix, parallel,
+perpendicular, h/v, tangent, smooth, symmetric, equal, midpoint) mit
+Auto-Inferenz, Inventors komplette Bemaßungs-Pick-Matrix inkl. pline/ang3
+und Inline-Werteingabe, getriebene (Referenz-)Bemaßungen, Mittellinien-Stil,
+DXF-Speicherung mit Sidecars (Constraints, Spline-Tags, Styles),
+Diagnose-Log in der Files-App.
+
+**Solver-Architektur (unverändert wichtig):** libslvs nativ zuerst, jede
+Lösung wird gegen die Dart-Residuen VERIFIZIERT; bail/fail → Dart-LM
+(iterations=80). Neue Constraint-/Bemaßungsarten brauchen IMMER: Residual +
+residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
+Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
+slvs_shim_version() (aktuell 2) für neue Codes.
+
+**Test-/CI-Workflow:** `flutter test` in frontend/ (36 Tests) + Shim-Host-
+Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
+Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
+die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",
+Artefakt `ipadprocad-unsigned-ipa`.
+
+**Bekannte Grenzen / nächste Kandidaten:**
+- Trim/Extend kennt getaggte Polylines (Splines/Ellipsen) nicht.
+- Keine Tangenten-Handles an Fit-Spline-Punkten (Inventors Pfeil-Griffe).
+- Kreis-Abstände immer Zentrum-basiert (keine Tangenten-Variante beim
+  Platzieren), keine Bogenlängen-Bemaßung, Winkel ohne Quadranten-Wahl.
+- DXF exportiert bei Splines/Ellipsen das Definitionspolygon + Sidecar
+  (C-API hat kein Spline-/Ellipsen-Entity; REllipseEntity existiert im
+  Core — natives qcad_add_ellipse wäre der saubere nächste Schritt).
+- Alte 96-Punkt-Ellipsen (vor M23) bleiben gewöhnliche Polylines.
+- eqCurve erzeugt weiterhin gesampelte Polylines (bewusst: echte Kurve).

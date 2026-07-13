@@ -7,7 +7,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
-## Status (Stand M16)
+## Status (Stand M25)
 
 | Meilenstein | Stand |
 |---|---|
@@ -21,7 +21,15 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M12–M14** Auto-Coincident auf den Center Point, Lock, live-korrekter Drag | ✅ erledigt |
 | **M15** Diagnose-Log auf dem Gerät (Files-App) | ✅ erledigt |
 | **M16** Geometrie strikt an Layer gebunden + Sichtbarkeits-Auge | ✅ erledigt |
+| **M17** Layer = Editier-Scope, Auge blendet wirklich alles aus | ✅ erledigt |
+| **M18** Produktionsreifes Layer-System (Lock/Rename/Delete/Move) | ✅ erledigt |
+| **M19** Fix "alles landet auf Layer 0" (Backend) + Z-Order | ✅ erledigt |
+| **M20** Fix: Bögen/Kurven verschwanden beim Ziehen (slvs-Writeback) | ✅ erledigt |
 | **M21** Inventor-komplette Bemaßung (alle Pick-Kombinationen) | ✅ erledigt, CI-Gates (Shim-Host-Test + Dart-Tests) |
+| **M22** Splines produktionsreif (Tag-Erhalt, periodisch geschlossen, Klick-auf-Start) | ✅ erledigt |
+| **M23** Ellipse = 3 Definitionspunkte statt 96-Vertex-Polygon | ✅ erledigt |
+| **M24** Ellipsen-Feinschliff, Inventor-Platzierungsregionen, Inline-Werteingabe | ✅ erledigt |
+| **M25** Projizierter CP bemaßbar, Mittellinien-Stil, Ellipsen-Achsen als Entities | ✅ erledigt |
 
 ### Constraint-Solver (M9–M14)
 
@@ -102,6 +110,60 @@ Zentrum), inklusive DXF-Sidecar-Roundtrip. Getestet: Shim-Host-Gate
 (Szenarien 9/10, beide Seiten der Linie) + `frontend/test/` (18 Dart-Tests:
 Messen, LM-Treiben, Überbestimmt-Erkennung, komplette Pick-Matrix); beide
 laufen in der CI.
+
+### Splines (M22)
+
+Zwei Spline-Werkzeuge wie in Inventor: **Control-Vertex** (kubischer
+B-Spline, Punkte liegen NEBEN der Kurve) und **Interpolation** (Kurve läuft
+DURCH die Punkte). Gespeichert wird nur das Definitionspolygon als getaggte
+Polyline — die Kurve entsteht Dart-seitig, deshalb sind ausschließlich die
+Kontroll-/Fit-Punkte Grips und Snap-Ziele. Offene Splines sind geklemmt
+(Kurve beginnt/endet auf dem ersten/letzten Punkt), geschlossene sind echte
+PERIODISCHE B-Splines (schließen exakt, C2-glatt am Stoß). Klick auf den
+Startpunkt (ab 3 Punkten) schließt und committet sofort. CV-Splines zeigen
+bei Hover/Selektion ihr gestricheltes Kontrollpolygon mit Punktmarkern.
+
+### Ellipse (M23–M25)
+
+Eine Ellipse besteht aus genau **3 Definitionspunkten** — Zentrum,
+Hauptscheitel, Nebenscheitel — mit Inventors Grip-Semantik: Zentrum
+verschiebt die ganze Ellipse, Hauptscheitel rotiert/streckt sie
+(Nebenscheitel folgt senkrecht), Nebenscheitel ändert nur die
+Nebenausdehnung. Die Kurve ist scher-immun (der Nebenscheitel zählt nur mit
+seiner Komponente senkrecht zur Hauptachse) und wird bei jedem Edit
+kanonisiert. Snap: Zentrum + alle vier Quadranten.
+
+Beim Commit entstehen die beiden **Achsen als echte Mittellinien-Entities**
+(gestrichelt gerendert, aber vollwertig: verschiebbar, bemaßbar,
+constraintbar), an die Ellipse gebunden über coincident(Achsende, Scheitel)
+und midpoint(Zentrum auf Achse) — Achse ziehen treibt die Ellipse durch den
+Solver und umgekehrt. In der Bemaßung zählt die Ellipse als Kurve
+(Bezugspunkt = Zentrum): Ellipse+Linie → Abstand Zentrum↔Linie,
+Ellipse+Punkt → Abstand zum Zentrum, Ellipse+Kreis/Ellipse →
+Zentrum↔Zentrum.
+
+### Mittellinien-Stil (M25)
+
+Jede Linie kann per Ribbon (Format → Centerline) in den Mittellinien-Stil
+geschaltet werden — Inventors Format-Toggle. Der Stil ist reine Darstellung
+(gestrichelt); die Linie bleibt voll editierbar und überlebt Speichern/Laden
+und jeden Edit (Sidecar `<name>.styles.json`, analog zu den Spline-Tags).
+
+### Bemaßung — Bedienung (M24/M25)
+
+- **Platzierungsregionen wie Inventor:** Bei zwei Punkten entscheidet die
+  Position der Vorschau — über/unter der Box → horizontale Bemaßung,
+  links/rechts → vertikale, entlang der Normalen → fluchtend. Beim Ziehen
+  wechselt der Typ live durch.
+- **Vertex vor Kante:** Ein Klick auf einen Punkt gewinnt immer gegen die
+  darunterliegende Entity; Linienlänge = Klick auf den Linienkörper.
+- **Inline-Werteingabe:** Der Wert wird in einem Textfeld direkt AUF der
+  Bemaßung eingegeben — öffnet nach dem Platzieren und beim Tippen auf eine
+  bestehende Bemaßung. Enter committet, Esc bricht ab, Klick daneben
+  committet (die Bemaßung bleibt, wie in Inventor). Einheiten mm/cm/m bzw.
+  Grad.
+- **Projizierter Center Point:** Der Ursprung ist ein vollwertiges
+  Bemaßungs- und Constraint-Ziel (Punkt↔Ursprung, Linie↔Ursprung usw.).
 
 ### Diagnose-Log (M15)
 
