@@ -419,6 +419,8 @@ Token NIE in Dateien/.git/config schreiben.
 - **M24 — Ellipsen-Feinschliff + Inline-Bemaßungseingabe: ERLEDIGT.**
 - **M25 — Projizierter CP bemaßbar + Mittellinien + Ellipsen-Achsen als
   gebundene Entities: ERLEDIGT** (Abschnitt unten).
+- **M26 — Inventor-DOF-Färbung (Träger-Analyse, Kanten-Färbung, Status):
+  ERLEDIGT, Host-Tests grün (45), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -839,7 +841,76 @@ Centerline-Stil überlebt den Engine-Roundtrip. 36 gesamt, alle grün.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M25, für die nächste Session)
+## M26 — Inventor-DOF-Färbung: Träger-Analyse statt Alle-Punkte-Regel
+
+**Symptom (Nutzer):** Beim Rechteck wurden alle Linien erst weiß, wenn das
+GANZE Rechteck bestimmt war. In Inventor wird eine Linie schon weiß, wenn
+nur noch ihre Länge frei ist (z. B. Ecke fixiert + H/V-Constraint).
+
+**Recherche (belegt):** Autodesk-Forum "Bug: Line colour updates as fully
+constrained when it isn't" — akzeptierte Antwort eines Autodesk-Engineers
+nach Rückfrage beim Inventor-Team: Linien mit fixierter Richtung + Lage
+werden im Fully-Constrained-Schema gefärbt, obwohl keine Längenbemaßung
+existiert; die Endpunkte sind SEPARATE Entities mit eigenem Zustand. Ein
+Rechteck ist in Inventor vier einzelne Linien → Kanten färben unabhängig.
+
+**Ursache bei uns:** `entityFull` im Viewport-Painter verlangte, dass JEDER
+Punkt der Entity aus `freePoints` verschwunden ist. Eine Linie mit freier
+Länge hat einen beweglichen Punkt → blieb violett. Und ein Rechteck ist EINE
+Polyline mit EINEM Paint → nichts wurde weiß, bis der letzte Vertex fest war.
+
+**Fix (solver.dart):** `analyzeSketch` extrahiert jetzt die ECHTEN
+Nullraum-Basisvektoren aus der RREF (vorher nur movable-Booleans — die
+Basis stand schon da und wurde weggeworfen). Pro Basisvektor (= eine noch
+mögliche Bewegung erster Ordnung) wird pro Träger geprüft, ob er sich ändert:
+- Linie/Kante a→b: lose, wenn ein Endpunkt SENKRECHT zur Kante wandert
+  (ändert Richtung/Offset). Bewegung NUR entlang der Kante = freie Länge
+  → Träger bleibt fest → weiß. Test: cross(d, δ)/|d| beider Endpunkte.
+- Kreis/Bogen: Träger = (cx, cy, r) — die Params o..o+2. Freie
+  Bogen-ENDWINKEL (o+3, o+4) zählen nicht (Endpunkte = eigene Entities).
+- Getaggte Polylines (Spline/Ellipse): lose, wenn irgendein Param beweglich
+  (die Kurve IST ihre Definitionspunkte) — wie bisher, eine Farbe.
+- Gewöhnliche Polylines: PRO KANTE (geschlossen n, offen n-1 Segmente).
+Ergebnis in `SketchAnalysis.looseCarriers` (Set<(ent, seg)>) +
+`carrierFixed(ent, [seg])` + Helper `carrierSegCount(Geo)`. `freePoints`
+bleibt UNVERÄNDERT — Grips, Drag-Sperre und DOF-Pfeile hängen weiter daran
+(richtig so: der freie Endpunkt einer weißen Linie bleibt ziehbar).
+Toleranz: Basisvektor auf max|v| normiert, Schwelle 1e-5 (numerischer
+Jacobian mit h=1e-6 rauscht darunter).
+
+**Fix (viewport.dart):** `entityFull` → `segFull(i, seg)` über
+`carrierFixed`. Gewöhnliche Polylines werden (wenn nicht selektiert/
+Referenz) Kante für Kante mit der Farbe IHRER Kante gemalt statt als ein
+Path. Neu außerdem Inventors Status unten rechts im Viewport:
+„N dimensions needed" / „Fully Constrained" (aus `analysis.dof`, das es
+schon immer gab und das nie angezeigt wurde).
+
+**WICHTIGE ERKENNTNIS aus dem Testen (Erwartung war erst falsch):** Beim
+Rechteck mit EINER fixierten Ecke + H/V werden nur die ZWEI Kanten durch
+die Ecke weiß. Die gegenüberliegenden Kanten (rechts/oben) bleiben violett
+— korrekt, denn ihre Trägergerade VERSCHIEBT sich mit der freien Breite/
+Höhe (x=w wandert mit w). Erst die Breiten-Bemaßung macht die rechte Kante
+weiß (ihre Länge = Höhe bleibt frei), die Höhen-Bemaßung dann alles. Das
+ist exakt Inventors Verhalten und exakt das Szenario des Nutzers („die
+Linie, die an der voll bestimmten Ecke hängt").
+
+**Tests:** `frontend/test/m26_test.dart` (9 Tests): Linie fix+H mit freier
+Länge → weiß + Endpunkt bleibt freePoint; NUR Längenbemaßung → violett
+(Träger transliert/rotiert noch); Rechteck-Progression (Ecke→2 Kanten weiß,
++Breite→3, +Höhe→alles, dof 2→1→0); L-Form über coincident (Kette:
+Kante 2 erst weiß, wenn Kante 1 bemaßt ist); Kreis Zentrum fix + freier
+Radius → violett, +rad-Bemaßung → weiß; unconstrained → alles lose; voll
+bestimmt → looseCarriers leer; carrierSegCount-Konvention. 45 gesamt, alle
+grün (flutter test, Host = Dart-Fallback-Engine + LM-Pfad wie in der CI).
+
+**Grenzen:** Erste Ordnung (Nullraum am aktuellen Punkt) — ein Träger, der
+nur in höherer Ordnung beweglich wäre, würde weiß gefärbt; praktisch
+irrelevant, Inventor arbeitet genauso lokal. Der Status-Text zählt dof als
+"dimensions needed" (Inventor zählt genauso Parameter, nicht Bemaßungen).
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M26, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -859,7 +930,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (36 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (45 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",

@@ -30,6 +30,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M23** Ellipse = 3 Definitionspunkte statt 96-Vertex-Polygon | ✅ erledigt |
 | **M24** Ellipsen-Feinschliff, Inventor-Platzierungsregionen, Inline-Werteingabe | ✅ erledigt |
 | **M25** Projizierter CP bemaßbar, Mittellinien-Stil, Ellipsen-Achsen als Entities | ✅ erledigt |
+| **M26** Inventor-DOF-Färbung: Träger-Analyse (freie Länge = weiß) + Kanten-Färbung + Status-Anzeige | ✅ erledigt (Geräte-Test offen) |
 
 ### Constraint-Solver (M9–M14)
 
@@ -164,6 +165,21 @@ und jeden Edit (Sidecar `<name>.styles.json`, analog zu den Spline-Tags).
   Grad.
 - **Projizierter Center Point:** Der Ursprung ist ein vollwertiges
   Bemaßungs- und Constraint-Ziel (Punkt↔Ursprung, Linie↔Ursprung usw.).
+
+### DOF-Färbung wie Inventor (M26)
+
+Jede Entity wird nach dem Zustand ihres **Trägers** gefärbt — Inventors
+bestätigte Semantik (Autodesk-Forum, Antwort des Inventor-Teams): eine Linie
+wird weiß, sobald ihre unendliche Trägergerade — Richtung UND senkrechte
+Lage — fixiert ist, auch wenn noch keine Längenbemaßung existiert. Der noch
+verschiebbare Endpunkt ist eine eigene Entity (Grips/DOF-Pfeile) und hält
+die Linie nicht mehr violett. Kreise/Bögen: Träger = Zentrum + Radius (freie
+Bogen-Endwinkel zählen nicht). Gewöhnliche Polylinien (Rechtecke, Polygone)
+werden **pro Kante** gefärbt — ein Rechteck wird Kante für Kante weiß, wie
+Inventors vier einzelne Linien, statt erst mit dem letzten Vertex.
+Splines/Ellipsen bleiben eine Kurve: weiß, wenn alle Definitionspunkte fest
+sind. Unten rechts im Viewport steht Inventors Status: „N dimensions
+needed" bzw. „Fully Constrained".
 
 ### Diagnose-Log (M15)
 

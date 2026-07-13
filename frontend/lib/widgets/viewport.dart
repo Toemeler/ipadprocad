@@ -19,7 +19,6 @@ import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../snap.dart';
-import '../solver.dart';
 import '../tools.dart';
 import '../theme.dart';
 
@@ -485,6 +484,28 @@ class _Viewport2DState extends State<Viewport2D> {
                     ),
                   ),
                   if (_inlineDim != null) _inlineEditor(size),
+                  // Inventor's status readout, bottom right of the graphics
+                  // window: "N dimensions needed" while under-constrained,
+                  // "Fully Constrained" at DOF 0.
+                  if (app.analysis != null &&
+                      (app.current?.geometry.isNotEmpty ?? false))
+                    Positioned(
+                      right: 10,
+                      bottom: 8,
+                      child: IgnorePointer(
+                        child: Text(
+                          app.analysis!.dof <= 0
+                              ? 'Fully Constrained'
+                              : '${app.analysis!.dof} dimensions needed',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: app.analysis!.dof <= 0
+                                ? const Color(0xFFDDE0E3)
+                                : const Color(0xFF9EA4AA),
+                          ),
+                        ),
+                      ),
+                    ),
                 ]),
               ),
             ),
@@ -556,15 +577,15 @@ class _ViewportPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
       final gs = app.displayGeometry(s);
-      final free = app.analysis?.freePoints ?? const <(int, int)>{};
       final hasAnalysis = app.analysis != null;
-      bool entityFull(int i) {
-        if (!hasAnalysis) return false;
-        for (var pp = 0; pp < ptCount(gs[i]); pp++) {
-          if (free.contains((i, pp))) return false;
-        }
-        return true;
-      }
+      // Inventor colours each entity by ITS OWN carrier (confirmed Inventor
+      // behaviour): a line goes white as soon as direction + position are
+      // fixed, even while its length is still free — the movable endpoint is
+      // a separate entity (grips / DOF arrows). Plain polylines are coloured
+      // per EDGE, so a rectangle whites up edge by edge like Inventor's four
+      // lines instead of all at once when the last vertex locks.
+      bool segFull(int i, int seg) =>
+          hasAnalysis && app.analysis!.carrierFixed(i, seg);
 
       // ---- pre-select / pick halo, painted UNDER the geometry so the DOF
       // colour above it stays readable. Inventor highlights whatever the next
@@ -621,7 +642,7 @@ class _ViewportPainter extends CustomPainter {
             ? sel
             : reference
                 ? refPaint
-                : (entityFull(i) ? whitePaint : underPaint);
+                : (segFull(i, 0) ? whitePaint : underPaint);
         // ONE bad entity must not take the whole sketch down with it. A throw
         // in here aborts CustomPainter.paint, so every entity AFTER it stays
         // unpainted — which reads as "all my geometry disappeared". Same for
@@ -636,7 +657,25 @@ class _ViewportPainter extends CustomPainter {
           continue;
         }
         try {
-          paintGeo(canvas, gs[i], map, app.zoom, paint);
+          final g0 = gs[i];
+          final perEdge = !app.selection.contains(i) &&
+              !reference &&
+              g0.type == Geo.polyline &&
+              !g0.isSpline &&
+              g0.data[1].toInt() >= 2;
+          if (perEdge) {
+            // plain polyline: every edge carries its own constraint state
+            final n = g0.data[1].toInt();
+            final edges = g0.data[0] != 0 ? n : n - 1;
+            for (var seg = 0; seg < edges; seg++) {
+              final a = map(g0.data[2 + 2 * seg], g0.data[3 + 2 * seg]);
+              final k = (seg + 1) % n;
+              final b = map(g0.data[2 + 2 * k], g0.data[3 + 2 * k]);
+              canvas.drawLine(a, b, segFull(i, seg) ? whitePaint : underPaint);
+            }
+          } else {
+            paintGeo(canvas, gs[i], map, app.zoom, paint);
+          }
           // Inventor shows the CONTROL POLYGON of a CV spline (dashed, with
           // vertex dots) whenever it is selected or hovered — without it the
           // off-curve control points are invisible and the spline feels

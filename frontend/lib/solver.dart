@@ -26,8 +26,39 @@ import 'ffi/slvs_ffi.dart';
 class SketchAnalysis {
   final int dof;
   final Set<(int, int)> freePoints; // (entity, point) still able to move
-  const SketchAnalysis(this.dof, this.freePoints);
+
+  /// (entity, segment) pairs whose CARRIER can still move. This is Inventor's
+  /// per-entity colouring rule (confirmed by Autodesk for the sketch solver):
+  /// a line is "fully constrained" as soon as its infinite carrier line —
+  /// direction AND perpendicular position — is fixed, even while an endpoint
+  /// can still slide ALONG it (free length). The endpoints are separate
+  /// entities with their own state (freePoints / DOF arrows).
+  ///   line / circle / arc / tagged polyline (spline, ellipse): segment 0
+  ///   plain polyline: one entry per edge (a rectangle whites up edge by edge)
+  /// For circles and arcs the carrier is (center, radius); free arc ENDPOINTS
+  /// (sweep angles) do not keep the curve violet — again Inventor's rule.
+  final Set<(int, int)> looseCarriers;
+
+  const SketchAnalysis(this.dof, this.freePoints,
+      [this.looseCarriers = const {}]);
   bool get fullyConstrained => dof == 0;
+
+  /// White in Inventor's scheme: the carrier of [seg] of entity [ent] cannot
+  /// move any more (length of a line may still be free).
+  bool carrierFixed(int ent, [int seg = 0]) => !looseCarriers.contains((ent, seg));
+}
+
+/// Number of independently coloured segments of an entity: plain polylines
+/// are coloured per edge (Inventor draws a rectangle as four lines), all
+/// other entities — including spline/ellipse-tagged polylines, whose curve is
+/// one piece — carry a single segment.
+int carrierSegCount(Geo g) {
+  if (g.type == Geo.polyline && !g.isSpline) {
+    final n = g.data[1].toInt();
+    if (n < 2) return 0;
+    return g.data[0] != 0 ? n : n - 1; // closed: n edges, open: n-1
+  }
+  return 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -1194,7 +1225,17 @@ SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
     return s;
   }
 
-  if (r.isEmpty) return SketchAnalysis(total, allPoints());
+  Set<(int, int)> allCarriers() {
+    final s = <(int, int)>{};
+    for (var e = 0; e < gs.length; e++) {
+      for (var seg = 0; seg < carrierSegCount(gs[e]); seg++) {
+        s.add((e, seg));
+      }
+    }
+    return s;
+  }
+
+  if (r.isEmpty) return SketchAnalysis(total, allPoints(), allCarriers());
 
   final m = r.length;
   final j = List.generate(m, (_) => List<double>.filled(total, 0.0));
@@ -1210,18 +1251,32 @@ SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
   }
   final (rank, pivots) = _rankAndPivots(j, m, total); // j is now RREF
   final dof = total - rank;
-  if (dof <= 0) return const SketchAnalysis(0, {});
+  if (dof <= 0) return const SketchAnalysis(0, {}, {});
 
   // null space: every non-pivot column spawns a basis vector; a parameter is
-  // still movable if it appears in one of them.
+  // still movable if it appears in one of them. The basis vectors themselves
+  // are kept (not just the booleans): the carrier test below needs the
+  // DIRECTION a point can move in, not merely that it can move — a movable
+  // endpoint that only slides ALONG its own line is a free length, and
+  // Inventor still paints that line fully constrained.
   final pivotSet = pivots.toSet();
   final movable = List<bool>.filled(total, false);
+  final basis = <List<double>>[];
   for (var freeCol = 0; freeCol < total; freeCol++) {
     if (pivotSet.contains(freeCol)) continue;
     movable[freeCol] = true;
+    // RREF row: x_pivot + sum(j[row][c] * x_c) = 0 over the free columns c,
+    // so the basis vector for freeCol carries -j[row][freeCol] at each pivot.
+    final v = List<double>.filled(total, 0.0);
+    v[freeCol] = 1.0;
     for (var row = 0; row < pivots.length; row++) {
-      if (j[row][freeCol].abs() > 1e-6) movable[pivots[row]] = true;
+      final coeff = j[row][freeCol];
+      if (coeff.abs() > 1e-9) {
+        v[pivots[row]] = -coeff;
+        if (coeff.abs() > 1e-6) movable[pivots[row]] = true;
+      }
     }
+    basis.add(v);
   }
   final pts = <(int, int)>{};
   for (var e = 0; e < gs.length; e++) {
@@ -1231,7 +1286,83 @@ SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
       }
     }
   }
-  return SketchAnalysis(dof, pts);
+
+  // ---- carrier analysis (Inventor's entity colouring) --------------------
+  // Every null-space vector is one first-order motion the sketch can still
+  // make. A carrier is loose iff SOME motion changes it:
+  //   line/edge a->b : loose iff an endpoint moves PERPENDICULAR to the edge
+  //                    (that changes direction and/or offset; motion purely
+  //                    along the edge is a free length and stays white),
+  //   circle/arc     : loose iff center or radius moves (free arc sweep
+  //                    angles are the arc's endpoints, separate entities),
+  //   spline/ellipse : loose iff any defining point moves (the curve IS its
+  //                    control/fit points).
+  const tol = 1e-5;
+  bool edgeMoves(List<double> v, double vmax, int oa, int ob) {
+    final ax = x[oa], ay = x[oa + 1], bx = x[ob], by = x[ob + 1];
+    final dx = bx - ax, dy = by - ay;
+    final len = math.sqrt(dx * dx + dy * dy);
+    final t = tol * vmax;
+    if (len < 1e-9) {
+      // degenerate edge: any motion of either endpoint counts
+      return v[oa].abs() > t || v[oa + 1].abs() > t ||
+          v[ob].abs() > t || v[ob + 1].abs() > t;
+    }
+    final pa = (dx * v[oa + 1] - dy * v[oa]) / len; // perp displacement of a
+    final pb = (dx * v[ob + 1] - dy * v[ob]) / len; // perp displacement of b
+    return pa.abs() > t || pb.abs() > t;
+  }
+
+  final loose = <(int, int)>{};
+  for (final v in basis) {
+    var vmax = 0.0;
+    for (final c in v) {
+      if (c.abs() > vmax) vmax = c.abs();
+    }
+    if (vmax < 1e-12) continue;
+    for (var e = 0; e < gs.length; e++) {
+      final g = gs[e];
+      final o = off[e];
+      switch (g.type) {
+        case Geo.line:
+          if (!loose.contains((e, 0)) && edgeMoves(v, vmax, o, o + 2)) {
+            loose.add((e, 0));
+          }
+          break;
+        case Geo.circle:
+        case Geo.arc: // carrier = (cx, cy, r); params o..o+2
+          if (!loose.contains((e, 0)) &&
+              (v[o].abs() > tol * vmax ||
+                  v[o + 1].abs() > tol * vmax ||
+                  v[o + 2].abs() > tol * vmax)) {
+            loose.add((e, 0));
+          }
+          break;
+        case Geo.polyline:
+          final n = g.data[1].toInt();
+          if (n < 2) break;
+          if (g.isSpline) {
+            if (loose.contains((e, 0))) break;
+            for (var i = 0; i < 2 * n; i++) {
+              if (v[o + i].abs() > tol * vmax) {
+                loose.add((e, 0));
+                break;
+              }
+            }
+            break;
+          }
+          final edges = g.data[0] != 0 ? n : n - 1;
+          for (var seg = 0; seg < edges; seg++) {
+            if (loose.contains((e, seg))) continue;
+            final oa = o + 2 * seg;
+            final ob = o + 2 * ((seg + 1) % n);
+            if (edgeMoves(v, vmax, oa, ob)) loose.add((e, seg));
+          }
+          break;
+      }
+    }
+  }
+  return SketchAnalysis(dof, pts, loose);
 }
 
 /// True if [candidate] adds no new independent equation — Inventor rejects
