@@ -21,6 +21,17 @@ const kDefaultLayer = '0';
 
 class Geo {
   static const line = 1, circle = 2, arc = 3, polyline = 4;
+
+  // Spline tag for a POLYLINE whose vertices are the control/fit points.
+  //   straight  = ordinary polyline (straight segments between vertices)
+  //   splineCv  = control-vertex cubic B-spline (vertices are OFF the curve)
+  //   splineFit = interpolation spline (curve passes THROUGH the vertices)
+  // The QCAD core has no spline (R_NO_OPENNURBS), so the vertices round-trip as
+  // a plain polyline and this Dart-side tag — restored from the sidecar and
+  // preserved across the engine refresh — says "render/snap as a smooth curve".
+  // This is what makes a spline expose only its few control points, like Inventor.
+  static const straight = 0, splineCv = 1, splineFit = 2;
+
   final int type;
   final List<double> data;
 
@@ -29,17 +40,27 @@ class Geo {
   /// and what DXF round-trips (the C-API binds it to the RDocument layer).
   final String layer;
 
-  const Geo(this.type, this.data, {this.layer = kDefaultLayer});
+  /// One of [straight]/[splineCv]/[splineFit]. Only meaningful for polylines.
+  final int spline;
 
-  /// Same entity, NEW NUMBERS — keeps the layer. Every transform that rebuilds
-  /// a Geo from an existing one must go through here. Using the raw constructor
-  /// instead silently drops the entity onto layer 0, and since the solver
-  /// rewrites every entity on every solve, one missed site would strip the
-  /// whole sketch of its layers at the first drag.
-  Geo withData(List<double> d) => Geo(type, d, layer: layer);
+  const Geo(this.type, this.data,
+      {this.layer = kDefaultLayer, this.spline = straight});
+
+  /// Same entity, NEW NUMBERS — keeps the layer AND the spline tag. Every
+  /// transform that rebuilds a Geo from an existing one must go through here.
+  /// Using the raw constructor instead silently drops the entity onto layer 0
+  /// (and reverts a spline to a straight control polygon), and since the solver
+  /// rewrites every entity on every solve, one missed site would strip the whole
+  /// sketch of its layers/curves at the first drag.
+  Geo withData(List<double> d) => Geo(type, d, layer: layer, spline: spline);
 
   /// Same geometry, different layer.
-  Geo onLayer(String l) => Geo(type, data, layer: l);
+  Geo onLayer(String l) => Geo(type, data, layer: l, spline: spline);
+
+  /// Same polyline, tagged as a spline of [kind] (splineCv / splineFit).
+  Geo asSpline(int kind) => Geo(type, data, layer: layer, spline: kind);
+
+  bool get isSpline => spline != straight;
 }
 
 abstract class Engine {

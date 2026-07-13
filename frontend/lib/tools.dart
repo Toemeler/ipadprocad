@@ -71,10 +71,10 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       return [_line(a, b)];
     case Tool.splineCV:
       if (p.length < 3) return null;
-      return [_poly(_bsplineSample(p), closed: false)];
+      return [_spline(p, Geo.splineCv)];
     case Tool.splineInterp:
       if (p.length < 2) return null;
-      return [_poly(_catmullRom(p), closed: false)];
+      return [_spline(p, Geo.splineFit)];
     case Tool.eqCurve:
       if (p.isEmpty) return null;
       final f = ExprParser(expr).parse();
@@ -277,64 +277,23 @@ Geo _poly(List<Offset> pts, {required bool closed}) => Geo(Geo.polyline, [
       for (final q in pts) ...[q.dx, q.dy]
     ]);
 
+/// Build a spline: a polyline of the control/fit points tagged [kind]
+/// (Geo.splineCv or Geo.splineFit). If the user snapped the last point back
+/// onto the first, close it (drop the duplicate) so the curve meets up — that
+/// is how a spline ends on its own start point.
+Geo _spline(List<Offset> ptsIn, int kind) {
+  final pts = List<Offset>.from(ptsIn);
+  var closed = false;
+  if (pts.length >= 3 && (pts.first - pts.last).distance < 1e-6) {
+    pts.removeLast();
+    closed = true;
+  }
+  return _poly(pts, closed: closed).asSpline(kind);
+}
+
 // ---------------------------------------------------------------------------
 // curves
 // ---------------------------------------------------------------------------
-List<Offset> _catmullRom(List<Offset> p, {int perSeg = 16}) {
-  if (p.length == 2) return [p[0], p[1]];
-  final q = [p.first, ...p, p.last];
-  final out = <Offset>[p.first];
-  for (var i = 0; i < q.length - 3; i++) {
-    final p0 = q[i], p1 = q[i + 1], p2 = q[i + 2], p3 = q[i + 3];
-    for (var j = 1; j <= perSeg; j++) {
-      final t = j / perSeg, t2 = t * t, t3 = t2 * t;
-      out.add(Offset(
-        0.5 *
-            ((2 * p1.dx) +
-                (-p0.dx + p2.dx) * t +
-                (2 * p0.dx - 5 * p1.dx + 4 * p2.dx - p3.dx) * t2 +
-                (-p0.dx + 3 * p1.dx - 3 * p2.dx + p3.dx) * t3),
-        0.5 *
-            ((2 * p1.dy) +
-                (-p0.dy + p2.dy) * t +
-                (2 * p0.dy - 5 * p1.dy + 4 * p2.dy - p3.dy) * t2 +
-                (-p0.dy + 3 * p1.dy - 3 * p2.dy + p3.dy) * t3),
-      ));
-    }
-  }
-  return out;
-}
-
-/// Clamped cubic B-spline via De Boor, sampled uniformly.
-List<Offset> _bsplineSample(List<Offset> cv, {int samples = 96}) {
-  const k = 3; // cubic
-  final n = cv.length;
-  if (n <= k) return _catmullRom(cv);
-  final knots = <double>[
-    for (var i = 0; i <= k; i++) 0.0,
-    for (var i = 1; i < n - k; i++) i / (n - k),
-    for (var i = 0; i <= k; i++) 1.0,
-  ];
-  Offset deBoor(double u) {
-    var s = knots.lastIndexWhere((x) => x <= u);
-    s = s.clamp(k, n - 1);
-    final d = [for (var j = 0; j <= k; j++) cv[j + s - k]];
-    for (var r = 1; r <= k; r++) {
-      for (var j = k; j >= r; j--) {
-        final den = knots[j + 1 + s - r] - knots[j + s - k];
-        final alpha = den.abs() < 1e-12 ? 0.0 : (u - knots[j + s - k]) / den;
-        d[j] = d[j - 1] * (1 - alpha) + d[j] * alpha;
-      }
-    }
-    return d[k];
-  }
-
-  return [
-    for (var i = 0; i <= samples; i++)
-      deBoor(i == samples ? 1.0 - 1e-12 : i / samples)
-  ];
-}
-
 List<Offset> _hermite(Offset p0, Offset t0, Offset p1, Offset t1,
     {int n = 48}) {
   final scale = (p1 - p0).distance;

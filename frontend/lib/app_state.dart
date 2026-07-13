@@ -16,6 +16,7 @@ import 'log.dart';
 import 'modify.dart';
 import 'snap.dart';
 import 'solver.dart';
+import 'spline.dart';
 import 'theme.dart';
 import 'tools.dart';
 
@@ -68,7 +69,21 @@ class SketchModel {
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create();
 
-  void refresh() => geometry = engine.allGeometry();
+  void refresh() {
+    final prev = geometry;
+    final next = engine.allGeometry();
+    // The backend has no spline type (R_NO_OPENNURBS), so it hands splines back
+    // as plain polylines. The tag is app state (like the layer eye), so reapply
+    // it by index: _rebuildEngine pushes geometry in order and allGeometry
+    // returns it in the same order, so index i is the same entity across the
+    // round-trip. (Save/load restores the tag from the sidecar the same way.)
+    for (var i = 0; i < next.length && i < prev.length; i++) {
+      if (prev[i].spline != Geo.straight && next[i].type == Geo.polyline) {
+        next[i] = next[i].asSpline(prev[i].spline);
+      }
+    }
+    geometry = next;
+  }
   void dispose() => engine.dispose();
 }
 
@@ -202,6 +217,27 @@ class AppState extends ChangeNotifier {
         final cf = File('${_sketchDir.path}/$name.cons.json');
         if (cf.existsSync()) {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
+        }
+        // Spline tags: the DXF has no spline (R_NO_OPENNURBS), so a spline came
+        // back from refresh() as a plain polyline. Re-tag by index (entities
+        // load in save order, same as the constraint sidecar assumes).
+        try {
+          final sf = File('${_sketchDir.path}/$name.splines.json');
+          if (sf.existsSync()) {
+            final j = jsonDecode(sf.readAsStringSync()) as Map<String, dynamic>;
+            j.forEach((k, v) {
+              final i = int.tryParse(k);
+              final kind = (v as num).toInt();
+              if (i != null &&
+                  i >= 0 &&
+                  i < s.geometry.length &&
+                  s.geometry[i].type == Geo.polyline) {
+                s.geometry[i] = s.geometry[i].asSpline(kind);
+              }
+            });
+          }
+        } catch (e) {
+          Log.w('state', 'spline sidecar read failed: $e');
         }
         // Layers survive in TWO places: the entity->layer binding travels in
         // the DXF (group code 8), while the display order plus empty layers and
@@ -1581,6 +1617,24 @@ class AppState extends ChangeNotifier {
       Log.w('state', 'constraint sidecar write failed: $e');
     }
     try {
+      // Spline tags ride in a sidecar keyed by entity index (the vertices
+      // themselves round-trip through the DXF as a polyline).
+      final spl = <String, int>{};
+      for (var i = 0; i < s.geometry.length; i++) {
+        if (s.geometry[i].spline != Geo.straight) {
+          spl['$i'] = s.geometry[i].spline;
+        }
+      }
+      final sf = File('${_sketchDir.path}/$name.splines.json');
+      if (spl.isEmpty) {
+        if (sf.existsSync()) sf.deleteSync();
+      } else {
+        sf.writeAsStringSync(jsonEncode(spl));
+      }
+    } catch (e) {
+      Log.w('state', 'spline sidecar write failed: $e');
+    }
+    try {
       // Empty layers have no geometry to carry them through the DXF, so the
       // display order plus the eye/lock state live in a small sidecar. The
       // mandatory base "0" is persisted only while it actually holds geometry,
@@ -1702,7 +1756,22 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       final closed = g.data[0] != 0;
       final n = g.data[1].toInt();
       if (n < 2) break;
-      final path = Path()..moveTo(map(g.data[2], g.data[3]).dx, map(g.data[2], g.data[3]).dy);
+      if (g.isSpline) {
+        // A spline is a polyline of control/fit points — draw the smooth curve
+        // through/of them, not the control polygon.
+        final curve = splineCurveFor(g);
+        if (curve.length < 2) break;
+        final s0 = map(curve[0].dx, curve[0].dy);
+        final path = Path()..moveTo(s0.dx, s0.dy);
+        for (var i = 1; i < curve.length; i++) {
+          final o = map(curve[i].dx, curve[i].dy);
+          path.lineTo(o.dx, o.dy);
+        }
+        canvas.drawPath(path, p);
+        break;
+      }
+      final path = Path()
+        ..moveTo(map(g.data[2], g.data[3]).dx, map(g.data[2], g.data[3]).dy);
       for (var i = 1; i < n; i++) {
         final o = map(g.data[2 + 2 * i], g.data[3 + 2 * i]);
         path.lineTo(o.dx, o.dy);
