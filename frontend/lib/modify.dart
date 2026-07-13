@@ -24,9 +24,21 @@ const double _eps = 1e-9;
 /// the constructions below do) would silently drop it onto layer 0 — geometry
 /// belongs to a layer, and a trim must not smuggle it out of one. Stamped at the
 /// function boundaries so a new construction inside cannot leak.
-Geo _sameLayer(Geo src, Geo out) => out.onLayer(src.layer);
+Geo _sameLayer(Geo src, Geo out) => _carry(src, out);
 List<Geo> _sameLayerAll(Geo src, List<Geo> out) =>
-    [for (final g in out) g.onLayer(src.layer)];
+    [for (final g in out) _carry(src, g)];
+
+/// Copy layer (always) and the spline tag (when the result is still a polyline)
+/// from [src] onto [out]. A spline is a tagged polyline, so move/rotate/mirror/
+/// stretch/offset must keep the tag or the curve reverts to a straight polygon.
+Geo _carry(Geo src, Geo out) {
+  final o = out.onLayer(src.layer);
+  return (src.spline != Geo.straight &&
+          out.type == Geo.polyline &&
+          out.spline == Geo.straight)
+      ? o.asSpline(src.spline)
+      : o;
+}
 
 Geo transformGeo(Geo g, Offset Function(Offset) f) {
   return _sameLayer(g, _transformGeoRaw(g, f));

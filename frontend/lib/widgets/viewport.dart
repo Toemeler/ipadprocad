@@ -89,7 +89,10 @@ class _Viewport2DState extends State<Viewport2D> {
     ];
     final sn = computeSnap(visible, w, _snapPx / app.zoom,
         ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
-        exclude: exclude);
+        exclude: exclude,
+        // Let the cursor snap to the points already placed by the active tool —
+        // above all the start point, so a spline/polyline can close on itself.
+        extraPoints: app.toolPoints);
     app.setSnap(sn);
     return sn?.pos ?? w;
   }

@@ -240,7 +240,9 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
   // vertical per segment instead: a normal (axis-aligned) rectangle then
   // picks up two horizontal + two vertical constraints, exactly as Inventor
   // does when you draw one.
-  if (g.type == Geo.polyline) {
+  if (g.type == Geo.polyline && !g.isSpline) {
+    // Control-polygon segments of a spline are not real edges — never infer
+    // horizontal/vertical on them (only straight polylines get this).
     final n = g.data[1].toInt();
     final closed = g.data[0] != 0;
     final segs = closed ? n : n - 1;

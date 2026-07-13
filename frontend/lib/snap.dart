@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'ffi/qcad_engine.dart';
+import 'spline.dart';
 
 // ---------------------------------------------------------------------------
 // snapping
@@ -25,7 +26,7 @@ class Snap {
 /// previous picked point for H/V alignment. [exclude] suppresses snapping to
 /// one specific point (the grip currently being dragged).
 Snap? computeSnap(List<Geo> geos, Offset w, double tol,
-    {Offset? ref, Offset? exclude}) {
+    {Offset? ref, Offset? exclude, List<Offset> extraPoints = const []}) {
   bool excluded(Offset q) =>
       exclude != null && (q - exclude).distance < 1e-9;
 
@@ -70,13 +71,22 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
         for (var i = 0; i < n; i++) {
           offer(Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]), 'vertex');
         }
-        for (var i = 0; i + 1 < n; i++) {
-          final a = Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]);
-          final b = Offset(g.data[4 + 2 * i], g.data[5 + 2 * i]);
-          offer((a + b) / 2, 'midpoint', 1.1);
+        if (!g.isSpline) {
+          // Control-polygon midpoints are meaningless for a spline.
+          for (var i = 0; i + 1 < n; i++) {
+            final a = Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]);
+            final b = Offset(g.data[4 + 2 * i], g.data[5 + 2 * i]);
+            offer((a + b) / 2, 'midpoint', 1.1);
+          }
         }
         break;
     }
+  }
+  // Points of the tool currently being drawn (an in-progress spline/polyline):
+  // the FIRST is the start — snapping to it is how you close the curve — and the
+  // rest let you connect back to a point you already placed.
+  for (var i = 0; i < extraPoints.length; i++) {
+    offer(extraPoints[i], i == 0 ? 'endpoint' : 'vertex');
   }
   offer(Offset.zero, 'origin');
   if (best != null) return best;
@@ -131,12 +141,9 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
         }
         break;
       case Geo.polyline:
-        final n = g.data[1].toInt();
-        for (var i = 0; i + 1 < n; i++) {
-          offerOn(closestOnSegment(
-              w,
-              Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]),
-              Offset(g.data[4 + 2 * i], g.data[5 + 2 * i])));
+        final pts = sampleEntity(g); // curve samples for splines, verts otherwise
+        for (var i = 0; i + 1 < pts.length; i++) {
+          offerOn(closestOnSegment(w, pts[i], pts[i + 1]));
         }
         break;
     }
@@ -297,6 +304,7 @@ List<Offset> sampleEntity(Geo g, {int arcSamples = 32}) {
                   g.data[2]
       ];
     case Geo.polyline:
+      if (g.isSpline) return splineCurveFor(g); // follow the curve, not the polygon
       final n = g.data[1].toInt();
       final pts = [
         for (var i = 0; i < n; i++)
