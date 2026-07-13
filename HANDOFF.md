@@ -737,3 +737,40 @@ sauberen DXF-Export).
 
 **Tests:** 6 neue in spline_test.dart (Builder-Tag, Quadranten, Scher-
 Immunität, Normalisierung, Zentrum-/Hauptscheitel-Grip). 28 gesamt, alle grün.
+
+---
+
+## M24 — Ellipsen-Feinschliff + Inline-Bemaßungseingabe
+
+1. **Hover-Highlight:** Der Hover-Pfad zeichnete für JEDE Polyline nur die
+   eine Kanten-Halo (`haloEdge`) — bei Splines/Ellipsen war das eine schräge
+   Gerade statt der Kurve. Getaggte Polylines highlighten jetzt über
+   `paintGeo` (zeichnet die Kurve), nur gerade Polylines behalten die
+   Kanten-Halo.
+2. **Ellipsen-Achsen:** Haupt- und Nebenachse werden immer als gestrichelte
+   Mittellinien gezeichnet (paintGeo, ellipseTag-Zweig) — sie tragen die
+   Zentrum-/Quadranten-Punkte, auf die man bemaßt und constraint.
+3. **Ellipse als Kurve in der Bemaßungs-Matrix:** `isCurve` umfasst jetzt
+   ellipseTag (Zentrum = Vertex 0). Vorher fing der Polyline-Zweig in
+   `_dimensionClick` die Ellipse ab, bevor sie als Entity gepickt werden
+   konnte — Ellipse+Linie/Punkt/Kreis funktionierte gar nicht.
+4. **Vertex vor Kante:** Ein Punkt-Pick gewinnt IMMER gegen den Entity-Pick
+   (Inventors Prioritität) — vorher gewann beim ersten Klick die Entity,
+   wodurch "Endpunkt, Endpunkt" als "Linie, eigener Endpunkt" gelesen wurde.
+   Der EIGENE Endpunkt einer gepickten Linie erweitert nicht zu pline=0,
+   sondern platziert.
+5. **_distKind nach Inventors Regionen:** über/unter der Bounding-Box des
+   Punktpaars → horizontal (distx), links/rechts → vertikal (disty),
+   diagonal/entlang der Normalen → fluchtend. Vorher entschied nur der
+   Normalen-Winkel, was unvorhersehbar wirkte.
+6. **Inline-Bemaßungseingabe statt Dialog:** Textfeld direkt AUF der
+   Bemaßung (Position via _worldToScreen, im Stack über dem Painter).
+   Öffnet nach dem Platzieren einer neuen Bemaßung und beim Tippen auf eine
+   bestehende. Enter committet, Esc bricht ab, Klick daneben committet
+   (Inventor behält die Bemaßung). Einheiten wie gehabt (mm/cm/m, Winkel in
+   Grad). Der Over-Constrained-Dialog (getrieben/abbrechen) bleibt ein
+   Dialog — das ist eine Entscheidung, kein Werteintrag. _askValue ist weg.
+
+**Tests:** flow_probe_test.dart fährt die Flows durch AppState.toolClick:
+Linie+Ellipsenzentrum → pline, Ellipsenkörper als Kurven-Pick →
+Zentrum↔Linie, Platzierungsregionen distx/disty/dist. 31 gesamt.

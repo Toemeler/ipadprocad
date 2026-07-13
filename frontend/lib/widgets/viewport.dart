@@ -38,6 +38,8 @@ class _Viewport2DState extends State<Viewport2D> {
   @override
   void dispose() {
     _focus.dispose();
+    _dimCtrl.dispose();
+    _dimFocus.dispose();
     super.dispose();
   }
 
@@ -56,6 +58,12 @@ class _Viewport2DState extends State<Viewport2D> {
 
   void _handleClick(Offset local, Size size) {
     final app = widget.app;
+    if (_inlineDim != null) {
+      // clicking anywhere else while the value field is open COMMITS —
+      // Inventor keeps the dimension when you click away
+      _submitInline();
+      return;
+    }
     _focus.requestFocus();
     if (app.tool != Tool.none) {
       app.toolClick(_snapped(_toWorld(local, size)));
@@ -225,73 +233,117 @@ class _Viewport2DState extends State<Viewport2D> {
       }
       return;
     }
-    final v = await _askValue(
-        _isAngleKind(d) ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
-        length: !_isAngleKind(d));
-    if (!mounted) return;
-    if (v == null) {
-      app.cancelDimension();
-    } else {
-      app.confirmDimension(v);
-    }
+    _openInlineEditor(d, isNew: true);
   }
 
   static bool _isAngleKind(Constraint d) =>
       d.dimKind == 'ang' || d.dimKind == 'ang3';
 
-  Future<void> _editDimValue(Constraint d) async {
-    final v = await _askValue(
-        _isAngleKind(d) ? 'Angle (deg)' : 'Dimension', d.value ?? 0,
-        length: !_isAngleKind(d));
-    if (v != null && mounted) widget.app.setDimensionValue(d, v);
+  void _editDimValue(Constraint d) => _openInlineEditor(d, isNew: false);
+
+  // ---- inline dimension value editor (Inventor-style) ----
+  // A small text field ON the dimension itself: opens right after placing a
+  // new dimension and on tapping an existing one; Enter commits, Esc cancels,
+  // clicking elsewhere commits (Inventor keeps the dimension either way).
+  Constraint? _inlineDim;
+  bool _inlineIsNew = false;
+  final TextEditingController _dimCtrl = TextEditingController();
+  final FocusNode _dimFocus = FocusNode();
+
+  void _openInlineEditor(Constraint d, {required bool isNew}) {
+    setState(() {
+      _inlineDim = d;
+      _inlineIsNew = isNew;
+      _dimCtrl.text = _isAngleKind(d)
+          ? (d.value ?? 0).toStringAsFixed(1)
+          : (d.value ?? 0).toStringAsFixed(2);
+      _dimCtrl.selection =
+          TextSelection(baseOffset: 0, extentOffset: _dimCtrl.text.length);
+    });
+    _dimFocus.requestFocus();
+  }
+
+  void _submitInline() {
+    final d = _inlineDim;
+    if (d == null) return;
+    final v = _isAngleKind(d)
+        ? double.tryParse(_dimCtrl.text.replaceAll(',', '.'))
+        : _parseLengthMm(_dimCtrl.text);
+    setState(() => _inlineDim = null);
+    if (_inlineIsNew) {
+      // an unparseable entry keeps the measured value — the dimension is
+      // still created, exactly like clicking away in Inventor
+      widget.app.confirmDimension(v ?? d.value);
+    } else if (v != null) {
+      widget.app.setDimensionValue(d, v);
+    }
+    _focus.requestFocus();
+  }
+
+  void _cancelInline() {
+    final d = _inlineDim;
+    if (d == null) return;
+    setState(() => _inlineDim = null);
+    if (_inlineIsNew) widget.app.cancelDimension();
+    _focus.requestFocus();
+  }
+
+  Widget _inlineEditor(Size size) {
+    final d = _inlineDim!;
+    final t = d.textPos ?? Offset.zero;
+    final sp = _worldToScreen(t, size);
+    const w = 96.0, h = 34.0;
+    final left = (sp.dx - w / 2).clamp(4.0, size.width - w - 4.0);
+    final top = (sp.dy - h / 2).clamp(4.0, size.height - h - 4.0);
+    return Positioned(
+      left: left,
+      top: top,
+      width: w,
+      height: h,
+      child: Focus(
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.escape) {
+            _cancelInline();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: T.fly,
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: T.blue, width: 1),
+            boxShadow: const [
+              BoxShadow(color: Colors.black54, blurRadius: 6),
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          alignment: Alignment.center,
+          child: TextField(
+            controller: _dimCtrl,
+            focusNode: _dimFocus,
+            autofocus: true,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(fontSize: 13, color: T.text),
+            textAlign: TextAlign.center,
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              suffixText: _isAngleKind(d) ? '\u00b0' : 'mm',
+              suffixStyle: const TextStyle(fontSize: 11, color: T.dim),
+            ),
+            onSubmitted: (_) => _submitInline(),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Value entry dialog. When [length] is true the field accepts a unit
   /// suffix (mm — the default — or cm / m) and the returned value is always
   /// in millimetres, the sketch's base unit.
-  Future<double?> _askValue(String title, double current,
-      {bool length = false}) async {
-    final c = TextEditingController(text: current.toStringAsFixed(2));
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: T.fly,
-        title: Text(title,
-            style: const TextStyle(
-                fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600)),
-        content: TextField(
-          controller: c,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          style: const TextStyle(fontSize: 13, color: T.text),
-          decoration: length
-              ? const InputDecoration(
-                  suffixText: 'mm',
-                  suffixStyle: TextStyle(fontSize: 12, color: T.dim),
-                  helperText: 'Default mm — type cm or m for other units',
-                  helperStyle: TextStyle(fontSize: 10.5, color: T.dim),
-                )
-              : null,
-          onSubmitted: (_) => Navigator.pop(ctx, true),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel',
-                  style: TextStyle(fontSize: 12.5, color: T.dim))),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('OK',
-                  style: TextStyle(fontSize: 12.5, color: T.blue))),
-        ],
-      ),
-    );
-    if (ok != true) return null;
-    return length
-        ? _parseLengthMm(c.text)
-        : double.tryParse(c.text.replaceAll(',', '.'));
-  }
-
   /// Parses a length entry into millimetres. Accepts an optional unit suffix:
   /// `mm` (default), `cm` (×10) or `m` (×1000). Returns null if unparseable.
   double? _parseLengthMm(String s) {
@@ -424,13 +476,16 @@ class _Viewport2DState extends State<Viewport2D> {
               // browser in the Column/Row, the stray geometry lands ON TOP of
               // them. Clipping keeps every drawn line inside the canvas.
               child: ClipRect(
-                child: CustomPaint(
-                  size: size,
-                  painter: _ViewportPainter(
-                    app: app,
-                    projCpSelected: _projCpSelected,
+                child: Stack(children: [
+                  CustomPaint(
+                    size: size,
+                    painter: _ViewportPainter(
+                      app: app,
+                      projCpSelected: _projCpSelected,
+                    ),
                   ),
-                ),
+                  if (_inlineDim != null) _inlineEditor(size),
+                ]),
               ),
             ),
           ),
@@ -548,10 +603,14 @@ class _ViewportPainter extends CustomPainter {
 
       final he = app.hoverEnt;
       if (he != null && he < gs.length && app.dragGrip == null) {
-        if (gs[he].type == Geo.polyline) {
+        if (gs[he].type == Geo.polyline && !gs[he].isSpline) {
+          // plain polyline: highlight just the edge under the cursor
           final hv = app.hoverEdge;
           if (hv != null) haloEdge(hv.$1, hv.$2);
         } else {
+          // lines, circles, arcs — and spline/ellipse-tagged polylines, whose
+          // paintGeo draws the CURVE. Highlighting one control-polygon edge
+          // here showed a stray slanted line instead of the ellipse/spline.
           paintGeo(canvas, gs[he], map, app.zoom, halo);
         }
       }

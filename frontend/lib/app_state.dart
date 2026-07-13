@@ -1318,8 +1318,12 @@ class AppState extends ChangeNotifier {
     final pt = _nearestPointRef(s, w);
 
     bool isCurve(int e) {
-      final t = s.geometry[e].type;
-      return t == Geo.circle || t == Geo.arc;
+      // circles, arcs — and ELLIPSES: an ellipse participates in distance
+      // dimensions through its center (vertex 0), exactly like a circle.
+      final g = s.geometry[e];
+      return g.type == Geo.circle ||
+          g.type == Geo.arc ||
+          g.spline == Geo.ellipseTag;
     }
 
     bool isLine(int e) => s.geometry[e].type == Geo.line;
@@ -1329,16 +1333,19 @@ class AppState extends ChangeNotifier {
     final nE = conEnts.length, nP = conPts.length;
 
     // ---- try to EXTEND the pick set ------------------------------------
-    // A point pick wins over an entity pick when both are under the cursor
-    // (endpoints sit ON their entity, and Inventor prefers the vertex too) —
-    // EXCEPT for the very first pick, where clicking a line body should give
-    // the line's length, not one stray endpoint.
-    final preferPoint = pt != null && (nE + nP > 0 || ent == null);
+    // A point pick ALWAYS wins over an entity pick when both are under the
+    // cursor: Inventor highlights the vertex marker over the edge. Line
+    // length is still one click on the BODY (away from the endpoints).
+    final preferPoint = pt != null;
 
     if (preferPoint && !conPts.contains(pt)) {
-      final ok = (nE == 0 && nP < 2) || //     1st/2nd point of pt-pt / ang3
-          (nE == 0 && nP == 2) || //           3rd point -> 3-point angle
-          (nE == 1 && nP == 0); //             line/curve + point
+      // ...but a line's OWN endpoint does not extend {that line} into a
+      // point-to-line dimension (it would measure 0); the click places.
+      final ownPoint = nE == 1 && nP == 0 && pt.ent == conEnts[0];
+      final ok = !ownPoint &&
+          ((nE == 0 && nP < 2) || //   1st/2nd point of pt-pt / ang3
+              (nE == 0 && nP == 2) || // 3rd point -> 3-point angle
+              (nE == 1 && nP == 0)); // line/curve + point
       if (ok) {
         conPts.add(pt);
         return;
@@ -1347,7 +1354,7 @@ class AppState extends ChangeNotifier {
 
     if (ent != null && !conEnts.contains(ent)) {
       final g = s.geometry[ent];
-      if (g.type == Geo.polyline) {
+      if (g.type == Geo.polyline && g.spline != Geo.ellipseTag) {
         // A rectangle / polygon / slot is ONE closed polyline, so clicking an
         // edge picks the polyline. Resolve the click to the segment under the
         // cursor and pick its two vertices: that is a real DRIVING length
@@ -1424,20 +1431,31 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
-  /// Inventor picks the dimension type from where you place it: roughly
-  /// along the geometry's normal = aligned, above/below = horizontal
-  /// distance, left/right = vertical distance.
+  /// Inventor's placement rule for a two-point dimension: drag ABOVE/BELOW
+  /// the pair's bounding box -> horizontal distance, drag LEFT/RIGHT of it ->
+  /// vertical distance, drag out along the pair's direction (diagonal
+  /// region / near the normal) -> aligned. This is decided per placement
+  /// position, so sweeping the preview around the two points cycles through
+  /// all three variants exactly like Inventor.
   String _distKind(SketchModel s, PRef a, PRef b, Offset at) {
     final pa = getPt(s.geometry[a.ent], a.pt);
     final pb = getPt(s.geometry[b.ent], b.pt);
     final d = pb - pa;
     if (d.distance < 1e-9) return 'dist';
+    final minX = math.min(pa.dx, pb.dx), maxX = math.max(pa.dx, pb.dx);
+    final minY = math.min(pa.dy, pb.dy), maxY = math.max(pa.dy, pb.dy);
+    final insideX = at.dx >= minX && at.dx <= maxX;
+    final insideY = at.dy >= minY && at.dy <= maxY;
+    if (insideX && !insideY) return 'distx'; // above/below -> horizontal
+    if (insideY && !insideX) return 'disty'; // left/right  -> vertical
+    // diagonal quadrants / degenerate: fall back to the normal test —
+    // within 30 deg of the pair's normal reads as aligned, otherwise pick
+    // the axis the cursor pulled towards
     final n = Offset(-d.dy, d.dx) / d.distance;
     final v = at - (pa + pb) / 2;
     if (v.distance < 1e-9) return 'dist';
     final vn = v / v.distance;
-    final alongNormal = (vn.dx * n.dx + vn.dy * n.dy).abs();
-    if (alongNormal > 0.866) return 'dist'; // within 30 deg of the normal
+    if ((vn.dx * n.dx + vn.dy * n.dy).abs() > 0.866) return 'dist';
     return v.dy.abs() >= v.dx.abs() ? 'distx' : 'disty';
   }
 
@@ -1451,8 +1469,12 @@ class AppState extends ChangeNotifier {
   /// Shared by placement and by the live cursor preview.
   Constraint? buildDimensionAt(SketchModel s, Offset w) {
     bool isCurve(int e) {
-      final t = s.geometry[e].type;
-      return t == Geo.circle || t == Geo.arc;
+      // circles, arcs — and ELLIPSES: an ellipse participates in distance
+      // dimensions through its center (vertex 0), exactly like a circle.
+      final g = s.geometry[e];
+      return g.type == Geo.circle ||
+          g.type == Geo.arc ||
+          g.spline == Geo.ellipseTag;
     }
 
     // A curve participates in distance dimensions through its CENTER point
@@ -1916,6 +1938,22 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
           path.lineTo(o.dx, o.dy);
         }
         canvas.drawPath(path, p);
+        if (g.spline == Geo.ellipseTag && n >= 3) {
+          // Inventor draws the ellipse's MAJOR and MINOR axes as dashed
+          // centerlines — they carry the center and quadrant points you
+          // dimension and constrain against, so they are always visible.
+          final c = Offset(g.data[2], g.data[3]);
+          final ma = Offset(g.data[4], g.data[5]);
+          final mi = Offset(g.data[6], g.data[7]);
+          final axis = Paint()
+            ..color = p.color.withValues(alpha: p.color.a * 0.45)
+            ..strokeWidth = 1
+            ..style = PaintingStyle.stroke;
+          _dashedSeg(canvas, map(ma.dx, ma.dy),
+              map((c * 2 - ma).dx, (c * 2 - ma).dy), axis);
+          _dashedSeg(canvas, map(mi.dx, mi.dy),
+              map((c * 2 - mi).dx, (c * 2 - mi).dy), axis);
+        }
         break;
       }
       final path = Path()
@@ -1958,4 +1996,20 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
   final ccwToMid = norm(am - a1), ccwToEnd = norm(a2 - a1);
   final reversed = !(ccwToMid <= ccwToEnd);
   return (center, r, a1, a2, reversed);
+}
+
+/// Dashed segment (screen coords) — paintGeo lives here (app_state) so the
+/// sketch-preview PNG renderer can reuse it, hence its own dash helper.
+void _dashedSeg(Canvas c, Offset a, Offset b, Paint p,
+    {double dash = 6, double gap = 4}) {
+  final d = b - a;
+  final len = d.distance;
+  if (len < 1e-6) return;
+  final u = d / len;
+  var t = 0.0;
+  while (t < len) {
+    final e = math.min(t + dash, len);
+    c.drawLine(a + u * t, a + u * e, p);
+    t = e + gap;
+  }
 }
