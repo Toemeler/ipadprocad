@@ -110,7 +110,12 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       final c = _tangentCircle3(l1, p[0], l2, p[1], l3, p[2]);
       return c == null ? null : [_circle(c.$1, c.$2)];
     case Tool.ellipse:
-      // center, major-axis endpoint, minor extent
+      // center, major-axis endpoint, minor extent — stored as a 3-vertex
+      // polyline [center, major vertex, minor vertex] tagged Geo.ellipseTag,
+      // the same mechanism splines use. The curve is generated Dart-side
+      // (ellipseCurve); ONLY these three points are grips/snap targets —
+      // Inventor's ellipse handles — instead of the old 96 sampled vertices
+      // that each became a draggable, snappable, solver-free point.
       if (p.length < 3) return null;
       final u = p[1] - p[0];
       final a = u.distance;
@@ -119,12 +124,10 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       final vn = Offset(-un.dy, un.dx);
       final b = ((p[2] - p[0]).dx * vn.dx + (p[2] - p[0]).dy * vn.dy).abs();
       if (b < 1e-9) return null;
-      const n = 96;
-      final pts = List<Offset>.generate(n, (i) {
-        final t2 = 2 * math.pi * i / n;
-        return p[0] + un * (a * math.cos(t2)) + vn * (b * math.sin(t2));
-      });
-      return [_poly(pts, closed: true)];
+      return [
+        _poly([p[0], p[1], p[0] + vn * b], closed: true)
+            .asSpline(Geo.ellipseTag)
+      ];
     case Tool.arcThreePoint:
       if (p.length < 3) return null;
       final arc = arcFrom3Points(p[0], p[1], p[2]);

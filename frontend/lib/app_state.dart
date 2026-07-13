@@ -791,7 +791,15 @@ class AppState extends ChangeNotifier {
   }
 
   /// The C-API is add-only, so edits rebuild the document from scratch.
-  void _rebuildEngine(SketchModel s, List<Geo> gs) {
+  void _rebuildEngine(SketchModel s, List<Geo> gsIn) {
+    // Ellipses stay CANONICAL: after a grip drag or a solve, the minor vertex
+    // may have drifted off the perpendicular — the renderer orthogonalizes,
+    // but the stored point would float off the curve. Snap it back onto the
+    // minor axis here, the one place every edit funnels through.
+    final gs = [
+      for (final g in gsIn)
+        g.spline == Geo.ellipseTag ? normalizedEllipse(g) : g
+    ];
     Log.i('engine', 'rebuild with ${gs.length} entities');
     s.engine.dispose();
     s.engine = Engine.create();

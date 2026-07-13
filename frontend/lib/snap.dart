@@ -68,6 +68,20 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
         break;
       case Geo.polyline:
         final n = g.data[1].toInt();
+        if (g.spline == Geo.ellipseTag && n >= 3) {
+          // Inventor's ellipse snaps: the CENTER and all FOUR quadrant
+          // points. The stored vertices are center/major/minor — mirror the
+          // axis vertices through the center for the other two quadrants.
+          final c = Offset(g.data[2], g.data[3]);
+          final ma = Offset(g.data[4], g.data[5]);
+          final mi = Offset(g.data[6], g.data[7]);
+          offer(c, 'center', 1.05);
+          offer(ma, 'quadrant');
+          offer(c * 2 - ma, 'quadrant');
+          offer(mi, 'quadrant');
+          offer(c * 2 - mi, 'quadrant');
+          break;
+        }
         for (var i = 0; i < n; i++) {
           offer(Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]), 'vertex');
         }
@@ -262,6 +276,41 @@ Geo moveGrip(Geo g, Grip grip, Offset to) {
       }
       break;
     case Geo.polyline:
+      if (g.spline == Geo.ellipseTag && g.data[1].toInt() >= 3) {
+        // Inventor's ellipse grips: the CENTER grip moves the whole ellipse,
+        // the MAJOR grip rotates/stretches it (the minor vertex follows so
+        // the axes stay perpendicular and b keeps its length), the MINOR
+        // grip only changes the minor extent along the minor axis.
+        final c = Offset(d[2], d[3]);
+        final ma = Offset(d[4], d[5]);
+        final mi = Offset(d[6], d[7]);
+        if (grip.idx == 0) {
+          final dv = to - c;
+          d[2] += dv.dx; d[3] += dv.dy;
+          d[4] += dv.dx; d[5] += dv.dy;
+          d[6] += dv.dx; d[7] += dv.dy;
+        } else if (grip.idx == 1) {
+          if ((to - c).distance > 1e-9) {
+            final b = (mi - c).distance;
+            final un = (to - c) / (to - c).distance;
+            final vn = Offset(-un.dy, un.dx);
+            d[4] = to.dx; d[5] = to.dy;
+            d[6] = c.dx + vn.dx * b; d[7] = c.dy + vn.dy * b;
+          }
+        } else {
+          final u = ma - c;
+          if (u.distance > 1e-9) {
+            final un = u / u.distance;
+            final vn = Offset(-un.dy, un.dx);
+            final b = ((to - c).dx * vn.dx + (to - c).dy * vn.dy);
+            if (b.abs() > 1e-9) {
+              d[6] = c.dx + vn.dx * b.abs();
+              d[7] = c.dy + vn.dy * b.abs();
+            }
+          }
+        }
+        break;
+      }
       d[2 + 2 * grip.idx] = to.dx;
       d[3 + 2 * grip.idx] = to.dy;
       break;

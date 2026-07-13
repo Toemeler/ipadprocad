@@ -700,3 +700,40 @@ echten `refresh(tagSource:)`-Pfad über die Dart-Fallback-Engine.
 Polyline-Vertices (Constraints/Bemaßungen auf Kontroll-/Fit-Punkte gehen,
 Tangenten-Handles wie in Inventor gibt es noch nicht). DXF exportiert
 weiterhin die Kontrollpolygon-Polyline (R_NO_OPENNURBS) + Sidecar-Tag.
+
+---
+
+## M23 — Ellipse: 3 Definitionspunkte statt 96-Vertex-Polygon
+
+**Symptom:** Eine Ellipse war eine geschlossene Polyline aus 96 Sample-
+Punkten — 96 Grips, 96 Snap-Vertices, 96 freie Solver-Punkte, und "eine
+Kurve" war sie nie.
+
+**Fix:** Gleiche Architektur wie Splines (Tag an einer Polyline, Kurve wird
+Dart-seitig erzeugt): `Geo.ellipseTag` an einer 3-Punkt-Polyline
+`[Zentrum, Hauptscheitel, Nebenscheitel]` — exakt Inventors Ellipsen-Grips.
+Alle Tag-Erhaltungspfade (refresh/tagSource, Sidecar, modify.keepTag,
+isSpline-Guards für Mittelpunkt-Snap und Bemaßungs-Kantenpick) greifen
+automatisch, weil sie auf `spline != straight` prüfen.
+
+- `ellipseCurve` (spline.dart) sampelt die Kurve; der Nebenscheitel trägt nur
+  seine Komponente SENKRECHT zur Hauptachse bei — die Ellipse kann also nie
+  scheren, egal was Solver oder Drag mit den Rohpunkten machen.
+- `normalizedEllipse` wird in `_rebuildEngine` auf jede Ellipse angewandt
+  (der eine Trichter für alle Edits): ein abgedrifteter Nebenscheitel wird
+  exakt auf die Nebenachse zurückgesetzt, damit der Grip auf der Kurve liegt.
+- `moveGrip` (snap.dart) hat Inventor-Semantik: Zentrum-Grip verschiebt die
+  ganze Ellipse, Hauptscheitel rotiert/streckt (Nebenscheitel folgt senkrecht,
+  b bleibt), Nebenscheitel ändert nur die Nebenausdehnung.
+- Snap bietet Zentrum + alle VIER Quadranten an (die zwei gespiegelten werden
+  aus den gespeicherten Scheiteln berechnet).
+
+**Kompatibilität:** Früher gezeichnete 96-Punkt-Ellipsen bleiben gewöhnliche
+Polylines — sie rendern unverändert, werden aber nicht rückwirkend
+konvertiert. DXF exportiert wie bei Splines das Definitions-Polygon +
+Sidecar-Tag (die C-API hat kein qcad_add_ellipse; REllipseEntity existiert im
+Core, ein natives Ellipsen-Entity im C-API wäre der nächste Schritt für
+sauberen DXF-Export).
+
+**Tests:** 6 neue in spline_test.dart (Builder-Tag, Quadranten, Scher-
+Immunität, Normalisierung, Zentrum-/Hauptscheitel-Grip). 28 gesamt, alle grün.

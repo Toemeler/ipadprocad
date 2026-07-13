@@ -23,14 +23,19 @@ class Geo {
   static const line = 1, circle = 2, arc = 3, polyline = 4;
 
   // Spline tag for a POLYLINE whose vertices are the control/fit points.
-  //   straight  = ordinary polyline (straight segments between vertices)
-  //   splineCv  = control-vertex cubic B-spline (vertices are OFF the curve)
-  //   splineFit = interpolation spline (curve passes THROUGH the vertices)
+  //   straight   = ordinary polyline (straight segments between vertices)
+  //   splineCv   = control-vertex cubic B-spline (vertices are OFF the curve)
+  //   splineFit  = interpolation spline (curve passes THROUGH the vertices)
+  //   ellipseTag = ellipse defined by 3 vertices [center, major vertex,
+  //                minor vertex] — same mechanism: the curve is generated
+  //                Dart-side, only the 3 defining points are editable (these
+  //                are exactly Inventor's ellipse grips). Replaces the old
+  //                96-vertex sampled polyline whose every sample was a grip.
   // The QCAD core has no spline (R_NO_OPENNURBS), so the vertices round-trip as
   // a plain polyline and this Dart-side tag — restored from the sidecar and
   // preserved across the engine refresh — says "render/snap as a smooth curve".
   // This is what makes a spline expose only its few control points, like Inventor.
-  static const straight = 0, splineCv = 1, splineFit = 2;
+  static const straight = 0, splineCv = 1, splineFit = 2, ellipseTag = 3;
 
   final int type;
   final List<double> data;

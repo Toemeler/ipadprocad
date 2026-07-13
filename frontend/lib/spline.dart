@@ -9,6 +9,7 @@
 // rendering, hit-testing and on-curve snapping. The vertices still round-trip
 // through the backend as an ordinary polyline; the tag is restored from the
 // sidecar (and preserved across the engine refresh) so the curve survives.
+import 'dart:math' as math;
 import 'dart:ui' show Offset;
 
 import 'ffi/qcad_engine.dart';
@@ -28,11 +29,61 @@ List<Offset> polyPoints(Geo g) {
 /// so callers can treat every polyline uniformly.
 List<Offset> splineCurveFor(Geo g) {
   final pts = polyPoints(g);
+  if (g.spline == Geo.ellipseTag) return ellipseCurve(pts);
   if (g.spline == Geo.straight || pts.length < 3) return pts;
   final closed = g.data[0] != 0;
   return g.spline == Geo.splineCv
       ? bsplineCurve(pts, closed: closed)
       : fitCurve(pts, closed: closed);
+}
+
+/// Canonical form of an ellipse-tagged polyline: the minor vertex is put back
+/// EXACTLY on the minor axis (center + perp(major) * b). Grip drags and the
+/// solver move the raw points freely; this keeps the stored geometry on the
+/// curve. Returns [g] unchanged when it is not a valid ellipse triple.
+Geo normalizedEllipse(Geo g) {
+  final p = polyPoints(g);
+  if (g.spline != Geo.ellipseTag || p.length < 3) return g;
+  final c = p[0];
+  final u = p[1] - c;
+  final a = u.distance;
+  if (a < 1e-12) return g;
+  final un = u / a;
+  final vn = Offset(-un.dy, un.dx);
+  final rel = p[2] - c;
+  final b = (rel.dx * vn.dx + rel.dy * vn.dy).abs();
+  if (b < 1e-12) return g;
+  final mi = c + vn * b;
+  if ((mi - p[2]).distance < 1e-12) return g; // already canonical
+  return g.withData([
+    g.data[0], g.data[1], // closed flag + count stay
+    c.dx, c.dy, p[1].dx, p[1].dy, mi.dx, mi.dy,
+  ]);
+}
+
+/// Ellipse from its 3 defining vertices [center, major vertex, minor vertex].
+///
+/// The minor vertex only contributes its component PERPENDICULAR to the major
+/// axis: dragging it along the major axis is ignored (it is the "minor
+/// extent" handle), and dragging the MAJOR vertex rotates/stretches the whole
+/// ellipse — so the ellipse can never shear, whatever the solver or a grip
+/// drag does to the raw points. Degenerate axes fall back to the raw points.
+List<Offset> ellipseCurve(List<Offset> p, {int samples = 96}) {
+  if (p.length < 3) return List.of(p);
+  final c = p[0];
+  final u = p[1] - c;
+  final a = u.distance;
+  if (a < 1e-12) return List.of(p);
+  final un = u / a;
+  final vn = Offset(-un.dy, un.dx);
+  final b = ((p[2] - c).dx * vn.dx + (p[2] - c).dy * vn.dy).abs();
+  if (b < 1e-12) return List.of(p);
+  return [
+    for (var i = 0; i <= samples; i++)
+      c +
+          un * (a * math.cos(2 * math.pi * i / samples)) +
+          vn * (b * math.sin(2 * math.pi * i / samples))
+  ];
 }
 
 /// Interpolation (fit-point) spline: a Catmull-Rom curve passing THROUGH [p].
