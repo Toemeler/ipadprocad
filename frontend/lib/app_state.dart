@@ -1323,7 +1323,11 @@ class AppState extends ChangeNotifier {
         // placement) — and those vertices combine with further picks like any
         // other points (e.g. + line -> perpendicular distance is NOT offered
         // by Inventor for an edge, so an edge only starts a pt-pt set).
-        if (nE == 0 && nP == 0) {
+        // A SPLINE's "segments" are control-polygon edges, not geometry —
+        // their length is meaningless, so a spline never auto-picks an edge
+        // pair. Its individual control/fit points stay pickable through the
+        // point branch above, which is exactly what Inventor allows.
+        if (nE == 0 && nP == 0 && !g.isSpline) {
           final seg = polySegmentAt(s, ent, w);
           if (seg != null) {
             conPts
