@@ -69,14 +69,23 @@ class SketchModel {
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create();
 
-  void refresh() {
-    final prev = geometry;
-    final next = engine.allGeometry();
+  void refresh({List<Geo>? tagSource}) {
     // The backend has no spline type (R_NO_OPENNURBS), so it hands splines back
     // as plain polylines. The tag is app state (like the layer eye), so reapply
-    // it by index: _rebuildEngine pushes geometry in order and allGeometry
+    // it by index — _rebuildEngine pushes geometry in order and allGeometry
     // returns it in the same order, so index i is the same entity across the
     // round-trip. (Save/load restores the tag from the sidecar the same way.)
+    //
+    // [tagSource] is the list the engine was just rebuilt FROM. It must be
+    // used whenever the rebuild ADDED or REORDERED entities: restoring from
+    // the previous s.geometry (the pre-commit state) silently stripped the
+    // spline tag off every FRESHLY COMMITTED spline — the new entity's index
+    // did not exist in the old list — which is why a spline turned into a
+    // straight control polygon the moment Enter placed it.
+    final prev = tagSource ?? geometry;
+    // copy: an engine is free to hand out an unmodifiable list (the Dart
+    // fallback does), and the re-tagging below writes into it
+    final next = List<Geo>.of(engine.allGeometry());
     for (var i = 0; i < next.length && i < prev.length; i++) {
       if (prev[i].spline != Geo.straight && next[i].type == Geo.polyline) {
         next[i] = next[i].asSpline(prev[i].spline);
@@ -820,7 +829,7 @@ class AppState extends ChangeNotifier {
           break;
       }
     }
-    _committed(s);
+    _committed(s, tags: gs);
     _refreshDriven(s);
     analysis = analyzeSketch(s.geometry, s.constraints);
     Log.i('engine',
@@ -903,8 +912,23 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    toolPoints.add(w);
     final meta = toolMeta[tool];
+    // Variable tools (splines): clicking back on the START point closes the
+    // curve and commits IMMEDIATELY — that is Inventor's gesture, and it is
+    // far more robust than "place a point that happens to coincide, then
+    // remember to press Enter". Needs >= 3 DISTINCT points for a closed curve.
+    if (meta != null && meta.fixed == null && toolPoints.length >= 3) {
+      final first = toolPoints.first;
+      // the click is snapped upstream, so exact equality is the normal case;
+      // the world tolerance catches a click with snapping toggled off
+      if ((w - first).distance < math.max(1e-9, 8 / zoom)) {
+        toolPoints.add(first); // EXACT start -> buildToolGeometry closes it
+        _commitTool(s);
+        notifyListeners();
+        return;
+      }
+    }
+    toolPoints.add(w);
     if (meta?.fixed != null && toolPoints.length >= meta!.fixed!) {
       _commitTool(s);
     }
@@ -1687,8 +1711,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _committed(SketchModel s) {
-    s.refresh();
+  void _committed(SketchModel s, {List<Geo>? tags}) {
+    s.refresh(tagSource: tags);
     _syncLayers(s);
     s.dirty = true;
   }

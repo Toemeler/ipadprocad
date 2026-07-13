@@ -66,14 +66,43 @@ List<Offset> fitCurve(List<Offset> p, {bool closed = false, int perSeg = 24}) {
   return out;
 }
 
-/// Control-vertex cubic B-spline via De Boor (clamped; wrapped when closed).
+/// Control-vertex cubic B-spline via De Boor.
+///
+/// Open: clamped (the curve starts/ends ON the first/last CV, like Inventor).
+/// Closed: PERIODIC — uniform knots, the first k CVs wrapped onto the end,
+/// evaluated on [knot_k, knot_n]. The previous "clamped + wrap 3 CVs" hack
+/// started the curve on cv[0] but ENDED it on cv[2] (a clamped curve ends on
+/// its last CV), so a closed spline visibly failed to meet its start point
+/// and had a corner there. Periodic closes exactly and C2-smooth.
 List<Offset> bsplineCurve(List<Offset> cvIn,
     {bool closed = false, int samples = 64}) {
   const k = 3; // cubic
-  // A closed curve wraps the first control points onto the end so it meets up.
-  final cv = closed && cvIn.length >= 3
-      ? [...cvIn, cvIn[0], cvIn[1], cvIn[2]]
-      : cvIn;
+  if (closed && cvIn.length >= 3) {
+    final cv = [...cvIn, cvIn[0], cvIn[1], cvIn[2]];
+    final n = cv.length;
+    // uniform knots 0..n+k; the curve is defined (and periodic) on [k, n]
+    Offset deBoor(double u) {
+      var s = u.floor();
+      s = s.clamp(k, n - 1);
+      final d = [for (var j = 0; j <= k; j++) cv[j + s - k]];
+      for (var r = 1; r <= k; r++) {
+        for (var j = k; j >= r; j--) {
+          final den = (j + 1 + s - r) - (j + s - k); // uniform: integer knots
+          final alpha = (u - (j + s - k)) / den;
+          d[j] = d[j - 1] * (1 - alpha) + d[j] * alpha;
+        }
+      }
+      return d[k];
+    }
+
+    final out = <Offset>[
+      for (var i = 0; i < samples; i++)
+        deBoor(k + (n - k) * (i / samples))
+    ];
+    out.add(out[0]); // close EXACTLY (deBoor(n) == deBoor(k) up to rounding)
+    return out;
+  }
+  final cv = cvIn;
   final n = cv.length;
   if (n <= k) return fitCurve(cvIn, closed: closed);
   final knots = <double>[

@@ -652,3 +652,51 @@ sollen.
 **Offen / Ideen:** Tangenten-Varianten für Kreis-Abstände (Inventor: Auswahl
 Mittelpunkt vs. Tangente beim Platzieren), Bogenlängen-Bemaßung, Winkel über
 Quadranten-Umschaltung beim Platzieren.
+
+---
+
+## M22 — Spline-Fixes: Tag-Verlust beim Commit, periodische geschlossene Splines, Klick-auf-Start
+
+**Symptom:** Während des Zeichnens sah der Spline korrekt aus (Kurve +
+Kontrollpunkte), nach Enter waren es nur noch gerade Linien ohne
+Kontrollpunkte. Außerdem war "Spline auf seinem Startpunkt beenden" buggy.
+
+**Ursache 1 (der Hauptbug):** `SketchModel.refresh()` stellt die Spline-Tags
+nach dem Engine-Roundtrip per Index aus dem VORHERIGEN `s.geometry` wieder
+her. Beim allerersten Commit existiert der neue Spline im alten Stand aber
+noch nicht — sein Index liegt hinter `prev.length`, das Tag fiel weg, und der
+Spline wurde als gerade Polyline gerendert. Fix: `refresh({List<Geo>?
+tagSource})` — `_rebuildEngine` übergibt die MASSGEBLICHE Liste `gs`, aus der
+die Engine gerade gebaut wurde (`_committed(s, tags: gs)`). Zusätzlich
+kopiert `refresh` die Engine-Liste jetzt (`List.of`), weil die
+Fallback-Engine eine unveränderliche Liste liefert und das Re-Tagging sonst
+wirft.
+
+**Ursache 2:** Geschlossene CV-Splines waren mathematisch falsch: geklemmter
+Knotenvektor + 3 angehängte CVs lässt die Kurve auf cv[0] STARTEN, aber auf
+cvIn[2] ENDEN (geklemmt endet auf dem letzten CV) — sichtbare Lücke/Ecke am
+Startpunkt. Fix: geschlossene CV-Splines sind jetzt ein echter PERIODISCHER
+kubischer B-Spline (uniforme Knoten, k CVs umgeschlagen, ausgewertet auf
+[t_k, t_n]); Start==Ende exakt, C2-glatt am Stoß. Offene bleiben geklemmt
+(Kurve beginnt/endet auf erstem/letztem CV, wie Inventor).
+
+**Ursache 3 (UX):** Zum Schließen musste man exakt (1e-6!) auf den Start
+klicken UND danach noch Enter drücken. Jetzt: Klick auf den Startpunkt (ab 3
+gesetzten Punkten, Toleranz 8/zoom als Fallback wenn Snap aus) schließt und
+committet SOFORT — Inventors Geste. Der Snap auf den Startpunkt existierte
+schon (extraPoints in computeSnap).
+
+**Sichtbarkeit:** CV-Splines zeigen bei Hover/Selektion jetzt ihr
+Kontrollpolygon (gestrichelt) + Punktmarker — ohne das waren die
+Off-Curve-Kontrollpunkte unsichtbar und der Spline wirkte uneditierbar.
+Fit-Splines brauchen das nicht (Punkte liegen AUF der Kurve).
+
+**Tests:** `frontend/test/spline_test.dart` — Tag überlebt Rebuild,
+periodischer Schluss (exakt + kein Knick), Fit-Spline schließt + läuft durch
+alle Fit-Punkte, Tool schließt bei Klick auf Start. Der Tag-Test fährt den
+echten `refresh(tagSource:)`-Pfad über die Dart-Fallback-Engine.
+
+**Bekannte Grenzen:** Spline-Punkte sind im Solver weiterhin freie
+Polyline-Vertices (Constraints/Bemaßungen auf Kontroll-/Fit-Punkte gehen,
+Tangenten-Handles wie in Inventor gibt es noch nicht). DXF exportiert
+weiterhin die Kontrollpolygon-Polyline (R_NO_OPENNURBS) + Sidecar-Tag.

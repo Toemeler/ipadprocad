@@ -578,6 +578,38 @@ class _ViewportPainter extends CustomPainter {
         }
         try {
           paintGeo(canvas, gs[i], map, app.zoom, paint);
+          // Inventor shows the CONTROL POLYGON of a CV spline (dashed, with
+          // vertex dots) whenever it is selected or hovered — without it the
+          // off-curve control points are invisible and the spline feels
+          // uneditable. Fit splines don't need it: their points sit ON the
+          // curve and get grips like any vertex.
+          final g = gs[i];
+          if (g.spline == Geo.splineCv &&
+              (app.selection.contains(i) || app.hoverEnt == i)) {
+            final poly = Paint()
+              ..color = const Color(0x88E8C060)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1;
+            final n = g.data[1].toInt();
+            final closedS = g.data[0] != 0;
+            for (var v = 0; v + 1 < n; v++) {
+              final a = map(g.data[2 + 2 * v], g.data[3 + 2 * v]);
+              final b = map(g.data[4 + 2 * v], g.data[5 + 2 * v]);
+              _dashedLine(canvas, a, b, poly);
+            }
+            if (closedS && n > 2) {
+              _dashedLine(
+                  canvas,
+                  map(g.data[2 + 2 * (n - 1)], g.data[3 + 2 * (n - 1)]),
+                  map(g.data[2], g.data[3]),
+                  poly);
+            }
+            final dot = Paint()..color = const Color(0xFFE8C060);
+            for (var v = 0; v < n; v++) {
+              canvas.drawCircle(
+                  map(g.data[2 + 2 * v], g.data[3 + 2 * v]), 3, dot);
+            }
+          }
         } catch (err, st) {
           if (Log.every('paint-throw', 500)) {
             Log.e('paint', 'paintGeo THREW for ${geoStr(i, gs[i])}', err, st);
