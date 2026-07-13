@@ -236,6 +236,8 @@ int residualCount(List<Geo> gs, Constraint c) {
       return curved ? 2 : 1;
     case CType.symmetric:
       return pt(0) && pt(1) && ent(0) && gs[c.ents[0]].type == Geo.line ? 2 : 0;
+    case CType.midpoint:
+      return pt(0) && ent(0) && gs[c.ents[0]].type == Geo.line ? 2 : 0;
     case CType.equal:
       return ent(0) && ent(1) ? 1 : 0;
     case CType.dimension:
@@ -412,6 +414,15 @@ List<double> _residuals(List<Geo> gs, List<int> off, List<double> x,
       case CType.tangent:
       case CType.smooth:
         _tangentResiduals(gs, off, x, cs, ctx, i, c, r);
+        break;
+      case CType.midpoint:
+        // pts[0] == midpoint of line ents[0] — LINEAR, so it never traps the
+        // LM solver the way the two coupled symmetric-about-the-other-axis
+        // equations did for ellipse axes.
+        final ml = _lineEnds(gs, off, x, c.ents[0])!;
+        final mp = _pointAt(gs, off, x, c.pts[0]);
+        r.add((ml.$1.dx + ml.$2.dx) / 2 - mp.dx);
+        r.add((ml.$1.dy + ml.$2.dy) / 2 - mp.dy);
         break;
       case CType.symmetric:
         final ax = _lineEnds(gs, off, x, c.ents[0])!;
@@ -808,6 +819,14 @@ bool _trySolveWithSlvs(
           s.addCon(Sh.tangent, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
         }
         break;
+      case CType.midpoint:
+        if (c.pts.isNotEmpty && c.ents.isNotEmpty) {
+          final a = pOf(c.pts[0]);
+          if (a != null) {
+            s.addCon(Sh.midpoint, a: a, e1: eOf(c.ents[0]));
+          }
+        }
+        break;
       case CType.symmetric:
         if (c.pts.length >= 2 && c.ents.isNotEmpty) {
           final a = pOf(c.pts[0]), b = pOf(c.pts[1]);
@@ -981,7 +1000,11 @@ bool _trySolveWithSlvs(
 const _satisfied = 1e-6;
 
 void solveConstraints(List<Geo> gs, List<Constraint> cs,
-    {Set<(int, int)> dragged = const {}, int iterations = 25}) {
+    // 25 iterations left visibly unconverged residuals (~0.3% of the entity
+    // size) on systems the slvs shim bails on — e.g. an ellipse whose axes
+    // hang on symmetric constraints. 80 costs little (small dense systems,
+    // and the loop exits early once err <= _satisfied) and converges those.
+    {Set<(int, int)> dragged = const {}, int iterations = 80}) {
   if (cs.isEmpty || gs.isEmpty) return;
 
   // The drag solves at ~60 Hz, so the routine lines are throttled. Anomalies

@@ -90,6 +90,11 @@ class SketchModel {
       if (prev[i].spline != Geo.straight && next[i].type == Geo.polyline) {
         next[i] = next[i].asSpline(prev[i].spline);
       }
+      // the line STYLE (centerline) is app state exactly like the spline tag —
+      // dropping it here rendered every centerline solid after the first edit
+      if (prev[i].style != Geo.styleNormal) {
+        next[i] = next[i].withStyle(prev[i].style);
+      }
     }
     geometry = next;
   }
@@ -247,6 +252,21 @@ class AppState extends ChangeNotifier {
           }
         } catch (e) {
           Log.w('state', 'spline sidecar read failed: $e');
+        }
+        try {
+          final stf = File('${_sketchDir.path}/$name.styles.json');
+          if (stf.existsSync()) {
+            final j =
+                jsonDecode(stf.readAsStringSync()) as Map<String, dynamic>;
+            j.forEach((k, v) {
+              final i = int.tryParse(k);
+              if (i != null && i >= 0 && i < s.geometry.length) {
+                s.geometry[i] = s.geometry[i].withStyle((v as num).toInt());
+              }
+            });
+          }
+        } catch (e) {
+          Log.w('state', 'style sidecar read failed: $e');
         }
         // Layers survive in TWO places: the entity->layer binding travels in
         // the DXF (group code 8), while the display order plus empty layers and
@@ -1115,6 +1135,14 @@ class AppState extends ChangeNotifier {
   PRef? _nearestPointRef(SketchModel s, Offset w) {
     PRef? best;
     var bd = 10 / zoom;
+    // The projected center point is a real pick target in Inventor — you
+    // dimension and constrain against it like any vertex. It has no slot in
+    // the geometry list (negative sentinel), so offer it explicitly.
+    final dOrigin = w.distance;
+    if (dOrigin < bd) {
+      bd = dOrigin;
+      best = const PRef(kProjCenter, 0);
+    }
     for (var e = 0; e < s.geometry.length; e++) {
       if (!geoEditable(s.geometry[e])) continue; // other layers are read-only
       for (var p2 = 0; p2 < ptCount(s.geometry[e]); p2++) {
@@ -1438,8 +1466,8 @@ class AppState extends ChangeNotifier {
   /// position, so sweeping the preview around the two points cycles through
   /// all three variants exactly like Inventor.
   String _distKind(SketchModel s, PRef a, PRef b, Offset at) {
-    final pa = getPt(s.geometry[a.ent], a.pt);
-    final pb = getPt(s.geometry[b.ent], b.pt);
+    final pa = refPt(s.geometry, a);
+    final pb = refPt(s.geometry, b);
     final d = pb - pa;
     if (d.distance < 1e-9) return 'dist';
     final minX = math.min(pa.dx, pb.dx), maxX = math.max(pa.dx, pb.dx);
@@ -1722,10 +1750,16 @@ class AppState extends ChangeNotifier {
       final placed = [for (final g in geos) g.onLayer(layer)];
       Log.i('layer', 'commit ${placed.length} entities onto "$layer"');
       final gs = List<Geo>.from(s.geometry)..addAll(placed);
+      final firstNew = s.geometry.length;
       if (autoConstrain) {
-        for (var i = s.geometry.length; i < gs.length; i++) {
+        for (var i = firstNew; i < gs.length; i++) {
           s.constraints.addAll(inferConstraints(gs, i));
         }
+      }
+      if (tool == Tool.ellipse &&
+          placed.length == 1 &&
+          placed[0].spline == Geo.ellipseTag) {
+        _addEllipseAxes(s, gs, firstNew, layer);
       }
       solveConstraints(gs, s.constraints);
       _rebuildEngine(s, gs);
@@ -1739,6 +1773,64 @@ class AppState extends ChangeNotifier {
     } else {
       toolPoints.clear();
     }
+  }
+
+  /// Inventor's Format > Centerline toggle: flips the line style of the
+  /// current selection. Mixed selections turn INTO centerlines first (like
+  /// Inventor); a second toggle turns them back.
+  void toggleCenterlineSelected() {
+    final s = current;
+    if (s == null || selection.isEmpty) return;
+    final gs = List<Geo>.from(s.geometry);
+    final toCenter =
+        selection.any((i) => i < gs.length && gs[i].style == Geo.styleNormal);
+    for (final i in selection) {
+      if (i >= gs.length) continue;
+      gs[i] = gs[i]
+          .withStyle(toCenter ? Geo.styleCenterline : Geo.styleNormal);
+    }
+    _rebuildEngine(s, gs);
+    notifyListeners();
+  }
+
+  /// Creates the two AXIS CENTERLINES of a freshly committed ellipse and
+  /// binds them to it, Inventor-style: real line entities (movable,
+  /// dimensionable, constrainable), rendered dashed via the centerline
+  /// style, and kept on the ellipse by the solver —
+  ///   coincident(axis end A, ellipse quadrant vertex) x2
+  ///   midpoint(ellipse CENTER on axis line)           x2
+  /// Together that is 8 LINEAR equations for the 8 new line parameters, so
+  /// the axes are fully determined by the ellipse and never over-constrain
+  /// it. (An earlier symmetric-about-the-other-axis formulation coupled the
+  /// two axes nonlinearly and reliably trapped the LM solver in a local
+  /// minimum ~0.3% off; midpoint is linear and slvs-native, SH_MIDPOINT.)
+  /// Dragging an axis endpoint therefore drives the ellipse through the
+  /// solver, and both axes are legitimate dimension/constraint targets.
+  void _addEllipseAxes(
+      SketchModel s, List<Geo> gs, int ellipseIdx, String layer) {
+    final e = gs[ellipseIdx];
+    final c = Offset(e.data[2], e.data[3]);
+    final ma = Offset(e.data[4], e.data[5]);
+    final mi = Offset(e.data[6], e.data[7]);
+    final major = Geo(
+            Geo.line, [ma.dx, ma.dy, (c * 2 - ma).dx, (c * 2 - ma).dy])
+        .onLayer(layer)
+        .withStyle(Geo.styleCenterline);
+    final minor = Geo(
+            Geo.line, [mi.dx, mi.dy, (c * 2 - mi).dx, (c * 2 - mi).dy])
+        .onLayer(layer)
+        .withStyle(Geo.styleCenterline);
+    final iMaj = gs.length, iMin = gs.length + 1;
+    gs..add(major)..add(minor);
+    s.constraints.addAll([
+      Constraint(CType.coincident, pts: [PRef(iMaj, 0), PRef(ellipseIdx, 1)]),
+      Constraint(CType.coincident, pts: [PRef(iMin, 0), PRef(ellipseIdx, 2)]),
+      Constraint(CType.midpoint,
+          pts: [PRef(ellipseIdx, 0)], ents: [iMaj]),
+      Constraint(CType.midpoint,
+          pts: [PRef(ellipseIdx, 0)], ents: [iMin]),
+    ]);
+    Log.i('layer', 'ellipse axes committed as centerlines ($iMaj, $iMin)');
   }
 
   void _committed(SketchModel s, {List<Geo>? tags}) {
@@ -1800,6 +1892,19 @@ class AppState extends ChangeNotifier {
         if (sf.existsSync()) sf.deleteSync();
       } else {
         sf.writeAsStringSync(jsonEncode(spl));
+      }
+      // Line styles (centerlines) ride in their own sidecar, same scheme.
+      final sty = <String, int>{};
+      for (var i = 0; i < s.geometry.length; i++) {
+        if (s.geometry[i].style != Geo.styleNormal) {
+          sty['$i'] = s.geometry[i].style;
+        }
+      }
+      final stf = File('${_sketchDir.path}/$name.styles.json');
+      if (sty.isEmpty) {
+        if (stf.existsSync()) stf.deleteSync();
+      } else {
+        stf.writeAsStringSync(jsonEncode(sty));
       }
     } catch (e) {
       Log.w('state', 'spline sidecar write failed: $e');
@@ -1897,7 +2002,14 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
     double scale, Paint p) {
   switch (g.type) {
     case Geo.line:
-      canvas.drawLine(map(g.data[0], g.data[1]), map(g.data[2], g.data[3]), p);
+      if (g.isCenterline) {
+        // centerline STYLE: same entity, dashed rendering (Inventor's toggle)
+        _dashedSeg(canvas, map(g.data[0], g.data[1]),
+            map(g.data[2], g.data[3]), p, dash: 10, gap: 5);
+      } else {
+        canvas.drawLine(
+            map(g.data[0], g.data[1]), map(g.data[2], g.data[3]), p);
+      }
       break;
     case Geo.circle:
       canvas.drawCircle(map(g.data[0], g.data[1]), g.data[2] * scale, p);
@@ -1938,22 +2050,6 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
           path.lineTo(o.dx, o.dy);
         }
         canvas.drawPath(path, p);
-        if (g.spline == Geo.ellipseTag && n >= 3) {
-          // Inventor draws the ellipse's MAJOR and MINOR axes as dashed
-          // centerlines — they carry the center and quadrant points you
-          // dimension and constrain against, so they are always visible.
-          final c = Offset(g.data[2], g.data[3]);
-          final ma = Offset(g.data[4], g.data[5]);
-          final mi = Offset(g.data[6], g.data[7]);
-          final axis = Paint()
-            ..color = p.color.withValues(alpha: p.color.a * 0.45)
-            ..strokeWidth = 1
-            ..style = PaintingStyle.stroke;
-          _dashedSeg(canvas, map(ma.dx, ma.dy),
-              map((c * 2 - ma).dx, (c * 2 - ma).dy), axis);
-          _dashedSeg(canvas, map(mi.dx, mi.dy),
-              map((c * 2 - mi).dx, (c * 2 - mi).dy), axis);
-        }
         break;
       }
       final path = Path()

@@ -19,6 +19,10 @@ import 'snap.dart';
 enum CType {
   coincident, collinear, concentric, fix, parallel, perpendicular,
   horizontal, vertical, tangent, smooth, symmetric, equal, dimension,
+  // appended at the END: the sidecar stores the enum INDEX, so new types
+  // must never reorder the existing ones.
+  // pts[0] is the midpoint of line ents[0] (SH_MIDPOINT natively).
+  midpoint,
 }
 
 class PRef {
@@ -52,6 +56,13 @@ const int kProjCenter = -1;
 /// True for point refs that live in the geometry list (i.e. not the projected
 /// center point). Anything dereferencing `gs[ref.ent]` must check this first.
 bool isRealPt(PRef r, List<Geo> gs) => r.ent >= 0 && r.ent < gs.length;
+
+/// Resolves a point ref to coordinates, INCLUDING the projected center point
+/// (kProjCenter -> the fixed origin). Every dimension consumer must use this
+/// instead of raw getPt(gs[ref.ent], ...), or dimensioning against the
+/// projected CP crashes/never renders.
+Offset refPt(List<Geo> gs, PRef r) =>
+    isRealPt(r, gs) ? getPt(gs[r.ent], r.pt) : Offset.zero;
 
 class Constraint {
   final CType type;
@@ -114,6 +125,7 @@ String constraintLabel(CType t) => const {
       CType.symmetric: '\u224b',
       CType.equal: '=',
       CType.dimension: 'D',
+      CType.midpoint: '\u2ae7', // triangle over bar — Inventor's midpoint glyph
     }[t]!;
 
 String encodeConstraints(List<Constraint> cs) =>
@@ -354,14 +366,11 @@ double measureDim(List<Geo> gs, Constraint c) {
   switch (c.dimKind) {
     case 'dist':
       if (c.pts.length < 2) return 0;
-      return (getPt(gs[c.pts[0].ent], c.pts[0].pt) -
-              getPt(gs[c.pts[1].ent], c.pts[1].pt))
-          .distance;
+      return (refPt(gs, c.pts[0]) - refPt(gs, c.pts[1])).distance;
     case 'distx':
     case 'disty':
       if (c.pts.length < 2) return 0;
-      final d = getPt(gs[c.pts[0].ent], c.pts[0].pt) -
-          getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      final d = refPt(gs, c.pts[0]) - refPt(gs, c.pts[1]);
       return (c.dimKind == 'distx' ? d.dx : d.dy).abs();
     case 'rad':
       return gs[c.ents[0]].data[2];
@@ -377,9 +386,9 @@ double measureDim(List<Geo> gs, Constraint c) {
       // distance to the INFINITE line through A,B (Inventor measures the same
       // way; the witness line is extended when the foot falls off the segment).
       if (c.pts.length < 3) return 0;
-      final p = getPt(gs[c.pts[0].ent], c.pts[0].pt);
-      final a = getPt(gs[c.pts[1].ent], c.pts[1].pt);
-      final b = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final p = refPt(gs, c.pts[0]);
+      final a = refPt(gs, c.pts[1]);
+      final b = refPt(gs, c.pts[2]);
       final d = b - a;
       final len = d.distance;
       if (len < 1e-12) return (p - a).distance;
@@ -387,9 +396,9 @@ double measureDim(List<Geo> gs, Constraint c) {
     case 'ang3':
       // pts = [ray end A, VERTEX, ray end B] — Inventor's 3-point angle.
       if (c.pts.length < 3) return 0;
-      final a = getPt(gs[c.pts[0].ent], c.pts[0].pt);
-      final o = getPt(gs[c.pts[1].ent], c.pts[1].pt);
-      final b = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final a = refPt(gs, c.pts[0]);
+      final o = refPt(gs, c.pts[1]);
+      final b = refPt(gs, c.pts[2]);
       final d1 = a - o, d2 = b - o;
       final s = d1.distance * d2.distance;
       if (s < 1e-12) return 0;

@@ -774,3 +774,47 @@ Immunität, Normalisierung, Zentrum-/Hauptscheitel-Grip). 28 gesamt, alle grün.
 **Tests:** flow_probe_test.dart fährt die Flows durch AppState.toolClick:
 Linie+Ellipsenzentrum → pline, Ellipsenkörper als Kurven-Pick →
 Zentrum↔Linie, Platzierungsregionen distx/disty/dist. 31 gesamt.
+
+---
+
+## M25 — Projizierter Center Point bemaßbar + Ellipsen-Achsen als echte Mittellinien
+
+**Teil 1 — Projizierter Center Point (Ursprung):** War als Pick angeboten
+(`_nearestPointRef` liefert `PRef(kProjCenter, 0)`), aber die Konsumenten
+dereferenzierten roh mit `getPt(gs[ent])` — beim Sentinel −1 flog das bzw.
+die Guards (`ent < 0 → return`) warfen die Bemaßung beim Rendern weg. Neuer
+Helfer `refPt(gs, ref)` (constraints.dart) löst JEDEN Punkt-Ref auf,
+inklusive Ursprung. Umgestellt: `measureDim` (alle Punkt-Arten),
+`_distKind`, der komplette Bemaßungs-Painter, die Pick-Halos. Merkregel im
+Code: Bemaßungs-Konsumenten benutzen NIE rohes getPt auf PRefs.
+
+**Teil 2 — Mittellinien (Centerline-Stil):** `Geo.style`
+(styleNormal/styleCenterline) analog zum Spline-Tag: withStyle/withData/
+onLayer erhalten ihn, eigener Sidecar `<name>.styles.json`, UND — der beim
+Testen gefundene Kernbug — `refresh()` stellt den Stil jetzt wie den
+Spline-Tag wieder her (vorher wurde jede Mittellinie beim ersten Edit wieder
+durchgezogen gerendert). Rendering: Linien mit styleCenterline zeichnen
+gestrichelt (paintGeo), sind aber VOLLWERTIGE Entities: verschiebbar,
+bemaßbar, constraintbar. Ribbon: Format → "Centerline (toggle selected)"
+schaltet den Stil der Selektion um (Inventors Format-Toggle).
+
+**Teil 3 — Ellipsen-Achsen sind jetzt ECHTE Mittellinien-Entities:** Beim
+Commit einer Ellipse entstehen zwei Achsen-Linien (Quadrant+ → Quadrant−)
+im Centerline-Stil, an die Ellipse gebunden über
+  coincident(Achsende A, Ellipsen-Scheitel) ×2 und
+  midpoint(Ellipsen-ZENTRUM auf Achsenlinie) ×2
+= 8 LINEARE Gleichungen für die 8 Linienparameter → weder über- noch
+unterbestimmt, Achse ziehen treibt die Ellipse durch den Solver. WICHTIG:
+Die erste Formulierung (symmetric um die jeweils andere Achse) koppelte die
+Achsen nichtlinear und blieb im LM-Solver reproduzierbar in einem lokalen
+Minimum ~0.3 % daneben hängen — deshalb NEUER Constraint-Typ
+`CType.midpoint` (Punkt = Mittelpunkt einer Linie), ans ENDE des Enums
+angehängt (Sidecar speichert den Enum-INDEX!), LM-Residual linear,
+slvs-nativ über den existierenden Shim-Code SH_MIDPOINT (12), Glyph ⫧.
+Die dekorative Achsen-Zeichnung aus M24 ist raus — die Achsen sind jetzt
+Geometrie. LM-Iterationsbudget 25 → 80 (bricht bei Konvergenz früh ab).
+
+**Tests:** m25_test.dart — Punkt+Ursprung-Bemaßung, Linie+Ursprung (pline),
+Ellipsen-Commit erzeugt 2 gebundene Achsen (midpoint×2 + coincident≥2),
+Achsen folgen der (gepinnten) Ellipse exakt durch den Solver,
+Centerline-Stil überlebt den Engine-Roundtrip. 36 gesamt, alle grün.

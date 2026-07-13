@@ -417,7 +417,7 @@ class _RibbonState extends State<Ribbon> {
           ),
         ),
         // 7. Format
-        _panel(label: 'Format', arrow: true, child: _FormatGrid()),
+        _panel(label: 'Format', arrow: true, child: _FormatGrid(app: app)),
         // 8. Modify (LAST block)
         _panel(
           label: 'Modify',
@@ -837,6 +837,8 @@ class _ConGrid extends StatelessWidget {
 }
 
 class _FormatGrid extends StatelessWidget {
+  final AppState app;
+  const _FormatGrid({required this.app});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -859,13 +861,16 @@ class _FormatGrid extends StatelessWidget {
           // row 2: sphere + crosshair (crosshair ACTIVE, blue frame)
           Row(mainAxisSize: MainAxisSize.min, children: [
             Tooltip(
-              message: 'Sketch Only',
-              child: SizedBox(
-                  width: 32,
-                  height: 27,
-                  child: _Hover(
-                      hoverBg: T.hover7,
-                      child: Center(child: svg(IN['sphere']!, 18)))),
+              message: 'Centerline (toggle selected)',
+              child: GestureDetector(
+                onTap: app.toggleCenterlineSelected,
+                child: SizedBox(
+                    width: 32,
+                    height: 27,
+                    child: _Hover(
+                        hoverBg: T.hover7,
+                        child: Center(child: svg(IN['sphere']!, 18)))),
+              ),
             ),
             const SizedBox(width: 1),
             Tooltip(

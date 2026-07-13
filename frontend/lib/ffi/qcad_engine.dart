@@ -48,24 +48,41 @@ class Geo {
   /// One of [straight]/[splineCv]/[splineFit]. Only meaningful for polylines.
   final int spline;
 
-  const Geo(this.type, this.data,
-      {this.layer = kDefaultLayer, this.spline = straight});
+  // Line style. A CENTERLINE is a normal, fully editable entity (movable,
+  // dimensionable, constrainable) that merely RENDERS dashed — Inventor's
+  // centerline format toggle. Like the spline tag it is app state: the DXF
+  // round-trips the plain entity and the tag rides in a sidecar.
+  static const styleNormal = 0, styleCenterline = 1;
+  final int style;
 
-  /// Same entity, NEW NUMBERS — keeps the layer AND the spline tag. Every
-  /// transform that rebuilds a Geo from an existing one must go through here.
-  /// Using the raw constructor instead silently drops the entity onto layer 0
-  /// (and reverts a spline to a straight control polygon), and since the solver
-  /// rewrites every entity on every solve, one missed site would strip the whole
-  /// sketch of its layers/curves at the first drag.
-  Geo withData(List<double> d) => Geo(type, d, layer: layer, spline: spline);
+  const Geo(this.type, this.data,
+      {this.layer = kDefaultLayer,
+      this.spline = straight,
+      this.style = styleNormal});
+
+  /// Same entity, NEW NUMBERS — keeps the layer, the spline tag AND the line
+  /// style. Every transform that rebuilds a Geo from an existing one must go
+  /// through here. Using the raw constructor instead silently drops the entity
+  /// onto layer 0 (and reverts a spline to a straight control polygon), and
+  /// since the solver rewrites every entity on every solve, one missed site
+  /// would strip the whole sketch of its layers/curves at the first drag.
+  Geo withData(List<double> d) =>
+      Geo(type, d, layer: layer, spline: spline, style: style);
 
   /// Same geometry, different layer.
-  Geo onLayer(String l) => Geo(type, data, layer: l, spline: spline);
+  Geo onLayer(String l) =>
+      Geo(type, data, layer: l, spline: spline, style: style);
 
   /// Same polyline, tagged as a spline of [kind] (splineCv / splineFit).
-  Geo asSpline(int kind) => Geo(type, data, layer: layer, spline: kind);
+  Geo asSpline(int kind) =>
+      Geo(type, data, layer: layer, spline: kind, style: style);
+
+  /// Same geometry, different line style (styleNormal / styleCenterline).
+  Geo withStyle(int st) =>
+      Geo(type, data, layer: layer, spline: spline, style: st);
 
   bool get isSpline => spline != straight;
+  bool get isCenterline => style == styleCenterline;
 }
 
 abstract class Engine {

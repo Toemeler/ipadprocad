@@ -595,8 +595,8 @@ class _ViewportPainter extends CustomPainter {
       // as an edge halo above instead of two lone dots)
       if (pickedEdge == null) {
         for (final r in app.conPts) {
-          if (r.ent < 0 || r.ent >= gs.length) continue;
-          final q = getPt(gs[r.ent], r.pt);
+          if (r.ent >= gs.length) continue;
+          final q = refPt(gs, r); // ent < 0 -> projected CP at the origin
           canvas.drawCircle(map(q.dx, q.dy), 5, halo);
         }
       }
@@ -1013,10 +1013,10 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
     case 'dist':
     case 'distx':
     case 'disty':
-      if (c.pts.length < 2 ||
-          c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) return;
-      final a = getPt(gs[c.pts[0].ent], c.pts[0].pt);
-      final b = getPt(gs[c.pts[1].ent], c.pts[1].pt);
+      // q.ent < 0 is the projected center point (origin) — a legal ref
+      if (c.pts.length < 2 || c.pts.any((q) => q.ent >= gs.length)) return;
+      final a = refPt(gs, c.pts[0]);
+      final b = refPt(gs, c.pts[1]);
       final sa = map(a.dx, a.dy), sb = map(b.dx, b.dy);
       // measuring direction: along the geometry (aligned), or along the
       // screen axes for the horizontal/vertical distance variants
@@ -1063,13 +1063,12 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       // Render as a linear dimension between the point and its foot on the
       // (extended) line; witness the extension with a dashed overshoot when
       // the foot falls outside the picked segment (Inventor does the same).
-      if (c.pts.length < 3 ||
-          c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) {
+      if (c.pts.length < 3 || c.pts.any((q) => q.ent >= gs.length)) {
         return;
       }
-      final pw = getPt(gs[c.pts[0].ent], c.pts[0].pt);
-      final aw = getPt(gs[c.pts[1].ent], c.pts[1].pt);
-      final bw = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final pw = refPt(gs, c.pts[0]);
+      final aw = refPt(gs, c.pts[1]);
+      final bw = refPt(gs, c.pts[2]);
       final dl = bw - aw;
       final len2 = dl.dx * dl.dx + dl.dy * dl.dy;
       if (len2 < 1e-18) return;
@@ -1120,13 +1119,12 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       break;
     case 'ang3':
       // pts = [ray end, VERTEX, ray end]
-      if (c.pts.length < 3 ||
-          c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) {
+      if (c.pts.length < 3 || c.pts.any((q) => q.ent >= gs.length)) {
         return;
       }
-      final vtx = getPt(gs[c.pts[1].ent], c.pts[1].pt);
-      final ra = getPt(gs[c.pts[0].ent], c.pts[0].pt);
-      final rb = getPt(gs[c.pts[2].ent], c.pts[2].pt);
+      final vtx = refPt(gs, c.pts[1]);
+      final ra = refPt(gs, c.pts[0]);
+      final rb = refPt(gs, c.pts[2]);
       final sv = map(vtx.dx, vtx.dy);
       final sa2 = map(ra.dx, ra.dy), sb2 = map(rb.dx, rb.dy);
       final rr = (t - sv).distance;
