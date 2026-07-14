@@ -163,11 +163,12 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
         Geo(Geo.arc, [p[0].dx, p[0].dy, r, ang(p[1]), ang(p[2]), 0.0])
       ];
     case Tool.rectTwoPoint:
+      // Inventor: a rectangle is FOUR line entities held together by
+      // constraints (coincident corners + H/V or perpendicular, added at
+      // commit) — never one polyline (M34).
       if (p.length < 2) return null;
       final a = p[0], b = p[1];
-      return [
-        _poly([a, Offset(b.dx, a.dy), b, Offset(a.dx, b.dy)], closed: true)
-      ];
+      return _rectLines([a, Offset(b.dx, a.dy), b, Offset(a.dx, b.dy)]);
     case Tool.rect3P:
       // corner A, corner B (first edge), extent C
       if (p.length < 3) return null;
@@ -175,14 +176,12 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
     case Tool.rect2PC:
       if (p.length < 2) return null;
       final d = p[1] - p[0];
-      return [
-        _poly([
-          p[0] - d,
-          p[0] + Offset(d.dx, -d.dy),
-          p[0] + d,
-          p[0] + Offset(-d.dx, d.dy)
-        ], closed: true)
-      ];
+      return _rectLines([
+        p[0] - d,
+        p[0] + Offset(d.dx, -d.dy),
+        p[0] + d,
+        p[0] + Offset(-d.dx, d.dy)
+      ]);
     case Tool.rect3PC:
       // center, edge-direction point, extent
       if (p.length < 3) return null;
@@ -193,14 +192,12 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       final hw = u.distance;
       final hh = ((p[2] - p[0]).dx * vn.dx + (p[2] - p[0]).dy * vn.dy).abs();
       if (hh < 1e-9) return null;
-      return [
-        _poly([
-          p[0] + un * hw + vn * hh,
-          p[0] - un * hw + vn * hh,
-          p[0] - un * hw - vn * hh,
-          p[0] + un * hw - vn * hh
-        ], closed: true)
-      ];
+      return _rectLines([
+        p[0] + un * hw + vn * hh,
+        p[0] - un * hw + vn * hh,
+        p[0] - un * hw - vn * hh,
+        p[0] + un * hw - vn * hh
+      ]);
     case Tool.slotCC:
       // arc-center 1, arc-center 2, width point
       if (p.length < 3) return null;
@@ -422,6 +419,11 @@ Offset _tangentNear(List<Geo> geos, Offset p, {required Offset toward}) {
 // ---------------------------------------------------------------------------
 // constructions
 // ---------------------------------------------------------------------------
+/// Four connected LINES from four corners — the Inventor rectangle model.
+List<Geo> _rectLines(List<Offset> v) => [
+      for (var i = 0; i < 4; i++) _line(v[i], v[(i + 1) % 4]),
+    ];
+
 List<Geo>? _rectFromEdge(Offset a, Offset b, Offset c) {
   final u = b - a;
   if (u.distance < 1e-9) return null;
@@ -430,9 +432,7 @@ List<Geo>? _rectFromEdge(Offset a, Offset b, Offset c) {
   final h = (c - a).dx * vn.dx + (c - a).dy * vn.dy;
   if (h.abs() < 1e-9) return null;
   final off = vn * h;
-  return [
-    _poly([a, b, b + off, a + off], closed: true)
-  ];
+  return _rectLines([a, b, b + off, a + off]);
 }
 
 List<Geo>? _linearSlot(Offset c1, Offset c2, double r) {

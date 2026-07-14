@@ -4,7 +4,6 @@
 // Edit-Modus nicht mehr selektierbar (grau = nur Referenz).
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/constraints.dart';
 import 'package:ipadprocad/ffi/qcad_engine.dart';
 import 'package:ipadprocad/solver.dart';
 
@@ -56,16 +55,19 @@ void main() {
         reason: 'projected circle mirrors center AND radius');
   });
 
-  test('arc and rectangle project as same-type copies', () {
+  test('arc projects whole; a rectangle side projects as ONE LINE (M34)',
+      () {
     final app = makeApp();
     app.toolClick(const Offset(68, 0)); //  arc
     app.toolClick(const Offset(10, 60)); // rectangle bottom edge
     final s = app.current!;
     expect(s.geometry[4].type, Geo.arc);
     expect(s.geometry[4].proj, 1);
-    expect(s.geometry[5].type, Geo.polyline);
+    expect(s.geometry[5].type, Geo.line,
+        reason: 'Inventor projects the clicked edge, never the loop');
     expect(s.geometry[5].proj, 3);
-    expect(s.geometry[5].data[0], 1, reason: 'closed flag survives');
+    expect(s.geometry[5].projSeg, 0);
+    expect(s.geometry[5].data, [0, 60, 20, 60]);
   });
 
   test('spline projects WITH its spline tag and stays pinned', () {

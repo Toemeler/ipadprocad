@@ -743,6 +743,7 @@ class _ViewportPainter extends CustomPainter {
           final g0 = gs[i];
           final perEdge = !app.selection.contains(i) &&
               !reference &&
+              !g0.isProjection && // projections are yellow as a whole (M34)
               g0.type == Geo.polyline &&
               !g0.isSpline &&
               g0.data[1].toInt() >= 2;

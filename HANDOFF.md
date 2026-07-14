@@ -434,8 +434,9 @@ Token NIE in Dateien/.git/config schreiben.
 - **M32 — Project Geometry (Inventor) + Show-Constraints/DOF default aus:
   ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
 - **M33 — Project Geometry alle Typen + Hover/Active-Button + Fremd-Layer-
-  Selektionssperre: ERLEDIGT, Host-Tests grün (87), Geräte-Test offen**
-  (Abschnitt unten).
+  Selektionssperre: ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
+- **M34 — Rechtecke als vier Linien + Kanten-Projektion + Hover/Gelb-Fixes:
+  ERLEDIGT, Host-Tests grün (94), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1202,7 +1203,63 @@ kein Break-Link; Projektion einer Projektion über Duplikat-Guard gedeckt.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M33, für die nächste Session)
+## M34 — Rechtecke = vier Linien; Kanten-Projektion; Hover-/Gelb-Fixes
+
+**Geräte-Feedback zu M33:** (1) Klick auf eine Rechteck-Seite projizierte
+das GANZE Rechteck statt nur der Linie; (2) Hover-Highlight im Project-
+Modus funktionierte auf dem Rechteck nicht (Kreis/Spline ok); (3) die
+projizierten Rechteck-Linien waren weiß statt gelb. Und grundsätzlich:
+Rechtecke sollen wie in Inventor VIER Linien mit Constraints sein, nie
+eine Polyline.
+
+**Rechteck-Modell (die große Änderung):** Alle vier Rect-Tools
+(rectTwoPoint/rect3P/rect2PC/rect3PC) liefern aus buildToolGeometry jetzt
+`_rectLines` — vier Linien-Entities. `_commitTool` setzt deterministisch
+die Constraints (statt Inferenz): 4× coincident an den Ecken; achsparallele
+Tools zusätzlich 2× horizontal + 2× vertical (dof 4: x,y,w,h); die
+rotierten 3-Punkt-Tools 3× perpendicular (der vierte rechte Winkel wäre
+redundant; dof 5 inkl. Rotation). Jede Seite ist einzeln selektier-,
+bemaß-, constraint- und projizierbar — die ganzen Polyline-Kanten-
+Sonderwege (M26 Per-Edge-Färbung, M28 conEdges, M31 Kanten-Tangente, M34
+Kanten-Projektion) bleiben für POLYGONE, SLOTS und BESTANDS-Sketches mit
+Polyline-Rechtecken voll in Kraft — alte Dateien funktionieren unverändert.
+
+**Kanten-Projektion:** Neues Geo-Feld `projSeg` (Segment-Index in der
+Quell-Polyline, -1 = ganze Entity), von ALLEN Copy-Methoden + refresh
+getragen (withProj(src, [seg])). _projectClick löst bei gewöhnlichen
+Polylines das geklickte Segment via polySegmentAt auf und erzeugt EINE
+Linie mit (proj, projSeg); syncProjections spiegelt die zwei Quell-
+Vertices (wrap bei geschlossen); Duplikat-Guard pro (Quelle, Segment) —
+weitere Kanten derselben Polyline bleiben projizierbar (auch im Hover:
+_isProjectedOnto zählt nur Ganz-Projektionen). Sidecar `.proj.json`
+speichert int (alt, M32-kompatibel) ODER [proj, projSeg]; Loader liest
+beide Formate.
+
+**Hover-Fix:** Der Halo-Painter zeichnet gewöhnliche Polylines NUR über
+hoverEdge — mein M33-Hover setzte hoverEdge=null → Rechteck ohne
+Highlight. Jetzt setzt der Project-Hover hoverEdge über polySegmentAt.
+
+**Gelb-Fix:** Der M26-Per-Edge-DOF-Painter lief auch für projizierte
+Polylines und übermalte projPaint → Guard `!isProjection`, projizierte
+Polylines (ganz, aus M33-Bestand) sind als Ganzes gelb.
+
+**Tests:** `frontend/test/m34_test.dart` (7): 2P-Rect → 4 Linien, 4×
+coincident + 2H + 2V, dof 4, Seite einzeln selektierbar; Corner-Drag hält
+Rechteck-Form (H/V + Ecken); 3P-Rect → 3× perpendicular, dof 5; Polygon-
+Kante projiziert als eine Linie mit projSeg, zweite Kante ok, Duplikat
+abgelehnt; Kanten-Projektion folgt der verbreiterten Quelle; Hover setzt
+hoverEdge (und bleibt für unprojizierte Kanten aktiv); projSeg übersteht
+alle Copy-Methoden. m33-Erwartung (Ganz-Rechteck) auf Kante umgestellt.
+94 Tests, alle grün.
+
+**MERKER:** Neue Rechtecke haben KEINE pickedEdge/conEdges-Semantik mehr
+nötig (jede Seite ist eine Linie) — beim Testen auf dem Gerät prüfen, dass
+Bemaßung/Tangente/Projektion mit den neuen 4-Linien-Rects den normalen
+Linien-Pfad nehmen.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M34, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1222,7 +1279,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (87 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (94 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",

@@ -1196,11 +1196,28 @@ List<Geo> syncProjections(List<Geo> gs) {
       case Geo.projBroken:
         break; // frozen in place
       default:
-        // any entity type (M33): the projection is a same-type copy, so the
-        // data vector transfers 1:1 (a spline/ellipse projection also
-        // carries the source's spline TAG, applied at creation)
         final src = g.proj;
-        if (src >= 0 && src < gs.length && gs[src].type == g.type) {
+        if (src < 0 || src >= gs.length) break;
+        if (g.projSeg >= 0 &&
+            g.type == Geo.line &&
+            gs[src].type == Geo.polyline) {
+          // single projected EDGE of a polyline (a rectangle/polygon side,
+          // M34): the projection is a LINE mirroring that segment's vertices
+          final sg = gs[src];
+          final n = sg.data[1].toInt();
+          if (n >= 2 && g.projSeg < n) {
+            final a = g.projSeg, b = (g.projSeg + 1) % n;
+            gs[i] = g.withData([
+              sg.data[2 + 2 * a],
+              sg.data[3 + 2 * a],
+              sg.data[2 + 2 * b],
+              sg.data[3 + 2 * b],
+            ]);
+          }
+        } else if (gs[src].type == g.type) {
+          // whole-entity projection (M33): same-type copy, the data vector
+          // transfers 1:1 (a spline/ellipse projection also carries the
+          // source's spline TAG, applied at creation)
           gs[i] = g.withData(List.of(gs[src].data));
         }
     }

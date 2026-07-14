@@ -99,7 +99,7 @@ class SketchModel {
       // yellow, source-tracking projection into an ordinary line on the
       // first rebuild.
       if (prev[i].proj != Geo.projNone) {
-        next[i] = next[i].withProj(prev[i].proj);
+        next[i] = next[i].withProj(prev[i].proj, prev[i].projSeg);
       }
     }
     geometry = next;
@@ -282,7 +282,10 @@ class AppState extends ChangeNotifier {
             j.forEach((k, v) {
               final i = int.tryParse(k);
               if (i != null && i >= 0 && i < s.geometry.length) {
-                s.geometry[i] = s.geometry[i].withProj((v as num).toInt());
+                s.geometry[i] = v is List
+                    ? s.geometry[i].withProj(
+                        (v[0] as num).toInt(), (v[1] as num).toInt())
+                    : s.geometry[i].withProj((v as num).toInt());
               }
             });
             syncProjections(s.geometry);
@@ -1057,15 +1060,18 @@ class AppState extends ChangeNotifier {
     return ent >= 0 ? ent : null;
   }
 
-  /// Is [ent] already projected onto [lay]?
-  bool _isProjectedOnto(SketchModel s, int ent, String lay) => s.geometry
-      .any((g) => g.isProjection && g.proj == ent && g.layer == lay);
+  /// Is [ent] fully projected onto [lay]? (An edge projection of a polyline
+  /// only covers ONE segment, the rest stays projectable and highlightable.)
+  bool _isProjectedOnto(SketchModel s, int ent, String lay) =>
+      s.geometry.any((g) =>
+          g.isProjection && g.proj == ent && g.projSeg < 0 && g.layer == lay);
 
   void _projectClick(SketchModel s, Offset w) {
     final lay = editingLayer;
     if (lay == null) return;
     final picked = pickVisibleAny(s, w);
     int? src;
+    var seg = -1;
     Geo? proto;
     if (picked != null) {
       final g = s.geometry[picked];
@@ -1076,7 +1082,24 @@ class AppState extends ChangeNotifier {
         return;
       }
       src = picked;
-      proto = g;
+      if (g.type == Geo.polyline && !g.isSpline) {
+        // a rectangle/polygon side projects as ONE LINE (Inventor projects
+        // the clicked edge, not the loop) — resolved at the click (M34)
+        final e = polySegmentAt(s, picked, w);
+        if (e == null) {
+          toast('Tap an edge of the polygon to project it.');
+          return;
+        }
+        seg = e.$1.pt;
+        proto = Geo(Geo.line, [
+          getPt(g, e.$1.pt).dx,
+          getPt(g, e.$1.pt).dy,
+          getPt(g, e.$2.pt).dx,
+          getPt(g, e.$2.pt).dy,
+        ]);
+      } else {
+        proto = g;
+      }
     } else {
       // no entity: near an axis? (the axes pass through the projected CP)
       final tol = 10 / zoom;
@@ -1092,14 +1115,18 @@ class AppState extends ChangeNotifier {
       }
     }
     for (final g in s.geometry) {
-      if (g.isProjection && g.proj == src && g.layer == lay) {
+      if (g.isProjection &&
+          g.proj == src &&
+          g.projSeg == seg &&
+          g.layer == lay) {
         toast('Already projected onto this layer.');
         return;
       }
     }
     // the projection is a same-type copy of the source — it keeps the
-    // spline/ellipse tag and gets the proj tag on top (M33: all types)
-    final copy = proto.onLayer(lay).withProj(src);
+    // spline/ellipse tag and gets the proj tag on top (M33: all types;
+    // M34: a polyline EDGE projects as a line tagged with its segment)
+    final copy = proto.onLayer(lay).withProj(src, seg);
     final tags = List<Geo>.of(s.geometry)..add(copy);
     s.engine.setCurrentLayer(lay);
     final d = copy.data;
@@ -2055,7 +2082,35 @@ class AppState extends ChangeNotifier {
       Log.i('layer', 'commit ${placed.length} entities onto "$layer"');
       final gs = List<Geo>.from(s.geometry)..addAll(placed);
       final firstNew = s.geometry.length;
-      if (autoConstrain) {
+      final isRect = tool == Tool.rectTwoPoint ||
+          tool == Tool.rect3P ||
+          tool == Tool.rect2PC ||
+          tool == Tool.rect3PC;
+      if (isRect && placed.length == 4) {
+        // Inventor's rectangle: four LINES held together by constraints —
+        // coincident at every corner, plus H/V (axis-aligned tools) or
+        // perpendicular (the rotated 3-point tools; the 4th right angle is
+        // implied and would only be redundant). Added deterministically here
+        // instead of relying on inference.
+        for (var k = 0; k < 4; k++) {
+          s.constraints.add(Constraint(CType.coincident, pts: [
+            PRef(firstNew + k, 1),
+            PRef(firstNew + (k + 1) % 4, 0),
+          ]));
+        }
+        if (tool == Tool.rectTwoPoint || tool == Tool.rect2PC) {
+          for (var k = 0; k < 4; k++) {
+            s.constraints.add(Constraint(
+                k.isEven ? CType.horizontal : CType.vertical,
+                ents: [firstNew + k]));
+          }
+        } else {
+          for (var k = 0; k < 3; k++) {
+            s.constraints.add(Constraint(CType.perpendicular,
+                ents: [firstNew + k, firstNew + k + 1]));
+          }
+        }
+      } else if (autoConstrain) {
         for (var i = firstNew; i < gs.length; i++) {
           s.constraints.addAll(inferConstraints(gs, i));
         }
@@ -2159,7 +2214,14 @@ class AppState extends ChangeNotifier {
               !_isProjectedOnto(s, e, editingLayer!)
           ? e
           : null;
-      hoverEdge = null;
+      // the halo painter draws PLAIN polylines edge-wise (hoverEdge) — a
+      // rectangle got no highlight at all without this (device feedback)
+      final seg = hoverEnt != null &&
+              s.geometry[hoverEnt!].type == Geo.polyline &&
+              !s.geometry[hoverEnt!].isSpline
+          ? polySegmentAt(s, hoverEnt!, w)
+          : null;
+      hoverEdge = seg == null ? null : (seg.$1.ent, seg.$1.pt);
     } else {
       hoverEnt = _pickEntity(s, w);
       final seg = hoverEnt == null ? null : polySegmentAt(s, hoverEnt!, w);
@@ -2222,10 +2284,13 @@ class AppState extends ChangeNotifier {
         stf.writeAsStringSync(jsonEncode(sty));
       }
       // Projection tags (M32) ride in their own sidecar, same scheme.
-      final prj = <String, int>{};
+      final prj = <String, dynamic>{};
       for (var i = 0; i < s.geometry.length; i++) {
-        if (s.geometry[i].isProjection) {
-          prj['$i'] = s.geometry[i].proj;
+        final g = s.geometry[i];
+        if (g.isProjection) {
+          // plain int for whole-entity/axis projections (backward-compatible
+          // with M32 sidecars), [proj, projSeg] for edge projections
+          prj['$i'] = g.projSeg >= 0 ? [g.proj, g.projSeg] : g.proj;
         }
       }
       final pf = File('${_sketchDir.path}/$name.proj.json');

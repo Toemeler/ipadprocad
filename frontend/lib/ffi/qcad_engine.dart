@@ -69,11 +69,17 @@ class Geo {
   static const projNone = -1, projAxisX = -2, projAxisY = -3, projBroken = -4;
   final int proj;
 
+  /// For a projection of a single POLYLINE EDGE (a rectangle side, M34):
+  /// the segment index within the source polyline. -1 = whole entity.
+  /// Clicking a rectangle side in Inventor projects THAT line, not the loop.
+  final int projSeg;
+
   const Geo(this.type, this.data,
       {this.layer = kDefaultLayer,
       this.spline = straight,
       this.style = styleNormal,
-      this.proj = projNone});
+      this.proj = projNone,
+      this.projSeg = -1});
 
   /// Same entity, NEW NUMBERS — keeps the layer, the spline tag AND the line
   /// style. Every transform that rebuilds a Geo from an existing one must go
@@ -81,27 +87,27 @@ class Geo {
   /// onto layer 0 (and reverts a spline to a straight control polygon), and
   /// since the solver rewrites every entity on every solve, one missed site
   /// would strip the whole sketch of its layers/curves at the first drag.
-  Geo withData(List<double> d) =>
-      Geo(type, d, layer: layer, spline: spline, style: style, proj: proj);
+  Geo withData(List<double> d) => Geo(type, d,
+      layer: layer, spline: spline, style: style, proj: proj, projSeg: projSeg);
 
   /// Same geometry, different layer.
-  Geo onLayer(String l) =>
-      Geo(type, data, layer: l, spline: spline, style: style, proj: proj);
+  Geo onLayer(String l) => Geo(type, data,
+      layer: l, spline: spline, style: style, proj: proj, projSeg: projSeg);
 
   /// Same polyline, tagged as a spline of [kind] (splineCv / splineFit).
-  Geo asSpline(int kind) =>
-      Geo(type, data, layer: layer, spline: kind, style: style, proj: proj);
+  Geo asSpline(int kind) => Geo(type, data,
+      layer: layer, spline: kind, style: style, proj: proj, projSeg: projSeg);
 
   /// Same geometry, tagged as a PROJECTION of [src] (entity index, or
   /// [projAxisX]/[projAxisY]/[projBroken]).
-  Geo withProj(int src) =>
-      Geo(type, data, layer: layer, spline: spline, style: style, proj: src);
+  Geo withProj(int src, [int seg = -1]) => Geo(type, data,
+      layer: layer, spline: spline, style: style, proj: src, projSeg: seg);
 
   bool get isProjection => proj != projNone;
 
   /// Same geometry, different line style (styleNormal / styleCenterline).
-  Geo withStyle(int st) =>
-      Geo(type, data, layer: layer, spline: spline, style: st, proj: proj);
+  Geo withStyle(int st) => Geo(type, data,
+      layer: layer, spline: spline, style: st, proj: proj, projSeg: projSeg);
 
   bool get isSpline => spline != straight;
   bool get isCenterline => style == styleCenterline;
