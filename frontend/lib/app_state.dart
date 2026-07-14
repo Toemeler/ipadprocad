@@ -1298,11 +1298,48 @@ class AppState extends ChangeNotifier {
           };
           final type = map[tool]!;
           if (type == CType.tangent) {
-            final t1 = s.geometry[conEnts[0]].type;
-            final t2 = s.geometry[conEnts[1]].type;
+            final g1 = s.geometry[conEnts[0]];
+            final g2 = s.geometry[conEnts[1]];
             bool round(int t) => t == Geo.arc || t == Geo.circle;
-            if (!round(t1) && !round(t2)) {
+            bool spl(Geo g) =>
+                g.type == Geo.polyline &&
+                (g.spline == Geo.splineCv || g.spline == Geo.splineFit);
+            if (!round(g1.type) && !round(g2.type) && !spl(g1) && !spl(g2)) {
               toast('Tangent needs at least one curved entity.');
+              conEnts.clear();
+              return;
+            }
+            if (spl(g1) || spl(g2)) {
+              // Inventor's spline tangency acts at a spline ENDPOINT: the
+              // end tangent (along the two defining points at that end for
+              // both CV and fit splines) is made parallel to the line /
+              // perpendicular to the radius / parallel to the other spline's
+              // end tangent. Which end takes part is resolved HERE, at click
+              // time: the end nearer to the other picked entity. A closed
+              // spline has no ends.
+              if ((spl(g1) && g1.data[0] != 0) ||
+                  (spl(g2) && g2.data[0] != 0)) {
+                toast('Tangent to a CLOSED spline is not supported.');
+                conEnts.clear();
+                return;
+              }
+              PRef endRef(int splE, int otherE) {
+                final g = s.geometry[splE];
+                final n = g.data[1].toInt();
+                final other = s.geometry[otherE];
+                final d0 = distToEntity(other, getPt(g, 0));
+                final d1 = distToEntity(other, getPt(g, n - 1));
+                return PRef(splE, d0 <= d1 ? 0 : n - 1);
+              }
+
+              final endPts = <PRef>[
+                if (spl(g1)) endRef(conEnts[0], conEnts[1]),
+                if (spl(g2)) endRef(conEnts[1], conEnts[0]),
+              ];
+              _addConstraint(
+                  s,
+                  Constraint(CType.tangent,
+                      ents: List.of(conEnts), pts: endPts));
               conEnts.clear();
               return;
             }

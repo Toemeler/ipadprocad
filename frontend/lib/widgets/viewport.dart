@@ -426,6 +426,46 @@ class _Viewport2DState extends State<Viewport2D> {
             app.finishVariableTool();
             return KeyEventResult.handled;
           }
+          // ---- shortcuts (M30). Never while the inline dimension editor is
+          // typing (its key events bubble up through this ancestor Focus).
+          if (event is KeyDownEvent && _inlineDim == null) {
+            final k = event.logicalKey;
+            final ctrl = HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed;
+            if (ctrl && k == LogicalKeyboardKey.keyS) {
+              final tab = app.curTab;
+              if (tab != null) {
+                app.saveSketch(tab).then((ok) =>
+                    app.toast(ok ? 'Saved "$tab"' : 'Save failed'));
+              }
+              return KeyEventResult.handled;
+            }
+            if (!ctrl && !HardwareKeyboard.instance.isAltPressed) {
+              final t = k == LogicalKeyboardKey.keyD
+                  ? Tool.dimension
+                  : k == LogicalKeyboardKey.keyL
+                      ? Tool.line
+                      : k == LogicalKeyboardKey.keyC
+                          ? Tool.circleCenter
+                          : k == LogicalKeyboardKey.keyR
+                              ? Tool.rectTwoPoint
+                              : null;
+              if (t != null) {
+                app.selectTool(t); // toasts a hint when not editing a layer
+                return KeyEventResult.handled;
+              }
+              if (k == LogicalKeyboardKey.keyS) {
+                // S: finish editing the current layer — or, outside a layer,
+                // start (and enter) a new one
+                if (app.inEditMode) {
+                  app.finishEdit(save: true);
+                } else {
+                  app.startNewLayer();
+                }
+                return KeyEventResult.handled;
+              }
+            }
+          }
           return KeyEventResult.ignored;
         },
         child: Listener(

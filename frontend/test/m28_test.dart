@@ -7,8 +7,6 @@
 // lines: perpendicular distance to a point, gap to a parallel line/edge, and
 // the new 'ang4' angle (over four points — an edge has no entity ref) for
 // the non-parallel case.
-import 'dart:ui';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ipadprocad/app_state.dart';
 import 'package:ipadprocad/constraints.dart';

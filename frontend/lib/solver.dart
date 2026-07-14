@@ -257,7 +257,23 @@ int residualCount(List<Geo> gs, Constraint c) {
     case CType.concentric:
       return ent(0) && ent(1) ? 2 : 0;
     case CType.tangent:
-      return ent(0) && ent(1) ? 1 : 0;
+      if (!ent(0) || !ent(1)) return 0;
+      // spline participants (open CV/fit splines) act through their END:
+      // one PRef per spline ent, resolved at click time. The residual is a
+      // single direction condition, exactly like Inventor's 1-DOF tangency.
+      final nSpl = [c.ents[0], c.ents[1]]
+          .where((e) =>
+              gs[e].type == Geo.polyline &&
+              (gs[e].spline == Geo.splineCv || gs[e].spline == Geo.splineFit))
+          .length;
+      if (nSpl > 0) {
+        if (c.pts.length < nSpl) return 0;
+        for (var k = 0; k < nSpl; k++) {
+          final g = gs[c.pts[k].ent];
+          if (g.data[1].toInt() < 2) return 0; // no end direction
+        }
+      }
+      return 1;
     case CType.smooth:
       // G2 = tangency + equal curvature (only meaningful for two arcs)
       if (!ent(0) || !ent(1)) return 0;
@@ -503,6 +519,53 @@ List<double> _residuals(List<Geo> gs, List<int> off, List<double> x,
 void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
     List<Constraint> cs, _Ctx ctx, int i, Constraint c, List<double> r) {
   final t1 = gs[c.ents[0]].type, t2 = gs[c.ents[1]].type;
+
+  // ---- spline tangency (M29) --------------------------------------------
+  // Endpoint tangency, Inventor's semantics: the spline's END TANGENT — which
+  // for BOTH kinds runs along the two defining points at that end (Catmull-
+  // Rom phantom ends; clamped B-spline endpoint property) — is made parallel
+  // to the line, perpendicular to the circle/arc radius at the endpoint, or
+  // parallel to the other spline's end tangent. One normalized equation.
+  bool isSpl(int e) =>
+      gs[e].type == Geo.polyline &&
+      (gs[e].spline == Geo.splineCv || gs[e].spline == Geo.splineFit);
+  if (isSpl(c.ents[0]) || isSpl(c.ents[1])) {
+    Offset endDir(PRef pr) {
+      final n = gs[pr.ent].data[1].toInt();
+      final adj = pr.pt == 0 ? 1 : n - 2;
+      return _pointAt(gs, off, x, PRef(pr.ent, adj)) -
+          _pointAt(gs, off, x, pr);
+    }
+
+    final splRefs = c.pts;
+    final dA = endDir(splRefs[0]);
+    final otherE = c.ents[0] == splRefs[0].ent ? c.ents[1] : c.ents[0];
+    if (isSpl(otherE) && splRefs.length >= 2) {
+      // spline + spline: end tangents parallel
+      final dB = endDir(splRefs[1]);
+      final m = dA.distance * dB.distance;
+      r.add(m < 1e-12 ? 0 : (dA.dx * dB.dy - dA.dy * dB.dx) / m);
+      return;
+    }
+    if (gs[otherE].type == Geo.line) {
+      final l = _lineEnds(gs, off, x, otherE)!;
+      final dl = l.$2 - l.$1;
+      final m = dA.distance * dl.distance;
+      r.add(m < 1e-12 ? 0 : (dA.dx * dl.dy - dA.dy * dl.dx) / m);
+      return;
+    }
+    // circle / arc: end tangent perpendicular to the radius at the endpoint
+    final cc = _circle(gs, off, x, otherE);
+    if (cc == null) {
+      r.add(0);
+      return;
+    }
+    final rad = _pointAt(gs, off, x, splRefs[0]) - cc.$1;
+    final m = dA.distance * rad.distance;
+    r.add(m < 1e-12 ? 0 : (dA.dx * rad.dx + dA.dy * rad.dy) / m);
+    return;
+  }
+
   final lineFirst = t1 == Geo.line;
   final curved = (t1 == Geo.arc || t1 == Geo.circle) &&
       (t2 == Geo.arc || t2 == Geo.circle);
@@ -741,6 +804,15 @@ bool _trySolveWithSlvs(
     if (c.type == CType.smooth) {
       if (Log.every('slvs-bail', 2000)) {
         Log.d('slvs', 'bail: CType.smooth is not modelled by the shim');
+      }
+      return false;
+    }
+    if (c.type == CType.tangent &&
+        c.ents.any((e) => e < gs.length && gs[e].type == Geo.polyline)) {
+      // spline endpoint tangency (M29): the shim has no spline entity, so the
+      // sketch goes to the verified Dart LM solver.
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: tangent with spline is LM-only');
       }
       return false;
     }

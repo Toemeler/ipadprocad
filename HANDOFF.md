@@ -424,7 +424,11 @@ Token NIE in Dateien/.git/config schreiben.
 - **M27 — Bemaßung antippen/doppeltippen -> Wert-Editor (Label-Rect-
   Treffertest): ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
 - **M28 — Polylinien-Kanten als Bemaßungs-Teilnehmer (conEdges, 'ang4'):
-  ERLEDIGT, Host-Tests grün (57), Geräte-Test offen** (Abschnitt unten).
+  ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
+- **M29 — Tangente mit Splines (Endpunkt-Tangente, LM-only): ERLEDIGT,
+  Geräte-Test offen** (Abschnitt unten).
+- **M30 — Tastatur-Shortcuts D/L/C/R/S/Strg+S: ERLEDIGT, Host-Tests grün
+  (68), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -986,7 +990,64 @@ für 'ang' UND 'ang4'); Kante als ERSTER Pick bleibt bewusst das Eckpaar
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M28, für die nächste Session)
+## M29 — Tangenten-Constraint mit Splines
+
+**Symptom (Nutzer):** In Inventor funktioniert Tangente auch Spline↔Linie
+und Spline↔Kreis — bei uns wies die UI Splines mit „Tangent needs at least
+one curved entity" ab (round() prüfte nur arc/circle).
+
+**Inventor-Semantik (umgesetzt):** Spline-Tangente wirkt am Spline-
+ENDPUNKT. Mathe-Grundlage in unserem Code: Die End-Tangente läuft bei
+BEIDEN Spline-Arten exakt entlang der beiden Definitionspunkte am Ende —
+fitCurve dupliziert die Endpunkte (Catmull-Rom-Phantome ⇒ Ableitung bei
+t=0 ∝ P1−P0) und die offene CV-B-Spline ist GEKLEMMT (Knoten 0×4…1×4 ⇒
+Endtangente entlang CV1−CV0). Das Residual nutzt daher direkt diese zwei
+Punkte: glatt in den Parametern, identische Formel für beide Arten.
+
+**Umsetzung:**
+- UI (`_constraintClick`, cTangent): Splines (splineCv/splineFit, offen)
+  sind gültige Teilnehmer. Das beteiligte ENDE wird beim Klick aufgelöst:
+  das Ende, das der anderen Entity näher liegt (distToEntity) — gespeichert
+  als PRef im Constraint (pts, ein Ref pro Spline). GESCHLOSSENE Splines
+  → Toast, kein Constraint (kein Ende). Linie+Linie weiter abgewiesen.
+- Residual (1 Gleichung, wie Inventors 1-DOF-Tangente, normiert):
+  Spline+Linie cross(EndDir, LinienDir)=0; Spline+Kreis/Bogen
+  dot(EndDir, Endpunkt−Zentrum)=0 (Tangente ⊥ Radius); Spline+Spline
+  cross der beiden End-Tangenten. residualCount validiert die End-Refs.
+- KEINE Berührungs-Gleichung: wie in Inventor liefert Tangente nur die
+  Richtung; den Kontakt stellt der Nutzer über Koinzidenz her (sonst gäbe
+  es Redundanz-Warnungen bei Koinzidenz+Tangente).
+- slvs: expliziter Bail für Tangente mit Polyline-Beteiligung (der Shim
+  kennt keine Splines) → verifizierter Dart-LM-Pfad.
+
+**Tests:** `frontend/test/m29_test.dart` (7): Fit-Spline-Ende wird an
+horizontale Linie gedreht; CV-Spline-Ende ⊥ Kreisradius; DOF-Analyse zählt
+genau 1 Gleichung; UI löst das NÄCHSTE Ende auf; geschlossener Spline
+abgewiesen; Linie+Linie abgewiesen; Regression Kreis+Linie-Tangente.
+
+**Grenzen:** Tangente an geschlossene Splines und an beliebiger
+Kurvenstelle (nicht Ende) fehlt; Smooth (G2) mit Splines weiter gesperrt;
+Ellipse↔Linie-Tangente (andere Mathematik, kein Endpunkt) offen.
+
+---
+
+## M30 — Tastatur-Shortcuts
+
+Im Viewport-Focus-Handler (der schon Esc/Enter behandelt): **D** Bemaßung,
+**L** Linie, **C** Kreis (Zentrum), **R** Rechteck (2-Punkt) — über
+selectTool, das außerhalb eines Layers weiter blockiert und den Hinweis
+toastet. **S** beendet den aktuellen Layer (finishEdit mit Speichern) bzw.
+legt außerhalb eines Layers einen neuen an und betritt ihn (startNewLayer).
+**Strg+S / Cmd+S** speichert (saveSketch + Toast). Shortcuts feuern NIE,
+während der Inline-Bemaßungseditor tippt (_inlineDim-Guard — dessen
+Key-Events bubbeln durch den Ancestor-Focus). Kein const-Map mit
+LogicalKeyboardKey (Analyzer-Error: überschreibt ==) — if-Kette.
+Tests: `frontend/test/m30_test.dart` (4 Widget-Tests; Merker: Toasts
+starten Timer, Tests müssen sie mit pump(6s) ablaufen lassen).
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M30, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1006,7 +1067,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (57 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (68 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",
