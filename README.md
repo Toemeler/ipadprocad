@@ -31,6 +31,8 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M24** Ellipsen-Feinschliff, Inventor-Platzierungsregionen, Inline-Werteingabe | ✅ erledigt |
 | **M25** Projizierter CP bemaßbar, Mittellinien-Stil, Ellipsen-Achsen als Entities | ✅ erledigt |
 | **M26** Inventor-DOF-Färbung: Träger-Analyse (freie Länge = weiß) + Kanten-Färbung + Status-Anzeige | ✅ erledigt (Geräte-Test offen) |
+| **M27** Bemaßung antippen/doppeltippen öffnet den Wert-Editor (Label-Treffertest statt Anker) | ✅ erledigt (Geräte-Test offen) |
+| **M28** Polylinien-Kanten in Bemaßungen: Punkt↔Kante, Linie↔Kante, Kante↔Kante (Abstand/Winkel `ang4`) | ✅ erledigt (Geräte-Test offen) |
 
 ### Constraint-Solver (M9–M14)
 

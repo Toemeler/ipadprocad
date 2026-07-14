@@ -55,9 +55,28 @@ class _Viewport2DState extends State<Viewport2D> {
   Offset? _clickDown;
   DateTime _clickTime = DateTime.now();
 
+  /// The dimension whose PAINTED label contains [local] (screen coords) —
+  /// generous +8px for fingers, topmost (last drawn) wins.
+  Constraint? _dimAtScreen(Offset local) {
+    final rects = widget.app.dimLabelRects;
+    for (final (c, r) in rects.reversed) {
+      if (r.inflate(8).contains(local)) return c;
+    }
+    return null;
+  }
+
   void _handleClick(Offset local, Size size) {
     final app = widget.app;
     if (_inlineDim != null) {
+      // Tapping the SAME label again (the second tap of a double tap lands
+      // here) keeps the editor open instead of committing it shut — that
+      // made "double tap to edit" close the field it had just opened.
+      if (_dimAtScreen(local) == _inlineDim) {
+        _dimCtrl.selection = TextSelection(
+            baseOffset: 0, extentOffset: _dimCtrl.text.length);
+        _dimFocus.requestFocus();
+        return;
+      }
       // clicking anywhere else while the value field is open COMMITS —
       // Inventor keeps the dimension when you click away
       _submitInline();
@@ -65,6 +84,15 @@ class _Viewport2DState extends State<Viewport2D> {
     }
     _focus.requestFocus();
     if (app.tool != Tool.none) {
+      // Inventor: with the Dimension tool active, clicking an EXISTING
+      // dimension's text opens its edit box instead of starting a new pick.
+      if (app.tool == Tool.dimension) {
+        final dim = _dimAtScreen(local);
+        if (dim != null) {
+          _editDimValue(dim);
+          return;
+        }
+      }
       app.toolClick(_snapped(_toWorld(local, size)));
       if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
       return;
@@ -76,7 +104,7 @@ class _Viewport2DState extends State<Viewport2D> {
         return;
       }
     }
-    _tapNoTool(_toWorld(local, size));
+    _tapNoTool(local, _toWorld(local, size));
   }
 
   String _gesture = 'none'; // none|panzoom|grip|box
@@ -186,9 +214,12 @@ class _Viewport2DState extends State<Viewport2D> {
     }
   }
 
-  void _tapNoTool(Offset w) {
+  void _tapNoTool(Offset local, Offset w) {
     final app = widget.app;
-    final dim = app.dimensionAt(w, 14 / app.zoom);
+    // where the label is REALLY painted (dist labels are not at textPos)...
+    final dim = _dimAtScreen(local) ??
+        // ...with the old anchor test as fallback (e.g. before first paint)
+        app.dimensionAt(w, 14 / app.zoom);
     if (dim != null) {
       _editDimValue(dim);
       return;
@@ -236,7 +267,7 @@ class _Viewport2DState extends State<Viewport2D> {
   }
 
   static bool _isAngleKind(Constraint d) =>
-      d.dimKind == 'ang' || d.dimKind == 'ang3';
+      d.dimKind == 'ang' || d.dimKind == 'ang3' || d.dimKind == 'ang4';
 
   void _editDimValue(Constraint d) => _openInlineEditor(d, isNew: false);
 
@@ -612,6 +643,11 @@ class _ViewportPainter extends CustomPainter {
       }
       final pickedEdge = app.pickedEdge;
       if (pickedEdge != null) haloEdge(pickedEdge.$1, pickedEdge.$2);
+      // edges picked as LINE-like dimension participants (pt+edge, line+edge,
+      // edge+edge — M28)
+      for (final (ea, _) in app.conEdges) {
+        haloEdge(ea.ent, ea.pt);
+      }
       // picked POINTS of the constrain/dimension tools (a polyline edge shows
       // as an edge halo above instead of two lone dots)
       if (pickedEdge == null) {
@@ -837,11 +873,13 @@ class _ViewportPainter extends CustomPainter {
           tp.paint(canvas, o);
         }
       }
+      app.dimLabelRects.clear();
       for (final c in s.constraints) {
         if (c.type == CType.dimension &&
             c.textPos != null &&
             app.constraintVisible(s, c)) {
-          _paintDimension(canvas, gs2, c, map);
+          _paintDimension(canvas, gs2, c, map,
+              labelSink: app.dimLabelRects);
         }
       }
       // dimension being placed follows the cursor
@@ -1040,7 +1078,8 @@ class _ViewportPainter extends CustomPainter {
 }
 
 void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
-    Offset Function(double, double) map) {
+    Offset Function(double, double) map,
+    {List<(Constraint, Rect)>? labelSink}) {
   final p = Paint()
     ..color = const Color(0xFFB8C4A8)
     ..style = PaintingStyle.stroke
@@ -1182,6 +1221,22 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       label = '${v.toStringAsFixed(1)}\u00b0';
       if (c.driven) label = '($label)';
       break;
+    case 'ang4':
+      // pts = [a1, a2, b1, b2] — angle between two edges/lines over points;
+      // arc centered on the INTERSECTION of the infinite carriers, Inventor's
+      // look for a line-line angle, drawn through the text position.
+      if (c.pts.length < 4 || c.pts.any((q) => q.ent >= gs.length)) {
+        return;
+      }
+      final qa1 = refPt(gs, c.pts[0]), qa2 = refPt(gs, c.pts[1]);
+      final qb1 = refPt(gs, c.pts[2]), qb2 = refPt(gs, c.pts[3]);
+      final ix4 = _lineIntersect(qa1, qa2, qb1, qb2);
+      if (ix4 != null) {
+        _angleArc(canvas, map, ix4, t, v, p);
+      }
+      label = '${v.toStringAsFixed(1)}\u00b0';
+      if (c.driven) label = '($label)';
+      break;
     default:
       return;
   }
@@ -1195,6 +1250,10 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       center: t, width: tp.width + 6, height: tp.height + 3);
   canvas.drawRect(bg, Paint()..color = const Color(0xCC212830));
   tp.paint(canvas, bg.topLeft + const Offset(3, 1.5));
+  // The SCREEN rect the label really occupies — for 'dist' kinds t is
+  // recomputed above and does NOT sit at textPos, so tap hit-testing must use
+  // this, not the anchor (that mismatch made dimensions nearly untappable).
+  labelSink?.add((c, bg));
 }
 
 /// Intersection of the infinite lines a1-a2 and b1-b2 (world coords), or

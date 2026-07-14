@@ -286,6 +286,8 @@ int residualCount(List<Geo> gs, Constraint c) {
         case 'pline':
         case 'ang3':
           return pt(0) && pt(1) && pt(2) ? 1 : 0;
+        case 'ang4':
+          return pt(0) && pt(1) && pt(2) && pt(3) ? 1 : 0;
       }
       return 0;
   }
@@ -337,6 +339,13 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
           final b = _pointAt(gs, off, x, c.pts[2]);
           final d1 = a - o, d2 = b - o;
           final cross = d1.dx * d2.dy - d1.dy * d2.dx;
+          ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
+        } else if (c.dimKind == 'ang4' && c.pts.length >= 4) {
+          final da = _pointAt(gs, off, x, c.pts[1]) -
+              _pointAt(gs, off, x, c.pts[0]);
+          final db = _pointAt(gs, off, x, c.pts[3]) -
+              _pointAt(gs, off, x, c.pts[2]);
+          final cross = da.dx * db.dy - da.dy * db.dx;
           ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
         }
         break;
@@ -597,6 +606,24 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       final dt = (e1.dx * e2.dx + e1.dy * e2.dy) / s3;
       r.add(math.atan2(cr, dt) - (ctx.sign[i] ?? 1.0) * v * math.pi / 180);
       break;
+    case 'ang4':
+      // pts = [a1, a2, b1, b2]: angle between the rays a1->a2 and b1->b2 —
+      // the line-line angle over POINTS (works for polyline edges). Sign is
+      // captured in _prepare like 'ang' so LM drives towards the current
+      // winding instead of flipping the sketch.
+      final qa = _pointAt(gs, off, x, c.pts[1]) -
+          _pointAt(gs, off, x, c.pts[0]);
+      final qb = _pointAt(gs, off, x, c.pts[3]) -
+          _pointAt(gs, off, x, c.pts[2]);
+      final s4 = qa.distance * qb.distance;
+      if (s4 < 1e-12) {
+        r.add(0);
+        break;
+      }
+      final cr4 = (qa.dx * qb.dy - qa.dy * qb.dx) / s4;
+      final dt4 = (qa.dx * qb.dx + qa.dy * qb.dy) / s4;
+      r.add(math.atan2(cr4, dt4) - (ctx.sign[i] ?? 1.0) * v * math.pi / 180);
+      break;
   }
 }
 
@@ -720,8 +747,9 @@ bool _trySolveWithSlvs(
     if (c.type == CType.dimension &&
         !const ['dist', 'distx', 'disty', 'rad', 'dia', 'ang', 'pline']
             .contains(c.dimKind)) {
-      // 'ang3' (3-point angle) lands here on purpose: the shim has no 3-point
-      // angle, so the sketch goes to the verified Dart LM solver instead of
+      // 'ang3' (3-point angle) and 'ang4' (edge/edge angle over four points)
+      // land here on purpose: the shim has no point-based angle, so the
+      // sketch goes to the verified Dart LM solver instead of
       // silently dropping the dimension.
       if (Log.every('slvs-bail', 2000)) {
         Log.d('slvs', 'bail: unsupported dimKind=${c.dimKind}');

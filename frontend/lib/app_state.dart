@@ -636,6 +636,11 @@ class AppState extends ChangeNotifier {
   // constraint tool pick buffers
   final List<PRef> conPts = [];
   final List<int> conEnts = [];
+  /// Polyline EDGES picked as line-like dimension participants (each edge is
+  /// its two vertex refs). A rectangle side has no line-entity index, so it
+  /// cannot live in conEnts — without this, point->edge and line->edge picks
+  /// were dead clicks.
+  final List<(PRef, PRef)> conEdges = [];
   // dimension being placed, waiting for its value dialog (viewport shows it)
   Constraint? pendingDim;
 
@@ -892,6 +897,7 @@ class AppState extends ChangeNotifier {
     toolPoints.clear();
     conPts.clear();
     conEnts.clear();
+    conEdges.clear();
     modEntity = null;
     if (tool != Tool.none && hadPicks) {
       notifyListeners(); // command stays active for the next chain
@@ -1371,6 +1377,7 @@ class AppState extends ChangeNotifier {
       // point-to-line dimension (it would measure 0); the click places.
       final ownPoint = nE == 1 && nP == 0 && pt.ent == conEnts[0];
       final ok = !ownPoint &&
+          conEdges.isEmpty && // pt+edge / line+edge are complete: click places
           ((nE == 0 && nP < 2) || //   1st/2nd point of pt-pt / ang3
               (nE == 0 && nP == 2) || // 3rd point -> 3-point angle
               (nE == 1 && nP == 0)); // line/curve + point
@@ -1385,33 +1392,59 @@ class AppState extends ChangeNotifier {
       if (g.type == Geo.polyline && g.spline != Geo.ellipseTag) {
         // A rectangle / polygon / slot is ONE closed polyline, so clicking an
         // edge picks the polyline. Resolve the click to the segment under the
-        // cursor and pick its two vertices: that is a real DRIVING length
-        // dimension, reusing the point-to-point path (aligned/H/V at
-        // placement) — and those vertices combine with further picks like any
-        // other points (e.g. + line -> perpendicular distance is NOT offered
-        // by Inventor for an edge, so an edge only starts a pt-pt set).
+        // cursor. As the FIRST pick, the edge is its two vertices: that is a
+        // real DRIVING length dimension via the point-to-point path
+        // (aligned/H/V at placement), and the pair combines with a further
+        // point pick to a 3-point angle. Picked AFTER a point, a line, a
+        // curve, or another edge, the edge acts as a LINE (Inventor): those
+        // combinations used to be dead clicks, because an edge has no
+        // line-entity index for conEnts — they now go to conEdges.
         // A SPLINE's "segments" are control-polygon edges, not geometry —
-        // their length is meaningless, so a spline never auto-picks an edge
-        // pair. Its individual control/fit points stay pickable through the
-        // point branch above, which is exactly what Inventor allows.
-        if (nE == 0 && nP == 0 && !g.isSpline) {
+        // their length is meaningless, so a spline never picks an edge.
+        if (!g.isSpline && conEdges.isEmpty) {
           final seg = polySegmentAt(s, ent, w);
           if (seg != null) {
-            conPts
-              ..add(seg.$1)
-              ..add(seg.$2);
-            return;
+            if (nE == 0 && nP == 0) {
+              conPts
+                ..add(seg.$1)
+                ..add(seg.$2);
+              return;
+            }
+            // point + edge -> perpendicular distance; line/curve + edge ->
+            // distance or angle; edge + edge (the first one is the picked
+            // conPts pair) -> angle / parallel gap
+            final edgeExtends = (nE == 1 && nP == 0) || //  line/curve + edge
+                (nE == 0 && nP == 1) || //                  point + edge
+                (nE == 0 && nP == 2 && pickedEdge != null); // edge + edge
+            if (edgeExtends &&
+                !(nP == 1 && conPts[0].ent == ent) && // own vertex: place
+                !(nP == 2 &&
+                    pickedEdge != null &&
+                    conPts[0].ent == ent &&
+                    seg.$1.pt == conPts[0].pt &&
+                    seg.$2.pt == conPts[1].pt)) { //   same edge again: place
+              conEdges.add(seg);
+              return;
+            }
           }
         }
-      } else if (nP == 0 && nE == 0) {
+      } else if (nP == 0 && nE == 0 && conEdges.isEmpty) {
         conEnts.add(ent); //                   first pick: line/circle/arc
         return;
-      } else if (nP == 0 && nE == 1) {
+      } else if (nP == 0 && nE == 1 && conEdges.isEmpty) {
         // second entity: any line/circle/arc pairing is dimensionable
         conEnts.add(ent);
         return;
-      } else if (nP == 1 && nE == 0 && (isLine(ent) || isCurve(ent))) {
+      } else if (nP == 1 && nE == 0 && conEdges.isEmpty &&
+          (isLine(ent) || isCurve(ent))) {
         conEnts.add(ent); //                   point + line/curve
+        return;
+      } else if (nE == 0 && conEdges.length == 1 &&
+          (nP == 0 || (nP == 2 && pickedEdge != null)) &&
+          (isLine(ent) || isCurve(ent))) {
+        // ...the mirrored order: edge first (as conPts pair), then a
+        // line/curve entity — same combinations as above
+        conEnts.add(ent);
         return;
       }
       // silently fall through to placement — matches Inventor, where a click
@@ -1419,7 +1452,9 @@ class AppState extends ChangeNotifier {
     }
 
     // ---- otherwise this click PLACES the dimension ---------------------
-    if (nE + nP == 0) return; // nothing picked yet, click hit empty space
+    if (nE + nP + conEdges.length == 0) {
+      return; // nothing picked yet, click hit empty space
+    }
     _placeDimension(s, w);
   }
 
@@ -1511,7 +1546,50 @@ class AppState extends ChangeNotifier {
     PRef center(int e) => PRef(e, 0);
 
     Constraint? d;
-    if (conEnts.length == 2) {
+    if (conEdges.length == 1) {
+      // ---- a polyline EDGE participates as a line -----------------------
+      final (ea, eb) = conEdges[0];
+      bool edgeParallelTo(Offset da) {
+        final de = refPt(s.geometry, eb) - refPt(s.geometry, ea);
+        final m = da.distance * de.distance;
+        if (m < 1e-12) return false;
+        return (da.dx * de.dy - da.dy * de.dx).abs() / m < 0.0087;
+      }
+
+      if (conPts.length == 1 && conEnts.isEmpty) {
+        // point + edge -> perpendicular point-to-edge distance
+        d = Constraint(CType.dimension,
+            pts: [conPts[0], ea, eb], dimKind: 'pline', textPos: w);
+      } else if (conEnts.length == 1) {
+        final e = conEnts[0];
+        if (isCurve(e)) {
+          // circle/arc/ellipse + edge -> distance center <-> edge
+          d = Constraint(CType.dimension,
+              pts: [center(e), ea, eb], dimKind: 'pline', textPos: w);
+        } else {
+          // line + edge: parallel -> linear gap, otherwise angle (ang4:
+          // the edge has no line-entity ref, so the angle runs over points)
+          final g = s.geometry[e];
+          final dl = getPt(g, 1) - getPt(g, 0);
+          d = edgeParallelTo(dl)
+              ? Constraint(CType.dimension,
+                  pts: [PRef(e, 0), ea, eb], dimKind: 'pline', textPos: w)
+              : Constraint(CType.dimension,
+                  pts: [PRef(e, 0), PRef(e, 1), ea, eb],
+                  dimKind: 'ang4',
+                  textPos: w);
+        }
+      } else if (conPts.length == 2) {
+        // edge + edge (the first edge is the picked vertex pair)
+        final a0 = conPts[0], a1 = conPts[1];
+        final da = refPt(s.geometry, a1) - refPt(s.geometry, a0);
+        d = edgeParallelTo(da)
+            ? Constraint(CType.dimension,
+                pts: [a0, ea, eb], dimKind: 'pline', textPos: w)
+            : Constraint(CType.dimension,
+                pts: [a0, a1, ea, eb], dimKind: 'ang4', textPos: w);
+      }
+    } else if (conEnts.length == 2) {
       final e1 = conEnts[0], e2 = conEnts[1];
       final c1 = isCurve(e1), c2 = isCurve(e2);
       if (c1 && c2) {
@@ -1598,7 +1676,7 @@ class AppState extends ChangeNotifier {
     if (tool != Tool.dimension || pendingDim != null) return null;
     final s = current;
     if (s == null) return null;
-    if (conEnts.isEmpty && conPts.length < 2) return null;
+    if (conEnts.isEmpty && conPts.length < 2 && conEdges.isEmpty) return null;
     return buildDimensionAt(s, hover);
   }
 
@@ -1651,6 +1729,7 @@ class AppState extends ChangeNotifier {
     pendingDim = null;
     conPts.clear();
     conEnts.clear();
+    conEdges.clear();
     if (s == null || d == null) {
       notifyListeners();
       return;
@@ -1668,8 +1747,15 @@ class AppState extends ChangeNotifier {
     pendingDim = null;
     conPts.clear();
     conEnts.clear();
+    conEdges.clear();
     notifyListeners();
   }
+
+  /// SCREEN rects of the dimension labels as the painter last drew them
+  /// (filled during paint, read by the viewport's tap hit-test). For 'dist'
+  /// kinds the label is drawn at a recomputed spot, not at textPos — this is
+  /// the only place that knows where the text really is.
+  final List<(Constraint, Rect)> dimLabelRects = [];
 
   /// Edits an existing dimension's value (tap on its text, no tool active).
   Constraint? dimensionAt(Offset w, double tol) {

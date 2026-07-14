@@ -420,7 +420,11 @@ Token NIE in Dateien/.git/config schreiben.
 - **M25 — Projizierter CP bemaßbar + Mittellinien + Ellipsen-Achsen als
   gebundene Entities: ERLEDIGT** (Abschnitt unten).
 - **M26 — Inventor-DOF-Färbung (Träger-Analyse, Kanten-Färbung, Status):
-  ERLEDIGT, Host-Tests grün (45), Geräte-Test offen** (Abschnitt unten).
+  ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
+- **M27 — Bemaßung antippen/doppeltippen -> Wert-Editor (Label-Rect-
+  Treffertest): ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
+- **M28 — Polylinien-Kanten als Bemaßungs-Teilnehmer (conEdges, 'ang4'):
+  ERLEDIGT, Host-Tests grün (57), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -910,7 +914,79 @@ irrelevant, Inventor arbeitet genauso lokal. Der Status-Text zählt dof als
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M26, für die nächste Session)
+## M27 — Bemaßung antippen/doppeltippen öffnet den Wert-Editor
+
+**Symptom (Nutzer):** Doppeltipp auf eine bestehende Bemaßung sollte sie
+editieren — tat es aber nicht (und Einzeltipp meist auch nicht).
+
+**Zwei Ursachen:**
+1. Der Treffertest (`dimensionAt`) verglich den Tipp mit `textPos`. Für die
+   'dist'-Arten berechnet der Painter die Label-Position aber NEU (Mitte der
+   Maßlinie + 10px-Normalenversatz) — der Text liegt gar nicht bei textPos.
+   Bemaßungen waren dadurch fast nicht antippbar.
+2. Wenn der Editor doch aufging, traf der ZWEITE Tipp eines Doppeltipps den
+   „Klick woanders committet"-Zweig und schloss das gerade geöffnete Feld
+   sofort wieder.
+
+**Fix:** Der Painter protokolliert jetzt die SCREEN-Rects der wirklich
+gezeichneten Labels (`AppState.dimLabelRects`, im Paint gefüllt); Tipps
+treffen gegen diese Rects (+8px Finger-Toleranz, oberstes Label gewinnt),
+mit dem alten Anker-Test nur noch als Fallback vor dem ersten Paint. Ein
+erneuter Tipp auf DASSELBE Label hält den Editor offen (Text neu
+selektiert) statt zu committen — Einzel- UND Doppeltipp editieren damit.
+Außerdem Inventor-Verhalten ergänzt: Ist das Bemaßungs-Tool aktiv, öffnet
+ein Tipp auf ein bestehendes Label dessen Editor statt einen neuen Pick zu
+starten. Tests: `frontend/test/m27_test.dart` (5 Widget-Tests, pumpen den
+echten Viewport).
+
+---
+
+## M28 — Polylinien-Kanten als Bemaßungs-Teilnehmer ('ang4')
+
+**Symptom (Nutzer):** Punkt→Linie und Linie→Linie funktionierten nicht —
+in seinen Skizzen sind die „Linien" meist RECHTECK-Kanten, also Segmente
+EINER geschlossenen Polyline ohne eigenen Entity-Index.
+
+**Ursache:** Die Pick-Matrix behandelte einen Kanten-Klick nur als ERSTEN
+Pick (→ zwei Eckpunkte). Nach einem Punkt-, Linien- oder Kanten-Pick fiel
+der Polyline-Zweig durch (verlangte leeres Pick-Set) → toter Klick oder
+falsche Platzierung; `buildDimensionAt` lieferte teils null.
+
+**Fix (app_state.dart):** Neuer Pick-Container `conEdges`
+(List<(PRef, PRef)>), überall mit conPts/conEnts zurückgesetzt. Kanten
+kombinieren jetzt wie Linien: Punkt+Kante → pline (senkrechter Abstand),
+Linie/Kreis/Bogen/Ellipse+Kante → pline (Zentrum bzw. paralleler Spalt)
+oder Winkel, Kante+Kante (erste Kante = das gepickte Eckpaar) → paralleler
+Spalt oder Winkel. Erste-Pick-Verhalten (Kante = zwei Ecken, Länge,
+kombiniert mit Punkt zu ang3) bleibt UNVERÄNDERT — Tests hängen daran.
+Eigene Ecke der Kante und dieselbe Kante nochmal platzieren statt zu
+erweitern; ein Punkt erweitert nie ein Set, das schon eine Kante enthält.
+
+**Neue Bemaßungsart 'ang4'** (Winkel Linie/Kante ↔ Kante): pts =
+[a1,a2,b1,b2], Winkel zwischen den Strahlen a1→a2 und b1→b2 — der
+Linie-Linie-Winkel über PUNKTE, weil eine Kante keinen Entity-Ref hat.
+Vollständiger Satz nach Checkliste: Residual + Count + Vorzeichen-Prepare
+(wie 'ang', hält die Windung), measureDim (auf [0,180] gefaltet wie 'ang'),
+Painter (Bogen am Schnittpunkt der Träger via _angleArc), slvs-Bail
+automatisch über die Kind-Whitelist (LM-only wie 'ang3', Kommentar
+erweitert). Damit ist die alte M14-Lücke „Winkel zwischen zwei
+Polyline-Kanten" geschlossen. Viewport: Halo auch für conEdges-Kanten;
+Editor-Suffix ° über _isAngleKind.
+
+**Tests:** `frontend/test/m28_test.dart` (7): Punkt→Kante, Linie→Kante
+parallel (Spalt) und 45° (ang4), Kante→Kante 90°, Kreis→Kante,
+ang4-Treiben durch LM auf 30°, Regressionen pt-pt / Linie+Punkt /
+Linie‖Linie. Merker daraus: Ein Felgen-Klick nahe dem Kreiszentrum pickt
+das ZENTRUM (Punkt schlägt Entity innerhalb 10/zoom — Inventor-Priorität);
+Test nutzt einen größeren Kreis. 57 Tests gesamt, alle grün.
+
+**Grenzen:** Winkel-Quadrantenwahl bei Platzierung fehlt weiterhin (gilt
+für 'ang' UND 'ang4'); Kante als ERSTER Pick bleibt bewusst das Eckpaar
+(Länge) statt Linien-Semantik — dokumentierte M21-Entscheidung.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M28, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -930,7 +1006,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (45 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (57 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",

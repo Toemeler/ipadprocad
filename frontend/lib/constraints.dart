@@ -405,6 +405,21 @@ double measureDim(List<Geo> gs, Constraint c) {
       final cross = (d1.dx * d2.dy - d1.dy * d2.dx) / s;
       final dot = (d1.dx * d2.dx + d1.dy * d2.dy) / s;
       return math.atan2(cross.abs(), dot) * 180 / math.pi;
+    case 'ang4':
+      // pts = [a1, a2, b1, b2] — angle between the rays a1->a2 and b1->b2.
+      // This is the line-line angle expressed through POINTS, which is what
+      // makes angles between polyline EDGES (rectangle sides) possible: an
+      // edge has no line-entity ref, only its two vertices.
+      if (c.pts.length < 4) return 0;
+      final da = refPt(gs, c.pts[1]) - refPt(gs, c.pts[0]);
+      final db = refPt(gs, c.pts[3]) - refPt(gs, c.pts[2]);
+      final s4 = da.distance * db.distance;
+      if (s4 < 1e-12) return 0;
+      final cross4 = (da.dx * db.dy - da.dy * db.dx) / s4;
+      final dot4 = (da.dx * db.dx + da.dy * db.dy) / s4;
+      // folded to [0,180] exactly like 'ang' (quadrant choice at placement is
+      // a known open item for both kinds)
+      return math.atan2(cross4.abs(), dot4) * 180 / math.pi;
   }
   return 0;
 }
