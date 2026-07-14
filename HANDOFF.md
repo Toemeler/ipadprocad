@@ -427,8 +427,10 @@ Token NIE in Dateien/.git/config schreiben.
   ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
 - **M29 — Tangente mit Splines (Endpunkt-Tangente, LM-only): ERLEDIGT,
   Geräte-Test offen** (Abschnitt unten).
-- **M30 — Tastatur-Shortcuts D/L/C/R/S/Strg+S: ERLEDIGT, Host-Tests grün
-  (68), Geräte-Test offen** (Abschnitt unten).
+- **M30 — Tastatur-Shortcuts D/L/C/R/S/Strg+S: ERLEDIGT, Geräte-Test
+  offen** (Abschnitt unten).
+- **M31 — Tangente mit Polylinien-KANTEN + Klick-Auflösung: ERLEDIGT,
+  Host-Tests grün (73), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1047,7 +1049,52 @@ starten Timer, Tests müssen sie mit pump(6s) ablaufen lassen).
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M30, für die nächste Session)
+## M31 — Tangente mit Rechteck-Kanten + Klick-basierte Auflösung
+
+**Symptom (Nutzer, mit Geräte-Log belegt):** Tangente Spline ↔ Rechteck-
+Kante ging weiterhin nicht. Log: „REJECTED tangent/ pts=e4.p0 ents=0,4 —
+would over-constrain".
+
+**ZWEI Ursachen (beide aus dem Log ablesbar):**
+1. Das M29-Residual kannte als Partner nur line/circle/arc. Für die
+   gewöhnliche POLYLINE (das Rechteck) lieferte es konstant 0 → Nullzeile
+   im Jacobian → Rang wächst nicht → der Redundanz-Check in _addConstraint
+   hielt die Gleichung für wirkungslos und LEHNTE AB. (Gleicher latenter
+   Bug: Kreis/Bogen ↔ Rechteck-Kante.) MERKER: Ein Constraint, dessen
+   Residual für eine Kombination fehlt, wird nicht etwa ignoriert — er wird
+   als „would over-constrain" abgelehnt, weil die Nullzeile den Rang nicht
+   hebt. Diese Fehlermeldung ist dann IRREFÜHREND.
+2. Im Nutzer-Sketch lagen BEIDE Spline-Enden auf Rechteck-Ecken —
+   „nächstes Ende zum Partner" war ein Unentschieden und wählte p0 statt
+   des angeklickten p8-Endes. Ende (und Kante) müssen aus den KLICKS
+   aufgelöst werden.
+
+**Fix:**
+- Neues Feld `conEntClicks` (parallel zu conEnts, NUR von _constraintClick
+  gefüllt, überall mit conEnts geleert; Längen-Mismatch → Fallback auf die
+  alte Heuristik). Spline-Ende = Ende näher am Klick AUF dem Spline;
+  Polyline-Kante = polySegmentAt am Klick auf der Polyline.
+- cTangent akzeptiert gewöhnliche Polylines als linien-artige Partner.
+  Constraint-pts-Layout: [Spline-End-Ref(s)…, Kanten-Eckpaar(e)…].
+  Rechteck+Rechteck bleibt abgewiesen (nichts Gekrümmtes).
+- Residuals ergänzt: Spline-Ende ∥ Kante (cross, normiert) und
+  Kreis/Bogen ↔ Kante (|senkrechter Abstand Zentrum ↔ Kanten-Trägergerade|
+  − r, über die zwei Ecken-PRefs — Polyline-Segmente haben keinen
+  Entity-Ref, exakt wie bei pline/ang4). residualCount validiert
+  nSpl + 2·nPoly Punkt-Refs.
+- slvs-Bail griff schon (Tangente mit Polyline-Beteiligung → LM).
+
+**Tests:** `frontend/test/m31_test.dart` (5): 1:1-Nachbau des Nutzer-
+Sketches aus dem Log (Spline-Enden auf zwei Rechteck-Ecken, Klick-Reihen-
+folge des Logs) → Constraint AKZEPTIERT, korrektes geklicktes Ende p4 und
+korrekte linke Kante, +1 Gleichung in der DOF-Analyse; Solver dreht das
+End-Chord vertikal an die rechte Kante; Kreis wächst auf Kanten-Träger
+(r→15); UI Kreis+Kante baut Kanten-Refs; Rechteck+Rechteck abgewiesen.
+73 Tests gesamt, alle grün.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M31, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1067,7 +1114,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (68 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (73 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",

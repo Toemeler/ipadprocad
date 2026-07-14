@@ -641,6 +641,11 @@ class AppState extends ChangeNotifier {
   /// cannot live in conEnts — without this, point->edge and line->edge picks
   /// were dead clicks.
   final List<(PRef, PRef)> conEdges = [];
+  /// Click position of each conEnts pick made by the CONSTRAINT tools —
+  /// needed to resolve WHICH spline end / WHICH polyline edge takes part in
+  /// a tangency (both spline ends can touch the same rectangle, so "nearest
+  /// end to the other entity" can tie; the click disambiguates).
+  final List<Offset> conEntClicks = [];
   // dimension being placed, waiting for its value dialog (viewport shows it)
   Constraint? pendingDim;
 
@@ -897,6 +902,7 @@ class AppState extends ChangeNotifier {
     toolPoints.clear();
     conPts.clear();
     conEnts.clear();
+    conEntClicks.clear();
     conEdges.clear();
     modEntity = null;
     if (tool != Tool.none && hadPicks) {
@@ -1286,6 +1292,7 @@ class AppState extends ChangeNotifier {
         if (ent == null) return;
         if (conEnts.isNotEmpty && conEnts[0] == ent) return;
         conEnts.add(ent);
+        conEntClicks.add(w);
         if (conEnts.length == 2) {
           const map = {
             Tool.cCollinear: CType.collinear,
@@ -1304,43 +1311,76 @@ class AppState extends ChangeNotifier {
             bool spl(Geo g) =>
                 g.type == Geo.polyline &&
                 (g.spline == Geo.splineCv || g.spline == Geo.splineFit);
+            bool plainPoly(Geo g) =>
+                g.type == Geo.polyline && g.spline == Geo.straight;
             if (!round(g1.type) && !round(g2.type) && !spl(g1) && !spl(g2)) {
               toast('Tangent needs at least one curved entity.');
               conEnts.clear();
+              conEntClicks.clear();
               return;
             }
-            if (spl(g1) || spl(g2)) {
+            if ((spl(g1) && g1.data[0] != 0) || (spl(g2) && g2.data[0] != 0)) {
+              toast('Tangent to a CLOSED spline is not supported.');
+              conEnts.clear();
+              conEntClicks.clear();
+              return;
+            }
+            if (spl(g1) || spl(g2) || plainPoly(g1) || plainPoly(g2)) {
               // Inventor's spline tangency acts at a spline ENDPOINT: the
               // end tangent (along the two defining points at that end for
-              // both CV and fit splines) is made parallel to the line /
-              // perpendicular to the radius / parallel to the other spline's
-              // end tangent. Which end takes part is resolved HERE, at click
-              // time: the end nearer to the other picked entity. A closed
-              // spline has no ends.
-              if ((spl(g1) && g1.data[0] != 0) ||
-                  (spl(g2) && g2.data[0] != 0)) {
-                toast('Tangent to a CLOSED spline is not supported.');
-                conEnts.clear();
-                return;
-              }
-              PRef endRef(int splE, int otherE) {
-                final g = s.geometry[splE];
+              // both CV and fit splines) is aligned with the other entity.
+              // WHICH end — and, when the partner is a rectangle/polygon,
+              // WHICH edge — is resolved from the pick CLICKS: both spline
+              // ends can sit on the same rectangle (real user sketch), so
+              // "nearest end to the partner" can tie. Without a click record
+              // (defensive) the old nearest-to-partner heuristic remains.
+              final clicksOk = conEntClicks.length == conEnts.length;
+
+              PRef endRef(int k) {
+                final g = s.geometry[conEnts[k]];
                 final n = g.data[1].toInt();
-                final other = s.geometry[otherE];
+                if (clicksOk) {
+                  final c = conEntClicks[k];
+                  final d0 = (getPt(g, 0) - c).distance;
+                  final d1 = (getPt(g, n - 1) - c).distance;
+                  return PRef(conEnts[k], d0 <= d1 ? 0 : n - 1);
+                }
+                final other = s.geometry[conEnts[1 - k]];
                 final d0 = distToEntity(other, getPt(g, 0));
                 final d1 = distToEntity(other, getPt(g, n - 1));
-                return PRef(splE, d0 <= d1 ? 0 : n - 1);
+                return PRef(conEnts[k], d0 <= d1 ? 0 : n - 1);
               }
 
-              final endPts = <PRef>[
-                if (spl(g1)) endRef(conEnts[0], conEnts[1]),
-                if (spl(g2)) endRef(conEnts[1], conEnts[0]),
+              final pts = <PRef>[
+                for (var k = 0; k < 2; k++)
+                  if (spl(s.geometry[conEnts[k]])) endRef(k),
               ];
-              _addConstraint(
-                  s,
-                  Constraint(CType.tangent,
-                      ents: List.of(conEnts), pts: endPts));
+              // ...then the clicked-edge vertex pair of a plain-polyline
+              // partner (rectangle/polygon side); without a click record,
+              // the edge nearest to the curved partner's anchor.
+              for (var k = 0; k < 2; k++) {
+                final g = s.geometry[conEnts[k]];
+                if (!plainPoly(g)) continue;
+                final at = clicksOk
+                    ? conEntClicks[k]
+                    : pts.isNotEmpty
+                        ? refPt(s.geometry, pts[0])
+                        : getPt(s.geometry[conEnts[1 - k]], 0);
+                final seg = polySegmentAt(s, conEnts[k], at);
+                if (seg == null) {
+                  toast('Tangent needs at least one curved entity.');
+                  conEnts.clear();
+                  conEntClicks.clear();
+                  return;
+                }
+                pts
+                  ..add(seg.$1)
+                  ..add(seg.$2);
+              }
+              _addConstraint(s,
+                  Constraint(CType.tangent, ents: List.of(conEnts), pts: pts));
               conEnts.clear();
+              conEntClicks.clear();
               return;
             }
           }
@@ -1353,11 +1393,13 @@ class AppState extends ChangeNotifier {
             if (!curved(t1) || !curved(t2)) {
               toast('Smooth (G2) needs two curved entities.');
               conEnts.clear();
+              conEntClicks.clear();
               return;
             }
           }
           _addConstraint(s, Constraint(type, ents: List.of(conEnts)));
           conEnts.clear();
+          conEntClicks.clear();
         }
         return;
       default:
@@ -1766,6 +1808,7 @@ class AppState extends ChangeNotifier {
     pendingDim = null;
     conPts.clear();
     conEnts.clear();
+    conEntClicks.clear();
     conEdges.clear();
     if (s == null || d == null) {
       notifyListeners();
@@ -1784,6 +1827,7 @@ class AppState extends ChangeNotifier {
     pendingDim = null;
     conPts.clear();
     conEnts.clear();
+    conEntClicks.clear();
     conEdges.clear();
     notifyListeners();
   }

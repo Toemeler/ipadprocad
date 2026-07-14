@@ -258,19 +258,28 @@ int residualCount(List<Geo> gs, Constraint c) {
       return ent(0) && ent(1) ? 2 : 0;
     case CType.tangent:
       if (!ent(0) || !ent(1)) return 0;
-      // spline participants (open CV/fit splines) act through their END:
-      // one PRef per spline ent, resolved at click time. The residual is a
-      // single direction condition, exactly like Inventor's 1-DOF tangency.
+      // spline participants (open CV/fit splines) act through their END and
+      // plain-polyline participants (rectangle/polygon sides) through the
+      // picked EDGE's two vertices — pts layout: [spline end(s)...,
+      // edge vertex pair(s)...], all resolved at click time. One direction
+      // equation, exactly like Inventor's 1-DOF tangency.
       final nSpl = [c.ents[0], c.ents[1]]
           .where((e) =>
               gs[e].type == Geo.polyline &&
               (gs[e].spline == Geo.splineCv || gs[e].spline == Geo.splineFit))
           .length;
-      if (nSpl > 0) {
-        if (c.pts.length < nSpl) return 0;
+      final nPoly = [c.ents[0], c.ents[1]]
+          .where((e) =>
+              gs[e].type == Geo.polyline && gs[e].spline == Geo.straight)
+          .length;
+      if (nSpl > 0 || nPoly > 0) {
+        final need = nSpl + 2 * nPoly;
+        if (c.pts.length < need) return 0;
+        for (var k = 0; k < need; k++) {
+          if (!pt(k)) return 0;
+        }
         for (var k = 0; k < nSpl; k++) {
-          final g = gs[c.pts[k].ent];
-          if (g.data[1].toInt() < 2) return 0; // no end direction
+          if (gs[c.pts[k].ent].data[1].toInt() < 2) return 0; // no direction
         }
       }
       return 1;
@@ -529,6 +538,8 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
   bool isSpl(int e) =>
       gs[e].type == Geo.polyline &&
       (gs[e].spline == Geo.splineCv || gs[e].spline == Geo.splineFit);
+  bool isPoly(int e) =>
+      gs[e].type == Geo.polyline && gs[e].spline == Geo.straight;
   if (isSpl(c.ents[0]) || isSpl(c.ents[1])) {
     Offset endDir(PRef pr) {
       final n = gs[pr.ent].data[1].toInt();
@@ -547,6 +558,16 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
       r.add(m < 1e-12 ? 0 : (dA.dx * dB.dy - dA.dy * dB.dx) / m);
       return;
     }
+    if (isPoly(otherE)) {
+      // spline + rectangle/polygon EDGE (pts = [end, edgeA, edgeB]):
+      // end tangent parallel to the edge
+      final ea = _pointAt(gs, off, x, c.pts[1]);
+      final eb = _pointAt(gs, off, x, c.pts[2]);
+      final de = eb - ea;
+      final m = dA.distance * de.distance;
+      r.add(m < 1e-12 ? 0 : (dA.dx * de.dy - dA.dy * de.dx) / m);
+      return;
+    }
     if (gs[otherE].type == Geo.line) {
       final l = _lineEnds(gs, off, x, otherE)!;
       final dl = l.$2 - l.$1;
@@ -563,6 +584,25 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
     final rad = _pointAt(gs, off, x, splRefs[0]) - cc.$1;
     final m = dA.distance * rad.distance;
     r.add(m < 1e-12 ? 0 : (dA.dx * rad.dx + dA.dy * rad.dy) / m);
+    return;
+  }
+  if (isPoly(c.ents[0]) || isPoly(c.ents[1])) {
+    // circle/arc + rectangle/polygon EDGE (pts = [edgeA, edgeB]): the
+    // classic line-circle tangency, but over the edge's vertex refs —
+    // distance(center, infinite edge line) == radius
+    final circE = isPoly(c.ents[0]) ? c.ents[1] : c.ents[0];
+    final cc = _circle(gs, off, x, circE);
+    final ea = _pointAt(gs, off, x, c.pts[0]);
+    final eb = _pointAt(gs, off, x, c.pts[1]);
+    final de = eb - ea;
+    final len = de.distance;
+    if (cc == null || len < 1e-12) {
+      r.add(0);
+      return;
+    }
+    final n = Offset(-de.dy, de.dx) / len;
+    final dist = (cc.$1 - ea).dx * n.dx + (cc.$1 - ea).dy * n.dy;
+    r.add(dist.abs() - cc.$2);
     return;
   }
 
