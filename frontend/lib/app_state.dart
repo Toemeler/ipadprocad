@@ -31,7 +31,7 @@ enum Tool {
   arcThreePoint, arcTangent, arcCenter,
   rectTwoPoint, rect3P, rect2PC, rect3PC,
   slotCC, slotOverall, slotCP, slot3A, slotCPA, polygon,
-  fillet, chamfer, point,
+  fillet, chamfer, point, project,
   // modify tools (operate on the geometry list, engine gets rebuilt)
   move, mcopy, mrotate, mscale, mstretch, moffset, trim, extendT, split,
   // constraint tools + dimension
@@ -94,6 +94,12 @@ class SketchModel {
       // dropping it here rendered every centerline solid after the first edit
       if (prev[i].style != Geo.styleNormal) {
         next[i] = next[i].withStyle(prev[i].style);
+      }
+      // ...and so is the PROJECTION tag (M32): dropping it here would turn a
+      // yellow, source-tracking projection into an ordinary line on the
+      // first rebuild.
+      if (prev[i].proj != Geo.projNone) {
+        next[i] = next[i].withProj(prev[i].proj);
       }
     }
     geometry = next;
@@ -267,6 +273,22 @@ class AppState extends ChangeNotifier {
           }
         } catch (e) {
           Log.w('state', 'style sidecar read failed: $e');
+        }
+        try {
+          final pf = File('${_sketchDir.path}/$name.proj.json');
+          if (pf.existsSync()) {
+            final j =
+                jsonDecode(pf.readAsStringSync()) as Map<String, dynamic>;
+            j.forEach((k, v) {
+              final i = int.tryParse(k);
+              if (i != null && i >= 0 && i < s.geometry.length) {
+                s.geometry[i] = s.geometry[i].withProj((v as num).toInt());
+              }
+            });
+            syncProjections(s.geometry);
+          }
+        } catch (e) {
+          Log.w('state', 'projection sidecar read failed: $e');
         }
         // Layers survive in TWO places: the entity->layer binding travels in
         // the DXF (group code 8), while the display order plus empty layers and
@@ -534,6 +556,7 @@ class AppState extends ChangeNotifier {
     for (final i in victims) {
       gs.removeAt(i);
       cons = remapAfterRemove(cons, i);
+      gs.setAll(0, remapProjectionsAfterRemove(gs, i));
     }
     s.constraints
       ..clear()
@@ -602,8 +625,8 @@ class AppState extends ChangeNotifier {
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
   int? modEntity; // entity picked in the first phase of Offset
   final bool autoConstrain = true; // always on (Inventor: no toggle button)
-  bool showConstraints = true; // Constrain panel: Show Constraints toggle
-  bool showDof = true; // Inventor: Degrees of Freedom glyphs
+  bool showConstraints = false; // Constrain panel: Show Constraints toggle — OFF by default (M32)
+  bool showDof = false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
   SketchAnalysis? analysis; // DOF + which points may still move
   String? message; // transient notice (over-constrained warnings)
 
@@ -942,6 +965,11 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    if (tool == Tool.project) {
+      _projectClick(s, w);
+      notifyListeners();
+      return;
+    }
     if (constraintTools.contains(tool)) {
       _constraintClick(s, w);
       notifyListeners();
@@ -999,14 +1027,88 @@ class AppState extends ChangeNotifier {
     return best < 0 ? null : best;
   }
 
+  /// Inventor's Project Geometry (M32). Click a LINE on another layer to
+  /// project it into the editing layer as yellow, solver-pinned reference
+  /// geometry that keeps tracking its source. Clicking near the X/Y axis
+  /// (when no line is hit) projects that axis. Circles/arcs/splines are not
+  /// projectable (Inventor projects them too — future work); the projected
+  /// CENTER POINT exists by default anyway.
+  void _projectClick(SketchModel s, Offset w) {
+    final lay = editingLayer;
+    if (lay == null) return;
+    // pick across ALL visible layers — _pickEntity is scoped to the editing
+    // layer on purpose, a projection source never is
+    var ent = -1;
+    var bd = 10 / zoom;
+    for (var i = 0; i < s.geometry.length; i++) {
+      if (!geoVisible(s.geometry[i])) continue;
+      final d = distToEntity(s.geometry[i], w);
+      if (d < bd) {
+        bd = d;
+        ent = i;
+      }
+    }
+    int? src;
+    List<double>? data;
+    if (ent >= 0) {
+      final g = s.geometry[ent];
+      if (g.layer == lay) {
+        toast(g.isProjection
+            ? 'Already projected onto this layer.'
+            : 'Project picks geometry from OTHER layers.');
+        return;
+      }
+      if (g.type != Geo.line) {
+        toast('Only lines can be projected (plus the X/Y axis).');
+        return;
+      }
+      src = ent;
+      data = List.of(g.data);
+    } else {
+      // no entity: near an axis? (the axes pass through the projected CP)
+      final tol = 10 / zoom;
+      if (w.dy.abs() <= tol) {
+        src = Geo.projAxisX;
+        data = [-kProjAxisSpan, 0, kProjAxisSpan, 0];
+      } else if (w.dx.abs() <= tol) {
+        src = Geo.projAxisY;
+        data = [0, -kProjAxisSpan, 0, kProjAxisSpan];
+      } else {
+        toast('Tap a line on another layer, or the X/Y axis.');
+        return;
+      }
+    }
+    for (final g in s.geometry) {
+      if (g.isProjection && g.proj == src && g.layer == lay) {
+        toast('Already projected onto this layer.');
+        return;
+      }
+    }
+    final tags = List<Geo>.of(s.geometry)
+      ..add(Geo(Geo.line, data, layer: lay).withProj(src));
+    s.engine.setCurrentLayer(lay);
+    s.engine.addLine(data[0], data[1], data[2], data[3]);
+    _committed(s, tags: tags);
+    _solveAndRebuild(s);
+    Log.i('project',
+        'projected ${src >= 0 ? "entity $src" : src == Geo.projAxisX ? "X axis" : "Y axis"} onto "$lay"');
+  }
+
   void _modifyClick(SketchModel s, Offset w) {
+    final guard = _pickEntity(s, w);
+    if (guard != null && s.geometry[guard].isProjection) {
+      // projected geometry is pinned reference geometry — Inventor does not
+      // let Move/Trim/etc. touch it in the layer it was projected into
+      toast('Projected geometry cannot be modified here.');
+      return;
+    }
     switch (tool) {
       case Tool.trim:
         final i = _pickEntity(s, w);
         if (i == null) return;
-        final gs = List<Geo>.from(s.geometry)
-          ..removeAt(i)
-          ..addAll(trimEntity(s.geometry, i, w));
+        final gs = List<Geo>.from(s.geometry)..removeAt(i);
+        gs.setAll(0, remapProjectionsAfterRemove(gs, i));
+        gs.addAll(trimEntity(s.geometry, i, w));
         final remapped = remapAfterRemove(s.constraints, i);
         s.constraints
           ..clear()
@@ -1027,9 +1129,9 @@ class AppState extends ChangeNotifier {
         if (i == null) return;
         final parts = splitEntity(s.geometry, i, w);
         if (parts == null) return;
-        final gs = List<Geo>.from(s.geometry)
-          ..removeAt(i)
-          ..addAll(parts);
+        final gs = List<Geo>.from(s.geometry)..removeAt(i);
+        gs.setAll(0, remapProjectionsAfterRemove(gs, i));
+        gs.addAll(parts);
         final remapped = remapAfterRemove(s.constraints, i);
         s.constraints
           ..clear()
@@ -2072,6 +2174,19 @@ class AppState extends ChangeNotifier {
         if (stf.existsSync()) stf.deleteSync();
       } else {
         stf.writeAsStringSync(jsonEncode(sty));
+      }
+      // Projection tags (M32) ride in their own sidecar, same scheme.
+      final prj = <String, int>{};
+      for (var i = 0; i < s.geometry.length; i++) {
+        if (s.geometry[i].isProjection) {
+          prj['$i'] = s.geometry[i].proj;
+        }
+      }
+      final pf = File('${_sketchDir.path}/$name.proj.json');
+      if (prj.isEmpty) {
+        if (pf.existsSync()) pf.deleteSync();
+      } else {
+        pf.writeAsStringSync(jsonEncode(prj));
       }
     } catch (e) {
       Log.w('state', 'spline sidecar write failed: $e');

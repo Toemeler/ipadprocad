@@ -636,6 +636,11 @@ class _ViewportPainter extends CustomPainter {
         ..color = const Color(0xFFFFFFFF)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
+      // projected geometry (M32) is YELLOW like Inventor's projected loops
+      final projPaint = Paint()
+        ..color = const Color(0xFFE8C84A)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4;
       final underPaint = Paint()
         ..color = const Color(0xFF9A8CF5)
         ..style = PaintingStyle.stroke
@@ -718,7 +723,9 @@ class _ViewportPainter extends CustomPainter {
             ? sel
             : reference
                 ? refPaint
-                : (segFull(i, 0) ? whitePaint : underPaint);
+                : gs[i].isProjection
+                    ? projPaint
+                    : (segFull(i, 0) ? whitePaint : underPaint);
         // ONE bad entity must not take the whole sketch down with it. A throw
         // in here aborts CustomPainter.paint, so every entity AFTER it stays
         // unpainted — which reads as "all my geometry disappeared". Same for

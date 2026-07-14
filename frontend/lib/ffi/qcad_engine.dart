@@ -55,10 +55,25 @@ class Geo {
   static const styleNormal = 0, styleCenterline = 1;
   final int style;
 
+  // PROJECTED geometry (Inventor's Project Geometry, M32). A projection is a
+  // LINE on the editing layer that mirrors a source from ANOTHER layer (or a
+  // sketch axis) — rendered yellow, pinned by the solver (not movable where
+  // it was projected to), continuously re-synced to its source. Like the
+  // spline/style tags this is app state riding in a sidecar; the DXF
+  // round-trips a plain line.
+  //   proj >= 0        source entity index in the same sketch
+  //   projNone  (-1)   ordinary geometry
+  //   projAxisX (-2)   the sketch X axis through the projected center point
+  //   projAxisY (-3)   the sketch Y axis
+  //   projBroken(-4)   source was deleted: the projection freezes in place
+  static const projNone = -1, projAxisX = -2, projAxisY = -3, projBroken = -4;
+  final int proj;
+
   const Geo(this.type, this.data,
       {this.layer = kDefaultLayer,
       this.spline = straight,
-      this.style = styleNormal});
+      this.style = styleNormal,
+      this.proj = projNone});
 
   /// Same entity, NEW NUMBERS — keeps the layer, the spline tag AND the line
   /// style. Every transform that rebuilds a Geo from an existing one must go
@@ -67,19 +82,26 @@ class Geo {
   /// since the solver rewrites every entity on every solve, one missed site
   /// would strip the whole sketch of its layers/curves at the first drag.
   Geo withData(List<double> d) =>
-      Geo(type, d, layer: layer, spline: spline, style: style);
+      Geo(type, d, layer: layer, spline: spline, style: style, proj: proj);
 
   /// Same geometry, different layer.
   Geo onLayer(String l) =>
-      Geo(type, data, layer: l, spline: spline, style: style);
+      Geo(type, data, layer: l, spline: spline, style: style, proj: proj);
 
   /// Same polyline, tagged as a spline of [kind] (splineCv / splineFit).
   Geo asSpline(int kind) =>
-      Geo(type, data, layer: layer, spline: kind, style: style);
+      Geo(type, data, layer: layer, spline: kind, style: style, proj: proj);
+
+  /// Same geometry, tagged as a PROJECTION of [src] (entity index, or
+  /// [projAxisX]/[projAxisY]/[projBroken]).
+  Geo withProj(int src) =>
+      Geo(type, data, layer: layer, spline: spline, style: style, proj: src);
+
+  bool get isProjection => proj != projNone;
 
   /// Same geometry, different line style (styleNormal / styleCenterline).
   Geo withStyle(int st) =>
-      Geo(type, data, layer: layer, spline: spline, style: st);
+      Geo(type, data, layer: layer, spline: spline, style: st, proj: proj);
 
   bool get isSpline => spline != straight;
   bool get isCenterline => style == styleCenterline;

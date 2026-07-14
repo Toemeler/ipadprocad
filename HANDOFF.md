@@ -430,7 +430,9 @@ Token NIE in Dateien/.git/config schreiben.
 - **M30 — Tastatur-Shortcuts D/L/C/R/S/Strg+S: ERLEDIGT, Geräte-Test
   offen** (Abschnitt unten).
 - **M31 — Tangente mit Polylinien-KANTEN + Klick-Auflösung: ERLEDIGT,
-  Host-Tests grün (73), Geräte-Test offen** (Abschnitt unten).
+  Geräte-Test offen** (Abschnitt unten).
+- **M32 — Project Geometry (Inventor) + Show-Constraints/DOF default aus:
+  ERLEDIGT, Host-Tests grün (81), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1094,7 +1096,64 @@ End-Chord vertikal an die rechte Kante; Kreis wächst auf Kanten-Träger
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M31, für die nächste Session)
+## M32 — Project Geometry (Inventor) + Anzeige-Defaults
+
+**Nutzerwunsch:** Show Constraints und die DOF-Anzeige default AUS; und
+Projizieren wie in Inventor: Linien ANDERER Layer (plus X-/Y-Achse und der
+eh schon projizierte Centerpoint) in den Editier-Layer projizieren — gelb,
+laufend quell-aktualisiert, im Ziel-Layer nicht verschiebbar.
+
+**Defaults:** `showConstraints = false`, `showDof = false` (app_state).
+
+**Modell — das Projektions-Tag:** `Geo.proj` (int), exakt dieselbe Mechanik
+wie Spline-/Stil-Tag: App-State, DXF round-trippt eine normale Linie, Tag
+im Sidecar (`<name>.proj.json`, Index→proj), von `refresh(tagSource:)`
+und ALLEN Copy-Methoden (`withData/onLayer/asSpline/withStyle/withProj`)
+getragen — der Solver überschreibt jede Entity bei jedem Solve, eine
+vergessene Stelle macht aus der Projektion eine normale Linie.
+Werte: >=0 Quell-Entity-Index; projAxisX=-2; projAxisY=-3; projBroken=-4
+(Quelle gelöscht → Projektion friert ein, wie Inventors kranke Referenz).
+
+**Solver-Integration (solver.dart, zentral statt an jedem Call-Site):**
+`solveConstraints` ist jetzt ein Wrapper: (1) `syncProjections(gs)` kopiert
+jede Projektion von ihrer Quelle (Achsen = feste lange Linie ±kProjAxisSpan
+durch den CP), (2) `_withProjectionPins` hängt implizite fix-Constraints an
+beide Endpunkte, (3) innerer Solve, (4) **NOCHMAL syncProjections** — die
+Pins halten die Projektion auf der VOR-Solve-Position der Quelle; bewegt
+der Solve die Quelle selbst (Bemaßung auf dem Quell-Layer), hinge die
+Projektion sonst einen Solve hinterher (Test hat's gefangen).
+`analyzeSketch` bekommt dieselben Pins → Projektionen sind voll bestimmt,
+ihre Punkte fehlen in freePoints → der bestehende Drag-Block macht sie
+unverschiebbar, ohne neuen Code. Bemaßung GEGEN eine Projektion treibt
+dadurch die andere Geometrie (Inventor-Referenz-Semantik).
+
+**UI:** Der bisher funktionslose Ribbon-Button „Project Geometry" startet
+`Tool.project`. `_projectClick`: eigener Pick über ALLE sichtbaren Layer
+(_pickEntity ist absichtlich auf den Editier-Layer beschränkt). Linie auf
+anderem Layer → Projektion (engine.addLine auf Editier-Layer + tagSource
+mit withProj). Kein Treffer + Klick nahe y=0 → X-Achse, nahe x=0 →
+Y-Achse. Abgewiesen mit Toast: Nicht-Linien, gleicher Layer, Duplikate.
+Modify-Tools (Trim etc.) weisen Projektionen ab. Painter: gelb (0xFFE8C84A)
+vor der DOF-Färbung. Löschen: `remapProjectionsAfterRemove` (constraints.
+dart) an allen drei removeAt-Stellen (deleteLayer, trim, split) — Quelle
+weg → projBroken, höhere Quell-Indizes rücken nach.
+
+**Grenzen:** Nur Linien + Achsen projizierbar (Kreise/Bögen/Splines wie in
+Inventor wären der nächste Schritt: brauchen sync für circle/arc-Daten und
+Pins auf cx,cy,r); Projektion einer Projektion durch den Duplikat-Guard
+abgedeckt (liegt exakt auf der Quelle); kein „Break Link".
+
+**Tests:** `frontend/test/m32_test.dart` (8): Defaults aus; Projektion
+erzeugt getaggte Kopie auf Layer B; Quelle per Bemaßung getrieben →
+Projektion folgt im SELBEN Solve; Pinning (freePoints leer, Bemaßung gegen
+Projektion bewegt die freie Linie, Projektion ±1e-6 unbewegt); X-Achse per
+Klick nahe y=0; Ablehnungen (Kreis/gleicher Layer/Duplikat); Quell-Layer
+löschen → projBroken + eingefroren + solve-stabil; Trim verweigert.
+81 Tests gesamt, alle grün.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M32, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1114,7 +1173,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (73 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (81 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",

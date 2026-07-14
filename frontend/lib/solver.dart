@@ -1170,13 +1170,84 @@ bool _trySolveWithSlvs(
 /// Residual norm below which the constraints count as satisfied (world units).
 const _satisfied = 1e-6;
 
+
+// ---------------------------------------------------------------------------
+// projected geometry (M32 — Inventor's Project Geometry)
+// ---------------------------------------------------------------------------
+/// Span of a projected sketch AXIS line (long enough to act as an infinite
+/// construction line at any sensible zoom, short enough not to break math).
+const double kProjAxisSpan = 10000;
+
+/// Rewrites every projection in [gs] from its CURRENT source: a projected
+/// line mirrors the source line's endpoints, a projected axis is the fixed
+/// long line through the projected center point. A broken projection (source
+/// deleted) freezes where it is. Mutates [gs] in place, returns it.
+List<Geo> syncProjections(List<Geo> gs) {
+  for (var i = 0; i < gs.length; i++) {
+    final g = gs[i];
+    if (!g.isProjection || g.type != Geo.line) continue;
+    switch (g.proj) {
+      case Geo.projAxisX:
+        gs[i] = g.withData([-kProjAxisSpan, 0, kProjAxisSpan, 0]);
+        break;
+      case Geo.projAxisY:
+        gs[i] = g.withData([0, -kProjAxisSpan, 0, kProjAxisSpan]);
+        break;
+      case Geo.projBroken:
+        break; // frozen in place
+      default:
+        final src = g.proj;
+        if (src >= 0 && src < gs.length && gs[src].type == Geo.line) {
+          gs[i] = g.withData(List.of(gs[src].data));
+        }
+    }
+  }
+  return gs;
+}
+
+/// The implicit constraints that PIN every projection where its source is:
+/// Inventor's projected geometry is reference geometry — the solver must
+/// never move it in the layer it was projected INTO (a dimension against it
+/// drives the OTHER geometry instead). One fix per endpoint at the current
+/// (synced) coordinates.
+List<Constraint> _withProjectionPins(List<Geo> gs, List<Constraint> cs) {
+  Constraint? pin;
+  final out = List<Constraint>.of(cs);
+  for (var i = 0; i < gs.length; i++) {
+    final g = gs[i];
+    if (!g.isProjection || g.type != Geo.line) continue;
+    for (var p = 0; p < 2; p++) {
+      pin = Constraint(CType.fix,
+          pts: [PRef(i, p)],
+          anchors: [g.data[2 * p], g.data[2 * p + 1]]);
+      out.add(pin);
+    }
+  }
+  return out;
+}
+
 void solveConstraints(List<Geo> gs, List<Constraint> cs,
+    {Set<(int, int)> dragged = const {}, int iterations = 80}) {
+  _solveConstraintsInner(gs, cs, dragged: dragged, iterations: iterations);
+  // ...and sync AGAIN afterwards: the pins hold each projection at its
+  // source's PRE-solve position, so when the solve itself moves the source
+  // (a dimension edit on the source layer) the projection would lag one
+  // solve behind — snap it to where the source actually ended up.
+  syncProjections(gs);
+}
+
+void _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
     // 25 iterations left visibly unconverged residuals (~0.3% of the entity
     // size) on systems the slvs shim bails on — e.g. an ellipse whose axes
     // hang on symmetric constraints. 80 costs little (small dense systems,
     // and the loop exits early once err <= _satisfied) and converges those.
     {Set<(int, int)> dragged = const {}, int iterations = 80}) {
-  if (cs.isEmpty || gs.isEmpty) return;
+  if (gs.isEmpty) return;
+  // projections first: sync to their sources, then pin them there — every
+  // call site (drags, dimension edits, redundancy checks) gets this for free
+  syncProjections(gs);
+  cs = _withProjectionPins(gs, cs);
+  if (cs.isEmpty) return;
 
   // The drag solves at ~60 Hz, so the routine lines are throttled. Anomalies
   // are never throttled.
@@ -1347,6 +1418,10 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
 
 /// Rank analysis: degrees of freedom + which points can still move.
 SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
+  // projected geometry is pinned reference geometry: the same implicit fixes
+  // the solver uses, so projections count as fully defined (white/yellow,
+  // never draggable — the drag block runs on freePoints from this analysis)
+  cs = _withProjectionPins(gs, cs);
   final off = _offsets(gs);
   final total = off.last;
   if (total == 0) return const SketchAnalysis(0, {});

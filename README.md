@@ -36,6 +36,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M29** Tangenten-Constraint mit Splines (Spline↔Linie/Kreis/Bogen/Spline, am Spline-ENDE wie Inventor) | ✅ erledigt (Geräte-Test offen) |
 | **M30** Tastatur-Shortcuts: D/L/C/R Werkzeuge, S Layer beenden/neu, Strg+S speichern | ✅ erledigt (Geräte-Test offen) |
 | **M31** Tangente mit Rechteck-/Polygon-Kanten (Spline↔Kante, Kreis↔Kante) + Klick-basierte Ende/Kante-Auflösung | ✅ erledigt (Geräte-Test offen) |
+| **M32** Project Geometry wie Inventor: Linien anderer Layer + X/Y-Achse, gelb, gepinnt, quell-verfolgend; Show Constraints/DOF default AUS | ✅ erledigt (Geräte-Test offen) |
 
 ### Constraint-Solver (M9–M14)
 

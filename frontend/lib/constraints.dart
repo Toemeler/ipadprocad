@@ -338,6 +338,21 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
 
 /// Shifts entity references after entity [removed] was deleted; constraints
 /// touching it are dropped (Inventor deletes them too).
+/// Companion of [remapAfterRemove] for PROJECTION tags (M32): the proj field
+/// of a projected line is a source ENTITY INDEX, so removing entity [removed]
+/// shifts every higher source down by one — and a projection whose source was
+/// removed FREEZES in place ([Geo.projBroken], Inventor keeps it too).
+List<Geo> remapProjectionsAfterRemove(List<Geo> gs, int removed) => [
+      for (final g in gs)
+        !g.isProjection || g.proj < 0
+            ? g
+            : g.proj == removed
+                ? g.withProj(Geo.projBroken)
+                : g.proj > removed
+                    ? g.withProj(g.proj - 1)
+                    : g
+    ];
+
 List<Constraint> remapAfterRemove(List<Constraint> cs, int removed) {
   final out = <Constraint>[];
   for (final c in cs) {

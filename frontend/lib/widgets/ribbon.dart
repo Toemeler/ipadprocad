@@ -356,7 +356,8 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: ' ',
           arrow: false,
-          child: _BigWide(width: 76, icon: IC['projgeo']!, label: 'Project\nGeometry'),
+          child: _BigWide(width: 76, icon: IC['projgeo']!, label: 'Project\nGeometry',
+              onTap: () => _startTool(Tool.project)),
         ),
         // 4. Pattern
         _panel(
