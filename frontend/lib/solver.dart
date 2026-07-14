@@ -1185,7 +1185,7 @@ const double kProjAxisSpan = 10000;
 List<Geo> syncProjections(List<Geo> gs) {
   for (var i = 0; i < gs.length; i++) {
     final g = gs[i];
-    if (!g.isProjection || g.type != Geo.line) continue;
+    if (!g.isProjection) continue;
     switch (g.proj) {
       case Geo.projAxisX:
         gs[i] = g.withData([-kProjAxisSpan, 0, kProjAxisSpan, 0]);
@@ -1196,8 +1196,11 @@ List<Geo> syncProjections(List<Geo> gs) {
       case Geo.projBroken:
         break; // frozen in place
       default:
+        // any entity type (M33): the projection is a same-type copy, so the
+        // data vector transfers 1:1 (a spline/ellipse projection also
+        // carries the source's spline TAG, applied at creation)
         final src = g.proj;
-        if (src >= 0 && src < gs.length && gs[src].type == Geo.line) {
+        if (src >= 0 && src < gs.length && gs[src].type == g.type) {
           gs[i] = g.withData(List.of(gs[src].data));
         }
     }
@@ -1211,16 +1214,21 @@ List<Geo> syncProjections(List<Geo> gs) {
 /// drives the OTHER geometry instead). One fix per endpoint at the current
 /// (synced) coordinates.
 List<Constraint> _withProjectionPins(List<Geo> gs, List<Constraint> cs) {
-  Constraint? pin;
   final out = List<Constraint>.of(cs);
   for (var i = 0; i < gs.length; i++) {
     final g = gs[i];
-    if (!g.isProjection || g.type != Geo.line) continue;
-    for (var p = 0; p < 2; p++) {
-      pin = Constraint(CType.fix,
-          pts: [PRef(i, p)],
-          anchors: [g.data[2 * p], g.data[2 * p + 1]]);
-      out.add(pin);
+    if (!g.isProjection) continue;
+    // fixing every point pins all params: line both ends; arc center + both
+    // endpoints (which determine r and the sweep angles); polyline — plain,
+    // spline or ellipse — every defining vertex. The circle's radius is the
+    // one param no point-fix covers, so it gets a rad dimension on top.
+    for (var p = 0; p < ptCount(g); p++) {
+      final q = refPt(gs, PRef(i, p));
+      out.add(Constraint(CType.fix, pts: [PRef(i, p)], anchors: [q.dx, q.dy]));
+    }
+    if (g.type == Geo.circle) {
+      out.add(Constraint(CType.dimension,
+          ents: [i], dimKind: 'rad', value: g.data[2]));
     }
   }
   return out;

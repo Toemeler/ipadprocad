@@ -738,6 +738,11 @@ class AppState extends ChangeNotifier {
     var bestI = -1;
     var bestD = tol;
     for (var i = 0; i < s.geometry.length; i++) {
+      // greyed-out geometry of OTHER layers is reference-only in edit mode:
+      // not tappable, not selectable (Inventor). Projections live ON the
+      // editing layer and stay selectable.
+      if (inEditMode && !geoEditable(s.geometry[i])) continue;
+      if (!geoVisible(s.geometry[i])) continue;
       final d = distToEntity(s.geometry[i], w);
       if (d < bestD) {
         bestD = d;
@@ -765,6 +770,8 @@ class AppState extends ChangeNotifier {
         selection.clear();
         for (var i = 0; i < s.geometry.length; i++) {
           if (!geoVisible(s.geometry[i])) continue;
+          // same scope rule as selectAt: other layers are not selectable
+          if (inEditMode && !geoEditable(s.geometry[i])) continue;
           if (entityInRect(s.geometry[i], r, crossing: boxCrossing)) {
             selection.add(i);
           }
@@ -1033,11 +1040,10 @@ class AppState extends ChangeNotifier {
   /// (when no line is hit) projects that axis. Circles/arcs/splines are not
   /// projectable (Inventor projects them too — future work); the projected
   /// CENTER POINT exists by default anyway.
-  void _projectClick(SketchModel s, Offset w) {
-    final lay = editingLayer;
-    if (lay == null) return;
-    // pick across ALL visible layers — _pickEntity is scoped to the editing
-    // layer on purpose, a projection source never is
+  /// Nearest visible entity under [w] across ALL layers — the projection
+  /// source pick (and its hover highlight). _pickEntity is scoped to the
+  /// editing layer on purpose, a projection source never is.
+  int? pickVisibleAny(SketchModel s, Offset w) {
     var ent = -1;
     var bd = 10 / zoom;
     for (var i = 0; i < s.geometry.length; i++) {
@@ -1048,33 +1054,40 @@ class AppState extends ChangeNotifier {
         ent = i;
       }
     }
+    return ent >= 0 ? ent : null;
+  }
+
+  /// Is [ent] already projected onto [lay]?
+  bool _isProjectedOnto(SketchModel s, int ent, String lay) => s.geometry
+      .any((g) => g.isProjection && g.proj == ent && g.layer == lay);
+
+  void _projectClick(SketchModel s, Offset w) {
+    final lay = editingLayer;
+    if (lay == null) return;
+    final picked = pickVisibleAny(s, w);
     int? src;
-    List<double>? data;
-    if (ent >= 0) {
-      final g = s.geometry[ent];
+    Geo? proto;
+    if (picked != null) {
+      final g = s.geometry[picked];
       if (g.layer == lay) {
         toast(g.isProjection
             ? 'Already projected onto this layer.'
             : 'Project picks geometry from OTHER layers.');
         return;
       }
-      if (g.type != Geo.line) {
-        toast('Only lines can be projected (plus the X/Y axis).');
-        return;
-      }
-      src = ent;
-      data = List.of(g.data);
+      src = picked;
+      proto = g;
     } else {
       // no entity: near an axis? (the axes pass through the projected CP)
       final tol = 10 / zoom;
       if (w.dy.abs() <= tol) {
         src = Geo.projAxisX;
-        data = [-kProjAxisSpan, 0, kProjAxisSpan, 0];
+        proto = Geo(Geo.line, const [-kProjAxisSpan, 0, kProjAxisSpan, 0]);
       } else if (w.dx.abs() <= tol) {
         src = Geo.projAxisY;
-        data = [0, -kProjAxisSpan, 0, kProjAxisSpan];
+        proto = Geo(Geo.line, const [0, -kProjAxisSpan, 0, kProjAxisSpan]);
       } else {
-        toast('Tap a line on another layer, or the X/Y axis.');
+        toast('Tap geometry on another layer, or the X/Y axis.');
         return;
       }
     }
@@ -1084,14 +1097,36 @@ class AppState extends ChangeNotifier {
         return;
       }
     }
-    final tags = List<Geo>.of(s.geometry)
-      ..add(Geo(Geo.line, data, layer: lay).withProj(src));
+    // the projection is a same-type copy of the source — it keeps the
+    // spline/ellipse tag and gets the proj tag on top (M33: all types)
+    final copy = proto.onLayer(lay).withProj(src);
+    final tags = List<Geo>.of(s.geometry)..add(copy);
     s.engine.setCurrentLayer(lay);
-    s.engine.addLine(data[0], data[1], data[2], data[3]);
+    final d = copy.data;
+    switch (copy.type) {
+      case Geo.line:
+        s.engine.addLine(d[0], d[1], d[2], d[3]);
+        break;
+      case Geo.circle:
+        s.engine.addCircle(d[0], d[1], d[2]);
+        break;
+      case Geo.arc:
+        s.engine.addArc(d[0], d[1], d[2], d[3], d[4],
+            reversed: d.length > 5 && d[5] != 0);
+        break;
+      case Geo.polyline:
+        final n = d[1].toInt();
+        s.engine.addPolyline(
+            [
+              for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
+            ],
+            closed: d[0] != 0);
+        break;
+    }
     _committed(s, tags: tags);
     _solveAndRebuild(s);
     Log.i('project',
-        'projected ${src >= 0 ? "entity $src" : src == Geo.projAxisX ? "X axis" : "Y axis"} onto "$lay"');
+        'projected ${src >= 0 ? "entity $src (${proto.type})" : src == Geo.projAxisX ? "X axis" : "Y axis"} onto "$lay"');
   }
 
   void _modifyClick(SketchModel s, Offset w) {
@@ -2113,6 +2148,17 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null || w == null) {
       hoverEnt = null;
+      hoverEdge = null;
+    } else if (tool == Tool.project) {
+      // project mode highlights the PROJECTABLE geometry under the cursor:
+      // entities of OTHER layers that are not yet projected onto this one
+      final e = pickVisibleAny(s, w);
+      hoverEnt = e != null &&
+              editingLayer != null &&
+              s.geometry[e].layer != editingLayer &&
+              !_isProjectedOnto(s, e, editingLayer!)
+          ? e
+          : null;
       hoverEdge = null;
     } else {
       hoverEnt = _pickEntity(s, w);

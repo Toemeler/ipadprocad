@@ -432,7 +432,10 @@ Token NIE in Dateien/.git/config schreiben.
 - **M31 — Tangente mit Polylinien-KANTEN + Klick-Auflösung: ERLEDIGT,
   Geräte-Test offen** (Abschnitt unten).
 - **M32 — Project Geometry (Inventor) + Show-Constraints/DOF default aus:
-  ERLEDIGT, Host-Tests grün (81), Geräte-Test offen** (Abschnitt unten).
+  ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
+- **M33 — Project Geometry alle Typen + Hover/Active-Button + Fremd-Layer-
+  Selektionssperre: ERLEDIGT, Host-Tests grün (87), Geräte-Test offen**
+  (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1153,7 +1156,53 @@ löschen → projBroken + eingefroren + solve-stabil; Trim verweigert.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M32, für die nächste Session)
+## M33 — Project Geometry: alle Typen, Hover, Button-Highlight, Fremd-Layer-Sperre
+
+**Nutzer-Feedback nach Geräte-Test M32:** Linien projizieren funktioniert;
+Kreise/Ellipsen (Splines ungetestet) nicht; Project-Button soll bis Escape
+leuchten; im Project-Modus soll projizierbares unter dem Finger
+hervorgehoben werden; und grau dargestellte Geometrie ANDERER Layer darf im
+Edit-Modus überhaupt nicht mehr anfassbar sein (außer im Project-Modus).
+
+**Alle Typen projizierbar:** `_projectClick` kopiert die Quelle jetzt als
+GLEICHEN Typ (onLayer+withProj — Spline-/Ellipse-Tag reist automatisch mit)
+und legt sie typrichtig in die Engine (addLine/addCircle/addArc mit
+reversed/addPolyline mit closed). `syncProjections` kopiert generisch den
+Datenvektor bei Typ-Gleichheit. **Pinning generisch:** fix auf JEDEN
+ptCount-Punkt deckt alles ab (Bogen: Zentrum+beide Enden bestimmen r und
+Winkel; Polyline/Spline/Ellipse: alle Definitionspunkte) — einzige Lücke
+ist der Kreis-RADIUS (ptCount=1), der eine zusätzliche rad-Dimension als
+Pin bekommt.
+
+**UI:** `_BigWide` hat jetzt `active` (reicht an das vorhandene
+`_Hover.activeHighlight` durch) — der Project-Button leuchtet, solange
+`app.tool == Tool.project` (Escape → cancelTool → aus). Hover im
+Project-Modus: `pickVisibleAny` (aus _projectClick extrahiert, öffentlich)
+über ALLE sichtbaren Layer; hervorgehoben wird nur, was projizierbar ist —
+fremder Layer UND noch nicht auf den Editier-Layer projiziert
+(`_isProjectedOnto`). Der bestehende Halo-Painter übernimmt den Rest.
+
+**Fremd-Layer-Selektionssperre:** `selectAt` und `boxSelectFinish`
+überspringen im Edit-Modus alles, was nicht `geoEditable` ist (und
+Unsichtbares). Grau = reine Referenz, exakt Inventor. Projektionen LIEGEN
+auf dem Editier-Layer und bleiben damit selektierbar (löschbar); außerhalb
+des Edit-Modus bleibt alles antippbar. Modify-Tools waren durch _pickEntity
+schon immer gescoped, der M32-Projektions-Guard bleibt zusätzlich.
+
+**Tests:** `frontend/test/m33_test.dart` (6): Kreis projiziert + Radius
+gepinnt + folgt Zentrum UND Radius der Quelle; Bogen + Rechteck (closed-
+Flag) als typgleiche Kopien; Spline MIT Tag + gepinnt; Hover nur auf
+unprojizierten Fremd-Entities (nach Projektion aus, außerhalb Project-Modus
+Fremd-Layer nie); Selektion: Quelle nicht antippbar, Projektion schon, Box-
+Select gescoped; ohne Edit-Modus weiter alles selektierbar. m32-„circle
+rejected"-Test an das neue Verhalten angepasst. 87 Tests, alle grün.
+
+**Grenzen:** Achsen-Projektion weiterhin nur X/Y per Klick nahe der Achse;
+kein Break-Link; Projektion einer Projektion über Duplikat-Guard gedeckt.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M33, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1173,7 +1222,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (81 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (87 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",

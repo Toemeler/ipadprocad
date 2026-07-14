@@ -105,10 +105,8 @@ void main() {
     expect(p.layer, 'B');
   });
 
-  test('rejections: circle, same layer, duplicate', () {
+  test('rejections: same layer, duplicate (circles project since M33)', () {
     final app = makeApp();
-    app.toolClick(const Offset(90, 0)); //   circle rim -> not projectable
-    expect(app.current!.geometry, hasLength(2));
     app.toolClick(const Offset(20, 15)); //  project the line (ok)
     expect(app.current!.geometry, hasLength(3));
     app.toolClick(const Offset(20, 15)); //  source again -> duplicate

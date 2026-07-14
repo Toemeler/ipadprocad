@@ -357,7 +357,8 @@ class _RibbonState extends State<Ribbon> {
           label: ' ',
           arrow: false,
           child: _BigWide(width: 76, icon: IC['projgeo']!, label: 'Project\nGeometry',
-              onTap: () => _startTool(Tool.project)),
+              onTap: () => _startTool(Tool.project),
+              active: app.tool == Tool.project),
         ),
         // 4. Pattern
         _panel(
@@ -629,19 +630,22 @@ class _BigWide extends StatelessWidget {
   final bool cornerDd;
   final bool cornerDdBelow;
   final VoidCallback? onTap;
+  final bool active;
   const _BigWide(
       {required this.width,
       required this.icon,
       required this.label,
       this.cornerDd = false,
       this.cornerDdBelow = false,
-      this.onTap});
+      this.onTap,
+      this.active = false});
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
       child: _Hover(
         onTap: onTap,
+        activeHighlight: active,
         child: Stack(children: [
           Padding(
             padding: const EdgeInsets.only(top: 6, bottom: 4),

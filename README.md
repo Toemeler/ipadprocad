@@ -37,6 +37,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M30** Tastatur-Shortcuts: D/L/C/R Werkzeuge, S Layer beenden/neu, Strg+S speichern | ✅ erledigt (Geräte-Test offen) |
 | **M31** Tangente mit Rechteck-/Polygon-Kanten (Spline↔Kante, Kreis↔Kante) + Klick-basierte Ende/Kante-Auflösung | ✅ erledigt (Geräte-Test offen) |
 | **M32** Project Geometry wie Inventor: Linien anderer Layer + X/Y-Achse, gelb, gepinnt, quell-verfolgend; Show Constraints/DOF default AUS | ✅ erledigt (Geräte-Test offen) |
+| **M33** Project Geometry für ALLE Typen (Kreis/Bogen/Spline/Ellipse/Polylinie), Hover-Highlight + aktiver Button im Project-Modus, Fremd-Layer nicht selektierbar | ✅ erledigt (Geräte-Test offen) |
 
 ### Constraint-Solver (M9–M14)
 
