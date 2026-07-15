@@ -215,3 +215,26 @@ const endOfSketchIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#C0392B" stroke="#7d1f14" stroke-width=".8"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" stroke-width="1.5"/></svg>';
 const homeTabIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="M2 8.5L8 3l6 5.5" stroke="#aeb3b9" stroke-width="1.4"/><path d="M4 8v5h8V8" stroke="#aeb3b9" stroke-width="1.4"/></svg>';
+
+// ==== Pattern dialog (M35) — dialog-internal glyphs, same icon language ====
+final Map<String, String> PD = {
+  // selector cursor (the pick buttons, blue-underlined like Inventor)
+  'sel': S(18, '${cursorArrow(4, 3.5)}<path d="M3 14.5h12" stroke="$BL" stroke-width="1.6"/>'),
+  'selAxis': S(18, '${cursorArrow(4, 3.5)}<line x1="9" y1="3" x2="9" y2="15" stroke="$G" stroke-width="1" stroke-dasharray="2.4 1.8"/>'),
+  // flip direction — Inventor's red/black double arrow
+  'flip': S(18,
+      '<path d="M6.5 14V5" stroke="$RD" stroke-width="1.6"/><path d="M6.5 4l-2.2 3.1M6.5 4l2.2 3.1" stroke="$RD" stroke-width="1.4"/><path d="M11.5 4v9" stroke="$G" stroke-width="1.6"/><path d="M11.5 15l-2.2-3.1M11.5 15l2.2-3.1" stroke="$G" stroke-width="1.4"/>'),
+  // count of instances — Direction 1 (dots in a row) / Direction 2 (column)
+  'countH': S(18, '${gpd(3.5, 9, 1.7)}${gpd(9, 9, 1.7)}${gpd(14.5, 9, 1.7)}'),
+  'countV': S(18, '${gpd(9, 3.5, 1.7)}${gpd(9, 9, 1.7)}${gpd(9, 14.5, 1.7)}'),
+  'countC': S(18, '${gpd(9, 3.2, 1.6)}${gpd(13.8, 6.2, 1.6)}${gpd(13.8, 11.8, 1.6)}${gpd(9, 14.8, 1.6)}${gpd(4.2, 11.8, 1.6)}'),
+  // spacing / distance — Inventor's yellow diamond
+  'spacing': S(18,
+      '<path d="M9 2.5L15.5 9L9 15.5L2.5 9z" fill="$YL" stroke="#9a8320" stroke-width=".8"/>'),
+  // angle — swept arc with arrows
+  'angle': S(18,
+      '<path d="M3.5 13 A7 7 0 0 1 14.5 13" fill="none" stroke="$G" stroke-width="1.4"/><path d="M3.5 13l1-2.2M3.5 13l2.3-.5M14.5 13l-1-2.2M14.5 13l-2.3-.5" stroke="$G" stroke-width="1.1"/><path d="M9 6v-2" stroke="$YL" stroke-width="1.6"/>'),
+  // mirror line pick
+  'mirLine': S(18,
+      '<line x1="9" y1="2.5" x2="9" y2="15.5" stroke="$G" stroke-width="1.1" stroke-dasharray="2.6 2"/>${cursorArrow(10.5, 8)}'),
+};

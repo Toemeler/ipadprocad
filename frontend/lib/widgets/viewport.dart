@@ -21,6 +21,7 @@ import '../ffi/qcad_engine.dart' show Geo;
 import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
+import 'pattern_dialog.dart';
 
 class Viewport2D extends StatefulWidget {
   final AppState app;
@@ -555,6 +556,12 @@ class _Viewport2DState extends State<Viewport2D> {
                     ),
                   ),
                   if (_inlineDim != null) _inlineEditor(size),
+                  // Pattern dialogs (M35) float MODELESS over the viewport,
+                  // top-right like Inventor parks them — picks keep landing
+                  // in the canvas while the dialog is open.
+                  if (app.pattern != null)
+                    Positioned(
+                        right: 12, top: 12, child: PatternDialog(app: app)),
                   // Inventor's status readout, bottom right of the graphics
                   // window: "N dimensions needed" while under-constrained,
                   // "Fully Constrained" at DOF 0.
@@ -684,6 +691,32 @@ class _ViewportPainter extends CustomPainter {
       for (final e in app.conEnts) {
         if (e >= 0 && e < gs.length) {
           paintGeo(canvas, gs[e], map, app.zoom, halo);
+        }
+      }
+      // Pattern dialog picks (M35): geometry set gets the pre-select halo,
+      // the direction / axis / mirror-line picks get the selection blue —
+      // Inventor lights all of a dialog's inputs until it closes.
+      final pat = app.pattern;
+      if (pat != null) {
+        for (final e in pat.geo) {
+          if (e >= 0 && e < gs.length) {
+            paintGeo(canvas, gs[e], map, app.zoom, halo);
+          }
+        }
+        final refHalo = Paint()
+          ..color = T.blue.withOpacity(.8)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.4
+          ..strokeCap = StrokeCap.round;
+        for (final e in [pat.dir1Ent, pat.dir2Ent, pat.mirrorEnt]) {
+          if (e != null && e < gs.length) {
+            paintGeo(canvas, gs[e], map, app.zoom, refHalo);
+          }
+        }
+        final ax = pat.axisPt;
+        if (ax != null && (ax.ent < 0 || ax.ent < gs.length)) {
+          final q = refPt(gs, ax);
+          canvas.drawCircle(map(q.dx, q.dy), 6, refHalo);
         }
       }
       final pickedEdge = app.pickedEdge;
@@ -959,6 +992,21 @@ class _ViewportPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2;
         for (final g in ghost) {
+          paintGeo(canvas, g, map, app.zoom, gp);
+        }
+      }
+    }
+
+    // ---- pattern preview (M35): the pending copies, light blue ----
+    if (app.pattern != null && s != null) {
+      final ghost = app.patternPreview();
+      if (ghost.isNotEmpty) {
+        final gp = Paint()
+          ..color = T.blue.withOpacity(0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2;
+        for (final g in ghost) {
+          if (!geoFinite(g)) continue;
           paintGeo(canvas, g, map, app.zoom, gp);
         }
       }

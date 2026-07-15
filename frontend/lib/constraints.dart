@@ -23,6 +23,16 @@ enum CType {
   // must never reorder the existing ones.
   // pts[0] is the midpoint of line ents[0] (SH_MIDPOINT natively).
   midpoint,
+  // Sketch pattern element (M35, Inventor's Pattern panel). Ties a COPY
+  // entity rigidly to its SOURCE entity through the pattern's transform:
+  //   ents = [source, copy] (same geometry type)
+  //   anchors = [0, dx, dy]              rectangular: translation
+  //           = [1, cx, cy, angle]       circular: rotation about (cx, cy)
+  // Every parameter of the copy equals the transformed parameter of the
+  // source, so editing EITHER drives the other through the solver — that is
+  // Inventor's "patterned geometry is fully constrained as a group". Not
+  // modelled by the slvs shim: always solved on the verified Dart LM path.
+  pattern,
 }
 
 class PRef {
@@ -126,7 +136,39 @@ String constraintLabel(CType t) => const {
       CType.equal: '=',
       CType.dimension: 'D',
       CType.midpoint: '\u2ae7', // triangle over bar — Inventor's midpoint glyph
+      CType.pattern: '\u25a6', // grid — pattern group membership (M35)
     }[t]!;
+
+// ---------------------------------------------------------------------------
+// sketch patterns (M35)
+// ---------------------------------------------------------------------------
+/// Anchor layouts of a [CType.pattern] constraint.
+const patKindTranslate = 0.0, patKindRotate = 1.0;
+
+/// The rigid transform a [CType.pattern] constraint's anchors describe:
+/// source point -> copy point. Null when the anchors are malformed (a
+/// hand-edited sidecar); the constraint then contributes no equations.
+Offset Function(Offset)? patternTransform(List<double> an) {
+  if (an.isEmpty) return null;
+  if (an[0] == patKindTranslate && an.length >= 3) {
+    final d = Offset(an[1], an[2]);
+    return (p) => p + d;
+  }
+  if (an[0] == patKindRotate && an.length >= 4) {
+    final c = Offset(an[1], an[2]);
+    final ca = math.cos(an[3]), sa = math.sin(an[3]);
+    return (p) {
+      final v = p - c;
+      return c + Offset(v.dx * ca - v.dy * sa, v.dx * sa + v.dy * ca);
+    };
+  }
+  return null;
+}
+
+/// Rotation angle of a rotate-kind pattern (0 for translate) — the arc sweep
+/// angles of a rotated copy are the source's angles shifted by exactly this.
+double patternRotation(List<double> an) =>
+    an.isNotEmpty && an[0] == patKindRotate && an.length >= 4 ? an[3] : 0.0;
 
 String encodeConstraints(List<Constraint> cs) =>
     jsonEncode([for (final c in cs) c.toJson()]);

@@ -315,6 +315,16 @@ int residualCount(List<Geo> gs, Constraint c) {
           return pt(0) && pt(1) && pt(2) && pt(3) ? 1 : 0;
       }
       return 0;
+    case CType.pattern:
+      // one equation per COPY parameter: the copy is rigidly slaved to the
+      // source, so a pattern never adds net DOF and can never over-constrain
+      // on its own (copy params == copy equations).
+      if (!ent(0) || !ent(1)) return 0;
+      final src = gs[c.ents[0]], cp = gs[c.ents[1]];
+      if (src.type != cp.type) return 0;
+      if (_paramCount(src) != _paramCount(cp)) return 0;
+      if (patternTransform(c.anchors) == null) return 0;
+      return _paramCount(cp);
   }
 }
 
@@ -520,9 +530,62 @@ List<double> _residuals(List<Geo> gs, List<int> off, List<double> x,
       case CType.dimension:
         _dimResidual(gs, off, x, ctx, i, c, r);
         break;
+      case CType.pattern:
+        _patternResiduals(gs, off, x, c, r);
+        break;
     }
   }
   return r;
+}
+
+/// Residuals of a pattern element (M35): every parameter of the COPY equals
+/// the pattern-transformed parameter of the SOURCE. Point parameters go
+/// through the rigid transform; a radius stays equal; arc sweep angles shift
+/// by the rotation (wrapped, so the equations stay smooth across ±pi).
+void _patternResiduals(
+    List<Geo> gs, List<int> off, List<double> x, Constraint c, List<double> r) {
+  final f = patternTransform(c.anchors)!;
+  final rot = patternRotation(c.anchors);
+  final src = c.ents[0], cp = c.ents[1];
+  final os = off[src], oc = off[cp];
+  double wrap(double a) {
+    var v = a % (2 * math.pi);
+    if (v > math.pi) v -= 2 * math.pi;
+    if (v < -math.pi) v += 2 * math.pi;
+    return v;
+  }
+
+  switch (gs[cp].type) {
+    case Geo.line:
+      for (var k = 0; k < 2; k++) {
+        final p = f(Offset(x[os + 2 * k], x[os + 2 * k + 1]));
+        r.add(x[oc + 2 * k] - p.dx);
+        r.add(x[oc + 2 * k + 1] - p.dy);
+      }
+      break;
+    case Geo.circle:
+      final ce = f(Offset(x[os], x[os + 1]));
+      r.add(x[oc] - ce.dx);
+      r.add(x[oc + 1] - ce.dy);
+      r.add(x[oc + 2] - x[os + 2]); // equal radius
+      break;
+    case Geo.arc:
+      final ce = f(Offset(x[os], x[os + 1]));
+      r.add(x[oc] - ce.dx);
+      r.add(x[oc + 1] - ce.dy);
+      r.add(x[oc + 2] - x[os + 2]); // equal radius
+      r.add(wrap(x[oc + 3] - x[os + 3] - rot)); // start angle shifted by rot
+      r.add(wrap(x[oc + 4] - x[os + 4] - rot)); // end angle shifted by rot
+      break;
+    case Geo.polyline:
+      final n = gs[cp].data[1].toInt();
+      for (var k = 0; k < n; k++) {
+        final p = f(Offset(x[os + 2 * k], x[os + 2 * k + 1]));
+        r.add(x[oc + 2 * k] - p.dx);
+        r.add(x[oc + 2 * k + 1] - p.dy);
+      }
+      break;
+  }
 }
 
 void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
@@ -847,6 +910,14 @@ bool _trySolveWithSlvs(
       }
       return false;
     }
+    if (c.type == CType.pattern) {
+      // sketch pattern elements (M35): the shim has no transform constraint,
+      // so the whole sketch goes to the verified Dart LM solver.
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: CType.pattern is LM-only');
+      }
+      return false;
+    }
     if (c.type == CType.tangent &&
         c.ents.any((e) => e < gs.length && gs[e].type == Geo.polyline)) {
       // spline endpoint tangency (M29): the shim has no spline entity, so the
@@ -1071,6 +1142,7 @@ bool _trySolveWithSlvs(
         }
         break;
       case CType.smooth:
+      case CType.pattern:
         return false; // already filtered, but keep the switch exhaustive
     }
   }

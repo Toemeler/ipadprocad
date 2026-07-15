@@ -7,7 +7,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
-## Status (Stand M25)
+## Status (Stand M35)
 
 | Meilenstein | Stand |
 |---|---|
@@ -39,6 +39,25 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M32** Project Geometry wie Inventor: Linien anderer Layer + X/Y-Achse, gelb, gepinnt, quell-verfolgend; Show Constraints/DOF default AUS | ✅ erledigt (Geräte-Test offen) |
 | **M33** Project Geometry für ALLE Typen (Kreis/Bogen/Spline/Ellipse/Polylinie), Hover-Highlight + aktiver Button im Project-Modus, Fremd-Layer nicht selektierbar | ✅ erledigt (Geräte-Test offen) |
 | **M34** Rechtecke = VIER Linien mit Constraints (Inventor-Modell); Polygon-/Bestands-Rechteck-KANTEN projizieren als einzelne gelbe Linien; Hover-Fix Polylines; Projektions-Polylines gelb | ✅ erledigt (Geräte-Test offen) |
+| **M35** Pattern-Panel funktional: Rechteckige/Runde Anordnung + Spiegeln mit Inventor-Dialogen (modeless über dem Viewport), Live-Preview, Fitted/Assoziativ, Self Symmetric für Splines; neuer Constraint `pattern` (LM-only, slvs-Bail) | ✅ erledigt (Geräte-Test offen) |
+
+### Pattern (M35) — Inventors Anordnungs-Werkzeuge
+
+Die drei Buttons des Pattern-Panels öffnen jetzt Inventors Dialoge
+("Rechteckige Anordnung", "Runde Anordnung", "Spiegeln") als modelesse
+Panels über dem Viewport — Picks laufen weiter im Canvas, der blaue
+Selektor bestimmt, welche Eingabe der nächste Tap füllt. Rechteckig:
+zwei freie Richtungs-Linien (Flip, Anzahl, Abstand), Richtung 2 grau bis
+Richtung 1 gepickt ist. Rund: Achse (Punkt/Zentrum/projizierter CP),
+Anzahl, Winkel (Default 360°). Fitted = Wert ist die Gesamt-Spanne, sonst
+Abstand zwischen Elementen. Assoziativ (Default an) bindet die Kopien über
+den Solver an die Quelle: neuer Constraint-Typ `pattern`
+(Kopie-Parameter = starr transformierte Quell-Parameter, nie Netto-DOF,
+slvs bailt auf den verifizierten Dart-LM-Pfad). Spiegeln nutzt den
+vorhandenen symmetric-Constraint je Punktpaar (Kreis: + equal-Radius);
+Apply/Done/Cancel wie Inventor; Self Symmetric verlängert einen offenen
+Spline, der auf der Achse endet, zu EINEM symmetrischen Spline. v1-Grenzen
+(im Dialog ausgegraut): Boundary-Fill, Suppress, Pfad-Muster, Edit Pattern.
 
 ### Constraint-Solver (M9–M14)
 

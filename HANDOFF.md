@@ -437,6 +437,9 @@ Token NIE in Dateien/.git/config schreiben.
   Selektionssperre: ERLEDIGT, Geräte-Test offen** (Abschnitt unten).
 - **M34 — Rechtecke als vier Linien + Kanten-Projektion + Hover/Gelb-Fixes:
   ERLEDIGT, Host-Tests grün (94), Geräte-Test offen** (Abschnitt unten).
+- **M35 — Pattern-Panel funktional (Rechteckige/Runde Anordnung, Spiegeln,
+  Inventor-Dialoge): ERLEDIGT, Host-Tests grün (114), Geräte-Test offen**
+  (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1259,18 +1262,95 @@ Linien-Pfad nehmen.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M34, für die nächste Session)
+## M35 — Pattern-Panel: Rechteckige/Runde Anordnung + Spiegeln (Inventor)
+
+Die drei bisher funktionslosen Pattern-Buttons (Ribbon, Panel 4) sind jetzt
+echte Werkzeuge mit Inventor-Dialogen. Recherche-Grundlage: die originalen
+Inventor-Sketch-Dialoge ("Rechteckige Anordnung", "Runde Anordnung",
+"Spiegeln") — Layout, Selektoren, Optionen und Verhalten wurden 1:1
+übernommen, in die App-Palette übersetzt und für Touch skaliert.
+
+**Dialog-Architektur (`widgets/pattern_dialog.dart`, neu):** Der Dialog ist
+MODELESS — er schwebt oben rechts über dem Viewport (Stack in Viewport2D)
+und die Picks laufen weiter über den Canvas. Welcher Eingabe ein Tap
+zufließt, bestimmt der AKTIVE Selektor (blauer Rahmen, Inventors Sprache);
+`AppState._patternClick` routet: Geometry = Multi-Pick (Tap toggelt),
+Direction 1/2 = Linien-Pick, Achse = Punkt-Pick (inkl. projiziertem CP),
+Spiegelachse = Linien-Pick (nie Teil der Selektion). Zustand lebt in einer
+`PatternSession` (`app_state.dart`); Esc/Cancel verwirft sie als Ganzes,
+Enter = OK. Die aktuelle Selektion seedet den Geometry-Pick-Set (Inventor).
+
+**Rechteckige Anordnung:** Direction 1/2 sind beliebige Linien (nicht
+notwendig senkrecht), je Flip-Toggle, Anzahl (inkl. Original) und Abstand.
+Direction 2 bleibt grau bis Direction 1 gepickt ist — Inventors Flow.
+**Runde Anordnung:** Achse (Punkt/Zentrum/projizierter CP), Flip, Anzahl,
+Winkel (Default 360°). **Fitted** (im ">>"-Bereich, Default an): der Wert
+ist die GESAMT-Spanne, gleichmäßig geteilt (360° teilt durch n statt n-1,
+damit erstes und letztes Element nicht zusammenfallen); aus: der Wert ist
+der Abstand ZWISCHEN Elementen. Beides getestet.
+
+**Assoziativität (Checkbox, Default an):** Kopien sind über den Solver an
+die Quelle gebunden. Neuer Constraint-Typ `CType.pattern` (ans ENDE des
+Enums, Sidecar-kompatibel): ents=[Quelle, Kopie], anchors=[kind, …] mit
+kind 0 = Translation (dx,dy) bzw. 1 = Rotation (cx,cy,angle). Residuen:
+JEDER Parameter der Kopie = transformierter Parameter der Quelle (Punkte
+durch die starre Abbildung, Radius gleich, Bogen-Winkel um die Rotation
+verschoben, WRAPPED für glatte Gleichungen) — Kopie-Params == Kopie-
+Gleichungen, ein Pattern fügt also nie Netto-DOF hinzu und kann für sich
+nie überbestimmen (Test). Der slvs-Shim kennt den Typ nicht → expliziter
+Bail auf den verifizierten Dart-LM-Pfad (HANDOFF-Regel: nie stillschweigend
+droppen). Assoziativität aus = freie Kopien ohne Constraints (Inventor:
+Assoziativität entfernen macht aus dem Muster lose Geometrie).
+
+**Spiegeln:** hält die Kopien über den VORHANDENEN symmetric-Constraint —
+exakt Inventors Doku ("Symmetric constraints are applied between the
+mirrored geometry"): Linie = 2 Punktpaare, Kreis = Zentrum symmetric +
+equal-Radius, Bogen = 3 Punktrefs (die redundante Radius-Zeile ist rang-
+neutral für LM und DOF-Analyse), Polyline/Spline/Ellipse = je Vertex.
+Apply erzeugt und lässt den Dialog offen (Picks geleert), Done schließt,
+Cancel verwirft — Inventors Drei-Knopf-Verhalten. **Self Symmetric** (nur
+anwählbar bei genau EINEM offenen Spline): endet der Spline auf der
+Spiegelachse (Toleranz 8px/zoom), wird er zu EINEM symmetrischen Spline
+verlängert — Definitionspunkte gespiegelt angehängt, Paare i↔2n-2-i per
+symmetric gebunden, Mittelpunkt per point-on-line auf der Achse gepinnt.
+
+**Preview:** `patternPreview()` zeichnet die anstehenden Kopien hellblau in
+den Viewport (wie der Modify-Ghost, gedeckelt bei 600 Entities). Picks
+leuchten: Geometry mit dem Pre-Select-Halo, Richtungs-/Achsen-/Spiegel-
+Picks blau.
+
+**Bewusste v1-Grenzen (im Dialog sichtbar ausgegraut, wie Inventor vor dem
+Pick):** Grenzen/Umgrenzung (Boundary-Fill), Suppress einzelner Instanzen,
+Muster entlang Pfad, nachträgliches Edit Pattern (Transformation ist beim
+Commit numerisch eingefroren — die Richtung folgt ihrer Linie NICHT nach).
+Zentrierlinien-Stil wird auf Kopien übernommen; der Projektions-Tag
+bewusst nicht (Projektionen sind nicht patternbar, Toast).
+
+**Tests (`test/m35_test.dart`, 20 neu, gesamt 114):** Dialog-Flow inkl.
+Pick-Routing, Fitted an/aus, zwei Richtungen + Flip, Assoziativität unter
+Drag (Quelle editieren → Kopie folgt; Achse im Test geerdet, sonst darf
+der Solver legitim die Achse drehen), keine Netto-DOF, Validierungs-Toasts,
+360°-Rundmuster um den projizierten CP, Bogen-Winkel-Rotation,
+Radius-Folge, Flip-Richtung, Spiegel-Symmetric-Set + Drag-Folge,
+Spiegelachse nie in der Selektion, Apply-Verhalten, Self-Symmetric
+(verlängert + verweigert bei Abstand zur Achse), Sidecar-Roundtrip von
+CType.pattern, Remap beim Löschen der Quelle.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M35, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
 Layer-System mit Editier-Scope/Lock/Auge, Snapping (Vertex, Mittelpunkt,
 Zentrum, Quadranten, projizierter CP), Grips mit Inventor-Semantik,
 Constraints (coincident, collinear, concentric, fix, parallel,
-perpendicular, h/v, tangent, smooth, symmetric, equal, midpoint) mit
+perpendicular, h/v, tangent, smooth, symmetric, equal, midpoint, pattern) mit
 Auto-Inferenz, Inventors komplette Bemaßungs-Pick-Matrix inkl. pline/ang3
 und Inline-Werteingabe, getriebene (Referenz-)Bemaßungen, Mittellinien-Stil,
 DXF-Speicherung mit Sidecars (Constraints, Spline-Tags, Styles),
-Diagnose-Log in der Files-App.
+Pattern-Panel (Rechteckige/Runde Anordnung, Spiegeln inkl. Self Symmetric,
+assoziativ über den Solver), Diagnose-Log in der Files-App.
 
 **Solver-Architektur (unverändert wichtig):** libslvs nativ zuerst, jede
 Lösung wird gegen die Dart-Residuen VERIFIZIERT; bail/fail → Dart-LM
@@ -1279,7 +1359,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (94 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (114 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",
@@ -1294,4 +1374,7 @@ Artefakt `ipadprocad-unsigned-ipa`.
   (C-API hat kein Spline-/Ellipsen-Entity; REllipseEntity existiert im
   Core — natives qcad_add_ellipse wäre der saubere nächste Schritt).
 - Alte 96-Punkt-Ellipsen (vor M23) bleiben gewöhnliche Polylines.
+- Pattern v1: kein Boundary-Fill, kein Suppress, kein Edit Pattern (die
+  Transformation ist beim Commit eingefroren; Richtung folgt ihrer Linie
+  nicht nach), kein Muster entlang Pfad.
 - eqCurve erzeugt weiterhin gesampelte Polylines (bewusst: echte Kurve).

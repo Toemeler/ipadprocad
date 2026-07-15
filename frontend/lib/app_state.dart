@@ -37,6 +37,40 @@ enum Tool {
   // constraint tools + dimension
   cCoincident, cCollinear, cConcentric, cFix, cParallel, cPerpendicular,
   cHorizontal, cVertical, cTangent, cSmooth, cSymmetric, cEqual, dimension,
+  // pattern tools (M35, Inventor's Pattern panel) — modeless dialog + picks
+  patRect, patCirc, mirror,
+}
+
+const patternTools = {Tool.patRect, Tool.patCirc, Tool.mirror};
+
+/// Which input of the pattern dialog the next viewport tap feeds (the blue
+/// selector button, exactly like Inventor's dialogs).
+enum PatField { geometry, dir1, dir2, axis, mirrorLine }
+
+/// Live state of an open pattern dialog (M35). One session per dialog; Esc /
+/// Cancel discards it, OK / Done commits through [AppState.commitPattern].
+class PatternSession {
+  final Tool kind; // patRect | patCirc | mirror
+  PatField active = PatField.geometry;
+  final Set<int> geo = {}; // entities to pattern (multi-pick toggles)
+  // rectangular
+  int? dir1Ent, dir2Ent; // direction LINE entities
+  bool flip1 = false, flip2 = false;
+  int count1 = 3, count2 = 3;
+  double spacing1 = 15, spacing2 = 15;
+  // circular
+  PRef? axisPt; // rotation axis: any vertex/center, incl. the projected CP
+  bool flipC = false;
+  int countC = 6;
+  double angleC = 360;
+  // mirror
+  int? mirrorEnt; // the mirror LINE
+  bool selfSym = false; // single spline crossing the line -> one symmetric spline
+  // advanced (the ">>" row)
+  bool expanded = false;
+  bool associative = true;
+  bool fitted = true;
+  PatternSession(this.kind);
 }
 
 const constraintTools = {
@@ -920,6 +954,23 @@ class AppState extends ChangeNotifier {
     }
     tool = t;
     toolPoints.clear();
+    // Pattern tools open their modeless dialog (M35). The current selection
+    // seeds the Geometry pick set — Inventor pre-fills it the same way.
+    if (patternTools.contains(t)) {
+      final ps = PatternSession(t);
+      final s = current;
+      if (s != null) {
+        ps.geo.addAll(selection.where((i) =>
+            i >= 0 &&
+            i < s.geometry.length &&
+            geoEditable(s.geometry[i]) &&
+            !s.geometry[i].isProjection));
+      }
+      pattern = ps;
+      selection.clear();
+    } else {
+      pattern = null;
+    }
     notifyListeners();
   }
 
@@ -929,6 +980,14 @@ class AppState extends ChangeNotifier {
   void cancelTool() {
     snap = null;
     pendingDim = null;
+    // A pattern dialog cancels as a WHOLE (Inventor: Esc = Cancel) — no
+    // pick-chain step-back like the drawing tools.
+    if (pattern != null) {
+      pattern = null;
+      tool = Tool.none;
+      notifyListeners();
+      return;
+    }
     final hadPicks =
         toolPoints.isNotEmpty || conPts.isNotEmpty || conEnts.isNotEmpty ||
             modEntity != null;
@@ -968,6 +1027,11 @@ class AppState extends ChangeNotifier {
     if (!inEditMode) {
       Log.w('tool', 'toolClick with tool=$tool but NOT in edit mode — ignored');
       cancelTool();
+      return;
+    }
+    if (patternTools.contains(tool)) {
+      _patternClick(s, w);
+      notifyListeners();
       return;
     }
     if (modifyTools.contains(tool)) {
@@ -1016,6 +1080,10 @@ class AppState extends ChangeNotifier {
   /// Enter: commits a variable-length tool (splines) if it has enough points.
   void finishVariableTool() {
     final s = current;
+    if (pattern != null) {
+      commitPattern(); // Enter = OK / Done of the pattern dialog
+      return;
+    }
     final meta = toolMeta[tool];
     if (s == null || meta == null || meta.fixed != null) return;
     if (toolPoints.length >= meta.minVar) _commitTool(s);
@@ -1154,6 +1222,355 @@ class AppState extends ChangeNotifier {
     _solveAndRebuild(s);
     Log.i('project',
         'projected ${src >= 0 ? "entity $src (${proto.type})" : src == Geo.projAxisX ? "X axis" : "Y axis"} onto "$lay"');
+  }
+
+  // ---- sketch patterns (M35, Inventor's Pattern panel) ----
+  /// The open pattern dialog's state, or null when no pattern tool is active.
+  PatternSession? pattern;
+
+  /// The dialog widget mutates the session directly (counts, flips, active
+  /// selector, checkboxes) and calls this to repaint the preview.
+  void patNotify() => notifyListeners();
+
+  /// Viewport tap while a pattern dialog is open: feeds the ACTIVE selector,
+  /// exactly like Inventor's dialogs (Geometry multi-pick toggles; Direction /
+  /// Axis / Mirror Line replace their pick).
+  void _patternClick(SketchModel s, Offset w) {
+    final ps = pattern;
+    if (ps == null) return;
+    switch (ps.active) {
+      case PatField.geometry:
+        final i = _pickEntity(s, w);
+        if (i == null) return;
+        if (s.geometry[i].isProjection) {
+          toast('Projected geometry cannot be patterned.');
+          return;
+        }
+        if (!ps.geo.remove(i)) ps.geo.add(i); // tap toggles
+        return;
+      case PatField.dir1:
+      case PatField.dir2:
+        final i = _pickEntity(s, w);
+        if (i == null || s.geometry[i].type != Geo.line) {
+          toast('Pick a line to define the direction.');
+          return;
+        }
+        if (ps.active == PatField.dir1) {
+          ps.dir1Ent = i;
+        } else {
+          ps.dir2Ent = i;
+        }
+        return;
+      case PatField.axis:
+        // a point, vertex, circle/arc center — or the projected center point
+        final p = _nearestPointRef(s, w);
+        if (p == null) {
+          toast('Pick a point or center to define the axis.');
+          return;
+        }
+        ps.axisPt = p;
+        return;
+      case PatField.mirrorLine:
+        final i = _pickEntity(s, w);
+        if (i == null || s.geometry[i].type != Geo.line) {
+          toast('Pick a line to mirror about.');
+          return;
+        }
+        if (ps.geo.contains(i)) {
+          toast('The mirror line cannot be part of the selection.');
+          return;
+        }
+        ps.mirrorEnt = i;
+        return;
+    }
+  }
+
+  /// Unit direction of the line entity [e], honouring the flip toggle.
+  Offset? _patDir(SketchModel s, int? e, bool flip) {
+    if (e == null || e >= s.geometry.length) return null;
+    final g = s.geometry[e];
+    if (g.type != Geo.line) return null;
+    final d = Offset(g.data[2] - g.data[0], g.data[3] - g.data[1]);
+    if (d.distance < 1e-9) return null;
+    final u = d / d.distance;
+    return flip ? -u : u;
+  }
+
+  /// Step between neighbouring instances. Fitted = the entered value is the
+  /// TOTAL span, evenly divided; unchecked = the value IS the step (Inventor's
+  /// Fitted checkbox). A 360° circular span wraps, so fitted divides by count
+  /// (not count-1) to keep the first and last element from coinciding.
+  double _patStep(double value, int count, bool fitted, {bool wrap360 = false}) {
+    if (!fitted || count <= 1) return value;
+    if (wrap360) return value / count;
+    return value / (count - 1);
+  }
+
+  /// The rigid transforms of every pattern instance EXCEPT the original,
+  /// paired with the anchors that encode them for the associative constraint.
+  /// Empty when the session's inputs are still incomplete.
+  List<(Offset Function(Offset), List<double>)> _patTransforms(SketchModel s) {
+    final ps = pattern;
+    if (ps == null) return const [];
+    final out = <(Offset Function(Offset), List<double>)>[];
+    switch (ps.kind) {
+      case Tool.patRect:
+        final u1 = _patDir(s, ps.dir1Ent, ps.flip1);
+        if (u1 == null) return const [];
+        final u2 = _patDir(s, ps.dir2Ent, ps.flip2);
+        final n1 = ps.count1.clamp(1, 64);
+        final n2 = u2 == null ? 1 : ps.count2.clamp(1, 64);
+        final s1 = _patStep(ps.spacing1, n1, ps.fitted);
+        final s2 = _patStep(ps.spacing2, n2, ps.fitted);
+        for (var k2 = 0; k2 < n2; k2++) {
+          for (var k1 = 0; k1 < n1; k1++) {
+            if (k1 == 0 && k2 == 0) continue;
+            final d = u1 * (s1 * k1) +
+                (u2 == null ? Offset.zero : u2 * (s2 * k2));
+            out.add((
+              translation(d),
+              [patKindTranslate, d.dx, d.dy],
+            ));
+          }
+        }
+        return out;
+      case Tool.patCirc:
+        final ax = ps.axisPt;
+        if (ax == null) return const [];
+        if (isRealPt(ax, s.geometry) && ax.ent >= s.geometry.length) {
+          return const [];
+        }
+        final c = refPt(s.geometry, ax);
+        final n = ps.countC.clamp(2, 128);
+        final full = (ps.angleC.abs() - 360).abs() < 1e-9;
+        final stepDeg =
+            _patStep(ps.angleC, n, ps.fitted, wrap360: full);
+        final sign = ps.flipC ? -1.0 : 1.0;
+        for (var k = 1; k < n; k++) {
+          final a = sign * stepDeg * k * math.pi / 180;
+          out.add((
+            rotation(c, a),
+            [patKindRotate, c.dx, c.dy, a],
+          ));
+        }
+        return out;
+      case Tool.mirror:
+        final f = _mirrorFn(s, ps.mirrorEnt);
+        if (f == null) return const [];
+        return [(f, const [])]; // mirror is held by symmetric constraints
+      default:
+        return const [];
+    }
+  }
+
+  /// Reflection about the mirror line entity, or null.
+  Offset Function(Offset)? _mirrorFn(SketchModel s, int? e) {
+    if (e == null || e >= s.geometry.length) return null;
+    final g = s.geometry[e];
+    if (g.type != Geo.line) return null;
+    final a = Offset(g.data[0], g.data[1]);
+    final d = Offset(g.data[2] - g.data[0], g.data[3] - g.data[1]);
+    final len = d.distance;
+    if (len < 1e-9) return null;
+    final u = d / len;
+    return (p) {
+      final v = p - a;
+      final t = v.dx * u.dx + v.dy * u.dy;
+      final foot = a + u * t;
+      return foot * 2 - p;
+    };
+  }
+
+  /// Ghost copies of the pending pattern for the viewport preview.
+  List<Geo> patternPreview() {
+    final s = current;
+    final ps = pattern;
+    if (s == null || ps == null || ps.geo.isEmpty) return const [];
+    final fs = _patTransforms(s);
+    if (fs.isEmpty) return const [];
+    final out = <Geo>[];
+    for (final (f, _) in fs) {
+      for (final i in ps.geo) {
+        if (i >= s.geometry.length) continue;
+        out.add(transformGeo(s.geometry[i], f));
+      }
+      if (out.length > 600) break; // keep the preview cheap
+    }
+    return out;
+  }
+
+  /// Commits the open pattern session. Returns true on success. [keepOpen]
+  /// is Mirror's Apply button: commit, keep the dialog, clear the picks for
+  /// the next mirror (Inventor's behaviour).
+  bool commitPattern({bool keepOpen = false}) {
+    final s = current;
+    final ps = pattern;
+    final lay = editingLayer;
+    if (s == null || ps == null || lay == null) return false;
+    ps.geo.removeWhere((i) => i < 0 || i >= s.geometry.length);
+    if (ps.geo.isEmpty) {
+      toast('Select geometry to pattern.');
+      return false;
+    }
+    if (ps.kind == Tool.patRect && _patDir(s, ps.dir1Ent, false) == null) {
+      toast('Pick a line under Direction 1.');
+      return false;
+    }
+    if (ps.kind == Tool.patCirc && ps.axisPt == null) {
+      toast('Pick the pattern axis.');
+      return false;
+    }
+    if (ps.kind == Tool.mirror && _mirrorFn(s, ps.mirrorEnt) == null) {
+      toast('Pick the mirror line.');
+      return false;
+    }
+    if (ps.kind == Tool.mirror && ps.selfSym) {
+      return _commitSelfSymmetric(s, ps, keepOpen);
+    }
+    final fs = _patTransforms(s);
+    if (fs.isEmpty) {
+      toast('The pattern has nothing to create.');
+      return false;
+    }
+    final srcs = ps.geo.toList()..sort();
+    final gs = List<Geo>.from(s.geometry);
+    var made = 0;
+    for (final (f, anchors) in fs) {
+      for (final src in srcs) {
+        final copy = transformGeo(s.geometry[src], f)
+            .onLayer(lay)
+            .withStyle(s.geometry[src].style); // centerlines stay centerlines
+        final copyIdx = gs.length;
+        gs.add(copy);
+        made++;
+        if (!ps.associative) continue;
+        if (ps.kind == Tool.mirror) {
+          _addMirrorConstraints(s, gs, src, copyIdx, ps.mirrorEnt!);
+        } else {
+          // one pattern-element constraint slaves the copy to its source
+          s.constraints.add(Constraint(CType.pattern,
+              ents: [src, copyIdx], anchors: List<double>.from(anchors)));
+        }
+      }
+    }
+    Log.i('pattern',
+        '${ps.kind.name}: $made copies of ${srcs.length} entities onto '
+        '"$lay" (associative=${ps.associative}, fitted=${ps.fitted})');
+    _solveAndRebuild(s, gs);
+    toast('Pattern created ($made new elements).');
+    if (keepOpen) {
+      ps.geo.clear(); // Apply: ready for the next mirror pick set
+      ps.active = PatField.geometry;
+    } else {
+      pattern = null;
+      tool = Tool.none;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Mirror associativity through the EXISTING symmetric constraint — exactly
+  /// what Inventor documents ("Symmetric constraints are applied between the
+  /// mirrored geometry"): every defining point of the copy is symmetric to
+  /// its source point about the mirror line. Circles add radius equality
+  /// (their single point is the center); arcs are covered by their three
+  /// point refs (the redundant radius row is rank-neutral for the LM solver
+  /// and the DOF analysis).
+  void _addMirrorConstraints(
+      SketchModel s, List<Geo> gs, int src, int copy, int axis) {
+    final g = gs[src];
+    switch (g.type) {
+      case Geo.line:
+        for (var p = 0; p < 2; p++) {
+          s.constraints.add(Constraint(CType.symmetric,
+              pts: [PRef(src, p), PRef(copy, p)], ents: [axis]));
+        }
+        break;
+      case Geo.circle:
+        s.constraints.add(Constraint(CType.symmetric,
+            pts: [PRef(src, 0), PRef(copy, 0)], ents: [axis]));
+        s.constraints.add(Constraint(CType.equal, ents: [src, copy]));
+        break;
+      case Geo.arc:
+        for (var p = 0; p < 3; p++) {
+          s.constraints.add(Constraint(CType.symmetric,
+              pts: [PRef(src, p), PRef(copy, p)], ents: [axis]));
+        }
+        break;
+      case Geo.polyline:
+        final n = g.data[1].toInt();
+        for (var p = 0; p < n; p++) {
+          s.constraints.add(Constraint(CType.symmetric,
+              pts: [PRef(src, p), PRef(copy, p)], ents: [axis]));
+        }
+        break;
+    }
+  }
+
+  /// Self Symmetric (Mirror dialog, 2D): a single OPEN spline whose end sits
+  /// on the mirror line becomes ONE spline symmetric about it — the defining
+  /// points are extended by their reflections, each pair is held by a
+  /// symmetric constraint, and the middle point is pinned onto the line.
+  bool _commitSelfSymmetric(SketchModel s, PatternSession ps, bool keepOpen) {
+    if (ps.geo.length != 1) {
+      toast('Self Symmetric needs exactly one spline.');
+      return false;
+    }
+    final e = ps.geo.first;
+    final g = s.geometry[e];
+    final isOpenSpline = g.type == Geo.polyline &&
+        (g.spline == Geo.splineCv || g.spline == Geo.splineFit) &&
+        g.data[0] == 0;
+    if (!isOpenSpline) {
+      toast('Self Symmetric needs an open spline.');
+      return false;
+    }
+    final axis = ps.mirrorEnt!;
+    final f = _mirrorFn(s, axis)!;
+    final n = g.data[1].toInt();
+    if (n < 2) return false;
+    Offset pt(int i) => Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]);
+    // which END lies on the mirror line? (distance point<->reflection ~ 0)
+    final tol = math.max(1e-6, 8 / zoom);
+    final endOn = (pt(n - 1) - f(pt(n - 1))).distance <= tol;
+    final startOn = (pt(0) - f(pt(0))).distance <= tol;
+    if (!endOn && !startOn) {
+      toast('The spline must end on the mirror line for Self Symmetric.');
+      return false;
+    }
+    // normalize so the ON-LINE point is LAST
+    final pts = [for (var i = 0; i < n; i++) pt(i)];
+    final ordered = endOn ? pts : pts.reversed.toList();
+    final ext = List<Offset>.from(ordered);
+    for (var i = n - 2; i >= 0; i--) {
+      ext.add(f(ordered[i]));
+    }
+    final data = <double>[0, ext.length.toDouble()];
+    for (final p in ext) {
+      data.addAll([p.dx, p.dy]);
+    }
+    final gs = List<Geo>.from(s.geometry);
+    gs[e] = g.withData(data);
+    // pair i <-> 2n-2-i symmetric about the axis; middle point ON the line
+    for (var i = 0; i < n - 1; i++) {
+      s.constraints.add(Constraint(CType.symmetric,
+          pts: [PRef(e, i), PRef(e, 2 * n - 2 - i)], ents: [axis]));
+    }
+    s.constraints.add(
+        Constraint(CType.coincident, pts: [PRef(e, n - 1)], ents: [axis]));
+    Log.i('pattern',
+        'self-symmetric spline e$e: $n -> ${ext.length} defining points');
+    _solveAndRebuild(s, gs);
+    toast('Spline made self-symmetric.');
+    if (keepOpen) {
+      ps.geo.clear();
+      ps.active = PatField.geometry;
+    } else {
+      pattern = null;
+      tool = Tool.none;
+    }
+    notifyListeners();
+    return true;
   }
 
   void _modifyClick(SketchModel s, Offset w) {
