@@ -249,12 +249,16 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       return [_poly(pts, closed: true)];
     case Tool.fillet:
       if (p.length < 2) return null;
-      return _filletChamfer(existing, p[0], p[1],
-          radius: params['radius'] ?? 5, chamfer: false);
+      return filletInventor(existing, p[0], p[1], params['radius'] ?? 5)
+          ?.adds;
     case Tool.chamfer:
       if (p.length < 2) return null;
-      return _filletChamfer(existing, p[0], p[1],
-          radius: params['dist'] ?? 5, chamfer: true);
+      return chamferInventor(existing, p[0], p[1],
+              mode: (params['mode'] ?? 0).round(),
+              d1: params['dist'] ?? 5,
+              d2: params['dist2'] ?? 5,
+              angDeg: params['ang'] ?? 45)
+          ?.adds;
     case Tool.point:
       if (p.isEmpty) return null;
       // sketch point: rendered/exported as a tiny circle marker
@@ -544,81 +548,337 @@ int? _lineNearIdx(List<Geo> geos, Offset p) {
   return best < 0 ? null : best;
 }
 
+/// Public line pick for constraint attribution (M36): after committing a
+/// tool whose picks selected LINES (tangent circle), the commit re-derives
+/// which entities were meant so it can constrain against them. [exclude]
+/// skips the freshly added entity itself.
+int? nearestLineIdx(List<Geo> geos, Offset p, {int? exclude}) {
+  var best = -1;
+  var bd = _snap * 4;
+  for (var i = 0; i < geos.length; i++) {
+    if (i == exclude || geos[i].type != Geo.line) continue;
+    final d = _distToSegment(p, Offset(geos[i].data[0], geos[i].data[1]),
+        Offset(geos[i].data[2], geos[i].data[3]));
+    if (d < bd) {
+      bd = d;
+      best = i;
+    }
+  }
+  return best < 0 ? null : best;
+}
+
 /// Fillet/chamfer INCLUDING Inventor's automatic trim: the two picked lines
 /// are shortened back to the tangent points. Returns the geometry to add and
 /// the replacements for the picked lines (by entity index).
 (List<Geo>, Map<int, Geo>)? filletChamferFull(
     List<Geo> geos, Offset h1, Offset h2,
     {required double radius, required bool chamfer}) {
-  final i1 = _lineNearIdx(geos, h1), i2 = _lineNearIdx(geos, h2);
-  if (i1 == null || i2 == null || i1 == i2) return null;
-  final made = _filletChamfer(geos, h1, h2, radius: radius, chamfer: chamfer);
-  if (made == null || made.isEmpty) return null;
-  // the ends of the new arc/chamfer line ARE the tangent points
-  final g0 = made.first;
-  late final Offset t1, t2;
-  if (g0.type == Geo.line) {
-    t1 = Offset(g0.data[0], g0.data[1]);
-    t2 = Offset(g0.data[2], g0.data[3]);
-  } else {
-    final c = Offset(g0.data[0], g0.data[1]);
-    t1 = c + Offset(math.cos(g0.data[3]), math.sin(g0.data[3])) * g0.data[2];
-    t2 = c + Offset(math.cos(g0.data[4]), math.sin(g0.data[4])) * g0.data[2];
-  }
-  Geo trim(int idx, Offset tp) {
-    final g = geos[idx];
-    final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
-    // the endpoint nearer the tangent point is the one inside the corner.
-    // withData keeps the picked line on ITS layer — a fillet must not move it.
-    return (a - tp).distance <= (b - tp).distance
-        ? g.withData([tp.dx, tp.dy, b.dx, b.dy])
-        : g.withData([a.dx, a.dy, tp.dx, tp.dy]);
-  }
-
-  // match each tangent point to the line it belongs to
-  final g1 = geos[i1];
-  final d1a = _distToSegment(t1, Offset(g1.data[0], g1.data[1]),
-      Offset(g1.data[2], g1.data[3]));
-  final d1b = _distToSegment(t2, Offset(g1.data[0], g1.data[1]),
-      Offset(g1.data[2], g1.data[3]));
-  final tp1 = d1a <= d1b ? t1 : t2;
-  final tp2 = d1a <= d1b ? t2 : t1;
-  // the new arc/chamfer inherits the layer of the lines it joins
-  final onLayer = [for (final g in made) g.onLayer(g1.layer)];
-  return (onLayer, {i1: trim(i1, tp1), i2: trim(i2, tp2)});
+  final r = chamfer
+      ? chamferInventor(geos, h1, h2, mode: 0, d1: radius, d2: radius)
+      : filletInventor(geos, h1, h2, radius);
+  return r == null ? null : (r.adds, r.repl);
 }
 
-/// Fillet arc / chamfer line between the two picked lines.
-List<Geo>? _filletChamfer(List<Geo> geos, Offset h1, Offset h2,
-    {required double radius, required bool chamfer}) {
-  final l1 = _lineNear(geos, h1), l2 = _lineNear(geos, h2);
-  if (l1 == null || l2 == null || radius < 1e-9) return null;
-  // intersection of the infinite lines
-  final p = l1.$1, r = l1.$2 - l1.$1, q = l2.$1, s2 = l2.$2 - l2.$1;
-  final den = r.dx * s2.dy - r.dy * s2.dx;
+/// Everything a fillet/chamfer commit needs to also CONSTRAIN the result
+/// like Inventor: the new geometry, the trimmed replacements, and the seam
+/// bookkeeping — seam k is (picked entity, its trimmed point index or null
+/// when the entity could not be trimmed, e.g. a full circle) and meets point
+/// k+1 of [adds.first] (arc pt1/pt2, chamfer line pt0/pt1 — both map k -> k+1
+/// through the arc numbering and k -> k through the line numbering; see
+/// [jointPt]).
+class FilletResult {
+  final List<Geo> adds;
+  final Map<int, Geo> repl;
+  final List<(int, int?)> seams; // [(ent1, pt1?), (ent2, pt2?)]
+  FilletResult(this.adds, this.repl, this.seams);
+
+  /// Point index of [adds.first] that meets seam [k].
+  int jointPt(int k) => adds.first.type == Geo.arc ? k + 1 : k;
+}
+
+/// Nearest line/arc/circle entity index — fillet participants (Inventor
+/// fillets lines, arcs and circles; chamfer is line-line only).
+int? _filletableNearIdx(List<Geo> geos, Offset p) {
+  var best = -1;
+  var bd = _snap * 4;
+  double dist(Geo g) {
+    switch (g.type) {
+      case Geo.line:
+        return _distToSegment(
+            p, Offset(g.data[0], g.data[1]), Offset(g.data[2], g.data[3]));
+      case Geo.circle:
+        return ((p - Offset(g.data[0], g.data[1])).distance - g.data[2])
+            .abs();
+      case Geo.arc:
+        final c = Offset(g.data[0], g.data[1]);
+        final ang = math.atan2(p.dy - c.dy, p.dx - c.dx);
+        return _angleInArc(g, ang)
+            ? ((p - c).distance - g.data[2]).abs()
+            : double.infinity;
+      default:
+        return double.infinity;
+    }
+  }
+
+  for (var i = 0; i < geos.length; i++) {
+    final d = dist(geos[i]);
+    if (d < bd) {
+      bd = d;
+      best = i;
+    }
+  }
+  return best < 0 ? null : best;
+}
+
+bool _angleInArc(Geo g, double ang) {
+  var a1 = g.data[3], a2 = g.data[4];
+  final rev = g.data.length > 5 && g.data[5] != 0;
+  if (rev) {
+    final t = a1;
+    a1 = a2;
+    a2 = t;
+  }
+  double norm(double a) {
+    var v = (a - a1) % (2 * math.pi);
+    if (v < 0) v += 2 * math.pi;
+    return v;
+  }
+
+  return norm(ang) <= norm(a2) + 1e-9;
+}
+
+/// Inventor's 2D Fillet between any two of line/arc/circle: the fillet
+/// center lies on the offset curves of both picks (line offset by r toward
+/// the pick side; circle/arc offset to R+r or |R-r|), the candidate nearest
+/// the two pick points wins — that is how Inventor disambiguates the corner.
+/// Lines and arcs are trimmed back to the tangent points; full circles stay
+/// whole (they have no ends to trim — the tangent constraint still lands).
+FilletResult? filletInventor(
+    List<Geo> geos, Offset h1, Offset h2, double r) {
+  if (r < 1e-9) return null;
+  final i1 = _filletableNearIdx(geos, h1), i2 = _filletableNearIdx(geos, h2);
+  if (i1 == null || i2 == null || i1 == i2) return null;
+  final g1 = geos[i1], g2 = geos[i2];
+
+  // candidate fillet centers per entity: signed-offset carriers
+  List<Offset> centersOn(Geo g, Offset hint, Offset other) {
+    if (g.type == Geo.line) {
+      final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+      final d = b - a;
+      if (d.distance < 1e-9) return const [];
+      var n = Offset(-d.dy, d.dx) / d.distance;
+      // the fillet lies on the side of the OTHER pick — the corner side
+      if ((other - a).dx * n.dx + (other - a).dy * n.dy < 0) n = -n;
+      return [a + n * r, b + n * r]; // two points DEFINING the offset line
+    }
+    return const [];
+  }
+
+  // intersection helpers on offset carriers
+  List<Offset> lineLine(List<Offset> l1, List<Offset> l2) {
+    final p = l1[0], rr = l1[1] - l1[0], q = l2[0], s2 = l2[1] - l2[0];
+    final den = rr.dx * s2.dy - rr.dy * s2.dx;
+    if (den.abs() < 1e-12) return const [];
+    final t = ((q - p).dx * s2.dy - (q - p).dy * s2.dx) / den;
+    return [p + rr * t];
+  }
+
+  List<Offset> lineCircle(List<Offset> l, Offset c, double rad) {
+    final a = l[0], d = l[1] - l[0];
+    final len = d.distance;
+    if (len < 1e-12) return const [];
+    final u = d / len;
+    final t0 = (c - a).dx * u.dx + (c - a).dy * u.dy;
+    final foot = a + u * t0;
+    final h2v = rad * rad - (c - foot).distanceSquared;
+    if (h2v < -1e-9) return const [];
+    final h = math.sqrt(math.max(0, h2v));
+    return [foot + u * h, foot - u * h];
+  }
+
+  List<Offset> circleCircle(Offset c1, double r1, Offset c2, double r2) {
+    final d = (c2 - c1).distance;
+    if (d < 1e-12 || d > r1 + r2 + 1e-9 || d < (r1 - r2).abs() - 1e-9) {
+      return const [];
+    }
+    final a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
+    final h2v = r1 * r1 - a * a;
+    final h = math.sqrt(math.max(0, h2v));
+    final u = (c2 - c1) / d;
+    final m = c1 + u * a;
+    final n = Offset(-u.dy, u.dx);
+    return [m + n * h, m - n * h];
+  }
+
+  (Offset, double)? circ(Geo g) => g.type == Geo.line
+      ? null
+      : (Offset(g.data[0], g.data[1]), g.data[2]);
+
+  // enumerate candidate centers
+  final cands = <Offset>[];
+  final o1 = centersOn(g1, h1, h2), o2 = centersOn(g2, h2, h1);
+  final c1 = circ(g1), c2 = circ(g2);
+  if (g1.type == Geo.line && g2.type == Geo.line) {
+    cands.addAll(lineLine(o1, o2));
+  } else if (g1.type == Geo.line && c2 != null) {
+    for (final rad in [c2.$2 + r, (c2.$2 - r).abs()]) {
+      cands.addAll(lineCircle(o1, c2.$1, rad));
+    }
+  } else if (g2.type == Geo.line && c1 != null) {
+    for (final rad in [c1.$2 + r, (c1.$2 - r).abs()]) {
+      cands.addAll(lineCircle(o2, c1.$1, rad));
+    }
+  } else if (c1 != null && c2 != null) {
+    for (final r1 in [c1.$2 + r, (c1.$2 - r).abs()]) {
+      for (final r2 in [c2.$2 + r, (c2.$2 - r).abs()]) {
+        cands.addAll(circleCircle(c1.$1, r1, c2.$1, r2));
+      }
+    }
+  }
+  if (cands.isEmpty) return null;
+  // Inventor's disambiguation: the corner NEAREST both picks
+  Offset fc = cands.first;
+  var bestScore = double.infinity;
+  for (final c in cands) {
+    final s = (c - h1).distance + (c - h2).distance;
+    if (s < bestScore) {
+      bestScore = s;
+      fc = c;
+    }
+  }
+
+  // tangent points on each pick
+  Offset tangentOn(Geo g) {
+    if (g.type == Geo.line) {
+      final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+      final d = b - a;
+      final u = d / d.distance;
+      final t = (fc - a).dx * u.dx + (fc - a).dy * u.dy;
+      return a + u * t;
+    }
+    final cc = Offset(g.data[0], g.data[1]);
+    final v = fc - cc;
+    if (v.distance < 1e-12) return cc + Offset(g.data[2], 0);
+    return cc + v / v.distance * g.data[2];
+  }
+
+  final t1 = tangentOn(g1), t2 = tangentOn(g2);
+  if ((t1 - t2).distance < 1e-9) return null; // degenerate corner
+  // fillet arc through t1 -> mid -> t2, bulging away from the center
+  var midDir = (t1 + t2) / 2 - fc;
+  if (midDir.distance < 1e-9) {
+    final u = (t1 - fc) / (t1 - fc).distance;
+    midDir = Offset(-u.dy, u.dx);
+  }
+  final mid = fc + midDir / midDir.distance * r;
+  final arc = arcFrom3Points(t1, mid, t2);
+  if (arc == null) return null;
+
+  // trims: lines to the tangent point (the endpoint inside the corner
+  // moves); arcs to the tangent ANGLE on the corner side; circles stay.
+  (Geo, int?) trim(Geo g, Offset tp, Offset hint) {
+    switch (g.type) {
+      case Geo.line:
+        final a = Offset(g.data[0], g.data[1]),
+            b = Offset(g.data[2], g.data[3]);
+        return (a - tp).distance <= (b - tp).distance
+            ? (g.withData([tp.dx, tp.dy, b.dx, b.dy]), 0)
+            : (g.withData([a.dx, a.dy, tp.dx, tp.dy]), 1);
+      case Geo.arc:
+        final cc = Offset(g.data[0], g.data[1]);
+        final th = math.atan2(tp.dy - cc.dy, tp.dx - cc.dx);
+        Offset endAt(double a) =>
+            cc + Offset(math.cos(a), math.sin(a)) * g.data[2];
+        final d1 = (endAt(g.data[3]) - tp).distance;
+        final d2 = (endAt(g.data[4]) - tp).distance;
+        final d = List<double>.from(g.data);
+        if (d1 <= d2) {
+          d[3] = th;
+          return (g.withData(d), 1);
+        }
+        d[4] = th;
+        return (g.withData(d), 2);
+      default:
+        return (g, null); // full circle: nothing to trim
+    }
+  }
+
+  final (r1g, p1) = trim(g1, t1, h1);
+  final (r2g, p2) = trim(g2, t2, h2);
+  final made = [_arcT(arc).onLayer(g1.layer)];
+  return FilletResult(made, {i1: r1g, i2: r2g}, [(i1, p1), (i2, p2)]);
+}
+
+/// Inventor's 2D Chamfer between two nonparallel LINES, all three dialog
+/// modes: 0 = equal distance [d1], 1 = two distances [d1] on the FIRST pick /
+/// [d2] on the second, 2 = distance [d1 on the first pick] + angle [angDeg,
+/// measured from the first line to the chamfer].
+FilletResult? chamferInventor(List<Geo> geos, Offset h1, Offset h2,
+    {required int mode,
+    required double d1,
+    double d2 = 0,
+    double angDeg = 45}) {
+  if (d1 < 1e-9) return null;
+  final i1 = _lineNearIdx(geos, h1), i2 = _lineNearIdx(geos, h2);
+  if (i1 == null || i2 == null || i1 == i2) return null;
+  final l1 = geos[i1], l2 = geos[i2];
+  final p = Offset(l1.data[0], l1.data[1]),
+      rr = Offset(l1.data[2] - l1.data[0], l1.data[3] - l1.data[1]);
+  final q = Offset(l2.data[0], l2.data[1]),
+      s2 = Offset(l2.data[2] - l2.data[0], l2.data[3] - l2.data[1]);
+  final den = rr.dx * s2.dy - rr.dy * s2.dx;
   if (den.abs() < 1e-12) return null; // parallel
   final t = ((q - p).dx * s2.dy - (q - p).dy * s2.dx) / den;
-  final ix = p + r * t;
-  // unit directions from the corner toward the pick side of each line
+  final ix = p + rr * t;
   Offset dirTo(Offset hint, Offset d) {
     final dn = d / d.distance;
     return ((hint - ix).dx * dn.dx + (hint - ix).dy * dn.dy) >= 0 ? dn : -dn;
   }
 
-  final d1 = dirTo(h1, r), d2 = dirTo(h2, s2);
-  final cosA = (d1.dx * d2.dx + d1.dy * d2.dy).clamp(-1.0, 1.0);
-  final ang = math.acos(cosA);
-  if (ang < 1e-6 || (math.pi - ang) < 1e-6) return null;
-  if (chamfer) {
-    return [_line(ix + d1 * radius, ix + d2 * radius)];
+  final u1 = dirTo(h1, rr), u2 = dirTo(h2, s2);
+  late final Offset p1, p2;
+  switch (mode) {
+    case 1:
+      if (d2 < 1e-9) return null;
+      p1 = ix + u1 * d1;
+      p2 = ix + u2 * d2;
+      break;
+    case 2:
+      final a = angDeg * math.pi / 180;
+      if (a < 1e-6 || a > math.pi - 1e-6) return null;
+      p1 = ix + u1 * d1;
+      // chamfer direction: angle [a] off line 1, leaning toward line 2
+      var n = Offset(-u1.dy, u1.dx);
+      if (n.dx * u2.dx + n.dy * u2.dy < 0) n = -n;
+      final w = -u1 * math.cos(a) + n * math.sin(a);
+      // intersect ray(p1, w) with line 2
+      final den2 = w.dx * u2.dy - w.dy * u2.dx;
+      if (den2.abs() < 1e-12) return null;
+      final t2v = ((p1 - ix).dy * w.dx - (p1 - ix).dx * w.dy) / den2;
+      if (t2v < 1e-9) return null; // chamfer leans away from line 2
+      p2 = ix + u2 * t2v;
+      break;
+    default:
+      p1 = ix + u1 * d1;
+      p2 = ix + u2 * d1;
   }
-  final setback = radius / math.tan(ang / 2);
-  final p1 = ix + d1 * setback, p2 = ix + d2 * setback;
-  final bis = (d1 + d2) / (d1 + d2).distance;
-  final center = ix + bis * (radius / math.sin(ang / 2));
-  final mid = center - bis * radius;
-  final arc = arcFrom3Points(p1, mid, p2);
-  return arc == null ? null : [_arcT(arc)];
+  Geo trim(Geo g, Offset tp) {
+    final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+    return (a - tp).distance <= (b - tp).distance
+        ? g.withData([tp.dx, tp.dy, b.dx, b.dy])
+        : g.withData([a.dx, a.dy, tp.dx, tp.dy]);
+  }
+
+  int movedPt(Geo g, Offset tp) {
+    final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+    return (a - tp).distance <= (b - tp).distance ? 0 : 1;
+  }
+
+  return FilletResult(
+    [_line(p1, p2).onLayer(l1.layer)],
+    {i1: trim(l1, p1), i2: trim(l2, p2)},
+    [(i1, movedPt(l1, p1)), (i2, movedPt(l2, p2))],
+  );
 }
 
 // ---------------------------------------------------------------------------

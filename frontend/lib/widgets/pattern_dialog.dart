@@ -719,3 +719,184 @@ class _IconTap extends StatelessWidget {
     );
   }
 }
+
+/// The modeless 2D Fillet / 2D Chamfer window (M36) — Inventor's tiny value
+/// dialogs: it floats while the tool is armed, every two picks make a
+/// corner, and the values are editable between corners. Chamfer offers
+/// Inventor's three modes (equal distance / two distances / distance +
+/// angle) as the icon toggles on the left.
+class FilletChamferDialog extends StatefulWidget {
+  final AppState app;
+  const FilletChamferDialog({super.key, required this.app});
+  @override
+  State<FilletChamferDialog> createState() => _FilletChamferDialogState();
+}
+
+class _FilletChamferDialogState extends State<FilletChamferDialog> {
+  late final TextEditingController _r, _d1, _d2, _ang;
+
+  FilletSession get fs => widget.app.filletSess!;
+
+  @override
+  void initState() {
+    super.initState();
+    _r = TextEditingController(text: _n(fs.radius));
+    _d1 = TextEditingController(text: _n(fs.d1));
+    _d2 = TextEditingController(text: _n(fs.d2));
+    _ang = TextEditingController(text: _n(fs.angle));
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_r, _d1, _d2, _ang]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  static String _n(double v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = widget.app;
+    if (app.filletSess == null) return const SizedBox.shrink();
+    final isFillet = fs.kind == Tool.fillet;
+    return Container(
+      width: 250,
+      decoration: BoxDecoration(
+        color: T.panel,
+        border: Border.all(color: T.sep),
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 6)),
+        ],
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          decoration: const BoxDecoration(
+            color: T.fly,
+            border: Border(bottom: BorderSide(color: T.panelSep)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
+          ),
+          child: Row(children: [
+            Expanded(
+                child: Text(isFillet ? '2D Fillet' : '2D Chamfer',
+                    style: ts(13.5, T.text, w: FontWeight.w600))),
+            _IconTap(
+              tooltip: 'Done',
+              onTap: app.cancelTool,
+              child: const Icon(Icons.close, size: 17, color: T.dim),
+            ),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: isFillet ? _filletBody(app) : _chamferBody(app),
+        ),
+      ]),
+    );
+  }
+
+  Widget _filletBody(AppState app) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _num(PD['spacing']!, _r, (v) {
+        fs.radius = v;
+        app.filletNotify();
+      }, suffix: 'mm'),
+      const SizedBox(height: 8),
+      Text('Pick two lines, arcs or circles.\nFirst fillet is dimensioned; '
+          'the rest chain equal.', style: ts(10.5, T.dim)),
+    ]);
+  }
+
+  Widget _chamferBody(AppState app) {
+    Widget modeBtn(int m, String icon, String tip) => Padding(
+          padding: const EdgeInsets.only(right: 5),
+          child: _PickBtn(
+            icon: icon,
+            active: fs.mode == m,
+            done: false,
+            tooltip: tip,
+            onTap: () {
+              fs.mode = m;
+              app.filletNotify();
+            },
+          ),
+        );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        modeBtn(0, PD['chamEq']!, 'Equal distance'),
+        modeBtn(1, PD['cham2d']!, 'Two distances'),
+        modeBtn(2, PD['chamAng']!, 'Distance and angle'),
+      ]),
+      const SizedBox(height: 8),
+      _num(PD['spacing']!, _d1, (v) {
+        fs.d1 = v;
+        app.filletNotify();
+      }, suffix: 'mm'),
+      if (fs.mode == 1) ...[
+        const SizedBox(height: 6),
+        _num(PD['spacing']!, _d2, (v) {
+          fs.d2 = v;
+          app.filletNotify();
+        }, suffix: 'mm'),
+      ],
+      if (fs.mode == 2) ...[
+        const SizedBox(height: 6),
+        _num(PD['angle']!, _ang, (v) {
+          fs.angle = v;
+          app.filletNotify();
+        }, suffix: 'deg'),
+      ],
+      const SizedBox(height: 8),
+      Text('Distance 1 applies to the first picked line.',
+          style: ts(10.5, T.dim)),
+    ]);
+  }
+
+  Widget _num(String icon, TextEditingController ctrl,
+      void Function(double) onValue, {String? suffix}) {
+    return Row(children: [
+      svgi(icon, 15),
+      const SizedBox(width: 6),
+      Expanded(
+        child: SizedBox(
+          height: 28,
+          child: TextField(
+            controller: ctrl,
+            style: ts(12.5, T.text),
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+            ],
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              suffixText: suffix,
+              suffixStyle: ts(11, T.dim),
+              filled: true,
+              fillColor: _fieldBg,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(3),
+                borderSide: const BorderSide(color: _fieldBorder),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(3),
+                borderSide: const BorderSide(color: T.blue, width: 1.4),
+              ),
+            ),
+            onChanged: (t) {
+              final v = double.tryParse(t.replaceAll(',', '.'));
+              if (v != null && v > 0) onValue(v);
+            },
+          ),
+        ),
+      ),
+    ]);
+  }
+}

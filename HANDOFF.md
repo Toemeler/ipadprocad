@@ -440,6 +440,9 @@ Token NIE in Dateien/.git/config schreiben.
 - **M35 — Pattern-Panel funktional (Rechteckige/Runde Anordnung, Spiegeln,
   Inventor-Dialoge): ERLEDIGT, Host-Tests grün (114), Geräte-Test offen**
   (Abschnitt unten).
+- **M36 — Form-Auto-Constraints (Slots, Tangenten-Kreis/-Bogen), Fillet/
+  Chamfer komplett wie Inventor, Trim/Split erhalten Constraints:
+  ERLEDIGT, Host-Tests grün (134), Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1338,7 +1341,100 @@ CType.pattern, Remap beim Löschen der Quelle.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M35, für die nächste Session)
+## M36 — Form-Constraints, Fillet/Chamfer komplett, Trim erhält Constraints
+
+Drei Baustellen aus dem Geräte-Test: (a) Slots (und weitere Formen) kamen
+OHNE ihre Inventor-Auto-Constraints an, (b) Fillet/Chamfer waren rudimentär
+(nur Linie-Linie, blockierender Radius-Prompt, keinerlei Constraints),
+(c) Trim/Split warfen ALLE Constraints/Bemaßungen des getroffenen Elements
+weg.
+
+**(a) Auto-Constraints der Formwerkzeuge (deterministisch im Commit, wie
+die M34-Rechtecke — nie über Inferenz):**
+- Linearer Slot (`slotCC`/`slotOverall`/`slotCP`, Entities [rail1, rail2,
+  cap1, cap2]): koinzident + tangent an allen vier Nähten, equal zwischen
+  den Kappen, parallel zwischen den Rails (durch die Tangenten impliziert,
+  aber für Inventors Glyphen mitgeführt — redundante Zeilen sind
+  rang-neutral für LM und DOF-Analyse). Ein Slot hat danach exakt 5 DOF
+  (Position, Rotation, Länge, Radius) — getestet, auch unter Drag.
+- Bogen-Slot (`slot3A`/`slotCPA`, [outer, inner, capA, capB]): konzentrisch
+  zwischen den Rails, koinzident + tangent an den Nähten, equal-Kappen;
+  6 DOF (Zentrum, Rail-Radius, Kappen-Radius, zwei Sweeps) — getestet.
+  Naht-Zuordnung siehe `_linearSlot`/`_arcSlot` (capA läuft outer.start →
+  inner.start usw.).
+- Tangenten-Kreis (`circleTangent`): tangent zu allen drei gepickten Linien
+  (Picks werden im Commit über `nearestLineIdx` re-attributiert).
+- Tangenten-Bogen (`arcTangent`): koinzident auf den Quell-Endpunkt +
+  tangent zur Quelle — deterministisch STATT Inferenz (die hätte die
+  Koinzidenz vom Endpunkt-Snap dupliziert).
+- Polygon bleibt bewusst ohne Regelmäßigkeits-Constraints (eine Polyline
+  hat keine Kanten-Entities für equal — bekannte Grenze, unten gelistet).
+
+**(b) Fillet/Chamfer wie Inventor (`filletInventor`/`chamferInventor` in
+tools.dart, Session + modeless Dialog):**
+- Kein blockierender Prompt mehr: `FilletSession` (app_state) + das kleine
+  "2D Fillet"/"2D Chamfer"-Fenster (pattern_dialog.dart) schweben wie in
+  Inventor — Werkzeug bleibt scharf, je zwei Picks = eine Ecke, Werte
+  zwischen den Ecken editierbar, letzte Werte bleiben über Sessions
+  erhalten.
+- Fillet zwischen ALLEN Kombinationen aus Linie/Bogen/Kreis: Fillet-Zentrum
+  = Schnitt der Offset-Träger (Linie um r zur Pick-Seite, Kreis/Bogen auf
+  R+r bzw. |R−r|), Kandidat mit minimaler Summe der Pick-Abstände gewinnt
+  (Inventors Ecken-Disambiguierung). Linien und Bögen werden auf die
+  Tangentenpunkte getrimmt (Bögen über den Tangenten-WINKEL am näheren
+  Ende); VOLLKREISE bleiben ganz (kein Ende zum Trimmen) — die Tangente
+  landet trotzdem.
+- Constraints: koinzident an beiden Nähten (`FilletResult.seams` liefert
+  Entity + getrimmten Punktindex; `jointPt` mappt auf pt1/pt2 des Bogens
+  bzw. pt0/pt1 der Fase) + tangent zu beiden Trägern.
+- Inventors Ketten-Verhalten: das ERSTE Fillet eines Werts bekommt seine
+  Radius-BEMASSUNG (dimKind 'rad'), alle weiteren mit gleichem Wert eine
+  equal-Constraint aufs erste; Wert ändern startet eine neue Kette
+  (`firstIdx` reset in `filletNotify`).
+- Chamfer mit Inventors drei Modi: 0 = gleicher Abstand, 1 = zwei Abstände
+  (d1 auf den ERSTEN Pick), 2 = Abstand + Winkel (Winkel von Linie 1 zur
+  Fase, Strahl-Schnitt mit Linie 2). Nur Linie-Linie (wie Inventor).
+  Gleicher-Abstand-Fasen: erste bekommt Längen-Bemaßung, weitere equal.
+- Preview läuft weiter über `buildToolGeometry` (Params werden von der
+  Session in `toolParams` gespiegelt).
+
+**(c) Trim/Split erhalten Constraints (`remapAfterReplace` in
+constraints.dart):** Statt `remapAfterRemove` (alles weg) werden Constraints
+des ersetzten Elements gehalten, wo sie noch Sinn ergeben — exakt Inventors
+Verhalten:
+- Punkt-Refs wandern positionsbasiert (Toleranz 1e-6) auf das Teilstück,
+  das den Punkt noch HAT; Punkte im weggetrimmten Spann verlieren ihre
+  Constraint.
+- Entity-Refs (tangent, parallel, Bemaßungen, …) wandern auf das Teilstück,
+  das den übrigen Beteiligten der Constraint am nächsten liegt (der Träger
+  ist unverändert, die Constraint bleibt also geometrisch gültig); ohne
+  Kontext (H/V, Radius-Bemaßung) aufs GRÖSSTE Teilstück. Kreis→Bogen ist
+  dabei abgedeckt (Radius-Bemaßung, Tangenten etc. funktionieren auf beiden
+  Typen).
+- Entity-Level-Fix (anchors = alte Gesamtform) und pattern-Mitgliedschaften
+  werden fallen gelassen — die gespeicherte Form existiert nicht mehr.
+  Kollabiert eine 2-Entity-Constraint auf ein und dasselbe Teilstück, fällt
+  sie ebenfalls.
+- Split behält damit ALLES (alle Punkte überleben); eine Gesamtlängen-
+  Bemaßung über den Schnitt spannt danach über beide Teilstücke — getestet.
+- Nebenbefund gefixt: Trim hinterließ ein LÄNGE-0-Reststück, wenn der
+  Schnitt genau auf einem Endpunkt lag (`_notDegenerate`-Filter im
+  Trim-Pfad). Nach Trim/Split läuft jetzt zusätzlich `solveConstraints`,
+  damit erhaltene Bemaßungen sofort wieder erfüllt sind.
+
+**Tests (`test/m36_test.dart`, 20 neu, gesamt 134):** Slot-Constraint-Sets +
+DOF (5 bzw. 6) + Drag-Erhalt, Tangenten-Kreis/-Bogen, Fillet Linie-Linie
+(Trim, Nähte, Radius-Dim), equal-Kette + Ketten-Reset bei Wertänderung,
+Linie-Bogen-Fillet (Tangenten, Bogen-Trim über Winkel), Kreis-Teilnehmer
+ungetrimmt, Chamfer alle drei Modi (inkl. d1-auf-ersten-Pick und
+Winkel-Geometrie), Parallel-Ablehnung, Trim-Erhalt von perpendicular /
+Radius-Dim (Kreis→Bogen) / tangent (Kreis→Bogen), Drop der weggetrimmten
+Koinzidenz, Split-Vollerhalt, Drop von Entity-Fix, Gesamtlängen-Dim über
+den Schnitt.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M36, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1350,7 +1446,10 @@ Auto-Inferenz, Inventors komplette Bemaßungs-Pick-Matrix inkl. pline/ang3
 und Inline-Werteingabe, getriebene (Referenz-)Bemaßungen, Mittellinien-Stil,
 DXF-Speicherung mit Sidecars (Constraints, Spline-Tags, Styles),
 Pattern-Panel (Rechteckige/Runde Anordnung, Spiegeln inkl. Self Symmetric,
-assoziativ über den Solver), Diagnose-Log in der Files-App.
+assoziativ über den Solver), Slots/Tangenten-Werkzeuge mit Inventor-Auto-
+Constraints, Fillet/Chamfer komplett (Linie/Bogen/Kreis, 3 Chamfer-Modi,
+Bemaßung + equal-Kette), constraint-erhaltendes Trim/Split, Diagnose-Log
+in der Files-App.
 
 **Solver-Architektur (unverändert wichtig):** libslvs nativ zuerst, jede
 Lösung wird gegen die Dart-Residuen VERIFIZIERT; bail/fail → Dart-LM
@@ -1359,7 +1458,7 @@ residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
 Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
 slvs_shim_version() (aktuell 2) für neue Codes.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (114 Tests) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (134 Tests) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
 Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
 die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",
@@ -1377,4 +1476,9 @@ Artefakt `ipadprocad-unsigned-ipa`.
 - Pattern v1: kein Boundary-Fill, kein Suppress, kein Edit Pattern (die
   Transformation ist beim Commit eingefroren; Richtung folgt ihrer Linie
   nicht nach), kein Muster entlang Pfad.
+- Polygone (eine Polyline) haben keine Regelmäßigkeits-Constraints (keine
+  Kanten-Entities für equal — bräuchte einen Segment-Längen-Constraint).
+- Fillet trimmt VOLLKREISE nicht (Kreis→Bogen wäre ein Typwechsel); die
+  Tangenten-Constraint sitzt trotzdem. Fillet gegen getaggte Polylines
+  (Splines/Ellipsen) nicht unterstützt.
 - eqCurve erzeugt weiterhin gesampelte Polylines (bewusst: echte Kurve).

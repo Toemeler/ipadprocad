@@ -237,4 +237,12 @@ final Map<String, String> PD = {
   // mirror line pick
   'mirLine': S(18,
       '<line x1="9" y1="2.5" x2="9" y2="15.5" stroke="$G" stroke-width="1.1" stroke-dasharray="2.6 2"/>${cursorArrow(10.5, 8)}'),
+  // chamfer mode toggles (M36) — Inventor's three little mode buttons
+  'chamEq': S(18,
+      '<path d="M3 15V6l9 9z" fill="none" stroke="$G" stroke-width="1.3"/><path d="M3 6l9 9" stroke="$BL" stroke-width="1.5"/><path d="M3 10.5h2M7.5 15v-2" stroke="$YL" stroke-width="1.4"/>'),
+  'cham2d': S(18,
+      '<path d="M3 15V4l11 11z" fill="none" stroke="$G" stroke-width="1.3"/><path d="M3 4l11 11" stroke="$BL" stroke-width="1.5"/><path d="M3 8h2M9 15v-2M3 4h1.5M14 15h-1.5" stroke="$YL" stroke-width="1.4"/>'),
+  'chamAng': S(18,
+      '<path d="M3 15V5l10 10z" fill="none" stroke="$G" stroke-width="1.3"/><path d="M3 5l10 10" stroke="$BL" stroke-width="1.5"/><path d="M3 9 A5 5 0 0 1 6.5 11.5" fill="none" stroke="$YL" stroke-width="1.2"/>'),
 };
+

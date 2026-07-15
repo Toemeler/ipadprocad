@@ -562,6 +562,13 @@ class _Viewport2DState extends State<Viewport2D> {
                   if (app.pattern != null)
                     Positioned(
                         right: 12, top: 12, child: PatternDialog(app: app)),
+                  // 2D Fillet / Chamfer value window (M36), same parking spot
+                  if (app.filletSess != null &&
+                      (app.tool == Tool.fillet || app.tool == Tool.chamfer))
+                    Positioned(
+                        right: 12,
+                        top: 12,
+                        child: FilletChamferDialog(app: app)),
                   // Inventor's status readout, bottom right of the graphics
                   // window: "N dimensions needed" while under-constrained,
                   // "Fully Constrained" at DOF 0.

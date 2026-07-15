@@ -73,6 +73,24 @@ class PatternSession {
   PatternSession(this.kind);
 }
 
+/// Live state of the modeless Fillet / Chamfer dialog (M36) — Inventor's
+/// tiny "2D Fillet" / "2D Chamfer" windows: the tool stays armed, every two
+/// picks make a corner, values are editable between corners. The FIRST
+/// fillet of a value gets its radius dimension; later ones with the same
+/// value get an equal constraint to the first (Inventor's exact behaviour;
+/// changing the value starts a new "first"). Chamfer modes: 0 = equal
+/// distance, 1 = two distances, 2 = distance + angle.
+class FilletSession {
+  final Tool kind; // fillet | chamfer
+  double radius;
+  int mode;
+  double d1, d2, angle;
+  int? firstIdx; // entity index of the current chain's first fillet/chamfer
+  FilletSession(this.kind,
+      {this.radius = 5, this.mode = 0, this.d1 = 5, this.d2 = 5,
+      this.angle = 45});
+}
+
 const constraintTools = {
   Tool.cCoincident, Tool.cCollinear, Tool.cConcentric, Tool.cFix,
   Tool.cParallel, Tool.cPerpendicular, Tool.cHorizontal, Tool.cVertical,
@@ -971,6 +989,53 @@ class AppState extends ChangeNotifier {
     } else {
       pattern = null;
     }
+    // Fillet/Chamfer open their modeless value dialog (M36). Last-used
+    // values persist across sessions — Inventor remembers them too.
+    if (t == Tool.fillet || t == Tool.chamfer) {
+      filletSess = FilletSession(t,
+          radius: lastFilletRadius,
+          mode: lastChamferMode,
+          d1: lastChamferD1,
+          d2: lastChamferD2,
+          angle: lastChamferAngle);
+      filletNotify();
+    } else {
+      filletSess = null;
+    }
+    notifyListeners();
+  }
+
+  // ---- fillet / chamfer session (M36) ----
+  FilletSession? filletSess;
+  double lastFilletRadius = 5;
+  int lastChamferMode = 0;
+  double lastChamferD1 = 5, lastChamferD2 = 5, lastChamferAngle = 45;
+
+  /// The dialog mutates the session and calls this: remembers the values,
+  /// mirrors them into [toolParams] (the preview reads those), restarts the
+  /// equal-chain when a value changed, repaints.
+  void filletNotify() {
+    final f = filletSess;
+    if (f == null) return;
+    if (f.kind == Tool.fillet) {
+      if (f.radius != lastFilletRadius) f.firstIdx = null;
+      lastFilletRadius = f.radius;
+      toolParams = {'radius': f.radius};
+    } else {
+      if (f.d1 != lastChamferD1 || f.mode != lastChamferMode) {
+        f.firstIdx = null;
+      }
+      lastChamferMode = f.mode;
+      lastChamferD1 = f.d1;
+      lastChamferD2 = f.d2;
+      lastChamferAngle = f.angle;
+      toolParams = {
+        'mode': f.mode.toDouble(),
+        'dist': f.d1,
+        'dist2': f.d2,
+        'ang': f.angle,
+      };
+    }
     notifyListeners();
   }
 
@@ -984,6 +1049,14 @@ class AppState extends ChangeNotifier {
     // pick-chain step-back like the drawing tools.
     if (pattern != null) {
       pattern = null;
+      tool = Tool.none;
+      notifyListeners();
+      return;
+    }
+    // The fillet/chamfer dialog also cancels as a whole — but only when no
+    // first pick is pending (then Esc steps the pick back, like other tools).
+    if (filletSess != null && toolPoints.isEmpty) {
+      filletSess = null;
       tool = Tool.none;
       notifyListeners();
       return;
@@ -1573,6 +1646,24 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Zero-extent trim leftovers (a cut landing exactly on an endpoint leaves
+  /// a length-0 stub) are dropped instead of littering the sketch — and
+  /// instead of catching constraints that should die with the trimmed span.
+  static bool _notDegenerate(Geo g) {
+    switch (g.type) {
+      case Geo.line:
+        return (Offset(g.data[0], g.data[1]) - Offset(g.data[2], g.data[3]))
+                .distance >
+            1e-9;
+      case Geo.arc:
+        return (g.data[4] - g.data[3]).abs() > 1e-9 && g.data[2] > 1e-9;
+      case Geo.polyline:
+        return g.data[1] >= 2;
+      default:
+        return true;
+    }
+  }
+
   void _modifyClick(SketchModel s, Offset w) {
     final guard = _pickEntity(s, w);
     if (guard != null && s.geometry[guard].isProjection) {
@@ -1585,13 +1676,23 @@ class AppState extends ChangeNotifier {
       case Tool.trim:
         final i = _pickEntity(s, w);
         if (i == null) return;
+        final old = s.geometry[i];
         final gs = List<Geo>.from(s.geometry)..removeAt(i);
         gs.setAll(0, remapProjectionsAfterRemove(gs, i));
-        gs.addAll(trimEntity(s.geometry, i, w));
-        final remapped = remapAfterRemove(s.constraints, i);
+        final piecesStart = gs.length;
+        gs.addAll(trimEntity(s.geometry, i, w).where(_notDegenerate));
+        // M36: keep every constraint/dimension the trim leaves standing —
+        // point refs follow their surviving piece, entity refs land on the
+        // nearest piece of the (unchanged) carrier. Only what was actually
+        // cut away loses its constraints, exactly like Inventor.
+        final remapped =
+            remapAfterReplace(s.constraints, i, old, gs, piecesStart);
+        Log.i('modify',
+            'trim e$i: constraints ${s.constraints.length} -> ${remapped.length}');
         s.constraints
           ..clear()
           ..addAll(remapped);
+        solveConstraints(gs, s.constraints);
         _rebuildEngine(s, gs);
         selection.clear();
         return;
@@ -1608,13 +1709,19 @@ class AppState extends ChangeNotifier {
         if (i == null) return;
         final parts = splitEntity(s.geometry, i, w);
         if (parts == null) return;
+        final old = s.geometry[i];
         final gs = List<Geo>.from(s.geometry)..removeAt(i);
         gs.setAll(0, remapProjectionsAfterRemove(gs, i));
+        final piecesStart = gs.length;
         gs.addAll(parts);
-        final remapped = remapAfterRemove(s.constraints, i);
+        // M36: a split keeps EVERY point, so all point-referencing
+        // constraints survive; entity refs go to the nearest piece.
+        final remapped =
+            remapAfterReplace(s.constraints, i, old, gs, piecesStart);
         s.constraints
           ..clear()
           ..addAll(remapped);
+        solveConstraints(gs, s.constraints);
         _rebuildEngine(s, gs);
         selection.clear();
         return;
@@ -2463,22 +2570,72 @@ class AppState extends ChangeNotifier {
   }
 
   void _commitTool(SketchModel s) {
-    // Fillet/Chamfer edit the two picked lines as well: Inventor trims them
-    // back to the tangent points instead of leaving the corner sticking out.
+    // Fillet/Chamfer (M36, Inventor-complete): trim the picked entities back
+    // to the tangent points AND constrain the result — coincident at both
+    // seams, tangent on both sides (fillet). The first fillet of a value
+    // carries its radius dimension; subsequent ones get an equal constraint
+    // to it. Chamfer: coincident seams; equal-distance chamfers chain equal
+    // to the first, which carries a length dimension.
     if ((tool == Tool.fillet || tool == Tool.chamfer) &&
         toolPoints.length >= 2) {
-      final res = filletChamferFull(s.geometry, toolPoints[0], toolPoints[1],
-          radius: toolParams[tool == Tool.fillet ? 'radius' : 'dist'] ?? 5,
-          chamfer: tool == Tool.chamfer);
+      final f = filletSess ?? FilletSession(tool);
+      final res = tool == Tool.fillet
+          ? filletInventor(s.geometry, toolPoints[0], toolPoints[1], f.radius)
+          : chamferInventor(s.geometry, toolPoints[0], toolPoints[1],
+              mode: f.mode, d1: f.d1, d2: f.d2, angDeg: f.angle);
       toolPoints.clear();
       if (res == null) {
-        toast('Pick two non-parallel lines that meet.');
+        toast(tool == Tool.fillet
+            ? 'Pick two lines, arcs or circles that can meet.'
+            : 'Pick two non-parallel lines.');
         return;
       }
       final gs = List<Geo>.from(s.geometry);
-      res.$2.forEach((i, g) => gs[i] = g);
-      gs.addAll(res.$1); // already carries the picked lines' layer
-
+      res.repl.forEach((i, g) => gs[i] = g);
+      final newIdx = gs.length;
+      gs.addAll(res.adds); // already carries the picked entities' layer
+      // seams: glue the new arc/line to the trimmed ends + tangency (fillet)
+      for (var k = 0; k < 2; k++) {
+        final (ent, pt) = res.seams[k];
+        if (pt != null) {
+          s.constraints.add(Constraint(CType.coincident,
+              pts: [PRef(newIdx, res.jointPt(k)), PRef(ent, pt)]));
+        }
+        if (tool == Tool.fillet) {
+          s.constraints
+              .add(Constraint(CType.tangent, ents: [newIdx, ent]));
+        }
+      }
+      // Inventor's dimension/equal chain
+      final chainable = tool == Tool.fillet || f.mode == 0;
+      if (chainable) {
+        if (f.firstIdx == null) {
+          f.firstIdx = newIdx;
+          final g0 = res.adds.first;
+          if (tool == Tool.fillet) {
+            s.constraints.add(Constraint(CType.dimension,
+                ents: [newIdx],
+                dimKind: 'rad',
+                value: f.radius,
+                textPos: Offset(g0.data[0], g0.data[1])));
+          } else {
+            s.constraints.add(Constraint(CType.dimension,
+                pts: [PRef(newIdx, 0), PRef(newIdx, 1)],
+                dimKind: 'dist',
+                value: (Offset(g0.data[0], g0.data[1]) -
+                        Offset(g0.data[2], g0.data[3]))
+                    .distance,
+                textPos: Offset((g0.data[0] + g0.data[2]) / 2,
+                    (g0.data[1] + g0.data[3]) / 2)));
+          }
+        } else if (f.firstIdx! < gs.length) {
+          s.constraints
+              .add(Constraint(CType.equal, ents: [f.firstIdx!, newIdx]));
+        }
+      }
+      Log.i('modify',
+          '${tool.name} at e${res.seams[0].$1}/e${res.seams[1].$1} -> e$newIdx'
+          '${f.firstIdx == newIdx ? " (dimensioned)" : " (equal-chained)"}');
       solveConstraints(gs, s.constraints);
       _rebuildEngine(s, gs);
       return;
@@ -2525,6 +2682,79 @@ class AppState extends ChangeNotifier {
           for (var k = 0; k < 3; k++) {
             s.constraints.add(Constraint(CType.perpendicular,
                 ents: [firstNew + k, firstNew + k + 1]));
+          }
+        }
+      } else if ((tool == Tool.slotCC ||
+              tool == Tool.slotOverall ||
+              tool == Tool.slotCP) &&
+          placed.length == 4) {
+        // Inventor's linear slot: [line1, line2, cap1, cap2] where cap1
+        // runs line1.p0 -> line2.p1 and cap2 runs line2.p0 -> line1.p1
+        // (see _linearSlot). Constraints exactly like Inventor: coincident
+        // + tangent at all four seams, the cap radii equal, the rails
+        // parallel (implied by the tangencies, kept for Inventor's glyphs —
+        // redundant rows are rank-neutral for the LM solver and the DOF
+        // analysis). A slot then has exactly 5 DOF: position, rotation,
+        // length, radius.
+        final l1 = firstNew, l2 = firstNew + 1, c1 = firstNew + 2,
+            c2 = firstNew + 3;
+        s.constraints.addAll([
+          Constraint(CType.coincident, pts: [PRef(c1, 1), PRef(l1, 0)]),
+          Constraint(CType.coincident, pts: [PRef(c1, 2), PRef(l2, 1)]),
+          Constraint(CType.coincident, pts: [PRef(c2, 1), PRef(l2, 0)]),
+          Constraint(CType.coincident, pts: [PRef(c2, 2), PRef(l1, 1)]),
+          Constraint(CType.tangent, ents: [l1, c1]),
+          Constraint(CType.tangent, ents: [l2, c1]),
+          Constraint(CType.tangent, ents: [l1, c2]),
+          Constraint(CType.tangent, ents: [l2, c2]),
+          Constraint(CType.equal, ents: [c1, c2]),
+          Constraint(CType.parallel, ents: [l1, l2]),
+        ]);
+      } else if ((tool == Tool.slot3A || tool == Tool.slotCPA) &&
+          placed.length == 4) {
+        // Inventor's arc slot: [outer, inner, capA, capB]; capA runs
+        // outer.start -> inner.start, capB inner.end -> outer.end (see
+        // _arcSlot). Rails concentric, coincident + tangent at the seams,
+        // caps equal — 6 DOF: center, rail radius, cap radius, two sweeps.
+        final o = firstNew, inn = firstNew + 1, ca = firstNew + 2,
+            cb = firstNew + 3;
+        s.constraints.addAll([
+          Constraint(CType.concentric, ents: [o, inn]),
+          Constraint(CType.coincident, pts: [PRef(ca, 1), PRef(o, 1)]),
+          Constraint(CType.coincident, pts: [PRef(ca, 2), PRef(inn, 1)]),
+          Constraint(CType.coincident, pts: [PRef(cb, 1), PRef(inn, 2)]),
+          Constraint(CType.coincident, pts: [PRef(cb, 2), PRef(o, 2)]),
+          Constraint(CType.tangent, ents: [o, ca]),
+          Constraint(CType.tangent, ents: [inn, ca]),
+          Constraint(CType.tangent, ents: [o, cb]),
+          Constraint(CType.tangent, ents: [inn, cb]),
+          Constraint(CType.equal, ents: [ca, cb]),
+        ]);
+      } else if (tool == Tool.circleTangent && placed.length == 1) {
+        // Inventor's tangent circle: TANGENT to each of the three picked
+        // lines — the picks are the tool points themselves.
+        for (final tp in toolPoints.take(3)) {
+          final li = nearestLineIdx(gs, tp, exclude: firstNew);
+          if (li != null) {
+            s.constraints
+                .add(Constraint(CType.tangent, ents: [firstNew, li]));
+          }
+        }
+      } else if (tool == Tool.arcTangent && placed.length == 1) {
+        // Inventor's tangent arc: coincident on the source endpoint it
+        // started from + tangent to that source (only when an arc actually
+        // resulted — the degenerate straight case is just a line). Added
+        // deterministically INSTEAD of inference, which would duplicate the
+        // coincident from the endpoint snap.
+        final src = _nearestPointRef(s, toolPoints.first);
+        if (src != null && isRealPt(src, gs) && src.ent != firstNew) {
+          s.constraints.add(Constraint(CType.coincident,
+              pts: [PRef(firstNew, gs[firstNew].type == Geo.arc ? 1 : 0),
+                  src]));
+          if (gs[firstNew].type == Geo.arc &&
+              gs[src.ent].type != Geo.polyline) {
+            s.constraints
+                .add(Constraint(CType.tangent, ents: [firstNew, src.ent]));
           }
         }
       } else if (autoConstrain) {

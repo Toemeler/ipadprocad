@@ -395,6 +395,165 @@ List<Geo> remapProjectionsAfterRemove(List<Geo> gs, int removed) => [
                     : g
     ];
 
+/// Remaps constraints after entity [removed] was REPLACED by pieces that
+/// still cover (part of) its carrier — Trim and Split (M36). Unlike
+/// [remapAfterRemove], constraints referencing the removed entity are kept
+/// wherever they still make sense, exactly what Inventor does when a trim
+/// leaves the constrained portion standing:
+///  - point refs remap to the piece that still HAS that point (matched by
+///    position); points that fell in the trimmed-away span drop their
+///    constraint,
+///  - entity refs (tangent, parallel, dimensions, ...) remap to the piece
+///    nearest the constraint's other participants (the carrier is unchanged,
+///    so the constraint stays geometrically valid on any piece),
+///  - entity-level Fix (anchors describe the OLD full data) and pattern
+///    memberships are dropped — their stored shape no longer exists.
+/// [gsAfter] is the geometry list AFTER removal with the pieces appended at
+/// [piecesStart]; indices in it are the ones the result must reference.
+List<Constraint> remapAfterReplace(List<Constraint> cs, int removed,
+    Geo oldGeo, List<Geo> gsAfter, int piecesStart) {
+  const tol = 1e-6;
+  final pieces = [
+    for (var i = piecesStart; i < gsAfter.length; i++) (i, gsAfter[i])
+  ];
+  int shift(int e) => e > removed ? e - 1 : e;
+
+  PRef? mapPt(PRef p) {
+    if (p.ent != removed) return PRef(shift(p.ent), p.pt);
+    final want = getPt(oldGeo, p.pt);
+    for (final (idx, g) in pieces) {
+      final n = ptCount(g);
+      for (var q = 0; q < n; q++) {
+        if ((getPt(g, q) - want).distance <= tol) return PRef(idx, q);
+      }
+    }
+    return null; // the point was trimmed away
+  }
+
+  double distToPiece(Offset p, Geo g) {
+    switch (g.type) {
+      case Geo.line:
+        final a = Offset(g.data[0], g.data[1]),
+            b = Offset(g.data[2], g.data[3]);
+        final ab = b - a;
+        final len2 = ab.distanceSquared;
+        if (len2 < 1e-18) return (p - a).distance;
+        final t =
+            (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
+        return (p - (a + ab * t)).distance;
+      case Geo.circle:
+      case Geo.arc:
+        return ((p - Offset(g.data[0], g.data[1])).distance - g.data[2])
+            .abs();
+      default:
+        var best = double.infinity;
+        for (var q = 0; q < ptCount(g); q++) {
+          final d = (p - getPt(g, q)).distance;
+          if (d < best) best = d;
+        }
+        return best;
+    }
+  }
+
+  int mapEnt(Constraint c, int e) {
+    if (e != removed) return shift(e);
+    // anchor: where the constraint "happens" — the other participants
+    final anchors = <Offset>[];
+    for (final p in c.pts) {
+      if (p.ent == kProjCenter) {
+        anchors.add(Offset.zero);
+      } else if (p.ent != removed) {
+        anchors.add(getPt(gsAfter[shift(p.ent)], p.pt));
+      }
+    }
+    for (final o in c.ents) {
+      if (o != removed) anchors.add(getPt(gsAfter[shift(o)], 0));
+    }
+    if (anchors.isEmpty && c.textPos != null) anchors.add(c.textPos!);
+    var bestIdx = pieces.first.$1;
+    if (anchors.isNotEmpty) {
+      var best = double.infinity;
+      for (final (idx, g) in pieces) {
+        var d = 0.0;
+        for (final a in anchors) {
+          d += distToPiece(a, g);
+        }
+        if (d < best) {
+          best = d;
+          bestIdx = idx;
+        }
+      }
+    } else {
+      // no context (H/V, radius dim, ...): the LARGEST piece keeps it
+      var best = -1.0;
+      for (final (idx, g) in pieces) {
+        final size = g.type == Geo.line
+            ? (Offset(g.data[0], g.data[1]) - Offset(g.data[2], g.data[3]))
+                .distance
+            : g.type == Geo.arc
+                ? g.data[2] * (g.data[4] - g.data[3]).abs()
+                : g.data.length > 2
+                    ? g.data[2]
+                    : 0.0;
+        if (size > best) {
+          best = size;
+          bestIdx = idx;
+        }
+      }
+    }
+    return bestIdx;
+  }
+
+  final out = <Constraint>[];
+  for (final c in cs) {
+    final touches =
+        c.ents.contains(removed) || c.pts.any((p) => p.ent == removed);
+    if (!touches) {
+      out.add(Constraint(c.type,
+          pts: [for (final p in c.pts) PRef(shift(p.ent), p.pt)],
+          ents: [for (final e in c.ents) shift(e)],
+          value: c.value,
+          dimKind: c.dimKind,
+          textPos: c.textPos,
+          driven: c.driven,
+          anchors: c.anchors));
+      continue;
+    }
+    if (pieces.isEmpty) continue; // everything trimmed away
+    // stored-shape constraints cannot survive a reshape
+    if (c.type == CType.pattern) continue;
+    if (c.type == CType.fix && c.pts.isEmpty && c.ents.contains(removed)) {
+      continue;
+    }
+    final pts = <PRef>[];
+    var ok = true;
+    for (final p in c.pts) {
+      final m = mapPt(p);
+      if (m == null) {
+        ok = false;
+        break;
+      }
+      pts.add(m);
+    }
+    if (!ok) continue;
+    final ents = [for (final e in c.ents) mapEnt(c, e)];
+    // an entity constraint must not collapse onto itself (equal/tangent/...
+    // between a piece and itself after both refs land on the same piece)
+    if (ents.length >= 2 && ents[0] == ents[1] && c.ents.length >= 2) {
+      continue;
+    }
+    out.add(Constraint(c.type,
+        pts: pts,
+        ents: ents,
+        value: c.value,
+        dimKind: c.dimKind,
+        textPos: c.textPos,
+        driven: c.driven,
+        anchors: c.anchors));
+  }
+  return out;
+}
+
 List<Constraint> remapAfterRemove(List<Constraint> cs, int removed) {
   final out = <Constraint>[];
   for (final c in cs) {

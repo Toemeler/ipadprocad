@@ -7,7 +7,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
-## Status (Stand M35)
+## Status (Stand M36)
 
 | Meilenstein | Stand |
 |---|---|
@@ -40,6 +40,24 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M33** Project Geometry für ALLE Typen (Kreis/Bogen/Spline/Ellipse/Polylinie), Hover-Highlight + aktiver Button im Project-Modus, Fremd-Layer nicht selektierbar | ✅ erledigt (Geräte-Test offen) |
 | **M34** Rechtecke = VIER Linien mit Constraints (Inventor-Modell); Polygon-/Bestands-Rechteck-KANTEN projizieren als einzelne gelbe Linien; Hover-Fix Polylines; Projektions-Polylines gelb | ✅ erledigt (Geräte-Test offen) |
 | **M35** Pattern-Panel funktional: Rechteckige/Runde Anordnung + Spiegeln mit Inventor-Dialogen (modeless über dem Viewport), Live-Preview, Fitted/Assoziativ, Self Symmetric für Splines; neuer Constraint `pattern` (LM-only, slvs-Bail) | ✅ erledigt (Geräte-Test offen) |
+| **M36** Form-Auto-Constraints (Slots koinzident/tangent/equal/parallel bzw. konzentrisch, Tangenten-Kreis/-Bogen), Fillet/Chamfer komplett wie Inventor (Linie/Bogen/Kreis, 3 Chamfer-Modi, modeless Dialog, Radius-Dim + equal-Kette), Trim/Split erhalten Constraints/Bemaßungen (`remapAfterReplace`) | ✅ erledigt (Geräte-Test offen) |
+
+### Auto-Constraints, Fillet/Chamfer, constraint-erhaltendes Trim (M36)
+
+Slots kommen jetzt wie in Inventor voll verdrahtet an: linearer Slot mit
+koinzident + tangent an allen vier Nähten, equal-Kappen und parallelen
+Rails (exakt 5 DOF), Bogen-Slot mit konzentrischen Rails (6 DOF); der
+Tangenten-Kreis bekommt tangent zu seinen drei Linien, der Tangenten-Bogen
+koinzident + tangent zur Quelle. Fillet und Chamfer sind komplett: modeless
+"2D Fillet"/"2D Chamfer"-Fenster statt blockierendem Prompt, Fillets
+zwischen beliebigen Linien/Bögen/Kreisen mit automatischem Trim auf die
+Tangentenpunkte, koinzidente Nähte + Tangenten, Radius-Bemaßung auf dem
+ersten Fillet und equal-Kette für alle weiteren gleichen Werts; Chamfer mit
+Inventors drei Modi (gleicher Abstand / zwei Abstände / Abstand + Winkel).
+Trim und Split werfen Constraints nicht mehr weg: Punkt-Refs wandern auf das
+Teilstück, das den Punkt noch hat, Entity-Refs (Tangenten, Bemaßungen, …)
+auf das nächstliegende Teilstück des unveränderten Trägers — nur was
+tatsächlich weggeschnitten wurde, verliert seine Constraints.
 
 ### Pattern (M35) — Inventors Anordnungs-Werkzeuge
 

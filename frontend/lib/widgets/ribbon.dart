@@ -151,14 +151,10 @@ class _RibbonState extends State<Ribbon> {
         app.toolParams = {'sides': v[0]};
         break;
       case Tool.fillet:
-        final v = await _numDialog('Fillet', [('Radius', '5')]);
-        if (v == null) return;
-        app.toolParams = {'radius': v[0]};
-        break;
       case Tool.chamfer:
-        final v = await _numDialog('Chamfer', [('Distance', '5')]);
-        if (v == null) return;
-        app.toolParams = {'dist': v[0]};
+        // M36: no blocking prompt — the modeless 2D Fillet/Chamfer window
+        // opens with the tool and stays editable between corners.
+        app.toolParams = {};
         break;
       case Tool.eqCurve:
         final r = await _equationDialog();
