@@ -675,6 +675,11 @@ class AppState extends ChangeNotifier {
   Snap? snap; // current snap under the cursor (for the marker + guides)
   Grip? dragGrip;
   Offset? dragPos;
+  /// The most recent drag frame whose solve actually held the constraints.
+  /// Committed on release so a drag that ends on an unsatisfiable cursor
+  /// position keeps its last VALID position instead of snapping back to where
+  /// the drag started (Inventor's behaviour).
+  List<Geo>? _lastGoodDragGeo;
   Offset? boxStart, boxEnd; // world coords while box-selecting
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
@@ -762,7 +767,7 @@ class AppState extends ChangeNotifier {
         return s.geometry;
       }
 
-      solveConstraints(gs, s.constraints,
+      final ok = solveConstraints(gs, s.constraints,
           dragged: {(grip.entity, grip.idx)}, iterations: 25);
 
       if (!allFinite(gs)) {
@@ -772,6 +777,19 @@ class AppState extends ChangeNotifier {
             sketchDump(gs, s.constraints));
         return s.geometry;
       }
+      // The solve did not hold the constraints for this cursor position (a
+      // diverged/degenerate frame). Showing it is exactly what made the slot
+      // flicker — a zero-sweep cap blinks out, a blown-up radius smears across
+      // the sketch. Hold the last good geometry instead; the grip simply does
+      // not follow past the point the constraints can satisfy, which is what
+      // Inventor does. The frame is throttled so this does not spam the log.
+      if (!ok) {
+        if (Log.every('drag-hold', 200)) {
+          Log.d('drag', 'frame solve unsatisfied — holding last good geometry');
+        }
+        return _lastGoodDragGeo ?? s.geometry;
+      }
+      _lastGoodDragGeo = gs;
       return gs;
     } catch (err, st) {
       Log.e('drag', 'displayGeometry THREW — this would have blanked the '
@@ -875,6 +893,7 @@ class AppState extends ChangeNotifier {
     }
     dragGrip = g;
     dragPos = g.pos;
+    _lastGoodDragGeo = null;
     notifyListeners();
   }
 
@@ -900,6 +919,7 @@ class AppState extends ChangeNotifier {
     }
     dragGrip = null;
     dragPos = null;
+    _lastGoodDragGeo = null;
     Log.flush();
     snap = null;
     notifyListeners();
@@ -1507,6 +1527,7 @@ class AppState extends ChangeNotifier {
     }
     final srcs = ps.geo.toList()..sort();
     final gs = List<Geo>.from(s.geometry);
+    final consBefore = s.constraints.length; // for atomic rollback below
     var made = 0;
     for (final (f, anchors) in fs) {
       for (final src in srcs) {
@@ -1529,7 +1550,15 @@ class AppState extends ChangeNotifier {
     Log.i('pattern',
         '${ps.kind.name}: $made copies of ${srcs.length} entities onto '
         '"$lay" (associative=${ps.associative}, fitted=${ps.fitted})');
-    _solveAndRebuild(s, gs);
+    final ok = _solveAndRebuild(s, gs);
+    if (!ok) {
+      // roll back the constraints this commit appended; the geometry copies
+      // were never adopted (gs is local), so the sketch is untouched
+      s.constraints.removeRange(consBefore, s.constraints.length);
+      toast('Pattern cannot be satisfied with the current constraints.');
+      notifyListeners();
+      return false;
+    }
     toast('Pattern created ($made new elements).');
     if (keepOpen) {
       ps.geo.clear(); // Apply: ready for the next mirror pick set
@@ -1624,6 +1653,7 @@ class AppState extends ChangeNotifier {
     }
     final gs = List<Geo>.from(s.geometry);
     gs[e] = g.withData(data);
+    final consBefore = s.constraints.length; // for atomic rollback below
     // pair i <-> 2n-2-i symmetric about the axis; middle point ON the line
     for (var i = 0; i < n - 1; i++) {
       s.constraints.add(Constraint(CType.symmetric,
@@ -1633,7 +1663,12 @@ class AppState extends ChangeNotifier {
         Constraint(CType.coincident, pts: [PRef(e, n - 1)], ents: [axis]));
     Log.i('pattern',
         'self-symmetric spline e$e: $n -> ${ext.length} defining points');
-    _solveAndRebuild(s, gs);
+    if (!_solveAndRebuild(s, gs)) {
+      s.constraints.removeRange(consBefore, s.constraints.length);
+      toast('Self Symmetric cannot be satisfied with the current constraints.');
+      notifyListeners();
+      return false;
+    }
     toast('Spline made self-symmetric.');
     if (keepOpen) {
       ps.geo.clear();
@@ -1687,12 +1722,19 @@ class AppState extends ChangeNotifier {
         // cut away loses its constraints, exactly like Inventor.
         final remapped =
             remapAfterReplace(s.constraints, i, old, gs, piecesStart);
+        // Atomic: verify on the remapped copies BEFORE adopting them. A trim
+        // whose surviving constraints cannot be satisfied (a remap edge case)
+        // must not scramble the sketch — it is refused instead.
+        if (!solveConstraints(gs, remapped)) {
+          Log.w('modify', 'trim e$i REJECTED — result cannot be satisfied');
+          toast('This trim would break the sketch constraints.');
+          return;
+        }
         Log.i('modify',
             'trim e$i: constraints ${s.constraints.length} -> ${remapped.length}');
         s.constraints
           ..clear()
           ..addAll(remapped);
-        solveConstraints(gs, s.constraints);
         _rebuildEngine(s, gs);
         selection.clear();
         return;
@@ -1718,10 +1760,14 @@ class AppState extends ChangeNotifier {
         // constraints survive; entity refs go to the nearest piece.
         final remapped =
             remapAfterReplace(s.constraints, i, old, gs, piecesStart);
+        if (!solveConstraints(gs, remapped)) {
+          Log.w('modify', 'split e$i REJECTED — result cannot be satisfied');
+          toast('This split would break the sketch constraints.');
+          return;
+        }
         s.constraints
           ..clear()
           ..addAll(remapped);
-        solveConstraints(gs, s.constraints);
         _rebuildEngine(s, gs);
         selection.clear();
         return;
@@ -1884,7 +1930,17 @@ class AppState extends ChangeNotifier {
     }
     Log.i('constraint', 'ADD ${conStr(s.constraints.length, c)}');
     s.constraints.add(c);
-    _solveAndRebuild(s);
+    // The rank check above rejects REDUNDANT candidates; a candidate can still
+    // be CONTRADICTORY (independent equation, no solution — e.g. tangent to a
+    // circle that other constraints hold out of reach). The solve is the
+    // arbiter: if it cannot satisfy the new system, take the constraint back
+    // out — never leave the sketch with an unsatisfiable set.
+    if (!_solveAndRebuild(s)) {
+      s.constraints.remove(c);
+      Log.i('constraint', 'REJECTED ${conStr(-1, c)} — cannot be satisfied');
+      toast('This constraint cannot be satisfied with the current geometry.');
+      return false;
+    }
     Log.i('constraint', 'after solve: dof=${analysis?.dof}');
     return true;
   }
@@ -1904,10 +1960,19 @@ class AppState extends ChangeNotifier {
     return false;
   }
 
-  void _solveAndRebuild(SketchModel s, [List<Geo>? base]) {
+  /// Solves a copy of the sketch and rebuilds the engine from it. Returns
+  /// false — WITHOUT touching the sketch — when the solve failed to hold the
+  /// constraints, so callers can roll back whatever change made the system
+  /// unsatisfiable instead of committing a diverged configuration.
+  bool _solveAndRebuild(SketchModel s, [List<Geo>? base]) {
     final gs = List<Geo>.from(base ?? s.geometry);
-    solveConstraints(gs, s.constraints);
+    final ok = solveConstraints(gs, s.constraints);
+    if (!ok) {
+      Log.w('solve', 'solveAndRebuild: unsatisfied — sketch left unchanged');
+      return false;
+    }
     _rebuildEngine(s, gs);
+    return true;
   }
 
   void _constraintClick(SketchModel s, Offset w) {
@@ -2507,7 +2572,12 @@ class AppState extends ChangeNotifier {
         ? measureDim(s.geometry, d)
         : (value ?? measureDim(s.geometry, d));
     s.constraints.add(d);
-    _solveAndRebuild(s);
+    if (!_solveAndRebuild(s)) {
+      // A driving dimension whose value the geometry cannot reach must not
+      // stay in the sketch half-satisfied. Take it back out.
+      s.constraints.remove(d);
+      toast('This value cannot be satisfied with the current constraints.');
+    }
     notifyListeners();
   }
 
@@ -2549,12 +2619,13 @@ class AppState extends ChangeNotifier {
     }
     final old = c.value;
     c.value = v;
-    _solveAndRebuild(s);
-    // a driving dimension must actually be reachable; if the solver could not
-    // satisfy it, roll back instead of leaving the sketch mangled
-    if ((measureDim(s.geometry, c) - v).abs() > 1e-3) {
+    // _solveAndRebuild leaves the sketch UNTOUCHED when the new value cannot
+    // be satisfied — so a rollback is just restoring the number. (The old
+    // implementation committed the diverged geometry first and then tried to
+    // solve its way back, which was path-dependent and could leave the sketch
+    // subtly displaced.)
+    if (!_solveAndRebuild(s)) {
       c.value = old;
-      _solveAndRebuild(s);
       toast('Value cannot be satisfied with the current constraints.');
     }
     notifyListeners();
@@ -2590,53 +2661,103 @@ class AppState extends ChangeNotifier {
             : 'Pick two non-parallel lines.');
         return;
       }
+      // Build the result on LOCAL copies so a fillet/chamfer that cannot be
+      // satisfied leaves the sketch untouched (atomic operation). s.geometry
+      // and s.constraints are only adopted once the solve verifies.
       final gs = List<Geo>.from(s.geometry);
       res.repl.forEach((i, g) => gs[i] = g);
       final newIdx = gs.length;
       gs.addAll(res.adds); // already carries the picked entities' layer
+      final cons = List<Constraint>.from(s.constraints);
+
+      // CRITICAL: the two picked edges usually meet at a shared corner held by
+      // a coincidence (every rectangle/polygon corner is one). The fillet/
+      // chamfer SPLITS that corner into two distinct tangent points joined by
+      // the new arc/line, so the old corner coincidence must be dropped — left
+      // in place it forces the new segment's two ends onto the same point
+      // (length 0) while its dimension demands a real length, and the whole
+      // sketch diverges. This was the "chamfer scrambles everything / line runs
+      // over the fillet" bug. Only a DIRECT coincidence between the two moved
+      // corner points is removed; unrelated coincidences are kept.
+      final (e1, p1s) = res.seams[0];
+      final (e2, p2s) = res.seams[1];
+      if (p1s != null && p2s != null) {
+        bool isRef(PRef r, int e, int p) => r.ent == e && r.pt == p;
+        cons.removeWhere((c) =>
+            c.type == CType.coincident &&
+            c.pts.length == 2 &&
+            ((isRef(c.pts[0], e1, p1s) && isRef(c.pts[1], e2, p2s)) ||
+                (isRef(c.pts[0], e2, p2s) && isRef(c.pts[1], e1, p1s))));
+      }
+
       // seams: glue the new arc/line to the trimmed ends + tangency (fillet)
       for (var k = 0; k < 2; k++) {
         final (ent, pt) = res.seams[k];
         if (pt != null) {
-          s.constraints.add(Constraint(CType.coincident,
+          cons.add(Constraint(CType.coincident,
               pts: [PRef(newIdx, res.jointPt(k)), PRef(ent, pt)]));
         }
         if (tool == Tool.fillet) {
-          s.constraints
-              .add(Constraint(CType.tangent, ents: [newIdx, ent]));
+          cons.add(Constraint(CType.tangent, ents: [newIdx, ent]));
         }
       }
-      // Inventor's dimension/equal chain
-      final chainable = tool == Tool.fillet || f.mode == 0;
-      if (chainable) {
+
+      // Dimensions. Fillet: radius on the first of a value, equal-chain for the
+      // rest (Inventor's fillet chain). Chamfer: the two LEG extents (x and y
+      // of the chamfer line's endpoints), NOT the diagonal — Inventor's
+      // "aligned dimensions of the setback distance". For an axis-aligned corner
+      // these are exactly the two setbacks; for a rotated corner they are the
+      // bounding extents and still fully drive the chamfer.
+      final g0 = res.adds.first;
+      var advancedFirst = false;
+      if (tool == Tool.fillet) {
         if (f.firstIdx == null) {
-          f.firstIdx = newIdx;
-          final g0 = res.adds.first;
-          if (tool == Tool.fillet) {
-            s.constraints.add(Constraint(CType.dimension,
-                ents: [newIdx],
-                dimKind: 'rad',
-                value: f.radius,
-                textPos: Offset(g0.data[0], g0.data[1])));
-          } else {
-            s.constraints.add(Constraint(CType.dimension,
-                pts: [PRef(newIdx, 0), PRef(newIdx, 1)],
-                dimKind: 'dist',
-                value: (Offset(g0.data[0], g0.data[1]) -
-                        Offset(g0.data[2], g0.data[3]))
-                    .distance,
-                textPos: Offset((g0.data[0] + g0.data[2]) / 2,
-                    (g0.data[1] + g0.data[3]) / 2)));
-          }
+          advancedFirst = true;
+          cons.add(Constraint(CType.dimension,
+              ents: [newIdx],
+              dimKind: 'rad',
+              value: f.radius,
+              textPos: Offset(g0.data[0], g0.data[1])));
         } else if (f.firstIdx! < gs.length) {
-          s.constraints
-              .add(Constraint(CType.equal, ents: [f.firstIdx!, newIdx]));
+          cons.add(Constraint(CType.equal, ents: [f.firstIdx!, newIdx]));
         }
+      } else {
+        // chamfer: distx + disty on the two endpoints of the chamfer line
+        final ax = g0.data[0], ay = g0.data[1], bx = g0.data[2], by = g0.data[3];
+        cons.add(Constraint(CType.dimension,
+            pts: [PRef(newIdx, 0), PRef(newIdx, 1)],
+            dimKind: 'distx',
+            value: (bx - ax).abs(),
+            textPos: Offset((ax + bx) / 2, math.min(ay, by) - 6)));
+        cons.add(Constraint(CType.dimension,
+            pts: [PRef(newIdx, 0), PRef(newIdx, 1)],
+            dimKind: 'disty',
+            value: (by - ay).abs(),
+            textPos: Offset(math.max(ax, bx) + 6, (ay + by) / 2)));
       }
+
+      // Verify on the local copies. If the operation cannot be satisfied (or
+      // produced a degenerate entity), roll back completely — the sketch, and
+      // anything else in it (a slot built earlier), is left exactly as it was.
+      final ok = solveConstraints(gs, cons);
+      if (!ok) {
+        Log.w('modify',
+            '${tool.name} at e$e1/e$e2 REJECTED — result cannot be satisfied; '
+            'rolling back');
+        toast(tool == Tool.fillet
+            ? 'That fillet would break the sketch — pick a valid corner or a '
+                'smaller radius.'
+            : 'That chamfer would break the sketch — pick a valid corner or '
+                'smaller distances.');
+        return; // s.geometry / s.constraints untouched
+      }
+      if (tool == Tool.fillet && advancedFirst) f.firstIdx = newIdx;
       Log.i('modify',
-          '${tool.name} at e${res.seams[0].$1}/e${res.seams[1].$1} -> e$newIdx'
-          '${f.firstIdx == newIdx ? " (dimensioned)" : " (equal-chained)"}');
-      solveConstraints(gs, s.constraints);
+          '${tool.name} at e$e1/e$e2 -> e$newIdx'
+          '${tool == Tool.fillet && f.firstIdx == newIdx ? " (dimensioned)" : ""}');
+      s.constraints
+        ..clear()
+        ..addAll(cons);
       _rebuildEngine(s, gs);
       return;
     }
@@ -2656,6 +2777,7 @@ class AppState extends ChangeNotifier {
       Log.i('layer', 'commit ${placed.length} entities onto "$layer"');
       final gs = List<Geo>.from(s.geometry)..addAll(placed);
       final firstNew = s.geometry.length;
+      final consAtCommitStart = s.constraints.length;
       final isRect = tool == Tool.rectTwoPoint ||
           tool == Tool.rect3P ||
           tool == Tool.rect2PC ||
@@ -2690,12 +2812,17 @@ class AppState extends ChangeNotifier {
           placed.length == 4) {
         // Inventor's linear slot: [line1, line2, cap1, cap2] where cap1
         // runs line1.p0 -> line2.p1 and cap2 runs line2.p0 -> line1.p1
-        // (see _linearSlot). Constraints exactly like Inventor: coincident
-        // + tangent at all four seams, the cap radii equal, the rails
-        // parallel (implied by the tangencies, kept for Inventor's glyphs —
-        // redundant rows are rank-neutral for the LM solver and the DOF
-        // analysis). A slot then has exactly 5 DOF: position, rotation,
-        // length, radius.
+        // (see _linearSlot). Constraints: coincident + tangent at all four
+        // seams, the cap radii equal. Rail parallelism is IMPLIED by the
+        // tangencies (measured with the app's own residuals: 14 equations
+        // incl. parallel have rank 13 — parallel is a redundant row that
+        // makes the LM normal equations singular and libslvs flag the
+        // sketch inconsistent, which is what made slot drags flicker and
+        // collapse). Inventor itself refuses redundant constraints ("You
+        // cannot overconstrain a sketch"), so the minimal set IS the
+        // Inventor-faithful one. Result: 13 independent equations on 18
+        // params — exactly the 5 slot DOF (position, rotation, length,
+        // radius).
         final l1 = firstNew, l2 = firstNew + 1, c1 = firstNew + 2,
             c2 = firstNew + 3;
         s.constraints.addAll([
@@ -2708,14 +2835,18 @@ class AppState extends ChangeNotifier {
           Constraint(CType.tangent, ents: [l1, c2]),
           Constraint(CType.tangent, ents: [l2, c2]),
           Constraint(CType.equal, ents: [c1, c2]),
-          Constraint(CType.parallel, ents: [l1, l2]),
         ]);
       } else if ((tool == Tool.slot3A || tool == Tool.slotCPA) &&
           placed.length == 4) {
         // Inventor's arc slot: [outer, inner, capA, capB]; capA runs
         // outer.start -> inner.start, capB inner.end -> outer.end (see
-        // _arcSlot). Rails concentric, coincident + tangent at the seams,
-        // caps equal — 6 DOF: center, rail radius, cap radius, two sweeps.
+        // _arcSlot). Rails concentric, coincident + tangent at the seams.
+        // Cap-radius equality is IMPLIED (each cap radius is exactly
+        // (R_outer - R_inner)/2 once it is tangent to both concentric rails
+        // with its ends on them; measured: 15 equations incl. equal have
+        // rank 14). The redundant row is dropped for the same reason as the
+        // linear slot's parallel — 14 independent equations on 20 params =
+        // the 6 arc-slot DOF (center, rail radius, cap radius, two sweeps).
         final o = firstNew, inn = firstNew + 1, ca = firstNew + 2,
             cb = firstNew + 3;
         s.constraints.addAll([
@@ -2728,7 +2859,6 @@ class AppState extends ChangeNotifier {
           Constraint(CType.tangent, ents: [inn, ca]),
           Constraint(CType.tangent, ents: [o, cb]),
           Constraint(CType.tangent, ents: [inn, cb]),
-          Constraint(CType.equal, ents: [ca, cb]),
         ]);
       } else if (tool == Tool.circleTangent && placed.length == 1) {
         // Inventor's tangent circle: TANGENT to each of the three picked
@@ -2767,8 +2897,21 @@ class AppState extends ChangeNotifier {
           placed[0].spline == Geo.ellipseTag) {
         _addEllipseAxes(s, gs, firstNew, layer);
       }
-      solveConstraints(gs, s.constraints);
-      _rebuildEngine(s, gs);
+      // Constructions place their geometry ALREADY satisfying their auto-
+      // constraints (residual ~1e-14), so this solve is a formality that tidies
+      // last-digit noise. If it ever reports failure (a genuine bug upstream),
+      // never throw the user's shape away: commit the as-drawn geometry and
+      // drop the auto-constraints this commit added, loudly.
+      final preSolve = List<Geo>.from(gs);
+      final consBefore2 = consAtCommitStart;
+      if (!solveConstraints(gs, s.constraints)) {
+        Log.e('tool', 'construction auto-constraints unsatisfied for $tool — '
+            'committing as drawn WITHOUT them');
+        s.constraints.removeRange(consBefore2, s.constraints.length);
+        _rebuildEngine(s, preSolve);
+      } else {
+        _rebuildEngine(s, gs);
+      }
     }
     // CAD-style chaining for plain lines: next line starts at the endpoint
     if (tool == Tool.line && toolPoints.length >= 2) {
@@ -3062,6 +3205,14 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       // throw here — a RangeError in paintGeo aborts the whole CustomPainter
       // and blanks every entity after it. Treat a missing flag as not-reversed.
       final reversed = g.data.length > 5 && g.data[5] != 0;
+      // Last line of defence against degenerate arcs (r <= 0 or ~zero sweep):
+      // upstream gates should never let them through, but if one slips in,
+      // draw a minimal visible dot instead of drawArc(sweep≈0), which renders
+      // NOTHING and makes the entity look deleted (the slot-flicker symptom).
+      if (!(r > 0)) {
+        canvas.drawCircle(c, 1.5, p);
+        break;
+      }
       double norm(double x) {
         var v = x % (2 * math.pi);
         if (v < 0) v += 2 * math.pi;
@@ -3069,7 +3220,11 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       }
 
       // world sweep: CCW (positive) if not reversed, CW (negative) otherwise
-      final sweep = reversed ? -norm(a1 - a2) : norm(a2 - a1);
+      var sweep = reversed ? -norm(a1 - a2) : norm(a2 - a1);
+      if (sweep.abs() < 1e-6) {
+        canvas.drawCircle(c, math.max(1.5, r.clamp(0, 3.0)), p);
+        break;
+      }
       // world angles are CCW with y-up; screen y is flipped -> negate both
       canvas.drawArc(
           Rect.fromCircle(center: c, radius: r), -a1, -sweep, false, p);

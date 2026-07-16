@@ -343,6 +343,50 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
           final outer = c1.$2 + c2.$2;
           final inner = (c1.$2 - c2.$2).abs();
           ctx.mode[i] = (d - outer).abs() <= (d - inner).abs() ? 1 : 0;
+          break;
+        }
+        // line + circle/arc (direct or polygon-edge variant): freeze WHICH
+        // SIDE of the line the center sits on. The naked |dist| - r has two
+        // branches (center left/right of the line) and a kink at dist = 0;
+        // under a drag the solver could hop branches between frames, which is
+        // exactly how a slot collapses onto itself (both rails "tangent" from
+        // the same side). Fixing the sign per solve makes the residual smooth
+        // AND pins the topology — same policy as pline/PROJ dims below and as
+        // the shim's signed PT_LINE_DISTANCE.
+        Offset? la, lb, cCen;
+        if (c.pts.length >= 2 &&
+            (gs[c.ents[0]].type == Geo.polyline ||
+                gs[c.ents[1]].type == Geo.polyline)) {
+          final circE =
+              gs[c.ents[0]].type == Geo.polyline ? c.ents[1] : c.ents[0];
+          final cc = _circle(gs, off, x, circE);
+          if (cc != null) {
+            la = _pointAt(gs, off, x, c.pts[0]);
+            lb = _pointAt(gs, off, x, c.pts[1]);
+            cCen = cc.$1;
+          }
+        } else {
+          final lineFirst = gs[c.ents[0]].type == Geo.line;
+          final lineE = lineFirst ? c.ents[0] : c.ents[1];
+          final circE = lineFirst ? c.ents[1] : c.ents[0];
+          if (gs[lineE].type == Geo.line) {
+            final l = _lineEnds(gs, off, x, lineE);
+            final cc = _circle(gs, off, x, circE);
+            if (l != null && cc != null) {
+              la = l.$1;
+              lb = l.$2;
+              cCen = cc.$1;
+            }
+          }
+        }
+        if (la != null && lb != null && cCen != null) {
+          final d = lb - la;
+          final len = d.distance;
+          if (len > 1e-12) {
+            final n = Offset(-d.dy, d.dx) / len;
+            final dist = (cCen - la).dx * n.dx + (cCen - la).dy * n.dy;
+            ctx.sign[i] = dist < 0 ? -1.0 : 1.0;
+          }
         }
         break;
       case CType.dimension:
@@ -665,7 +709,8 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
     }
     final n = Offset(-de.dy, de.dx) / len;
     final dist = (cc.$1 - ea).dx * n.dx + (cc.$1 - ea).dy * n.dy;
-    r.add(dist.abs() - cc.$2);
+    // signed via ctx (side frozen in _prepare); smooth, branch-stable
+    r.add((ctx.sign[i] ?? (dist < 0 ? -1.0 : 1.0)) * dist - cc.$2);
     return;
   }
 
@@ -702,7 +747,8 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
   }
   final n = Offset(-d.dy, d.dx) / len;
   final dist = (cc.$1 - l.$1).dx * n.dx + (cc.$1 - l.$1).dy * n.dy;
-  r.add(dist.abs() - cc.$2);
+  // signed via ctx (side frozen in _prepare); smooth, branch-stable
+  r.add((ctx.sign[i] ?? (dist < 0 ? -1.0 : 1.0)) * dist - cc.$2);
 }
 
 void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
@@ -798,6 +844,33 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
 // ---------------------------------------------------------------------------
 /// Rank of [m] (rows x cols) by Gaussian elimination with partial pivoting.
 /// Also returns the pivot columns.
+/// (rank, equations, params) of the ACTIVE constraint system at the current
+/// geometry — the ground truth for redundancy checks in tests and diagnostics:
+/// `equations - rank` is the number of redundant rows (must be 0 for every
+/// deterministic construction, or the LM normal equations go singular and the
+/// native solver flags the sketch inconsistent).
+(int, int, int) debugRank(List<Geo> gs, List<Constraint> cs) {
+  final off = _offsets(gs);
+  final total = off.last;
+  final x = _pack(gs);
+  final ctx = _Ctx();
+  _prepare(gs, off, x, cs, ctx);
+  final r = _residuals(gs, off, x, cs, ctx);
+  if (r.isEmpty || total == 0) return (0, r.length, total);
+  final j = List.generate(r.length, (_) => List<double>.filled(total, 0.0));
+  for (var k = 0; k < total; k++) {
+    final h = 1e-6 * (1 + x[k].abs());
+    final save = x[k];
+    x[k] = save + h;
+    final r2 = _residuals(gs, off, x, cs, ctx);
+    x[k] = save;
+    for (var i = 0; i < r.length; i++) {
+      j[i][k] = (r2[i] - r[i]) / h;
+    }
+  }
+  return (_rankAndPivots(j, r.length, total).$1, r.length, total);
+}
+
 (int, List<int>) _rankAndPivots(List<List<double>> m, int rows, int cols) {
   var row = 0;
   final pivots = <int>[];
@@ -892,6 +965,41 @@ double _norm(List<double> v) {
 // ---------------------------------------------------------------------------
 int _pkey(int e, int p) => e * 100000 + p;
 
+/// For a tangent constraint between two entities of which at least one is an
+/// arc (and none is a circle/spline): determines at WHICH end each arc meets
+/// its partner, by comparing endpoint coordinates. Returns a bitfield for the
+/// shim (bit 0: ents[0]'s arc joins at its END; bit 1: ents[1]'s arc likewise;
+/// a line contributes 0), or null when an arc participant shares NO endpoint
+/// with its partner — such a tangency has no anchor in libslvs and must stay
+/// on the Dart solver.
+int? _tangentSeamFlags(List<Geo> gs, Constraint c) {
+  const tol = 1e-6;
+  final e1 = c.ents[0], e2 = c.ents[1];
+  List<Offset> ends(int e) {
+    final g = gs[e];
+    if (g.type == Geo.line) {
+      return [getPt(g, 0), getPt(g, 1)];
+    }
+    return [getPt(g, 1), getPt(g, 2)]; // arc: start, end
+  }
+
+  final a = ends(e1), b = ends(e2);
+  int? endOf(int e, List<Offset> own, List<Offset> other) {
+    if (gs[e].type != Geo.arc) return 0; // lines carry no flag
+    for (var i = 0; i < 2; i++) {
+      for (final q in other) {
+        if ((own[i] - q).distance <= tol) return i; // 0 = start, 1 = end
+      }
+    }
+    return null; // no shared endpoint
+  }
+
+  final f1 = endOf(e1, a, b);
+  final f2 = endOf(e2, b, a);
+  if (f1 == null || f2 == null) return null;
+  return f1 | (f2 << 1);
+}
+
 bool _trySolveWithSlvs(
     List<Geo> gs, List<Constraint> cs, Set<(int, int)> dragged) {
   final ffi = SlvsFfi.instance();
@@ -924,6 +1032,36 @@ bool _trySolveWithSlvs(
       // sketch goes to the verified Dart LM solver.
       if (Log.every('slvs-bail', 2000)) {
         Log.d('slvs', 'bail: tangent with spline is LM-only');
+      }
+      return false;
+    }
+    if (c.type == CType.tangent && c.ents.length >= 2) {
+      // SolveSpace's tangencies are endpoint-anchored (ARC_LINE_TANGENT /
+      // CURVE_CURVE_TANGENT). Anything they cannot express goes to the Dart
+      // LM solver instead of being packed WRONG:
+      //  * circles have no endpoints — libslvs has no free-radius line/circle
+      //    tangency, and CURVE_CURVE_TANGENT ssasserts on a circle entity;
+      //  * an arc tangency with NO shared endpoint has no anchor to pick.
+      if (c.ents.any((e) => e < gs.length && gs[e].type == Geo.circle)) {
+        if (Log.every('slvs-bail', 2000)) {
+          Log.d('slvs', 'bail: circle tangency is LM-only (no endpoint '
+              'anchor in libslvs)');
+        }
+        return false;
+      }
+      if (_tangentSeamFlags(gs, c) == null) {
+        if (Log.every('slvs-bail', 2000)) {
+          Log.d('slvs', 'bail: tangent without a shared endpoint is LM-only');
+        }
+        return false;
+      }
+    }
+    if (c.type == CType.tangent && ffi.version < 3) {
+      // Shim v3 introduced the seam-end flag. An older binary anchors every
+      // tangency at the arc START — a wrong equation for end-side seams — so
+      // do not feed it tangencies at all.
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: tangent needs shim>=3, have ${ffi.version}');
       }
       return false;
     }
@@ -1058,7 +1196,10 @@ bool _trySolveWithSlvs(
         break;
       case CType.tangent:
         if (c.ents.length >= 2) {
-          s.addCon(Sh.tangent, e1: eOf(c.ents[0]), e2: eOf(c.ents[1]));
+          // seam flags precomputed; the bail block above guarantees non-null
+          final flags = _tangentSeamFlags(gs, c) ?? 0;
+          s.addCon(Sh.tangent,
+              e1: eOf(c.ents[0]), e2: eOf(c.ents[1]), val: flags.toDouble());
         }
         break;
       case CType.midpoint:
@@ -1239,8 +1380,69 @@ bool _trySolveWithSlvs(
   return true;
 }
 
-/// Residual norm below which the constraints count as satisfied (world units).
+/// Residual norm below which the constraints count as FULLY satisfied
+/// (converged to machine precision, world units).
 const _satisfied = 1e-6;
+
+/// Residual norm below which a solve is "good enough to show / keep": the
+/// geometry is visually correct even if the last LM step left sub-pixel
+/// residuals. Above this the solver FAILED to hold the constraints for this
+/// configuration (a diverged frame, a broken operation) and the result must
+/// never reach the renderer or a commit. Good frames sit at ~1e-12; a
+/// divergence is orders of magnitude larger, so this cleanly separates them.
+const _renderable = 1e-2;
+
+/// The residual norm of the ACTIVE (driving) constraints at the current packed
+/// state. Driven/reference dimensions contribute nothing (residualCount == 0),
+/// exactly like both solve paths, so this measures only what the solver must
+/// actually hold.
+double constraintResidualNorm(List<Geo> gs, List<Constraint> cs) {
+  if (gs.isEmpty || cs.isEmpty) return 0;
+  final off = _offsets(gs);
+  final x = _pack(gs);
+  final ctx = _Ctx();
+  _prepare(gs, off, x, cs, ctx);
+  final r = _residuals(gs, off, x, cs, ctx);
+  return r.isEmpty ? 0 : _norm(r);
+}
+
+/// True when [gs] contains a DEGENERATE entity that Skia would drop silently
+/// (blanking it) or draw as garbage: a zero-length line, a zero-sweep or
+/// non-positive-radius arc, a non-positive-radius circle. This is the last line
+/// of defence so a numeric mishap can never masquerade as "geometry vanished"
+/// or "geometry drawn across everything". The real fix for any given case is
+/// upstream (don't produce it); this only stops it from reaching the screen.
+bool hasDegenerateGeometry(List<Geo> gs) {
+  double norm2pi(double x) {
+    var v = x % (2 * math.pi);
+    if (v < 0) v += 2 * math.pi;
+    return v;
+  }
+
+  for (final g in gs) {
+    switch (g.type) {
+      case Geo.line:
+        final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
+        if (dx * dx + dy * dy < 1e-12) return true;
+        break;
+      case Geo.circle:
+        if (!(g.data[2] > 1e-9)) return true;
+        break;
+      case Geo.arc:
+        if (!(g.data[2] > 1e-9)) return true;
+        final rev = g.data.length > 5 && g.data[5] != 0;
+        final sweep =
+            rev ? norm2pi(g.data[3] - g.data[4]) : norm2pi(g.data[4] - g.data[3]);
+        // a true full circle is stored as a circle, so a ~0 or ~2π sweep on an
+        // arc means the solve collapsed it
+        if (sweep < 1e-6 || sweep > 2 * math.pi - 1e-6) return true;
+        break;
+      case Geo.polyline:
+        break; // a collapsed segment is caught when it is used as a line
+    }
+  }
+  return false;
+}
 
 
 // ---------------------------------------------------------------------------
@@ -1323,28 +1525,37 @@ List<Constraint> _withProjectionPins(List<Geo> gs, List<Constraint> cs) {
   return out;
 }
 
-void solveConstraints(List<Geo> gs, List<Constraint> cs,
+/// Solves [gs] in place under [cs]. Returns true iff the result actually holds
+/// the driving constraints (residual within [_renderable]) AND is free of
+/// non-finite or degenerate geometry — i.e. iff it is safe to SHOW or COMMIT.
+/// A false return means the caller is looking at a failed/diverged solve and
+/// must fall back to its last-good state (the drag keeps the committed sketch;
+/// a commit rolls the operation back). On non-finite/throw the pre-solve
+/// snapshot is restored and false is returned.
+bool solveConstraints(List<Geo> gs, List<Constraint> cs,
     {Set<(int, int)> dragged = const {}, int iterations = 80}) {
-  _solveConstraintsInner(gs, cs, dragged: dragged, iterations: iterations);
+  final ok = _solveConstraintsInner(gs, cs,
+      dragged: dragged, iterations: iterations);
   // ...and sync AGAIN afterwards: the pins hold each projection at its
   // source's PRE-solve position, so when the solve itself moves the source
   // (a dimension edit on the source layer) the projection would lag one
   // solve behind — snap it to where the source actually ended up.
   syncProjections(gs);
+  return ok;
 }
 
-void _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
+bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
     // 25 iterations left visibly unconverged residuals (~0.3% of the entity
     // size) on systems the slvs shim bails on — e.g. an ellipse whose axes
     // hang on symmetric constraints. 80 costs little (small dense systems,
     // and the loop exits early once err <= _satisfied) and converges those.
     {Set<(int, int)> dragged = const {}, int iterations = 80}) {
-  if (gs.isEmpty) return;
+  if (gs.isEmpty) return true;
   // projections first: sync to their sources, then pin them there — every
   // call site (drags, dimension edits, redundancy checks) gets this for free
   syncProjections(gs);
   cs = _withProjectionPins(gs, cs);
-  if (cs.isEmpty) return;
+  if (cs.isEmpty) return true;
 
   // The drag solves at ~60 Hz, so the routine lines are throttled. Anomalies
   // are never throttled.
@@ -1391,7 +1602,7 @@ void _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
     for (var i = 0; i < gs.length; i++) {
       gs[i] = snapshot[i];
     }
-    return;
+    return false;
   }
 
   // A solve must NEVER hand back garbage. NaN/Inf coordinates (or a
@@ -1406,11 +1617,25 @@ void _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
     for (var i = 0; i < gs.length; i++) {
       gs[i] = snapshot[i];
     }
-    return;
+    return false;
   }
+  // Even a finite result can be WRONG: a rank-deficient or contradictory system
+  // lets LM (or a rejected native result's fallback) settle far from the
+  // constraint manifold — a 2.2×-radius arc, a zero-sweep cap. Those are finite,
+  // so the check above passes, and they used to be rendered/committed as-is
+  // (the "slot flickers, chamfer scrambles the sketch" bug). Report whether the
+  // solve actually holds the constraints and is non-degenerate; the caller
+  // decides whether to keep it. The geometry is left at the solver's best
+  // effort so a caller that wants best-effort can still use it.
+  final resid = constraintResidualNorm(gs, cs);
+  final ok = resid <= _renderable && !hasDegenerateGeometry(gs);
   if (chatty) {
-    Log.d('solve', 'done via $path maxAbs=${maxAbs(gs).toStringAsFixed(3)}');
+    Log.d(
+        'solve',
+        'done via $path maxAbs=${maxAbs(gs).toStringAsFixed(3)} '
+        'resid=${resid.toStringAsExponential(2)} ok=$ok');
   }
+  return ok;
 }
 
 /// One Levenberg-Marquardt run; [frozen] points keep their parameters. Returns
