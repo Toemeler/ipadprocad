@@ -28,7 +28,21 @@ extern "C" {
 #define SH_COLLINEAR      7   /* lines e1,e2                                 */
 #define SH_CONCENTRIC     8   /* circles/arcs e1,e2                          */
 #define SH_EQUAL          9   /* e1,e2 (two lines or two circles/arcs)       */
-#define SH_TANGENT        10  /* e1,e2 (arc/circle + line, or two curves)    */
+#define SH_TANGENT        10  /* e1,e2. Arc + line, or arc + arc, tangent AT A
+                                 SHARED ENDPOINT (SolveSpace's ARC_LINE_TANGENT
+                                 / CURVE_CURVE_TANGENT are endpoint-anchored).
+                                 val encodes WHICH end of each arc carries the
+                                 seam, chosen by the caller from the actual
+                                 geometry:
+                                   bit 0: arc of e1 joins at its END (1) or
+                                          START (0)
+                                   bit 1: arc of e2 likewise
+                                 Lines ignore their bit. Shim version >= 3;
+                                 older shims anchored everything at the arc
+                                 START, which is a wrong equation whenever the
+                                 seam is at the END (fillet arcs, slot caps).
+                                 Circles have no endpoints: the caller must
+                                 NOT send circle tangency (Dart bails to LM). */
 #define SH_SYMMETRIC      11  /* points a,b about line e1                    */
 #define SH_MIDPOINT       12  /* point a is midpoint of line e1              */
 #define SH_DISTANCE       13  /* |a b| = val                                 */

@@ -20,7 +20,7 @@ static double paramVal(const Slvs_System *s, Slvs_hParam h) {
 /* v2: SH_PT_LINE_DIST (perpendicular point-to-line distance dimension). The
  * Dart side gates on this: a binary older than 2 sends those sketches to the
  * Dart LM solver instead, so the dimension is never silently dropped. */
-int slvs_shim_version(void) { return 2; }
+int slvs_shim_version(void) { return 3; }
 
 const char* slvs_shim_id(void) { return "iPadProCAD SLVS shim v2"; }
 
@@ -200,16 +200,36 @@ int slvs_solve(
             else
                 ADDC(SLVS_C_EQUAL_LENGTH_LINES, 0, 0, 0, ENT(e1), ENT(e2));
             break;
-        case SH_TANGENT:
-            if (ENT_IS_CURVE(e1) && ENT_IS_CURVE(e2))
+        case SH_TANGENT: {
+            /* SolveSpace's tangencies are ENDPOINT-ANCHORED: ARC_LINE_TANGENT
+             * makes the line perpendicular to the arc's radius at point[other
+             * ? 2 : 1]; CURVE_CURVE_TANGENT does the same per curve via
+             * other/other2 (constrainteq.cpp). The caller inspected the real
+             * geometry and tells us which end each arc's seam is on (val bit 0
+             * for e1's arc, bit 1 for e2's arc). The old shim hardcoded
+             * other = 0 (START) — a wrong equation whenever the seam sits at
+             * the END, which is every second slot-cap seam and half of all
+             * fillet arcs. Circles never reach this code (no endpoints; the
+             * Dart side keeps circle tangency on its own solver).
+             */
+            int flags = (int)v;
+            int e1IsArc = (refKind(e1) == 3);
+            int e2IsArc = (refKind(e2) == 3);
+            if (e1IsArc && e2IsArc) {
                 ADDC(SLVS_C_CURVE_CURVE_TANGENT, 0, 0, 0, ENT(e1), ENT(e2));
-            else {
-                /* order as (arc/circle, line) for ARC_LINE_TANGENT */
-                int ce = ENT_IS_CURVE(e1) ? e1 : e2;
-                int le = ENT_IS_CURVE(e1) ? e2 : e1;
+                sys.constraint[sys.constraints - 1].other  = (flags & 1) != 0;
+                sys.constraint[sys.constraints - 1].other2 = (flags & 2) != 0;
+            } else {
+                /* order as (arc, line) for ARC_LINE_TANGENT; carry the arc's
+                 * seam-end flag along with it */
+                int ce   = e1IsArc ? e1 : e2;
+                int le   = e1IsArc ? e2 : e1;
+                int aEnd = e1IsArc ? (flags & 1) : ((flags & 2) >> 1);
                 ADDC(SLVS_C_ARC_LINE_TANGENT, 0, 0, 0, ENT(ce), ENT(le));
+                sys.constraint[sys.constraints - 1].other = aEnd != 0;
             }
             break;
+        }
         case SH_SYMMETRIC:
             ADDC(SLVS_C_SYMMETRIC_LINE, 0, pa, pb, ENT(e1), 0); break;
         case SH_MIDPOINT:
