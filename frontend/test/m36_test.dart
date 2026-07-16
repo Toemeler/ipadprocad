@@ -28,7 +28,7 @@ int count(SketchModel s, CType t) =>
 
 void main() {
   group('slot auto-constraints (Inventor)', () {
-    test('linear slot: coincident/tangent seams, equal caps, parallel rails',
+    test('linear slot: coincident/tangent seams, equal caps — rank-perfect',
         () {
       final app = makeApp();
       final s = app.current!;
@@ -40,9 +40,15 @@ void main() {
       expect(count(s, CType.coincident), 4);
       expect(count(s, CType.tangent), 4);
       expect(count(s, CType.equal), 1);
-      expect(count(s, CType.parallel), 1);
-      // a slot has exactly 5 DOF: position, rotation, length, radius —
-      // the redundant parallel row must be rank-neutral
+      // NO explicit parallel: rail parallelism is implied by the tangencies.
+      // The old redundant parallel row made the LM normal equations singular
+      // and libslvs flag the sketch inconsistent — the slot-drag flicker bug.
+      expect(count(s, CType.parallel), 0);
+      final (rank, eqs, params) = debugRank(s.geometry, s.constraints);
+      expect(eqs - rank, 0, reason: 'construction must be redundancy-free');
+      expect(params - rank, 5,
+          reason: 'slot DOF: position(2) + rotation + length + radius');
+      // a slot has exactly 5 DOF: position, rotation, length, radius
       expect(analyzeSketch(s.geometry, s.constraints).dof, 5);
     });
 
@@ -70,7 +76,8 @@ void main() {
       expect(cross.abs(), lessThan(1e-3));
     });
 
-    test('arc slot: concentric rails + seams + equal caps, 6 DOF', () {
+    test('arc slot: concentric rails + seams, caps equal by implication, 6 DOF',
+        () {
       final app = makeApp();
       final s = app.current!;
       app.tool = Tool.slot3A;
@@ -82,8 +89,17 @@ void main() {
       expect(count(s, CType.concentric), 1);
       expect(count(s, CType.coincident), 4);
       expect(count(s, CType.tangent), 4);
-      expect(count(s, CType.equal), 1);
+      // NO explicit equal: with concentric rails + both caps tangent to both
+      // rails with their ends on them, each cap radius is forced to
+      // (R_outer - R_inner)/2 — the equal row was measured redundant (rank
+      // deficit 1) and made the solver unstable, exactly like the linear
+      // slot's parallel.
+      expect(count(s, CType.equal), 0);
+      final (rank, eqs, _) = debugRank(s.geometry, s.constraints);
+      expect(eqs - rank, 0, reason: 'construction must be redundancy-free');
       expect(analyzeSketch(s.geometry, s.constraints).dof, 6);
+      // ...and the equality still HOLDS functionally
+      expect(s.geometry[2].data[2], closeTo(s.geometry[3].data[2], 1e-6));
     });
 
     test('tangent circle gets tangent to all three picked lines', () {
@@ -238,7 +254,7 @@ void main() {
       return app;
     }
 
-    test('equal distance: trim + coincident + length dim, then equal chain',
+    test('equal distance: trim + coincident + x/y setback dims (Inventor)',
         () {
       final app = corner();
       final s = app.current!;
@@ -255,14 +271,25 @@ void main() {
       expect(Offset(ch.data[0], ch.data[1]), const Offset(5, 0));
       expect(Offset(ch.data[2], ch.data[3]), const Offset(0, 5));
       expect(count(s, CType.coincident), 2);
+      // Inventor dimensions the chamfer's SETBACKS (the x/y legs), never the
+      // diagonal — a 5×5 chamfer reads "5 / 5", not "7.07".
       final dims =
           s.constraints.where((c) => c.type == CType.dimension).toList();
-      expect(dims, hasLength(1));
-      expect(dims[0].dimKind, 'dist');
-      expect(dims[0].value, closeTo(5 * math.sqrt2, 1e-6));
+      expect(dims, hasLength(2));
+      expect(dims.map((d) => d.dimKind).toSet(), {'distx', 'disty'});
+      for (final d in dims) {
+        expect(d.value, closeTo(5, 1e-6));
+      }
+      // the whole result must be exactly satisfiable (rank-perfect) — the old
+      // implementation left the corner coincidence in place, which contradicted
+      // the dimension and made the entire sketch diverge
+      final (rank, eqs, _) = debugRank(s.geometry, s.constraints);
+      expect(eqs - rank, 0, reason: 'no redundant/contradictory rows');
+      expect(constraintResidualNorm(s.geometry, s.constraints),
+          lessThan(1e-6));
     });
 
-    test('two distances: d1 on the FIRST pick', () {
+    test('two distances: d1 on the FIRST pick, x/y setback dims', () {
       final app = corner();
       final s = app.current!;
       app.selectTool(Tool.chamfer);
@@ -276,8 +303,14 @@ void main() {
       final ch = app.current!.geometry[2];
       expect(Offset(ch.data[0], ch.data[1]), const Offset(8, 0));
       expect(Offset(ch.data[2], ch.data[3]), const Offset(0, 4));
-      expect(count(s, CType.dimension), 0,
-          reason: 'only equal-distance chamfers auto-dimension');
+      final dims =
+          s.constraints.where((c) => c.type == CType.dimension).toList();
+      expect(dims, hasLength(2));
+      final byKind = {for (final d in dims) d.dimKind: d.value};
+      expect(byKind['distx'], closeTo(8, 1e-6));
+      expect(byKind['disty'], closeTo(4, 1e-6));
+      expect(constraintResidualNorm(s.geometry, s.constraints),
+          lessThan(1e-6));
     });
 
     test('distance + angle: chamfer leaves line 1 at the given angle', () {

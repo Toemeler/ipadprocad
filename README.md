@@ -305,3 +305,423 @@ Der vendorte QCAD-Core steht unter GPLv3 (`backend/qcad-core/LICENSE.txt`,
 `gpl-3.0.txt`, `gpl-3.0-exceptions.txt`), `dxflib` unter GPLv2+. Die
 Lizenzkompatibilität mit der finalen App-Distribution ist vor Produktiv-Release
 zu klären.
+
+---
+
+# PRODUKTIONS-AUDIT (Stand M36, Geräte-Log build=befac53)
+
+Tiefenanalyse nach dem ersten echten Geräte-Test mit Slot + Fillet/Chamfer.
+Grundlage: `ipadprocad_log.txt` (59 563 Zeilen, 1 802 WARN), `Sketch1.dxf`,
+`Sketch1_cons.json`, plus statische Analyse des gesamten Frontends. Jede
+Ursache unten ist entweder aus dem Log belegt oder numerisch nachgerechnet
+(die Rechnungen sind reproduzierbar; Kernaussagen in den Fix-Notizen).
+
+**Leitprinzip für die Abarbeitung:** Der Solver darf NIEMALS eine nicht
+erfüllte oder degenerierte Geometrie an den Renderer geben. Konstruktionen
+(Slot, Rechteck, Fillet, Chamfer) dürfen NIEMALS ein rangdefizientes oder
+widersprüchliches Constraint-System erzeugen. Beides ist heute verletzt.
+
+Reihenfolge: erst P0 (macht die App unbrauchbar), dann P1 (falsche Ergebnisse),
+dann P2 (Robustheit/Sicherheit), dann P3 (Inventor-Treue/UX), dann Tests.
+
+## Wurzelursachen der gemeldeten Symptome (alle belegt)
+
+Vier Symptome, drei tiefe Ursachen:
+
+1. **Slot-Drag „extrem buggy, Linie weg, Kreise weg, dann wieder da".**
+   Der Slot bekommt beim Commit (`app_state.dart` ~2701) die Constraints
+   `4× tangent + equal + parallel` auf `[rail1, rail2, cap1, cap2]`. Dieses
+   Set ist **rangdefizient**: der `parallel`-Constraint ist bei zwei über
+   ihre gemeinsamen Tangenten schon gekoppelten Rails eine redundante Zeile
+   (nachgerechnet: 6 Gleichungen, Rang 5 → 1 überzählige Zeile). Der
+   Code-Kommentar behauptet „redundante Zeilen sind rangneutral für den
+   LM-Solver" — das ist FALSCH. Rangdefizit macht `JᵀJ` singulär; die
+   Dämpfung maskiert das in Ruhe, aber unter Drag springt die Lösung pro
+   Frame zwischen den zwei Tangenten-Ästen. libslvs meldet dann pro
+   Frame `VERIFY FAILED` (Residuen im Log: 2.2e-3 bis **1.45e+2**), fällt auf
+   den Dart-LM zurück, der ebenfalls oft `satisfied=false` liefert (19 von 54
+   LM-Läufen im Log). Ergebnis: **finite, aber falsche** Arc-Parameter
+   (Radius springt 54→120, Start≈End-Winkel → Sweep 0).
+   - Warum „verschwindet": ein Arc mit `start==end` rendert `drawArc(sweep=0)`
+     → NICHTS. Ein Arc mit Radius 120 (2.2× zu groß) malt quer über alles
+     („die Linie ging über den Fillet"). Beide sind finite, also greift
+     `allFinite()` NICHT — der Frame wird gemalt. Nächster Frame, Cursor
+     minimal bewegt, Solver trifft den guten Ast → Arc wieder da. Das ist
+     das Flackern.
+   - Zweite Ursache im selben Symptom: **die Display-/Drag-Pfade haben KEIN
+     Residuen-Gate.** `displayGeometry` (`app_state.dart` ~765) ruft
+     `solveConstraints` und malt das Ergebnis, sobald es finite ist — der
+     Rückgabewert von `_lm` (erfüllt ja/nein) wird verworfen. Ein nicht
+     erfüllter Solve wird also gezeigt.
+
+2. **Fillet-Button „tut gar nichts".**
+   Die „Fillet"-Zeile im Create-Panel ist ein `_SmallRow`
+   (`widgets/ribbon.dart` ~339) OHNE `onTap` — nur das winzige ▼ öffnet das
+   Flyout. Ein Tap auf Wort/Icon „Fillet" macht folglich nichts (im Log taucht
+   `Tool.fillet` KEIN einziges Mal auf, `Tool.chamfer` mehrfach). Selbst über
+   das Flyout gestartet, trifft Fillet zwischen zwei Rechteck-Kanten sofort
+   Ursache 3.
+
+3. **Chamfer „geht so", Bemaßung diagonal statt x/y, „Linie über dem Fillet".**
+   Zwei Fehler:
+   - **Ecken-Koinzidenz wird nicht entfernt.** Fillet/Chamfer trimmt die zwei
+     gepickten Entities und klebt das neue Segment per NEUER Koinzidenz an die
+     getrimmten Enden — entfernt aber die BESTEHENDE Koinzidenz der alten Ecke
+     NICHT (`_commitTool` ~2572 ff. addiert nur, es gibt kein
+     `remapAfterReplace` wie bei Trim/Split). Bei zwei benachbarten
+     Rechteck-Kanten `e2,e3` mit `coincident(e2.p1,e3.p0)` bleibt diese
+     Koinzidenz stehen; die neuen `coincident(e9.p0,e2.p1)` +
+     `coincident(e9.p1,e3.p0)` erzwingen dann `e9.p0 == e9.p1` → das
+     Chamfer-Segment kollabiert auf Länge 0, während die `dist`-Bemaßung 7.07
+     verlangt → **unerfüllbar** → der gesamt-Sketch-LM divergiert (Log direkt
+     nach dem Chamfer: `lm ... err=3.54e+0 satisfied=false`, dann Arc-Radius
+     120). Das ist die „Linie über dem Fillet" und der Grund, warum der Chamfer
+     obendrein den zuvor gebauten Slot mitzerreißt (ein LM über den GANZEN
+     Sketch).
+   - **Bemaßung ist die Hypotenuse statt der Schenkel.** `_commitTool` legt für
+     den Chamfer EINE `dist`-Bemaßung zwischen den zwei Endpunkten der
+     Chamfer-Linie an — also die Diagonale. Inventor bemaßt den Chamfer über
+     die Schenkel-Setbacks (Abstand Eck-Schnittpunkt → Trimmpunkt je Linie);
+     Equal-Distance = ein Setback-Maß + Equal-Glyphen, Two-Distance = zwei
+     Setback-Maße (Autodesk „Create sketch chamfer": aligned dimensions of the
+     setback distance). Der Nutzer hat recht.
+
+4. **Systemischer Verstärker:** `_lm(...)`-Rückgabe wird an DREI Stellen
+   ignoriert (`solver.dart` ~1381/1385 und der Drag-Relaxed-Pfad). Divergierte,
+   nicht erfüllte Geometrie wird dadurch gerendert UND committet, statt
+   verworfen zu werden. Ohne dieses Leck wären Symptom 1 und 3 optisch stumm
+   geblieben (Operation würde sauffällig abgelehnt statt die Szene zu zerlegen).
+
+---
+
+## P0 — Kritisch (App unbrauchbar / Datenverlust / falsche Geometrie gerendert)
+
+- [x] **P0-1 Fillet-Button startet das Werkzeug.** `widgets/ribbon.dart` ~339:
+  dem Fillet-`_SmallRow` ein `onTap: () => _startTool(Tool.fillet)` geben
+  (Inventor-Split-Button: Body startet das Default-/zuletzt-Werkzeug, ▼ öffnet
+  die Liste). Analog prüfen, dass jeder Split-Button im Panel einen Body-Tap
+  hat. **Datei:** `widgets/ribbon.dart`.
+  ✅ ERLEDIGT: `onTap: _startTool(Tool.fillet)` am Fillet-`_SmallRow`; alle übrigen Split-Buttons geprüft (Text/Image/Points/ACAD sind bewusste Stubs).
+
+- [x] **P0-2 Fillet/Chamfer: bestehende Ecken-Koinzidenz auflösen.** Vor dem
+  Hinzufügen der Seam-Constraints alle Constraints entfernen bzw. remappen, die
+  die zwei gepickten Entities an der zu ersetzenden Ecke koppeln (der bereits
+  vorhandene `remapAfterReplace`-Mechanismus aus Trim/Split ist das Vorbild:
+  Punkt-Refs auf das Teilstück ziehen, das den Punkt noch hat; die
+  Ecken-Koinzidenz zwischen den zwei Trägern fällt, weil sie auf ein und
+  denselben neuen Punkt kollabieren würde). Ergebnis: das neue Fillet-/
+  Chamfer-Segment hat echte Länge, die Bemaßung ist erfüllbar. **Nachweis:**
+  ohne Entfernung erzwingt die Alt-Koinzidenz `e9.p0==e9.p1` → Länge 0 vs.
+  dist 7.07 → LM divergiert (numerisch bestätigt). **Dateien:**
+  `app_state.dart` (`_commitTool`), evtl. `constraints.dart` (Remap-Helfer).
+  ✅ ERLEDIGT: `_commitTool` entfernt die direkte Ecken-Koinzidenz zwischen den zwei getrimmten Seam-Punkten vor dem Verketten; Rang danach voll (Test).
+
+- [x] **P0-3 Slot ohne redundante Constraints bauen.** Den `parallel`-Constraint
+  aus dem Linear-Slot-Set streichen (er ist durch die 4 Tangenten + Koinzidenzen
+  impliziert; nachgerechnet rangredundant). Für den Bogen-Slot analog prüfen
+  (concentric + 4 tangent + equal → ist `equal` bei concentric-Rails + geteilten
+  Endpunkten schon impliziert? per Rang prüfen und nur unabhängige Zeilen
+  behalten). Generell: JEDE deterministische Konstruktion (Slot, Rechteck,
+  Fillet, Chamfer, Ellipsen-Achsen) muss ihre Constraints durch dieselbe
+  Rang-/Redundanzprüfung schicken wie der manuelle Constraint-Pfad
+  (`wouldOverconstrain`), damit nie wieder ein rangdefizites Set entsteht.
+  Inventor-Regel (Autodesk-Doku): „You cannot overconstrain a sketch" — ein
+  redundanter geometrischer Constraint wird abgelehnt bzw. als getriebene
+  Bemaßung angeboten, nie als volle Gleichung gehalten. **Dateien:**
+  `app_state.dart` (`_commitTool` Slot-/Rect-/Fillet-Zweige), `solver.dart`
+  (`wouldOverconstrain` als gemeinsames Gate).
+  ✅ ERLEDIGT: Linear-Slot ohne `parallel` (13/13 Gleichungen, DOF 5), Bogen-Slot ohne `equal` (14/14, DOF 6) — beides mit den ECHTEN App-Residuen nachgemessen; `construction_rank_test.dart` nagelt Redundanz 0 für alle Konstruktionen fest.
+
+- [x] **P0-4 Residuen-Gate auf dem Display-/Drag-Pfad.** `displayGeometry`
+  (`app_state.dart` ~765) darf ein Solve-Ergebnis nur zeigen, wenn die
+  Constraints erfüllt sind (Residuum ≤ Schwelle). Sonst die zuletzt gute
+  Geometrie zeigen (nicht die divergierte). Damit flackert selbst ein
+  schwieriges System nicht mehr: der Punkt bleibt am letzten guten Ort, statt
+  degenerierte Arcs zu blitzen. **Nachweis:** heute wird jeder finite Frame
+  gemalt (Radius 120, Sweep 0 sind finite). **Datei:** `app_state.dart`.
+  ✅ ERLEDIGT: `displayGeometry` zeigt nur erfüllte, nicht-degenerierte Frames; sonst hält es die letzte gute Drag-Geometrie (`_lastGoodDragGeo`), die beim Loslassen committet wird (Inventor-Verhalten).
+
+- [x] **P0-5 `_lm`-Rückgabe respektieren (Commit- und Relaxed-Pfad).**
+  `solver.dart` ~1381/1385: den Bool von `_lm` auswerten. Schlägt der Solve auf
+  dem Commit-Pfad fehl (Constraints nicht erfüllbar), die Vor-Solve-Geometrie
+  wiederherstellen und die Operation mit Toast ablehnen (Inventor lehnt eine
+  Operation ab, die das Modell überbestimmen/zerbrechen würde), statt
+  divergierte Geometrie zu committen. Auf dem Relaxed-Drag-Pfad ebenfalls das
+  Ergebnis prüfen und ggf. den Snapshot halten. **Datei:** `solver.dart`.
+  ✅ ERLEDIGT: `solveConstraints` liefert jetzt bool (erfüllt + finite + nicht degeneriert); ALLE Aufrufer respektieren ihn mit Rollback+Toast: `_solveAndRebuild`, `_addConstraint` (Widerspruch), `confirmDimension`, `setDimensionValue` (jetzt atomar), Pattern, Self-Symmetric, Trim, Split, Konstruktions-Commit.
+
+- [x] **P0-6 Chamfer/Fillet als atomare, verifizierte Operation.** Die
+  Kombination P0-2..P0-5 so kapseln, dass ein Fillet/Chamfer nur committet,
+  wenn danach `analyzeSketch`/Solve konsistent sind. Andernfalls vollständiger
+  Rollback (Geometrie UND Constraints), damit ein misslungener Fillet nie den
+  restlichen Sketch (z. B. einen zuvor gebauten Slot) beschädigt. Heute teilen
+  sich Fillet-Commit und Slot denselben Gesamt-Solve → ein schlechter Fillet
+  reißt den Slot mit (im Log sichtbar). **Datei:** `app_state.dart`.
+  ✅ ERLEDIGT: Fillet/Chamfer bauen auf lokalen Kopien und committen nur nach verifiziertem Solve; Ablehnung lässt Skizze UND Constraints unberührt (Sequenztest: Chamfer auf fixierter Ecke ändert NICHTS).
+
+## P1 — Falsche, aber nicht abstürzende Ergebnisse (Inventor-Semantik)
+
+- [x] **P1-1 Chamfer-Bemaßung = Setbacks, nicht Diagonale.** Equal-Distance:
+  eine Setback-Bemaßung (Eck-Schnittpunkt → Trimmpunkt entlang Linie 1) + für
+  weitere gleiche Chamfer eine Equal-Kette (wie bisher). Two-Distance: zwei
+  Setback-Bemaßungen (d1 an Linie 1, d2 an Linie 2). Distance+Angle: Setback d1
+  + Winkelbemaßung. Referenz: Autodesk „To Create 2D Shape Geometry" / „Create
+  sketch chamfer" (aligned dimensions of the setback distance). Der
+  Setback-Punkt ist bereits als Trimm-Punktindex in `FilletResult.seams`
+  vorhanden. **Dateien:** `app_state.dart` (`_commitTool` Chamfer-Zweig),
+  `widgets/viewport.dart` (Painter der Setback-Maße, falls neue Ausrichtung).
+  ✅ ERLEDIGT: Chamfer trägt `distx`+`disty` (Setbacks) statt Diagonale, für alle drei Modi; Werte 5/5 bzw. 8/4 im Test. BEWUSSTE ABWEICHUNG: die Equal-Kette für Folge-Chamfer entfällt vorerst (jeder Chamfer eigene x/y-Maße) — sauberer als eine Segment-Längen-Gleichheit, die die Setbacks nicht koppelt; Optionen kommen mit P3-2.
+
+- [ ] **P1-2 Fillet-Trim-Robustheit über alle Typ-Paare.** `filletInventor`
+  (`tools.dart` ~656) modelliert die Offset-Kandidaten sauber für Linie-Linie,
+  Linie-Kreis/Bogen und Kreis-Kreis, ABER die Ecken-Disambiguierung
+  (`nächster zu beiden Picks`) kann bei mehreren gültigen Zentren den falschen
+  Ast wählen, wenn die Picks nah beieinander liegen. Test-Matrix bauen
+  (Linie∠Linie spitz/stumpf, Linie∠Bogen innen/außen, Bogen∠Bogen, Vollkreis)
+  und die Auswahl an Inventors Verhalten spiegeln (Fillet sitzt im geklickten
+  Eck-Sektor). Vollkreis bleibt ungetrimmt — dann aber sicherstellen, dass die
+  Tangenten-Constraint numerisch stabil ist (sonst wandert der Kreis).
+  **Datei:** `tools.dart`, `frontend/test/`.
+
+- [x] **P1-3 Tangenten-Constraint-Ast fixieren.** Sowohl der Dart-Residual
+  (`solver.dart` `_tangentResiduals`, Kurve-Kurve-Zweig ~675) als auch der Shim
+  (`SLVS_C_ARC_LINE_TANGENT` / `SLVS_C_CURVE_CURVE_TANGENT`) haben zwei Äste
+  (innen/außen tangential). `_prepare` wählt `ctx.mode` einmal beim Solve-Start
+  aus der aktuellen Lage — unter Drag kann die Lage über die Grenze wandern und
+  der Ast kippt. Den Ast pro Constraint EINMALIG beim Erzeugen festhalten (an
+  der Konstruktion, z. B. Slot-Caps sind immer außen-tangential) und im Solve
+  nicht mehr aus der Momentanlage neu raten. Das entfernt das Frame-Flippen an
+  der Wurzel. **Dateien:** `solver.dart`, ggf. `constraints.dart`
+  (Ast-Flag am Constraint), `backend/slvs/shim/slvs_shim.cpp`.
+  ✅ ERLEDIGT (Kern): Linie-Kreis/Bogen-Tangens ist jetzt VORZEICHENBEHAFTET (Seite in `_prepare` eingefroren, glattes Residuum, kein Ast-Kippen) — auch für die Polygon-Kanten-Variante. Kurve-Kurve behält den pro-Solve-Modus: mit dem Display-Gate startet jeder Frame von einer gültigen Lage, damit ist der Modus stabil.
+
+- [ ] **P1-4 Arc-Rundtrip durch die C-API verlustfrei absichern.** `refresh()`
+  (`app_state.dart`) setzt nach JEDEM Rebuild `geometry = engine.allGeometry()`
+  — die Geometrie läuft also bei jedem Edit durch QCAD (`qcad_add_arc` →
+  `qcad_entity_geometry`) und kommt in QCADs Winkel-/Windungs-Konvention zurück.
+  Prüfen (Host-Test mit echtem Core), dass ein Arc `[cx,cy,r,a1,a2,reversed]`
+  bit-genau (bis Toleranz) zurückkommt, inkl. `reversed`-Flag. Falls QCAD
+  normalisiert: entweder das Flag aus der zurückgegebenen Start/End-Lage
+  rekonstruieren oder — besser — WÄHREND DES DRAGS gar nicht durch die C-API
+  gehen (Dart-Geometrie ist die Wahrheit; Engine nur bei Commit rebuilden).
+  Das spart zudem 60×/s ein komplettes `dispose()`+Neuaufbau des QCAD-Dokuments
+  (Performance, s. P2-6). **Dateien:** `app_state.dart`, `ffi/qcad_engine.dart`,
+  `backend/qcad-core/src/capi/`.
+
+- [x] **P1-5 Slot-DOF stimmen zwischen slvs und Dart nicht überein.** Im Log
+  meldet libslvs nach dem Slot-Commit `dof=0` (voll bestimmt), der Dart-
+  Analyzer `dof=10`. Diese Diskrepanz kommt von den redundanten Constraints
+  (P0-3) und davon, dass slvs Redundanz anders zählt. Nach P0-3 erneut
+  vergleichen; falls weiterhin abweichend, ist die DOF-Anzeige unten rechts
+  („N dimensions needed") unzuverlässig. Ziel: ein freier Linear-Slot zeigt
+  genau die Inventor-DOF (Position 2 + Rotation 1 + Länge 1 + Radius 1 = 5).
+  **Dateien:** `solver.dart` (`analyzeSketch`), Verifikation per Test.
+  ✅ ERLEDIGT: DOF stimmen jetzt (Slot 5, Bogen-Slot 6, Rechteck 4/5) und sind per Rang-Test festgenagelt; die slvs/Dart-Diskrepanz verschwand mit der Redundanz.
+
+- [x] **P1-6 Konstruktions-Constraints deterministisch UND minimal.** Für JEDE
+  Form (Rechteck, Slot linear/Bogen, Ellipse-Achsen, Tangenten-Kreis/-Bogen)
+  die exakte, minimale Constraint-Liste dokumentieren, die Inventors DOF trifft,
+  und per Test festnageln (DOF + „Form bleibt Form unter Drag" + „Maßeingabe
+  löst sauber auf"). Heute sind diese Listen teils redundant (Slot) oder
+  potenziell widersprüchlich in Kombination mit Modify. **Dateien:**
+  `app_state.dart`, `frontend/test/`.
+  ✅ WEITGEHEND ERLEDIGT: Rechteck 2P/3P, beide Slots, Fillet, Chamfer (equal/2-dist) haben dokumentierte, minimale Sets mit Rang==Gleichungen im Test. Ellipse/Tangenten-Formen: Rang-Tests noch ergänzen.
+
+## P2 — Robustheit / Sicherheit / Determinismus
+
+- [ ] **P2-1 Gemeinsames Constraint-Add-Gate.** Alle Stellen, die
+  `s.constraints.add(...)` aufrufen (deterministische Konstruktionen,
+  Inferenz, Fillet/Chamfer, Pattern), über EINE Funktion leiten, die (a)
+  Redundanz gegen den aktuellen Rang prüft, (b) Widerspruch erkennt und
+  ablehnt, (c) loggt. Verhindert künftige P0-3/P0-2-Klassen strukturell.
+  **Dateien:** `app_state.dart`, `solver.dart`.
+
+- [x] **P2-2 Solver-Ergebnis IMMER verifizieren, auch LM-only-Pfade.** Der
+  native Pfad verifiziert (Residuum > 1e-4 → verwerfen). Der reine
+  LM-Commit-Pfad (`path='lm'`) tut das nicht — er übernimmt `x` bedingungslos.
+  Nach P0-5 zusätzlich ein hartes Gate: nicht erfüllte Systeme committen nie,
+  sie werden abgelehnt und die Vorlage bleibt stehen. **Datei:** `solver.dart`.
+  ✅ ERLEDIGT über P0-5: auch der reine LM-Pfad wird jetzt am Residuum gemessen; nicht erfüllte Systeme werden nie committet.
+
+- [x] **P2-3 Degenerierte Geometrie am Renderer abfangen (Gürtel + Hosenträger).**
+  `paintGeo` (`app_state.dart` ~3057) sollte Arcs mit `|sweep| < ε` oder
+  `r ≤ 0` überspringen statt `drawArc(0)` (unsichtbar) zu zeichnen, und
+  Linien mit Länge 0 überspringen. Das ist NICHT der Fix (der ist P0), aber
+  eine letzte Verteidigung, damit eine Zahl-Panne nie als „Geometrie
+  verschwindet"/„malt über alles" durchschlägt. **Datei:** `app_state.dart`.
+  ✅ ERLEDIGT: `paintGeo` zeichnet degenerierte Arcs (r<=0, Sweep≈0) als sichtbaren Punkt statt unsichtbarem drawArc(0); zusätzlich `hasDegenerateGeometry` als Solver-Gate.
+
+- [ ] **P2-4 Einheitliche Winkel-/Windungs-Konvention für Arcs.** Es gibt
+  mehrere `norm()`-Lokalkopien (modify.dart, viewport.dart, app_state.dart) und
+  zwei Sweep-Definitionen. Eine einzige, getestete Arc-Helferbibliothek
+  (sweep, param, subArc, sample, winding) bauen und überall verwenden, damit
+  Trim/Fillet/Paint/Solve garantiert dieselbe Arithmetik nutzen. Reduziert die
+  Klasse „Arc kippt Windung zwischen zwei Modulen". **Dateien:** neu
+  `frontend/lib/arc.dart`, Aufrufer umstellen.
+
+- [x] **P2-5 FFI-Speicher & Grenzen härten.** `slvs_ffi.dart`: `failCap=64`
+  fest; bei >64 fehlerhaften Constraints wird stumm abgeschnitten — Log-Warnung
+  ergänzen. `_d`/`_i` allozieren bei leerer Liste 1 Element (ok), aber die
+  Rückgabe-Schleifen müssen gegen `nPts==0` etc. geschützt bleiben (sind sie).
+  Prüfen, dass ALLE `calloc` in `finally` freigegeben werden (aktuell ja).
+  `slvs_shim.cpp`: die `calloc`s für Punkte/Linien/Kreise/Arcs auf
+  Null-Größe (`>0?:1`) sind ok; sicherstellen, dass kein Pfad `sys.entity`/
+  `sys.constraint` über die reservierte Größe hinaus schreibt (Ad-hoc-Linien
+  bei `SH_PT_LINE_DIST` und die Collinear-Expansion erhöhen `entities`/
+  `constraints` — die Reservierung muss diese Extras einrechnen). **Dateien:**
+  `ffi/slvs_ffi.dart`, `backend/slvs/shim/slvs_shim.cpp`.
+  ✅ GEPRÜFT: Reservierungen decken den Worst-Case (max. 2 ADDC pro Constraint, `2*nCons+8`; Entities `+nCons+16`); `draggedP` hat den Bounds-Guard; alle callocs werden freigegeben. Keine Änderung nötig.
+
+- [ ] **P2-6 Drag-Performance & kein Voll-Rebuild pro Frame.** Siehe P1-4: der
+  Drag rebuildet das QCAD-Dokument nicht pro Frame (nur `endGripDrag` ruft
+  `_rebuildEngine`) — gut. ABER `displayGeometry` löst pro Frame das GESAMTE
+  System (bei großem Sketch teuer) und der Solve läuft synchron im
+  `paint`-Callback. Messen (M15-Log hat Zeitstempel) und ggf. den Solve aus
+  `paint` herausziehen (in `updateGripDrag` rechnen, Ergebnis cachen, `paint`
+  nur zeichnen). **Dateien:** `app_state.dart`, `widgets/viewport.dart`.
+
+- [ ] **P2-7 Determinismus der Kandidatenwahl.** Fillet-Zentrumswahl,
+  Trim-Bracketing und Offset-Seite hängen an `< bd`-Vergleichen mit
+  Fließkomma-Toleranzen; bei symmetrischen Konfigurationen ist die Auswahl
+  reihenfolgeabhängig. Tie-Break deterministisch machen (z. B. kleinster
+  Index, dann kleinster Winkel), damit dasselbe Bild immer dasselbe Ergebnis
+  liefert. **Dateien:** `tools.dart`, `modify.dart`.
+
+- [ ] **P2-8 Sidecar-/DXF-Robustheit.** `Sketch1_cons.json` speichert
+  Constraint-Typen als Enum-INDEX — beim Einlesen eines Sidecars mit einem
+  unbekannten (neueren) Index sauber ignorieren statt werfen. Beim Laden eines
+  DXF ohne passenden Sidecar (fremde Datei) dürfen fehlende Constraints/Tags
+  die Geometrie nicht verlieren. Round-Trip-Test mit absichtlich kaputtem
+  Sidecar. **Dateien:** `constraints.dart` (De-/Serialisierung), `app_state.dart`.
+
+- [ ] **P2-9 Autosave-Sicherheit.** Sicherstellen, dass ein Crash MITTEN im
+  Solve (P0 macht das seltener, aber nie null) keine halbgeschriebene
+  DXF/Sidecar hinterlässt: atomar schreiben (temp + rename). Prüfen, ob der
+  aktuelle Save das schon tut. **Dateien:** `app_state.dart`,
+  `ffi/qcad_engine.dart`.
+
+## P3 — Inventor-Treue & Workflow-Lücken (aus der Doku, nicht abstürzend)
+
+- [ ] **P3-1 Fillet/Chamfer an einer echten Ecke ohne Vor-Trim.** Inventor
+  („Place a chamfer at a corner where two lines meet, an intersection, or two
+  nonparallel lines"): auch der Fall „zwei Linien treffen sich schon in einer
+  Ecke" muss sauber gehen (genau der Rechteck-Fall). Nach P0-2 verifizieren,
+  dass Ecke → Chamfer/Fillet die Ecke ersetzt und die Nachbarschaft (die zwei
+  weiteren Rechteck-Ecken) intakt bleibt.
+
+- [ ] **P3-2 „Create Dimensions" / „Equal to Parameters" als Optionen.**
+  Inventors Chamfer-/Fillet-Dialog hat Schalter „Create Dimensions" (Maße
+  anlegen ja/nein) und „Equal to Parameters" (weitere = erstem). Heute sind
+  Maß+Equal-Kette hart verdrahtet. Als Toggles in den modelessen Dialog
+  aufnehmen. **Dateien:** `widgets/pattern_dialog.dart` (Fillet/Chamfer-Dialog),
+  `app_state.dart`.
+
+- [ ] **P3-3 Chamfer Distance+Angle & Two-Distance Flip.** „Flip"-Knopf für die
+  Richtungswahl bei Two-Distance (Autodesk: „click Flip to change the direction
+  of the chamfer distances"). D1 gehört an die ERSTE gepickte Linie — Pick-
+  Reihenfolge sichtbar machen. **Dateien:** `widgets/pattern_dialog.dart`,
+  `tools.dart`.
+
+- [ ] **P3-4 Trim/Extend für getaggte Polylines (Spline/Ellipse).** Steht schon
+  als Grenze in HANDOFF; für „production ready" nötig, sonst wirkt Trim an
+  Kurven kaputt. **Dateien:** `modify.dart`, `spline.dart`.
+
+- [ ] **P3-5 Fillet gegen Spline/Ellipse.** Ebenfalls Grenze; mind. sauber
+  ablehnen mit Toast statt undefiniert. **Datei:** `tools.dart`.
+
+- [ ] **P3-6 Bogenlängen-Bemaßung, Kreis-Tangentenabstand, Winkel-Quadrant.**
+  Aus M21-Ideenliste; Inventor kann das, aktuell fehlt es. **Dateien:**
+  `app_state.dart`, `solver.dart`, `widgets/viewport.dart`.
+
+- [ ] **P3-7 Über-/Unterbestimmung dem Nutzer klar anzeigen.** Wenn eine
+  Bemaßung überbestimmen würde, Inventors Dialog „getriebene Bemaßung anlegen?"
+  konsistent für ALLE Bemaßungs-/Constraint-Pfade (heute nur teils). Nach P2-1
+  natürlicher Anschluss. **Dateien:** `app_state.dart`.
+
+- [ ] **P3-8 Pattern v1-Grenzen** (Boundary-Fill, Suppress, Edit Pattern,
+  Pfad-Muster) — bekannt, für Vollausbau notieren. **Dateien:**
+  `widgets/pattern_dialog.dart`, `app_state.dart`.
+
+## Tests & CI — Lücken, die diese Klasse Bugs durchgelassen haben
+
+Kernproblem: die 134 Host-Tests prüfen NUR den End-Zustand einzelner
+Operationen, nicht die **Solver-Stabilität unter Drag** und nicht
+**Operationen in Kombination** (Chamfer während ein Slot existiert). Genau da
+lagen die Bugs.
+
+- [x] **T-1 Drag-Stabilitätstests.** Für jede Form (Rechteck, Slot, Ellipse,
+  Kreis+Bogen mit Tangente) einen Grip N Frames entlang einer Bahn ziehen und
+  nach JEDEM Frame asserten: alle Residuen ≤ Schwelle, kein Arc mit Sweep 0
+  oder r≤0, kein Sprung der Arc-Parameter > Toleranz zwischen Frames
+  (Anti-Flacker-Test). Hätte P0-1/P0-3/P0-4 sofort gefangen. **Datei:**
+  `frontend/test/drag_stability_test.dart` (neu).
+  ✅ `drag_stability_test.dart` (9 Tests): Slot-/Rechteck-/Fillet-/Tangentenkreis-Drags Frame für Frame (finite, nicht degeneriert, Residuum ≤ 1e-4, kein Radius-Teleport), inkl. Folter-Drag in die Degenerationszone und Park-auf-letztem-Gut-Verhalten; dazu ein 8-ms-Budget pro Drag-Solve.
+
+- [x] **T-2 Rangtest jeder Konstruktion.** Für Rechteck/Slot/Fillet/Chamfer/
+  Ellipse: Jacobi-Rang == Anzahl unabhängiger Gleichungen (keine Redundanz),
+  DOF == Inventor-Erwartung. Hätte P0-3 sofort gefangen. **Datei:**
+  `frontend/test/construction_rank_test.dart` (neu).
+  ✅ `construction_rank_test.dart` (8 Tests): Rang == Gleichungen (Redundanz 0) + Inventor-DOF für Rechteck 2P/3P, beide Slots, Fillet- und Chamfer-Ecken.
+
+- [x] **T-3 Kombinations-/Sequenztests.** Slot bauen → Chamfer am Rechteck →
+  asserten, dass der Slot unverändert bleibt und alles erfüllt ist. Fillet →
+  Trim → Split-Ketten. Hätte den „Chamfer zerreißt den Slot"-Fehler gefangen.
+  **Datei:** `frontend/test/operation_sequence_test.dart` (neu).
+  ✅ `operation_sequence_test.dart` (6 Tests): die komplette Geräte-Session (Rechteck+Slot+Kreis, zwei Chamfer) — Slot bleibt bit-identisch; Fillet-Kette treibt beide Radien; abgelehnte Ops ändern NICHTS.
+
+- [x] **T-4 Chamfer-/Fillet-Bemaßungstests.** Setback-Maße statt Diagonale
+  (P1-1), Equal-Kette, alle drei Chamfer-Modi, Ecke-ohne-Vor-Trim (P3-1).
+  **Datei:** `frontend/test/fillet_chamfer_test.dart` (erweitern).
+  ✅ m36-Chamfer-Tests auf Setback-x/y umgestellt inkl. Rang- und Residuen-Assertions.
+
+- [ ] **T-5 „Nie divergiertes Rendern"-Invariante.** Ein Test-Harness, das nach
+  jeder Operation `allFinite` UND „alle Residuen erfüllt" UND „keine
+  degenerierte Entity" prüft — als generischer Wächter über die ganze
+  Test-Suite. **Datei:** `frontend/test/invariants_test.dart` (neu).
+
+- [x] **T-6 Shim-Host-Gate um Slot/Fillet erweitern.** `shim_test.c` deckt
+  Slot-Tangenten und die Ast-Wahl nicht ab; Szenarien ergänzen (Rail-Cap
+  außen-tangential, Radius stabil unter Zug). **Datei:**
+  `backend/slvs/tests/shim_test.c`.
+  ✅ `shim_test.c` +2 Szenarien: Slot löst NATIV (result OKAY, inkrementeller Drag bleibt parallel/equal) und Fillet-Tangente am Arc-ENDE exakt — Host-Gate: 12/12 PASS.
+
+- [ ] **T-7 Geräte-Rauch-Marker für Solver-Gesundheit.** Optionaler Debug-
+  Zähler „VERIFY FAILED pro Session" ins Log; Ziel nach den Fixes: 0 unter
+  normaler Bedienung (heute 1 802 WARN in einer Session). Dient als
+  Regressions-Signal beim nächsten Geräte-Test.
+
+## Reihenfolge der Abarbeitung (Vorschlag)
+
+1. P0-5 + P0-4 + P2-3 zuerst (Sicherheitsnetz: nie wieder divergiertes/
+   degeneriertes Rendern — macht die App SOFORT benutzbar, auch bevor die
+   Wurzeln sauber sind).
+2. P0-2 + P0-3 + P0-1 (Fillet/Chamfer/Slot an der Wurzel korrekt).
+3. P1-1 + P1-3 (Chamfer-Maße + Tangenten-Ast).
+4. P2-1 (gemeinsames Gate) + T-1..T-3 (die Tests, die das alles festnageln).
+5. Rest P1/P2, dann P3.
+
+Jeder Schritt schließt mit `flutter test` (alle grün) + wo möglich Shim-Host-
+Gate. Erst danach ein neuer IPA-Build und der nächste Geräte-Test.
+
+## Durchgang 1 (nach Geräte-Test) — was zusätzlich gefunden wurde
+
+Beim Tiefen-Audit kam eine Klasse latenter Native-Solver-Fehler ans Licht, die
+im Geräte-Log unsichtbar blieb, weil das Dart-Verify sie stumm auffing:
+
+- **Shim-Tangenten waren am falschen Arc-Ende verankert.** SolveSpaces
+  `ARC_LINE_TANGENT`/`CURVE_CURVE_TANGENT` sind ENDPUNKT-verankert
+  (`other`/`other2` wählen Start/Ende, `constrainteq.cpp`); der Shim übergab
+  immer `other=0` (Start). Für Fillet-Bögen mit Naht am ENDE war die native
+  Gleichung damit 90° falsch; bei Slots stimmte sie nur zufällig auf der
+  symmetrischen Mannigfaltigkeit. Fix: Shim v3 liest die Naht-Flags aus `val`
+  (Bit 0/1), die Dart-Seite bestimmt sie aus der echten Geometrie
+  (`_tangentSeamFlags`). Host-Gate deckt beide Fälle ab.
+- **Kreis-Tangenten sind in libslvs nicht ausdrückbar** (Kreise haben keine
+  Endpunkte; `CURVE_CURVE_TANGENT` ssassert'et auf einem Kreis). Die Dart-Seite
+  BAILT jetzt sauber auf den LM-Pfad statt eine falsche/crashende Gleichung zu
+  packen. Gleiches Gate für Tangenten ohne gemeinsamen Endpunkt und für
+  Shim-Version < 3.
+- Der Verify-Reject-Tanz pro Drag-Frame (1 802 WARN in einer Session) hatte
+  damit ZWEI Quellen: redundante Konstruktions-Constraints (behoben, P0-3) und
+  falsch verankerte native Tangenten (behoben, Shim v3). Ziel für den nächsten
+  Geräte-Test: VERIFY-FAILED-Zähler = 0 (T-7).
