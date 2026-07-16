@@ -337,6 +337,11 @@ class _RibbonState extends State<Ribbon> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _SmallRow(icon: IC['fillet18']!, label: 'Fillet', flyId: 'fillet', onFly: toggleFly,
+                        // Inventor split-button: tapping the BODY starts the
+                        // default tool, the ▼ opens the flyout. Without this
+                        // onTap only the 14-px arrow did anything and the
+                        // Fillet button was effectively dead on touch.
+                        onTap: () => _startTool(Tool.fillet),
                         active: _toolGroup[app.tool] == 'fillet'),
                     const SizedBox(height: 2),
                     _SmallRow(icon: IC['text18']!, label: 'Text', flyId: 'text', onFly: toggleFly),
