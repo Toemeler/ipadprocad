@@ -442,7 +442,14 @@ Token NIE in Dateien/.git/config schreiben.
   (Abschnitt unten).
 - **M36 — Form-Auto-Constraints (Slots, Tangenten-Kreis/-Bogen), Fillet/
   Chamfer komplett wie Inventor, Trim/Split erhalten Constraints:
-  ERLEDIGT, Host-Tests grün (134), Geräte-Test offen** (Abschnitt unten).
+  ERLEDIGT, Host-Tests grün (134); im Geräte-Test traten Bugs zutage
+  (Slot-Drag, Fillet-Button tot, Chamfer) → in M37 behoben** (Abschnitt unten).
+- **M37 — Produktions-Härtung nach Geräte-Test: ERLEDIGT, Host-Tests grün
+  (157) + Shim-Host-Gate (12), Geräte-Test offen.** Solver-Sicherheitsnetz
+  (nie divergiertes Rendern/Committen, atomare Ops), Slot/Fillet/Chamfer an
+  der Wurzel korrekt (redundanzfrei, Ecken-Koinzidenz-Entfernung, x/y-Setback-
+  Bemaßung), Fillet-Button startet, Shim v3 (endpunktverankerte Tangenten).
+  Voller Audit + Restpunkte im README (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1432,9 +1439,117 @@ Radius-Dim (Kreis→Bogen) / tangent (Kreis→Bogen), Drop der weggetrimmten
 Koinzidenz, Split-Vollerhalt, Drop von Entity-Fix, Gesamtlängen-Dim über
 den Schnitt.
 
+> **HINWEIS (M37):** Einige M36-Behauptungen oben waren im Geräte-Test FALSCH
+> und wurden in M37 korrigiert: der Slot-`parallel` und der Bogen-Slot-`equal`
+> sind NICHT „rang-neutral", sondern rangredundant und destabilisierten den
+> Solver; Fillet/Chamfer ließen die alte Ecken-Koinzidenz stehen (kollabierte
+> das neue Segment); die Chamfer-Bemaßung war die Diagonale statt der
+> Setbacks; der Fillet-Button war auf Touch tot. Details unten.
+
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M36, für die nächste Session)
+## M37 — Produktions-Härtung nach dem ersten echten Geräte-Test
+
+Grundlage: Geräte-Log (`ipadprocad_log.txt`, 59 563 Zeilen, **1 802 WARN**),
+`Sketch1.dxf` + Sidecars, plus statische Tiefenanalyse. Der volle Audit steht
+im README (Abschnitt „PRODUKTIONS-AUDIT", P0–P3 + Tests, mit Erledigt-Notizen);
+hier die Essenz für die nächste Session.
+
+**Vier Geräte-Symptome → drei tiefe Ursachen + ein Verstärker (alle belegt,
+teils numerisch nachgerechnet):**
+
+1. **Slot-Drag „extrem buggy, Linie/Kreise weg, dann wieder da".** Der
+   `parallel`-Constraint des Linear-Slots ist rangredundant (mit den echten
+   App-Residuen gemessen: 14 Gleichungen inkl. parallel = Rang **13**), der
+   `equal` des Bogen-Slots ebenso (15 → Rang 14). Rangdefizit macht `JᵀJ`
+   singulär → libslvs meldet `inconsistent`, LM driftet; pro Frame springt die
+   Lösung auf den falschen Tangenten-Ast → **finite, aber falsche** Arcs
+   (Radius 54→120, Start≈End → Sweep 0). Ein Sweep-0-Arc rendert NICHTS
+   (verschwindet), ein 2.2×-Radius malt quer (‚Linie über dem Fillet'). Beide
+   sind finite → `allFinite()` griff nicht → der Frame wurde gemalt. Zusätzlich
+   hatte der Anzeige-/Drag-Pfad KEIN Residuen-Gate.
+2. **Fillet-Button tut nichts.** Der Fillet-`_SmallRow` hatte kein `onTap` —
+   nur das 14-px-▼ öffnete das Flyout (im Log kommt `Tool.fillet` KEIN Mal
+   vor, `Tool.chamfer` mehrfach).
+3. **Chamfer „geht so", Bemaßung diagonal, ‚Linie über dem Fillet'.** Die
+   bestehende Ecken-Koinzidenz der zwei gepickten Kanten wurde NICHT entfernt →
+   erzwang Länge 0 des neuen Segments gegen die Bemaßung → Gesamt-Sketch-LM
+   divergierte (`err=3.54 satisfied=false` direkt nach dem Chamfer im Log; riss
+   den zuvor gebauten Slot mit). Und die Bemaßung war die Hypotenuse statt der
+   Setbacks (Inventor: aligned dimensions of the setback distance).
+4. **Verstärker:** `_lm`-Rückgabe wurde an drei Stellen ignoriert → divergierte
+   Geometrie wurde gerendert UND committet.
+
+**Latenter Native-Bug, im Audit gefunden (vom Dart-Verify stumm gefangen):**
+Der Shim verankerte Tangenten immer am Arc-START (`other=0`). SolveSpaces
+`ARC_LINE_TANGENT`/`CURVE_CURVE_TANGENT` sind endpunktverankert (`other`/
+`other2`, `constrainteq.cpp`); für Fillet-Bögen mit Naht am ENDE war die native
+Gleichung 90° falsch, bei Slots stimmte sie nur zufällig auf der symmetrischen
+Mannigfaltigkeit. Kreise haben keine Endpunkte (`CURVE_CURVE_TANGENT`
+ssassert'et darauf). Das war die zweite Quelle des WARN-Spams.
+
+**Fixes (5 Commits `befac53..3cb40d4`, alle Tests grün):**
+
+- **Solver-Sicherheitsnetz (P0-4/5, P2-2/3).** `solveConstraints` liefert jetzt
+  `bool` = erfüllt (Residuum ≤ 1e-2) **und** finite **und** nicht degeneriert.
+  Neue Helfer in solver.dart: `constraintResidualNorm`, `hasDegenerateGeometry`,
+  `debugRank` (Rang/Gleichungen/Params — Ground Truth für Redundanztests).
+  `displayGeometry` zeigt nur erfüllte Frames, sonst die letzte gute Drag-
+  Geometrie (`_lastGoodDragGeo`), committet beim Loslassen (Inventor-Verhalten).
+  ALLE Commit-Aufrufer sind jetzt atomar mit Rollback+Toast: `_solveAndRebuild`,
+  `_addConstraint` (Widerspruch), `confirmDimension`, `setDimensionValue`
+  (echt atomar), Pattern/SelfSymmetric, Trim/Split, Konstruktions-Commit
+  (As-Drawn-Fallback). `paintGeo` malt degenerierte Arcs als sichtbaren Punkt
+  statt `drawArc(0)`.
+- **Fillet/Chamfer (P0-1/2/6, P1-1).** Body-`onTap` startet Fillet. Die
+  Ecken-Koinzidenz der zwei getrimmten Seam-Punkte wird vor dem Verketten
+  entfernt. Chamfer bemaßt `distx`+`disty` (Setbacks) statt Diagonale, alle
+  drei Modi. Beide bauen auf lokalen Kopien und committen nur nach
+  verifiziertem Solve (sonst voller Rollback — der zuvor gebaute Slot bleibt
+  bit-identisch, Sequenztest beweist es).
+  BEWUSSTE ABWEICHUNG von M36: die Equal-Kette für Folge-Chamfer entfällt
+  (jeder Chamfer eigene x/y-Maße); Fillet behält Radius-Dim + equal-Kette.
+- **Slot (P0-3).** Linear-Slot ohne `parallel`, Bogen-Slot ohne `equal`.
+  Parallelität/Kappen-Gleichheit sind durch die Tangenten/Konzentrik impliziert
+  und bleiben funktional erhalten (Test prüft Kreuzprodukt bzw. Radien-
+  Gleichheit nach dem Solve).
+- **Tangenten (P1-3 + Shim v3).** Linie-Kreis/Bogen-Residuum vorzeichenbehaftet
+  (Seite in `_prepare` eingefroren; glatt, ast-stabil), auch die Polygon-
+  Kanten-Variante. Shim v3: `slvs_shim_version()==3`, Naht-Enden in `val`
+  (Bit 0/1), vom Aufrufer aus der Geometrie bestimmt (`_tangentSeamFlags`).
+  Kreis-Tangenten, nahtlose Tangenten und Shim < v3 bailen sauber auf LM.
+
+**Tests (gesamt Host 157, Shim-Gate 12):**
+- `construction_rank_test.dart` (8): Rang == Gleichungen (Redundanz 0) +
+  Inventor-DOF für Rechteck 2P/3P, beide Slots, Fillet-/Chamfer-Ecken.
+- `drag_stability_test.dart` (9): Drags Frame für Frame über den ECHTEN
+  Anzeige-Pfad (finite, nicht degeneriert, Residuum ≤ 1e-4, kein Radius-
+  Teleport), Folter-Drag in die Degenerationszone, Park-auf-letztem-Gut,
+  8-ms-Budget pro Drag-Solve.
+- `operation_sequence_test.dart` (6): die Geräte-Session (Rechteck+Slot+Kreis,
+  zwei Chamfer) — Slot bleibt bit-identisch; Fillet-Kette treibt beide Radien;
+  abgelehnte Ops ändern NICHTS.
+- `shim_test.c` +2: [11] Slot löst NATIV (result OKAY; inkrementeller Drag hält
+  parallel+equal), [12] Fillet-Tangente am Arc-ENDE exakt.
+- `m36_test.dart`: Slot-Tests auf redundanzfreie Sets, Chamfer-Tests auf
+  x/y-Setbacks umgestellt.
+
+**Offen aus dem Audit (Prioritäten im README, Abschnitt PRODUKTIONS-AUDIT):**
+P1-2 (Fillet-Trim-Robustheit alle Typpaare), P1-4 (Arc-Rundtrip durch die
+C-API verlustfrei absichern / während Drag nicht durch die Engine gehen),
+P2-1 (EIN gemeinsames Constraint-Add-Gate), P2-4 (eine Arc-Helferbibliothek
+statt mehrerer `norm()`-Kopien), P2-6..P2-9 (Perf/Determinismus/Sidecar/
+Autosave), P3-1..P3-8 (Inventor-Dialog-Optionen, Trim/Fillet für Splines/
+Ellipsen, Bogenlängen-/Winkel-Bemaßung), T-5/T-7 (Invarianten-Wächter +
+VERIFY-FAILED-Zähler = 0 als Geräte-Regressionssignal).
+
+**Nächster Geräte-Test — worauf achten:** 0 (statt 1 802) `VERIFY FAILED`
+unter normaler Bedienung, stabiler Slot-Drag, Fillet-Button reagiert,
+Chamfer zeigt 5/5 statt 7.07.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M37, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1448,23 +1563,34 @@ DXF-Speicherung mit Sidecars (Constraints, Spline-Tags, Styles),
 Pattern-Panel (Rechteckige/Runde Anordnung, Spiegeln inkl. Self Symmetric,
 assoziativ über den Solver), Slots/Tangenten-Werkzeuge mit Inventor-Auto-
 Constraints, Fillet/Chamfer komplett (Linie/Bogen/Kreis, 3 Chamfer-Modi,
-Bemaßung + equal-Kette), constraint-erhaltendes Trim/Split, Diagnose-Log
-in der Files-App.
+Radius- bzw. x/y-Setback-Bemaßung), constraint-erhaltendes Trim/Split,
+Diagnose-Log in der Files-App. **M37: Slot/Fillet/Chamfer sind jetzt
+solverstabil (redundanzfrei, atomar, kein divergiertes Rendern).**
 
-**Solver-Architektur (unverändert wichtig):** libslvs nativ zuerst, jede
-Lösung wird gegen die Dart-Residuen VERIFIZIERT; bail/fail → Dart-LM
-(iterations=80). Neue Constraint-/Bemaßungsarten brauchen IMMER: Residual +
-residualCount (Dart), Shim-Packung ODER expliziten Bail, measureDim (bei
-Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate über
-slvs_shim_version() (aktuell 2) für neue Codes.
+**Solver-Architektur (unverändert wichtig, M37-Ergänzungen):** libslvs nativ
+zuerst, jede Lösung wird gegen die Dart-Residuen VERIFIZIERT; bail/fail →
+Dart-LM (iterations=80). **`solveConstraints` liefert seit M37 `bool` (erfüllt
++ finite + nicht degeneriert) — NIE einen unerfüllten Solve rendern oder
+committen; alle Commit-Pfade sind atomar mit Rollback.** Zwei eiserne Regeln:
+(1) keine Konstruktion darf ein rangdefizites Set erzeugen (mit `debugRank`
+prüfen, Redundanz muss 0 sein); (2) neue Constraint-/Bemaßungsarten brauchen
+IMMER: Residual + residualCount (Dart), Shim-Packung ODER expliziten Bail,
+measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
+über `slvs_shim_version()` (**aktuell 3** — v3 = endpunktverankerte Tangenten
+mit Naht-Flag in `val`) für neue Codes. Tangenten müssen einen gemeinsamen
+Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (134 Tests) + Shim-Host-
-Tests via CMake (SLVS_SMOKE=ON, "ALL SHIM TESTS PASS"). Beide sind CI-Gates.
-Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad — genau die Pfade, die
-die Tests absichern sollen. IPA: Workflow "Core + C-API Build (iOS)",
-Artefakt `ipadprocad-unsigned-ipa`.
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**157 Tests**) + Shim-Host-
+Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **12 Szenarien**).
+Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
+genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert
+zusätzlich das Shim-Host-Gate. IPA: Workflow „Core + C-API Build (iOS)",
+Artefakt `ipadprocad-unsigned-ipa`. Lokal reproduzierbar mit
+heruntergeladenem Flutter-SDK (stable) + CMake — beide Gates grün.
 
-**Bekannte Grenzen / nächste Kandidaten:**
+**Bekannte Grenzen / nächste Kandidaten:** (M37-Audit-Punkte mit Priorität
+stehen ausführlich im README, Abschnitt PRODUKTIONS-AUDIT — hier nur die
+fachlichen Grenzen)
 - Trim/Extend kennt getaggte Polylines (Splines/Ellipsen) nicht.
 - Keine Tangenten-Handles an Fit-Spline-Punkten (Inventors Pfeil-Griffe).
 - Kreis-Abstände immer Zentrum-basiert (keine Tangenten-Variante beim

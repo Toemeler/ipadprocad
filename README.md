@@ -7,7 +7,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
-## Status (Stand M36)
+## Status (Stand M37)
 
 | Meilenstein | Stand |
 |---|---|
@@ -40,7 +40,8 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M33** Project Geometry für ALLE Typen (Kreis/Bogen/Spline/Ellipse/Polylinie), Hover-Highlight + aktiver Button im Project-Modus, Fremd-Layer nicht selektierbar | ✅ erledigt (Geräte-Test offen) |
 | **M34** Rechtecke = VIER Linien mit Constraints (Inventor-Modell); Polygon-/Bestands-Rechteck-KANTEN projizieren als einzelne gelbe Linien; Hover-Fix Polylines; Projektions-Polylines gelb | ✅ erledigt (Geräte-Test offen) |
 | **M35** Pattern-Panel funktional: Rechteckige/Runde Anordnung + Spiegeln mit Inventor-Dialogen (modeless über dem Viewport), Live-Preview, Fitted/Assoziativ, Self Symmetric für Splines; neuer Constraint `pattern` (LM-only, slvs-Bail) | ✅ erledigt (Geräte-Test offen) |
-| **M36** Form-Auto-Constraints (Slots koinzident/tangent/equal/parallel bzw. konzentrisch, Tangenten-Kreis/-Bogen), Fillet/Chamfer komplett wie Inventor (Linie/Bogen/Kreis, 3 Chamfer-Modi, modeless Dialog, Radius-Dim + equal-Kette), Trim/Split erhalten Constraints/Bemaßungen (`remapAfterReplace`) | ✅ erledigt (Geräte-Test offen) |
+| **M36** Form-Auto-Constraints (Slots koinzident/tangent/equal/parallel bzw. konzentrisch, Tangenten-Kreis/-Bogen), Fillet/Chamfer komplett wie Inventor (Linie/Bogen/Kreis, 3 Chamfer-Modi, modeless Dialog, Radius-Dim + equal-Kette), Trim/Split erhalten Constraints/Bemaßungen (`remapAfterReplace`) | ✅ erledigt; Geräte-Test deckte Bugs auf → in M37 behoben |
+| **M37** Produktions-Härtung nach Geräte-Test: Solver-Sicherheitsnetz (nie divergiertes Rendern/Committen, atomare Ops), Slot/Fillet/Chamfer redundanzfrei + korrekt (Ecken-Koinzidenz-Entfernung, x/y-Setback-Bemaßung), Fillet-Button startet, signierte Tangente + Shim v3 (endpunktverankert) | ✅ erledigt, Host 157 + Shim-Gate 12 grün (Geräte-Test offen) |
 
 ### Auto-Constraints, Fillet/Chamfer, constraint-erhaltendes Trim (M36)
 
@@ -58,6 +59,32 @@ Trim und Split werfen Constraints nicht mehr weg: Punkt-Refs wandern auf das
 Teilstück, das den Punkt noch hat, Entity-Refs (Tangenten, Bemaßungen, …)
 auf das nächstliegende Teilstück des unveränderten Trägers — nur was
 tatsächlich weggeschnitten wurde, verliert seine Constraints.
+
+### Produktions-Härtung (M37)
+
+Der erste echte Geräte-Test brachte den Solver ins Wanken: der Slot-Drag
+flackerte (Linien/Bögen verschwanden und kamen zurück), der Fillet-Button tat
+nichts, und ein Chamfer auf einer Rechteck-Ecke zerlegte die halbe Skizze samt
+dem daneben gebauten Slot. Ursachen und Fixes stehen ausführlich unten im
+**PRODUKTIONS-AUDIT**; kurz:
+
+- **Solver-Sicherheitsnetz:** `solveConstraints` meldet jetzt, ob die Lösung die
+  Constraints wirklich hält (und finite/nicht degeneriert ist). Ein nicht
+  erfüllter Frame wird nie mehr gezeigt (der Drag hält die letzte gültige Lage)
+  und nie committet (jede Operation ist atomar mit vollständigem Rollback).
+- **Slot redundanzfrei:** der rangredundante `parallel` (linear) bzw. `equal`
+  (Bogen) ist raus — Parallelität/Gleichheit bleiben durch die Tangenten
+  impliziert. Das entfernt die Singularität, die das Flackern trieb.
+- **Fillet/Chamfer korrekt:** die alte Ecken-Koinzidenz wird entfernt (sonst
+  kollabiert das neue Segment), der Button startet das Werkzeug, und der Chamfer
+  wird über seine **x/y-Setbacks** bemaßt statt über die Diagonale.
+- **Tangenten stabil:** Linie-Kreis/Bogen-Tangens ist vorzeichenbehaftet (kein
+  Ast-Kippen), und der native Shim (v3) verankert Tangenten am richtigen
+  Bogen-ENDE statt immer am Start.
+
+Abgesichert durch drei neue Test-Suiten (Konstruktions-Rang, Drag-Stabilität
+Frame-für-Frame, Operations-Sequenzen = die Geräte-Session) plus zwei native
+Shim-Szenarien; Host 157 + Shim-Gate 12 grün.
 
 ### Pattern (M35) — Inventors Anordnungs-Werkzeuge
 
@@ -309,6 +336,11 @@ zu klären.
 ---
 
 # PRODUKTIONS-AUDIT (Stand M36, Geräte-Log build=befac53)
+
+> **Fortschritt M37:** Durchgang 1 abgeschlossen — 18 Punkte erledigt
+> (alle P0, P1-1/3/5/6 weitgehend, P2-2/3/5), verifiziert mit 157 Host-Tests +
+> 12 Shim-Host-Szenarien. Erledigte Punkte sind unten mit ✅ markiert; die
+> übrigen (P1-2/4, P2-1/4/6-9, P3-*, T-5/7) sind die Roadmap für Durchgang 2.
 
 Tiefenanalyse nach dem ersten echten Geräte-Test mit Slot + Fillet/Chamfer.
 Grundlage: `ipadprocad_log.txt` (59 563 Zeilen, 1 802 WARN), `Sketch1.dxf`,
