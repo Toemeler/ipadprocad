@@ -55,6 +55,8 @@ extern "C" {
 #define SH_PT_LINE_DIST   20  /* perpendicular distance point a to the line
                                  through points ce1,ce2 (RAW point indices,
                                  not SH_ENT refs) = val. Shim version >= 2. */
+#define SH_POINT_ON_CIRCLE 21 /* point a lies on circle/arc e1
+                                 (SLVS_C_PT_ON_CIRCLE). Shim version >= 4. */
 
 #define SH_RESULT_OKAY               0
 #define SH_RESULT_INCONSISTENT       1

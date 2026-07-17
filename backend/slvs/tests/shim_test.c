@@ -334,6 +334,35 @@ static void test_fillet_end_anchor(void) {
     }
 }
 
+/* ---- scenario 13: point on circle (shim v4, Inventor trim coincidence) ----
+ * A free point bound onto a circle (SLVS_C_PT_ON_CIRCLE): growing the circle
+ * via a diameter dimension must carry the point outward with it — exactly the
+ * behaviour trim's cut-point binding needs. */
+static void test_point_on_circle(void) {
+    printf("[13] point on circle follows the radius (v4)\n");
+    double px[2] = {0, 20};      /* p0 circle center, p1 the bound point */
+    double py[2] = {0, 0};
+    int fixed[2] = {1, 0};
+    int cc[1] = {0};
+    double cr[1] = {20};
+    int C = SH_ENT(2, 0);
+    int ct[2]  = {SH_POINT_ON_CIRCLE, SH_DIAMETER};
+    int ca[2]  = {1, -1};
+    int cb[2]  = {-1, -1};
+    int ce1[2] = {C, C};
+    int ce2[2] = {0, 0};
+    double cv[2] = {0, 60};      /* diameter 60 -> radius 30 */
+    int dof = -1, failed[8];
+    int r = slvs_solve(2, px, py, fixed, 0, 0, 0, 1, cc, cr, 0, 0, 0, 0, 0,
+                       2, ct, ca, cb, ce1, ce2, cv, &dof, failed, 8);
+    check("result OKAY", r == SH_RESULT_OKAY);
+    check("radius grew to 30", near(cr[0], 30.0));
+    {
+        double d = sqrt(px[1]*px[1] + py[1]*py[1]);
+        check("point rode outward to r=30", near(d, 30.0));
+    }
+}
+
 int main(void) {
     printf("slvs_shim version = %d\n\n", slvs_shim_version());
     test_rectangle();
@@ -348,6 +377,7 @@ int main(void) {
     test_pt_line_dist_below();
     test_slot_native();
     test_fillet_end_anchor();
+    test_point_on_circle();
     printf("\n%d failures\n", failures);
     if (failures == 0) printf("ALL SHIM TESTS PASS\n");
     return failures == 0 ? 0 : 1;

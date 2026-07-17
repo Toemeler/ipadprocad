@@ -20,7 +20,7 @@ static double paramVal(const Slvs_System *s, Slvs_hParam h) {
 /* v2: SH_PT_LINE_DIST (perpendicular point-to-line distance dimension). The
  * Dart side gates on this: a binary older than 2 sends those sketches to the
  * Dart LM solver instead, so the dimension is never silently dropped. */
-int slvs_shim_version(void) { return 3; }
+int slvs_shim_version(void) { return 4; }
 
 const char* slvs_shim_id(void) { return "iPadProCAD SLVS shim v2"; }
 
@@ -278,6 +278,15 @@ int slvs_solve(
                         - (px[ia] - px[ib]) * (py[ia] - py[a]);
             ADDC(SLVS_C_PT_LINE_DISTANCE, proj < 0 ? -v : v, pa, 0, ln, 0);
             break; }
+        case SH_POINT_ON_CIRCLE:
+            /* Point a lies on circle/arc e1: |pt - center| == radius.
+             * SLVS_C_PT_ON_CIRCLE handles both entity kinds (its equation
+             * uses the entity's radius expression, which for an arc is the
+             * center->start distance). Distance-to-a-POINT has no side, so no
+             * branch handling is needed here, unlike line tangency. */
+            if (a < 0 || a >= nPts) break;
+            ADDC(SLVS_C_PT_ON_CIRCLE, 0, ptH[a], 0, ENT(e1), 0);
+            break;
         case SH_DRAGGED:
             /* NOT SLVS_C_WHERE_DRAGGED. That one is a HARD constraint ("the
              * point is exactly here"), so it fights the real constraints and
