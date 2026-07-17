@@ -910,7 +910,19 @@ class AppState extends ChangeNotifier {
           'at=(${dragPos!.dx.toStringAsFixed(3)},'
           '${dragPos!.dy.toStringAsFixed(3)})');
       try {
-        _rebuildEngine(s, displayGeometry(s));
+        // SETTLE before committing. Drag frames run with a small iteration
+        // budget, so the last shown frame can legally carry residuals up to
+        // the render threshold (1e-2). Committing that unrefined state broke
+        // everything downstream on the device: seam endpoints drifted past the
+        // 1e-6 shared-endpoint tolerance, so every later solve bailed off the
+        // native path, and arc angles left the drag unnormalized. One full
+        // solve (80 iterations, nothing dragged) pulls the frame onto the
+        // constraint manifold to machine precision; angle normalization keeps
+        // arc parameters canonical without moving any endpoint.
+        final gs = List<Geo>.from(displayGeometry(s));
+        solveConstraints(gs, s.constraints);
+        normalizeArcAngles(gs);
+        _rebuildEngine(s, gs);
       } catch (err, st) {
         Log.e('drag', 'END: rebuild threw', err, st);
       }
@@ -923,6 +935,90 @@ class AppState extends ChangeNotifier {
     Log.flush();
     snap = null;
     notifyListeners();
+  }
+
+  /// Binds the NEW endpoints a trim/split created (every piece endpoint that
+  /// was not an endpoint of the original carrier [old]) the way Inventor does:
+  /// point-on-point when it meets an existing point (a split's twin piece, a
+  /// crossing endpoint), otherwise point-on-curve onto the entity whose
+  /// interior it lies on (the cutter). Candidates run through the same
+  /// over-constraint gate as manual constraints and are appended to [cons];
+  /// the caller's atomic solve then verifies everything together.
+  void _bindCutPoints(
+      List<Geo> gs, Geo old, int piecesStart, List<Constraint> cons) {
+    const tol = 1e-6;
+    final oldEnds = <Offset>[];
+    if (old.type == Geo.line) {
+      oldEnds.addAll([getPt(old, 0), getPt(old, 1)]);
+    } else if (old.type == Geo.arc) {
+      oldEnds.addAll([getPt(old, 1), getPt(old, 2)]);
+    } // a full circle has no endpoints: every cut point is new
+
+    void tryAdd(Constraint c) {
+      if (!wouldOverconstrain(gs, cons, c)) cons.add(c);
+    }
+
+    for (var e = piecesStart; e < gs.length; e++) {
+      final g = gs[e];
+      final endIdx = g.type == Geo.line
+          ? const [0, 1]
+          : g.type == Geo.arc
+              ? const [1, 2]
+              : const <int>[];
+      for (final p in endIdx) {
+        final q = getPt(g, p);
+        if (oldEnds.any((o) => (o - q).distance < tol)) continue;
+        // remap may already have carried a coincidence onto this point
+        final bound = cons.any((c) =>
+            c.type == CType.coincident &&
+            c.pts.any((r) => r.ent == e && r.pt == p));
+        if (bound) continue;
+        // 1) meets an existing point exactly (split twin, crossing endpoint)
+        Constraint? cand;
+        for (var j = 0; j < gs.length && cand == null; j++) {
+          if (j == e) continue;
+          for (var pj = 0; pj < ptCount(gs[j]); pj++) {
+            if ((getPt(gs[j], pj) - q).distance < tol) {
+              cand =
+                  Constraint(CType.coincident, pts: [PRef(j, pj), PRef(e, p)]);
+              break;
+            }
+          }
+        }
+        // 2) lies on the interior of another entity: the cutter
+        if (cand == null) {
+          for (var j = 0; j < gs.length; j++) {
+            if (j == e || j >= piecesStart) continue; // never onto a sibling
+            final t = gs[j];
+            if (t.type == Geo.line) {
+              final a = getPt(t, 0), b = getPt(t, 1);
+              final ab = b - a;
+              final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+              if (len2 < 1e-18) continue;
+              final tp = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
+              if (tp <= tol || tp >= 1 - tol) continue;
+              if ((q - (a + ab * tp)).distance < tol) {
+                cand = Constraint(CType.coincident,
+                    pts: [PRef(e, p)], ents: [j]);
+                break;
+              }
+            } else if (t.type == Geo.circle || t.type == Geo.arc) {
+              final c0 = Offset(t.data[0], t.data[1]);
+              if (((q - c0).distance - t.data[2]).abs() < tol) {
+                cand = Constraint(CType.coincident,
+                    pts: [PRef(e, p)], ents: [j]);
+                break;
+              }
+            }
+          }
+        }
+        if (cand != null) {
+          Log.i('modify',
+              'cut-bind ${conStr(-1, cand)} (Inventor trim/split coincidence)');
+          tryAdd(cand);
+        }
+      }
+    }
   }
 
   /// The C-API is add-only, so edits rebuild the document from scratch.
@@ -1722,6 +1818,12 @@ class AppState extends ChangeNotifier {
         // cut away loses its constraints, exactly like Inventor.
         final remapped =
             remapAfterReplace(s.constraints, i, old, gs, piecesStart);
+        // Inventor: the NEW endpoints a cut creates are constrained where they
+        // landed — onto the cutting entity (point-on-curve) or onto the point
+        // they meet. Without this the trimmed pieces are loose and drag apart,
+        // which is exactly what the device session showed (trims only ever
+        // REMOVED constraints, 55 -> 49).
+        _bindCutPoints(gs, old, piecesStart, remapped);
         // Atomic: verify on the remapped copies BEFORE adopting them. A trim
         // whose surviving constraints cannot be satisfied (a remap edge case)
         // must not scramble the sketch — it is refused instead.
@@ -1760,6 +1862,10 @@ class AppState extends ChangeNotifier {
         // constraints survive; entity refs go to the nearest piece.
         final remapped =
             remapAfterReplace(s.constraints, i, old, gs, piecesStart);
+        // Inventor glues the two halves back together at the split point:
+        // both pieces get a coincident there (and onto whatever the split
+        // landed on), so a later drag moves them as connected geometry.
+        _bindCutPoints(gs, old, piecesStart, remapped);
         if (!solveConstraints(gs, remapped)) {
           Log.w('modify', 'split e$i REJECTED — result cannot be satisfied');
           toast('This split would break the sketch constraints.');
@@ -1878,20 +1984,24 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- constraints + dimensions (M7) ----
-  PRef? _nearestPointRef(SketchModel s, Offset w) {
+  PRef? _nearestPointRef(SketchModel s, Offset w,
+      {Iterable<PRef> exclude = const []}) {
+    bool excluded(PRef r) =>
+        exclude.any((x) => x.ent == r.ent && x.pt == r.pt);
     PRef? best;
     var bd = 10 / zoom;
     // The projected center point is a real pick target in Inventor — you
     // dimension and constrain against it like any vertex. It has no slot in
     // the geometry list (negative sentinel), so offer it explicitly.
     final dOrigin = w.distance;
-    if (dOrigin < bd) {
+    if (dOrigin < bd && !excluded(const PRef(kProjCenter, 0))) {
       bd = dOrigin;
       best = const PRef(kProjCenter, 0);
     }
     for (var e = 0; e < s.geometry.length; e++) {
       if (!geoEditable(s.geometry[e])) continue; // other layers are read-only
       for (var p2 = 0; p2 < ptCount(s.geometry[e]); p2++) {
+        if (excluded(PRef(e, p2))) continue;
         final d = (getPt(s.geometry[e], p2) - w).distance;
         if (d < bd) {
           bd = d;
@@ -1976,7 +2086,15 @@ class AppState extends ChangeNotifier {
   }
 
   void _constraintClick(SketchModel s, Offset w) {
-    final pt = _nearestPointRef(s, w);
+    // A second point pick must never resolve to the SAME point as the first —
+    // when two entities' endpoints sit on top of each other (post-trim, shared
+    // corners), the nearest hit for both taps is identical and the constraint
+    // degenerates to e.p==e.p (device log: coincident e17.p1,e17.p1 rejected).
+    // Excluding the first pick makes the second tap land on the OTHER
+    // entity's point at that location, which is what the user is pointing at.
+    final pt = conPts.isEmpty
+        ? _nearestPointRef(s, w)
+        : _nearestPointRef(s, w, exclude: conPts);
     final ent = _pickEntity(s, w);
     switch (tool) {
       case Tool.cCoincident:
@@ -2702,25 +2820,24 @@ class AppState extends ChangeNotifier {
         }
       }
 
-      // Dimensions. Fillet: radius on the first of a value, equal-chain for the
-      // rest (Inventor's fillet chain). Chamfer: the two LEG extents (x and y
-      // of the chamfer line's endpoints), NOT the diagonal — Inventor's
-      // "aligned dimensions of the setback distance". For an axis-aligned corner
-      // these are exactly the two setbacks; for a rotated corner they are the
-      // bounding extents and still fully drive the chamfer.
+      // Dimensions. Fillet: EVERY fillet carries its own radius dimension —
+      // the user's spec ("fillets should have a dimension automatically, just
+      // like chamfers — a radius measurement"), and it reads unambiguously on
+      // canvas. The earlier equal-chain (first-of-a-value dimensioned, rest
+      // chained) left most fillets without a visible measurement. Chamfer: the
+      // two LEG extents (x and y of the chamfer line's endpoints), NOT the
+      // diagonal — Inventor's "aligned dimensions of the setback distance".
       final g0 = res.adds.first;
-      var advancedFirst = false;
       if (tool == Tool.fillet) {
-        if (f.firstIdx == null) {
-          advancedFirst = true;
-          cons.add(Constraint(CType.dimension,
-              ents: [newIdx],
-              dimKind: 'rad',
-              value: f.radius,
-              textPos: Offset(g0.data[0], g0.data[1])));
-        } else if (f.firstIdx! < gs.length) {
-          cons.add(Constraint(CType.equal, ents: [f.firstIdx!, newIdx]));
-        }
+        // text just outside the arc's midpoint, like Inventor's R-label
+        final midAng = (g0.data[3] + g0.data[4]) / 2;
+        cons.add(Constraint(CType.dimension,
+            ents: [newIdx],
+            dimKind: 'rad',
+            value: f.radius,
+            textPos: Offset(
+                g0.data[0] + (g0.data[2] + 8) * math.cos(midAng),
+                g0.data[1] + (g0.data[2] + 8) * math.sin(midAng))));
       } else {
         // chamfer: distx + disty on the two endpoints of the chamfer line
         final ax = g0.data[0], ay = g0.data[1], bx = g0.data[2], by = g0.data[3];
@@ -2751,10 +2868,8 @@ class AppState extends ChangeNotifier {
                 'smaller distances.');
         return; // s.geometry / s.constraints untouched
       }
-      if (tool == Tool.fillet && advancedFirst) f.firstIdx = newIdx;
       Log.i('modify',
-          '${tool.name} at e$e1/e$e2 -> e$newIdx'
-          '${tool == Tool.fillet && f.firstIdx == newIdx ? " (dimensioned)" : ""}');
+          '${tool.name} at e$e1/e$e2 -> e$newIdx (dimensioned)');
       s.constraints
         ..clear()
         ..addAll(cons);
@@ -2778,11 +2893,18 @@ class AppState extends ChangeNotifier {
       final gs = List<Geo>.from(s.geometry)..addAll(placed);
       final firstNew = s.geometry.length;
       final consAtCommitStart = s.constraints.length;
+      // true for shapes that add their own deterministic constraint set —
+      // those still need POINT bindings to pre-existing geometry (a corner on
+      // the center point, on an old vertex, on an old edge), which used to be
+      // inference's job and silently stopped for them when the deterministic
+      // sets were introduced (M34/M36). See the binding block after the chain.
+      var deterministicShape = false;
       final isRect = tool == Tool.rectTwoPoint ||
           tool == Tool.rect3P ||
           tool == Tool.rect2PC ||
           tool == Tool.rect3PC;
       if (isRect && placed.length == 4) {
+        deterministicShape = true;
         // Inventor's rectangle: four LINES held together by constraints —
         // coincident at every corner, plus H/V (axis-aligned tools) or
         // perpendicular (the rotated 3-point tools; the 4th right angle is
@@ -2810,6 +2932,7 @@ class AppState extends ChangeNotifier {
               tool == Tool.slotOverall ||
               tool == Tool.slotCP) &&
           placed.length == 4) {
+        deterministicShape = true;
         // Inventor's linear slot: [line1, line2, cap1, cap2] where cap1
         // runs line1.p0 -> line2.p1 and cap2 runs line2.p0 -> line1.p1
         // (see _linearSlot). Constraints: coincident + tangent at all four
@@ -2838,6 +2961,7 @@ class AppState extends ChangeNotifier {
         ]);
       } else if ((tool == Tool.slot3A || tool == Tool.slotCPA) &&
           placed.length == 4) {
+        deterministicShape = true;
         // Inventor's arc slot: [outer, inner, capA, capB]; capA runs
         // outer.start -> inner.start, capB inner.end -> outer.end (see
         // _arcSlot). Rails concentric, coincident + tangent at the seams.
@@ -2861,6 +2985,7 @@ class AppState extends ChangeNotifier {
           Constraint(CType.tangent, ents: [inn, cb]),
         ]);
       } else if (tool == Tool.circleTangent && placed.length == 1) {
+        deterministicShape = true;
         // Inventor's tangent circle: TANGENT to each of the three picked
         // lines — the picks are the tool points themselves.
         for (final tp in toolPoints.take(3)) {
@@ -2871,6 +2996,7 @@ class AppState extends ChangeNotifier {
           }
         }
       } else if (tool == Tool.arcTangent && placed.length == 1) {
+        deterministicShape = true;
         // Inventor's tangent arc: coincident on the source endpoint it
         // started from + tangent to that source (only when an arc actually
         // resulted — the degenerate straight case is just a line). Added
@@ -2890,6 +3016,23 @@ class AppState extends ChangeNotifier {
       } else if (autoConstrain) {
         for (var i = firstNew; i < gs.length; i++) {
           s.constraints.addAll(inferConstraints(gs, i));
+        }
+      }
+      // Deterministic shapes still get POINT bindings to what was already
+      // there — a rectangle corner drawn onto the projected center point, onto
+      // an existing vertex, or onto an existing edge binds exactly like it
+      // would for a plain line (Inventor behaviour; regressed when the
+      // deterministic sets replaced inference for these shapes). Internal
+      // relations are excluded via bindOnlyBefore, and every candidate passes
+      // the same over-constraint gate as a manual constraint.
+      if (deterministicShape && autoConstrain) {
+        for (var i = firstNew; i < gs.length; i++) {
+          for (final c
+              in inferPointBindings(gs, i, bindOnlyBefore: firstNew)) {
+            if (!wouldOverconstrain(gs, s.constraints, c)) {
+              s.constraints.add(c);
+            }
+          }
         }
       }
       if (tool == Tool.ellipse &&

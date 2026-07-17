@@ -231,6 +231,13 @@ int residualCount(List<Geo> gs, Constraint c) {
       if (pt(0) && pt(1)) return 2; // point-on-point
       // point-on-line: one point pinned onto one straight edge
       if (pt(0) && ent(0) && gs[c.ents[0]].type == Geo.line) return 1;
+      // point-on-circle/arc: one point pinned onto the curve (|q-c| == r)
+      if (pt(0) &&
+          ent(0) &&
+          (gs[c.ents[0]].type == Geo.circle ||
+              gs[c.ents[0]].type == Geo.arc)) {
+        return 1;
+      }
       return 0;
     case CType.fix:
       if (c.pts.isNotEmpty) return pt(0) ? 2 : 0;
@@ -339,20 +346,25 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
         final c1 = _circle(gs, off, x, c.ents[0]);
         final c2 = _circle(gs, off, x, c.ents[1]);
         if (c1 != null && c2 != null) {
-          final d = (c2.$1 - c1.$1).distance;
-          final outer = c1.$2 + c2.$2;
-          final inner = (c1.$2 - c2.$2).abs();
-          ctx.mode[i] = (d - outer).abs() <= (d - inner).abs() ? 1 : 0;
+          // curve-curve: inner (0) vs outer (1) tangency. Captured ONCE and
+          // persisted on the constraint — re-deriving per solve let drags walk
+          // continuously onto the other branch through the degenerate point.
+          if (c.tanBranch == null) {
+            final d = (c2.$1 - c1.$1).distance;
+            final outer = c1.$2 + c2.$2;
+            final inner = (c1.$2 - c2.$2).abs();
+            c.tanBranch = (d - outer).abs() <= (d - inner).abs() ? 1 : 0;
+          }
+          ctx.mode[i] = c.tanBranch!;
           break;
         }
-        // line + circle/arc (direct or polygon-edge variant): freeze WHICH
-        // SIDE of the line the center sits on. The naked |dist| - r has two
-        // branches (center left/right of the line) and a kink at dist = 0;
-        // under a drag the solver could hop branches between frames, which is
-        // exactly how a slot collapses onto itself (both rails "tangent" from
-        // the same side). Fixing the sign per solve makes the residual smooth
-        // AND pins the topology — same policy as pline/PROJ dims below and as
-        // the shim's signed PT_LINE_DISTANCE.
+        // line + circle/arc (direct or polygon-edge variant): WHICH SIDE of
+        // the line the center sits on. Same persistence rule as above — the
+        // naked |dist| - r has two branches and a kink at dist = 0; freezing
+        // the side per SOLVE made the residual smooth but still allowed the
+        // branch to migrate BETWEEN frames (the slot "teardrop"). The side is
+        // captured once from the creation/load geometry and honoured forever,
+        // like Inventor: a tangency cannot be flipped by dragging.
         Offset? la, lb, cCen;
         if (c.pts.length >= 2 &&
             (gs[c.ents[0]].type == Geo.polyline ||
@@ -380,13 +392,16 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
           }
         }
         if (la != null && lb != null && cCen != null) {
-          final d = lb - la;
-          final len = d.distance;
-          if (len > 1e-12) {
-            final n = Offset(-d.dy, d.dx) / len;
-            final dist = (cCen - la).dx * n.dx + (cCen - la).dy * n.dy;
-            ctx.sign[i] = dist < 0 ? -1.0 : 1.0;
+          if (c.tanBranch == null) {
+            final d = lb - la;
+            final len = d.distance;
+            if (len > 1e-12) {
+              final n = Offset(-d.dy, d.dx) / len;
+              final dist = (cCen - la).dx * n.dx + (cCen - la).dy * n.dy;
+              c.tanBranch = dist < 0 ? -1.0 : 1.0;
+            }
           }
+          if (c.tanBranch != null) ctx.sign[i] = c.tanBranch!;
         }
         break;
       case CType.dimension:
@@ -449,19 +464,28 @@ List<double> _residuals(List<Geo> gs, List<int> off, List<double> x,
           r.add(a.dx - b.dx);
           r.add(a.dy - b.dy);
         } else {
-          // point-on-line: signed perpendicular distance to the edge == 0
           final q = _pointAt(gs, off, x, c.pts[0]);
-          final l = _lineEnds(gs, off, x, c.ents[0]);
-          if (l == null) {
-            r.add(0);
+          final tgt = gs[c.ents[0]].type;
+          if (tgt == Geo.circle || tgt == Geo.arc) {
+            // point-on-curve: distance to the center equals the radius.
+            // Smooth and branch-free (unlike line tangency, distance-to-a-
+            // POINT has no side).
+            final cc = _circle(gs, off, x, c.ents[0]);
+            r.add(cc == null ? 0 : (q - cc.$1).distance - cc.$2);
           } else {
-            final d = l.$2 - l.$1;
-            final len = d.distance;
-            if (len < 1e-12) {
+            // point-on-line: signed perpendicular distance to the edge == 0
+            final l = _lineEnds(gs, off, x, c.ents[0]);
+            if (l == null) {
               r.add(0);
             } else {
-              final nrm = Offset(-d.dy, d.dx) / len;
-              r.add((q - l.$1).dx * nrm.dx + (q - l.$1).dy * nrm.dy);
+              final d = l.$2 - l.$1;
+              final len = d.distance;
+              if (len < 1e-12) {
+                r.add(0);
+              } else {
+                final nrm = Offset(-d.dy, d.dx) / len;
+                r.add((q - l.$1).dx * nrm.dx + (q - l.$1).dy * nrm.dy);
+              }
             }
           }
         }
@@ -1065,6 +1089,18 @@ bool _trySolveWithSlvs(
       }
       return false;
     }
+    if (c.type == CType.coincident &&
+        c.pts.isNotEmpty &&
+        c.ents.isNotEmpty &&
+        c.ents[0] < gs.length &&
+        (gs[c.ents[0]].type == Geo.circle || gs[c.ents[0]].type == Geo.arc) &&
+        ffi.version < 4) {
+      // point-on-curve packs to SLVS_C_PT_ON_CIRCLE, shim v4+
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: point-on-curve needs shim>=4, have ${ffi.version}');
+      }
+      return false;
+    }
     if (c.type == CType.dimension &&
         !const ['dist', 'distx', 'disty', 'rad', 'dia', 'ang', 'pline']
             .contains(c.dimKind)) {
@@ -1156,7 +1192,15 @@ bool _trySolveWithSlvs(
           if (a != null && b != null) s.addCon(Sh.coincident, a: a, b: b);
         } else if (c.pts.isNotEmpty && c.ents.isNotEmpty) {
           final a = pOf(c.pts[0]);
-          if (a != null) s.addCon(Sh.pointOnLine, a: a, e1: eOf(c.ents[0]));
+          if (a != null) {
+            final tgt = gs[c.ents[0]].type;
+            if (tgt == Geo.circle || tgt == Geo.arc) {
+              // shim v4: SLVS_C_PT_ON_CIRCLE (works for circles AND arcs)
+              s.addCon(Sh.pointOnCircle, a: a, e1: eOf(c.ents[0]));
+            } else {
+              s.addCon(Sh.pointOnLine, a: a, e1: eOf(c.ents[0]));
+            }
+          }
         }
         break;
       case CType.horizontal:
@@ -1391,6 +1435,32 @@ const _satisfied = 1e-6;
 /// never reach the renderer or a commit. Good frames sit at ~1e-12; a
 /// divergence is orders of magnitude larger, so this cleanly separates them.
 const _renderable = 1e-2;
+
+/// Wraps every arc's start/end angle into (-2π, 2π] IN PLACE. Endpoints are
+/// invariant (angles enter only through cos/sin), so this never moves
+/// geometry — it only keeps the parameters canonical. Drag paths can leave
+/// angles far outside one revolution (the device log showed -8.0..4.6 rad on a
+/// slot cap), which stresses every later angle computation.
+void normalizeArcAngles(List<Geo> gs) {
+  double wrap(double a) {
+    var v = a % (2 * math.pi);
+    // keep the representative closest to zero for stable diffs
+    if (v > math.pi) v -= 2 * math.pi;
+    if (v < -math.pi) v += 2 * math.pi;
+    return v;
+  }
+
+  for (var i = 0; i < gs.length; i++) {
+    final g = gs[i];
+    if (g.type != Geo.arc || g.data.length < 5) continue;
+    final a0 = wrap(g.data[3]), a1 = wrap(g.data[4]);
+    if (a0 == g.data[3] && a1 == g.data[4]) continue;
+    final d = List<double>.from(g.data);
+    d[3] = a0;
+    d[4] = a1;
+    gs[i] = g.withData(d);
+  }
+}
 
 /// The residual norm of the ACTIVE (driving) constraints at the current packed
 /// state. Driven/reference dimensions contribute nothing (residualCount == 0),

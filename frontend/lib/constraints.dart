@@ -87,10 +87,22 @@ class Constraint {
   bool driven;
   /// Fix: the coordinates/parameters the geometry is pinned to.
   final List<double> anchors;
+  /// Tangency BRANCH, persisted (sidecar key 'tb'). A tangency has two
+  /// geometrically valid branches — which side of a line the circle sits on,
+  /// or inner vs. outer tangency between two circles. Deriving the branch from
+  /// the momentary geometry on every solve lets a drag walk CONTINUOUSLY
+  /// through the degenerate configuration onto the other branch (that is
+  /// exactly how the slot folded into the crossed "teardrop": every frame was
+  /// individually satisfied). The branch is therefore captured ONCE — on the
+  /// first solve after creation or load — and honoured forever after, like
+  /// Inventor: you cannot flip a tangency by dragging.
+  /// Line-circle: ±1 = sign of the signed center distance to the line
+  /// (p0→p1 left normal). Curve-curve: 1 = outer, 0 = inner.
+  double? tanBranch;
   Constraint(this.type,
       {this.pts = const [], this.ents = const [], this.value,
       this.dimKind = '', this.textPos, this.driven = false,
-      this.anchors = const []});
+      this.anchors = const [], this.tanBranch});
 
   Map<String, dynamic> toJson() => {
         't': type.index,
@@ -102,6 +114,7 @@ class Constraint {
         if (textPos != null) 'y': textPos!.dy,
         if (driven) 'dr': true,
         if (anchors.isNotEmpty) 'an': anchors,
+        if (tanBranch != null) 'tb': tanBranch,
       };
   static Constraint fromJson(Map<String, dynamic> j) => Constraint(
         CType.values[j['t']],
@@ -117,6 +130,7 @@ class Constraint {
           for (final a in (j['an'] as List? ?? const []))
             (a as num).toDouble()
         ],
+        tanBranch: (j['tb'] as num?)?.toDouble(),
       );
 }
 
@@ -257,6 +271,60 @@ double _dir(Geo line) => math.atan2(
 // ---------------------------------------------------------------------------
 const _angTol = 1.5 * math.pi / 180;
 
+/// The POINT-binding portion of constraint inference for entity [newIdx]:
+/// bind each of its points to (highest priority first) the projected center
+/// point, a coinciding existing point, or the interior of an existing straight
+/// edge. [bindOnlyBefore] restricts partner entities to indices below it —
+/// deterministic constructions (rectangles, slots, fillets) pass their own
+/// first index so their INTERNAL corner relations, which they add themselves,
+/// are never duplicated, while landings on PRE-EXISTING geometry and on the
+/// center point still bind exactly like Inventor.
+List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
+    {int? bindOnlyBefore}) {
+  final out = <Constraint>[];
+  final g = gs[newIdx];
+  final limit = bindOnlyBefore ?? newIdx;
+  for (var p = 0; p < ptCount(g); p++) {
+    final q = getPt(g, p);
+    // Highest priority: the projected center point. Snapping onto it ('origin'
+    // snap) put the point EXACTLY on (0,0), but the center point is not in the
+    // geometry list, so the loops below could never see it and the point stayed
+    // free. Bind it to the fixed sentinel ref instead -> the point is grounded.
+    if (q.distance < 1e-6) {
+      out.add(Constraint(CType.coincident,
+          pts: [const PRef(kProjCenter, 0), PRef(newIdx, p)]));
+      continue;
+    }
+    var done = false;
+    for (var j = 0; j < limit && !done; j++) {
+      for (var pj = 0; pj < ptCount(gs[j]) && !done; pj++) {
+        if ((getPt(gs[j], pj) - q).distance < 1e-6) {
+          out.add(Constraint(CType.coincident,
+              pts: [PRef(j, pj), PRef(newIdx, p)]));
+          done = true;
+        }
+      }
+    }
+    if (done) continue;
+    for (var j = 0; j < limit; j++) {
+      if (gs[j].type != Geo.line) continue;
+      final a = getPt(gs[j], 0), b = getPt(gs[j], 1);
+      if ((q - a).distance < 1e-6 || (q - b).distance < 1e-6) continue;
+      final ab = b - a;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      if (len2 < 1e-18) continue;
+      final tPar = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
+      if (tPar <= 1e-6 || tPar >= 1 - 1e-6) continue; // interior only
+      if ((q - (a + ab * tPar)).distance < 1e-6) {
+        out.add(Constraint(CType.coincident,
+            pts: [PRef(newIdx, p)], ents: [j]));
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
   final out = <Constraint>[];
   final g = gs[newIdx];
@@ -318,44 +386,7 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
   // coincident endpoints (snapping already made them exactly equal); if a new
   // point instead lands on the interior of an existing straight edge, add a
   // point-on-line coincidence rather than point-on-point.
-  for (var p = 0; p < ptCount(g); p++) {
-    final q = getPt(g, p);
-    // Highest priority: the projected center point. Snapping onto it ('origin'
-    // snap) put the point EXACTLY on (0,0), but the center point is not in the
-    // geometry list, so the loops below could never see it and the point stayed
-    // free. Bind it to the fixed sentinel ref instead -> the point is grounded.
-    if (q.distance < 1e-6) {
-      out.add(Constraint(CType.coincident,
-          pts: [const PRef(kProjCenter, 0), PRef(newIdx, p)]));
-      continue;
-    }
-    var done = false;
-    for (var j = 0; j < newIdx && !done; j++) {
-      for (var pj = 0; pj < ptCount(gs[j]) && !done; pj++) {
-        if ((getPt(gs[j], pj) - q).distance < 1e-6) {
-          out.add(Constraint(CType.coincident,
-              pts: [PRef(j, pj), PRef(newIdx, p)]));
-          done = true;
-        }
-      }
-    }
-    if (done) continue;
-    for (var j = 0; j < newIdx; j++) {
-      if (gs[j].type != Geo.line) continue;
-      final a = getPt(gs[j], 0), b = getPt(gs[j], 1);
-      if ((q - a).distance < 1e-6 || (q - b).distance < 1e-6) continue;
-      final ab = b - a;
-      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-      if (len2 < 1e-18) continue;
-      final tPar = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
-      if (tPar <= 1e-6 || tPar >= 1 - 1e-6) continue; // interior only
-      if ((q - (a + ab * tPar)).distance < 1e-6) {
-        out.add(Constraint(CType.coincident,
-            pts: [PRef(newIdx, p)], ents: [j]));
-        break;
-      }
-    }
-  }
+  out.addAll(inferPointBindings(gs, newIdx));
   // tangent for arcs that start exactly on another entity's endpoint with
   // matching tangent direction (the Arc-Tangent tool produces these)
   if (g.type == Geo.arc) {

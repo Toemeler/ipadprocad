@@ -32,6 +32,7 @@ class Sh {
   // e1/e2 carry RAW point indices (the line's two points), not ent refs.
   // Requires shim version >= 2 — callers must gate on [SlvsFfi.version].
   static const ptLineDist = 20;
+  static const pointOnCircle = 21; // shim v4: SLVS_C_PT_ON_CIRCLE
 
   static const resultOkay = 0;
   static const resultInconsistent = 1; // also libslvs's REDUNDANT_OKAY
