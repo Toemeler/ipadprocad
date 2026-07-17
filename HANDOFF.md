@@ -1799,6 +1799,40 @@ Label, Label wird VOR dem Up verschoben (simuliertes Tastatur-Relayout), Up
 an der alten Position → Editor bleibt offen, `d1` eingefuegt. Suite:
 **193 gruen**.
 
+## M43 — Inventors Parameters-Fenster (Manage > fx Parameters)
+
+Neuer Ribbon-Panel „Manage" mit fx-Button (zwischen Format und Modify) —
+oeffnet ein MODELESSES, per Titelleiste VERSCHIEBBARES Fenster ueber dem
+Viewport (`widgets/parameters_dialog.dart`, Position lebt als `_paramsPos`
+im Viewport-State, geclampt). Tabelle wie Inventor: Model Parameters (alle
+Bemaßungen: Name-Zelle editierbar mit Referenz-Nachzug, Equation-Zelle mit
+der vollen M41-Grammatik + Live-Rot, getriebene Bemaßungen read-only
+„(reference)", Value-Spalte) und User Parameters (Add-Button, Auto-Name
+User_1…, Loeschen nur unreferenziert — sonst Toast mit dem Nutzer).
+Waehrend eine Equation-Zelle fokussiert ist, fuegt ein Tap auf ein
+Bemaßungs-Label im Viewport dessen Parameternamen an der Cursorposition ein
+(`AppState.paramRefSink`, vom FocusListener der Zelle gesetzt/geraeumt; der
+Viewport prueft den Sink VOR der normalen Klick-Behandlung und nutzt den
+Down-Zeit-Hit aus dem M42-Fix; Hover-Highlight ist dann ebenfalls aktiv).
+
+**Engine:** `UserParam {name, expr?, value}` in params.dart (+ JSON-Codec),
+`SketchModel.userParams`, eigener Sidecar `<name>.params.json`, UndoSnap um
+`uparams` erweitert (sameAs, _takeSnap, Restore) — Journal round-trippt.
+`paramTable` = Bemaßungen + User-Params; `_depGraph`/`_cycleIfRefs`
+verallgemeinern die Zyklen-Pruefung ueber BEIDE Arten (Bemaßung↔User-Param
+gemischte Ketten); `_renameRefs` fegt auch User-Ausdruecke;
+`_applyExprValues` wertet User-Params im selben Fixpunkt aus (Domaene mm).
+APIs: addUserParam, setUserParamText (Grammatik wie Bemaßung inkl.
+„Name = …"), renameUserParam, deleteUserParam (Referenz-Guard),
+userParamTextValid, renameDimParam (Name-Zelle der Model-Zeile);
+User-Param-Aenderungen checkpointen EXPLIZIT (eine reine Wert-Aenderung
+ohne abhaengige Geometrie rebuildet die Engine nicht).
+
+**Tests:** `m43_parameters_test.dart` (5): CRUD + Rename-Nachzug beide Wege,
+gemischte Kette User→Dim→User→Dim propagiert bis in die Geometrie, Zyklus
+ueber Arten hinweg + Delete-Guard, Validierung spiegelt Commit-Regeln,
+Codec- und Journal-Round-Trip. Suite: **198 gruen**.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1830,7 +1864,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**193 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**198 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

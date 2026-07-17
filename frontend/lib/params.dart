@@ -16,6 +16,7 @@
 // direkt. Eine volle Einheiten-Algebra (mm^3-Fehlerprüfung etc.) ist
 // bewusst NICHT nachgebaut — der Ausdruck wird numerisch ausgewertet.
 
+import 'dart:convert';
 import 'dart:math' as math;
 
 /// Reserved words that cannot be parameter names.
@@ -364,3 +365,32 @@ class _Parser {
 
   static double _fmod(double a, double b) => a - b * (a / b).truncateToDouble();
 }
+
+// ---------------------------------------------------------------- M43 ----
+// Inventors USER parameters (Manage > Parameters): named values the user
+// defines in the fx table, usable in every dimension expression (and in
+// other user parameters). They live per sketch, ride their own sidecar and
+// the undo journal.
+
+class UserParam {
+  String name;
+  /// Expression, or null when the parameter is a plain number.
+  String? expr;
+  double value;
+  UserParam(this.name, this.value, [this.expr]);
+
+  Map<String, dynamic> toJson() => {
+        'n': name,
+        'v': value,
+        if (expr != null) 'x': expr,
+      };
+  static UserParam fromJson(Map<String, dynamic> j) => UserParam(
+      j['n'] as String, (j['v'] as num).toDouble(), j['x'] as String?);
+}
+
+String encodeUserParams(List<UserParam> ps) =>
+    jsonEncode([for (final p in ps) p.toJson()]);
+List<UserParam> decodeUserParams(String s) => [
+      for (final j in (jsonDecode(s) as List))
+        UserParam.fromJson(j as Map<String, dynamic>)
+    ];

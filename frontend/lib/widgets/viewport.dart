@@ -22,6 +22,7 @@ import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
 import 'pattern_dialog.dart';
+import 'parameters_dialog.dart';
 
 class Viewport2D extends StatefulWidget {
   final AppState app;
@@ -74,6 +75,16 @@ class _Viewport2DState extends State<Viewport2D> {
 
   void _handleClick(Offset local, Size size, {Constraint? downDim}) {
     final app = widget.app;
+    // M43: while an equation cell of the Parameters window is focused,
+    // tapping a dimension label inserts its parameter name there.
+    if (app.paramRefSink != null && _inlineDim == null) {
+      final hit = downDim ?? _dimAtScreen(local);
+      if (hit != null) {
+        final s = app.current;
+        if (s != null) app.paramRefSink!(app.ensureParamName(s, hit));
+        return;
+      }
+    }
     if (_inlineDim != null) {
       // Tapping the SAME label again (the second tap of a double tap lands
       // here) keeps the editor open instead of committing it shut — that
@@ -297,6 +308,8 @@ class _Viewport2DState extends State<Viewport2D> {
   /// parameter name, Inventor-style) and in plain layer-edit mode (tap opens
   /// the value editor).
   Constraint? _hoverDimLabel;
+  /// M43: position of the movable Parameters window (viewport coords).
+  Offset _paramsPos = const Offset(60, 60);
   final TextEditingController _dimCtrl = TextEditingController();
   final FocusNode _dimFocus = FocusNode();
 
@@ -559,6 +572,7 @@ class _Viewport2DState extends State<Viewport2D> {
             // name (expression box open) or open its editor (edit mode, no
             // tool / dimension tool).
             final actionable = _inlineDim != null ||
+                app.paramRefSink != null ||
                 (app.inEditMode &&
                     (app.tool == Tool.none || app.tool == Tool.dimension));
             var hd = actionable ? _dimAtScreen(e.localPosition) : null;
@@ -636,6 +650,16 @@ class _Viewport2DState extends State<Viewport2D> {
                   if (app.pattern != null)
                     Positioned(
                         right: 12, top: 12, child: PatternDialog(app: app)),
+                  // M43: movable Parameters (fx) window
+                  if (app.showParams)
+                    Positioned(
+                      left: _paramsPos.dx.clamp(0.0, size.width - 120),
+                      top: _paramsPos.dy.clamp(0.0, size.height - 60),
+                      child: ParametersDialog(
+                          app: app,
+                          onDrag: (d) =>
+                              setState(() => _paramsPos += d)),
+                    ),
                   // 2D Fillet / Chamfer value window (M36), same parking spot
                   if (app.filletSess != null &&
                       (app.tool == Tool.fillet || app.tool == Tool.chamfer))

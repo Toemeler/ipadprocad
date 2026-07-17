@@ -427,6 +427,36 @@ class _RibbonState extends State<Ribbon> {
         ),
         // 7. Format
         _panel(label: 'Format', arrow: true, child: _FormatGrid(app: app)),
+        // 7b. Manage (M43): Inventors Parameters window
+        _panel(
+          label: 'Manage',
+          arrow: false,
+          child: Center(
+            child: InkWell(
+              onTap: () => app.toggleParams(),
+              child: Container(
+                width: 52,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: app.showParams ? T.flyHov : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('fx',
+                      style: TextStyle(
+                          color: T.blue,
+                          fontSize: 16,
+                          height: 1.0,
+                          fontStyle: FontStyle.italic,
+                          fontWeight: FontWeight.w700)),
+                  SizedBox(height: 3),
+                  Text('Parameters',
+                      style: TextStyle(color: T.text, fontSize: 9)),
+                ]),
+              ),
+            ),
+          ),
+        ),
         // 8. Modify (LAST block)
         _panel(
           label: 'Modify',

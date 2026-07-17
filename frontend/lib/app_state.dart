@@ -108,6 +108,9 @@ class SketchModel {
   Engine engine; // non-final: rebuilt after grip edits (C-API is add-only)
   List<Geo> geometry = [];
   final List<Constraint> constraints = [];
+  /// M43 — user parameters (Inventors fx table): named values usable in any
+  /// dimension expression. Sketch state: sidecar + undo journal.
+  final List<UserParam> userParams = [];
   final List<String> layers = []; // "Layer 1".."Layer N"
   /// Layers the eye in the model browser has switched off. Visibility is a VIEW
   /// property only — hidden geometry keeps its index, so constraint refs (which
@@ -189,6 +192,7 @@ class SketchModel {
   UndoSnap _takeSnap() => UndoSnap(
         [for (final g in geometry) g.withData(List<double>.of(g.data))],
         encodeConstraints(constraints),
+        encodeUserParams(userParams),
         List<String>.of(layers),
         {...hiddenLayers},
         {...lockedLayers},
@@ -237,13 +241,16 @@ class SketchModel {
 class UndoSnap {
   final List<Geo> geometry;
   final String cons; // constraints, serialized (deep copy + cheap equality)
+  final String uparams; // M43: user parameters, serialized like constraints
   final List<String> layers;
   final Set<String> hidden;
   final Set<String> locked;
-  UndoSnap(this.geometry, this.cons, this.layers, this.hidden, this.locked);
+  UndoSnap(this.geometry, this.cons, this.uparams, this.layers, this.hidden,
+      this.locked);
 
   bool sameAs(UndoSnap o) {
     if (cons != o.cons ||
+        uparams != o.uparams ||
         geometry.length != o.geometry.length ||
         layers.length != o.layers.length ||
         hidden.length != o.hidden.length ||
@@ -407,6 +414,14 @@ class AppState extends ChangeNotifier {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
           ensureParamNames(s); // M41: pre-M41 sidecars load nameless
         }
+        try {
+          final pf = File('${_sketchDir.path}/$name.params.json');
+          if (pf.existsSync()) {
+            s.userParams.addAll(decodeUserParams(pf.readAsStringSync()));
+          }
+        } catch (e) {
+          Log.w('state', 'user-param sidecar read failed: $e');
+        }
         // Spline tags: the DXF has no spline (R_NO_OPENNURBS), so a spline came
         // back from refresh() as a plain polyline. Re-tag by index (entities
         // load in save order, same as the constraint sidecar assumes).
@@ -560,6 +575,9 @@ class AppState extends ChangeNotifier {
       s.constraints
         ..clear()
         ..addAll(decodeConstraints(snap.cons));
+      s.userParams
+        ..clear()
+        ..addAll(decodeUserParams(snap.uparams));
       s.layers
         ..clear()
         ..addAll(snap.layers);
@@ -3045,13 +3063,15 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// name -> current base value (mm resp. deg) of every named dimension.
+  /// name -> current base value (mm resp. deg) of every named dimension AND
+  /// every user parameter (M43: Inventors fx table).
   Map<String, double> paramTable(SketchModel s) => {
         for (final c in s.constraints)
           if (c.type == CType.dimension &&
               c.paramName != null &&
               c.value != null)
             c.paramName!: c.value!,
+        for (final u in s.userParams) u.name: u.value,
       };
 
   Constraint? _dimByName(SketchModel s, String name) {
@@ -3061,34 +3081,68 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  UserParam? _userByName(SketchModel s, String name) {
+    for (final u in s.userParams) {
+      if (u.name == name) return u;
+    }
+    return null;
+  }
+
+  bool _nameTaken(SketchModel s, String name) =>
+      _dimByName(s, name) != null || _userByName(s, name) != null;
+
+  /// name -> the names its expression references (dims + user params).
+  Map<String, Set<String>> _depGraph(SketchModel s) => {
+        for (final c in s.constraints)
+          if (c.type == CType.dimension &&
+              c.paramName != null &&
+              c.expr != null)
+            c.paramName!: exprRefs(c.expr!),
+        for (final u in s.userParams)
+          if (u.expr != null) u.name: exprRefs(u.expr!),
+      };
+
+  /// True when a parameter called [selfName] whose expression references
+  /// [refs] would close a dependency cycle.
+  bool _cycleIfRefs(SketchModel s, String selfName, Set<String> refs) {
+    final g = _depGraph(s);
+    final seen = <String>{};
+    bool reachesSelf(String n) {
+      if (n == selfName) return true;
+      if (!seen.add(n)) return false;
+      return (g[n] ?? const <String>{}).any(reachesSelf);
+    }
+
+    return refs.any(reachesSelf);
+  }
+
   static bool _isAngleDim(Constraint c) =>
       c.dimKind == 'ang' || c.dimKind == 'ang3' || c.dimKind == 'ang4';
 
   /// True when making [c]'s expression reference [ref] would close a cycle
-  /// (ref depends — transitively — on c).
-  bool _wouldCycle(SketchModel s, Constraint c, String ref) {
-    final seen = <String>{};
-    bool dependsOnC(String name) {
-      if (!seen.add(name)) return false;
-      final d = _dimByName(s, name);
-      if (d == null) return false;
-      if (identical(d, c)) return true;
-      if (d.expr == null) return false;
-      return exprRefs(d.expr!).any(dependsOnC);
-    }
+  /// (ref depends — transitively, across dims AND user params — on c).
+  bool _wouldCycle(SketchModel s, Constraint c, String ref) =>
+      c.paramName != null && _cycleIfRefs(s, c.paramName!, {ref});
 
-    return dependsOnC(ref);
-  }
+  (List<(Constraint, double?, String?)>, List<(UserParam, double, String?)>)
+      _snapshotDims(SketchModel s) => (
+            [
+              for (final c in s.constraints)
+                if (c.type == CType.dimension) (c, c.value, c.expr)
+            ],
+            [for (final u in s.userParams) (u, u.value, u.expr)],
+          );
 
-  List<(Constraint, double?, String?)> _snapshotDims(SketchModel s) => [
-        for (final c in s.constraints)
-          if (c.type == CType.dimension) (c, c.value, c.expr)
-      ];
-
-  void _restoreDims(List<(Constraint, double?, String?)> snap) {
-    for (final (c, v, e) in snap) {
+  void _restoreDims(
+      (List<(Constraint, double?, String?)>, List<(UserParam, double, String?)>)
+          snap) {
+    for (final (c, v, e) in snap.$1) {
       c.value = v;
       c.expr = e;
+    }
+    for (final (u, v, e) in snap.$2) {
+      u.value = v;
+      u.expr = e;
     }
   }
 
@@ -3103,6 +3157,14 @@ class AppState extends ChangeNotifier {
     for (var pass = 0; pass < 8; pass++) {
       final table = paramTable(s);
       var changed = false;
+      for (final u in s.userParams) {
+        if (u.expr == null) continue;
+        final v = evalExpr(u.expr!, table); // user params are length-domain
+        if (v != null && (v - u.value).abs() > 1e-9) {
+          u.value = v;
+          changed = true;
+        }
+      }
       for (final c in s.constraints) {
         if (c.type != CType.dimension || c.expr == null || c.driven) continue;
         final v = evalExpr(c.expr!, table, angle: _isAngleDim(c));
@@ -3169,7 +3231,8 @@ class AppState extends ChangeNotifier {
         return false;
       }
       final other = _dimByName(s, name);
-      if (other != null && !identical(other, c)) {
+      if ((other != null && !identical(other, c)) ||
+          _userByName(s, name) != null) {
         toast('Parameter name "$name" is already in use.');
         return false;
       }
@@ -3177,7 +3240,7 @@ class AppState extends ChangeNotifier {
     final angle = _isAngleDim(c);
     final refs = exprRefs(body);
     for (final r in refs) {
-      if (_dimByName(s, r) == null) {
+      if (!_nameTaken(s, r)) {
         toast('Unknown parameter "$r".');
         return false;
       }
@@ -3215,12 +3278,15 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  /// Renames [from] to [to] inside every stored expression (word-boundary
-  /// match, so renaming d1 does not maul d10).
+  /// Renames [from] to [to] inside every stored expression — dimensions AND
+  /// user parameters (word-boundary match, so renaming d1 does not maul d10).
   void _renameRefs(SketchModel s, String from, String to) {
     final re = RegExp('\\b${RegExp.escape(from)}\\b');
     for (final c in s.constraints) {
       if (c.expr != null) c.expr = c.expr!.replaceAll(re, to);
+    }
+    for (final u in s.userParams) {
+      if (u.expr != null) u.expr = u.expr!.replaceAll(re, to);
     }
   }
 
@@ -3235,14 +3301,182 @@ class AppState extends ChangeNotifier {
     if (name != null) {
       if (!isValidParamName(name)) return false;
       final other = _dimByName(s, name);
-      if (other != null && !identical(other, c)) return false;
+      if ((other != null && !identical(other, c)) ||
+          _userByName(s, name) != null) return false;
     }
     final refs = exprRefs(body);
     for (final r in refs) {
-      if (_dimByName(s, r) == null) return false;
+      if (!_nameTaken(s, r)) return false;
       if (r == c.paramName || _wouldCycle(s, c, r)) return false;
     }
     return evalExpr(body, paramTable(s), angle: _isAngleDim(c)) != null;
+  }
+
+  // -------------------------------------------------------------- M43 ----
+  // Inventors Parameters dialog (fx): a movable table listing every model
+  // parameter (the dimensions) and user-defined parameters with name,
+  // equation and value. Cells accept the same expressions as the dimension
+  // edit box; while a cell is focused, tapping a dimension label in the
+  // viewport inserts its parameter name (routed through [paramRefSink]).
+
+  /// The Parameters window is open.
+  bool showParams = false;
+  void toggleParams() {
+    showParams = !showParams;
+    if (current != null) ensureParamNames(current!);
+    notifyListeners();
+  }
+
+  /// While a parameter-dialog cell is focused, this receives the parameter
+  /// name of a tapped dimension label (viewport click-to-reference).
+  void Function(String name)? paramRefSink;
+
+  /// Smallest unused User_1, User_2, … (Inventor auto-names new rows).
+  String _newUserName(SketchModel s) {
+    var i = 1;
+    while (_nameTaken(s, 'User_$i')) {
+      i++;
+    }
+    return 'User_$i';
+  }
+
+  /// Adds a fresh user parameter (value 0) and returns it.
+  UserParam addUserParam() {
+    final s = current!;
+    final u = UserParam(_newUserName(s), 0);
+    s.userParams.add(u);
+    s.checkpoint();
+    notifyListeners();
+    return u;
+  }
+
+  /// Commits the raw text of a user-parameter EQUATION cell — the same
+  /// grammar as the dimension edit box: plain number, expression, or
+  /// "Name = …" (renames the parameter and follows every reference).
+  bool setUserParamText(UserParam u, String raw) {
+    final s = current;
+    if (s == null) return false;
+    ensureParamNames(s);
+    final (name, body) = splitAssignment(raw);
+    if (body.trim().isEmpty) return false;
+    if (name != null && name != u.name) {
+      if (!isValidParamName(name) || _nameTaken(s, name)) {
+        toast('Invalid or duplicate parameter name.');
+        return false;
+      }
+    }
+    final refs = exprRefs(body);
+    for (final r in refs) {
+      if (!_nameTaken(s, r)) {
+        toast('Unknown parameter "$r".');
+        return false;
+      }
+      if (r == u.name || _cycleIfRefs(s, u.name, {r})) {
+        toast('Circular reference: "$r" depends on this parameter.');
+        return false;
+      }
+    }
+    final v = evalExpr(body, paramTable(s));
+    if (v == null) {
+      toast('Invalid expression.');
+      return false;
+    }
+    final snap = _snapshotDims(s);
+    final oldName = u.name;
+    u.value = v;
+    u.expr = isPlainNumber(body) ? null : body.trim();
+    if (name != null && name != oldName) {
+      u.name = name;
+      _renameRefs(s, oldName, name);
+    }
+    // dependents (dims referencing this parameter) follow; an unsatisfiable
+    // resulting geometry rolls everything back atomically (M37 rules)
+    if (!_solveOnceThenChase(s)) {
+      _restoreDims(snap);
+      if (name != null && name != oldName) {
+        u.name = oldName;
+        _renameRefs(s, name, oldName);
+      }
+      toast('Value cannot be satisfied with the current constraints.');
+      notifyListeners();
+      return false;
+    }
+    s.checkpoint(); // a pure user-param edit may not rebuild the engine
+    notifyListeners();
+    return true;
+  }
+
+  /// Renames a user parameter from its NAME cell.
+  bool renameUserParam(UserParam u, String name) {
+    final s = current;
+    if (s == null) return false;
+    name = name.trim();
+    if (name == u.name) return true;
+    if (!isValidParamName(name) || _nameTaken(s, name)) {
+      toast('Invalid or duplicate parameter name.');
+      return false;
+    }
+    final old = u.name;
+    u.name = name;
+    _renameRefs(s, old, name);
+    s.checkpoint();
+    notifyListeners();
+    return true;
+  }
+
+  /// Deletes a user parameter — refused while anything references it
+  /// (Inventor greys the delete for in-use parameters).
+  bool deleteUserParam(UserParam u) {
+    final s = current;
+    if (s == null) return false;
+    final g = _depGraph(s);
+    for (final e in g.entries) {
+      if (e.key != u.name && e.value.contains(u.name)) {
+        toast('"${u.name}" is used by "${e.key}" — remove the reference '
+            'first.');
+        return false;
+      }
+    }
+    s.userParams.remove(u);
+    s.checkpoint();
+    notifyListeners();
+    return true;
+  }
+
+  /// Live validation for a user-parameter equation cell.
+  bool userParamTextValid(UserParam u, String raw) {
+    final s = current;
+    if (s == null) return false;
+    final (name, body) = splitAssignment(raw);
+    if (body.trim().isEmpty) return false;
+    if (name != null && name != u.name) {
+      if (!isValidParamName(name) || _nameTaken(s, name)) return false;
+    }
+    final refs = exprRefs(body);
+    for (final r in refs) {
+      if (!_nameTaken(s, r)) return false;
+      if (r == u.name || _cycleIfRefs(s, u.name, {r})) return false;
+    }
+    return evalExpr(body, paramTable(s)) != null;
+  }
+
+  /// Commits a MODEL parameter's equation cell (same as the inline editor,
+  /// minus the rename-through-"=" — the name cell handles renames).
+  bool renameDimParam(Constraint c, String name) {
+    final s = current;
+    if (s == null || c.paramName == null) return false;
+    name = name.trim();
+    if (name == c.paramName) return true;
+    if (!isValidParamName(name) || _nameTaken(s, name)) {
+      toast('Invalid or duplicate parameter name.');
+      return false;
+    }
+    final old = c.paramName!;
+    c.paramName = name;
+    _renameRefs(s, old, name);
+    s.checkpoint();
+    notifyListeners();
+    return true;
   }
 
   /// Driven dimensions track the geometry, so refresh their measured values.
@@ -3704,6 +3938,8 @@ class AppState extends ChangeNotifier {
     try {
       File('${_sketchDir.path}/$name.cons.json')
           .writeAsStringSync(encodeConstraints(s.constraints));
+      File('${_sketchDir.path}/$name.params.json')
+          .writeAsStringSync(encodeUserParams(s.userParams));
     } catch (e) {
       Log.w('state', 'constraint sidecar write failed: $e');
     }
