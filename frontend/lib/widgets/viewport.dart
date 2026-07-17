@@ -441,6 +441,20 @@ class _Viewport2DState extends State<Viewport2D> {
               }
               return KeyEventResult.handled;
             }
+            // Undo / Redo (M39): Ctrl+Z steps back, Ctrl+Shift+Z (or Ctrl+Y)
+            // steps forward — always only in the CURRENT sketch.
+            if (ctrl && k == LogicalKeyboardKey.keyZ) {
+              if (HardwareKeyboard.instance.isShiftPressed) {
+                app.redo();
+              } else {
+                app.undo();
+              }
+              return KeyEventResult.handled;
+            }
+            if (ctrl && k == LogicalKeyboardKey.keyY) {
+              app.redo();
+              return KeyEventResult.handled;
+            }
             if (!ctrl && !HardwareKeyboard.instance.isAltPressed) {
               final t = k == LogicalKeyboardKey.keyD
                   ? Tool.dimension

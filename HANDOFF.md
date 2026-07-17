@@ -1594,7 +1594,68 @@ Ecke-auf-CP erdet; jede Rundung zeigt ihr R; weiterhin 0 VERIFY FAILED.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M38, für die nächste Session)
+## M38.1 — Trim-Bind-Fix: gestapelte Schnittpunkte werden point-on-point
+
+Geräte-Befund (Log der Session vom 17.07.): zwei Rechtecke bzw. zwei gekreuzte
+Linien, von beiden je ein Span weggetrimmt — die beiden neuen Endpunkte liegen
+exakt aufeinander, blieben aber nur point-on-curve gebunden und konnten
+auseinandergezogen werden. Ursache in `_bindCutPoints`: (a) der
+„bereits gebunden"-Check nahm JEDE Koinzidenz als Blocker, auch die schwache
+on-curve; (b) die on-curve-Bindung des ersten Trims machte den späteren
+point-on-point um genau eine Gleichung redundant → `wouldOverconstrain` lehnte
+ihn STILL ab (Log zeigte „cut-bind … pts=e6.p1,e9.p0", Zählerstand unverändert).
+Fix: der Block greift nur noch bei vorhandenem point-on-point (pts >= 2); ein
+gefundener point-on-point ENTFERNT die subsumierte on-curve-Bindung (Upgrade
+statt Stapeln, geloggt als „cut-bind upgrades …"); tryAdd-Ablehnungen werden
+geloggt. Regressionen: `trim_stacked_points_test.dart` (Rechteck-Session) und
+`trim_crossing_lines_test.dart` (4 Varianten: h/v + schräg, beide
+Reihenfolgen) — alle fallen auf dem Vor-Fix-Stand, grün danach.
+
+## M39 — Undo/Redo: Snapshot-Journal pro Skizze (Ctrl+Z / Ctrl+Shift+Z)
+
+**Architektur.** Jede `SketchModel` besitzt ihre EIGENEN zwei Stacks
+(`_undoStack`/`_redoStack` mit `UndoSnap`-Einträgen) — Isolation zwischen
+Skizzen ist damit strukturell, nicht Buchhaltung. Ein `UndoSnap` ist eine
+vollständige Tiefkopie des committeten Zustands: Geometrie (Geos mit kopierten
+data-Listen, alle Tags: layer/spline/style/proj/projSeg), Constraints über den
+bewährten Sidecar-JSON-Codec (round-trippt value, driven, textPos, anchors,
+tanBranch), Layer-Liste + Auge/Schloss. Wiederherstellen ist dadurch EXAKT —
+kein Replay, keine inversen Operationen, kein Solve, kein Drift; die Historie
+enthält nur Zustände, die schon einmal verifiziert committet wurden.
+
+**Ein Choke-Point.** Da die C-API add-only ist, läuft JEDE Mutation der App
+durch `_rebuildEngine` — dort sitzt genau EIN `s.checkpoint()` (unterdrückt
+via `_restoringHistory`, sonst würde Undo sich selbst journalieren). Identische
+Folgezustände werden dedupliziert: eine Operation mit Doppel-Rebuild kostet
+trotzdem nur einen Schritt. Die drei Mutationen OHNE Rebuild checkpointen
+explizit: Layer-Auge, Layer-Schloss, leeren Layer anlegen. Baseline: der
+`SketchModel`-Konstruktor legt Eintrag 0 an; `openSketch` ruft nach dem Laden
+`resetHistory()` — Laden ist keine Bearbeitung, Undo geht „bis zum Anfang"
+dieser Sitzung und niemals darüber hinaus. Journal bewusst unbegrenzt
+(Snapshot einer 100-Entity-Skizze ≈ zweistellige KB).
+
+**Restore-Pfad** (`AppState.undo()/redo()` → `_applyHistory`): bricht alle
+laufenden Picks ab (toolPoints, pattern, filletSess, pendingDim, conPts/Ents/
+Edges, modEntity, Selektion), verlässt den Editiermodus, falls der Layer im
+Zielzustand fehlt/versteckt/gesperrt ist, und stellt über `_rebuildEngine`
+wieder her (Journal-Geos werden beim Restore erneut kopiert — nie aliasen).
+Während eines Grip-Drags ist Undo gesperrt. Ansonsten Toast „Nothing to
+undo/redo.". View-Zustand (Zoom, Tool, DOF-Anzeige) ist absichtlich NICHT Teil
+des Journals — wie Inventor.
+
+**Shortcuts** (viewport.dart, M30-Block): Ctrl+Z = Undo, Ctrl+Shift+Z und
+Ctrl+Y = Redo (Ctrl schließt Cmd auf dem iPad ein). Immer nur die AKTUELLE
+Skizze.
+
+**Tests:** `undo_redo_test.dart` (7): Zeichnen→Undo-auf-leer→Redo exakt;
+komplette Session (Linien, Trims, Bemaßungs-Edit) verlustfrei bis zum Anfang
+zurück und wieder vor, inkl. Stabilität bei Hin-und-her; neuer Edit nach Undo
+tötet den Redo-Zweig; strikte Pro-Skizze-Isolation (Undo in B lässt A und
+dessen eigene Historie unberührt); Layer-Ops (anlegen/Auge/Schloss) undoable;
+Restore bricht schwebende Picks ab und journaliert sich nicht selbst;
+M38-Trim-Upgrade round-trippt durchs Journal. Suite: **173 grün**.
+
+## Gesamtstand & Arbeitsweise (Stand M39, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1609,7 +1670,7 @@ Pattern-Panel (Rechteckige/Runde Anordnung, Spiegeln inkl. Self Symmetric,
 assoziativ über den Solver), Slots/Tangenten-Werkzeuge mit Inventor-Auto-
 Constraints, Fillet/Chamfer komplett (Linie/Bogen/Kreis, 3 Chamfer-Modi,
 Radius- bzw. x/y-Setback-Bemaßung), constraint-erhaltendes Trim/Split,
-Diagnose-Log in der Files-App. **M37: Slot/Fillet/Chamfer sind jetzt
+Diagnose-Log in der Files-App, **Undo/Redo pro Skizze (Ctrl+Z / Ctrl+Shift+Z, Snapshot-Journal bis zum Sitzungsanfang)**. **M37: Slot/Fillet/Chamfer sind jetzt
 solverstabil (redundanzfrei, atomar, kein divergiertes Rendern).**
 
 **Solver-Architektur (unverändert wichtig, M37-Ergänzungen):** libslvs nativ
@@ -1625,7 +1686,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**161 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**173 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

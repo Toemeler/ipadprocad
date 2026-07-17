@@ -119,7 +119,12 @@ class SketchModel {
   /// this is app state that rides in the sidecar, not sketch geometry.
   final Set<String> lockedLayers = {};
   bool dirty = false;
-  SketchModel(this.name) : engine = Engine.create();
+  SketchModel(this.name) : engine = Engine.create() {
+    // The empty just-created state is the undo baseline. openSketch calls
+    // resetHistory() again AFTER loading from disk, so a loaded sketch's
+    // baseline is the loaded state (loading is not an edit).
+    resetHistory();
+  }
 
   void refresh({List<Geo>? tagSource}) {
     // The backend has no spline type (R_NO_OPENNURBS), so it hands splines back
@@ -157,6 +162,116 @@ class SketchModel {
     geometry = next;
   }
   void dispose() => engine.dispose();
+
+  // ==== UNDO / REDO (per sketch, M39) ====================================
+  // A snapshot JOURNAL of committed states, one entry per user gesture. Every
+  // sketch owns its OWN two stacks — undo in one sketch can never touch
+  // another, by construction rather than by bookkeeping. Snapshots are full
+  // deep copies (geometry with copied data lists; constraints through the
+  // battle-tested sidecar JSON codec, which round-trips every mutable field:
+  // value, driven, textPos, anchors, tanBranch). Restoring is therefore EXACT
+  // — no replay, no inverse operations, no drift — and a corrupted operation
+  // can never poison history, because history only ever holds states that
+  // were actually committed. Memory: a snapshot of a 100-entity sketch is a
+  // few tens of KB; the journal is unbounded on purpose ("undo until the
+  // start, nothing gets lost").
+  final List<UndoSnap> _undoStack = [];
+  final List<UndoSnap> _redoStack = [];
+
+  /// True when there is an EARLIER state to go back to. The first journal
+  /// entry is the baseline (the state the sketch was opened/created with),
+  /// which is a restore TARGET, never popped — hence length > 1.
+  bool get canUndo => _undoStack.length > 1;
+  bool get canRedo => _redoStack.isNotEmpty;
+  int get undoDepth => _undoStack.length;
+
+  UndoSnap _takeSnap() => UndoSnap(
+        [for (final g in geometry) g.withData(List<double>.of(g.data))],
+        encodeConstraints(constraints),
+        List<String>.of(layers),
+        {...hiddenLayers},
+        {...lockedLayers},
+      );
+
+  /// Records the CURRENT state as a journal entry. Called from the single
+  /// mutation choke point (_rebuildEngine) plus the few state changes that
+  /// bypass it (layer eye/lock, adding an empty layer). Identical consecutive
+  /// states are collapsed, so an operation that rebuilds twice — or a rebuild
+  /// that changed nothing — still costs exactly one (or zero) undo steps.
+  void checkpoint() {
+    final s = _takeSnap();
+    if (_undoStack.isNotEmpty && s.sameAs(_undoStack.last)) return;
+    _undoStack.add(s);
+    _redoStack.clear(); // a new edit forks history: the redo branch dies
+  }
+
+  /// Starts history fresh with the current state as the baseline. Called once
+  /// when the sketch is created/loaded — loading from disk is not an edit.
+  void resetHistory() {
+    _undoStack
+      ..clear()
+      ..add(_takeSnap());
+    _redoStack.clear();
+  }
+
+  /// Moves one step back and returns the state to restore, or null.
+  UndoSnap? undoStep() {
+    if (!canUndo) return null;
+    _redoStack.add(_undoStack.removeLast());
+    return _undoStack.last;
+  }
+
+  /// Moves one step forward and returns the state to restore, or null.
+  UndoSnap? redoStep() {
+    if (!canRedo) return null;
+    final s = _redoStack.removeLast();
+    _undoStack.add(s);
+    return s;
+  }
+}
+
+/// One committed sketch state: everything the sidecars persist, deep-copied.
+/// (View preferences — zoom, DOF colouring, the current tool — are NOT sketch
+/// state and deliberately not part of undo, exactly like Inventor.)
+class UndoSnap {
+  final List<Geo> geometry;
+  final String cons; // constraints, serialized (deep copy + cheap equality)
+  final List<String> layers;
+  final Set<String> hidden;
+  final Set<String> locked;
+  UndoSnap(this.geometry, this.cons, this.layers, this.hidden, this.locked);
+
+  bool sameAs(UndoSnap o) {
+    if (cons != o.cons ||
+        geometry.length != o.geometry.length ||
+        layers.length != o.layers.length ||
+        hidden.length != o.hidden.length ||
+        locked.length != o.locked.length) {
+      return false;
+    }
+    for (var i = 0; i < layers.length; i++) {
+      if (layers[i] != o.layers[i]) return false;
+    }
+    if (!hidden.containsAll(o.hidden) || !locked.containsAll(o.locked)) {
+      return false;
+    }
+    for (var i = 0; i < geometry.length; i++) {
+      final a = geometry[i], b = o.geometry[i];
+      if (a.type != b.type ||
+          a.layer != b.layer ||
+          a.spline != b.spline ||
+          a.style != b.style ||
+          a.proj != b.proj ||
+          a.projSeg != b.projSeg ||
+          a.data.length != b.data.length) {
+        return false;
+      }
+      for (var k = 0; k < a.data.length; k++) {
+        if (a.data[k] != b.data[k]) return false;
+      }
+    }
+    return true;
+  }
 }
 
 class SavedSketchInfo {
@@ -378,6 +493,10 @@ class AppState extends ChangeNotifier {
         analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
+      // Undo baseline: the freshly created/loaded state is entry ZERO of the
+      // journal — undo walks back to it but never past it, and loading from
+      // disk is not an edit.
+      s.resetHistory();
     }
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
@@ -392,6 +511,84 @@ class AppState extends ChangeNotifier {
   void _reanalyze() {
     final s = current;
     analysis = s == null ? null : analyzeSketch(s.geometry, s.constraints);
+  }
+
+  // ==== UNDO / REDO (M39): restore side ==================================
+  /// True while a snapshot is being restored: suppresses the checkpoint in
+  /// _rebuildEngine so undo never journals itself.
+  bool _restoringHistory = false;
+
+  bool get canUndo => current?.canUndo ?? false;
+  bool get canRedo => current?.canRedo ?? false;
+
+  /// Ctrl+Z. Steps the CURRENT sketch one committed state back — every other
+  /// sketch's history is untouched (the stacks live in the SketchModel).
+  void undo() => _applyHistory((s) => s.undoStep(), 'undo');
+
+  /// Ctrl+Shift+Z (and Ctrl+Y). Steps forward again.
+  void redo() => _applyHistory((s) => s.redoStep(), 'redo');
+
+  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) {
+    final s = current;
+    if (s == null) return;
+    if (dragGrip != null) return; // never rip the state out from under a drag
+    final snap = step(s);
+    if (snap == null) {
+      toast(what == 'undo' ? 'Nothing to undo.' : 'Nothing to redo.');
+      return;
+    }
+    Log.i('undo', '$what "${s.name}" -> depth=${s.undoDepth} '
+        'geo=${snap.geometry.length} redo=${s.canRedo}');
+    // Restoring is EXACT: no solve, no replay — the snapshot IS a state that
+    // was committed and verified once already. Cancel every in-flight
+    // interaction first: index-based tool/pattern/dimension picks would
+    // dangle into geometry that is about to change wholesale.
+    toolPoints.clear();
+    pattern = null;
+    filletSess = null;
+    pendingDim = null;
+    conPts.clear();
+    conEnts.clear();
+    conEntClicks.clear();
+    conEdges.clear();
+    modEntity = null;
+    selection.clear();
+    _restoringHistory = true;
+    try {
+      s.constraints
+        ..clear()
+        ..addAll(decodeConstraints(snap.cons));
+      s.layers
+        ..clear()
+        ..addAll(snap.layers);
+      s.hiddenLayers
+        ..clear()
+        ..addAll(snap.hidden);
+      s.lockedLayers
+        ..clear()
+        ..addAll(snap.locked);
+      // Editing a layer the restored state does not have (or has hidden or
+      // locked again) cannot continue.
+      final el = editingLayer;
+      if (el != null &&
+          (!s.layers.contains(el) ||
+              s.hiddenLayers.contains(el) ||
+              s.lockedLayers.contains(el))) {
+        editingLayer = null;
+        tool = Tool.none;
+      }
+      _rebuildEngine(
+          s,
+          [
+            for (final g in snap.geometry)
+              g.withData(List<double>.of(g.data)) // never alias the journal
+          ]);
+    } finally {
+      _restoringHistory = false;
+    }
+    _reanalyze();
+    Log.flush();
+    notifyListeners();
   }
 
   void createNewSketch() {
@@ -435,6 +632,7 @@ class AppState extends ChangeNotifier {
     final name = 'Layer $n';
     s.layers.add(name);
     s.dirty = true;
+    s.checkpoint(); // adding an (empty) layer never rebuilds -> journal here
     enterEdit(name);
   }
 
@@ -502,6 +700,7 @@ class AppState extends ChangeNotifier {
     selection.removeWhere((i) =>
         i < s.geometry.length && !layerVisible(s.geometry[i].layer));
     s.dirty = true;
+    s.checkpoint(); // eye state rides the sidecar -> it is undoable state
     notifyListeners();
   }
 
@@ -546,6 +745,7 @@ class AppState extends ChangeNotifier {
           (i) => i < s.geometry.length && s.geometry[i].layer == name);
     }
     s.dirty = true;
+    s.checkpoint(); // padlock state rides the sidecar -> undoable
     notifyListeners();
   }
 
@@ -1105,6 +1305,12 @@ class AppState extends ChangeNotifier {
     _committed(s, tags: gs);
     _refreshDriven(s);
     analysis = analyzeSketch(s.geometry, s.constraints);
+    // UNDO JOURNAL (M39): every committed mutation funnels through this
+    // rebuild (the C-API is add-only), so this one call records the whole
+    // app's edits — draw, drag, trim, fillet, patterns, dimensions,
+    // constraints, layer rename/delete/move. Suppressed while RESTORING a
+    // snapshot, or undo would journal itself.
+    if (!_restoringHistory) s.checkpoint();
     Log.i('engine',
         'rebuild done, geometry=${s.geometry.length}, dof=${analysis?.dof}');
   }

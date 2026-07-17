@@ -804,3 +804,24 @@ Host-Suite: **161 Tests grün** (inkl. Geräte-Session als Regression,
 tanBranch-Roundtrip, Trim-auf-Kreis nativ, Stacked-Pick); Shim-Host-Gate:
 **13/13 PASS**. Ziel für Geräte-Test 3: Slot bleibt unter beliebigen Drags ein
 Slot; Trim-Stücke hängen zusammen; Ecke-auf-CP erdet; jede Rundung trägt ihr R.
+
+## M38.1 + M39 — Trim-Bind-Upgrade & Undo/Redo pro Skizze
+
+- **Trim-Fix (M38.1):** Werden von zwei sich kreuzenden Konturen (Rechtecke
+  oder einzelne Linien) beide Seiten getrimmt, liegen die zwei neuen
+  Endpunkte exakt aufeinander — sie werden jetzt Punkt-auf-Punkt gebunden.
+  Vorher blockierte die Punkt-auf-Kurve-Bindung des ERSTEN Trims das Upgrade
+  und machte den point-on-point redundant, das Gate verwarf ihn still
+  (Geräte-Log: „constraints 22 -> 22"). Jetzt: on-curve-Bindung wird beim
+  Stapeln ENTFERNT und durch point-on-point ersetzt; Ablehnungen werden
+  geloggt. Regressionen: Rechteck-Session + 4 Linien-Varianten.
+- **Undo/Redo (M39):** Ctrl+Z / Ctrl+Shift+Z (auch Ctrl+Y), immer nur in der
+  aktuellen Skizze. Snapshot-Journal PRO SketchModel (strukturelle Isolation):
+  volle Tiefkopien (Geometrie inkl. aller Tags, Constraints über den
+  Sidecar-Codec, Layer + Auge/Schloss), ein Checkpoint am einzigen
+  Mutations-Choke-Point `_rebuildEngine` (+ Auge/Schloss/Layer-Anlegen),
+  dedupliziert, unbegrenzt bis zum Sitzungsanfang. Restore ist exakt (kein
+  Replay, kein Solve), bricht schwebende Picks ab, journaliert sich nie
+  selbst, ist während eines Drags gesperrt.
+
+Host-Suite: **173 Tests grün**; Shim-Host-Gate unverändert **13/13 PASS**.
