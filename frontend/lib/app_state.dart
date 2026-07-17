@@ -3171,12 +3171,14 @@ class AppState extends ChangeNotifier {
       } else if ((tool == Tool.slotCC ||
               tool == Tool.slotOverall ||
               tool == Tool.slotCP) &&
-          placed.length == 4) {
+          placed.length == 5) {
         deterministicShape = true;
-        // Inventor's linear slot: [line1, line2, cap1, cap2] where cap1
+        // Inventor's linear slot: [line1, line2, cap1, cap2, axis] where cap1
         // runs line1.p0 -> line2.p1 and cap2 runs line2.p0 -> line1.p1
-        // (see _linearSlot). Constraints: coincident + tangent at all four
-        // seams, the cap radii equal. Rail parallelism is IMPLIED by the
+        // (see _linearSlot); the AXIS (M40) is a construction line between
+        // the two cap centers. Constraints: coincident + tangent at all four
+        // seams, the cap radii equal, and the axis endpoints coincident on
+        // the cap centers. Rail parallelism is IMPLIED by the
         // tangencies (measured with the app's own residuals: 14 equations
         // incl. parallel have rank 13 — parallel is a redundant row that
         // makes the LM normal equations singular and libslvs flag the
@@ -3185,9 +3187,11 @@ class AppState extends ChangeNotifier {
         // cannot overconstrain a sketch"), so the minimal set IS the
         // Inventor-faithful one. Result: 13 independent equations on 18
         // params — exactly the 5 slot DOF (position, rotation, length,
-        // radius).
+        // radius) — plus the axis: 4 more params fully pinned by 4 more
+        // equations (its two endpoints on the two distinct cap centers),
+        // so the DOF count is unchanged and nothing goes redundant.
         final l1 = firstNew, l2 = firstNew + 1, c1 = firstNew + 2,
-            c2 = firstNew + 3;
+            c2 = firstNew + 3, ax = firstNew + 4;
         s.constraints.addAll([
           Constraint(CType.coincident, pts: [PRef(c1, 1), PRef(l1, 0)]),
           Constraint(CType.coincident, pts: [PRef(c1, 2), PRef(l2, 1)]),
@@ -3198,6 +3202,8 @@ class AppState extends ChangeNotifier {
           Constraint(CType.tangent, ents: [l1, c2]),
           Constraint(CType.tangent, ents: [l2, c2]),
           Constraint(CType.equal, ents: [c1, c2]),
+          Constraint(CType.coincident, pts: [PRef(ax, 0), PRef(c1, 0)]),
+          Constraint(CType.coincident, pts: [PRef(ax, 1), PRef(c2, 0)]),
         ]);
       } else if ((tool == Tool.slot3A || tool == Tool.slotCPA) &&
           placed.length == 4) {
@@ -3310,17 +3316,34 @@ class AppState extends ChangeNotifier {
   /// Inventor's Format > Centerline toggle: flips the line style of the
   /// current selection. Mixed selections turn INTO centerlines first (like
   /// Inventor); a second toggle turns them back.
-  void toggleCenterlineSelected() {
+  void toggleCenterlineSelected() =>
+      _toggleStyleSelected(Geo.styleCenterline, 'centerline');
+
+  /// Inventor's Format > Construction (M40): converts the selection to
+  /// construction linetype, or back to normal if everything selected already
+  /// is construction. Works on any entity type — the geometry stays fully
+  /// constrainable, dimensionable, snappable and draggable; only the
+  /// rendering changes (thin + finely dashed).
+  void toggleConstructionSelected() =>
+      _toggleStyleSelected(Geo.styleConstruction, 'construction');
+
+  void _toggleStyleSelected(int style, String what) {
     final s = current;
-    if (s == null || selection.isEmpty) return;
+    if (s == null || selection.isEmpty) {
+      toast('Select geometry first, then toggle $what.');
+      return;
+    }
     final gs = List<Geo>.from(s.geometry);
-    final toCenter =
-        selection.any((i) => i < gs.length && gs[i].style == Geo.styleNormal);
+    // Inventor semantics: if ANY selected entity is not yet of this style,
+    // the click converts TO it; only a uniformly-styled selection reverts.
+    final convert =
+        selection.any((i) => i < gs.length && gs[i].style != style);
     for (final i in selection) {
       if (i >= gs.length) continue;
-      gs[i] = gs[i]
-          .withStyle(toCenter ? Geo.styleCenterline : Geo.styleNormal);
+      gs[i] = gs[i].withStyle(convert ? style : Geo.styleNormal);
     }
+    Log.i('format',
+        '$what ${convert ? "set" : "cleared"} on ${selection.length} entities');
     _rebuildEngine(s, gs);
     notifyListeners();
   }
@@ -3566,9 +3589,23 @@ class AppState extends ChangeNotifier {
 /// Shared geometry painter used by viewport and preview generation.
 void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
     double scale, Paint p) {
+  // CONSTRUCTION style (M40): thinner + finely dashed, for every entity
+  // type. The paint is CLONED — p is often a shared caller paint (selection
+  // halo, hover) and must not be mutated.
+  if (g.isConstruction) {
+    p = Paint()
+      ..color = p.color
+      ..style = PaintingStyle.stroke
+      ..strokeCap = p.strokeCap
+      ..strokeWidth = math.max(0.7, p.strokeWidth * 0.55);
+  }
+  final cDash = g.isConstruction; // fine 5/4 dash on the curve itself
   switch (g.type) {
     case Geo.line:
-      if (g.isCenterline) {
+      if (cDash) {
+        _dashedSeg(canvas, map(g.data[0], g.data[1]),
+            map(g.data[2], g.data[3]), p, dash: 5, gap: 4);
+      } else if (g.isCenterline) {
         // centerline STYLE: same entity, dashed rendering (Inventor's toggle)
         _dashedSeg(canvas, map(g.data[0], g.data[1]),
             map(g.data[2], g.data[3]), p, dash: 10, gap: 5);
@@ -3578,7 +3615,16 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       }
       break;
     case Geo.circle:
-      canvas.drawCircle(map(g.data[0], g.data[1]), g.data[2] * scale, p);
+      if (cDash) {
+        final c = map(g.data[0], g.data[1]);
+        final r = g.data[2] * scale;
+        _dashedChain(canvas,
+            [for (var i = 0; i <= 96; i++) c + Offset(
+                r * math.cos(i * math.pi / 48),
+                r * math.sin(i * math.pi / 48))], p);
+      } else {
+        canvas.drawCircle(map(g.data[0], g.data[1]), g.data[2] * scale, p);
+      }
       break;
     case Geo.arc:
       final c = map(g.data[0], g.data[1]);
@@ -3609,8 +3655,17 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
         break;
       }
       // world angles are CCW with y-up; screen y is flipped -> negate both
-      canvas.drawArc(
-          Rect.fromCircle(center: c, radius: r), -a1, -sweep, false, p);
+      if (cDash) {
+        final n = math.max(8, (r * sweep.abs() / 6).ceil());
+        _dashedChain(canvas, [
+          for (var i = 0; i <= n; i++)
+            c + Offset(r * math.cos(-a1 - sweep * i / n),
+                r * math.sin(-a1 - sweep * i / n))
+        ], p);
+      } else {
+        canvas.drawArc(
+            Rect.fromCircle(center: c, radius: r), -a1, -sweep, false, p);
+      }
       break;
     case Geo.polyline:
       final closed = g.data[0] != 0;
@@ -3621,22 +3676,30 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
         // through/of them, not the control polygon.
         final curve = splineCurveFor(g);
         if (curve.length < 2) break;
-        final s0 = map(curve[0].dx, curve[0].dy);
-        final path = Path()..moveTo(s0.dx, s0.dy);
-        for (var i = 1; i < curve.length; i++) {
-          final o = map(curve[i].dx, curve[i].dy);
-          path.lineTo(o.dx, o.dy);
+        final pts = [for (final w in curve) map(w.dx, w.dy)];
+        if (cDash) {
+          _dashedChain(canvas, pts, p);
+          break;
+        }
+        final path = Path()..moveTo(pts[0].dx, pts[0].dy);
+        for (var i = 1; i < pts.length; i++) {
+          path.lineTo(pts[i].dx, pts[i].dy);
         }
         canvas.drawPath(path, p);
         break;
       }
-      final path = Path()
-        ..moveTo(map(g.data[2], g.data[3]).dx, map(g.data[2], g.data[3]).dy);
-      for (var i = 1; i < n; i++) {
-        final o = map(g.data[2 + 2 * i], g.data[3 + 2 * i]);
-        path.lineTo(o.dx, o.dy);
+      final vs = [
+        for (var i = 0; i < n; i++) map(g.data[2 + 2 * i], g.data[3 + 2 * i])
+      ];
+      if (closed) vs.add(vs[0]);
+      if (cDash) {
+        _dashedChain(canvas, vs, p);
+        break;
       }
-      if (closed) path.close();
+      final path = Path()..moveTo(vs[0].dx, vs[0].dy);
+      for (var i = 1; i < vs.length; i++) {
+        path.lineTo(vs[i].dx, vs[i].dy);
+      }
       canvas.drawPath(path, p);
       break;
   }
@@ -3674,6 +3737,31 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
 
 /// Dashed segment (screen coords) — paintGeo lives here (app_state) so the
 /// sketch-preview PNG renderer can reuse it, hence its own dash helper.
+/// Fine 5/4 dash along a point chain with CONTINUOUS phase across the
+/// vertices — construction circles/arcs/polylines/splines dash evenly instead
+/// of restarting the pattern at every sample point.
+void _dashedChain(Canvas c, List<Offset> pts, Paint p,
+    {double dash = 5, double gap = 4}) {
+  var phase = 0.0; // distance into the current dash+gap period
+  final period = dash + gap;
+  for (var i = 0; i + 1 < pts.length; i++) {
+    final a = pts[i], b = pts[i + 1];
+    final d = b - a;
+    final len = d.distance;
+    if (len < 1e-9) continue;
+    final u = d / len;
+    var t = 0.0;
+    while (t < len) {
+      final inDash = phase < dash;
+      final left = inDash ? dash - phase : period - phase;
+      final e = math.min(t + left, len);
+      if (inDash) c.drawLine(a + u * t, a + u * e, p);
+      phase = (phase + (e - t)) % period;
+      t = e;
+    }
+  }
+}
+
 void _dashedSeg(Canvas c, Offset a, Offset b, Paint p,
     {double dash = 6, double gap = 4}) {
   final d = b - a;

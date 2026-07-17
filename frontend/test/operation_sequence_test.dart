@@ -45,7 +45,8 @@ void main() {
     app.tool = Tool.rectTwoPoint;
     app.toolClick(const Offset(100, 40));
     app.toolClick(const Offset(160, 80));
-    // linear slot next to it (device: slotOverall — same 4-entity result)
+    // linear slot next to it (device: slotOverall — same result; M40: the
+    // slot brings its construction AXIS as a 5th entity)
     app.tool = Tool.slotCC;
     app.toolClick(const Offset(90, 10));
     app.toolClick(const Offset(150, 10));
@@ -53,11 +54,12 @@ void main() {
     // a circle attached to a rectangle corner (device: entity e4)
     s.engine.addCircle(60, 40, 12);
     s.refresh();
+    // circle is entity 9 now: [rect 0-3][slot rails 4,5 caps 6,7 axis 8][circle]
     s.constraints.add(Constraint(CType.coincident,
-        pts: [const PRef(8, 0), const PRef(1, 1)]));
+        pts: [const PRef(9, 0), const PRef(1, 1)]));
     expect(solveConstraints(List<Geo>.from(s.geometry), s.constraints), isTrue);
 
-    final slotIdx = [4, 5, 6, 7];
+    final slotIdx = [4, 5, 6, 7, 8];
     final slotBefore = snap(s.geometry, slotIdx);
 
     // chamfer corner 1 (between rect edges e2/e3) — the op that used to
@@ -66,7 +68,7 @@ void main() {
     app.filletSess = FilletSession(Tool.chamfer, d1: 5, d2: 5);
     app.toolClick(const Offset(104, 40)); // on e0 near corner (0,0)
     app.toolClick(const Offset(100, 44)); // on e3 near corner (0,0)
-    expect(s.geometry, hasLength(10), reason: 'chamfer line added');
+    expect(s.geometry, hasLength(11), reason: 'chamfer line added');
     // whole sketch satisfied, nothing degenerate
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expect(hasDegenerateGeometry(s.geometry), isFalse);
@@ -76,7 +78,7 @@ void main() {
     // chamfer corner 2
     app.toolClick(const Offset(156, 40));
     app.toolClick(const Offset(160, 44));
-    expect(s.geometry, hasLength(11));
+    expect(s.geometry, hasLength(12));
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after chamfer 2');
 
@@ -101,13 +103,13 @@ void main() {
     app.toolClick(const Offset(90, 10));
     app.toolClick(const Offset(150, 10));
     app.toolClick(const Offset(120, 18));
-    final slotIdx = [4, 5, 6, 7];
+    final slotIdx = [4, 5, 6, 7, 8];
     final slotBefore = snap(s.geometry, slotIdx);
     app.tool = Tool.fillet;
     app.filletSess = FilletSession(Tool.fillet, radius: 6);
     app.toolClick(const Offset(156, 80));
     app.toolClick(const Offset(160, 76));
-    expect(s.geometry, hasLength(9));
+    expect(s.geometry, hasLength(10));
     expect(s.geometry.last.type, Geo.arc);
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after fillet');

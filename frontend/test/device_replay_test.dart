@@ -108,7 +108,8 @@ void main() {
     app.toolClick(const Offset(0, 164.77));
     app.toolClick(const Offset(351.12, 23.88));
     app.toolClick(const Offset(330.26, 0));
-    expect(s.geometry, hasLength(11),
+    // rect(4) + slot incl. its M40 construction axis(5) + 3 fillet arcs
+    expect(s.geometry, hasLength(12),
         reason: 'all three fillets succeed, incl. the once-rejected corner');
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     // every fillet carries its own radius dimension

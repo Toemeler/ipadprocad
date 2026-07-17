@@ -870,32 +870,45 @@ class _FormatGrid extends StatelessWidget {
                     child: Center(child: svg(IN['driven']!, 18)))),
           ),
           const SizedBox(height: 1),
-          // row 2: sphere + crosshair (crosshair ACTIVE, blue frame)
+          // row 2: Construction + Centerline (toggles, M40) + Center Point
           Row(mainAxisSize: MainAxisSize.min, children: [
+            Tooltip(
+              message: 'Construction (toggle selected)',
+              child: GestureDetector(
+                onTap: app.toggleConstructionSelected,
+                child: SizedBox(
+                    width: 21,
+                    height: 27,
+                    child: _Hover(
+                        hoverBg: T.hover7,
+                        child: Center(child: svg(IN['constr']!, 16)))),
+              ),
+            ),
+            const SizedBox(width: 1),
             Tooltip(
               message: 'Centerline (toggle selected)',
               child: GestureDetector(
                 onTap: app.toggleCenterlineSelected,
                 child: SizedBox(
-                    width: 32,
+                    width: 21,
                     height: 27,
                     child: _Hover(
                         hoverBg: T.hover7,
-                        child: Center(child: svg(IN['sphere']!, 18)))),
+                        child: Center(child: svg(IN['sphere']!, 16)))),
               ),
             ),
             const SizedBox(width: 1),
             Tooltip(
               message: 'Center Point',
               child: Container(
-                width: 32,
+                width: 21,
                 height: 27,
                 decoration: BoxDecoration(
                   color: T.conActiveBg,
                   borderRadius: BorderRadius.circular(2),
                   border: Border.all(color: T.conActiveBorder),
                 ),
-                child: Center(child: svg(IN['center']!, 18)),
+                child: Center(child: svg(IN['center']!, 16)),
               ),
             ),
           ]),

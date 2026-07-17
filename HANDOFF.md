@@ -1655,7 +1655,46 @@ dessen eigene Historie unberührt); Layer-Ops (anlegen/Auge/Schloss) undoable;
 Restore bricht schwebende Picks ab und journaliert sich nicht selbst;
 M38-Trim-Upgrade round-trippt durchs Journal. Suite: **173 grün**.
 
-## Gesamtstand & Arbeitsweise (Stand M39, für die nächste Session)
+## M40 — Construction-Geometrie (Inventors Format > Construction)
+
+Recherchiert gegen die Inventor-Doku: Linetypes sind Normal / Construction /
+Centerline / Reference; Construction dient dem Constrainen normaler Geometrie,
+ist voll bemaß-/constrainbar; Workflow = Format-Panel-Toggle (Auswahl +
+Klick konvertiert, nochmal Klick zurück). Die Profile-Consumption-Seite ist in
+2D bedeutungslos — Construction ist hier ein reiner Linientyp.
+
+**Implementierung.** Neuer Stil `Geo.styleConstruction = 2` im bestehenden
+Style-Slot (rides styles.json-Sidecar unverändert generisch, DXF unberührt).
+Rendering in `paintGeo`: dünner (0.55× strokeWidth, geklonter Paint — nie den
+Caller-Paint mutieren) + fein gestrichelt (5/4) für ALLE Typen; Kreise/Bögen/
+Polylines/Splines dashen über `_dashedChain` (Punktkette mit DURCHLAUFENDER
+Phase, kein Muster-Neustart pro Sample). Toggle `toggleConstructionSelected()`
+teilt sich `_toggleStyleSelected` mit der Centerline (Inventor-Semantik:
+gemischte Auswahl → erst alle konvertieren, uniforme → zurück zu Normal).
+Ribbon Format-Panel Zeile 2: Construction | Centerline | Center Point (3×21px,
+neues 'constr'-Icon). Solver/Snap/Picking/Dimensionen unterscheiden NICHT nach
+Stil — Construction verhält sich exakt wie normale Geometrie.
+
+**Slot-Achse.** `_linearSlot` liefert jetzt 5 Entities: [rail1, rail2, cap1,
+cap2, ACHSE] — die Achse ist eine Construction-LINIE zwischen den beiden
+Cap-Zentren (Inventor). Der Commit bindet ihre Endpunkte koinzident auf die
+Zentren: +4 Parameter, +4 Gleichungen → Slot behält seine 5 DOF, Redundanz 0
+(rank-gemessen im Test). Bogen-Slots bekommen (noch) keine Auto-Achse: jede
+volle Anbindung eines Construction-Bogens (concentric + beide Enden) ist
+messbar um genau 1 Gleichung redundant — offen, in Known limits notiert.
+
+**Beifang-Fix:** `_carry` in modify.dart kopierte Layer + Spline-Tag, aber
+NICHT den Linienstil — Trim/Move/Rotate/Mirror/Stretch/Offset setzten damit
+jede Centerline still auf Normal zurück. Jetzt trägt `_carry` den Stil immer
+mit (Trim-Stücke einer Construction-Linie bleiben Construction).
+
+**Tests:** `construction_geometry_test.dart` (6): Toggle hin/zurück, gemischte
+Auswahl, Bemaßung TREIBT eine Construction-Linie, Slot-Achse rank-clean mit
+5 DOF, Achsen-Drag bewegt den Slot kohärent, Stil überlebt Trim + Undo-Journal.
+Slot-Erwartungen in m36/operation_sequence/device_replay auf 5 Entities
+angepasst (Achtung: hartkodierte Folge-Indizes!). Suite: **179 grün**.
+
+## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1670,7 +1709,7 @@ Pattern-Panel (Rechteckige/Runde Anordnung, Spiegeln inkl. Self Symmetric,
 assoziativ über den Solver), Slots/Tangenten-Werkzeuge mit Inventor-Auto-
 Constraints, Fillet/Chamfer komplett (Linie/Bogen/Kreis, 3 Chamfer-Modi,
 Radius- bzw. x/y-Setback-Bemaßung), constraint-erhaltendes Trim/Split,
-Diagnose-Log in der Files-App, **Undo/Redo pro Skizze (Ctrl+Z / Ctrl+Shift+Z, Snapshot-Journal bis zum Sitzungsanfang)**. **M37: Slot/Fillet/Chamfer sind jetzt
+Diagnose-Log in der Files-App, **Undo/Redo pro Skizze (Ctrl+Z / Ctrl+Shift+Z)**, **Construction-Linetype (Format-Toggle, Slot-Achse automatisch)**. **M37: Slot/Fillet/Chamfer sind jetzt
 solverstabil (redundanzfrei, atomar, kein divergiertes Rendern).**
 
 **Solver-Architektur (unverändert wichtig, M37-Ergänzungen):** libslvs nativ
@@ -1686,7 +1725,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**173 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**179 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert
@@ -1713,4 +1752,4 @@ fachlichen Grenzen)
 - Fillet trimmt VOLLKREISE nicht (Kreis→Bogen wäre ein Typwechsel); die
   Tangenten-Constraint sitzt trotzdem. Fillet gegen getaggte Polylines
   (Splines/Ellipsen) nicht unterstützt.
-- eqCurve erzeugt weiterhin gesampelte Polylines (bewusst: echte Kurve).
+- eqCurve erzeugt weiterhin gesampelte Polylines (bewusst: echte Kurve). Bogen-Slots haben noch keine automatische Construction-Achse (jede volle Anbindung eines Construction-Bogens ist um 1 Gleichung redundant — braucht einen 1-Gleichungs-Winkelbind oder eine Sonderbehandlung im Gate).

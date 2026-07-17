@@ -825,3 +825,16 @@ Slot; Trim-Stücke hängen zusammen; Ecke-auf-CP erdet; jede Rundung trägt ihr 
   selbst, ist während eines Drags gesperrt.
 
 Host-Suite: **173 Tests grün**; Shim-Host-Gate unverändert **13/13 PASS**.
+
+## M40 — Construction-Geometrie (Format > Construction)
+
+Inventors Construction-Linetype: Auswahl + Klick auf den neuen
+Construction-Button im Format-Panel konvertiert Geometrie in dünn +
+gestrichelt gerenderte Construction-Geometrie, nochmal Klick zurück —
+Constraints, Bemaßungen, Snapping, Trim und Drag funktionieren exakt wie bei
+normaler Geometrie (der Stil ist reines Rendering und reitet im
+styles.json-Sidecar). Lineare Slots erzeugen ihre ACHSE zwischen den
+Cap-Zentren jetzt automatisch als Construction-Linie, koinzident gebunden —
+rank-gemessen redundanzfrei, Slot behält 5 DOF. Nebenbei gefixt: Trim/Move/
+Rotate/Mirror/Stretch/Offset warfen den Linienstil (auch Centerlines!) still
+weg — `_carry` trägt ihn jetzt immer mit. Suite: **179 Tests grün**.

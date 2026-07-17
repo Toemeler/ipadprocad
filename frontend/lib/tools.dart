@@ -453,6 +453,11 @@ List<Geo>? _linearSlot(Offset c1, Offset c2, double r) {
     _line(c2 - vn * r, c1 - vn * r),
     _arcT(cap1),
     _arcT(cap2),
+    // Inventor draws the slot's AXIS between the two cap centers as
+    // construction geometry (M40) — a real line, constrainable and
+    // dimensionable, just rendered thin + dashed. The commit path binds its
+    // endpoints coincident to the cap centers.
+    _line(c1, c2).withStyle(Geo.styleConstruction),
   ];
 }
 

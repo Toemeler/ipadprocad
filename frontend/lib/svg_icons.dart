@@ -153,6 +153,8 @@ final Map<String, String> IN = {
       '<rect x="2" y="3" width="14" height="12" fill="none" stroke="$GC" stroke-width="1.1"/><path d="M2 7h14M8 3v12" stroke="$GC" stroke-width="1"/><circle cx="5" cy="11" r="1.5" fill="#3D9BE9"/><circle cx="12" cy="5" r="1.5" fill="#3D9BE9"/><circle cx="12" cy="11" r="1.5" fill="#3D9BE9"/>'),
   'acad': S(18,
       '<rect x="2.5" y="2.5" width="13" height="13" rx="1" fill="#B03A3A" stroke="#7d2727" stroke-width=".8"/><text x="9" y="13" font-size="10.5" font-weight="700" fill="#fff" text-anchor="middle" font-family="Segoe UI" stroke="none">A</text>'),
+  'constr': S(18,
+      '<line x1="3" y1="15" x2="15" y2="3" stroke="\$GC" stroke-width="1.3" stroke-dasharray="3 2"/><circle cx="3" cy="15" r="1.4" fill="#3D9BE9"/><circle cx="15" cy="3" r="1.4" fill="#3D9BE9"/>'),
   'driven': S(18,
       '<line x1="2" y1="9" x2="5" y2="9" stroke="$GC" stroke-width="1.2"/><line x1="13" y1="9" x2="16" y2="9" stroke="$GC" stroke-width="1.2"/><line x1="2" y1="5.5" x2="2" y2="12.5" stroke="$GC" stroke-width="1.2"/><line x1="16" y1="5.5" x2="16" y2="12.5" stroke="$GC" stroke-width="1.2"/><path d="M7 5.5 C 5.8 7, 5.8 11, 7 12.5" stroke="$GC" stroke-width="1.1" fill="none"/><path d="M11 5.5 C 12.2 7, 12.2 11, 11 12.5" stroke="$GC" stroke-width="1.1" fill="none"/><circle cx="9" cy="9" r="1.1" fill="$GC"/>'),
   'sphere': S(18,

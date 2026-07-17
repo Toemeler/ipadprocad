@@ -52,7 +52,12 @@ class Geo {
   // dimensionable, constrainable) that merely RENDERS dashed — Inventor's
   // centerline format toggle. Like the spline tag it is app state: the DXF
   // round-trips the plain entity and the tag rides in a sidecar.
-  static const styleNormal = 0, styleCenterline = 1;
+  // CONSTRUCTION (M40) is Inventor's second Format linetype: thinner and
+  // finely dashed ("gestrichelt"), used to constrain normal geometry — it
+  // participates in constraints, dimensions, snapping, trims and drags
+  // EXACTLY like normal geometry; the only difference is the rendering.
+  // (Inventor's profile-consumption distinction is meaningless in 2D.)
+  static const styleNormal = 0, styleCenterline = 1, styleConstruction = 2;
   final int style;
 
   // PROJECTED geometry (Inventor's Project Geometry, M32). A projection is a
@@ -111,6 +116,7 @@ class Geo {
 
   bool get isSpline => spline != straight;
   bool get isCenterline => style == styleCenterline;
+  bool get isConstruction => style == styleConstruction;
 }
 
 abstract class Engine {

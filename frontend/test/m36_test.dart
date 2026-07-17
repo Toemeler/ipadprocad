@@ -36,8 +36,11 @@ void main() {
       app.toolClick(const Offset(100, 40));
       app.toolClick(const Offset(140, 40));
       app.toolClick(const Offset(120, 46)); // width -> r = 6
-      expect(s.geometry, hasLength(4));
-      expect(count(s, CType.coincident), 4);
+      // [rail1, rail2, cap1, cap2, construction axis] (M40)
+      expect(s.geometry, hasLength(5));
+      expect(s.geometry[4].isConstruction, isTrue,
+          reason: 'slot axis is auto construction geometry');
+      expect(count(s, CType.coincident), 6); // 4 seams + 2 axis-end binds
       expect(count(s, CType.tangent), 4);
       expect(count(s, CType.equal), 1);
       // NO explicit parallel: rail parallelism is implied by the tangencies.
