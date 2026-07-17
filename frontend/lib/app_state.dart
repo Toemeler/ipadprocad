@@ -955,7 +955,12 @@ class AppState extends ChangeNotifier {
     } // a full circle has no endpoints: every cut point is new
 
     void tryAdd(Constraint c) {
-      if (!wouldOverconstrain(gs, cons, c)) cons.add(c);
+      if (!wouldOverconstrain(gs, cons, c)) {
+        cons.add(c);
+      } else {
+        Log.i('modify',
+            'cut-bind ${conStr(-1, c)} DROPPED (would over-constrain)');
+      }
     }
 
     for (var e = piecesStart; e < gs.length; e++) {
@@ -968,9 +973,16 @@ class AppState extends ChangeNotifier {
       for (final p in endIdx) {
         final q = getPt(g, p);
         if (oldEnds.any((o) => (o - q).distance < tol)) continue;
-        // remap may already have carried a coincidence onto this point
+        // remap may already have carried a POINT-ON-POINT coincidence onto
+        // this point — that is the strongest bind, nothing to do. A mere
+        // point-on-CURVE bind does NOT block: when a later cut makes an
+        // endpoint STACK on this point, Inventor upgrades the sliding
+        // on-curve bind to a rigid point-on-point (the device session left
+        // stacked trim corners sliding apart because the old on-curve bind
+        // both blocked and over-constrained the new point-on-point).
         final bound = cons.any((c) =>
             c.type == CType.coincident &&
+            c.pts.length >= 2 &&
             c.pts.any((r) => r.ent == e && r.pt == p));
         if (bound) continue;
         // 1) meets an existing point exactly (split twin, crossing endpoint)
@@ -981,6 +993,28 @@ class AppState extends ChangeNotifier {
             if ((getPt(gs[j], pj) - q).distance < tol) {
               cand =
                   Constraint(CType.coincident, pts: [PRef(j, pj), PRef(e, p)]);
+              // The point-on-point SUBSUMES any point-on-curve bind of either
+              // participant onto the other participant's entity (one equation
+              // of it, making the pair redundant → the gate would reject the
+              // stronger bind). Replace, don't stack: remove the subsumed
+              // on-curve binds first.
+              cons.removeWhere((c) {
+                if (c.type != CType.coincident ||
+                    c.pts.length != 1 ||
+                    c.ents.length != 1) {
+                  return false;
+                }
+                final r = c.pts[0];
+                final onto = c.ents[0];
+                final subsumed = (r.ent == e && r.pt == p && onto == j) ||
+                    (r.ent == j && r.pt == pj && onto == e);
+                if (subsumed) {
+                  Log.i('modify',
+                      'cut-bind upgrades ${conStr(-1, c)} -> point-on-point '
+                      '(stacked endpoints)');
+                }
+                return subsumed;
+              });
               break;
             }
           }
