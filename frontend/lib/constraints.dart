@@ -99,10 +99,19 @@ class Constraint {
   /// Line-circle: ±1 = sign of the signed center distance to the line
   /// (p0→p1 left normal). Curve-curve: 1 = outer, 0 = inner.
   double? tanBranch;
+  /// M41 — every dimension IS a named parameter (Inventor d0, d1, …;
+  /// renamable via "Name = expr" in the edit box). Assigned on creation and
+  /// on load; referenced by other dimensions' expressions.
+  String? paramName;
+  /// M41 — the stored EXPRESSION driving [value] (e.g. "d3*2 + 5 mm").
+  /// Null for a plain numeric entry. When set, the painted label carries
+  /// Inventors fx: prefix, the edit box shows the raw expression, and the
+  /// value is re-evaluated whenever a referenced parameter changes.
+  String? expr;
   Constraint(this.type,
       {this.pts = const [], this.ents = const [], this.value,
       this.dimKind = '', this.textPos, this.driven = false,
-      this.anchors = const [], this.tanBranch});
+      this.anchors = const [], this.tanBranch, this.paramName, this.expr});
 
   Map<String, dynamic> toJson() => {
         't': type.index,
@@ -115,6 +124,8 @@ class Constraint {
         if (driven) 'dr': true,
         if (anchors.isNotEmpty) 'an': anchors,
         if (tanBranch != null) 'tb': tanBranch,
+        if (paramName != null) 'nm': paramName,
+        if (expr != null) 'ex': expr,
       };
   static Constraint fromJson(Map<String, dynamic> j) => Constraint(
         CType.values[j['t']],
@@ -131,6 +142,8 @@ class Constraint {
             (a as num).toDouble()
         ],
         tanBranch: (j['tb'] as num?)?.toDouble(),
+        paramName: j['nm'] as String?,
+        expr: j['ex'] as String?,
       );
 }
 

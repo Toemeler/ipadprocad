@@ -72,15 +72,22 @@ class _Viewport2DState extends State<Viewport2D> {
       // Tapping the SAME label again (the second tap of a double tap lands
       // here) keeps the editor open instead of committing it shut — that
       // made "double tap to edit" close the field it had just opened.
-      if (_dimAtScreen(local) == _inlineDim) {
+      final hit = _dimAtScreen(local);
+      if (hit == _inlineDim) {
         _dimCtrl.selection = TextSelection(
             baseOffset: 0, extentOffset: _dimCtrl.text.length);
         _dimFocus.requestFocus();
         return;
       }
+      // M41: tapping ANOTHER dimension inserts its parameter name at the
+      // cursor (Inventor's click-to-reference) — the editor stays open.
+      if (hit != null) {
+        _insertParamRef(hit);
+        return;
+      }
       // clicking anywhere else while the value field is open COMMITS —
       // Inventor keeps the dimension when you click away
-      _submitInline();
+      _submitInline(clickAway: true);
       return;
     }
     _focus.requestFocus();
@@ -285,30 +292,63 @@ class _Viewport2DState extends State<Viewport2D> {
     setState(() {
       _inlineDim = d;
       _inlineIsNew = isNew;
-      _dimCtrl.text = _isAngleKind(d)
-          ? (d.value ?? 0).toStringAsFixed(1)
-          : (d.value ?? 0).toStringAsFixed(2);
+      // M41: the box shows the RAW expression when the dimension is driven
+      // by one (Inventor: value collapses on screen, equation reappears on
+      // edit); a plain-value dimension shows its number.
+      _dimCtrl.text = d.expr ??
+          (_isAngleKind(d)
+              ? (d.value ?? 0).toStringAsFixed(1)
+              : (d.value ?? 0).toStringAsFixed(2));
       _dimCtrl.selection =
           TextSelection(baseOffset: 0, extentOffset: _dimCtrl.text.length);
     });
     _dimFocus.requestFocus();
   }
 
-  void _submitInline() {
+  /// Enter pressed. An INVALID entry keeps the editor open (Inventor blocks
+  /// the green check while the expression is red); [clickAway] commits
+  /// whatever is committable and otherwise keeps the measured value — the
+  /// dimension is kept either way, exactly like clicking away in Inventor.
+  void _submitInline({bool clickAway = false}) {
     final d = _inlineDim;
     if (d == null) return;
-    final v = _isAngleKind(d)
-        ? double.tryParse(_dimCtrl.text.replaceAll(',', '.'))
-        : _parseLengthMm(_dimCtrl.text);
+    final app = widget.app;
+    final raw = _dimCtrl.text;
+    final valid = app.dimTextValid(d, raw);
+    if (!valid && !clickAway) {
+      setState(() {}); // stays open, shown red
+      return;
+    }
     setState(() => _inlineDim = null);
     if (_inlineIsNew) {
-      // an unparseable entry keeps the measured value — the dimension is
-      // still created, exactly like clicking away in Inventor
-      widget.app.confirmDimension(v ?? d.value);
-    } else if (v != null) {
-      widget.app.setDimensionValue(d, v);
+      if (valid) {
+        app.confirmDimensionText(raw);
+      } else {
+        app.confirmDimension(null); // keep the measured value
+      }
+    } else if (valid) {
+      app.setDimensionText(d, raw);
     }
     _focus.requestFocus();
+  }
+
+  /// M41: while the edit box is open, tapping ANOTHER dimension's label
+  /// inserts its parameter name at the cursor instead of committing —
+  /// Inventor: "if the value is displayed in the graphics window, you can
+  /// click it to enter its name automatically".
+  void _insertParamRef(Constraint other) {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    final name = app.ensureParamName(s, other);
+    final sel = _dimCtrl.selection;
+    final t = _dimCtrl.text;
+    final start = sel.isValid ? sel.start : t.length;
+    final end = sel.isValid ? sel.end : t.length;
+    _dimCtrl.text = t.replaceRange(start, end, name);
+    _dimCtrl.selection = TextSelection.collapsed(offset: start + name.length);
+    setState(() {});
+    _dimFocus.requestFocus();
   }
 
   void _cancelInline() {
@@ -323,7 +363,11 @@ class _Viewport2DState extends State<Viewport2D> {
     final d = _inlineDim!;
     final t = d.textPos ?? Offset.zero;
     final sp = _worldToScreen(t, size);
-    const w = 96.0, h = 34.0;
+    // M41: wider box — it holds full expressions now, and shows the
+    // parameter name as a prefix (Inventor: "Edit Dimension : d3").
+    const w = 170.0, h = 34.0;
+    final valid = widget.app.dimTextValid(d, _dimCtrl.text);
+    final name = d.paramName;
     final left = (sp.dx - w / 2).clamp(4.0, size.width - w - 4.0);
     final top = (sp.dy - h / 2).clamp(4.0, size.height - h - 4.0);
     return Positioned(
@@ -355,13 +399,21 @@ class _Viewport2DState extends State<Viewport2D> {
             controller: _dimCtrl,
             focusNode: _dimFocus,
             autofocus: true,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(fontSize: 13, color: T.text),
+            // M41: full expressions — letters, operators, parens, units
+            keyboardType: TextInputType.text,
+            autocorrect: false,
+            enableSuggestions: false,
+            // Inventor colours invalid syntax red while you type
+            style: TextStyle(
+                fontSize: 13,
+                color: valid ? T.text : const Color(0xFFE05A5A)),
             textAlign: TextAlign.center,
+            onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               isDense: true,
               border: InputBorder.none,
+              prefixText: name != null ? '$name = ' : null,
+              prefixStyle: const TextStyle(fontSize: 11, color: T.dim),
               suffixText: _isAngleKind(d) ? '\u00b0' : 'mm',
               suffixStyle: const TextStyle(fontSize: 11, color: T.dim),
             ),
@@ -370,27 +422,6 @@ class _Viewport2DState extends State<Viewport2D> {
         ),
       ),
     );
-  }
-
-  /// Value entry dialog. When [length] is true the field accepts a unit
-  /// suffix (mm — the default — or cm / m) and the returned value is always
-  /// in millimetres, the sketch's base unit.
-  /// Parses a length entry into millimetres. Accepts an optional unit suffix:
-  /// `mm` (default), `cm` (×10) or `m` (×1000). Returns null if unparseable.
-  double? _parseLengthMm(String s) {
-    var t = s.trim().toLowerCase().replaceAll(',', '.');
-    var factor = 1.0;
-    if (t.endsWith('mm')) {
-      t = t.substring(0, t.length - 2);
-    } else if (t.endsWith('cm')) {
-      t = t.substring(0, t.length - 2);
-      factor = 10.0;
-    } else if (t.endsWith('m')) {
-      t = t.substring(0, t.length - 1);
-      factor = 1000.0;
-    }
-    final v = double.tryParse(t.trim());
-    return v == null ? null : v * factor;
   }
 
   void _scaleEnd() {
@@ -1357,6 +1388,10 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
     default:
       return;
   }
+  // M41: equation-driven dimensions carry Inventors fx: prefix — the screen
+  // shows only the CALCULATED value, the raw expression reappears in the
+  // edit box.
+  if (c.expr != null && !c.driven) label = 'fx: $label';
   final tp = TextPainter(
       text: TextSpan(
           text: label,

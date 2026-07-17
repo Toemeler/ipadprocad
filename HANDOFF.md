@@ -1694,6 +1694,60 @@ Auswahl, Bemaßung TREIBT eine Construction-Linie, Slot-Achse rank-clean mit
 Slot-Erwartungen in m36/operation_sequence/device_replay auf 5 Entities
 angepasst (Achtung: hartkodierte Folge-Indizes!). Suite: **179 grün**.
 
+## M41 — Inventors Parameter-/Ausdrucks-System für Bemaßungen
+
+Recherchiert gegen die Inventor-Doku (Edit box reference, Parameters in
+models, Formulas and equations): jede Bemaßung IST ein Modell-Parameter mit
+Auto-Namen d0, d1, …; das Edit-Feld parst volle Ausdrücke ("Name = Ausdruck"
+benennt um/erstellt, Syntaxfehler werden ROT gezeigt); auf dem Bildschirm
+steht nur der BERECHNETE Wert (fx:-Prefix bei gleichungsgetriebenen
+Bemaßungen), der rohe Ausdruck erscheint beim erneuten Öffnen wieder; und
+während das Feld offen ist, fügt ein Klick auf eine ANDERE angezeigte
+Bemaßung deren Parameternamen an der Cursorposition ein ("if the value is
+displayed in the graphics window, you can click it to enter its name").
+
+**Implementierung.** Neues `lib/params.dart`: Tokenizer + rekursiver
+Abstiegsparser mit Inventors Präzedenz (+ - * / ^ % , ^ rechtsassoziativ),
+Klammern, `;` als Mehrfach-Argument-Trenner (Inventor meidet das Komma wegen
+des EU-Dezimalkommas — das Komma ALS Dezimaltrenner wird akzeptiert),
+Einheiten-Suffixe mm/cm/m bzw. deg/rad + ul, Konstanten PI/E, Funktionen
+sin/cos/tan (GRAD wie Inventors Default), asin/acos/atan (liefern Grad),
+sqrt/abs/floor/ceil/round/exp/ln/log/sign/min/max/pow. Bewusst KEINE volle
+Einheiten-Algebra (kein mm^3-Fehler) — numerische Auswertung in der
+Basis-Einheit (mm bzw. Grad). `Constraint` trägt `paramName` ('nm') und
+`expr` ('ex') im Sidecar — damit round-trippt auch das Undo-Journal (M39)
+beides automatisch.
+
+**Pipeline (app_state.dart):** `ensureParamName(s)` vergibt d0, d1, … bei
+Erstellung UND beim Laden alter Sidecars. `setDimensionText` ist der eine
+Commit-Pfad (Umbenennen mit Referenz-Nachzug per Wortgrenzen-Regex, Zyklen-/
+Selbstreferenz-/Kollisions-Ablehnung, bloße Zahl → expr=null, kein fx);
+`dimTextValid` ist die Live-Validierung fürs rote Feld. Nach JEDEM Solve
+(`_rebuildEngine`-Tail, hinter `_refreshDriven`) läuft `_chaseExpressions`:
+Ausdrücke zum Fixpunkt auswerten (Ketten in einem Pass), dann erneut lösen,
+max. 3 Runden, `_inExprChase`-Guard gegen Rekursion; ein unerfüllbarer
+Ausdruckswert friert auf den letzten konsistenten Zahlen ein (Rollback wie
+M37, nie divergiert committen). Getriebene (Referenz-)Bemaßungen sind
+referenzierbar — ihre Nachmessung nach dem Solve zieht die Abhängigen nach;
+selbst editierbar sind sie weiterhin nicht. Gelöschte Referenz: der Wert
+bleibt EINGEFROREN, der Ausdruck zeigt sich beim nächsten Edit rot (Inventor
+hält den letzten guten Wert).
+
+**Viewport:** Edit-Feld zeigt `d3 = ` als Prefix, den ROHEN Ausdruck (falls
+vorhanden), färbt live rot, Enter mit rotem Inhalt bleibt offen, Klick-weg
+committet Gültiges und behält sonst den gemessenen Wert (neu platzierte
+Bemaßung bleibt wie in Inventor in jedem Fall bestehen); Klick auf ein
+anderes Bemaßungs-Label fügt dessen Namen ein statt zu committen.
+`confirmDimensionText` journaliert ZWEI Schritte (Anlegen mit Messwert,
+dann Text anwenden) — Undo schält sie einzeln ab.
+
+**Tests:** `dimension_expressions_test.dart` (9): Engine (Präzedenz,
+Einheiten, Komma, Funktionen, Fehlerfälle), Auto-Namen, Ausdruck treibt
+Geometrie, Referenz-Kette propagiert durch zwei Stufen, Umbenennen zieht
+fremde Ausdrücke nach + Kollisionsschutz, Zyklen/Selbstreferenz/Unbekannte
+abgelehnt ohne Seiteneffekt, getriebene Referenz, Sidecar-Round-Trip,
+Undo/Redo durchs Journal. Suite: **188 grün**.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1709,7 +1763,7 @@ Pattern-Panel (Rechteckige/Runde Anordnung, Spiegeln inkl. Self Symmetric,
 assoziativ über den Solver), Slots/Tangenten-Werkzeuge mit Inventor-Auto-
 Constraints, Fillet/Chamfer komplett (Linie/Bogen/Kreis, 3 Chamfer-Modi,
 Radius- bzw. x/y-Setback-Bemaßung), constraint-erhaltendes Trim/Split,
-Diagnose-Log in der Files-App, **Undo/Redo pro Skizze (Ctrl+Z / Ctrl+Shift+Z)**, **Construction-Linetype (Format-Toggle, Slot-Achse automatisch)**. **M37: Slot/Fillet/Chamfer sind jetzt
+Diagnose-Log in der Files-App, **Undo/Redo pro Skizze (Ctrl+Z / Ctrl+Shift+Z)**, **Construction-Linetype (Format-Toggle, Slot-Achse automatisch)**, **M41: Inventors Parameter-/Ausdrucks-System (d0/d1-Namen, Formeln mit Referenzen im Bemaßungs-Edit-Feld, fx:-Anzeige, Klick-Referenz)**. **M37: Slot/Fillet/Chamfer sind jetzt
 solverstabil (redundanzfrei, atomar, kein divergiertes Rendern).**
 
 **Solver-Architektur (unverändert wichtig, M37-Ergänzungen):** libslvs nativ
@@ -1725,7 +1779,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**179 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**188 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

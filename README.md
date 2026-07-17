@@ -42,6 +42,8 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M35** Pattern-Panel funktional: Rechteckige/Runde Anordnung + Spiegeln mit Inventor-Dialogen (modeless über dem Viewport), Live-Preview, Fitted/Assoziativ, Self Symmetric für Splines; neuer Constraint `pattern` (LM-only, slvs-Bail) | ✅ erledigt (Geräte-Test offen) |
 | **M36** Form-Auto-Constraints (Slots koinzident/tangent/equal/parallel bzw. konzentrisch, Tangenten-Kreis/-Bogen), Fillet/Chamfer komplett wie Inventor (Linie/Bogen/Kreis, 3 Chamfer-Modi, modeless Dialog, Radius-Dim + equal-Kette), Trim/Split erhalten Constraints/Bemaßungen (`remapAfterReplace`) | ✅ erledigt; Geräte-Test deckte Bugs auf → in M37 behoben |
 | **M37** Produktions-Härtung nach Geräte-Test: Solver-Sicherheitsnetz (nie divergiertes Rendern/Committen, atomare Ops), Slot/Fillet/Chamfer redundanzfrei + korrekt (Ecken-Koinzidenz-Entfernung, x/y-Setback-Bemaßung), Fillet-Button startet, signierte Tangente + Shim v3 (endpunktverankert) | ✅ erledigt, Host 157 + Shim-Gate 12 grün (Geräte-Test offen) |
+| **M38–M40** Trim-Upgrade, Undo/Redo pro Skizze, Construction-Linetype | ✅ erledigt |
+| **M41** Inventors Parameter-/Ausdrucks-System: Bemaßungen sind benannte Parameter (d0, d1, … / "Name = Ausdruck"), volles Formel-Parsing im Edit-Feld (Operatoren, Einheiten, Funktionen, PI/E), Referenzen auf andere Bemaßungen per Klick aufs Label, fx:-Anzeige des berechneten Werts, Ausdruck bleibt gespeichert und erscheint beim Editieren wieder | ✅ erledigt, 188 Host-Tests grün (Geräte-Test offen) |
 
 ### Auto-Constraints, Fillet/Chamfer, constraint-erhaltendes Trim (M36)
 

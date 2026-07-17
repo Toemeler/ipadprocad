@@ -14,6 +14,7 @@ import 'diag.dart';
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'modify.dart';
+import 'params.dart';
 import 'snap.dart';
 import 'solver.dart';
 import 'spline.dart';
@@ -404,6 +405,7 @@ class AppState extends ChangeNotifier {
         final cf = File('${_sketchDir.path}/$name.cons.json');
         if (cf.existsSync()) {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
+          ensureParamNames(s); // M41: pre-M41 sidecars load nameless
         }
         // Spline tags: the DXF has no spline (R_NO_OPENNURBS), so a spline came
         // back from refresh() as a plain polyline. Re-tag by index (entities
@@ -1304,6 +1306,9 @@ class AppState extends ChangeNotifier {
     }
     _committed(s, tags: gs);
     _refreshDriven(s);
+    // M41: expressions referencing driven (reference) parameters follow the
+    // fresh measurements; guarded so the chase's own solves do not recurse.
+    if (!_inExprChase) _chaseExpressions(s);
     analysis = analyzeSketch(s.geometry, s.constraints);
     // UNDO JOURNAL (M39): every committed mutation funnels through this
     // rebuild (the C-API is add-only), so this one call records the whole
@@ -2926,6 +2931,8 @@ class AppState extends ChangeNotifier {
       return;
     }
     d.driven = driven;
+    ensureParamNames(s);
+    ensureParamName(s, d); // M41: every dimension is a named parameter
     d.value = driven
         ? measureDim(s.geometry, d)
         : (value ?? measureDim(s.geometry, d));
@@ -2937,6 +2944,19 @@ class AppState extends ChangeNotifier {
       toast('This value cannot be satisfied with the current constraints.');
     }
     notifyListeners();
+  }
+
+  /// M41 — confirms the pending dimension from the RAW edit-box text. The
+  /// dimension is created either way (Inventor keeps it when you click
+  /// away); the text is then applied as value/expression/rename on top.
+  /// Returns true when the text was applied cleanly.
+  bool confirmDimensionText(String raw) {
+    final d = pendingDim;
+    confirmDimension(null); // creates with the measured value + auto name
+    final s = current;
+    if (s == null || d == null || !s.constraints.contains(d)) return false;
+    if (raw.trim().isEmpty) return true;
+    return setDimensionText(d, raw);
   }
 
   void cancelDimension() {
@@ -2975,18 +2995,254 @@ class AppState extends ChangeNotifier {
       toast('This is a driven (reference) dimension — it cannot be edited.');
       return;
     }
-    final old = c.value;
+    // M41: an explicit numeric set clears any stored expression (Inventor:
+    // typing a plain number over an equation replaces it).
+    final snap = _snapshotDims(s);
     c.value = v;
+    c.expr = null;
     // _solveAndRebuild leaves the sketch UNTOUCHED when the new value cannot
-    // be satisfied — so a rollback is just restoring the number. (The old
+    // be satisfied — so a rollback is just restoring the numbers. (The old
     // implementation committed the diverged geometry first and then tried to
     // solve its way back, which was path-dependent and could leave the sketch
     // subtly displaced.)
-    if (!_solveAndRebuild(s)) {
-      c.value = old;
+    if (!_solveOnceThenChase(s)) {
+      _restoreDims(snap);
       toast('Value cannot be satisfied with the current constraints.');
     }
     notifyListeners();
+  }
+
+  // ---------------------------------------------------------------- M41 ----
+  // Inventors parameter/expression system. Every dimension is a named
+  // parameter (auto d0, d1, … — renamable via "Name = expr"); the edit box
+  // accepts full expressions referencing other dimensions; the stored
+  // expression re-evaluates whenever a referenced parameter changes; the
+  // display shows only the calculated value (fx:-prefixed), the raw
+  // expression reappears when the box is opened again.
+
+  /// Smallest unused auto name d0, d1, … in [s] (Inventor's default names).
+  String _newParamName(SketchModel s) {
+    final used = {
+      for (final c in s.constraints)
+        if (c.paramName != null) c.paramName!
+    };
+    var i = 0;
+    while (used.contains('d$i')) {
+      i++;
+    }
+    return 'd$i';
+  }
+
+  /// The dimension's parameter name, assigning an auto name on first use.
+  String ensureParamName(SketchModel s, Constraint c) =>
+      c.paramName ??= _newParamName(s);
+
+  /// Assigns auto names to every dimension that has none — pre-M41 sidecars
+  /// load nameless, and expressions need stable names to reference.
+  void ensureParamNames(SketchModel s) {
+    for (final c in s.constraints) {
+      if (c.type == CType.dimension) ensureParamName(s, c);
+    }
+  }
+
+  /// name -> current base value (mm resp. deg) of every named dimension.
+  Map<String, double> paramTable(SketchModel s) => {
+        for (final c in s.constraints)
+          if (c.type == CType.dimension &&
+              c.paramName != null &&
+              c.value != null)
+            c.paramName!: c.value!,
+      };
+
+  Constraint? _dimByName(SketchModel s, String name) {
+    for (final c in s.constraints) {
+      if (c.type == CType.dimension && c.paramName == name) return c;
+    }
+    return null;
+  }
+
+  static bool _isAngleDim(Constraint c) =>
+      c.dimKind == 'ang' || c.dimKind == 'ang3' || c.dimKind == 'ang4';
+
+  /// True when making [c]'s expression reference [ref] would close a cycle
+  /// (ref depends — transitively — on c).
+  bool _wouldCycle(SketchModel s, Constraint c, String ref) {
+    final seen = <String>{};
+    bool dependsOnC(String name) {
+      if (!seen.add(name)) return false;
+      final d = _dimByName(s, name);
+      if (d == null) return false;
+      if (identical(d, c)) return true;
+      if (d.expr == null) return false;
+      return exprRefs(d.expr!).any(dependsOnC);
+    }
+
+    return dependsOnC(ref);
+  }
+
+  List<(Constraint, double?, String?)> _snapshotDims(SketchModel s) => [
+        for (final c in s.constraints)
+          if (c.type == CType.dimension) (c, c.value, c.expr)
+      ];
+
+  void _restoreDims(List<(Constraint, double?, String?)> snap) {
+    for (final (c, v, e) in snap) {
+      c.value = v;
+      c.expr = e;
+    }
+  }
+
+  /// Re-evaluates every expression-driven dimension against the current
+  /// parameter table, iterating to a fixpoint so chains (d2 = d1*2,
+  /// d3 = d2+5) settle in one call. Returns true when any value changed.
+  /// Evaluation failures (deleted reference, bad expr) leave the value
+  /// FROZEN — Inventor keeps the last good value and flags the expression
+  /// red on the next edit.
+  bool _applyExprValues(SketchModel s) {
+    var changedAny = false;
+    for (var pass = 0; pass < 8; pass++) {
+      final table = paramTable(s);
+      var changed = false;
+      for (final c in s.constraints) {
+        if (c.type != CType.dimension || c.expr == null || c.driven) continue;
+        final v = evalExpr(c.expr!, table, angle: _isAngleDim(c));
+        if (v != null && (c.value == null || (v - c.value!).abs() > 1e-9)) {
+          c.value = v;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+      changedAny = true;
+    }
+    return changedAny;
+  }
+
+  bool _inExprChase = false;
+
+  /// Solve, then chase expression dependencies to a fixpoint: driven
+  /// (reference) dimensions re-measure after every solve, and expressions
+  /// referencing THEM must follow — which needs another solve. Converges in
+  /// one extra round for all practical sketches; capped defensively.
+  bool _solveOnceThenChase(SketchModel s) {
+    if (!_solveAndRebuild(s)) return false;
+    _chaseExpressions(s);
+    return true;
+  }
+
+  void _chaseExpressions(SketchModel s) {
+    if (_inExprChase) return;
+    _inExprChase = true;
+    try {
+      for (var i = 0; i < 3; i++) {
+        if (!_applyExprValues(s)) return; // fixpoint — nothing moved
+        final snap = _snapshotDims(s);
+        if (!_solveAndRebuild(s)) {
+          // an expression value the geometry cannot reach must not stick:
+          // freeze everything back to the last consistent numbers
+          _restoreDims(snap);
+          Log.w('params', 'expression chase: unsatisfiable — values frozen');
+          return;
+        }
+      }
+    } finally {
+      _inExprChase = false;
+    }
+  }
+
+  /// Commits the raw edit-box text of a dimension — Inventors full edit box:
+  /// plain number ("12", "1.5 cm"), expression ("d0/2 + 5"), or rename +
+  /// either ("Width = d0/2"). Returns false (with a toast) when the entry is
+  /// invalid or unsatisfiable; the caller keeps the editor open showing red.
+  bool setDimensionText(Constraint c, String raw) {
+    final s = current;
+    if (s == null) return false;
+    if (c.driven) {
+      toast('This is a driven (reference) dimension — it cannot be edited.');
+      return false;
+    }
+    ensureParamNames(s);
+    final (name, body) = splitAssignment(raw);
+    if (body.trim().isEmpty) return false;
+    if (name != null) {
+      if (!isValidParamName(name)) {
+        toast('Invalid parameter name.');
+        return false;
+      }
+      final other = _dimByName(s, name);
+      if (other != null && !identical(other, c)) {
+        toast('Parameter name "$name" is already in use.');
+        return false;
+      }
+    }
+    final angle = _isAngleDim(c);
+    final refs = exprRefs(body);
+    for (final r in refs) {
+      if (_dimByName(s, r) == null) {
+        toast('Unknown parameter "$r".');
+        return false;
+      }
+      if (r == c.paramName || _wouldCycle(s, c, r)) {
+        toast('Circular reference: "$r" depends on this dimension.');
+        return false;
+      }
+    }
+    final v = evalExpr(body, paramTable(s), angle: angle);
+    if (v == null) {
+      toast('Invalid expression.');
+      return false;
+    }
+    final snap = _snapshotDims(s);
+    final oldName = c.paramName;
+    c.value = v;
+    // a bare number is stored as a value — Inventor shows the fx: prefix
+    // only for equation-driven dimensions
+    c.expr = isPlainNumber(body) ? null : body.trim();
+    if (name != null) c.paramName = name;
+    if (name != null && oldName != null && oldName != name) {
+      _renameRefs(s, oldName, name);
+    }
+    if (!_solveOnceThenChase(s)) {
+      _restoreDims(snap);
+      c.paramName = oldName;
+      if (name != null && oldName != null && oldName != name) {
+        _renameRefs(s, name, oldName);
+      }
+      toast('Value cannot be satisfied with the current constraints.');
+      notifyListeners();
+      return false;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Renames [from] to [to] inside every stored expression (word-boundary
+  /// match, so renaming d1 does not maul d10).
+  void _renameRefs(SketchModel s, String from, String to) {
+    final re = RegExp('\\b${RegExp.escape(from)}\\b');
+    for (final c in s.constraints) {
+      if (c.expr != null) c.expr = c.expr!.replaceAll(re, to);
+    }
+  }
+
+  /// Live validation for the edit box (Inventor colours bad syntax red while
+  /// typing). Checks assignment form, syntax, known refs and cycles — without
+  /// committing anything.
+  bool dimTextValid(Constraint c, String raw) {
+    final s = current;
+    if (s == null) return false;
+    final (name, body) = splitAssignment(raw);
+    if (body.trim().isEmpty) return false;
+    if (name != null) {
+      if (!isValidParamName(name)) return false;
+      final other = _dimByName(s, name);
+      if (other != null && !identical(other, c)) return false;
+    }
+    final refs = exprRefs(body);
+    for (final r in refs) {
+      if (_dimByName(s, r) == null) return false;
+      if (r == c.paramName || _wouldCycle(s, c, r)) return false;
+    }
+    return evalExpr(body, paramTable(s), angle: _isAngleDim(c)) != null;
   }
 
   /// Driven dimensions track the geometry, so refresh their measured values.
