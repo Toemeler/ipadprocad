@@ -33,9 +33,9 @@ void main() {
       final app = makeApp();
       final s = app.current!;
       app.tool = Tool.slotCC;
-      app.toolClick(const Offset(0, 0));
-      app.toolClick(const Offset(40, 0));
-      app.toolClick(const Offset(20, 6)); // width -> r = 6
+      app.toolClick(const Offset(100, 40));
+      app.toolClick(const Offset(140, 40));
+      app.toolClick(const Offset(120, 46)); // width -> r = 6
       expect(s.geometry, hasLength(4));
       expect(count(s, CType.coincident), 4);
       expect(count(s, CType.tangent), 4);
@@ -56,9 +56,9 @@ void main() {
       final app = makeApp();
       final s = app.current!;
       app.tool = Tool.slotCC;
-      app.toolClick(const Offset(0, 0));
-      app.toolClick(const Offset(40, 0));
-      app.toolClick(const Offset(20, 6));
+      app.toolClick(const Offset(100, 40));
+      app.toolClick(const Offset(140, 40));
+      app.toolClick(const Offset(120, 46));
       final gs = List<Geo>.from(s.geometry);
       // drag rail 1's end up — solver must keep tangency + equal caps
       gs[0] = gs[0].withData([gs[0].data[0], gs[0].data[1], 42, 10]);
@@ -81,10 +81,10 @@ void main() {
       final app = makeApp();
       final s = app.current!;
       app.tool = Tool.slot3A;
-      app.toolClick(const Offset(-20, 0));
-      app.toolClick(const Offset(0, 20));
-      app.toolClick(const Offset(20, 0));
-      app.toolClick(const Offset(0, 26)); // width -> r = 6
+      app.toolClick(const Offset(80, 40));
+      app.toolClick(const Offset(100, 60));
+      app.toolClick(const Offset(120, 40));
+      app.toolClick(const Offset(100, 66)); // width -> r = 6
       expect(s.geometry, hasLength(4));
       expect(count(s, CType.concentric), 1);
       expect(count(s, CType.coincident), 4);
@@ -175,7 +175,7 @@ void main() {
       expect(dims[0].value, closeTo(5, 1e-9));
     });
 
-    test('second fillet chains EQUAL to the first (same radius)', () {
+    test('EVERY fillet gets its own radius dimension', () {
       final app = makeApp();
       final s = app.current!;
       // a U: three lines, two corners
@@ -191,13 +191,21 @@ void main() {
       app.toolClick(const Offset(20, 0));
       app.toolClick(const Offset(30, 10));
       expect(s.geometry, hasLength(5));
-      expect(count(s, CType.equal), 1);
-      expect(s.constraints.where((c) => c.type == CType.dimension),
-          hasLength(1), reason: 'only the FIRST fillet is dimensioned');
-      // changing the radius starts a NEW chain
-      app.filletSess!.radius = 7;
-      app.filletNotify();
-      expect(app.filletSess!.firstIdx, isNull);
+      // no equal-chain: each fillet is dimensioned itself, a radius label per
+      // fillet like the chamfer's setback labels
+      expect(count(s, CType.equal), 0);
+      final rads = s.constraints
+          .where((c) => c.type == CType.dimension && c.dimKind == 'rad')
+          .toList();
+      expect(rads, hasLength(2), reason: 'one R-dim per fillet');
+      for (final d in rads) {
+        expect(d.value, closeTo(4, 1e-9));
+      }
+      // editing one radius drives ONLY that fillet
+      app.setDimensionValue(rads.first, 7);
+      final r1 = s.geometry[3].data[2], r2 = s.geometry[4].data[2];
+      expect({r1, r2}.map((v) => (v * 10).round()).toSet(), {70, 40},
+          reason: 'one fillet 7, the other still 4');
     });
 
     test('line-arc fillet: tangent to both carriers', () {
@@ -411,11 +419,20 @@ void main() {
       app.selectTool(Tool.trim);
       app.toolClick(const Offset(-10, 0)); // trims AWAY the left span
       // left seam's point (-20,0) is gone -> its coincident drops; the right
-      // seam survives on the surviving piece
-      expect(count(s, CType.coincident), 1);
-      final c = s.constraints.firstWhere((c) => c.type == CType.coincident);
-      final p = refPt(s.geometry, c.pts[0]);
-      expect(p.dx, closeTo(20, 1e-6));
+      // seam survives on the surviving piece. The NEW endpoint the cut made at
+      // (0,0) binds onto the cutter (Inventor's trim coincidence).
+      final coins =
+          s.constraints.where((c) => c.type == CType.coincident).toList();
+      expect(coins, hasLength(2));
+      final p2p = coins.firstWhere((c) => c.pts.length == 2);
+      expect(refPt(s.geometry, p2p.pts[0]).dx, closeTo(20, 1e-6));
+      final onCutter =
+          coins.firstWhere((c) => c.pts.length == 1 && c.ents.isNotEmpty);
+      final q = refPt(s.geometry, onCutter.pts[0]);
+      expect(q.dx, closeTo(0, 1e-6));
+      expect(q.dy, closeTo(0, 1e-6));
+      // ...and it really holds under a solve
+      expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     });
 
     test('split keeps every constraint (all points survive)', () {

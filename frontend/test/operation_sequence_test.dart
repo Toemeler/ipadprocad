@@ -43,8 +43,8 @@ void main() {
     final s = app.current!;
     // rectangle (device: 4 lines with h/v + corners)
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(60, 40));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(160, 80));
     // linear slot next to it (device: slotOverall — same 4-entity result)
     app.tool = Tool.slotCC;
     app.toolClick(const Offset(90, 10));
@@ -64,8 +64,8 @@ void main() {
     // scramble everything
     app.tool = Tool.chamfer;
     app.filletSess = FilletSession(Tool.chamfer, d1: 5, d2: 5);
-    app.toolClick(const Offset(4, 0)); // on e0 near corner (0,0)
-    app.toolClick(const Offset(0, 4)); // on e3 near corner (0,0)
+    app.toolClick(const Offset(104, 40)); // on e0 near corner (0,0)
+    app.toolClick(const Offset(100, 44)); // on e3 near corner (0,0)
     expect(s.geometry, hasLength(10), reason: 'chamfer line added');
     // whole sketch satisfied, nothing degenerate
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
@@ -74,8 +74,8 @@ void main() {
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after chamfer 1');
 
     // chamfer corner 2
-    app.toolClick(const Offset(56, 0));
-    app.toolClick(const Offset(60, 4));
+    app.toolClick(const Offset(156, 40));
+    app.toolClick(const Offset(160, 44));
     expect(s.geometry, hasLength(11));
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after chamfer 2');
@@ -95,8 +95,8 @@ void main() {
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(60, 40));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(160, 80));
     app.tool = Tool.slotCC;
     app.toolClick(const Offset(90, 10));
     app.toolClick(const Offset(150, 10));
@@ -105,8 +105,8 @@ void main() {
     final slotBefore = snap(s.geometry, slotIdx);
     app.tool = Tool.fillet;
     app.filletSess = FilletSession(Tool.fillet, radius: 6);
-    app.toolClick(const Offset(56, 40));
-    app.toolClick(const Offset(60, 36));
+    app.toolClick(const Offset(156, 80));
+    app.toolClick(const Offset(160, 76));
     expect(s.geometry, hasLength(9));
     expect(s.geometry.last.type, Geo.arc);
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
@@ -119,12 +119,12 @@ void main() {
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(20, 10));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(120, 50));
     app.tool = Tool.fillet;
     app.filletSess = FilletSession(Tool.fillet, radius: 500);
-    app.toolClick(const Offset(18, 10));
-    app.toolClick(const Offset(20, 8));
+    app.toolClick(const Offset(118, 50));
+    app.toolClick(const Offset(120, 48));
     expect(s.geometry, hasLength(5));
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
   });
@@ -133,21 +133,21 @@ void main() {
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(20, 10));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(120, 50));
     // pin BOTH corner points the chamfer would trim apart: the seams + the
     // x/y dims then contradict the fixes — unsatisfiable by construction
     s.constraints.add(Constraint(CType.fix,
-        pts: [const PRef(1, 1)], anchors: [20, 10]));
+        pts: [const PRef(1, 1)], anchors: [120, 50]));
     s.constraints.add(Constraint(CType.fix,
-        pts: [const PRef(2, 0)], anchors: [20, 10]));
+        pts: [const PRef(2, 0)], anchors: [120, 50]));
     final all = [0, 1, 2, 3];
     final before = snap(s.geometry, all);
     final consBefore = s.constraints.length;
     app.tool = Tool.chamfer;
     app.filletSess = FilletSession(Tool.chamfer, d1: 5, d2: 5);
-    app.toolClick(const Offset(18, 10));
-    app.toolClick(const Offset(20, 8));
+    app.toolClick(const Offset(118, 50));
+    app.toolClick(const Offset(120, 48));
     expect(s.geometry, hasLength(4), reason: 'nothing added');
     expect(s.constraints.length, consBefore, reason: 'nothing constrained');
     expectUnchanged(before, s.geometry, all, 'after refused chamfer');
@@ -155,44 +155,41 @@ void main() {
         reason: 'the sketch is still the valid pre-op state');
   });
 
-  test('fillet chain: second fillet of the same radius chains equal', () {
+  test('every fillet is dimensioned; editing one drives only that one', () {
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(60, 40));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(160, 80));
     app.tool = Tool.fillet;
     app.filletSess = FilletSession(Tool.fillet, radius: 5);
-    app.toolClick(const Offset(56, 40));
-    app.toolClick(const Offset(60, 36));
-    app.toolClick(const Offset(4, 0));
-    app.toolClick(const Offset(0, 4));
+    app.toolClick(const Offset(156, 80));
+    app.toolClick(const Offset(160, 76));
+    app.toolClick(const Offset(104, 40));
+    app.toolClick(const Offset(100, 44));
     expect(s.geometry, hasLength(6));
     final rads = s.constraints
-        .where((c) => c.type == CType.dimension && c.dimKind == 'rad');
-    expect(rads, hasLength(1), reason: 'only the FIRST fillet is dimensioned');
-    final equals = s.constraints.where((c) =>
-        c.type == CType.equal && c.ents.contains(4) && c.ents.contains(5));
-    expect(equals, hasLength(1), reason: 'the second chains equal (Inventor)');
+        .where((c) => c.type == CType.dimension && c.dimKind == 'rad')
+        .toList();
+    expect(rads, hasLength(2), reason: 'one R-dim per fillet (user spec)');
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
-    // and the chain DRIVES: change the dimension, both fillets follow
-    final dim = s.constraints
-        .firstWhere((c) => c.type == CType.dimension && c.dimKind == 'rad');
-    app.setDimensionValue(dim, 7);
+    // editing the FIRST fillet's dimension moves only e4
+    final dimOfE4 = rads.firstWhere((d) => d.ents.contains(4));
+    app.setDimensionValue(dimOfE4, 7);
     expect(s.geometry[4].data[2], closeTo(7, 1e-4));
-    expect(s.geometry[5].data[2], closeTo(7, 1e-4));
+    expect(s.geometry[5].data[2], closeTo(5, 1e-4));
   });
 
   test('trim keeps the whole sketch satisfied or refuses', () {
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(30, 20));
-    s.engine.addLine(-10, 10, 40, 10); // a cutter through the rectangle
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(130, 60));
+    s.engine.addLine(90, 50, 140, 50); // a cutter through the rectangle
     s.refresh();
     app.selectTool(Tool.trim);
-    app.toolClick(const Offset(15, 10)); // trim the middle span of the cutter
+    app.toolClick(const Offset(115, 50)); // trim the middle span of the cutter
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expect(hasDegenerateGeometry(s.geometry), isFalse);
     expect(allFinite(s.geometry), isTrue);

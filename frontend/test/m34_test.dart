@@ -22,8 +22,8 @@ void main() {
     test('two-point rect commits 4 LINES + coincident corners + H/V', () {
       final app = makeApp();
       app.tool = Tool.rectTwoPoint;
-      app.toolClick(const Offset(0, 0));
-      app.toolClick(const Offset(40, 30));
+      app.toolClick(const Offset(100, 40));
+      app.toolClick(const Offset(140, 70));
       final s = app.current!;
       expect(s.geometry, hasLength(4));
       expect(s.geometry.every((g) => g.type == Geo.line), isTrue,
@@ -40,7 +40,7 @@ void main() {
       expect(analyzeSketch(s.geometry, s.constraints).dof, 4);
       // and each side is independently selectable
       app.tool = Tool.none;
-      app.selectAt(const Offset(20, 0), 5);
+      app.selectAt(const Offset(120, 40), 5);
       expect(app.selection, hasLength(1));
     });
 
@@ -48,13 +48,13 @@ void main() {
         () {
       final app = makeApp();
       app.tool = Tool.rectTwoPoint;
-      app.toolClick(const Offset(0, 0));
-      app.toolClick(const Offset(40, 30));
+      app.toolClick(const Offset(100, 40));
+      app.toolClick(const Offset(140, 70));
       final s = app.current!;
       final gs = List<Geo>.from(s.geometry);
-      // stretch: move line0's end x from 40 to 60, solver must keep H/V +
+      // stretch: move line0's end x from 140 to 160, solver must keep H/V +
       // corners glued
-      gs[0] = gs[0].withData([0, 0, 60, 0]);
+      gs[0] = gs[0].withData([100, 40, 160, 40]);
       solveConstraints(gs, s.constraints,
           dragged: const {(0, 1)}, iterations: 120);
       expect(gs[1].data[0], closeTo(gs[0].data[2], 1e-3),
@@ -66,9 +66,9 @@ void main() {
     test('3-point rect: 4 lines + coincident + 3 perpendicular, dof 5', () {
       final app = makeApp();
       app.tool = Tool.rect3P;
-      app.toolClick(const Offset(0, 0));
-      app.toolClick(const Offset(40, 10)); // rotated first edge
-      app.toolClick(const Offset(30, 40));
+      app.toolClick(const Offset(100, 40));
+      app.toolClick(const Offset(140, 50)); // rotated first edge
+      app.toolClick(const Offset(130, 80));
       final s = app.current!;
       expect(s.geometry, hasLength(4));
       expect(

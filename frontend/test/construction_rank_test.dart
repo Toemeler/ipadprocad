@@ -36,48 +36,48 @@ void main() {
   test('rectangle 2P: 12 independent equations, 4 DOF', () {
     final app = makeApp();
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(30, 20));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(130, 60));
     expectClean(app.current!, dof: 4, reason: '(rect 2P)');
   });
 
   test('rectangle 3P (rotated): perpendicular corners, 5 DOF', () {
     final app = makeApp();
     app.tool = Tool.rect3P;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(30, 10));
-    app.toolClick(const Offset(25, 25));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(130, 50));
+    app.toolClick(const Offset(125, 65));
     expectClean(app.current!, dof: 5, reason: '(rect 3P)');
   });
 
   test('linear slot: 13 independent equations, 5 DOF', () {
     final app = makeApp();
     app.tool = Tool.slotCC;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(40, 0));
-    app.toolClick(const Offset(20, 6));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(140, 40));
+    app.toolClick(const Offset(120, 46));
     expectClean(app.current!, dof: 5, reason: '(linear slot)');
   });
 
   test('arc slot: 14 independent equations, 6 DOF', () {
     final app = makeApp();
     app.tool = Tool.slot3A;
-    app.toolClick(const Offset(-20, 0));
-    app.toolClick(const Offset(0, 20));
-    app.toolClick(const Offset(20, 0));
-    app.toolClick(const Offset(0, 26));
+    app.toolClick(const Offset(80, 40));
+    app.toolClick(const Offset(100, 60));
+    app.toolClick(const Offset(120, 40));
+    app.toolClick(const Offset(100, 66));
     expectClean(app.current!, dof: 6, reason: '(arc slot)');
   });
 
   test('fillet on a rectangle corner: redundancy-free, DOF unchanged', () {
     final app = makeApp();
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(30, 20));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(130, 60));
     app.tool = Tool.fillet;
     app.filletSess = FilletSession(Tool.fillet, radius: 4);
-    app.toolClick(const Offset(28, 20));
-    app.toolClick(const Offset(30, 18));
+    app.toolClick(const Offset(128, 60));
+    app.toolClick(const Offset(130, 58));
     // rect(4) + fillet arc: the fillet consumes exactly the freedom it adds
     // (5 arc params vs corner-coincidence removal −2, seams +4, tangents +2,
     // radius dim +1)
@@ -89,12 +89,12 @@ void main() {
       () {
     final app = makeApp();
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(30, 20));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(130, 60));
     app.tool = Tool.chamfer;
     app.filletSess = FilletSession(Tool.chamfer, d1: 5, d2: 5);
-    app.toolClick(const Offset(28, 20));
-    app.toolClick(const Offset(30, 18));
+    app.toolClick(const Offset(128, 60));
+    app.toolClick(const Offset(130, 58));
     expect(app.current!.geometry, hasLength(5));
     expectClean(app.current!, dof: 4, reason: '(rect + chamfer equal)');
   });
@@ -102,12 +102,12 @@ void main() {
   test('chamfer (two distances) on a rectangle corner: redundancy-free', () {
     final app = makeApp();
     app.tool = Tool.rectTwoPoint;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(30, 20));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(130, 60));
     app.tool = Tool.chamfer;
     app.filletSess = FilletSession(Tool.chamfer, d1: 8, d2: 4)..mode = 1;
-    app.toolClick(const Offset(28, 20));
-    app.toolClick(const Offset(30, 18));
+    app.toolClick(const Offset(128, 60));
+    app.toolClick(const Offset(130, 58));
     expectClean(app.current!, dof: 4, reason: '(rect + chamfer 2d)');
   });
 
@@ -116,9 +116,9 @@ void main() {
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.slotCC;
-    app.toolClick(const Offset(0, 0));
-    app.toolClick(const Offset(40, 0));
-    app.toolClick(const Offset(20, 6));
+    app.toolClick(const Offset(100, 40));
+    app.toolClick(const Offset(140, 40));
+    app.toolClick(const Offset(120, 46));
     final gs = List<Geo>.from(s.geometry);
     expect(solveConstraints(gs, s.constraints), isTrue);
     final (rank, eqs, _) = debugRank(gs, s.constraints);
