@@ -1748,6 +1748,32 @@ fremde Ausdrücke nach + Kollisionsschutz, Zyklen/Selbstreferenz/Unbekannte
 abgelehnt ohne Seiteneffekt, getriebene Referenz, Sidecar-Round-Trip,
 Undo/Redo durchs Journal. Suite: **188 grün**.
 
+## M42 — Hover-Feedback + Sichtbarkeit außerhalb des Editiermodus
+
+**Hover-Highlight auf Bemaßungs-Labels** (Maus/Trackpad): das Label unter dem
+Cursor bekommt einen blauen Rahmen + helleren Hintergrund, wann immer ein
+Klick darauf etwas TUT — im normalen Layer-Editiermodus (Tap öffnet den
+Wert-Editor; aktiv bei Tool none und dimension) und während das M41-
+Ausdrucks-Feld offen ist (Klick fügt den Parameternamen ein; das EIGENE
+Label wird nie markiert). Implementierung: `_hoverDimLabel` im Viewport-State
+(onPointerHover gegen die `dimLabelRects` des letzten Frames), als
+`hoverDim` in den Painter gereicht, `_paintDimension(highlight:)` zeichnet
+Rahmen/Hintergrund. Touch hat kein Hover — reine Zusatz-Affordanz.
+
+**Sichtbarkeit wie Inventor:** ohne aktiven Editier-Layer (`inEditMode`
+false) sind Skizzen-Annotationen unsichtbar — Bemaßungen (ihre Tap-Rects
+werden GELEERT, sonst träfen Taps Geister-Labels), Constraint-Glyphen,
+DOF-Pfeile UND Construction-Geometrie (`isConstruction`-Skip in der
+Entity-Schleife). Die normalen Linien (inkl. Centerlines) bleiben sichtbar.
+Beim Betreten des Editiermodus kommt alles zurück.
+
+**Tests:** `m42_visibility_test.dart` (4): Rects leer außerhalb / gefüllt im
+Editiermodus / wieder geleert beim Verlassen; Hover-Pfad + Tap öffnet den
+Editor; Klick auf ein ANDERES Label während des offenen Ausdrucks-Felds
+fügt `d1` ein statt zu committen; Construction-Skip wirft nicht. Harness-
+Hinweis: der Test pumpt den Baum nach editingLayer-Wechseln NEU (keine
+Listener-Verdrahtung im Test). Suite: **192 grün**.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1779,7 +1805,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**188 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**192 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

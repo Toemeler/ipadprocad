@@ -285,6 +285,11 @@ class _Viewport2DState extends State<Viewport2D> {
   // clicking elsewhere commits (Inventor keeps the dimension either way).
   Constraint? _inlineDim;
   bool _inlineIsNew = false;
+  /// M42: the dimension label under the mouse — highlighted whenever it is
+  /// actionable: while the expression box is open (click inserts the
+  /// parameter name, Inventor-style) and in plain layer-edit mode (tap opens
+  /// the value editor).
+  Constraint? _hoverDimLabel;
   final TextEditingController _dimCtrl = TextEditingController();
   final FocusNode _dimFocus = FocusNode();
 
@@ -539,6 +544,18 @@ class _Viewport2DState extends State<Viewport2D> {
               final w = _toWorld(e.localPosition, size);
               app.setHover(_snapped(w));
             }
+            // M42: highlight the dimension label under the cursor when
+            // interacting with it would do something — insert its parameter
+            // name (expression box open) or open its editor (edit mode, no
+            // tool / dimension tool).
+            final actionable = _inlineDim != null ||
+                (app.inEditMode &&
+                    (app.tool == Tool.none || app.tool == Tool.dimension));
+            var hd = actionable ? _dimAtScreen(e.localPosition) : null;
+            if (identical(hd, _inlineDim)) hd = null; // own label: no hint
+            if (!identical(hd, _hoverDimLabel)) {
+              setState(() => _hoverDimLabel = hd);
+            }
           },
           // Tool clicks are handled on RAW pointer events, not via
           // GestureDetector.onTap: the ScaleGestureRecognizer (pan/zoom,
@@ -598,6 +615,7 @@ class _Viewport2DState extends State<Viewport2D> {
                     painter: _ViewportPainter(
                       app: app,
                       projCpSelected: _projCpSelected,
+                      hoverDim: _hoverDimLabel,
                     ),
                   ),
                   if (_inlineDim != null) _inlineEditor(size),
@@ -658,7 +676,10 @@ bool _overlayErrorLogged = false;
 class _ViewportPainter extends CustomPainter {
   final AppState app;
   final bool projCpSelected;
-  _ViewportPainter({required this.app, required this.projCpSelected});
+  /// M42: dimension label to render highlighted (hover feedback).
+  final Constraint? hoverDim;
+  _ViewportPainter(
+      {required this.app, required this.projCpSelected, this.hoverDim});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -817,6 +838,9 @@ class _ViewportPainter extends CustomPainter {
         // NaN/Inf: Skia drops those paths without a word. Contain both, and say
         // exactly which entity and which numbers did it.
         if (!app.geoVisible(gs[i])) continue; // layer eye is off
+        // M42: construction geometry is scaffolding for constraining — it is
+        // only shown while its sketch layer is being edited.
+        if (!app.inEditMode && gs[i].isConstruction) continue;
         if (!geoFinite(gs[i])) {
           if (Log.every('paint-nonfinite', 500)) {
             Log.e('paint', 'SKIPPING non-finite ${geoStr(i, gs[i])} '
@@ -886,7 +910,8 @@ class _ViewportPainter extends CustomPainter {
       // Degrees-of-freedom glyphs: arrows on every point that can still move
       // (they vanish one by one as constraints are added).
       final an = app.analysis;
-      if (app.showDof && app.tool == Tool.none && an != null) {
+      if (app.showDof && app.inEditMode && app.tool == Tool.none &&
+          an != null) {
         final dp = Paint()
           ..color = const Color(0xFFEFD37A)
           ..strokeWidth = 1.2;
@@ -980,7 +1005,11 @@ class _ViewportPainter extends CustomPainter {
     // Guarded: a painter exception aborts the whole frame, which would look
     // exactly like "the app draws nothing".
     try {
-    if (s != null) {
+    // M42: dimensions and constraint glyphs are SKETCH-EDIT artefacts — they
+    // are invisible (and untappable: rects cleared) outside layer-edit mode,
+    // like Inventor hides them when the sketch is not being edited.
+    if (!app.inEditMode) app.dimLabelRects.clear();
+    if (s != null && app.inEditMode) {
       final gs2 = app.displayGeometry(s);
       if (app.showConstraints) {
         final seen = <String, int>{};
@@ -1012,7 +1041,8 @@ class _ViewportPainter extends CustomPainter {
             c.textPos != null &&
             app.constraintVisible(s, c)) {
           _paintDimension(canvas, gs2, c, map,
-              labelSink: app.dimLabelRects);
+              labelSink: app.dimLabelRects,
+              highlight: identical(c, hoverDim));
         }
       }
       // dimension being placed follows the cursor
@@ -1227,7 +1257,7 @@ class _ViewportPainter extends CustomPainter {
 
 void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
     Offset Function(double, double) map,
-    {List<(Constraint, Rect)>? labelSink}) {
+    {List<(Constraint, Rect)>? labelSink, bool highlight = false}) {
   final p = Paint()
     ..color = const Color(0xFFB8C4A8)
     ..style = PaintingStyle.stroke
@@ -1400,7 +1430,18 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
     ..layout();
   final bg = Rect.fromCenter(
       center: t, width: tp.width + 6, height: tp.height + 3);
-  canvas.drawRect(bg, Paint()..color = const Color(0xCC212830));
+  canvas.drawRect(bg,
+      Paint()..color = highlight ? const Color(0xCC2C3A4C) : const Color(0xCC212830));
+  if (highlight) {
+    // M42: hover feedback — this label is clickable (inserts its parameter
+    // name while the expression box is open, opens the editor otherwise)
+    canvas.drawRect(
+        bg.inflate(1),
+        Paint()
+          ..color = T.blue
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2);
+  }
   tp.paint(canvas, bg.topLeft + const Offset(3, 1.5));
   // The SCREEN rect the label really occupies — for 'dist' kinds t is
   // recomputed above and does NOT sit at textPos, so tap hit-testing must use
