@@ -450,6 +450,10 @@ Token NIE in Dateien/.git/config schreiben.
   der Wurzel korrekt (redundanzfrei, Ecken-Koinzidenz-Entfernung, x/y-Setback-
   Bemaßung), Fillet-Button startet, Shim v3 (endpunktverankerte Tangenten).
   Voller Audit + Restpunkte im README (Abschnitt unten).
+- **M38 — Zweiter Geräte-Test → Ast-Persistenz (`tanBranch`), Drag-Settle,
+  Trim/Split-Koinzidenzen (+ Shim v4 Punkt-auf-Kreis), CP-Bindung für
+  deterministische Formen, Fillet-Maß je Rundung, Pick-Dedupe: ERLEDIGT,
+  Host 161 + Shim-Gate 13 grün, Geräte-Test offen** (Abschnitt unten).
 
 ## UI-Design-Spec (Stand = create-panel.html, FINAL abgenommen)
 Stil: Autodesk Inventor Sketch-Tab, Dark Theme. Palette:
@@ -1549,7 +1553,48 @@ Chamfer zeigt 5/5 statt 7.07.
 
 ---
 
-## Gesamtstand & Arbeitsweise (Stand M37, für die nächste Session)
+## M38 — Zweiter Geräte-Test: Ast-Persistenz, Settle, Trim-Bindungen, CP-Fix
+
+Log-Bilanz des M37-Builds: **2 863 Zeilen, 3 WARN, 0 VERIFY FAILED** (vorher
+59 563 / 1 802). Die Session wurde vollständig auf dem Host reproduziert und
+ist als `device_replay_test.dart` permanent. Kernbefunde und Fixes:
+
+1. **Slot-Faltung, zweite Art.** Nicht mehr Frame-Flackern, sondern ein
+   KONTINUIERLICHER Ast-Wechsel durch die degenerierte Lage (jeder Frame
+   einzeln erfüllt, Residuen ≤ 3.6e-8 in der Host-Wiedergabe). Per-Solve-
+   Seitenwahl kann das nicht verhindern. → `Constraint.tanBranch` (Sidecar
+   `tb`): Ast einmalig beim ersten Solve erfasst, danach fix; Kurve-Kurve
+   analog (innen/außen). Drags parken an der Grenze statt umzuklappen.
+2. **Drag-Commit ohne Settle.** endGripDrag übernahm den letzten guten Frame
+   mit bis zu 1e-2 Residuum; auf dem Gerät lagen Slot-Nähte danach über der
+   1e-6-Naht-Toleranz von `_tangentSeamFlags` → jede Folge-Operation bailte
+   auf LM, ein r=5-Fillet an intakter Ecke wurde fälschlich abgelehnt
+   (LM err=3.42), r=50 gelang nach Dialogwechsel nativ. → endGripDrag löst
+   voll nach (80 It.) und normalisiert Arc-Winkel (`normalizeArcAngles`).
+3. **Fillet-Maße:** JEDE Rundung trägt ihr eigenes `rad`-Maß (Label außen an
+   der Bogenmitte); Equal-Kette entfernt — Nutzer-Spezifikation, konsistent
+   mit den Chamfer-Setbacks.
+4. **Trim/Split-Koinzidenz** (`_bindCutPoints`): neue Schnitt-Endpunkte binden
+   Punkt-auf-Punkt (Split-Zwilling) oder Punkt-auf-Kurve auf den Cutter.
+   Punkt-auf-Kreis/Bogen neu als Residuum + **Shim v4** `SH_POINT_ON_CIRCLE`
+   (`SLVS_C_PT_ON_CIRCLE`, Host-Szenario [13]; Versions-Gate im Packer).
+5. **CP-/Punkt-Bindung für deterministische Formen** war seit M34/M36 aus
+   (Inferenz lief nur im autoConstrain-Zweig). Punkt-Teil ausgekoppelt als
+   `inferPointBindings(..., bindOnlyBefore: firstNew)` und für Rechtecke/
+   Slots/Tangenten-Formen aktiv; jede Kandidatin durchläuft
+   `wouldOverconstrain`. Tests, die Formen unabsichtlich auf (0,0) zeichneten,
+   wurden verschoben; die Erdung selbst ist als Regression festgenagelt.
+6. **Pick-Duplikat im Koinzidenz-Werkzeug:** zweiter Punkt-Pick schließt den
+   ersten aus (`_nearestPointRef(exclude:)`), trifft also auf gestapelten
+   Punkten die ANDERE Entität (Geräte-Log: `e17.p1,e17.p1` abgelehnt).
+
+Stand: Host **161** Tests grün, Shim-Gate **13/13**. Erwartung Geräte-Test 3:
+Slot bleibt unter beliebigen Drags ein Slot; Trim-Stücke hängen zusammen;
+Ecke-auf-CP erdet; jede Rundung zeigt ihr R; weiterhin 0 VERIFY FAILED.
+
+---
+
+## Gesamtstand & Arbeitsweise (Stand M38, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
 Slot, Ellipse mit gebundenen Achsen-Mittellinien, CV-/Fit-Splines),
@@ -1576,12 +1621,12 @@ committen; alle Commit-Pfade sind atomar mit Rollback.** Zwei eiserne Regeln:
 prüfen, Redundanz muss 0 sein); (2) neue Constraint-/Bemaßungsarten brauchen
 IMMER: Residual + residualCount (Dart), Shim-Packung ODER expliziten Bail,
 measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
-über `slvs_shim_version()` (**aktuell 3** — v3 = endpunktverankerte Tangenten
-mit Naht-Flag in `val`) für neue Codes. Tangenten müssen einen gemeinsamen
+über `slvs_shim_version()` (**aktuell 4** — v3 = endpunktverankerte Tangenten
+mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**157 Tests**) + Shim-Host-
-Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **12 Szenarien**).
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**161 Tests**) + Shim-Host-
+Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert
 zusätzlich das Shim-Host-Gate. IPA: Workflow „Core + C-API Build (iOS)",

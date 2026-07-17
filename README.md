@@ -757,3 +757,50 @@ im Geräte-Log unsichtbar blieb, weil das Dart-Verify sie stumm auffing:
   damit ZWEI Quellen: redundante Konstruktions-Constraints (behoben, P0-3) und
   falsch verankerte native Tangenten (behoben, Shim v3). Ziel für den nächsten
   Geräte-Test: VERIFY-FAILED-Zähler = 0 (T-7).
+
+## Durchgang 2 (Geräte-Test M37-Build) — Befund & Fixes (M38)
+
+Der zweite Geräte-Test bestätigte den Durchgang-1-Erfolg messbar — **3 WARN
+statt 1 802, 0× VERIFY FAILED** — und legte die nächste Schicht frei. Alle
+Punkte sind aus Log/DXF belegt und auf dem Host exakt reproduziert (die
+Session ist jetzt ein permanenter Regressionstest).
+
+- **Slot faltete sich erneut — diesmal KONTINUIERLICH.** Die Host-Wiedergabe
+  der vier Cap-Drags zeigt: jede Zwischenlage war einzeln erfüllt (Residuen
+  ≤ 3.6e-8), der Ast-Wechsel passierte DURCH die degenerierte Lage hindurch —
+  pro Solve neu abgeleitete Tangenten-Seiten können das prinzipiell nicht
+  verhindern. **Fix:** der Tangenten-Ast ist jetzt PERSISTENT
+  (`Constraint.tanBranch`, Sidecar-Key `tb`): einmal beim ersten Solve nach
+  Erzeugen/Laden erfasst, danach unveränderlich — ein Drag kann eine Tangente
+  nicht mehr umklappen (Inventor-Verhalten), er parkt an der Grenze.
+- **Committete Drags trugen Drag-Budget-Residuen.** `endGripDrag` übernahm den
+  letzten guten Frame (Gate ≤ 1e-2); auf dem Gerät lagen die Slot-Nähte danach
+  über der 1e-6-Naht-Toleranz → JEDE spätere Operation bailte auf den LM-Pfad,
+  und der r=5-Fillet an einer intakten Ecke wurde fälschlich abgelehnt
+  (err=3.42), während r=50 nach einem Dialogwechsel nativ gelang. **Fix:**
+  `endGripDrag` SETTLED vor dem Commit (voller Solve, 80 Iterationen) und
+  normalisiert Arc-Winkel (`normalizeArcAngles`; das Gerät hatte -8.0..4.6 rad
+  auf einem Cap). Committete Skizzen liegen wieder bei ~1e-8.
+- **Fillets: jede bekommt ihr eigenes Radius-Maß** (Nutzer-Spezifikation,
+  analog zu den Chamfer-Setbacks; die Equal-Kette entfiel — sie ließ alle
+  Folge-Fillets ohne sichtbares Maß). Label sitzt außen an der Bogenmitte.
+- **Trim/Split binden ihre Schnittpunkte** (Inventor): jeder NEUE Endpunkt
+  einer Trim-/Split-Operation wird koinzident gebunden — Punkt-auf-Punkt, wenn
+  er einen bestehenden Punkt trifft (Split-Zwilling), sonst Punkt-auf-Kurve
+  auf den Cutter. Dafür wurde Punkt-auf-Kreis/Bogen als Residuum + nativer
+  Pfad ergänzt (**Shim v4:** `SH_POINT_ON_CIRCLE` → `SLVS_C_PT_ON_CIRCLE`,
+  Host-Szenario [13]). Vorher ENTFERNTEN Trims nur Constraints (Log: 55 → 49).
+- **Center-Point-Bindung war für deterministische Formen ausgefallen** (seit
+  M34/M36 lief die Punkt-Inferenz nur noch im `autoConstrain`-Zweig). Der
+  Punkt-Teil ist jetzt als `inferPointBindings` ausgekoppelt und läuft für
+  Rechtecke/Slots/Tangenten-Formen zusätzlich — beschränkt auf VORBESTEHENDE
+  Geometrie + CP (`bindOnlyBefore`), jede Kandidatin durch das
+  Überbestimmungs-Gate. Eine Ecke auf (0,0) erdet wieder.
+- **Koinzidenz-Werkzeug: zweiter Pick auf gestapelten Punkten** löste auf
+  DENSELBEN Punkt auf (Log: `e17.p1,e17.p1` abgelehnt). Der zweite Pick
+  schließt den ersten jetzt aus und trifft den Punkt der ANDEREN Entität.
+
+Host-Suite: **161 Tests grün** (inkl. Geräte-Session als Regression,
+tanBranch-Roundtrip, Trim-auf-Kreis nativ, Stacked-Pick); Shim-Host-Gate:
+**13/13 PASS**. Ziel für Geräte-Test 3: Slot bleibt unter beliebigen Drags ein
+Slot; Trim-Stücke hängen zusammen; Ecke-auf-CP erdet; jede Rundung trägt ihr R.
