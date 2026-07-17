@@ -104,6 +104,12 @@ class IpadProCadApp extends StatelessWidget {
         ),
       ),
       home: Scaffold(
+        // M42-Fix: the CAD canvas must NOT reflow when the software keyboard
+        // appears (inline dimension editor). Resizing re-centres the world
+        // transform (map() anchors at size/2), which made the whole sketch
+        // JUMP on every editor open/close, broke label hit-tests mid-tap,
+        // and read as random pan/zoom drift on the device.
+        resizeToAvoidBottomInset: false,
         // Apple status bar (time etc.) must not overlap the ribbon.
         body: SafeArea(
           bottom: false,

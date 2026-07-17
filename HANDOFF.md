@@ -1774,6 +1774,31 @@ fügt `d1` ein statt zu committen; Construction-Skip wirft nicht. Harness-
 Hinweis: der Test pumpt den Baum nach editingLayer-Wechseln NEU (keine
 Listener-Verdrahtung im Test). Suite: **192 grün**.
 
+## M42-Fix — Geräte-Test: Referenz-Klick verlor gegen die Tastatur
+
+Symptom auf dem iPad: das andere Bemaßungs-Label highlightete korrekt, aber
+der Klick darauf COMMITTETE das Ausdrucks-Feld statt den Parameternamen
+einzufügen; dazu „zufälliges" Springen der Ansicht beim Öffnen/Schließen des
+Editors. Ursache (Log 1a856af, Session 01:24): drei Solves mit unveränderten
+cons=11 = drei Klick-weg-Commits. Der Tap AUSSERHALB des TextFields
+unfokussiert per Flutter-Default schon beim Pointer-DOWN → iOS-Tastatur
+faehrt ein/aus → Scaffold resized → map() (verankert bei size/2) verschiebt
+JEDES Label zwischen Down und Up → der Up-Hit-Test verfehlte das sichtbar
+getroffene Label → „Klick daneben" → Commit. Dasselbe Resize erklaert die
+Pan/Zoom-Spruenge.
+
+Drei Fixes: (1) `resizeToAvoidBottomInset: false` am Scaffold — die
+CAD-Leinwand reflowt NIE mit der Tastatur (Editor kann in der unteren
+Bildhaelfte von der Tastatur verdeckt sein — bekannt, spaeter clampen);
+(2) `_downDimHit`: das Label unter dem Finger wird beim Pointer-DOWN
+gecaptured und ist fuer den Klick autoritativ (auch fuer Label-Tap im
+Dimension-Tool); (3) `onTapOutside: (_) {}` am Editor-TextField — Commit vs.
+Referenz-Einfuegen entscheidet ausschliesslich `_handleClick`, der
+Default-Unfocus rennt nicht mehr dagegen. Regressionstest: Down auf dem
+Label, Label wird VOR dem Up verschoben (simuliertes Tastatur-Relayout), Up
+an der alten Position → Editor bleibt offen, `d1` eingefuegt. Suite:
+**193 gruen**.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1805,7 +1830,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**192 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**193 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

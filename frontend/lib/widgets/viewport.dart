@@ -54,6 +54,12 @@ class _Viewport2DState extends State<Viewport2D> {
   static const _snapPx = 12.0, _gripPx = 12.0;
   int _pointers = 0;
   Offset? _clickDown;
+  /// M42-Fix: the dimension label under the pointer AT DOWN time. Tapping
+  /// outside the inline editor unfocuses the TextField on pointer DOWN,
+  /// which (with the keyboard dismiss) could relayout the canvas before
+  /// pointer UP — hit-testing at up-time then missed the label the user
+  /// visibly tapped. The down-time hit is authoritative for the click.
+  Constraint? _downDimHit;
   DateTime _clickTime = DateTime.now();
 
   /// The dimension whose PAINTED label contains [local] (screen coords) —
@@ -66,13 +72,14 @@ class _Viewport2DState extends State<Viewport2D> {
     return null;
   }
 
-  void _handleClick(Offset local, Size size) {
+  void _handleClick(Offset local, Size size, {Constraint? downDim}) {
     final app = widget.app;
     if (_inlineDim != null) {
       // Tapping the SAME label again (the second tap of a double tap lands
       // here) keeps the editor open instead of committing it shut — that
       // made "double tap to edit" close the field it had just opened.
-      final hit = _dimAtScreen(local);
+      // Prefer the DOWN-time hit (see _downDimHit) over re-testing at up.
+      final hit = downDim ?? _dimAtScreen(local);
       if (hit == _inlineDim) {
         _dimCtrl.selection = TextSelection(
             baseOffset: 0, extentOffset: _dimCtrl.text.length);
@@ -95,7 +102,7 @@ class _Viewport2DState extends State<Viewport2D> {
       // Inventor: with the Dimension tool active, clicking an EXISTING
       // dimension's text opens its edit box instead of starting a new pick.
       if (app.tool == Tool.dimension) {
-        final dim = _dimAtScreen(local);
+        final dim = downDim ?? _dimAtScreen(local);
         if (dim != null) {
           _editDimValue(dim);
           return;
@@ -414,6 +421,9 @@ class _Viewport2DState extends State<Viewport2D> {
                 color: valid ? T.text : const Color(0xFFE05A5A)),
             textAlign: TextAlign.center,
             onChanged: (_) => setState(() {}),
+            // outside taps are handled by _handleClick (reference-insert or
+            // commit) — the default unfocus-on-tap-outside must not race it
+            onTapOutside: (_) {},
             decoration: InputDecoration(
               isDense: true,
               border: InputBorder.none,
@@ -571,6 +581,7 @@ class _Viewport2DState extends State<Viewport2D> {
             }
             _clickDown = e.localPosition;
             _clickTime = DateTime.now();
+            _downDimHit = _dimAtScreen(e.localPosition);
           },
           onPointerMove: (e) {
             final d = _clickDown;
@@ -591,7 +602,7 @@ class _Viewport2DState extends State<Viewport2D> {
               return;
             }
             if ((e.localPosition - d).distance > 14) return;
-            _handleClick(e.localPosition, size);
+            _handleClick(e.localPosition, size, downDim: _downDimHit);
           },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,

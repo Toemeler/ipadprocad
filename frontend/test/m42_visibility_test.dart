@@ -109,6 +109,42 @@ void main() {
         'd1');
   });
 
+  testWidgets(
+      'reference tap survives a relayout between down and up '
+      '(device: keyboard dismiss moved the labels mid-tap)', (t) async {
+    final app = makeApp();
+    final s = app.current!;
+    s.engine.addLine(-40, 30, 40, 30);
+    s.refresh();
+    s.constraints.add(Constraint(CType.dimension,
+        pts: [PRef(1, 0), PRef(1, 1)],
+        dimKind: 'dist',
+        value: 80,
+        textPos: const Offset(0, 42))
+      ..paramName = 'd1');
+    await pumpViewport(t, app);
+    final origin = t.getTopLeft(find.byType(Viewport2D));
+    final first = app.dimLabelRects
+        .firstWhere((e) => identical(e.$1, s.constraints[0]));
+    await t.tapAt(origin + first.$2.center); // open the editor on d0
+    await t.pump();
+    expect(find.byType(TextField), findsOneWidget);
+    final second = app.dimLabelRects
+        .firstWhere((e) => identical(e.$1, s.constraints[1]));
+    final target = origin + second.$2.center;
+    // press DOWN on the d1 label, then move the label away (the keyboard
+    // dismiss used to relayout the canvas exactly like this), then lift
+    final g = await t.startGesture(target);
+    s.constraints[1].textPos = const Offset(200, 200);
+    await pumpViewport(t, app); // repaint: rects move, finger does not
+    await g.up();
+    await t.pump();
+    expect(find.byType(TextField), findsOneWidget,
+        reason: 'the DOWN-time hit must win — no commit');
+    expect(t.widget<TextField>(find.byType(TextField)).controller!.text,
+        'd1');
+  });
+
   testWidgets('construction geometry hides outside edit mode', (t) async {
     final app = makeApp();
     final s = app.current!;
