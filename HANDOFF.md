@@ -1833,6 +1833,51 @@ gemischte Kette User→Dim→User→Dim propagiert bis in die Geometrie, Zyklus
 ueber Arten hinweg + Delete-Guard, Validierung spiegelt Commit-Regeln,
 Codec- und Journal-Round-Trip. Suite: **198 gruen**.
 
+## M44 — Insert: parametrischer Text, Bild-Import, DXF-Import (iOS-Filepicker)
+
+**Parametrischer Text** (Inventors Skizzentext mit eingebetteten Parametern):
+Template mit `<Name>`-Platzhaltern, die als AKTUELLER Parameterwert rendern
+(Zahl getrimmt) und jeder Wert-Aenderung UND jedem Rename folgen
+(`_renameRefs` fegt jetzt auch Templates via `renameInTemplate`). Unbekannte
+Namen bleiben woertlich stehen (Inventor zeigt das rohe Token bis der
+Parameter existiert). Text-Tool im Sketch-Panel: Tap platziert, Dialog nimmt
+Template (mehrzeilig) + Hoehe (mm); Tap auf vorhandenen Text oeffnet den
+Edit-Dialog (mit Delete), Drag verschiebt. Text ist ECHTER Inhalt — auch
+ausserhalb des Editiermodus sichtbar (im Gegensatz zu M42-Annotationen).
+
+**Bild-Einfuegen** (Insert > Image): iOS-Dokumentpicker (`file_picker`,
+FileType.image) → Datei wird NEBEN die Sidecars kopiert (Picker-Temp stirbt
+mit der Session), zentriert mit 100 mm Breite platziert, Aspekt aus den
+Pixelmassen. Bild ist ein Underlay (unter aller Geometrie gezeichnet).
+Antippen selektiert (blauer Rahmen + Resize-Griff unten rechts, Loesch-X oben
+rechts); Drag verschiebt, Eck-Griff skaliert aspekterhaltend. Async-Decode
+mit `_imgCache` (ui.Image), Broken/Loading zeigt einen Platzhalterrahmen.
+
+**DXF-Import** (Insert > ACAD): iOS-Picker (FileType.custom, .dxf) →
+`importDxf` laedt in eine Wegwerf-`SketchModel` mit demselben Backend-Loader,
+der Skizzen oeffnet, re-homed die Entities auf den Editier-Layer (oder Default)
+und committet sie als EINEN Journal-Schritt durch die normale Solve/Rebuild-
+Pipeline. Leerer/kaputter Import wird mit Toast abgelehnt, ohne Seiteneffekt.
+
+**Modell/Persistenz:** `SketchText` und `SketchImage` in `inserts.dart`
+(+ JSON-Codecs), `SketchModel.texts`/`.images`, eigene Sidecars
+`<name>.texts.json` / `.images.json`, UndoSnap um `texts`+`images` erweitert
+(sameAs/_takeSnap/Restore) → Journal round-trippt beide. Test-Hook
+`docsDirForTest` (@visibleForTesting), weil Bild-Copy `_sketchDir` braucht
+und der Host-Test keinen Path-Provider hat.
+
+**Tests:** `m44_inserts_test.dart` (5): Template-Rendering (Substitution,
+Trim, Unbekanntes woertlich, Refs, Rename), Text folgt Wert+Rename +
+CRUD/Move-Journal, Text/Bild-Codec-Round-Trip, Bild Insert/Move/Resize
+(Aspekt fix + Journal), DXF-Import (nur natives Backend — Merge auf Layer,
+EIN Undo-Schritt, Garbage abgelehnt; auf der Dart-Fallback-Engine
+uebersprungen wie die bestehende DXF-Abdeckung). Suite: **203 gruen**.
+
+CI-Hinweis: `file_picker` bringt iOS-Pod-Code — integriert automatisch ueber
+den bestehenden CocoaPods-Flow (`flutter build ios --config-only` → Podfile).
+Basis-Dokument/Bild-Picking nutzt UIDocumentPicker, braucht KEINE
+Info.plist-Usage-Strings.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1864,7 +1909,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**198 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**203 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

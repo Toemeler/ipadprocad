@@ -23,6 +23,9 @@ import '../tools.dart';
 import '../theme.dart';
 import 'pattern_dialog.dart';
 import 'parameters_dialog.dart';
+import 'dart:io';
+import 'dart:ui' as ui;
+import '../inserts.dart';
 
 class Viewport2D extends StatefulWidget {
   final AppState app;
@@ -109,6 +112,12 @@ class _Viewport2DState extends State<Viewport2D> {
       return;
     }
     _focus.requestFocus();
+    // M44: the Text tool places parametric text where you tap.
+    if (app.tool == Tool.text) {
+      final w = _toWorld(local, size);
+      _textDialog(pos: w);
+      return;
+    }
     if (app.tool != Tool.none) {
       // Inventor: with the Dimension tool active, clicking an EXISTING
       // dimension's text opens its edit box instead of starting a new pick.
@@ -124,6 +133,28 @@ class _Viewport2DState extends State<Viewport2D> {
       return;
     }
     if (app.inEditMode) {
+      // M44: tap a text -> edit dialog; tap an image -> select (the selected
+      // image shows a resize grip bottom-right and a delete X top-right).
+      final tHit = _textAtScreen(local);
+      if (tHit != null) {
+        _textDialog(existing: tHit);
+        return;
+      }
+      final w0 = _toWorld(local, size);
+      final sel = _selImage;
+      if (sel != null && app.current?.images.contains(sel) == true) {
+        final r = _imageWorldRect(sel);
+        if ((w0 - r.topRight).distance < 12 / app.zoom) {
+          app.deleteImage(sel);
+          setState(() => _selImage = null);
+          return;
+        }
+      }
+      final iHit = _imageAtWorld(w0);
+      if (!identical(iHit, _selImage)) {
+        setState(() => _selImage = iHit);
+        if (iHit != null) return; // selecting consumes the tap
+      }
       final cpScreen = _worldToScreen(Offset.zero, size);
       if ((local - cpScreen).distance <= 6) {
         setState(() => _projCpSelected = !_projCpSelected);
@@ -156,6 +187,119 @@ class _Viewport2DState extends State<Viewport2D> {
         extraPoints: app.toolPoints);
     app.setSnap(sn);
     return sn?.pos ?? w;
+  }
+
+  // ---- M44 helpers ----
+  void _ensureImages() {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    for (final i in s.images) {
+      if (_imgCache.containsKey(i.file)) continue;
+      _imgCache[i.file] = null;
+      final f = File(app.imagePath(i));
+      f.readAsBytes().then((b) => ui.instantiateImageCodec(b)).then(
+          (c) async {
+        final fr = await c.getNextFrame();
+        if (mounted) setState(() => _imgCache[i.file] = fr.image);
+      }, onError: (e) => Log.w('insert', 'image decode failed: $e'));
+    }
+  }
+
+  Rect _imageWorldRect(SketchImage i) => Rect.fromCenter(
+      center: Offset(i.x, i.y), width: i.w, height: i.h);
+
+  SketchImage? _imageAtWorld(Offset w) {
+    final s = widget.app.current;
+    if (s == null) return null;
+    for (final i in s.images.reversed) {
+      if (_imageWorldRect(i).contains(w)) return i;
+    }
+    return null;
+  }
+
+  SketchText? _textAtScreen(Offset local) {
+    for (final (t, r) in widget.app.textRects.reversed) {
+      if (r.inflate(8).contains(local)) return t;
+    }
+    return null;
+  }
+
+  /// Text create/edit dialog: multiline template with <Param> placeholders
+  /// and a height field. [existing] == null creates at [pos].
+  Future<void> _textDialog({SketchText? existing, Offset? pos}) async {
+    final app = widget.app;
+    final tCtrl = TextEditingController(text: existing?.template ?? '');
+    final hCtrl = TextEditingController(
+        text: (existing?.height ?? 8).toStringAsFixed(1));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.fly,
+        title: const Text('Text',
+            style: TextStyle(color: T.text, fontSize: 14)),
+        content: SizedBox(
+          width: 340,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+              controller: tCtrl,
+              autofocus: true,
+              maxLines: 3,
+              minLines: 1,
+              autocorrect: false,
+              style: const TextStyle(color: T.text, fontSize: 13),
+              decoration: const InputDecoration(
+                  hintText: 'Text — embed parameters as <Width> or <d0>',
+                  hintStyle: TextStyle(color: T.dim, fontSize: 11)),
+            ),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Text('Height', style: TextStyle(color: T.dim, fontSize: 11)),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 60,
+                child: TextField(
+                  controller: hCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(color: T.text, fontSize: 13),
+                ),
+              ),
+              const Text(' mm', style: TextStyle(color: T.dim, fontSize: 11)),
+            ]),
+          ]),
+        ),
+        actions: [
+          if (existing != null)
+            TextButton(
+                onPressed: () {
+                  app.deleteText(existing);
+                  Navigator.of(ctx).pop(false);
+                },
+                child: const Text('Delete',
+                    style: TextStyle(color: Color(0xFFE05A5A)))),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('OK')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final tpl = tCtrl.text.trim();
+    final h = (double.tryParse(hCtrl.text.replaceAll(',', '.')) ?? 8)
+        .clamp(1.0, 500.0);
+    if (existing != null) {
+      if (tpl.isEmpty) {
+        app.deleteText(existing);
+      } else {
+        app.updateText(existing, tpl, h);
+      }
+    } else if (tpl.isNotEmpty && pos != null) {
+      app.addText(pos, tpl, height: h);
+    }
   }
 
   void _scaleStart(ScaleStartDetails d, Size size) {
@@ -208,6 +352,31 @@ class _Viewport2DState extends State<Viewport2D> {
       Log.d('gesture', 'no grip under finger at '
           '(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
           '-> box select; grips=${gripsOf(s.geometry).length}');
+      // M44: text drag, then SELECTED-image resize grip / body drag — all
+      // lower priority than geometry grips, higher than box select.
+      final tHit = _textAtScreen(d.localFocalPoint);
+      if (tHit != null) {
+        _gesture = 'text';
+        _dragText = tHit;
+        _dragOff = Offset(tHit.x, tHit.y) - w;
+        return;
+      }
+      final sel = _selImage;
+      if (sel != null && s.images.contains(sel)) {
+        final r = _imageWorldRect(sel);
+        final gripW = 12 / app.zoom; // screen-sized grab zone
+        if ((w - r.bottomRight).distance < gripW) {
+          _gesture = 'imgresize';
+          _dragImage = sel;
+          return;
+        }
+        if (r.contains(w)) {
+          _gesture = 'imgmove';
+          _dragImage = sel;
+          _dragOff = Offset(sel.x, sel.y) - w;
+          return;
+        }
+      }
     }
     _gesture = 'box';
     _boxStartW = w;
@@ -228,6 +397,25 @@ class _Viewport2DState extends State<Viewport2D> {
           app.zoomBy((_scaleStartZoom * d.scale) / app.zoom, aroundWorld: w);
         }
         app.panBy(d.focalPointDelta);
+        break;
+      case 'text':
+        final t = _dragText;
+        if (t != null) {
+          app.moveText(t, _toWorld(d.localFocalPoint, size) + _dragOff);
+        }
+        break;
+      case 'imgmove':
+        final im = _dragImage;
+        if (im != null) {
+          app.moveImage(im, _toWorld(d.localFocalPoint, size) + _dragOff);
+        }
+        break;
+      case 'imgresize':
+        final ir = _dragImage;
+        if (ir != null) {
+          final w = _toWorld(d.localFocalPoint, size);
+          app.resizeImage(ir, (w.dx - ir.x).abs() * 2);
+        }
         break;
       case 'grip':
         final w = _toWorld(d.localFocalPoint, size);
@@ -310,6 +498,12 @@ class _Viewport2DState extends State<Viewport2D> {
   Constraint? _hoverDimLabel;
   /// M43: position of the movable Parameters window (viewport coords).
   Offset _paramsPos = const Offset(60, 60);
+  // M44: insert-content interaction state
+  final Map<String, ui.Image?> _imgCache = {}; // null = loading/broken
+  SketchImage? _selImage; // selected image (shows resize/delete grips)
+  SketchImage? _dragImage;
+  SketchText? _dragText;
+  Offset _dragOff = Offset.zero;
   final TextEditingController _dimCtrl = TextEditingController();
   final FocusNode _dimFocus = FocusNode();
 
@@ -461,6 +655,21 @@ class _Viewport2DState extends State<Viewport2D> {
       case 'box':
         app.boxSelectFinish();
         break;
+      case 'text': // M44: commit the move as one journal step
+        final t = _dragText;
+        if (t != null) app.moveText(t, Offset(t.x, t.y), commit: true);
+        _dragText = null;
+        break;
+      case 'imgmove':
+        final im = _dragImage;
+        if (im != null) app.moveImage(im, Offset(im.x, im.y), commit: true);
+        _dragImage = null;
+        break;
+      case 'imgresize':
+        final ir = _dragImage;
+        if (ir != null) app.resizeImage(ir, ir.w, commit: true);
+        _dragImage = null;
+        break;
     }
     _gesture = 'none';
     _boxStartW = null;
@@ -469,6 +678,7 @@ class _Viewport2DState extends State<Viewport2D> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
+    _ensureImages(); // M44: decode any newly inserted images
     return LayoutBuilder(builder: (context, cons) {
       final size = Size(cons.maxWidth, cons.maxHeight);
       return Focus(
@@ -641,6 +851,8 @@ class _Viewport2DState extends State<Viewport2D> {
                       app: app,
                       projCpSelected: _projCpSelected,
                       hoverDim: _hoverDimLabel,
+                      imgCache: _imgCache,
+                      selImage: _selImage,
                     ),
                   ),
                   if (_inlineDim != null) _inlineEditor(size),
@@ -713,8 +925,15 @@ class _ViewportPainter extends CustomPainter {
   final bool projCpSelected;
   /// M42: dimension label to render highlighted (hover feedback).
   final Constraint? hoverDim;
+  /// M44: decoded inserted images + the currently selected one (adornments).
+  final Map<String, ui.Image?> imgCache;
+  final SketchImage? selImage;
   _ViewportPainter(
-      {required this.app, required this.projCpSelected, this.hoverDim});
+      {required this.app,
+      required this.projCpSelected,
+      this.hoverDim,
+      this.imgCache = const {},
+      this.selImage});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -855,6 +1074,48 @@ class _ViewportPainter extends CustomPainter {
           // paintGeo draws the CURVE. Highlighting one control-polygon edge
           // here showed a stray slanted line instead of the ellipse/spline.
           paintGeo(canvas, gs[he], map, app.zoom, halo);
+        }
+      }
+
+      // M44: inserted images are an underlay — painted BELOW all geometry.
+      for (final img in s.images) {
+        final u = imgCache[img.file];
+        final tl = map(img.x - img.w / 2, img.y + img.h / 2);
+        final br = map(img.x + img.w / 2, img.y - img.h / 2);
+        final dst = Rect.fromPoints(tl, br);
+        if (u != null) {
+          canvas.drawImageRect(
+              u,
+              Rect.fromLTWH(0, 0, u.width.toDouble(), u.height.toDouble()),
+              dst,
+              Paint()..filterQuality = FilterQuality.medium);
+        } else {
+          canvas.drawRect(
+              dst,
+              Paint()
+                ..color = const Color(0x33FFFFFF)
+                ..style = PaintingStyle.stroke);
+        }
+        if (identical(img, selImage)) {
+          canvas.drawRect(
+              dst,
+              Paint()
+                ..color = T.blue
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.4);
+          // resize grip (bottom-right) + delete X (top-right)
+          canvas.drawRect(
+              Rect.fromCenter(center: dst.bottomRight, width: 10, height: 10),
+              Paint()..color = T.blue);
+          final xC = dst.topRight;
+          canvas.drawCircle(xC, 8, Paint()..color = const Color(0xFFE05A5A));
+          final xp = Paint()
+            ..color = Colors.white
+            ..strokeWidth = 1.6;
+          canvas.drawLine(xC + const Offset(-3.5, -3.5),
+              xC + const Offset(3.5, 3.5), xp);
+          canvas.drawLine(xC + const Offset(-3.5, 3.5),
+              xC + const Offset(3.5, -3.5), xp);
         }
       }
 
@@ -1040,6 +1301,26 @@ class _ViewportPainter extends CustomPainter {
     // Guarded: a painter exception aborts the whole frame, which would look
     // exactly like "the app draws nothing".
     try {
+    // ---- M44: parametric texts (real content: visible outside edit mode) --
+    app.textRects.clear();
+    if (s != null) {
+      final table = app.paramTable(s);
+      for (final t in s.texts) {
+        final tp = TextPainter(
+            text: TextSpan(
+                text: renderTemplate(t.template, table),
+                style: TextStyle(
+                    color: const Color(0xFFDDE0E3),
+                    fontSize: (t.height * app.zoom).clamp(4.0, 400.0))),
+            textDirection: TextDirection.ltr)
+          ..layout(maxWidth: size.width);
+        final o = map(t.x, t.y);
+        tp.paint(canvas, o - Offset(0, tp.height));
+        app.textRects
+            .add((t, Rect.fromLTWH(o.dx, o.dy - tp.height, tp.width, tp.height)));
+      }
+    }
+
     // M42: dimensions and constraint glyphs are SKETCH-EDIT artefacts — they
     // are invisible (and untappable: rects cleared) outside layer-edit mode,
     // like Inventor hides them when the sketch is not being edited.

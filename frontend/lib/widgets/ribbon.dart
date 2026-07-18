@@ -2,10 +2,14 @@
 // Panel order (binding): Layer, Create, Project Geometry, Pattern, Constrain,
 // Insert, Format, Modify (last). Exit panel appears top-right in edit mode.
 // Home view: all panels hidden except the single "Create New Sketch" panel.
+import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
+import '../log.dart';
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -136,6 +140,40 @@ class _RibbonState extends State<Ribbon> {
 
   /// Starts a tool; asks for parameters first where Inventor would
   /// (polygon sides, fillet radius, chamfer distance, equation + range).
+  // ---- M44: Insert > Image / ACAD via the iOS file picker ----
+  Future<void> _pickImage(AppState app) async {
+    if (app.current == null) return;
+    try {
+      final res = await FilePicker.platform
+          .pickFiles(type: FileType.image, withData: false);
+      final path = res?.files.single.path;
+      if (path == null) return;
+      // decode once for the aspect ratio (the viewport re-decodes its copy)
+      final bytes = await File(path).readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes);
+      final fr = await codec.getNextFrame();
+      app.addImage(path, app.pan,
+          pxW: fr.image.width, pxH: fr.image.height, w: 100);
+    } catch (e) {
+      Log.w('insert', 'image pick failed: $e');
+      app.toast('Could not import the image.');
+    }
+  }
+
+  Future<void> _pickDxf(AppState app) async {
+    if (app.current == null) return;
+    try {
+      final res = await FilePicker.platform.pickFiles(
+          type: FileType.custom, allowedExtensions: ['dxf', 'DXF']);
+      final path = res?.files.single.path;
+      if (path == null) return;
+      app.importDxf(path);
+    } catch (e) {
+      Log.w('insert', 'dxf pick failed: $e');
+      app.toast('Could not import the DXF file.');
+    }
+  }
+
   Future<void> _startTool(Tool t) async {
     final app = widget.app;
     // Nothing may be drawn outside a layer's edit mode — bail BEFORE any
@@ -344,7 +382,11 @@ class _RibbonState extends State<Ribbon> {
                         onTap: () => _startTool(Tool.fillet),
                         active: _toolGroup[app.tool] == 'fillet'),
                     const SizedBox(height: 2),
-                    _SmallRow(icon: IC['text18']!, label: 'Text', flyId: 'text', onFly: toggleFly),
+                    _SmallRow(icon: IC['text18']!, label: 'Text', flyId: 'text', onFly: toggleFly,
+                        // M44: parametric sketch text — tap places, the
+                        // dialog takes <Param> placeholders
+                        onTap: () => _startTool(Tool.text),
+                        active: app.tool == Tool.text),
                     const SizedBox(height: 2),
                     _SmallRow(icon: IC['point18']!, label: 'Point',
                         onTap: () => _startTool(Tool.point),
@@ -417,11 +459,17 @@ class _RibbonState extends State<Ribbon> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _SmallRow(icon: IN['image']!, label: 'Image'),
+                  _SmallRow(
+                      icon: IN['image']!,
+                      label: 'Image',
+                      onTap: () => _pickImage(app)),
                   const SizedBox(height: 2),
                   _SmallRow(icon: IN['points']!, label: 'Points'),
                   const SizedBox(height: 2),
-                  _SmallRow(icon: IN['acad']!, label: 'ACAD'),
+                  _SmallRow(
+                      icon: IN['acad']!,
+                      label: 'ACAD',
+                      onTap: () => _pickDxf(app)),
                 ]),
           ),
         ),

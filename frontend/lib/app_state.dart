@@ -15,6 +15,7 @@ import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'modify.dart';
 import 'params.dart';
+import 'inserts.dart';
 import 'snap.dart';
 import 'solver.dart';
 import 'spline.dart';
@@ -27,6 +28,7 @@ import 'tools.dart';
 /// the core's text module is enabled.
 enum Tool {
   none,
+  text, // M44: parametric sketch text (handled in the viewport, not toolClick)
   line, lineMid, splineCV, splineInterp, eqCurve, bridge,
   circleCenter, circleTangent, ellipse,
   arcThreePoint, arcTangent, arcCenter,
@@ -111,6 +113,9 @@ class SketchModel {
   /// M43 — user parameters (Inventors fx table): named values usable in any
   /// dimension expression. Sketch state: sidecar + undo journal.
   final List<UserParam> userParams = [];
+  /// M44 — parametric texts and inserted images (sidecars + undo journal).
+  final List<SketchText> texts = [];
+  final List<SketchImage> images = [];
   final List<String> layers = []; // "Layer 1".."Layer N"
   /// Layers the eye in the model browser has switched off. Visibility is a VIEW
   /// property only — hidden geometry keeps its index, so constraint refs (which
@@ -193,6 +198,8 @@ class SketchModel {
         [for (final g in geometry) g.withData(List<double>.of(g.data))],
         encodeConstraints(constraints),
         encodeUserParams(userParams),
+        encodeTexts(texts),
+        encodeImages(images),
         List<String>.of(layers),
         {...hiddenLayers},
         {...lockedLayers},
@@ -242,15 +249,19 @@ class UndoSnap {
   final List<Geo> geometry;
   final String cons; // constraints, serialized (deep copy + cheap equality)
   final String uparams; // M43: user parameters, serialized like constraints
+  final String texts; // M44: parametric texts
+  final String images; // M44: inserted images
   final List<String> layers;
   final Set<String> hidden;
   final Set<String> locked;
-  UndoSnap(this.geometry, this.cons, this.uparams, this.layers, this.hidden,
-      this.locked);
+  UndoSnap(this.geometry, this.cons, this.uparams, this.texts, this.images,
+      this.layers, this.hidden, this.locked);
 
   bool sameAs(UndoSnap o) {
     if (cons != o.cons ||
         uparams != o.uparams ||
+        texts != o.texts ||
+        images != o.images ||
         geometry.length != o.geometry.length ||
         layers.length != o.layers.length ||
         hidden.length != o.hidden.length ||
@@ -319,6 +330,11 @@ class AppState extends ChangeNotifier {
 
   // ---- persistence ----
   Directory? _docsDir;
+
+  /// Test-only: point the sketch/sidecar directory at a scratch path without
+  /// the platform channel (host `flutter test` has no path provider).
+  @visibleForTesting
+  set docsDirForTest(Directory d) => _docsDir = d;
   List<SavedSketchInfo> saved = [];
   String backendInfo = '';
   bool backendReal = false;
@@ -421,6 +437,16 @@ class AppState extends ChangeNotifier {
           }
         } catch (e) {
           Log.w('state', 'user-param sidecar read failed: $e');
+        }
+        try {
+          final tf = File('${_sketchDir.path}/$name.texts.json');
+          if (tf.existsSync()) s.texts.addAll(decodeTexts(tf.readAsStringSync()));
+          final imf = File('${_sketchDir.path}/$name.images.json');
+          if (imf.existsSync()) {
+            s.images.addAll(decodeImages(imf.readAsStringSync()));
+          }
+        } catch (e) {
+          Log.w('state', 'text/image sidecar read failed: $e');
         }
         // Spline tags: the DXF has no spline (R_NO_OPENNURBS), so a spline came
         // back from refresh() as a plain polyline. Re-tag by index (entities
@@ -578,6 +604,12 @@ class AppState extends ChangeNotifier {
       s.userParams
         ..clear()
         ..addAll(decodeUserParams(snap.uparams));
+      s.texts
+        ..clear()
+        ..addAll(decodeTexts(snap.texts));
+      s.images
+        ..clear()
+        ..addAll(decodeImages(snap.images));
       s.layers
         ..clear()
         ..addAll(snap.layers);
@@ -2991,6 +3023,8 @@ class AppState extends ChangeNotifier {
   /// kinds the label is drawn at a recomputed spot, not at textPos — this is
   /// the only place that knows where the text really is.
   final List<(Constraint, Rect)> dimLabelRects = [];
+  /// M44: screen rects of painted parametric texts (tap-to-edit hit test).
+  final List<(SketchText, Rect)> textRects = [];
 
   /// Edits an existing dimension's value (tap on its text, no tool active).
   Constraint? dimensionAt(Offset w, double tol) {
@@ -3288,6 +3322,9 @@ class AppState extends ChangeNotifier {
     for (final u in s.userParams) {
       if (u.expr != null) u.expr = u.expr!.replaceAll(re, to);
     }
+    for (final t in s.texts) {
+      t.template = renameInTemplate(t.template, from, to); // M44
+    }
   }
 
   /// Live validation for the edit box (Inventor colours bad syntax red while
@@ -3458,6 +3495,145 @@ class AppState extends ChangeNotifier {
       if (r == u.name || _cycleIfRefs(s, u.name, {r})) return false;
     }
     return evalExpr(body, paramTable(s)) != null;
+  }
+
+  // -------------------------------------------------------------- M44 ----
+  // Insert content: parametric text, images, DXF import.
+
+  /// Adds a parametric text at [pos]. Placeholders <ParamName> render as the
+  /// parameter's current value and follow changes and renames.
+  SketchText addText(Offset pos, String template, {double height = 8}) {
+    final s = current!;
+    final t = SketchText(template, pos.dx, pos.dy, height: height);
+    s.texts.add(t);
+    s.dirty = true;
+    s.checkpoint();
+    notifyListeners();
+    return t;
+  }
+
+  void updateText(SketchText t, String template, double height) {
+    t.template = template;
+    t.height = height;
+    current?.dirty = true;
+    current?.checkpoint();
+    notifyListeners();
+  }
+
+  void moveText(SketchText t, Offset pos, {bool commit = false}) {
+    t.x = pos.dx;
+    t.y = pos.dy;
+    if (commit) {
+      current?.dirty = true;
+      current?.checkpoint();
+    }
+    notifyListeners();
+  }
+
+  void deleteText(SketchText t) {
+    current?.texts.remove(t);
+    current?.dirty = true;
+    current?.checkpoint();
+    notifyListeners();
+  }
+
+  /// Renders [t]'s template against the current parameter table.
+  String textDisplay(SketchModel s, SketchText t) =>
+      renderTemplate(t.template, paramTable(s));
+
+  /// Inserts an image file: copies it next to the sketch sidecars (the
+  /// picker's temp file dies with the session) and places it centred at
+  /// [center] with width [w] mm, aspect from [pxW]x[pxH].
+  SketchImage addImage(String srcPath, Offset center,
+      {required int pxW, required int pxH, double w = 100}) {
+    final s = current!;
+    final ext = srcPath.contains('.') ? srcPath.split('.').last : 'img';
+    final name =
+        'img_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    try {
+      File(srcPath).copySync('${_sketchDir.path}/$name');
+    } catch (e) {
+      Log.w('insert', 'image copy failed: $e');
+      toast('Could not import the image.');
+      rethrow;
+    }
+    final img = SketchImage(
+        name, center.dx, center.dy, w, pxH <= 0 ? w : w * pxH / pxW);
+    s.images.add(img);
+    s.dirty = true;
+    s.checkpoint();
+    notifyListeners();
+    return img;
+  }
+
+  /// Absolute path of an inserted image's file.
+  String imagePath(SketchImage i) => '${_sketchDir.path}/${i.file}';
+
+  void moveImage(SketchImage i, Offset center, {bool commit = false}) {
+    i.x = center.dx;
+    i.y = center.dy;
+    if (commit) {
+      current?.dirty = true;
+      current?.checkpoint();
+    }
+    notifyListeners();
+  }
+
+  /// Resizes to width [w] (mm), keeping aspect. Clamped to something usable.
+  void resizeImage(SketchImage i, double w, {bool commit = false}) {
+    final asp = i.h / i.w;
+    i.w = w.clamp(1.0, 100000.0);
+    i.h = i.w * asp;
+    if (commit) {
+      current?.dirty = true;
+      current?.checkpoint();
+    }
+    notifyListeners();
+  }
+
+  void deleteImage(SketchImage i) {
+    current?.images.remove(i);
+    current?.dirty = true;
+    current?.checkpoint();
+    notifyListeners();
+  }
+
+  /// Imports a DXF file INTO the current sketch (Insert > ACAD): entities are
+  /// parsed by the same backend loader that opens sketches, re-homed onto the
+  /// layer being edited (or the default layer) and committed as ONE journal
+  /// step through the normal solve/rebuild pipeline.
+  bool importDxf(String path) {
+    final s = current;
+    if (s == null) return false;
+    final tmp = SketchModel('_import');
+    List<Geo> incoming;
+    try {
+      if (!tmp.engine.loadDxf(path)) {
+        toast('Could not read the DXF file.');
+        return false;
+      }
+      tmp.refresh();
+      incoming = tmp.geometry;
+    } finally {
+      tmp.dispose();
+    }
+    if (incoming.isEmpty) {
+      toast('The DXF file contains no supported entities.');
+      return false;
+    }
+    final layer = editingLayer ?? kDefaultLayer;
+    if (!s.layers.contains(layer)) s.layers.add(layer);
+    final next = [
+      ...s.geometry,
+      for (final g in incoming) g.onLayer(layer),
+    ];
+    _rebuildEngine(s, next);
+    _reanalyze();
+    s.dirty = true;
+    toast('Imported ${incoming.length} entities.');
+    Log.i('insert', 'DXF import: ${incoming.length} entities onto "$layer"');
+    notifyListeners();
+    return true;
   }
 
   /// Commits a MODEL parameter's equation cell (same as the inline editor,
@@ -3940,6 +4116,10 @@ class AppState extends ChangeNotifier {
           .writeAsStringSync(encodeConstraints(s.constraints));
       File('${_sketchDir.path}/$name.params.json')
           .writeAsStringSync(encodeUserParams(s.userParams));
+      File('${_sketchDir.path}/$name.texts.json')
+          .writeAsStringSync(encodeTexts(s.texts));
+      File('${_sketchDir.path}/$name.images.json')
+          .writeAsStringSync(encodeImages(s.images));
     } catch (e) {
       Log.w('state', 'constraint sidecar write failed: $e');
     }

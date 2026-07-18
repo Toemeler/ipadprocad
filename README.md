@@ -46,6 +46,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M41** Inventors Parameter-/Ausdrucks-System: Bemaßungen sind benannte Parameter (d0, d1, … / "Name = Ausdruck"), volles Formel-Parsing im Edit-Feld (Operatoren, Einheiten, Funktionen, PI/E), Referenzen auf andere Bemaßungen per Klick aufs Label, fx:-Anzeige des berechneten Werts, Ausdruck bleibt gespeichert und erscheint beim Editieren wieder | ✅ erledigt (Geräte-Test offen) |
 | **M42** Hover-Highlight auf antippbaren Bemaßungs-Labels (Editiermodus + offenes Ausdrucks-Feld); außerhalb des Layer-Editiermodus sind Bemaßungen, Constraints, DOF-Pfeile und Construction-Geometrie unsichtbar (nur die Linien bleiben) | ✅ erledigt; Geräte-Test deckte den Tastatur-Race beim Referenz-Klick auf → M42-Fix |
 | **M43** Inventors Parameters-Fenster: fx-Button im neuen Manage-Panel öffnet eine verschiebbare Tabelle aller Modell-Parameter (Bemaßungen) + User-Parameter (anlegen/umbenennen/löschen), Equation-Zellen mit voller Formel-Grammatik, Live-Validierung und Klick-auf-Bemaßung-Referenz | ✅ erledigt, 198 Host-Tests grün (Geräte-Test offen) |
+| **M44** Insert: parametrischer Text (Template mit `<Param>`-Platzhaltern, folgt Wert + Rename), Bild-Import (iOS-Filepicker, Underlay, verschieb-/skalierbar) und DXF-Import (Insert > ACAD, Merge auf Editier-Layer als ein Undo-Schritt) | ✅ erledigt, 203 Host-Tests grün (Geräte-Test offen) |
 
 ### Auto-Constraints, Fillet/Chamfer, constraint-erhaltendes Trim (M36)
 
