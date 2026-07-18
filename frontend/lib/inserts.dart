@@ -11,18 +11,31 @@ import 'dart:convert';
 
 /// One parametric text. [template] may embed parameters as <Name>;
 /// unknown names stay literal (Inventor shows the raw token until the
-/// parameter exists). [height] is the cap height in mm.
+/// parameter exists). [height] is the cap height in mm. [font] is a family
+/// name; [layer] is the sketch layer it belongs to (its construction
+/// bounding rect is only shown while that layer is edited).
 class SketchText {
   String template;
   double x, y;
   double height;
-  SketchText(this.template, this.x, this.y, {this.height = 8});
+  String font;
+  String layer;
+  SketchText(this.template, this.x, this.y,
+      {this.height = 8, this.font = 'Roboto', this.layer = ''});
 
-  Map<String, dynamic> toJson() =>
-      {'t': template, 'x': x, 'y': y, 'h': height};
+  Map<String, dynamic> toJson() => {
+        't': template,
+        'x': x,
+        'y': y,
+        'h': height,
+        if (font != 'Roboto') 'f': font,
+        if (layer.isNotEmpty) 'l': layer,
+      };
   static SketchText fromJson(Map<String, dynamic> j) => SketchText(
       j['t'] as String, (j['x'] as num).toDouble(), (j['y'] as num).toDouble(),
-      height: (j['h'] as num?)?.toDouble() ?? 8);
+      height: (j['h'] as num?)?.toDouble() ?? 8,
+      font: j['f'] as String? ?? 'Roboto',
+      layer: j['l'] as String? ?? '');
 }
 
 String encodeTexts(List<SketchText> ts) =>
@@ -55,21 +68,31 @@ String renameInTemplate(String template, String from, String to) =>
         (m) => m.group(1) == from ? '<$to>' : m.group(0)!);
 
 /// One inserted image: [file] relative to the sketch folder, centre in
-/// world mm, [w]/[h] in mm (aspect fixed at insert time).
+/// world mm, [w]/[h] in mm (aspect fixed at insert time). [layer] is the
+/// sketch layer it belongs to — shown greyed/translucent when that layer
+/// is not the one being edited.
 class SketchImage {
   String file;
   double x, y;
   double w, h;
-  SketchImage(this.file, this.x, this.y, this.w, this.h);
+  String layer;
+  SketchImage(this.file, this.x, this.y, this.w, this.h, {this.layer = ''});
 
-  Map<String, dynamic> toJson() =>
-      {'f': file, 'x': x, 'y': y, 'w': w, 'h': h};
+  Map<String, dynamic> toJson() => {
+        'f': file,
+        'x': x,
+        'y': y,
+        'w': w,
+        'h': h,
+        if (layer.isNotEmpty) 'l': layer,
+      };
   static SketchImage fromJson(Map<String, dynamic> j) => SketchImage(
       j['f'] as String,
       (j['x'] as num).toDouble(),
       (j['y'] as num).toDouble(),
       (j['w'] as num).toDouble(),
-      (j['h'] as num).toDouble());
+      (j['h'] as num).toDouble(),
+      layer: j['l'] as String? ?? '');
 }
 
 String encodeImages(List<SketchImage> xs) =>

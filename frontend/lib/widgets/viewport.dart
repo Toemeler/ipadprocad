@@ -23,9 +23,24 @@ import '../tools.dart';
 import '../theme.dart';
 import 'pattern_dialog.dart';
 import 'parameters_dialog.dart';
+import 'text_editor_window.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import '../inserts.dart';
+
+/// M45 — measures a rendered string into world-mm (width,height) for a text's
+/// font and cap height. Single source of truth for the bounding rect and its
+/// snap points; used by both the widget (snapping) and the painter (drawing).
+/// Cap height maps to font size 1:1 (mm == logical px in world space).
+Size measureSketchText(SketchText t, String rendered) {
+  final tp = TextPainter(
+      text: TextSpan(
+          text: rendered.isEmpty ? ' ' : rendered,
+          style: TextStyle(fontFamily: t.font, fontSize: t.height)),
+      textDirection: TextDirection.ltr)
+    ..layout();
+  return Size(tp.width, tp.height);
+}
 
 class Viewport2D extends StatefulWidget {
   final AppState app;
@@ -78,13 +93,19 @@ class _Viewport2DState extends State<Viewport2D> {
 
   void _handleClick(Offset local, Size size, {Constraint? downDim}) {
     final app = widget.app;
-    // M43: while an equation cell of the Parameters window is focused,
-    // tapping a dimension label inserts its parameter name there.
-    if (app.paramRefSink != null && _inlineDim == null) {
+    // M43/M45: while a Parameters equation cell OR the text editor's template
+    // field is focused, tapping a dimension label inserts its parameter name
+    // there (the text window wraps it in quotes) instead of doing anything
+    // else in the sketch.
+    if ((app.paramRefSink != null || app.textRefSink != null) &&
+        _inlineDim == null) {
       final hit = downDim ?? _dimAtScreen(local);
       if (hit != null) {
         final s = app.current;
-        if (s != null) app.paramRefSink!(app.ensureParamName(s, hit));
+        if (s != null) {
+          final name = app.ensureParamName(s, hit);
+          (app.paramRefSink ?? app.textRefSink)!(name);
+        }
         return;
       }
     }
@@ -115,7 +136,7 @@ class _Viewport2DState extends State<Viewport2D> {
     // M44: the Text tool places parametric text where you tap.
     if (app.tool == Tool.text) {
       final w = _toWorld(local, size);
-      _textDialog(pos: w);
+      _openTextEditor(pos: w);
       return;
     }
     if (app.tool != Tool.none) {
@@ -137,14 +158,16 @@ class _Viewport2DState extends State<Viewport2D> {
       // image shows a resize grip bottom-right and a delete X top-right).
       final tHit = _textAtScreen(local);
       if (tHit != null) {
-        _textDialog(existing: tHit);
+        _openTextEditor(existing: tHit);
         return;
       }
       final w0 = _toWorld(local, size);
       final sel = _selImage;
-      if (sel != null && app.current?.images.contains(sel) == true) {
-        final r = _imageWorldRect(sel);
-        if ((w0 - r.topRight).distance < 12 / app.zoom) {
+      if (sel != null && app.current?.images.contains(sel) == true &&
+          (!app.inEditMode || sel.layer == app.editingLayer)) {
+        final tr = _worldToScreen(
+            Offset(sel.x + sel.w / 2, sel.y + sel.h / 2), size);
+        if ((local - tr).distance < 14) {
           app.deleteImage(sel);
           setState(() => _selImage = null);
           return;
@@ -184,7 +207,12 @@ class _Viewport2DState extends State<Viewport2D> {
         exclude: exclude,
         // Let the cursor snap to the points already placed by the active tool —
         // above all the start point, so a spline/polyline can close on itself.
-        extraPoints: app.toolPoints);
+        // M45: text bounding-box corners/midpoints are also snap targets, so
+        // dimensions and new geometry can measure to a text box.
+        extraPoints: [
+          ...app.toolPoints,
+          ...app.textSnapPoints(s, measure: measureSketchText),
+        ]);
     app.setSnap(sn);
     return sn?.pos ?? w;
   }
@@ -227,78 +255,15 @@ class _Viewport2DState extends State<Viewport2D> {
 
   /// Text create/edit dialog: multiline template with <Param> placeholders
   /// and a height field. [existing] == null creates at [pos].
-  Future<void> _textDialog({SketchText? existing, Offset? pos}) async {
+  /// M45 — opens the movable text editor window (create at [pos] or edit
+  /// [existing]). Replaces the old modal AlertDialog.
+  void _openTextEditor({SketchText? existing, Offset? pos}) {
     final app = widget.app;
-    final tCtrl = TextEditingController(text: existing?.template ?? '');
-    final hCtrl = TextEditingController(
-        text: (existing?.height ?? 8).toStringAsFixed(1));
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: T.fly,
-        title: const Text('Text',
-            style: TextStyle(color: T.text, fontSize: 14)),
-        content: SizedBox(
-          width: 340,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(
-              controller: tCtrl,
-              autofocus: true,
-              maxLines: 3,
-              minLines: 1,
-              autocorrect: false,
-              style: const TextStyle(color: T.text, fontSize: 13),
-              decoration: const InputDecoration(
-                  hintText: 'Text — embed parameters as <Width> or <d0>',
-                  hintStyle: TextStyle(color: T.dim, fontSize: 11)),
-            ),
-            const SizedBox(height: 8),
-            Row(children: [
-              const Text('Height', style: TextStyle(color: T.dim, fontSize: 11)),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 60,
-                child: TextField(
-                  controller: hCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: T.text, fontSize: 13),
-                ),
-              ),
-              const Text(' mm', style: TextStyle(color: T.dim, fontSize: 11)),
-            ]),
-          ]),
-        ),
-        actions: [
-          if (existing != null)
-            TextButton(
-                onPressed: () {
-                  app.deleteText(existing);
-                  Navigator.of(ctx).pop(false);
-                },
-                child: const Text('Delete',
-                    style: TextStyle(color: Color(0xFFE05A5A)))),
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('OK')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final tpl = tCtrl.text.trim();
-    final h = (double.tryParse(hCtrl.text.replaceAll(',', '.')) ?? 8)
-        .clamp(1.0, 500.0);
     if (existing != null) {
-      if (tpl.isEmpty) {
-        app.deleteText(existing);
-      } else {
-        app.updateText(existing, tpl, h);
-      }
-    } else if (tpl.isNotEmpty && pos != null) {
-      app.addText(pos, tpl, height: h);
+      app.beginTextEdit(existing, isNew: false);
+    } else if (pos != null) {
+      final t = app.addText(pos, '', placeholder: true); // kept only if committed
+      app.beginTextEdit(t, isNew: true);
     }
   }
 
@@ -362,15 +327,21 @@ class _Viewport2DState extends State<Viewport2D> {
         return;
       }
       final sel = _selImage;
-      if (sel != null && s.images.contains(sel)) {
-        final r = _imageWorldRect(sel);
-        final gripW = 12 / app.zoom; // screen-sized grab zone
-        if ((w - r.bottomRight).distance < gripW) {
+      if (sel != null && s.images.contains(sel) &&
+          (!app.inEditMode || sel.layer == app.editingLayer)) {
+        // grips are drawn at SCREEN corners; hit-test there (world-y is
+        // flipped, so the world rect's corners are the wrong ones)
+        final tl = _worldToScreen(
+            Offset(sel.x - sel.w / 2, sel.y + sel.h / 2), size);
+        final br = _worldToScreen(
+            Offset(sel.x + sel.w / 2, sel.y - sel.h / 2), size);
+        final dst = Rect.fromPoints(tl, br);
+        if ((d.localFocalPoint - dst.bottomRight).distance < 16) {
           _gesture = 'imgresize';
           _dragImage = sel;
           return;
         }
-        if (r.contains(w)) {
+        if (dst.contains(d.localFocalPoint)) {
           _gesture = 'imgmove';
           _dragImage = sel;
           _dragOff = Offset(sel.x, sel.y) - w;
@@ -498,6 +469,8 @@ class _Viewport2DState extends State<Viewport2D> {
   Constraint? _hoverDimLabel;
   /// M43: position of the movable Parameters window (viewport coords).
   Offset _paramsPos = const Offset(60, 60);
+  /// M45: position of the movable text editor window.
+  Offset _textWinPos = const Offset(90, 90);
   // M44: insert-content interaction state
   final Map<String, ui.Image?> _imgCache = {}; // null = loading/broken
   SketchImage? _selImage; // selected image (shows resize/delete grips)
@@ -681,6 +654,7 @@ class _Viewport2DState extends State<Viewport2D> {
     _ensureImages(); // M44: decode any newly inserted images
     return LayoutBuilder(builder: (context, cons) {
       final size = Size(cons.maxWidth, cons.maxHeight);
+      widget.app.viewportSize = size; // M45: for cursor-anchored inserts
       return Focus(
         focusNode: _focus,
         autofocus: true,
@@ -773,6 +747,7 @@ class _Viewport2DState extends State<Viewport2D> {
             }
           },
           onPointerHover: (e) {
+            app.lastPointerWorld = _toWorld(e.localPosition, size); // M45
             if (app.tool != Tool.none) {
               final w = _toWorld(e.localPosition, size);
               app.setHover(_snapped(w));
@@ -783,6 +758,7 @@ class _Viewport2DState extends State<Viewport2D> {
             // tool / dimension tool).
             final actionable = _inlineDim != null ||
                 app.paramRefSink != null ||
+                app.textRefSink != null ||
                 (app.inEditMode &&
                     (app.tool == Tool.none || app.tool == Tool.dimension));
             var hd = actionable ? _dimAtScreen(e.localPosition) : null;
@@ -806,6 +782,7 @@ class _Viewport2DState extends State<Viewport2D> {
             _clickDown = e.localPosition;
             _clickTime = DateTime.now();
             _downDimHit = _dimAtScreen(e.localPosition);
+            app.lastPointerWorld = _toWorld(e.localPosition, size); // M45
           },
           onPointerMove: (e) {
             final d = _clickDown;
@@ -871,6 +848,16 @@ class _Viewport2DState extends State<Viewport2D> {
                           app: app,
                           onDrag: (d) =>
                               setState(() => _paramsPos += d)),
+                    ),
+                  // M45: movable parametric-text editor window
+                  if (app.editingText != null)
+                    Positioned(
+                      left: _textWinPos.dx.clamp(0.0, size.width - 120),
+                      top: _textWinPos.dy.clamp(0.0, size.height - 60),
+                      child: TextEditorWindow(
+                          app: app,
+                          onDrag: (d) =>
+                              setState(() => _textWinPos += d)),
                     ),
                   // 2D Fillet / Chamfer value window (M36), same parking spot
                   if (app.filletSess != null &&
@@ -1083,12 +1070,26 @@ class _ViewportPainter extends CustomPainter {
         final tl = map(img.x - img.w / 2, img.y + img.h / 2);
         final br = map(img.x + img.w / 2, img.y - img.h / 2);
         final dst = Rect.fromPoints(tl, br);
+        // M45: an image not on the layer being edited is dimmed and greyed
+        // (Inventor greys other-sketch underlays) — full colour only on its
+        // own layer, or when no layer is being edited at all.
+        final onLayer = !app.inEditMode || img.layer == app.editingLayer;
         if (u != null) {
+          final paint = Paint()..filterQuality = FilterQuality.medium;
+          if (!onLayer) {
+            paint.color = const Color(0x66FFFFFF); // ~40% opacity
+            paint.colorFilter = const ColorFilter.matrix(<double>[
+              0.2126, 0.7152, 0.0722, 0, 40, // desaturate toward grey
+              0.2126, 0.7152, 0.0722, 0, 40,
+              0.2126, 0.7152, 0.0722, 0, 40,
+              0, 0, 0, 1, 0,
+            ]);
+          }
           canvas.drawImageRect(
               u,
               Rect.fromLTWH(0, 0, u.width.toDouble(), u.height.toDouble()),
               dst,
-              Paint()..filterQuality = FilterQuality.medium);
+              paint);
         } else {
           canvas.drawRect(
               dst,
@@ -1096,19 +1097,22 @@ class _ViewportPainter extends CustomPainter {
                 ..color = const Color(0x33FFFFFF)
                 ..style = PaintingStyle.stroke);
         }
-        if (identical(img, selImage)) {
+        if (identical(img, selImage) && onLayer) {
           canvas.drawRect(
               dst,
               Paint()
                 ..color = T.blue
                 ..style = PaintingStyle.stroke
                 ..strokeWidth = 1.4);
-          // resize grip (bottom-right) + delete X (top-right)
+          // resize grip (visual bottom-right) + delete X (visual top-right).
+          // The HIT TEST in _scaleStart/_handleClick must match these exact
+          // screen corners (dst.bottomRight / dst.topRight), not the world
+          // rect's corners — screen-down is -world-y, so they differ.
           canvas.drawRect(
-              Rect.fromCenter(center: dst.bottomRight, width: 10, height: 10),
+              Rect.fromCenter(center: dst.bottomRight, width: 12, height: 12),
               Paint()..color = T.blue);
           final xC = dst.topRight;
-          canvas.drawCircle(xC, 8, Paint()..color = const Color(0xFFE05A5A));
+          canvas.drawCircle(xC, 9, Paint()..color = const Color(0xFFE05A5A));
           final xp = Paint()
             ..color = Colors.white
             ..strokeWidth = 1.6;
@@ -1301,23 +1305,74 @@ class _ViewportPainter extends CustomPainter {
     // Guarded: a painter exception aborts the whole frame, which would look
     // exactly like "the app draws nothing".
     try {
-    // ---- M44: parametric texts (real content: visible outside edit mode) --
+    // ---- M44/M45: parametric texts (real content: visible outside edit
+    // mode). The anchor (t.x, t.y) is the LOWER-LEFT of the text; the text
+    // grows up and to the right so the construction bounding rect matches the
+    // measurer used for snapping. The rect renders in the CONSTRUCTION
+    // linetype (thin dashed) and ONLY on the layer being edited.
     app.textRects.clear();
     if (s != null) {
       final table = app.paramTable(s);
       for (final t in s.texts) {
+        final rendered = renderTemplate(t.template, table);
+        final fontPx = (t.height * app.zoom).clamp(3.0, 1200.0);
+        final dim = !app.inEditMode || t.layer == app.editingLayer;
         final tp = TextPainter(
             text: TextSpan(
-                text: renderTemplate(t.template, table),
+                text: rendered,
                 style: TextStyle(
-                    color: const Color(0xFFDDE0E3),
-                    fontSize: (t.height * app.zoom).clamp(4.0, 400.0))),
+                    color: dim
+                        ? const Color(0xFFDDE0E3)
+                        : const Color(0x66DDE0E3),
+                    fontFamily: t.font,
+                    fontSize: fontPx)),
             textDirection: TextDirection.ltr)
-          ..layout(maxWidth: size.width);
+          ..layout();
+        // lower-left anchor -> the paint origin (top-left) is height up
         final o = map(t.x, t.y);
-        tp.paint(canvas, o - Offset(0, tp.height));
-        app.textRects
-            .add((t, Rect.fromLTWH(o.dx, o.dy - tp.height, tp.width, tp.height)));
+        final topLeft = o - Offset(0, tp.height);
+        tp.paint(canvas, topLeft);
+        final screenRect =
+            Rect.fromLTWH(topLeft.dx, topLeft.dy, tp.width, tp.height);
+        app.textRects.add((t, screenRect));
+
+        // construction bounding rect (edit-mode + own layer only)
+        if (app.inEditMode && t.layer == app.editingLayer) {
+          final wr = app.textBoundsWorld(s, t, measure: measureSketchText);
+          final a = map(wr.left, wr.top); // world-top -> screen-top
+          final b = map(wr.right, wr.bottom);
+          final rr = Rect.fromPoints(a, b);
+          final cp = Paint()
+            ..color = const Color(0xFF6FA8D8) // construction blue-grey
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.0;
+          // dashed like the construction linetype
+          const dash = 5.0, gap = 3.0;
+          void dline(Offset p0, Offset p1) {
+            final len = (p1 - p0).distance;
+            if (len < 0.01) return;
+            final dir = (p1 - p0) / len;
+            var d = 0.0;
+            while (d < len) {
+              final e = (d + dash).clamp(0.0, len);
+              canvas.drawLine(p0 + dir * d, p0 + dir * e, cp);
+              d += dash + gap;
+            }
+          }
+
+          dline(rr.topLeft, rr.topRight);
+          dline(rr.topRight, rr.bottomRight);
+          dline(rr.bottomRight, rr.bottomLeft);
+          dline(rr.bottomLeft, rr.topLeft);
+          // small square snap markers at the corners
+          for (final c in [
+            rr.topLeft, rr.topRight, rr.bottomLeft, rr.bottomRight
+          ]) {
+            canvas.drawRect(
+                Rect.fromCenter(center: c, width: 4, height: 4),
+                Paint()..color = const Color(0xFF6FA8D8));
+          }
+        }
       }
     }
 

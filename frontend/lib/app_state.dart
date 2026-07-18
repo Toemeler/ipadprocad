@@ -318,6 +318,16 @@ class AppState extends ChangeNotifier {
   Tool tool = Tool.none;
   final List<Offset> toolPoints = [];
   Offset? hoverWorld;
+  /// M45 — last known viewport pixel size and the last pointer position in
+  /// world coords, so Insert (from the ribbon, which has no view metrics) can
+  /// place content AT THE CURSOR and size it relative to the current view.
+  Size viewportSize = const Size(1024, 768);
+  Offset lastPointerWorld = Offset.zero;
+  /// World width currently spanned by the viewport.
+  double get viewWidthWorld => viewportSize.width / zoom;
+  /// Where new inserted content should go: the last pointer position if we
+  /// have one in view, else the view centre (pan).
+  Offset get insertAnchor => lastPointerWorld;
   /// Entity under the cursor, and — for a polyline — the exact edge under it.
   /// Inventor highlights whatever the next click would pick; without this the
   /// user had to guess what they were about to select.
@@ -3368,6 +3378,32 @@ class AppState extends ChangeNotifier {
   /// name of a tapped dimension label (viewport click-to-reference).
   void Function(String name)? paramRefSink;
 
+  // M45 — the parametric-text editor window (Inventor-like, movable). When a
+  // text is being created/edited it lives here; the viewport routes taps on
+  // dimension labels into [textRefSink] so a reference like "d0" is inserted
+  // into the template (the user asked for the name wrapped in quotes).
+  SketchText? editingText;
+  bool editingTextIsNew = false;
+  void Function(String token)? textRefSink;
+
+  void beginTextEdit(SketchText t, {required bool isNew}) {
+    editingText = t;
+    editingTextIsNew = isNew;
+    notifyListeners();
+  }
+
+  /// Ends the text editor. [keep] false on a brand-new empty text removes it.
+  void endTextEdit({bool keep = true}) {
+    final t = editingText;
+    editingText = null;
+    textRefSink = null;
+    if (t != null && !keep && editingTextIsNew) {
+      current?.texts.remove(t);
+    }
+    editingTextIsNew = false;
+    notifyListeners();
+  }
+
   /// Smallest unused User_1, User_2, … (Inventor auto-names new rows).
   String _newUserName(SketchModel s) {
     var i = 1;
@@ -3501,20 +3537,28 @@ class AppState extends ChangeNotifier {
   // Insert content: parametric text, images, DXF import.
 
   /// Adds a parametric text at [pos]. Placeholders <ParamName> render as the
-  /// parameter's current value and follow changes and renames.
-  SketchText addText(Offset pos, String template, {double height = 8}) {
+  /// parameter's current value and follow changes and renames. Tagged to the
+  /// editing layer so its construction bounding rect shows only there.
+  /// [placeholder] true skips the undo checkpoint — used when opening the
+  /// editor on a brand-new text that is only kept if the user commits it
+  /// (the commit path checkpoints then).
+  SketchText addText(Offset pos, String template,
+      {double height = 8, String font = 'Roboto', bool placeholder = false}) {
     final s = current!;
-    final t = SketchText(template, pos.dx, pos.dy, height: height);
+    final t = SketchText(template, pos.dx, pos.dy,
+        height: height, font: font, layer: editingLayer ?? kDefaultLayer);
     s.texts.add(t);
     s.dirty = true;
-    s.checkpoint();
+    if (!placeholder) s.checkpoint();
     notifyListeners();
     return t;
   }
 
-  void updateText(SketchText t, String template, double height) {
+  void updateText(SketchText t, String template, double height,
+      {String? font}) {
     t.template = template;
     t.height = height;
+    if (font != null) t.font = font;
     current?.dirty = true;
     current?.checkpoint();
     notifyListeners();
@@ -3541,9 +3585,41 @@ class AppState extends ChangeNotifier {
   String textDisplay(SketchModel s, SketchText t) =>
       renderTemplate(t.template, paramTable(s));
 
+  /// M45 — the world-space bounding rectangle of a text, sized automatically
+  /// from its rendered content, font and height. [measure] turns the rendered
+  /// string + cap height into a (width, height) in mm; the viewport passes a
+  /// TextPainter-backed measurer (font metrics live in the widget layer).
+  /// The anchor (t.x, t.y) is the LOWER-LEFT of the text, so the rect spans
+  /// up and to the right.
+  Rect textBoundsWorld(SketchModel s, SketchText t,
+      {required Size Function(SketchText, String) measure}) {
+    final sz = measure(t, textDisplay(s, t));
+    final pad = t.height * 0.25; // small breathing room, scales with size
+    return Rect.fromLTWH(
+        t.x - pad, t.y - pad, sz.width + 2 * pad, sz.height + 2 * pad);
+  }
+
+  /// Corners + edge midpoints of every text's bounding rect — offered to the
+  /// snapper so dimensions and new geometry can lock onto a text box. Only
+  /// texts on the layer being edited contribute (their rect is only shown
+  /// there). [measure] as in [textBoundsWorld].
+  List<Offset> textSnapPoints(SketchModel s,
+      {required Size Function(SketchText, String) measure}) {
+    final pts = <Offset>[];
+    for (final t in s.texts) {
+      if (inEditMode && t.layer != editingLayer) continue;
+      final r = textBoundsWorld(s, t, measure: measure);
+      pts.addAll([
+        r.topLeft, r.topRight, r.bottomLeft, r.bottomRight,
+        r.centerLeft, r.centerRight, r.topCenter, r.bottomCenter,
+      ]);
+    }
+    return pts;
+  }
+
   /// Inserts an image file: copies it next to the sketch sidecars (the
-  /// picker's temp file dies with the session) and places it centred at
-  /// [center] with width [w] mm, aspect from [pxW]x[pxH].
+  /// picker's temp file dies with the session). Placed centred at [center]
+  /// with width [w] mm, aspect from [pxW]x[pxH], tagged to the editing layer.
   SketchImage addImage(String srcPath, Offset center,
       {required int pxW, required int pxH, double w = 100}) {
     final s = current!;
@@ -3557,8 +3633,9 @@ class AppState extends ChangeNotifier {
       toast('Could not import the image.');
       rethrow;
     }
-    final img = SketchImage(
-        name, center.dx, center.dy, w, pxH <= 0 ? w : w * pxH / pxW);
+    final img = SketchImage(name, center.dx, center.dy, w,
+        pxH <= 0 ? w : w * pxH / pxW,
+        layer: editingLayer ?? kDefaultLayer);
     s.images.add(img);
     s.dirty = true;
     s.checkpoint();
@@ -3623,15 +3700,60 @@ class AppState extends ChangeNotifier {
     }
     final layer = editingLayer ?? kDefaultLayer;
     if (!s.layers.contains(layer)) s.layers.add(layer);
+    // DXF files carry absolute model coordinates that are often far from the
+    // origin (the device log showed an import landing near 10000,-2600 —
+    // off-screen and invisible). Inventor drops imported geometry where you
+    // place it; here we re-centre the incoming bounding box on the ORIGIN so
+    // it always lands in view.
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = -double.infinity, maxY = -double.infinity;
+    void acc(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    for (final g in incoming) {
+      // sample the defining points; for arcs/circles include the centre and
+      // the radius extent so the box encloses the whole curve
+      if (g.type == Geo.circle || g.type == Geo.arc) {
+        final r = g.data[2];
+        acc(g.data[0] - r, g.data[1] - r);
+        acc(g.data[0] + r, g.data[1] + r);
+      } else {
+        for (var k = 0; k + 1 < g.data.length; k += 2) {
+          acc(g.data[k], g.data[k + 1]);
+        }
+      }
+    }
+    final dx = minX.isFinite ? -(minX + maxX) / 2 : 0.0;
+    final dy = minY.isFinite ? -(minY + maxY) / 2 : 0.0;
+    Geo shifted(Geo g) {
+      final d = List<double>.of(g.data);
+      if (g.type == Geo.circle || g.type == Geo.arc) {
+        d[0] += dx;
+        d[1] += dy;
+      } else {
+        for (var k = 0; k + 1 < d.length; k += 2) {
+          d[k] += dx;
+          d[k + 1] += dy;
+        }
+      }
+      return g.withData(d);
+    }
+
     final next = [
       ...s.geometry,
-      for (final g in incoming) g.onLayer(layer),
+      for (final g in incoming) shifted(g).onLayer(layer),
     ];
     _rebuildEngine(s, next);
     _reanalyze();
     s.dirty = true;
     toast('Imported ${incoming.length} entities.');
-    Log.i('insert', 'DXF import: ${incoming.length} entities onto "$layer"');
+    Log.i('insert',
+        'DXF import: ${incoming.length} entities onto "$layer", '
+        'recentred by (${dx.toStringAsFixed(1)},${dy.toStringAsFixed(1)})');
     notifyListeners();
     return true;
   }

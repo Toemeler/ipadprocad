@@ -1878,6 +1878,62 @@ den bestehenden CocoaPods-Flow (`flutter build ios --config-only` → Podfile).
 Basis-Dokument/Bild-Picking nutzt UIDocumentPicker, braucht KEINE
 Info.plist-Usage-Strings.
 
+## M45 — Geraete-Test-Fixes (Insert) + Text-Fenster & Bounding-Rect
+
+Aus dem Geraete-Log (build 173239b): Bild-Resize ging nicht, DXF-Import
+landete unsichtbar bei ~10000,-2600. Behoben plus die gewuenschten
+Text-Erweiterungen.
+
+**Bild-Fixes.** (1) Resize-Griff-Trefferzone war im FALSCHEN Eck: die Griffe
+werden an den SCREEN-Ecken gezeichnet (dst.bottomRight/topRight), der
+Hit-Test testete aber die WELT-Rect-Ecken — und Screen-unten = -Welt-y, also
+lagen sie ueber Kreuz. Beide Hit-Tests (Resize + Loesch-X) rechnen jetzt in
+Screen-Koordinaten ueber `_worldToScreen`. (2) Bilder tragen ihren
+Editier-Layer (`SketchImage.layer`); ausserhalb dieses Layers werden sie
+gedimmt + entsaettigt gezeichnet (ColorFilter-Matrix, ~40% Deckkraft),
+Griffe/Selektion nur auf dem eigenen Layer. (3) Insert platziert AM CURSOR
+(`app.insertAnchor` = letzte Zeigerposition, im Viewport bei hover/down
+gesetzt) mit Breite = 0.5 * aktuelle Ansichtsbreite (`viewWidthWorld`).
+
+**DXF-Fix.** `importDxf` misst die Bounding-Box der eingelesenen Entities
+(Kreise/Boegen inkl. Radius) und verschiebt sie so, dass ihr Mittelpunkt auf
+dem URSPRUNG liegt — DXF traegt absolute Modellkoordinaten, die sonst weit
+ausserhalb der Ansicht liegen. Log nennt jetzt den Versatz.
+
+**Text-Fenster (statt AlertDialog).** Neues verschiebbares, modeless
+`TextEditorWindow` im Stil des Parameter-Fensters (`text_editor_window.dart`,
+Position `_textWinPos`): mehrzeiliges Template-Feld, **Font-Dropdown**
+(Roboto/Helvetica/Courier/Georgia/Menlo) und **Groesse (mm)**, Live-Preview.
+Waehrend das Feld fokussiert ist, fuegt ein Tap auf ein Bemassungs-Label
+dessen Namen IN ANFUEHRUNGSZEICHEN ein (`"d0"`, vom Nutzer so gewuenscht) —
+`AppState.textRefSink`, gleiche Viewport-Routing-Logik wie der Parameter-
+`paramRefSink` (Down-Zeit-Hit, Hover-Highlight). Editier-Session-Lifecycle
+(`beginTextEdit/endTextEdit`, `editingText`/`editingTextIsNew`): eine
+frisch platzierte, leer abgebrochene Text-Instanz wird verworfen und
+erzeugt via `placeholder:true` KEINEN Undo-Schritt; Commit checkpointet.
+
+**Bounding-Rect (Construction-Stil, messbar).** `textBoundsWorld` misst den
+gerenderten String automatisch (Font + Hoehe, gemeinsamer Top-Level-Measurer
+`measureSketchText`) und liefert das Welt-Rect ab der Unten-Links-Anker-
+position. Gezeichnet als DUENN GESTRICHELTES Rechteck im Construction-
+Linetype-Look, NUR im Layer-Editiermodus und nur fuer Texte auf dem
+Editier-Layer. `textSnapPoints` bietet die 4 Ecken + 4 Kantenmitten dem
+Snapper an (via `_snapped` → `computeSnap` extraPoints), sodass Bemassungen
+UND neue Geometrie an eine Textbox andocken/messen koennen.
+
+WICHTIGE Design-Einschraenkung (fuer die naechste Session dokumentiert): das
+Text-Rect ist KEINE echte Solver-Geometrie, sondern ein Painter-Overlay mit
+Snap-Punkten. Man kann also Bemassungen/Geometrie AN die Box-Ecken snappen
+und so bemaßen, aber die Box-Kanten sind keine eigenstaendig selektierbaren
+Entities und nehmen nicht an Constraints teil. Voll-solver-integrierte
+Text-Rects (wie projizierte Geometrie gepinnt) waeren ein groesserer,
+riskanter Umbau des Rebuild-Pfads — bewusst aufgeschoben.
+
+**Tests:** `m45_inserts_fixes_test.dart` (6): Bild-Layer + View-Breite,
+Font/Layer-Round-Trip, Bounding-Rect-Groesse + Ecken-Snap-Punkte,
+Snap-Punkte nur auf Editier-Layer, DXF-Rezentrierung (natives Backend),
+Editier-Session-Lifecycle. Suite: **209 gruen**.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1909,7 +1965,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**203 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**209 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

@@ -152,8 +152,11 @@ class _RibbonState extends State<Ribbon> {
       final bytes = await File(path).readAsBytes();
       final codec = await ui.instantiateImageCodec(bytes);
       final fr = await codec.getNextFrame();
-      app.addImage(path, app.pan,
-          pxW: fr.image.width, pxH: fr.image.height, w: 100);
+      // M45: placed AT THE CURSOR, sized to half the current view width
+      app.addImage(path, app.insertAnchor,
+          pxW: fr.image.width,
+          pxH: fr.image.height,
+          w: app.viewWidthWorld * 0.5);
     } catch (e) {
       Log.w('insert', 'image pick failed: $e');
       app.toast('Could not import the image.');
