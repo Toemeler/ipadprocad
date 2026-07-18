@@ -15,6 +15,36 @@ PAT wird pro Session neu erzeugt und danach widerrufen. Push nur inline:
 Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
+
+> **Stand dieser Session (Kopf = commit `05727ec` + M46):** letzte Arbeiten
+> M41–M46, alle host-getestet (**214 Tests gruen**, `flutter analyze` ohne
+> neue Issues). Kurz:
+> - **M41** Inventor-Parameter/Ausdruecke im Bemassungs-Edit-Feld (d0/d1,
+>   Formeln, Referenzen, fx:-Anzeige).
+> - **M42** Hover-Highlight auf Bemassungs-Labels; ausserhalb des
+>   Layer-Editiermodus sind Bemassungen/Constraints/DOF/Construction
+>   unsichtbar. **M42-Fix** Tastatur-Race beim Referenz-Klick.
+> - **M43** Parameters-Fenster (fx, verschiebbar) mit User-Parametern.
+> - **M44** Insert: parametrischer Text, Bild-Import, DXF-Import (iOS-Picker).
+> - **M45** Insert-Geraete-Fixes (Bild-Resize-Griff, Layer-Dimming,
+>   Cursor-Platzierung, DXF-Rezentrierung) + verschiebbares Text-Fenster
+>   (Font/Groesse/Klick-Referenz `"d0"`) + auto-grosses Construction-
+>   Bounding-Rect mit Ecken-Snap-Punkten.
+> - **M46** Tastenkuerzel werden unterdrueckt, waehrend ein Textfeld
+>   (Parameters/Text/Inline-Bemassung) getippt wird.
+>
+> **Offene Punkte fuer die naechste Session:**
+> - Geraete-Test von M41–M46 steht aus (Host-Tests gruen, IPA aus Run
+>   `05727ec` ziehen und auf dem iPad pruefen).
+> - Text-Bounding-Rect ist ein Painter-Overlay mit Snap-Punkten, KEINE echte
+>   Solver-Geometrie (siehe M45): an die Ecken kann man bemaßen, die Kanten
+>   sind aber keine selektierbaren, constrainbaren Entities. Volle
+>   Solver-Integration (wie projizierte Geometrie gepinnt) waere der naechste
+>   grosse Schritt, falls gewuenscht.
+> - `file_picker` ist die erste Plugin-Abhaengigkeit (M44) — CI-Pod-Install
+>   im iOS-Build von `05727ec`/spaeter verifizieren.
+
+
 - **M1 — Headless-Core-Build + iOS-CI: ERLEDIGT** (statische Libs, arm64/iphoneos).
 - **M2 — C-Wrapper: ERLEDIGT & validiert**; in M5 um Geometrie-Abfrage erweitert
   (`qcad_entity_ids`, `qcad_entity_geometry`), lokal per Compile-Check gegen die
@@ -1934,6 +1964,29 @@ Font/Layer-Round-Trip, Bounding-Rect-Groesse + Ecken-Snap-Punkte,
 Snap-Punkte nur auf Editier-Layer, DXF-Rezentrierung (natives Backend),
 Editier-Session-Lifecycle. Suite: **209 gruen**.
 
+## M46 — Tastenkuerzel in Editier-Fenstern unterdruecken
+
+Geraete-Feedback: `l` startete das Linien-Werkzeug, obwohl das Text- oder
+Parameters-Fenster offen war und getippt wurde. Ursache: die Buchstaben-
+Shortcuts im ancestor-`Focus.onKeyEvent` des Viewports feuerten, weil der
+Fokus in bestimmten Situationen nicht (mehr) im TextField lag bzw. der
+Viewport ihn zurueckholte.
+
+Fix (viewport.dart): VOR jeder Viewport-Tastenbehandlung wird geprueft, ob
+gerade getippt wird — `typing = _inlineDim != null || app.editingText != null
+|| app.showParams || _editableHasFocus()`. Wenn ja: `KeyEventResult.ignored`,
+d.h. der Viewport fasst die Taste nicht an (weder Buchstaben-Shortcuts noch
+Escape/Enter — Escape soll die Feld-Bearbeitung abbrechen, Enter sie
+bestaetigen; beides ist Sache des TextFields). Die drei App-State-Flags sind
+der deterministische Backstop (unabhaengig vom Fokus-Routing);
+`_editableHasFocus()` scannt zusaetzlich das primary-focus-Element auf ein
+`EditableText`, damit kuenftige Text-Fenster automatisch mitgeschuetzt sind.
+
+**Tests:** `m46_shortcut_suppression_test.dart` (5): Baseline L→Linie; bei
+offenem Parameters-Fenster feuern L/C/R/D NICHT; bei offenem Text-Editor
+feuert L nicht; nach Schliessen des Fensters geht L wieder; Ctrl+Z ist
+ebenfalls unterdrueckt. Suite: **214 gruen**.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,
@@ -1965,7 +2018,7 @@ measureDim (bei Dims), Painter, Tests. Shim-Codes: slvs_shim.h; Versions-Gate
 mit Naht-Flag in `val`, v4 = `SH_POINT_ON_CIRCLE`) für neue Codes. Tangenten müssen einen gemeinsamen
 Endpunkt haben und dürfen keinen Kreis enthalten, sonst Bail auf LM.
 
-**Test-/CI-Workflow:** `flutter test` in frontend/ (**209 Tests**) + Shim-Host-
+**Test-/CI-Workflow:** `flutter test` in frontend/ (**214 Tests**) + Shim-Host-
 Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert

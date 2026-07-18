@@ -267,6 +267,32 @@ class _Viewport2DState extends State<Viewport2D> {
     }
   }
 
+  /// M46 — true when a text input currently holds focus anywhere in the app
+  /// (the inline dimension box, a Parameters cell, the text window, or any
+  /// future TextField). While one does, the viewport suppresses ALL of its
+  /// key handling so raw letters and Enter/Escape go to the field. Detected
+  /// by scanning the primary-focus element's subtree for an EditableText —
+  /// stays correct even if new text-bearing windows are added later.
+  bool _editableHasFocus() {
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary == null || identical(primary, _focus)) return false;
+    final ctx = primary.context;
+    if (ctx == null) return false;
+    if (ctx.widget is EditableText) return true;
+    var editable = false;
+    void scan(Element el) {
+      if (editable) return;
+      if (el.widget is EditableText) {
+        editable = true;
+        return;
+      }
+      el.visitChildren(scan);
+    }
+
+    (ctx as Element).visitChildren(scan);
+    return editable;
+  }
+
   void _scaleStart(ScaleStartDetails d, Size size) {
     final app = widget.app;
     _scaleStartZoom = app.zoom;
@@ -659,6 +685,18 @@ class _Viewport2DState extends State<Viewport2D> {
         focusNode: _focus,
         autofocus: true,
         onKeyEvent: (node, event) {
+          // M46: when a text field is being typed into (inline dimension
+          // editor, Parameters window, or the parametric-text window), NO
+          // viewport key handling runs — not the letter shortcuts, and not
+          // Escape/Enter either. Escape should cancel the field's edit and
+          // Enter should commit it; both are the TextField's job, so we let
+          // the events pass through (KeyEventResult.ignored) instead of
+          // stealing them for cancelTool()/finishVariableTool().
+          final typing = _inlineDim != null ||
+              app.editingText != null ||
+              app.showParams ||
+              _editableHasFocus();
+          if (typing) return KeyEventResult.ignored;
           if (event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.escape) {
             app.cancelTool();
@@ -670,9 +708,8 @@ class _Viewport2DState extends State<Viewport2D> {
             app.finishVariableTool();
             return KeyEventResult.handled;
           }
-          // ---- shortcuts (M30). Never while the inline dimension editor is
-          // typing (its key events bubble up through this ancestor Focus).
-          if (event is KeyDownEvent && _inlineDim == null) {
+          // ---- shortcuts (M30) ----
+          if (event is KeyDownEvent) {
             final k = event.logicalKey;
             final ctrl = HardwareKeyboard.instance.isControlPressed ||
                 HardwareKeyboard.instance.isMetaPressed;
