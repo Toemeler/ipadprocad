@@ -408,16 +408,9 @@ class AppState extends ChangeNotifier {
     saved = list;
   }
 
-  // The six design dummies from the mock — shown only while nothing real has
-  // been saved yet (first-launch design parity).
-  static const dummyCards = [
-    ('Bracket_v2', '24/06/2026 17:27'),
-    ('Flange', '07/07/2026 10:18'),
-    ('Plate_120x80', '07/07/2026 10:26'),
-    ('Gasket', '29/06/2026 15:18'),
-    ('Shaft_Profile', '28/06/2026 19:51'),
-    ('Cam_Outline', '24/06/2026 15:50'),
-  ];
+  // (Removed the six first-launch design-dummy cards: a fresh install now
+  // shows an empty gallery with a "new sketch" prompt instead of fake sketches
+  // that could not be opened.)
 
   // ---- tab / home behaviour (exactly like the mock JS) ----
   void goHome() {

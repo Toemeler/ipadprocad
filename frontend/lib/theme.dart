@@ -47,6 +47,14 @@ class T {
   static const cardName = Color(0xFFE2E5E8);
   static const cardDate = Color(0xFF8B9197);
 
+  // home gallery (Procreate-style start page)
+  static const galleryBg = Color(0xFF1B1E22); // darker canvas behind cards
+  static const galleryThumb = Color(0xFF212830); // blank-card canvas (= viewport)
+  static const galleryTitle = Color(0xFFF2F4F6); // big bold gallery title
+  static const galleryActionBg = Color(0x1FFFFFFF); // subtle round + button
+  static const galleryActionBgHover = Color(0x33FFFFFF);
+  static const cardShadow = Color(0x66000000); // drop shadow under thumbs
+
   // edit-mode sketch overlay
   static const rawGrey = Color(0xFF6B7178);
   static const projYellow = Color(0xFFE8C63F);
