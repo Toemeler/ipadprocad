@@ -21,10 +21,15 @@ class BottomTabBar extends StatelessWidget {
         border: Border(top: BorderSide(color: T.tabbarBorder)),
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        // Nudge the Home tab inward so it clears the iPad's rounded
-        // bottom-left screen corner (the bar sits below the safe area).
-        const SizedBox(width: 16),
+        // The Home tab runs flush to the LEFT EDGE — its background and blue
+        // underline fill into the iPad's rounded bottom-left screen corner
+        // instead of leaving a dead 16px gutter there. Only its CONTENT is
+        // pushed inward (leftPad), so the icon and label still clear the
+        // corner radius and cannot be clipped. Previously the whole tab was
+        // offset by 16, which put the label at 16+12=28 — leftPad keeps the
+        // label exactly where it was and moves only the background.
         _Tab(
+          leftPad: 28,
           on: app.isHome,
           onTap: app.goHome,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -57,7 +62,16 @@ class _Tab extends StatefulWidget {
   final bool on;
   final VoidCallback onTap;
   final Widget child;
-  const _Tab({required this.on, required this.onTap, required this.child});
+
+  /// Left inset of the tab's CONTENT only — the background still starts at the
+  /// tab's own origin. Used to clear the screen's rounded corner.
+  final double leftPad;
+  const _Tab({
+    required this.on,
+    required this.onTap,
+    required this.child,
+    this.leftPad = 12,
+  });
   @override
   State<_Tab> createState() => _TabState();
 }
@@ -79,7 +93,7 @@ class _TabState extends State<_Tab> {
           ),
           child: Stack(children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.only(left: widget.leftPad, right: 12),
               child: Center(
                 child: DefaultTextStyle(
                   style: ts(12.5, color),

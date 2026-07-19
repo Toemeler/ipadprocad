@@ -267,13 +267,13 @@ class _HomeViewState extends State<HomeView> {
     return Container(
       color: T.galleryBg,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // ---- gallery header: title left, new-sketch button right ----
+        // ---- gallery header: nothing but the new-sketch button ----
+        // The "CAD" title is gone: the gallery IS the app's front page, a big
+        // word above it only ate a card row. Padding is tightened to match,
+        // since the header no longer has to make room for 32px type.
         Padding(
-          padding: const EdgeInsets.fromLTRB(_kPad, 22, _kPad, 18),
-          child: Row(children: [
-            Text('CAD',
-                style: ts(32, T.galleryTitle, w: FontWeight.w700, height: 1.0)),
-            const Spacer(),
+          padding: const EdgeInsets.fromLTRB(_kPad, 12, _kPad, 10),
+          child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
             _PlusButton(onTap: app.createNewSketch),
           ]),
         ),
