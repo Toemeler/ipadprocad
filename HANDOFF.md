@@ -16,7 +16,11 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **Stand dieser Session (Kopf = commit `05727ec` + M46 + M47):** letzte
+> **Stand dieser Session (Kopf = M48, natives Kontextmenue):** M48 ist neu
+> und host-getestet (**245 Tests gruen**, `flutter analyze` ohne neue Issues).
+> Der IPA-Job baut jetzt auf **macos-26 (Xcode 26 / iOS-26-SDK)** — siehe M48.
+>
+> **Stand davor (Kopf = commit `05727ec` + M46 + M47):** letzte
 > Arbeiten M41–M47, alle host-getestet (**222 Tests gruen**, `flutter analyze`
 > ohne neue Issues). Kurz:
 > - **M41** Inventor-Parameter/Ausdruecke im Bemassungs-Edit-Feld (d0/d1,
@@ -1999,6 +2003,105 @@ der deterministische Backstop (unabhaengig vom Fokus-Routing);
 offenem Parameters-Fenster feuern L/C/R/D NICHT; bei offenem Text-Editor
 feuert L nicht; nach Schliessen des Fensters geht L wieder; Ctrl+Z ist
 ebenfalls unterdrueckt. Suite: **214 gruen**.
+
+## M48 — Natives iOS-Kontextmenue in der Sketch-Galerie
+
+Long-Press auf eine Karte im Home-Tab oeffnet ein ECHTES UIKit-Menue
+(`UIContextMenuInteraction` + `UIMenu`): System-Blur, Haptik, Karte hebt ab.
+Eintraege: Rename / Duplicate / Export / Share, und **Delete in eigener
+Sektion, von UIKit selbst rot gezeichnet** (wir setzen nur `.destructive` —
+niemals selbst einfaerben).
+
+**WARUM EIN PLUGIN UND KEIN SWIFT IM RUNNER (die eigentliche Lehre).** Es gibt
+kein `frontend/ios/` im Repo — CI baut es bei JEDEM Run neu mit
+`flutter create`. Handgeschriebenes Swift im Runner-Target waere also jedes Mal
+weg. Ein Plugin als **path-Dependency** umgeht das komplett: CocoaPods zieht
+`packages/native_menu` ueber `.flutter-plugins-dependencies` (von
+`flutter pub get` erzeugt) im bestehenden `flutter build ios --config-only`.
+Exakt der Weg, den `file_picker` (M44) schon geht — der Pfad ist also erprobt.
+Eine frühere Session hielt das faelschlich fuer einen harten Blocker.
+
+**Architektur.** Flutter malt in EINE UIView. Eine `UiKitView` pro Karte waere
+teuer und der Preview trotzdem leer (die Pixel gehoeren Flutter). Stattdessen
+haengt EINE `UIContextMenuInteraction` an der FlutterView, und Dart published
+laufend die Trefferrechtecke der Karten. Der Delegate schlaegt den Punkt nach;
+ein Treffer liefert ein `UIMenu`, ein Fehlschlag `nil` — dann reicht UIKit den
+Touch unveraendert an Flutter durch.
+
+**Sicherheitsnetze (der Sinn des Entwurfs):**
+- Die Interaction haengt NUR dran, solange Targets existieren. Home verlassen
+  disposed `HomeView`, das published eine leere Liste und ENTFERNT sie — der
+  Long-Press/Drag des CAD-Viewports kann nie verdeckt werden.
+- Ausserhalb iOS ist jeder `NativeMenu`-Einstieg ein No-Op (`Platform.isIOS`),
+  die Host-Suite sieht also nie einen Platform-Channel.
+- Rechtecke werden am Scroll-Viewport geclippt: eine weggescrollte Karte im
+  Cache-Extent darf keinen Press beanspruchen.
+- Der abhebende Preview ist das VORHANDENE 380x240-Preview-PNG des Sketches,
+  kein Snapshot der Metal-Ebene (unter Impeller unzuverlaessig).
+- **FALLE:** share/export MUESSEN einen Popover-Anker bekommen. Ein Sheet ohne
+  `sourceRect` wirft auf dem iPad `NSGenericException` — das ist ein Absturz,
+  kein Schoenheitsfehler.
+- **FALLE:** Export nutzt `asCopy: true`. Mit `false` VERSCHIEBT der Picker den
+  Sketch aus Documents heraus.
+
+**Dateioperationen.** `deleteSketch` / `renameSketch` / `duplicateSketch` /
+`sketchExportPath` laufen alle ueber `AppState.sketchFileSuffixes` — EINE Liste
+aller zehn Dateien pro Sketch. Neue Sidecars MUESSEN dort eingetragen werden,
+sonst verliert ein Rename sie stillschweigend.
+
+**FALLE (die wichtigste):** `deleteSketch` wirft den Sketch aus der SESSION,
+BEVOR es Dateien anfasst. `finishEdit`/`goHome`/`closeTab` speichern
+automatisch — ein noch offenes Model haette die Dateien nach dem Loeschen
+froehlich zurueckgeschrieben. Ein Test pinnt genau das.
+
+`SketchModel.name` ist final, darum wird ein OFFENER Sketch beim Umbenennen
+gespeichert, verworfen und aus den umbenannten Dateien neu geoeffnet —
+korrekt, zum Preis des Undo-Journals dieses Sketches.
+
+**CI: IPA-Job auf `macos-26`.** Das Menue ist so oder so ein echtes `UIMenu`,
+aber das AUSSEHEN einer System-Komponente folgt dem SDK, gegen das gelinkt
+wurde, nicht unserem Code. Gegen das iOS-17-SDK (macos-14) rendert es in
+Pre-26-Kompatibilitaetsoptik; gegen das iOS-26-SDK uebernehmen
+System-Komponenten Liquid Glass automatisch, ohne Codeaenderung. Der Umzug ist
+ohnehin erzwungen: macos-14-Images sind seit 2026-07-06 deprecated und ab
+2026-11-02 tot.
+
+Bewusst nur `m5-flutter-ipa` umgezogen — `build-core-ios` und
+`m3-ios-sim-logic` bleiben auf dem erprobten macos-14, damit der Radius EIN Job
+und EINE Zeile ist. Beide Labels sind arm64 (keine Host-Arch-Aenderung).
+Deployment-Target bleibt 14.0 (Xcode 26 akzeptiert praktisch >= 12.0, trotz
+dokumentierter 15; Qt-iOS braucht >= 14.0). Xcode 27 hebt den Boden auf 15.0.
+
+Erster Job-Schritt ist ein Toolchain-Report mit `sw_vers`,
+`xcodebuild -version`, der iOS-SDK-Version und einer expliziten Zeile
+`LIQUID GLASS CHECK: PASS|WARN`. Nach der Projektregel „gruener Haken ist kein
+Beweis" ist DAS der Marker, den man liest.
+
+**RISIKO / REVERT:** Die echte Unbekannte ist Qt 6.7 + Xcode-26-Toolchain beim
+Bauen von qcad-core. Stirbt der Job im Core-Build waehrend die Flutter-Schritte
+gesund sind: die eine Zeile `runs-on` zurueck auf `macos-14`. Der Feature-Commit
+ist unabhaengig und braucht keine Runner-Aenderung — man behaelt das native
+Menue und verliert nur das Glas. Ist Qt der einzige Verlierer, ist der saubere
+Fix ein Split: core+slvs auf macos-15 als Artefakte bauen, IPA hier linken
+(alte `.a` linken problemlos gegen einen neueren ld).
+
+**Nebenbei (Geraete-Feedback):** Der „CAD"-Titel im Home-Tab ist weg — nur noch
+der runde „+" (die Galerie IST die Startseite). Und der Home-Tab in der unteren
+Leiste laeuft jetzt buendig bis an den linken Rand in den Bildschirmradius
+hinein; `_Tab.leftPad` schiebt nur den INHALT (Icon + Label) um 28 nach innen,
+damit ihn die Ecke nicht abschneidet. Hintergrund und blaue Unterstreichung
+fuellen die Ecke.
+
+**Tests:** `native_context_menu_test.dart` (14): Menue-Vertrag (IDs,
+Reihenfolge, Sektionen, destructive-Flag), das `toMap()`-Wire-Format, das der
+Swift-Parser woertlich liest, No-Op ausserhalb iOS, und jede Dateioperation
+inkl. der Autosave-Wiederauferstehungs-Sperre. Suite: **245 gruen**.
+
+**Nicht enthalten / offen:** Rename- und Delete-Bestaetigung sind weiterhin
+Flutter-`AlertDialog`s (nur das Kontextmenue selbst ist nativ). Die UIKit-Haelfte
+ist auf dem Host nicht testbar — Geraete-Test steht aus: Long-Press hebt die
+Karte ab, Delete ist rot, Export/Share oeffnen als Popover AN der Karte (kein
+Absturz), und im CAD-Viewport darf ein langer Druck NICHTS ausloesen.
 
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
