@@ -117,9 +117,13 @@ class IpadProCadApp extends StatelessWidget {
           animation: app,
           builder: (context, _) {
             return Column(children: [
-              SizedBox(
-                  width: double.infinity,
-                  child: Ribbon(app: app)),
+              // On the home gallery there is no ribbon — the "+" button in the
+              // gallery header is the only new-sketch affordance. The ribbon
+              // only belongs to an open sketch.
+              if (!app.isHome)
+                SizedBox(
+                    width: double.infinity,
+                    child: Ribbon(app: app)),
               Expanded(
                 child: app.isHome
                     ? HomeView(app: app)

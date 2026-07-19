@@ -21,6 +21,9 @@ class BottomTabBar extends StatelessWidget {
         border: Border(top: BorderSide(color: T.tabbarBorder)),
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // Nudge the Home tab inward so it clears the iPad's rounded
+        // bottom-left screen corner (the bar sits below the safe area).
+        const SizedBox(width: 16),
         _Tab(
           on: app.isHome,
           onTap: app.goHome,

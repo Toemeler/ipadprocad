@@ -35,7 +35,7 @@ class HomeView extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(_kPad, 22, _kPad, 18),
           child: Row(children: [
-            Text('iPadProCAD',
+            Text('CAD',
                 style: ts(32, T.galleryTitle, w: FontWeight.w700, height: 1.0)),
             const Spacer(),
             _PlusButton(onTap: app.createNewSketch),
