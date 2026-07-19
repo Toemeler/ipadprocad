@@ -11,6 +11,11 @@ dependencies:
   flutter:
     sdk: flutter
   ffi: ^2.1.0
+  # In-repo iOS plugin (real UIKit context menus / share sheet / Files export).
+  # A path dependency, so CocoaPods picks it up from the generated Podfile just
+  # like file_picker — no hand-written code in the CI-scaffolded Runner target.
+  native_menu:
+    path: packages/native_menu
   flutter_svg: ^2.0.10
   path_provider: ^2.1.2
 

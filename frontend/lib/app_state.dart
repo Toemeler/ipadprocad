@@ -408,6 +408,153 @@ class AppState extends ChangeNotifier {
     saved = list;
   }
 
+  // ---- sketch-level file management (gallery context menu) ----
+
+  /// EVERY file that belongs to one sketch. Delete/rename/duplicate all walk
+  /// this single list, so a sidecar can never be half-handled — mirror any new
+  /// sidecar written by [saveSketch] here or a rename will silently drop it.
+  static const List<String> sketchFileSuffixes = [
+    '.dxf',
+    '.png',
+    '.cons.json',
+    '.params.json',
+    '.texts.json',
+    '.images.json',
+    '.splines.json',
+    '.styles.json',
+    '.proj.json',
+    '.layers.json',
+  ];
+
+  bool sketchNameExists(String name) =>
+      sketches.containsKey(name) || _dxfFile(name).existsSync();
+
+  /// Null when [raw] is a usable sketch name, otherwise the reason. Names are
+  /// used verbatim as file names, so anything that could escape the sketch
+  /// directory has to be refused here.
+  String? validateSketchName(String raw) {
+    final n = raw.trim();
+    if (n.isEmpty) return 'Name must not be empty';
+    if (n.length > 60) return 'Name is too long';
+    if (RegExp(r'[/\\:]').hasMatch(n)) return 'Name cannot contain / \\ or :';
+    if (n.startsWith('.')) return 'Name cannot start with a dot';
+    return null;
+  }
+
+  Future<void> deleteSketch(String name) async {
+    if (_docsDir == null) return;
+    // Drop it from the SESSION first. finishEdit/goHome/closeTab all autosave,
+    // so a still-open model would happily write the sketch back to disk after
+    // the files were removed.
+    openTabs.remove(name);
+    sketches.remove(name);
+    if (curTab == name) {
+      curTab = openTabs.isNotEmpty ? openTabs.last : null;
+      if (curTab == null) editingLayer = null;
+      _reanalyze();
+    }
+    for (final suffix in sketchFileSuffixes) {
+      final f = File('${_sketchDir.path}/$name$suffix');
+      try {
+        if (f.existsSync()) f.deleteSync();
+      } catch (e) {
+        Log.w('state', 'delete $name$suffix failed: $e');
+      }
+    }
+    await refreshSaved();
+    notifyListeners();
+  }
+
+  /// Renames a sketch and all of its sidecars. Returns false (and changes
+  /// nothing) when the name is invalid or taken.
+  ///
+  /// [SketchModel.name] is final, so an OPEN sketch is flushed to disk, dropped
+  /// from the session and re-opened from the renamed files. That is correct and
+  /// cheap, at the price of that sketch's undo journal — the same trade the
+  /// load path already makes.
+  Future<bool> renameSketch(String from, String to) async {
+    if (_docsDir == null) return false;
+    final target = to.trim();
+    if (target == from) return true;
+    if (validateSketchName(target) != null) return false;
+    if (sketchNameExists(target)) return false;
+
+    final tabIndex = openTabs.indexOf(from);
+    final wasCurrent = curTab == from;
+    final otherCurrent = wasCurrent ? null : curTab;
+
+    if (sketches.containsKey(from)) {
+      await saveSketch(from);
+      openTabs.remove(from);
+      sketches.remove(from);
+      if (wasCurrent) curTab = null;
+    }
+
+    var moved = false;
+    for (final suffix in sketchFileSuffixes) {
+      final src = File('${_sketchDir.path}/$from$suffix');
+      if (!src.existsSync()) continue;
+      try {
+        src.renameSync('${_sketchDir.path}/$target$suffix');
+        moved = true;
+      } catch (e) {
+        Log.w('state', 'rename $from$suffix failed: $e');
+      }
+    }
+
+    if (moved && tabIndex >= 0) {
+      await openSketch(target); // reloads from the renamed files
+      // openSketch appends and focuses; put the tab back where it was.
+      openTabs.remove(target);
+      openTabs.insert(math.min(tabIndex, openTabs.length), target);
+      if (!wasCurrent) {
+        curTab = otherCurrent;
+        _reanalyze();
+      }
+    }
+    await refreshSaved();
+    notifyListeners();
+    return moved;
+  }
+
+  /// Copies a sketch to "<name> copy" (then " copy 2", …). Returns the new name.
+  Future<String?> duplicateSketch(String name) async {
+    if (_docsDir == null) return null;
+    if (sketches.containsKey(name)) await saveSketch(name);
+    if (!_dxfFile(name).existsSync()) return null;
+
+    var copy = '$name copy';
+    var n = 2;
+    while (sketchNameExists(copy)) {
+      copy = '$name copy $n';
+      n++;
+    }
+    var copied = false;
+    for (final suffix in sketchFileSuffixes) {
+      final src = File('${_sketchDir.path}/$name$suffix');
+      if (!src.existsSync()) continue;
+      try {
+        src.copySync('${_sketchDir.path}/$copy$suffix');
+        copied = true;
+      } catch (e) {
+        Log.w('state', 'duplicate $name$suffix failed: $e');
+      }
+    }
+    if (!copied) return null;
+    await refreshSaved();
+    notifyListeners();
+    return copy;
+  }
+
+  /// Absolute path of the DXF to hand to the share sheet / Files exporter.
+  /// Flushes an open sketch first so the exported file is never stale.
+  Future<String?> sketchExportPath(String name) async {
+    if (_docsDir == null) return null;
+    if (sketches.containsKey(name)) await saveSketch(name);
+    final f = _dxfFile(name);
+    return f.existsSync() ? f.path : null;
+  }
+
   // (Removed the six first-launch design-dummy cards: a fresh install now
   // shows an empty gallery with a "new sketch" prompt instead of fake sketches
   // that could not be opened.)

@@ -1,0 +1,20 @@
+name: native_menu
+description: >-
+  In-repo iOS plugin: real UIKit context menus (UIContextMenuInteraction),
+  the system share sheet and the Files exporter, driven from Dart.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: NativeMenuPlugin
