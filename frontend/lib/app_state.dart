@@ -1626,6 +1626,19 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- modify tools (M6) ----
+  /// Entities an offset chain may run through (Inventor's Loop Select): LINE
+  /// and ARC on the editing layer, never projected reference geometry — the
+  /// same scope as picking/selection. Circles, splines, ellipses and single
+  /// polylines are whole shapes and offset on their own.
+  Set<int> _chainEligible(SketchModel s) => {
+        for (var i = 0; i < s.geometry.length; i++)
+          if ((s.geometry[i].type == Geo.line ||
+                  s.geometry[i].type == Geo.arc) &&
+              geoEditable(s.geometry[i]) &&
+              !s.geometry[i].isProjection)
+            i
+      };
+
   int? _pickEntity(SketchModel s, Offset w) {
     var best = -1;
     var bd = 10 / zoom;
@@ -2228,10 +2241,7 @@ class AppState extends ChangeNotifier {
           modEntity = _pickEntity(s, w);
           return;
         }
-        final o = offsetEntity(s.geometry[modEntity!], w);
-        if (o != null) {
-          _rebuildEngine(s, [...s.geometry, o]); // offset ADDS a copy
-        }
+        _commitOffset(s, modEntity!, w);
         modEntity = null;
         return;
       case Tool.move:
@@ -2306,8 +2316,8 @@ class AppState extends ChangeNotifier {
   List<Geo> modifyGhost(SketchModel s, Offset hover) {
     if (!modifyTools.contains(tool)) return const [];
     if (tool == Tool.moffset && modEntity != null) {
-      final o = offsetEntity(s.geometry[modEntity!], hover);
-      return o == null ? const [] : [o];
+      final chain = offsetChainAt(s.geometry, modEntity!, hover, _chainEligible(s));
+      return chain == null ? const [] : chain.offsets;
     }
     if (selection.isEmpty || toolPoints.isEmpty) return const [];
     final probe = [...toolPoints, hover];
@@ -2327,6 +2337,104 @@ class AppState extends ChangeNotifier {
       ];
     }
     return [for (final i in selection) transformGeo(s.geometry[i], f)];
+  }
+
+  /// Inventor's Offset (Loop Select + Constrain Offset, both on by default):
+  /// offset the WHOLE connected chain the seed belongs to as one operation and
+  /// wire it like Inventor — coincident at every offset corner, each offset
+  /// line parallel to its source / each offset arc concentric with its source,
+  /// and one editable offset distance (d0) that the rest of the run follows, so
+  /// the copy holds together and drives uniformly. Atomic: built and verified
+  /// on local copies; if the constrained result cannot be solved it degrades to
+  /// the bare geometry rather than corrupting the sketch.
+  void _commitOffset(SketchModel s, int seed, Offset w) {
+    final chain = offsetChainAt(s.geometry, seed, w, _chainEligible(s));
+    if (chain == null) {
+      toast('Nothing to offset here.');
+      return;
+    }
+    final n = chain.offsets.length;
+    final firstNew = s.geometry.length;
+    final gs = List<Geo>.from(s.geometry)..addAll(chain.offsets);
+    final cons = List<Constraint>.from(s.constraints);
+
+    // coincident at every corner of the offset run (wrap when closed)
+    final links = <(int, int)>[];
+    for (var i = 0; i + 1 < n; i++) {
+      links.add((i, i + 1));
+    }
+    if (chain.closed && n >= 2) links.add((n - 1, 0));
+    for (final l in links) {
+      cons.add(Constraint(CType.coincident, pts: [
+        PRef(firstNew + l.$1, chain.exitPt[l.$1]),
+        PRef(firstNew + l.$2, chain.enterPt[l.$2]),
+      ]));
+    }
+
+    // each offset segment tied to its source: parallel (line)/concentric (arc)
+    for (var i = 0; i < n; i++) {
+      final src = chain.sources[i];
+      if (chain.offsets[i].type == Geo.line &&
+          s.geometry[src].type == Geo.line) {
+        cons.add(Constraint(CType.parallel, ents: [firstNew + i, src]));
+      } else if (chain.offsets[i].type == Geo.arc &&
+          s.geometry[src].type == Geo.arc) {
+        cons.add(Constraint(CType.concentric, ents: [firstNew + i, src]));
+      }
+    }
+
+    // the offset DISTANCE: a perpendicular point-to-source-line dimension on
+    // every offset LINE. The first is the editable driver (d0); the rest follow
+    // it by expression, so editing one drives the whole run uniformly — exactly
+    // Inventor's equidistant "Constrain Offset". On a CLOSED all-line loop the
+    // final gap is implied by closure, so it becomes a driven (reference)
+    // measure instead of over-constraining.
+    final lineSegs = [
+      for (var i = 0; i < n; i++)
+        if (chain.offsets[i].type == Geo.line) i
+    ];
+    String? driver;
+    for (var k = 0; k < lineSegs.length; k++) {
+      final i = lineSegs[k];
+      final src = chain.sources[i];
+      final dim = Constraint(CType.dimension,
+          dimKind: 'pline',
+          pts: [
+            PRef(firstNew + i, chain.enterPt[i]),
+            PRef(src, 0),
+            PRef(src, 1)
+          ],
+          value: chain.offsetDist,
+          textPos: getPt(chain.offsets[i], chain.enterPt[i]));
+      if (k == 0) {
+        dim.paramName = driver = _newParamName(s);
+      } else {
+        dim.expr = driver; // follow the driver's value
+        if (chain.closed && k == lineSegs.length - 1) dim.driven = true;
+      }
+      cons.add(dim);
+    }
+
+    // Atomic verify. Full constraints first; if the solver cannot hold them,
+    // fall back to the bare offset geometry (always solvable) so the offset
+    // still appears rather than scrambling or vanishing.
+    if (solveConstraints(gs, cons)) {
+      s.constraints
+        ..clear()
+        ..addAll(cons);
+      _rebuildEngine(s, gs);
+      Log.i(
+          'modify',
+          'offset chain from e$seed: +$n segs '
+          '(${chain.closed ? "closed" : "open"}), '
+          'constraints ${s.constraints.length}');
+    } else {
+      Log.w(
+          'modify',
+          'offset chain from e$seed: constrained result unsatisfiable — '
+          'placing bare geometry');
+      _rebuildEngine(s, gs); // geometry only, no new constraints
+    }
   }
 
   // ---- constraints + dimensions (M7) ----

@@ -261,6 +261,352 @@ Geo? _offsetEntityRaw(Geo g, Offset side) {
 }
 
 // ---------------------------------------------------------------------------
+// Offset CHAIN — Inventor's "Loop Select" (ON by default): one pick offsets
+// the whole connected run of edges, not just the clicked one. A chain follows
+// shared endpoints; it continues through a corner that has exactly ONE other
+// edge and STOPS at a branch (a vertex where 2+ other edges meet), exactly as
+// Inventor/Abaqus define a chain ("each edge connected to at most one other at
+// each endpoint"). A closed run (rectangle, polygon, any closed profile) comes
+// back to the seed and offsets as one loop.
+//
+// Only LINE and ARC entities chain. A circle, spline, ellipse or single
+// polyline still offsets as its own whole shape via [offsetEntity] (they are
+// already one entity), so the seed-type is handled first, before the walk.
+//
+// The offset geometry is built with real mitred corners (adjacent offsets
+// intersected: line∩line, line∩circle, circle∩circle) so the corners are
+// coincident from the start; the caller then pins coincident corners +
+// parallel/concentric to source + the offset distance, and the solver settles
+// the exact result. Because the result is solved, the initial miter only has
+// to be topologically right, not numerically perfect.
+// ---------------------------------------------------------------------------
+
+/// One offset chain: [sources] are the source entity indices in traversal
+/// order, [offsets] the parallel copy of each (same type, layer already
+/// carried), and [enterPt]/[exitPt] the NEW-geometry point indices of each
+/// segment's incoming/outgoing corner (so the caller can wire coincidences and
+/// perpendicular-distance dimensions without re-deriving orientation).
+class OffsetChain {
+  final List<int> sources;
+  final List<Geo> offsets;
+  final List<int> enterPt;
+  final List<int> exitPt;
+  final bool closed;
+  final double offsetDist; // uniform perpendicular offset magnitude
+  const OffsetChain(this.sources, this.offsets, this.enterPt, this.exitPt,
+      this.closed, this.offsetDist);
+}
+
+Offset _ptOf(Geo g, int i) {
+  switch (g.type) {
+    case Geo.line:
+      return i == 0
+          ? Offset(g.data[0], g.data[1])
+          : Offset(g.data[2], g.data[3]);
+    case Geo.arc:
+      if (i == 0) return Offset(g.data[0], g.data[1]);
+      final a = i == 1 ? g.data[3] : g.data[4];
+      return Offset(
+          g.data[0] + math.cos(a) * g.data[2], g.data[1] + math.sin(a) * g.data[2]);
+  }
+  return Offset.zero;
+}
+
+/// The two CHAIN endpoints of an entity (only line & arc participate): the
+/// point index and its world position. Line ends are 0/1, arc ends are its
+/// start/end (1/2) — never the centre.
+List<(int, Offset)> _chainEnds(Geo g) {
+  switch (g.type) {
+    case Geo.line:
+      return [(0, _ptOf(g, 0)), (1, _ptOf(g, 1))];
+    case Geo.arc:
+      return [(1, _ptOf(g, 1)), (2, _ptOf(g, 2))];
+    default:
+      return const [];
+  }
+}
+
+/// Infinite line ∩ infinite line (miter point), or null if parallel.
+Offset? _infX(Offset a1, Offset a2, Offset b1, Offset b2) {
+  final r = a2 - a1, s = b2 - b1;
+  final den = r.dx * s.dy - r.dy * s.dx;
+  if (den.abs() < _eps) return null;
+  final t = ((b1 - a1).dx * s.dy - (b1 - a1).dy * s.dx) / den;
+  return a1 + r * t;
+}
+
+/// Infinite line ∩ circle, both solutions (0..2).
+List<Offset> _infLineCircle(Offset a, Offset b, Offset c, double r) {
+  final d = b - a, f = a - c;
+  final aa = d.dx * d.dx + d.dy * d.dy;
+  if (aa < _eps) return const [];
+  final bb = 2 * (f.dx * d.dx + f.dy * d.dy);
+  final cc = f.dx * f.dx + f.dy * f.dy - r * r;
+  var disc = bb * bb - 4 * aa * cc;
+  if (disc < 0) return const [];
+  disc = math.sqrt(disc);
+  return [
+    a + d * ((-bb - disc) / (2 * aa)),
+    a + d * ((-bb + disc) / (2 * aa)),
+  ];
+}
+
+Offset? _nearestOf(List<Offset> cands, Offset to) {
+  Offset? best;
+  var bd = double.infinity;
+  for (final p in cands) {
+    final dd = (p - to).distance;
+    if (dd < bd) {
+      bd = dd;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/// Build the maximal offset chain through [seed], offset toward [pick].
+/// [allowed] is the set of chain-eligible entity indices (line/arc, on the
+/// editing layer, not projected) — the caller's scope rules. Returns null when
+/// the seed cannot be offset at all.
+OffsetChain? offsetChainAt(
+    List<Geo> gs, int seed, Offset pick, Set<int> allowed) {
+  if (seed < 0 || seed >= gs.length) return null;
+  final st = gs[seed].type;
+  // Non line/arc seeds are single whole-shape entities already.
+  if (st != Geo.line && st != Geo.arc) {
+    final o = offsetEntity(gs[seed], pick);
+    return o == null
+        ? null
+        : OffsetChain([seed], [o], [0], [0], false, 0);
+  }
+  if (!allowed.contains(seed)) return null;
+
+  const tol = 1e-4;
+  List<(int, int)> nbrsAt(Offset p, Set<int> exclude) {
+    final out = <(int, int)>[];
+    for (final e in allowed) {
+      if (exclude.contains(e)) continue;
+      for (final end in _chainEnds(gs[e])) {
+        if ((end.$2 - p).distance <= tol) out.add((e, end.$1));
+      }
+    }
+    return out;
+  }
+
+  int otherEnd(int e, int enterPi) {
+    final ends = _chainEnds(gs[e]);
+    return ends[0].$1 == enterPi ? ends[1].$1 : ends[0].$1;
+  }
+
+  var closed = false;
+  // Walk away from the seed, leaving through [startExitPt]; [homeEnterPt] is the
+  // seed's OTHER end — reaching it again means the run closed into a loop. Each
+  // step needs EXACTLY one unvisited neighbour (a branch stops the chain).
+  List<(int, int, int)> walk(
+      int startExitPt, int homeEnterPt, Set<int> visited) {
+    final home = _ptOf(gs[seed], homeEnterPt);
+    final chain = <(int, int, int)>[];
+    var curEnt = seed, curExit = startExitPt;
+    while (true) {
+      final exitPos = _ptOf(gs[curEnt], curExit);
+      if (chain.isNotEmpty && (exitPos - home).distance <= tol) {
+        closed = true; // wrapped back to the seed
+        break;
+      }
+      final nb = nbrsAt(exitPos, visited);
+      if (nb.length != 1) break;
+      final ne = nb.first.$1, nEnter = nb.first.$2;
+      final nExit = otherEnd(ne, nEnter);
+      chain.add((ne, nEnter, nExit));
+      visited.add(ne);
+      curEnt = ne;
+      curExit = nExit;
+    }
+    return chain;
+  }
+
+  final ends = _chainEnds(gs[seed]);
+  final aPi = ends[0].$1, bPi = ends[1].$1;
+  final visited = <int>{seed};
+  final fwd = walk(bPi, aPi, visited); // out through b; home is the a-end
+  final bwd = closed ? const <(int, int, int)>[] : walk(aPi, bPi, visited);
+
+  // Assemble in traversal order: reversed backward run, seed (a->b), forward.
+  final elems = <(int, int, int)>[]; // (ent, enterPt, exitPt)
+  for (final e in bwd.reversed) {
+    elems.add((e.$1, e.$3, e.$2)); // reverse orientation
+  }
+  elems.add((seed, aPi, bPi));
+  elems.addAll(fwd);
+
+  // ---- distance + side, measured against the nearest element ----
+  var nearIdx = 0;
+  var nearBounded = double.infinity;
+  for (var i = 0; i < elems.length; i++) {
+    final g = gs[elems[i].$1];
+    double db;
+    if (g.type == Geo.line) {
+      db = (pick - closestOnSegment(pick, _ptOf(g, 0), _ptOf(g, 1))).distance;
+    } else {
+      db = ((pick - Offset(g.data[0], g.data[1])).distance - g.data[2]).abs();
+    }
+    if (db < nearBounded) {
+      nearBounded = db;
+      nearIdx = i;
+    }
+  }
+  final ng = gs[elems[nearIdx].$1];
+  double dist; // uniform offset magnitude (perpendicular to the support)
+  double sideSign; // +1 left / -1 right of TRAVERSAL direction
+  if (ng.type == Geo.line) {
+    final en = _ptOf(ng, elems[nearIdx].$2), ex = _ptOf(ng, elems[nearIdx].$3);
+    final u = ex - en;
+    dist = (pick - _infProj(pick, en, ex)).distance;
+    sideSign = (u.dx * (pick - en).dy - u.dy * (pick - en).dx) >= 0 ? 1 : -1;
+  } else {
+    final c = Offset(ng.data[0], ng.data[1]);
+    dist = ((pick - c).distance - ng.data[2]).abs();
+    final pn = c + (pick - c) / (pick - c).distance * ng.data[2];
+    final ccw = _ccwInTraversal(ng, elems[nearIdx].$2);
+    final rad = (pn - c);
+    final u = ccw
+        ? Offset(-rad.dy, rad.dx)
+        : Offset(rad.dy, -rad.dx); // traversal tangent
+    sideSign = (u.dx * (pick - pn).dy - u.dy * (pick - pn).dx) >= 0 ? 1 : -1;
+  }
+  if (dist < 1e-7) return null;
+
+  // ---- offset each segment (pre-miter) as parallel line / concentric arc ----
+  final off = <Geo>[]; // aligned with elems
+  final enterPt = <int>[];
+  final exitPt = <int>[];
+  final segEnter = <Offset>[]; // world corner (enter) after building/mitering
+  final segExit = <Offset>[];
+  for (final el in elems) {
+    final g = gs[el.$1];
+    if (g.type == Geo.line) {
+      final en = _ptOf(g, el.$2), ex = _ptOf(g, el.$3);
+      final u = ex - en;
+      final nL = Offset(-u.dy, u.dx) / u.distance; // left normal
+      final delta = nL * (sideSign * dist);
+      final oe = en + delta, ox = ex + delta;
+      off.add(Geo(Geo.line, [oe.dx, oe.dy, ox.dx, ox.dy]));
+      enterPt.add(0);
+      exitPt.add(1);
+      segEnter.add(oe);
+      segExit.add(ox);
+    } else {
+      final c = Offset(g.data[0], g.data[1]);
+      final r = g.data[2];
+      final ccw = _ccwInTraversal(g, el.$2);
+      final rp = r - (ccw ? 1 : -1) * sideSign * dist;
+      if (rp < 1e-6) return null; // segment collapses -> abandon chain
+      final enPt = _ptOf(g, el.$2), exPt = _ptOf(g, el.$3);
+      final oe = c + (enPt - c) / r * rp, ox = c + (exPt - c) / r * rp;
+      // preserve the source's stored start/end mapping and sweep direction
+      final startPt = el.$2 == 1 ? oe : ox; // maps to data[3]
+      final endPt = el.$2 == 1 ? ox : oe; // maps to data[4]
+      off.add(Geo(Geo.arc, [
+        c.dx,
+        c.dy,
+        rp,
+        math.atan2(startPt.dy - c.dy, startPt.dx - c.dx),
+        math.atan2(endPt.dy - c.dy, endPt.dx - c.dx),
+        g.data.length > 5 ? g.data[5] : 0.0,
+      ]));
+      // NEW arc: start=pt1, end=pt2. enter maps back to whichever holds it.
+      enterPt.add(el.$2 == 1 ? 1 : 2);
+      exitPt.add(el.$2 == 1 ? 2 : 1);
+      segEnter.add(oe);
+      segExit.add(ox);
+    }
+  }
+
+  // ---- mitre corners: exit[i] meets enter[i+1] (wrap if closed) ----
+  bool miter(int i, int j) {
+    final gi = gs[elems[i].$1], gj = gs[elems[j].$1];
+    final corner = _ptOf(gi, elems[i].$3); // original shared vertex
+    Offset? p;
+    if (gi.type == Geo.line && gj.type == Geo.line) {
+      p = _infX(segEnter[i], segExit[i], segEnter[j], segExit[j]);
+    } else if (gi.type == Geo.line && gj.type == Geo.arc) {
+      p = _nearestOf(
+          _infLineCircle(segEnter[i], segExit[i],
+              Offset(off[j].data[0], off[j].data[1]), off[j].data[2]),
+          corner);
+    } else if (gi.type == Geo.arc && gj.type == Geo.line) {
+      p = _nearestOf(
+          _infLineCircle(segEnter[j], segExit[j],
+              Offset(off[i].data[0], off[i].data[1]), off[i].data[2]),
+          corner);
+    } else {
+      p = _nearestOf(
+          _circleCircle(Offset(off[i].data[0], off[i].data[1]), off[i].data[2],
+              Offset(off[j].data[0], off[j].data[1]), off[j].data[2]),
+          corner);
+    }
+    if (p == null) return false;
+    segExit[i] = p;
+    segEnter[j] = p;
+    return true;
+  }
+
+  final pairs = <(int, int)>[];
+  for (var i = 0; i + 1 < elems.length; i++) {
+    pairs.add((i, i + 1));
+  }
+  if (closed && elems.length >= 2) pairs.add((elems.length - 1, 0));
+  for (final pr in pairs) {
+    if (!miter(pr.$1, pr.$2)) return null; // a corner has no miter -> abandon
+  }
+
+  // ---- rebuild each offset Geo from its (mitered) corner points ----
+  for (var i = 0; i < elems.length; i++) {
+    final srcG = gs[elems[i].$1];
+    if (off[i].type == Geo.line) {
+      off[i] = _sameLayer(
+          srcG, Geo(Geo.line, [segEnter[i].dx, segEnter[i].dy, segExit[i].dx, segExit[i].dy]));
+    } else {
+      final c = Offset(off[i].data[0], off[i].data[1]);
+      final rp = off[i].data[2];
+      final startPt = enterPt[i] == 1 ? segEnter[i] : segExit[i];
+      final endPt = enterPt[i] == 1 ? segExit[i] : segEnter[i];
+      off[i] = _sameLayer(
+          srcG,
+          Geo(Geo.arc, [
+            c.dx,
+            c.dy,
+            rp,
+            math.atan2(startPt.dy - c.dy, startPt.dx - c.dx),
+            math.atan2(endPt.dy - c.dy, endPt.dx - c.dx),
+            off[i].data[5],
+          ]));
+    }
+  }
+
+  return OffsetChain(
+      [for (final e in elems) e.$1], off, enterPt, exitPt, closed, dist);
+}
+
+/// Foot of the perpendicular from [p] to the INFINITE line a->b.
+Offset _infProj(Offset p, Offset a, Offset b) {
+  final ab = b - a;
+  final l2 = ab.dx * ab.dx + ab.dy * ab.dy;
+  if (l2 < _eps) return a;
+  final t = ((p - a).dx * ab.dx + (p - a).dy * ab.dy) / l2;
+  return a + ab * t;
+}
+
+/// Is arc [g] swept CCW when entered at point index [enterPt]? Stored sweep is
+/// CCW (start->end) unless the reversed flag (data[5]) is set; entering at the
+/// END point reverses that.
+bool _ccwInTraversal(Geo g, int enterPt) {
+  final baseCcw = !(g.data.length > 5 && g.data[5] != 0);
+  final flipped = enterPt != 1; // entered at the end, not the start
+  return flipped ? !baseCcw : baseCcw;
+}
+
+// ---------------------------------------------------------------------------
 // intersections (analytic: segments + circles/arcs)
 // ---------------------------------------------------------------------------
 List<Offset> _segSeg(Offset p1, Offset p2, Offset p3, Offset p4) {
