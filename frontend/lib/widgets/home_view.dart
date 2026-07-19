@@ -22,6 +22,7 @@ import 'package:native_menu/native_menu.dart';
 import '../app_state.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
+import 'native_prompts.dart';
 
 // Card sizing: previews are rendered 380x240 (see _writePreview), so the cards
 // keep that landscape aspect. We aim for a comfortable, touch-friendly width
@@ -72,7 +73,7 @@ class _HomeViewState extends State<HomeView> {
   @override
   void initState() {
     super.initState();
-    NativeMenu.setSelectionHandler(_onMenuSelection);
+    NativeMenu.setSelectionHandler(NativeMenu.kGallery, _onMenuSelection);
     _schedulePush();
   }
 
@@ -80,8 +81,8 @@ class _HomeViewState extends State<HomeView> {
   void dispose() {
     // Pushing an empty list REMOVES the interaction from the Flutter view, so
     // leaving the gallery cannot shadow the CAD viewport's own long press.
-    NativeMenu.setSelectionHandler(null);
-    NativeMenu.setTargets(const []);
+    NativeMenu.setSelectionHandler(NativeMenu.kGallery, null);
+    NativeMenu.setTargets(NativeMenu.kGallery, const []);
     super.dispose();
   }
 
@@ -134,7 +135,7 @@ class _HomeViewState extends State<HomeView> {
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
     if (payload == _lastPayload) return;
     _lastPayload = payload;
-    NativeMenu.setTargets(targets);
+    NativeMenu.setTargets(NativeMenu.kGallery, targets);
   }
 
   // ---- menu actions ----
@@ -160,6 +161,26 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
+  /// Every new sketch is named UP FRONT. The old flow handed out "Sketch7"
+  /// and left renaming as a chore nobody did.
+  Future<void> _promptNewSketch() async {
+    final app = widget.app;
+    final name = await promptForText(
+      context,
+      title: 'New sketch',
+      initialValue: app.suggestedSketchName(),
+      placeholder: 'Sketch name',
+      confirmLabel: 'Create',
+      validate: (v) =>
+          app.validateSketchName(v) ??
+          (app.sketchNameExists(v.trim())
+              ? 'A sketch with that name already exists'
+              : null),
+    );
+    if (name == null) return;
+    await app.createNamedSketch(name);
+  }
+
   Future<void> _sendFile(String name, {required bool share}) async {
     final path = await widget.app.sketchExportPath(name);
     if (path == null || !mounted) return;
@@ -176,86 +197,32 @@ class _HomeViewState extends State<HomeView> {
 
   Future<void> _promptRename(String name) async {
     final app = widget.app;
-    final ctrl = TextEditingController(text: name);
-    String? error;
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) {
-          void submit() {
-            final v = ctrl.text.trim();
-            final problem = app.validateSketchName(v) ??
-                (v != name && app.sketchNameExists(v)
-                    ? 'A sketch with that name already exists'
-                    : null);
-            if (problem != null) {
-              setLocal(() => error = problem);
-              return;
-            }
-            Navigator.of(ctx).pop(v);
-          }
-
-          return AlertDialog(
-            backgroundColor: const Color(0xFF292D33),
-            title: Text('Rename sketch', style: ts(14, T.mbText)),
-            content: TextField(
-              controller: ctrl,
-              autofocus: true,
-              style: ts(13, Colors.white),
-              cursorColor: T.blue,
-              decoration: InputDecoration(
-                hintText: 'Sketch name',
-                hintStyle: ts(13, T.mbDim),
-                errorText: error,
-                errorStyle: ts(11.5, const Color(0xFFE05A56)),
-                enabledBorder: const UnderlineInputBorder(
-                    borderSide: BorderSide(color: T.sep)),
-                focusedBorder: const UnderlineInputBorder(
-                    borderSide: BorderSide(color: T.blue)),
-              ),
-              onSubmitted: (_) => submit(),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: Text('Cancel', style: ts(13, T.mbDim))),
-              TextButton(
-                  onPressed: submit,
-                  child: Text('Rename', style: ts(13, T.blue))),
-            ],
-          );
-        },
-      ),
+    final result = await promptForText(
+      context,
+      title: 'Rename sketch',
+      initialValue: name,
+      placeholder: 'Sketch name',
+      confirmLabel: 'Rename',
+      validate: (v) =>
+          app.validateSketchName(v) ??
+          (v.trim() != name && app.sketchNameExists(v.trim())
+              ? 'A sketch with that name already exists'
+              : null),
     );
-    ctrl.dispose();
-    if (result != null && result != name) {
+    if (result != null && result.trim() != name) {
       await app.renameSketch(name, result);
     }
   }
 
   Future<void> _confirmDelete(String name) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF292D33),
-        title: Text('Delete “$name”?', style: ts(14, T.mbText)),
-        content: Text(
-          'The sketch and everything in it are removed from this iPad. '
+    final ok = await confirmAction(
+      context,
+      title: 'Delete “$name”?',
+      message: 'The sketch and everything in it are removed from this iPad. '
           'This can’t be undone.',
-          style: ts(12.5, T.mbDim),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text('Cancel', style: ts(13, T.mbDim))),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('Delete', style: ts(13, const Color(0xFFE05A56))),
-          ),
-        ],
-      ),
+      confirmLabel: 'Delete',
     );
-    if (ok == true) await widget.app.deleteSketch(name);
+    if (ok) await widget.app.deleteSketch(name);
   }
 
   @override
@@ -274,12 +241,12 @@ class _HomeViewState extends State<HomeView> {
         Padding(
           padding: const EdgeInsets.fromLTRB(_kPad, 12, _kPad, 10),
           child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            _PlusButton(onTap: app.createNewSketch),
+            _PlusButton(onTap: _promptNewSketch),
           ]),
         ),
         Expanded(
           child: app.saved.isEmpty
-              ? _EmptyState(onNew: app.createNewSketch)
+              ? const _EmptyState()
               : _Grid(
                   app: app,
                   scrollKey: _scrollKey,
@@ -383,23 +350,14 @@ class _PlusButtonState extends State<_PlusButton> {
 }
 
 class _EmptyState extends StatelessWidget {
-  final VoidCallback onNew;
-  const _EmptyState({required this.onNew});
+  const _EmptyState();
   @override
   Widget build(BuildContext context) {
+    // Deliberately ONE line. The cube glyph and the "No sketches yet" heading
+    // were decoration around a message that already says everything.
     return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Opacity(
-          opacity: 0.5,
-          child: SvgPicture.string(sketchCubeIcon, width: 54, height: 54),
-        ),
-        const SizedBox(height: 20),
-        Text('No sketches yet',
-            style: ts(18, T.cardName, w: FontWeight.w600)),
-        const SizedBox(height: 8),
-        Text('Tap  +  to start a new sketch',
-            style: ts(13.5, T.cardDate)),
-      ]),
+      child: Text('Tap  +  to create a new sketch',
+          style: ts(13.5, T.cardDate)),
     );
   }
 }

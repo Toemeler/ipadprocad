@@ -3,13 +3,17 @@
 // Y Axis / Center Point (auto-projected), then the layer container, then
 // "End of Sketch". Right-click on a layer row -> context menu (Edit on top),
 // double-click -> edit mode. Active layer row highlighted Inventor-style.
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
+import 'native_prompts.dart';
 
 class ModelBrowser extends StatefulWidget {
   final AppState app;
@@ -22,6 +26,127 @@ class _ModelBrowserState extends State<ModelBrowser> {
   bool originOpen = false;
   OverlayEntry? _ctx;
 
+  // Native long-press menu (iOS). The Flutter overlay below stays for the
+  // right-mouse path on desktop; the two never fight, because a long press
+  // never reaches Flutter once UIKit claims it.
+  final Map<String, GlobalKey> _rowKeys = {};
+  final GlobalKey _treeKey = GlobalKey();
+  String? _lastPayload;
+  bool _pushScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    NativeMenu.setSelectionHandler(NativeMenu.kLayers, _onMenuSelection);
+    _schedulePush();
+  }
+
+  GlobalKey _keyFor(String layer) =>
+      _rowKeys.putIfAbsent(layer, () => GlobalKey());
+
+  void _schedulePush() {
+    if (_pushScheduled) return;
+    _pushScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pushScheduled = false;
+      if (mounted) _pushTargets();
+    });
+  }
+
+  Rect? _globalRect(GlobalKey key) {
+    final box = key.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  /// Same item set as the Flutter overlay — built per layer, because Edit,
+  /// Rename and Delete depend on locked/base state.
+  List<List<NativeMenuItem>> _menuFor(String layer) {
+    final app = widget.app;
+    final locked = app.layerLocked(layer);
+    final base = app.isBaseLayer(layer);
+    final selCount = app.selection.length;
+    return [
+      [
+        if (!locked)
+          const NativeMenuItem(id: 'edit', title: 'Edit', symbol: 'pencil.tip'),
+        NativeMenuItem(
+            id: 'visible',
+            title: app.layerVisible(layer) ? 'Hide' : 'Show',
+            symbol: app.layerVisible(layer) ? 'eye.slash' : 'eye'),
+        NativeMenuItem(
+            id: 'lock',
+            title: locked ? 'Unlock' : 'Lock',
+            symbol: locked ? 'lock.open' : 'lock'),
+        if (!base)
+          const NativeMenuItem(id: 'rename', title: 'Rename', symbol: 'pencil'),
+        NativeMenuItem(
+            id: 'move',
+            title: selCount == 0 ? 'Move selection here' : 'Move $selCount here',
+            symbol: 'arrow.right.doc.on.clipboard'),
+      ],
+      if (!base)
+        [
+          const NativeMenuItem(
+              id: 'delete',
+              title: 'Delete layer',
+              symbol: 'trash',
+              destructive: true),
+        ],
+    ];
+  }
+
+  void _pushTargets() {
+    if (!NativeMenu.isSupported) return;
+    final s = widget.app.current;
+    final targets = <NativeMenuTarget>[];
+    final clip = _globalRect(_treeKey);
+    for (final layer in s?.layers ?? const <String>[]) {
+      final key = _rowKeys[layer];
+      if (key == null) continue;
+      final full = _globalRect(key);
+      if (full == null) continue;
+      final hit = clip == null ? full : full.intersect(clip);
+      if (hit.width <= 1 || hit.height <= 1) continue;
+      targets.add(NativeMenuTarget(
+        id: layer,
+        title: layer,
+        rect: hit,
+        cornerRadius: 4,
+        groups: _menuFor(layer),
+      ));
+    }
+    final payload = jsonEncode([for (final t in targets) t.toMap()]);
+    if (payload == _lastPayload) return;
+    _lastPayload = payload;
+    NativeMenu.setTargets(NativeMenu.kLayers, targets);
+  }
+
+  void _onMenuSelection(String layer, String item) {
+    if (!mounted) return;
+    final app = widget.app;
+    switch (item) {
+      case 'edit':
+        app.enterEdit(layer);
+        break;
+      case 'visible':
+        app.toggleLayerVisible(layer);
+        break;
+      case 'lock':
+        app.toggleLayerLocked(layer);
+        break;
+      case 'rename':
+        _promptRename(layer);
+        break;
+      case 'move':
+        app.moveSelectionToLayer(layer);
+        break;
+      case 'delete':
+        _confirmDelete(layer);
+        break;
+    }
+  }
+
   void _closeCtx() {
     _ctx?.remove();
     _ctx = null;
@@ -30,6 +155,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
   @override
   void dispose() {
     _closeCtx();
+    NativeMenu.setSelectionHandler(NativeMenu.kLayers, null);
+    NativeMenu.setTargets(NativeMenu.kLayers, const []);
     super.dispose();
   }
 
@@ -111,39 +238,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
   }
 
   Future<void> _promptRename(String layer) async {
-    final ctrl = TextEditingController(text: layer);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF292D33),
-        title: Text('Rename layer', style: ts(14, T.mbText)),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          style: ts(13, Colors.white),
-          cursorColor: T.blue,
-          decoration: InputDecoration(
-            hintText: 'Layer name',
-            hintStyle: ts(13, T.mbDim),
-            enabledBorder:
-                const UnderlineInputBorder(borderSide: BorderSide(color: T.sep)),
-            focusedBorder:
-                const UnderlineInputBorder(borderSide: BorderSide(color: T.blue)),
-          ),
-          onSubmitted: (v) => Navigator.of(ctx).pop(v),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text('Cancel', style: ts(13, T.mbDim))),
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(ctrl.text),
-              child: Text('Rename', style: ts(13, T.blue))),
-        ],
-      ),
+    final app = widget.app;
+    final result = await promptForText(
+      context,
+      title: 'Rename layer',
+      initialValue: layer,
+      placeholder: 'Layer name',
+      confirmLabel: 'Rename',
     );
-    ctrl.dispose();
-    if (result != null) widget.app.renameLayer(layer, result);
+    if (result != null && result.trim().isNotEmpty) {
+      app.renameLayer(layer, result);
+    }
   }
 
   Future<void> _confirmDelete(String layer) async {
@@ -151,30 +256,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final s = app.current;
     final count =
         s == null ? 0 : s.geometry.where((g) => g.layer == layer).length;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF292D33),
-        title: Text('Delete “$layer”?', style: ts(14, T.mbText)),
-        content: Text(
-          count == 0
-              ? 'This layer is empty and will be removed.'
-              : 'This removes the layer and its $count '
-                  '${count == 1 ? "entity" : "entities"}. This can’t be undone.',
-          style: ts(12.5, T.mbDim),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text('Cancel', style: ts(13, T.mbDim))),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('Delete', style: ts(13, const Color(0xFFE05A56))),
-          ),
-        ],
-      ),
+    final ok = await confirmAction(
+      context,
+      title: 'Delete “$layer”?',
+      message: count == 0
+          ? 'This layer is empty and will be removed.'
+          : 'This removes the layer and its $count '
+              '${count == 1 ? "entity" : "entities"}. This can’t be undone.',
+      confirmLabel: 'Delete',
     );
-    if (ok == true) widget.app.deleteLayer(layer);
+    if (ok) app.deleteLayer(layer);
   }
 
   Widget _ctxItem(String label, VoidCallback onTap, {bool danger = false}) {
@@ -185,6 +276,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
   Widget build(BuildContext context) {
     final app = widget.app;
     final s = app.current;
+    // Layers appear, vanish and get renamed without this widget remounting.
+    _schedulePush();
     return Container(
       width: 300,
       decoration: const BoxDecoration(
@@ -229,7 +322,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ),
         // tree
         Expanded(
-          child: ListView(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (_) {
+              _schedulePush();
+              return false;
+            },
+            child: ListView(
+            key: _treeKey,
             padding: const EdgeInsets.symmetric(vertical: 5),
             children: [
               _row(
@@ -261,6 +360,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
               _row(indent: 8, exp: ' ', icon: endOfSketchIcon, label: 'End of Sketch'),
             ],
           ),
+          ),
         ),
       ]),
     );
@@ -269,6 +369,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   Widget _layerRow(AppState app, String layer) {
     final active = app.editingLayer == layer;
     return Listener(
+      key: _keyFor(layer),
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {

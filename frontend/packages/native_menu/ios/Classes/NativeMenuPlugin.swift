@@ -75,6 +75,59 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             syncInteraction()
             result(true)
 
+        case "prompt":
+            // .alert style is modal on every device — unlike an action sheet it
+            // needs NO popover anchor.
+            let alert = UIAlertController(
+                title: args["title"] as? String ?? "",
+                message: args["message"] as? String,
+                preferredStyle: .alert)
+            alert.addTextField { field in
+                field.text = args["initialValue"] as? String ?? ""
+                field.placeholder = args["placeholder"] as? String ?? ""
+                field.clearButtonMode = .whileEditing
+                field.autocapitalizationType = .words
+                field.autocorrectionType = .no
+                field.returnKeyType = .done
+            }
+            // A FlutterResult must fire exactly once; two taps or a failed
+            // presentation would otherwise either leak or crash the engine.
+            var answered = false
+            let reply: (Any?) -> Void = { value in
+                if answered { return }
+                answered = true
+                result(value)
+            }
+            alert.addAction(UIAlertAction(
+                title: args["cancelLabel"] as? String ?? "Cancel",
+                style: .cancel) { _ in reply(nil) })
+            alert.addAction(UIAlertAction(
+                title: args["confirmLabel"] as? String ?? "OK",
+                style: .default) { [weak alert] _ in
+                    reply(alert?.textFields?.first?.text ?? "")
+                })
+            if !presentModal(alert) { reply(nil) }
+
+        case "confirm":
+            let alert = UIAlertController(
+                title: args["title"] as? String ?? "",
+                message: args["message"] as? String,
+                preferredStyle: .alert)
+            var answered = false
+            let reply: (Bool) -> Void = { value in
+                if answered { return }
+                answered = true
+                result(value)
+            }
+            let destructive = (args["destructive"] as? NSNumber)?.boolValue ?? true
+            alert.addAction(UIAlertAction(
+                title: args["cancelLabel"] as? String ?? "Cancel",
+                style: .cancel) { _ in reply(false) })
+            alert.addAction(UIAlertAction(
+                title: args["confirmLabel"] as? String ?? "OK",
+                style: destructive ? .destructive : .default) { _ in reply(true) })
+            if !presentModal(alert) { reply(false) }
+
         case "share":
             guard let path = args["path"] as? String,
                   FileManager.default.fileExists(atPath: path) else {
@@ -163,6 +216,18 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             top = presented
         }
         top.present(vc, animated: true, completion: nil)
+    }
+
+    /// Presents something that does NOT need a popover anchor (alerts).
+    /// Returns false when there is nothing to present from.
+    @discardableResult
+    private func presentModal(_ vc: UIViewController) -> Bool {
+        guard var top = NativeMenuPlugin.keyRootViewController() else { return false }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        top.present(vc, animated: true, completion: nil)
+        return true
     }
 
     private static func keyRootViewController() -> UIViewController? {

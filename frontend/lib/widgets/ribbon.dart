@@ -354,6 +354,11 @@ class _RibbonState extends State<Ribbon> {
               cornerDd: true,
               onTap: app.startNewLayer),
         ),
+        // Outside layer edit mode there is NOTHING to do with these: every
+        // drawing/modify/constrain tool refuses to run off the edit scope
+        // (M16/M17), so showing them was offering buttons that silently did
+        // nothing. Only "Start New Layer" — the way IN — stays visible.
+        if (app.inEditMode) ...[
         // 2. Create
         _panel(
           label: 'Create',
@@ -518,6 +523,7 @@ class _RibbonState extends State<Ribbon> {
             _modCol(['mscale', 'stretch', 'moffset'], ['Scale', 'Stretch', 'Offset']),
           ]),
         ),
+        ],
         // Exit panel (only in layer edit mode), pinned to the right in spirit;
         // in a scrolling ribbon it follows Modify like #panel-exit.on does.
         if (app.inEditMode)

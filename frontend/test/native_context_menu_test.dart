@@ -97,6 +97,13 @@ void main() {
       expect(item['destructive'], true);
     });
 
+    test('ids travel scope-prefixed so a selection can be routed back', () {
+      final t = NativeMenuTarget(
+          id: 'Layer 1', rect: Rect.fromLTWH(0, 0, 2, 2), groups: const []);
+      expect(t.toMap()['id'], 'Layer 1', reason: 'no prefix by default');
+      expect(t.toMap(idPrefix: 'layers\u0001')['id'], 'layers\u0001Layer 1');
+    });
+
     test('previewRect defaults to rect when omitted', () {
       final t = NativeMenuTarget(
           id: 'x', rect: Rect.fromLTWH(0, 0, 5, 6), groups: []);
@@ -108,13 +115,17 @@ void main() {
     test('isSupported is false and no call throws', () async {
       expect(NativeMenu.isSupported, isFalse);
       // Would raise MissingPluginException if the guard were ever removed.
-      await NativeMenu.setTargets([
+      await NativeMenu.setTargets(NativeMenu.kGallery, [
         NativeMenuTarget(id: 'a', rect: Rect.fromLTWH(0, 0, 1, 1), groups: [])
       ]);
       expect(await NativeMenu.shareFile('/nope', anchor: Rect.zero), isFalse);
       expect(await NativeMenu.exportFile('/nope', anchor: Rect.zero), isFalse);
-      NativeMenu.setSelectionHandler((_, __) {});
-      NativeMenu.setSelectionHandler(null);
+      expect(await NativeMenu.promptText(title: 'x'), isNull);
+      expect(
+          await NativeMenu.confirm(title: 'x', confirmLabel: 'y'), isFalse);
+      NativeMenu.setSelectionHandler(NativeMenu.kGallery, (_, __) {});
+      NativeMenu.setSelectionHandler(NativeMenu.kGallery, null);
+      NativeMenu.resetForTest();
     });
   });
 

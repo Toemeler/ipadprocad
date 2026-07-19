@@ -33,8 +33,10 @@ void main() {
     expect(app.saved, isEmpty);
     await pumpHome(t, app);
 
-    // Empty-state prompt is visible.
-    expect(find.text('No sketches yet'), findsOneWidget);
+    // Empty state is ONE line of text and nothing else — the cube glyph and
+    // the "No sketches yet" heading were decoration.
+    expect(find.text('Tap  +  to create a new sketch'), findsOneWidget);
+    expect(find.text('No sketches yet'), findsNothing);
     // None of the old design-dummy names leak through.
     for (final name in const [
       'Bracket_v2',
@@ -68,16 +70,58 @@ void main() {
     expect(app.openTabs, contains('Bracket_v2'));
   });
 
-  testWidgets('plus button creates a new sketch', (t) async {
+  testWidgets('plus button asks for a name before creating anything',
+      (t) async {
     final app = makeApp();
     await pumpHome(t, app);
     expect(app.openTabs, isEmpty);
 
     await t.tap(find.byIcon(Icons.add));
-    await t.pump();
+    await t.pumpAndSettle();
+
+    // Nothing exists yet — the prompt comes FIRST.
+    expect(find.text('New sketch'), findsOneWidget);
+    expect(app.openTabs, isEmpty);
+    // Pre-filled with the next free name so Create alone is enough.
+    expect(find.text(app.suggestedSketchName()), findsOneWidget);
+
+    await t.enterText(find.byType(TextField), 'Bracket');
+    await t.tap(find.text('Create'));
+    await t.pumpAndSettle();
 
     expect(app.isHome, isFalse);
-    expect(app.openTabs, hasLength(1));
-    expect(app.curTab, isNotNull);
+    expect(app.curTab, 'Bracket');
+    // ...and we land INSIDE a fresh layer, ready to draw.
+    expect(app.inEditMode, isTrue);
+    expect(app.editingLayer, isNotNull);
+  });
+
+  testWidgets('cancelling the name prompt creates nothing', (t) async {
+    final app = makeApp();
+    await pumpHome(t, app);
+
+    await t.tap(find.byIcon(Icons.add));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Cancel'));
+    await t.pumpAndSettle();
+
+    expect(app.openTabs, isEmpty);
+    expect(app.isHome, isTrue);
+  });
+
+  testWidgets('the name prompt refuses a name that is already taken',
+      (t) async {
+    final app = makeApp();
+    await app.createNamedSketch('Taken');
+    app.goHome();
+    await pumpHome(t, app);
+
+    await t.tap(find.byIcon(Icons.add));
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField), 'Taken');
+    await t.tap(find.text('Create'));
+    await t.pumpAndSettle();
+
+    expect(find.text('A sketch with that name already exists'), findsOneWidget);
   });
 }

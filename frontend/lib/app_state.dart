@@ -803,6 +803,29 @@ class AppState extends ChangeNotifier {
     openSketch(name);
   }
 
+  /// Next free "SketchN" — the value the new-sketch prompt starts with, so the
+  /// user can just hit Create.
+  String suggestedSketchName() {
+    var n = _newN + 1;
+    while (sketchNameExists('Sketch$n')) {
+      n++;
+    }
+    return 'Sketch$n';
+  }
+
+  /// Creates [name], opens it, and drops STRAIGHT into a fresh layer in edit
+  /// mode — an empty sketch with no layer can do nothing at all (drawing tools
+  /// refuse outside the edit scope, M16), so landing there was always a dead
+  /// end the user had to click out of.
+  Future<bool> createNamedSketch(String name) async {
+    final clean = name.trim();
+    if (validateSketchName(clean) != null) return false;
+    if (sketchNameExists(clean)) return false;
+    await openSketch(clean);
+    startNewLayer(); // -> enterEdit()
+    return true;
+  }
+
   Future<void> closeTab(String name) async {
     await saveSketch(name);
     openTabs.remove(name);
