@@ -16,9 +16,9 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **Stand dieser Session (Kopf = commit `05727ec` + M46):** letzte Arbeiten
-> M41–M46, alle host-getestet (**214 Tests gruen**, `flutter analyze` ohne
-> neue Issues). Kurz:
+> **Stand dieser Session (Kopf = commit `05727ec` + M46 + M47):** letzte
+> Arbeiten M41–M47, alle host-getestet (**222 Tests gruen**, `flutter analyze`
+> ohne neue Issues). Kurz:
 > - **M41** Inventor-Parameter/Ausdruecke im Bemassungs-Edit-Feld (d0/d1,
 >   Formeln, Referenzen, fx:-Anzeige).
 > - **M42** Hover-Highlight auf Bemassungs-Labels; ausserhalb des
@@ -32,10 +32,23 @@ Token NIE in Dateien/.git/config schreiben.
 >   Bounding-Rect mit Ecken-Snap-Punkten.
 > - **M46** Tastenkuerzel werden unterdrueckt, waehrend ein Textfeld
 >   (Parameters/Text/Inline-Bemassung) getippt wird.
+> - **M47** Direkter Body-Drag: Linie/Kreis/Bogen/Polylinie/Spline/Ellipse am
+>   KOERPER (nicht nur am Punkt-Griff) starr verschieben; angebundene Geometrie
+>   folgt ueber die Constraints. Eingebettet in die Griff-Zug-Maschinerie
+>   (`Grip.body`-Sentinel in `dragGrip`, neue `translateGeo`, Body-Drag meldet
+>   ALLE Entity-Punkte als `dragged`). Voll gebundene Geometrie ist gesperrt
+>   (faellt auf Box-Select zurueck), Projektionen/Fremd-Layer nicht ziehbar,
+>   Begin lazy beim ersten Move (Tap waehlt weiter aus, kein No-Op-Rebuild),
+>   kein Snapping (reine Translation). `m47_body_drag_test.dart` (8 Tests).
 >
 > **Offene Punkte fuer die naechste Session:**
-> - Geraete-Test von M41–M46 steht aus (Host-Tests gruen, IPA aus Run
->   `05727ec` ziehen und auf dem iPad pruefen).
+> - Geraete-Test von M41–M47 steht aus (Host-Tests gruen, IPA aus Run
+>   `05727ec`/spaeter ziehen und auf dem iPad pruefen). Fuer M47 auf dem Geraet
+>   pruefen: Body-Drag fuehlt sich per Pencil/Finger fluessig an, die
+>   Tap-vs-Drag-Trennung (Greifpunkt-Toleranz `_gripPx`=12 px) stimmt, und der
+>   Zug an einer angebundenen Linie fuehrt die Nachbargeometrie erwartungsgemaess
+>   nach (natives libslvs = weicher Wunsch, waehrend der Host-LM-Pfad ALLE
+>   Entity-Punkte hart friert — auf dem Geraet also potenziell "weicher").
 > - Text-Bounding-Rect ist ein Painter-Overlay mit Snap-Punkten, KEINE echte
 >   Solver-Geometrie (siehe M45): an die Ecken kann man bemaßen, die Kanten
 >   sind aber keine selektierbaren, constrainbaren Entities. Volle

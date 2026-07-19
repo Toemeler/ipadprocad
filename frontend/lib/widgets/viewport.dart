@@ -187,9 +187,14 @@ class _Viewport2DState extends State<Viewport2D> {
     _tapNoTool(local, _toWorld(local, size));
   }
 
-  String _gesture = 'none'; // none|panzoom|grip|box
+  String _gesture = 'none'; // none|panzoom|grip|box|body|text|imgmove|imgresize
   double _scaleStartZoom = 1;
   Offset? _boxStartW;
+
+  // M47: whole-entity body drag (grab the line/curve itself, not a grip point).
+  int? _bodyEnt; // entity picked for a body drag
+  Offset? _bodyAnchorW; // world point the finger grabbed
+  bool _bodyStarted = false; // deferred begin: true once the drag actually ran
 
   /// Applies object snapping to a world point and publishes the marker.
   Offset _snapped(Offset w, {Offset? exclude}) {
@@ -374,6 +379,45 @@ class _Viewport2DState extends State<Viewport2D> {
           return;
         }
       }
+      // M47: DIRECT BODY DRAG — grab a line/circle/arc/polyline/spline/ellipse
+      // by its BODY (not a grip point) and translate the whole entity. Only
+      // editable, visible, non-projected geometry with at least one still-free
+      // defining point qualifies (fully-constrained geometry is locked, like
+      // Inventor); everything else falls through to box select. The actual drag
+      // begins LAZILY on the first move (see _scaleUpdate) so a plain tap on a
+      // line still selects it without a no-op rebuild. Reuses the `free` set
+      // resolved above (freePoints of the current analysis, null = not run yet).
+      var bodyI = -1;
+      var bodyD = _gripPx / app.zoom;
+      for (var i = 0; i < s.geometry.length; i++) {
+        final g = s.geometry[i];
+        if (!app.geoEditable(g) || !app.geoVisible(g)) continue;
+        if (g.isProjection) continue; // projections are pinned reference geo
+        var anyFree = free == null;
+        if (free != null) {
+          for (var p = 0; p < ptCount(g); p++) {
+            if (free.contains((i, p))) {
+              anyFree = true;
+              break;
+            }
+          }
+        }
+        if (!anyFree) continue;
+        final dd = distToEntity(g, w);
+        if (dd < bodyD) {
+          bodyD = dd;
+          bodyI = i;
+        }
+      }
+      if (bodyI >= 0) {
+        _gesture = 'body';
+        _bodyEnt = bodyI;
+        _bodyAnchorW = w;
+        _bodyStarted = false;
+        Log.d('gesture',
+            'body-drag candidate e$bodyI (d=${bodyD.toStringAsFixed(2)})');
+        return;
+      }
     }
     _gesture = 'box';
     _boxStartW = w;
@@ -382,8 +426,12 @@ class _Viewport2DState extends State<Viewport2D> {
   void _scaleUpdate(ScaleUpdateDetails d, Size size) {
     final app = widget.app;
     if (d.pointerCount >= 2 && _gesture != 'panzoom') {
-      // second finger arrived: abort grip/box, switch to pan/zoom
+      // second finger arrived: abort grip/body/box, switch to pan/zoom
       if (_gesture == 'grip') app.endGripDrag();
+      if (_gesture == 'body' && _bodyStarted) {
+        app.endGripDrag();
+        _bodyStarted = false;
+      }
       if (_gesture == 'box') app.boxSelectFinish();
       _gesture = 'panzoom';
     }
@@ -418,6 +466,19 @@ class _Viewport2DState extends State<Viewport2D> {
         final w = _toWorld(d.localFocalPoint, size);
         app.updateGripDrag(
             _snapped(w, exclude: app.dragGrip?.pos));
+        break;
+      case 'body':
+        // Defer the actual begin to the first move: a stationary press becomes
+        // a tap (→ select via the Listener) and must not start a rebuild. No
+        // snapping — a body drag is a pure translation that follows the finger
+        // exactly (snapping the arbitrary grab point to a vertex would make the
+        // whole entity lurch).
+        final cursor = _toWorld(d.localFocalPoint, size);
+        if (!_bodyStarted && _bodyEnt != null && _bodyAnchorW != null) {
+          app.beginBodyDrag(_bodyEnt!, _bodyAnchorW!);
+          _bodyStarted = true;
+        }
+        if (_bodyStarted) app.updateGripDrag(cursor);
         break;
       case 'box':
         app.boxSelectUpdate(_boxStartW!, _toWorld(d.localFocalPoint, size));
@@ -650,6 +711,15 @@ class _Viewport2DState extends State<Viewport2D> {
     switch (_gesture) {
       case 'grip':
         app.endGripDrag();
+        break;
+      case 'body':
+        // Commit only if the drag actually ran (a plain tap never began one —
+        // see the 'body' case in _scaleUpdate); endGripDrag is a no-op anyway
+        // when dragGrip is null, but this also avoids a stray settle.
+        if (_bodyStarted) app.endGripDrag();
+        _bodyEnt = null;
+        _bodyAnchorW = null;
+        _bodyStarted = false;
         break;
       case 'box':
         app.boxSelectFinish();

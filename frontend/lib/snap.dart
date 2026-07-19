@@ -197,11 +197,25 @@ bool _angleOnArc(double a, double a1, double a2, bool reversed) {
 // grips (draggable sketch points)
 // ---------------------------------------------------------------------------
 class Grip {
+  /// Sentinel [idx] for a whole-entity (BODY) drag — the finger grabbed the
+  /// line/curve itself instead of one of its defining points, so the entity
+  /// translates rigidly. A body grip is never produced by [gripsOf]; it only
+  /// ever lives in AppState.dragGrip while a body drag is in progress.
+  static const bodyIdx = -1;
+
   final int entity; // index into geometry list
   final int idx; // meaning depends on entity type
   final Offset pos;
-  final String kind; // end|center|vertex|radius
+  final String kind; // end|center|vertex|radius|body
   const Grip(this.entity, this.idx, this.pos, this.kind);
+
+  /// A whole-entity (body) drag anchored at [pos] — the world point the finger
+  /// grabbed. Each frame the entity is translated by (cursor - pos).
+  const Grip.body(this.entity, this.pos)
+      : idx = bodyIdx,
+        kind = 'body';
+
+  bool get isBody => kind == 'body';
 }
 
 List<Grip> gripsOf(List<Geo> geos) {
@@ -241,8 +255,45 @@ List<Grip> gripsOf(List<Geo> geos) {
   return out;
 }
 
+/// Rigidly translates [g] by [delta] — every defining point shifts equally, so
+/// the entity keeps its shape and only moves. Used by the whole-entity body
+/// drag. Keeps the layer / spline tag / line style (goes through withData).
+Geo translateGeo(Geo g, Offset delta) {
+  final d = List<double>.from(g.data);
+  switch (g.type) {
+    case Geo.line:
+      d[0] += delta.dx;
+      d[1] += delta.dy;
+      d[2] += delta.dx;
+      d[3] += delta.dy;
+      break;
+    case Geo.circle:
+    case Geo.arc:
+      // Only the CENTER moves; radius and (for arcs) both angles are unchanged,
+      // so the endpoints ride along with the center — a rigid translation.
+      d[0] += delta.dx;
+      d[1] += delta.dy;
+      break;
+    case Geo.polyline:
+      // Every vertex shifts by the same delta. This covers plain polylines,
+      // CV/fit splines and the 3-point ellipse (whose 3 defining points all
+      // translate together).
+      final n = d[1].toInt();
+      for (var i = 0; i < n; i++) {
+        d[2 + 2 * i] += delta.dx;
+        d[3 + 2 * i] += delta.dy;
+      }
+      break;
+  }
+  return g.withData(d); // KEEPS the layer / spline tag / style
+}
+
 /// Returns [g] with [grip] moved to [to].
 Geo moveGrip(Geo g, Grip grip, Offset to) {
+  // Whole-entity (body) drag: translate everything by (cursor - grab point).
+  // This sits ABOVE the per-grip cases because a body grip carries the sentinel
+  // idx, not a real point index.
+  if (grip.isBody) return translateGeo(g, to - grip.pos);
   final d = List<double>.from(g.data);
   switch (g.type) {
     case Geo.line:

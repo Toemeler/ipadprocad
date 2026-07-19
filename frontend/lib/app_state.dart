@@ -1029,8 +1029,14 @@ class AppState extends ChangeNotifier {
         return s.geometry;
       }
 
+      // A body drag translates the WHOLE entity: every defining point is a
+      // drag wish, so the entity moves rigidly (the solver still bends only as
+      // far as the constraints allow). A point drag wishes on that one point.
+      final dragged = grip.isBody
+          ? {for (var p = 0; p < ptCount(before); p++) (grip.entity, p)}
+          : {(grip.entity, grip.idx)};
       final ok = solveConstraints(gs, s.constraints,
-          dragged: {(grip.entity, grip.idx)}, iterations: 25);
+          dragged: dragged, iterations: 25);
 
       if (!allFinite(gs)) {
         Log.e('drag', 'display geometry NON-FINITE after solve — '
@@ -1155,6 +1161,48 @@ class AppState extends ChangeNotifier {
     }
     dragGrip = g;
     dragPos = g.pos;
+    _lastGoodDragGeo = null;
+    notifyListeners();
+  }
+
+  // M47: whole-entity BODY drag ---------------------------------------------
+  /// Starts a body drag: the finger grabbed the line/curve itself at [atWorld]
+  /// (not a grip point), and the entity translates rigidly as the cursor moves.
+  /// Reuses the grip-drag machinery — a body-grip sentinel in [dragGrip], the
+  /// same [displayGeometry] preview and the same [endGripDrag] commit — so the
+  /// painter, snapping and undo all behave exactly as for a point drag.
+  ///
+  /// Refuses (like a fully-constrained point grip) when the entity has NO
+  /// remaining freedom: it is rigidly placed and a drag would only snap back,
+  /// so the caller falls through to selection instead. [dragGrip] stays null in
+  /// that case, which makes the subsequent update/end calls no-ops.
+  void beginBodyDrag(int entity, Offset atWorld) {
+    final s0 = current;
+    if (s0 == null || entity < 0 || entity >= s0.geometry.length) return;
+    for (final k in const [
+      'drag-frame', 'solve', 'lm-ok', 'lm-fail',
+      'slvs-ok', 'slvs-verify', 'slvs-bail'
+    ]) {
+      Log.resetThrottle(k);
+    }
+    final geo = s0.geometry[entity];
+    Log.i('drag', 'BEGIN body ${geoStr(entity, geo)}');
+    final a = analysis;
+    if (a != null) {
+      var anyFree = false;
+      for (var p = 0; p < ptCount(geo); p++) {
+        if (a.freePoints.contains((entity, p))) {
+          anyFree = true;
+          break;
+        }
+      }
+      if (!anyFree) {
+        Log.i('drag', 'REFUSED body drag: entity $entity is fully constrained');
+        return;
+      }
+    }
+    dragGrip = Grip.body(entity, atWorld);
+    dragPos = atWorld;
     _lastGoodDragGeo = null;
     notifyListeners();
   }

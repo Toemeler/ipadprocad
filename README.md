@@ -49,6 +49,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M44** Insert: parametrischer Text (Template mit `<Param>`-Platzhaltern, folgt Wert + Rename), Bild-Import (iOS-Filepicker, Underlay, verschieb-/skalierbar) und DXF-Import (Insert > ACAD, Merge auf Editier-Layer als ein Undo-Schritt) | ✅ erledigt; Geräte-Test → M45-Fixes |
 | **M45** Insert-Fixes + Text: Bild-Resize-Griff korrigiert, Bilder tragen Layer (ausserhalb gedimmt/grau), Insert am Cursor mit halber Ansichtsbreite, DXF re-zentriert auf Ursprung; verschiebbares Text-Fenster mit Font/Größe + Klick-Referenz (`"d0"`), auto-großes Construction-Bounding-Rect (nur im Editiermodus) mit Ecken als Snap-Punkte zum Bemaßen | ✅ erledigt; Geräte-Test → M46 |
 | **M46** Tastenkürzel (l, c, r, d, s, Ctrl+Z …) werden unterdrückt, während das Parameters- oder Text-Fenster bzw. das Inline-Bemaßungsfeld getippt wird — die Buchstaben landen im Textfeld statt ein Werkzeug zu starten | ✅ erledigt, 214 Host-Tests grün (Geräte-Test offen) |
+| **M47** Direktes Ziehen des ENTITY-KÖRPERS: im Layer-Editiermodus zieht ein Griff auf die Linie/Kreis/Bogen/Polylinie/Spline/Ellipse SELBST (nicht nur auf einen Punkt-Griff) die ganze Entität starr mit, angebundene Geometrie folgt über die Constraints; voll gebundene Geometrie ist gesperrt (fällt auf Box-Select zurück), Tap wählt weiterhin aus | ✅ erledigt, 222 Host-Tests grün (Geräte-Test offen) |
 
 ### Auto-Constraints, Fillet/Chamfer, constraint-erhaltendes Trim (M36)
 
@@ -845,3 +846,50 @@ Cap-Zentren jetzt automatisch als Construction-Linie, koinzident gebunden —
 rank-gemessen redundanzfrei, Slot behält 5 DOF. Nebenbei gefixt: Trim/Move/
 Rotate/Mirror/Stretch/Offset warfen den Linienstil (auch Centerlines!) still
 weg — `_carry` trägt ihn jetzt immer mit. Suite: **179 Tests grün**.
+
+## M47 — Direktes Ziehen des Entity-Körpers (Body-Drag)
+
+Bisher ließen sich im Layer-Editiermodus nur PUNKT-Griffe ziehen (Endpunkte,
+Zentren, Vertices). Jetzt kann man eine Linie, einen Kreis, einen Bogen, eine
+Polylinie, eine Spline oder eine Ellipse direkt am KÖRPER anfassen und die
+ganze Entität starr verschieben — genau wie in Inventor, wo ein Zug an der
+Linie selbst (nicht an einem Griff) das Element translatiert und der Solver
+angebundene Geometrie nachführt.
+
+**Wie es funktioniert.** Der Body-Drag ist bewusst in die bestehende
+Griff-Zug-Maschinerie eingebettet statt als paralleler Pfad: ein
+Body-Griff-Sentinel (`Grip.body`, `idx = -1`, `kind = 'body'`) landet in
+`AppState.dragGrip`, sodass `displayGeometry`-Vorschau, Painter,
+Snap-Marker und der `endGripDrag`-Commit (Settle + `normalizeArcAngles` +
+atomarer Rebuild) unverändert greifen. Neu ist nur:
+`translateGeo(g, delta)` verschiebt jede Entität starr (Linie: beide
+Endpunkte; Kreis/Bogen: Zentrum, Radius/Winkel bleiben → Endpunkte reiten
+mit; Polylinie/Spline/Ellipse: alle Vertices), und `displayGeometry` meldet
+beim Body-Drag ALLE Punkte der Entität als Drag-Wunsch an den Solver
+(`dragged`-Set), sodass das Element rigide zieht, während angebundene
+Geometrie über die Constraints folgt.
+
+**Inventor-Semantik + Sicherheitsnetz.**
+- Eine voll gebundene Entität (kein freier Punkt in `analysis.freePoints`)
+  wird NICHT gezogen — sie ist starr platziert und würde nur zurückschnappen;
+  die Geste fällt sauber auf Box-Select zurück (`beginBodyDrag` verweigert als
+  zweite Verteidigungslinie, `dragGrip` bleibt null → Update/End sind No-Ops).
+- Projektionen (gepinnte Referenzgeometrie) und Fremd-Layer sind nicht
+  körper-ziehbar (dieselbe Scope-Regel wie Griffe/Selektion).
+- Der eigentliche Zug beginnt LAZY beim ersten Move: ein stationärer Druck
+  bleibt ein Tap (→ Selektion über den Listener) und löst KEINEN Rebuild/
+  Undo-Schritt aus. Ein echter Zug (> Slop) unterdrückt umgekehrt den
+  Tap-Select. Ein zweiter Finger bricht den Body-Drag ab (Pan/Zoom).
+- Kein Snapping während des Body-Drags: eine reine Translation folgt dem
+  Finger exakt (der beliebige Greifpunkt auf einen Vertex zu snappen ließe die
+  ganze Entität springen).
+
+Jeder gezeigte Frame erfüllt dieselben Invarianten wie der Punkt-Drag (finite,
+nicht degeneriert, Constraints erfüllt — sonst wird die letzte gültige Lage
+gehalten), und die committete Skizze ist erfüllt.
+
+**Tests:** `m47_body_drag_test.dart` (8): `translateGeo` starr pro Typ
+(Linie/Kreis/Bogen/Polylinie+Spline, Layer-/Spline-Tag erhalten); freie Linie
+translatiert um das Drag-Delta; Kreis verschiebt Zentrum, Radius bleibt; voll
+gebundene Linie verweigert den Body-Drag; angebundene Linien führen den
+gemeinsamen Endpunkt nach (Constraint-erhaltend). Suite: **222 grün**.
