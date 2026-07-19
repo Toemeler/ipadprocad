@@ -412,9 +412,47 @@ jobs:
   # ---------------------------------------------------------------------------
   m5-flutter-ipa:
     name: M5 Flutter iOS build + unsigned IPA
-    runs-on: macos-14
+    # macos-26 (Tahoe, Xcode 26.x) — NOT cosmetic and NOT optional:
+    #
+    #  1. The native context menu is a real UIMenu, so its APPEARANCE comes
+    #     from the SDK the app is linked against, not from our code. Built
+    #     against the iOS 17 SDK on macos-14 it renders in pre-26 compatibility
+    #     styling; rebuilt against the iOS 26 SDK the system components adopt
+    #     Liquid Glass automatically, with no code change.
+    #  2. macos-14 images entered deprecation on 2026-07-06 and are fully
+    #     unsupported from 2026-11-02. This migration is forced regardless.
+    #
+    # Both labels are arm64, so no host architecture changes. Deployment target
+    # stays 14.0 (Xcode 26 accepts >= 12.0 despite documenting 15; Qt-iOS needs
+    # >= 14.0). Xcode 27 will raise that floor to 15.0 — bump it then.
+    #
+    # RISK / REVERT: the unknown is Qt 6.7 + the Xcode 26 toolchain building
+    # qcad-core. If this job fails at "Configure/Build (iOS target)" while the
+    # Flutter steps are fine, revert THIS LINE to macos-14 — the feature commit
+    # is independent and needs no runner change. If Qt is the only casualty,
+    # the clean fix is to split: build core+slvs on macos-15, upload them as
+    # artifacts, and link the IPA here (old .a files link fine with a newer ld).
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # Print the toolchain FIRST: this is the single line that tells us
+      # whether the IPA can carry the iOS 26 appearance at all, and it makes a
+      # runner-image change obvious at the top of the log instead of halfway
+      # down a linker error.
+      - name: Toolchain / SDK report
+        run: |
+          set -o pipefail
+          sw_vers
+          xcodebuild -version
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          MAJOR="$(xcrun --sdk iphoneos --show-sdk-version | cut -d. -f1)"
+          if [ "${MAJOR:-0}" -ge 26 ]; then
+            echo "LIQUID GLASS CHECK: PASS (building against iOS SDK $MAJOR)"
+          else
+            echo "LIQUID GLASS CHECK: WARN (iOS SDK $MAJOR < 26 — the context"
+            echo "menu will still be a real UIMenu, but in legacy styling)"
+          fi
 
       - name: Install Qt6 (host, for tools)
         uses: jurplel/install-qt-action@v4
