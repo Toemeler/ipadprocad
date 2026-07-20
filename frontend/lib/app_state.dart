@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'constraints.dart';
 import 'diag.dart';
 import 'ffi/qcad_engine.dart';
+import 'hud.dart';
 import 'log.dart';
 import 'modify.dart';
 import 'params.dart';
@@ -318,6 +319,143 @@ class AppState extends ChangeNotifier {
   Tool tool = Tool.none;
   final List<Offset> toolPoints = [];
   Offset? hoverWorld;
+
+  // ---- HUD / Dynamic Input (Inventor's heads-up value boxes) ----
+  // Per-PHASE input state (reset whenever a point is placed): which locked
+  // values apply to the current phase's fields, the box the user is typing
+  // into, and the raw text buffer. See hud.dart for the field schema.
+  final Map<int, double> hudLocked = {}; // field index -> locked value
+  int hudFocus = 0; // index of the box accepting keystrokes
+  String hudInput = ''; // digits typed into the focused box (before Tab/commit)
+  // Locked values accumulated ACROSS phases, keyed by quantity, consumed at
+  // commit to emit the persistent driving dimensions.
+  final Map<HudKind, double> hudCommitDims = {};
+
+  /// Whether the HUD is live: a create tool with input fields for the current
+  /// phase, inside a sketch. (Dialog-driven tools have their own panels.)
+  bool get hudActive =>
+      inEditMode &&
+      tool != Tool.none &&
+      hudFieldsFor(tool, toolPoints.length).isNotEmpty;
+
+  /// The locks in force for the live preview: committed locks plus the value
+  /// currently being typed (so the shape follows the digits as they are keyed,
+  /// before Tab — exactly like Inventor).
+  Map<int, double> get _hudEffectiveLocks {
+    final m = Map<int, double>.from(hudLocked);
+    final typed = double.tryParse(hudInput.trim());
+    if (typed != null) m[hudFocus] = typed;
+    return m;
+  }
+
+  /// Apply the current locks to a raw cursor/click point.
+  Offset hudApply(Offset raw) =>
+      hudActive ? hudConstrain(tool, toolPoints, raw, _hudEffectiveLocks) : raw;
+
+  /// Box contents for the painter: (label, text, locked, focused, angular).
+  List<(String, String, bool, bool, bool)> hudDisplays(Offset raw) {
+    final fields = hudFieldsFor(tool, toolPoints.length);
+    final eff = hudApply(raw);
+    final out = <(String, String, bool, bool, bool)>[];
+    for (var i = 0; i < fields.length; i++) {
+      final f = fields[i];
+      final locked = hudLocked.containsKey(i);
+      final focused = i == hudFocus;
+      String text;
+      if (locked) {
+        text = _hudFmt(hudLocked[i]!, f.angular);
+      } else if (focused && hudInput.isNotEmpty) {
+        text = hudInput; // show the raw buffer with no reformatting
+      } else {
+        text = _hudFmt(hudMeasure(tool, toolPoints, eff, i), f.angular);
+      }
+      out.add((f.label, text, locked, focused, f.angular));
+    }
+    return out;
+  }
+
+  static String _hudFmt(double v, bool angular) {
+    final s = v.abs() < 1e-9 ? 0.0 : v; // kill -0
+    final r = (s * 100).roundToDouble() / 100;
+    var t = r.toStringAsFixed(2);
+    if (t.endsWith('.00')) t = t.substring(0, t.length - 3);
+    else if (t.endsWith('0')) t = t.substring(0, t.length - 1);
+    return angular ? '$t\u00B0' : t;
+  }
+
+  void _hudResetPhase() {
+    hudLocked.clear();
+    hudInput = '';
+    hudFocus = 0;
+  }
+
+  void _hudResetAll() {
+    _hudResetPhase();
+    hudCommitDims.clear();
+  }
+
+  // ---- HUD keyboard handlers (wired from the viewport) ----
+  /// A digit / '.' / '-' typed into the focused box.
+  void hudType(String ch) {
+    if (!hudActive) return;
+    if (ch == '-') {
+      // toggle sign only as the leading character
+      hudInput =
+          hudInput.startsWith('-') ? hudInput.substring(1) : '-$hudInput';
+    } else if (ch == '.') {
+      if (!hudInput.contains('.')) hudInput += hudInput.isEmpty ? '0.' : '.';
+    } else {
+      hudInput += ch;
+    }
+    notifyListeners();
+  }
+
+  void hudBackspace() {
+    if (!hudActive || hudInput.isEmpty) return;
+    hudInput = hudInput.substring(0, hudInput.length - 1);
+    notifyListeners();
+  }
+
+  /// Clears the box being typed (Esc's first job while a value is pending).
+  bool hudClearInput() {
+    if (!hudActive || hudInput.isEmpty) return false;
+    hudInput = '';
+    notifyListeners();
+    return true;
+  }
+
+  /// Tab: lock the current box (if a value is pending) and move to the next.
+  void hudTab() {
+    if (!hudActive) return;
+    final fields = hudFieldsFor(tool, toolPoints.length);
+    if (fields.isEmpty) return;
+    final typed = double.tryParse(hudInput.trim());
+    if (typed != null) hudLocked[hudFocus] = typed;
+    hudInput = '';
+    hudFocus = (hudFocus + 1) % fields.length;
+    notifyListeners();
+  }
+
+  /// Enter: lock the pending box, then place the point at the effective cursor
+  /// (the same as clicking there). Commits the shape if it completes it.
+  void hudEnter() {
+    if (!hudActive) return;
+    final typed = double.tryParse(hudInput.trim());
+    if (typed != null) hudLocked[hudFocus] = typed;
+    hudInput = '';
+    final raw = hoverWorld ?? (toolPoints.isNotEmpty ? toolPoints.last : null);
+    if (raw == null) return;
+    toolClick(raw); // routes through the HUD-aware placement below
+  }
+
+  /// Fold this phase's locked fields into [hudCommitDims] just before a point
+  /// is committed, so the final commit knows every dimension to create.
+  void _hudAccumulate() {
+    final fields = hudFieldsFor(tool, toolPoints.length);
+    hudLocked.forEach((i, v) {
+      if (i >= 0 && i < fields.length) hudCommitDims[fields[i].kind] = v;
+    });
+  }
   /// M45 — last known viewport pixel size and the last pointer position in
   /// world coords, so Insert (from the ribbon, which has no view metrics) can
   /// place content AT THE CURSOR and size it relative to the current view.
@@ -1604,6 +1742,7 @@ class AppState extends ChangeNotifier {
     }
     tool = t;
     toolPoints.clear();
+    _hudResetAll();
     // Pattern tools open their modeless dialog (M35). The current selection
     // seeds the Geometry pick set — Inventor pre-fills it the same way.
     if (patternTools.contains(t)) {
@@ -1702,6 +1841,7 @@ class AppState extends ChangeNotifier {
     conEntClicks.clear();
     conEdges.clear();
     modEntity = null;
+    _hudResetAll();
     if (tool != Tool.none && hadPicks) {
       notifyListeners(); // command stays active for the next chain
       return;
@@ -1758,6 +1898,17 @@ class AppState extends ChangeNotifier {
       _dimensionClick(s, w);
       notifyListeners();
       return;
+    }
+    // HUD / Dynamic Input: fold any typed value into a lock, record this
+    // phase's locked quantities for the commit-time dimensions, snap the point
+    // to honour the locks, then clear the per-phase input for the next point.
+    if (hudActive) {
+      final typed = double.tryParse(hudInput.trim());
+      if (typed != null) hudLocked[hudFocus] = typed;
+      hudInput = '';
+      _hudAccumulate();
+      w = hudApply(w);
+      _hudResetPhase();
     }
     final meta = toolMeta[tool];
     // Variable tools (splines): clicking back on the START point closes the
@@ -4426,6 +4577,24 @@ class AppState extends ChangeNotifier {
           placed[0].spline == Geo.ellipseTag) {
         _addEllipseAxes(s, gs, firstNew, layer);
       }
+      // HUD / Dynamic Input: the values the user TYPED while drawing become
+      // persistent driving dimensions (Inventor's "persistent dimensions").
+      // Fields left cursor-driven emit nothing. Added before the solve so they
+      // size the geometry; a dimension that would overconstrain is demoted to a
+      // reference (driven) dimension, and a geometric relation that would is
+      // dropped — Inventor's own auto-fallbacks.
+      if (hudCommitDims.isNotEmpty) {
+        for (final d in _hudBuildDims(gs, firstNew, placed.length)) {
+          final over = wouldOverconstrain(gs, s.constraints, d);
+          if (d.type == CType.dimension) {
+            if (over) d.driven = true;
+            ensureParamName(s, d);
+            s.constraints.add(d);
+          } else if (!over) {
+            s.constraints.add(d);
+          }
+        }
+      }
       // Constructions place their geometry ALREADY satisfying their auto-
       // constraints (residual ~1e-14), so this solve is a formality that tidies
       // last-digit noise. If it ever reports failure (a genuine bug upstream),
@@ -4442,6 +4611,7 @@ class AppState extends ChangeNotifier {
         _rebuildEngine(s, gs);
       }
     }
+    _hudResetAll(); // per-shape HUD state does not carry into the next shape
     // CAD-style chaining for plain lines: next line starts at the endpoint
     if (tool == Tool.line && toolPoints.length >= 2) {
       final last = toolPoints.last;
@@ -4451,6 +4621,158 @@ class AppState extends ChangeNotifier {
     } else {
       toolPoints.clear();
     }
+  }
+
+  /// Builds the persistent driving dimensions for the values typed into the
+  /// HUD while [tool] was drawn. [firstNew] is the index of the shape's first
+  /// entity in [gs]; [placedCount] how many entities it added. Only quantities
+  /// with a clean, solver-safe dimension are emitted here — the rest still size
+  /// the geometry through the locked cursor, they just carry no label yet.
+  List<Constraint> _hudBuildDims(List<Geo> gs, int firstNew, int placedCount) {
+    final out = <Constraint>[];
+    final d = hudCommitDims;
+    double? W = d[HudKind.width],
+        H = d[HudKind.height],
+        Dia = d[HudKind.diameter],
+        R = d[HudKind.radius],
+        L = d[HudKind.length],
+        A = d[HudKind.angle],
+        X = d[HudKind.x],
+        Y = d[HudKind.y],
+        SW = d[HudKind.slotWidth];
+
+    Offset mid(int e) {
+      final g = gs[e];
+      return (getPt(g, 0) + getPt(g, 1)) / 2;
+    }
+
+    // linear distance between the two endpoints of line [e]
+    Constraint distOn(int e, double v, String kind, Offset text) => Constraint(
+        CType.dimension,
+        pts: [PRef(e, 0), PRef(e, 1)],
+        dimKind: kind,
+        value: v.abs(),
+        textPos: text);
+
+    switch (tool) {
+      case Tool.rectTwoPoint:
+      case Tool.rect2PC:
+        if (placedCount == 4) {
+          if (W != null) {
+            out.add(distOn(firstNew, W, 'distx',
+                mid(firstNew) + const Offset(0, -8)));
+          }
+          if (H != null) {
+            out.add(distOn(firstNew + 1, H, 'disty',
+                mid(firstNew + 1) + const Offset(8, 0)));
+          }
+        }
+        break;
+      case Tool.rect3P:
+        if (placedCount == 4) {
+          if (L != null) {
+            out.add(distOn(firstNew, L, 'dist', mid(firstNew)));
+          }
+          if (W != null) {
+            out.add(distOn(firstNew + 1, W, 'dist', mid(firstNew + 1)));
+          }
+        }
+        break;
+      case Tool.circleCenter:
+        if (Dia != null) {
+          out.add(Constraint(CType.dimension,
+              ents: [firstNew],
+              dimKind: 'dia',
+              value: Dia.abs(),
+              textPos: getPt(gs[firstNew], 0)));
+        }
+        break;
+      case Tool.arcCenter:
+        if (R != null) {
+          out.add(Constraint(CType.dimension,
+              ents: [firstNew],
+              dimKind: 'rad',
+              value: R.abs(),
+              textPos: getPt(gs[firstNew], 0)));
+        }
+        if (A != null) {
+          // 3-point angle: start, vertex(center), end
+          out.add(Constraint(CType.dimension,
+              pts: [PRef(firstNew, 1), PRef(firstNew, 0), PRef(firstNew, 2)],
+              dimKind: 'ang3',
+              value: A.abs(),
+              textPos: getPt(gs[firstNew], 0)));
+        }
+        break;
+      case Tool.line:
+        if (L != null) out.add(distOn(firstNew, L, 'dist', mid(firstNew)));
+        if (A != null) {
+          // cardinal angles map to an H/V relation (Inventor shows the glyph);
+          // other angles size the line but carry no standalone dimension yet.
+          final a = ((A % 180) + 180) % 180;
+          if (a < 0.5 || a > 179.5) {
+            out.add(Constraint(CType.horizontal, ents: [firstNew]));
+          } else if ((a - 90).abs() < 0.5) {
+            out.add(Constraint(CType.vertical, ents: [firstNew]));
+          }
+        }
+        break;
+      case Tool.slotCC:
+        if (placedCount == 5) {
+          if (L != null) {
+            // centre-to-centre = distance between the two cap centres
+            out.add(Constraint(CType.dimension,
+                pts: [PRef(firstNew + 2, 0), PRef(firstNew + 3, 0)],
+                dimKind: 'dist',
+                value: L.abs(),
+                textPos: (getPt(gs[firstNew + 2], 0) +
+                        getPt(gs[firstNew + 3], 0)) /
+                    2));
+          }
+          if (SW != null) out.addAll(_slotWidthDim(gs, firstNew, SW));
+        }
+        break;
+      case Tool.slotOverall:
+      case Tool.slotCP:
+        if (placedCount == 5 && SW != null) {
+          out.addAll(_slotWidthDim(gs, firstNew, SW));
+        }
+        break;
+      case Tool.point:
+        // origin-relative horizontal + vertical dimensions (Inventor pins a
+        // dynamic-input point to the sketch origin the same way).
+        if (X != null) {
+          out.add(Constraint(CType.dimension,
+              pts: [PRef(firstNew, 0), const PRef(kProjCenter, 0)],
+              dimKind: 'distx',
+              value: X.abs(),
+              textPos: getPt(gs[firstNew], 0) + const Offset(0, -8)));
+        }
+        if (Y != null) {
+          out.add(Constraint(CType.dimension,
+              pts: [PRef(firstNew, 0), const PRef(kProjCenter, 0)],
+              dimKind: 'disty',
+              value: Y.abs(),
+              textPos: getPt(gs[firstNew], 0) + const Offset(8, 0)));
+        }
+        break;
+      default:
+        // ellipse / polygon: sized through the locked cursor, no dimension yet.
+        break;
+    }
+    return out;
+  }
+
+  /// Slot width as the perpendicular gap between the two rails (= 2·r).
+  List<Constraint> _slotWidthDim(List<Geo> gs, int firstNew, double w) {
+    final l1 = firstNew, l2 = firstNew + 1;
+    return [
+      Constraint(CType.dimension,
+          pts: [PRef(l2, 0), PRef(l1, 0), PRef(l1, 1)],
+          dimKind: 'pline',
+          value: w.abs(),
+          textPos: (getPt(gs[l1], 0) + getPt(gs[l2], 0)) / 2)
+    ];
   }
 
   /// Inventor's Format > Centerline toggle: flips the line style of the

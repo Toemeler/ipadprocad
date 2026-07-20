@@ -767,6 +767,39 @@ class _Viewport2DState extends State<Viewport2D> {
               app.showParams ||
               _editableHasFocus();
           if (typing) return KeyEventResult.ignored;
+          // HUD / Dynamic Input: while a create tool with value boxes is live,
+          // keystrokes drive the boxes — digits/'.'/'-' type into the focused
+          // box, Tab locks it and advances, Enter places the point, Backspace
+          // edits. Letters still fall through to the tool shortcuts. Escape
+          // clears a pending value first, then (empty) cancels the tool.
+          if (app.hudActive && event is KeyDownEvent) {
+            final hk = event.logicalKey;
+            if (hk == LogicalKeyboardKey.tab) {
+              app.hudTab();
+              return KeyEventResult.handled;
+            }
+            if (hk == LogicalKeyboardKey.enter ||
+                hk == LogicalKeyboardKey.numpadEnter) {
+              app.hudEnter();
+              return KeyEventResult.handled;
+            }
+            if (hk == LogicalKeyboardKey.backspace) {
+              app.hudBackspace();
+              return KeyEventResult.handled;
+            }
+            if (hk == LogicalKeyboardKey.escape) {
+              if (app.hudClearInput()) return KeyEventResult.handled;
+              // empty buffer: fall through to cancelTool below
+            } else {
+              final ch = event.character;
+              if (ch != null &&
+                  ch.length == 1 &&
+                  '0123456789.-'.contains(ch)) {
+                app.hudType(ch);
+                return KeyEventResult.handled;
+              }
+            }
+          }
           if (event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.escape) {
             app.cancelTool();
@@ -1416,9 +1449,12 @@ class _ViewportPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
       final pts = app.toolPoints;
-      final hov = app.hoverWorld;
+      final rawHov = app.hoverWorld;
+      // HUD / Dynamic Input: fold the locked/typed values into the hover point
+      // so the preview shows EXACTLY what the commit will produce.
+      final hov = rawHov == null ? null : app.hudApply(rawHov);
       // ONE source of truth: preview = the exact geometry the commit would
-      // produce with the hover point appended.
+      // produce with the (locked) hover point appended.
       final probe = [...pts, if (hov != null) hov];
       final s2 = app.current;
       final geos = s2 == null
@@ -1442,6 +1478,10 @@ class _ViewportPainter extends CustomPainter {
         canvas.drawRect(
             Rect.fromCenter(center: o, width: 5, height: 5),
             Paint()..color = T.blue);
+      }
+      // HUD value boxes near the cursor
+      if (app.hudActive && rawHov != null && hov != null) {
+        _paintHud(canvas, app.hudDisplays(rawHov), map(hov.dx, hov.dy));
       }
     }
 
@@ -1995,6 +2035,85 @@ void _dashedLine(Canvas c, Offset a, Offset b, Paint p,
     c.drawLine(a + dir * t, a + dir * e, p);
     t = e + gap;
   }
+}
+
+/// Inventor's heads-up value boxes: a small stack of "label value" chips to the
+/// lower-right of the cursor. The focused box is outlined bright; locked boxes
+/// show a padlock and the value in the accent colour.
+void _paintHud(Canvas canvas,
+    List<(String, String, bool, bool, bool)> rows, Offset anchor) {
+  if (rows.isEmpty) return;
+  const pad = 6.0, gap = 4.0, rowGap = 4.0, lockW = 10.0;
+  final labelTps = <TextPainter>[], valueTps = <TextPainter>[];
+  var maxLabel = 0.0, maxValue = 0.0, glyphH = 0.0;
+  for (final r in rows) {
+    final label = r.$1;
+    final value = r.$2;
+    final locked = r.$3;
+    final focused = r.$4;
+    final lt = TextPainter(
+        text: TextSpan(text: label, style: ts(11, T.dim)),
+        textDirection: TextDirection.ltr)
+      ..layout();
+    final vt = TextPainter(
+        text: TextSpan(
+            text: value,
+            style: ts(11.5, locked ? T.blue : T.text,
+                w: focused ? FontWeight.w600 : FontWeight.w500)),
+        textDirection: TextDirection.ltr)
+      ..layout();
+    labelTps.add(lt);
+    valueTps.add(vt);
+    maxLabel = math.max(maxLabel, lt.width);
+    maxValue = math.max(maxValue, vt.width);
+    glyphH = math.max(glyphH, math.max(lt.height, vt.height));
+  }
+  final boxW = pad + maxLabel + gap + maxValue + lockW + pad;
+  final rowH = glyphH + 5;
+  final left = anchor.dx + 16;
+  var top = anchor.dy + 14;
+  for (var i = 0; i < rows.length; i++) {
+    final locked = rows[i].$3, focused = rows[i].$4;
+    final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, top, boxW, rowH), const Radius.circular(4));
+    canvas.drawRRect(
+        rect,
+        Paint()
+          ..color =
+              focused ? const Color(0xF01E2A38) : const Color(0xE01B1E22));
+    canvas.drawRRect(
+        rect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = focused ? 1.4 : 1.0
+          ..color = focused ? T.hover : T.panelSep);
+    labelTps[i]
+        .paint(canvas, Offset(left + pad, top + (rowH - labelTps[i].height) / 2));
+    valueTps[i].paint(
+        canvas,
+        Offset(left + pad + maxLabel + gap,
+            top + (rowH - valueTps[i].height) / 2));
+    if (locked) {
+      _paintLock(
+          canvas, Offset(left + boxW - pad - lockW / 2, top + rowH / 2), T.blue);
+    }
+    top += rowH + rowGap;
+  }
+}
+
+void _paintLock(Canvas canvas, Offset c, Color color) {
+  final body = Rect.fromCenter(
+      center: c + const Offset(0, 1.5), width: 6, height: 4.5);
+  canvas.drawRRect(RRect.fromRectAndRadius(body, const Radius.circular(1)),
+      Paint()..color = color);
+  canvas.drawPath(
+      Path()
+        ..addArc(Rect.fromCircle(center: c + const Offset(0, -1.2), radius: 2),
+            math.pi, math.pi),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = color);
 }
 
 void _dashedRect(Canvas c, Rect r, Paint p) {
