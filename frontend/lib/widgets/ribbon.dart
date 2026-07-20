@@ -168,8 +168,12 @@ class _RibbonState extends State<Ribbon> {
                 behavior: HitTestBehavior.translucent, onTap: closeFly)),
         Positioned(
           left: pos.dx,
-          // the title sits at the panel's BOTTOM, so the menu opens upward
-          bottom: MediaQuery.of(context).size.height - pos.dy + 1,
+          // Downward, like every other ribbon flyout: the menu hangs BELOW the
+          // title row and over the canvas. It used to open upward (the title
+          // sits at the panel's bottom edge, so that felt symmetrical), but
+          // upward means it climbs over the ribbon it belongs to and runs into
+          // the iOS status bar. Down is also what the sibling _FlyMenu does.
+          top: pos.dy + box.size.height + 1,
           child: _OverMenu(
             items: items,
             onPick: (it) {
@@ -654,22 +658,35 @@ class _RibbonState extends State<Ribbon> {
     // The ▼ next to the title is the ONLY way to the overflow commands, so it
     // has to be a real hit target — the label goes with it (Inventor's panel
     // expander behaves the same).
-    Widget title = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+    //
+    // FALLE (M50 shipped this and it crashed every frame): the inner widget
+    // MUST be captured in its own final. Writing
+    //     Widget title = Row(...);
+    //     title = Builder(builder: (_) => GestureDetector(child: title));
+    // does not do what it reads like — a Dart closure captures the VARIABLE,
+    // not the value it held at the time. By the time the builder runs, `title`
+    // points at the Builder itself, so every build inflates
+    // Builder -> GestureDetector -> Builder -> ... until the stack blows.
+    // Symptoms on the device: the three panel titles never rendered (no ▼ at
+    // all) and the whole frame pipeline died in exception handling, which read
+    // as broken pan/zoom. Never let a widget-valued variable be reassigned to
+    // something that closes over itself.
+    final titleRow = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       Text(label, style: ts(12, T.dim)),
       if (arrow || over != null) ...[
         const SizedBox(width: 6),
         Text('▼', style: ts(8, T.dim)),
       ],
     ]);
-    if (over != null && overId != null) {
-      title = Builder(
-        builder: (ctx) => GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => toggleOver(overId, ctx, over()),
-          child: title,
-        ),
-      );
-    }
+    final Widget title = (over != null && overId != null)
+        ? Builder(
+            builder: (ctx) => GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => toggleOver(overId, ctx, over()),
+              child: titleRow,
+            ),
+          )
+        : titleRow;
     return Container(
       decoration: first
           ? null
@@ -1032,7 +1049,7 @@ class _OverMenu extends StatelessWidget {
     return Material(
       type: MaterialType.transparency,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 170, maxWidth: 280),
+        constraints: const BoxConstraints(minWidth: 170, maxWidth: 320),
         child: IntrinsicWidth(
           child: ColoredBox(
             color: T.fly,
@@ -1092,9 +1109,15 @@ class _OverRowState extends State<_OverRow> {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             svg(it.icon, 18),
             const SizedBox(width: 10),
-            Text(it.label,
-                style: ts(12.5, it.onTap == null ? T.dim : T.text,
-                    height: 1.25)),
+            // Flexible + ellipsis: the row must not be able to overflow its
+            // menu no matter how wide the platform renders the label.
+            Flexible(
+              child: Text(it.label,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: ts(12.5, it.onTap == null ? T.dim : T.text,
+                      height: 1.25)),
+            ),
           ]),
         ),
       ),

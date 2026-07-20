@@ -881,6 +881,12 @@ class _Viewport2DState extends State<Viewport2D> {
           // drawing impossible. The Listener sees pointers regardless of the
           // arena.
           onPointerDown: (e) {
+            // Count FIRST, and count every pointer: onPointerUp decrements
+            // unconditionally, so an early return here would leave the tally
+            // one short and make the next real finger look like the first —
+            // i.e. a pan/zoom that starts drawing instead. (The clamp in
+            // onPointerUp hides the sign but not the drift.)
+            _pointers++;
             // M49: a right-click inside the Split/Trim/Extend session hops to
             // the next member of the family, exactly like Inventor. It never
             // counts as a tool click.
@@ -890,7 +896,6 @@ class _Viewport2DState extends State<Viewport2D> {
               _clickDown = null;
               return;
             }
-            _pointers++;
             if (_pointers > 1) {
               _clickDown = null; // second finger: pan/zoom, never a click
               return;

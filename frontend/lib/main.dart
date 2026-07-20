@@ -59,8 +59,10 @@ void main() {
     final app = Log.step('main', 'AppState()', () => AppState());
     // init() is async; log its outcome instead of silently dropping it.
     Log.i('main', '>> AppState.init (async, not awaited)');
-    app.init().then((_) => Log.i('main', '<< AppState.init OK')).catchError(
-        (e, st) => Log.e('main', 'AppState.init FAILED', e, st));
+    app
+        .init()
+        .then((_) => Log.i('main', '<< AppState.init OK'))
+        .catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
     // The log must survive the app being backgrounded or killed by iOS: flush
     // on every lifecycle change, otherwise the last (most interesting) lines
     // sit in the buffer forever.
@@ -111,32 +113,40 @@ class IpadProCadApp extends StatelessWidget {
         // and read as random pan/zoom drift on the device.
         resizeToAvoidBottomInset: false,
         // Apple status bar (time etc.) must not overlap the ribbon.
-        body: SafeArea(
-          bottom: false,
-          child: AnimatedBuilder(
+        body: AnimatedBuilder(
           animation: app,
           builder: (context, _) {
-            return Column(children: [
-              // On the home gallery there is no ribbon — the "+" button in the
-              // gallery header is the only new-sketch affordance. The ribbon
-              // only belongs to an open sketch.
-              if (!app.isHome)
-                SizedBox(
-                    width: double.infinity,
-                    child: Ribbon(app: app)),
-              Expanded(
-                child: app.isHome
-                    ? HomeView(app: app)
-                    : Row(crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          ModelBrowser(app: app),
-                          Expanded(child: Viewport2D(app: app)),
-                        ]),
+            // The strip SafeArea reserves for the status bar is painted by
+            // whatever sits BEHIND the SafeArea, so it has to be coloured
+            // here — otherwise it comes out in the scaffold's viewport tone
+            // while the ribbon right beneath it is T.panel, which reads as a
+            // seam across the top of the screen. It follows the view: the
+            // ribbon's tone in a sketch, the gallery's on home.
+            return ColoredBox(
+              color: app.isHome ? T.galleryBg : T.panel,
+              child: SafeArea(
+                bottom: false,
+                child: Column(children: [
+                  // On the home gallery there is no ribbon — the "+" button in the
+                  // gallery header is the only new-sketch affordance. The ribbon
+                  // only belongs to an open sketch.
+                  if (!app.isHome)
+                    SizedBox(width: double.infinity, child: Ribbon(app: app)),
+                  Expanded(
+                    child: app.isHome
+                        ? HomeView(app: app)
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                                ModelBrowser(app: app),
+                                Expanded(child: Viewport2D(app: app)),
+                              ]),
+                  ),
+                  BottomTabBar(app: app),
+                ]),
               ),
-              BottomTabBar(app: app),
-            ]);
-            },
-          ),
+            );
+          },
         ),
       ),
     );

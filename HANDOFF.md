@@ -2224,6 +2224,60 @@ hinzu), `flutter analyze` ohne neue Issues. Die drei `prefer_const_*`-Lints,
 die CI in `m49_split_test.dart` fand (CI faehrt einen strengeren Lint-Satz als
 lokal), sind gefixt. **Geraete-Test von M49 UND M50 steht aus.**
 
+## M51 — Geraete-Test-Fixes: der Ribbon baute UEBERHAUPT nicht
+
+Der erste Geraete-Build von M50 (`e5bb0a9`) war kaputt. Symptome laut Nutzer:
+„die Pfeile sind nicht da" und „Pan/Zoom ist ploetzlich total buggy". Das Log
+sagt genau warum: **25 ERROR-Zeilen, alle `Stack Overflow` in
+`ComponentElement.performRebuild` / `Element.inflateWidget`** — in JEDEM Frame.
+
+**Wurzelursache (mein Fehler in M50, und eine Falle, die jeder trifft):**
+```dart
+Widget title = Row(...);
+title = Builder(builder: (_) => GestureDetector(child: title)); // FALSCH
+```
+Eine Dart-Closure faengt die **VARIABLE**, nicht deren Wert. Wenn der Builder
+laeuft, zeigt `title` laengst auf den Builder SELBST → jeder Build inflatet
+`Builder -> GestureDetector -> Builder -> ...` bis der Stack platzt. Deshalb:
+- die drei Panel-Titel (Constrain/Insert/Modify) rendern nie → **keine ▼**,
+- der Frame-Pipeline verbringt jeden Frame in der Exception-Behandlung →
+  **Pan/Zoom fuehlt sich kaputt an**.
+
+Fix: das innere Widget in ein EIGENES `final` (`titleRow`), Ternaerausdruck
+statt Reassignment. **Nie eine Widget-Variable auf etwas umschreiben, das sich
+selbst einfaengt.**
+
+**LEHRE, die eine ganze Testluecke aufloest:** in der M50-Session „haengte"
+`pumpWidget(Ribbon(...))` im Host-Test — ohne Timeout, ohne Exception. Ich habe
+das `flutter_svg` zugeschrieben und die Suite geloescht. **Das war falsch.** Es
+war exakt DIESE Rekursion: der Test baute einen unendlich tiefen Baum. Nach dem
+Fix pumpt der Ribbon in ~1 s. `m50_ribbon_slimming_test.dart` ist wieder da
+(14 Tests) — und ihr ERSTER Test ist genau dieser Regressionsschutz: den Ribbon
+ueberhaupt zu pumpen faengt den Bug. Wer wieder einen „unerklaerlichen" Haenger
+im Widget-Test sieht: **zuerst nach selbstreferenzierenden Closures suchen**,
+nicht nach der Rendering-Library.
+
+**Weitere Fixes derselben Runde:**
+- **Overflow-Menue oeffnet nach UNTEN** (`top:` statt `bottom:`). Nach oben
+  kletterte es ueber den Ribbon bis in die iOS-Statusleiste; nach unten haengt
+  es wie jedes andere Flyout ueber der Zeichenflaeche. Ein Test pinnt die
+  Richtung (Menue-Eintrag liegt tiefer als der Titel).
+- **Statusleisten-Streifen faerbt sich mit.** Der von `SafeArea` reservierte
+  Bereich (Uhr/Batterie) wird von dem gemalt, was HINTER der SafeArea liegt —
+  vorher die Scaffold-Viewport-Farbe, waehrend direkt darunter der Ribbon in
+  `T.panel` sitzt: eine sichtbare Naht quer ueber den Bildschirm. Jetzt
+  faerbt eine `ColoredBox` um die SafeArea mit: `T.panel` in der Skizze,
+  `T.galleryBg` auf Home.
+- **`_OverRow` kann nicht mehr ueberlaufen** (`Flexible` + Ellipsis,
+  maxWidth 320). Der Widget-Test zeigte „RenderFlex overflowed by 14 pixels".
+- **Pointer-Zaehlung im Viewport wieder symmetrisch.** Der M49-Rechtsklick-
+  Zweig kehrte VOR `_pointers++` zurueck, waehrend `onPointerUp` immer
+  dekrementiert — die Zaehlung driftet, und der naechste echte Finger sieht
+  aus wie der erste (Pan/Zoom statt Zeichnen). Jetzt wird zuerst gezaehlt.
+
+**Status:** `flutter test` **283 gruen** (269 + 14 wiederhergestellte),
+`flutter analyze` ohne neue Issues. Geraete-Test von M49/M50/M51 steht aus.
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,

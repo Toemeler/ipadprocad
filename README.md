@@ -972,5 +972,14 @@ per Rechtsklick); die Statuszeile „N degrees of freedom" unten links, weil
 unten rechts dasselbe als „N dimensions needed" steht; und die drei ▼ an
 „Start New Layer", „Create" und „Finish", die auf nichts zeigten.
 
-**Nicht host-getestet.** Der Ribbon laesst sich auf dem Host nicht in einem
-Widget-Test pumpen (siehe HANDOFF, M50) — M50 wird auf dem Geraet geprueft.
+**M51 — Geraete-Test-Fixes.** Der erste M50-Build war kaputt: `_panel` schrieb
+eine Widget-Variable auf eine Closure um, die dieselbe Variable einfing, also
+inflatete jeder Frame `Builder -> GestureDetector -> Builder -> ...` bis zum
+Stack Overflow. Folge: die drei ▼ rendern nie, und die Frame-Pipeline steckt in
+der Exception-Behandlung — was sich als kaputtes Pan/Zoom anfuehlt. Behoben
+durch ein eigenes `final` fuer das innere Widget. Derselbe Bug war auch der
+Grund, warum sich der Ribbon angeblich nicht im Widget-Test pumpen liess; die
+Suite ist wieder da (14 Tests) und ihr erster Test faengt genau diese
+Rekursion. Ausserdem: das Overflow-Menue oeffnet nach UNTEN statt nach oben,
+der Statusleisten-Streifen faerbt sich mit dem Ribbon (bzw. der Galerie) mit,
+und die Menuezeilen koennen nicht mehr ueberlaufen.
