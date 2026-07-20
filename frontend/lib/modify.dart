@@ -955,80 +955,309 @@ Geo? _extendEntityRaw(List<Geo> geos, int i, Offset click) {
   }
 }
 
-/// Splits entity [i] at the clicked point (circles: at ALL intersections
-/// with other geometry, like Inventor). Returns replacements, or null if a
-/// split isn't possible.
-List<Geo>? splitEntity(List<Geo> geos, int i, Offset click) {
-  final r = _splitEntityRaw(geos, i, click);
-  return r == null ? null : _sameLayerAll(geos[i], r);
+// ---------------------------------------------------------------------------
+// M49 — Split, exactly as Inventor's 2D sketch Split behaves
+// ---------------------------------------------------------------------------
+// Autodesk: "the Split command splits a selected curve to the NEAREST
+// INTERSECTING CURVE". So the cut does NOT land where you clicked — the click
+// only says WHICH curve and WHERE ALONG IT you are, and Inventor then snaps
+// the cut to the intersection nearest the cursor. "When multiple intersections
+// are possible, Inventor selects the nearest one."
+//
+// Open carriers (line, arc, open polyline/spline) have endpoints that already
+// bound them, so ONE cut at the nearest interior intersection is enough — two
+// pieces. Closed carriers (circle, closed polyline) have no ends to bound a
+// single cut, so Inventor runs outward from the cursor in BOTH directions
+// until it hits something (the LinkedIn/Lynda walkthrough describes exactly
+// this): the hovered span between those two hits, plus its complement — again
+// two pieces.
+//
+// Unlike Trim, Split NEVER deletes: with nothing to cut against there is
+// simply no split (the preview offers none and the click is a no-op).
+
+/// What a Split at [click] would do — used both to execute the split and to
+/// paint Inventor's hover preview before the click.
+class SplitPlan {
+  /// The cut point(s): one for an open carrier, two for a closed one.
+  final List<Offset> cuts;
+
+  /// Always exactly two pieces, in no particular order.
+  final List<Geo> pieces;
+
+  /// Index in [pieces] of the span the cursor is actually on — Inventor
+  /// highlights it during the hover preview.
+  final int hovered;
+
+  const SplitPlan(this.cuts, this.pieces, this.hovered);
 }
 
-List<Geo>? _splitEntityRaw(List<Geo> geos, int i, Offset click) {
+/// Plans the Inventor split of entity [i] under the cursor at [click].
+/// Returns null when the carrier has no usable intersection (no split).
+SplitPlan? planSplit(List<Geo> geos, int i, Offset click) {
+  final raw = _planSplitRaw(geos, i, click);
+  if (raw == null) return null;
+  // every piece is DERIVED from the carrier: layer, line style and spline tag
+  // must ride along (same rule as trim/extend, see _carry)
+  return SplitPlan(raw.cuts, _sameLayerAll(geos[i], raw.pieces), raw.hovered);
+}
+
+/// Splits entity [i] at the intersection nearest the cursor. Returns the two
+/// replacement entities, or null if a split isn't possible.
+List<Geo>? splitEntity(List<Geo> geos, int i, Offset click) =>
+    planSplit(geos, i, click)?.pieces;
+
+/// Cut point(s) a Split at [click] would produce — for the hover preview.
+List<Offset> splitPoints(List<Geo> geos, int i, Offset click) =>
+    planSplit(geos, i, click)?.cuts ?? const [];
+
+SplitPlan? _planSplitRaw(List<Geo> geos, int i, Offset click) {
   final g = geos[i];
+  final xs = intersectionsWithOthers(geos, i);
+  if (xs.isEmpty) return null;
   switch (g.type) {
     case Geo.line:
-      final t = _lineParam(g, click);
-      if (t < 1e-6 || t > 1 - 1e-6) return null;
-      final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
-      final m = a + (b - a) * t;
-      return [
-        Geo(Geo.line, [a.dx, a.dy, m.dx, m.dy]),
-        Geo(Geo.line, [m.dx, m.dy, b.dx, b.dy]),
-      ];
+      return _splitOpen(
+        param: (p) => _lineParam(g, p),
+        end: 1.0,
+        click: click,
+        xs: xs,
+        piece: (t0, t1) {
+          final a = Offset(g.data[0], g.data[1]),
+              b = Offset(g.data[2], g.data[3]);
+          Offset at(double t) => a + (b - a) * t;
+          final p0 = at(t0), p1 = at(t1);
+          return Geo(Geo.line, [p0.dx, p0.dy, p1.dx, p1.dy]);
+        },
+        at: (t) {
+          final a = Offset(g.data[0], g.data[1]),
+              b = Offset(g.data[2], g.data[3]);
+          return a + (b - a) * t;
+        },
+      );
     case Geo.arc:
       final sweep = _sweepOf(g);
-      final u = _arcParam(g, click);
-      if (u < 1e-6 || u > sweep - 1e-6) return null;
-      return [_subArc(g, 0, u), _subArc(g, u, sweep)];
+      if (sweep <= _eps) return null;
+      return _splitOpen(
+        param: (p) => _arcParam(g, p),
+        end: sweep,
+        click: click,
+        xs: xs,
+        piece: (u0, u1) => _subArcRaw(g, u0, u1),
+        at: (u) => _arcPointAt(g, u),
+      );
     case Geo.circle:
-      final xs = intersectionsWithOthers(geos, i);
-      if (xs.length < 2) return null;
       final c = Offset(g.data[0], g.data[1]);
-      double norm(double x) {
-        var v = x % (2 * math.pi);
-        if (v < 0) v += 2 * math.pi;
-        return v;
-      }
-
-      final as = xs
-          .map((p) => norm(math.atan2(p.dy - c.dy, p.dx - c.dx)))
-          .toList()
-        ..sort();
-      return [
-        for (var k = 0; k < as.length; k++)
-          Geo(Geo.arc,
-              [c.dx, c.dy, g.data[2], as[k], as[(k + 1) % as.length], 0.0])
-      ];
+      final r = g.data[2];
+      double ang(Offset p) => _norm2pi(math.atan2(p.dy - c.dy, p.dx - c.dx));
+      return _splitClosed(
+        param: ang,
+        period: 2 * math.pi,
+        click: click,
+        xs: xs,
+        piece: (a0, a1) => Geo(Geo.arc, [c.dx, c.dy, r, a0, a1, 0.0]),
+        at: (a) => c + Offset(math.cos(a) * r, math.sin(a) * r),
+      );
     case Geo.polyline:
-      // split at nearest vertex or on-segment point into two open chains
-      final n = g.data[1].toInt();
       final closed = g.data[0] != 0;
-      if (closed) return null;
-      final pts = [
-        for (var k = 0; k < n; k++) Offset(g.data[2 + 2 * k], g.data[3 + 2 * k])
-      ];
-      var seg = 0;
-      var bd = double.infinity;
-      Offset m = pts[0];
-      for (var k = 0; k + 1 < n; k++) {
-        final q = closestOnSegment(click, pts[k], pts[k + 1]);
-        final d = (click - q).distance;
-        if (d < bd) {
-          bd = d;
-          seg = k;
-          m = q;
-        }
-      }
-      final c1 = [...pts.sublist(0, seg + 1), m];
-      final c2 = [m, ...pts.sublist(seg + 1)];
-      Geo chain(List<Offset> ch) => ch.length == 2
-          ? Geo(Geo.line, [ch[0].dx, ch[0].dy, ch[1].dx, ch[1].dy])
-          : Geo(Geo.polyline, [
-              0.0,
-              ch.length.toDouble(),
-              for (final q in ch) ...[q.dx, q.dy]
-            ]);
-      return [chain(c1), chain(c2)];
+      final pts = _polyPts(g);
+      if (pts.length < 2) return null;
+      final lens = _polyCumLen(pts, closed);
+      final total = lens.last;
+      if (total <= _eps) return null;
+      double param(Offset p) => _polyParam(pts, closed, lens, p);
+      Geo piece(double s0, double s1) =>
+          _polySub(pts, closed, lens, s0, s1);
+      Offset at(double s) => _polyPointAt(pts, closed, lens, s);
+      return closed
+          ? _splitClosed(
+              param: param,
+              period: total,
+              click: click,
+              xs: xs,
+              piece: piece,
+              at: at)
+          : _splitOpen(
+              param: param,
+              end: total,
+              click: click,
+              xs: xs,
+              piece: piece,
+              at: at);
   }
   return null;
+}
+
+/// One cut on a carrier that already has two ends: the interior intersection
+/// nearest the cursor wins ("Inventor selects the nearest one").
+SplitPlan? _splitOpen({
+  required double Function(Offset) param,
+  required double end,
+  required Offset click,
+  required List<Offset> xs,
+  required Geo Function(double, double) piece,
+  required Offset Function(double) at,
+}) {
+  final tol = math.max(1e-7, end * 1e-7);
+  final tc = param(click);
+  double? best;
+  var bd = double.infinity;
+  for (final p in xs) {
+    final t = param(p);
+    // an intersection AT an end does not cut anything — it is already a
+    // boundary of the carrier, so Inventor offers no split there
+    if (t <= tol || t >= end - tol) continue;
+    final d = (t - tc).abs();
+    if (d < bd) {
+      bd = d;
+      best = t;
+    }
+  }
+  if (best == null) return null;
+  final cut = at(best);
+  final pieces = [piece(0, best), piece(best, end)];
+  return SplitPlan([cut], pieces, tc <= best ? 0 : 1);
+}
+
+/// Two cuts on a carrier with no ends: run outward from the cursor in both
+/// directions to the first intersection each way. The hovered span and its
+/// complement are the two resulting entities.
+SplitPlan? _splitClosed({
+  required double Function(Offset) param,
+  required double period,
+  required Offset click,
+  required List<Offset> xs,
+  required Geo Function(double, double) piece,
+  required Offset Function(double) at,
+}) {
+  final tol = math.max(1e-7, period * 1e-7);
+  final ts = <double>[];
+  for (final p in xs) {
+    final t = param(p) % period;
+    if (!ts.any((o) => (o - t).abs() <= tol ||
+        (period - (o - t).abs()).abs() <= tol)) {
+      ts.add(t);
+    }
+  }
+  // one tangential touch cannot separate a closed curve into two spans
+  if (ts.length < 2) return null;
+  ts.sort();
+  final tc = param(click) % period;
+  // the bracketing pair around the cursor (cyclic)
+  var lo = ts.last, hi = ts.first;
+  for (var k = 0; k < ts.length; k++) {
+    final a0 = ts[k], a1 = ts[(k + 1) % ts.length];
+    final inSpan = a0 <= a1 ? (tc >= a0 && tc <= a1) : (tc >= a0 || tc <= a1);
+    if (inSpan) {
+      lo = a0;
+      hi = a1;
+      break;
+    }
+  }
+  // hovered span lo -> hi, complement hi -> lo (both in travel direction)
+  return SplitPlan([at(lo), at(hi)], [piece(lo, hi), piece(hi, lo)], 0);
+}
+
+double _norm2pi(double x) {
+  var v = x % (2 * math.pi);
+  if (v < 0) v += 2 * math.pi;
+  return v;
+}
+
+Offset _arcPointAt(Geo g, double u) {
+  final rev = g.data.length > 5 && g.data[5] != 0;
+  final a = rev ? g.data[3] - u : g.data[3] + u;
+  return Offset(g.data[0], g.data[1]) +
+      Offset(math.cos(a) * g.data[2], math.sin(a) * g.data[2]);
+}
+
+// --- polyline arc-length parametrisation (shared by open & closed) ---------
+
+List<Offset> _polyPts(Geo g) {
+  final n = g.data[1].toInt();
+  return [
+    for (var k = 0; k < n; k++) Offset(g.data[2 + 2 * k], g.data[3 + 2 * k])
+  ];
+}
+
+/// Cumulative length at each vertex; the last entry is the total length
+/// (including the closing segment when [closed]).
+List<double> _polyCumLen(List<Offset> pts, bool closed) {
+  final out = <double>[0.0];
+  final segs = closed ? pts.length : pts.length - 1;
+  for (var k = 0; k < segs; k++) {
+    out.add(out.last + (pts[(k + 1) % pts.length] - pts[k]).distance);
+  }
+  return out;
+}
+
+double _polyParam(
+    List<Offset> pts, bool closed, List<double> lens, Offset p) {
+  final segs = closed ? pts.length : pts.length - 1;
+  var best = 0.0;
+  var bd = double.infinity;
+  for (var k = 0; k < segs; k++) {
+    final a = pts[k], b = pts[(k + 1) % pts.length];
+    final q = closestOnSegment(p, a, b);
+    final d = (p - q).distance;
+    if (d < bd) {
+      bd = d;
+      best = lens[k] + (q - a).distance;
+    }
+  }
+  return best;
+}
+
+Offset _polyPointAt(
+    List<Offset> pts, bool closed, List<double> lens, double s) {
+  final total = lens.last;
+  var t = closed ? s % total : s.clamp(0.0, total);
+  final segs = closed ? pts.length : pts.length - 1;
+  for (var k = 0; k < segs; k++) {
+    if (t <= lens[k + 1] + _eps) {
+      final a = pts[k], b = pts[(k + 1) % pts.length];
+      final segLen = lens[k + 1] - lens[k];
+      if (segLen <= _eps) return a;
+      return a + (b - a) * ((t - lens[k]) / segLen);
+    }
+  }
+  return closed ? pts.first : pts.last;
+}
+
+/// The chain from arc-length [s0] to [s1] walking FORWARD (wrapping when
+/// [closed]), as a line (2 points) or polyline. Always an OPEN result: a
+/// split piece of a closed polygon is a chain, never a loop again.
+Geo _polySub(List<Offset> pts, bool closed, List<double> lens, double s0,
+    double s1) {
+  final total = lens.last;
+  final segs = closed ? pts.length : pts.length - 1;
+  var span = s1 - s0;
+  if (closed && span <= _eps) span += total;
+  if (!closed) span = span.abs();
+  final chain = <Offset>[_polyPointAt(pts, closed, lens, s0)];
+  // every vertex strictly inside the span, in travel order
+  final inner = <(double, Offset)>[];
+  for (var k = 0; k < segs; k++) {
+    var rel = lens[k] - s0;
+    if (closed && rel <= _eps) rel += total;
+    if (rel > _eps && rel < span - _eps) inner.add((rel, pts[k % pts.length]));
+  }
+  inner.sort((a, b) => a.$1.compareTo(b.$1));
+  for (final (_, p) in inner) {
+    if ((p - chain.last).distance > _eps) chain.add(p);
+  }
+  final endPt = _polyPointAt(pts, closed, lens, s0 + span);
+  if ((endPt - chain.last).distance > _eps) chain.add(endPt);
+  if (chain.length < 2) {
+    return Geo(Geo.line,
+        [chain.first.dx, chain.first.dy, chain.first.dx, chain.first.dy]);
+  }
+  if (chain.length == 2) {
+    return Geo(Geo.line,
+        [chain[0].dx, chain[0].dy, chain[1].dx, chain[1].dy]);
+  }
+  return Geo(Geo.polyline, [
+    0.0,
+    chain.length.toDouble(),
+    for (final q in chain) ...[q.dx, q.dy]
+  ]);
 }

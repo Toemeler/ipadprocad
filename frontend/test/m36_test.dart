@@ -450,7 +450,10 @@ void main() {
           pts: [const PRef(0, 0)], anchors: const [-20, 0]));
       app.selectTool(Tool.split);
       app.toolClick(const Offset(-10, 0));
-      expect(count(s, CType.horizontal), 1);
+      // M49 supersedes the original M36 expectation of 1: Autodesk documents
+      // that BOTH segments of a split inherit Horizontal/Vertical/Parallel/
+      // Perpendicular/Collinear, so the split line stays two horizontal lines.
+      expect(count(s, CType.horizontal), 2);
       expect(count(s, CType.fix), 1, reason: 'point fix follows its point');
     });
 

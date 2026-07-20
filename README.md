@@ -894,3 +894,57 @@ gehalten), und die committete Skizze ist erfüllt.
 translatiert um das Drag-Delta; Kreis verschiebt Zentrum, Radius bleibt; voll
 gebundene Linie verweigert den Body-Drag; angebundene Linien führen den
 gemeinsamen Endpunkt nach (Constraint-erhaltend). Suite: **222 grün**.
+
+## M49 — Split, exakt wie Inventors 2D-Skizzen-Split
+
+Split existierte seit M5 als Button, verhielt sich aber nicht wie Inventor: es
+schnitt am ANGEKLICKTEN PUNKT, zerlegte einen Kreis in N Bögen (einen pro
+Schnittpunkt), verweigerte geschlossene Polylinien und kannte weder
+Constraint-Vererbung noch Vorschau. M49 setzt Autodesks dokumentierten Vertrag
+eins zu eins um.
+
+**Der Schnitt liegt auf dem nächsten Schnittpunkt, nicht unter dem Cursor.**
+Inventor: *"the Split command splits a selected curve to the nearest
+intersecting curve"*. Der Klick sagt nur, WELCHE Kurve und WO ENTLANG man ist;
+bei mehreren Schnittpunkten gewinnt der dem CURSOR nächste (entlang der Kurve
+gemessen).
+
+**Offene und geschlossene Träger sind verschieden.**
+- Linie, Bogen, offene Polylinie/Spline haben bereits zwei Enden: EIN Schnitt
+  am nächsten INNEREN Schnittpunkt → zwei Stücke. Ein Schnittpunkt exakt auf
+  einem Endpunkt trennt nichts ab und zählt nicht.
+- Kreis und geschlossene Polylinie haben keine Enden, die einen einzelnen
+  Schnitt begrenzen könnten. Inventor läuft deshalb vom Cursor in BEIDE
+  Richtungen bis zum ersten Treffer: die überfahrene Spanne plus ihr
+  Komplement — immer genau zwei Stücke. Ein Split-Stück ist nie wieder eine
+  Schleife, geschlossene Polygone zerfallen in zwei offene Ketten.
+
+**Split löscht nie.** Ohne etwas zum Schneiden passiert schlicht nichts. Das
+Löschen ist Trims Verhalten (*"If you select a curve with no physical or
+virtual intersections, the Trim command deletes the curve"*), nicht Splits.
+
+**Constraints nach Autodesks Regel.** *"Both segments of the split inherit the
+Horizontal, Vertical, Parallel, Perpendicular, and Collinear constraints of the
+original. Equal and Symmetric constraints are broken when necessary."* Das
+generische `remapAfterReplace` (M36) gibt eine Entity-Constraint an GENAU EIN
+Stück — richtig für Trim, wo das andere weg ist. Ein Split behält beide, also
+gibt es `remapAfterSplit`: eine horizontale Linie wird zu zwei horizontalen
+Hälften, Equal/Symmetric werden verworfen. Bemaßungen bleiben erhalten, und die
+beiden Hälften werden am Schnittpunkt über `_bindCutPoints` zusammengehalten.
+
+**Bedienung.** Hover zeigt den Split VORHER: die überfahrene Spanne wird blau
+hervorgehoben, die Schnittpunkte als roter Punkt mit Ring markiert. Die Sitzung
+bleibt für mehrere Splits offen; ein Rechtsklick (Maus) wechselt im Ring
+Split → Trim → Extend, ohne die Sitzung zu beenden; Esc beendet sie.
+Projizierte Geometrie ist wie überall gesperrt.
+
+**Tests:** `m49_split_test.dart` (21): Schnitt am Schnittpunkt statt am Klick;
+nächster von mehreren; Schnittpunkt auf dem Endpunkt schneidet nicht; ohne
+Schnittpunkt kein Split UND keine Löschung; Bogen behält Radius und
+Gesamt-Sweep; Kreis liefert genau zwei Bögen mit erhaltenem Vollwinkel; die
+überfahrene Spanne ist die richtige; Tangente kann nicht splitten; geschlossene
+Polylinie → zwei offene Ketten; offene Polylinie; Layer/Stil bleiben; alle fünf
+vererbten Constraint-Typen landen auf BEIDEN Stücken; Equal/Symmetric fallen
+weg; fremde Constraints bleiben unberührt; End-to-End über `AppState` inkl.
+Verklebung am Schnittpunkt und Sperre für Projektionen; Rechtsklick-Ring;
+Sitzung bleibt offen. Suite: **269 grün**, `flutter analyze` ohne neue Issues.

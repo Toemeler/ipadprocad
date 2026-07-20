@@ -2103,6 +2103,68 @@ ist auf dem Host nicht testbar — Geraete-Test steht aus: Long-Press hebt die
 Karte ab, Delete ist rot, Export/Share oeffnen als Popover AN der Karte (kein
 Absturz), und im CAD-Viewport darf ein langer Druck NICHTS ausloesen.
 
+## M49 — Split, exakt wie Inventors 2D-Skizzen-Split
+
+Split gab es schon (M5-Ribbon, `splitEntity` in `modify.dart`), aber es war
+NICHT Inventors Verhalten: es schnitt am ANGEKLICKTEN PUNKT, zersaegte einen
+Kreis in N Boegen (einen pro Schnittpunkt), verweigerte geschlossene Polylinien
+komplett und kannte weder Constraint-Vererbung noch Hover-Preview.
+
+**Autodesks Vertrag (recherchiert, Inventor-Hilfe "To Split, Trim, or Extend
+Curves"), den M49 jetzt eins zu eins umsetzt:**
+- "splits a selected curve to the NEAREST INTERSECTING CURVE" — der Schnitt
+  liegt auf einem Schnittpunkt, NIE unter dem Cursor. Der Klick sagt nur,
+  WELCHE Kurve und WO ENTLANG man ist.
+- "When multiple intersections are possible, Inventor selects the nearest one"
+  — naechster Schnittpunkt zum CURSOR, entlang der Kurve gemessen.
+- "Both segments of the split inherit the Horizontal, Vertical, Parallel,
+  Perpendicular, and Collinear constraints of the original. Equal and
+  Symmetric constraints are broken when necessary."
+- Bemassungen bleiben erhalten.
+- Hover zeigt den Split VORHER an ("pause over a curve to preview the split").
+- Rechtsklick wechselt innerhalb der Sitzung zu Trim/Extend, Esc/Done beendet;
+  die Sitzung bleibt fuer MEHRERE Splits offen.
+- **Split loescht NIE.** Das ist Trims Verhalten ("no physical or virtual
+  intersections -> the Trim command deletes the curve"), nicht Splits.
+
+**Umsetzung.**
+- `modify.dart`: neuer `SplitPlan {cuts, pieces, hovered}` — EIN Codepfad fuer
+  Preview und Ausfuehrung. `planSplit` / `splitEntity` / `splitPoints`.
+- OFFENE Traeger (Linie, Bogen, offene Polylinie/Spline) haben schon zwei
+  Enden, also EIN Schnitt am naechsten INNEREN Schnittpunkt -> zwei Stuecke.
+  Ein Schnittpunkt exakt AUF einem Endpunkt schneidet nichts weg und zaehlt
+  deshalb nicht.
+- GESCHLOSSENE Traeger (Kreis, geschlossene Polylinie) haben keine Enden, die
+  einen einzelnen Schnitt begrenzen koennten. Inventor laeuft darum vom Cursor
+  in BEIDE Richtungen bis zum ersten Treffer: die ueberfahrene Spanne plus ihr
+  Komplement — immer GENAU zwei Stuecke, nie N.
+- Neue Bogenlaengen-Parametrisierung fuer Polylinien (`_polyCumLen`,
+  `_polyParam`, `_polyPointAt`, `_polySub`), damit geschlossene Polygone
+  korrekt in zwei OFFENE Ketten zerfallen (ein Split-Stueck ist nie wieder
+  eine Schleife).
+- Layer, Linienstil und Spline-Tag reiten ueber das vorhandene `_carry` mit.
+- `constraints.dart`: `remapAfterSplit` + `kSplitInherited` / `kSplitBroken`.
+  Das generische `remapAfterReplace` gibt eine Entity-Constraint an GENAU EIN
+  Stueck (richtig fuer Trim, wo das andere weg ist) — ein Split behaelt beide,
+  also bekommt eine horizontale Linie zwei horizontale Haelften.
+- `app_state.dart`: `splitPreview()`, `cycleModifyTool()` (Rechtsklick-Ring
+  Split -> Trim -> Extend), Split loggt jetzt sein Constraint-Delta wie Trim.
+- `viewport.dart`: Preview malt die ueberfahrene Spanne blau und die
+  Schnittpunkte als roten Punkt mit Ring. Rechtsklick (nur Maus) geht in den
+  Tool-Ring und zaehlt nie als Tool-Klick.
+
+**FALLE:** `m36_test.dart` pinnte die ALTE Regel ("Horizontal ueberlebt auf
+EINEM Stueck"). Das widerspricht Autodesks Doku und wurde auf 2 korrigiert —
+mit Kommentar, dass M49 die Erwartung abloest. Wer die Zahl zurueckdreht,
+bricht die Inventor-Treue.
+
+**Status:** host-getestet. `flutter test` **269 gruen** (vorher 245, +21 neue
+in `test/m49_split_test.dart` + 3 in bestehenden Suites), `flutter analyze`
+**12 Issues, alle vorbestehend** (die `unused_local_variable`-Warnung in
+`modify.dart:65` steht so auch in HEAD, per `git show` geprueft) — also keine
+neuen. Lokal mit Flutter 3.24.5 im Container verifiziert, nicht nur behauptet.
+**Geraete-Test steht aus.**
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,

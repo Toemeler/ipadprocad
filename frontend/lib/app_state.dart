@@ -2388,9 +2388,11 @@ class AppState extends ChangeNotifier {
         final piecesStart = gs.length;
         gs.addAll(parts);
         // M36: a split keeps EVERY point, so all point-referencing
-        // constraints survive; entity refs go to the nearest piece.
+        // constraints survive. M49: on top of that, Inventor's documented
+        // Split rules — Horizontal/Vertical/Parallel/Perpendicular/Collinear
+        // are inherited by BOTH segments, Equal/Symmetric are broken.
         final remapped =
-            remapAfterReplace(s.constraints, i, old, gs, piecesStart);
+            remapAfterSplit(s.constraints, i, old, gs, piecesStart);
         // Inventor glues the two halves back together at the split point:
         // both pieces get a coincident there (and onto whatever the split
         // landed on), so a later drag moves them as connected geometry.
@@ -2400,6 +2402,8 @@ class AppState extends ChangeNotifier {
           toast('This split would break the sketch constraints.');
           return;
         }
+        Log.i('modify',
+            'split e$i: constraints ${s.constraints.length} -> ${remapped.length}');
         s.constraints
           ..clear()
           ..addAll(remapped);
@@ -3284,6 +3288,35 @@ class AppState extends ChangeNotifier {
     final i = _pickEntity(s, w);
     if (i == null) return null;
     return (s.geometry[i], trimEntity(s.geometry, i, w));
+  }
+
+  /// M49 — Split, Trim and Extend are one command family in Inventor: while
+  /// any of them runs, a right-click switches to the next one WITHOUT leaving
+  /// the session ("Right-click to switch to Trim or Extend"). Returns false
+  /// when no member of the family is active, so the caller can fall through.
+  bool cycleModifyTool() {
+    const ring = [Tool.split, Tool.trim, Tool.extendT];
+    final at = ring.indexOf(tool);
+    if (at < 0) return false;
+    tool = ring[(at + 1) % ring.length];
+    toolPoints.clear();
+    selection.clear();
+    Log.i('modify', 'right-click: switched to $tool');
+    notifyListeners();
+    return true;
+  }
+
+  /// M49 — Split hover preview. Inventor previews the split BEFORE the click:
+  /// you pause over a curve and it shows where the cut would land (at the
+  /// nearest intersecting curve, not under the cursor) and which span the
+  /// cursor is on. Returns null when there is nothing to split against.
+  SplitPlan? splitPreview(Offset w) {
+    final s = current;
+    if (s == null || tool != Tool.split) return null;
+    final i = _pickEntity(s, w);
+    if (i == null) return null;
+    if (s.geometry[i].isProjection) return null; // pinned reference geometry
+    return planSplit(s.geometry, i, w);
   }
 
   /// True when the pending dimension would over-constrain the sketch — the

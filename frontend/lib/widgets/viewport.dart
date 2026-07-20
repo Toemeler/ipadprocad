@@ -881,6 +881,15 @@ class _Viewport2DState extends State<Viewport2D> {
           // drawing impossible. The Listener sees pointers regardless of the
           // arena.
           onPointerDown: (e) {
+            // M49: a right-click inside the Split/Trim/Extend session hops to
+            // the next member of the family, exactly like Inventor. It never
+            // counts as a tool click.
+            if (e.kind == PointerDeviceKind.mouse &&
+                e.buttons == kSecondaryButton &&
+                app.cycleModifyTool()) {
+              _clickDown = null;
+              return;
+            }
             _pointers++;
             if (_pointers > 1) {
               _clickDown = null; // second finger: pan/zoom, never a click
@@ -1351,6 +1360,29 @@ class _ViewportPainter extends CustomPainter {
           paintGeo(canvas, tp.$1, map, app.zoom, red);
           for (final k in tp.$2) {
             paintGeo(canvas, k, map, app.zoom, p);
+          }
+        }
+      }
+      // M49 — Split preview: highlight the span the cursor is on and mark the
+      // cut point(s) where the carrier meets the nearest intersecting curve.
+      // Inventor shows this on hover, before the click commits anything.
+      if (app.tool == Tool.split && app.hoverWorld != null) {
+        final sp = app.splitPreview(app.hoverWorld!);
+        if (sp != null) {
+          final hi = Paint()
+            ..color = T.blue
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.4;
+          paintGeo(canvas, sp.pieces[sp.hovered], map, app.zoom, hi);
+          final mark = Paint()..color = const Color(0xFFE0554F);
+          final ring = Paint()
+            ..color = const Color(0xFFE0554F)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4;
+          for (final c in sp.cuts) {
+            final o = map(c.dx, c.dy);
+            canvas.drawCircle(o, 2.5, mark);
+            canvas.drawCircle(o, 5.5, ring);
           }
         }
       }

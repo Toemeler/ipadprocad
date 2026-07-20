@@ -598,6 +598,77 @@ List<Constraint> remapAfterReplace(List<Constraint> cs, int removed,
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// M49 — Split's constraint rules (Autodesk, verbatim behaviour)
+// ---------------------------------------------------------------------------
+// "Both segments of the split inherit the Horizontal, Vertical, Parallel,
+// Perpendicular, and Collinear constraints of the original. Equal and
+// Symmetric constraints are broken when necessary."
+//
+// That is stronger than [remapAfterReplace], which hands an entity constraint
+// to exactly ONE piece (right for Trim, where the other piece is gone). A
+// split keeps BOTH pieces on the carrier, so a horizontal line stays two
+// horizontal lines and a collinear pair stays collinear on both halves.
+
+/// Inherited by BOTH pieces of a split.
+const Set<CType> kSplitInherited = {
+  CType.horizontal,
+  CType.vertical,
+  CType.parallel,
+  CType.perpendicular,
+  CType.collinear,
+};
+
+/// Broken by a split: the measured/mirrored curve no longer exists, so
+/// keeping these on a fragment would assert something the user never drew.
+const Set<CType> kSplitBroken = {CType.equal, CType.symmetric};
+
+bool _conEq(Constraint a, Constraint b) =>
+    a.type == b.type &&
+    a.dimKind == b.dimKind &&
+    a.ents.length == b.ents.length &&
+    a.pts.length == b.pts.length &&
+    List.generate(a.ents.length, (i) => a.ents[i] == b.ents[i])
+        .every((x) => x) &&
+    List.generate(a.pts.length, (i) => a.pts[i] == b.pts[i]).every((x) => x);
+
+/// Remaps constraints after entity [removed] was SPLIT into the pieces
+/// appended to [gsAfter] at [piecesStart]. Applies Inventor's documented
+/// inheritance on top of the generic replace-remap.
+List<Constraint> remapAfterSplit(List<Constraint> cs, int removed, Geo oldGeo,
+    List<Geo> gsAfter, int piecesStart) {
+  bool touches(Constraint c) =>
+      c.ents.contains(removed) || c.pts.any((p) => p.ent == removed);
+  // 1) Equal/Symmetric on the split carrier are broken up front, so the
+  //    generic remap never carries them onto a fragment.
+  final survivors = [
+    for (final c in cs)
+      if (!(kSplitBroken.contains(c.type) && touches(c))) c
+  ];
+  final out = remapAfterReplace(survivors, removed, oldGeo, gsAfter, piecesStart);
+  // 2) The inherited kinds go to EVERY piece, not just the nearest one.
+  int shift(int e) => e > removed ? e - 1 : e;
+  for (final c in cs) {
+    if (!kSplitInherited.contains(c.type)) continue;
+    if (!c.ents.contains(removed)) continue;
+    for (var pi = piecesStart; pi < gsAfter.length; pi++) {
+      final ents = [for (final e in c.ents) e == removed ? pi : shift(e)];
+      // a two-entity relation must not collapse onto one entity
+      if (ents.length >= 2 && ents.toSet().length < ents.length) continue;
+      final dup = Constraint(c.type,
+          pts: [for (final p in c.pts) PRef(shift(p.ent), p.pt)],
+          ents: ents,
+          value: c.value,
+          dimKind: c.dimKind,
+          textPos: c.textPos,
+          driven: c.driven,
+          anchors: c.anchors);
+      if (!out.any((o) => _conEq(o, dup))) out.add(dup);
+    }
+  }
+  return out;
+}
+
 List<Constraint> remapAfterRemove(List<Constraint> cs, int removed) {
   final out = <Constraint>[];
   for (final c in cs) {
