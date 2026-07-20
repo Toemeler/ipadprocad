@@ -2384,6 +2384,20 @@ Remap, deleteLayer-Verschiebung, Sidecar-Roundtrip inkl. prae-M53) und
 `m53_touch_test.dart` (Tap-Klassifikator: 2/3 Finger, Bewegung, Timeout,
 Vergiftung, Cancel, 1/4 Finger; touchSlop).
 
+**M53-Nachtrag (Geraete-Feedback).** (1) Die HUD-Boxen sitzen jetzt NEBEN der
+Geometrie statt darauf: der Block wandert 26 px in Strichrichtung UEBER die
+Spitze hinaus und waechst von der Geometrie weg — hinter dem Linienende,
+radial ausserhalb des Kreisrands, ausserhalb der gezogenen Rechteck-Ecke;
+ohne Richtung (erster Klick) wie bisher rechts unten vom Cursor. (2)
+Pfeiltasten wechseln die HUD-Felder: Rechts/Runter = hudTab, Links/Hoch =
+hudTabBack (neu, gleicher Lock-und-Weiter-Kontrakt rueckwaerts) — auf dem
+Rechteck also w <-> h in beide Richtungen. (3) Press-Drag-Release-Zeichnen
+funktioniert jetzt auch mit EINEM FINGER (Live-Vorschau, Fat-Finger-Snap
+~1.8x; zwei Finger pannen/zoomen weiter, Procreate-Logik); nur bei
+Nicht-Geometrie-Tools (Bemassung/Modify) pannt der einzelne Finger weiter.
+Test: m53_hud_arrows_test.dart.
+
+
 **Bekannte Grenzen / nächste Kandidaten:** (M37-Audit-Punkte mit Priorität
 stehen ausführlich im README, Abschnitt PRODUKTIONS-AUDIT — hier nur die
 fachlichen Grenzen)

@@ -377,18 +377,19 @@ class _Viewport2DState extends State<Viewport2D> {
       return;
     }
     if (app.tool != Tool.none) {
-      // A FINGER dragging with a tool armed pans (Pencil places points,
-      // fingers navigate; without this a touch-only user could not move
-      // around mid-tool). The PENCIL press-drag-draws: non-hover Pencils
-      // (gen 1/2) see no rubber band between taps, so down anchors the
-      // first point, the drag previews live WITH snapping, release places —
-      // while a plain tap keeps the classic click-click flow. Geometry
-      // tools only (toolMeta): dimensioning/modify stay pure picks.
-      if (finger) {
+      // PENCIL AND FINGER press-drag-draw: non-hover Pencils (gen 1/2) see
+      // no rubber band between taps, so down anchors the first point, the
+      // drag previews live WITH snapping, release places — while a plain
+      // tap keeps the classic click-click flow. One finger draws exactly
+      // the same way (two fingers still pan/zoom, Procreate-style).
+      // Geometry tools only (toolMeta): dimensioning/modify stay pure
+      // picks, and there a FINGER falls back to panning.
+      if (finger && toolMeta[app.tool] == null) {
         _gesture = 'fingerpan';
         return;
       }
-      if ((soleKind == PointerDeviceKind.stylus ||
+      if ((finger ||
+              soleKind == PointerDeviceKind.stylus ||
               soleKind == PointerDeviceKind.invertedStylus) &&
           toolMeta[app.tool] != null) {
         _gesture = 'tooldrag';
@@ -553,14 +554,21 @@ class _Viewport2DState extends State<Viewport2D> {
             (lp - _toolDownLocal!).distance > 8) {
           // the FIRST point lands where the tip touched DOWN, snapped —
           // dragging away must not smear the anchor
-          app.toolClick(_snapped(_toWorld(_toolDownLocal!, size)));
+          app.toolClick(_snapped(_toWorld(_toolDownLocal!, size),
+              px: _gestureFinger
+                  ? touchSlop(PointerDeviceKind.touch, _snapPx)
+                  : _snapPx));
           _toolDragPlaced = true;
           _clickDown = null; // the release is a placement, never a tap
         }
         if (_toolDragPlaced) {
           final wNow = _toWorld(lp, size);
           _toolDragW = wNow;
-          app.setHover(_snapped(wNow)); // live rubber band, HUD applies
+          // live rubber band, HUD applies; fingers snap with fat radii
+          app.setHover(_snapped(wNow,
+              px: _gestureFinger
+                  ? touchSlop(PointerDeviceKind.touch, _snapPx)
+                  : _snapPx));
         }
         break;
       case 'text':
@@ -985,7 +993,10 @@ class _Viewport2DState extends State<Viewport2D> {
     switch (_gesture) {
       case 'tooldrag': // M53: release places the second point
         if (_toolDragPlaced && _toolDragW != null) {
-          app.toolClick(_snapped(_toolDragW!));
+          app.toolClick(_snapped(_toolDragW!,
+              px: _gestureFinger
+                  ? touchSlop(PointerDeviceKind.touch, _snapPx)
+                  : _snapPx));
           if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
         }
         _toolDownLocal = null;
@@ -1057,8 +1068,17 @@ class _Viewport2DState extends State<Viewport2D> {
           // clears a pending value first, then (empty) cancels the tool.
           if (app.hudActive && event is KeyDownEvent) {
             final hk = event.logicalKey;
-            if (hk == LogicalKeyboardKey.tab) {
+            if (hk == LogicalKeyboardKey.tab ||
+                hk == LogicalKeyboardKey.arrowRight ||
+                hk == LogicalKeyboardKey.arrowDown) {
               app.hudTab();
+              return KeyEventResult.handled;
+            }
+            // arrows also walk the boxes BACKWARDS — on a rectangle that is
+            // simply "switch between w and h" in either direction
+            if (hk == LogicalKeyboardKey.arrowLeft ||
+                hk == LogicalKeyboardKey.arrowUp) {
+              app.hudTabBack();
               return KeyEventResult.handled;
             }
             if (hk == LogicalKeyboardKey.enter ||
@@ -1875,9 +1895,20 @@ class _ViewportPainter extends CustomPainter {
             Rect.fromCenter(center: o, width: 5, height: 5),
             Paint()..color = T.blue);
       }
-      // HUD value boxes near the cursor
+      // HUD value boxes NEXT TO the live geometry, never on it: the block
+      // continues the stroke direction past the tip — beyond a line's
+      // endpoint, radially outside a circle's rim, outside a rectangle's
+      // dragged corner. With no direction yet (first click) it trails
+      // lower-right of the cursor like before.
       if (app.hudActive && rawHov != null && hov != null) {
-        _paintHud(canvas, app.hudDisplays(rawHov), map(hov.dx, hov.dy));
+        final a = map(hov.dx, hov.dy);
+        var dir = const Offset(0.8, 0.6);
+        if (pts.isNotEmpty) {
+          final p = map(pts.last.dx, pts.last.dy);
+          final v = a - p;
+          if (v.distance > 1) dir = v / v.distance;
+        }
+        _paintHud(canvas, app.hudDisplays(rawHov), a, dir);
       }
     }
 
@@ -2437,7 +2468,7 @@ void _dashedLine(Canvas c, Offset a, Offset b, Paint p,
 /// lower-right of the cursor. The focused box is outlined bright; locked boxes
 /// show a padlock and the value in the accent colour.
 void _paintHud(Canvas canvas,
-    List<(String, String, bool, bool, bool)> rows, Offset anchor) {
+    List<(String, String, bool, bool, bool)> rows, Offset anchor, Offset dir) {
   if (rows.isEmpty) return;
   const pad = 6.0, gap = 4.0, rowGap = 4.0, lockW = 10.0;
   final labelTps = <TextPainter>[], valueTps = <TextPainter>[];
@@ -2466,8 +2497,13 @@ void _paintHud(Canvas canvas,
   }
   final boxW = pad + maxLabel + gap + maxValue + lockW + pad;
   final rowH = glyphH + 5;
-  final left = anchor.dx + 16;
-  var top = anchor.dy + 14;
+  // Slide the whole block 26 px past the anchor ALONG the stroke and let it
+  // grow away from the geometry (leftwards when the stroke points left,
+  // upwards when it points up) — so it can never lie on the rubber band.
+  final blockH = rows.length * rowH + (rows.length - 1) * rowGap;
+  final base = anchor + dir * 26;
+  final left = dir.dx >= 0 ? base.dx + 4 : base.dx - boxW - 4;
+  var top = dir.dy >= 0 ? base.dy + 4 : base.dy - blockH - 4;
   for (var i = 0; i < rows.length; i++) {
     final locked = rows[i].$3, focused = rows[i].$4;
     final rect = RRect.fromRectAndRadius(

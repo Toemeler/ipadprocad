@@ -470,6 +470,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Shift-Tab / arrow left/up: same lock-and-move, one field backwards.
+  void hudTabBack() {
+    if (!hudActive) return;
+    final fields = hudFieldsFor(tool, toolPoints.length);
+    if (fields.isEmpty) return;
+    final typed = double.tryParse(hudInput.trim());
+    if (typed != null) hudLocked[hudFocus] = typed;
+    hudInput = '';
+    hudFocus = (hudFocus - 1 + fields.length) % fields.length;
+    notifyListeners();
+  }
+
   /// Enter: lock the pending box, then place the point at the effective cursor
   /// (the same as clicking there). Commits the shape if it completes it.
   void hudEnter() {
