@@ -25,6 +25,18 @@ class FlyItem {
   const FlyItem(this.icon, this.b, this.sub, [this.tool]);
 }
 
+/// One entry of a PANEL OVERFLOW menu (the ▼ next to a panel's title). These
+/// are the commands that stay available but no longer earn permanent ribbon
+/// width — Inventor does the same with its panel expanders. Unlike [FlyItem]
+/// they carry a raw SVG string (the icon maps differ per panel) and a plain
+/// callback, so toggles and settings fit as well as tools.
+class OverItem {
+  final String icon, label;
+  final VoidCallback? onTap;
+  final bool active;
+  const OverItem(this.icon, this.label, this.onTap, {this.active = false});
+}
+
 const flyouts = <String, List<FlyItem>>{
   'line': [
     FlyItem('fline', 'Line', 'Line', Tool.line),
@@ -129,6 +141,40 @@ class _RibbonState extends State<Ribbon> {
             onPick: (it) {
               closeFly();
               if (it.tool != null) _startTool(it.tool!);
+            },
+          ),
+        ),
+      ]),
+    );
+    Overlay.of(context).insert(_fly!);
+    setState(() => _flyId = id);
+  }
+
+  /// Opens a PANEL OVERFLOW menu under the panel's title row. Same overlay
+  /// lifecycle as [toggleFly] (one open menu at a time, tap-outside closes),
+  /// but the items are arbitrary commands rather than tool variants.
+  void toggleOver(String id, BuildContext anchorCtx, List<OverItem> items) {
+    if (_flyId == id) {
+      closeFly();
+      return;
+    }
+    closeFly();
+    final box = anchorCtx.findRenderObject() as RenderBox;
+    final pos = box.localToGlobal(Offset.zero);
+    _fly = OverlayEntry(
+      builder: (_) => Stack(children: [
+        Positioned.fill(
+            child: GestureDetector(
+                behavior: HitTestBehavior.translucent, onTap: closeFly)),
+        Positioned(
+          left: pos.dx,
+          // the title sits at the panel's BOTTOM, so the menu opens upward
+          bottom: MediaQuery.of(context).size.height - pos.dy + 1,
+          child: _OverMenu(
+            items: items,
+            onPick: (it) {
+              closeFly();
+              it.onTap?.call();
             },
           ),
         ),
@@ -351,7 +397,6 @@ class _RibbonState extends State<Ribbon> {
               width: 70,
               icon: layerBigIcon,
               label: 'Start\nNew Layer',
-              cornerDd: true,
               onTap: app.startNewLayer),
         ),
         // Outside layer edit mode there is NOTHING to do with these: every
@@ -362,7 +407,7 @@ class _RibbonState extends State<Ribbon> {
         // 2. Create
         _panel(
           label: 'Create',
-          arrow: true,
+          arrow: false,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(id: 'line', label: 'Line', icon: IC['line34']!, onFly: toggleFly,
                 onDefault: () => _startTool(Tool.line),
@@ -435,10 +480,22 @@ class _RibbonState extends State<Ribbon> {
                 ]),
           ),
         ),
-        // 5. Constrain
+        // 5. Constrain — Smooth / Constraint Settings / Show Constraints are
+        // rarely used, so they moved behind the title's ▼ instead of costing
+        // permanent grid width. They are NOT gone, just one tap deeper.
         _panel(
           label: 'Constrain',
-          arrow: true,
+          arrow: false,
+          overId: 'ov-constrain',
+          over: () => [
+            OverItem(CN['smooth']!, 'Smooth (G2)',
+                () => _startTool(Tool.cSmooth),
+                active: app.tool == Tool.cSmooth),
+            OverItem(CN['conset']!, 'Constraint Settings',
+                app.toggleShowDof, active: app.showDof),
+            OverItem(CN['showcons']!, 'Show Constraints',
+                app.toggleShowConstraints, active: app.showConstraints),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             SizedBox(
               width: 66,
@@ -457,13 +514,25 @@ class _RibbonState extends State<Ribbon> {
             ),
           ]),
         ),
-        // 6. Insert
+        // 6. Insert + Format + Manage, MERGED into one narrow panel.
+        // Visible: the four things actually reached for (Image, ACAD,
+        // Construction, Parameters). Everything else — Points, Show Format,
+        // Center Point, Centerline, Driven Dimension — is one tap away behind
+        // the title's ▼ instead of eating three panels of ribbon width.
         _panel(
           label: 'Insert',
           arrow: false,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 2),
-            child: Column(
+          overId: 'ov-insert',
+          over: () => [
+            OverItem(IN['points']!, 'Points', null),
+            OverItem(IN['sphere']!, 'Centerline',
+                app.toggleCenterlineSelected),
+            OverItem(IN['center']!, 'Center Point', null),
+            OverItem(IN['driven']!, 'Driven Dimension', null),
+            OverItem(IN['showfmt']!, 'Show Format', null),
+          ],
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -472,55 +541,63 @@ class _RibbonState extends State<Ribbon> {
                       label: 'Image',
                       onTap: () => _pickImage(app)),
                   const SizedBox(height: 2),
-                  _SmallRow(icon: IN['points']!, label: 'Points'),
-                  const SizedBox(height: 2),
                   _SmallRow(
                       icon: IN['acad']!,
                       label: 'ACAD',
                       onTap: () => _pickDxf(app)),
                 ]),
-          ),
-        ),
-        // 7. Format
-        _panel(label: 'Format', arrow: true, child: _FormatGrid(app: app)),
-        // 7b. Manage (M43): Inventors Parameters window
-        _panel(
-          label: 'Manage',
-          arrow: false,
-          child: Center(
-            child: InkWell(
-              onTap: () => app.toggleParams(),
-              child: Container(
-                width: 52,
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                decoration: BoxDecoration(
-                  color: app.showParams ? T.flyHov : Colors.transparent,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text('fx',
-                      style: TextStyle(
-                          color: T.blue,
-                          fontSize: 16,
-                          height: 1.0,
-                          fontStyle: FontStyle.italic,
-                          fontWeight: FontWeight.w700)),
-                  SizedBox(height: 3),
-                  Text('Parameters',
-                      style: TextStyle(color: T.text, fontSize: 9)),
+            Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SmallRow(
+                      icon: IN['constr']!,
+                      label: 'Construction',
+                      onTap: app.toggleConstructionSelected),
+                  const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: IN['constr']!, // unused: iconWidget wins
+                      iconWidget: const Text('fx',
+                          style: TextStyle(
+                              color: T.blue,
+                              fontSize: 14,
+                              height: 1.0,
+                              fontStyle: FontStyle.italic,
+                              fontWeight: FontWeight.w700)),
+                      label: 'Parameters',
+                      onTap: app.toggleParams,
+                      active: app.showParams),
                 ]),
-              ),
-            ),
-          ),
+          ]),
         ),
-        // 8. Modify (LAST block)
+        // 8. Modify (LAST block). Only the three sketch-shaping commands keep
+        // permanent width; the transform family (Move/Copy/Rotate/Scale/
+        // Stretch) and Extend moved behind the title's ▼ — still there, just
+        // not paid for in ribbon real estate.
         _panel(
           label: 'Modify',
           arrow: false,
+          overId: 'ov-modify',
+          over: () => [
+            OverItem(MD['extend']!, 'Extend',
+                () => _startTool(Tool.extendT),
+                active: app.tool == Tool.extendT),
+            OverItem(MD['move']!, 'Move', () => _startTool(Tool.move),
+                active: app.tool == Tool.move),
+            OverItem(MD['copy']!, 'Copy', () => _startTool(Tool.mcopy),
+                active: app.tool == Tool.mcopy),
+            OverItem(MD['mrotate']!, 'Rotate',
+                () => _startTool(Tool.mrotate),
+                active: app.tool == Tool.mrotate),
+            OverItem(MD['mscale']!, 'Scale', () => _startTool(Tool.mscale),
+                active: app.tool == Tool.mscale),
+            OverItem(MD['stretch']!, 'Stretch',
+                () => _startTool(Tool.mstretch),
+                active: app.tool == Tool.mstretch),
+          ],
           child: Row(children: [
-            _modCol(['move', 'copy', 'mrotate'], ['Move', 'Copy', 'Rotate'], leftPad: 2),
-            _modCol(['trim', 'extend', 'split'], ['Trim', 'Extend', 'Split']),
-            _modCol(['mscale', 'stretch', 'moffset'], ['Scale', 'Stretch', 'Offset']),
+            _modCol(['trim', 'split', 'moffset'], ['Trim', 'Split', 'Offset'],
+                leftPad: 2),
           ]),
         ),
         ],
@@ -534,7 +611,6 @@ class _RibbonState extends State<Ribbon> {
                 width: 64,
                 icon: finishIcon,
                 label: 'Finish',
-                cornerDdBelow: true,
                 onTap: () => app.finishEdit()),
           ),
       ]),
@@ -572,7 +648,28 @@ class _RibbonState extends State<Ribbon> {
       {required String label,
       required bool arrow,
       required Widget child,
-      bool first = false}) {
+      bool first = false,
+      String? overId,
+      List<OverItem> Function()? over}) {
+    // The ▼ next to the title is the ONLY way to the overflow commands, so it
+    // has to be a real hit target — the label goes with it (Inventor's panel
+    // expander behaves the same).
+    Widget title = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Text(label, style: ts(12, T.dim)),
+      if (arrow || over != null) ...[
+        const SizedBox(width: 6),
+        Text('▼', style: ts(8, T.dim)),
+      ],
+    ]);
+    if (over != null && overId != null) {
+      title = Builder(
+        builder: (ctx) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => toggleOver(overId, ctx, over()),
+          child: title,
+        ),
+      );
+    }
     return Container(
       decoration: first
           ? null
@@ -589,13 +686,7 @@ class _RibbonState extends State<Ribbon> {
           ),
           Padding(
             padding: const EdgeInsets.only(top: 3, bottom: 5),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(label, style: ts(12, T.dim)),
-              if (arrow) ...[
-                const SizedBox(width: 6),
-                Text('▼', style: ts(8, T.dim)),
-              ],
-            ]),
+            child: title,
           ),
         ],
       ),
@@ -721,16 +812,12 @@ class _BigWide extends StatelessWidget {
   final double width;
   final String icon;
   final String label;
-  final bool cornerDd;
-  final bool cornerDdBelow;
   final VoidCallback? onTap;
   final bool active;
   const _BigWide(
       {required this.width,
       required this.icon,
       required this.label,
-      this.cornerDd = false,
-      this.cornerDdBelow = false,
       this.onTap,
       this.active = false});
   @override
@@ -749,15 +836,8 @@ class _BigWide extends StatelessWidget {
               Text(label,
                   textAlign: TextAlign.center,
                   style: ts(11.5, T.text, height: 1.15)),
-              if (cornerDdBelow) ...[
-                const SizedBox(height: 1),
-                Text('▼', style: ts(7.5, T.dim)),
-              ],
             ]),
           ),
-          if (cornerDd)
-            Positioned(
-                right: 3, bottom: 3, child: Text('▼', style: ts(7.5, T.dim))),
         ]),
       ),
     );
@@ -771,9 +851,13 @@ class _SmallRow extends StatelessWidget {
   final void Function(String, BuildContext)? onFly;
   final VoidCallback? onTap;
   final bool active;
+
+  /// Replaces the SVG when the glyph is not an icon — Parameters uses
+  /// Inventor's italic "fx", which is type, not artwork.
+  final Widget? iconWidget;
   const _SmallRow(
       {required this.icon, required this.label, this.flyId, this.onFly,
-      this.onTap, this.active = false});
+      this.onTap, this.active = false, this.iconWidget});
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -786,7 +870,10 @@ class _SmallRow extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              svg(icon, 18),
+              SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: Center(child: iconWidget ?? svg(icon, 18))),
               const SizedBox(width: 6),
               Text(label, style: ts(12.5, T.text)),
             ]),
@@ -849,19 +936,20 @@ class _ConGrid extends StatelessWidget {
     'equal': Tool.cEqual,
   };
 
+  /// The grid holds only the constraints worth permanent ribbon width.
+  /// Smooth / Constraint Settings / Show Constraints live behind the panel
+  /// title's ▼ (see the Constrain panel). 11 cells over 4 columns = 3 rows,
+  /// which is both shorter and NARROWER than the old 5-column grid.
   static const cons = [
     ('coincident', 'Coincident'),
     ('collinear', 'Collinear'),
     ('concentric', 'Concentric'),
     ('lock', 'Lock'),
-    ('showcons', 'Show Constraints'),
     ('parallel', 'Parallel'),
     ('perp', 'Perpendicular'),
     ('horiz', 'Horizontal'),
     ('vert', 'Vertical'),
-    ('conset', 'Constraint Settings'),
     ('tangent', 'Tangent'),
-    ('smooth', 'Smooth (G2)'),
     ('symmetric', 'Symmetric'),
     ('equal', 'Equal'),
   ];
@@ -890,7 +978,7 @@ class _ConGrid extends StatelessWidget {
     if (t != null) onTool(t);
   }
 
-  static const _cols = 5;
+  static const _cols = 4;
 
   Widget _cell((String, String) c) => Tooltip(
         message: c.$2,
@@ -935,92 +1023,80 @@ class _ConGrid extends StatelessWidget {
   }
 }
 
-class _FormatGrid extends StatelessWidget {
-  final AppState app;
-  const _FormatGrid({required this.app});
+class _OverMenu extends StatelessWidget {
+  final List<OverItem> items;
+  final void Function(OverItem) onPick;
+  const _OverMenu({required this.items, required this.onPick});
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // row 1: Driven Dimension (colspan 2)
-          Tooltip(
-            message: 'Driven Dimension',
-            child: SizedBox(
-                width: 65,
-                height: 27,
-                child: _Hover(
-                    hoverBg: T.hover7,
-                    child: Center(child: svg(IN['driven']!, 18)))),
+    return Material(
+      type: MaterialType.transparency,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 170, maxWidth: 280),
+        child: IntrinsicWidth(
+          child: ColoredBox(
+            color: T.fly,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: T.fly,
+                border: Border.all(color: T.sep),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < items.length; i++)
+                    _OverRow(
+                        item: items[i], last: i == items.length - 1,
+                        onPick: onPick),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 1),
-          // row 2: Construction + Centerline (toggles, M40) + Center Point
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            Tooltip(
-              message: 'Construction (toggle selected)',
-              child: GestureDetector(
-                onTap: app.toggleConstructionSelected,
-                child: SizedBox(
-                    width: 21,
-                    height: 27,
-                    child: _Hover(
-                        hoverBg: T.hover7,
-                        child: Center(child: svg(IN['constr']!, 16)))),
-              ),
-            ),
-            const SizedBox(width: 1),
-            Tooltip(
-              message: 'Centerline (toggle selected)',
-              child: GestureDetector(
-                onTap: app.toggleCenterlineSelected,
-                child: SizedBox(
-                    width: 21,
-                    height: 27,
-                    child: _Hover(
-                        hoverBg: T.hover7,
-                        child: Center(child: svg(IN['sphere']!, 16)))),
-              ),
-            ),
-            const SizedBox(width: 1),
-            Tooltip(
-              message: 'Center Point',
-              child: Container(
-                width: 21,
-                height: 27,
-                decoration: BoxDecoration(
-                  color: T.conActiveBg,
-                  borderRadius: BorderRadius.circular(2),
-                  border: Border.all(color: T.conActiveBorder),
-                ),
-                child: Center(child: svg(IN['center']!, 16)),
-              ),
-            ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverRow extends StatefulWidget {
+  final OverItem item;
+  final bool last;
+  final void Function(OverItem) onPick;
+  const _OverRow(
+      {required this.item, required this.last, required this.onPick});
+  @override
+  State<_OverRow> createState() => _OverRowState();
+}
+
+class _OverRowState extends State<_OverRow> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) {
+    final it = widget.item;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: GestureDetector(
+        // opaque, or only the label text would be tappable (see _FlyRow)
+        behavior: HitTestBehavior.opaque,
+        onTap: it.onTap == null ? null : () => widget.onPick(it),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 7, 14, 7),
+          decoration: BoxDecoration(
+            color: (_h || it.active) ? T.flyHov : T.fly,
+            border: widget.last
+                ? null
+                : const Border(bottom: BorderSide(color: Color(0x08FFFFFF))),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            svg(it.icon, 18),
+            const SizedBox(width: 10),
+            Text(it.label,
+                style: ts(12.5, it.onTap == null ? T.dim : T.text,
+                    height: 1.25)),
           ]),
-          const SizedBox(height: 1),
-          // row 3: Show Format (colspan 2, must not overflow)
-          Tooltip(
-            message: 'Show Format',
-            child: _Hover(
-              hoverBg: T.hover7,
-              hoverBorder: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                child: SizedBox(
-                  height: 25,
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    svg(IN['showfmt']!, 18),
-                    const SizedBox(width: 6),
-                    Text('Show Format',
-                        style: ts(12.5, T.text), softWrap: false),
-                  ]),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

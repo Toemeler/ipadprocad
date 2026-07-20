@@ -32,11 +32,8 @@ class BottomTabBar extends StatelessWidget {
           leftPad: 28,
           on: app.isHome,
           onTap: app.goHome,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            SvgPicture.string(homeTabIcon, width: 13, height: 13),
-            const SizedBox(width: 6),
-            const Text('Home'),
-          ]),
+          // The house speaks for itself — the word next to it was redundant.
+          child: SvgPicture.string(homeTabIcon, width: 15, height: 15),
         ),
         for (final t in app.openTabs)
           _Tab(
@@ -49,10 +46,6 @@ class BottomTabBar extends StatelessWidget {
             ]),
           ),
         const Spacer(),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Center(child: Text('☰', style: ts(15, T.tabText))),
-        ),
       ]),
     );
   }

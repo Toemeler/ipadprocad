@@ -2165,6 +2165,65 @@ in `test/m49_split_test.dart` + 3 in bestehenden Suites), `flutter analyze`
 neuen. Lokal mit Flutter 3.24.5 im Container verifiziert, nicht nur behauptet.
 **Geraete-Test steht aus.**
 
+## M50 — Ribbon abgespeckt + totes Chrome entfernt
+
+Zwei VERSCHIEDENE Operationen, die man nicht verwechseln darf:
+
+**(A) VERSCHOBEN, nicht geloescht.** Selten gebrauchte Befehle verlieren ihre
+dauerhafte Ribbon-Breite und sitzen jetzt hinter dem ▼ neben dem PANEL-TITEL.
+Sie sind alle weiter erreichbar — wer sie beim Aufraeumen wirklich loescht,
+macht das Gegenteil des Gewuenschten.
+- **Constrain ▾**: Smooth (G2), Constraint Settings, Show Constraints.
+  Das Gitter faellt auf 11 Zellen und von 5 auf **4 Spalten** — schmaler UND
+  gleich hoch (3 Reihen).
+- **Insert ▾** (= Insert + Format + Manage in EINEM Panel): Points, Centerline,
+  Center Point, Driven Dimension, Show Format. Auf der Flaeche bleiben nur
+  Image, ACAD, Construction, Parameters (2x2, zwei `_SmallRow`-Spalten).
+- **Modify ▾**: Extend, Move, Copy, Rotate, Scale, Stretch. Auf der Flaeche
+  bleiben Trim, Split, Offset (eine Spalte).
+
+**(B) WIRKLICH ENTFERNT** (totes Chrome, tat nie etwas):
+- Model-Browser: `+`, `🔍`, `☰`
+- Tab-Leiste: `☰` und das Wort „Home" (das Haus reicht, Icon jetzt 15 px)
+- Der immer sichtbare Schloss-TOGGLE in der Layer-Zeile. Neu `_LockedMark`:
+  ein Schloss erscheint **nur bei GESPERRTEN** Layern. Sperren/Entsperren
+  laeuft ueber das Rechtsklick-/Long-Press-Menue (dort wo auch Rename/Delete
+  sitzen), es ist also nichts unerreichbar geworden.
+- Die Statuszeile unten LINKS („N degrees of freedom"). Unten RECHTS steht
+  dasselbe als „N dimensions needed" / „Fully Constrained" — als Anweisung
+  statt als Zahl. Eine Statuszeile reicht.
+- Die ▼ an „Start New Layer", an „Create" und an „Finish" (zeigten auf nichts).
+
+**Technik.** Neu `OverItem` / `_OverMenu` / `_OverRow` neben dem vorhandenen
+`FlyItem`/`_FlyMenu`: die Overflow-Eintraege tragen einen ROHEN SVG-String
+(die Icon-Maps unterscheiden sich je Panel: CN/IN/MD) und einen freien
+Callback, damit auch Toggles und Settings hineinpassen — nicht nur Tools.
+`_panel()` bekommt `overId` + `over`; Titel plus ▼ werden zusammen zum
+Hit-Target. Das Menue oeffnet nach OBEN (`bottom:`), weil die Panel-Titel
+unten sitzen. **Dieselbe Endlich-Breiten-Disziplin wie `_FlyMenu`** —
+`ConstrainedBox` + `IntrinsicWidth`; siehe die lange Notiz dort: ein
+`Positioned`-Kind eines `Stack` bekommt UNBESCHRAENKTE Constraints, und eine
+unendliche Breite laesst Impeller im Release-Build die Fuellung weglassen.
+`_SmallRow` bekommt optional `iconWidget` (Parameters nutzt Inventors
+kursives „fx" — Schrift, keine Grafik). `_FormatGrid` und die toten
+`cornerDd`/`cornerDdBelow`-Parameter sind raus.
+
+**FALLE (wichtig fuer die naechste Session):** Der Ribbon laesst sich auf dem
+Host NICHT in einem Widget-Test pumpen. `pumpWidget(MaterialApp(Scaffold(
+Ribbon(app))))` kehrt nie zurueck — kein Timeout, keine Exception, einfach
+haengen (mit einem Minimal-Probe isoliert). Verdacht: `flutter_svg` beim
+Rastern der ~40 Icons unter `flutter_tester`. Deshalb pumpt KEIN einziger
+Test im Repo den Ribbon — alle Widget-Tests nehmen HomeView, Viewport oder
+Dialoge. Eine vorbereitete `m50_ribbon_slimming_test.dart` (17 Tests) musste
+darum wieder raus; sie blockierte die ganze Suite. **M50 ist ausschliesslich
+GERAETE-getestet, nicht host-getestet.** Wer den Haenger loest, sollte sie
+neu schreiben — die Testluecke ist real.
+
+**Status:** `flutter test` **269 gruen** (unveraendert, M50 fuegt keine Tests
+hinzu), `flutter analyze` ohne neue Issues. Die drei `prefer_const_*`-Lints,
+die CI in `m49_split_test.dart` fand (CI faehrt einen strengeren Lint-Satz als
+lokal), sind gefixt. **Geraete-Test von M49 UND M50 steht aus.**
+
 ## Gesamtstand & Arbeitsweise (Stand M40, für die nächste Session)
 
 **Was die App kann:** Skizzieren (Linie, Kreis, Bogen, Rechtecke, Polygon,

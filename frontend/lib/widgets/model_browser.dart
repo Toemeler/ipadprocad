@@ -307,17 +307,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 Text('✕', style: ts(11, T.mbDim)),
               ]),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Text('+', style: ts(15, T.mbDim)),
-            ),
             const Spacer(),
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text('🔍', style: ts(13, T.mbDim))),
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text('☰', style: ts(13, T.mbDim))),
           ]),
         ),
         // tree
@@ -385,10 +375,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
           label: layer,
           active: active,
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            _LockButton(
-              locked: app.layerLocked(layer),
-              onTap: () => app.toggleLayerLocked(layer),
-            ),
+            if (app.layerLocked(layer)) const _LockedMark(),
             _EyeButton(
               visible: app.layerVisible(layer),
               onTap: () => app.toggleLayerVisible(layer),
@@ -561,38 +548,19 @@ class _EyeButtonState extends State<_EyeButton> {
 /// activates on it and its geometry can't be picked, dragged or constrained.
 /// Shown faint when unlocked so it stays discoverable without cluttering the
 /// row; a closed padlock in the accent red once locked.
-class _LockButton extends StatefulWidget {
-  final bool locked;
-  final VoidCallback onTap;
-  const _LockButton({required this.locked, required this.onTap});
-  @override
-  State<_LockButton> createState() => _LockButtonState();
-}
-
-class _LockButtonState extends State<_LockButton> {
-  bool _h = false;
-
+/// Lock STATE marker. A locked layer stays visible but is read-only: no tool,
+/// drag or delete touches it. Only LOCKED layers carry the padlock — an
+/// unlocked layer shows nothing, because an open padlock on every row was
+/// permanent noise for the default state. Locking and unlocking happen through
+/// the row's right-click / long-press menu, which is also where Rename and
+/// Delete live, so nothing became unreachable.
+class _LockedMark extends StatelessWidget {
+  const _LockedMark();
   @override
   Widget build(BuildContext context) {
-    final locked = widget.locked;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _h = true),
-      onExit: (_) => setState(() => _h = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Icon(
-            locked ? Icons.lock_outline : Icons.lock_open_outlined,
-            size: 14,
-            color: locked
-                ? const Color(0xFFD65A56)
-                : (_h ? T.mbText : T.mbDimmed),
-          ),
-        ),
-      ),
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4),
+      child: Icon(Icons.lock_outline, size: 14, color: Color(0xFFD65A56)),
     );
   }
 }

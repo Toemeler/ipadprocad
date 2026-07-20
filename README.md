@@ -948,3 +948,29 @@ vererbten Constraint-Typen landen auf BEIDEN Stücken; Equal/Symmetric fallen
 weg; fremde Constraints bleiben unberührt; End-to-End über `AppState` inkl.
 Verklebung am Schnittpunkt und Sperre für Projektionen; Rechtsklick-Ring;
 Sitzung bleibt offen. Suite: **269 grün**, `flutter analyze` ohne neue Issues.
+
+## M50 — Abgespeckter Ribbon
+
+Der Ribbon zeigte alles gleich prominent, auch was man fast nie anfasst. M50
+trennt zwei Dinge sauber: Befehle, die nur ihre **dauerhafte Breite** verlieren
+(sie sind ein Tipp weiter unter dem ▼ am Panel-Titel), und totes Chrome, das
+**wirklich verschwindet**.
+
+**Hinter den ▼ gewandert (weiter erreichbar):**
+- *Constrain*: Smooth (G2), Constraint Settings, Show Constraints. Das Gitter
+  faellt auf 11 Zellen in 4 statt 5 Spalten — schmaler bei gleicher Hoehe.
+- *Insert* (jetzt Insert + Format + Manage in einem Panel): Points, Centerline,
+  Center Point, Driven Dimension, Show Format. Sichtbar bleiben Image, ACAD,
+  Construction und Parameters.
+- *Modify*: Extend, Move, Copy, Rotate, Scale, Stretch. Sichtbar bleiben Trim,
+  Split und Offset.
+
+**Entfernt:** `+`, Suche und Menue im Model-Browser; das Menue in der
+Tab-Leiste; das Wort „Home" neben dem Haus; der Schloss-Toggle in jeder
+Layer-Zeile (ein Schloss markiert jetzt nur noch GESPERRTE Layer, gesperrt wird
+per Rechtsklick); die Statuszeile „N degrees of freedom" unten links, weil
+unten rechts dasselbe als „N dimensions needed" steht; und die drei ▼ an
+„Start New Layer", „Create" und „Finish", die auf nichts zeigten.
+
+**Nicht host-getestet.** Der Ribbon laesst sich auf dem Host nicht in einem
+Widget-Test pumpen (siehe HANDOFF, M50) — M50 wird auf dem Geraet geprueft.

@@ -1703,24 +1703,10 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
-    // ---- sketch status: DOF count / Fully Constrained (Inventor status bar)
-    if (s != null && app.analysis != null) {
-      final an = app.analysis!;
-      final txt = an.fullyConstrained
-          ? 'Fully Constrained'
-          : '${an.dof} degree${an.dof == 1 ? '' : 's'} of freedom';
-      final tp = TextPainter(
-          text: TextSpan(
-              text: txt,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: an.fullyConstrained
-                      ? const Color(0xFF66B2A0)
-                      : T.dim)),
-          textDirection: TextDirection.ltr)
-        ..layout();
-      tp.paint(canvas, Offset(10, size.height - tp.height - 8));
-    }
+    // The bottom-LEFT "N degrees of freedom" readout is gone: it said the same
+    // thing as the bottom-right "N dimensions needed" / "Fully Constrained"
+    // overlay, in the number the user cannot act on. One status line is
+    // enough, and it is the one phrased as an instruction.
 
     // ---- transient notice (over-constrained warnings) ----
     if (app.message != null) {

@@ -95,7 +95,7 @@ void main() {
     test('an arc splits at the crossing nearest the cursor', () {
       // quarter arc r=10 from 0 to 90 deg, cut by the 45-deg ray
       final a = arc(0, 0, 10, 0, math.pi / 2);
-      final d = 10 / math.sqrt2;
+      const d = 10 / math.sqrt2;
       final gs = [a, line(0, 0, d * 2, d * 2)];
       final parts = splitEntity(gs, 0, Offset(d * 0.9, d * 1.1));
       expect(parts, isNotNull);
@@ -163,7 +163,7 @@ void main() {
 
     test('a closed polyline splits into two open chains', () {
       // unit-ish square 0,0 .. 10,10 as a closed polyline
-      final sq = Geo(Geo.polyline,
+      final sq = const Geo(Geo.polyline,
           [1.0, 4.0, 0, 0, 10, 0, 10, 10, 0, 10]);
       // two cutters crossing the bottom and the top edge
       final gs = [sq, line(4, -5, 4, 5), line(6, 5, 6, 15)];
@@ -180,7 +180,7 @@ void main() {
 
   group('open polyline', () {
     test('splits at the crossing nearest the cursor', () {
-      final pl = Geo(Geo.polyline, [0.0, 3.0, 0, 0, 10, 0, 10, 10]);
+      final pl = const Geo(Geo.polyline, [0.0, 3.0, 0, 0, 10, 0, 10, 10]);
       final gs = [pl, line(4, -5, 4, 5)];
       final cuts = splitPoints(gs, 0, const Offset(9, 0));
       expect(cuts.length, 1);
