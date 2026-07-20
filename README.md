@@ -983,3 +983,70 @@ Suite ist wieder da (14 Tests) und ihr erster Test faengt genau diese
 Rekursion. Ausserdem: das Overflow-Menue oeffnet nach UNTEN statt nach oben,
 der Statusleisten-Streifen faerbt sich mit dem Ribbon (bzw. der Galerie) mit,
 und die Menuezeilen koennen nicht mehr ueberlaufen.
+
+## M53 — End of Sketch wie Inventors EOP + Apple-Pencil/Touch komplett
+
+**End-of-Sketch-Marker (Inventors End of Part, auf Layer gemappt).** Die
+Zeile im Model-Browser ist jetzt der echte Marker: per Drag nach oben/unten
+verschiebbar (Escape bricht die Verschiebung ab, wie Inventor), alles
+DARUNTER ist zurueckgerollt — gedimmt (45%) im Browser, ohne Auge, nicht
+gezeichnet, nicht pickbar, nicht snapbar, nicht editierbar; Bemaßungen und
+Constraint-Glyphen der Entities darunter verschwinden mit (constraintVisible
+haengt an geoVisible). Neue Layer entstehen OBERHALB des Markers (Inventor:
+neue Features landen ueber dem EOP). Rechtsklick/Long-Press auf den Marker:
+Move to Top / Move to End / **Delete all layers below** (mit Bestaetigung,
+atomar = EIN Undo-Schritt, Constraint-Refs remappt, gestrandete "0"-Entities
+werden mit geloescht und die leere "0" gepruned). Jede Layer-Zeile bietet
+"Move End of Sketch here" (Inventor 2013: Move EOP Marker). Der Marker
+faehrt im Undo-Journal und im Layer-Sidecar (v3, `eos`) mit; alte Sidecars
+laden mit Marker am Ende. Solver-Entscheid: zurueckgerollte Geometrie bleibt
+im Gleichungssystem (nichts kann sie greifen oder neu referenzieren, sie
+wirkt als unbeweglicher Anker) — dadurch ist der Marker-Move in beide
+Richtungen sofort und verlustfrei, kein Re-Solve, kein Drift.
+
+**Apple Pencil + Touch, komplett (Trackpad/Maus unveraendert).**
+- **Press-Drag-Release-Zeichnen mit dem Pencil:** Pencil 1/2 haben KEIN
+  Hover — zwischen Tap 1 und Tap 2 gaebe es kein Gummiband. Darum ankert
+  der Aufsetzpunkt den ersten Punkt (gesnappt), der Zug zeigt die Vorschau
+  LIVE mit Snapping (und HUD/Dynamic Input aus M52 greift, weil toolClick
+  hudApply selbst anwendet), das Abheben setzt den zweiten Punkt. Ein
+  blosser Tap bleibt klassisches Klick-Klick. Nur Geometrie-Tools
+  (toolMeta); Bemaßung/Modify bleiben reine Picks. Bei Kontakt erscheint
+  der Snap-Marker sofort (onPointerDown), waehrend des Zugs folgt er dem
+  Stift (onPointerMove) — Hover-faehige Pencils (Pro/M2) hatten das schon
+  ueber onPointerHover, exakt wie die Maus.
+- **Palm Rejection:** Touches, die landen waehrend der Pencil unten ist,
+  werden abgewiesen — gezaehlt (M52-Kontrakt: Count FIRST), aber nie Klick,
+  nie Tap, und der Scale-Recognizer verweigert ihnen den Eintritt
+  (`_PalmAwareScale.isPointerAllowed`), damit der Handballen einen Strich
+  nie in Pan/Zoom kippt.
+- **Zwei-Finger-Tipp = Undo, Drei-Finger-Tipp = Redo (Procreate).** Der
+  Klassifikator (lib/touch.dart, host-getestet) trennt Tipp von Pan/Pinch
+  ueber Bewegung (>18 px) und Dauer (>350 ms) und wird von jeder
+  Nicht-Touch-Aktivitaet vergiftet. Haptik bei Ausloesung; unterdrueckt
+  waehrend Textfeld/HUD-Eingabe.
+- **Ein Finger:** auf Griff/Body/Text/Bild zieht (mit ~1.8x Fangradius,
+  touchSlop), auf leerer Flaeche PANNT er — der Pencil behaelt die
+  Box-Selektion. Mit aktivem Tool pannt der Finger (Pencil setzt Punkte,
+  Finger navigieren). Zwei Finger: Pan + Pinch wie gehabt.
+- **Long-Press (Pencil und Finger, 600 ms, still) = Rechtsklick-Rolle:**
+  in der Split/Trim/Extend-Familie springt er zum naechsten Werkzeug (M49),
+  sonst Quick-Menue am Finger: OK (bei genug Punkten der variablen Tools),
+  Cancel (Esc), plus Line/Circle/Rectangle/Dimension im Edit-Mode — damit
+  hat reiner Touch endlich Enter UND Esc.
+- **Pencil-Hardware (native_menu-Plugin, UIPencilInteraction):**
+  **Squeeze** (Pencil Pro) oeffnet das Quick-Menue an der Spitze
+  (hoverPose-Anker, Fallback letzte Stiftposition) — Apples eigene
+  Squeeze-Semantik. **Doppel-Tipp** = Familie durchschalten, sonst Esc,
+  sonst letztes Zeichenwerkzeug wieder scharf (lastDrawTool). Beide
+  respektieren die Systemeinstellung (preferredTap/SqueezeAction .ignore
+  wird nie weitergereicht).
+- **Fat-Finger-Toleranzen ueberall:** Klick-Picks, Bemassungslabels,
+  Bild-Loeschkreuz, Center-Point, Snap-Radius skalieren per touchSlop nur
+  fuer PointerDeviceKind.touch; Pencil und Maus bleiben praezise.
+
+Tests: `m53_end_of_sketch_test.dart` (Marker-Default/Insert-Above, Rollback
+sichtbar+Selektion+enterEdit, Ein-Schritt-Undo, Delete-Below atomar mit
+Remap, deleteLayer-Verschiebung, Sidecar-Roundtrip inkl. prae-M53) und
+`m53_touch_test.dart` (Tap-Klassifikator: 2/3 Finger, Bewegung, Timeout,
+Vergiftung, Cancel, 1/4 Finger; touchSlop).

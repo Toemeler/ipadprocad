@@ -47,6 +47,9 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
     private var targets: [Target] = []
     private var interaction: UIContextMenuInteraction?
     private weak var attachedView: UIView?
+    // M53 — Apple Pencil hardware gestures (double-tap, Pro squeeze)
+    private var pencil: UIPencilInteraction?
+    private weak var pencilView: UIView?
 
     private init(channel: FlutterMethodChannel) {
         self.channel = channel
@@ -73,6 +76,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             let raw = args["targets"] as? [[String: Any]] ?? []
             targets = raw.compactMap { NativeMenuPlugin.parseTarget($0) }
             syncInteraction()
+            result(true)
+
+        case "pencilInterest":
+            setPencilInterest(args["on"] as? Bool ?? false)
             result(true)
 
         case "prompt":
@@ -383,5 +390,59 @@ extension NativeMenuPlugin: UIContextMenuInteractionDelegate {
         let previewTarget = UIPreviewTarget(
             container: host, center: CGPoint(x: r.midX, y: r.midY))
         return UITargetedPreview(view: container, parameters: params, target: previewTarget)
+    }
+}
+
+
+// MARK: - M53: Apple Pencil hardware gestures
+
+extension NativeMenuPlugin: UIPencilInteractionDelegate {
+    private func pencilHostView() -> UIView? {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap { $0.windows }.first { $0.isKeyWindow }
+            ?? scenes.first?.windows.first
+        return window?.rootViewController?.view
+    }
+
+    func setPencilInterest(_ on: Bool) {
+        if !on {
+            if let p = pencil { pencilView?.removeInteraction(p) }
+            pencil = nil
+            pencilView = nil
+            return
+        }
+        guard pencil == nil, let host = pencilHostView() else { return }
+        let p = UIPencilInteraction()
+        p.delegate = self
+        host.addInteraction(p)
+        pencil = p
+        pencilView = host
+    }
+
+    /// Double-tap (Pencil 2 / Pro). Forwarded only when the user's system
+    /// setting allows apps to act on it — Apple's HIG contract.
+    public func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+        guard UIPencilInteraction.preferredTapAction != .ignore else { return }
+        channel.invokeMethod("pencil", arguments: ["event": "tap"])
+    }
+
+    /// Squeeze (Pencil Pro, iOS 17.5+): Apple's own apps open a tool palette
+    /// at the tip; the hover pose (when present) is the anchor for ours.
+    @available(iOS 17.5, *)
+    public func pencilInteraction(
+        _ interaction: UIPencilInteraction,
+        didReceiveSqueeze squeeze: UIPencilInteraction.Squeeze
+    ) {
+        guard UIPencilInteraction.preferredSqueezeAction != .ignore else { return }
+        guard squeeze.phase == .ended else { return }
+        var args: [String: Any] = ["event": "squeeze"]
+        if let pose = squeeze.hoverPose, let view = pencilView {
+            let loc = pose.location
+            let inWindow = view.convert(loc, to: nil)
+            args["x"] = Double(inWindow.x)
+            args["y"] = Double(inWindow.y)
+        }
+        channel.invokeMethod("pencil", arguments: args)
     }
 }

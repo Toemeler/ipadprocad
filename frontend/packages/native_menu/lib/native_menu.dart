@@ -94,6 +94,12 @@ class NativeMenuTarget {
 
 typedef NativeMenuSelection = void Function(String targetId, String itemId);
 
+/// M53 — Apple Pencil hardware gestures (UIPencilInteraction). [event] is
+/// `tap` (double-tap on Pencil 2 / Pro) or `squeeze` (Pencil Pro); [x]/[y]
+/// carry the squeeze hover pose in window coordinates when iOS provides one.
+/// Only fires when the user's system Pencil preference allows app actions.
+typedef NativePencilGesture = void Function(String event, double? x, double? y);
+
 class NativeMenu {
   NativeMenu._();
 
@@ -110,6 +116,7 @@ class NativeMenu {
 
   static final Map<String, List<NativeMenuTarget>> _scopes = {};
   static final Map<String, NativeMenuSelection> _handlers = {};
+  static NativePencilGesture? _pencil;
   static bool _wired = false;
 
   /// True only where a real UIKit menu can exist. `Platform.isIOS` is false on
@@ -126,10 +133,29 @@ class NativeMenu {
     _wire();
   }
 
+  /// Registers (or clears, with null) the Pencil gesture sink and tells the
+  /// native side to attach/detach the UIPencilInteraction. A no-op off iOS —
+  /// the host suite never sees the channel.
+  static void setPencilHandler(NativePencilGesture? handler) {
+    _pencil = handler;
+    _wire();
+    if (!isSupported) return;
+    _invoke<bool>('pencilInterest', {'on': handler != null});
+  }
+
   static void _wire() {
     if (_wired || !isSupported) return;
     _wired = true;
     _ch.setMethodCallHandler((call) async {
+      if (call.method == 'pencil') {
+        final args = (call.arguments as Map?)?.cast<String, Object?>();
+        final ev = args?['event'];
+        if (ev is String) {
+          _pencil?.call(
+              ev, (args?['x'] as num?)?.toDouble(), (args?['y'] as num?)?.toDouble());
+        }
+        return null;
+      }
       if (call.method != 'selected') return null;
       final args = (call.arguments as Map?)?.cast<String, Object?>();
       final target = args?['target'];

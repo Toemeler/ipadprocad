@@ -128,6 +128,37 @@ class SketchModel {
   /// dimensioned, and it cannot be the current editing layer. Like visibility,
   /// this is app state that rides in the sidecar, not sketch geometry.
   final Set<String> lockedLayers = {};
+  /// M51 — the End-of-Sketch marker (Inventor's End of Part), as the number of
+  /// layers ABOVE it: layers[0..eosAfter-1] are live, layers[eosAfter..] are
+  /// ROLLED BACK — dimmed in the browser, not drawn, not picked, not snapped
+  /// and not editable, exactly like features below Inventor's EOP. Every
+  /// mutation of [layers] keeps this in step (insert above the marker,
+  /// decrement on delete-above). Internally a SENTINEL: null means "tracking
+  /// the end" — a marker nobody has placed follows plain layers.add() (legacy
+  /// tests, DXF import) instead of silently rolling new layers back. It
+  /// solidifies into a number the moment it is placed anywhere else, and
+  /// melts back to tracking when moved to the end. Rides the sidecar and the
+  /// undo journal like the eye/lock state.
+  int? _eosRaw;
+  int get eosAfter => (_eosRaw ?? layers.length).clamp(0, layers.length);
+  set eosAfter(int v) =>
+      _eosRaw = v >= layers.length ? null : v.clamp(0, layers.length);
+
+  /// Inserts [name] just ABOVE the marker (Inventor: new features land over
+  /// the EOP) and keeps the marker's position stable.
+  void insertLayerAboveMarker(String name) {
+    final at = eosAfter;
+    layers.insert(at, name);
+    if (_eosRaw != null) _eosRaw = at + 1;
+  }
+
+  /// Bookkeeping for a layer removed at index [li]: an explicitly placed
+  /// marker keeps sitting after the same layers; a tracking marker needs
+  /// nothing (it IS the end).
+  void noteLayerRemovedAt(int li) {
+    final raw = _eosRaw;
+    if (raw != null && li >= 0 && li < raw) _eosRaw = raw - 1;
+  }
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create() {
     // The empty just-created state is the undo baseline. openSketch calls
@@ -204,6 +235,7 @@ class SketchModel {
         List<String>.of(layers),
         {...hiddenLayers},
         {...lockedLayers},
+        eosAfter,
       );
 
   /// Records the CURRENT state as a journal entry. Called from the single
@@ -255,11 +287,13 @@ class UndoSnap {
   final List<String> layers;
   final Set<String> hidden;
   final Set<String> locked;
+  final int eos; // M51: End-of-Sketch marker position
   UndoSnap(this.geometry, this.cons, this.uparams, this.texts, this.images,
-      this.layers, this.hidden, this.locked);
+      this.layers, this.hidden, this.locked, this.eos);
 
   bool sameAs(UndoSnap o) {
-    if (cons != o.cons ||
+    if (eos != o.eos ||
+        cons != o.cons ||
         uparams != o.uparams ||
         texts != o.texts ||
         images != o.images ||
@@ -799,6 +833,7 @@ class AppState extends ChangeNotifier {
         // before layers were bound).
         List<String> ordered = const [];
         final hidden = <String>{}, locked = <String>{};
+        var eos = -1; // -1: pre-M51 sidecar -> marker at the end
         try {
           final lf = File('${_sketchDir.path}/$name.layers.json');
           if (lf.existsSync()) {
@@ -808,6 +843,7 @@ class AppState extends ChangeNotifier {
             ];
             hidden.addAll((j['hidden'] as List? ?? const []).cast<String>());
             locked.addAll((j['locked'] as List? ?? const []).cast<String>());
+            eos = (j['eos'] as num?)?.toInt() ?? -1;
           }
         } catch (e) {
           Log.w('state', 'layer sidecar read failed: $e');
@@ -817,10 +853,14 @@ class AppState extends ChangeNotifier {
           ..addAll(ordered);
         s.hiddenLayers.addAll(hidden);
         s.lockedLayers.addAll(locked);
+        // The marker BEFORE syncing/pruning: both keep it in step themselves
+        // (_syncLayers inserts adopted layers above it, prune shifts it).
+        s.eosAfter = eos < 0 ? s.layers.length : eos;
         _syncLayers(s); // append any geometry-only layers the sidecar missed
         _pruneEmptyBaseLayer(s); // never show an empty phantom "0"
         Log.i('layer', 'loaded "$name": layers=${s.layers} '
-            'hidden=${s.hiddenLayers} locked=${s.lockedLayers}');
+            'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
+            'eos=${s.eosAfter}');
         analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
@@ -907,13 +947,15 @@ class AppState extends ChangeNotifier {
       s.lockedLayers
         ..clear()
         ..addAll(snap.locked);
-      // Editing a layer the restored state does not have (or has hidden or
-      // locked again) cannot continue.
+      s.eosAfter = snap.eos.clamp(0, s.layers.length);
+      // Editing a layer the restored state does not have (or has hidden,
+      // locked, or rolled back below End of Sketch again) cannot continue.
       final el = editingLayer;
       if (el != null &&
           (!s.layers.contains(el) ||
               s.hiddenLayers.contains(el) ||
-              s.lockedLayers.contains(el))) {
+              s.lockedLayers.contains(el) ||
+              s.layers.indexOf(el) >= s.eosAfter)) {
         editingLayer = null;
         tool = Tool.none;
       }
@@ -993,7 +1035,9 @@ class AppState extends ChangeNotifier {
       n++;
     }
     final name = 'Layer $n';
-    s.layers.add(name);
+    // Inventor: a new feature lands just ABOVE the End of Part marker, never
+    // below it — with everything below staying rolled back.
+    s.insertLayerAboveMarker(name);
     s.dirty = true;
     s.checkpoint(); // adding an (empty) layer never rebuilds -> journal here
     enterEdit(name);
@@ -1002,8 +1046,22 @@ class AppState extends ChangeNotifier {
   bool layerVisible(String name) =>
       current?.hiddenLayers.contains(name) != true;
 
+  /// M51 — true while [name] sits BELOW the End-of-Sketch marker. Rolled-back
+  /// layers are Inventor's features below the EOP: dimmed in the browser, not
+  /// drawn, not picked, not snapped, no grips, not editable. Their entities
+  /// stay in the geometry list (constraint refs are index-based) and their
+  /// constraints stay in the system — since nothing rolled back can ever be
+  /// grabbed or re-targeted, they act as immovable anchors and moving the
+  /// marker is instant and perfectly lossless in both directions.
+  bool layerRolledBack(String name) {
+    final s = current;
+    if (s == null) return false;
+    final i = s.layers.indexOf(name);
+    return i >= 0 && i >= s.eosAfter.clamp(0, s.layers.length);
+  }
+
   /// True when [g] should be drawn / picked / snapped at all.
-  bool geoVisible(Geo g) => layerVisible(g.layer);
+  bool geoVisible(Geo g) => layerVisible(g.layer) && !layerRolledBack(g.layer);
 
   /// You may only TOUCH what you are editing. Being in Layer 2 must not let you
   /// trim, drag, constrain or dimension geometry that lives on Layer 1 — the
@@ -1044,7 +1102,9 @@ class AppState extends ChangeNotifier {
     for (final g in s.geometry) {
       if (!s.layers.contains(g.layer)) {
         Log.i('layer', 'adopting layer "${g.layer}" found in the geometry');
-        s.layers.add(g.layer);
+        // Above the End-of-Sketch marker: adopted geometry (legacy sketches,
+        // imported DXF) must come in LIVE, not silently rolled back.
+        s.insertLayerAboveMarker(g.layer);
       }
     }
   }
@@ -1052,6 +1112,7 @@ class AppState extends ChangeNotifier {
   void toggleLayerVisible(String name) {
     final s = current;
     if (s == null) return;
+    if (layerRolledBack(name)) return; // no eye below End of Sketch
     if (s.hiddenLayers.remove(name)) {
       Log.i('layer', 'show "$name"');
     } else {
@@ -1070,6 +1131,13 @@ class AppState extends ChangeNotifier {
   void enterEdit(String layerName) {
     final s = current;
     if (s == null || !s.layers.contains(layerName)) return;
+    if (layerRolledBack(layerName)) {
+      // Inventor: features below the EOP are unavailable until the marker is
+      // dragged back down past them.
+      toast('“$layerName” is below End of Sketch — drag the marker down '
+          'to bring it back.');
+      return;
+    }
     if (layerLocked(layerName)) {
       toast('“$layerName” is locked — unlock it to edit.');
       return;
@@ -1098,6 +1166,7 @@ class AppState extends ChangeNotifier {
   void toggleLayerLocked(String name) {
     final s = current;
     if (s == null || !s.layers.contains(name)) return;
+    if (layerRolledBack(name)) return; // no padlock below End of Sketch
     if (s.lockedLayers.remove(name)) {
       Log.i('layer', 'unlock "$name"');
     } else {
@@ -1180,7 +1249,9 @@ class AppState extends ChangeNotifier {
       ..clear()
       ..addAll(cons);
 
+    final li = s.layers.indexOf(name);
     s.layers.remove(name);
+    s.noteLayerRemovedAt(li); // marker keeps sitting after the same layers
     s.hiddenLayers.remove(name);
     s.lockedLayers.remove(name);
     if (editingLayer == name) editingLayer = null;
@@ -1206,6 +1277,10 @@ class AppState extends ChangeNotifier {
       toast('“$target” is locked.');
       return 0;
     }
+    if (layerRolledBack(target)) {
+      toast('“$target” is below End of Sketch.');
+      return 0;
+    }
     final sel = selection.where((i) => i >= 0 && i < s.geometry.length).toSet();
     final gs = [
       for (var i = 0; i < s.geometry.length; i++)
@@ -1226,11 +1301,85 @@ class AppState extends ChangeNotifier {
   void _pruneEmptyBaseLayer(SketchModel s) {
     if (editingLayer == kDefaultLayer) return;
     if (s.geometry.any((g) => g.layer == kDefaultLayer)) return;
+    final li = s.layers.indexOf(kDefaultLayer);
     if (s.layers.remove(kDefaultLayer)) {
+      s.noteLayerRemovedAt(li);
       s.hiddenLayers.remove(kDefaultLayer);
       s.lockedLayers.remove(kDefaultLayer);
       Log.i('layer', 'dropped empty base layer "0" from the browser');
     }
+  }
+
+  // ==== M51 — End-of-Sketch marker (Inventor's End of Part) ==============
+
+  /// Moves the marker so that [after] layers stay live above it. Everything
+  /// below rolls back (dimmed, not drawn, not picked); dragging it back down
+  /// restores everything unchanged — the move itself never touches geometry
+  /// or constraints, so it is instant and lossless. One undoable step, like
+  /// the eye/lock toggles.
+  void setEndOfSketch(int after) {
+    final s = current;
+    if (s == null) return;
+    final v = after.clamp(0, s.layers.length);
+    if (v == s.eosAfter) return;
+    s.eosAfter = v;
+    Log.i('layer', 'End of Sketch -> after $v of ${s.layers.length} layers');
+    // You cannot keep editing what just rolled back.
+    final el = editingLayer;
+    if (el != null && layerRolledBack(el)) finishEdit(save: true);
+    selection.removeWhere(
+        (i) => i < s.geometry.length && !geoVisible(s.geometry[i]));
+    snap = null;
+    s.dirty = true;
+    s.checkpoint(); // marker position rides the sidecar -> undoable state
+    notifyListeners();
+  }
+
+  /// Inventor's "Delete All Features Below EOP": removes every layer below
+  /// the marker WITH its entities in one atomic operation (one undo step).
+  /// Entities stranded below on the protected base layer "0" are deleted too
+  /// (the row itself is pruned once empty). Index-based constraint refs are
+  /// remapped exactly like [deleteLayer]. Returns the number of entities
+  /// removed.
+  int deleteBelowEndOfSketch() {
+    final s = current;
+    if (s == null) return 0;
+    final eos = s.eosAfter.clamp(0, s.layers.length);
+    final below = s.layers.sublist(eos);
+    if (below.isEmpty) {
+      toast('Nothing below End of Sketch.');
+      return 0;
+    }
+    final names = below.toSet();
+    final victims = <int>[
+      for (var i = 0; i < s.geometry.length; i++)
+        if (names.contains(s.geometry[i].layer)) i
+    ]..sort((a, b) => b.compareTo(a));
+    final gs = List<Geo>.from(s.geometry);
+    var cons = List<Constraint>.from(s.constraints);
+    for (final i in victims) {
+      gs.removeAt(i);
+      cons = remapAfterRemove(cons, i);
+      gs.setAll(0, remapProjectionsAfterRemove(gs, i));
+    }
+    s.constraints
+      ..clear()
+      ..addAll(cons);
+    for (final name in below) {
+      if (isBaseLayer(name)) continue; // "0" is never deleted, only emptied
+      s.layers.remove(name);
+      s.hiddenLayers.remove(name);
+      s.lockedLayers.remove(name);
+    }
+    s.eosAfter = s.layers.length; // marker back at the end, nothing below
+    selection.clear();
+    Log.i('layer',
+        'delete below End of Sketch: ${below.length} layers, '
+        '${victims.length} entities');
+    _rebuildEngine(s, gs); // one rebuild = one undo step, like deleteLayer
+    _pruneEmptyBaseLayer(s); // an emptied "0" never lingers as a phantom row
+    if (curTab != null) saveSketch(curTab!);
+    return victims.length;
   }
 
   // ---- selection / snapping / grip editing (M6) ----
@@ -1730,7 +1879,15 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- tools ----
+  /// M53 — the last DRAWING tool the user armed; the Pencil double-tap
+  /// re-arms it (draw, tap out, inspect, tap back in — Inventor's Esc +
+  /// re-pick loop without the keyboard).
+  Tool lastDrawTool = Tool.none;
+
   void selectTool(Tool t) {
+    if (t != Tool.none && (toolMeta[t] != null || t == Tool.dimension)) {
+      lastDrawTool = t;
+    }
     // A sketch entity has to live on a layer, and the only way to know WHICH
     // layer is to be editing one. So no tool outside edit mode — that is what
     // keeps "every line belongs to exactly one layer" true by construction
@@ -4976,11 +5133,18 @@ class AppState extends ChangeNotifier {
         for (final l in s.layers)
           if (!(l == kDefaultLayer && !hasBaseGeo)) l
       ];
+      // The marker is stored as its position within the PERSISTED list —
+      // when an empty "0" is skipped above, the index must shift with it.
+      var eosPersist = 0;
+      for (var i = 0; i < s.layers.length && i < s.eosAfter; i++) {
+        if (persistLayers.contains(s.layers[i])) eosPersist++;
+      }
       File('${_sketchDir.path}/$name.layers.json').writeAsStringSync(jsonEncode({
-        'version': 2,
+        'version': 3,
         'layers': persistLayers,
         'hidden': s.hiddenLayers.toList(),
         'locked': s.lockedLayers.toList(),
+        'eos': eosPersist, // M51: End-of-Sketch marker
       }));
     } catch (e) {
       Log.w('state', 'layer sidecar write failed: $e');

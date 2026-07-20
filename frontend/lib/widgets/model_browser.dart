@@ -3,10 +3,16 @@
 // Y Axis / Center Point (auto-projected), then the layer container, then
 // "End of Sketch". Right-click on a layer row -> context menu (Edit on top),
 // double-click -> edit mode. Active layer row highlighted Inventor-style.
+// M53: the End-of-Sketch row is Inventor's End of Part marker — drag it up
+// and down the layer list (Esc aborts, like Inventor), everything below is
+// rolled back (dimmed, not drawn, not editable); right-click / long-press it
+// for Move to Top / Move to End / Delete all layers below, and any layer row
+// offers "Move End of Sketch here" (Inventor 2013's Move EOP Marker).
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -25,6 +31,14 @@ class ModelBrowser extends StatefulWidget {
 class _ModelBrowserState extends State<ModelBrowser> {
   bool originOpen = false;
   OverlayEntry? _ctx;
+  // M53 — End-of-Sketch drag: the marker's PREVIEW slot while the finger /
+  // mouse moves; committed to the app on release, discarded on Escape.
+  int? _dragEos;
+  final GlobalKey _eosKey = GlobalKey();
+  bool _eosEscInstalled = false;
+
+  int _shownEos(SketchModel s) =>
+      (_dragEos ?? s.eosAfter).clamp(0, s.layers.length);
 
   // Native long-press menu (iOS). The Flutter overlay below stays for the
   // right-mouse path on desktop; the two never fight, because a long press
@@ -66,6 +80,26 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final locked = app.layerLocked(layer);
     final base = app.isBaseLayer(layer);
     final selCount = app.selection.length;
+    // Below the marker only the marker itself and Delete remain — Inventor
+    // dims rolled-back features and strips their menus down the same way.
+    if (app.layerRolledBack(layer)) {
+      return [
+        [
+          const NativeMenuItem(
+              id: 'eophere',
+              title: 'Move End of Sketch here',
+              symbol: 'arrow.up.and.down.text.horizontal'),
+        ],
+        if (!base)
+          [
+            const NativeMenuItem(
+                id: 'delete',
+                title: 'Delete layer',
+                symbol: 'trash',
+                destructive: true),
+          ],
+      ];
+    }
     return [
       [
         if (!locked)
@@ -84,12 +118,40 @@ class _ModelBrowserState extends State<ModelBrowser> {
             id: 'move',
             title: selCount == 0 ? 'Move selection here' : 'Move $selCount here',
             symbol: 'arrow.right.doc.on.clipboard'),
+        const NativeMenuItem(
+            id: 'eophere',
+            title: 'Move End of Sketch here',
+            symbol: 'arrow.up.and.down.text.horizontal'),
       ],
       if (!base)
         [
           const NativeMenuItem(
               id: 'delete',
               title: 'Delete layer',
+              symbol: 'trash',
+              destructive: true),
+        ],
+    ];
+  }
+
+  List<List<NativeMenuItem>> _eosMenuGroups(SketchModel s) {
+    final eos = _shownEos(s);
+    return [
+      [
+        if (eos > 0)
+          const NativeMenuItem(
+              id: 'eostop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
+        if (eos < s.layers.length)
+          const NativeMenuItem(
+              id: 'eosend',
+              title: 'Move to End',
+              symbol: 'arrow.down.to.line'),
+      ],
+      if (eos < s.layers.length)
+        [
+          const NativeMenuItem(
+              id: 'deleteBelow',
+              title: 'Delete all layers below',
               symbol: 'trash',
               destructive: true),
         ],
@@ -116,6 +178,21 @@ class _ModelBrowserState extends State<ModelBrowser> {
         groups: _menuFor(layer),
       ));
     }
+    if (s != null) {
+      final full = _globalRect(_eosKey);
+      if (full != null) {
+        final hit = clip == null ? full : full.intersect(clip);
+        if (hit.width > 1 && hit.height > 1) {
+          targets.add(NativeMenuTarget(
+            id: '__eos__',
+            title: 'End of Sketch',
+            rect: hit,
+            cornerRadius: 4,
+            groups: _eosMenuGroups(s),
+          ));
+        }
+      }
+    }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
     if (payload == _lastPayload) return;
     _lastPayload = payload;
@@ -125,6 +202,27 @@ class _ModelBrowserState extends State<ModelBrowser> {
   void _onMenuSelection(String layer, String item) {
     if (!mounted) return;
     final app = widget.app;
+    final s = app.current;
+    if (layer == '__eos__') {
+      if (s == null) return;
+      switch (item) {
+        case 'eostop':
+          app.setEndOfSketch(0);
+          break;
+        case 'eosend':
+          app.setEndOfSketch(s.layers.length);
+          break;
+        case 'deleteBelow':
+          _confirmDeleteBelow();
+          break;
+      }
+      return;
+    }
+    if (item == 'eophere') {
+      final i = s?.layers.indexOf(layer) ?? -1;
+      if (i >= 0) app.setEndOfSketch(i + 1);
+      return;
+    }
     switch (item) {
       case 'edit':
         app.enterEdit(layer);
@@ -154,6 +252,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   @override
   void dispose() {
+    _uninstallEosEsc();
     _closeCtx();
     NativeMenu.setSelectionHandler(NativeMenu.kLayers, null);
     NativeMenu.setTargets(NativeMenu.kLayers, const []);
@@ -165,8 +264,22 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final app = widget.app;
     final locked = app.layerLocked(layer);
     final base = app.isBaseLayer(layer);
+    final rolled = app.layerRolledBack(layer);
     final selCount = app.selection.length;
     final items = <Widget>[
+      if (rolled) ...[
+        _ctxItem('Move End of Sketch here', () {
+          _closeCtx();
+          final i = app.current?.layers.indexOf(layer) ?? -1;
+          if (i >= 0) app.setEndOfSketch(i + 1);
+        }),
+        if (!base)
+          _ctxItem('Delete layer', () {
+            _closeCtx();
+            _confirmDelete(layer);
+          }, danger: true),
+      ],
+      if (!rolled) ...[
       if (!locked)
         _ctxItem('Edit', () {
           _closeCtx();
@@ -189,11 +302,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
         _closeCtx();
         app.moveSelectionToLayer(layer);
       }),
+      _ctxItem('Move End of Sketch here', () {
+        _closeCtx();
+        final i = app.current?.layers.indexOf(layer) ?? -1;
+        if (i >= 0) app.setEndOfSketch(i + 1);
+      }),
       if (!base)
         _ctxItem('Delete layer', () {
           _closeCtx();
           _confirmDelete(layer);
         }, danger: true),
+      ],
     ];
     _ctx = OverlayEntry(
       builder: (_) => Stack(children: [
@@ -235,6 +354,163 @@ class _ModelBrowserState extends State<ModelBrowser> {
       ]),
     );
     Overlay.of(context).insert(_ctx!);
+  }
+
+  void _showEosCtx(Offset globalPos) {
+    _closeCtx();
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    final eos = _shownEos(s);
+    final items = <Widget>[
+      if (eos > 0)
+        _ctxItem('Move to Top', () {
+          _closeCtx();
+          app.setEndOfSketch(0);
+        }),
+      if (eos < s.layers.length)
+        _ctxItem('Move to End', () {
+          _closeCtx();
+          app.setEndOfSketch(s.layers.length);
+        }),
+      if (eos < s.layers.length)
+        _ctxItem('Delete all layers below', () {
+          _closeCtx();
+          _confirmDeleteBelow();
+        }, danger: true),
+    ];
+    if (items.isEmpty) return;
+    _ctx = OverlayEntry(
+      builder: (_) => Stack(children: [
+        Positioned.fill(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => _closeCtx(),
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned(
+          left: globalPos.dx,
+          top: globalPos.dy,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF212429),
+                border: Border.all(color: T.sep),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Color(0x8C000000),
+                      blurRadius: 22,
+                      offset: Offset(0, 8))
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: items),
+            ),
+          ),
+        ),
+      ]),
+    );
+    Overlay.of(context).insert(_ctx!);
+  }
+
+  Future<void> _confirmDeleteBelow() async {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    final eos = s.eosAfter.clamp(0, s.layers.length);
+    final below = s.layers.sublist(eos);
+    if (below.isEmpty) return;
+    final names = below.toSet();
+    final count = s.geometry.where((g) => names.contains(g.layer)).length;
+    final ok = await confirmAction(
+      context,
+      title: 'Delete everything below End of Sketch?',
+      message: 'This removes ${below.length} '
+          '${below.length == 1 ? "layer" : "layers"} and '
+          '$count ${count == 1 ? "entity" : "entities"}.',
+      confirmLabel: 'Delete',
+    );
+    if (ok) app.deleteBelowEndOfSketch();
+  }
+
+  // ---- M53: End-of-Sketch drag (Inventor's EOP reposition) ----
+
+  /// The insertion slot for a pointer at global [dy]: the number of layer
+  /// rows whose centre lies above it. Computed from the LIVE row rects, so
+  /// scrolling and the marker's own slot are handled by construction.
+  int _slotForDy(SketchModel s, double dy) {
+    var slot = 0;
+    for (final layer in s.layers) {
+      final r = _globalRect(_rowKeys[layer] ?? GlobalKey());
+      if (r != null && r.center.dy < dy) slot++;
+    }
+    return slot.clamp(0, s.layers.length);
+  }
+
+  bool _eosEsc(KeyEvent e) {
+    if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape) {
+      // Inventor: Escape aborts an in-flight EOP reposition.
+      setState(() => _dragEos = null);
+      _uninstallEosEsc();
+      return true;
+    }
+    return false;
+  }
+
+  void _installEosEsc() {
+    if (_eosEscInstalled) return;
+    _eosEscInstalled = true;
+    HardwareKeyboard.instance.addHandler(_eosEsc);
+  }
+
+  void _uninstallEosEsc() {
+    if (!_eosEscInstalled) return;
+    _eosEscInstalled = false;
+    HardwareKeyboard.instance.removeHandler(_eosEsc);
+  }
+
+  Widget _eosRow(AppState app, SketchModel s) {
+    return Listener(
+      key: _eosKey,
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          _showEosCtx(e.position);
+        }
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => _showEosCtx(d.globalPosition),
+        onVerticalDragStart: (d) {
+          _installEosEsc();
+          setState(() => _dragEos = _shownEos(s));
+        },
+        onVerticalDragUpdate: (d) {
+          final slot = _slotForDy(s, d.globalPosition.dy);
+          if (slot != _dragEos) setState(() => _dragEos = slot);
+        },
+        onVerticalDragEnd: (_) {
+          _uninstallEosEsc();
+          final v = _dragEos;
+          setState(() => _dragEos = null);
+          if (v != null) app.setEndOfSketch(v);
+        },
+        onVerticalDragCancel: () {
+          _uninstallEosEsc();
+          setState(() => _dragEos = null);
+        },
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: _row(
+              indent: 8, exp: ' ', icon: endOfSketchIcon, label: 'End of Sketch'),
+        ),
+      ),
+    );
   }
 
   Future<void> _promptRename(String layer) async {
@@ -343,11 +619,20 @@ class _ModelBrowserState extends State<ModelBrowser> {
                       _row(indent: 30, icon: centerPointIcon, label: 'Center Point'),
                 ),
               ],
-              // layers container
-              if (s != null)
-                for (final layer in s.layers)
-                  _layerRow(app, layer),
-              _row(indent: 8, exp: ' ', icon: endOfSketchIcon, label: 'End of Sketch'),
+              // layers container, with the End-of-Sketch marker at its
+              // slot (M53): everything after the marker renders rolled back
+              if (s != null) ...[
+                for (var i = 0; i < s.layers.length; i++) ...[
+                  if (i == _shownEos(s)) _eosRow(app, s),
+                  _layerRow(app, s.layers[i],
+                      rolled: i >= _shownEos(s)),
+                ],
+                if (_shownEos(s) >= s.layers.length) _eosRow(app, s),
+              ] else
+                _row(indent: 8,
+                    exp: ' ',
+                    icon: endOfSketchIcon,
+                    label: 'End of Sketch'),
             ],
           ),
           ),
@@ -356,8 +641,25 @@ class _ModelBrowserState extends State<ModelBrowser> {
     );
   }
 
-  Widget _layerRow(AppState app, String layer) {
+  Widget _layerRow(AppState app, String layer, {bool rolled = false}) {
     final active = app.editingLayer == layer;
+    final row = _row(
+      indent: 8,
+      exp: ' ',
+      icon: layerRowIcon,
+      label: layer,
+      active: active,
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (app.layerLocked(layer)) const _LockedMark(),
+        // no eye below the marker — a rolled-back layer is switched off by
+        // the marker itself, exactly like Inventor's suppressed features
+        if (!rolled)
+          _EyeButton(
+            visible: app.layerVisible(layer),
+            onTap: () => app.toggleLayerVisible(layer),
+          ),
+      ]),
+    );
     return Listener(
       key: _keyFor(layer),
       onPointerDown: (e) {
@@ -367,21 +669,15 @@ class _ModelBrowserState extends State<ModelBrowser> {
         }
       },
       child: GestureDetector(
-        onDoubleTap: () => app.enterEdit(layer),
-        child: _row(
-          indent: 8,
-          exp: ' ',
-          icon: layerRowIcon,
-          label: layer,
-          active: active,
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (app.layerLocked(layer)) const _LockedMark(),
-            _EyeButton(
-              visible: app.layerVisible(layer),
-              onTap: () => app.toggleLayerVisible(layer),
-            ),
-          ]),
-        ),
+        // Inventor: features below the EOP cannot be edited; enterEdit's own
+        // guard would toast, but a dead double-tap is clearer than a scold.
+        onDoubleTap: rolled ? null : () => app.enterEdit(layer),
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => _showCtx(d.globalPosition, layer),
+        child: rolled
+            ? Opacity(opacity: 0.45, child: row) // dimmed, like Inventor
+            : row,
       ),
     );
   }

@@ -4,9 +4,16 @@
 // - Edit mode overlay exactly like the mock: grey X/Y axes + grey center
 //   point (NON-interactive raw geometry) with the YELLOW projected center
 //   point on top (interactive; click toggles select-blue, like the mock).
-// - Input (M5 scope): keyboard + mouse. Touch gestures come later, EXCEPT
-//   two-finger trackpad pan and trackpad pinch zoom, which are in this
-//   version (PointerPanZoom events).
+// - Input: keyboard + mouse + trackpad (two-finger pan, pinch zoom, wheel —
+//   PointerPanZoom/Scroll events, untouched since M5) AND, since M51, full
+//   Apple-Pencil + touch: the Pencil behaves exactly like the mouse (draw,
+//   pick, drag, hover-snap on M2/Pro Pencils), fingers navigate (1-finger
+//   pan on empty canvas, 2-finger pan/pinch) and operate with fat-finger
+//   tolerances (grips/snap/picks at ~1.8x), two-finger tap = UNDO and
+//   three-finger tap = REDO (Procreate), long-press = the right-click role
+//   (cycle Split/Trim/Extend; OK/Cancel menu inside a tool), and touches are
+//   ignored while the Pencil is down (palm rejection).
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -18,9 +25,12 @@ import '../diag.dart';
 import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
+import 'package:native_menu/native_menu.dart';
+
 import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
+import '../touch.dart';
 import 'pattern_dialog.dart';
 import 'parameters_dialog.dart';
 import 'text_editor_window.dart';
@@ -55,7 +65,26 @@ class _Viewport2DState extends State<Viewport2D> {
   final FocusNode _focus = FocusNode();
 
   @override
+  void initState() {
+    super.initState();
+    // M53 — Apple Pencil hardware gestures (UIPencilInteraction, forwarded
+    // by the native_menu plugin). Both respect the user's system setting:
+    // the plugin only reports a double-tap when iOS says the app may act.
+    NativeMenu.setPencilHandler((event, x, y) {
+      if (!mounted) return;
+      if (event == 'squeeze') {
+        _pencilSqueeze(x, y);
+      } else if (event == 'tap') {
+        _pencilDoubleTap();
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _lpTimer?.cancel();
+    _toolCtx?.remove();
+    NativeMenu.setPencilHandler(null);
     _focus.dispose();
     _dimCtrl.dispose();
     _dimFocus.dispose();
@@ -73,6 +102,27 @@ class _Viewport2DState extends State<Viewport2D> {
   static const _snapPx = 12.0, _gripPx = 12.0;
   int _pointers = 0;
   Offset? _clickDown;
+  /// M51 — device kind of the pointer that armed [_clickDown]; picks and
+  /// snaps widen for fingers (see touch.dart) and stay precise for the
+  /// Pencil and the mouse.
+  PointerDeviceKind _downKind = PointerDeviceKind.mouse;
+  /// M51 — every live pointer's kind. Feeds palm rejection (touches are
+  /// rejected while a stylus is down) and lets _scaleStart know whether the
+  /// single dragging pointer is a finger.
+  final Map<int, PointerDeviceKind> _kinds = {};
+  /// Touch pointers rejected as palm contact (arrived while the Pencil was
+  /// down). They never count as clicks, taps or gesture fingers.
+  final Set<int> _rejectedTouches = {};
+  bool get _stylusDown => _kinds.values.any((k) =>
+      k == PointerDeviceKind.stylus || k == PointerDeviceKind.invertedStylus);
+  /// M51 — Procreate taps: two fingers = undo, three = redo.
+  final MultiFingerTap _mft = MultiFingerTap();
+  /// M51 — long-press = the right-click role for Pencil and finger. Armed on
+  /// down, cancelled by movement (>10 px), lift, or a second pointer.
+  Timer? _lpTimer;
+  Offset? _lpDown;
+  bool _lpFired = false;
+  OverlayEntry? _toolCtx; // long-press OK/Cancel menu inside an active tool
   /// M42-Fix: the dimension label under the pointer AT DOWN time. Tapping
   /// outside the inline editor unfocuses the TextField on pointer DOWN,
   /// which (with the keyboard dismiss) could relayout the canvas before
@@ -82,16 +132,17 @@ class _Viewport2DState extends State<Viewport2D> {
   DateTime _clickTime = DateTime.now();
 
   /// The dimension whose PAINTED label contains [local] (screen coords) —
-  /// generous +8px for fingers, topmost (last drawn) wins.
-  Constraint? _dimAtScreen(Offset local) {
+  /// +8px for the mouse/Pencil, +16px for fingers, topmost (last drawn) wins.
+  Constraint? _dimAtScreen(Offset local, {double inflate = 8}) {
     final rects = widget.app.dimLabelRects;
     for (final (c, r) in rects.reversed) {
-      if (r.inflate(8).contains(local)) return c;
+      if (r.inflate(inflate).contains(local)) return c;
     }
     return null;
   }
 
-  void _handleClick(Offset local, Size size, {Constraint? downDim}) {
+  void _handleClick(Offset local, Size size,
+      {Constraint? downDim, PointerDeviceKind kind = PointerDeviceKind.mouse}) {
     final app = widget.app;
     // M43/M45: while a Parameters equation cell OR the text editor's template
     // field is focused, tapping a dimension label inserts its parameter name
@@ -99,7 +150,8 @@ class _Viewport2DState extends State<Viewport2D> {
     // else in the sketch.
     if ((app.paramRefSink != null || app.textRefSink != null) &&
         _inlineDim == null) {
-      final hit = downDim ?? _dimAtScreen(local);
+      final hit =
+          downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
       if (hit != null) {
         final s = app.current;
         if (s != null) {
@@ -114,7 +166,8 @@ class _Viewport2DState extends State<Viewport2D> {
       // here) keeps the editor open instead of committing it shut — that
       // made "double tap to edit" close the field it had just opened.
       // Prefer the DOWN-time hit (see _downDimHit) over re-testing at up.
-      final hit = downDim ?? _dimAtScreen(local);
+      final hit =
+          downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
       if (hit == _inlineDim) {
         _dimCtrl.selection = TextSelection(
             baseOffset: 0, extentOffset: _dimCtrl.text.length);
@@ -143,13 +196,15 @@ class _Viewport2DState extends State<Viewport2D> {
       // Inventor: with the Dimension tool active, clicking an EXISTING
       // dimension's text opens its edit box instead of starting a new pick.
       if (app.tool == Tool.dimension) {
-        final dim = downDim ?? _dimAtScreen(local);
+        final dim =
+            downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
         if (dim != null) {
           _editDimValue(dim);
           return;
         }
       }
-      app.toolClick(_snapped(_toWorld(local, size)));
+      app.toolClick(
+          _snapped(_toWorld(local, size), px: touchSlop(kind, _snapPx)));
       if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
       return;
     }
@@ -167,7 +222,7 @@ class _Viewport2DState extends State<Viewport2D> {
           (!app.inEditMode || sel.layer == app.editingLayer)) {
         final tr = _worldToScreen(
             Offset(sel.x + sel.w / 2, sel.y + sel.h / 2), size);
-        if ((local - tr).distance < 14) {
+        if ((local - tr).distance < touchSlop(kind, 14)) {
           app.deleteImage(sel);
           setState(() => _selImage = null);
           return;
@@ -179,17 +234,28 @@ class _Viewport2DState extends State<Viewport2D> {
         if (iHit != null) return; // selecting consumes the tap
       }
       final cpScreen = _worldToScreen(Offset.zero, size);
-      if ((local - cpScreen).distance <= 6) {
+      if ((local - cpScreen).distance <= touchSlop(kind, 6)) {
         setState(() => _projCpSelected = !_projCpSelected);
         return;
       }
     }
-    _tapNoTool(local, _toWorld(local, size));
+    _tapNoTool(local, _toWorld(local, size), kind: kind);
   }
 
-  String _gesture = 'none'; // none|panzoom|grip|box|body|text|imgmove|imgresize
+  String _gesture = 'none';
+  // none|panzoom|fingerpan|tooldrag|grip|box|body|text|imgmove|imgresize
   double _scaleStartZoom = 1;
   Offset? _boxStartW;
+  // M53: true while the single gesture pointer is a FINGER (wide slops).
+  bool _gestureFinger = false;
+  // M53: press-drag-release drawing with the Pencil — down = first point,
+  // drag = live rubber band with snapping, release = second point. A plain
+  // tap (no movement past the slop) stays a classic click-click pick.
+  Offset? _toolDownLocal;
+  Offset? _toolDragW;
+  bool _toolDragPlaced = false;
+  int? _clickPtr; // the pointer that armed _clickDown (a palm up must not fire it)
+  Offset? _lastStylusLocal; // fallback anchor for the Pencil-squeeze menu
 
   // M47: whole-entity body drag (grab the line/curve itself, not a grip point).
   int? _bodyEnt; // entity picked for a body drag
@@ -197,7 +263,7 @@ class _Viewport2DState extends State<Viewport2D> {
   bool _bodyStarted = false; // deferred begin: true once the drag actually ran
 
   /// Applies object snapping to a world point and publishes the marker.
-  Offset _snapped(Offset w, {Offset? exclude}) {
+  Offset _snapped(Offset w, {Offset? exclude, double px = _snapPx}) {
     final app = widget.app;
     final s = app.current;
     if (s == null) return w;
@@ -207,7 +273,7 @@ class _Viewport2DState extends State<Viewport2D> {
     final visible = [
       for (final g in app.displayGeometry(s)) if (app.geoVisible(g)) g
     ];
-    final sn = computeSnap(visible, w, _snapPx / app.zoom,
+    final sn = computeSnap(visible, w, px / app.zoom,
         ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
         exclude: exclude,
         // Let the cursor snap to the points already placed by the active tool —
@@ -301,20 +367,46 @@ class _Viewport2DState extends State<Viewport2D> {
   void _scaleStart(ScaleStartDetails d, Size size) {
     final app = widget.app;
     _scaleStartZoom = app.zoom;
+    // M51: the kind of the SINGLE pointer driving this gesture. Fingers get
+    // wider grab radii and, on empty canvas, pan instead of box-selecting.
+    final soleKind = _kinds.length == 1 ? _kinds.values.first : null;
+    final finger = soleKind == PointerDeviceKind.touch;
+    _gestureFinger = finger;
     if (d.pointerCount >= 2) {
       _gesture = 'panzoom';
       return;
     }
     if (app.tool != Tool.none) {
-      _gesture = 'none'; // tools are click-driven
+      // A FINGER dragging with a tool armed pans (Pencil places points,
+      // fingers navigate; without this a touch-only user could not move
+      // around mid-tool). The PENCIL press-drag-draws: non-hover Pencils
+      // (gen 1/2) see no rubber band between taps, so down anchors the
+      // first point, the drag previews live WITH snapping, release places —
+      // while a plain tap keeps the classic click-click flow. Geometry
+      // tools only (toolMeta): dimensioning/modify stay pure picks.
+      if (finger) {
+        _gesture = 'fingerpan';
+        return;
+      }
+      if ((soleKind == PointerDeviceKind.stylus ||
+              soleKind == PointerDeviceKind.invertedStylus) &&
+          toolMeta[app.tool] != null) {
+        _gesture = 'tooldrag';
+        _toolDownLocal = d.localFocalPoint;
+        _toolDragW = null;
+        _toolDragPlaced = false;
+        return;
+      }
+      _gesture = 'none'; // mouse: click-driven, exactly as before
       return;
     }
+    final grabPx = finger ? touchSlop(PointerDeviceKind.touch, _gripPx) : _gripPx;
     final w = _toWorld(d.localFocalPoint, size);
     // grip under the finger?
     final s = app.current;
     if (s != null) {
       Grip? hit;
-      var bd = _gripPx / app.zoom;
+      var bd = grabPx / app.zoom;
       // Inventor: fully constrained geometry cannot be dragged by hand. Skip
       // those grips entirely instead of starting a drag that the solver undoes
       // on release (which looked like "the point moves, then snaps back") —
@@ -367,7 +459,8 @@ class _Viewport2DState extends State<Viewport2D> {
         final br = _worldToScreen(
             Offset(sel.x + sel.w / 2, sel.y - sel.h / 2), size);
         final dst = Rect.fromPoints(tl, br);
-        if ((d.localFocalPoint - dst.bottomRight).distance < 16) {
+        if ((d.localFocalPoint - dst.bottomRight).distance <
+            (finger ? touchSlop(PointerDeviceKind.touch, 16) : 16)) {
           _gesture = 'imgresize';
           _dragImage = sel;
           return;
@@ -388,7 +481,7 @@ class _Viewport2DState extends State<Viewport2D> {
       // line still selects it without a no-op rebuild. Reuses the `free` set
       // resolved above (freePoints of the current analysis, null = not run yet).
       var bodyI = -1;
-      var bodyD = _gripPx / app.zoom;
+      var bodyD = grabPx / app.zoom;
       for (var i = 0; i < s.geometry.length; i++) {
         final g = s.geometry[i];
         if (!app.geoEditable(g) || !app.geoVisible(g)) continue;
@@ -419,6 +512,13 @@ class _Viewport2DState extends State<Viewport2D> {
         return;
       }
     }
+    // Empty canvas: a FINGER pans (touch-first navigation, one finger is
+    // enough to move around); the Pencil and the mouse keep Inventor's
+    // drag-a-window box select — the Pencil is the precision instrument.
+    if (finger) {
+      _gesture = 'fingerpan';
+      return;
+    }
     _gesture = 'box';
     _boxStartW = w;
   }
@@ -443,6 +543,26 @@ class _Viewport2DState extends State<Viewport2D> {
         }
         app.panBy(d.focalPointDelta);
         break;
+      case 'fingerpan': // M53: one finger on empty canvas moves the view
+        app.panBy(d.focalPointDelta);
+        break;
+      case 'tooldrag': // M53: Pencil press-drag-release drawing
+        final lp = d.localFocalPoint;
+        if (!_toolDragPlaced &&
+            _toolDownLocal != null &&
+            (lp - _toolDownLocal!).distance > 8) {
+          // the FIRST point lands where the tip touched DOWN, snapped —
+          // dragging away must not smear the anchor
+          app.toolClick(_snapped(_toWorld(_toolDownLocal!, size)));
+          _toolDragPlaced = true;
+          _clickDown = null; // the release is a placement, never a tap
+        }
+        if (_toolDragPlaced) {
+          final wNow = _toWorld(lp, size);
+          _toolDragW = wNow;
+          app.setHover(_snapped(wNow)); // live rubber band, HUD applies
+        }
+        break;
       case 'text':
         final t = _dragText;
         if (t != null) {
@@ -464,8 +584,11 @@ class _Viewport2DState extends State<Viewport2D> {
         break;
       case 'grip':
         final w = _toWorld(d.localFocalPoint, size);
-        app.updateGripDrag(
-            _snapped(w, exclude: app.dragGrip?.pos));
+        app.updateGripDrag(_snapped(w,
+            exclude: app.dragGrip?.pos,
+            px: _gestureFinger
+                ? touchSlop(PointerDeviceKind.touch, _snapPx)
+                : _snapPx));
         break;
       case 'body':
         // Defer the actual begin to the first move: a stationary press becomes
@@ -486,17 +609,18 @@ class _Viewport2DState extends State<Viewport2D> {
     }
   }
 
-  void _tapNoTool(Offset local, Offset w) {
+  void _tapNoTool(Offset local, Offset w,
+      {PointerDeviceKind kind = PointerDeviceKind.mouse}) {
     final app = widget.app;
     // where the label is REALLY painted (dist labels are not at textPos)...
-    final dim = _dimAtScreen(local) ??
+    final dim = _dimAtScreen(local, inflate: touchSlop(kind, 8)) ??
         // ...with the old anchor test as fallback (e.g. before first paint)
-        app.dimensionAt(w, 14 / app.zoom);
+        app.dimensionAt(w, touchSlop(kind, 14) / app.zoom);
     if (dim != null) {
       _editDimValue(dim);
       return;
     }
-    app.selectAt(w, 10 / app.zoom);
+    app.selectAt(w, touchSlop(kind, 10) / app.zoom);
   }
 
   Future<void> _showDimDialog(Constraint d) async {
@@ -706,9 +830,168 @@ class _Viewport2DState extends State<Viewport2D> {
     );
   }
 
+  // ==== M53 — long-press / Pencil-squeeze quick menu =====================
+
+  void _cancelLp() {
+    _lpTimer?.cancel();
+    _lpTimer = null;
+    _lpDown = null;
+  }
+
+  /// The right-click role for Pencil and finger (600 ms, still). Inside the
+  /// Split/Trim/Extend family it hops to the next member exactly like
+  /// Inventor's right-click (M49); otherwise it opens the quick menu — which
+  /// is also the ONLY way a touch-only user reaches Enter (OK) and Esc
+  /// (Cancel) inside a running tool.
+  void _fireLongPress(Offset local, Size size) {
+    if (!mounted) return;
+    _lpTimer = null;
+    _lpDown = null;
+    final app = widget.app;
+    _lpFired = true;
+    _clickDown = null;
+    // whatever gesture was brewing, the long-press consumes it
+    _gesture = 'none';
+    _boxStartW = null;
+    _toolDownLocal = null;
+    _toolDragPlaced = false;
+    _mft.nonTouchActivity();
+    HapticFeedback.selectionClick();
+    if (app.cycleModifyTool()) return;
+    final box = context.findRenderObject();
+    if (box is! RenderBox) return;
+    _showQuickMenu(box.localToGlobal(local));
+  }
+
+  /// Pencil Pro squeeze: Apple's own apps open a tool palette at the tip —
+  /// so do we. [x],[y] are window coords of the hover pose when iOS provides
+  /// one, else the last known Pencil position, else the viewport centre.
+  void _pencilSqueeze(double? x, double? y) {
+    HapticFeedback.selectionClick();
+    Offset global;
+    final box = context.findRenderObject();
+    if (x != null && y != null && x >= 0) {
+      global = Offset(x, y);
+    } else if (box is RenderBox && _lastStylusLocal != null) {
+      global = box.localToGlobal(_lastStylusLocal!);
+    } else if (box is RenderBox) {
+      global = box.localToGlobal(box.size.center(Offset.zero));
+    } else {
+      return;
+    }
+    _showQuickMenu(global);
+  }
+
+  /// Pencil double-tap. Inventor users live on Esc + re-pick; the closest
+  /// analog: inside the modify family it cycles (right-click role), with a
+  /// tool armed it is Esc, and with no tool it re-arms the last drawing
+  /// tool — draw, double-tap out, inspect, double-tap back in.
+  void _pencilDoubleTap() {
+    final app = widget.app;
+    HapticFeedback.selectionClick();
+    if (app.cycleModifyTool()) return;
+    if (app.tool != Tool.none) {
+      app.cancelTool();
+      return;
+    }
+    if (app.inEditMode && app.lastDrawTool != Tool.none) {
+      app.selectTool(app.lastDrawTool);
+    }
+  }
+
+  void _closeQuickMenu() {
+    _toolCtx?.remove();
+    _toolCtx = null;
+  }
+
+  void _showQuickMenu(Offset globalPos) {
+    _closeQuickMenu();
+    final app = widget.app;
+    final meta = toolMeta[app.tool];
+    final canOk = meta != null &&
+        meta.fixed == null &&
+        app.toolPoints.length >= meta.minVar;
+    final items = <Widget>[
+      if (canOk)
+        _qmItem('OK', () {
+          app.finishVariableTool();
+        }),
+      if (app.tool != Tool.none)
+        _qmItem('Cancel (Esc)', () {
+          app.cancelTool();
+        }),
+      if (app.inEditMode) ...[
+        _qmItem('Line (L)', () => app.selectTool(Tool.line)),
+        _qmItem('Circle (C)', () => app.selectTool(Tool.circleCenter)),
+        _qmItem('Rectangle (R)', () => app.selectTool(Tool.rectTwoPoint)),
+        _qmItem('Dimension (D)', () => app.selectTool(Tool.dimension)),
+      ],
+    ];
+    if (items.isEmpty) return; // outside edit mode with no tool: nothing to do
+    _toolCtx = OverlayEntry(
+      builder: (_) => Stack(children: [
+        Positioned.fill(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => _closeQuickMenu(),
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned(
+          left: globalPos.dx,
+          top: globalPos.dy,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              // the ceiling is NOT optional — see the model browser's menu
+              constraints: const BoxConstraints(minWidth: 168, maxWidth: 240),
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF212429),
+                border: Border.all(color: T.sep),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Color(0x8C000000),
+                      blurRadius: 22,
+                      offset: Offset(0, 8))
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: items),
+            ),
+          ),
+        ),
+      ]),
+    );
+    Overlay.of(context).insert(_toolCtx!);
+  }
+
+  Widget _qmItem(String label, VoidCallback onTap) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        _closeQuickMenu();
+        onTap();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Text(label, style: ts(12.5, T.mbText)),
+      ),
+    );
+  }
+
   void _scaleEnd() {
     final app = widget.app;
     switch (_gesture) {
+      case 'tooldrag': // M53: release places the second point
+        if (_toolDragPlaced && _toolDragW != null) {
+          app.toolClick(_snapped(_toolDragW!));
+          if (app.pendingDim != null) _showDimDialog(app.pendingDim!);
+        }
+        _toolDownLocal = null;
+        _toolDragW = null;
+        _toolDragPlaced = false;
+        break;
       case 'grip':
         app.endGripDrag();
         break;
@@ -920,6 +1203,16 @@ class _Viewport2DState extends State<Viewport2D> {
             // i.e. a pan/zoom that starts drawing instead. (The clamp in
             // onPointerUp hides the sign but not the drift.)
             _pointers++;
+            _kinds[e.pointer] = e.kind;
+            // M53 palm rejection: a touch arriving while the Pencil is DOWN
+            // is the heel of the hand, not input. It is counted (the M52
+            // contract above) but never clicks, never taps, and the scale
+            // recognizer refuses it (_PalmAwareScale) — so resting the palm
+            // mid-stroke neither pans nor draws nor undoes.
+            if (e.kind == PointerDeviceKind.touch && _stylusDown) {
+              _rejectedTouches.add(e.pointer);
+              return;
+            }
             // M49: a right-click inside the Split/Trim/Extend session hops to
             // the next member of the family, exactly like Inventor. It never
             // counts as a tool click.
@@ -929,16 +1222,67 @@ class _Viewport2DState extends State<Viewport2D> {
               _clickDown = null;
               return;
             }
+            // M53: feed the Procreate tap classifier (2 fingers = undo,
+            // 3 = redo). Any non-touch activity poisons the session.
+            if (e.kind == PointerDeviceKind.touch) {
+              _mft.down(e.pointer, e.localPosition);
+            } else {
+              _mft.nonTouchActivity();
+            }
+            if (e.kind == PointerDeviceKind.stylus ||
+                e.kind == PointerDeviceKind.invertedStylus) {
+              _lastStylusLocal = e.localPosition;
+              // no-hover Pencils: the snap marker appears the instant the
+              // tip touches, not only after the first move
+              if (app.tool != Tool.none) {
+                app.setHover(_snapped(_toWorld(e.localPosition, size)));
+              }
+            }
             if (_pointers > 1) {
               _clickDown = null; // second finger: pan/zoom, never a click
+              _cancelLp();
               return;
             }
             _clickDown = e.localPosition;
+            _clickPtr = e.pointer;
+            _downKind = e.kind;
             _clickTime = DateTime.now();
-            _downDimHit = _dimAtScreen(e.localPosition);
+            _downDimHit =
+                _dimAtScreen(e.localPosition, inflate: touchSlop(e.kind, 8));
             app.lastPointerWorld = _toWorld(e.localPosition, size); // M45
+            // M53: long-press = the right-click role, for Pencil and finger
+            if (e.kind == PointerDeviceKind.touch ||
+                e.kind == PointerDeviceKind.stylus ||
+                e.kind == PointerDeviceKind.invertedStylus) {
+              _lpDown = e.localPosition;
+              _lpFired = false;
+              _lpTimer?.cancel();
+              _lpTimer = Timer(const Duration(milliseconds: 600),
+                  () => _fireLongPress(e.localPosition, size));
+            }
           },
           onPointerMove: (e) {
+            final rejected = _rejectedTouches.contains(e.pointer);
+            if (!rejected && e.kind == PointerDeviceKind.touch) {
+              _mft.move(e.pointer, e.localPosition);
+            }
+            if (_lpDown != null &&
+                (e.localPosition - _lpDown!).distance > 8) {
+              _cancelLp(); // moving is drawing/dragging, not a long-press
+            }
+            if (!rejected &&
+                (e.kind == PointerDeviceKind.stylus ||
+                    e.kind == PointerDeviceKind.invertedStylus)) {
+              _lastStylusLocal = e.localPosition;
+              // M53: the CONTACT preview for no-hover Pencils — while the
+              // tip is down with a tool armed, the rubber band + snap marker
+              // track it live (hover-capable Pencils get this via
+              // onPointerHover already, exactly like the mouse).
+              app.lastPointerWorld = _toWorld(e.localPosition, size);
+              if (app.tool != Tool.none && _toolCtx == null) {
+                app.setHover(_snapped(_toWorld(e.localPosition, size)));
+              }
+            }
             final d = _clickDown;
             if (d != null && (e.localPosition - d).distance > 14) {
               _clickDown = null; // it's a drag
@@ -946,25 +1290,77 @@ class _Viewport2DState extends State<Viewport2D> {
           },
           onPointerCancel: (e) {
             _pointers = (_pointers - 1).clamp(0, 10);
+            _kinds.remove(e.pointer);
+            _rejectedTouches.remove(e.pointer);
+            if (e.kind == PointerDeviceKind.touch) _mft.cancel(e.pointer);
+            _cancelLp();
             _clickDown = null;
           },
           onPointerUp: (e) {
             _pointers = (_pointers - 1).clamp(0, 10);
+            _kinds.remove(e.pointer);
+            final wasRejected = _rejectedTouches.remove(e.pointer);
+            _cancelLp();
+            // M53: Procreate taps — a clean two-finger tap is UNDO, three
+            // fingers REDO. The classifier separates them from pan/pinch
+            // (which always moves) and from a resting palm (poisoned).
+            if (e.kind == PointerDeviceKind.touch && !wasRejected) {
+              final n = _mft.up(e.pointer, e.localPosition);
+              if (n == 2 || n == 3) {
+                final typing = _inlineDim != null ||
+                    app.editingText != null ||
+                    app.showParams ||
+                    app.hudActive ||
+                    _editableHasFocus();
+                if (!typing && app.dragGrip == null) {
+                  HapticFeedback.mediumImpact();
+                  if (n == 2) {
+                    app.undo();
+                  } else {
+                    app.redo();
+                  }
+                }
+                _clickDown = null;
+                return;
+              }
+            }
+            if (wasRejected) return; // palm contact never clicks
+            if (_lpFired) {
+              // the long-press consumed this contact (menu / tool cycle)
+              _lpFired = false;
+              _clickDown = null;
+              return;
+            }
+            if (e.pointer != _clickPtr) return; // not the pointer that armed
             final d = _clickDown;
             _clickDown = null;
+            _clickPtr = null;
             if (d == null) return;
             if (DateTime.now().difference(_clickTime).inMilliseconds > 700) {
               return;
             }
             if ((e.localPosition - d).distance > 14) return;
-            _handleClick(e.localPosition, size, downDim: _downDimHit);
+            _handleClick(e.localPosition, size,
+                downDim: _downDimHit, kind: _downKind);
           },
-          child: GestureDetector(
+          child: RawGestureDetector(
             behavior: HitTestBehavior.opaque,
-            // one finger: grip drag / box select; two fingers: pan + zoom
-            onScaleStart: (d) => _scaleStart(d, size),
-            onScaleUpdate: (d) => _scaleUpdate(d, size),
-            onScaleEnd: (d) => _scaleEnd(),
+            // One finger: grip drag / body drag / box select (Pencil, mouse)
+            // or pan (finger); two fingers: pan + zoom. A custom recognizer
+            // instead of GestureDetector.onScale for M53's palm rejection:
+            // touches are refused ENTRY into the gesture while the Pencil is
+            // down, so a resting palm can never hijack a stroke into a pan.
+            gestures: <Type, GestureRecognizerFactory>{
+              _PalmAwareScale:
+                  GestureRecognizerFactoryWithHandlers<_PalmAwareScale>(
+                () => _PalmAwareScale(rejectTouch: () => _stylusDown),
+                (r) {
+                  r.onStart = (d) => _scaleStart(d, size);
+                  r.onUpdate = (d) => _scaleUpdate(d, size);
+                  r.onEnd = (_) => _scaleEnd();
+                },
+              ),
+            },
             child: MouseRegion(
               cursor: app.tool == Tool.none
                   ? SystemMouseCursors.basic
@@ -2121,4 +2517,19 @@ void _dashedRect(Canvas c, Rect r, Paint p) {
   _dashedLine(c, r.topRight, r.bottomRight, p);
   _dashedLine(c, r.bottomRight, r.bottomLeft, p);
   _dashedLine(c, r.bottomLeft, r.topLeft, p);
+}
+
+
+/// M53 — a ScaleGestureRecognizer that refuses TOUCH pointers while the
+/// Apple Pencil is down. Rejection happens at arena entry (isPointerAllowed),
+/// so a resting palm never becomes the "second finger" that flips a running
+/// Pencil stroke into pan/zoom.
+class _PalmAwareScale extends ScaleGestureRecognizer {
+  _PalmAwareScale({required this.rejectTouch});
+  final bool Function() rejectTouch;
+  @override
+  bool isPointerAllowed(PointerDownEvent event) {
+    if (event.kind == PointerDeviceKind.touch && rejectTouch()) return false;
+    return super.isPointerAllowed(event);
+  }
 }
