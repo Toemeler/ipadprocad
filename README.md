@@ -51,6 +51,7 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 | **M46** Tastenkürzel (l, c, r, d, s, Ctrl+Z …) werden unterdrückt, während das Parameters- oder Text-Fenster bzw. das Inline-Bemaßungsfeld getippt wird — die Buchstaben landen im Textfeld statt ein Werkzeug zu starten | ✅ erledigt, 214 Host-Tests grün (Geräte-Test offen) |
 | **M47** Direktes Ziehen des ENTITY-KÖRPERS: im Layer-Editiermodus zieht ein Griff auf die Linie/Kreis/Bogen/Polylinie/Spline/Ellipse SELBST (nicht nur auf einen Punkt-Griff) die ganze Entität starr mit, angebundene Geometrie folgt über die Constraints; voll gebundene Geometrie ist gesperrt (fällt auf Box-Select zurück), Tap wählt weiterhin aus | ✅ erledigt, 222 Host-Tests grün (Geräte-Test offen) |
 | **M48** Natives iOS-Kontextmenü in der Sketch-Galerie: Long-Press auf eine Karte öffnet ein ECHTES UIKit-Menü (UIContextMenuInteraction/UIMenu, System-Blur + Haptik, Delete von UIKit selbst rot gezeichnet) mit Rename / Duplicate / Export / Share und Delete in eigener Sektion; Export/Share über UIDocumentPicker bzw. UIActivityViewController. In-Repo-Plugin `packages/native_menu` statt Swift im (von CI generierten) Runner. IPA-Job auf macos-26 = iOS-26-SDK → Liquid-Glass-Optik | ✅ erledigt, 245 Host-Tests grün (Geräte-Test offen) |
+| **M54** 3D-Kernel: OpenCASCADE (OCCT 7.9.3) als Submodule vendored, flache C-ABI (`backend/occt/shim`, 14 Funktionen: Box/Zylinder/Profil-Extrude/Fuse/Counts/Valid/Volume/BBox/STEP-Export+Import), Geometrie-Smoke mit harten Zahlen (`OCCT SMOKE: PASS`, Fuse-Volumen == analytisch, STEP-Roundtrip identisch), isolierter CI-Workflow `occt-build.yml` (Host + iOS-arm64-Static, Install-Tree gecacht), in die IPA gelinkt: `OCCT LINK CHECK: PASS (14 _occt_* symbols exported in Runner)`. Noch KEIN Dart-Binding (bewusst nächste Session) | ✅ erledigt, alle Marker log-verifiziert (M49–M53 siehe HANDOFF) |
 
 ### Auto-Constraints, Fillet/Chamfer, constraint-erhaltendes Trim (M36)
 
@@ -318,6 +319,10 @@ siehe `HANDOFF.md`.
 backend/slvs/          Vendortes SolveSpace libslvs (Constraint-Solver) + C-Shim
   shim/                Flache C-API (ein slvs_solve()) für Dart-FFI
   tests/               Host-Test-Gate (shim_test.c) — läuft in der CI
+backend/occt/          OpenCASCADE (OCCT 7.9.3) — 3D-B-Rep- + STEP-Kernel (M54)
+  upstream/            OCCT als Submodule, gepinnt auf Tag V7_9_3 (VENDOR.md)
+  shim/                Flache C-API occt_capi.{h,cpp} (14 Funktionen) für Dart-FFI
+  tests/               smoke_occt.c — Geometrie-Gate ("OCCT SMOKE: PASS") in der CI
 backend/qcad-core/     Vendorter, headless-tauglicher QCAD-Core (C++, GPLv3)
   src/core/            Dokumentmodell, Geometrie/Mathematik, RSpatialIndexSimple
   src/entity/          Entity-Typen (Linie, Kreis, Bogen, Polylinie, Spline, …)
@@ -329,7 +334,8 @@ backend/qcad-core/     Vendorter, headless-tauglicher QCAD-Core (C++, GPLv3)
 frontend/              Flutter-App (1:1-Port des UI-Mocks, FFI-Anbindung,
                        Zeichnen/Speichern/Laden/Previews) — siehe frontend/lib/
 ci/                    CI-Hilfsskripte (parse_link_txt.py: Linkzeile -> Xcode)
-.github/workflows/     CI: Core-Build (iOS), Sim-Logiktest, Flutter-IPA-Build
+.github/workflows/     CI: Core-Build (iOS), Sim-Logiktest, Flutter-IPA-Build,
+                       slvs-build (isoliert), occt-build (isoliert, gecacht)
 ```
 
 `gui`, `run` sowie der JS-Actionlayer (`scripts/`) aus dem QCAD-Upstream sind
@@ -338,7 +344,10 @@ bewusst nicht enthalten; die GUI ist die eigene Flutter-App in `frontend/`.
 ## Lizenz
 
 Der vendorte QCAD-Core steht unter GPLv3 (`backend/qcad-core/LICENSE.txt`,
-`gpl-3.0.txt`, `gpl-3.0-exceptions.txt`), `dxflib` unter GPLv2+. Die
+`gpl-3.0.txt`, `gpl-3.0-exceptions.txt`), `dxflib` unter GPLv2+, libslvs
+unter GPLv3. OCCT (`backend/occt/upstream`) steht unter **LGPL 2.1 mit der
+OCCT-Ausnahme** (`upstream/LICENSE_LGPL_21.txt`, `OCCT_LGPL_EXCEPTION.txt`);
+die Ausnahme erlaubt das statische Linken in die App ausdrücklich. Die
 Lizenzkompatibilität mit der finalen App-Distribution ist vor Produktiv-Release
 zu klären.
 

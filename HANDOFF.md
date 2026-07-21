@@ -2418,3 +2418,107 @@ fachlichen Grenzen)
   Tangenten-Constraint sitzt trotzdem. Fillet gegen getaggte Polylines
   (Splines/Ellipsen) nicht unterstützt.
 - eqCurve erzeugt weiterhin gesampelte Polylines (bewusst: echte Kurve). Bogen-Slots haben noch keine automatische Construction-Achse (jede volle Anbindung eines Construction-Bogens ist um 1 Gleichung redundant — braucht einen 1-Gleichungs-Winkelbind oder eine Sonderbehandlung im Gate).
+
+## M54 — OCCT 3D-Kernel (OpenCASCADE) vendored: C-Shim, Geometrie-Smoke, isolierte CI, iOS-Link
+
+**Ziel & Scope.** Fundament für Inventor-artiges 3D (Skizze extrudieren →
+Solid, Boolesche Ops, STEP-Austausch): OpenCASCADE als DRITTER nativer
+Kernel neben QCAD (2D/DXF) und libslvs (Constraints). BEWUSST ohne jede
+Dart-/Flutter-Änderung — kein `occt_engine.dart`, keine Widgets, kein
+`app_state`-Bezug. Ziellinie dieser Session war: IPA baut und exportiert
+die Shim-Symbole. Genau das ist erreicht.
+
+**Was liegt wo:**
+```
+backend/occt/
+  upstream/              OCCT als SUBMODULE, gepinnt auf Tag V7_9_3
+                         (Commit a016080b; 8.0.0 bewusst NICHT — zu frisch,
+                         CMake/Source-Tree umgebaut; siehe VENDOR.md)
+  shim/occt_capi.{h,cpp} Flache C-ABI, EXAKT 14 Funktionen: version/
+                         shim_version/last_error, make_box, make_cylinder,
+                         extrude_polygon, fuse, shape_counts, shape_valid,
+                         shape_volume, bbox, export_step, import_step,
+                         free_shape. Jeder Entry-Point fängt ALLE
+                         OCCT-Exceptions (nichts entkommt später ins FFI).
+                         Marker-String: "iPadProCAD OCCT shim" (strings-Check).
+  tests/smoke_occt.c     Standalone-C-Smoke mit harten Zahlen (s.u.)
+  CMakeLists.txt         Shim-Projekt; konsumiert einen OCCT-Install-Tree
+                         via find_package(OpenCASCADE CONFIG)
+  VENDOR.md              Pin-Begründung, Lizenz, die EINE Flag-Liste, Traps
+.github/workflows/occt-build.yml   isolierter Workflow (paths: backend/occt/**,
+                         .gitmodules, er selbst): ubuntu-Host-Smoke +
+                         macos-26 iOS-arm64-Static + nm-Symbolcheck
+```
+
+**Empirisch verifiziert (Run 29810990247/…286, Marker aus den Logs
+gelesen, nicht Häkchen):**
+- Host: `OCCT SMOKE: PASS` — Box 6/12/8 Vol 6000.000000; nicht-konvexes
+  L-Profil extrudiert 8/18/12 Vol 3000; Zylinder 3 Faces Vol pi*360;
+  **Fuse Box∪Zylinder Vol 8785.398163 == analytisch exakt**; STEP-Roundtrip
+  Topologie 8/15/10 → 8/15/10, Volumen identisch; Import fehlender Datei
+  → NULL ohne Crash. `OCCT HOST + SHIM: PASS`.
+- iOS: kompletter OCCT-Cross-Build (5405 Targets) sauber,
+  `defined _occt_* symbols in shim archive: 14`, `OCCT IOS STATIC: PASS`.
+- m5-IPA: `OCCT MARKER CHECK: PASS` + **`OCCT LINK CHECK: PASS (14 _occt_*
+  symbols exported in Runner)`** — via `-force_load libocct_capi.a`, alle
+  47 OCCT-Archive auf der Linkzeile (ld64 zieht nur referenzierte Member),
+  `_occt_*` in `qcad_symbols.exp`. M5/SLVS/M6-QIOS-Checks weiter PASS,
+  M3 PASS, slvs-build per Dispatch grün (strukturell unberührt — paths).
+- Diff-Bilanz: NUR neue Dateien + `.gitmodules` (neu, Repo-Wurzel) +
+  m1-core-build.yml (m5-Job: 3 neue Steps; nur 2 geänderte Zeilen:
+  exp-printf und OTHER_LDFLAGS). 0 Dart-/frontend-Dateien, 0 qcad/slvs.
+
+**OCCT-Build-Konfiguration (die EINE Wahrheit steht in VENDOR.md):**
+4 Module ON (FoundationClasses, ModelingData, ModelingAlgorithms,
+DataExchange), Rest OFF, alle `USE_*` OFF (`USE_FREETYPE=OFF` ist der
+Schlüssel) → NULL Fremdabhängigkeiten. OCCTs CMake zieht benötigte
+Toolkits abgeschalteter Module automatisch als Deps
+(`EXCTRACT_TOOLKIT_FULL_DEPS`): TKDESTEP→TKXCAF→TKV3d/TKService/TKCAF/…
+werden mitgebaut, obwohl Visualization/ApplicationFramework OFF sind.
+
+**Cache-Mechanik (wichtig für Laufzeiten):** iOS-Install-Tree liegt unter
+`actions/cache` Key **`occt-ios-arm64-V7_9_3-r1`** — GETEILT zwischen
+occt-build.yml und dem m5-Job (identischer Key + Pfad
+`backend/occt/install-ios`). Der Key ist gespeichert (occt-ios-Job hat
+"Cache saved" geloggt) → künftige m5-Läufe stellen in Sekunden wieder her
+statt ~30 min zu bauen. Host analog `occt-host-V7_9_3-r1` (gespeichert).
+**Bei Flag-Änderungen den Suffix -r1 in BEIDEN Workflows bumpen** (Cache
+ist per Key unveränderlich). Shim wird IMMER frisch gebaut (schnell).
+
+**Lektionen dieser Session (teuer bezahlt, nicht wiederholen):**
+1. **iOS-find_package-Falle:** `CMAKE_SYSTEM_NAME=iOS` ⇒ CMake rootet
+   JEDES find_package in die iPhoneOS-SDK-Sysroot um
+   (`Darwin.cmake: CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY`) —
+   `CMAKE_PREFIX_PATH` außerhalb ist unsichtbar, Fehlermeldung sieht aus
+   wie "Install kaputt", obwohl der Install perfekt war. Fix (steckt in
+   beiden Workflows): `-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH` — der
+   Platform-Default ist NOT-DEFINED-geguarded, das Cache-Entry gewinnt.
+   OCCT selbst und libslvs rufen kein find_package → nur der Shim traf es.
+2. **actions/cache speichert NICHT bei fehlgeschlagenem Job** — zwei
+   30-min-OCCT-Builds gingen deshalb verloren, bevor der find_package-Fix
+   grün wurde. Wer das je entkoppeln will: actions/cache/restore +
+   /save mit `if: always()` direkt nach dem Build-Step.
+3. **`shallow = true` in .gitmodules ist eine Falle:** es macht auch den
+   FALLBACK `git submodule update --init` shallow (Default-Branch-Spitze,
+   die den gepinnten Release-Commit NICHT enthält). Entfernt. Der primäre
+   Weg holt explizit `--depth 1` den exakten SHA (GitHub erlaubt
+   SHA-Wants; von frischem Clone aus verifiziert).
+4. Submodule-Pin ohne Riesen-Clone: `git ls-remote <url> 'TAG^{}'` liefert
+   den gepeelten Commit, dann `git update-index --add --cacheinfo
+   160000,<sha>,backend/occt/upstream` + .gitmodules von Hand.
+5. `ls | head` gehört zur SIGPIPE-Musterklasse (M3/M5) — vermieden.
+
+**Nächste Session (NICHT in dieser erledigt, bewusst):**
+- Dart-FFI-Binding `frontend/lib/ffi/occt_engine.dart` gegen die 14
+  Funktionen (DynamicLibrary.process(), Muster von qcad/slvs kopieren);
+  DART-SMOKE beim App-Start ("backend=occt-ffi …" analog qcad).
+- Danach UI: Extrude-Workflow aus der fertigen Skizze (EOP/M53 ist die
+  Vorarbeit), 3D-Viewport-Frage klären (OCCT-Visualization ist NICHT
+  gebaut — Rendering muss aus Tessellation (TKMesh ist gebaut) + eigenem
+  Renderer kommen oder Visualization-Modul nachziehen ⇒ Cache-Key-Bump).
+- Shim wachsen lassen, wenn die UI es braucht (Cut/Common, Fillet 3D,
+  Transformationen, Tessellation-Export) — Muster: Funktion in
+  occt_capi.h/.cpp + Assert im smoke_occt.c + nm-Zahl 14 in BEIDEN
+  Workflows und m1-core-build.yml anpassen (drei `-ge 14`-Stellen!).
+- IPA-Größe wächst durch OCCT/STEP spürbar (Schema-Code); wenn's stört:
+  Linkliste von 47 Archiven auf die tatsächlich gezogenen reduzieren.
