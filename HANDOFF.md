@@ -2522,3 +2522,77 @@ ist per Key unveränderlich). Shim wird IMMER frisch gebaut (schnell).
   Workflows und m1-core-build.yml anpassen (drei `-ge 14`-Stellen!).
 - IPA-Größe wächst durch OCCT/STEP spürbar (Schema-Code); wenn's stört:
   Linkliste von 47 Archiven auf die tatsächlich gezogenen reduzieren.
+
+## M55 — Dart-FFI-Binding für den OCCT-Kernel + Boot-Smoke
+
+**Ziel & Scope.** Genau die in M54 angekündigte nächste Session:
+`frontend/lib/ffi/occt_engine.dart` gegen die 14 Shim-Funktionen, DART-SMOKE
+beim App-Start, Host-Tests. BEWUSST keine UI, kein Extrude-Workflow, 0
+Änderungen an `backend/**` oder Workflows (occt-Cache-Key
+`occt-ios-arm64-V7_9_3-r1` unangetastet — Restore lief in Sekunden).
+
+**Was liegt wo:**
+```
+frontend/lib/ffi/occt_engine.dart   Binding: alle 14 occt_* via
+                                    DynamicLibrary.process(), Probe-once +
+                                    Cache (Muster SlvsFfi.instance()).
+                                    OcctFfi.instance() == null heißt EHRLICH
+                                    "kein 3D-Kernel" — es gibt bewusst
+                                    KEINEN Dart-Fallback für B-Rep.
+                                    OcctShape: owned Handle, dispose()
+                                    idempotent, use-after-dispose wirft
+                                    Dart-seitig (der Shim kann's nicht
+                                    erkennen). shimVersion exponiert fürs
+                                    Feature-Gating künftiger Surface.
+                                    occtSmokeLine() liefert die Log-Zeile
+                                    (app-import-frei -> host-testbar).
+frontend/lib/app_state.dart         init(): occt-Smoke direkt nach dem
+                                    qcad-Smoke; loggt PASS/FAIL/SKIP.
+frontend/test/m55_occt_ffi_test.dart  Host: Probe-Miss graceful+gecacht,
+                                    Smoke-Zeile darf ohne Kernel NIE PASS
+                                    sagen (SKIP, backend=occt-none),
+                                    OcctCounts-Format.
+```
+
+**Smoke-Semantik (Ehrlichkeits-Regel):** make_box(10,20,30), geprüft gegen
+die smoke_occt.c-Zahlen: F6/E12/V8, valid, |vol-6000|<1e-6 →
+`DART SMOKE: PASS (backend=occt-ffi, shim vN, <marker>, box F6/E12/V8 vol
+6000.000000)`. Symbole nicht gelinkt → `SKIP (backend=occt-none)` — nie
+Fake-PASS. Kernel da, aber Zahlen falsch → FAIL mit occt_last_error().
+
+**Empirisch verifiziert (Run 29815209111, workflow_dispatch, MARKER AUS DEN
+LOGS gelesen, nicht Häkchen):**
+- m5-Dart-Tests: `🎉 301 tests passed.` inkl. der 3 m55-Tests namentlich.
+- analyze: 234 infos/warnings auf CIs Flutter 3.44.7 (lokal 3.32: 18) —
+  ALLE vorbestehend, 0 `error •`, 0 neue durch M55; Job läuft mit
+  --no-fatal-infos --no-fatal-warnings.
+- `M5 LINK CHECK: PASS`, `SLVS LINK CHECK: PASS`, `OCCT MARKER CHECK:
+  PASS`, `OCCT LINK CHECK: PASS (14 _occt_* symbols exported in Runner)`.
+- Cache: `Cache restored from key: occt-ios-arm64-V7_9_3-r1` + "not saving
+  cache" (Hit auf Primary Key) — Key lebt, Restore in Sekunden.
+- M3: `SMOKE: PASS` … `M3 LOGIC TEST: PASS`, launch exit 0.
+
+**OFFENE SCHULD (ehrlich): der Geräte-Beweis fehlt.** Kein CI-Job STARTET
+die Flutter-App: M3 ist der headless C++-Logic-Test (druckt sein eigenes
+`SMOKE: PASS`, NICHT die Dart-Zeile), m5 baut nur die IPA. Die Pfade, die
+eine echte Shape anfassen (makeBox/counts/volume/dispose), liefen daher
+noch NIE gegen den gelinkten Kernel — auf Host greift der SKIP-Zweig.
+Erster IPA-Start auf Gerät/Simulator muss
+`DART SMOKE: PASS (backend=occt-ffi, …)` im Log zeigen (Files > On My iPad
+> ipadprocad > logs). Bis dahin gilt: "gelinkt und gegated, Geräte-Smoke
+ausstehend" — nicht "fertig bewiesen".
+
+**Lektion dieser Session:** M3s `SMOKE: PASS`-Marker und der Dart
+`DART SMOKE:`-Marker sind ZWEI verschiedene Dinge — wer im M3-Log nach der
+occt-Zeile sucht, sucht am falschen Ort. Wenn der Geräte-Smoke je in CI
+soll: eigener Schritt, der die App im Simulator startet und das Dart-Log
+greppt (Muster vom M3-Launcher übernehmbar).
+
+**Nächste Session:**
+1. Geräte-Smoke verifizieren (s.o.) — eine Zeile Aufwand, schließt M55 ab.
+2. M56: Extrude-Workflow aus der fertigen Skizze (EOP/M53) über
+   `OcctFfi.extrudePolygon`; dabei fällt die 3D-Viewport-Entscheidung an:
+   Tessellation (TKMesh ist gebaut) + eigener Renderer ODER
+   Visualization-Modul nachziehen ⇒ Cache-Key-Bump -r2 in BEIDEN Workflows.
+3. Shim-Wachstum (Cut/Common, Fillet 3D, Transformationen,
+   Tessellation-Export) nach M54-Muster: drei `-ge 14`-Stellen anpassen!
