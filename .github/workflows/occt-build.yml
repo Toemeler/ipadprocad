@@ -105,7 +105,7 @@ jobs:
             | tail -40
           cmake --install build-occt-host > occt-install-host.log 2>&1
           echo "installed toolkits:"
-          ls install-host/lib/ | head -60
+          ls install-host/lib/
 
       - name: Build shim + smoke and RUN real geometry (host)
         working-directory: backend/occt
