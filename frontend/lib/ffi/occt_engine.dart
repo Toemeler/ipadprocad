@@ -177,7 +177,8 @@ class OcctShape {
 
   /// Rigid placement (shim v2): returns a NEW shape moved by the row-major
   /// 3x4 matrix [mat34] = {r00 r01 r02 tx, r10 r11 r12 ty, r20 r21 r22 tz}.
-  /// The 3x3 part must be a pure rotation — the shim rejects scale/shear.
+  /// The 3x3 part must be a pure rotation — the shim refuses scale, shear
+  /// and mirror, so a wrong frame can never silently resize a solid.
   /// Null on failure (see [OcctFfi.lastError]).
   OcctShape? transformed(List<double> mat34) {
     if (mat34.length != 12) return null;

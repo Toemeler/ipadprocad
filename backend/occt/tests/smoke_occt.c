@@ -493,11 +493,23 @@ int main(void)
                   "[13] volume changed under rotation");
         }
         occt_free_shape(rot);
-        /* a scaling matrix is NOT a rigid motion and must be rejected */
+        /* NON-rigid matrices must be refused: a uniform scale (gp_Trsf
+         * would happily accept it as rotation*scale), a mirror (det -1)
+         * and a shear. Each must also SET the error message. */
         const double ms[12] = {2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0};
         occt_shape *scaled = b ? occt_transform(b, ms) : NULL;
         check(scaled == NULL, "[13] scale matrix was not rejected");
+        check(strstr(occt_last_error(), "rigid") != NULL,
+              "[13] scale rejection did not report a rigidity error");
         occt_free_shape(scaled);
+        const double mm[12] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+        occt_shape *mirrored = b ? occt_transform(b, mm) : NULL;
+        check(mirrored == NULL, "[13] mirror (det -1) was not rejected");
+        occt_free_shape(mirrored);
+        const double msh[12] = {1, 0.4, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+        occt_shape *sheared = b ? occt_transform(b, msh) : NULL;
+        check(sheared == NULL, "[13] shear matrix was not rejected");
+        occt_free_shape(sheared);
         occt_free_shape(b);
     }
 

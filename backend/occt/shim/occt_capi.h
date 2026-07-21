@@ -91,7 +91,9 @@ occt_shape *occt_extrude_profile(const double *xy, const int *loop_counts,
  * v2 — Rigid placement: returns a NEW shape = `shape` moved by the
  * row-major 3x4 matrix `mat34` = {r00 r01 r02 tx, r10 r11 r12 ty,
  * r20 r21 r22 tz}. The 3x3 part must be a pure rotation (orthonormal,
- * det +1) — this is how a feature extruded in its sketch-local frame is
+ * det +1); scale, shear and mirror are REFUSED (checked here rather than
+ * left to gp_Trsf, which would accept rotation*scale and silently resize
+ * the solid) — this is how a feature extruded in its sketch-local frame is
  * placed into part/world coordinates, so solids from different sketch
  * planes share one coordinate system (booleans, STEP). NULL on failure.
  */

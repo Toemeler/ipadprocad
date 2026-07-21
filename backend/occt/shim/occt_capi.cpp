@@ -429,8 +429,37 @@ extern "C" occt_shape *occt_transform(const occt_shape *shape,
         return nullptr;
     }
     gp_Trsf t;
-    /* SetValues validates the rotation part (orthonormal, det +1) and
-     * throws gp_ConstructionError otherwise — caught by OCCT_CATCH. */
+    /* Rigidity is enforced HERE, not left to gp_Trsf::SetValues: that
+     * accepts an orthogonal matrix TIMES A SCALE FACTOR, so a uniform
+     * scale would sail through and silently resize the solid. The header
+     * promises a pure rotation, so check orthonormality (columns unit and
+     * mutually perpendicular) and a right-handed determinant of +1. */
+    {
+        const double c[3][3] = {{mat34[0], mat34[1], mat34[2]},
+                                {mat34[4], mat34[5], mat34[6]},
+                                {mat34[8], mat34[9], mat34[10]}};
+        const double tol = 1e-9;
+        int ok = 1;
+        for (int i = 0; i < 3 && ok; ++i) {
+            for (int j = i; j < 3 && ok; ++j) {
+                const double d = c[0][i] * c[0][j] + c[1][i] * c[1][j] +
+                                 c[2][i] * c[2][j];
+                if (std::fabs(d - (i == j ? 1.0 : 0.0)) > tol)
+                    ok = 0;
+            }
+        }
+        const double det =
+            c[0][0] * (c[1][1] * c[2][2] - c[1][2] * c[2][1]) -
+            c[0][1] * (c[1][0] * c[2][2] - c[1][2] * c[2][0]) +
+            c[0][2] * (c[1][0] * c[2][1] - c[1][1] * c[2][0]);
+        if (!ok || std::fabs(det - 1.0) > tol) {
+            set_err("occt_transform",
+                    "matrix is not a rigid motion (need an orthonormal "
+                    "rotation with determinant +1; scale/shear/mirror "
+                    "are refused)");
+            return nullptr;
+        }
+    }
     t.SetValues(mat34[0], mat34[1], mat34[2], mat34[3],
                 mat34[4], mat34[5], mat34[6], mat34[7],
                 mat34[8], mat34[9], mat34[10], mat34[11]);
