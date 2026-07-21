@@ -1,0 +1,4 @@
+[submodule "backend/occt/upstream"]
+	path = backend/occt/upstream
+	url = https://github.com/Open-Cascade-SAS/OCCT.git
+	shallow = true

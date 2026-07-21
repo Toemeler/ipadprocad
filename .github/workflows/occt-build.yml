@@ -1,0 +1,244 @@
+name: OCCT Kernel Build  # vendored OpenCASCADE — host smoke + iOS static link
+
+# Isolated from the QCAD core and SLVS workflows: only runs when the OCCT
+# vendor tree, the submodule pin, or this file changes. Two jobs:
+#   1) host smoke  — builds OCCT minimal-static on ubuntu and RUNS real
+#      geometry through the C shim: box, non-convex extrude, cylinder,
+#      boolean fuse, STEP round-trip. The "OCCT SMOKE: PASS" marker in the
+#      log is the verdict (read the log, not the checkmark — HANDOFF rule).
+#   2) iOS static  — the real unknown: does OCCT cross-compile to static
+#      arm64/iphoneos cleanly with plain CMAKE_SYSTEM_NAME=iOS (same flags
+#      as libslvs)? lipo confirms the arch, nm confirms the _occt_* symbols.
+#
+# The iOS OCCT install tree is CACHED under the key below; the m5-flutter-ipa
+# job in m1-core-build.yml restores the SAME key, so the expensive OCCT build
+# normally happens here (or once there on a cold cache) and the IPA job stays
+# fast. Bump the -r1 suffix whenever the configure flags change.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/occt/**'
+      - '.gitmodules'
+      - '.github/workflows/occt-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/occt/**'
+      - '.gitmodules'
+      - '.github/workflows/occt-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: occt-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ONE set of OCCT configure switches for every build in this repo.
+  # Four modules ON; OCCT's CMake auto-adds required toolkits from disabled
+  # modules (TKCDF/TKLCAF/TKCAF/TKVCAF/TKService/TKV3d via TKXCAF<-TKDESTEP).
+  # All USE_* off => zero third-party deps (no FreeType/Tcl/X11), C++17 only.
+  OCCT_COMMON_FLAGS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_LIBRARY_TYPE=Static
+    -DBUILD_MODULE_FoundationClasses=ON
+    -DBUILD_MODULE_ModelingData=ON
+    -DBUILD_MODULE_ModelingAlgorithms=ON
+    -DBUILD_MODULE_DataExchange=ON
+    -DBUILD_MODULE_ApplicationFramework=OFF
+    -DBUILD_MODULE_Visualization=OFF
+    -DBUILD_MODULE_Draw=OFF
+    -DBUILD_MODULE_DETools=OFF
+    -DBUILD_DOC_Overview=OFF
+    -DUSE_FREETYPE=OFF
+    -DUSE_TK=OFF
+    -DUSE_XLIB=OFF
+    -DUSE_FREEIMAGE=OFF
+    -DUSE_OPENVR=OFF
+    -DUSE_FFMPEG=OFF
+    -DUSE_RAPIDJSON=OFF
+    -DUSE_DRACO=OFF
+    -DUSE_TBB=OFF
+    -DUSE_VTK=OFF
+
+jobs:
+  occt-host-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch OCCT submodule (shallow, pinned commit)
+        run: |
+          set -o pipefail
+          # depth-1 fetch of the exact pinned SHA (GitHub allows SHA wants);
+          # fall back to a full submodule fetch if that is ever refused.
+          git submodule update --init --depth 1 -- backend/occt/upstream \
+            || git submodule update --init -- backend/occt/upstream
+          git -C backend/occt/upstream log --oneline -1
+          test -f backend/occt/upstream/CMakeLists.txt \
+            || { echo "submodule checkout incomplete"; exit 1; }
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache OCCT host install tree
+        id: occt-host-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-host
+          key: occt-host-V7_9_3-r1
+
+      - name: Build OpenCASCADE static (host, cache miss only)
+        if: steps.occt-host-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -e
+          set -o pipefail
+          cmake -S upstream -B build-occt-host -G Ninja \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-host" \
+            $OCCT_COMMON_FLAGS 2>&1 | tee occt-cfg-host.log
+          cmake --build build-occt-host -j 2>&1 | tee occt-build-host.log \
+            | tail -40
+          cmake --install build-occt-host > occt-install-host.log 2>&1
+          echo "installed toolkits:"
+          ls install-host/lib/ | head -60
+
+      - name: Build shim + smoke and RUN real geometry (host)
+        working-directory: backend/occt
+        run: |
+          # pipefail MUST stay outside any { }|tee blocks (M3 lesson).
+          set -o pipefail
+          cmake -S . -B build -G Ninja -DOCCT_SMOKE=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-host" \
+            2>&1 | tee cfg-shim-host.log
+          cmake --build build -j 2>&1 | tee build-shim-host.log
+          echo "=== OCCT geometry smoke ==="
+          ./build/occt_smoke | tee smoke.log
+          # Verdict comes from the MARKER in the file, not the exit path:
+          if grep -q "OCCT SMOKE: FAIL" smoke.log; then
+            echo "OCCT HOST: FAIL (smoke reported failures)"; exit 1
+          fi
+          grep -q "OCCT SMOKE: PASS" smoke.log \
+            || { echo "OCCT HOST: FAIL (PASS marker missing)"; exit 1; }
+          echo "OCCT HOST + SHIM: PASS"
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 3
+          name: occt-host-smoke-log
+          path: |
+            backend/occt/smoke.log
+            backend/occt/occt-cfg-host.log
+            backend/occt/occt-build-host.log
+            backend/occt/cfg-shim-host.log
+            backend/occt/build-shim-host.log
+          if-no-files-found: warn
+
+  # macos-26 on purpose (not macos-14 like slvs-build): macos-14 entered
+  # deprecation 2026-07-06, and the m5-flutter-ipa job that CONSUMES these
+  # libs already runs on macos-26 — building here with the identical image
+  # keeps SDK/toolchain aligned AND lets both workflows share one cache key.
+  occt-ios-static:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache OCCT iOS install tree (shared with m5-flutter-ipa)
+        id: occt-ios-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-ios
+          key: occt-ios-arm64-V7_9_3-r1
+
+      - name: Build OpenCASCADE static (iOS device, arm64, cache miss only)
+        if: steps.occt-ios-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -e
+          set -o pipefail
+          git -C "$GITHUB_WORKSPACE" submodule update --init --depth 1 \
+            -- backend/occt/upstream \
+            || git -C "$GITHUB_WORKSPACE" submodule update --init \
+                 -- backend/occt/upstream
+          git -C upstream log --oneline -1
+          brew install ninja || true
+          cmake -S upstream -B build-occt-ios -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-ios" \
+            $OCCT_COMMON_FLAGS 2>&1 | tee occt-cfg-ios.log
+          cmake --build build-occt-ios -j 2>&1 | tee occt-build-ios.log \
+            | tail -40
+          cmake --install build-occt-ios > occt-install-ios.log 2>&1
+
+      - name: Build C shim static (iOS device, arm64)
+        working-directory: backend/occt
+        run: |
+          set -e
+          set -o pipefail
+          brew install ninja || true
+          cmake -S . -B build-ios -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-ios" \
+            2>&1 | tee cfg-shim-ios.log
+          cmake --build build-ios -j 2>&1 | tee build-shim-ios.log
+
+      - name: Verify arch + exported shim symbols (lipo, nm)
+        working-directory: backend/occt
+        run: |
+          set -e
+          set -o pipefail
+          test -f build-ios/libocct_capi.a \
+            || { echo "MISSING build-ios/libocct_capi.a"; exit 1; }
+          lipo -info build-ios/libocct_capi.a | tee lipo.log
+          grep -q "arm64" lipo.log || { echo "FAIL: not arm64"; exit 1; }
+          for l in libTKDESTEP.a libTKPrim.a libTKBO.a libTKTopAlgo.a \
+                   libTKBRep.a libTKMath.a libTKernel.a; do
+            test -f "install-ios/lib/$l" \
+              || { echo "FAIL: install-ios/lib/$l missing"; exit 1; }
+          done
+          echo "OCCT toolkit archives present:"
+          du -sh install-ios/lib | cat
+          # grep -c (not -q) after nm: -q would SIGPIPE nm under pipefail.
+          NSYM="$(nm -g build-ios/libocct_capi.a 2>/dev/null | grep -c 'T _occt_' || true)"
+          echo "defined _occt_* symbols in shim archive: ${NSYM:-0}"
+          [ "${NSYM:-0}" -ge 14 ] \
+            || { echo "FAIL: expected >= 14 _occt_* symbols"; exit 1; }
+          echo "OCCT IOS STATIC: PASS"
+
+      - name: Upload iOS build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 3
+          name: occt-ios-build-logs
+          path: |
+            backend/occt/occt-cfg-ios.log
+            backend/occt/occt-build-ios.log
+            backend/occt/cfg-shim-ios.log
+            backend/occt/build-shim-ios.log
+          if-no-files-found: warn
+
+      - name: Upload iOS shim lib
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 3
+          name: libocct-capi-ios-arm64
+          path: |
+            backend/occt/build-ios/libocct_capi.a
+            backend/occt/shim/occt_capi.h
+          if-no-files-found: error

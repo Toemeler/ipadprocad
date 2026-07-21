@@ -1,0 +1,4 @@
+# CI/scratch build + install trees for OCCT and the shim — never committed.
+build*/
+install*/
+*.log

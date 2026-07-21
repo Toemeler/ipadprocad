@@ -569,6 +569,70 @@ jobs:
           test -f build-ios/libslvs.a || { echo "MISSING build-ios/libslvs.a"; exit 1; }
           lipo -info build-ios/libslvs.a
 
+      # --- OCCT (3D B-Rep + STEP kernel, backend/occt) ---------------------
+      # The heavy OCCT build is CACHED and shared with occt-build.yml via an
+      # identical key: normally that isolated workflow (or a previous run of
+      # this job) has already populated it and this restores in seconds. On a
+      # cold cache this job self-heals by building OCCT itself (~40-60 min,
+      # once). Keep key + flags in sync with .github/workflows/occt-build.yml
+      # and backend/occt/VENDOR.md; bump -r1 when the flags change.
+      - name: Cache OpenCASCADE iOS install tree
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-ios
+          key: occt-ios-arm64-V7_9_3-r1
+
+      - name: Build OpenCASCADE static (iOS device, arm64, cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -o pipefail
+          git -C "$GITHUB_WORKSPACE" submodule update --init --depth 1 \
+            -- backend/occt/upstream \
+            || git -C "$GITHUB_WORKSPACE" submodule update --init \
+                 -- backend/occt/upstream
+          git -C upstream log --oneline -1
+          cmake -S upstream -B build-occt-ios -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-ios" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_LIBRARY_TYPE=Static \
+            -DBUILD_MODULE_FoundationClasses=ON \
+            -DBUILD_MODULE_ModelingData=ON \
+            -DBUILD_MODULE_ModelingAlgorithms=ON \
+            -DBUILD_MODULE_DataExchange=ON \
+            -DBUILD_MODULE_ApplicationFramework=OFF \
+            -DBUILD_MODULE_Visualization=OFF \
+            -DBUILD_MODULE_Draw=OFF \
+            -DBUILD_MODULE_DETools=OFF \
+            -DBUILD_DOC_Overview=OFF \
+            -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_XLIB=OFF \
+            -DUSE_FREEIMAGE=OFF -DUSE_OPENVR=OFF -DUSE_FFMPEG=OFF \
+            -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF \
+            2>&1 | tail -25
+          cmake --build build-occt-ios -j 2>&1 | tail -25
+          cmake --install build-occt-ios > /dev/null
+
+      - name: Build OCCT C shim static (iOS device, arm64)
+        working-directory: backend/occt
+        run: |
+          set -o pipefail
+          cmake -S . -B build-ios -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-ios"
+          cmake --build build-ios -j
+          test -f build-ios/libocct_capi.a || { echo "MISSING build-ios/libocct_capi.a"; exit 1; }
+          lipo -info build-ios/libocct_capi.a
+
       - name: Inject FFI link flags (xcconfig)
         working-directory: frontend
         run: |
@@ -578,6 +642,12 @@ jobs:
           CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
           BUILD="$GITHUB_WORKSPACE/backend/qcad-core/build"
           SLVS="$GITHUB_WORKSPACE/backend/slvs/build-ios"
+          OCCT="$GITHUB_WORKSPACE/backend/occt"
+          # Every OCCT toolkit archive as an explicit path: ld64 extracts
+          # only referenced members, so unused toolkits cost nothing, and
+          # Apple's linker needs no ordering/groups for static archives.
+          OCCTLIBS="$(ls "$OCCT/install-ios/lib"/libTK*.a | tr '\n' ' ')"
+          echo "OCCT archives on the link line: $(echo "$OCCTLIBS" | wc -w)"
           # Ninja has no link.txt; ask ninja for the smoke's exact link
           # command instead (executed with cwd = build root).
           LINKCMD="$(mktemp)"
@@ -590,9 +660,9 @@ jobs:
           QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
           echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens):"
           echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
-          printf '_qcad_*\n_slvs_*\n' > ios/Flutter/qcad_symbols.exp
+          printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a -force_load $SLVS/libslvs.a $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
           IPHONEOS_DEPLOYMENT_TARGET = 14.0
           XC
           # strip the heredoc's leading indentation xcconfig can't handle
@@ -648,6 +718,22 @@ jobs:
             echo "SLVS LINK CHECK: PASS (libslvs shim marker present in Runner binary)"
           else
             echo "SLVS LINK CHECK: FAIL (libslvs/shim not linked into Runner)"; exit 1
+          fi
+          OHITS="$(strings "$APP/Runner" | grep -c "iPadProCAD OCCT shim" || true)"
+          if [ "${OHITS:-0}" -gt 0 ]; then
+            echo "OCCT MARKER CHECK: PASS (OCCT shim version string present in Runner binary)"
+          else
+            echo "OCCT LINK CHECK: FAIL (OCCT shim not linked into Runner)"; exit 1
+          fi
+          # Authoritative export check: all 14 _occt_* C symbols must sit in
+          # the export trie so DynamicLibrary.process() can dlsym them —
+          # the exported_symbols_list keeps them through strip/dead_strip
+          # (same mechanism as the 14 _qcad_* symbols).
+          NOCCT="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _occt_' || true)"
+          if [ "${NOCCT:-0}" -ge 14 ]; then
+            echo "OCCT LINK CHECK: PASS ($NOCCT _occt_* symbols exported in Runner)"
+          else
+            echo "OCCT LINK CHECK: FAIL (only ${NOCCT:-0} _occt_* symbols exported, want >= 14)"; exit 1
           fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload
