@@ -16,6 +16,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'part_model.dart';
 
 // Steel, same family as partCubeIcon — the committed-solid look.
@@ -86,6 +87,66 @@ class Cam3 {
 /// visible solid and no preview. Because the selection happens outside, this
 /// function never needs to know about ExtrudeSession — which is what keeps it
 /// free of an app_state import.
+/// One front-facing mesh triangle on screen: projected corners, painter depth
+/// and its flat shade (0..1). Pure output of [projectSolidTriangles] so host
+/// tests can drive the real painter math with real curvature — no Canvas.
+class ProjectedTri {
+  final Offset a, b, c;
+  final double depth, shade;
+  const ProjectedTri(this.a, this.b, this.c, this.depth, this.shade);
+}
+
+/// One B-Rep edge segment on screen (viewer-biased depth, see below).
+class ProjectedEdge {
+  final Offset a, b;
+  final double depth;
+  const ProjectedEdge(this.a, this.b, this.depth);
+}
+
+/// The headlight used for flat shading (camera direction plus a fixed tilt).
+Vec3 solidLight(Cam3 cam) =>
+    (cam.dir + const Vec3(0.35, 0.55, 0.2)).normalized();
+
+/// Projects the front-facing triangles of [m]: backface-culled against the
+/// camera, flat-shaded against [solidLight], depth = triangle centroid along
+/// the view ray (painter's algorithm sorts far-to-near on it).
+List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
+  final light = solidLight(cam);
+  final out = <ProjectedTri>[];
+  for (var t = 0; t < m.indices.length; t += 3) {
+    final i0 = m.indices[t] * 3,
+        i1 = m.indices[t + 1] * 3,
+        i2 = m.indices[t + 2] * 3;
+    final w0 = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+    final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+    final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+    final n = (w1 - w0).cross(w2 - w0).normalized();
+    if (n.dot(cam.dir) <= 0) continue; // backface (camera sits at +dir)
+    final shade =
+        (0.42 + 0.58 * math.max(0, n.dot(light))).clamp(0.0, 1.0).toDouble();
+    out.add(ProjectedTri(cam.project(w0), cam.project(w1), cam.project(w2),
+        (cam.depth(w0) + cam.depth(w1) + cam.depth(w2)) / 3, shade));
+  }
+  return out;
+}
+
+/// Projects the B-Rep edge polylines of [m] as screen segments. The depth
+/// carries the 0.35 viewer bias so an edge draws over the faces it borders.
+List<ProjectedEdge> projectSolidEdges(OcctMeshData m, Cam3 cam) {
+  final out = <ProjectedEdge>[];
+  for (var e = 0; e + 1 < m.edgeStarts.length; e++) {
+    for (var k = m.edgeStarts[e]; k + 1 < m.edgeStarts[e + 1]; k++) {
+      final p0 = Vec3(
+          m.edgePoints[3 * k], m.edgePoints[3 * k + 1], m.edgePoints[3 * k + 2]);
+      final p1 = Vec3(m.edgePoints[3 * k + 3], m.edgePoints[3 * k + 4],
+          m.edgePoints[3 * k + 5]);
+      out.add(ProjectedEdge(cam.project(p0), cam.project(p1),
+          (cam.depth(p0) + cam.depth(p1)) / 2 - 0.35));
+    }
+  }
+  return out;
+}
+
 void paintPartSolids(
   Canvas canvas,
   Cam3 cam,
@@ -94,53 +155,41 @@ void paintPartSolids(
 }) {
   final items = <(double, void Function(Canvas))>[];
   void addSolid(KernelSolid s, {bool preview = false}) {
-    final m = s.mesh;
-    final light = (cam.dir + const Vec3(0.35, 0.55, 0.2)).normalized();
-    for (var t = 0; t < m.indices.length; t += 3) {
-      final i0 = m.indices[t] * 3,
-          i1 = m.indices[t + 1] * 3,
-          i2 = m.indices[t + 2] * 3;
-      final w0 = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
-      final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
-      final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
-      final n = (w1 - w0).cross(w2 - w0).normalized();
-      if (n.dot(cam.dir) <= 0) continue; // backface (camera sits at +dir)
-      final shade = (0.42 + 0.58 * math.max(0, n.dot(light)))
-          .clamp(0.0, 1.0)
-          .toDouble();
+    for (final t in projectSolidTriangles(s.mesh, cam)) {
       final col = Color.fromARGB(
           preview ? 165 : 255,
-          (kSolidBase.red * shade).round(),
-          (kSolidBase.green * shade).round(),
-          (kSolidBase.blue * shade).round());
-      final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
-      final depth = (cam.depth(w0) + cam.depth(w1) + cam.depth(w2)) / 3;
-      items.add((depth, (cv) {
+          (kSolidBase.red * t.shade).round(),
+          (kSolidBase.green * t.shade).round(),
+          (kSolidBase.blue * t.shade).round());
+      items.add((t.depth, (cv) {
+        final path = Path()..addPolygon([t.a, t.b, t.c], true);
+        // Fill AND hairline-stroke in the SAME colour: adjacent aliased fills
+        // leave sub-pixel gaps where the dark background bleeds through as
+        // black facet lines (the vertical stripes on a cylinder barrel); the
+        // stroke overlaps the shared border and closes them.
         cv.drawPath(
-            Path()..addPolygon([a, b, c], true),
+            path,
             Paint()
               ..color = col
               ..isAntiAlias = false);
+        cv.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1
+              ..strokeJoin = StrokeJoin.round
+              ..color = col);
       }));
     }
-    for (var e = 0; e + 1 < m.edgeStarts.length; e++) {
-      for (var k = m.edgeStarts[e]; k + 1 < m.edgeStarts[e + 1]; k++) {
-        final p0 = Vec3(m.edgePoints[3 * k], m.edgePoints[3 * k + 1],
-            m.edgePoints[3 * k + 2]);
-        final p1 = Vec3(m.edgePoints[3 * k + 3], m.edgePoints[3 * k + 4],
-            m.edgePoints[3 * k + 5]);
-        final a = cam.project(p0), b = cam.project(p1);
-        final depth = (cam.depth(p0) + cam.depth(p1)) / 2 - 0.35; // viewer bias
-        items.add((depth, (cv) {
-          cv.drawLine(
-              a,
-              b,
-              Paint()
-                ..strokeWidth = 1
-                ..color =
-                    preview ? kSolidEdge.withOpacity(0.6) : kSolidEdge);
-        }));
-      }
+    for (final e in projectSolidEdges(s.mesh, cam)) {
+      items.add((e.depth, (cv) {
+        cv.drawLine(
+            e.a,
+            e.b,
+            Paint()
+              ..strokeWidth = 1
+              ..color = preview ? kSolidEdge.withOpacity(0.6) : kSolidEdge);
+      }));
     }
   }
 

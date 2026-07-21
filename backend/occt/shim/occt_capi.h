@@ -88,6 +88,22 @@ occt_shape *occt_extrude_profile(const double *xy, const int *loop_counts,
                                  int nloops, double height, double taper_deg);
 
 /*
+ * v3 — Extrude a multi-loop profile whose loops may contain TRUE ARCS, so a
+ * circle becomes an exact cylindrical B-Rep face (no polygon facet edges).
+ * `xyb` holds 3 doubles per vertex: x, y, and the DXF-style bulge of the
+ * edge LEAVING that vertex toward the next (0 = straight line,
+ * bulge = tan(sweep/4), positive = counter-clockwise). `loop_counts[l]` is
+ * the number of VERTICES of loop l; loop 0 is the outer boundary, the rest
+ * are holes. Winding is normalised here exactly like occt_extrude_profile
+ * (signed area includes the circular-segment contributions of the bulges).
+ * Height/taper semantics are identical to occt_extrude_profile; the taper
+ * drafts curved lateral faces too. NULL on failure.
+ */
+occt_shape *occt_extrude_profile_arcs(const double *xyb,
+                                      const int *loop_counts, int nloops,
+                                      double height, double taper_deg);
+
+/*
  * v2 — Rigid placement: returns a NEW shape = `shape` moved by the
  * row-major 3x4 matrix `mat34` = {r00 r01 r02 tx, r10 r11 r12 ty,
  * r20 r21 r22 tz}. The 3x3 part must be a pure rotation (orthonormal,

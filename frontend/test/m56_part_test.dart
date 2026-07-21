@@ -46,6 +46,17 @@ class FakeKernel implements PartKernel {
         null);
   }
 
+  int fusions = 0;
+
+  @override
+  KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) {
+    if (fail) return null;
+    fusions++;
+    // combined stub: same degenerate mesh, volumes added — enough for the
+    // join-fold tests to assert chain length and accumulated volume
+    return KernelSolid(a.mesh, a.volume + b.volume, null);
+  }
+
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
 }

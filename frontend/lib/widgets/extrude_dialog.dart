@@ -149,6 +149,37 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             ]),
             _section('Output', _outputOpen,
                 () => setState(() => _outputOpen = !_outputOpen), [
+              // Inventor's Output boolean: Join merges into the existing
+              // body, New Solid starts a separate one (Cut/Intersect later).
+              _row(
+                  'Boolean',
+                  Row(children: [
+                    for (final o in const [('join', 'Join'), ('new', 'New Solid')]) ...[
+                      GestureDetector(
+                        onTap: () => app.setExtrude(output: o.$1),
+                        child: Container(
+                          height: 26,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 10),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: s.output == o.$1
+                                ? const Color(0xFF2B4A66)
+                                : const Color(0xFF212429),
+                            border: Border.all(
+                                color: s.output == o.$1
+                                    ? T.blue
+                                    : const Color(0xFF3A3F45)),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(o.$2,
+                              style: ts(12,
+                                  s.output == o.$1 ? T.hover : T.text)),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ])),
               _row(
                   'Body Name',
                   Container(

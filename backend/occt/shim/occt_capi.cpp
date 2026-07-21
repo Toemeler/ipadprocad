@@ -63,6 +63,15 @@
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 
+/* v3: true-arc profile wires, seam-edge suppression */
+#include <GC_MakeArcOfCircle.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
+
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
@@ -121,13 +130,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v2 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v3 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 2; }
+extern "C" int occt_shim_version(void) { return 3; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -190,6 +199,197 @@ extern "C" occt_shape *occt_extrude_polygon(const double *xy, int npts,
     BRepPrimAPI_MakePrism prism(face, gp_Vec(0.0, 0.0, height));
     return wrap(prism.Shape(), "occt_extrude_polygon");
     OCCT_CATCH("occt_extrude_polygon", nullptr)
+}
+
+/* ---- v3: arc-aware profile loops ---------------------------------------- */
+
+/* Signed area of a bulge loop: shoelace of the vertices plus the signed
+ * circular-segment area of every arc edge (bulge b, chord c: sweep
+ * θ = 4·atan b, radius r = c / (2 sin(θ/2)), segment = r²(θ − sin θ)/2,
+ * signed like the bulge). Needed because e.g. a full circle written as two
+ * half-arcs has ZERO shoelace area — the segments carry all of it. */
+static double arc_loop_signed_area(const double *xyb, int npts)
+{
+    double a = 0.0;
+    for (int i = 0; i < npts; ++i) {
+        const int j = (i + 1) % npts;
+        const double x0 = xyb[3 * i], y0 = xyb[3 * i + 1];
+        const double x1 = xyb[3 * j], y1 = xyb[3 * j + 1];
+        a += 0.5 * (x0 * y1 - x1 * y0);
+        const double b = xyb[3 * i + 2];
+        if (std::fabs(b) > 1e-12) {
+            const double chord = std::hypot(x1 - x0, y1 - y0);
+            const double th = 4.0 * std::atan(std::fabs(b));
+            const double sh = std::sin(0.5 * th);
+            if (chord > 1e-12 && sh > 1e-12) {
+                const double r = chord / (2.0 * sh);
+                const double seg = 0.5 * r * r * (th - std::sin(th));
+                a += (b > 0 ? seg : -seg);
+            }
+        }
+    }
+    return a;
+}
+
+/* Wire of one bulge loop, traversed forward or reversed (reversal flips the
+ * vertex order AND negates every bulge — the bulge belongs to its edge). */
+static TopoDS_Wire arc_loop_wire(const double *xyb, int npts, bool forward,
+                                 bool *ok)
+{
+    *ok = false;
+    BRepBuilderAPI_MakeWire mk;
+    for (int k = 0; k < npts; ++k) {
+        int i, j;
+        double b;
+        if (forward) {
+            i = k;
+            j = (k + 1) % npts;
+            b = xyb[3 * i + 2];
+        } else {
+            i = (npts - k) % npts;
+            j = (npts - 1 - k);
+            b = -xyb[3 * j + 2]; /* edge j->i reversed */
+        }
+        const gp_Pnt p0(xyb[3 * i], xyb[3 * i + 1], 0.0);
+        const gp_Pnt p1(xyb[3 * j], xyb[3 * j + 1], 0.0);
+        const double dx = p1.X() - p0.X(), dy = p1.Y() - p0.Y();
+        const double chord = std::hypot(dx, dy);
+        if (chord < 1e-12)
+            return TopoDS_Wire(); /* degenerate edge */
+        if (std::fabs(b) < 1e-12) {
+            BRepBuilderAPI_MakeEdge e(p0, p1);
+            if (!e.IsDone())
+                return TopoDS_Wire();
+            mk.Add(e.Edge());
+        } else {
+            /* Three-point arc: mid-arc point = chord midpoint pushed by the
+             * sagitta s = b·chord/2 along the LEFT normal of p0->p1 (positive
+             * bulge = counter-clockwise, i.e. the arc bows left). */
+            const double s = b * 0.5 * chord;
+            const double nx = -dy / chord, ny = dx / chord;
+            const gp_Pnt pm(0.5 * (p0.X() + p1.X()) + nx * s,
+                            0.5 * (p0.Y() + p1.Y()) + ny * s, 0.0);
+            GC_MakeArcOfCircle arc(p0, pm, p1);
+            if (!arc.IsDone())
+                return TopoDS_Wire();
+            BRepBuilderAPI_MakeEdge e(arc.Value());
+            if (!e.IsDone())
+                return TopoDS_Wire();
+            mk.Add(e.Edge());
+        }
+        if (!mk.IsDone())
+            return TopoDS_Wire();
+    }
+    *ok = mk.IsDone();
+    return *ok ? mk.Wire() : TopoDS_Wire();
+}
+
+extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
+                                                 const int *loop_counts,
+                                                 int nloops, double height,
+                                                 double taper_deg)
+{
+    OCCT_TRY("occt_extrude_profile_arcs")
+    if (!xyb || !loop_counts || nloops < 1) {
+        set_err("occt_extrude_profile_arcs", "null profile arguments");
+        return nullptr;
+    }
+    if (height <= 0) {
+        set_err("occt_extrude_profile_arcs", "height must be > 0");
+        return nullptr;
+    }
+    for (int l = 0; l < nloops; ++l) {
+        if (loop_counts[l] < 2) { /* 2 vertices = 2 arcs can close a circle */
+            set_err("occt_extrude_profile_arcs",
+                    "every loop needs at least 2 vertices");
+            return nullptr;
+        }
+    }
+
+    const double *p = xyb;
+    bool ok = false;
+    const double a0 = arc_loop_signed_area(p, loop_counts[0]);
+    if (std::fabs(a0) < 1e-12) {
+        set_err("occt_extrude_profile_arcs", "outer loop is degenerate");
+        return nullptr;
+    }
+    TopoDS_Wire outer = arc_loop_wire(p, loop_counts[0], a0 > 0.0, &ok);
+    if (!ok) {
+        set_err("occt_extrude_profile_arcs", "outer wire construction failed");
+        return nullptr;
+    }
+    BRepBuilderAPI_MakeFace faceMk(outer, Standard_True /* planar only */);
+    if (!faceMk.IsDone()) {
+        set_err("occt_extrude_profile_arcs",
+                "outer loop is not a valid planar face (self-intersecting?)");
+        return nullptr;
+    }
+    p += 3 * loop_counts[0];
+    for (int l = 1; l < nloops; ++l) {
+        const double a = arc_loop_signed_area(p, loop_counts[l]);
+        if (std::fabs(a) < 1e-12) {
+            set_err("occt_extrude_profile_arcs", "hole loop is degenerate");
+            return nullptr;
+        }
+        TopoDS_Wire holeW = arc_loop_wire(p, loop_counts[l], a < 0.0, &ok);
+        if (!ok) {
+            set_err("occt_extrude_profile_arcs",
+                    "hole wire construction failed");
+            return nullptr;
+        }
+        faceMk.Add(holeW);
+        p += 3 * loop_counts[l];
+    }
+    if (!faceMk.IsDone()) {
+        set_err("occt_extrude_profile_arcs",
+                "profile face with holes failed (hole outside the outer "
+                "loop, or loops intersect?)");
+        return nullptr;
+    }
+    BRepPrimAPI_MakePrism prism(faceMk.Face(), gp_Vec(0.0, 0.0, height));
+    if (std::fabs(taper_deg) < 1e-9)
+        return wrap(prism.Shape(), "occt_extrude_profile_arcs");
+
+    if (std::fabs(taper_deg) >= 90.0) {
+        set_err("occt_extrude_profile_arcs",
+                "taper must be inside (-90, 90) deg");
+        return nullptr;
+    }
+    /* Same Inventor sign bridge as occt_extrude_profile. Lateral faces are
+     * everything except the horizontal caps — including cylindrical faces
+     * from arc edges, which BRepOffsetAPI_DraftAngle drafts into cones. */
+    const double occtAngle = -taper_deg * (3.14159265358979323846 / 180.0);
+    const gp_Dir pullDir(0.0, 0.0, 1.0);
+    const gp_Pln neutral(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+    BRepOffsetAPI_DraftAngle draft(prism.Shape());
+    int added = 0;
+    for (TopExp_Explorer ex(prism.Shape(), TopAbs_FACE); ex.More();
+         ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        BRepAdaptor_Surface surf(f, Standard_False);
+        if (surf.GetType() == GeomAbs_Plane &&
+            std::fabs(surf.Plane().Axis().Direction().Z()) > 0.5)
+            continue; /* top/bottom cap */
+        draft.Add(f, pullDir, occtAngle, neutral);
+        if (!draft.AddDone()) {
+            set_err("occt_extrude_profile_arcs",
+                    "draft transform rejected a lateral face "
+                    "(taper too large for this profile?)");
+            return nullptr;
+        }
+        ++added;
+    }
+    if (added == 0) {
+        set_err("occt_extrude_profile_arcs", "no lateral faces found to taper");
+        return nullptr;
+    }
+    draft.Build();
+    if (!draft.IsDone()) {
+        set_err("occt_extrude_profile_arcs", "draft transform failed");
+        return nullptr;
+    }
+    return wrap(draft.Shape(), "occt_extrude_profile_arcs");
+    OCCT_CATCH("occt_extrude_profile_arcs", nullptr)
 }
 
 extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
@@ -547,9 +747,28 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
      * they are smooth regardless of the face tessellation. */
     TopTools_IndexedMapOfShape edgeMap;
     TopExp::MapShapes(shape->s, TopAbs_EDGE, edgeMap);
+    /* Seam edges (an edge a closed face uses TWICE, e.g. the vertical
+     * parameter seam of a cylinder barrel) are artifacts of the surface
+     * parameterisation, not model edges — Inventor never shows them. */
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
+                                  edgeFaces);
     for (int i = 1; i <= edgeMap.Extent(); ++i) {
         const TopoDS_Edge edge = TopoDS::Edge(edgeMap.FindKey(i));
         if (BRep_Tool::Degenerated(edge))
+            continue;
+        bool seam = false;
+        if (edgeFaces.Contains(edge)) {
+            const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+            for (TopTools_ListIteratorOfListOfShape it(fl); it.More();
+                 it.Next()) {
+                if (BRep_Tool::IsClosed(edge, TopoDS::Face(it.Value()))) {
+                    seam = true;
+                    break;
+                }
+            }
+        }
+        if (seam)
             continue;
         BRepAdaptor_Curve curve(edge);
         GCPnts_TangentialDeflection disc(curve, ang_deflection,

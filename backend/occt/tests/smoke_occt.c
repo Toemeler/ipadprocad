@@ -30,6 +30,10 @@
  *        a 90-degree rotation swaps extents, volume is invariant, and a
  *        matrix with scale is REJECTED (rigid motions only)
  *   [14] v2 failure paths — NULL in, NULL out, free(NULL) tolerated
+ *   [15] v3 TRUE-ARC extrude — a circle written as two bulge arcs makes an
+ *        EXACT cylinder: 3 faces (a 96-gon prism would have 98), analytic
+ *        volume, and its mesh shows exactly 2 rim edge polylines (no facet
+ *        verticals, seam suppressed) — the "smooth cylinder" guarantee
  *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
@@ -416,7 +420,7 @@ int main(void)
             printf("[12] cylinder mesh: %d verts, %d tris, %d edges, "
                    "%d edge pts\n", nv, nt, ne, nep);
             check(nt > 12, "[12] curved faces must tessellate finer");
-            check(ne == 3, "[12] cylinder must expose 3 edges (2 rims+seam)");
+            check(ne == 2, "[12] cylinder must expose 2 edges (rims; seam suppressed)");
             double *vv = (double *)malloc(sizeof(double) * 3 * nv);
             int *tt = (int *)malloc(sizeof(int) * 3 * nt);
             int *es = (int *)malloc(sizeof(int) * (ne + 1));
@@ -530,6 +534,43 @@ int main(void)
               "[14] extrude_profile(negative height) accepted");
         check(occt_extrude_profile(bad, lc, 1, 5, 95.0) == NULL,
               "[14] extrude_profile(taper >= 90 deg) accepted");
+    }
+
+    /* [15] v3 true-arc extrude: exact cylinder from two bulge arcs ------ */
+    {
+        /* r=10 circle: vertices (10,0) and (-10,0), each edge a half-turn
+         * CCW arc -> bulge = tan(180deg/4) = 1. */
+        const double C[] = {10, 0, 1, -10, 0, 1};
+        const int lc[] = {2};
+        occt_shape *s15 = occt_extrude_profile_arcs(C, lc, 1, 5.0, 0.0);
+        if (check(s15 != NULL, "[15] extrude_profile_arcs returned NULL")) {
+            int f = 0;
+            if (counts(s15, &f, NULL, NULL, "[15] shape_counts failed")) {
+                printf("[15] arc cylinder faces=%d\n", f);
+                check(f == 3, "[15] not a true cylinder (expected 3 faces)");
+            }
+            const double vol = occt_shape_volume(s15);
+            const double want = PI * 100.0 * 5.0;
+            printf("[15] arc cylinder volume=%.6f (analytic %.6f)\n",
+                   vol, want);
+            check(vol > 0 && fabs(vol - want) < 1e-6 * want,
+                  "[15] arc cylinder volume not analytic");
+            occt_mesh *m = occt_mesh_create(s15, 0.1, 0.3);
+            if (check(m != NULL, "[15] mesh_create(arc cylinder) NULL")) {
+                int ne = 0;
+                occt_mesh_counts(m, NULL, NULL, &ne, NULL);
+                printf("[15] arc cylinder mesh edges=%d\n", ne);
+                check(ne == 2,
+                      "[15] expected exactly 2 rim edges (smooth barrel)");
+                occt_free_mesh(m);
+            }
+            occt_free_shape(s15);
+        }
+        /* failure paths of the new entry */
+        check(occt_extrude_profile_arcs(NULL, lc, 1, 5, 0) == NULL,
+              "[15] extrude_profile_arcs(NULL) accepted");
+        check(occt_extrude_profile_arcs(C, lc, 1, -1, 0) == NULL,
+              "[15] extrude_profile_arcs(negative height) accepted");
     }
 
     if (g_failures == 0) {

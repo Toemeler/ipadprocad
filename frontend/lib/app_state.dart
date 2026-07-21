@@ -353,6 +353,7 @@ class ExtrudeSession {
   String exprA = '5 mm', exprB = '5 mm', exprTaper = '0.00 deg';
   String bodyName = '';
   bool iMate = false, matchShape = true;
+  String output = 'join'; // Inventor Output boolean: 'join' | 'new' (M58)
   KernelSolid? preview;
   String? previewError;
 
@@ -1624,7 +1625,8 @@ class AppState extends ChangeNotifier {
             final model = await _loadSketchIn(
                 _partSketchDir(name), m['name'] as String);
             p.childSketches
-                .add(ChildSketch(model, m['plane'] as String? ?? 'xy'));
+                .add(ChildSketch(model, m['plane'] as String? ?? 'xy',
+                    PlaneFrame.fromFrameJson(m['frame'] as List?)));
           }
         }
       } catch (e, st) {
@@ -1632,9 +1634,7 @@ class AppState extends ChangeNotifier {
       }
       parts[name] = p;
       if (partKernel.available) {
-        for (final f in p.features) {
-          recomputeFeature(p, f, partKernel);
-        }
+        recomputeAllFeatures(p, partKernel);
       }
       Log.i('part', 'opened "$name": sketches=${p.childSketches.length} '
           'features=${p.features.length} kernel=${partKernel.available}');
@@ -1682,7 +1682,7 @@ class AppState extends ChangeNotifier {
     try {
       final solids = [
         for (final f in p.features)
-          if (f.visible && f.solid != null) f.solid!
+          if (f.visible && f.solid != null && !f.consumedByJoin) f.solid!
       ];
       if (solids.isEmpty) {
         if (png.existsSync()) png.deleteSync();
@@ -1879,6 +1879,25 @@ class AppState extends ChangeNotifier {
     startNewLayer(); // enters edit + notifies, like createNamedSketch
   }
 
+  /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as
+  /// [planePicked], but the sketch lives on the face's own frame — Inventor's
+  /// sketch-on-face.
+  void facePicked(PlaneFrame frame) {
+    final p = currentPart;
+    if (p == null || !pickPlane) return;
+    pickPlane = false;
+    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    p.camera.orientToDir(frame.n);
+    final sk = SketchModel(p.nextSketchName());
+    p.childSketches.add(ChildSketch(sk, 'face', frame));
+    p.dirty = true;
+    activeChild = sk;
+    _reanalyze();
+    Log.i('part',
+        'child sketch "${sk.name}" on a solid face of "${p.name}"');
+    startNewLayer();
+  }
+
   /// Finish Sketch: back to the 3D part; the sketch stays in the part and
   /// every feature is recomputed against its new state.
   void finishPartSketch() {
@@ -1887,8 +1906,8 @@ class AppState extends ChangeNotifier {
     activeChild = null;
     _reanalyze();
     if (p != null && partKernel.available) {
+      recomputeAllFeatures(p, partKernel);
       for (final f in p.features) {
-        recomputeFeature(p, f, partKernel);
         if (f.computeError != null) {
           toast('${f.name}: ${f.computeError}');
         }
@@ -2011,7 +2030,8 @@ class AppState extends ChangeNotifier {
       String? exprTaper,
       String? bodyName,
       bool? iMate,
-      bool? matchShape}) {
+      bool? matchShape,
+      String? output}) {
     final s = extrudeSession;
     if (s == null) return;
     if (direction != null) s.direction = direction;
@@ -2021,6 +2041,7 @@ class AppState extends ChangeNotifier {
     if (bodyName != null) s.bodyName = bodyName;
     if (iMate != null) s.iMate = iMate;
     if (matchShape != null) s.matchShape = matchShape;
+    if (output != null) s.output = output;
     _updateExtrudePreview();
     notifyListeners();
   }
@@ -2054,6 +2075,7 @@ class AppState extends ChangeNotifier {
       exprTaper: s.exprTaper,
       iMate: s.iMate,
       matchShape: s.matchShape,
+      output: s.output,
     );
     return (f, null);
   }
@@ -2109,7 +2131,8 @@ class AppState extends ChangeNotifier {
         ..exprTaper = parsed.exprTaper
         ..bodyName = parsed.bodyName
         ..iMate = parsed.iMate
-        ..matchShape = parsed.matchShape;
+        ..matchShape = parsed.matchShape
+        ..output = parsed.output;
       f.profiles
         ..clear()
         ..addAll(parsed.profiles);
@@ -2117,7 +2140,13 @@ class AppState extends ChangeNotifier {
       f = parsed;
       f.name = p.nextFeatureName();
       if (f.bodyName.trim().isEmpty) {
-        f.bodyName = p.nextSolidName();
+        // Inventor: Join merges into the existing body — adopt the last
+        // feature's body name; New Solid (or the base feature) gets a fresh
+        // Solid name.
+        final lastBody = p.features.isEmpty ? null : p.features.last.bodyName;
+        f.bodyName = (f.output == 'join' && lastBody != null)
+            ? lastBody
+            : p.nextSolidName();
       } else {
         final m = RegExp(r'^Solid(\d+)$').firstMatch(f.bodyName.trim());
         final num = m == null ? null : int.tryParse(m.group(1)!);
@@ -2137,6 +2166,9 @@ class AppState extends ChangeNotifier {
       }
     }
     if (s.editing == null) p.features.add(f);
+    if (partKernel.available) {
+      recomputeAllFeatures(p, partKernel); // fold Inventor join chains
+    }
     p.dirty = true;
     s.disposePreview();
     Log.i('part', 'extrude ${s.editing == null ? "created" : "edited"} '
@@ -5927,9 +5959,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Practically-endless 2D zoom. Not literally infinite: outside this band the
+  // float math loses precision, so we cap far beyond any real drawing (a
+  // ~5-order span each way from 1px/mm).
+  static const double minZoom = 1e-4;
+  static const double maxZoom = 1e6;
+
   void zoomBy(double factor, {Offset? aroundWorld}) {
-    final z = (zoom * factor).clamp(0.02, 200.0);
-    if (aroundWorld != null) {
+    final raw = zoom * factor;
+    final z = (raw.isFinite ? raw : zoom).clamp(minZoom, maxZoom).toDouble();
+    if (aroundWorld != null && z > 0) {
       pan = aroundWorld + (pan - aroundWorld) * (zoom / z);
     }
     zoom = z;

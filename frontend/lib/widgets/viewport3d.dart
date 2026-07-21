@@ -6,6 +6,7 @@
 // "Start 2D Sketch", profile-region picking for Extrude, and the shaded
 // solids of the part's features (depth-sorted triangles + B-Rep edges from
 // the OCCT tessellation — no GPU dependency, plain CustomPainter).
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -45,6 +46,7 @@ class _Viewport3DState extends State<Viewport3D> {
 
   @override
   void dispose() {
+    _refineTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
@@ -66,6 +68,11 @@ class _Viewport3DState extends State<Viewport3D> {
   Offset _mmbLast = Offset.zero;
   double _scaleStartH = 27;
 
+  // Adaptive tessellation: re-mesh solids to the current screen resolution so
+  // curved edges stay smooth at any zoom. Debounced so a continuous pinch
+  // coalesces into a single kernel re-mesh once the gesture settles.
+  Timer? _refineTimer;
+
   PartModel? get part => widget.app.currentPart;
 
   @override
@@ -76,6 +83,9 @@ class _Viewport3DState extends State<Viewport3D> {
     return LayoutBuilder(builder: (context, bc) {
       final size = Size(bc.maxWidth, bc.maxHeight);
       final cam = Cam3(p.camera, size);
+      // Keep solids at screen resolution: refine on the first frame, on resize,
+      // and whenever a new (coarse) preview appears. Cheap no-op once smooth.
+      _armRefine(size);
       return Stack(children: [
         Positioned.fill(
           child: Listener(
@@ -197,9 +207,60 @@ class _Viewport3DState extends State<Viewport3D> {
     final nx = (px.dx / cam.size.width) * 2 - 1;
     final ny = -((px.dy / cam.size.height) * 2 - 1);
     final old = p.camera.halfH;
-    p.camera.halfH = (old * factor).clamp(3.0, 200.0);
-    p.camera.ox += nx * a * (old - p.camera.halfH);
-    p.camera.oy += ny * (old - p.camera.halfH);
+    p.camera.halfH = PartCamera.clampHalfH(old * factor);
+    final dH = old - p.camera.halfH;
+    if (dH.isFinite) {
+      p.camera.ox += nx * a * dH;
+      p.camera.oy += ny * dH;
+    }
+    _armRefine(cam.size); // re-tessellate to the new screen resolution
+  }
+
+  /// All drawable solids currently in the part (features + live preview).
+  Iterable<KernelSolid> _liveSolids() sync* {
+    final p = part;
+    if (p == null) return;
+    for (final f in p.features) {
+      if (f.visible && f.solid != null && !f.consumedByJoin) yield f.solid!;
+    }
+    final prev = widget.app.extrudeSession?.preview;
+    if (prev != null) yield prev;
+  }
+
+  /// True when any live solid is coarser than this viewport's screen-space
+  /// target — i.e. a re-mesh would make a curve visibly smoother.
+  bool _anyCoarse(Size size) {
+    final p = part;
+    if (p == null) return false;
+    final target = viewLinearDeflection(p.camera.halfH, size.height);
+    for (final s in _liveSolids()) {
+      if (meshNeedsRefine(s.meshLin, target)) return true;
+    }
+    return false;
+  }
+
+  /// (Re)arm the debounce so a burst of zoom steps triggers exactly one
+  /// kernel re-mesh after the gesture settles.
+  void _armRefine(Size size) {
+    if (!_anyCoarse(size)) return;
+    _refineTimer?.cancel();
+    _refineTimer = Timer(const Duration(milliseconds: 80), () {
+      if (mounted) _refineNow(size);
+    });
+  }
+
+  void _refineNow(Size size) {
+    final p = part;
+    if (p == null) return;
+    final target = viewLinearDeflection(p.camera.halfH, size.height);
+    final ang = viewAngularDeflection(target);
+    var changed = false;
+    for (final s in _liveSolids()) {
+      if (meshNeedsRefine(s.meshLin, target) && s.refine(target, ang)) {
+        changed = true;
+      }
+    }
+    if (changed && mounted) setState(() {});
   }
 
   void _updateHover(Cam3 cam, Offset px) {
@@ -212,7 +273,7 @@ class _Viewport3DState extends State<Viewport3D> {
     if (sess != null && sess.sketchName != null) {
       final cs = p.sketchByName(sess.sketchName!);
       if (cs != null) {
-        final frame = planeFrame(cs.plane);
+        final frame = sketchFrameOf(cs);
         final w = cam.rayOnPlane(px, frame.n);
         if (w != null) {
           final sp = Offset(w.dot(frame.u), w.dot(frame.v));
@@ -275,15 +336,77 @@ class _Viewport3DState extends State<Viewport3D> {
     return best;
   }
 
+  /// Nearest front-facing solid triangle under the pointer -> the frame of
+  /// the planar face it belongs to (Inventor's sketch-on-face, M58). The
+  /// orthographic projection is affine, so barycentric coordinates of the
+  /// screen hit reproduce the world point exactly.
+  PlaneFrame? _pickSolidFace(Cam3 cam, Offset px) {
+    PlaneFrame? best;
+    var bestDepth = double.infinity;
+    for (final s in _liveSolids()) {
+      final m = s.mesh;
+      for (var t = 0; t < m.indices.length; t += 3) {
+        final i0 = m.indices[t] * 3,
+            i1 = m.indices[t + 1] * 3,
+            i2 = m.indices[t + 2] * 3;
+        final w0 =
+            Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+        final w1 =
+            Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+        final w2 =
+            Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+        final n = (w1 - w0).cross(w2 - w0);
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        // Only PLANAR faces accept sketches (Inventor): on a planar face all
+        // tessellation vertex normals equal the face normal; on a curved face
+        // (cylinder barrel etc.) they fan out — reject those triangles.
+        final nn = n.normalized();
+        var planar = true;
+        for (final vi in [i0, i1, i2]) {
+          final vn = Vec3(m.normals[vi], m.normals[vi + 1], m.normals[vi + 2]);
+          if (vn.dot(nn).abs() < 0.9999) {
+            planar = false;
+            break;
+          }
+        }
+        if (!planar) continue;
+        final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+        final den = (b.dy - c.dy) * (a.dx - c.dx) +
+            (c.dx - b.dx) * (a.dy - c.dy);
+        if (den.abs() < 1e-9) continue;
+        final l0 = ((b.dy - c.dy) * (px.dx - c.dx) +
+                (c.dx - b.dx) * (px.dy - c.dy)) /
+            den;
+        final l1 = ((c.dy - a.dy) * (px.dx - c.dx) +
+                (a.dx - c.dx) * (px.dy - c.dy)) /
+            den;
+        final l2 = 1 - l0 - l1;
+        const e = -1e-6;
+        if (l0 < e || l1 < e || l2 < e) continue;
+        final w = w0 * l0 + w1 * l1 + w2 * l2;
+        final d = cam.depth(w);
+        if (d < bestDepth) {
+          bestDepth = d;
+          best = faceFrame(w, n.normalized());
+        }
+      }
+    }
+    return best;
+  }
+
   void _tap(Cam3 cam, Offset px) {
     final app = widget.app;
     final p = part!;
-    // 1. plane pick (Start 2D Sketch)
+    // 1. plane pick (Start 2D Sketch): origin planes first, then any planar
+    //    face of a solid (Inventor's sketch-on-face)
     if (app.pickPlane) {
       final key = _hitOrigin(cam, px, p, planesOnly: true);
       if (key != null && kPlaneKeys.contains(key)) {
         app.planePicked(key);
+        return;
       }
+      final face = _pickSolidFace(cam, px);
+      if (face != null) app.facePicked(face);
       return;
     }
     // 2. profile pick for the extrude dialog
@@ -298,7 +421,7 @@ class _Viewport3DState extends State<Viewport3D> {
             .where((c) => c.model.name != sess.sketchName),
       ];
       for (final cs in order) {
-        final frame = planeFrame(cs.plane);
+        final frame = sketchFrameOf(cs);
         final w = cam.rayOnPlane(px, frame.n);
         if (w == null) continue;
         final sp = Offset(w.dot(frame.u), w.dot(frame.v));
@@ -458,13 +581,17 @@ class _ScenePainter extends CustomPainter {
     // paintPartSolids in part_render.dart.
     final solids = [
       for (final f in part.features)
-        if (f.visible && f.solid != null && f != sess?.editing) f.solid!
+        if (f.visible &&
+            f.solid != null &&
+            !f.consumedByJoin &&
+            f != sess?.editing)
+          f.solid!
     ];
     paintPartSolids(canvas, cam, solids, previewSolid: sess?.preview);
   }
 
   void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs) {
-    final frame = planeFrame(cs.plane);
+    final frame = sketchFrameOf(cs);
     final pen = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
@@ -486,7 +613,7 @@ class _ScenePainter extends CustomPainter {
 
   void _paintRegions(
       Canvas canvas, Cam3 cam, ChildSketch cs, ExtrudeSession sess) {
-    final frame = planeFrame(cs.plane);
+    final frame = sketchFrameOf(cs);
     for (final r in app.sessionRegions(cs)) {
       final selected = sess.sketchName == cs.model.name &&
           sess.hasProfileAt(interiorPointOf(r.outer));

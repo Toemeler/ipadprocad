@@ -272,6 +272,7 @@ class OcctFfi {
       this._importStep,
       this._free,
       this._extrudeProfile,
+      this._extrudeProfileArcs,
       this._transform,
       this._meshCreate,
       this._meshCounts,
@@ -303,6 +304,7 @@ class OcctFfi {
   final _FreeD _free;
   // shim v2 (M56)
   final _ExtrudeProfD _extrudeProfile;
+  final _ExtrudeProfD _extrudeProfileArcs; // v3: xyb triplets (x, y, bulge)
   final _TransformD _transform;
   final _MeshCreateD _meshCreate;
   final _MeshCountsD _meshCounts;
@@ -349,6 +351,8 @@ class OcctFfi {
         lib.lookupFunction<_FreeN, _FreeD>('occt_free_shape'),
         lib.lookupFunction<_ExtrudeProfN, _ExtrudeProfD>(
             'occt_extrude_profile'),
+        lib.lookupFunction<_ExtrudeProfN, _ExtrudeProfD>(
+            'occt_extrude_profile_arcs'),
         lib.lookupFunction<_TransformN, _TransformD>('occt_transform'),
         lib.lookupFunction<_MeshCreateN, _MeshCreateD>('occt_mesh_create'),
         lib.lookupFunction<_MeshCountsN, _MeshCountsD>('occt_mesh_counts'),
@@ -432,6 +436,36 @@ class OcctFfi {
           _extrudeProfile(xy, counts, loops.length, height, taperDeg));
     } finally {
       calloc.free(xy);
+      calloc.free(counts);
+    }
+  }
+
+  /// v3: extrude a profile whose loops may contain TRUE ARCS. Each loop is a
+  /// flat list of vertex triplets (x, y, bulge-of-outgoing-edge; bulge 0 =
+  /// straight line, tan(sweep/4) otherwise, positive = CCW). A circle enters
+  /// OCCT as an exact cylindrical face — no facet edges at any zoom.
+  OcctShape? extrudeProfileArcs(List<List<double>> loops, double height,
+      {double taperDeg = 0}) {
+    if (loops.isEmpty) return null;
+    var total = 0;
+    for (final l in loops) {
+      if (l.length < 6 || l.length % 3 != 0) return null;
+      total += l.length;
+    }
+    final xyb = calloc<Double>(total);
+    final counts = calloc<Int32>(loops.length);
+    try {
+      var k = 0;
+      for (var i = 0; i < loops.length; i++) {
+        counts[i] = loops[i].length ~/ 3;
+        for (final v in loops[i]) {
+          xyb[k++] = v;
+        }
+      }
+      return _wrap(
+          _extrudeProfileArcs(xyb, counts, loops.length, height, taperDeg));
+    } finally {
+      calloc.free(xyb);
       calloc.free(counts);
     }
   }

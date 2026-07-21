@@ -16,6 +16,32 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **Stand dieser Session (Kopf = M58, glatte Kurven + Join + Face-Sketch):**
+> Vier Nutzer-Punkte umgesetzt: (1) Zylinder = ECHTE Zylinderflaeche statt
+> N-Gon-Prisma — `arcFitLoop` (part_model.dart, pur, lokal via Dart-SDK-Replik
+> verifiziert) macht aus polygonisierten Loops wieder Boegen (x,y,bulge) und
+> `occt_extrude_profile_arcs` (Shim **v3, 24 Symbole**, Smoke **[15]**:
+> 3 Faces, Volumen analytisch, Mesh-Edges == 2) extrudiert sie exakt;
+> Seam-Edges im Mesher unterdrueckt; Painter zeichnet Fill+gleichfarbigen
+> Stroke gegen AA-Risse. (2) Adaptive Tessellation beim Zoomen
+> (`viewLinearDeflection`/`KernelSolid.refine`, 80 ms Debounce) + endloser
+> Zoom 2D/3D. (3) Extrude-Output **Join/New Solid** (Inventor):
+> `recomputeAllFeatures` foldet Join-Ketten per `occt_fuse`; Viewport/Preview
+> ueberspringen `consumedByJoin`. (4) **Sketch-on-Face**: planare
+> Solid-Flaechen per Raycast waehlbar (`facePicked`, `PlaneFrame` mit
+> Origin, JSON-`frame`).
+>
+> **EHRLICH OFFEN:** Shim-v3-C++ ist lokal NICHT kompiliert (kein
+> OCCT-Checkout) — occt-build.yml ist das Gate; Host-Tests
+> (`m58_smooth_solids_test.dart` + angepasstes m56-FakeKernel) laufen erst
+> in CI; Geraete-Smoke offen. Arc-Fit erfasst nur Kreis-Runs — Splines/
+> Ellipsen bleiben polygonal (naechster Schritt: Segment-Info direkt aus der
+> Region-Verkettung). Cut/Intersect fehlen. Face-Pick prueft Planaritaet
+> ueber Tessellations-Vertex-Normalen (|dot| >= 0.9999), nicht ueber
+> B-Rep-Face-Identitaet.
+>
+> ---
+>
 > **Stand dieser Session (Kopf = M56, 3D-Teile + Extrude):** Der komplette
 > Workflow steht: **+ > New 3D Part** -> **Start 2D Sketch** -> Ebene im
 > 3D-Viewport antippen -> der UNVERAENDERTE 2D-Sketcher zeichnet auf dieser

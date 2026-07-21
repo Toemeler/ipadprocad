@@ -53,20 +53,53 @@ class Vec3 {
 // frame is a proper right-handed rotation (accepted by occt_transform).
 // ---------------------------------------------------------------------------
 class PlaneFrame {
-  final String key; // 'xy' | 'yz' | 'xz'
+  final String key; // 'xy' | 'yz' | 'xz' | 'face'
   final Vec3 u, v, n;
-  const PlaneFrame(this.key, this.u, this.v, this.n);
+
+  /// World point of the sketch origin. Zero for the three origin planes; a
+  /// point ON the picked face for sketches on solid faces (M58).
+  final Vec3 origin;
+  const PlaneFrame(this.key, this.u, this.v, this.n,
+      [this.origin = Vec3.zero]);
 
   Vec3 toWorld(Offset p, [double w = 0]) =>
-      u * p.dx + v * p.dy + n * w;
+      origin + u * p.dx + v * p.dy + n * w;
+
+  /// Sketch-plane coordinates of world point [w].
+  Offset toSketch(Vec3 w) =>
+      Offset((w - origin).dot(u), (w - origin).dot(v));
 
   /// Row-major 3x4 rigid placement for [occt_transform]: columns u,v,n,
-  /// translation = normal * [zOffset] (where the extrusion starts).
+  /// translation = origin + normal * [zOffset] (where the extrusion starts).
   List<double> mat34(double zOffset) => [
-        u.x, v.x, n.x, n.x * zOffset, //
-        u.y, v.y, n.y, n.y * zOffset, //
-        u.z, v.z, n.z, n.z * zOffset, //
+        u.x, v.x, n.x, origin.x + n.x * zOffset, //
+        u.y, v.y, n.y, origin.y + n.y * zOffset, //
+        u.z, v.z, n.z, origin.z + n.z * zOffset, //
       ];
+
+  List<double> frameJson() => [
+        u.x, u.y, u.z, v.x, v.y, v.z, //
+        n.x, n.y, n.z, origin.x, origin.y, origin.z,
+      ];
+
+  static PlaneFrame? fromFrameJson(List? j) {
+    if (j == null || j.length != 12) return null;
+    final d = [for (final v in j) (v as num).toDouble()];
+    return PlaneFrame('face', Vec3(d[0], d[1], d[2]), Vec3(d[3], d[4], d[5]),
+        Vec3(d[6], d[7], d[8]), Vec3(d[9], d[10], d[11]));
+  }
+}
+
+/// Frame for a sketch on a planar solid face: n = the face normal, u/v a
+/// right-handed basis (u x v = n), origin = the plane's point closest to the
+/// world origin (small, stable sketch coordinates — Inventor-like).
+PlaneFrame faceFrame(Vec3 hit, Vec3 normal) {
+  final n = normal.normalized();
+  var up = n.y.abs() > 0.9 ? const Vec3(0, 0, 1) : const Vec3(0, 1, 0);
+  final u = up.cross(n).normalized();
+  final v = n.cross(u).normalized();
+  final origin = n * n.dot(hit); // closest point of the plane to (0,0,0)
+  return PlaneFrame('face', u, v, n, origin);
 }
 
 const kPlaneKeys = ['yz', 'xz', 'xy'];
@@ -111,6 +144,14 @@ class PartCamera {
       this.ox = 0,
       this.oy = 0});
 
+  // Practically-endless orthographic zoom (halfH = half the visible height in
+  // mm). Not literally infinite: outside this band the ortho projection loses
+  // precision, so we cap far beyond any real part (0.1µm .. 20km of view).
+  static const double minHalfH = 1e-4;
+  static const double maxHalfH = 1e7;
+  static double clampHalfH(double h) =>
+      h.isFinite ? h.clamp(minHalfH, maxHalfH).toDouble() : 27.0;
+
   Vec3 get dir => Vec3(math.sin(pol) * math.sin(az), math.cos(pol),
       math.sin(pol) * math.cos(az));
 
@@ -120,6 +161,16 @@ class PartCamera {
     halfH = 27;
     ox = 0;
     oy = 0;
+  }
+
+  /// Face the camera along an arbitrary plane normal (sketch on a face).
+  void orientToDir(Vec3 n) {
+    final d = n.normalized();
+    pol = math.acos(d.y.clamp(-1.0, 1.0)).clamp(0.001, math.pi - 0.001);
+    if (d.y.abs() < 0.999) az = math.atan2(d.x, d.z);
+    ox = 0;
+    oy = 0;
+    halfH = 27;
   }
 
   void orientToPlane(String key) {
@@ -534,9 +585,19 @@ class ExtrudeFeature {
   bool iMate, matchShape;
   bool visible;
 
+  /// Inventor's Output boolean: 'join' merges this volume into the previous
+  /// body (the default once a base feature exists), 'new' starts a separate
+  /// solid body. Cut/Intersect are future work.
+  String output;
+
   // runtime (never serialised)
   KernelSolid? solid;
   String? computeError;
+
+  /// True when a LATER visible join-feature carries the fused body this
+  /// feature is part of — the viewport then skips this one (its volume is
+  /// inside the accumulated solid of the chain's last feature).
+  bool consumedByJoin = false;
 
   ExtrudeFeature({
     required this.name,
@@ -553,6 +614,7 @@ class ExtrudeFeature {
     this.iMate = false,
     this.matchShape = true,
     this.visible = true,
+    this.output = 'join',
   });
 
   Map<String, dynamic> toJson() => {
@@ -571,6 +633,7 @@ class ExtrudeFeature {
         'imate': iMate,
         'match': matchShape,
         'visible': visible,
+        'output': output,
       };
 
   static ExtrudeFeature fromJson(Map<String, dynamic> j) => ExtrudeFeature(
@@ -591,6 +654,7 @@ class ExtrudeFeature {
         iMate: j['imate'] as bool? ?? false,
         matchShape: j['match'] as bool? ?? true,
         visible: j['visible'] as bool? ?? true,
+        output: j['output'] as String? ?? 'join',
       );
 
   void disposeSolid() {
@@ -604,9 +668,14 @@ class ExtrudeFeature {
 // ---------------------------------------------------------------------------
 class ChildSketch {
   final SketchModel model;
-  final String plane; // 'xy' | 'yz' | 'xz'
-  ChildSketch(this.model, this.plane);
+  final String plane; // 'xy' | 'yz' | 'xz' | 'face'
+  final PlaneFrame? face; // set iff plane == 'face' (sketch on a solid face)
+  ChildSketch(this.model, this.plane, [this.face]);
 }
+
+/// The working frame of a child sketch: its stored face frame, or the fixed
+/// origin-plane frame. EVERY consumer of a sketch's plane goes through this.
+PlaneFrame sketchFrameOf(ChildSketch cs) => cs.face ?? sketchFrameOf(cs);
 
 class PartModel {
   final String name;
@@ -649,7 +718,11 @@ class PartModel {
         'cam': camera.toJson(),
         'sketches': [
           for (final c in childSketches)
-            {'name': c.model.name, 'plane': c.plane}
+            {
+              'name': c.model.name,
+              'plane': c.plane,
+              if (c.face != null) 'frame': c.face!.frameJson(),
+            }
         ],
         'features': [for (final f in features) f.toJson()],
         'featureN': featureN,
@@ -683,17 +756,291 @@ class PartModel {
 }
 
 // ---------------------------------------------------------------------------
+// adaptive tessellation — a fixed mesh facets as you zoom in (the circle of a
+// cylinder shows straight chords). These pure helpers turn the current
+// orthographic zoom into a SCREEN-SPACE deflection so a curve's chord sag
+// stays sub-pixel at any zoom; the 3D viewport re-meshes when it gets finer.
+// ---------------------------------------------------------------------------
+
+/// Default (coarse, fast) linear deflection for a solid's very first mesh, in
+/// mm. The viewport refines this to screen resolution on the first frame.
+const double kCoarseLinDeflection = 0.6;
+const double kCoarseAngDeflection = 0.35;
+
+/// Linear deflection (mm) so a curve's chord sag stays about [pxSag] device
+/// pixels at the given orthographic zoom. [halfH] is the half view height in
+/// mm, [viewHpx] the viewport height in device pixels. Clamped to [floor]
+/// (so extreme zoom-in can't demand an unbounded mesh) and [ceil] (so a tiny,
+/// far-away solid stays cheap). Falls back to the coarse default on bad input.
+double viewLinearDeflection(double halfH, double viewHpx,
+    {double pxSag = 0.4, double floor = 1e-4, double ceil = 5.0}) {
+  if (!(halfH > 0) || !(viewHpx > 0) || !halfH.isFinite) {
+    return kCoarseLinDeflection;
+  }
+  final worldPerPx = (2 * halfH) / viewHpx;
+  final d = worldPerPx * pxSag;
+  return d.isFinite ? d.clamp(floor, ceil).toDouble() : kCoarseLinDeflection;
+}
+
+/// Angular deflection (rad) paired with a linear deflection [lin] — finer when
+/// we ask for finer linear sag, floored so small circles still round out.
+double viewAngularDeflection(double lin) =>
+    (lin <= 0 ? kCoarseAngDeflection : (0.02 + 0.5 * lin))
+        .clamp(0.02, 0.5)
+        .toDouble();
+
+/// Whether a mesh built at [current] deflection should be re-tessellated for
+/// a [target] deflection. We only ever refine FINER (never coarsen): refining
+/// is monotone-safe with OCCT's incremental mesher, and a too-fine mesh is
+/// still visually correct when you zoom back out — so a curve stays smooth at
+/// any zoom without thrashing the kernel on the way out.
+bool meshNeedsRefine(double current, double target) =>
+    !(current > 0) || target < current * 0.66;
+
+/// Segment count to approximate a circle of [radius] within linear sag [lin]
+/// (chord-height formula), floored at 8 and hard-capped so an absurd zoom-in
+/// can't blow up the vertex count. Shared by the display path and test fakes.
+int circleSegments(double radius, double lin) {
+  if (!(radius > 0) || !(lin > 0)) return 8;
+  final ratio = (1 - lin / radius).clamp(-1.0, 1.0);
+  final theta = 2 * math.acos(ratio); // angle subtended by one chord
+  if (!(theta > 1e-9)) return 2000;
+  final n = (2 * math.pi / theta).ceil();
+  return n.clamp(8, 2000);
+}
+
+// ---------------------------------------------------------------------------
+// arc recovery — region detection hands the kernel POLYGONIZED loops, so a
+// circle would become an N-gon prism whose facet edges show as black
+// verticals on the barrel. arcFitLoop detects runs of consecutive loop
+// points that lie on one circle (the polygonizer emits them mathematically
+// exact) and collapses each run back into a TRUE arc (DXF bulge), so the
+// kernel receives exact circles/arcs/fillets and the B-Rep is smooth at any
+// zoom. Lines and free-form runs pass through untouched (bulge 0).
+// ---------------------------------------------------------------------------
+
+/// Circumcenter of three points, or null when (nearly) collinear.
+Offset? circumcenter(Offset a, Offset b, Offset c) {
+  final d = 2 *
+      (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
+  if (d.abs() < 1e-12) return null;
+  final a2 = a.dx * a.dx + a.dy * a.dy;
+  final b2 = b.dx * b.dx + b.dy * b.dy;
+  final c2 = c.dx * c.dx + c.dy * c.dy;
+  return Offset(
+      (a2 * (b.dy - c.dy) + b2 * (c.dy - a.dy) + c2 * (a.dy - b.dy)) / d,
+      (a2 * (c.dx - b.dx) + b2 * (a.dx - c.dx) + c2 * (b.dx - a.dx)) / d);
+}
+
+/// One output segment of [arcFitLoop]: start vertex + bulge of the edge
+/// leaving it toward the next segment's start (0 = line, tan(sweep/4) else).
+class LoopSeg {
+  final Offset p;
+  final double bulge;
+  const LoopSeg(this.p, this.bulge);
+}
+
+/// Collapses circular runs of the closed polyline [pts] into arcs.
+///
+/// Guards (all must hold for a run):
+///  * every chord subtends < ~20 deg on the fitted circle — a rectangle or
+///    regular polygon whose CORNERS happen to be concyclic is NOT an arc
+///    discretisation and stays straight;
+///  * every run vertex lies on the fitted circle within max(1e-9, 1e-6 r);
+///  * the turn direction is consistent;
+///  * a run is >= 3 chords (4 vertices).
+/// The loop is first rotated to start at a CORNER (a vertex that is not
+/// smooth-arc interior), so no run ever wraps the seam; if no corner exists
+/// and every vertex sits on ONE circle, the loop IS a circle and becomes two
+/// half arcs. Conservative: anything else passes through as lines.
+List<LoopSeg> arcFitLoop(List<Offset> pts) {
+  final n = pts.length;
+  if (n < 4) return [for (final p in pts) LoopSeg(p, 0)];
+  const maxChordSweep = 0.35; // rad per chord (~20 deg)
+
+  bool chordsOk(double r, Offset a, Offset b) =>
+      (a - b).distance <= 2 * r * math.sin(maxChordSweep / 2) * (1 + 1e-9);
+
+  // Discretised arcs have (near-)EQUAL chords; a junction pairs a tiny arc
+  // chord with a long line chord. The ratio guard is what makes gaps
+  // detectable at all — the sweep guard alone is scale-relative and a
+  // near-collinear triple fits a huge circle that swallows any chord.
+  bool ratioOk(Offset a, Offset b, Offset c) {
+    final l0 = (a - b).distance, l1 = (b - c).distance;
+    if (l0 <= 0 || l1 <= 0) return false;
+    final q = l0 > l1 ? l0 / l1 : l1 / l0;
+    return q <= 2.0;
+  }
+
+  // linked[k]: chords k and k+1 COULD belong to one arc discretisation. A
+  // maximal arc run is a maximal stretch of linked chords, so a chord pair
+  // with linked == false is a GAP that no run can cross.
+  bool linked(int k) {
+    final a = pts[k % n], b = pts[(k + 1) % n], c = pts[(k + 2) % n];
+    final cc = circumcenter(a, b, c);
+    if (cc == null) return false;
+    if (_turnSign(a, b, c) == 0) return false;
+    if (!ratioOk(a, b, c)) return false;
+    final r = (b - cc).distance;
+    return chordsOk(r, a, b) && chordsOk(r, b, c);
+  }
+
+  var gap = -1;
+  for (var k = 0; k < n; k++) {
+    if (!linked(k)) {
+      gap = k;
+      break;
+    }
+  }
+
+  if (gap < 0) {
+    // Every chord pair is arc-like: either ONE full circle, or a smooth
+    // free-form loop we conservatively leave untouched.
+    final c = circumcenter(pts[0], pts[1], pts[2]);
+    if (c != null) {
+      final r = (pts[0] - c).distance;
+      final tol = math.max(1e-9, 1e-6 * r);
+      var all = true;
+      for (final p in pts) {
+        if (((p - c).distance - r).abs() > tol) {
+          all = false;
+          break;
+        }
+      }
+      if (all) {
+        final ccw = _turnSign(pts[0], pts[1], pts[2]) >= 0;
+        final b = ccw ? 1.0 : -1.0; // two half-turn arcs: tan(pi/4)
+        final opposite = c * 2 - pts[0];
+        return [
+          LoopSeg(pts[0], b),
+          LoopSeg(Offset(opposite.dx, opposite.dy), b),
+        ];
+      }
+    }
+    return [for (final p in pts) LoopSeg(p, 0)];
+  }
+
+  // Start the walk just after the gap: chord gap+1 can only BEGIN a run, so
+  // rotation never splits an arc — even one that crossed the input seam.
+  final rp = [for (var j = 0; j < n; j++) pts[(gap + 1 + j) % n]];
+  Offset at(int i) => rp[i % n]; // at(n) == rp[0], the closing vertex
+
+  final out = <LoopSeg>[];
+  var i = 0;
+  while (i < n) {
+    var run = 0;
+    Offset? c;
+    if (i + 2 <= n) {
+      final c0 = circumcenter(at(i), at(i + 1), at(i + 2));
+      if (c0 != null) {
+        final r = (at(i) - c0).distance;
+        final tol = math.max(1e-9, 1e-6 * r);
+        final turn0 = _turnSign(at(i), at(i + 1), at(i + 2));
+        if (turn0 != 0 &&
+            ratioOk(at(i), at(i + 1), at(i + 2)) &&
+            chordsOk(r, at(i), at(i + 1)) &&
+            chordsOk(r, at(i + 1), at(i + 2))) {
+          run = 2;
+          c = c0;
+          var k = i + 3;
+          while (k <= n &&
+              ((at(k) - c0).distance - r).abs() <= tol &&
+              chordsOk(r, at(k - 1), at(k)) &&
+              ratioOk(at(k - 2), at(k - 1), at(k)) &&
+              _turnSign(at(k - 2), at(k - 1), at(k)) == turn0) {
+            run++;
+            k++;
+          }
+        }
+        if (run < 3) {
+          run = 0;
+          c = null;
+        }
+      }
+    }
+    if (c == null) {
+      out.add(LoopSeg(at(i), 0));
+      i++;
+      continue;
+    }
+    final sweep = _runSweepR(rp, i, run, c);
+    out.add(LoopSeg(at(i), math.tan(sweep / 4)));
+    i += run; // == n exactly when the arc closes at the rotated seam
+  }
+  return out;
+}
+
+int _turnSign(Offset a, Offset b, Offset c) {
+  final z = (b.dx - a.dx) * (c.dy - b.dy) - (b.dy - a.dy) * (c.dx - b.dx);
+  return z > 0 ? 1 : (z < 0 ? -1 : 0);
+}
+
+/// Signed total sweep of [chords] chords starting at vertex [i] around
+/// center [c] — summed per chord, so sweeps beyond pi work. Indices wrap.
+double _runSweepR(List<Offset> pts, int i, int chords, Offset c) {
+  final n = pts.length;
+  var sweep = 0.0;
+  for (var k = 0; k < chords; k++) {
+    final a = pts[(i + k) % n] - c;
+    final b = pts[(i + k + 1) % n] - c;
+    sweep += math.atan2(
+        a.dx * b.dy - a.dy * b.dx, a.dx * b.dx + a.dy * b.dy);
+  }
+  return sweep;
+}
+
+/// Encodes fitted loops for the v3 kernel entry: 3 doubles per vertex
+/// (x, y, bulge).
+List<double> encodeLoopSegs(List<LoopSeg> segs) =>
+    [for (final s in segs) ...[s.p.dx, s.p.dy, s.bulge]];
+
+// ---------------------------------------------------------------------------
 // kernel bridge — the ONLY seam between part features and OCCT, so host
 // tests can inject a fake while the app itself never fakes a B-Rep.
 // ---------------------------------------------------------------------------
 class KernelSolid {
-  /// Display mesh in WORLD coordinates.
-  final OcctMeshData mesh;
+  /// Display mesh in WORLD coordinates. Mutable: the viewport swaps in a finer
+  /// tessellation via [refine] as you zoom, so this always holds the mesh that
+  /// should currently be drawn.
+  OcctMeshData mesh;
   final double volume;
 
   /// World-space B-Rep handle (null in test fakes). Owned by this solid.
   final OcctShape? shape;
-  KernelSolid(this.mesh, this.volume, this.shape);
+
+  /// Re-tessellate at a new deflection. On the real kernel this closes over the
+  /// retained B-Rep and re-meshes it; test fakes close over a synthetic
+  /// generator. Null means the mesh is static (no refinement possible).
+  final OcctMeshData? Function(double lin, double ang)? _remesher;
+
+  /// Linear deflection (mm) the current [mesh] was built at.
+  double meshLin;
+
+  KernelSolid(
+    this.mesh,
+    this.volume,
+    this.shape, {
+    OcctMeshData? Function(double lin, double ang)? remesher,
+    this.meshLin = kCoarseLinDeflection,
+  }) : _remesher = remesher;
+
+  /// Replaces [mesh] with a tessellation at [lin]/[ang] when a remesher is
+  /// present and succeeds. Returns true iff the mesh actually changed. Never
+  /// throws — a failed refine (e.g. a disposed shape) just keeps the old mesh.
+  bool refine(double lin, double ang) {
+    final r = _remesher;
+    if (r == null) return false;
+    try {
+      final m = r(lin, ang);
+      if (m == null) return false;
+      mesh = m;
+      meshLin = lin;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   void dispose() => shape?.dispose();
 }
 
@@ -707,6 +1054,10 @@ abstract class PartKernel {
   /// places the result with the rigid [mat34]. Null on failure.
   KernelSolid? extrude(List<List<List<Offset>>> groups, double height,
       double taperDeg, List<double> mat34);
+
+  /// Boolean union of two solids (Inventor's Join). Inputs stay owned by the
+  /// caller; the result is a NEW solid. Null on failure.
+  KernelSolid? fuseSolids(KernelSolid a, KernelSolid b);
 
   /// Writes the union of [solids] as STEP to [path].
   bool exportStep(List<KernelSolid> solids, String path);
@@ -739,13 +1090,13 @@ class OcctPartKernel implements PartKernel {
     OcctShape? acc;
     try {
       for (final g in groups) {
+        // Recover true arcs from the polygonized loops so circles reach OCCT
+        // as exact cylindrical faces — no facet edges on curved walls.
         final loops = [
-          for (final loop in g)
-            [
-              for (final p in loop) ...[p.dx, p.dy]
-            ]
+          for (final loop in g) encodeLoopSegs(arcFitLoop(loop))
         ];
-        final part = ffi.extrudeProfile(loops, height, taperDeg: taperDeg);
+        final part =
+            ffi.extrudeProfileArcs(loops, height, taperDeg: taperDeg);
         if (part == null) {
           _err = ffi.lastError();
           acc?.dispose();
@@ -775,18 +1126,57 @@ class OcctPartKernel implements PartKernel {
         _err = ffi.lastError();
         return null;
       }
-      final mesh = placed.mesh();
+      // Build a coarse mesh now (fast first frame); the viewport refines it to
+      // screen resolution immediately and on every zoom-in via [refine], so
+      // curved edges stay smooth at any zoom.
+      final mesh = placed.mesh(
+          linDeflection: kCoarseLinDeflection,
+          angDeflection: kCoarseAngDeflection);
       if (mesh == null) {
         _err = ffi.lastError();
         placed.dispose();
         return null;
       }
-      return KernelSolid(mesh, placed.volume, placed);
+      return KernelSolid(mesh, placed.volume, placed,
+          meshLin: kCoarseLinDeflection,
+          remesher: (lin, ang) =>
+              placed.mesh(linDeflection: lin, angDeflection: ang));
     } catch (e) {
       _err = '$e';
       acc?.dispose();
       return null;
     }
+  }
+
+  @override
+  KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sa = a.shape, sb = b.shape;
+    if (sa == null || sb == null) {
+      _err = 'fuse needs kernel-backed solids';
+      return null;
+    }
+    final fused = ffi.fuse(sa, sb);
+    if (fused == null) {
+      _err = ffi.lastError();
+      return null;
+    }
+    final mesh = fused.mesh(
+        linDeflection: kCoarseLinDeflection,
+        angDeflection: kCoarseAngDeflection);
+    if (mesh == null) {
+      _err = ffi.lastError();
+      fused.dispose();
+      return null;
+    }
+    return KernelSolid(mesh, fused.volume, fused,
+        meshLin: kCoarseLinDeflection,
+        remesher: (lin, ang) =>
+            fused.mesh(linDeflection: lin, angDeflection: ang));
   }
 
   @override
@@ -888,7 +1278,7 @@ bool recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
     f.computeError = 'distance must be greater than 0';
     return false;
   }
-  final frame = planeFrame(cs.plane);
+  final frame = sketchFrameOf(cs);
   final solid =
       kernel.extrude(groups, height, f.taperDeg, frame.mat34(zOff));
   if (solid == null) {
@@ -926,4 +1316,41 @@ double? parseValueExpr(String raw) {
   if (f == null) return null;
   final v = f(0);
   return v.isFinite ? v : null;
+}
+
+
+/// Recomputes EVERY feature in order and folds Inventor's Join chains: each
+/// 'join' feature's solid becomes the boolean union of its own volume with
+/// the accumulated body it joins (matched by bodyName), and every earlier
+/// feature of that chain is flagged [ExtrudeFeature.consumedByJoin] so the
+/// viewport draws exactly ONE solid per body — Inventor's "everything is one
+/// part unless you chose New Solid". 'new' features start a fresh chain.
+/// Returns true when every visible feature computed.
+bool recomputeAllFeatures(PartModel part, PartKernel kernel) {
+  var allOk = true;
+  final chainLast = <String, ExtrudeFeature>{}; // bodyName -> last in chain
+  for (final f in part.features) {
+    f.consumedByJoin = false;
+    final ok = recomputeFeature(part, f, kernel);
+    if (!ok) {
+      allOk = false;
+      chainLast.remove(f.bodyName); // a broken chain stops accumulating
+      continue;
+    }
+    final prev = f.output == 'join' ? chainLast[f.bodyName] : null;
+    if (prev != null && prev.solid != null && f.solid != null) {
+      final fused = kernel.fuseSolids(prev.solid!, f.solid!);
+      if (fused != null) {
+        f.disposeSolid();
+        f.solid = fused;
+        prev.consumedByJoin = true;
+      } else {
+        // honest failure: keep both standalone solids visible
+        f.computeError ??= kernel.lastError;
+        allOk = false;
+      }
+    }
+    if (f.visible) chainLast[f.bodyName] = f;
+  }
+  return allOk;
 }
