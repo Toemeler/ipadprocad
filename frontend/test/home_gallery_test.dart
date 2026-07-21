@@ -35,7 +35,8 @@ void main() {
 
     // Empty state is ONE line of text and nothing else — the cube glyph and
     // the "No sketches yet" heading were decoration.
-    expect(find.text('Tap  +  to create a new sketch'), findsOneWidget);
+    expect(find.text('Tap  +  to create a new sketch or part'),
+        findsOneWidget);
     expect(find.text('No sketches yet'), findsNothing);
     // None of the old design-dummy names leak through.
     for (final name in const [
@@ -78,6 +79,8 @@ void main() {
 
     await t.tap(find.byIcon(Icons.add));
     await t.pumpAndSettle();
+    await t.tap(find.text('New 2D Sketch'));
+    await t.pumpAndSettle();
 
     // Nothing exists yet — the prompt comes FIRST.
     expect(find.text('New sketch'), findsOneWidget);
@@ -102,6 +105,8 @@ void main() {
 
     await t.tap(find.byIcon(Icons.add));
     await t.pumpAndSettle();
+    await t.tap(find.text('New 2D Sketch'));
+    await t.pumpAndSettle();
     await t.tap(find.text('Cancel'));
     await t.pumpAndSettle();
 
@@ -118,10 +123,13 @@ void main() {
 
     await t.tap(find.byIcon(Icons.add));
     await t.pumpAndSettle();
+    await t.tap(find.text('New 2D Sketch'));
+    await t.pumpAndSettle();
     await t.enterText(find.byType(TextField), 'Taken');
     await t.tap(find.text('Create'));
     await t.pumpAndSettle();
 
-    expect(find.text('A sketch with that name already exists'), findsOneWidget);
+    expect(find.text('A sketch or part with that name already exists'),
+        findsOneWidget);
   });
 }

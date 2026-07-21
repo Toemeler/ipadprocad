@@ -66,6 +66,37 @@ occt_shape *occt_extrude_polygon(const double *xy, int npts, double height);
  * remain valid. NULL on failure. */
 occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b);
 
+/*
+ * v2 — Extrude a MULTI-LOOP profile (outer boundary + holes) with an
+ * optional taper, the full Inventor "Extrude" semantics:
+ *   - `xy` holds the (x,y) pairs of ALL loops back to back, in the z=0
+ *     plane, WITHOUT repeating a loop's first point.
+ *   - `loop_counts[i]` is the number of points of loop i (>= 3 each);
+ *     `nloops` >= 1. Loop 0 is the OUTER boundary; loops 1.. are HOLES and
+ *     must lie strictly inside the outer loop (and not intersect it or each
+ *     other). Winding order of the input is irrelevant — the shim
+ *     normalises orientations itself (outer CCW, holes CW).
+ *   - Extrusion is along +Z from z=0 by `height` (> 0).
+ *   - `taper_deg` tilts every lateral face about the base plane, INVENTOR
+ *     sign convention: positive flares OUTWARD going up (outer boundary
+ *     grows, holes shrink), negative tapers inward, 0 = straight prism.
+ *     Implemented with OCCT's draft-angle transform, so extreme angles
+ *     that would break the topology fail cleanly (NULL + last_error).
+ * NULL on failure.
+ */
+occt_shape *occt_extrude_profile(const double *xy, const int *loop_counts,
+                                 int nloops, double height, double taper_deg);
+
+/*
+ * v2 — Rigid placement: returns a NEW shape = `shape` moved by the
+ * row-major 3x4 matrix `mat34` = {r00 r01 r02 tx, r10 r11 r12 ty,
+ * r20 r21 r22 tz}. The 3x3 part must be a pure rotation (orthonormal,
+ * det +1) — this is how a feature extruded in its sketch-local frame is
+ * placed into part/world coordinates, so solids from different sketch
+ * planes share one coordinate system (booleans, STEP). NULL on failure.
+ */
+occt_shape *occt_transform(const occt_shape *shape, const double *mat34);
+
 /* ---- Queries ---------------------------------------------------------- */
 
 /* Count unique faces / edges / vertices of the shape. Any out-pointer may be
@@ -91,6 +122,45 @@ int occt_export_step(const occt_shape *shape, const char *path);
 /* Read a STEP file and return all roots as one shape (compound if several).
  * NULL on failure (missing/garbage file included — never crashes). */
 occt_shape *occt_import_step(const char *path);
+
+/* ---- v2: Tessellation (display mesh) ------------------------------------ */
+
+/*
+ * Opaque triangulation of a shape, produced once and then read out through
+ * the occt_mesh_* accessors below. Buffers live inside the mesh handle and
+ * stay valid until occt_free_mesh. Layout:
+ *   - vertices:  nvertices * 3 doubles (x,y,z). Vertices are per-face (not
+ *                shared across B-Rep faces), so edges between faces stay
+ *                crisp while curved faces shade smoothly.
+ *   - normals:   nvertices * 3 doubles, unit length, OUTWARD facing.
+ *   - triangles: ntriangles * 3 ints, 0-based indices into the vertex
+ *                buffer, wound COUNTER-CLOCKWISE seen from outside.
+ *   - edges:     the B-Rep edges as polylines for edge display: `starts`
+ *                holds nedges+1 point offsets (starts[0] = 0, edge i spans
+ *                points [starts[i], starts[i+1])), `pts` holds
+ *                nedge_points * 3 doubles.
+ */
+typedef struct occt_mesh occt_mesh;
+
+/* Triangulate `shape` with the given linear deflection (model units) and
+ * angular deflection (radians). NULL on failure. */
+occt_mesh *occt_mesh_create(const occt_shape *shape,
+                            double lin_deflection, double ang_deflection);
+
+/* Sizes of the mesh buffers. Any out-pointer may be NULL. Returns 1/0. */
+int occt_mesh_counts(const occt_mesh *m, int *nvertices, int *ntriangles,
+                     int *nedges, int *nedge_points);
+
+/* Copy out the buffers described above. `out` must hold nvertices*3 /
+ * ntriangles*3 / (nedges+1 and nedge_points*3) elements respectively.
+ * Return 1/0. */
+int occt_mesh_vertices(const occt_mesh *m, double *out);
+int occt_mesh_normals(const occt_mesh *m, double *out);
+int occt_mesh_triangles(const occt_mesh *m, int *out);
+int occt_mesh_edges(const occt_mesh *m, int *starts, double *pts);
+
+/* Release a mesh returned by occt_mesh_create. NULL is ignored. */
+void occt_free_mesh(occt_mesh *m);
 
 /* ---- Lifecycle --------------------------------------------------------- */
 

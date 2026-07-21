@@ -17,6 +17,7 @@ import 'hud.dart';
 import 'log.dart';
 import 'modify.dart';
 import 'params.dart';
+import 'part_model.dart';
 import 'inserts.dart';
 import 'snap.dart';
 import 'solver.dart';
@@ -333,7 +334,38 @@ class SavedSketchInfo {
   final String name;
   final DateTime modified;
   final File? preview;
-  const SavedSketchInfo(this.name, this.modified, this.preview);
+
+  /// 'sketch' | 'part' — the gallery shows a steel cube for parts.
+  final String kind;
+  const SavedSketchInfo(this.name, this.modified, this.preview,
+      [this.kind = 'sketch']);
+}
+
+/// Live state of the modeless Extrusion properties panel (M56) — one
+/// session per open dialog, exactly like [PatternSession]. Esc / Cancel
+/// discards it, OK / + commits through [AppState.applyExtrude].
+class ExtrudeSession {
+  ExtrudeFeature? editing; // null = creating a new feature
+  String? sketchName; // locked to ONE sketch by the first profile pick
+  final List<ProfileSel> profiles = [];
+  ExtrudeDirection direction = ExtrudeDirection.defaultDir;
+  String exprA = '5 mm', exprB = '5 mm', exprTaper = '0.00 deg';
+  String bodyName = '';
+  bool iMate = false, matchShape = true;
+  KernelSolid? preview;
+  String? previewError;
+
+  /// True while the only selection is [AppState.openExtrude]'s convenience
+  /// pre-pick, so an explicit pick in ANOTHER sketch may replace it.
+  bool autoPicked = false;
+
+  bool hasProfileAt(Offset p) =>
+      profiles.any((s) => (Offset(s.ax, s.ay) - p).distance < 1e-6);
+
+  void disposePreview() {
+    preview?.dispose();
+    preview = null;
+  }
 }
 
 class AppState extends ChangeNotifier {
@@ -345,6 +377,24 @@ class AppState extends ChangeNotifier {
   int layerCounterOf(SketchModel s) => s.layers.length;
 
   final Map<String, SketchModel> sketches = {};
+
+  // ---- M56: 3D part documents ----
+  final Map<String, PartModel> parts = {};
+
+  /// The child sketch currently open INSIDE a part — while set, [current]
+  /// returns it, so the entire 2D sketcher (ribbon edit branch, browser,
+  /// viewport, tools, solver) drives the child sketch unchanged.
+  SketchModel? activeChild;
+
+  /// "Start 2D Sketch" armed: the 3D viewport waits for a plane tap.
+  bool pickPlane = false;
+
+  ExtrudeSession? extrudeSession;
+
+  /// The 3D kernel seam. The app wires the real OCCT kernel; host tests
+  /// inject a fake — the app itself never fakes a B-Rep (M55 rule).
+  PartKernel partKernel = OcctPartKernel();
+  final Map<String, List<ProfileRegion>> _regionCache = {};
 
   // ---- layer edit mode ----
   String? editingLayer; // layer name currently in edit mode (of current tab)
@@ -592,6 +642,14 @@ class AppState extends ChangeNotifier {
         list.add(SavedSketchInfo(
             name, f.lastModifiedSync(), png.existsSync() ? png : null));
       }
+      // 3D parts live next to the sketches as <name>.part.json
+      for (final f in _sketchDir.listSync().whereType<File>()) {
+        if (!f.path.endsWith('.part.json')) continue;
+        final name =
+            f.uri.pathSegments.last.replaceAll('.part.json', '');
+        list.add(SavedSketchInfo(
+            name, f.lastModifiedSync(), null, 'part'));
+      }
     }
     list.sort((a, b) => b.modified.compareTo(a.modified));
     saved = list;
@@ -750,6 +808,14 @@ class AppState extends ChangeNotifier {
 
   // ---- tab / home behaviour (exactly like the mock JS) ----
   void goHome() {
+    final leaving = curTab;
+    if (leaving != null && parts.containsKey(leaving)) {
+      cancelExtrude();
+      pickPlane = false;
+      activeChild = null;
+      finishEdit(save: false);
+      savePart(leaving);
+    }
     curTab = null;
     finishEdit(save: true);
     _reanalyze();
@@ -1017,14 +1083,26 @@ class AppState extends ChangeNotifier {
   Future<bool> createNamedSketch(String name) async {
     final clean = name.trim();
     if (validateSketchName(clean) != null) return false;
-    if (sketchNameExists(clean)) return false;
+    // one gallery, two document kinds: a part named "X" blocks a sketch "X"
+    if (docNameExists(clean)) return false;
     await openSketch(clean);
     startNewLayer(); // -> enterEdit()
     return true;
   }
 
   Future<void> closeTab(String name) async {
-    await saveSketch(name);
+    if (parts.containsKey(name)) {
+      if (curTab == name) {
+        cancelExtrude();
+        pickPlane = false;
+        activeChild = null;
+        finishEdit(save: false);
+      }
+      await savePart(name);
+      parts.remove(name)?.dispose();
+    } else {
+      await saveSketch(name);
+    }
     openTabs.remove(name);
     if (curTab == name) {
       if (openTabs.isNotEmpty) {
@@ -1038,7 +1116,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  SketchModel? get current => curTab == null ? null : sketches[curTab];
+  SketchModel? get current =>
+      activeChild ?? (curTab == null ? null : sketches[curTab]);
+
+  /// The open 3D part (null when the current tab is a plain 2D sketch).
+  PartModel? get currentPart => curTab == null ? null : parts[curTab];
 
   // ---- layers / edit mode (mock: new layer starts edit immediately) ----
   void startNewLayer() {
@@ -1173,7 +1255,13 @@ class AppState extends ChangeNotifier {
     editingLayer = null;
     tool = Tool.none;
     toolPoints.clear();
-    if (save && curTab != null) saveSketch(curTab!);
+    if (save && curTab != null) {
+      if (parts.containsKey(curTab)) {
+        savePart(curTab!);
+      } else {
+        saveSketch(curTab!);
+      }
+    }
     notifyListeners();
   }
 
@@ -1434,6 +1522,705 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  // =========================================================================
+  // M56 — 3D PART DOCUMENTS: persistence, child-sketch flow, Extrude
+  // =========================================================================
+
+  Directory _partDir(String name) {
+    final d = Directory('${_sketchDir.path}/parts/$name');
+    if (!d.existsSync()) d.createSync(recursive: true);
+    return d;
+  }
+
+  Directory _partSketchDir(String name) {
+    final d = Directory('${_partDir(name).path}/sketches');
+    if (!d.existsSync()) d.createSync(recursive: true);
+    return d;
+  }
+
+  File _partJson(String name) => File('${_sketchDir.path}/$name.part.json');
+
+  bool isPartName(String name) =>
+      parts.containsKey(name) || _partJson(name).existsSync();
+
+  bool partNameExists(String name) => isPartName(name);
+
+  /// Sketches and parts share one gallery, so names must be unique ACROSS
+  /// both kinds — a "Bracket" part next to a "Bracket" sketch would be two
+  /// cards with one label.
+  bool docNameExists(String name) =>
+      sketchNameExists(name) || partNameExists(name);
+
+  String suggestedPartName() {
+    var n = 1;
+    while (docNameExists('Part$n')) {
+      n++;
+    }
+    return 'Part$n';
+  }
+
+  /// Opens whatever [name] is — part or sketch (gallery cards + tab bar).
+  Future<void> openDocument(String name) async {
+    if (isPartName(name)) return openPart(name);
+    return openSketch(name);
+  }
+
+  Future<bool> createNamedPart(String name) async {
+    final clean = name.trim();
+    if (validateSketchName(clean) != null) return false;
+    if (docNameExists(clean)) return false;
+    final p = PartModel(clean);
+    parts[clean] = p;
+    if (!openTabs.contains(clean)) openTabs.add(clean);
+    curTab = clean;
+    activeChild = null;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    await savePart(clean);
+    return true;
+  }
+
+  Future<void> openPart(String name) async {
+    if (!parts.containsKey(name)) {
+      final p = PartModel(name);
+      try {
+        final f = _partJson(name);
+        if (f.existsSync()) {
+          final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+          p.loadJson(j);
+          for (final sk in (j['sketches'] as List? ?? const [])) {
+            final m = sk as Map;
+            final model = await _loadSketchIn(
+                _partSketchDir(name), m['name'] as String);
+            p.childSketches
+                .add(ChildSketch(model, m['plane'] as String? ?? 'xy'));
+          }
+        }
+      } catch (e, st) {
+        Log.e('part', 'open "$name" failed', e, st);
+      }
+      parts[name] = p;
+      if (partKernel.available) {
+        for (final f in p.features) {
+          recomputeFeature(p, f, partKernel);
+        }
+      }
+      Log.i('part', 'opened "$name": sketches=${p.childSketches.length} '
+          'features=${p.features.length} kernel=${partKernel.available}');
+    }
+    if (!openTabs.contains(name)) openTabs.add(name);
+    curTab = name;
+    activeChild = null;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    notifyListeners();
+  }
+
+  Future<bool> savePart(String name) async {
+    final p = parts[name];
+    if (p == null || _docsDir == null) return false;
+    try {
+      _partJson(name).writeAsStringSync(jsonEncode(p.toJson()));
+      // copy: the loop awaits, and a plane pick during that window would
+      // append a child sketch (concurrent modification)
+      for (final c in List<ChildSketch>.of(p.childSketches)) {
+        await _saveSketchIn(_partSketchDir(name), c.model);
+      }
+      p.dirty = false;
+    } catch (e, st) {
+      Log.e('part', 'save "$name" failed', e, st);
+      return false;
+    }
+    await refreshSaved();
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> deletePart(String name) async {
+    if (_docsDir == null) return;
+    openTabs.remove(name);
+    if (curTab == name) {
+      cancelExtrude();
+      pickPlane = false;
+      activeChild = null;
+      curTab = openTabs.isNotEmpty ? openTabs.last : null;
+      if (curTab == null) editingLayer = null;
+      _reanalyze();
+    }
+    parts.remove(name)?.dispose();
+    try {
+      final j = _partJson(name);
+      if (j.existsSync()) j.deleteSync();
+      final d = Directory('${_sketchDir.path}/parts/$name');
+      if (d.existsSync()) d.deleteSync(recursive: true);
+    } catch (e) {
+      Log.w('part', 'delete "$name" failed: $e');
+    }
+    await refreshSaved();
+    notifyListeners();
+  }
+
+  Future<bool> renamePart(String from, String to) async {
+    if (_docsDir == null) return false;
+    final target = to.trim();
+    if (target == from) return true;
+    if (validateSketchName(target) != null) return false;
+    if (docNameExists(target)) return false;
+    final wasOpen = openTabs.contains(from);
+    final tabIndex = openTabs.indexOf(from);
+    final wasCurrent = curTab == from;
+    if (parts.containsKey(from)) {
+      await savePart(from);
+      openTabs.remove(from);
+      parts.remove(from)?.dispose();
+      if (wasCurrent) {
+        activeChild = null;
+        curTab = null;
+      }
+    }
+    try {
+      final j = _partJson(from);
+      if (j.existsSync()) j.renameSync(_partJson(target).path);
+      final d = Directory('${_sketchDir.path}/parts/$from');
+      if (d.existsSync()) {
+        d.renameSync('${_sketchDir.path}/parts/$target');
+      }
+    } catch (e) {
+      Log.w('part', 'rename "$from" failed: $e');
+      return false;
+    }
+    if (wasOpen) {
+      await openPart(target);
+      openTabs.remove(target);
+      openTabs.insert(math.min(tabIndex, openTabs.length), target);
+      if (!wasCurrent) curTab = openTabs.isNotEmpty ? openTabs.last : null;
+    }
+    await refreshSaved();
+    notifyListeners();
+    return true;
+  }
+
+  Future<String?> duplicatePart(String name) async {
+    if (_docsDir == null) return null;
+    if (parts.containsKey(name)) await savePart(name);
+    if (!_partJson(name).existsSync()) return null;
+    var copy = '$name copy';
+    var n = 2;
+    while (docNameExists(copy)) {
+      copy = '$name copy $n';
+      n++;
+    }
+    try {
+      _partJson(name).copySync(_partJson(copy).path);
+      final src = Directory('${_sketchDir.path}/parts/$name');
+      if (src.existsSync()) {
+        for (final f in src.listSync(recursive: true).whereType<File>()) {
+          final rel = f.path.substring(src.path.length);
+          final dst = File('${_sketchDir.path}/parts/$copy$rel');
+          dst.parent.createSync(recursive: true);
+          f.copySync(dst.path);
+        }
+      }
+    } catch (e) {
+      Log.w('part', 'duplicate "$name" failed: $e');
+      return null;
+    }
+    await refreshSaved();
+    notifyListeners();
+    return copy;
+  }
+
+  /// Writes the part's solids as STEP next to the sketches and returns the
+  /// path (for the share sheet / Files export). Null without a kernel or
+  /// without any computed solid — reported honestly, never faked.
+  Future<String?> partExportStep(String name) async {
+    if (_docsDir == null) return null;
+    final wasLoaded = parts.containsKey(name);
+    if (!wasLoaded) await openPart(name);
+    final p = parts[name];
+    if (p == null) return null;
+    await savePart(name);
+    if (!partKernel.available) {
+      toast('No 3D kernel linked — STEP export needs the device build.');
+      return null;
+    }
+    final solids = [
+      for (final f in p.features)
+        if (f.solid != null) f.solid!
+    ];
+    if (solids.isEmpty) {
+      toast('Nothing to export yet — extrude a profile first.');
+      return null;
+    }
+    final path = '${_sketchDir.path}/$name.step';
+    if (!partKernel.exportStep(solids, path)) {
+      toast('STEP export failed: ${partKernel.lastError}');
+      return null;
+    }
+    return path;
+  }
+
+  // ---- gallery routing: one card menu, two document kinds ----
+  Future<void> deleteDocument(String name) =>
+      isPartName(name) ? deletePart(name) : deleteSketch(name);
+  Future<bool> renameDocument(String from, String to) =>
+      isPartName(from) ? renamePart(from, to) : renameSketch(from, to);
+  Future<String?> duplicateDocument(String name) =>
+      isPartName(name) ? duplicatePart(name) : duplicateSketch(name);
+
+  // ---- child-sketch flow (Start 2D Sketch -> plane pick -> 2D env) ----
+  void startPartSketch() {
+    final p = currentPart;
+    if (p == null) return;
+    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    pickPlane = true;
+    toast('Select a plane to create the sketch on.');
+    notifyListeners();
+  }
+
+  void cancelPlanePick() {
+    final p = currentPart;
+    pickPlane = false;
+    if (p != null) p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    notifyListeners();
+  }
+
+  /// The 3D viewport reports the tapped plane: orient the camera to it and
+  /// drop into the EXACT same 2D sketch environment (fresh Layer 1).
+  void planePicked(String key) {
+    final p = currentPart;
+    if (p == null || !pickPlane) return;
+    pickPlane = false;
+    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    p.camera.orientToPlane(key);
+    final sk = SketchModel(p.nextSketchName());
+    p.childSketches.add(ChildSketch(sk, key));
+    p.dirty = true;
+    activeChild = sk;
+    _reanalyze();
+    Log.i('part', 'child sketch "${sk.name}" on $key of "${p.name}"');
+    startNewLayer(); // enters edit + notifies, like createNamedSketch
+  }
+
+  /// Finish Sketch: back to the 3D part; the sketch stays in the part and
+  /// every feature is recomputed against its new state.
+  void finishPartSketch() {
+    final p = currentPart;
+    finishEdit(save: false);
+    activeChild = null;
+    _reanalyze();
+    if (p != null && partKernel.available) {
+      for (final f in p.features) {
+        recomputeFeature(p, f, partKernel);
+        if (f.computeError != null) {
+          toast('${f.name}: ${f.computeError}');
+        }
+      }
+    }
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// Double-click on a part's sketch row: orient to its plane, reopen it.
+  void openChildSketch(String name) {
+    final p = currentPart;
+    final cs = p?.sketchByName(name);
+    if (p == null || cs == null) return;
+    cancelExtrude();
+    p.camera.orientToPlane(cs.plane);
+    activeChild = cs.model;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    notifyListeners();
+  }
+
+  void togglePartOriginVis(String key) {
+    final p = currentPart;
+    if (p == null || !p.vis.containsKey(key)) return;
+    p.vis[key] = !(p.vis[key] ?? false);
+    p.dirty = true;
+    notifyListeners();
+  }
+
+  // ---- Extrude (M56): modeless properties panel + region picking ----
+  List<ProfileRegion> sessionRegions(ChildSketch cs) =>
+      _regionCache.putIfAbsent(
+          cs.model.name, () => regionsFrom(profileLoops(cs.model)));
+
+  /// Opens the Extrusion panel — for a NEW feature, or to [edit] an
+  /// existing one. Inventor-style: with exactly one profile in the latest
+  /// sketch it is pre-selected.
+  void openExtrude([ExtrudeFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (p.childSketches.isEmpty) {
+      toast('Create a 2D sketch first — Extrude needs a closed profile.');
+      return;
+    }
+    cancelExtrude();
+    final s = ExtrudeSession();
+    if (edit != null) {
+      s
+        ..editing = edit
+        ..sketchName = edit.sketchName
+        ..direction = edit.direction
+        ..exprA = edit.exprA
+        ..exprB = edit.exprB
+        ..exprTaper = edit.exprTaper
+        ..bodyName = edit.bodyName
+        ..iMate = edit.iMate
+        ..matchShape = edit.matchShape;
+      for (final x in edit.profiles) {
+        s.profiles.add(ProfileSel(x.ax, x.ay, x.area));
+      }
+    } else {
+      s.bodyName = 'Solid${p.solidN + 1}';
+      final cs = p.childSketches.last;
+      s.sketchName = cs.model.name;
+      final regs = sessionRegions(cs);
+      if (regs.length == 1) {
+        final ip = interiorPointOf(regs.first.outer);
+        s.profiles.add(ProfileSel(ip.dx, ip.dy, regs.first.outer.area));
+        s.autoPicked = true; // an explicit pick elsewhere replaces this
+      }
+    }
+    extrudeSession = s;
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  void toggleSessionProfile(String sketchName, ProfileRegion r) {
+    final s = extrudeSession;
+    if (s == null) return;
+    if (s.sketchName != null && s.sketchName != sketchName) {
+      if (s.autoPicked) {
+        // only the convenience pre-selection was there — the user's own
+        // pick decides which sketch this extrusion belongs to
+        s.profiles.clear();
+      } else if (s.profiles.isNotEmpty) {
+        toast('All profiles of one extrusion must come from the same sketch.');
+        return;
+      }
+    }
+    s.autoPicked = false;
+    s.sketchName = sketchName;
+    final ip = interiorPointOf(r.outer);
+    final i = s.profiles
+        .indexWhere((x) => (Offset(x.ax, x.ay) - ip).distance < 1e-6);
+    if (i >= 0) {
+      s.profiles.removeAt(i);
+    } else {
+      s.profiles.add(ProfileSel(ip.dx, ip.dy, r.outer.area));
+    }
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  void clearSessionProfiles() {
+    final s = extrudeSession;
+    if (s == null) return;
+    s.profiles.clear();
+    s.disposePreview();
+    s.previewError = null;
+    notifyListeners();
+  }
+
+  /// Granular dialog setters — every change re-renders the live preview.
+  void setExtrude(
+      {ExtrudeDirection? direction,
+      String? exprA,
+      String? exprB,
+      String? exprTaper,
+      String? bodyName,
+      bool? iMate,
+      bool? matchShape}) {
+    final s = extrudeSession;
+    if (s == null) return;
+    if (direction != null) s.direction = direction;
+    if (exprA != null) s.exprA = exprA;
+    if (exprB != null) s.exprB = exprB;
+    if (exprTaper != null) s.exprTaper = exprTaper;
+    if (bodyName != null) s.bodyName = bodyName;
+    if (iMate != null) s.iMate = iMate;
+    if (matchShape != null) s.matchShape = matchShape;
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  /// Parses the session values into a throwaway feature (also used for the
+  /// preview). Returns null + a toastable reason when a value is invalid.
+  (ExtrudeFeature?, String?) _sessionFeature(ExtrudeSession s) {
+    final a = parseValueExpr(s.exprA);
+    if (a == null || !(a > 0)) return (null, 'Distance A must be > 0.');
+    var b = 0.0;
+    if (s.direction == ExtrudeDirection.asymmetric) {
+      final pb = parseValueExpr(s.exprB);
+      if (pb == null || !(pb > 0)) return (null, 'Distance B must be > 0.');
+      b = pb;
+    }
+    final t = parseValueExpr(s.exprTaper);
+    if (t == null || t.abs() >= 90) {
+      return (null, 'Taper must be inside (-90, 90) degrees.');
+    }
+    final f = ExtrudeFeature(
+      name: s.editing?.name ?? '(preview)',
+      bodyName: s.bodyName,
+      sketchName: s.sketchName ?? '',
+      profiles: [for (final x in s.profiles) ProfileSel(x.ax, x.ay, x.area)],
+      direction: s.direction,
+      distanceA: a,
+      distanceB: b,
+      taperDeg: t,
+      exprA: s.exprA,
+      exprB: s.exprB,
+      exprTaper: s.exprTaper,
+      iMate: s.iMate,
+      matchShape: s.matchShape,
+    );
+    return (f, null);
+  }
+
+  void _updateExtrudePreview() {
+    final s = extrudeSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    s.disposePreview();
+    s.previewError = null;
+    if (s.profiles.isEmpty || s.sketchName == null) return;
+    if (!partKernel.available) {
+      s.previewError = 'no 3D kernel linked';
+      return;
+    }
+    final (f, err) = _sessionFeature(s);
+    if (f == null) {
+      s.previewError = err;
+      return;
+    }
+    if (recomputeFeature(p, f, partKernel)) {
+      s.preview = f.solid;
+      f.solid = null; // ownership moved to the session
+    } else {
+      s.previewError = f.computeError;
+    }
+  }
+
+  /// OK / "+" of the Extrusion panel. With [keepOpen] the feature commits
+  /// and the panel resets for the next one (Inventor's Apply).
+  Future<bool> applyExtrude({bool keepOpen = false}) async {
+    final s = extrudeSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    if (s.profiles.isEmpty || s.sketchName == null) {
+      toast('Pick at least one profile to extrude.');
+      return false;
+    }
+    final (parsed, err) = _sessionFeature(s);
+    if (parsed == null) {
+      toast(err!);
+      return false;
+    }
+    ExtrudeFeature f;
+    if (s.editing != null) {
+      f = s.editing!
+        ..direction = parsed.direction
+        ..distanceA = parsed.distanceA
+        ..distanceB = parsed.distanceB
+        ..taperDeg = parsed.taperDeg
+        ..exprA = parsed.exprA
+        ..exprB = parsed.exprB
+        ..exprTaper = parsed.exprTaper
+        ..bodyName = parsed.bodyName
+        ..iMate = parsed.iMate
+        ..matchShape = parsed.matchShape;
+      f.profiles
+        ..clear()
+        ..addAll(parsed.profiles);
+    } else {
+      f = parsed;
+      f.name = p.nextFeatureName();
+      if (f.bodyName.trim().isEmpty) {
+        f.bodyName = p.nextSolidName();
+      } else {
+        final m = RegExp(r'^Solid(\d+)$').firstMatch(f.bodyName.trim());
+        final num = m == null ? null : int.tryParse(m.group(1)!);
+        if (num != null && num > p.solidN) p.solidN = num;
+      }
+    }
+    final ok = recomputeFeature(p, f, partKernel);
+    if (!ok) {
+      if (partKernel.available || f.computeError != 'no 3D kernel linked') {
+        toast('${f.name}: ${f.computeError ?? partKernel.lastError}');
+      }
+      if (!partKernel.available) {
+        // parameters are stored honestly; the solid waits for the device
+        toast('No 3D kernel linked — feature stored, solid pending.');
+      } else if (s.editing == null) {
+        return false; // a NEW feature that cannot compute is not created
+      }
+    }
+    if (s.editing == null) p.features.add(f);
+    p.dirty = true;
+    s.disposePreview();
+    Log.i('part', 'extrude ${s.editing == null ? "created" : "edited"} '
+        '${f.name} (${f.bodyName}) profiles=${f.profiles.length} '
+        'h=${f.distanceA}/${f.distanceB} ${extrudeDirName(f.direction)} '
+        'taper=${f.taperDeg} ok=$ok');
+    if (keepOpen) {
+      extrudeSession = ExtrudeSession()
+        ..sketchName = s.sketchName
+        ..bodyName = 'Solid${p.solidN + 1}';
+    } else {
+      extrudeSession = null;
+      _regionCache.clear();
+    }
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return ok;
+  }
+
+  void cancelExtrude() {
+    extrudeSession?.disposePreview();
+    extrudeSession = null;
+    _regionCache.clear();
+  }
+
+  /// Esc in the 3D viewport: session first, then an armed plane pick.
+  void escape3D() {
+    if (extrudeSession != null) {
+      cancelExtrude();
+      notifyListeners();
+    } else if (pickPlane) {
+      cancelPlanePick();
+    }
+  }
+
+  void toggleFeatureVisible(ExtrudeFeature f) {
+    f.visible = !f.visible;
+    currentPart?.dirty = true;
+    notifyListeners();
+  }
+
+  Future<void> deleteFeature(ExtrudeFeature f) async {
+    final p = currentPart;
+    if (p == null) return;
+    f.disposeSolid();
+    p.features.remove(f);
+    p.dirty = true;
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+  }
+
+  // ---- child-sketch persistence: SAME sidecar formats as the top-level
+  // sketches, against a per-part directory. The top-level save/load path is
+  // deliberately untouched (battle-tested); keep the formats in sync.
+  Future<void> _saveSketchIn(Directory dir, SketchModel s) async {
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final base = '${dir.path}/${s.name}';
+    s.engine.saveDxf('$base.dxf');
+    try {
+      File('$base.cons.json')
+          .writeAsStringSync(encodeConstraints(s.constraints));
+      File('$base.params.json')
+          .writeAsStringSync(encodeUserParams(s.userParams));
+      File('$base.texts.json').writeAsStringSync(encodeTexts(s.texts));
+      File('$base.images.json').writeAsStringSync(encodeImages(s.images));
+      final spl = <String, int>{}, sty = <String, int>{};
+      final prj = <String, dynamic>{};
+      for (var i = 0; i < s.geometry.length; i++) {
+        final g = s.geometry[i];
+        if (g.spline != Geo.straight) spl['$i'] = g.spline;
+        if (g.style != Geo.styleNormal) sty['$i'] = g.style;
+        if (g.isProjection) {
+          prj['$i'] = g.projSeg >= 0 ? [g.proj, g.projSeg] : g.proj;
+        }
+      }
+      File('$base.splines.json').writeAsStringSync(jsonEncode(spl));
+      File('$base.styles.json').writeAsStringSync(jsonEncode(sty));
+      File('$base.proj.json').writeAsStringSync(jsonEncode(prj));
+      File('$base.layers.json').writeAsStringSync(jsonEncode({
+        'version': 3,
+        'layers': s.layers,
+        'hidden': s.hiddenLayers.toList(),
+        'locked': s.lockedLayers.toList(),
+        'eos': s.eosAfter,
+      }));
+    } catch (e) {
+      Log.w('part', 'child sidecar write failed: $e');
+    }
+  }
+
+  Future<SketchModel> _loadSketchIn(Directory dir, String name) async {
+    final s = SketchModel(name);
+    final base = '${dir.path}/$name';
+    final f = File('$base.dxf');
+    if (f.existsSync()) {
+      s.engine.loadDxf(f.path);
+      s.refresh();
+      try {
+        final cf = File('$base.cons.json');
+        if (cf.existsSync()) {
+          s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
+          ensureParamNames(s);
+        }
+        final pf = File('$base.params.json');
+        if (pf.existsSync()) {
+          s.userParams.addAll(decodeUserParams(pf.readAsStringSync()));
+        }
+        final tf = File('$base.texts.json');
+        if (tf.existsSync()) s.texts.addAll(decodeTexts(tf.readAsStringSync()));
+        final imf = File('$base.images.json');
+        if (imf.existsSync()) {
+          s.images.addAll(decodeImages(imf.readAsStringSync()));
+        }
+        void retag(String path, Geo Function(Geo, dynamic) apply) {
+          final rf = File(path);
+          if (!rf.existsSync()) return;
+          (jsonDecode(rf.readAsStringSync()) as Map<String, dynamic>)
+              .forEach((k, v) {
+            final i = int.tryParse(k);
+            if (i != null && i >= 0 && i < s.geometry.length) {
+              s.geometry[i] = apply(s.geometry[i], v);
+            }
+          });
+        }
+
+        retag('$base.splines.json',
+            (g, v) => g.type == Geo.polyline
+                ? g.asSpline((v as num).toInt())
+                : g);
+        retag('$base.styles.json', (g, v) => g.withStyle((v as num).toInt()));
+        retag(
+            '$base.proj.json',
+            (g, v) => v is List
+                ? g.withProj((v[0] as num).toInt(), (v[1] as num).toInt())
+                : g.withProj((v as num).toInt()));
+        syncProjections(s.geometry);
+        final lf = File('$base.layers.json');
+        var eos = -1;
+        if (lf.existsSync()) {
+          final j = jsonDecode(lf.readAsStringSync()) as Map<String, dynamic>;
+          s.layers.addAll(
+              [for (final l in (j['layers'] as List? ?? const [])) l as String]);
+          s.hiddenLayers
+              .addAll((j['hidden'] as List? ?? const []).cast<String>());
+          s.lockedLayers
+              .addAll((j['locked'] as List? ?? const []).cast<String>());
+          eos = (j['eos'] as num?)?.toInt() ?? -1;
+        }
+        s.eosAfter = eos < 0 ? s.layers.length : eos;
+        _syncLayers(s);
+        _pruneEmptyBaseLayer(s);
+      } catch (e) {
+        Log.w('part', 'child sidecar read failed: $e');
+      }
+    }
+    s.resetHistory();
+    return s;
   }
 
   void toggleAutoConstrain() {

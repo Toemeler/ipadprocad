@@ -17,6 +17,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../part_model.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
@@ -552,6 +553,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   Widget build(BuildContext context) {
     final app = widget.app;
     final s = app.current;
+    final part = app.activeChild == null ? app.currentPart : null;
     // Layers appear, vanish and get renamed without this widget remounting.
     _schedulePush();
     return Container(
@@ -600,8 +602,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
               _row(
                 indent: 0,
                 exp: ' ',
-                icon: sketchCubeIcon,
-                label: app.curTab ?? 'Sketch1',
+                icon: part != null ? partCubeIcon : sketchCubeIcon,
+                label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
               ),
               _row(
                 indent: 8,
@@ -611,24 +613,54 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 onTap: () => setState(() => originOpen = !originOpen),
               ),
               if (originOpen) ...[
-                _row(indent: 30, icon: xAxisIcon, label: 'X Axis'),
-                _row(indent: 30, icon: yAxisIcon, label: 'Y Axis'),
-                Tooltip(
-                  message: 'Automatically projected',
-                  child:
-                      _row(indent: 30, icon: centerPointIcon, label: 'Center Point'),
-                ),
+                // A 3D part carries the FULL origin: 3 work planes, 3 axes
+                // and the centre point, each with its own visibility eye
+                // wired straight into the 3D scene (M56).
+                if (part != null) ...[
+                  for (final o in const [
+                    ('YZ Plane', 'yz'),
+                    ('XZ Plane', 'xz'),
+                    ('XY Plane', 'xy'),
+                    ('X Axis', 'x'),
+                    ('Y Axis', 'y'),
+                    ('Z Axis', 'z'),
+                    ('Center Point', 'cp'),
+                  ])
+                    _originRow(app, part, o.$1, o.$2),
+                ] else ...[
+                  _row(indent: 30, icon: xAxisIcon, label: 'X Axis'),
+                  _row(indent: 30, icon: yAxisIcon, label: 'Y Axis'),
+                  Tooltip(
+                    message: 'Automatically projected',
+                    child: _row(
+                        indent: 30, icon: centerPointIcon, label: 'Center Point'),
+                  ),
+                ],
+              ],
+              // A part shows its child sketches and features instead of
+              // layers; the open child sketch falls through to the 2D tree.
+              if (part != null && app.activeChild == null) ...[
+                for (final cs in part.childSketches)
+                  GestureDetector(
+                    onDoubleTap: () => app.openChildSketch(cs.model.name),
+                    child: _row(
+                        indent: 8,
+                        exp: ' ',
+                        icon: sketchCubeIcon,
+                        label: cs.model.name),
+                  ),
+                for (final f in part.features) _featureRow(app, f),
               ],
               // layers container, with the End-of-Sketch marker at its
               // slot (M53): everything after the marker renders rolled back
-              if (s != null) ...[
+              if (s != null && part == null) ...[
                 for (var i = 0; i < s.layers.length; i++) ...[
                   if (i == _shownEos(s)) _eosRow(app, s),
                   _layerRow(app, s.layers[i],
                       rolled: i >= _shownEos(s)),
                 ],
                 if (_shownEos(s) >= s.layers.length) _eosRow(app, s),
-              ] else
+              ] else if (part == null)
                 _row(indent: 8,
                     exp: ' ',
                     icon: endOfSketchIcon,
@@ -639,6 +671,64 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ),
       ]),
     );
+  }
+
+  Widget _originRow(
+      AppState app, PartModel part, String label, String key) {
+    final on = part.vis[key] == true;
+    final row = _row(
+      indent: 30,
+      icon: switch (key) {
+        'yz' || 'xz' || 'xy' => planeIcon,
+        'x' => xAxisIcon,
+        'y' => yAxisIcon,
+        'z' => zAxisIcon,
+        _ => centerPointIcon,
+      },
+      label: label,
+      trailing: _EyeButton(
+          visible: on, onTap: () => app.togglePartOriginVis(key)),
+    );
+    return on ? row : Opacity(opacity: 0.45, child: row);
+  }
+
+  /// One feature row (Extrusion1, ...): eye toggles it, double-tap edits
+  /// it in the properties panel, long-press / right-click deletes.
+  Widget _featureRow(AppState app, ExtrudeFeature f) {
+    final broken = f.computeError != null;
+    final row = _row(
+      indent: 8,
+      exp: ' ',
+      icon: broken ? endOfSketchIcon : partCubeIcon,
+      label: f.name,
+      trailing: _EyeButton(
+          visible: f.visible, onTap: () => app.toggleFeatureVisible(f)),
+    );
+    return Listener(
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          _confirmDeleteFeature(f);
+        }
+      },
+      child: GestureDetector(
+        onDoubleTap: () => app.openExtrude(f),
+        onLongPress: () => _confirmDeleteFeature(f),
+        child: broken
+            ? Tooltip(message: f.computeError!, child: row)
+            : row,
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteFeature(ExtrudeFeature f) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Delete “${f.name}”?',
+      message: 'The feature and its solid are removed from the part.',
+      confirmLabel: 'Delete',
+    );
+    if (ok) await widget.app.deleteFeature(f);
   }
 
   Widget _layerRow(AppState app, String layer, {bool rolled = false}) {

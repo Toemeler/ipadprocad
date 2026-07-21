@@ -38,7 +38,7 @@ class BottomTabBar extends StatelessWidget {
         for (final t in app.openTabs)
           _Tab(
             on: app.curTab == t,
-            onTap: () => app.openSketch(t),
+            onTap: () => app.openDocument(t),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Text(t),
               const SizedBox(width: 6),

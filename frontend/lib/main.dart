@@ -16,6 +16,8 @@ import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
 import 'widgets/ribbon.dart';
 import 'widgets/viewport.dart';
+import 'widgets/viewport3d.dart';
+import 'widgets/extrude_dialog.dart';
 
 void main() {
   // Logger FIRST — works synchronously, before any binding exists.
@@ -139,7 +141,20 @@ class IpadProCadApp extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                                 ModelBrowser(app: app),
-                                Expanded(child: Viewport2D(app: app)),
+                                Expanded(
+                                  // A 3D part shows the part viewport; an
+                                  // open child sketch falls through to the
+                                  // unchanged 2D sketcher (M56).
+                                  child: app.currentPart != null &&
+                                          app.activeChild == null
+                                      ? Stack(children: [
+                                          Positioned.fill(
+                                              child: Viewport3D(app: app)),
+                                          if (app.extrudeSession != null)
+                                            ExtrudeDialog(app: app),
+                                        ])
+                                      : Viewport2D(app: app),
+                                ),
                               ]),
                   ),
                   BottomTabBar(app: app),

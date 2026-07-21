@@ -147,7 +147,7 @@ class _HomeViewState extends State<HomeView> {
         _promptRename(sketch);
         break;
       case 'duplicate':
-        widget.app.duplicateSketch(sketch);
+        widget.app.duplicateDocument(sketch);
         break;
       case 'export':
         _sendFile(sketch, share: false);
@@ -173,16 +173,78 @@ class _HomeViewState extends State<HomeView> {
       confirmLabel: 'Create',
       validate: (v) =>
           app.validateSketchName(v) ??
-          (app.sketchNameExists(v.trim())
-              ? 'A sketch with that name already exists'
+          (app.docNameExists(v.trim())
+              ? 'A sketch or part with that name already exists'
               : null),
     );
     if (name == null) return;
     await app.createNamedSketch(name);
   }
 
+  /// The "+" offers both document kinds (mock: iosMenu with New 2D Sketch /
+  /// New 3D Part). On iOS the native menu draws it; elsewhere a Flutter
+  /// popup with the same two entries.
+  Future<void> _showNewMenu() async {
+    final box = context.findRenderObject();
+    final anchor = box is RenderBox
+        ? box.localToGlobal(Offset.zero) & box.size
+        : Rect.zero;
+    final choice = await showMenu<String>(
+      context: context,
+      color: T.fly,
+      position: RelativeRect.fromLTRB(
+          anchor.right - 240, 68, 24, anchor.bottom),
+      items: [
+        PopupMenuItem(
+          value: '2d',
+          height: 40,
+          child: Row(children: [
+            SvgPicture.string(sketch2dMenuIcon, width: 18, height: 18),
+            const SizedBox(width: 10),
+            Text('New 2D Sketch', style: ts(12.5, T.text)),
+          ]),
+        ),
+        PopupMenuItem(
+          value: '3d',
+          height: 40,
+          child: Row(children: [
+            SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
+            const SizedBox(width: 10),
+            Text('New 3D Part', style: ts(12.5, T.text)),
+          ]),
+        ),
+      ],
+    );
+    if (choice == '2d') {
+      await _promptNewSketch();
+    } else if (choice == '3d') {
+      await _promptNewPart();
+    }
+  }
+
+  Future<void> _promptNewPart() async {
+    final app = widget.app;
+    final name = await promptForText(
+      context,
+      title: 'New part',
+      initialValue: app.suggestedPartName(),
+      placeholder: 'Part name',
+      confirmLabel: 'Create',
+      validate: (v) =>
+          app.validateSketchName(v) ??
+          (app.docNameExists(v.trim())
+              ? 'A sketch or part with that name already exists'
+              : null),
+    );
+    if (name == null) return;
+    await app.createNamedPart(name);
+  }
+
   Future<void> _sendFile(String name, {required bool share}) async {
-    final path = await widget.app.sketchExportPath(name);
+    // A part exports as STEP (its solids), a sketch as DXF.
+    final path = widget.app.isPartName(name)
+        ? await widget.app.partExportStep(name)
+        : await widget.app.sketchExportPath(name);
     if (path == null || !mounted) return;
     // iPad refuses to present these sheets without a popover anchor.
     final anchor = _globalRect(_keyFor(name)) ??
@@ -205,12 +267,12 @@ class _HomeViewState extends State<HomeView> {
       confirmLabel: 'Rename',
       validate: (v) =>
           app.validateSketchName(v) ??
-          (v.trim() != name && app.sketchNameExists(v.trim())
-              ? 'A sketch with that name already exists'
+          (v.trim() != name && app.docNameExists(v.trim())
+              ? 'A sketch or part with that name already exists'
               : null),
     );
     if (result != null && result.trim() != name) {
-      await app.renameSketch(name, result);
+      await app.renameDocument(name, result);
     }
   }
 
@@ -222,7 +284,7 @@ class _HomeViewState extends State<HomeView> {
           'This can’t be undone.',
       confirmLabel: 'Delete',
     );
-    if (ok) await widget.app.deleteSketch(name);
+    if (ok) await widget.app.deleteDocument(name);
   }
 
   @override
@@ -241,7 +303,7 @@ class _HomeViewState extends State<HomeView> {
         Padding(
           padding: const EdgeInsets.fromLTRB(_kPad, 12, _kPad, 10),
           child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            _PlusButton(onTap: _promptNewSketch),
+            _PlusButton(onTap: _showNewMenu),
           ]),
         ),
         Expanded(
@@ -306,7 +368,8 @@ class _Grid extends StatelessWidget {
                     date: _fmt(s.modified),
                     preview: s.preview,
                     thumbHeight: cardH,
-                    onTap: () => app.openSketch(s.name),
+                    kind: s.kind,
+                    onTap: () => app.openDocument(s.name),
                   ),
                 ),
             ],
@@ -356,7 +419,7 @@ class _EmptyState extends StatelessWidget {
     // Deliberately ONE line. The cube glyph and the "No sketches yet" heading
     // were decoration around a message that already says everything.
     return Center(
-      child: Text('Tap  +  to create a new sketch',
+      child: Text('Tap  +  to create a new sketch or part',
           style: ts(13.5, T.cardDate)),
     );
   }
@@ -366,6 +429,7 @@ class _Card extends StatefulWidget {
   final String name, date;
   final File? preview;
   final double thumbHeight;
+  final String kind;
   final VoidCallback onTap;
   const _Card({
     required this.name,
@@ -373,6 +437,7 @@ class _Card extends StatefulWidget {
     required this.preview,
     required this.thumbHeight,
     required this.onTap,
+    this.kind = 'sketch',
   });
   @override
   State<_Card> createState() => _CardState();
@@ -435,7 +500,10 @@ class _CardState extends State<_Card> {
   Widget _blank() => Center(
         child: Opacity(
           opacity: 0.5,
-          child: SvgPicture.string(sketchCubeIcon, width: 30, height: 30),
+          child: SvgPicture.string(
+              widget.kind == 'part' ? partCubeIcon : sketchCubeIcon,
+              width: 30,
+              height: 30),
         ),
       );
 }

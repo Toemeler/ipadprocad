@@ -1,6 +1,8 @@
-// Dart FFI binding for the OCCT shim (backend/occt/shim/occt_capi.h) — M55.
+// Dart FFI binding for the OCCT shim (backend/occt/shim/occt_capi.h) —
+// M55, grown to the shim v2 surface in M56 (extrude with holes + taper,
+// tessellation for display).
 //
-// Same architecture as slvs_ffi.dart / qcad_engine.dart: the 14 occt_*
+// Same architecture as slvs_ffi.dart / qcad_engine.dart: the 23 occt_*
 // symbols are statically linked into the app binary on iOS, so we resolve
 // them from DynamicLibrary.process(). If they are not linked (host
 // `flutter run`/`flutter test` without the native lib), [OcctFfi.instance]
@@ -16,6 +18,7 @@
 //     constructor must go through occt_free_shape exactly once.
 //   - Not thread-safe; call only from the UI thread like qcad/slvs.
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -58,12 +61,63 @@ typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
 typedef _FreeN = Void Function(Pointer<Void>);
 typedef _FreeD = void Function(Pointer<Void>);
 
+// ---- shim v2 (M56): extrude with holes + taper, tessellation ------------
+
+typedef _ExtrudeProfN = Pointer<Void> Function(
+    Pointer<Double>, Pointer<Int32>, Int32, Double, Double);
+typedef _ExtrudeProfD = Pointer<Void> Function(
+    Pointer<Double>, Pointer<Int32>, int, double, double);
+typedef _TransformN = Pointer<Void> Function(Pointer<Void>, Pointer<Double>);
+typedef _TransformD = Pointer<Void> Function(Pointer<Void>, Pointer<Double>);
+
+typedef _MeshCreateN = Pointer<Void> Function(Pointer<Void>, Double, Double);
+typedef _MeshCreateD = Pointer<Void> Function(Pointer<Void>, double, double);
+typedef _MeshCountsN = Int32 Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
+typedef _MeshCountsD = int Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
+typedef _MeshDblOutN = Int32 Function(Pointer<Void>, Pointer<Double>);
+typedef _MeshDblOutD = int Function(Pointer<Void>, Pointer<Double>);
+typedef _MeshIntOutN = Int32 Function(Pointer<Void>, Pointer<Int32>);
+typedef _MeshIntOutD = int Function(Pointer<Void>, Pointer<Int32>);
+typedef _MeshEdgesN = Int32 Function(
+    Pointer<Void>, Pointer<Int32>, Pointer<Double>);
+typedef _MeshEdgesD = int Function(
+    Pointer<Void>, Pointer<Int32>, Pointer<Double>);
+
 /// Topology counts of a shape, as reported by occt_shape_counts().
 class OcctCounts {
   final int faces, edges, vertices;
   const OcctCounts(this.faces, this.edges, this.vertices);
   @override
   String toString() => 'F$faces/E$edges/V$vertices';
+}
+
+/// A display triangulation copied out of the shim (see occt_capi.h v2).
+/// Pure Dart data — the native mesh handle is freed before this returns, so
+/// an [OcctMeshData] can outlive its shape and travel across isolates.
+///
+///  * [positions] / [normals]: 3 doubles per vertex; normals unit, outward.
+///  * [indices]: 3 per triangle, wound counter-clockwise seen from outside.
+///  * [edgeStarts]/[edgePoints]: B-Rep edge polylines for edge display —
+///    edge i spans points `[edgeStarts[i], edgeStarts[i+1])` of
+///    [edgePoints] (3 doubles per point).
+class OcctMeshData {
+  final Float64List positions;
+  final Float64List normals;
+  final Int32List indices;
+  final Int32List edgeStarts;
+  final Float64List edgePoints;
+  const OcctMeshData(this.positions, this.normals, this.indices,
+      this.edgeStarts, this.edgePoints);
+
+  int get vertexCount => positions.length ~/ 3;
+  int get triangleCount => indices.length ~/ 3;
+  int get edgeCount => edgeStarts.length - 1;
+
+  @override
+  String toString() =>
+      'mesh(v$vertexCount/t$triangleCount/e$edgeCount)';
 }
 
 /// An owned B-Rep shape. Call [dispose] exactly once; using a disposed
@@ -121,6 +175,77 @@ class OcctShape {
     }
   }
 
+  /// Rigid placement (shim v2): returns a NEW shape moved by the row-major
+  /// 3x4 matrix [mat34] = {r00 r01 r02 tx, r10 r11 r12 ty, r20 r21 r22 tz}.
+  /// The 3x3 part must be a pure rotation — the shim rejects scale/shear.
+  /// Null on failure (see [OcctFfi.lastError]).
+  OcctShape? transformed(List<double> mat34) {
+    if (mat34.length != 12) return null;
+    final p = calloc<Double>(12);
+    try {
+      for (var i = 0; i < 12; i++) {
+        p[i] = mat34[i];
+      }
+      return _ffi._wrap(_ffi._transform(_handle, p));
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Triangulate for display. [linDeflection] is the max sag in model units
+  /// (mm), [angDeflection] in radians. The buffers are copied to Dart and
+  /// the native mesh is freed before returning. Null on shim failure (see
+  /// [OcctFfi.lastError]).
+  OcctMeshData? mesh({double linDeflection = 0.2, double angDeflection = 0.35}) {
+    final f = _ffi;
+    final mp = f._meshCreate(_handle, linDeflection, angDeflection);
+    if (mp == nullptr) return null;
+    try {
+      final nv = calloc<Int32>(),
+          nt = calloc<Int32>(),
+          ne = calloc<Int32>(),
+          nep = calloc<Int32>();
+      try {
+        if (f._meshCounts(mp, nv, nt, ne, nep) != 1) return null;
+        final vN = nv.value, tN = nt.value, eN = ne.value, epN = nep.value;
+        if (vN <= 0 || tN <= 0) return null;
+        final vBuf = calloc<Double>(3 * vN);
+        final nBuf = calloc<Double>(3 * vN);
+        final tBuf = calloc<Int32>(3 * tN);
+        final sBuf = calloc<Int32>(eN + 1);
+        final eBuf = calloc<Double>(3 * (epN > 0 ? epN : 1));
+        try {
+          if (f._meshVertices(mp, vBuf) != 1 ||
+              f._meshNormals(mp, nBuf) != 1 ||
+              f._meshTriangles(mp, tBuf) != 1 ||
+              f._meshEdges(mp, sBuf, eBuf) != 1) {
+            return null;
+          }
+          return OcctMeshData(
+            Float64List.fromList(vBuf.asTypedList(3 * vN)),
+            Float64List.fromList(nBuf.asTypedList(3 * vN)),
+            Int32List.fromList(tBuf.asTypedList(3 * tN)),
+            Int32List.fromList(sBuf.asTypedList(eN + 1)),
+            Float64List.fromList(eBuf.asTypedList(3 * epN)),
+          );
+        } finally {
+          calloc.free(vBuf);
+          calloc.free(nBuf);
+          calloc.free(tBuf);
+          calloc.free(sBuf);
+          calloc.free(eBuf);
+        }
+      } finally {
+        calloc.free(nv);
+        calloc.free(nt);
+        calloc.free(ne);
+        calloc.free(nep);
+      }
+    } finally {
+      f._freeMesh(mp);
+    }
+  }
+
   void dispose() {
     if (_ptr == nullptr) return; // idempotent, like Engine.dispose
     _ffi._free(_ptr);
@@ -128,7 +253,7 @@ class OcctShape {
   }
 }
 
-/// Probe-once singleton over the 14-symbol OCCT shim surface.
+/// Probe-once singleton over the 23-symbol OCCT shim v2 surface.
 class OcctFfi {
   OcctFfi._(
       this.version,
@@ -144,7 +269,16 @@ class OcctFfi {
       this._bbox,
       this._exportStep,
       this._importStep,
-      this._free);
+      this._free,
+      this._extrudeProfile,
+      this._transform,
+      this._meshCreate,
+      this._meshCounts,
+      this._meshVertices,
+      this._meshNormals,
+      this._meshTriangles,
+      this._meshEdges,
+      this._freeMesh);
 
   /// occt_version() marker string, e.g.
   /// "iPadProCAD OCCT shim v1 (OCCT 7.9.3)".
@@ -166,13 +300,26 @@ class OcctFfi {
   final _ExportD _exportStep;
   final _ImportD _importStep;
   final _FreeD _free;
+  // shim v2 (M56)
+  final _ExtrudeProfD _extrudeProfile;
+  final _TransformD _transform;
+  final _MeshCreateD _meshCreate;
+  final _MeshCountsD _meshCounts;
+  final _MeshDblOutD _meshVertices;
+  final _MeshDblOutD _meshNormals;
+  final _MeshIntOutD _meshTriangles;
+  final _MeshEdgesD _meshEdges;
+  final _FreeD _freeMesh;
 
   static OcctFfi? _cached;
   static bool _probed = false;
 
-  /// The binding if all 14 occt_* symbols are linked, else null. Probed
-  /// once and cached (create() is cheap after that). No Dart fallback:
-  /// null means "no 3D kernel", period — report it, don't fake it.
+  /// The binding if all 23 occt_* symbols (shim v2) are linked, else null.
+  /// Probed once and cached (create() is cheap after that). No Dart
+  /// fallback: null means "no 3D kernel", period — report it, don't fake
+  /// it. A v1 binary (14 symbols, no mesh surface) also probes to null:
+  /// shim and app ship in the same IPA, so a partial surface can only mean
+  /// a stale build, and refusing it loudly beats crashing in lookup later.
   static OcctFfi? instance() {
     if (_probed) return _cached;
     _probed = true;
@@ -199,6 +346,16 @@ class OcctFfi {
         lib.lookupFunction<_ExportN, _ExportD>('occt_export_step'),
         lib.lookupFunction<_ImportN, _ImportD>('occt_import_step'),
         lib.lookupFunction<_FreeN, _FreeD>('occt_free_shape'),
+        lib.lookupFunction<_ExtrudeProfN, _ExtrudeProfD>(
+            'occt_extrude_profile'),
+        lib.lookupFunction<_TransformN, _TransformD>('occt_transform'),
+        lib.lookupFunction<_MeshCreateN, _MeshCreateD>('occt_mesh_create'),
+        lib.lookupFunction<_MeshCountsN, _MeshCountsD>('occt_mesh_counts'),
+        lib.lookupFunction<_MeshDblOutN, _MeshDblOutD>('occt_mesh_vertices'),
+        lib.lookupFunction<_MeshDblOutN, _MeshDblOutD>('occt_mesh_normals'),
+        lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_triangles'),
+        lib.lookupFunction<_MeshEdgesN, _MeshEdgesD>('occt_mesh_edges'),
+        lib.lookupFunction<_FreeN, _FreeD>('occt_free_mesh'),
       );
     } catch (_) {
       _cached = null;
@@ -242,6 +399,39 @@ class OcctFfi {
       return _wrap(_extrude(p, xy.length ~/ 2, height));
     } finally {
       calloc.free(p);
+    }
+  }
+
+  /// Shim v2 — extrude a MULTI-LOOP profile (Inventor semantics, see
+  /// occt_capi.h): [loops] holds the (x,y) point list of each loop in the
+  /// z=0 plane WITHOUT repeating the first point; loop 0 is the outer
+  /// boundary, the rest are holes strictly inside it. Winding order is
+  /// irrelevant (the shim normalises). Extrudes +Z by [height] (> 0) with
+  /// [taperDeg] draft — positive flares OUTWARD, Inventor's sign. Null on
+  /// failure (see [lastError]).
+  OcctShape? extrudeProfile(List<List<double>> loops, double height,
+      {double taperDeg = 0}) {
+    if (loops.isEmpty) return null;
+    var total = 0;
+    for (final l in loops) {
+      if (l.length < 6 || l.length.isOdd) return null;
+      total += l.length;
+    }
+    final xy = calloc<Double>(total);
+    final counts = calloc<Int32>(loops.length);
+    try {
+      var k = 0;
+      for (var i = 0; i < loops.length; i++) {
+        counts[i] = loops[i].length ~/ 2;
+        for (final v in loops[i]) {
+          xy[k++] = v;
+        }
+      }
+      return _wrap(
+          _extrudeProfile(xy, counts, loops.length, height, taperDeg));
+    } finally {
+      calloc.free(xy);
+      calloc.free(counts);
     }
   }
 

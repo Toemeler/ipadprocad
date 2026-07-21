@@ -13,8 +13,10 @@
  */
 #include "occt_capi.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include <Standard_Failure.hxx>
 #include <Standard_Version.hxx>
@@ -42,6 +44,24 @@
 #include <GProp_GProps.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+
+/* v2: taper (draft), tessellation, edge discretisation */
+#include <TopoDS.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Trsf.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <GeomAbs_SurfaceType.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRep_Tool.hxx>
+#include <Poly_Triangulation.hxx>
+#include <BRepLib_ToolTriangulatedShape.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
@@ -101,13 +121,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v1 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v2 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 1; }
+extern "C" int occt_shim_version(void) { return 2; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -188,6 +208,146 @@ extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
     OCCT_CATCH("occt_fuse", nullptr)
 }
 
+/* Signed area of loop i (positive = counter-clockwise in the z=0 plane). */
+static double loop_signed_area(const double *xy, int npts)
+{
+    double a = 0.0;
+    for (int i = 0; i < npts; ++i) {
+        const int j = (i + 1) % npts;
+        a += xy[2 * i] * xy[2 * j + 1] - xy[2 * j] * xy[2 * i + 1];
+    }
+    return 0.5 * a;
+}
+
+/* Builds the polygon wire of one loop, in the given traversal direction. */
+static TopoDS_Wire loop_wire(const double *xy, int npts, bool forward,
+                             bool *ok)
+{
+    BRepBuilderAPI_MakePolygon poly;
+    for (int k = 0; k < npts; ++k) {
+        const int i = forward ? k : (npts - 1 - k);
+        poly.Add(gp_Pnt(xy[2 * i], xy[2 * i + 1], 0.0));
+    }
+    poly.Close();
+    *ok = poly.IsDone();
+    return *ok ? poly.Wire() : TopoDS_Wire();
+}
+
+extern "C" occt_shape *occt_extrude_profile(const double *xy,
+                                            const int *loop_counts,
+                                            int nloops, double height,
+                                            double taper_deg)
+{
+    OCCT_TRY("occt_extrude_profile")
+    if (!xy || !loop_counts || nloops < 1) {
+        set_err("occt_extrude_profile", "null profile arguments");
+        return nullptr;
+    }
+    if (height <= 0) {
+        set_err("occt_extrude_profile", "height must be > 0");
+        return nullptr;
+    }
+    for (int l = 0; l < nloops; ++l) {
+        if (loop_counts[l] < 3) {
+            set_err("occt_extrude_profile",
+                    "every loop needs at least 3 points");
+            return nullptr;
+        }
+    }
+
+    /* Winding is normalised HERE so callers never have to care: the outer
+     * boundary is forced counter-clockwise, holes clockwise — the exact
+     * orientation BRepBuilderAPI_MakeFace expects for added hole wires. */
+    const double *p = xy;
+    bool ok = false;
+    const double a0 = loop_signed_area(p, loop_counts[0]);
+    if (std::fabs(a0) < 1e-12) {
+        set_err("occt_extrude_profile", "outer loop is degenerate");
+        return nullptr;
+    }
+    TopoDS_Wire outer = loop_wire(p, loop_counts[0], a0 > 0.0, &ok);
+    if (!ok) {
+        set_err("occt_extrude_profile", "outer wire construction failed");
+        return nullptr;
+    }
+    BRepBuilderAPI_MakeFace faceMk(outer, Standard_True /* planar only */);
+    if (!faceMk.IsDone()) {
+        set_err("occt_extrude_profile",
+                "outer loop is not a valid planar face (self-intersecting?)");
+        return nullptr;
+    }
+    p += 2 * loop_counts[0];
+    for (int l = 1; l < nloops; ++l) {
+        const double a = loop_signed_area(p, loop_counts[l]);
+        if (std::fabs(a) < 1e-12) {
+            set_err("occt_extrude_profile", "hole loop is degenerate");
+            return nullptr;
+        }
+        /* holes run clockwise */
+        TopoDS_Wire holeW = loop_wire(p, loop_counts[l], a < 0.0, &ok);
+        if (!ok) {
+            set_err("occt_extrude_profile", "hole wire construction failed");
+            return nullptr;
+        }
+        faceMk.Add(holeW);
+        p += 2 * loop_counts[l];
+    }
+    if (!faceMk.IsDone()) {
+        set_err("occt_extrude_profile",
+                "profile face with holes failed (hole outside the outer "
+                "loop, or loops intersect?)");
+        return nullptr;
+    }
+    const TopoDS_Face face = faceMk.Face();
+    BRepPrimAPI_MakePrism prism(face, gp_Vec(0.0, 0.0, height));
+    if (std::fabs(taper_deg) < 1e-9)
+        return wrap(prism.Shape(), "occt_extrude_profile");
+
+    /* Taper: OCCT's draft-angle transform on every lateral (side) face.
+     * Sign bridge (see occt_capi.h): OCCT removes matter on the Direction
+     * side for POSITIVE angles, Inventor's positive taper flares OUTWARD
+     * (matter added) — so Inventor angle == MINUS the OCCT angle. */
+    if (std::fabs(taper_deg) >= 90.0) {
+        set_err("occt_extrude_profile", "taper must be inside (-90, 90) deg");
+        return nullptr;
+    }
+    const double occtAngle = -taper_deg * (3.14159265358979323846 / 180.0);
+    const gp_Dir pullDir(0.0, 0.0, 1.0);
+    const gp_Pln neutral(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+    BRepOffsetAPI_DraftAngle draft(prism.Shape());
+    int added = 0;
+    for (TopExp_Explorer ex(prism.Shape(), TopAbs_FACE); ex.More();
+         ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        BRepAdaptor_Surface surf(f, Standard_False);
+        if (surf.GetType() != GeomAbs_Plane)
+            continue; /* polygon prisms have only planar faces */
+        const double nz = surf.Plane().Axis().Direction().Z();
+        if (std::fabs(nz) > 1e-7)
+            continue; /* top/bottom cap, not a lateral face */
+        draft.Add(f, pullDir, occtAngle, neutral);
+        if (!draft.AddDone()) {
+            set_err("occt_extrude_profile",
+                    "draft transform rejected a lateral face "
+                    "(taper too large for this profile?)");
+            return nullptr;
+        }
+        ++added;
+    }
+    if (added == 0) {
+        set_err("occt_extrude_profile", "no lateral faces found to taper");
+        return nullptr;
+    }
+    draft.Build();
+    if (!draft.IsDone()) {
+        set_err("occt_extrude_profile",
+                "draft transform failed (taper too large for this profile?)");
+        return nullptr;
+    }
+    return wrap(draft.Shape(), "occt_extrude_profile");
+    OCCT_CATCH("occt_extrude_profile", nullptr)
+}
+
 /* ---- queries -------------------------------------------------------------- */
 
 extern "C" int occt_shape_counts(const occt_shape *shape,
@@ -258,6 +418,203 @@ extern "C" int occt_bbox(const occt_shape *shape, double *out6)
     box.Get(out6[0], out6[1], out6[2], out6[3], out6[4], out6[5]);
     return 1;
     OCCT_CATCH("occt_bbox", 0)
+}
+
+extern "C" occt_shape *occt_transform(const occt_shape *shape,
+                                      const double *mat34)
+{
+    OCCT_TRY("occt_transform")
+    if (!shape || !mat34) {
+        set_err("occt_transform", "null argument");
+        return nullptr;
+    }
+    gp_Trsf t;
+    /* SetValues validates the rotation part (orthonormal, det +1) and
+     * throws gp_ConstructionError otherwise — caught by OCCT_CATCH. */
+    t.SetValues(mat34[0], mat34[1], mat34[2], mat34[3],
+                mat34[4], mat34[5], mat34[6], mat34[7],
+                mat34[8], mat34[9], mat34[10], mat34[11]);
+    BRepBuilderAPI_Transform tr(shape->s, t, Standard_True /* copy */);
+    if (!tr.IsDone()) {
+        set_err("occt_transform", "transform did not complete");
+        return nullptr;
+    }
+    return wrap(tr.Shape(), "occt_transform");
+    OCCT_CATCH("occt_transform", nullptr)
+}
+
+/* ---- v2: tessellation --------------------------------------------------- */
+
+struct occt_mesh
+{
+    std::vector<double> verts;      /* 3 per vertex */
+    std::vector<double> norms;      /* 3 per vertex, unit, outward */
+    std::vector<int> tris;          /* 3 indices per triangle, CCW outside */
+    std::vector<int> edge_starts;   /* nedges+1 offsets into edge_pts/3 */
+    std::vector<double> edge_pts;   /* 3 per edge point */
+};
+
+extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
+                                       double lin_deflection,
+                                       double ang_deflection)
+{
+    OCCT_TRY("occt_mesh_create")
+    if (!shape) {
+        set_err("occt_mesh_create", "null shape");
+        return nullptr;
+    }
+    if (!(lin_deflection > 0) || !(ang_deflection > 0)) {
+        set_err("occt_mesh_create", "deflections must be > 0");
+        return nullptr;
+    }
+    /* Triangulate in place (results are cached on the faces). */
+    BRepMesh_IncrementalMesh mesher(shape->s, lin_deflection,
+                                    Standard_False, ang_deflection,
+                                    Standard_False);
+    (void)mesher;
+
+    std::vector<double> verts, norms, edge_pts;
+    std::vector<int> tris, edge_starts;
+    edge_starts.push_back(0);
+
+    /* Faces -> shaded triangles. Vertices are emitted PER FACE, so B-Rep
+     * edges stay crisp while each curved face shades smoothly. */
+    for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face face = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
+        if (tri.IsNull() || tri->NbTriangles() < 1)
+            continue;
+        BRepLib_ToolTriangulatedShape::ComputeNormals(face, tri);
+        const gp_Trsf trsf = loc.Transformation();
+        const bool reversed = (face.Orientation() == TopAbs_REVERSED);
+        const int base = (int)(verts.size() / 3);
+        const int nn = tri->NbNodes();
+        for (int i = 1; i <= nn; ++i) {
+            gp_Pnt p = tri->Node(i).Transformed(trsf);
+            verts.push_back(p.X());
+            verts.push_back(p.Y());
+            verts.push_back(p.Z());
+            gp_Dir n = tri->Normal(i);
+            if (loc.IsIdentity() == Standard_False)
+                n.Transform(trsf); /* rotate normals with the location */
+            const double s = reversed ? -1.0 : 1.0;
+            norms.push_back(s * n.X());
+            norms.push_back(s * n.Y());
+            norms.push_back(s * n.Z());
+        }
+        for (int t = 1; t <= tri->NbTriangles(); ++t) {
+            int n1, n2, n3;
+            tri->Triangle(t).Get(n1, n2, n3);
+            if (reversed)
+                std::swap(n2, n3); /* keep CCW-from-outside winding */
+            tris.push_back(base + n1 - 1);
+            tris.push_back(base + n2 - 1);
+            tris.push_back(base + n3 - 1);
+        }
+    }
+
+    /* Edges -> display polylines, discretised straight from the curves so
+     * they are smooth regardless of the face tessellation. */
+    TopTools_IndexedMapOfShape edgeMap;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, edgeMap);
+    for (int i = 1; i <= edgeMap.Extent(); ++i) {
+        const TopoDS_Edge edge = TopoDS::Edge(edgeMap.FindKey(i));
+        if (BRep_Tool::Degenerated(edge))
+            continue;
+        BRepAdaptor_Curve curve(edge);
+        GCPnts_TangentialDeflection disc(curve, ang_deflection,
+                                         lin_deflection, 2);
+        const int np = disc.NbPoints();
+        if (np < 2)
+            continue;
+        for (int k = 1; k <= np; ++k) {
+            const gp_Pnt p = disc.Value(k);
+            edge_pts.push_back(p.X());
+            edge_pts.push_back(p.Y());
+            edge_pts.push_back(p.Z());
+        }
+        edge_starts.push_back((int)(edge_pts.size() / 3));
+    }
+
+    if (tris.empty()) {
+        set_err("occt_mesh_create", "triangulation produced no triangles");
+        return nullptr;
+    }
+    occt_mesh *m = new occt_mesh();
+    m->verts.swap(verts);
+    m->norms.swap(norms);
+    m->tris.swap(tris);
+    m->edge_starts.swap(edge_starts);
+    m->edge_pts.swap(edge_pts);
+    return m;
+    OCCT_CATCH("occt_mesh_create", nullptr)
+}
+
+extern "C" int occt_mesh_counts(const occt_mesh *m, int *nvertices,
+                                int *ntriangles, int *nedges,
+                                int *nedge_points)
+{
+    if (!m) {
+        set_err("occt_mesh_counts", "null mesh");
+        return 0;
+    }
+    if (nvertices)
+        *nvertices = (int)(m->verts.size() / 3);
+    if (ntriangles)
+        *ntriangles = (int)(m->tris.size() / 3);
+    if (nedges)
+        *nedges = (int)(m->edge_starts.size() - 1);
+    if (nedge_points)
+        *nedge_points = (int)(m->edge_pts.size() / 3);
+    return 1;
+}
+
+extern "C" int occt_mesh_vertices(const occt_mesh *m, double *out)
+{
+    if (!m || !out) {
+        set_err("occt_mesh_vertices", "null argument");
+        return 0;
+    }
+    std::memcpy(out, m->verts.data(), m->verts.size() * sizeof(double));
+    return 1;
+}
+
+extern "C" int occt_mesh_normals(const occt_mesh *m, double *out)
+{
+    if (!m || !out) {
+        set_err("occt_mesh_normals", "null argument");
+        return 0;
+    }
+    std::memcpy(out, m->norms.data(), m->norms.size() * sizeof(double));
+    return 1;
+}
+
+extern "C" int occt_mesh_triangles(const occt_mesh *m, int *out)
+{
+    if (!m || !out) {
+        set_err("occt_mesh_triangles", "null argument");
+        return 0;
+    }
+    std::memcpy(out, m->tris.data(), m->tris.size() * sizeof(int));
+    return 1;
+}
+
+extern "C" int occt_mesh_edges(const occt_mesh *m, int *starts, double *pts)
+{
+    if (!m || !starts || !pts) {
+        set_err("occt_mesh_edges", "null argument");
+        return 0;
+    }
+    std::memcpy(starts, m->edge_starts.data(),
+                m->edge_starts.size() * sizeof(int));
+    std::memcpy(pts, m->edge_pts.data(), m->edge_pts.size() * sizeof(double));
+    return 1;
+}
+
+extern "C" void occt_free_mesh(occt_mesh *m)
+{
+    delete m; /* delete nullptr is a no-op */
 }
 
 /* ---- STEP ------------------------------------------------------------------ */

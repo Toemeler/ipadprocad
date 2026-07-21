@@ -16,7 +16,55 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **Stand dieser Session (Kopf = M48, natives Kontextmenue):** M48 ist neu
+> **Stand dieser Session (Kopf = M56, 3D-Teile + Extrude):** Der komplette
+> Workflow steht: **+ > New 3D Part** -> **Start 2D Sketch** -> Ebene im
+> 3D-Viewport antippen -> der UNVERAENDERTE 2D-Sketcher zeichnet auf dieser
+> Ebene -> **Finish Sketch** -> zurueck im 3D-Teil -> **Extrude** mit dem
+> Inventor-Eigenschaftsfenster (Profile-Pick im Viewport, 4 Richtungen,
+> Distance A/B, Taper, Body Name, OK/Cancel/+) -> das Solid steht im
+> Viewport. Host: **331 Tests gruen** (30 neue in `m56_part_test.dart`),
+> `flutter analyze` **0 errors**.
+>
+> **Was NEU ist (Details unten unter M56):**
+> - `backend/occt/shim` -> **v2, 23 Symbole**: `occt_extrude_profile`
+>   (Multi-Loop = Loecher, + Taper mit Inventor-Vorzeichen),
+>   `occt_transform` (starre Platzierung) und 7 Mesh-Funktionen
+>   (Tessellation fuer die Anzeige). Die drei `-ge 14`-Gates in BEIDEN
+>   Workflows stehen jetzt auf **23**. `smoke_occt.c` prueft die neuen
+>   Pfade mit harten Zahlen ([7]-[14], u.a. Frustum-Volumen analytisch,
+>   Loch schrumpft bei positivem Taper, Mesh-Volumen per Divergenzsatz =
+>   +6000 als Winding-Beweis).
+> - `frontend/lib/part_model.dart` (neu): Ebenen-Frames, Profil-Erkennung
+>   (Kanten-Verkettung ueber Endpunkte, Loch-Hierarchie), ExtrudeFeature,
+>   Kernel-Bruecke `PartKernel` (Tests injizieren ein Fake, die App
+>   NIEMALS — ohne Kernel gibt es kein Fake-B-Rep).
+> - `frontend/lib/widgets/viewport3d.dart` (neu): der 3D-Viewport als
+>   reiner CustomPainter (0 neue Dependencies) — Ortho-Kamera wie im
+>   Dummy, ViewCube mit Face/Edge/Corner-Snap, Triade, Zoom-to-Cursor,
+>   Plane-Pick, Profil-Highlight, Painter-sortierte Solids.
+> - `frontend/lib/widgets/extrude_dialog.dart` (neu): das
+>   Eigenschaftsfenster aus dem Referenz-Screenshot.
+> - Icons (CR/MO/WF/PT/PL/AX/PN + Part-Tree) 1:1 aus dem HTML-Dummy
+>   nach `svg_icons.dart` portiert.
+>
+> **OFFENE SCHULD (ehrlich):** wie bei M55 fehlt der GERAETE-Beweis. Auf
+> dem Host sind die occt_*-Symbole nicht gelinkt, d.h. `OcctPartKernel`
+> meldet korrekt `available == false` und KEIN Solid entsteht — die
+> Extrude-Logik ist host-getestet, der echte B-Rep-Pfad (Profil ->
+> occt_extrude_profile -> Mesh -> Anzeige) lief noch nie. Auf dem iPad
+> muss der erste Start `DART SMOKE: PASS (backend=occt-ffi, shim v2, ...)`
+> zeigen; danach das Extrude eines Rechtecks: Solid sichtbar, schattiert,
+> mit Kanten. Bis dahin gilt: "verdrahtet, gegated, host-getestet —
+> Geraete-Smoke ausstehend".
+>
+> **Naechste Schritte:** (1) Geraete-Test des Workflows. (2) Die
+> restlichen Create-/Modify-Buttons sind bewusst noch Platzhalter
+> (Revolve/Sweep/Loft/Hole/Fillet/...) — Muster: Feature-Klasse neben
+> ExtrudeFeature, Shim-Funktion + Smoke + die drei Symbol-Gates
+> hochzaehlen. (3) Booleans zwischen Features (der Shim kann `fuse`
+> bereits; die UI entscheidet noch nicht Join/Cut/Intersect).
+>
+> **Stand davor (Kopf = M48, natives Kontextmenue):** M48 ist neu
 > und host-getestet (**245 Tests gruen**, `flutter analyze` ohne neue Issues).
 > Der IPA-Job baut jetzt auf **macos-26 (Xcode 26 / iOS-26-SDK)** — siehe M48.
 >
@@ -2596,3 +2644,71 @@ greppt (Muster vom M3-Launcher übernehmbar).
    Visualization-Modul nachziehen ⇒ Cache-Key-Bump -r2 in BEIDEN Workflows.
 3. Shim-Wachstum (Cut/Common, Fillet 3D, Transformationen,
    Tessellation-Export) nach M54-Muster: drei `-ge 14`-Stellen anpassen!
+
+
+## M56 — 3D-Teile, Skizze auf einer Ebene, Extrude produktionsreif
+
+**Der Workflow (das Ziel dieser Session), Schritt fuer Schritt:**
+1. Gallery **+** -> Menue **New 2D Sketch / New 3D Part** (`home_view.dart`).
+2. **New 3D Part** -> Namensprompt (gleiche Validierung wie Sketches, aber
+   EIN Namensraum fuer beide Doku-Arten: `docNameExists`) -> Part-Tab.
+3. Part-Ribbon (`_partRibbon` in `ribbon.dart`): Sketch / Create / Modify /
+   Work Features / Pattern, exakt die Panels des HTML-Dummys. NUR
+   **Start 2D Sketch** und **Extrude** sind verdrahtet, der Rest ist
+   bewusst inert (wie im Dummy).
+4. **Start 2D Sketch** -> die drei Origin-Ebenen werden sichtbar,
+   `pickPlane` ist scharf; Tippen auf eine Ebene erzeugt die Kind-Skizze,
+   dreht die Kamera frontal darauf und landet in einem frischen Layer 1.
+5. Ab hier ist ALLES der bestehende 2D-Sketcher: `app.current` liefert
+   `activeChild`, also greifen Ribbon-Edit-Zweig, Model-Browser, Viewport,
+   Tools, Solver, Bemassungen, Undo unveraendert.
+6. **Finish Sketch** -> zurueck ins 3D-Teil; jedes Feature wird gegen den
+   neuen Skizzenstand neu gerechnet.
+7. **Extrude** -> das Eigenschaftsfenster; Profile werden IM VIEWPORT
+   gepickt (Hover-Highlight, Mehrfachauswahl, Klick nochmal = abwaehlen).
+   OK legt das Feature an, **+** legt es an und macht direkt weiter.
+
+**Profil-Erkennung (`profileLoops` in `part_model.dart`).** Inventors
+"pickable region" ueber einer fertigen Skizze: geschlossene Einzelkurven
+(Kreis, geschlossene Polylinie, Ellipse) sind sofort Loops; offene Kurven
+werden ueber ihre Endpunkte (Toleranz 1e-6 mm) zu einem planaren Graphen
+verknuepft, Sackgassen weggeschnitten und die beschraenkten Facetten per
+Half-Edge-Face-Tracing gefunden. Damit wird aus den VIER Linien eines
+M34-Rechtecks ein Loop, und ein Rechteck mit Diagonale liefert zwei
+Dreiecke. `regionsFrom` schachtelt Loops (Loch = direktes Kind), `regionAt`
+waehlt beim Tippen die KLEINSTE enthaltende Region. Construction- und
+Centerline-Geometrie, unsichtbare Layer und alles unterhalb des
+End-of-Sketch-Markers nehmen nicht teil.
+
+**Richtungs-Semantik.** Der Shim extrudiert immer +Z; Inventors vier
+Richtungen entstehen aus (Hoehe, Startversatz) und dem Platzierungs-
+Transform: default (h, 0), flipped (h, -h), symmetric (h, -h/2),
+asymmetric (a+b, -b). Kein Spiegeln, keine invertierten Normalen.
+
+**Ehrlichkeits-Regel (wie M55).** `PartKernel` ist die EINZIGE Naht zum
+Kernel. Die App verdrahtet `OcctPartKernel`; ohne gelinkte Symbole meldet
+der `available == false` und liefert NULL — kein Fake-Solid, kein stiller
+Erfolg. Nur die Tests injizieren ein Fake, um die Zustandsmaschine zu
+pruefen.
+
+**Persistenz.** `<name>.part.json` neben den Sketches (Kamera, Origin-
+Sichtbarkeit, Kind-Skizzen-Liste, Features samt getippter Ausdruecke);
+die Kind-Skizzen liegen unter `parts/<name>/sketches/` mit EXAKT denselben
+Sidecar-Formaten wie normale Skizzen. Gallery-Karten unterscheiden per
+`kind` (Stahl-Wuerfel fuer Parts), Rename/Duplicate/Delete/Export sind
+doku-art-bewusst (`renameDocument` etc.); Export eines Parts schreibt
+STEP (braucht den Kernel, sonst ehrlicher Toast).
+
+**Zwei Bugs, die die eigenen Tests gefangen haben** (beide gefixt):
+`savePart` iterierte `childSketches` ueber ein `await` hinweg (ein
+Plane-Pick in dem Fenster = Concurrent Modification), und
+`createNamedSketch` pruefte nur Sketch-Namen, liess also einen Sketch mit
+dem Namen eines existierenden Parts zu.
+
+**Tests:** `m56_part_test.dart` (30) — Frames rechtshaendig/orthonormal
+(sonst weist `occt_transform` sie ab), Span-Semantik aller vier
+Richtungen, Profil-Erkennung (4 Linien -> 1 Loop, Kreis-im-Rechteck ->
+Loch, Diagonale -> 2 Facetten, Construction/EOS/Sackgasse), Ausdruecke
+mit Einheiten, Kernel-Ehrlichkeit auf Host, kompletter Workflow,
+Fehlerpfade (ungueltiger Wert, Kernel-Fehler, geloeschtes Profil),
+Sketch-Bindung der Session, Persistenz-Roundtrip, Namensraum.

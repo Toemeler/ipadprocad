@@ -225,8 +225,8 @@ jobs:
           # grep -c (not -q) after nm: -q would SIGPIPE nm under pipefail.
           NSYM="$(nm -g build-ios/libocct_capi.a 2>/dev/null | grep -c 'T _occt_' || true)"
           echo "defined _occt_* symbols in shim archive: ${NSYM:-0}"
-          [ "${NSYM:-0}" -ge 14 ] \
-            || { echo "FAIL: expected >= 14 _occt_* symbols"; exit 1; }
+          [ "${NSYM:-0}" -ge 23 ] \
+            || { echo "FAIL: expected >= 23 _occt_* symbols (shim v2)"; exit 1; }
           echo "OCCT IOS STATIC: PASS"
 
       - name: Upload iOS build logs

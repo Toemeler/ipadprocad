@@ -730,15 +730,16 @@ jobs:
           else
             echo "OCCT LINK CHECK: FAIL (OCCT shim not linked into Runner)"; exit 1
           fi
-          # Authoritative export check: all 14 _occt_* C symbols must sit in
-          # the export trie so DynamicLibrary.process() can dlsym them —
-          # the exported_symbols_list keeps them through strip/dead_strip
+          # Authoritative export check: all 23 _occt_* C symbols (shim v2:
+          # +extrude_profile, +transform, +7 mesh functions) must sit in the export trie
+          # so DynamicLibrary.process() can dlsym them — the
+          # exported_symbols_list keeps them through strip/dead_strip
           # (same mechanism as the 14 _qcad_* symbols).
           NOCCT="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _occt_' || true)"
-          if [ "${NOCCT:-0}" -ge 14 ]; then
+          if [ "${NOCCT:-0}" -ge 23 ]; then
             echo "OCCT LINK CHECK: PASS ($NOCCT _occt_* symbols exported in Runner)"
           else
-            echo "OCCT LINK CHECK: FAIL (only ${NOCCT:-0} _occt_* symbols exported, want >= 14)"; exit 1
+            echo "OCCT LINK CHECK: FAIL (only ${NOCCT:-0} _occt_* symbols exported, want >= 23)"; exit 1
           fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload

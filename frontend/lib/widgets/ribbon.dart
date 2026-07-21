@@ -76,6 +76,22 @@ const flyouts = <String, List<FlyItem>>{
     FlyItem('ftext', 'Text', ''),
     FlyItem('fgtext', 'Geometry Text', ''),
   ],
+  // M56 — Work Features > Plane (dummy items, real Inventor list)
+  'plane': [
+    FlyItem('plane', 'Plane', ''),
+    FlyItem('offset', 'Offset from Plane', ''),
+    FlyItem('parallelpt', 'Parallel to Plane through Point', ''),
+    FlyItem('midplane2', 'Midplane between Two Planes', ''),
+    FlyItem('midtorus', 'Midplane of Torus', ''),
+    FlyItem('angleedge', 'Angle to Plane around Edge', ''),
+    FlyItem('threepts', 'Three Points', ''),
+    FlyItem('twoedges', 'Two Coplanar Edges', ''),
+    FlyItem('tansurfedge', 'Tangent to Surface through Edge', ''),
+    FlyItem('tansurfpt', 'Tangent to Surface through Point', ''),
+    FlyItem('tanparallel', 'Tangent to Surface and Parallel to Plane', ''),
+    FlyItem('normalaxis', 'Normal to Axis through Point', ''),
+    FlyItem('normalcurve', 'Normal to Curve at Point', ''),
+  ],
 };
 
 /// Which flyout group a tool belongs to (for the active highlight on the
@@ -366,7 +382,11 @@ class _RibbonState extends State<Ribbon> {
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: app.isHome ? _homeRibbon(app) : _sketchRibbon(app),
+        child: app.isHome
+            ? _homeRibbon(app)
+            : (app.currentPart != null && app.activeChild == null
+                ? _partRibbon(app)
+                : _sketchRibbon(app)),
       ),
     );
   }
@@ -384,6 +404,123 @@ class _RibbonState extends State<Ribbon> {
               icon: newSketchIcon,
               label: 'Create\nNew Sketch',
               onTap: app.createNewSketch),
+        ),
+      ]),
+    );
+  }
+
+
+  // ---- M56: the 3D part ribbon (Inventor's Part tab, ported from the
+  // approved HTML dummy). Only Extrude is wired; the rest are the same
+  // inert placeholders the dummy ships, so the layout is final while the
+  // behaviour grows feature by feature.
+  Widget _partRibbon(AppState app) {
+    Widget col(List<(String, String, VoidCallback?)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      onTap: rows[i].$3 ?? () {}),
+                ]
+              ]),
+        );
+    return IntrinsicHeight(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _panel(
+          label: 'Sketch',
+          arrow: false,
+          first: true,
+          child: _BigWide(
+              width: 70,
+              icon: newSketchIcon,
+              label: 'Start\n2D Sketch',
+              onTap: app.startPartSketch,
+              active: app.pickPlane),
+        ),
+        _panel(
+          label: 'Create',
+          arrow: false,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _BigWide(
+                width: 58,
+                icon: CR['extrude']!,
+                label: 'Extrude',
+                onTap: () => app.openExtrude(),
+                active: app.extrudeSession != null),
+            _BigWide(width: 58, icon: CR['revolve']!, label: 'Revolve',
+                onTap: () {}),
+            col([
+              (CR['sweep']!, 'Sweep', null),
+              (CR['loft']!, 'Loft', null),
+              (CR['coil']!, 'Coil', null),
+            ]),
+            col([
+              (CR['emboss']!, 'Emboss', null),
+              (CR['derive']!, 'Derive', null),
+              (CR['decal']!, 'Decal', null),
+            ], leftPad: 0),
+          ]),
+        ),
+        _panel(
+          label: 'Modify',
+          arrow: false,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _BigWide(width: 58, icon: MO['hole']!, label: 'Hole', onTap: () {}),
+            _BigWide(
+                width: 58, icon: MO['fillet']!, label: 'Fillet', onTap: () {}),
+            col([
+              (MO['chamfer']!, 'Chamfer', null),
+              (MO['shell']!, 'Shell', null),
+              (MO['draft']!, 'Draft', null),
+            ]),
+            col([
+              (MO['thread']!, 'Thread', null),
+              (MO['combine']!, 'Combine', null),
+              (MO['thicken']!, 'Thicken/ Offset', null),
+            ], leftPad: 0),
+            col([
+              (MO['split']!, 'Split', null),
+              (MO['direct']!, 'Direct', null),
+              (MO['deleteface']!, 'Delete Face', null),
+            ], leftPad: 0),
+          ]),
+        ),
+        _panel(
+          label: 'Work Features',
+          arrow: false,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _Big(
+                id: 'plane',
+                label: 'Plane',
+                icon: WF['plane']!,
+                onFly: toggleFly,
+                onDefault: () {}),
+            col([
+              (WF['axis']!, 'Axis', null),
+              (WF['point']!, 'Point', null),
+              (WF['ucs']!, 'UCS', null),
+            ]),
+          ]),
+        ),
+        _panel(
+          label: 'Pattern',
+          arrow: false,
+          child: Row(children: [
+            col([
+              (PT['rect']!, 'Rectangular', null),
+              (PT['circ']!, 'Circular', null),
+              (PT['sketch']!, 'Sketch Driven', null),
+            ], leftPad: 2),
+            col([(PT['mirror']!, 'Mirror', null)]),
+          ]),
         ),
       ]),
     );
@@ -607,15 +744,17 @@ class _RibbonState extends State<Ribbon> {
         ],
         // Exit panel (only in layer edit mode), pinned to the right in spirit;
         // in a scrolling ribbon it follows Modify like #panel-exit.on does.
-        if (app.inEditMode)
+        if (app.inEditMode || app.activeChild != null)
           _panel(
             label: 'Exit',
             arrow: false,
             child: _BigWide(
                 width: 64,
                 icon: finishIcon,
-                label: 'Finish',
-                onTap: () => app.finishEdit()),
+                label: app.activeChild != null ? 'Finish\nSketch' : 'Finish',
+                onTap: () => app.activeChild != null
+                    ? app.finishPartSketch()
+                    : app.finishEdit()),
           ),
       ]),
     );
@@ -1226,7 +1365,7 @@ class _FlyRowState extends State<_FlyRow> {
                     bottom: BorderSide(color: Color(0x08FFFFFF))),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            svg(IC[it.icon]!, 26),
+            svg(IC[it.icon] ?? PL[it.icon] ?? IC['line34']!, 26),
             const SizedBox(width: 10),
             Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

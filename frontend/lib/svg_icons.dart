@@ -248,3 +248,102 @@ final Map<String, String> PD = {
       '<path d="M3 15V5l10 10z" fill="none" stroke="$G" stroke-width="1.3"/><path d="M3 5l10 10" stroke="$BL" stroke-width="1.5"/><path d="M3 9 A5 5 0 0 1 6.5 11.5" fill="none" stroke="$YL" stroke-width="1.2"/>'),
 };
 
+
+// ==== M56: 3D part UI (ported verbatim from the ipadprocad-ui.html dummy) ====
+
+// Create panel (3D part features)
+final Map<String, String> CR = {
+  'extrude': S(34, '<path d="M17 6 L28 12 L17 18 L6 12 Z" fill="#CDE6F7" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 12 L17 18 L17 30 L6 24 Z" fill="#7FB8E2" stroke="#3f7cb2" stroke-width=".9"/><path d="M28 12 L17 18 L17 30 L28 24 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5" stroke="#46B04A" stroke-width="1.8" fill="none"/><path d="M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5" stroke="#46B04A" stroke-width="1.8" fill="none"/>'),
+  'revolve': S(34, '<path d="M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z" fill="#CDE6F7" stroke="none"/><path d="M19 5 A 13 13 0 0 1 30 13" fill="none" stroke="#46B04A" stroke-width="1.8"/><path d="M30 13 L27.4 11.9 M30 13 L28.7 15.7" stroke="#46B04A" stroke-width="1.8" fill="none"/>'),
+  'sweep': S(18, '<path d="M3 15 C 7 6, 11 14, 15 4" stroke="$G" stroke-width="1.3" fill="none"/><rect x="1.6" y="12.6" width="4.2" height="4.2" fill="$BL"/>'),
+  'loft': S(18, '<ellipse cx="6" cy="13.5" rx="4" ry="1.6" fill="$BL" stroke="#1a5f95" stroke-width=".5"/><ellipse cx="12" cy="5" rx="2.8" ry="1.1" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><path d="M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5" stroke="$G" stroke-width=".9"/>'),
+  'coil': S(18, '<path d="M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5" stroke="$BL" stroke-width="1.5" fill="none"/>'),
+  'emboss': S(18, '<rect x="2" y="9" width="14" height="5.5" fill="none" stroke="$G" stroke-width="1.1"/><path d="M6 9 V5 h6 v4" stroke="$BL" stroke-width="1.4" fill="none"/>'),
+  'derive': S(18, '<rect x="2" y="4.5" width="6.5" height="6.5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><rect x="8.5" y="8" width="6.5" height="6.5" fill="$BL" stroke="#1a5f95" stroke-width=".5"/><path d="M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1" stroke="$G" stroke-width="1"/>'),
+  'decal': S(18, '<rect x="2.5" y="4" width="13" height="10" rx="1" fill="none" stroke="$G" stroke-width="1.1"/><circle cx="6" cy="7" r="1.3" fill="$YL"/><path d="M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z" fill="$BL"/>'),
+};
+
+// Modify panel (3D part features)
+final Map<String, String> MO = {
+  'hole': S(34, '<path d="M6 16 L17 10 L28 16 L17 22 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M6 16 L17 22 L17 30 L6 24 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".8"/><path d="M28 16 L17 22 L17 30 L28 24 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".8"/><ellipse cx="17" cy="16" rx="4.4" ry="2.3" fill="#0d2f4d" stroke="#1a5f95" stroke-width=".8"/><ellipse cx="17" cy="17.6" rx="4.4" ry="2.3" fill="#0a2740" stroke="none" opacity=".7"/>'),
+  'fillet': S(34, '<path d="M8 15 L18 9 L29 15 L19 21 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M8 15 L19 21 L19 29 L8 23 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".8"/><path d="M29 15 L19 21 L19 29 L29 23 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".8"/><path d="M4 24 A 7 7 0 0 1 11 17" stroke="#5CBF4A" stroke-width="1.9" fill="none"/><path d="M11 17 l-2.3.1 M11 17 l.1 2.3" stroke="#5CBF4A" stroke-width="1.5"/>'),
+  'chamfer': S(18, '<path d="M3 15 V8 L8 3 H15" stroke="$G" stroke-width="1.5" fill="none"/><path d="M3 8 L8 3" stroke="$BL" stroke-width="1.5"/>'),
+  'shell': S(18, '<path d="M2.5 5 V14 H15.5 V5" fill="none" stroke="$G" stroke-width="1.4"/><path d="M5 5 V11.5 H13 V5" fill="none" stroke="$BL" stroke-width="1.1"/><path d="M2.5 5 H15.5" stroke="$G" stroke-width="1.4"/>'),
+  'draft': S(18, '<path d="M4 15 L6.5 4 H11.5 L14 15 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M6.5 4 A 9 9 0 0 1 9 11" stroke="$G" stroke-width="1" fill="none" stroke-dasharray="2 1.5"/>'),
+  'thread': S(18, '<ellipse cx="9" cy="4" rx="4" ry="1.6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M5 4 V14 A4 1.6 0 0 0 13 14 V4" fill="#2E8FD4" stroke="#1a5f95" stroke-width=".7"/><path d="M5 7h8M5 10h8M5 13h8" stroke="#0d2f4d" stroke-width=".9"/>'),
+  'combine': S(18, '<rect x="2.5" y="7" width="8" height="8" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><rect x="7.5" y="3" width="8" height="8" fill="$BL" fill-opacity=".9" stroke="#1a5f95" stroke-width=".7"/>'),
+  'thicken': S(18, '<path d="M2 11 C 6 4, 12 4, 16 11" stroke="$BL" stroke-width="1.5" fill="none"/><path d="M2 15 C 6 8, 12 8, 16 15" stroke="$G" stroke-width="1.2" fill="none" stroke-dasharray="2 1.5"/><path d="M9 6 V10 M9 10 l-1.3-1.4 M9 10 l1.3-1.4" stroke="$G" stroke-width="1"/>'),
+  'split': S(18, '<path d="M6 6 L12 6 L14 12 L4 12 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><line x1="9" y1="2" x2="9" y2="16" stroke="$BL" stroke-width="1.5"/>'),
+  'direct': S(18, '<path d="M4 7 L9 4 L14 7 L9 10 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M4 7 L9 10 L9 15 L4 12 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".7"/><path d="M14 7 L9 10 L9 15 L14 12 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".7"/><path d="M11.5 3 h4 v4 M15.5 3 l-4 4" stroke="$GC" stroke-width="1.1" fill="none"/>'),
+  'deleteface': S(18, '<path d="M4 6 L9 3 L14 6 L9 9 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M4 6 L9 9 L9 15 L4 12 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".7"/><path d="M14 6 L9 9 L9 15 L14 12 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".7"/><path d="M6.5 8.5 l5 5 M11.5 8.5 l-5 5" stroke="#E05A56" stroke-width="1.7"/>'),
+};
+
+// Work Features panel
+final Map<String, String> WF = {
+  'plane': S(34, '<rect x="13" y="7" width="14.5" height="14.5" fill="#E59B63" fill-opacity=".5" stroke="#C8843F" stroke-width="1.1"/><rect x="7" y="13" width="14.5" height="14.5" fill="#D8DEE4" fill-opacity=".92" stroke="#8b9096" stroke-width="1.1"/>'),
+  'axis': S(18, '<line x1="3.6" y1="14.4" x2="14.4" y2="3.6" stroke="#5CBF4A" stroke-width="1.7"/><rect x="2.2" y="13" width="2.7" height="2.7" fill="#E05A56"/><rect x="13.1" y="2.2" width="2.7" height="2.7" fill="#E05A56"/>'),
+  'point': S(18, '<line x1="9" y1="3.5" x2="9" y2="14.5" stroke="#5CBF4A" stroke-width="1.2"/><line x1="3.5" y1="9" x2="14.5" y2="9" stroke="#E05A56" stroke-width="1.2"/><path d="M9 6 L12 9 L9 12 L6 9 Z" fill="#3a3f45" stroke="#e8eaec" stroke-width=".6"/>'),
+  'ucs': S(18, '<line x1="4" y1="15" x2="4" y2="4.5" stroke="#5CBF4A" stroke-width="1.4"/><path d="M4 4 l-1.5 2.2 M4 4 l1.5 2.2" stroke="#5CBF4A" stroke-width="1.2"/><line x1="4" y1="15" x2="14.5" y2="15" stroke="#E05A56" stroke-width="1.4"/><path d="M15 15 l-2.2-1.5 M15 15 l-2.2 1.5" stroke="#E05A56" stroke-width="1.2"/><line x1="4" y1="15" x2="10" y2="9.7" stroke="#3D9BE9" stroke-width="1.3"/>'),
+};
+
+// Pattern panel (3D)
+final Map<String, String> PT = {
+  'rect': S(18, '<rect x="2" y="2" width="4.6" height="4.6" fill="$BL"/><rect x="2" y="11.4" width="4.6" height="4.6" fill="$BL"/><rect x="11.4" y="2" width="4.6" height="4.6" fill="$BL"/><rect x="11.4" y="11.4" width="4.6" height="4.6" fill="$BL"/><rect x="6.7" y="6.7" width="4.6" height="4.6" fill="$BL" fill-opacity=".45"/>'),
+  'circ': S(18, '${gpd(9, 3, 1.9)}${gpd(14.2, 6, 1.9)}${gpd(14.2, 12, 1.9)}${gpd(9, 15, 1.9)}${gpd(3.8, 12, 1.9)}${gpd(3.8, 6, 1.9)}'),
+  'sketch': S(18, '<path d="M2 13 C 6 5, 12 15, 16 6" stroke="$G" stroke-width="1.2" fill="none"/><rect x="1.4" y="11.5" width="3.2" height="3.2" fill="$BL"/><rect x="7.4" y="8" width="3.2" height="3.2" fill="$BL"/><rect x="13.5" y="4" width="3.2" height="3.2" fill="$BL"/>'),
+  'mirror': S(18, '<path d="M9 2v14" stroke="$G" stroke-width="1" stroke-dasharray="2 2"/><path d="M7 4.5v9L2 11z" fill="$BL"/><path d="M11 4.5v9l5-2.5z" fill="none" stroke="$BL" stroke-width="1.2"/>'),
+};
+
+// Plane flyout variants (Work Features > Plane dropdown)
+final Map<String, String> PL = {
+  'plane': S(26, '<path d="M4 11 L15 6 L22 11 L11 16 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/>'),
+  'offset': S(26, '<path d="M5 7 L16 2.5 L22 7 L11 11.5 Z" fill="#9aa0a6" fill-opacity=".22" stroke="#8b9096" stroke-width="1"/><path d="M4 15 L15 10.5 L21 15 L10 19.5 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><path d="M13 12 v2.4 M13 14.4 l-1-1.1 M13 14.4 l1-1.1" stroke="$GC" stroke-width=".9"/>'),
+  'parallelpt': S(26, '<path d="M4 8 L15 3.5 L21 8 L10 12.5 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width="1"/><path d="M4 16 L15 11.5 L21 16 L10 20.5 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><circle cx="12.5" cy="14" r="1.5" fill="$BL"/>'),
+  'midplane2': S(26, '<path d="M5 6 L15 2 L21 6 L11 10 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width="1"/><path d="M4 18 L14 14 L20 18 L10 22 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width="1"/><path d="M4.5 12 L14.5 8 L20.5 12 L10.5 16 Z" fill="#5CBF4A" fill-opacity=".32" stroke="#4a9e3b" stroke-width="1.1"/>'),
+  'midtorus': S(26, '<ellipse cx="13" cy="13" rx="9" ry="5.5" fill="none" stroke="#E59B63" stroke-width="1.4"/><ellipse cx="13" cy="13" rx="3.4" ry="2" fill="none" stroke="#E59B63" stroke-width="1.2"/><path d="M2 13 L24 13" stroke="#5CBF4A" stroke-width="1.1" stroke-dasharray="2 1.5"/>'),
+  'angleedge': S(26, '<path d="M4 20 L15 20 L21 15 L10 15 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><path d="M6 20 L6 6 L18 6" fill="none" stroke="$GC" stroke-width="1.1"/><path d="M6 12 A 6 6 0 0 1 11 8" fill="none" stroke="$BL" stroke-width="1"/>'),
+  'threepts': S(26, '<path d="M4 11 L15 6 L22 11 L11 16 Z" fill="#5CBF4A" fill-opacity=".28" stroke="#4a9e3b" stroke-width="1"/><circle cx="5.6" cy="11" r="1.6" fill="$BL"/><circle cx="15" cy="6.6" r="1.6" fill="$BL"/><circle cx="11" cy="15.4" r="1.6" fill="$BL"/>'),
+  'twoedges': S(26, '<path d="M4 11 L15 6 L22 11 L11 16 Z" fill="#5CBF4A" fill-opacity=".28" stroke="#4a9e3b" stroke-width="1"/><path d="M5 12.5 L14 8.5" stroke="$BL" stroke-width="1.6"/><path d="M9 15 L20 10.5" stroke="$BL" stroke-width="1.6"/>'),
+  'tansurfedge': S(26, '<rect x="3" y="8" width="12" height="11" rx="5.5" fill="#2E8FD4" fill-opacity=".5" stroke="#1a5f95" stroke-width=".8"/><path d="M14 4 L22 8 L22 20 L14 24 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><line x1="14" y1="6" x2="14" y2="22" stroke="$BL" stroke-width="1.4"/>'),
+  'tansurfpt': S(26, '<rect x="3" y="8" width="12" height="11" rx="5.5" fill="#2E8FD4" fill-opacity=".5" stroke="#1a5f95" stroke-width=".8"/><path d="M14 4 L22 8 L22 20 L14 24 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><circle cx="15" cy="13" r="1.6" fill="$BL"/>'),
+  'tanparallel': S(26, '<rect x="2" y="9" width="10" height="9" rx="4.5" fill="#2E8FD4" fill-opacity=".5" stroke="#1a5f95" stroke-width=".8"/><path d="M12 5 L18 8 L18 19 L12 22 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width="1"/><path d="M17 5 L23 8 L23 19 L17 22 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/>'),
+  'normalaxis': S(26, '<line x1="2" y1="13" x2="24" y2="13" stroke="$GC" stroke-width="1.3"/><path d="M10 4 L15 6.5 L15 20 L10 17.5 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><circle cx="12.5" cy="13" r="1.5" fill="$BL"/>'),
+  'normalcurve': S(26, '<path d="M3 20 C 8 6, 16 22, 23 8" fill="none" stroke="$GC" stroke-width="1.3"/><path d="M9 4 L14 6.5 L14 20 L9 17.5 Z" fill="#5CBF4A" fill-opacity=".3" stroke="#4a9e3b" stroke-width="1"/><circle cx="11.5" cy="13" r="1.5" fill="$BL"/>'),
+};
+
+// Axis flyout variants
+final Map<String, String> AX = {
+  'axis': S(26, '<line x1="5" y1="21" x2="21" y2="5" stroke="#4a9e3b" stroke-width="3"/><line x1="5" y1="21" x2="21" y2="5" stroke="#7BD16A" stroke-width="1.3"/>'),
+  'onedge': S(26, '<line x1="4" y1="22" x2="18" y2="6" stroke="$GC" stroke-width="2.6"/><line x1="6" y1="21" x2="20" y2="5" stroke="#5CBF4A" stroke-width="1.8"/>'),
+  'axparallel': S(26, '<line x1="3" y1="20" x2="15" y2="6" stroke="$GC" stroke-width="1.4" stroke-dasharray="2 1.5"/><line x1="8" y1="22" x2="20" y2="8" stroke="#5CBF4A" stroke-width="2"/><circle cx="11" cy="11" r="1.5" fill="$BL"/>'),
+  'twopts': S(26, '<line x1="5" y1="21" x2="21" y2="5" stroke="#5CBF4A" stroke-width="2"/><circle cx="5" cy="21" r="1.8" fill="$BL"/><circle cx="21" cy="5" r="1.8" fill="$BL"/>'),
+  'intersect': S(26, '<path d="M3 8 L13 3 L20 8 L10 13 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width="1"/><path d="M6 20 L16 15 L23 20 L13 25 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width="1"/><line x1="8" y1="6" x2="18" y2="22" stroke="#5CBF4A" stroke-width="2"/>'),
+  'normalplane': S(26, '<path d="M5 5 L11 7.5 L11 20 L5 17.5 Z" fill="#9aa0a6" fill-opacity=".22" stroke="#8b9096" stroke-width="1"/><line x1="11" y1="13" x2="23" y2="13" stroke="#5CBF4A" stroke-width="2"/><circle cx="11" cy="13" r="1.6" fill="$BL"/>'),
+  'centeredge': S(26, '<ellipse cx="13" cy="15" rx="9" ry="4" fill="none" stroke="$GC" stroke-width="1.4"/><line x1="13" y1="3" x2="13" y2="23" stroke="#5CBF4A" stroke-width="2"/>'),
+  'revolved': S(26, '<path d="M8 4 h6 v18 h-6 z" fill="#2E8FD4" fill-opacity=".5" stroke="#1a5f95" stroke-width=".8"/><ellipse cx="11" cy="4" rx="3" ry="1.2" fill="#54B0E8" fill-opacity=".6" stroke="#1a5f95" stroke-width=".6"/><line x1="4" y1="24" x2="4" y2="2" stroke="#5CBF4A" stroke-width="2"/>'),
+};
+
+// Point flyout variants
+final Map<String, String> PN = {
+  'point': S(26, '<path d="M13 8 L18 13 L13 18 L8 13 Z" fill="#3a3f45" stroke="#e8eaec" stroke-width=".7"/><line x1="13" y1="3" x2="13" y2="7" stroke="#5CBF4A" stroke-width="1.2"/><line x1="13" y1="19" x2="13" y2="23" stroke="#5CBF4A" stroke-width="1.2"/><line x1="3" y1="13" x2="7" y2="13" stroke="#E05A56" stroke-width="1.2"/><line x1="19" y1="13" x2="23" y2="13" stroke="#E05A56" stroke-width="1.2"/>'),
+  'grounded': S(26, '<path d="M13 6 L17.5 10.5 L13 15 L8.5 10.5 Z" fill="#3a3f45" stroke="#e8eaec" stroke-width=".7"/><path d="M7 19 h12 M9 22 h8" stroke="#E59B63" stroke-width="1.4"/>'),
+  'vertex': S(26, '<path d="M5 20 L13 5 L21 20 Z" fill="none" stroke="$GC" stroke-width="1.2"/><circle cx="13" cy="5" r="1.8" fill="$BL"/>'),
+  'int3planes': S(26, '<path d="M4 9 L13 5 L20 9 L11 13 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width=".9"/><path d="M6 17 L15 13 L22 17 L13 21 Z" fill="#9aa0a6" fill-opacity=".2" stroke="#8b9096" stroke-width=".9"/><path d="M9 5 L9 21" stroke="#9aa0a6" stroke-width=".9"/><circle cx="12" cy="13" r="1.8" fill="$BL"/>'),
+  'int2lines': S(26, '<line x1="4" y1="20" x2="22" y2="6" stroke="$GC" stroke-width="1.2"/><line x1="4" y1="6" x2="22" y2="20" stroke="$GC" stroke-width="1.2"/><circle cx="13" cy="13" r="1.8" fill="$BL"/>'),
+  'intplaneline': S(26, '<path d="M5 8 L16 4 L22 8 L11 12 Z" fill="#9aa0a6" fill-opacity=".22" stroke="#8b9096" stroke-width="1"/><line x1="8" y1="22" x2="16" y2="6" stroke="$GC" stroke-width="1.2"/><circle cx="13.5" cy="11" r="1.8" fill="$BL"/>'),
+  'centerloop': S(26, '<path d="M5 8 h16 v10 h-16 z" fill="none" stroke="$GC" stroke-width="1.2"/><circle cx="13" cy="13" r="1.8" fill="$BL"/>'),
+  'centertorus': S(26, '<ellipse cx="13" cy="13" rx="9" ry="5.5" fill="none" stroke="#E59B63" stroke-width="1.3"/><ellipse cx="13" cy="13" rx="3.4" ry="2" fill="none" stroke="#E59B63" stroke-width="1.1"/><circle cx="13" cy="13" r="1.7" fill="$BL"/>'),
+  'centersphere': S(26, '<circle cx="13" cy="13" r="8.5" stroke="$GC" stroke-width="1.2"/><ellipse cx="13" cy="13" rx="8.5" ry="3.2" stroke="$GC" stroke-width=".9" fill="none"/><circle cx="13" cy="13" r="1.7" fill="$BL"/>'),
+};
+
+// Part model-browser tree icons (15px rows) + the "+" menu glyphs
+const partCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#4d5257" stroke-width=".8" fill="none"/></svg>';
+const planeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 5.4 L10 3.4 L13 10.6 L6 12.6 Z" fill="#9aa8bd" fill-opacity=".32" stroke="#7f8a9c" stroke-width="1"/></svg>';
+const zAxisIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><line x1="3" y1="13" x2="13" y2="3" stroke="#3FA43C" stroke-width="1.5"/><path d="M13 3l-2.7.4M13 3l-.4 2.7" stroke="#3FA43C" stroke-width="1.1" fill="none"/></svg>';
+final sketch2dMenuIcon = S(18,
+    '<rect x="2.5" y="4" width="10" height="10" stroke="$G" stroke-width="1.2"/><path d="M15.5 3 L10 8.5 l-.9 2.4 2.4-.9 L17 4.5 Z" fill="$BL" stroke="none" transform="translate(-1.5 1)"/>');
+final part3dMenuIcon = S(18,
+    '<path d="M9 2 L15 5.5 v7 L9 16 L3 12.5 v-7 Z" fill="none" stroke="$G" stroke-width="1.2"/><path d="M3 5.5 L9 9 L15 5.5 M9 9 v7" stroke="$G" stroke-width="1.2" fill="none"/>');
