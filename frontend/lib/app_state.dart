@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'constraints.dart';
 import 'diag.dart';
+import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'hud.dart';
 import 'log.dart';
@@ -563,6 +564,10 @@ class AppState extends ChangeNotifier {
     Log.i('smoke', n == 2
         ? 'DART SMOKE: PASS (backend=${backendReal ? "qcad-ffi" : "dart-fallback"}, $backendInfo)'
         : 'DART SMOKE: FAIL (geometry round-trip broke, backend=$backendInfo)');
+    // M55 — same honest-marker idea for the 3D kernel: a real box through the
+    // linked OCCT shim, verified against the smoke_occt.c numbers. On host
+    // (symbols not linked) this reports SKIP, never a fake PASS.
+    Log.i('smoke', Log.step('state', 'occt smoke', () => occtSmokeLine()));
     await Log.stepAsync('state', 'refreshSaved', () => refreshSaved());
     notifyListeners();
     Log.i('state', 'AppState.init done (backendReal=$backendReal)');
