@@ -81,6 +81,12 @@ iOS adds (same values the app/slvs builds use):
   -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 ```
 
+**iOS find_package trap:** `CMAKE_SYSTEM_NAME=iOS` makes CMake re-root every
+`find_package` into the iPhoneOS SDK (`Darwin.cmake` sets
+`CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY`), so the *shim* configure on iOS
+must pass `-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH` or the OCCT install
+tree is invisible despite a correct `CMAKE_PREFIX_PATH` (CI run 29807468644).
+
 ## Building the shim + smoke
 ```
 cmake -S . -B build -DOCCT_SMOKE=ON -DCMAKE_PREFIX_PATH=$PWD/install

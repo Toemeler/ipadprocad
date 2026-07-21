@@ -622,12 +622,17 @@ jobs:
         working-directory: backend/occt
         run: |
           set -o pipefail
+          ls "$GITHUB_WORKSPACE/backend/occt/install-ios/lib/cmake/opencascade/"
+          # MODE_PACKAGE=BOTH: iOS cross-compiles re-root find_package into
+          # the SDK sysroot by default (Darwin.cmake ONLY) — without this the
+          # prefix path is invisible. Lesson from run 29807468644/...679.
           cmake -S . -B build-ios -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-ios"
           cmake --build build-ios -j
           test -f build-ios/libocct_capi.a || { echo "MISSING build-ios/libocct_capi.a"; exit 1; }

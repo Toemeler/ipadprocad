@@ -187,12 +187,21 @@ jobs:
           set -e
           set -o pipefail
           brew install ninja || true
+          echo "install tree config dir:"
+          ls "$GITHUB_WORKSPACE/backend/occt/install-ios/lib/cmake/opencascade/"
+          # CMAKE_SYSTEM_NAME=iOS makes CMake set CMAKE_FIND_ROOT_PATH to the
+          # iPhoneOS SDK with FIND_ROOT_PATH_MODE_PACKAGE=ONLY (Darwin.cmake),
+          # re-rooting every find_package into the sysroot — CMAKE_PREFIX_PATH
+          # outside it becomes invisible (run 29807468644: "Could not find
+          # OpenCASCADEConfig.cmake" despite a complete install tree). The
+          # mode is NOT-DEFINED-guarded, so the cache entry below wins.
           cmake -S . -B build-ios -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-ios" \
             2>&1 | tee cfg-shim-ios.log
           cmake --build build-ios -j 2>&1 | tee build-shim-ios.log
@@ -229,6 +238,7 @@ jobs:
           path: |
             backend/occt/occt-cfg-ios.log
             backend/occt/occt-build-ios.log
+            backend/occt/occt-install-ios.log
             backend/occt/cfg-shim-ios.log
             backend/occt/build-shim-ios.log
           if-no-files-found: warn
