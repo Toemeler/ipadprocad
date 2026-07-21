@@ -2705,6 +2705,23 @@ Plane-Pick in dem Fenster = Concurrent Modification), und
 `createNamedSketch` pruefte nur Sketch-Namen, liess also einen Sketch mit
 dem Namen eines existierenden Parts zu.
 
+**CI-Lektion dieser Session (teuer, nicht wiederholen): ein `nm` auf einem
+STATISCHEN ARCHIV beweist gar nichts ueber fehlende Toolkits.** Der erste
+M56-Lauf hatte `TKOffset` (BRepOffsetAPI_DraftAngle) NICHT in der
+Link-Liste. Der iOS-Job blieb trotzdem gruen — ein `.a` traegt undefinierte
+Referenzen kommentarlos mit sich, und `nm -g | grep 'T _occt_'` zaehlt nur
+die DEFINIERTEN Symbole. Erst der Host-Job, der wirklich eine ausfuehrbare
+Datei linkt, brachte den `undefined reference to BRepOffsetAPI_DraftAngle`.
+Fixes: (1) `backend/occt/CMakeLists.txt` listet jetzt JEDES benutzte
+Toolkit explizit (TKOffset, TKMesh, TKGeomBase kamen dazu — die letzten
+beiden kamen bisher nur zufaellig transitiv mit), (2) der iOS-Job prueft
+die Archive dieser Liste im Install-Tree. Merke: der Host-Smoke ist das
+einzige Gate, das Link-Vollstaendigkeit beweisen kann.
+**Kein Cache-Bump noetig:** TKOffset gehoert zu ModelingAlgorithms (schon
+ON), liegt also laengst im gecachten Install-Tree — der IPA-Job (der alle
+`libTK*.a` globt) linkte bereits sauber: `OCCT LINK CHECK: PASS (23
+_occt_* symbols exported in Runner)`, `occt-ios-arm64-V7_9_3-r1` restored.
+
 **Tests:** `m56_part_test.dart` (30) — Frames rechtshaendig/orthonormal
 (sonst weist `occt_transform` sie ab), Span-Semantik aller vier
 Richtungen, Profil-Erkennung (4 Linien -> 1 Loop, Kreis-im-Rechteck ->

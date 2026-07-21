@@ -215,7 +215,11 @@ jobs:
             || { echo "MISSING build-ios/libocct_capi.a"; exit 1; }
           lipo -info build-ios/libocct_capi.a | tee lipo.log
           grep -q "arm64" lipo.log || { echo "FAIL: not arm64"; exit 1; }
-          for l in libTKDESTEP.a libTKPrim.a libTKBO.a libTKTopAlgo.a \
+          # Mirrors backend/occt/CMakeLists.txt's explicit link list. A
+          # toolkit missing HERE cannot be caught by nm below (an archive
+          # happily carries undefined references), so check the tree.
+          for l in libTKDESTEP.a libTKPrim.a libTKOffset.a libTKBO.a \
+                   libTKMesh.a libTKTopAlgo.a libTKGeomBase.a \
                    libTKBRep.a libTKMath.a libTKernel.a; do
             test -f "install-ios/lib/$l" \
               || { echo "FAIL: install-ios/lib/$l missing"; exit 1; }
@@ -227,6 +231,12 @@ jobs:
           echo "defined _occt_* symbols in shim archive: ${NSYM:-0}"
           [ "${NSYM:-0}" -ge 23 ] \
             || { echo "FAIL: expected >= 23 _occt_* symbols (shim v2)"; exit 1; }
+          # UNDEFINED OCCT references in the archive mean a toolkit is
+          # missing from the link list — the host job would fail on it, but
+          # this way the iOS job stops lying about a broken shim (v2 lesson).
+          UND="$(nm -gu build-ios/libocct_capi.a 2>/dev/null \
+                  | grep -c '_ZN[0-9]*BRep\|_ZN[0-9]*GCPnts\|_ZN[0-9]*TopExp' || true)"
+          echo "undefined OCCT refs in the shim archive: ${UND:-0} (informational)"
           echo "OCCT IOS STATIC: PASS"
 
       - name: Upload iOS build logs

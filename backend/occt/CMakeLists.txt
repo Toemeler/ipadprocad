@@ -32,13 +32,21 @@ target_include_directories(occt_capi
 # Direct dependencies only — the imported targets from OpenCASCADEConfig
 # carry their transitive toolkit closure (TKernel..TKShHealing etc.), and
 # CMake orders the final link line topologically for GNU ld on the host.
+# EVERY toolkit whose symbols the shim references is listed EXPLICITLY.
+# Lesson (v2): TKOffset was missing and the iOS job stayed green anyway —
+# `nm` on a static archive lists UNDEFINED references without complaining,
+# so only the host job, which actually links an executable, caught it.
+# Never rely on a toolkit arriving transitively.
 target_link_libraries(occt_capi PUBLIC
     TKDESTEP    # STEPControl_* reader/writer
     TKPrim      # BRepPrimAPI_* box/cylinder/prism
+    TKOffset    # BRepOffsetAPI_DraftAngle (v2 taper)
     TKBO        # BRepAlgoAPI_Fuse
-    TKTopAlgo   # BRepBuilderAPI_*, BRepCheck, BRepGProp, BRepBndLib
+    TKMesh      # BRepMesh_IncrementalMesh (v2 tessellation)
+    TKTopAlgo   # BRepBuilderAPI_*, BRepLib, BRepCheck, BRepGProp, BRepBndLib
+    TKGeomBase  # GCPnts_TangentialDeflection (v2 edge discretisation)
     TKBRep      # TopoDS/TopExp/TopTools
-    TKMath      # gp, GProp, Bnd
+    TKMath      # gp, GProp, Bnd, Poly
     TKernel)
 
 # Host-only runnable smoke test (the real "does OCCT hold up" gate); never
