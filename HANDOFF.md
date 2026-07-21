@@ -2729,3 +2729,97 @@ Loch, Diagonale -> 2 Facetten, Construction/EOS/Sackgasse), Ausdruecke
 mit Einheiten, Kernel-Ehrlichkeit auf Host, kompletter Workflow,
 Fehlerpfade (ungueltiger Wert, Kernel-Fehler, geloeschtes Profil),
 Sketch-Bindung der Session, Persistenz-Roundtrip, Namensraum.
+
+## M56-Nachtrag — Geraete-Test bestanden + offene Punkte (Basis fuer M57)
+
+**Geraete-Test (User, 21.07.2026): der Workflow laeuft.** + > New 3D Part ->
+Start 2D Sketch -> Ebene picken -> 2D zeichnen -> Finish Sketch -> Extrude
+-> Solid im Viewport. "Most of the stuff worked perfectly." Vom User benannte
+Folgepunkte (in M57 abgearbeitet, siehe unten):
+
+1. Das "+"-Menue soll NATIV werden (echtes UIKit statt Flutters `showMenu`).
+2. 3D-Parts brauchen Vorschaubilder (Galerie-Karte + Long-Press-Lift zeigen
+   sonst nur den Stahl-Wuerfel).
+3. Vorschaubilder sollen zuverlaessig aktualisiert werden (App-Close,
+   Skizze/Part schliessen, jeder Wechsel aus einem Dokument in die Galerie) —
+   fuer 2D UND 3D.
+
+## M57 — Native "+"-Menue, Part-Thumbnails, zuverlaessige Preview-Refreshs
+
+Die drei M56-Nachtrag-Punkte, umgesetzt. **Host: 344 Tests gruen (13 neu),
+`flutter analyze` 0 errors.** Verifiziert lokal mit Flutter 3.44.7 (identisch
+zur CI-Version) — vor JEDER Aenderung war der Baseline-Lauf 331/0 gruen, damit
+jede Differenz zuordenbar ist.
+
+**(1) Galerie-"+" ist ein echtes UIKit-Action-Sheet.**
+`native_menu` bekam einen `"menu"`-Fall: `UIAlertController(.actionSheet)`,
+praesentiert ueber den BESTEHENDEN `present(_:anchor:)`-Helfer — der setzt den
+Popover-Anker (`sourceView`/`sourceRect`), den das iPad ZWINGEND braucht (sonst
+NSGenericException, dieselbe Falle wie share/export). `present` gibt jetzt
+`@discardableResult Bool` zurueck, damit ein fehlgeschlagenes Praesentieren den
+`FlutterResult` nicht leakt; `answered`-Guard feuert das Result GENAU EINMAL
+(Muster von prompt/confirm). Dart: `NativeMenu.menu({items, anchor, title,
+cancelLabel})` -> gewaehlte id oder null; abseits iOS `isSupported == false`
+-> null. `home_view.dart::_showNewMenu` nutzt es auf iOS (Anker = "+"-Button
+per GlobalKey) und faellt sonst auf den unveraenderten `showMenu`-Pfad zurueck.
+Contract in `newDocMenuItems()` (top-level, ids `2d`/`3d` == die Rueckgabewerte
+des Fallbacks), damit beide Pfade in EINE Verzweigung muenden.
+Neu getestet: `m57_new_menu_test.dart` (Contract, Host-No-Op, und der bisher
+ungetestete "New 3D Part"-Zweig durch den Fallback bis zum Part-Prompt).
+
+**(2) 3D-Parts haben Galerie-Vorschaubilder.**
+`Cam3` + ein session-freies `paintPartSolids` sind aus `viewport3d.dart` nach
+`lib/part_render.dart` ausgelagert — WICHTIG gegen einen Import-Zyklus:
+`part_render` haengt NUR an `part_model` (Vec3/PartCamera/KernelSolid), nie an
+`app_state`; darum nimmt `paintPartSolids` die zu zeichnenden Solids +
+optionalen Preview-Solid als Parameter statt der `ExtrudeSession`. Der Viewport
+zeichnet unveraendert (Feature-in-Bearbeitung ausgeblendet, Live-Preview
+transluzent) — dieselbe Funktion. `AppState._writePartPreview` rendert die
+Szene mit `paintPartSolids` in einen `ui.PictureRecorder` (380x240, fixe
+Iso-Kamera az=pi/4, pol=0.955, auf die Silhouette gezoomt) und legt
+`<name>.png` in `_sketchDir`; `savePart` ruft es, `refreshSaved` findet es
+(vorher hart `null` fuer Parts). **Ehrlichkeit:** ein Part ohne zeichenbaren
+Solid (frisch, alle Features geloescht, ODER kein Kernel gelinkt) bekommt KEIN
+PNG und ein altes wird geloescht -> Karte faellt ehrlich auf den Stahl-Wuerfel
+zurueck (kein Fake-B-Rep). Das PNG folgt dem Part durch
+delete/rename/duplicate (die drei Ops tragen `<name>.png` jetzt mit).
+
+**(3) `flushCurrentDocument()` — zuverlaessige Refreshs.**
+Neue Methode, die das OFFENE Dokument (Skizze ODER Part) inkl. Preview
+BEDINGUNGSLOS persistiert. Das ist der Fix gegen veraltete Previews: der alte
+Weg lief nur ueber `finishEdit`, das frueh aussteigt (`if (editingLayer ==
+null && tool == Tool.none) return;`) — also genau, wenn man ein Dokument nur
+ANSCHAUT statt editiert; ausserdem hatte ein Part gar kein PNG. Verdrahtet in
+`goHome` (VOR dem Nullen von `curTab`) und in einen `paused`/`detached`-
+Lifecycle-Observer in `main.dart` (der `_LogFlusher` haelt jetzt die
+`AppState`). `closeTab` speichert das benannte Dokument ohnehin schon
+(`saveSketch`/`savePart`, beide schreiben jetzt Previews) — daher dort keine
+Aenderung noetig. DXF/Part-JSON/Sidecars werden SYNCHRON geschrieben (vor dem
+ersten await in save*), landen also selbst bei `detached`; das PNG ist
+best-effort.
+Neu getestet: `m57_part_preview_test.dart` (10) — PNG-Existenz + Karte,
+Leer-Part-Fallback, Stale-Drop, delete/rename/duplicate tragen das PNG, flush
++ goHome schreiben 2D- UND 3D-Preview neu, No-Op ohne offenes Dokument.
+
+**Test-Infrastruktur:** `AppState.docsDirForTest` hat jetzt auch einen Getter
+(symmetrisch zum bestehenden Setter, `@visibleForTesting`) — nur damit Tests
+auf geschriebene Dateien pruefen koennen; der Setter nimmt jetzt `Directory?`
+(Getter/Setter-Typen muessen matchen; Aufrufer uebergeben weiter non-null).
+
+**EHRLICH offen (nicht in dieser Session verifizierbar):**
+- **Swift ist auf dem Host NICHT kompilierbar** (kein Xcode/iOS auf Linux). Der
+  `"menu"`-Fall und die `present`-Signaturaenderung sind nur durch Lesen
+  geprueft; der Dart-Contract, an dem sie haengen, ist getestet. Erster
+  Device-/CI-Build ist das Gate — im Runner muss das Action-Sheet erscheinen
+  und eine Auswahl New 2D/3D den jeweiligen Prompt oeffnen.
+- Die Part-Thumbnails sind auf Host nur ueber das `FakeKernel`-Mesh getestet
+  (kein OCCT gelinkt). Auf dem Device rendert `paintPartSolids` das ECHTE
+  Tessellations-Mesh — visuell am Geraet gegenpruefen.
+- Der M55/M56-**Device-Smoke `backend=occt-ffi`** ist WEITER ausstehend (davon
+  unberuehrt).
+- `pubspec.lock` bewusst NICHT angefasst: der committete Lock stammt vom
+  lokalen 3.32-SDK; CIs `flutter pub get` (3.44.7) loest 9 transitive Deps neu
+  auf — exakt wie der lokale Lauf hier. `--enforce-lockfile` schluege deshalb
+  fehl; das ist erwartet, nicht neu.
+
+**Naechste Session:** weitere vom Geraet gemeldete Punkte sammelt der User noch.

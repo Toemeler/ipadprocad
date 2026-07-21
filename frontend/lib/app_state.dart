@@ -18,6 +18,7 @@ import 'log.dart';
 import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
+import 'part_render.dart';
 import 'inserts.dart';
 import 'snap.dart';
 import 'solver.dart';
@@ -579,7 +580,11 @@ class AppState extends ChangeNotifier {
   /// Test-only: point the sketch/sidecar directory at a scratch path without
   /// the platform channel (host `flutter test` has no path provider).
   @visibleForTesting
-  set docsDirForTest(Directory d) => _docsDir = d;
+  set docsDirForTest(Directory? d) => _docsDir = d;
+
+  /// Test-only: the active docs directory, for asserting on written files.
+  @visibleForTesting
+  Directory? get docsDirForTest => _docsDir;
   List<SavedSketchInfo> saved = [];
   String backendInfo = '';
   bool backendReal = false;
@@ -642,13 +647,16 @@ class AppState extends ChangeNotifier {
         list.add(SavedSketchInfo(
             name, f.lastModifiedSync(), png.existsSync() ? png : null));
       }
-      // 3D parts live next to the sketches as <name>.part.json
+      // 3D parts live next to the sketches as <name>.part.json; their
+      // thumbnail (once a solid has been extruded) is <name>.png in the same
+      // directory, written by _writePartPreview — same lookup as a sketch.
       for (final f in _sketchDir.listSync().whereType<File>()) {
         if (!f.path.endsWith('.part.json')) continue;
         final name =
             f.uri.pathSegments.last.replaceAll('.part.json', '');
+        final png = _pngFile(name);
         list.add(SavedSketchInfo(
-            name, f.lastModifiedSync(), null, 'part'));
+            name, f.lastModifiedSync(), png.existsSync() ? png : null, 'part'));
       }
     }
     list.sort((a, b) => b.modified.compareTo(a.modified));
@@ -813,13 +821,33 @@ class AppState extends ChangeNotifier {
       cancelExtrude();
       pickPlane = false;
       activeChild = null;
-      finishEdit(save: false);
-      savePart(leaving);
     }
+    // Leave edit mode WITHOUT its conditional save, then persist the document
+    // unconditionally (incl. its preview) via flushCurrentDocument. Doing the
+    // save through finishEdit alone missed two cases: a sketch viewed but not
+    // edited (finishEdit early-returns), and a part (no preview was written at
+    // all). flush runs before curTab is cleared, so it sees the document.
+    finishEdit(save: false);
+    flushCurrentDocument();
     curTab = null;
-    finishEdit(save: true);
     _reanalyze();
     notifyListeners();
+  }
+
+  /// Persist the currently-open document — sketch OR part — INCLUDING its
+  /// preview image, unconditionally. Unlike [finishEdit] this never early-
+  /// returns on "not in edit mode", which is exactly the case that used to
+  /// leave a stale sketch thumbnail (or, for a brand-new part, none) behind.
+  /// A no-op when nothing is open. Called on every path OUT of a document:
+  /// goHome, closeTab, and app suspend/detach (see main.dart).
+  Future<void> flushCurrentDocument() async {
+    final name = curTab;
+    if (name == null) return;
+    if (parts.containsKey(name)) {
+      await savePart(name);
+    } else if (sketches.containsKey(name)) {
+      await saveSketch(name);
+    }
   }
 
   Future<void> openSketch(String name) async {
@@ -1635,9 +1663,48 @@ class AppState extends ChangeNotifier {
       Log.e('part', 'save "$name" failed', e, st);
       return false;
     }
+    await _writePartPreview(name, p);
     await refreshSaved();
     notifyListeners();
     return true;
+  }
+
+  /// Renders the part's solids to <name>.png (380x240) from a fixed isometric
+  /// camera, so the gallery card and the long-press lift preview show the model
+  /// instead of the generic steel cube. Shares the viewport's exact painter via
+  /// paintPartSolids (part_render.dart).
+  ///
+  /// A part with no drawable solid — freshly created, or every feature deleted,
+  /// or (on a build with no linked kernel) never computed — gets NO png and any
+  /// stale one is removed, so its card honestly falls back to the cube glyph.
+  Future<void> _writePartPreview(String name, PartModel p) async {
+    final png = _pngFile(name);
+    try {
+      final solids = [
+        for (final f in p.features)
+          if (f.visible && f.solid != null) f.solid!
+      ];
+      if (solids.isEmpty) {
+        if (png.existsSync()) png.deleteSync();
+        return;
+      }
+      const w = 380.0, h = 240.0;
+      // Fixed iso view (az 45°, a touch above the equator) framed to the
+      // solids' silhouette — independent of wherever the user left the live
+      // camera, so thumbnails are stable across saves.
+      final cam = _fitThumbCamera(solids, const Size(w, h));
+      final rec = ui.PictureRecorder();
+      final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
+      canvas.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      paintPartSolids(canvas, cam, solids);
+      final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes != null) {
+        await png.writeAsBytes(bytes.buffer.asUint8List());
+      }
+    } catch (e) {
+      debugPrint('part preview write failed: $e');
+    }
   }
 
   Future<void> deletePart(String name) async {
@@ -1655,6 +1722,8 @@ class AppState extends ChangeNotifier {
     try {
       final j = _partJson(name);
       if (j.existsSync()) j.deleteSync();
+      final png = _pngFile(name);
+      if (png.existsSync()) png.deleteSync();
       final d = Directory('${_sketchDir.path}/parts/$name');
       if (d.existsSync()) d.deleteSync(recursive: true);
     } catch (e) {
@@ -1685,6 +1754,8 @@ class AppState extends ChangeNotifier {
     try {
       final j = _partJson(from);
       if (j.existsSync()) j.renameSync(_partJson(target).path);
+      final png = _pngFile(from);
+      if (png.existsSync()) png.renameSync(_pngFile(target).path);
       final d = Directory('${_sketchDir.path}/parts/$from');
       if (d.existsSync()) {
         d.renameSync('${_sketchDir.path}/parts/$target');
@@ -1716,6 +1787,8 @@ class AppState extends ChangeNotifier {
     }
     try {
       _partJson(name).copySync(_partJson(copy).path);
+      final png = _pngFile(name);
+      if (png.existsSync()) png.copySync(_pngFile(copy).path);
       final src = Directory('${_sketchDir.path}/parts/$name');
       if (src.existsSync()) {
         for (final f in src.listSync(recursive: true).whereType<File>()) {
@@ -6020,6 +6093,39 @@ class AppState extends ChangeNotifier {
       debugPrint('preview write failed: $e');
     }
   }
+}
+
+/// A fixed isometric [Cam3] framed to a part's solids, for off-screen gallery
+/// thumbnails. Azimuth 45° with a slight downward tilt (pol ≈ 0.955 rad) is
+/// the classic "corner" model view; the frustum is then centred and zoomed so
+/// the silhouette fills ~82% of the 380×240 card, leaving a small margin. The
+/// result is independent of the live viewport camera, so a part always looks
+/// the same in the gallery no matter where the user left it rotated.
+Cam3 _fitThumbCamera(List<KernelSolid> solids, Size size) {
+  final cam = PartCamera(az: math.pi / 4, pol: 0.955);
+  // A provisional camera gives the screen-space right/up basis (s, u) to
+  // measure the silhouette against before committing pan/zoom.
+  final basis = Cam3(cam, size);
+  double minS = 1e30, maxS = -1e30, minU = 1e30, maxU = -1e30;
+  for (final sol in solids) {
+    final pos = sol.mesh.positions;
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      final v = Vec3(pos[i], pos[i + 1], pos[i + 2]);
+      final su = v.dot(basis.s), uv = v.dot(basis.u);
+      minS = math.min(minS, su);
+      maxS = math.max(maxS, su);
+      minU = math.min(minU, uv);
+      maxU = math.max(maxU, uv);
+    }
+  }
+  if (minS > maxS) return basis; // no finite vertices — leave defaults
+  cam.ox = (minS + maxS) / 2;
+  cam.oy = (minU + maxU) / 2;
+  final hx = (maxS - minS) / 2, hy = (maxU - minU) / 2;
+  final aspect = size.width / size.height;
+  final halfH = math.max(hy, hx / (aspect <= 0 ? 1 : aspect)) / 0.82;
+  cam.halfH = halfH > 1e-6 ? halfH : 27;
+  return Cam3(cam, size);
 }
 
 /// Shared geometry painter used by viewport and preview generation.

@@ -135,6 +135,43 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 style: destructive ? .destructive : .default) { _ in reply(true) })
             if !presentModal(alert) { reply(false) }
 
+        case "menu":
+            // A tap-to-choose action sheet (the gallery "+"). On iPad this is a
+            // popover, so it REQUIRES a source rect — the same trap as
+            // share/export; present(_:anchor:) supplies it. Returns the chosen
+            // item id, or nil when cancelled / nothing to present from.
+            let items = args["items"] as? [[String: Any]] ?? []
+            let sheet = UIAlertController(
+                title: (args["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                message: nil,
+                preferredStyle: .actionSheet)
+            var answered = false
+            let reply: (String?) -> Void = { value in
+                if answered { return }
+                answered = true
+                result(value)
+            }
+            for raw in items {
+                guard let id = raw["id"] as? String,
+                      let label = raw["title"] as? String else { continue }
+                let destructive = (raw["destructive"] as? NSNumber)?.boolValue ?? false
+                let action = UIAlertAction(
+                    title: label,
+                    style: destructive ? .destructive : .default) { _ in reply(id) }
+                if let symbol = raw["symbol"] as? String,
+                   let image = UIImage(systemName: symbol) {
+                    // Private but stable key UIKit reads for a leading glyph.
+                    action.setValue(image, forKey: "image")
+                }
+                sheet.addAction(action)
+            }
+            sheet.addAction(UIAlertAction(
+                title: args["cancelLabel"] as? String ?? "Cancel",
+                style: .cancel) { _ in reply(nil) })
+            if !present(sheet, anchor: NativeMenuPlugin.parseRect(args["anchor"])) {
+                reply(nil)
+            }
+
         case "share":
             guard let path = args["path"] as? String,
                   FileManager.default.fileExists(atPath: path) else {
@@ -209,10 +246,13 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
     // MARK: - Presentation helpers
 
     /// iPad REQUIRES a popover anchor for these sheets — presenting without one
-    /// raises NSGenericException and kills the app.
-    private func present(_ vc: UIViewController, anchor: CGRect?) {
+    /// raises NSGenericException and kills the app. Returns false when there is
+    /// no view controller to present from (so a caller whose FlutterResult fires
+    /// from the sheet's actions can reply instead of leaking it).
+    @discardableResult
+    private func present(_ vc: UIViewController, anchor: CGRect?) -> Bool {
         guard let host = NativeMenuPlugin.flutterHostView(),
-              var top = NativeMenuPlugin.keyRootViewController() else { return }
+              var top = NativeMenuPlugin.keyRootViewController() else { return false }
         if let pop = vc.popoverPresentationController {
             pop.sourceView = host
             pop.sourceRect = anchor ?? CGRect(
@@ -223,6 +263,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             top = presented
         }
         top.present(vc, animated: true, completion: nil)
+        return true
     }
 
     /// Presents something that does NOT need a popover anchor (alerts).

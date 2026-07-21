@@ -67,8 +67,10 @@ void main() {
         .catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
     // The log must survive the app being backgrounded or killed by iOS: flush
     // on every lifecycle change, otherwise the last (most interesting) lines
-    // sit in the buffer forever.
-    WidgetsBinding.instance.addObserver(_LogFlusher());
+    // sit in the buffer forever. The same observer persists the open document
+    // (incl. its gallery preview) when the app is suspended or torn down, so a
+    // sketch/part left open — never explicitly closed — still has a fresh card.
+    WidgetsBinding.instance.addObserver(_LogFlusher(app));
     Log.i('main', 'LOG FILE: ${Log.path}');
     Log.i('main', 'build=${Log.build}');
     Log.step('main', 'runApp', () => runApp(IpadProCadApp(app: app)));
@@ -79,10 +81,21 @@ void main() {
 }
 
 class _LogFlusher extends WidgetsBindingObserver {
+  final AppState app;
+  _LogFlusher(this.app);
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     Log.i('lifecycle', state.name);
     Log.flush();
+    // Leaving the foreground (backgrounded, or being torn down): persist the
+    // open document and its preview now. The DXF/part JSON and sidecars are
+    // written synchronously inside save*, so they land even on `detached`;
+    // the PNG is best-effort. No-op when the gallery is showing.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      app.flushCurrentDocument();
+    }
   }
 }
 

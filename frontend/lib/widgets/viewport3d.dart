@@ -15,6 +15,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
 import '../part_model.dart';
+import '../part_render.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
 
@@ -23,62 +24,10 @@ const _orange = Color(0xFFEA9E5C);
 const _orangeEdge = Color(0xE6F0A868);
 const _green = Color(0xFF39D65B);
 const _greenBright = Color(0xFF8DFFA0);
-const _solidBase = Color(0xFF8C939A); // steel, same family as partCubeIcon
-const _solidEdge = Color(0xFF23272C);
-
-/// Shared orthographic camera math (also used by the ViewCube/triad).
-class Cam3 {
-  final Vec3 dir, s, u; // view direction (camera at dir*D), right, up
-  final double halfH, ox, oy;
-  final Size size;
-  Cam3(PartCamera c, this.size)
-      : dir = c.dir,
-        halfH = c.halfH,
-        ox = c.ox,
-        oy = c.oy,
-        s = _basisS(c.dir),
-        u = _basisU(c.dir);
-
-  static Vec3 _fwd(Vec3 d) => d * -1;
-  static Vec3 _basisS(Vec3 d) {
-    final f = _fwd(d);
-    var s = f.cross(const Vec3(0, 1, 0));
-    if (s.length < 1e-9) s = f.cross(const Vec3(0, 0, 1));
-    return s.normalized();
-  }
-
-  static Vec3 _basisU(Vec3 d) => _basisS(d).cross(_fwd(d)).normalized();
-
-  double get aspect => size.width / size.height;
-
-  Offset project(Vec3 w) {
-    final x = (w.dot(s) - ox) / (halfH * aspect);
-    final y = (w.dot(u) - oy) / halfH;
-    return Offset((x * 0.5 + 0.5) * size.width,
-        (1 - (y * 0.5 + 0.5)) * size.height);
-  }
-
-  /// Distance along the view ray — bigger = farther from the camera.
-  double depth(Vec3 w) => w.dot(_fwd(dir));
-
-  /// World point of pixel [p] on the camera plane through the origin.
-  Vec3 unprojectOnCamPlane(Offset p) {
-    final wx = ((p.dx / size.width) * 2 - 1) * halfH * aspect + ox;
-    final wy = ((1 - p.dy / size.height) * 2 - 1) * halfH + oy;
-    return s * wx + u * wy;
-  }
-
-  /// Intersection of the pixel ray with the plane n·X = 0, or null when
-  /// looking edge-on.
-  Vec3? rayOnPlane(Offset p, Vec3 n) {
-    final o = unprojectOnCamPlane(p);
-    final rd = _fwd(dir);
-    final denom = n.dot(rd);
-    if (denom.abs() < 1e-9) return null;
-    final t = -n.dot(o) / denom;
-    return o + rd * t;
-  }
-}
+// Cam3 (orthographic turntable camera) and paintPartSolids live in
+// ../part_render.dart now — shared verbatim with off-screen thumbnail
+// rendering (AppState._writePartPreview). kSolidBase/kSolidEdge moved with
+// them.
 
 class Viewport3D extends StatefulWidget {
   final AppState app;
@@ -503,74 +452,15 @@ class _ScenePainter extends CustomPainter {
     }
 
     // ---- solids: depth-sorted triangles + B-Rep edges (painter algo) ----
-    final items = <(double, void Function(Canvas))>[];
-    void addSolid(KernelSolid s, {bool preview = false}) {
-      final m = s.mesh;
-      final light = (cam.dir + const Vec3(0.35, 0.55, 0.2)).normalized();
-      for (var t = 0; t < m.indices.length; t += 3) {
-        final i0 = m.indices[t] * 3,
-            i1 = m.indices[t + 1] * 3,
-            i2 = m.indices[t + 2] * 3;
-        final w0 = Vec3(m.positions[i0], m.positions[i0 + 1],
-            m.positions[i0 + 2]);
-        final w1 = Vec3(m.positions[i1], m.positions[i1 + 1],
-            m.positions[i1 + 2]);
-        final w2 = Vec3(m.positions[i2], m.positions[i2 + 1],
-            m.positions[i2 + 2]);
-        final n = (w1 - w0).cross(w2 - w0).normalized();
-        if (n.dot(cam.dir) <= 0) continue; // backface (camera sits at +dir)
-        final shade = (0.42 + 0.58 * math.max(0, n.dot(light)))
-            .clamp(0.0, 1.0)
-            .toDouble();
-        final col = Color.fromARGB(
-            preview ? 165 : 255,
-            (_solidBase.red * shade).round(),
-            (_solidBase.green * shade).round(),
-            (_solidBase.blue * shade).round());
-        final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
-        final depth =
-            (cam.depth(w0) + cam.depth(w1) + cam.depth(w2)) / 3;
-        items.add((depth, (cv) {
-          cv.drawPath(
-              Path()..addPolygon([a, b, c], true),
-              Paint()
-                ..color = col
-                ..isAntiAlias = false);
-        }));
-      }
-      for (var e = 0; e + 1 < m.edgeStarts.length; e++) {
-        for (var k = m.edgeStarts[e]; k + 1 < m.edgeStarts[e + 1]; k++) {
-          final p0 = Vec3(m.edgePoints[3 * k], m.edgePoints[3 * k + 1],
-              m.edgePoints[3 * k + 2]);
-          final p1 = Vec3(m.edgePoints[3 * k + 3],
-              m.edgePoints[3 * k + 4], m.edgePoints[3 * k + 5]);
-          final a = cam.project(p0), b = cam.project(p1);
-          final depth =
-              (cam.depth(p0) + cam.depth(p1)) / 2 - 0.35; // viewer bias
-          items.add((depth, (cv) {
-            cv.drawLine(
-                a,
-                b,
-                Paint()
-                  ..strokeWidth = 1
-                  ..color = preview
-                      ? _solidEdge.withOpacity(0.6)
-                      : _solidEdge);
-          }));
-        }
-      }
-    }
-
-    for (final f in part.features) {
-      if (f.visible && f.solid != null && f != sess?.editing) {
-        addSolid(f.solid!);
-      }
-    }
-    if (sess?.preview != null) addSolid(sess!.preview!, preview: true);
-    items.sort((a, b) => b.$1.compareTo(a.$1)); // far first
-    for (final it in items) {
-      it.$2(canvas);
-    }
+    // The feature being edited is hidden while its live preview stands in;
+    // that preview is drawn translucent on top. Same picture the gallery
+    // thumbnail renders off-screen (minus the session preview) via the shared
+    // paintPartSolids in part_render.dart.
+    final solids = [
+      for (final f in part.features)
+        if (f.visible && f.solid != null && f != sess?.editing) f.solid!
+    ];
+    paintPartSolids(canvas, cam, solids, previewSolid: sess?.preview);
   }
 
   void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs) {

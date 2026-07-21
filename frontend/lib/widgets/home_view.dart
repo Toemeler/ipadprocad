@@ -56,6 +56,16 @@ List<List<NativeMenuItem>> sketchMenuGroups() => const [
       ],
     ];
 
+/// The gallery "+" menu: New 2D Sketch / New 3D Part. Item ids match the
+/// values the Flutter fallback (showMenu) returns, so the native and non-native
+/// paths funnel into one branch in [_showNewMenu]. Top-level + const so a test
+/// can pin the contract (ids, order, labels) without a device.
+List<NativeMenuItem> newDocMenuItems() => const [
+      NativeMenuItem(
+          id: '2d', title: 'New 2D Sketch', symbol: 'square.on.square'),
+      NativeMenuItem(id: '3d', title: 'New 3D Part', symbol: 'cube'),
+    ];
+
 class HomeView extends StatefulWidget {
   final AppState app;
   const HomeView({super.key, required this.app});
@@ -67,6 +77,7 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   final Map<String, GlobalKey> _cardKeys = {};
   final GlobalKey _scrollKey = GlobalKey();
+  final GlobalKey _plusKey = GlobalKey(); // anchor for the native "+" sheet
   String? _lastPayload;
   bool _pushScheduled = false;
 
@@ -181,40 +192,50 @@ class _HomeViewState extends State<HomeView> {
     await app.createNamedSketch(name);
   }
 
-  /// The "+" offers both document kinds (mock: iosMenu with New 2D Sketch /
-  /// New 3D Part). On iOS the native menu draws it; elsewhere a Flutter
-  /// popup with the same two entries.
+  /// The "+" offers both document kinds. On iOS this is a REAL UIKit action
+  /// sheet (native_menu), anchored to the button — the same native surface the
+  /// gallery cards already use. Off iOS (and if the plugin is somehow absent) a
+  /// Flutter popup with the identical two entries stands in, so desktop runs
+  /// and the host test suite behave exactly as before.
   Future<void> _showNewMenu() async {
     final box = context.findRenderObject();
-    final anchor = box is RenderBox
+    final headerRect = box is RenderBox
         ? box.localToGlobal(Offset.zero) & box.size
         : Rect.zero;
-    final choice = await showMenu<String>(
-      context: context,
-      color: T.fly,
-      position: RelativeRect.fromLTRB(
-          anchor.right - 240, 68, 24, anchor.bottom),
-      items: [
-        PopupMenuItem(
-          value: '2d',
-          height: 40,
-          child: Row(children: [
-            SvgPicture.string(sketch2dMenuIcon, width: 18, height: 18),
-            const SizedBox(width: 10),
-            Text('New 2D Sketch', style: ts(12.5, T.text)),
-          ]),
-        ),
-        PopupMenuItem(
-          value: '3d',
-          height: 40,
-          child: Row(children: [
-            SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
-            const SizedBox(width: 10),
-            Text('New 3D Part', style: ts(12.5, T.text)),
-          ]),
-        ),
-      ],
-    );
+    final anchor = _globalRect(_plusKey) ?? headerRect;
+
+    String? choice;
+    if (NativeMenu.isSupported) {
+      choice = await NativeMenu.menu(items: newDocMenuItems(), anchor: anchor);
+    } else {
+      choice = await showMenu<String>(
+        context: context,
+        color: T.fly,
+        position: RelativeRect.fromLTRB(
+            anchor.right - 240, 68, 24, anchor.bottom),
+        items: [
+          PopupMenuItem(
+            value: '2d',
+            height: 40,
+            child: Row(children: [
+              SvgPicture.string(sketch2dMenuIcon, width: 18, height: 18),
+              const SizedBox(width: 10),
+              Text('New 2D Sketch', style: ts(12.5, T.text)),
+            ]),
+          ),
+          PopupMenuItem(
+            value: '3d',
+            height: 40,
+            child: Row(children: [
+              SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
+              const SizedBox(width: 10),
+              Text('New 3D Part', style: ts(12.5, T.text)),
+            ]),
+          ),
+        ],
+      );
+    }
+    if (!mounted) return;
     if (choice == '2d') {
       await _promptNewSketch();
     } else if (choice == '3d') {
@@ -303,7 +324,7 @@ class _HomeViewState extends State<HomeView> {
         Padding(
           padding: const EdgeInsets.fromLTRB(_kPad, 12, _kPad, 10),
           child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            _PlusButton(onTap: _showNewMenu),
+            _PlusButton(key: _plusKey, onTap: _showNewMenu),
           ]),
         ),
         Expanded(
@@ -382,7 +403,7 @@ class _Grid extends StatelessWidget {
 
 class _PlusButton extends StatefulWidget {
   final VoidCallback onTap;
-  const _PlusButton({required this.onTap});
+  const _PlusButton({super.key, required this.onTap});
   @override
   State<_PlusButton> createState() => _PlusButtonState();
 }

@@ -228,6 +228,25 @@ class NativeMenu {
         false;
   }
 
+  /// Native action sheet (the gallery "+"). Returns the chosen item id, or
+  /// null when cancelled — or when off iOS, so the caller can fall back to a
+  /// Flutter menu. [anchor] is REQUIRED on iPad: an action sheet is a popover
+  /// and UIKit raises without a source rectangle, exactly like the share sheet.
+  static Future<String?> menu({
+    required List<NativeMenuItem> items,
+    required Rect anchor,
+    String? title,
+    String cancelLabel = 'Cancel',
+  }) async {
+    if (!isSupported) return null;
+    return _invoke<String>('menu', {
+      'items': [for (final i in items) i.toMap()],
+      'anchor': NativeMenuTarget._rect(anchor),
+      if (title != null) 'title': title,
+      'cancelLabel': cancelLabel,
+    });
+  }
+
   /// System share sheet. [anchor] is required on iPad: UIKit raises if a
   /// popover has no source rectangle.
   static Future<bool> shareFile(String path, {required Rect anchor}) =>
