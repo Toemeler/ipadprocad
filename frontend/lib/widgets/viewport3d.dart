@@ -577,15 +577,12 @@ class _ScenePainter extends CustomPainter {
         f.toWorld(const Offset(_ext, _ext)),
         f.toWorld(const Offset(-_ext, _ext)),
       ];
-      final path = Path()
-        ..addPolygon([for (final c in corners) cam.project(c)], true);
       final hot = hover == key;
-      // Faint construction fill stays ghosted (Inventor shows planes through
-      // the model); the crisp border is depth-tested against the solid.
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = (hot ? _green : _orange).withOpacity(hot ? 0.45 : 0.30));
+      // The construction plane fill is a real 3D surface: it is occluded by
+      // the solids so it passes THROUGH the model instead of floating on top.
+      drawOccludedQuadFill(canvas, cam, corners[0], corners[1], corners[2],
+          corners[3], (hot ? _green : _orange).withOpacity(hot ? 0.42 : 0.28),
+          occ: occ);
       drawOccludedPolyline(
           canvas,
           cam,
@@ -595,7 +592,8 @@ class _ScenePainter extends CustomPainter {
             ..strokeWidth = 1
             ..color = hot ? _greenBright : _orangeEdge,
           occ: occ,
-          close: true);
+          close: true,
+          extra: occ?.edgeMargin ?? 0);
       if (hot) {
         // corner rings + centre dot + name label lying on the plane
         for (final c in corners) {
@@ -701,7 +699,7 @@ class _ScenePainter extends CustomPainter {
       // hidden behind a nearer solid face — the sketch now sits in 3D.
       drawOccludedPolyline(
           canvas, cam, [for (final p in pts) frame.toWorld(p)], pen,
-          occ: occ);
+          occ: occ, extra: occ?.edgeMargin ?? 0);
     }
   }
 

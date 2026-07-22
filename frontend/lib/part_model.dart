@@ -496,9 +496,15 @@ bool _loopInside(ProfileLoop inner, ProfileLoop outer) {
   return votes >= 2;
 }
 
-/// One region per loop: the loop as outer plus its DIRECT children as holes.
+/// Top-level pickable regions: each is an outer loop plus its DIRECT child
+/// loops as holes. A loop that is nested inside another is that loop's HOLE
+/// and is NOT returned as its own region — so a rectangle-with-a-circle is a
+/// SINGLE region (the circle is its hole), which auto-selects and extrudes
+/// with the hole cut, exactly like Inventor. (Odd nesting depth = solid,
+/// even = hole: a shape inside a hole becomes its own region again.)
 List<ProfileRegion> regionsFrom(List<ProfileLoop> loops) {
-  final parent = <int, int>{}; // loop id -> parent loop id
+  final parent = <int, int>{}; // loop id -> immediate parent loop id
+  final depth = <int, int>{}; // nesting depth (0 = top level)
   for (final l in loops) {
     ProfileLoop? best;
     for (final o in loops) {
@@ -507,21 +513,37 @@ List<ProfileRegion> regionsFrom(List<ProfileLoop> loops) {
     }
     if (best != null) parent[l.id] = best.id;
   }
+  int depthOf(int id) {
+    final cached = depth[id];
+    if (cached != null) return cached;
+    final p = parent[id];
+    final dpt = p == null ? 0 : depthOf(p) + 1;
+    depth[id] = dpt;
+    return dpt;
+  }
+
   return [
     for (final l in loops)
-      ProfileRegion(l, [
-        for (final c in loops)
-          if (parent[c.id] == l.id) c
-      ]),
+      // SOLID rings sit at even depth; odd-depth loops are the holes of the
+      // ring that contains them, so they are not top-level regions.
+      if (depthOf(l.id).isEven)
+        ProfileRegion(l, [
+          for (final c in loops)
+            if (parent[c.id] == l.id) c
+        ]),
   ];
 }
 
 /// The region under a tap at sketch point [p], Inventor-style: the smallest
-/// loop containing the point is the region's outer boundary.
+/// region whose FILLED material (outer loop minus its holes) contains the
+/// point. Tapping inside a hole selects no region there (unless a nested
+/// island fills it).
 ProfileRegion? regionAt(List<ProfileRegion> regions, Offset p) {
   ProfileRegion? best;
   for (final r in regions) {
     if (!pointInPolygon(p, r.outer.pts)) continue;
+    // inside the outer, but a hole cuts this spot out -> not this region
+    if (r.holes.any((h) => pointInPolygon(p, h.pts))) continue;
     if (best == null || r.outer.area < best.outer.area) best = r;
   }
   return best;

@@ -1996,7 +1996,10 @@ class AppState extends ChangeNotifier {
     if (p == null || !pickPlane) return;
     pickPlane = false;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
-    p.camera.orientToDir(frame.n);
+    // Look AT the face from outside: the camera views along the direction
+    // OPPOSITE the outward normal, so the face points back at the camera
+    // (n·dir < 0). Using +n would look from inside the solid through the back.
+    p.camera.orientToDir(frame.n * -1);
     final sk = SketchModel(p.nextSketchName());
     p.childSketches.add(ChildSketch(sk, 'face', frame));
     p.dirty = true;

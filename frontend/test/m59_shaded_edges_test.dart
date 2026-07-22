@@ -134,6 +134,20 @@ void main() {
           reason: 'a sketch on the near face stays visible');
     });
 
+    test('edgeMargin is a positive multiple of the face bias', () {
+      final cam = sideCam(size);
+      final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
+      final occ = solidOccluder([solid], cam);
+      expect(occ.edgeMargin, greaterThan(0),
+          reason: 'edges get a generous on-surface margin');
+      // with the margin, a point on the near surface is DEFINITELY not hidden
+      final onNear = Vec3(-10, 0, 2.5);
+      expect(
+          occ.hidden(cam.project(onNear), cam.depth(onNear),
+              extra: occ.edgeMargin),
+          isFalse);
+    });
+
     test('empty occluder list hides nothing', () {
       final cam = sideCam(size);
       final occ = solidOccluder(const [], cam);
