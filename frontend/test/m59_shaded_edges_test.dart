@@ -104,6 +104,36 @@ void main() {
   const size = Size(800, 600);
 
   group('M59 render math', () {
+    test('solidOccluder hides overlay points behind the solid, keeps front',
+        () {
+      final cam = sideCam(size);
+      final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
+      final occ = solidOccluder([solid], cam);
+      // camera looks along +X: x=+10 is nearest (visible), x=-10 farthest
+      // (behind the barrel). A sketch/plane point there must be hidden.
+      final front = Vec3(10, 0, 2.5);
+      final back = Vec3(-10, 0, 2.5);
+      expect(occ.hidden(cam.project(front), cam.depth(front)), isFalse);
+      expect(occ.hidden(cam.project(back), cam.depth(back)), isTrue);
+    });
+
+    test('a coplanar point on a solid face is NOT occluded by that face', () {
+      final cam = sideCam(size);
+      final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
+      final occ = solidOccluder([solid], cam);
+      // a point on the top cap (z=5) near the axis: the sketch that lives on
+      // that face must stay visible, not be swallowed by it.
+      final onFace = Vec3(3, 0, 5);
+      expect(occ.hidden(cam.project(onFace), cam.depth(onFace)), isFalse,
+          reason: 'sketch on a face stays visible (bias covers tessellation)');
+    });
+
+    test('empty occluder list hides nothing', () {
+      final cam = sideCam(size);
+      final occ = solidOccluder(const [], cam);
+      expect(occ.hidden(cam.project(Vec3(-10, 0, 2.5)), 999), isFalse);
+    });
+
     test('projectVec is the exact linear part of project', () {
       final cam = sideCam(size);
       final origin = cam.project(Vec3.zero);

@@ -155,10 +155,12 @@ class _Viewport3DState extends State<Viewport3D> {
                   }
                   _mmbLast = d.localFocalPoint;
                 }),
-                child: CustomPaint(
-                  painter:
-                      _ScenePainter(app, p, _hover, _hoverRegion, _hoverFace),
-                  size: Size.infinite,
+                child: ClipRect(
+                  child: CustomPaint(
+                    painter:
+                        _ScenePainter(app, p, _hover, _hoverRegion, _hoverFace),
+                    size: Size.infinite,
+                  ),
                 ),
               ),
             ),
@@ -290,11 +292,21 @@ class _Viewport3DState extends State<Viewport3D> {
       hit = _hitOrigin(cam, px, p, planesOnly: app.pickPlane);
     }
     // Inventor prehighlight (M59): while picking a sketch plane, hovering a
-    // planar solid face tints it blue. Origin planes win, like the tap.
+    // planar solid face tints it blue. The face wins over an origin plane
+    // BEHIND it — compare view depth, since the huge origin planes otherwise
+    // capture every pixel and the face would never highlight.
     (KernelSolid, int)? hf;
-    if (app.pickPlane && hit == null) {
+    if (app.pickPlane && region == null) {
       final pick = _pickSolidFace(cam, px);
-      if (pick != null && pick.$2 >= 0) hf = (pick.$1, pick.$2);
+      if (pick != null && pick.$2 >= 0) {
+        final planeD = hit == null
+            ? double.infinity
+            : _planeDepthAt(cam, px, hit) ?? double.infinity;
+        if (pick.$4 <= planeD + 1e-6) {
+          hf = (pick.$1, pick.$2);
+          hit = null; // the face is in front: it prehighlights, not the plane
+        }
+      }
     }
     if (hit != _hover ||
         region != _hoverRegion ||
@@ -351,15 +363,26 @@ class _Viewport3DState extends State<Viewport3D> {
     return best;
   }
 
+  /// View depth of origin plane [key] directly under the pointer, or null if
+  /// the ray misses the plane's bounded extent. Lets hover/tap compare a
+  /// plane against a solid face sitting in front of it.
+  double? _planeDepthAt(Cam3 cam, Offset px, String key) {
+    if (!kPlaneKeys.contains(key)) return null;
+    final f = planeFrame(key);
+    final w = cam.rayOnPlane(px, f.n);
+    if (w == null) return null;
+    return cam.depth(w);
+  }
+
   /// Nearest front-facing solid triangle under the pointer -> the frame of
   /// the planar face it belongs to (Inventor's sketch-on-face, M58). The
   /// orthographic projection is affine, so barycentric coordinates of the
   /// screen hit reproduce the world point exactly.
   /// The nearest PLANAR solid face under [px]: (solid, v4 face id or -1,
-  /// sketch frame). Planarity comes from the B-Rep face record when the mesh
-  /// carries v4 metadata, else from the vertex-normal test (fake kernels).
-  (KernelSolid, int, PlaneFrame)? _pickSolidFace(Cam3 cam, Offset px) {
-    (KernelSolid, int, PlaneFrame)? best;
+  /// sketch frame, view depth). Planarity comes from the B-Rep face record
+  /// when the mesh carries v4 metadata, else from the vertex-normal test.
+  (KernelSolid, int, PlaneFrame, double)? _pickSolidFace(Cam3 cam, Offset px) {
+    (KernelSolid, int, PlaneFrame, double)? best;
     var bestDepth = double.infinity;
     for (final s in _liveSolids()) {
       final m = s.mesh;
@@ -423,7 +446,7 @@ class _Viewport3DState extends State<Viewport3D> {
                     m.faceInfos[15 * faceId + 5], m.faceInfos[15 * faceId + 6])
                 .normalized();
           }
-          best = (s, faceId, faceFrame(w, fn));
+          best = (s, faceId, faceFrame(w, fn), d);
         }
       }
     }
@@ -437,11 +460,21 @@ class _Viewport3DState extends State<Viewport3D> {
     //    face of a solid (Inventor's sketch-on-face)
     if (app.pickPlane) {
       final key = _hitOrigin(cam, px, p, planesOnly: true);
+      final face = _pickSolidFace(cam, px);
+      // whichever surface is NEARER under the pointer wins — a solid face in
+      // front of an origin plane must be the one you sketch on (Inventor).
+      final planeD = key != null
+          ? (_planeDepthAt(cam, px, key) ?? double.infinity)
+          : double.infinity;
+      final faceD = face?.$4 ?? double.infinity;
+      if (face != null && faceD <= planeD + 1e-6) {
+        app.facePicked(face.$3);
+        return;
+      }
       if (key != null && kPlaneKeys.contains(key)) {
         app.planePicked(key);
         return;
       }
-      final face = _pickSolidFace(cam, px);
       if (face != null) app.facePicked(face.$3);
       return;
     }
@@ -497,6 +530,20 @@ class _ScenePainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
     final cam = Cam3(part.camera, size);
 
+    // The opaque solids form a depth occluder: origin planes and sketches are
+    // infinitely thin, so their pixels are hidden wherever a nearer solid
+    // front face covers them. This is what makes the 2D overlays read as
+    // truly 3D (a sketch behind the model is hidden; one in front covers it).
+    final occSolids = [
+      for (final f in part.features)
+        if (f.visible &&
+            f.solid != null &&
+            !f.consumedByJoin &&
+            f != app.extrudeSession?.editing)
+          f.solid!
+    ];
+    final occ = occSolids.isEmpty ? null : solidOccluder(occSolids, cam);
+
     // ---- origin planes (fills first: everything else draws over them) ----
     for (final key in kPlaneKeys) {
       final visible = part.vis[key] == true || app.pickPlane;
@@ -511,16 +558,22 @@ class _ScenePainter extends CustomPainter {
       final path = Path()
         ..addPolygon([for (final c in corners) cam.project(c)], true);
       final hot = hover == key;
+      // Faint construction fill stays ghosted (Inventor shows planes through
+      // the model); the crisp border is depth-tested against the solid.
       canvas.drawPath(
           path,
           Paint()
             ..color = (hot ? _green : _orange).withOpacity(hot ? 0.45 : 0.30));
-      canvas.drawPath(
-          path,
+      drawOccludedPolyline(
+          canvas,
+          cam,
+          corners,
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1
-            ..color = hot ? _greenBright : _orangeEdge);
+            ..color = hot ? _greenBright : _orangeEdge,
+          occ: occ,
+          close: true);
       if (hot) {
         // corner rings + centre dot + name label lying on the plane
         for (final c in corners) {
@@ -602,7 +655,7 @@ class _ScenePainter extends CustomPainter {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
       if (!cs.visible && !showForSession) continue;
-      _paintSketch(canvas, cam, cs);
+      _paintSketch(canvas, cam, cs, occ: occ);
       if (sess != null && showForSession) {
         _paintRegions(canvas, cam, cs, sess);
       }
@@ -627,7 +680,8 @@ class _ScenePainter extends CustomPainter {
         highlightFace: hoverFace?.$2 ?? -1);
   }
 
-  void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs) {
+  void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs,
+      {SceneOccluders? occ}) {
     final frame = sketchFrameOf(cs);
     final pen = Paint()
       ..style = PaintingStyle.stroke
@@ -639,12 +693,11 @@ class _ScenePainter extends CustomPainter {
       if (li >= 0 && li >= cs.model.eosAfter) continue;
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
-      final path = Path();
-      for (var i = 0; i < pts.length; i++) {
-        final s = cam.project(frame.toWorld(pts[i]));
-        i == 0 ? path.moveTo(s.dx, s.dy) : path.lineTo(s.dx, s.dy);
-      }
-      canvas.drawPath(path, pen);
+      // Project to world on the sketch plane, then stroke only the parts not
+      // hidden behind a nearer solid face — the sketch now sits in 3D.
+      drawOccludedPolyline(
+          canvas, cam, [for (final p in pts) frame.toWorld(p)], pen,
+          occ: occ);
     }
   }
 

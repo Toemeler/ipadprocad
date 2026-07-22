@@ -777,3 +777,73 @@ void paintPartUnderlay(Canvas canvas, Size size, List<KernelSolid> solids,
   );
   paintPartSolids(canvas, cam, solids);
 }
+
+// ---------------------------------------------------------------------------
+// M59 fix — 3D compositing for the 2D overlays (planes + sketches).
+//
+// The scene painter draws origin planes and child sketches with a fixed
+// order, which cannot express depth: a sketch behind the model bled through,
+// and one in front could not cover it. These helpers let the painter test
+// overlay pixels against the solid's front faces (the same watertight
+// occluder the edge renderer uses), so planes/sketches occlude and are
+// occluded exactly as if they lived in 3D.
+
+/// Builds the front-face occluder for [solids] under [cam]. Empty solids give
+/// an occluder that hides nothing.
+SceneOccluders solidOccluder(List<KernelSolid> solids, Cam3 cam) =>
+    SceneOccluders([for (final s in solids) buildSceneSolid(s, cam)]);
+
+/// Strokes the world polyline [worldPts] projected through [cam], but only the
+/// portions NOT hidden behind [occ] (a nearer solid front face). Used for
+/// origin planes and sketch geometry so they read as truly 3D. When [occ] is
+/// null every segment is drawn (no solids present).
+void drawOccludedPolyline(
+  Canvas canvas,
+  Cam3 cam,
+  List<Vec3> worldPts,
+  Paint paint, {
+  SceneOccluders? occ,
+  bool close = false,
+}) {
+  if (worldPts.length < 2) return;
+  final pts = <Offset>[];
+  final vis = <bool>[];
+  final loop = close ? [...worldPts, worldPts.first] : worldPts;
+  for (final w in loop) {
+    pts.add(cam.project(w));
+    vis.add(occ == null ? true : !occ.hidden(cam.project(w), cam.depth(w)));
+  }
+  // A segment is drawn when BOTH endpoints are visible; finer occlusion of a
+  // long segment is handled by sampling its midpoints too.
+  final path = Path();
+  for (var i = 0; i + 1 < pts.length; i++) {
+    if (!vis[i] || !vis[i + 1]) {
+      // sample the interior: draw the visible sub-spans
+      const steps = 6;
+      Offset? runStart;
+      Offset prev = pts[i];
+      for (var k = 0; k <= steps; k++) {
+        final t = k / steps;
+        final w = loop[i] + (loop[i + 1] - loop[i]) * t;
+        final sp = cam.project(w);
+        final shown = occ == null ? true : !occ.hidden(sp, cam.depth(w));
+        if (shown) {
+          runStart ??= sp;
+          prev = sp;
+        } else if (runStart != null) {
+          path.moveTo(runStart.dx, runStart.dy);
+          path.lineTo(prev.dx, prev.dy);
+          runStart = null;
+        }
+      }
+      if (runStart != null) {
+        path.moveTo(runStart.dx, runStart.dy);
+        path.lineTo(prev.dx, prev.dy);
+      }
+      continue;
+    }
+    path.moveTo(pts[i].dx, pts[i].dy);
+    path.lineTo(pts[i + 1].dx, pts[i + 1].dy);
+  }
+  canvas.drawPath(path, paint);
+}
