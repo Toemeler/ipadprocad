@@ -2328,6 +2328,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Toggle a whole solid body's visibility (Inventor's Solid Bodies folder
+  /// eye): flip every feature that carries that bodyName to a single new
+  /// state — visible if any is currently hidden, else hidden.
+  void toggleBodyVisible(PartModel part, String bodyName) {
+    final feats = part.features.where((f) => f.bodyName == bodyName).toList();
+    if (feats.isEmpty) return;
+    final show = !feats.any((f) => f.visible);
+    for (final f in feats) {
+      f.visible = show;
+    }
+    part.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   Future<void> deleteFeature(ExtrudeFeature f) async {
     final p = currentPart;
     if (p == null) return;

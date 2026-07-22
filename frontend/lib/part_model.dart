@@ -711,6 +711,23 @@ class PartModel {
 
   PartModel(this.name);
 
+  /// Distinct solid bodies in creation order (Inventor's "Solid Bodies"
+  /// folder). A body is the set of features sharing a bodyName; its display
+  /// entry is the LAST feature that actually carries geometry for it (join
+  /// chains fold into one body). Returns [(bodyName, features-of-body)].
+  List<(String, List<ExtrudeFeature>)> solidBodies() {
+    final order = <String>[];
+    final byName = <String, List<ExtrudeFeature>>{};
+    for (final f in features) {
+      if (f.solid == null && f.computeError == null) continue;
+      byName.putIfAbsent(f.bodyName, () {
+        order.add(f.bodyName);
+        return <ExtrudeFeature>[];
+      }).add(f);
+    }
+    return [for (final n in order) (n, byName[n]!)];
+  }
+
   ChildSketch? sketchByName(String n) {
     for (final c in childSketches) {
       if (c.model.name == n) return c;

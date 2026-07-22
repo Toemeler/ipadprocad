@@ -399,7 +399,7 @@ class _Viewport3DState extends State<Viewport3D> {
         final w2 =
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) >= 0) continue;
         final nn = n.normalized();
         var faceId = -1;
         if (v4) {
@@ -544,6 +544,28 @@ class _ScenePainter extends CustomPainter {
     ];
     final occ = occSolids.isEmpty ? null : solidOccluder(occSolids, cam);
 
+    // Draw the SOLIDS first, then origin planes, then sketches. This gives the
+    // Inventor coplanar tie-break — a sketch or plane on the exact plane of a
+    // face is not hidden by it (occlusion bias) and, being drawn later, layers
+    // ON TOP: sketch > plane > geometry. Overlays genuinely BEHIND the model
+    // are still removed per-pixel by [occ]. The edited feature is replaced by
+    // its translucent live preview, drawn on top by paintPartSolids.
+    {
+      final sess = app.extrudeSession;
+      final solids = [
+        for (final f in part.features)
+          if (f.visible &&
+              f.solid != null &&
+              !f.consumedByJoin &&
+              f != sess?.editing)
+            f.solid!
+      ];
+      paintPartSolids(canvas, cam, solids,
+          previewSolid: sess?.preview,
+          highlightSolid: hoverFace?.$1,
+          highlightFace: hoverFace?.$2 ?? -1);
+    }
+
     // ---- origin planes (fills first: everything else draws over them) ----
     for (final key in kPlaneKeys) {
       final visible = part.vis[key] == true || app.pickPlane;
@@ -660,24 +682,6 @@ class _ScenePainter extends CustomPainter {
         _paintRegions(canvas, cam, cs, sess);
       }
     }
-
-    // ---- solids: depth-sorted triangles + B-Rep edges (painter algo) ----
-    // The feature being edited is hidden while its live preview stands in;
-    // that preview is drawn translucent on top. Same picture the gallery
-    // thumbnail renders off-screen (minus the session preview) via the shared
-    // paintPartSolids in part_render.dart.
-    final solids = [
-      for (final f in part.features)
-        if (f.visible &&
-            f.solid != null &&
-            !f.consumedByJoin &&
-            f != sess?.editing)
-          f.solid!
-    ];
-    paintPartSolids(canvas, cam, solids,
-        previewSolid: sess?.preview,
-        highlightSolid: hoverFace?.$1,
-        highlightFace: hoverFace?.$2 ?? -1);
   }
 
   void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs,

@@ -16,6 +16,34 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **Nachtrag M59b (Geräte-Fixes, dieselbe Session):** Drei Geräte-Funde
+> behoben. **(1) Facing-/Tiefen-Konvention war global invertiert:** Kamera
+> blickt entlang `dir`, eine SICHTBARE Fläche zeigt mit der Außennormale zur
+> Kamera zurück (`n·dir < 0`) — der Code nahm `> 0` (also Rückseiten) als
+> Front. Bei EINEM konvexen Solid fiel das nicht auf (die Silhouette bleibt
+> stimmig, daher „shaded smooth"), brach aber Verdeckung, Silhouetten UND
+> Licht. Fix konsistent: `front = n·dir < 0`, Headlight von der Kamera
+> (`-dir + tilt`, vorher zeigte Licht von hinten → Fläche zur Kamera war am
+> DUNKELSTEN), Verdeckung `td > d + bias` (näher = höhere Tiefe). Das war
+> zugleich die Ursache der „zerstörten Mesh-Artefakte" (Rückseiten mit falscher
+> Wicklung landeten im selben `drawVertices`-Buffer wie die Front und
+> flackerten). Offline verifiziert: exakt die halben Dreiecke sind Front,
+> Shade 0.42→0.92 (hell zur Kamera), Skizzenlinie durch den Zylinder fern
+> verdeckt / nah sichtbar. **(2) Zeichenreihenfolge für koplanare Fälle:**
+> Solids ZUERST, dann Ebenen, dann Skizzen — Bias hält eine koplanare Skizze
+> sichtbar und, später gezeichnet, liegt sie OBEN (Skizze > Ebene > Geometrie),
+> während echt dahinter liegende Overlays weiter pixelgenau von `occ` entfernt
+> werden. **(3) `ClipRect`** um den 3D-`CustomPaint` (Geometrie lief sonst über
+> den Model-Browser). Zusätzlich **Face-Hover/Tap tiefenpriorisiert** (nähere
+> Fläche schlägt die dahinterliegende Ursprungsebene) und **„Solid Bodies(N)"-
+> Ordner** über Origin wie in Inventor (`PartModel.solidBodies()`, Body-Augen-
+> Toggle `toggleBodyVisible`, Body = Features gleicher `bodyName`). Tests in
+> `m59_shaded_edges_test.dart` erweitert (Verdeckung front/back, Solid-Bodies-
+> Aufzählung + Toggle). **Alle Konventions-Vorzeichen offline geprüft; CI +
+> Gerät noch zu bestätigen.**
+>
+> ---
+>
 > **Stand dieser Session (Kopf = M59, „Shaded with Edges" + Skizzen-Verbrauch):**
 > Alle Geraete-Rueckmeldungen aus M58 adressiert, in einem Durchgang (Nutzer:
 > „Do all phases at once. Make it professional and production ready.").

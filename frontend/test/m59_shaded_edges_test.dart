@@ -109,36 +109,35 @@ void main() {
       final cam = sideCam(size);
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final occ = solidOccluder([solid], cam);
-      // camera looks along +X: x=+10 is nearest (visible), x=-10 farthest
-      // (behind the barrel). A sketch/plane point there must be hidden.
-      final front = Vec3(10, 0, 2.5);
-      final back = Vec3(-10, 0, 2.5);
-      expect(occ.hidden(cam.project(front), cam.depth(front)), isFalse);
-      expect(occ.hidden(cam.project(back), cam.depth(back)), isTrue);
+      // The camera looks ALONG +X, so it sits on the -X side: x=-10 is the
+      // NEAR barrel wall (visible), x=+10 is the FAR wall (hidden behind it).
+      final near = Vec3(-10, 0, 2.5);
+      final far = Vec3(10, 0, 2.5);
+      expect(occ.hidden(cam.project(near), cam.depth(near)), isFalse);
+      expect(occ.hidden(cam.project(far), cam.depth(far)), isTrue);
     });
 
     test('a point in front of the whole solid is never occluded', () {
       final cam = sideCam(size);
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final occ = solidOccluder([solid], cam);
-      // camera looks along +X (depth grows toward -X); a point well in FRONT
-      // of the nearest surface (x > +10) must always be visible — this is a
-      // sketch/plane sitting between the camera and the model.
-      final inFront = Vec3(25, 0, 2.5);
+      // camera on the -X side: a point well in front of the nearest surface
+      // (x < -10, between camera and model) must always be visible.
+      final inFront = Vec3(-25, 0, 2.5);
       expect(occ.hidden(cam.project(inFront), cam.depth(inFront)), isFalse,
           reason: 'a sketch in front of the model is drawn over it');
-      // and a point on the near surface itself (the front of the barrel at
-      // x=+10) is visible — its own face does not swallow it (bias).
-      final onNearFace = Vec3(10, 0, 2.5);
+      // and a point on the near surface itself (the near barrel wall at
+      // x=-10) is visible — its own face does not swallow it (bias).
+      final onNearFace = Vec3(-10, 0, 2.5);
       expect(
           occ.hidden(cam.project(onNearFace), cam.depth(onNearFace)), isFalse,
-          reason: 'a sketch on the front face stays visible');
+          reason: 'a sketch on the near face stays visible');
     });
 
     test('empty occluder list hides nothing', () {
       final cam = sideCam(size);
       final occ = solidOccluder(const [], cam);
-      expect(occ.hidden(cam.project(Vec3(-10, 0, 2.5)), 999), isFalse);
+      expect(occ.hidden(cam.project(Vec3(10, 0, 2.5)), -999), isFalse);
     });
 
     test('projectVec is the exact linear part of project', () {
@@ -266,11 +265,11 @@ void main() {
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final scene = buildSceneSolid(solid, cam);
       final occ = SceneOccluders([scene]);
-      // The camera looks ALONG +X (depth grows toward -X), so the barrel
-      // point at x=+10 is NEAREST (visible) and the one at x=-10 is FARTHEST
+      // The camera looks ALONG +X and sits on the -X side, so the barrel
+      // point at x=-10 is NEAREST (visible) and the one at x=+10 is FARTHEST
       // (occluded by the barrel in front of it).
-      final near = Vec3(10, 0, 2.5);
-      final far = Vec3(-10, 0, 2.5);
+      final near = Vec3(-10, 0, 2.5);
+      final far = Vec3(10, 0, 2.5);
       expect(occ.hidden(cam.project(near), cam.depth(near)), isFalse,
           reason: 'near rim point is visible');
       expect(occ.hidden(cam.project(far), cam.depth(far)), isTrue,
@@ -297,6 +296,45 @@ void main() {
       // an axial view (down the +Z axis) shows no silhouette generators
       final axialSrc = PartCamera()..orientToDir(Vec3(0, 0, 1));
       expect(cylinderSilhouettes(rec, Cam3(axialSrc, size)).isEmpty, isTrue);
+    });
+  });
+
+  group('M59 solid bodies folder', () {
+    test('a single extrude yields one body named Solid1', () async {
+      final app = await buildExtrudedPart();
+      final part = app.currentPart!;
+      final bodies = part.solidBodies();
+      expect(bodies.length, 1, reason: 'one extrude -> one solid body');
+      expect(bodies.single.$1, 'Solid1');
+      expect(bodies.single.$2.length, 1);
+    });
+
+    test('a New Solid extrude adds a second, independent body', () async {
+      final app = await buildExtrudedPart();
+      final part = app.currentPart!;
+      // second sketch on a different plane, extruded as a NEW body
+      app.startPartSketch();
+      app.planePicked('xz');
+      addRectLines(app.activeChild!, 0, 0, 8, 8, layer: app.editingLayer!);
+      app.finishPartSketch();
+      app.openExtrude();
+      app.setExtrude(exprA: '4 mm', output: 'new', bodyName: 'Solid2');
+      await app.applyExtrude();
+
+      final bodies = part.solidBodies();
+      expect(bodies.length, 2, reason: 'New Solid creates a second body');
+      expect(bodies.map((b) => b.$1), containsAll(['Solid1', 'Solid2']));
+    });
+
+    test('toggleBodyVisible flips every feature of that body', () async {
+      final app = await buildExtrudedPart();
+      final part = app.currentPart!;
+      final f = part.features.single;
+      expect(f.visible, isTrue);
+      app.toggleBodyVisible(part, 'Solid1');
+      expect(f.visible, isFalse, reason: 'hiding the body hides its feature');
+      app.toggleBodyVisible(part, 'Solid1');
+      expect(f.visible, isTrue, reason: 'showing the body restores it');
     });
   });
 

@@ -69,7 +69,8 @@ class Cam3 {
         (x * 0.5 + 0.5) * size.width, (1 - (y * 0.5 + 0.5)) * size.height);
   }
 
-  /// Distance along the view ray — bigger = farther from the camera.
+  /// Signed view coordinate along the ray: NEARER the camera = LARGER value
+  /// (depth = w·(-dir); the camera sits on the -dir side looking along dir).
   double depth(Vec3 w) => w.dot(_fwd(dir));
 
   /// LINEAR part of [project]: the screen displacement of a world VECTOR.
@@ -125,9 +126,11 @@ class ProjectedEdge {
   const ProjectedEdge(this.a, this.b, this.depth);
 }
 
-/// The headlight used for flat shading (camera direction plus a fixed tilt).
+/// The headlight for shading: it comes FROM the camera (along -dir) with a
+/// fixed tilt, so a face pointing at the viewer is brightest and one angled
+/// away darkens smoothly. (depth/facing convention: camera looks along dir.)
 Vec3 solidLight(Cam3 cam) =>
-    (cam.dir + const Vec3(0.35, 0.55, 0.2)).normalized();
+    (cam.dir * -1 + const Vec3(0.35, 0.55, 0.2)).normalized();
 
 /// Projects the front-facing triangles of [m]: backface-culled against the
 /// camera, flat-shaded against [solidLight], depth = triangle centroid along
@@ -143,7 +146,7 @@ List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
     final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
     final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
     final n = (w1 - w0).cross(w2 - w0).normalized();
-    if (n.dot(cam.dir) <= 0) continue; // backface (camera sits at +dir)
+    if (n.dot(cam.dir) >= 0) continue; // backface (visible face has n·dir<0)
     final shade =
         (0.42 + 0.58 * math.max(0, n.dot(light))).clamp(0.0, 1.0).toDouble();
     out.add(ProjectedTri(cam.project(w0), cam.project(w1), cam.project(w2),
@@ -251,7 +254,11 @@ SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
     final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
     final n = (w1 - w0).cross(w2 - w0);
     if (n.length < 1e-15) continue;
-    final front = n.normalized().dot(cam.dir) > 0;
+    // A face is FRONT (visible) when its outward normal opposes the view
+    // direction — the camera looks along dir, so a face we see points back
+    // toward it (n·dir < 0). Backfaces (n·dir > 0) are kept with front=false
+    // only for silhouette detection.
+    final front = n.normalized().dot(cam.dir) < 0;
     tris.add(SceneTri(
         cam.project(w0),
         cam.project(w1),
@@ -329,7 +336,11 @@ class SceneOccluders {
       const e = 1e-6;
       if (l0 < -e || l1 < -e || l2 < -e) continue;
       final td = l0 * t.da + l1 * t.db + l2 * t.dc;
-      if (td < d - triBias[i]) return true;
+      // Convention: depth = w·(-dir), so NEARER the camera = HIGHER depth.
+      // A point is hidden when some front triangle covers it at a depth
+      // meaningfully NEARER (greater) than the point's own, beyond the
+      // tessellation-sag bias.
+      if (td > d + triBias[i]) return true;
     }
     return false;
   }
@@ -541,7 +552,8 @@ List<(Offset, Offset, double)> meshSilhouetteSegments(
 void _drawShaded(Canvas canvas, List<SceneTri> tris, int alpha) {
   if (tris.isEmpty) return;
   final sorted = [for (final t in tris) t]
-    ..sort((a, b) => b.depth.compareTo(a.depth));
+    // near = higher depth, so draw FAR (lower depth) first (painter's algo)
+    ..sort((a, b) => a.depth.compareTo(b.depth));
   final pos = Float32List(sorted.length * 6);
   final col = Int32List(sorted.length * 3);
   var pi = 0, ci = 0;
