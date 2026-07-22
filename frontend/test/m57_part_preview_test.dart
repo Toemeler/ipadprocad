@@ -50,6 +50,10 @@ class FakeKernel implements PartKernel {
   }
 
   @override
+  KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) =>
+      fail ? null : KernelSolid(a.mesh, a.volume + b.volume, null);
+
+  @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
 }
 

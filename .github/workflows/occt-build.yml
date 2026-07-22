@@ -219,7 +219,7 @@ jobs:
           # toolkit missing HERE cannot be caught by nm below (an archive
           # happily carries undefined references), so check the tree.
           for l in libTKDESTEP.a libTKPrim.a libTKOffset.a libTKBO.a \
-                   libTKMesh.a libTKTopAlgo.a libTKGeomBase.a \
+                   libTKMesh.a libTKTopAlgo.a libTKGeomBase.a libTKShHealing.a \
                    libTKBRep.a libTKMath.a libTKernel.a; do
             test -f "install-ios/lib/$l" \
               || { echo "FAIL: install-ios/lib/$l missing"; exit 1; }

@@ -91,12 +91,18 @@ void main() {
       expect((segs[0].p + segs[1].p).distance, lessThan(1e-6));
     });
 
-    test('a square stays four straight lines', () {
+    test('a square stays four straight lines (order preserved up to '
+        'rotation)', () {
       const sq = [Offset(0, 0), Offset(10, 0), Offset(10, 10), Offset(0, 10)];
       final segs = arcFitLoop(sq);
       expect(segs.length, 4);
       expect(segs.every((s) => s.bulge == 0), isTrue);
-      expect([for (final s in segs) s.p], sq);
+      // the fitter may rotate the loop start (it walks from a gap chord) but
+      // must keep the same vertices in the same cyclic order
+      final got = [for (final s in segs) s.p];
+      final shift = got.indexOf(sq.first);
+      expect(shift, isNonNegative);
+      expect([for (var i = 0; i < 4; i++) got[(shift + i) % 4]], sq);
     });
 
     test('clockwise circle gets negative bulge (direction preserved)', () {
@@ -180,8 +186,13 @@ void main() {
       expect(tris, isNotEmpty);
       // every projected vertex of the barrel lies within lin of the true
       // cylinder (radial world error == chord sag by construction)
+      // smoothness bound: the facet sag stays below the sub-pixel target
       final n = circleSegments(r, lin);
-      expect(n, greaterThan(180)); // smooth: > 2 deg per facet
+      expect(n, greaterThan(32));
+      final sagWorld = r * (1 - math.cos(math.pi / n));
+      expect(sagWorld, lessThanOrEqualTo(lin + 1e-12));
+      // ... which is under 0.4 px on the 800 px viewport at halfH 27
+      expect(sagWorld * 800 / (2 * 27), lessThanOrEqualTo(0.4 + 1e-9));
       // depth-sorting keys are finite and shades are sane
       for (final t in tris) {
         expect(t.depth.isFinite, isTrue);

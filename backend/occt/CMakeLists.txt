@@ -45,6 +45,7 @@ target_link_libraries(occt_capi PUBLIC
     TKMesh      # BRepMesh_IncrementalMesh (v2 tessellation)
     TKTopAlgo   # BRepBuilderAPI_*, BRepLib, BRepCheck, BRepGProp, BRepBndLib
     TKGeomBase  # GCPnts_TangentialDeflection (v2 edge discretisation)
+    TKShHealing # ShapeUpgrade_UnifySameDomain (v3 arc-extrude face merge)
     TKBRep      # TopoDS/TopExp/TopTools
     TKMath      # gp, GProp, Bnd, Poly
     TKernel)

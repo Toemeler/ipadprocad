@@ -675,7 +675,7 @@ class ChildSketch {
 
 /// The working frame of a child sketch: its stored face frame, or the fixed
 /// origin-plane frame. EVERY consumer of a sketch's plane goes through this.
-PlaneFrame sketchFrameOf(ChildSketch cs) => cs.face ?? sketchFrameOf(cs);
+PlaneFrame sketchFrameOf(ChildSketch cs) => cs.face ?? planeFrame(cs.plane);
 
 class PartModel {
   final String name;

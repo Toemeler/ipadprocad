@@ -71,6 +71,7 @@
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
@@ -346,9 +347,19 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
                 "loop, or loops intersect?)");
         return nullptr;
     }
+    /* A full circle arrives as TWO half arcs (a single closed arc edge is
+     * degenerate), so the prism has two half-cylinder faces separated by two
+     * REAL vertical edges — exactly the lines the display must never show.
+     * UnifySameDomain merges same-surface faces and same-curve edges back
+     * together: one cylindrical face (its seam is suppressed by the mesher)
+     * and full-circle rims. */
     BRepPrimAPI_MakePrism prism(faceMk.Face(), gp_Vec(0.0, 0.0, height));
-    if (std::fabs(taper_deg) < 1e-9)
-        return wrap(prism.Shape(), "occt_extrude_profile_arcs");
+    if (std::fabs(taper_deg) < 1e-9) {
+        ShapeUpgrade_UnifySameDomain uni(prism.Shape(), Standard_True,
+                                         Standard_True, Standard_False);
+        uni.Build();
+        return wrap(uni.Shape(), "occt_extrude_profile_arcs");
+    }
 
     if (std::fabs(taper_deg) >= 90.0) {
         set_err("occt_extrude_profile_arcs",
@@ -388,7 +399,10 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
         set_err("occt_extrude_profile_arcs", "draft transform failed");
         return nullptr;
     }
-    return wrap(draft.Shape(), "occt_extrude_profile_arcs");
+    ShapeUpgrade_UnifySameDomain uni(draft.Shape(), Standard_True,
+                                     Standard_True, Standard_False);
+    uni.Build();
+    return wrap(uni.Shape(), "occt_extrude_profile_arcs");
     OCCT_CATCH("occt_extrude_profile_arcs", nullptr)
 }
 

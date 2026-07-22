@@ -31,6 +31,16 @@ Token NIE in Dateien/.git/config schreiben.
 > Solid-Flaechen per Raycast waehlbar (`facePicked`, `PlaneFrame` mit
 > Origin, JSON-`frame`).
 >
+> **CI-Runde 1 (29875999227/29875999244) ehrlich GELESEN und ROT** — vier
+> echte Fehler gefunden und gefixt: (1) Smoke [15]: 2 Halbboegen ergaben
+> ZWEI Halbzylinder-Faces (4 Faces, 6 Mesh-Kanten, 2 echte Vertikalkanten!)
+> -> `ShapeUpgrade_UnifySameDomain` (neu: TKShHealing gelinkt) verschmilzt
+> Faces+Kanten wieder, Volumen war schon exakt analytisch (1570.796327).
+> (2) `sketchFrameOf` rief sich per Blanket-sed SELBST auf (Stack Overflow
+> in 4 m56-Tests). (3) m57-FakeKernel fehlte `fuseSolids` (Compile-Fail).
+> (4) m58-Testerwartungen korrigiert (Quadrat rotationsinvariant; Sag-Bound
+> statt falschem ">180 Segmente"). Runde 2 laeuft mit diesem Push.
+>
 > **EHRLICH OFFEN:** Shim-v3-C++ ist lokal NICHT kompiliert (kein
 > OCCT-Checkout) — occt-build.yml ist das Gate; Host-Tests
 > (`m58_smooth_solids_test.dart` + angepasstes m56-FakeKernel) laufen erst
