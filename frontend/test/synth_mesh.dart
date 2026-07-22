@@ -8,7 +8,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ipadprocad/ffi/occt_engine.dart' show OcctMeshData;
-import 'package:ipadprocad/part_render.dart' show circleSegments;
+import 'package:ipadprocad/part_model.dart' show circleSegments;
 
 /// Face-id convention of [synthCylinderMesh]:
 ///   0 = barrel (cylinder), 1 = bottom cap (plane -Z), 2 = top cap (plane +Z)

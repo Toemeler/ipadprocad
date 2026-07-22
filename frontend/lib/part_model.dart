@@ -695,13 +695,6 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<ExtrudeFeature> features = [];
 
-  ChildSketch? sketchByName(String name) {
-    for (final c in childSketches) {
-      if (c.model.name == name) return c;
-    }
-    return null;
-  }
-
   /// Origin-item visibility (all invisible by default, like the mock).
   final Map<String, bool> vis = {
     'yz': false,
