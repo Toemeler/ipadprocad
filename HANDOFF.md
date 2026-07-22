@@ -16,6 +16,46 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **Nachtrag M59c (weitere Geräte-Fixes, CI-grün auf 78da7d8):** (1)
+> **Skizze-auf-Fläche blickte von der falschen Seite:** `facePicked`
+> orientierte die Kamera ENTLANG der Außennormale → man sah von innen durch
+> die Rückseite. Fix: entlang `-normale` blicken (Fläche zeigt zur Kamera,
+> konsistent mit `n·dir < 0`). (2) **Ursprungsebenen lagen VOR dem Modell**
+> statt hindurchzugehen: nur der Ebenen-Rand war tiefengetestet, die
+> transluzente FÜLLUNG war ein flaches 2D-Polygon ohne Verdeckung. Neu:
+> `drawOccludedQuadFill` (rastert die Ebene in ein Gitter, verwirft verdeckte
+> Zellen) → die Konstruktionsebene schneidet jetzt durchs Modell wie in
+> Inventor. (3) **Komplexe Profile mit Löchern nicht extrudierbar:**
+> `regionsFrom` gab EINE Region PRO Schleife zurück, ein Rechteck-mit-Kreis
+> wurde also ZWEI Regionen → Auto-Select (nur bei genau 1 Region) griff nie.
+> Neu über gerade/ungerade Verschachtelungstiefe: eine in einer anderen
+> liegende Schleife ist deren LOCH, keine eigene Region (Insel im Loch = wieder
+> Solid). `regionAt` ist jetzt loch-bewusst (Tipp ins leere Loch wählt nichts).
+> Der Shim schneidet Löcher bereits (`faceMk.Add(holeWire)`), also extrudiert
+> ein Donut jetzt mit Bohrung. m56-Tests korrigiert + Insel-im-Loch-Test. (4)
+> **Kanten-Sägezahn an gekrümmten Flächen:** Kanten liegen auf
+> Flächengrenzen, Screen-Space-Selbstverdeckung flackerte bei streifenden
+> Winkeln. Neu: Verdeckungs-`extra`-Marge (`SceneOccluders.edgeMargin` = 6× der
+> Flächen-Bias) für Kanten/Silhouetten/On-Surface-Overlays. **#4 ist eine
+> defensive Marge — Artefakt am Gerät noch zu bestätigen (offline nicht exakt
+> reproduzierbar).**
+>
+> **Offen, ehrlich:** (A) Falls die Artefakte am Gerät bleiben, braucht es die
+> tiefere Renderer-Überarbeitung — Canvas hat KEINEN Z-Buffer, Verdeckung
+> läuft in Screen-Space (Painter-Algorithmus per Zentroid-Tiefe), das ist bei
+> gekrümmten Flächen / sich durchdringenden Solids grundsätzlich fragil.
+> Flutters `drawVertices` bietet keinen Tiefenpuffer; eine echte Lösung wäre
+> ein Fragment-Shader oder Triangle-Splitting. (B) **Skizzenmodus zeigt kein
+> 3D-Modell + keinen Navigationswürfel wie Inventor:** die App wechselt im
+> Skizzenmodus auf das flache `Viewport2D` (2613 Zeilen mit allen Sketch-Tools,
+> Snapping, Gesten). `paintPartUnderlay` zeigt das Modell zwar geghostet
+> flach-von-oben (Inventor blickt auch senkrecht auf die Skizze), aber der
+> Würfel fehlt. Echtes „im 3D-Viewport skizzieren" hieße den Sketcher in
+> Viewport3D nachzubauen — großer, riskanter Umbau, am Gerät nicht offline
+> verifizierbar. Bewusst NICHT spekulativ gemacht; wartet auf Geräte-Feedback.
+>
+> ---
+>
 > **Nachtrag M59b (Geräte-Fixes, dieselbe Session):** Drei Geräte-Funde
 > behoben. **(1) Facing-/Tiefen-Konvention war global invertiert:** Kamera
 > blickt entlang `dir`, eine SICHTBARE Fläche zeigt mit der Außennormale zur
