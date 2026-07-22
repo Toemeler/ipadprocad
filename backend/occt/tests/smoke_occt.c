@@ -34,6 +34,10 @@
  *        EXACT cylinder: 3 faces (a 96-gon prism would have 98), analytic
  *        volume, and its mesh shows exactly 2 rim edge polylines (no facet
  *        verticals, seam suppressed) — the "smooth cylinder" guarantee
+ *   [16] v4 display metadata — per-triangle face ids, per-face surface
+ *        records (plane/cylinder + frames), per-edge ANALYTIC curves
+ *        (the rims report as exact circles r=10, sweep 2π), and occt_unify
+ *        collapsing the split faces of a box|box fuse
  *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
@@ -571,6 +575,95 @@ int main(void)
               "[15] extrude_profile_arcs(NULL) accepted");
         check(occt_extrude_profile_arcs(C, lc, 1, -1, 0) == NULL,
               "[15] extrude_profile_arcs(negative height) accepted");
+    }
+
+    /* [16] v4 mesh metadata + unify ------------------------------------ */
+    {
+        const double C[] = {10, 0, 1, -10, 0, 1};
+        const int lc[] = {2};
+        occt_shape *s16 = occt_extrude_profile_arcs(C, lc, 1, 5.0, 0.0);
+        occt_mesh *m = s16 ? occt_mesh_create(s16, 0.1, 0.3) : NULL;
+        if (check(m != NULL, "[16] mesh_create returned NULL")) {
+            int nv = 0, nt = 0, ne = 0, nep = 0;
+            occt_mesh_counts(m, &nv, &nt, &ne, &nep);
+            const int nf = occt_mesh_face_count(m);
+            printf("[16] faces=%d tris=%d edges=%d\n", nf, nt, ne);
+            check(nf == 3, "[16] face_count != 3");
+            int *tf = (int *)malloc(sizeof(int) * nt);
+            double *fi = (double *)malloc(sizeof(double) * 15 * (nf > 0 ? nf : 1));
+            double *ec = (double *)malloc(sizeof(double) * 16 * (ne > 0 ? ne : 1));
+            if (check(tf && fi && ec, "[16] out of memory") &&
+                check(occt_mesh_triangle_faces(m, tf), "[16] triangle_faces") &&
+                check(occt_mesh_face_infos(m, fi), "[16] face_infos") &&
+                check(occt_mesh_edge_curves(m, ec), "[16] edge_curves")) {
+                int inRange = 1;
+                for (int t = 0; t < nt; ++t)
+                    if (tf[t] < 0 || tf[t] >= nf) inRange = 0;
+                check(inRange, "[16] triangle face ids out of range");
+                int planes = 0, cyls = 0;
+                double cylR = 0;
+                for (int f = 0; f < nf; ++f) {
+                    const double *r = fi + 15 * f;
+                    if (r[0] == 0) {
+                        ++planes;
+                        check(fabs(fabs(r[6]) - 1.0) < 1e-9,
+                              "[16] cap normal not +-Z");
+                    } else if (r[0] == 1) {
+                        ++cyls;
+                        cylR = r[10];
+                    }
+                }
+                printf("[16] planes=%d cylinders=%d cylR=%.9f\n",
+                       planes, cyls, cylR);
+                check(planes == 2 && cyls == 1,
+                      "[16] expected 2 planes + 1 cylinder");
+                check(fabs(cylR - 10.0) < 1e-9, "[16] cylinder radius != 10");
+                int circles = 0;
+                for (int e = 0; e < ne; ++e) {
+                    const double *r = ec + 16 * e;
+                    if (r[0] == 2) {
+                        ++circles;
+                        check(fabs(r[10] - 10.0) < 1e-9,
+                              "[16] rim circle radius != 10");
+                        check(fabs(fabs(r[12] - r[11]) - 2 * PI) < 1e-6,
+                              "[16] rim circle sweep != 2pi");
+                    }
+                }
+                printf("[16] analytic circle edges=%d\n", circles);
+                check(circles == 2, "[16] expected 2 analytic rim circles");
+            }
+            free(tf); free(fi); free(ec);
+            occt_free_mesh(m);
+        }
+        occt_free_shape(s16);
+        /* unify collapses the coplanar split faces of a fused pair */
+        occt_shape *bA = occt_make_box(10, 10, 10);
+        occt_shape *bB0 = occt_make_box(10, 10, 10);
+        const double shift[12] = {1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0};
+        occt_shape *bB = bB0 ? occt_transform(bB0, shift) : NULL;
+        occt_shape *fu = (bA && bB) ? occt_fuse(bA, bB) : NULL;
+        occt_shape *un = fu ? occt_unify(fu) : NULL;
+        if (check(un != NULL, "[16] unify returned NULL")) {
+            int f0 = 0, f1 = 0;
+            occt_shape_counts(fu, &f0, NULL, NULL);
+            occt_shape_counts(un, &f1, NULL, NULL);
+            const double v0 = occt_shape_volume(fu);
+            const double v1 = occt_shape_volume(un);
+            printf("[16] fuse faces %d -> unify %d, volume %.6f -> %.6f\n",
+                   f0, f1, v0, v1);
+            check(f1 == 6, "[16] unified box|box should be a plain box (6)");
+            check(fabs(v0 - v1) < 1e-9 * fabs(v0), "[16] unify changed volume");
+        }
+        occt_free_shape(un); occt_free_shape(fu);
+        occt_free_shape(bA); occt_free_shape(bB); occt_free_shape(bB0);
+        /* failure paths */
+        check(occt_mesh_face_count(NULL) == -1, "[16] face_count(NULL)");
+        check(occt_mesh_triangle_faces(NULL, NULL) == 0,
+              "[16] triangle_faces(NULL)");
+        check(occt_mesh_face_infos(NULL, NULL) == 0, "[16] face_infos(NULL)");
+        check(occt_mesh_edge_curves(NULL, NULL) == 0,
+              "[16] edge_curves(NULL)");
+        check(occt_unify(NULL) == NULL, "[16] unify(NULL)");
     }
 
     if (g_failures == 0) {

@@ -59,15 +59,13 @@ class PlaneFrame {
   /// World point of the sketch origin. Zero for the three origin planes; a
   /// point ON the picked face for sketches on solid faces (M58).
   final Vec3 origin;
-  const PlaneFrame(this.key, this.u, this.v, this.n,
-      [this.origin = Vec3.zero]);
+  const PlaneFrame(this.key, this.u, this.v, this.n, [this.origin = Vec3.zero]);
 
   Vec3 toWorld(Offset p, [double w = 0]) =>
       origin + u * p.dx + v * p.dy + n * w;
 
   /// Sketch-plane coordinates of world point [w].
-  Offset toSketch(Vec3 w) =>
-      Offset((w - origin).dot(u), (w - origin).dot(v));
+  Offset toSketch(Vec3 w) => Offset((w - origin).dot(u), (w - origin).dot(v));
 
   /// Row-major 3x4 rigid placement for [occt_transform]: columns u,v,n,
   /// translation = origin + normal * [zOffset] (where the extrusion starts).
@@ -374,8 +372,7 @@ List<ProfileLoop> profileLoops(SketchModel s) {
     final f = _HalfEdge(c, true)
       ..from = nodeOf(pts.first)
       ..to = nodeOf(pts.last)
-      ..angle = math.atan2(
-          pts[1].dy - pts[0].dy, pts[1].dx - pts[0].dx);
+      ..angle = math.atan2(pts[1].dy - pts[0].dy, pts[1].dx - pts[0].dx);
     final r = _HalfEdge(c, false)
       ..from = f.to
       ..to = f.from
@@ -512,8 +509,10 @@ List<ProfileRegion> regionsFrom(List<ProfileLoop> loops) {
   }
   return [
     for (final l in loops)
-      ProfileRegion(
-          l, [for (final c in loops) if (parent[c.id] == l.id) c]),
+      ProfileRegion(l, [
+        for (final c in loops)
+          if (parent[c.id] == l.id) c
+      ]),
   ];
 }
 
@@ -670,7 +669,21 @@ class ChildSketch {
   final SketchModel model;
   final String plane; // 'xy' | 'yz' | 'xz' | 'face'
   final PlaneFrame? face; // set iff plane == 'face' (sketch on a solid face)
-  ChildSketch(this.model, this.plane, [this.face]);
+
+  /// Inventor semantics: a sketch stays visible in the 3D scene until a
+  /// feature consumes it; consumption turns visibility OFF, and the browser
+  /// eye can turn it back on (persisted).
+  bool visible;
+  ChildSketch(this.model, this.plane, [this.face, this.visible = true]);
+}
+
+/// The first feature that consumes [sketchName], or null (Inventor nests the
+/// consumed sketch under exactly this feature in the browser).
+ExtrudeFeature? firstConsumerOf(PartModel part, String sketchName) {
+  for (final f in part.features) {
+    if (f.sketchName == sketchName) return f;
+  }
+  return null;
 }
 
 /// The working frame of a child sketch: its stored face frame, or the fixed
@@ -682,10 +695,22 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<ExtrudeFeature> features = [];
 
+  ChildSketch? sketchByName(String name) {
+    for (final c in childSketches) {
+      if (c.model.name == name) return c;
+    }
+    return null;
+  }
+
   /// Origin-item visibility (all invisible by default, like the mock).
   final Map<String, bool> vis = {
-    'yz': false, 'xz': false, 'xy': false,
-    'x': false, 'y': false, 'z': false, 'cp': false,
+    'yz': false,
+    'xz': false,
+    'xy': false,
+    'x': false,
+    'y': false,
+    'z': false,
+    'cp': false,
   };
   final PartCamera camera = PartCamera();
   int featureN = 0, solidN = 0;
@@ -721,6 +746,7 @@ class PartModel {
             {
               'name': c.model.name,
               'plane': c.plane,
+              'vis': c.visible,
               if (c.face != null) 'frame': c.face!.frameJson(),
             }
         ],
@@ -740,8 +766,7 @@ class PartModel {
     featureN = (j['featureN'] as num?)?.toInt() ?? 0;
     solidN = (j['solidN'] as num?)?.toInt() ?? 0;
     for (final f in (j['features'] as List? ?? const [])) {
-      features.add(
-          ExtrudeFeature.fromJson((f as Map).cast<String, dynamic>()));
+      features.add(ExtrudeFeature.fromJson((f as Map).cast<String, dynamic>()));
     }
   }
 
@@ -821,8 +846,8 @@ int circleSegments(double radius, double lin) {
 
 /// Circumcenter of three points, or null when (nearly) collinear.
 Offset? circumcenter(Offset a, Offset b, Offset c) {
-  final d = 2 *
-      (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
+  final d =
+      2 * (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
   if (d.abs() < 1e-12) return null;
   final a2 = a.dx * a.dx + a.dy * a.dy;
   final b2 = b.dx * b.dx + b.dy * b.dy;
@@ -983,16 +1008,16 @@ double _runSweepR(List<Offset> pts, int i, int chords, Offset c) {
   for (var k = 0; k < chords; k++) {
     final a = pts[(i + k) % n] - c;
     final b = pts[(i + k + 1) % n] - c;
-    sweep += math.atan2(
-        a.dx * b.dy - a.dy * b.dx, a.dx * b.dx + a.dy * b.dy);
+    sweep += math.atan2(a.dx * b.dy - a.dy * b.dx, a.dx * b.dx + a.dy * b.dy);
   }
   return sweep;
 }
 
 /// Encodes fitted loops for the v3 kernel entry: 3 doubles per vertex
 /// (x, y, bulge).
-List<double> encodeLoopSegs(List<LoopSeg> segs) =>
-    [for (final s in segs) ...[s.p.dx, s.p.dy, s.bulge]];
+List<double> encodeLoopSegs(List<LoopSeg> segs) => [
+      for (final s in segs) ...[s.p.dx, s.p.dy, s.bulge]
+    ];
 
 // ---------------------------------------------------------------------------
 // kernel bridge — the ONLY seam between part features and OCCT, so host
@@ -1092,11 +1117,8 @@ class OcctPartKernel implements PartKernel {
       for (final g in groups) {
         // Recover true arcs from the polygonized loops so circles reach OCCT
         // as exact cylindrical faces — no facet edges on curved walls.
-        final loops = [
-          for (final loop in g) encodeLoopSegs(arcFitLoop(loop))
-        ];
-        final part =
-            ffi.extrudeProfileArcs(loops, height, taperDeg: taperDeg);
+        final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
+        final part = ffi.extrudeProfileArcs(loops, height, taperDeg: taperDeg);
         if (part == null) {
           _err = ffi.lastError();
           acc?.dispose();
@@ -1160,11 +1182,15 @@ class OcctPartKernel implements PartKernel {
       _err = 'fuse needs kernel-backed solids';
       return null;
     }
-    final fused = ffi.fuse(sa, sb);
-    if (fused == null) {
+    final raw = ffi.fuse(sa, sb);
+    if (raw == null) {
       _err = ffi.lastError();
       return null;
     }
+    // v4: merge the same-domain faces/edges the boolean leaves behind —
+    // otherwise the weld renders spurious fragment lines (M58 device find).
+    final fused = ffi.unify(raw) ?? raw;
+    if (!identical(fused, raw)) raw.dispose();
     final mesh = fused.mesh(
         linDeflection: kCoarseLinDeflection,
         angDeflection: kCoarseAngDeflection);
@@ -1279,8 +1305,7 @@ bool recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
     return false;
   }
   final frame = sketchFrameOf(cs);
-  final solid =
-      kernel.extrude(groups, height, f.taperDeg, frame.mat34(zOff));
+  final solid = kernel.extrude(groups, height, f.taperDeg, frame.mat34(zOff));
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;
@@ -1306,9 +1331,7 @@ List<Offset> sketchCurve(Geo g) {
 /// parentheses, ...). Null when it doesn't evaluate to a finite number.
 double? parseValueExpr(String raw) {
   var t = raw.trim();
-  t = t
-      .replaceAll(RegExp(r'(mm|deg|°)\s*$', caseSensitive: false), '')
-      .trim();
+  t = t.replaceAll(RegExp(r'(mm|deg|°)\s*$', caseSensitive: false), '').trim();
   if (t.isEmpty) return null;
   final direct = double.tryParse(t.replaceAll(',', '.'));
   if (direct != null) return direct.isFinite ? direct : null;
@@ -1317,7 +1340,6 @@ double? parseValueExpr(String raw) {
   final v = f(0);
   return v.isFinite ? v : null;
 }
-
 
 /// Recomputes EVERY feature in order and folds Inventor's Join chains: each
 /// 'join' feature's solid becomes the boolean union of its own volume with

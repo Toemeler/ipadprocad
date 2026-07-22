@@ -41,6 +41,8 @@ typedef _ExtrudeN = Pointer<Void> Function(Pointer<Double>, Int32, Double);
 typedef _ExtrudeD = Pointer<Void> Function(Pointer<Double>, int, double);
 typedef _FuseN = Pointer<Void> Function(Pointer<Void>, Pointer<Void>);
 typedef _FuseD = Pointer<Void> Function(Pointer<Void>, Pointer<Void>);
+typedef _Shape1N = Pointer<Void> Function(Pointer<Void>); // v4 unify
+typedef _Shape1D = Pointer<Void> Function(Pointer<Void>);
 
 typedef _CountsN = Int32 Function(
     Pointer<Void>, Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
@@ -80,6 +82,8 @@ typedef _MeshDblOutN = Int32 Function(Pointer<Void>, Pointer<Double>);
 typedef _MeshDblOutD = int Function(Pointer<Void>, Pointer<Double>);
 typedef _MeshIntOutN = Int32 Function(Pointer<Void>, Pointer<Int32>);
 typedef _MeshIntOutD = int Function(Pointer<Void>, Pointer<Int32>);
+typedef _MeshFaceCountN = Int32 Function(Pointer<Void>);
+typedef _MeshFaceCountD = int Function(Pointer<Void>);
 typedef _MeshEdgesN = Int32 Function(
     Pointer<Void>, Pointer<Int32>, Pointer<Double>);
 typedef _MeshEdgesD = int Function(
@@ -108,16 +112,28 @@ class OcctMeshData {
   final Int32List indices;
   final Int32List edgeStarts;
   final Float64List edgePoints;
-  const OcctMeshData(this.positions, this.normals, this.indices,
-      this.edgeStarts, this.edgePoints);
+
+  /// v4 display metadata (empty on fakes / legacy meshes; renderers must
+  /// treat "empty" as "unknown" and fall back gracefully).
+  final Int32List triFaces; // 1 face index per triangle
+  final Float64List faceInfos; // 15 doubles per face (see occt_capi.h)
+  final Float64List edgeCurves; // 16 doubles per edge (see occt_capi.h)
+
+  OcctMeshData(this.positions, this.normals, this.indices, this.edgeStarts,
+      this.edgePoints,
+      {Int32List? triFaces, Float64List? faceInfos, Float64List? edgeCurves})
+      : triFaces = triFaces ?? Int32List(0),
+        faceInfos = faceInfos ?? Float64List(0),
+        edgeCurves = edgeCurves ?? Float64List(0);
+
+  int get faceCount => faceInfos.length ~/ 15;
 
   int get vertexCount => positions.length ~/ 3;
   int get triangleCount => indices.length ~/ 3;
   int get edgeCount => edgeStarts.length - 1;
 
   @override
-  String toString() =>
-      'mesh(v$vertexCount/t$triangleCount/e$edgeCount)';
+  String toString() => 'mesh(v$vertexCount/t$triangleCount/e$edgeCount)';
 }
 
 /// An owned B-Rep shape. Call [dispose] exactly once; using a disposed
@@ -197,7 +213,8 @@ class OcctShape {
   /// (mm), [angDeflection] in radians. The buffers are copied to Dart and
   /// the native mesh is freed before returning. Null on shim failure (see
   /// [OcctFfi.lastError]).
-  OcctMeshData? mesh({double linDeflection = 0.2, double angDeflection = 0.35}) {
+  OcctMeshData? mesh(
+      {double linDeflection = 0.2, double angDeflection = 0.35}) {
     final f = _ffi;
     final mp = f._meshCreate(_handle, linDeflection, angDeflection);
     if (mp == nullptr) return null;
@@ -222,13 +239,35 @@ class OcctShape {
               f._meshEdges(mp, sBuf, eBuf) != 1) {
             return null;
           }
-          return OcctMeshData(
-            Float64List.fromList(vBuf.asTypedList(3 * vN)),
-            Float64List.fromList(nBuf.asTypedList(3 * vN)),
-            Int32List.fromList(tBuf.asTypedList(3 * tN)),
-            Int32List.fromList(sBuf.asTypedList(eN + 1)),
-            Float64List.fromList(eBuf.asTypedList(3 * epN)),
-          );
+          // v4 display metadata (face identity + analytic edge curves)
+          final fN = f._meshFaceCount(mp);
+          final tfBuf = calloc<Int32>(tN);
+          final fiBuf = calloc<Double>(15 * (fN > 0 ? fN : 1));
+          final ecBuf = calloc<Double>(16 * (eN > 0 ? eN : 1));
+          try {
+            final v4ok = fN >= 0 &&
+                f._meshTriangleFaces(mp, tfBuf) == 1 &&
+                f._meshFaceInfos(mp, fiBuf) == 1 &&
+                f._meshEdgeCurves(mp, ecBuf) == 1;
+            return OcctMeshData(
+              Float64List.fromList(vBuf.asTypedList(3 * vN)),
+              Float64List.fromList(nBuf.asTypedList(3 * vN)),
+              Int32List.fromList(tBuf.asTypedList(3 * tN)),
+              Int32List.fromList(sBuf.asTypedList(eN + 1)),
+              Float64List.fromList(eBuf.asTypedList(3 * epN)),
+              triFaces: v4ok ? Int32List.fromList(tfBuf.asTypedList(tN)) : null,
+              faceInfos: v4ok
+                  ? Float64List.fromList(fiBuf.asTypedList(15 * fN))
+                  : null,
+              edgeCurves: v4ok
+                  ? Float64List.fromList(ecBuf.asTypedList(16 * eN))
+                  : null,
+            );
+          } finally {
+            calloc.free(tfBuf);
+            calloc.free(fiBuf);
+            calloc.free(ecBuf);
+          }
         } finally {
           calloc.free(vBuf);
           calloc.free(nBuf);
@@ -254,7 +293,7 @@ class OcctShape {
   }
 }
 
-/// Probe-once singleton over the 23-symbol OCCT shim v2 surface.
+/// Probe-once singleton over the 29-symbol OCCT shim v4 surface.
 class OcctFfi {
   OcctFfi._(
       this.version,
@@ -280,6 +319,11 @@ class OcctFfi {
       this._meshNormals,
       this._meshTriangles,
       this._meshEdges,
+      this._meshFaceCount,
+      this._meshTriangleFaces,
+      this._meshFaceInfos,
+      this._meshEdgeCurves,
+      this._unify,
       this._freeMesh);
 
   /// occt_version() marker string, e.g.
@@ -312,6 +356,11 @@ class OcctFfi {
   final _MeshDblOutD _meshNormals;
   final _MeshIntOutD _meshTriangles;
   final _MeshEdgesD _meshEdges;
+  final _MeshFaceCountD _meshFaceCount; // v4
+  final _MeshIntOutD _meshTriangleFaces; // v4
+  final _MeshDblOutD _meshFaceInfos; // v4
+  final _MeshDblOutD _meshEdgeCurves; // v4
+  final _Shape1D _unify; // v4
   final _FreeD _freeMesh;
 
   static OcctFfi? _cached;
@@ -328,8 +377,8 @@ class OcctFfi {
     _probed = true;
     try {
       final lib = DynamicLibrary.process();
-      final ver = lib.lookupFunction<_ShimVerN, _ShimVerD>(
-          'occt_shim_version')();
+      final ver =
+          lib.lookupFunction<_ShimVerN, _ShimVerD>('occt_shim_version')();
       if (ver <= 0) return null;
       final versionStr = lib
           .lookupFunction<_VersionN, _VersionD>('occt_version')()
@@ -360,6 +409,13 @@ class OcctFfi {
         lib.lookupFunction<_MeshDblOutN, _MeshDblOutD>('occt_mesh_normals'),
         lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_triangles'),
         lib.lookupFunction<_MeshEdgesN, _MeshEdgesD>('occt_mesh_edges'),
+        lib.lookupFunction<_MeshFaceCountN, _MeshFaceCountD>(
+            'occt_mesh_face_count'),
+        lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>(
+            'occt_mesh_triangle_faces'),
+        lib.lookupFunction<_MeshDblOutN, _MeshDblOutD>('occt_mesh_face_infos'),
+        lib.lookupFunction<_MeshDblOutN, _MeshDblOutD>('occt_mesh_edge_curves'),
+        lib.lookupFunction<_Shape1N, _Shape1D>('occt_unify'),
         lib.lookupFunction<_FreeN, _FreeD>('occt_free_mesh'),
       );
     } catch (_) {
@@ -432,8 +488,7 @@ class OcctFfi {
           xy[k++] = v;
         }
       }
-      return _wrap(
-          _extrudeProfile(xy, counts, loops.length, height, taperDeg));
+      return _wrap(_extrudeProfile(xy, counts, loops.length, height, taperDeg));
     } finally {
       calloc.free(xy);
       calloc.free(counts);
@@ -473,6 +528,10 @@ class OcctFfi {
   /// Boolean union. Inputs remain owned/valid; result is a NEW shape.
   OcctShape? fuse(OcctShape a, OcctShape b) =>
       _wrap(_fuse(a._handle, b._handle));
+
+  /// v4: merge same-domain faces/edges (cleans boolean results so no
+  /// spurious split lines render). Input stays owned; result is NEW.
+  OcctShape? unify(OcctShape a) => _wrap(_unify(a._handle));
 
   /// Read a STEP file (all roots, compound if several). Null on failure.
   OcctShape? importStep(String path) {

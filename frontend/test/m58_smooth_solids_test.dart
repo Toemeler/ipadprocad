@@ -11,65 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ipadprocad/ffi/occt_engine.dart' show OcctMeshData;
 import 'package:ipadprocad/part_model.dart';
 import 'package:ipadprocad/part_render.dart';
-
-/// A world-space cylinder mesh EXACTLY like the OCCT tessellation of a true
-/// cylindrical face at linear deflection [lin]: barrel quads split into
-/// triangles, cap fans, rim edge polylines, per-vertex outward normals.
-OcctMeshData synthCylinderMesh(double r, double h, double lin) {
-  final n = circleSegments(r, lin);
-  final pos = <double>[], nor = <double>[], idx = <int>[];
-  // barrel: 2 rings of n vertices, radial normals
-  for (var ring = 0; ring < 2; ring++) {
-    final z = ring == 0 ? 0.0 : h;
-    for (var i = 0; i < n; i++) {
-      final a = 2 * math.pi * i / n;
-      pos.addAll([r * math.cos(a), r * math.sin(a), z]);
-      nor.addAll([math.cos(a), math.sin(a), 0]);
-    }
-  }
-  for (var i = 0; i < n; i++) {
-    final j = (i + 1) % n;
-    idx.addAll([i, j, n + j, i, n + j, n + i]); // CCW from outside
-  }
-  // caps: centre + ring (distinct vertices, axial normals)
-  final b0 = pos.length ~/ 3;
-  pos.addAll([0, 0, 0]);
-  nor.addAll([0, 0, -1]);
-  for (var i = 0; i < n; i++) {
-    final a = 2 * math.pi * i / n;
-    pos.addAll([r * math.cos(a), r * math.sin(a), 0]);
-    nor.addAll([0, 0, -1]);
-  }
-  for (var i = 0; i < n; i++) {
-    idx.addAll([b0, b0 + 1 + (i + 1) % n, b0 + 1 + i]); // CCW from below
-  }
-  final t0 = pos.length ~/ 3;
-  pos.addAll([0, 0, h]);
-  nor.addAll([0, 0, 1]);
-  for (var i = 0; i < n; i++) {
-    final a = 2 * math.pi * i / n;
-    pos.addAll([r * math.cos(a), r * math.sin(a), h]);
-    nor.addAll([0, 0, 1]);
-  }
-  for (var i = 0; i < n; i++) {
-    idx.addAll([t0, t0 + 1 + i, t0 + 1 + (i + 1) % n]);
-  }
-  // rim edges (seam suppressed, like the v3 shim)
-  final ep = <double>[], starts = <int>[0];
-  for (final z in [0.0, h]) {
-    for (var i = 0; i <= n; i++) {
-      final a = 2 * math.pi * (i % n) / n;
-      ep.addAll([r * math.cos(a), r * math.sin(a), z]);
-    }
-    starts.add(ep.length ~/ 3);
-  }
-  return OcctMeshData(
-      Float64List.fromList(pos),
-      Float64List.fromList(nor),
-      Int32List.fromList(idx),
-      Int32List.fromList(starts),
-      Float64List.fromList(ep));
-}
+import 'synth_mesh.dart' show synthCylinderMesh;
 
 List<Offset> circlePts(double r, int n, {Offset c = Offset.zero}) => [
       for (var i = 0; i < n; i++)
@@ -91,7 +33,8 @@ void main() {
       expect((segs[0].p + segs[1].p).distance, lessThan(1e-6));
     });
 
-    test('a square stays four straight lines (order preserved up to '
+    test(
+        'a square stays four straight lines (order preserved up to '
         'rotation)', () {
       const sq = [Offset(0, 0), Offset(10, 0), Offset(10, 10), Offset(0, 10)];
       final segs = arcFitLoop(sq);
@@ -113,7 +56,8 @@ void main() {
       }
     });
 
-    test('rounded corner: lines stay lines, the fillet becomes one arc '
+    test(
+        'rounded corner: lines stay lines, the fillet becomes one arc '
         'with the exact sweep', () {
       // L-path with a 90-degree fillet r=2 at the corner (10,0)->(10,10)
       final pts = <Offset>[
@@ -176,7 +120,8 @@ void main() {
   });
 
   group('painter math on REAL curvature (the fake-mesh gap, closed)', () {
-    test('projected barrel silhouette deviates sub-target from the true '
+    test(
+        'projected barrel silhouette deviates sub-target from the true '
         'circle at the meshed deflection', () {
       const r = 10.0, h = 5.0;
       final lin = viewLinearDeflection(27, 800); // ~0.027mm

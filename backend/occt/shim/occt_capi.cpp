@@ -25,6 +25,9 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
+#include <gp_Cylinder.hxx>
 
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
@@ -57,6 +60,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <GeomAbs_SurfaceType.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
@@ -131,13 +135,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v3 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v4 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 3; }
+extern "C" int occt_shim_version(void) { return 4; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -404,6 +408,20 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
     uni.Build();
     return wrap(uni.Shape(), "occt_extrude_profile_arcs");
     OCCT_CATCH("occt_extrude_profile_arcs", nullptr)
+}
+
+extern "C" occt_shape *occt_unify(const occt_shape *shape)
+{
+    OCCT_TRY("occt_unify")
+    if (!shape) {
+        set_err("occt_unify", "null shape");
+        return nullptr;
+    }
+    ShapeUpgrade_UnifySameDomain uni(shape->s, Standard_True, Standard_True,
+                                     Standard_False);
+    uni.Build();
+    return wrap(uni.Shape(), "occt_unify");
+    OCCT_CATCH("occt_unify", nullptr)
 }
 
 extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
@@ -695,6 +713,10 @@ struct occt_mesh
     std::vector<int> tris;          /* 3 indices per triangle, CCW outside */
     std::vector<int> edge_starts;   /* nedges+1 offsets into edge_pts/3 */
     std::vector<double> edge_pts;   /* 3 per edge point */
+    /* v4 */
+    std::vector<int> tri_face;      /* 1 face index per triangle */
+    std::vector<double> face_infos; /* 15 doubles per face (see header) */
+    std::vector<double> edge_curves;/* 16 doubles per edge (see header) */
 };
 
 extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
@@ -716,18 +738,64 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                                     Standard_False);
     (void)mesher;
 
-    std::vector<double> verts, norms, edge_pts;
+    std::vector<double> verts, norms, edge_pts, edge_curves;
     std::vector<int> tris, edge_starts;
     edge_starts.push_back(0);
 
     /* Faces -> shaded triangles. Vertices are emitted PER FACE, so B-Rep
      * edges stay crisp while each curved face shades smoothly. */
+    std::vector<int> tri_face;
+    std::vector<double> face_infos;
+    int face_idx = 0;
     for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next()) {
         const TopoDS_Face face = TopoDS::Face(ex.Current());
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull() || tri->NbTriangles() < 1)
             continue;
+        /* v4: one 15-double surface record per triangulated face */
+        {
+            BRepAdaptor_Surface surf(face, Standard_True);
+            double rec[15] = {5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+            const double sgn =
+                (face.Orientation() == TopAbs_REVERSED) ? -1.0 : 1.0;
+            switch (surf.GetType()) {
+            case GeomAbs_Plane: {
+                const gp_Pln pl = surf.Plane();
+                rec[0] = 0;
+                const gp_Pnt o = pl.Location();
+                const gp_Dir n = pl.Axis().Direction();
+                const gp_Dir x = pl.XAxis().Direction();
+                rec[1] = o.X(); rec[2] = o.Y(); rec[3] = o.Z();
+                rec[4] = sgn * n.X(); rec[5] = sgn * n.Y();
+                rec[6] = sgn * n.Z();
+                rec[7] = x.X(); rec[8] = x.Y(); rec[9] = x.Z();
+                break;
+            }
+            case GeomAbs_Cylinder: {
+                const gp_Cylinder cy = surf.Cylinder();
+                rec[0] = 1;
+                const gp_Pnt o = cy.Location();
+                const gp_Dir a = cy.Axis().Direction();
+                const gp_Dir x = cy.XAxis().Direction();
+                rec[1] = o.X(); rec[2] = o.Y(); rec[3] = o.Z();
+                rec[4] = a.X(); rec[5] = a.Y(); rec[6] = a.Z();
+                rec[7] = x.X(); rec[8] = x.Y(); rec[9] = x.Z();
+                rec[10] = cy.Radius();
+                break;
+            }
+            case GeomAbs_Cone:   rec[0] = 2; break;
+            case GeomAbs_Sphere: rec[0] = 3; break;
+            case GeomAbs_Torus:  rec[0] = 4; break;
+            default:             rec[0] = 5; break;
+            }
+            rec[11] = surf.FirstUParameter();
+            rec[12] = surf.LastUParameter();
+            rec[13] = surf.FirstVParameter();
+            rec[14] = surf.LastVParameter();
+            for (int r = 0; r < 15; ++r)
+                face_infos.push_back(rec[r]);
+        }
         BRepLib_ToolTriangulatedShape::ComputeNormals(face, tri);
         const gp_Trsf trsf = loc.Transformation();
         const bool reversed = (face.Orientation() == TopAbs_REVERSED);
@@ -754,7 +822,9 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
             tris.push_back(base + n1 - 1);
             tris.push_back(base + n2 - 1);
             tris.push_back(base + n3 - 1);
+            tri_face.push_back(face_idx);
         }
+        ++face_idx;
     }
 
     /* Edges -> display polylines, discretised straight from the curves so
@@ -797,6 +867,55 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
             edge_pts.push_back(p.Z());
         }
         edge_starts.push_back((int)(edge_pts.size() / 3));
+        /* v4: one 16-double analytic record per exported edge, so the
+         * display can draw lines/circles/ellipses as exact vector curves.
+         * Anything else keeps type 0 and renders from the polyline. */
+        {
+            double rec[16] = {0};
+            switch (curve.GetType()) {
+            case GeomAbs_Line: {
+                const gp_Pnt p0 = curve.Value(curve.FirstParameter());
+                const gp_Pnt p1 = curve.Value(curve.LastParameter());
+                rec[0] = 1;
+                rec[1] = p0.X(); rec[2] = p0.Y(); rec[3] = p0.Z();
+                rec[4] = p1.X(); rec[5] = p1.Y(); rec[6] = p1.Z();
+                break;
+            }
+            case GeomAbs_Circle: {
+                const gp_Circ ci = curve.Circle();
+                const gp_Pnt c = ci.Location();
+                const gp_Dir x = ci.XAxis().Direction();
+                const gp_Dir y = ci.YAxis().Direction();
+                rec[0] = 2;
+                rec[1] = c.X(); rec[2] = c.Y(); rec[3] = c.Z();
+                rec[4] = x.X(); rec[5] = x.Y(); rec[6] = x.Z();
+                rec[7] = y.X(); rec[8] = y.Y(); rec[9] = y.Z();
+                rec[10] = ci.Radius();
+                rec[11] = curve.FirstParameter();
+                rec[12] = curve.LastParameter();
+                break;
+            }
+            case GeomAbs_Ellipse: {
+                const gp_Elips el = curve.Ellipse();
+                const gp_Pnt c = el.Location();
+                const gp_Dir x = el.XAxis().Direction();
+                const gp_Dir y = el.YAxis().Direction();
+                rec[0] = 3;
+                rec[1] = c.X(); rec[2] = c.Y(); rec[3] = c.Z();
+                rec[4] = x.X(); rec[5] = x.Y(); rec[6] = x.Z();
+                rec[7] = y.X(); rec[8] = y.Y(); rec[9] = y.Z();
+                rec[10] = el.MajorRadius();
+                rec[11] = el.MinorRadius();
+                rec[12] = curve.FirstParameter();
+                rec[13] = curve.LastParameter();
+                break;
+            }
+            default:
+                break; /* type 0: polyline fallback */
+            }
+            for (int r = 0; r < 16; ++r)
+                edge_curves.push_back(rec[r]);
+        }
     }
 
     if (tris.empty()) {
@@ -809,6 +928,9 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     m->tris.swap(tris);
     m->edge_starts.swap(edge_starts);
     m->edge_pts.swap(edge_pts);
+    m->tri_face.swap(tri_face);
+    m->face_infos.swap(face_infos);
+    m->edge_curves.swap(edge_curves);
     return m;
     OCCT_CATCH("occt_mesh_create", nullptr)
 }
@@ -871,6 +993,41 @@ extern "C" int occt_mesh_edges(const occt_mesh *m, int *starts, double *pts)
     std::memcpy(starts, m->edge_starts.data(),
                 m->edge_starts.size() * sizeof(int));
     std::memcpy(pts, m->edge_pts.data(), m->edge_pts.size() * sizeof(double));
+    return 1;
+}
+
+extern "C" int occt_mesh_face_count(const occt_mesh *m)
+{
+    return m ? (int)(m->face_infos.size() / 15) : -1;
+}
+
+extern "C" int occt_mesh_triangle_faces(const occt_mesh *m, int *out)
+{
+    if (!m || !out) {
+        set_err("occt_mesh_triangle_faces", "null argument");
+        return 0;
+    }
+    std::copy(m->tri_face.begin(), m->tri_face.end(), out);
+    return 1;
+}
+
+extern "C" int occt_mesh_face_infos(const occt_mesh *m, double *out)
+{
+    if (!m || !out) {
+        set_err("occt_mesh_face_infos", "null argument");
+        return 0;
+    }
+    std::copy(m->face_infos.begin(), m->face_infos.end(), out);
+    return 1;
+}
+
+extern "C" int occt_mesh_edge_curves(const occt_mesh *m, double *out)
+{
+    if (!m || !out) {
+        set_err("occt_mesh_edge_curves", "null argument");
+        return 0;
+    }
+    std::copy(m->edge_curves.begin(), m->edge_curves.end(), out);
     return 1;
 }
 

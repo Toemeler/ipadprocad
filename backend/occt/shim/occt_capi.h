@@ -66,6 +66,11 @@ occt_shape *occt_extrude_polygon(const double *xy, int npts, double height);
  * remain valid. NULL on failure. */
 occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b);
 
+/* v4 — Merge same-domain faces and edges (ShapeUpgrade_UnifySameDomain):
+ * boolean results and arc-built prisms carry split faces/edges that render
+ * as spurious lines; unify returns a NEW cleaned shape. NULL on failure. */
+occt_shape *occt_unify(const occt_shape *shape);
+
 /*
  * v2 — Extrude a MULTI-LOOP profile (outer boundary + holes) with an
  * optional taper, the full Inventor "Extrude" semantics:
@@ -176,6 +181,41 @@ int occt_mesh_vertices(const occt_mesh *m, double *out);
 int occt_mesh_normals(const occt_mesh *m, double *out);
 int occt_mesh_triangles(const occt_mesh *m, int *out);
 int occt_mesh_edges(const occt_mesh *m, int *starts, double *pts);
+
+/* ---- v4: face identity + analytic display curves ------------------------ */
+
+/* Number of triangulated faces in the mesh (their index space is shared by
+ * occt_mesh_triangle_faces / occt_mesh_face_infos). -1 on NULL. */
+int occt_mesh_face_count(const occt_mesh *m);
+
+/* Per-triangle face index (ntriangles ints): which B-Rep face every display
+ * triangle belongs to — hover highlighting and per-face silhouettes need
+ * this. Returns 1/0. */
+int occt_mesh_triangle_faces(const occt_mesh *m, int *out);
+
+/* Per-face surface record, 15 doubles each:
+ *   [0] type: 0 plane, 1 cylinder, 2 cone, 3 sphere, 4 torus, 5 other
+ *   [1..3]  plane: point on plane   | cylinder/cone: axis point
+ *   [4..6]  plane: OUTWARD normal (face orientation applied)
+ *           cylinder/cone: axis direction
+ *   [7..9]  x-direction of the surface frame (u = 0 reference)
+ *   [10]    radius (cylinder/cone base), 0 otherwise
+ *   [11,12] u parameter range of the face (angle for cylinder)
+ *   [13,14] v parameter range of the face (along the axis for cylinder)
+ * Returns 1/0. */
+int occt_mesh_face_infos(const occt_mesh *m, double *out);
+
+/* Per-edge analytic curve record, 16 doubles each, aligned with the edge
+ * order of occt_mesh_edges:
+ *   type 1 line:    [1, p0.xyz, p1.xyz, 0...]
+ *   type 2 circle:  [2, center.xyz, xdir.xyz, ydir.xyz, radius, t0, t1, 0..]
+ *   type 3 ellipse: [3, center.xyz, xdir.xyz, ydir.xyz, majR, minR, t0, t1]
+ *   type 0 other:   render the polyline from occt_mesh_edges instead
+ * point(t) = center + xdir*R*cos(t) + ydir*R*sin(t)  (ellipse: majR/minR).
+ * Under any affine (orthographic) projection these stay lines/ellipses, so
+ * the display can draw them as exact vector curves at every zoom.
+ * Returns 1/0. */
+int occt_mesh_edge_curves(const occt_mesh *m, double *out);
 
 /* Release a mesh returned by occt_mesh_create. NULL is ignored. */
 void occt_free_mesh(occt_mesh *m);

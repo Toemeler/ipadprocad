@@ -38,6 +38,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
   final GlobalKey _eosKey = GlobalKey();
   bool _eosEscInstalled = false;
 
+  /// M59: feature nodes whose consumed-sketch child is expanded (Inventor's
+  /// "+" on Extrusion1 revealing Sketch1 beneath it).
+  final Set<String> _expandedFeatures = {};
+
   int _shownEos(SketchModel s) =>
       (_dragEos ?? s.eosAfter).clamp(0, s.layers.length);
 
@@ -117,7 +121,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
           const NativeMenuItem(id: 'rename', title: 'Rename', symbol: 'pencil'),
         NativeMenuItem(
             id: 'move',
-            title: selCount == 0 ? 'Move selection here' : 'Move $selCount here',
+            title:
+                selCount == 0 ? 'Move selection here' : 'Move $selCount here',
             symbol: 'arrow.right.doc.on.clipboard'),
         const NativeMenuItem(
             id: 'eophere',
@@ -144,9 +149,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
               id: 'eostop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
         if (eos < s.layers.length)
           const NativeMenuItem(
-              id: 'eosend',
-              title: 'Move to End',
-              symbol: 'arrow.down.to.line'),
+              id: 'eosend', title: 'Move to End', symbol: 'arrow.down.to.line'),
       ],
       if (eos < s.layers.length)
         [
@@ -281,38 +284,39 @@ class _ModelBrowserState extends State<ModelBrowser> {
           }, danger: true),
       ],
       if (!rolled) ...[
-      if (!locked)
-        _ctxItem('Edit', () {
+        if (!locked)
+          _ctxItem('Edit', () {
+            _closeCtx();
+            app.enterEdit(layer);
+          }),
+        _ctxItem(app.layerVisible(layer) ? 'Hide' : 'Show', () {
           _closeCtx();
-          app.enterEdit(layer);
+          app.toggleLayerVisible(layer);
         }),
-      _ctxItem(app.layerVisible(layer) ? 'Hide' : 'Show', () {
-        _closeCtx();
-        app.toggleLayerVisible(layer);
-      }),
-      _ctxItem(locked ? 'Unlock' : 'Lock', () {
-        _closeCtx();
-        app.toggleLayerLocked(layer);
-      }),
-      if (!base)
-        _ctxItem('Rename…', () {
+        _ctxItem(locked ? 'Unlock' : 'Lock', () {
           _closeCtx();
-          _promptRename(layer);
+          app.toggleLayerLocked(layer);
         }),
-      _ctxItem(selCount == 0 ? 'Move selection here' : 'Move $selCount here', () {
-        _closeCtx();
-        app.moveSelectionToLayer(layer);
-      }),
-      _ctxItem('Move End of Sketch here', () {
-        _closeCtx();
-        final i = app.current?.layers.indexOf(layer) ?? -1;
-        if (i >= 0) app.setEndOfSketch(i + 1);
-      }),
-      if (!base)
-        _ctxItem('Delete layer', () {
+        if (!base)
+          _ctxItem('Rename…', () {
+            _closeCtx();
+            _promptRename(layer);
+          }),
+        _ctxItem(selCount == 0 ? 'Move selection here' : 'Move $selCount here',
+            () {
           _closeCtx();
-          _confirmDelete(layer);
-        }, danger: true),
+          app.moveSelectionToLayer(layer);
+        }),
+        _ctxItem('Move End of Sketch here', () {
+          _closeCtx();
+          final i = app.current?.layers.indexOf(layer) ?? -1;
+          if (i >= 0) app.setEndOfSketch(i + 1);
+        }),
+        if (!base)
+          _ctxItem('Delete layer', () {
+            _closeCtx();
+            _confirmDelete(layer);
+          }, danger: true),
       ],
     ];
     _ctx = OverlayEntry(
@@ -508,7 +512,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
         child: MouseRegion(
           cursor: SystemMouseCursors.grab,
           child: _row(
-              indent: 8, exp: ' ', icon: endOfSketchIcon, label: 'End of Sketch'),
+              indent: 8,
+              exp: ' ',
+              icon: endOfSketchIcon,
+              label: 'End of Sketch'),
         ),
       ),
     );
@@ -596,85 +603,83 @@ class _ModelBrowserState extends State<ModelBrowser> {
               return false;
             },
             child: ListView(
-            key: _treeKey,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            children: [
-              _row(
-                indent: 0,
-                exp: ' ',
-                icon: part != null ? partCubeIcon : sketchCubeIcon,
-                label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
-              ),
-              _row(
-                indent: 8,
-                exp: originOpen ? '−' : '+',
-                icon: originIcon,
-                label: 'Origin',
-                onTap: () => setState(() => originOpen = !originOpen),
-              ),
-              if (originOpen) ...[
-                // A 3D part carries the FULL origin: 3 work planes, 3 axes
-                // and the centre point, each with its own visibility eye
-                // wired straight into the 3D scene (M56).
-                if (part != null) ...[
-                  for (final o in const [
-                    ('YZ Plane', 'yz'),
-                    ('XZ Plane', 'xz'),
-                    ('XY Plane', 'xy'),
-                    ('X Axis', 'x'),
-                    ('Y Axis', 'y'),
-                    ('Z Axis', 'z'),
-                    ('Center Point', 'cp'),
-                  ])
-                    _originRow(app, part, o.$1, o.$2),
-                ] else ...[
-                  _row(indent: 30, icon: xAxisIcon, label: 'X Axis'),
-                  _row(indent: 30, icon: yAxisIcon, label: 'Y Axis'),
-                  Tooltip(
-                    message: 'Automatically projected',
-                    child: _row(
-                        indent: 30, icon: centerPointIcon, label: 'Center Point'),
-                  ),
+              key: _treeKey,
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              children: [
+                _row(
+                  indent: 0,
+                  exp: ' ',
+                  icon: part != null ? partCubeIcon : sketchCubeIcon,
+                  label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
+                ),
+                _row(
+                  indent: 8,
+                  exp: originOpen ? '−' : '+',
+                  icon: originIcon,
+                  label: 'Origin',
+                  onTap: () => setState(() => originOpen = !originOpen),
+                ),
+                if (originOpen) ...[
+                  // A 3D part carries the FULL origin: 3 work planes, 3 axes
+                  // and the centre point, each with its own visibility eye
+                  // wired straight into the 3D scene (M56).
+                  if (part != null) ...[
+                    for (final o in const [
+                      ('YZ Plane', 'yz'),
+                      ('XZ Plane', 'xz'),
+                      ('XY Plane', 'xy'),
+                      ('X Axis', 'x'),
+                      ('Y Axis', 'y'),
+                      ('Z Axis', 'z'),
+                      ('Center Point', 'cp'),
+                    ])
+                      _originRow(app, part, o.$1, o.$2),
+                  ] else ...[
+                    _row(indent: 30, icon: xAxisIcon, label: 'X Axis'),
+                    _row(indent: 30, icon: yAxisIcon, label: 'Y Axis'),
+                    Tooltip(
+                      message: 'Automatically projected',
+                      child: _row(
+                          indent: 30,
+                          icon: centerPointIcon,
+                          label: 'Center Point'),
+                    ),
+                  ],
                 ],
-              ],
-              // A part shows its child sketches and features instead of
-              // layers; the open child sketch falls through to the 2D tree.
-              if (part != null && app.activeChild == null) ...[
-                for (final cs in part.childSketches)
-                  GestureDetector(
-                    onDoubleTap: () => app.openChildSketch(cs.model.name),
-                    child: _row(
-                        indent: 8,
-                        exp: ' ',
-                        icon: sketchCubeIcon,
-                        label: cs.model.name),
-                  ),
-                for (final f in part.features) _featureRow(app, f),
-              ],
-              // layers container, with the End-of-Sketch marker at its
-              // slot (M53): everything after the marker renders rolled back
-              if (s != null && part == null) ...[
-                for (var i = 0; i < s.layers.length; i++) ...[
-                  if (i == _shownEos(s)) _eosRow(app, s),
-                  _layerRow(app, s.layers[i],
-                      rolled: i >= _shownEos(s)),
+                // A part shows its child sketches and features instead of
+                // layers; the open child sketch falls through to the 2D tree.
+                if (part != null && app.activeChild == null) ...[
+                  // Inventor: a sketch consumed by a feature nests UNDER that
+                  // feature (see _featureRow); only unconsumed sketches stay
+                  // top-level. The eye is the per-sketch Visibility toggle.
+                  for (final cs in part.childSketches)
+                    if (firstConsumerOf(part, cs.model.name) == null)
+                      _sketchRow(app, cs, indent: 8),
+                  for (final f in part.features) _featureRow(app, part, f),
                 ],
-                if (_shownEos(s) >= s.layers.length) _eosRow(app, s),
-              ] else if (part == null)
-                _row(indent: 8,
-                    exp: ' ',
-                    icon: endOfSketchIcon,
-                    label: 'End of Sketch'),
-            ],
-          ),
+                // layers container, with the End-of-Sketch marker at its
+                // slot (M53): everything after the marker renders rolled back
+                if (s != null && part == null) ...[
+                  for (var i = 0; i < s.layers.length; i++) ...[
+                    if (i == _shownEos(s)) _eosRow(app, s),
+                    _layerRow(app, s.layers[i], rolled: i >= _shownEos(s)),
+                  ],
+                  if (_shownEos(s) >= s.layers.length) _eosRow(app, s),
+                ] else if (part == null)
+                  _row(
+                      indent: 8,
+                      exp: ' ',
+                      icon: endOfSketchIcon,
+                      label: 'End of Sketch'),
+              ],
+            ),
           ),
         ),
       ]),
     );
   }
 
-  Widget _originRow(
-      AppState app, PartModel part, String label, String key) {
+  Widget _originRow(AppState app, PartModel part, String label, String key) {
     final on = part.vis[key] == true;
     final row = _row(
       indent: 30,
@@ -686,25 +691,52 @@ class _ModelBrowserState extends State<ModelBrowser> {
         _ => centerPointIcon,
       },
       label: label,
-      trailing: _EyeButton(
-          visible: on, onTap: () => app.togglePartOriginVis(key)),
+      trailing:
+          _EyeButton(visible: on, onTap: () => app.togglePartOriginVis(key)),
     );
     return on ? row : Opacity(opacity: 0.45, child: row);
   }
 
+  /// Sketch row with Inventor's per-sketch Visibility eye. Double-tap opens
+  /// the sketch for editing (consumed ones too — Inventor allows reuse).
+  Widget _sketchRow(AppState app, ChildSketch cs, {required double indent}) {
+    final row = GestureDetector(
+      onDoubleTap: () => app.openChildSketch(cs.model.name),
+      child: _row(
+        indent: indent,
+        exp: ' ',
+        icon: sketchCubeIcon,
+        label: cs.model.name,
+        trailing: _EyeButton(
+            visible: cs.visible, onTap: () => app.toggleSketchVisible(cs)),
+      ),
+    );
+    return cs.visible ? row : Opacity(opacity: 0.45, child: row);
+  }
+
   /// One feature row (Extrusion1, ...): eye toggles it, double-tap edits
-  /// it in the properties panel, long-press / right-click deletes.
-  Widget _featureRow(AppState app, ExtrudeFeature f) {
+  /// it in the properties panel, long-press / right-click deletes. The "+"
+  /// expander reveals the consumed sketch nested beneath (M59, Inventor).
+  Widget _featureRow(AppState app, PartModel part, ExtrudeFeature f) {
     final broken = f.computeError != null;
+    final consumedSketch = part.sketchByName(f.sketchName);
+    final nests = consumedSketch != null &&
+        identical(firstConsumerOf(part, f.sketchName), f);
+    final open = _expandedFeatures.contains(f.name);
     final row = _row(
       indent: 8,
-      exp: ' ',
+      exp: nests ? (open ? '-' : '+') : ' ',
       icon: broken ? endOfSketchIcon : partCubeIcon,
       label: f.name,
+      onTap: nests
+          ? () => setState(() => open
+              ? _expandedFeatures.remove(f.name)
+              : _expandedFeatures.add(f.name))
+          : null,
       trailing: _EyeButton(
           visible: f.visible, onTap: () => app.toggleFeatureVisible(f)),
     );
-    return Listener(
+    final wrapped = Listener(
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
@@ -714,11 +746,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
       child: GestureDetector(
         onDoubleTap: () => app.openExtrude(f),
         onLongPress: () => _confirmDeleteFeature(f),
-        child: broken
-            ? Tooltip(message: f.computeError!, child: row)
-            : row,
+        child: broken ? Tooltip(message: f.computeError!, child: row) : row,
       ),
     );
+    if (!nests || !open) return wrapped;
+    // expanded: the consumed sketch sits nested one level deeper, with its
+    // own eye — Inventor's Extrusion1 ▸ Sketch1
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      wrapped,
+      _sketchRow(app, consumedSketch, indent: 30),
+    ]);
   }
 
   Future<void> _confirmDeleteFeature(ExtrudeFeature f) async {
@@ -798,6 +835,7 @@ class _TreeRow extends StatefulWidget {
   final String label;
   final bool active;
   final VoidCallback? onTap;
+
   /// Right-aligned control (the layer's visibility eye).
   final Widget? trailing;
   const _TreeRow(
@@ -839,9 +877,7 @@ class _TreeRowState extends State<_TreeRow> {
                 child: Text(widget.exp!,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        fontSize: 10,
-                        color: T.mbDim,
-                        fontFamily: 'Menlo')),
+                        fontSize: 10, color: T.mbDim, fontFamily: 'Menlo')),
               ),
             const SizedBox(width: 6),
             SvgPicture.string(widget.icon, width: 15, height: 15),
@@ -863,7 +899,8 @@ class _CtxRow extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
   final bool danger;
-  const _CtxRow({required this.label, required this.onTap, this.danger = false});
+  const _CtxRow(
+      {required this.label, required this.onTap, this.danger = false});
   @override
   State<_CtxRow> createState() => _CtxRowState();
 }
@@ -883,14 +920,13 @@ class _CtxRowState extends State<_CtxRow> {
           color: _h ? T.flyHov : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Text(widget.label,
-              style: ts(12.5,
-                  widget.danger ? const Color(0xFFE05A56) : T.mbText)),
+              style:
+                  ts(12.5, widget.danger ? const Color(0xFFE05A56) : T.mbText)),
         ),
       ),
     );
   }
 }
-
 
 /// Layer visibility toggle. A hidden layer is not drawn, not picked, not
 /// snapped and not grippable — the eye is the single switch for all of it.

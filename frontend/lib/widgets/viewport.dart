@@ -25,6 +25,8 @@ import '../diag.dart';
 import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
+import '../part_model.dart' show ChildSketch, sketchFrameOf;
+import '../part_render.dart' show paintPartUnderlay;
 import 'package:native_menu/native_menu.dart';
 
 import '../snap.dart';
@@ -102,21 +104,26 @@ class _Viewport2DState extends State<Viewport2D> {
   static const _snapPx = 12.0, _gripPx = 12.0;
   int _pointers = 0;
   Offset? _clickDown;
+
   /// M51 — device kind of the pointer that armed [_clickDown]; picks and
   /// snaps widen for fingers (see touch.dart) and stay precise for the
   /// Pencil and the mouse.
   PointerDeviceKind _downKind = PointerDeviceKind.mouse;
+
   /// M51 — every live pointer's kind. Feeds palm rejection (touches are
   /// rejected while a stylus is down) and lets _scaleStart know whether the
   /// single dragging pointer is a finger.
   final Map<int, PointerDeviceKind> _kinds = {};
+
   /// Touch pointers rejected as palm contact (arrived while the Pencil was
   /// down). They never count as clicks, taps or gesture fingers.
   final Set<int> _rejectedTouches = {};
   bool get _stylusDown => _kinds.values.any((k) =>
       k == PointerDeviceKind.stylus || k == PointerDeviceKind.invertedStylus);
+
   /// M51 — Procreate taps: two fingers = undo, three = redo.
   final MultiFingerTap _mft = MultiFingerTap();
+
   /// M51 — long-press = the right-click role for Pencil and finger. Armed on
   /// down, cancelled by movement (>10 px), lift, or a second pointer.
   Timer? _lpTimer;
@@ -150,8 +157,7 @@ class _Viewport2DState extends State<Viewport2D> {
     // else in the sketch.
     if ((app.paramRefSink != null || app.textRefSink != null) &&
         _inlineDim == null) {
-      final hit =
-          downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
+      final hit = downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
       if (hit != null) {
         final s = app.current;
         if (s != null) {
@@ -166,11 +172,10 @@ class _Viewport2DState extends State<Viewport2D> {
       // here) keeps the editor open instead of committing it shut — that
       // made "double tap to edit" close the field it had just opened.
       // Prefer the DOWN-time hit (see _downDimHit) over re-testing at up.
-      final hit =
-          downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
+      final hit = downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
       if (hit == _inlineDim) {
-        _dimCtrl.selection = TextSelection(
-            baseOffset: 0, extentOffset: _dimCtrl.text.length);
+        _dimCtrl.selection =
+            TextSelection(baseOffset: 0, extentOffset: _dimCtrl.text.length);
         _dimFocus.requestFocus();
         return;
       }
@@ -196,8 +201,7 @@ class _Viewport2DState extends State<Viewport2D> {
       // Inventor: with the Dimension tool active, clicking an EXISTING
       // dimension's text opens its edit box instead of starting a new pick.
       if (app.tool == Tool.dimension) {
-        final dim =
-            downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
+        final dim = downDim ?? _dimAtScreen(local, inflate: touchSlop(kind, 8));
         if (dim != null) {
           _editDimValue(dim);
           return;
@@ -218,10 +222,11 @@ class _Viewport2DState extends State<Viewport2D> {
       }
       final w0 = _toWorld(local, size);
       final sel = _selImage;
-      if (sel != null && app.current?.images.contains(sel) == true &&
+      if (sel != null &&
+          app.current?.images.contains(sel) == true &&
           (!app.inEditMode || sel.layer == app.editingLayer)) {
-        final tr = _worldToScreen(
-            Offset(sel.x + sel.w / 2, sel.y + sel.h / 2), size);
+        final tr =
+            _worldToScreen(Offset(sel.x + sel.w / 2, sel.y + sel.h / 2), size);
         if ((local - tr).distance < touchSlop(kind, 14)) {
           app.deleteImage(sel);
           setState(() => _selImage = null);
@@ -254,7 +259,8 @@ class _Viewport2DState extends State<Viewport2D> {
   Offset? _toolDownLocal;
   Offset? _toolDragW;
   bool _toolDragPlaced = false;
-  int? _clickPtr; // the pointer that armed _clickDown (a palm up must not fire it)
+  int?
+      _clickPtr; // the pointer that armed _clickDown (a palm up must not fire it)
   Offset? _lastStylusLocal; // fallback anchor for the Pencil-squeeze menu
 
   // M47: whole-entity body drag (grab the line/curve itself, not a grip point).
@@ -271,7 +277,8 @@ class _Viewport2DState extends State<Viewport2D> {
     // indices, so filtering the list here is safe (grips below are NOT filtered
     // — those carry indices and must stay aligned with the geometry list).
     final visible = [
-      for (final g in app.displayGeometry(s)) if (app.geoVisible(g)) g
+      for (final g in app.displayGeometry(s))
+        if (app.geoVisible(g)) g
     ];
     final sn = computeSnap(visible, w, px / app.zoom,
         ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
@@ -297,16 +304,15 @@ class _Viewport2DState extends State<Viewport2D> {
       if (_imgCache.containsKey(i.file)) continue;
       _imgCache[i.file] = null;
       final f = File(app.imagePath(i));
-      f.readAsBytes().then((b) => ui.instantiateImageCodec(b)).then(
-          (c) async {
+      f.readAsBytes().then((b) => ui.instantiateImageCodec(b)).then((c) async {
         final fr = await c.getNextFrame();
         if (mounted) setState(() => _imgCache[i.file] = fr.image);
       }, onError: (e) => Log.w('insert', 'image decode failed: $e'));
     }
   }
 
-  Rect _imageWorldRect(SketchImage i) => Rect.fromCenter(
-      center: Offset(i.x, i.y), width: i.w, height: i.h);
+  Rect _imageWorldRect(SketchImage i) =>
+      Rect.fromCenter(center: Offset(i.x, i.y), width: i.w, height: i.h);
 
   SketchImage? _imageAtWorld(Offset w) {
     final s = widget.app.current;
@@ -333,7 +339,8 @@ class _Viewport2DState extends State<Viewport2D> {
     if (existing != null) {
       app.beginTextEdit(existing, isNew: false);
     } else if (pos != null) {
-      final t = app.addText(pos, '', placeholder: true); // kept only if committed
+      final t =
+          app.addText(pos, '', placeholder: true); // kept only if committed
       app.beginTextEdit(t, isNew: true);
     }
   }
@@ -401,7 +408,8 @@ class _Viewport2DState extends State<Viewport2D> {
       _gesture = 'none'; // mouse: click-driven, exactly as before
       return;
     }
-    final grabPx = finger ? touchSlop(PointerDeviceKind.touch, _gripPx) : _gripPx;
+    final grabPx =
+        finger ? touchSlop(PointerDeviceKind.touch, _gripPx) : _gripPx;
     final w = _toWorld(d.localFocalPoint, size);
     // grip under the finger?
     final s = app.current;
@@ -438,9 +446,11 @@ class _Viewport2DState extends State<Viewport2D> {
         app.beginGripDrag(hit);
         return;
       }
-      Log.d('gesture', 'no grip under finger at '
-          '(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
-          '-> box select; grips=${gripsOf(s.geometry).length}');
+      Log.d(
+          'gesture',
+          'no grip under finger at '
+              '(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
+              '-> box select; grips=${gripsOf(s.geometry).length}');
       // M44: text drag, then SELECTED-image resize grip / body drag — all
       // lower priority than geometry grips, higher than box select.
       final tHit = _textAtScreen(d.localFocalPoint);
@@ -451,14 +461,15 @@ class _Viewport2DState extends State<Viewport2D> {
         return;
       }
       final sel = _selImage;
-      if (sel != null && s.images.contains(sel) &&
+      if (sel != null &&
+          s.images.contains(sel) &&
           (!app.inEditMode || sel.layer == app.editingLayer)) {
         // grips are drawn at SCREEN corners; hit-test there (world-y is
         // flipped, so the world rect's corners are the wrong ones)
-        final tl = _worldToScreen(
-            Offset(sel.x - sel.w / 2, sel.y + sel.h / 2), size);
-        final br = _worldToScreen(
-            Offset(sel.x + sel.w / 2, sel.y - sel.h / 2), size);
+        final tl =
+            _worldToScreen(Offset(sel.x - sel.w / 2, sel.y + sel.h / 2), size);
+        final br =
+            _worldToScreen(Offset(sel.x + sel.w / 2, sel.y - sel.h / 2), size);
         final dst = Rect.fromPoints(tl, br);
         if ((d.localFocalPoint - dst.bottomRight).distance <
             (finger ? touchSlop(PointerDeviceKind.touch, 16) : 16)) {
@@ -681,13 +692,16 @@ class _Viewport2DState extends State<Viewport2D> {
   // clicking elsewhere commits (Inventor keeps the dimension either way).
   Constraint? _inlineDim;
   bool _inlineIsNew = false;
+
   /// M42: the dimension label under the mouse — highlighted whenever it is
   /// actionable: while the expression box is open (click inserts the
   /// parameter name, Inventor-style) and in plain layer-edit mode (tap opens
   /// the value editor).
   Constraint? _hoverDimLabel;
+
   /// M43: position of the movable Parameters window (viewport coords).
   Offset _paramsPos = const Offset(60, 60);
+
   /// M45: position of the movable text editor window.
   Offset _textWinPos = const Offset(90, 90);
   // M44: insert-content interaction state
@@ -816,8 +830,7 @@ class _Viewport2DState extends State<Viewport2D> {
             enableSuggestions: false,
             // Inventor colours invalid syntax red while you type
             style: TextStyle(
-                fontSize: 13,
-                color: valid ? T.text : const Color(0xFFE05A5A)),
+                fontSize: 13, color: valid ? T.text : const Color(0xFFE05A5A)),
             textAlign: TextAlign.center,
             onChanged: (_) => setState(() {}),
             // outside taps are handled by _handleClick (reference-insert or
@@ -1095,9 +1108,7 @@ class _Viewport2DState extends State<Viewport2D> {
               // empty buffer: fall through to cancelTool below
             } else {
               final ch = event.character;
-              if (ch != null &&
-                  ch.length == 1 &&
-                  '0123456789.-'.contains(ch)) {
+              if (ch != null && ch.length == 1 && '0123456789.-'.contains(ch)) {
                 app.hudType(ch);
                 return KeyEventResult.handled;
               }
@@ -1122,8 +1133,8 @@ class _Viewport2DState extends State<Viewport2D> {
             if (ctrl && k == LogicalKeyboardKey.keyS) {
               final tab = app.curTab;
               if (tab != null) {
-                app.saveSketch(tab).then((ok) =>
-                    app.toast(ok ? 'Saved "$tab"' : 'Save failed'));
+                app.saveSketch(tab).then(
+                    (ok) => app.toast(ok ? 'Saved "$tab"' : 'Save failed'));
               }
               return KeyEventResult.handled;
             }
@@ -1286,8 +1297,7 @@ class _Viewport2DState extends State<Viewport2D> {
             if (!rejected && e.kind == PointerDeviceKind.touch) {
               _mft.move(e.pointer, e.localPosition);
             }
-            if (_lpDown != null &&
-                (e.localPosition - _lpDown!).distance > 8) {
+            if (_lpDown != null && (e.localPosition - _lpDown!).distance > 8) {
               _cancelLp(); // moving is drawing/dragging, not a long-press
             }
             if (!rejected &&
@@ -1416,8 +1426,7 @@ class _Viewport2DState extends State<Viewport2D> {
                       top: _paramsPos.dy.clamp(0.0, size.height - 60),
                       child: ParametersDialog(
                           app: app,
-                          onDrag: (d) =>
-                              setState(() => _paramsPos += d)),
+                          onDrag: (d) => setState(() => _paramsPos += d)),
                     ),
                   // M45: movable parametric-text editor window
                   if (app.editingText != null)
@@ -1426,8 +1435,7 @@ class _Viewport2DState extends State<Viewport2D> {
                       top: _textWinPos.dy.clamp(0.0, size.height - 60),
                       child: TextEditorWindow(
                           app: app,
-                          onDrag: (d) =>
-                              setState(() => _textWinPos += d)),
+                          onDrag: (d) => setState(() => _textWinPos += d)),
                     ),
                   // 2D Fillet / Chamfer value window (M36), same parking spot
                   if (app.filletSess != null &&
@@ -1469,8 +1477,7 @@ class _Viewport2DState extends State<Viewport2D> {
 
   Offset _worldToScreen(Offset w, Size size) {
     final app = widget.app;
-    return Offset(
-        size.width / 2 + (w.dx - app.pan.dx) * app.zoom,
+    return Offset(size.width / 2 + (w.dx - app.pan.dx) * app.zoom,
         size.height / 2 - (w.dy - app.pan.dy) * app.zoom);
   }
 }
@@ -1480,8 +1487,10 @@ bool _overlayErrorLogged = false;
 class _ViewportPainter extends CustomPainter {
   final AppState app;
   final bool projCpSelected;
+
   /// M42: dimension label to render highlighted (hover feedback).
   final Constraint? hoverDim;
+
   /// M44: decoded inserted images + the currently selected one (adornments).
   final Map<String, ui.Image?> imgCache;
   final SketchImage? selImage;
@@ -1495,6 +1504,33 @@ class _ViewportPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
+    // ---- M59: while sketching inside a part, Inventor keeps the 3D model
+    // visible — render the committed solids straight down the sketch frame
+    // with THIS view's pan/zoom, then dim them behind a veil so the sketch
+    // stays the crisp foreground.
+    final part59 = app.currentPart;
+    final child59 = app.activeChild;
+    if (part59 != null && child59 != null) {
+      ChildSketch? cs59;
+      for (final c in part59.childSketches) {
+        if (identical(c.model, child59) || c.model.name == child59.name) {
+          cs59 = c;
+          break;
+        }
+      }
+      if (cs59 != null) {
+        final solids = [
+          for (final f in part59.features)
+            if (f.visible && f.solid != null && !f.consumedByJoin) f.solid!
+        ];
+        if (solids.isNotEmpty) {
+          paintPartUnderlay(
+              canvas, size, solids, sketchFrameOf(cs59), app.pan, app.zoom);
+          canvas.drawRect(Offset.zero & size,
+              Paint()..color = T.viewport.withOpacity(0.55));
+        }
+      }
+    }
     final s = app.current;
     Offset map(double x, double y) => Offset(
         size.width / 2 + (x - app.pan.dx) * app.zoom,
@@ -1686,10 +1722,10 @@ class _ViewportPainter extends CustomPainter {
           final xp = Paint()
             ..color = Colors.white
             ..strokeWidth = 1.6;
-          canvas.drawLine(xC + const Offset(-3.5, -3.5),
-              xC + const Offset(3.5, 3.5), xp);
-          canvas.drawLine(xC + const Offset(-3.5, 3.5),
-              xC + const Offset(3.5, -3.5), xp);
+          canvas.drawLine(
+              xC + const Offset(-3.5, -3.5), xC + const Offset(3.5, 3.5), xp);
+          canvas.drawLine(
+              xC + const Offset(-3.5, 3.5), xC + const Offset(3.5, -3.5), xp);
         }
       }
 
@@ -1713,8 +1749,10 @@ class _ViewportPainter extends CustomPainter {
         if (!app.inEditMode && gs[i].isConstruction) continue;
         if (!geoFinite(gs[i])) {
           if (Log.every('paint-nonfinite', 500)) {
-            Log.e('paint', 'SKIPPING non-finite ${geoStr(i, gs[i])} '
-                '(dragging=${app.dragGrip != null})');
+            Log.e(
+                'paint',
+                'SKIPPING non-finite ${geoStr(i, gs[i])} '
+                    '(dragging=${app.dragGrip != null})');
           }
           continue;
         }
@@ -1780,7 +1818,9 @@ class _ViewportPainter extends CustomPainter {
       // Degrees-of-freedom glyphs: arrows on every point that can still move
       // (they vanish one by one as constraints are added).
       final an = app.analysis;
-      if (app.showDof && app.inEditMode && app.tool == Tool.none &&
+      if (app.showDof &&
+          app.inEditMode &&
+          app.tool == Tool.none &&
           an != null) {
         final dp = Paint()
           ..color = const Color(0xFFEFD37A)
@@ -1846,8 +1886,7 @@ class _ViewportPainter extends CustomPainter {
         for (final g in gripsOf(gs)) {
           if (g.entity < gs.length && !app.geoEditable(gs[g.entity])) continue;
           final o = map(g.pos.dx, g.pos.dy);
-          canvas.drawRect(
-              Rect.fromCenter(center: o, width: 4, height: 4), gp);
+          canvas.drawRect(Rect.fromCenter(center: o, width: 4, height: 4), gp);
         }
         if (app.dragGrip != null && app.dragPos != null) {
           final o = map(app.dragPos!.dx, app.dragPos!.dy);
@@ -1891,8 +1930,7 @@ class _ViewportPainter extends CustomPainter {
       // committed picks as blue grips
       for (final pt in pts) {
         final o = map(pt.dx, pt.dy);
-        canvas.drawRect(
-            Rect.fromCenter(center: o, width: 5, height: 5),
+        canvas.drawRect(Rect.fromCenter(center: o, width: 5, height: 5),
             Paint()..color = T.blue);
       }
       // HUD value boxes NEXT TO the live geometry, never on it: the block
@@ -1916,130 +1954,133 @@ class _ViewportPainter extends CustomPainter {
     // Guarded: a painter exception aborts the whole frame, which would look
     // exactly like "the app draws nothing".
     try {
-    // ---- M44/M45: parametric texts (real content: visible outside edit
-    // mode). The anchor (t.x, t.y) is the LOWER-LEFT of the text; the text
-    // grows up and to the right so the construction bounding rect matches the
-    // measurer used for snapping. The rect renders in the CONSTRUCTION
-    // linetype (thin dashed) and ONLY on the layer being edited.
-    app.textRects.clear();
-    if (s != null) {
-      final table = app.paramTable(s);
-      for (final t in s.texts) {
-        final rendered = renderTemplate(t.template, table);
-        final fontPx = (t.height * app.zoom).clamp(3.0, 1200.0);
-        final dim = !app.inEditMode || t.layer == app.editingLayer;
-        final tp = TextPainter(
-            text: TextSpan(
-                text: rendered,
-                style: TextStyle(
-                    color: dim
-                        ? const Color(0xFFDDE0E3)
-                        : const Color(0x66DDE0E3),
-                    fontFamily: t.font,
-                    fontSize: fontPx)),
-            textDirection: TextDirection.ltr)
-          ..layout();
-        // lower-left anchor -> the paint origin (top-left) is height up
-        final o = map(t.x, t.y);
-        final topLeft = o - Offset(0, tp.height);
-        tp.paint(canvas, topLeft);
-        final screenRect =
-            Rect.fromLTWH(topLeft.dx, topLeft.dy, tp.width, tp.height);
-        app.textRects.add((t, screenRect));
-
-        // construction bounding rect (edit-mode + own layer only)
-        if (app.inEditMode && t.layer == app.editingLayer) {
-          final wr = app.textBoundsWorld(s, t, measure: measureSketchText);
-          final a = map(wr.left, wr.top); // world-top -> screen-top
-          final b = map(wr.right, wr.bottom);
-          final rr = Rect.fromPoints(a, b);
-          final cp = Paint()
-            ..color = const Color(0xFF6FA8D8) // construction blue-grey
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.0;
-          // dashed like the construction linetype
-          const dash = 5.0, gap = 3.0;
-          void dline(Offset p0, Offset p1) {
-            final len = (p1 - p0).distance;
-            if (len < 0.01) return;
-            final dir = (p1 - p0) / len;
-            var d = 0.0;
-            while (d < len) {
-              final e = (d + dash).clamp(0.0, len);
-              canvas.drawLine(p0 + dir * d, p0 + dir * e, cp);
-              d += dash + gap;
-            }
-          }
-
-          dline(rr.topLeft, rr.topRight);
-          dline(rr.topRight, rr.bottomRight);
-          dline(rr.bottomRight, rr.bottomLeft);
-          dline(rr.bottomLeft, rr.topLeft);
-          // small square snap markers at the corners
-          for (final c in [
-            rr.topLeft, rr.topRight, rr.bottomLeft, rr.bottomRight
-          ]) {
-            canvas.drawRect(
-                Rect.fromCenter(center: c, width: 4, height: 4),
-                Paint()..color = const Color(0xFF6FA8D8));
-          }
-        }
-      }
-    }
-
-    // M42: dimensions and constraint glyphs are SKETCH-EDIT artefacts — they
-    // are invisible (and untappable: rects cleared) outside layer-edit mode,
-    // like Inventor hides them when the sketch is not being edited.
-    if (!app.inEditMode) app.dimLabelRects.clear();
-    if (s != null && app.inEditMode) {
-      final gs2 = app.displayGeometry(s);
-      if (app.showConstraints) {
-        final seen = <String, int>{};
-        final shown = [
-          for (final c in s.constraints)
-            if (app.constraintVisible(s, c)) c
-        ];
-        for (final (pos, raw) in constraintGlyphs(gs2, shown)) {
-          final label = raw.split('#').first;
-          final key = '${pos.dx.toStringAsFixed(2)},${pos.dy.toStringAsFixed(2)}';
-          final slot = seen[key] = (seen[key] ?? 0) + 1;
-          final o = map(pos.dx, pos.dy) + Offset(8.0 + 15.0 * (slot - 1), -12);
+      // ---- M44/M45: parametric texts (real content: visible outside edit
+      // mode). The anchor (t.x, t.y) is the LOWER-LEFT of the text; the text
+      // grows up and to the right so the construction bounding rect matches the
+      // measurer used for snapping. The rect renders in the CONSTRUCTION
+      // linetype (thin dashed) and ONLY on the layer being edited.
+      app.textRects.clear();
+      if (s != null) {
+        final table = app.paramTable(s);
+        for (final t in s.texts) {
+          final rendered = renderTemplate(t.template, table);
+          final fontPx = (t.height * app.zoom).clamp(3.0, 1200.0);
+          final dim = !app.inEditMode || t.layer == app.editingLayer;
           final tp = TextPainter(
               text: TextSpan(
-                  text: label,
-                  style: const TextStyle(
-                      fontSize: 10, color: Color(0xFFEFD37A))),
+                  text: rendered,
+                  style: TextStyle(
+                      color: dim
+                          ? const Color(0xFFDDE0E3)
+                          : const Color(0x66DDE0E3),
+                      fontFamily: t.font,
+                      fontSize: fontPx)),
               textDirection: TextDirection.ltr)
             ..layout();
-          canvas.drawRect(
-              Rect.fromLTWH(o.dx - 2, o.dy - 1, tp.width + 4, tp.height + 2),
-              Paint()..color = const Color(0xB2333333));
-          tp.paint(canvas, o);
-        }
-      }
-      app.dimLabelRects.clear();
-      for (final c in s.constraints) {
-        if (c.type == CType.dimension &&
-            c.textPos != null &&
-            app.constraintVisible(s, c)) {
-          _paintDimension(canvas, gs2, c, map,
-              labelSink: app.dimLabelRects,
-              highlight: identical(c, hoverDim));
-        }
-      }
-      // dimension being placed follows the cursor
-      final pd = app.pendingDim;
-      if (pd != null && pd.textPos != null) {
-        _paintDimension(canvas, gs2, pd, map);
-      }
-      // live preview: once the pick set is chosen, the dimension tracks the
-      // cursor until the click that places it (Inventor behaviour).
-      if (pd == null && app.hoverWorld != null) {
-        final preview = app.dimensionPreview(app.hoverWorld!);
-        if (preview != null) _paintDimension(canvas, gs2, preview, map);
-      }
-    }
+          // lower-left anchor -> the paint origin (top-left) is height up
+          final o = map(t.x, t.y);
+          final topLeft = o - Offset(0, tp.height);
+          tp.paint(canvas, topLeft);
+          final screenRect =
+              Rect.fromLTWH(topLeft.dx, topLeft.dy, tp.width, tp.height);
+          app.textRects.add((t, screenRect));
 
+          // construction bounding rect (edit-mode + own layer only)
+          if (app.inEditMode && t.layer == app.editingLayer) {
+            final wr = app.textBoundsWorld(s, t, measure: measureSketchText);
+            final a = map(wr.left, wr.top); // world-top -> screen-top
+            final b = map(wr.right, wr.bottom);
+            final rr = Rect.fromPoints(a, b);
+            final cp = Paint()
+              ..color = const Color(0xFF6FA8D8) // construction blue-grey
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.0;
+            // dashed like the construction linetype
+            const dash = 5.0, gap = 3.0;
+            void dline(Offset p0, Offset p1) {
+              final len = (p1 - p0).distance;
+              if (len < 0.01) return;
+              final dir = (p1 - p0) / len;
+              var d = 0.0;
+              while (d < len) {
+                final e = (d + dash).clamp(0.0, len);
+                canvas.drawLine(p0 + dir * d, p0 + dir * e, cp);
+                d += dash + gap;
+              }
+            }
+
+            dline(rr.topLeft, rr.topRight);
+            dline(rr.topRight, rr.bottomRight);
+            dline(rr.bottomRight, rr.bottomLeft);
+            dline(rr.bottomLeft, rr.topLeft);
+            // small square snap markers at the corners
+            for (final c in [
+              rr.topLeft,
+              rr.topRight,
+              rr.bottomLeft,
+              rr.bottomRight
+            ]) {
+              canvas.drawRect(Rect.fromCenter(center: c, width: 4, height: 4),
+                  Paint()..color = const Color(0xFF6FA8D8));
+            }
+          }
+        }
+      }
+
+      // M42: dimensions and constraint glyphs are SKETCH-EDIT artefacts — they
+      // are invisible (and untappable: rects cleared) outside layer-edit mode,
+      // like Inventor hides them when the sketch is not being edited.
+      if (!app.inEditMode) app.dimLabelRects.clear();
+      if (s != null && app.inEditMode) {
+        final gs2 = app.displayGeometry(s);
+        if (app.showConstraints) {
+          final seen = <String, int>{};
+          final shown = [
+            for (final c in s.constraints)
+              if (app.constraintVisible(s, c)) c
+          ];
+          for (final (pos, raw) in constraintGlyphs(gs2, shown)) {
+            final label = raw.split('#').first;
+            final key =
+                '${pos.dx.toStringAsFixed(2)},${pos.dy.toStringAsFixed(2)}';
+            final slot = seen[key] = (seen[key] ?? 0) + 1;
+            final o =
+                map(pos.dx, pos.dy) + Offset(8.0 + 15.0 * (slot - 1), -12);
+            final tp = TextPainter(
+                text: TextSpan(
+                    text: label,
+                    style: const TextStyle(
+                        fontSize: 10, color: Color(0xFFEFD37A))),
+                textDirection: TextDirection.ltr)
+              ..layout();
+            canvas.drawRect(
+                Rect.fromLTWH(o.dx - 2, o.dy - 1, tp.width + 4, tp.height + 2),
+                Paint()..color = const Color(0xB2333333));
+            tp.paint(canvas, o);
+          }
+        }
+        app.dimLabelRects.clear();
+        for (final c in s.constraints) {
+          if (c.type == CType.dimension &&
+              c.textPos != null &&
+              app.constraintVisible(s, c)) {
+            _paintDimension(canvas, gs2, c, map,
+                labelSink: app.dimLabelRects,
+                highlight: identical(c, hoverDim));
+          }
+        }
+        // dimension being placed follows the cursor
+        final pd = app.pendingDim;
+        if (pd != null && pd.textPos != null) {
+          _paintDimension(canvas, gs2, pd, map);
+        }
+        // live preview: once the pick set is chosen, the dimension tracks the
+        // cursor until the click that places it (Inventor behaviour).
+        if (pd == null && app.hoverWorld != null) {
+          final preview = app.dimensionPreview(app.hoverWorld!);
+          if (preview != null) _paintDimension(canvas, gs2, preview, map);
+        }
+      }
     } catch (err, st) {
       if (!_overlayErrorLogged) {
         _overlayErrorLogged = true;
@@ -2088,8 +2129,7 @@ class _ViewportPainter extends CustomPainter {
       switch (sn.kind) {
         case 'endpoint':
         case 'vertex':
-          canvas.drawRect(
-              Rect.fromCenter(center: o, width: 9, height: 9), mp);
+          canvas.drawRect(Rect.fromCenter(center: o, width: 9, height: 9), mp);
           break;
         case 'midpoint':
           final path = Path()
@@ -2121,7 +2161,10 @@ class _ViewportPainter extends CustomPainter {
           break;
       }
       for (final a in sn.alignRefs) {
-        _dashedLine(canvas, map(a.dx, a.dy), o,
+        _dashedLine(
+            canvas,
+            map(a.dx, a.dy),
+            o,
             Paint()
               ..color = green.withOpacity(0.85)
               ..strokeWidth = 1);
@@ -2135,7 +2178,9 @@ class _ViewportPainter extends CustomPainter {
           map(app.boxEnd!.dx, app.boxEnd!.dy));
       if (app.boxCrossing) {
         canvas.drawRect(r, Paint()..color = const Color(0x2E58C05C));
-        _dashedRect(canvas, r,
+        _dashedRect(
+            canvas,
+            r,
             Paint()
               ..color = const Color(0xFF58C05C)
               ..style = PaintingStyle.stroke
@@ -2156,14 +2201,14 @@ class _ViewportPainter extends CustomPainter {
     if (s != null && app.hoverWorld != null) {
       final hints = app.inferredHints(s, app.hoverWorld!);
       if (hints.isNotEmpty) {
-        final o = map(app.hoverWorld!.dx, app.hoverWorld!.dy) +
-            const Offset(14, 10);
+        final o =
+            map(app.hoverWorld!.dx, app.hoverWorld!.dy) + const Offset(14, 10);
         for (var i = 0; i < hints.length; i++) {
           final tp = TextPainter(
               text: TextSpan(
                   text: constraintLabel(hints[i]),
-                  style: const TextStyle(
-                      fontSize: 10, color: Color(0xFFEFD37A))),
+                  style:
+                      const TextStyle(fontSize: 10, color: Color(0xFFEFD37A))),
               textDirection: TextDirection.ltr)
             ..layout();
           final at = o + Offset(i * 16.0, 0);
@@ -2190,8 +2235,7 @@ class _ViewportPainter extends CustomPainter {
         ..layout(maxWidth: size.width - 60);
       final box = Rect.fromLTWH((size.width - tp.width) / 2 - 12,
           size.height - tp.height - 44, tp.width + 24, tp.height + 12);
-      canvas.drawRRect(
-          RRect.fromRectAndRadius(box, const Radius.circular(4)),
+      canvas.drawRRect(RRect.fromRectAndRadius(box, const Radius.circular(4)),
           Paint()..color = const Color(0xE6402F1F));
       canvas.drawRRect(
           RRect.fromRectAndRadius(box, const Radius.circular(4)),
@@ -2205,10 +2249,7 @@ class _ViewportPainter extends CustomPainter {
     if (app.inEditMode) {
       final o = map(0, 0);
       canvas.drawCircle(
-          o,
-          3.2,
-          Paint()
-            ..color = projCpSelected ? T.blue : T.projYellow);
+          o, 3.2, Paint()..color = projCpSelected ? T.blue : T.projYellow);
       canvas.drawCircle(
           o,
           3.2,
@@ -2278,8 +2319,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       final d = t - ce;
       if (d.distance < 1e-6) return;
       canvas.drawLine(ce, t, p);
-      label = (c.dimKind == 'rad' ? 'R' : '⌀') +
-          '${v.toStringAsFixed(2)} mm';
+      label = (c.dimKind == 'rad' ? 'R' : '⌀') + '${v.toStringAsFixed(2)} mm';
       if (c.driven) label = '($label)';
       break;
     case 'pline':
@@ -2358,8 +2398,8 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
         var sweep = a1 - a0;
         while (sweep <= -math.pi) sweep += 2 * math.pi;
         while (sweep > math.pi) sweep -= 2 * math.pi;
-        canvas.drawArc(Rect.fromCircle(center: sv, radius: rr), a0, sweep,
-            false, p);
+        canvas.drawArc(
+            Rect.fromCircle(center: sv, radius: rr), a0, sweep, false, p);
         // dashed ray extensions out to the arc radius
         _dashedLine(canvas, sv, sv + (sa2 - sv) / (sa2 - sv).distance * rr, p);
         _dashedLine(canvas, sv, sv + (sb2 - sv) / (sb2 - sv).distance * rr, p);
@@ -2396,10 +2436,13 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
           style: const TextStyle(fontSize: 11, color: Color(0xFFDDE6CF))),
       textDirection: TextDirection.ltr)
     ..layout();
-  final bg = Rect.fromCenter(
-      center: t, width: tp.width + 6, height: tp.height + 3);
-  canvas.drawRect(bg,
-      Paint()..color = highlight ? const Color(0xCC2C3A4C) : const Color(0xCC212830));
+  final bg =
+      Rect.fromCenter(center: t, width: tp.width + 6, height: tp.height + 3);
+  canvas.drawRect(
+      bg,
+      Paint()
+        ..color =
+            highlight ? const Color(0xCC2C3A4C) : const Color(0xCC212830));
   if (highlight) {
     // M42: hover feedback — this label is clickable (inserts its parameter
     // name while the expression box is open, opens the editor otherwise)
@@ -2467,8 +2510,8 @@ void _dashedLine(Canvas c, Offset a, Offset b, Paint p,
 /// Inventor's heads-up value boxes: a small stack of "label value" chips to the
 /// lower-right of the cursor. The focused box is outlined bright; locked boxes
 /// show a padlock and the value in the accent colour.
-void _paintHud(Canvas canvas,
-    List<(String, String, bool, bool, bool)> rows, Offset anchor, Offset dir) {
+void _paintHud(Canvas canvas, List<(String, String, bool, bool, bool)> rows,
+    Offset anchor, Offset dir) {
   if (rows.isEmpty) return;
   const pad = 6.0, gap = 4.0, rowGap = 4.0, lockW = 10.0;
   final labelTps = <TextPainter>[], valueTps = <TextPainter>[];
@@ -2519,23 +2562,23 @@ void _paintHud(Canvas canvas,
           ..style = PaintingStyle.stroke
           ..strokeWidth = focused ? 1.4 : 1.0
           ..color = focused ? T.hover : T.panelSep);
-    labelTps[i]
-        .paint(canvas, Offset(left + pad, top + (rowH - labelTps[i].height) / 2));
+    labelTps[i].paint(
+        canvas, Offset(left + pad, top + (rowH - labelTps[i].height) / 2));
     valueTps[i].paint(
         canvas,
         Offset(left + pad + maxLabel + gap,
             top + (rowH - valueTps[i].height) / 2));
     if (locked) {
-      _paintLock(
-          canvas, Offset(left + boxW - pad - lockW / 2, top + rowH / 2), T.blue);
+      _paintLock(canvas, Offset(left + boxW - pad - lockW / 2, top + rowH / 2),
+          T.blue);
     }
     top += rowH + rowGap;
   }
 }
 
 void _paintLock(Canvas canvas, Offset c, Color color) {
-  final body = Rect.fromCenter(
-      center: c + const Offset(0, 1.5), width: 6, height: 4.5);
+  final body =
+      Rect.fromCenter(center: c + const Offset(0, 1.5), width: 6, height: 4.5);
   canvas.drawRRect(RRect.fromRectAndRadius(body, const Radius.circular(1)),
       Paint()..color = color);
   canvas.drawPath(
@@ -2554,7 +2597,6 @@ void _dashedRect(Canvas c, Rect r, Paint p) {
   _dashedLine(c, r.bottomRight, r.bottomLeft, p);
   _dashedLine(c, r.bottomLeft, r.topLeft, p);
 }
-
 
 /// M53 — a ScaleGestureRecognizer that refuses TOUCH pointers while the
 /// Apple Pencil is down. Rejection happens at arena entry (isPointerAllowed),

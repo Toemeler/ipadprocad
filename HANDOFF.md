@@ -16,7 +16,43 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **Stand dieser Session (Kopf = M58, glatte Kurven + Join + Face-Sketch):**
+> **Stand dieser Session (Kopf = M59, „Shaded with Edges" + Skizzen-Verbrauch):**
+> Alle Geraete-Rueckmeldungen aus M58 adressiert, in einem Durchgang (Nutzer:
+> „Do all phases at once. Make it professional and production ready.").
+> **(A) Rendering** komplett neu: Faces per **Gouraud** (`buildSceneSolid` →
+> EIN tiefensortierter `ui.Vertices`-Buffer, Vertex-Normalen-Farben,
+> `BlendMode.dst`) statt Flat-Facetten → kein Banding, keine AA-Risse, kein
+> Anti-Crack-Stroke, KEIN Mesh-Gitter mehr in der transluzenten Vorschau.
+> Kanten **analytisch**: Shim **v4** liefert je Kante Kurven-Records
+> (Linie/Kreis/Ellipse), je Face 15 Doubles (Typ + Frame + u/v-Range,
+> OUTWARD-Normale mit Orientierungs-Vorzeichen), je Dreieck eine Face-ID; der
+> Painter zeichnet runde Kanten als exakte Beziers (`genArcCubics`, ≤30°/Span,
+> lokal `M59CHECK: PASS` ~3e-4·r). Verdeckte Kanten via Screen-Grid
+> (`SceneOccluders`, Bias = max(1.5·meshLin, 1e-3·maxCoord)), Silhouetten
+> gekruemmter Flaechen (`cylinderSilhouettes` analytisch + Mesh-Fallback).
+> **(B) Joins** sauber: `occt_unify` (`ShapeUpgrade_UnifySameDomain`) nach
+> `occt_fuse` — Schweißnaht-Fragmente weg. **(C) Interaktion**: blaues
+> Face-Prehighlight beim Ebenen-Pick (`_pickSolidFace` v4, Face-IDs +
+> B-Rep-Records; Fallback Vertex-Normalen fuer FakeKernel). **(D) Sketcher**:
+> `paintPartUnderlay` zeigt das 3D-Modell UNTER dem 2D-Sketcher (blickt exakt
+> entlang des Skizzen-Frames mit Editor-Pan/Zoom — pixelgenau gegen `map()`
+> verifiziert — plus Schleier); fertige Skizze bleibt auf ihrer Face;
+> **verbrauchte Skizze = Kind der Extrusion** im Browser (Expander,
+> Augen-Toggle `toggleSketchVisible`, `'vis'` persistiert; Legacy-Sidecar →
+> versteckt). Shim **v4 = 29 Symbole**, Smoke **[16]** (3 Faces, 2
+> analytische Kreis-Kanten r=10, Plane/Cylinder-Records, unify(box|box)→6
+> Faces volumenerhaltend). Tests: `m59_shaded_edges_test.dart` +
+> **geteilte v4-Fixture** `frontend/test/synth_mesh.dart` (M58 nutzt sie mit).
+>
+> **Restschuld ehrlich:** Silhouetten fuer Kegel/Kugel/Torus nur Mesh-Fallback
+> (analytisch nur Zylinder); verdeckte Kanten unterdrueckt statt gestrichelt;
+> Spline-Profile weiterhin polygonal; Cut/Intersect fehlen. **Geraete-Test
+> offen** (Xcode/Metal nur am Geraet) — CI deckt Kompilat + Host-Tests +
+> Render-Mathe, nicht das visuelle Ergebnis am Bildschirm.
+>
+> ---
+>
+> **Vorherige Session (M58, glatte Kurven + Join + Face-Sketch):**
 > Vier Nutzer-Punkte umgesetzt: (1) Zylinder = ECHTE Zylinderflaeche statt
 > N-Gon-Prisma — `arcFitLoop` (part_model.dart, pur, lokal via Dart-SDK-Replik
 > verifiziert) macht aus polygonisierten Loops wieder Boegen (x,y,bulge) und

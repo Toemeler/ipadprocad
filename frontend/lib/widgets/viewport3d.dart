@@ -63,6 +63,9 @@ class _Viewport3DState extends State<Viewport3D> {
 
   String? _hover; // 'yz'|'xz'|'xy'|'x'|'y'|'z'|'cp'
   int? _hoverRegion; // outer-loop id of the hovered profile region
+  // M59 Phase 2: face prehighlight while picking a sketch plane —
+  // (solid, v4 face id) of the planar face under the cursor.
+  (KernelSolid, int)? _hoverFace;
   // MMB drag (desktop): pan with shift, orbit without
   bool _mmb = false, _mmbPan = false;
   Offset _mmbLast = Offset.zero;
@@ -116,8 +119,8 @@ class _Viewport3DState extends State<Viewport3D> {
             onPointerCancel: (_) => _mmb = false,
             onPointerSignal: (e) {
               if (e is PointerScrollEvent) {
-                setState(() => _zoomAt(p, cam, e.localPosition,
-                    e.scrollDelta.dy > 0 ? 1.1 : 0.9));
+                setState(() => _zoomAt(
+                    p, cam, e.localPosition, e.scrollDelta.dy > 0 ? 1.1 : 0.9));
               }
             },
             child: MouseRegion(
@@ -128,6 +131,7 @@ class _Viewport3DState extends State<Viewport3D> {
               onExit: (_) => setState(() {
                 _hover = null;
                 _hoverRegion = null;
+                _hoverFace = null;
               }),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -152,7 +156,8 @@ class _Viewport3DState extends State<Viewport3D> {
                   _mmbLast = d.localFocalPoint;
                 }),
                 child: CustomPaint(
-                  painter: _ScenePainter(app, p, _hover, _hoverRegion),
+                  painter:
+                      _ScenePainter(app, p, _hover, _hoverRegion, _hoverFace),
                   size: Size.infinite,
                 ),
               ),
@@ -163,8 +168,8 @@ class _Viewport3DState extends State<Viewport3D> {
         Positioned(
             top: 8,
             right: 10,
-            child: _ViewCube(
-                camera: p.camera, onChanged: () => setState(() {}))),
+            child:
+                _ViewCube(camera: p.camera, onChanged: () => setState(() {}))),
         // coordinate triad (bottom-left)
         Positioned(
             left: 0,
@@ -187,8 +192,8 @@ class _Viewport3DState extends State<Viewport3D> {
                   border: Border.all(color: const Color(0xFF8A6A3A)),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: Text(app.message!,
-                    style: ts(12, const Color(0xFFF2D6A2))),
+                child:
+                    Text(app.message!, style: ts(12, const Color(0xFFF2D6A2))),
               ),
             ),
           ),
@@ -198,8 +203,7 @@ class _Viewport3DState extends State<Viewport3D> {
 
   void _orbit(PartModel p, Offset d) {
     p.camera.az -= d.dx * 0.01;
-    p.camera.pol =
-        (p.camera.pol - d.dy * 0.01).clamp(0.02, math.pi - 0.02);
+    p.camera.pol = (p.camera.pol - d.dy * 0.01).clamp(0.02, math.pi - 0.02);
   }
 
   void _zoomAt(PartModel p, Cam3 cam, Offset px, double factor) {
@@ -285,10 +289,21 @@ class _Viewport3DState extends State<Viewport3D> {
     if (region == null) {
       hit = _hitOrigin(cam, px, p, planesOnly: app.pickPlane);
     }
-    if (hit != _hover || region != _hoverRegion) {
+    // Inventor prehighlight (M59): while picking a sketch plane, hovering a
+    // planar solid face tints it blue. Origin planes win, like the tap.
+    (KernelSolid, int)? hf;
+    if (app.pickPlane && hit == null) {
+      final pick = _pickSolidFace(cam, px);
+      if (pick != null && pick.$2 >= 0) hf = (pick.$1, pick.$2);
+    }
+    if (hit != _hover ||
+        region != _hoverRegion ||
+        hf?.$1 != _hoverFace?.$1 ||
+        hf?.$2 != _hoverFace?.$2) {
       setState(() {
         _hover = hit;
         _hoverRegion = region;
+        _hoverFace = hf;
       });
     } else {
       setState(() {}); // cursor moved (plane-pick marker etc.)
@@ -340,11 +355,16 @@ class _Viewport3DState extends State<Viewport3D> {
   /// the planar face it belongs to (Inventor's sketch-on-face, M58). The
   /// orthographic projection is affine, so barycentric coordinates of the
   /// screen hit reproduce the world point exactly.
-  PlaneFrame? _pickSolidFace(Cam3 cam, Offset px) {
-    PlaneFrame? best;
+  /// The nearest PLANAR solid face under [px]: (solid, v4 face id or -1,
+  /// sketch frame). Planarity comes from the B-Rep face record when the mesh
+  /// carries v4 metadata, else from the vertex-normal test (fake kernels).
+  (KernelSolid, int, PlaneFrame)? _pickSolidFace(Cam3 cam, Offset px) {
+    (KernelSolid, int, PlaneFrame)? best;
     var bestDepth = double.infinity;
     for (final s in _liveSolids()) {
       final m = s.mesh;
+      final v4 =
+          m.triFaces.length * 3 == m.indices.length && m.faceInfos.isNotEmpty;
       for (var t = 0; t < m.indices.length; t += 3) {
         final i0 = m.indices[t] * 3,
             i1 = m.indices[t + 1] * 3,
@@ -357,29 +377,37 @@ class _Viewport3DState extends State<Viewport3D> {
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
         if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
-        // Only PLANAR faces accept sketches (Inventor): on a planar face all
-        // tessellation vertex normals equal the face normal; on a curved face
-        // (cylinder barrel etc.) they fan out — reject those triangles.
         final nn = n.normalized();
-        var planar = true;
-        for (final vi in [i0, i1, i2]) {
-          final vn = Vec3(m.normals[vi], m.normals[vi + 1], m.normals[vi + 2]);
-          if (vn.dot(nn).abs() < 0.9999) {
-            planar = false;
-            break;
+        var faceId = -1;
+        if (v4) {
+          faceId = m.triFaces[t ~/ 3];
+          // Only PLANAR faces accept sketches (Inventor) — authoritative
+          // answer straight from the B-Rep surface record.
+          if (m.faceInfos[15 * faceId].round() != kFacePlane) continue;
+        } else {
+          // fallback: planar iff the tessellation vertex normals all equal
+          // the geometric normal (curved faces fan out)
+          var planar = true;
+          for (final vi in [i0, i1, i2]) {
+            final vn =
+                Vec3(m.normals[vi], m.normals[vi + 1], m.normals[vi + 2]);
+            if (vn.dot(nn).abs() < 0.9999) {
+              planar = false;
+              break;
+            }
           }
+          if (!planar) continue;
         }
-        if (!planar) continue;
         final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
-        final den = (b.dy - c.dy) * (a.dx - c.dx) +
-            (c.dx - b.dx) * (a.dy - c.dy);
+        final den =
+            (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
         if (den.abs() < 1e-9) continue;
-        final l0 = ((b.dy - c.dy) * (px.dx - c.dx) +
-                (c.dx - b.dx) * (px.dy - c.dy)) /
-            den;
-        final l1 = ((c.dy - a.dy) * (px.dx - c.dx) +
-                (a.dx - c.dx) * (px.dy - c.dy)) /
-            den;
+        final l0 =
+            ((b.dy - c.dy) * (px.dx - c.dx) + (c.dx - b.dx) * (px.dy - c.dy)) /
+                den;
+        final l1 =
+            ((c.dy - a.dy) * (px.dx - c.dx) + (a.dx - c.dx) * (px.dy - c.dy)) /
+                den;
         final l2 = 1 - l0 - l1;
         const e = -1e-6;
         if (l0 < e || l1 < e || l2 < e) continue;
@@ -387,7 +415,15 @@ class _Viewport3DState extends State<Viewport3D> {
         final d = cam.depth(w);
         if (d < bestDepth) {
           bestDepth = d;
-          best = faceFrame(w, n.normalized());
+          // outward normal from the face record when present (exact),
+          // else the geometric triangle normal
+          var fn = nn;
+          if (v4) {
+            fn = Vec3(m.faceInfos[15 * faceId + 4],
+                    m.faceInfos[15 * faceId + 5], m.faceInfos[15 * faceId + 6])
+                .normalized();
+          }
+          best = (s, faceId, faceFrame(w, fn));
         }
       }
     }
@@ -406,7 +442,7 @@ class _Viewport3DState extends State<Viewport3D> {
         return;
       }
       final face = _pickSolidFace(cam, px);
-      if (face != null) app.facePicked(face);
+      if (face != null) app.facePicked(face.$3);
       return;
     }
     // 2. profile pick for the extrude dialog
@@ -417,8 +453,7 @@ class _Viewport3DState extends State<Viewport3D> {
       final order = <ChildSketch>[
         if (sess.sketchName != null && p.sketchByName(sess.sketchName!) != null)
           p.sketchByName(sess.sketchName!)!,
-        ...p.childSketches
-            .where((c) => c.model.name != sess.sketchName),
+        ...p.childSketches.where((c) => c.model.name != sess.sketchName),
       ];
       for (final cs in order) {
         final frame = sketchFrameOf(cs);
@@ -453,7 +488,9 @@ class _ScenePainter extends CustomPainter {
   final PartModel part;
   final String? hover;
   final int? hoverRegion;
-  _ScenePainter(this.app, this.part, this.hover, this.hoverRegion);
+  final (KernelSolid, int)? hoverFace; // M59 face prehighlight
+  _ScenePainter(
+      this.app, this.part, this.hover, this.hoverRegion, this.hoverFace);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -477,8 +514,7 @@ class _ScenePainter extends CustomPainter {
       canvas.drawPath(
           path,
           Paint()
-            ..color = (hot ? _green : _orange)
-                .withOpacity(hot ? 0.45 : 0.30));
+            ..color = (hot ? _green : _orange).withOpacity(hot ? 0.45 : 0.30));
       canvas.drawPath(
           path,
           Paint()
@@ -545,8 +581,8 @@ class _ScenePainter extends CustomPainter {
     if (part.vis['cp'] == true) {
       final c = cam.project(Vec3.zero);
       final hot = hover == 'cp';
-      canvas.drawCircle(c, hot ? 5 : 3.5,
-          Paint()..color = hot ? _green : _orange);
+      canvas.drawCircle(
+          c, hot ? 5 : 3.5, Paint()..color = hot ? _green : _orange);
       if (hot) {
         canvas.drawCircle(
             c,
@@ -558,16 +594,14 @@ class _ScenePainter extends CustomPainter {
       }
     }
 
-    // ---- unconsumed child sketches as curves on their planes ----
-    final consumed = <String>{
-      for (final f in part.features)
-        if (f.visible && f.solid != null) f.sketchName
-    };
+    // ---- child sketches as curves on their planes: Inventor visibility —
+    // a sketch renders while cs.visible (consumption turns it off, the
+    // browser eye turns it back on), and always while a session shows it ----
     final sess = app.extrudeSession;
     for (final cs in part.childSketches) {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
-      if (consumed.contains(cs.model.name) && !showForSession) continue;
+      if (!cs.visible && !showForSession) continue;
       _paintSketch(canvas, cam, cs);
       if (sess != null && showForSession) {
         _paintRegions(canvas, cam, cs, sess);
@@ -587,7 +621,10 @@ class _ScenePainter extends CustomPainter {
             f != sess?.editing)
           f.solid!
     ];
-    paintPartSolids(canvas, cam, solids, previewSolid: sess?.preview);
+    paintPartSolids(canvas, cam, solids,
+        previewSolid: sess?.preview,
+        highlightSolid: hoverFace?.$1,
+        highlightFace: hoverFace?.$2 ?? -1);
   }
 
   void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs) {
@@ -633,9 +670,7 @@ class _ScenePainter extends CustomPainter {
         loopPath(h.pts);
       }
       canvas.drawPath(
-          path,
-          Paint()
-            ..color = T.blue.withOpacity(selected ? 0.38 : 0.16));
+          path, Paint()..color = T.blue.withOpacity(selected ? 0.38 : 0.16));
       canvas.drawPath(
           path,
           Paint()
@@ -715,8 +750,7 @@ const _cubeFaces = <(String, Vec3)>[
   return (dir, lit);
 }
 
-String _nkey(Vec3 v) =>
-    '${v.x.round()},${v.y.round()},${v.z.round()}';
+String _nkey(Vec3 v) => '${v.x.round()},${v.y.round()},${v.z.round()}';
 
 class _ViewCube extends StatefulWidget {
   final PartCamera camera;
@@ -731,8 +765,7 @@ class _ViewCubeState extends State<_ViewCube> {
 
   bool get _faceView {
     final d = widget.camera.dir;
-    return [d.x.abs(), d.y.abs(), d.z.abs()]
-            .reduce((a, b) => a > b ? a : b) >
+    return [d.x.abs(), d.y.abs(), d.z.abs()].reduce((a, b) => a > b ? a : b) >
         0.999;
   }
 
@@ -766,9 +799,7 @@ class _ViewCubeState extends State<_ViewCube> {
             child: Tooltip(
               message: 'Home view',
               child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: SvgPicture.string(homeTabIcon)),
+                  width: 22, height: 22, child: SvgPicture.string(homeTabIcon)),
             ),
           ),
         ),
@@ -787,8 +818,7 @@ class _ViewCubeState extends State<_ViewCube> {
                 if (r != null) _snapTo(r.$1);
               },
               child: CustomPaint(
-                  painter: _CubePainter(c, _lit),
-                  size: const Size(84, 84)),
+                  painter: _CubePainter(c, _lit), size: const Size(84, 84)),
             ),
           ),
         ),
@@ -844,9 +874,8 @@ class _CubePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cam = Cam3(
-        PartCamera(az: camera.az, pol: camera.pol, halfH: 0.86),
-        size);
+    final cam =
+        Cam3(PartCamera(az: camera.az, pol: camera.pol, halfH: 0.86), size);
     const tint = {
       'RIGHT': Color(0xFFDFE3E7),
       'LEFT': Color(0xFFDFE3E7),
@@ -879,8 +908,7 @@ class _CubePainter extends CustomPainter {
             ..strokeWidth = 1
             ..color = const Color(0xFFAAB1B8));
       if (lit.contains(_nkey(n))) {
-        canvas.drawPath(
-            path, Paint()..color = const Color(0x8C7EC0F0));
+        canvas.drawPath(path, Paint()..color = const Color(0x8C7EC0F0));
       }
       // label at the face centre, following the face's screen orientation
       final c0 = (quad[0] + quad[2]) / 2;
@@ -912,8 +940,8 @@ class _TriadPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cam = Cam3(
-        PartCamera(az: camera.az, pol: camera.pol, halfH: 1.5), size);
+    final cam =
+        Cam3(PartCamera(az: camera.az, pol: camera.pol, halfH: 1.5), size);
     void arrow(Vec3 d, Color col, String label) {
       final a = cam.project(Vec3.zero), b = cam.project(d);
       final p = Paint()
@@ -926,16 +954,15 @@ class _TriadPainter extends CustomPainter {
         final n = Offset(-u.dy, u.dx);
         canvas.drawPath(
             Path()
-              ..addPolygon(
-                  [b, b - u * 9 + n * 4.5, b - u * 9 - n * 4.5], true),
+              ..addPolygon([b, b - u * 9 + n * 4.5, b - u * 9 - n * 4.5], true),
             Paint()..color = col);
       }
       final lp = cam.project(d * 1.28);
       final tp = TextPainter(
           text: TextSpan(
               text: label,
-              style:
-                  TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: col)),
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w700, color: col)),
           textDirection: TextDirection.ltr)
         ..layout();
       tp.paint(canvas, lp - Offset(tp.width / 2, tp.height / 2));

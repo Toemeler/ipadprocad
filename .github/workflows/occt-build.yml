@@ -229,8 +229,8 @@ jobs:
           # grep -c (not -q) after nm: -q would SIGPIPE nm under pipefail.
           NSYM="$(nm -g build-ios/libocct_capi.a 2>/dev/null | grep -c 'T _occt_' || true)"
           echo "defined _occt_* symbols in shim archive: ${NSYM:-0}"
-          [ "${NSYM:-0}" -ge 24 ] \
-            || { echo "FAIL: expected >= 24 _occt_* symbols (shim v3)"; exit 1; }
+          [ "${NSYM:-0}" -ge 29 ] \
+            || { echo "FAIL: expected >= 29 _occt_* symbols (shim v4)"; exit 1; }
           # UNDEFINED OCCT references in the archive mean a toolkit is
           # missing from the link list — the host job would fail on it, but
           # this way the iOS job stops lying about a broken shim (v2 lesson).

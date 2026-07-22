@@ -33,19 +33,60 @@ import 'tools.dart';
 enum Tool {
   none,
   text, // M44: parametric sketch text (handled in the viewport, not toolClick)
-  line, lineMid, splineCV, splineInterp, eqCurve, bridge,
-  circleCenter, circleTangent, ellipse,
-  arcThreePoint, arcTangent, arcCenter,
-  rectTwoPoint, rect3P, rect2PC, rect3PC,
-  slotCC, slotOverall, slotCP, slot3A, slotCPA, polygon,
-  fillet, chamfer, point, project,
+  line,
+  lineMid,
+  splineCV,
+  splineInterp,
+  eqCurve,
+  bridge,
+  circleCenter,
+  circleTangent,
+  ellipse,
+  arcThreePoint,
+  arcTangent,
+  arcCenter,
+  rectTwoPoint,
+  rect3P,
+  rect2PC,
+  rect3PC,
+  slotCC,
+  slotOverall,
+  slotCP,
+  slot3A,
+  slotCPA,
+  polygon,
+  fillet,
+  chamfer,
+  point,
+  project,
   // modify tools (operate on the geometry list, engine gets rebuilt)
-  move, mcopy, mrotate, mscale, mstretch, moffset, trim, extendT, split,
+  move,
+  mcopy,
+  mrotate,
+  mscale,
+  mstretch,
+  moffset,
+  trim,
+  extendT,
+  split,
   // constraint tools + dimension
-  cCoincident, cCollinear, cConcentric, cFix, cParallel, cPerpendicular,
-  cHorizontal, cVertical, cTangent, cSmooth, cSymmetric, cEqual, dimension,
+  cCoincident,
+  cCollinear,
+  cConcentric,
+  cFix,
+  cParallel,
+  cPerpendicular,
+  cHorizontal,
+  cVertical,
+  cTangent,
+  cSmooth,
+  cSymmetric,
+  cEqual,
+  dimension,
   // pattern tools (M35, Inventor's Pattern panel) — modeless dialog + picks
-  patRect, patCirc, mirror,
+  patRect,
+  patCirc,
+  mirror,
 }
 
 const patternTools = {Tool.patRect, Tool.patCirc, Tool.mirror};
@@ -72,7 +113,8 @@ class PatternSession {
   double angleC = 360;
   // mirror
   int? mirrorEnt; // the mirror LINE
-  bool selfSym = false; // single spline crossing the line -> one symmetric spline
+  bool selfSym =
+      false; // single spline crossing the line -> one symmetric spline
   // advanced (the ">>" row)
   bool expanded = false;
   bool associative = true;
@@ -94,19 +136,38 @@ class FilletSession {
   double d1, d2, angle;
   int? firstIdx; // entity index of the current chain's first fillet/chamfer
   FilletSession(this.kind,
-      {this.radius = 5, this.mode = 0, this.d1 = 5, this.d2 = 5,
+      {this.radius = 5,
+      this.mode = 0,
+      this.d1 = 5,
+      this.d2 = 5,
       this.angle = 45});
 }
 
 const constraintTools = {
-  Tool.cCoincident, Tool.cCollinear, Tool.cConcentric, Tool.cFix,
-  Tool.cParallel, Tool.cPerpendicular, Tool.cHorizontal, Tool.cVertical,
-  Tool.cTangent, Tool.cSmooth, Tool.cSymmetric, Tool.cEqual,
+  Tool.cCoincident,
+  Tool.cCollinear,
+  Tool.cConcentric,
+  Tool.cFix,
+  Tool.cParallel,
+  Tool.cPerpendicular,
+  Tool.cHorizontal,
+  Tool.cVertical,
+  Tool.cTangent,
+  Tool.cSmooth,
+  Tool.cSymmetric,
+  Tool.cEqual,
 };
 
 const modifyTools = {
-  Tool.move, Tool.mcopy, Tool.mrotate, Tool.mscale, Tool.mstretch,
-  Tool.moffset, Tool.trim, Tool.extendT, Tool.split,
+  Tool.move,
+  Tool.mcopy,
+  Tool.mrotate,
+  Tool.mscale,
+  Tool.mstretch,
+  Tool.moffset,
+  Tool.trim,
+  Tool.extendT,
+  Tool.split,
 };
 
 class SketchModel {
@@ -114,9 +175,11 @@ class SketchModel {
   Engine engine; // non-final: rebuilt after grip edits (C-API is add-only)
   List<Geo> geometry = [];
   final List<Constraint> constraints = [];
+
   /// M43 — user parameters (Inventors fx table): named values usable in any
   /// dimension expression. Sketch state: sidecar + undo journal.
   final List<UserParam> userParams = [];
+
   /// M44 — parametric texts and inserted images (sidecars + undo journal).
   final List<SketchText> texts = [];
   final List<SketchImage> images = [];
@@ -125,12 +188,14 @@ class SketchModel {
   /// property only — hidden geometry keeps its index, so constraint refs (which
   /// are index-based) stay valid. It is never filtered out of the geometry list.
   final Set<String> hiddenLayers = {};
+
   /// Layers the padlock in the model browser has locked. A locked layer is
   /// still drawn (unlike a hidden one) but cannot be edited: no tool activates
   /// on it, its geometry cannot be picked, dragged, trimmed, constrained or
   /// dimensioned, and it cannot be the current editing layer. Like visibility,
   /// this is app state that rides in the sidecar, not sketch geometry.
   final Set<String> lockedLayers = {};
+
   /// M51 — the End-of-Sketch marker (Inventor's End of Part), as the number of
   /// layers ABOVE it: layers[0..eosAfter-1] are live, layers[eosAfter..] are
   /// ROLLED BACK — dimmed in the browser, not drawn, not picked, not snapped
@@ -162,6 +227,7 @@ class SketchModel {
     final raw = _eosRaw;
     if (raw != null && li >= 0 && li < raw) _eosRaw = raw - 1;
   }
+
   bool dirty = false;
   SketchModel(this.name) : engine = Engine.create() {
     // The empty just-created state is the undo baseline. openSketch calls
@@ -205,6 +271,7 @@ class SketchModel {
     }
     geometry = next;
   }
+
   void dispose() => engine.dispose();
 
   // ==== UNDO / REDO (per sketch, M39) ====================================
@@ -371,6 +438,10 @@ class ExtrudeSession {
 }
 
 class AppState extends ChangeNotifier {
+  /// Scratch used only while parsing a part sidecar: sketch name -> stored
+  /// visibility (null = key absent in a legacy file).
+  final Map<String, bool?> _loadedSketchVis = {};
+
   // ---- navigation (home / tabs), 1:1 with the mock behaviour ----
   bool get isHome => curTab == null;
   final List<String> openTabs = [];
@@ -465,7 +536,8 @@ class AppState extends ChangeNotifier {
     final s = v.abs() < 1e-9 ? 0.0 : v; // kill -0
     final r = (s * 100).roundToDouble() / 100;
     var t = r.toStringAsFixed(2);
-    if (t.endsWith('.00')) t = t.substring(0, t.length - 3);
+    if (t.endsWith('.00'))
+      t = t.substring(0, t.length - 3);
     else if (t.endsWith('0')) t = t.substring(0, t.length - 1);
     return angular ? '$t\u00B0' : t;
   }
@@ -555,16 +627,20 @@ class AppState extends ChangeNotifier {
       if (i >= 0 && i < fields.length) hudCommitDims[fields[i].kind] = v;
     });
   }
+
   /// M45 — last known viewport pixel size and the last pointer position in
   /// world coords, so Insert (from the ribbon, which has no view metrics) can
   /// place content AT THE CURSOR and size it relative to the current view.
   Size viewportSize = const Size(1024, 768);
   Offset lastPointerWorld = Offset.zero;
+
   /// World width currently spanned by the viewport.
   double get viewWidthWorld => viewportSize.width / zoom;
+
   /// Where new inserted content should go: the last pointer position if we
   /// have one in view, else the view centre (pan).
   Offset get insertAnchor => lastPointerWorld;
+
   /// Entity under the cursor, and — for a polyline — the exact edge under it.
   /// Inventor highlights whatever the next click would pick; without this the
   /// user had to guess what they were about to select.
@@ -592,7 +668,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     try {
-      _docsDir = await Log.stepAsync('state',
+      _docsDir = await Log.stepAsync(
+          'state',
           'getApplicationDocumentsDirectory (platform channel)',
           () => getApplicationDocumentsDirectory());
       Log.i('state', 'docs dir = ${_docsDir!.path}');
@@ -604,22 +681,24 @@ class AppState extends ChangeNotifier {
     // actually reachable in Files > On My iPad > ipadprocad > logs. The early
     // logger uses $HOME (empty on some iOS builds -> temp dir, not file-shared).
     Log.retarget(_docsDir!.path);
-    final probe = Log.step('state', 'Engine.create (backend probe)',
-        () => Engine.create());
+    final probe = Log.step(
+        'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
     backendInfo = probe.version;
     probe.dispose();
     // Honest FFI smoke marker (M2-Restschuld): a real round trip through the
     // engine that is actually in use, reported truthfully.
-    final smoke = Log.step('state', 'Engine.create (smoke)',
-        () => Engine.create());
+    final smoke =
+        Log.step('state', 'Engine.create (smoke)', () => Engine.create());
     smoke.addLine(0, 0, 10, 5);
     smoke.addCircle(5, 5, 2);
     final n = smoke.allGeometry().length;
     smoke.dispose();
-    Log.i('smoke', n == 2
-        ? 'DART SMOKE: PASS (backend=${backendReal ? "qcad-ffi" : "dart-fallback"}, $backendInfo)'
-        : 'DART SMOKE: FAIL (geometry round-trip broke, backend=$backendInfo)');
+    Log.i(
+        'smoke',
+        n == 2
+            ? 'DART SMOKE: PASS (backend=${backendReal ? "qcad-ffi" : "dart-fallback"}, $backendInfo)'
+            : 'DART SMOKE: FAIL (geometry round-trip broke, backend=$backendInfo)');
     // M55 — same honest-marker idea for the 3D kernel: a real box through the
     // linked OCCT shim, verified against the smoke_occt.c numbers. On host
     // (symbols not linked) this reports SKIP, never a fake PASS.
@@ -653,8 +732,7 @@ class AppState extends ChangeNotifier {
       // directory, written by _writePartPreview — same lookup as a sketch.
       for (final f in _sketchDir.listSync().whereType<File>()) {
         if (!f.path.endsWith('.part.json')) continue;
-        final name =
-            f.uri.pathSegments.last.replaceAll('.part.json', '');
+        final name = f.uri.pathSegments.last.replaceAll('.part.json', '');
         final png = _pngFile(name);
         list.add(SavedSketchInfo(
             name, f.lastModifiedSync(), png.existsSync() ? png : null, 'part'));
@@ -874,7 +952,8 @@ class AppState extends ChangeNotifier {
         }
         try {
           final tf = File('${_sketchDir.path}/$name.texts.json');
-          if (tf.existsSync()) s.texts.addAll(decodeTexts(tf.readAsStringSync()));
+          if (tf.existsSync())
+            s.texts.addAll(decodeTexts(tf.readAsStringSync()));
           final imf = File('${_sketchDir.path}/$name.images.json');
           if (imf.existsSync()) {
             s.images.addAll(decodeImages(imf.readAsStringSync()));
@@ -921,14 +1000,13 @@ class AppState extends ChangeNotifier {
         try {
           final pf = File('${_sketchDir.path}/$name.proj.json');
           if (pf.existsSync()) {
-            final j =
-                jsonDecode(pf.readAsStringSync()) as Map<String, dynamic>;
+            final j = jsonDecode(pf.readAsStringSync()) as Map<String, dynamic>;
             j.forEach((k, v) {
               final i = int.tryParse(k);
               if (i != null && i >= 0 && i < s.geometry.length) {
                 s.geometry[i] = v is List
-                    ? s.geometry[i].withProj(
-                        (v[0] as num).toInt(), (v[1] as num).toInt())
+                    ? s.geometry[i]
+                        .withProj((v[0] as num).toInt(), (v[1] as num).toInt())
                     : s.geometry[i].withProj((v as num).toInt());
               }
             });
@@ -970,9 +1048,11 @@ class AppState extends ChangeNotifier {
         s.eosAfter = eos < 0 ? s.layers.length : eos;
         _syncLayers(s); // append any geometry-only layers the sidecar missed
         _pruneEmptyBaseLayer(s); // never show an empty phantom "0"
-        Log.i('layer', 'loaded "$name": layers=${s.layers} '
-            'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
-            'eos=${s.eosAfter}');
+        Log.i(
+            'layer',
+            'loaded "$name": layers=${s.layers} '
+                'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
+                'eos=${s.eosAfter}');
         analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
@@ -1020,8 +1100,10 @@ class AppState extends ChangeNotifier {
       toast(what == 'undo' ? 'Nothing to undo.' : 'Nothing to redo.');
       return;
     }
-    Log.i('undo', '$what "${s.name}" -> depth=${s.undoDepth} '
-        'geo=${snap.geometry.length} redo=${s.canRedo}');
+    Log.i(
+        'undo',
+        '$what "${s.name}" -> depth=${s.undoDepth} '
+            'geo=${snap.geometry.length} redo=${s.canRedo}');
     // Restoring is EXACT: no solve, no replay — the snapshot IS a state that
     // was committed and verified once already. Cancel every in-flight
     // interaction first: index-based tool/pattern/dimension picks would
@@ -1071,12 +1153,10 @@ class AppState extends ChangeNotifier {
         editingLayer = null;
         tool = Tool.none;
       }
-      _rebuildEngine(
-          s,
-          [
-            for (final g in snap.geometry)
-              g.withData(List<double>.of(g.data)) // never alias the journal
-          ]);
+      _rebuildEngine(s, [
+        for (final g in snap.geometry)
+          g.withData(List<double>.of(g.data)) // never alias the journal
+      ]);
     } finally {
       _restoringHistory = false;
     }
@@ -1200,8 +1280,7 @@ class AppState extends ChangeNotifier {
       inEditMode && g.layer == editingLayer && !layerLocked(g.layer);
 
   /// True while [name] is locked (padlock in the model browser).
-  bool layerLocked(String name) =>
-      current?.lockedLayers.contains(name) == true;
+  bool layerLocked(String name) => current?.lockedLayers.contains(name) == true;
 
   /// The mandatory DXF layer "0" is not a user-created layer; it always exists
   /// in the document. It may hold geometry (an old sketch or an imported DXF),
@@ -1249,8 +1328,8 @@ class AppState extends ChangeNotifier {
       // You cannot edit what you cannot see.
       if (editingLayer == name) finishEdit(save: true);
     }
-    selection.removeWhere((i) =>
-        i < s.geometry.length && !layerVisible(s.geometry[i].layer));
+    selection.removeWhere(
+        (i) => i < s.geometry.length && !layerVisible(s.geometry[i].layer));
     s.dirty = true;
     s.checkpoint(); // eye state rides the sidecar -> it is undoable state
     notifyListeners();
@@ -1507,9 +1586,10 @@ class AppState extends ChangeNotifier {
     }
     s.eosAfter = s.layers.length; // marker back at the end, nothing below
     selection.clear();
-    Log.i('layer',
+    Log.i(
+        'layer',
         'delete below End of Sketch: ${below.length} layers, '
-        '${victims.length} entities');
+            '${victims.length} entities');
     _rebuildEngine(s, gs); // one rebuild = one undo step, like deleteLayer
     _pruneEmptyBaseLayer(s); // an emptied "0" never lingers as a phantom row
     if (curTab != null) saveSketch(curTab!);
@@ -1521,6 +1601,7 @@ class AppState extends ChangeNotifier {
   Snap? snap; // current snap under the cursor (for the marker + guides)
   Grip? dragGrip;
   Offset? dragPos;
+
   /// The most recent drag frame whose solve actually held the constraints.
   /// Committed on release so a drag that ends on an unsatisfiable cursor
   /// position keeps its last VALID position instead of snapping back to where
@@ -1531,8 +1612,10 @@ class AppState extends ChangeNotifier {
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
   int? modEntity; // entity picked in the first phase of Offset
   final bool autoConstrain = true; // always on (Inventor: no toggle button)
-  bool showConstraints = false; // Constrain panel: Show Constraints toggle — OFF by default (M32)
-  bool showDof = false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
+  bool showConstraints =
+      false; // Constrain panel: Show Constraints toggle — OFF by default (M32)
+  bool showDof =
+      false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
   SketchAnalysis? analysis; // DOF + which points may still move
   String? message; // transient notice (over-constrained warnings)
 
@@ -1622,22 +1705,35 @@ class AppState extends ChangeNotifier {
           p.loadJson(j);
           for (final sk in (j['sketches'] as List? ?? const [])) {
             final m = sk as Map;
-            final model = await _loadSketchIn(
-                _partSketchDir(name), m['name'] as String);
-            p.childSketches
-                .add(ChildSketch(model, m['plane'] as String? ?? 'xy',
-                    PlaneFrame.fromFrameJson(m['frame'] as List?)));
+            final model =
+                await _loadSketchIn(_partSketchDir(name), m['name'] as String);
+            p.childSketches.add(ChildSketch(
+                model,
+                m['plane'] as String? ?? 'xy',
+                PlaneFrame.fromFrameJson(m['frame'] as List?)));
+            _loadedSketchVis[model.name] =
+                m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
           }
         }
       } catch (e, st) {
         Log.e('part', 'open "$name" failed', e, st);
       }
       parts[name] = p;
+      // Legacy sidecars (pre-M59) have no per-sketch 'vis': apply the
+      // Inventor default — consumed sketches load hidden.
+      for (final cs in p.childSketches) {
+        final consumed = firstConsumerOf(p, cs.model.name) != null;
+        final stored = _loadedSketchVis[cs.model.name];
+        cs.visible = stored ?? !consumed;
+      }
+      _loadedSketchVis.clear();
       if (partKernel.available) {
         recomputeAllFeatures(p, partKernel);
       }
-      Log.i('part', 'opened "$name": sketches=${p.childSketches.length} '
-          'features=${p.features.length} kernel=${partKernel.available}');
+      Log.i(
+          'part',
+          'opened "$name": sketches=${p.childSketches.length} '
+              'features=${p.features.length} kernel=${partKernel.available}');
     }
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
@@ -1695,7 +1791,8 @@ class AppState extends ChangeNotifier {
       final cam = _fitThumbCamera(solids, const Size(w, h));
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      canvas.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      canvas.drawRect(
+          const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
       paintPartSolids(canvas, cam, solids);
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
@@ -1879,6 +1976,18 @@ class AppState extends ChangeNotifier {
     startNewLayer(); // enters edit + notifies, like createNamedSketch
   }
 
+  /// Browser eye on a (consumed) child sketch — Inventor's per-sketch
+  /// Visibility toggle. Persisted with the part.
+  void toggleSketchVisible(ChildSketch cs) {
+    cs.visible = !cs.visible;
+    final p = currentPart;
+    if (p != null) {
+      p.dirty = true;
+      if (curTab != null) savePart(curTab!);
+    }
+    notifyListeners();
+  }
+
   /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as
   /// [planePicked], but the sketch lives on the face's own frame — Inventor's
   /// sketch-on-face.
@@ -1893,8 +2002,7 @@ class AppState extends ChangeNotifier {
     p.dirty = true;
     activeChild = sk;
     _reanalyze();
-    Log.i('part',
-        'child sketch "${sk.name}" on a solid face of "${p.name}"');
+    Log.i('part', 'child sketch "${sk.name}" on a solid face of "${p.name}"');
     startNewLayer();
   }
 
@@ -1940,9 +2048,8 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- Extrude (M56): modeless properties panel + region picking ----
-  List<ProfileRegion> sessionRegions(ChildSketch cs) =>
-      _regionCache.putIfAbsent(
-          cs.model.name, () => regionsFrom(profileLoops(cs.model)));
+  List<ProfileRegion> sessionRegions(ChildSketch cs) => _regionCache
+      .putIfAbsent(cs.model.name, () => regionsFrom(profileLoops(cs.model)));
 
   /// Opens the Extrusion panel — for a NEW feature, or to [edit] an
   /// existing one. Inventor-style: with exactly one profile in the latest
@@ -2002,8 +2109,8 @@ class AppState extends ChangeNotifier {
     s.autoPicked = false;
     s.sketchName = sketchName;
     final ip = interiorPointOf(r.outer);
-    final i = s.profiles
-        .indexWhere((x) => (Offset(x.ax, x.ay) - ip).distance < 1e-6);
+    final i =
+        s.profiles.indexWhere((x) => (Offset(x.ax, x.ay) - ip).distance < 1e-6);
     if (i >= 0) {
       s.profiles.removeAt(i);
     } else {
@@ -2165,16 +2272,27 @@ class AppState extends ChangeNotifier {
         return false; // a NEW feature that cannot compute is not created
       }
     }
-    if (s.editing == null) p.features.add(f);
+    if (s.editing == null) {
+      final firstConsumption = firstConsumerOf(p, f.sketchName) == null;
+      p.features.add(f);
+      if (firstConsumption) {
+        // Inventor: creating the feature CONSUMES the sketch — it nests
+        // under the feature in the browser and its visibility turns off.
+        final cs = p.sketchByName(f.sketchName);
+        if (cs != null) cs.visible = false;
+      }
+    }
     if (partKernel.available) {
       recomputeAllFeatures(p, partKernel); // fold Inventor join chains
     }
     p.dirty = true;
     s.disposePreview();
-    Log.i('part', 'extrude ${s.editing == null ? "created" : "edited"} '
-        '${f.name} (${f.bodyName}) profiles=${f.profiles.length} '
-        'h=${f.distanceA}/${f.distanceB} ${extrudeDirName(f.direction)} '
-        'taper=${f.taperDeg} ok=$ok');
+    Log.i(
+        'part',
+        'extrude ${s.editing == null ? "created" : "edited"} '
+            '${f.name} (${f.bodyName}) profiles=${f.profiles.length} '
+            'h=${f.distanceA}/${f.distanceB} ${extrudeDirName(f.direction)} '
+            'taper=${f.taperDeg} ok=$ok');
     if (keepOpen) {
       extrudeSession = ExtrudeSession()
         ..sketchName = s.sketchName
@@ -2294,10 +2412,10 @@ class AppState extends ChangeNotifier {
           });
         }
 
-        retag('$base.splines.json',
-            (g, v) => g.type == Geo.polyline
-                ? g.asSpline((v as num).toInt())
-                : g);
+        retag(
+            '$base.splines.json',
+            (g, v) =>
+                g.type == Geo.polyline ? g.asSpline((v as num).toInt()) : g);
         retag('$base.styles.json', (g, v) => g.withStyle((v as num).toInt()));
         retag(
             '$base.proj.json',
@@ -2309,8 +2427,9 @@ class AppState extends ChangeNotifier {
         var eos = -1;
         if (lf.existsSync()) {
           final j = jsonDecode(lf.readAsStringSync()) as Map<String, dynamic>;
-          s.layers.addAll(
-              [for (final l in (j['layers'] as List? ?? const [])) l as String]);
+          s.layers.addAll([
+            for (final l in (j['layers'] as List? ?? const [])) l as String
+          ]);
           s.hiddenLayers
               .addAll((j['hidden'] as List? ?? const []).cast<String>());
           s.lockedLayers
@@ -2337,14 +2456,17 @@ class AppState extends ChangeNotifier {
     showConstraints = !showConstraints;
     notifyListeners();
   }
+
   // constraint tool pick buffers
   final List<PRef> conPts = [];
   final List<int> conEnts = [];
+
   /// Polyline EDGES picked as line-like dimension participants (each edge is
   /// its two vertex refs). A rectangle side has no line-entity index, so it
   /// cannot live in conEnts — without this, point->edge and line->edge picks
   /// were dead clicks.
   final List<(PRef, PRef)> conEdges = [];
+
   /// Click position of each conEnts pick made by the CONSTRAINT tools —
   /// needed to resolve WHICH spline end / WHICH polyline edge takes part in
   /// a tangency (both spline ends can touch the same rectangle, so "nearest
@@ -2364,19 +2486,22 @@ class AppState extends ChangeNotifier {
       final grip = dragGrip!;
       final gs = List<Geo>.from(s.geometry);
       if (grip.entity < 0 || grip.entity >= gs.length) {
-        Log.e('drag', 'grip points at entity ${grip.entity}, '
-            'geometry has ${gs.length} — ignoring drag');
+        Log.e(
+            'drag',
+            'grip points at entity ${grip.entity}, '
+                'geometry has ${gs.length} — ignoring drag');
         return s.geometry;
       }
       final before = gs[grip.entity];
       gs[grip.entity] = moveGrip(before, grip, dragPos!);
 
       if (Log.every('drag-frame', 150)) {
-        Log.d('drag',
+        Log.d(
+            'drag',
             'frame ${gripStr(grip, s.geometry)} '
-            'to=(${dragPos!.dx.toStringAsFixed(3)},'
-            '${dragPos!.dy.toStringAsFixed(3)}) '
-            '=> ${geoStr(grip.entity, gs[grip.entity])}');
+                'to=(${dragPos!.dx.toStringAsFixed(3)},'
+                '${dragPos!.dy.toStringAsFixed(3)}) '
+                '=> ${geoStr(grip.entity, gs[grip.entity])}');
       }
       if (!geoFinite(gs[grip.entity])) {
         Log.e('drag', 'moveGrip produced NON-FINITE geometry');
@@ -2394,14 +2519,16 @@ class AppState extends ChangeNotifier {
       final dragged = grip.isBody
           ? {for (var p = 0; p < ptCount(before); p++) (grip.entity, p)}
           : {(grip.entity, grip.idx)};
-      final ok = solveConstraints(gs, s.constraints,
-          dragged: dragged, iterations: 25);
+      final ok =
+          solveConstraints(gs, s.constraints, dragged: dragged, iterations: 25);
 
       if (!allFinite(gs)) {
-        Log.e('drag', 'display geometry NON-FINITE after solve — '
-            'showing committed geometry instead');
-        Log.block('drag', 'bad display geometry',
-            sketchDump(gs, s.constraints));
+        Log.e(
+            'drag',
+            'display geometry NON-FINITE after solve — '
+                'showing committed geometry instead');
+        Log.block(
+            'drag', 'bad display geometry', sketchDump(gs, s.constraints));
         return s.geometry;
       }
       // The solve did not hold the constraints for this cursor position (a
@@ -2419,10 +2546,14 @@ class AppState extends ChangeNotifier {
       _lastGoodDragGeo = gs;
       return gs;
     } catch (err, st) {
-      Log.e('drag', 'displayGeometry THREW — this would have blanked the '
-          'viewport; showing committed geometry instead', err, st);
-      Log.block('drag', 'sketch at throw',
-          sketchDump(s.geometry, s.constraints));
+      Log.e(
+          'drag',
+          'displayGeometry THREW — this would have blanked the '
+              'viewport; showing committed geometry instead',
+          err,
+          st);
+      Log.block(
+          'drag', 'sketch at throw', sketchDump(s.geometry, s.constraints));
       return s.geometry;
     }
   }
@@ -2493,17 +2624,23 @@ class AppState extends ChangeNotifier {
     final s0 = current;
     // Fresh throttles so the first frames of every drag are always recorded.
     for (final k in const [
-      'drag-frame', 'solve', 'lm-ok', 'lm-fail',
-      'slvs-ok', 'slvs-verify', 'slvs-bail'
+      'drag-frame',
+      'solve',
+      'lm-ok',
+      'lm-fail',
+      'slvs-ok',
+      'slvs-verify',
+      'slvs-bail'
     ]) {
       Log.resetThrottle(k);
     }
     Log.i('drag',
         'BEGIN ${s0 == null ? '(no sketch)' : gripStr(g, s0.geometry)}');
     if (s0 != null) {
-      Log.i('drag',
+      Log.i(
+          'drag',
           'dof=${a?.dof} freePoints={'
-          '${a?.freePoints.map((f) => 'e${f.$1}.p${f.$2}').join(',') ?? '?'}}');
+              '${a?.freePoints.map((f) => 'e${f.$1}.p${f.$2}').join(',') ?? '?'}}');
       Log.block('drag', 'sketch at drag start',
           sketchDump(s0.geometry, s0.constraints));
     }
@@ -2539,8 +2676,13 @@ class AppState extends ChangeNotifier {
     final s0 = current;
     if (s0 == null || entity < 0 || entity >= s0.geometry.length) return;
     for (final k in const [
-      'drag-frame', 'solve', 'lm-ok', 'lm-fail',
-      'slvs-ok', 'slvs-verify', 'slvs-bail'
+      'drag-frame',
+      'solve',
+      'lm-ok',
+      'lm-fail',
+      'slvs-ok',
+      'slvs-verify',
+      'slvs-bail'
     ]) {
       Log.resetThrottle(k);
     }
@@ -2574,10 +2716,11 @@ class AppState extends ChangeNotifier {
   void endGripDrag() {
     final s = current;
     if (s != null && dragGrip != null && dragPos != null) {
-      Log.i('drag',
+      Log.i(
+          'drag',
           'END ${gripStr(dragGrip!, s.geometry)} '
-          'at=(${dragPos!.dx.toStringAsFixed(3)},'
-          '${dragPos!.dy.toStringAsFixed(3)})');
+              'at=(${dragPos!.dx.toStringAsFixed(3)},'
+              '${dragPos!.dy.toStringAsFixed(3)})');
       try {
         // SETTLE before committing. Drag frames run with a small iteration
         // budget, so the last shown frame can legally carry residuals up to
@@ -2595,8 +2738,8 @@ class AppState extends ChangeNotifier {
       } catch (err, st) {
         Log.e('drag', 'END: rebuild threw', err, st);
       }
-      Log.block('drag', 'sketch after drag',
-          sketchDump(s.geometry, s.constraints));
+      Log.block(
+          'drag', 'sketch after drag', sketchDump(s.geometry, s.constraints));
     }
     dragGrip = null;
     dragPos = null;
@@ -2678,9 +2821,10 @@ class AppState extends ChangeNotifier {
                 final subsumed = (r.ent == e && r.pt == p && onto == j) ||
                     (r.ent == j && r.pt == pj && onto == e);
                 if (subsumed) {
-                  Log.i('modify',
+                  Log.i(
+                      'modify',
                       'cut-bind upgrades ${conStr(-1, c)} -> point-on-point '
-                      '(stacked endpoints)');
+                          '(stacked endpoints)');
                 }
                 return subsumed;
               });
@@ -2701,15 +2845,15 @@ class AppState extends ChangeNotifier {
               final tp = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
               if (tp <= tol || tp >= 1 - tol) continue;
               if ((q - (a + ab * tp)).distance < tol) {
-                cand = Constraint(CType.coincident,
-                    pts: [PRef(e, p)], ents: [j]);
+                cand =
+                    Constraint(CType.coincident, pts: [PRef(e, p)], ents: [j]);
                 break;
               }
             } else if (t.type == Geo.circle || t.type == Geo.arc) {
               final c0 = Offset(t.data[0], t.data[1]);
               if (((q - c0).distance - t.data[2]).abs() < tol) {
-                cand = Constraint(CType.coincident,
-                    pts: [PRef(e, p)], ents: [j]);
+                cand =
+                    Constraint(CType.coincident, pts: [PRef(e, p)], ents: [j]);
                 break;
               }
             }
@@ -2747,9 +2891,10 @@ class AppState extends ChangeNotifier {
       // bug in some transform that dropped it — say so instead of silently
       // parking it on layer 0.
       if (!s.layers.contains(g.layer)) {
-        Log.w('layer',
+        Log.w(
+            'layer',
             'entity on unknown layer "${g.layer}" (sketch has ${s.layers}): '
-            '${geoStr(-1, g)}');
+                '${geoStr(-1, g)}');
       }
       s.engine.setCurrentLayer(g.layer);
       switch (g.type) {
@@ -2765,9 +2910,12 @@ class AppState extends ChangeNotifier {
           break;
         case Geo.polyline:
           final n = g.data[1].toInt();
-          s.engine.addPolyline(
-              [for (var i = 0; i < n; i++) ...[g.data[2 + 2 * i], g.data[3 + 2 * i]]],
-              closed: g.data[0] != 0);
+          s.engine.addPolyline([
+            for (var i = 0; i < n; i++) ...[
+              g.data[2 + 2 * i],
+              g.data[3 + 2 * i]
+            ]
+          ], closed: g.data[0] != 0);
           break;
       }
     }
@@ -2898,9 +3046,10 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final hadPicks =
-        toolPoints.isNotEmpty || conPts.isNotEmpty || conEnts.isNotEmpty ||
-            modEntity != null;
+    final hadPicks = toolPoints.isNotEmpty ||
+        conPts.isNotEmpty ||
+        conEnts.isNotEmpty ||
+        modEntity != null;
     toolPoints.clear();
     conPts.clear();
     conEnts.clear();
@@ -2931,9 +3080,11 @@ class AppState extends ChangeNotifier {
   /// variable tools (splines) commit via [finishVariableTool] (Enter).
   void toolClick(Offset w) {
     final s = current;
-    Log.i('click', 'toolClick tool=$tool sketch=${s?.name} '
-        'w=(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
-        'picks=${toolPoints.length}');
+    Log.i(
+        'click',
+        'toolClick tool=$tool sketch=${s?.name} '
+            'w=(${w.dx.toStringAsFixed(2)},${w.dy.toStringAsFixed(2)}) '
+            'picks=${toolPoints.length}');
     if (s == null || tool == Tool.none) return;
     if (!inEditMode) {
       Log.w('tool', 'toolClick with tool=$tool but NOT in edit mode — ignored');
@@ -3146,16 +3297,15 @@ class AppState extends ChangeNotifier {
         break;
       case Geo.polyline:
         final n = d[1].toInt();
-        s.engine.addPolyline(
-            [
-              for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
-            ],
-            closed: d[0] != 0);
+        s.engine.addPolyline([
+          for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
+        ], closed: d[0] != 0);
         break;
     }
     _committed(s, tags: tags);
     _solveAndRebuild(s);
-    Log.i('project',
+    Log.i(
+        'project',
         'projected ${src >= 0 ? "entity $src (${proto.type})" : src == Geo.projAxisX ? "X axis" : "Y axis"} onto "$lay"');
   }
 
@@ -3235,7 +3385,8 @@ class AppState extends ChangeNotifier {
   /// TOTAL span, evenly divided; unchecked = the value IS the step (Inventor's
   /// Fitted checkbox). A 360° circular span wraps, so fitted divides by count
   /// (not count-1) to keep the first and last element from coinciding.
-  double _patStep(double value, int count, bool fitted, {bool wrap360 = false}) {
+  double _patStep(double value, int count, bool fitted,
+      {bool wrap360 = false}) {
     if (!fitted || count <= 1) return value;
     if (wrap360) return value / count;
     return value / (count - 1);
@@ -3260,8 +3411,8 @@ class AppState extends ChangeNotifier {
         for (var k2 = 0; k2 < n2; k2++) {
           for (var k1 = 0; k1 < n1; k1++) {
             if (k1 == 0 && k2 == 0) continue;
-            final d = u1 * (s1 * k1) +
-                (u2 == null ? Offset.zero : u2 * (s2 * k2));
+            final d =
+                u1 * (s1 * k1) + (u2 == null ? Offset.zero : u2 * (s2 * k2));
             out.add((
               translation(d),
               [patKindTranslate, d.dx, d.dy],
@@ -3278,8 +3429,7 @@ class AppState extends ChangeNotifier {
         final c = refPt(s.geometry, ax);
         final n = ps.countC.clamp(2, 128);
         final full = (ps.angleC.abs() - 360).abs() < 1e-9;
-        final stepDeg =
-            _patStep(ps.angleC, n, ps.fitted, wrap360: full);
+        final stepDeg = _patStep(ps.angleC, n, ps.fitted, wrap360: full);
         final sign = ps.flipC ? -1.0 : 1.0;
         for (var k = 1; k < n; k++) {
           final a = sign * stepDeg * k * math.pi / 180;
@@ -3389,9 +3539,10 @@ class AppState extends ChangeNotifier {
         }
       }
     }
-    Log.i('pattern',
+    Log.i(
+        'pattern',
         '${ps.kind.name}: $made copies of ${srcs.length} entities onto '
-        '"$lay" (associative=${ps.associative}, fitted=${ps.fitted})');
+            '"$lay" (associative=${ps.associative}, fitted=${ps.fitted})');
     final ok = _solveAndRebuild(s, gs);
     if (!ok) {
       // roll back the constraints this commit appended; the geometry copies
@@ -3501,8 +3652,8 @@ class AppState extends ChangeNotifier {
       s.constraints.add(Constraint(CType.symmetric,
           pts: [PRef(e, i), PRef(e, 2 * n - 2 - i)], ents: [axis]));
     }
-    s.constraints.add(
-        Constraint(CType.coincident, pts: [PRef(e, n - 1)], ents: [axis]));
+    s.constraints
+        .add(Constraint(CType.coincident, pts: [PRef(e, n - 1)], ents: [axis]));
     Log.i('pattern',
         'self-symmetric spline e$e: $n -> ${ext.length} defining points');
     if (!_solveAndRebuild(s, gs)) {
@@ -3686,10 +3837,8 @@ class AppState extends ChangeNotifier {
       case Tool.mrotate:
         if (toolPoints.length < 3) return null;
         final c = toolPoints[0];
-        final a1 = math.atan2(
-            toolPoints[1].dy - c.dy, toolPoints[1].dx - c.dx);
-        final a2 = math.atan2(
-            toolPoints[2].dy - c.dy, toolPoints[2].dx - c.dx);
+        final a1 = math.atan2(toolPoints[1].dy - c.dy, toolPoints[1].dx - c.dx);
+        final a2 = math.atan2(toolPoints[2].dy - c.dy, toolPoints[2].dx - c.dx);
         return rotation(c, a2 - a1);
       case Tool.mscale:
         if (toolPoints.length < 3) return null;
@@ -3707,7 +3856,8 @@ class AppState extends ChangeNotifier {
   List<Geo> modifyGhost(SketchModel s, Offset hover) {
     if (!modifyTools.contains(tool)) return const [];
     if (tool == Tool.moffset && modEntity != null) {
-      final chain = offsetChainAt(s.geometry, modEntity!, hover, _chainEligible(s));
+      final chain =
+          offsetChainAt(s.geometry, modEntity!, hover, _chainEligible(s));
       return chain == null ? const [] : chain.offsets;
     }
     if (selection.isEmpty || toolPoints.isEmpty) return const [];
@@ -3817,13 +3967,13 @@ class AppState extends ChangeNotifier {
       Log.i(
           'modify',
           'offset chain from e$seed: +$n segs '
-          '(${chain.closed ? "closed" : "open"}), '
-          'constraints ${s.constraints.length}');
+              '(${chain.closed ? "closed" : "open"}), '
+              'constraints ${s.constraints.length}');
     } else {
       Log.w(
           'modify',
           'offset chain from e$seed: constrained result unsatisfiable — '
-          'placing bare geometry');
+              'placing bare geometry');
       _rebuildEngine(s, gs); // geometry only, no new constraints
     }
   }
@@ -3831,8 +3981,7 @@ class AppState extends ChangeNotifier {
   // ---- constraints + dimensions (M7) ----
   PRef? _nearestPointRef(SketchModel s, Offset w,
       {Iterable<PRef> exclude = const []}) {
-    bool excluded(PRef r) =>
-        exclude.any((x) => x.ent == r.ent && x.pt == r.pt);
+    bool excluded(PRef r) => exclude.any((x) => x.ent == r.ent && x.pt == r.pt);
     PRef? best;
     var bd = 10 / zoom;
     // The projected center point is a real pick target in Inventor — you
@@ -3878,8 +4027,7 @@ class AppState extends ChangeNotifier {
         return false;
       }
     } else if (wouldOverconstrain(s.geometry, s.constraints, c)) {
-      Log.i('constraint',
-          'REJECTED ${conStr(-1, c)} — would over-constrain');
+      Log.i('constraint', 'REJECTED ${conStr(-1, c)} — would over-constrain');
       toast('Adding this constraint will over-constrain the sketch.');
       return false;
     }
@@ -3951,12 +4099,11 @@ class AppState extends ChangeNotifier {
           return;
         }
         if (pt != null) {
-          _addConstraint(
-              s, Constraint(CType.coincident, pts: [conPts[0], pt]));
+          _addConstraint(s, Constraint(CType.coincident, pts: [conPts[0], pt]));
           conPts.clear();
         } else if (ent != null && s.geometry[ent].type == Geo.line) {
-          _addConstraint(s,
-              Constraint(CType.coincident, pts: [conPts[0]], ents: [ent]));
+          _addConstraint(
+              s, Constraint(CType.coincident, pts: [conPts[0]], ents: [ent]));
           conPts.clear();
         }
         return;
@@ -3979,11 +4126,13 @@ class AppState extends ChangeNotifier {
         // Fix grounds geometry WHERE IT IS, so the anchor is captured now.
         if (pt != null) {
           final q = getPt(s.geometry[pt.ent], pt.pt);
-          _addConstraint(s,
-              Constraint(CType.fix, pts: [pt], anchors: [q.dx, q.dy]));
+          _addConstraint(
+              s, Constraint(CType.fix, pts: [pt], anchors: [q.dx, q.dy]));
         } else if (ent != null) {
-          _addConstraint(s,
-              Constraint(CType.fix, ents: [ent],
+          _addConstraint(
+              s,
+              Constraint(CType.fix,
+                  ents: [ent],
                   anchors: List<double>.from(s.geometry[ent].data)));
         }
         return;
@@ -3994,8 +4143,8 @@ class AppState extends ChangeNotifier {
           return;
         }
         if (ent == null || s.geometry[ent].type != Geo.line) return;
-        _addConstraint(s,
-            Constraint(CType.symmetric, pts: List.of(conPts), ents: [ent]));
+        _addConstraint(
+            s, Constraint(CType.symmetric, pts: List.of(conPts), ents: [ent]));
         conPts.clear();
         return;
       case Tool.cCollinear:
@@ -4217,7 +4366,8 @@ class AppState extends ChangeNotifier {
                     pickedEdge != null &&
                     conPts[0].ent == ent &&
                     seg.$1.pt == conPts[0].pt &&
-                    seg.$2.pt == conPts[1].pt)) { //   same edge again: place
+                    seg.$2.pt == conPts[1].pt)) {
+              //   same edge again: place
               conEdges.add(seg);
               return;
             }
@@ -4230,11 +4380,14 @@ class AppState extends ChangeNotifier {
         // second entity: any line/circle/arc pairing is dimensionable
         conEnts.add(ent);
         return;
-      } else if (nP == 1 && nE == 0 && conEdges.isEmpty &&
+      } else if (nP == 1 &&
+          nE == 0 &&
+          conEdges.isEmpty &&
           (isLine(ent) || isCurve(ent))) {
         conEnts.add(ent); //                   point + line/curve
         return;
-      } else if (nE == 0 && conEdges.length == 1 &&
+      } else if (nE == 0 &&
+          conEdges.length == 1 &&
           (nP == 0 || (nP == 2 && pickedEdge != null)) &&
           (isLine(ent) || isCurve(ent))) {
         // ...the mirrored order: edge first (as conPts pair), then a
@@ -4602,6 +4755,7 @@ class AppState extends ChangeNotifier {
   /// kinds the label is drawn at a recomputed spot, not at textPos — this is
   /// the only place that knows where the text really is.
   final List<(Constraint, Rect)> dimLabelRects = [];
+
   /// M44: screen rects of painted parametric texts (tap-to-edit hit test).
   final List<(SketchText, Rect)> textRects = [];
 
@@ -4747,8 +4901,10 @@ class AppState extends ChangeNotifier {
           );
 
   void _restoreDims(
-      (List<(Constraint, double?, String?)>, List<(UserParam, double, String?)>)
-          snap) {
+      (
+        List<(Constraint, double?, String?)>,
+        List<(UserParam, double, String?)>
+      ) snap) {
     for (final (c, v, e) in snap.$1) {
       c.value = v;
       c.expr = e;
@@ -5179,8 +5335,14 @@ class AppState extends ChangeNotifier {
       if (inEditMode && t.layer != editingLayer) continue;
       final r = textBoundsWorld(s, t, measure: measure);
       pts.addAll([
-        r.topLeft, r.topRight, r.bottomLeft, r.bottomRight,
-        r.centerLeft, r.centerRight, r.topCenter, r.bottomCenter,
+        r.topLeft,
+        r.topRight,
+        r.bottomLeft,
+        r.bottomRight,
+        r.centerLeft,
+        r.centerRight,
+        r.topCenter,
+        r.bottomCenter,
       ]);
     }
     return pts;
@@ -5193,8 +5355,7 @@ class AppState extends ChangeNotifier {
       {required int pxW, required int pxH, double w = 100}) {
     final s = current!;
     final ext = srcPath.contains('.') ? srcPath.split('.').last : 'img';
-    final name =
-        'img_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final name = 'img_${DateTime.now().millisecondsSinceEpoch}.$ext';
     try {
       File(srcPath).copySync('${_sketchDir.path}/$name');
     } catch (e) {
@@ -5202,8 +5363,8 @@ class AppState extends ChangeNotifier {
       toast('Could not import the image.');
       rethrow;
     }
-    final img = SketchImage(name, center.dx, center.dy, w,
-        pxH <= 0 ? w : w * pxH / pxW,
+    final img = SketchImage(
+        name, center.dx, center.dy, w, pxH <= 0 ? w : w * pxH / pxW,
         layer: editingLayer ?? kDefaultLayer);
     s.images.add(img);
     s.dirty = true;
@@ -5320,9 +5481,10 @@ class AppState extends ChangeNotifier {
     _reanalyze();
     s.dirty = true;
     toast('Imported ${incoming.length} entities.');
-    Log.i('insert',
+    Log.i(
+        'insert',
         'DXF import: ${incoming.length} entities onto "$layer", '
-        'recentred by (${dx.toStringAsFixed(1)},${dy.toStringAsFixed(1)})');
+            'recentred by (${dx.toStringAsFixed(1)},${dy.toStringAsFixed(1)})');
     notifyListeners();
     return true;
   }
@@ -5432,12 +5594,14 @@ class AppState extends ChangeNotifier {
             ents: [newIdx],
             dimKind: 'rad',
             value: f.radius,
-            textPos: Offset(
-                g0.data[0] + (g0.data[2] + 8) * math.cos(midAng),
+            textPos: Offset(g0.data[0] + (g0.data[2] + 8) * math.cos(midAng),
                 g0.data[1] + (g0.data[2] + 8) * math.sin(midAng))));
       } else {
         // chamfer: distx + disty on the two endpoints of the chamfer line
-        final ax = g0.data[0], ay = g0.data[1], bx = g0.data[2], by = g0.data[3];
+        final ax = g0.data[0],
+            ay = g0.data[1],
+            bx = g0.data[2],
+            by = g0.data[3];
         cons.add(Constraint(CType.dimension,
             pts: [PRef(newIdx, 0), PRef(newIdx, 1)],
             dimKind: 'distx',
@@ -5455,9 +5619,10 @@ class AppState extends ChangeNotifier {
       // anything else in it (a slot built earlier), is left exactly as it was.
       final ok = solveConstraints(gs, cons);
       if (!ok) {
-        Log.w('modify',
+        Log.w(
+            'modify',
             '${tool.name} at e$e1/e$e2 REJECTED — result cannot be satisfied; '
-            'rolling back');
+                'rolling back');
         toast(tool == Tool.fillet
             ? 'That fillet would break the sketch — pick a valid corner or a '
                 'smaller radius.'
@@ -5465,8 +5630,7 @@ class AppState extends ChangeNotifier {
                 'smaller distances.');
         return; // s.geometry / s.constraints untouched
       }
-      Log.i('modify',
-          '${tool.name} at e$e1/e$e2 -> e$newIdx (dimensioned)');
+      Log.i('modify', '${tool.name} at e$e1/e$e2 -> e$newIdx (dimensioned)');
       s.constraints
         ..clear()
         ..addAll(cons);
@@ -5547,8 +5711,11 @@ class AppState extends ChangeNotifier {
         // radius) — plus the axis: 4 more params fully pinned by 4 more
         // equations (its two endpoints on the two distinct cap centers),
         // so the DOF count is unchanged and nothing goes redundant.
-        final l1 = firstNew, l2 = firstNew + 1, c1 = firstNew + 2,
-            c2 = firstNew + 3, ax = firstNew + 4;
+        final l1 = firstNew,
+            l2 = firstNew + 1,
+            c1 = firstNew + 2,
+            c2 = firstNew + 3,
+            ax = firstNew + 4;
         s.constraints.addAll([
           Constraint(CType.coincident, pts: [PRef(c1, 1), PRef(l1, 0)]),
           Constraint(CType.coincident, pts: [PRef(c1, 2), PRef(l2, 1)]),
@@ -5574,7 +5741,9 @@ class AppState extends ChangeNotifier {
         // rank 14). The redundant row is dropped for the same reason as the
         // linear slot's parallel — 14 independent equations on 20 params =
         // the 6 arc-slot DOF (center, rail radius, cap radius, two sweeps).
-        final o = firstNew, inn = firstNew + 1, ca = firstNew + 2,
+        final o = firstNew,
+            inn = firstNew + 1,
+            ca = firstNew + 2,
             cb = firstNew + 3;
         s.constraints.addAll([
           Constraint(CType.concentric, ents: [o, inn]),
@@ -5594,8 +5763,7 @@ class AppState extends ChangeNotifier {
         for (final tp in toolPoints.take(3)) {
           final li = nearestLineIdx(gs, tp, exclude: firstNew);
           if (li != null) {
-            s.constraints
-                .add(Constraint(CType.tangent, ents: [firstNew, li]));
+            s.constraints.add(Constraint(CType.tangent, ents: [firstNew, li]));
           }
         }
       } else if (tool == Tool.arcTangent && placed.length == 1) {
@@ -5607,9 +5775,10 @@ class AppState extends ChangeNotifier {
         // coincident from the endpoint snap.
         final src = _nearestPointRef(s, toolPoints.first);
         if (src != null && isRealPt(src, gs) && src.ent != firstNew) {
-          s.constraints.add(Constraint(CType.coincident,
-              pts: [PRef(firstNew, gs[firstNew].type == Geo.arc ? 1 : 0),
-                  src]));
+          s.constraints.add(Constraint(CType.coincident, pts: [
+            PRef(firstNew, gs[firstNew].type == Geo.arc ? 1 : 0),
+            src
+          ]));
           if (gs[firstNew].type == Geo.arc &&
               gs[src.ent].type != Geo.polyline) {
             s.constraints
@@ -5630,8 +5799,7 @@ class AppState extends ChangeNotifier {
       // the same over-constraint gate as a manual constraint.
       if (deterministicShape && autoConstrain) {
         for (var i = firstNew; i < gs.length; i++) {
-          for (final c
-              in inferPointBindings(gs, i, bindOnlyBefore: firstNew)) {
+          for (final c in inferPointBindings(gs, i, bindOnlyBefore: firstNew)) {
             if (!wouldOverconstrain(gs, s.constraints, c)) {
               s.constraints.add(c);
             }
@@ -5669,8 +5837,10 @@ class AppState extends ChangeNotifier {
       final preSolve = List<Geo>.from(gs);
       final consBefore2 = consAtCommitStart;
       if (!solveConstraints(gs, s.constraints)) {
-        Log.e('tool', 'construction auto-constraints unsatisfied for $tool — '
-            'committing as drawn WITHOUT them');
+        Log.e(
+            'tool',
+            'construction auto-constraints unsatisfied for $tool — '
+                'committing as drawn WITHOUT them');
         s.constraints.removeRange(consBefore2, s.constraints.length);
         _rebuildEngine(s, preSolve);
       } else {
@@ -5713,20 +5883,20 @@ class AppState extends ChangeNotifier {
     }
 
     // linear distance between the two endpoints of line [e]
-    Constraint distOn(int e, double v, String kind, Offset text) => Constraint(
-        CType.dimension,
-        pts: [PRef(e, 0), PRef(e, 1)],
-        dimKind: kind,
-        value: v.abs(),
-        textPos: text);
+    Constraint distOn(int e, double v, String kind, Offset text) =>
+        Constraint(CType.dimension,
+            pts: [PRef(e, 0), PRef(e, 1)],
+            dimKind: kind,
+            value: v.abs(),
+            textPos: text);
 
     switch (tool) {
       case Tool.rectTwoPoint:
       case Tool.rect2PC:
         if (placedCount == 4) {
           if (W != null) {
-            out.add(distOn(firstNew, W, 'distx',
-                mid(firstNew) + const Offset(0, -8)));
+            out.add(distOn(
+                firstNew, W, 'distx', mid(firstNew) + const Offset(0, -8)));
           }
           if (H != null) {
             out.add(distOn(firstNew + 1, H, 'disty',
@@ -5791,9 +5961,9 @@ class AppState extends ChangeNotifier {
                 pts: [PRef(firstNew + 2, 0), PRef(firstNew + 3, 0)],
                 dimKind: 'dist',
                 value: L.abs(),
-                textPos: (getPt(gs[firstNew + 2], 0) +
-                        getPt(gs[firstNew + 3], 0)) /
-                    2));
+                textPos:
+                    (getPt(gs[firstNew + 2], 0) + getPt(gs[firstNew + 3], 0)) /
+                        2));
           }
           if (SW != null) out.addAll(_slotWidthDim(gs, firstNew, SW));
         }
@@ -5864,8 +6034,7 @@ class AppState extends ChangeNotifier {
     final gs = List<Geo>.from(s.geometry);
     // Inventor semantics: if ANY selected entity is not yet of this style,
     // the click converts TO it; only a uniformly-styled selection reverts.
-    final convert =
-        selection.any((i) => i < gs.length && gs[i].style != style);
+    final convert = selection.any((i) => i < gs.length && gs[i].style != style);
     for (final i in selection) {
       if (i >= gs.length) continue;
       gs[i] = gs[i].withStyle(convert ? style : Geo.styleNormal);
@@ -5895,23 +6064,23 @@ class AppState extends ChangeNotifier {
     final c = Offset(e.data[2], e.data[3]);
     final ma = Offset(e.data[4], e.data[5]);
     final mi = Offset(e.data[6], e.data[7]);
-    final major = Geo(
-            Geo.line, [ma.dx, ma.dy, (c * 2 - ma).dx, (c * 2 - ma).dy])
-        .onLayer(layer)
-        .withStyle(Geo.styleCenterline);
-    final minor = Geo(
-            Geo.line, [mi.dx, mi.dy, (c * 2 - mi).dx, (c * 2 - mi).dy])
-        .onLayer(layer)
-        .withStyle(Geo.styleCenterline);
+    final major =
+        Geo(Geo.line, [ma.dx, ma.dy, (c * 2 - ma).dx, (c * 2 - ma).dy])
+            .onLayer(layer)
+            .withStyle(Geo.styleCenterline);
+    final minor =
+        Geo(Geo.line, [mi.dx, mi.dy, (c * 2 - mi).dx, (c * 2 - mi).dy])
+            .onLayer(layer)
+            .withStyle(Geo.styleCenterline);
     final iMaj = gs.length, iMin = gs.length + 1;
-    gs..add(major)..add(minor);
+    gs
+      ..add(major)
+      ..add(minor);
     s.constraints.addAll([
       Constraint(CType.coincident, pts: [PRef(iMaj, 0), PRef(ellipseIdx, 1)]),
       Constraint(CType.coincident, pts: [PRef(iMin, 0), PRef(ellipseIdx, 2)]),
-      Constraint(CType.midpoint,
-          pts: [PRef(ellipseIdx, 0)], ents: [iMaj]),
-      Constraint(CType.midpoint,
-          pts: [PRef(ellipseIdx, 0)], ents: [iMin]),
+      Constraint(CType.midpoint, pts: [PRef(ellipseIdx, 0)], ents: [iMaj]),
+      Constraint(CType.midpoint, pts: [PRef(ellipseIdx, 0)], ents: [iMin]),
     ]);
     Log.i('layer', 'ellipse axes committed as centerlines ($iMaj, $iMin)');
   }
@@ -6055,7 +6224,8 @@ class AppState extends ChangeNotifier {
       for (var i = 0; i < s.layers.length && i < s.eosAfter; i++) {
         if (persistLayers.contains(s.layers[i])) eosPersist++;
       }
-      File('${_sketchDir.path}/$name.layers.json').writeAsStringSync(jsonEncode({
+      File('${_sketchDir.path}/$name.layers.json')
+          .writeAsStringSync(jsonEncode({
         'version': 3,
         'layers': persistLayers,
         'hidden': s.hiddenLayers.toList(),
@@ -6078,7 +6248,8 @@ class AppState extends ChangeNotifier {
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
       // same dark radial feel as the mock card thumb
-      canvas.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      canvas.drawRect(
+          const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
       final geos = s.geometry;
       if (geos.isNotEmpty) {
         // fit bbox
@@ -6110,8 +6281,8 @@ class AppState extends ChangeNotifier {
           }
         }
         final dx = maxx - minx, dy = maxy - miny;
-        final scale = 0.85 *
-            math.min(w / (dx <= 0 ? 1 : dx), h / (dy <= 0 ? 1 : dy));
+        final scale =
+            0.85 * math.min(w / (dx <= 0 ? 1 : dx), h / (dy <= 0 ? 1 : dy));
         Offset map(double x, double y) => Offset(
             w / 2 + (x - (minx + maxx) / 2) * scale,
             h / 2 - (y - (miny + maxy) / 2) * scale);
@@ -6184,12 +6355,14 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
   switch (g.type) {
     case Geo.line:
       if (cDash) {
-        _dashedSeg(canvas, map(g.data[0], g.data[1]),
-            map(g.data[2], g.data[3]), p, dash: 5, gap: 4);
+        _dashedSeg(
+            canvas, map(g.data[0], g.data[1]), map(g.data[2], g.data[3]), p,
+            dash: 5, gap: 4);
       } else if (g.isCenterline) {
         // centerline STYLE: same entity, dashed rendering (Inventor's toggle)
-        _dashedSeg(canvas, map(g.data[0], g.data[1]),
-            map(g.data[2], g.data[3]), p, dash: 10, gap: 5);
+        _dashedSeg(
+            canvas, map(g.data[0], g.data[1]), map(g.data[2], g.data[3]), p,
+            dash: 10, gap: 5);
       } else {
         canvas.drawLine(
             map(g.data[0], g.data[1]), map(g.data[2], g.data[3]), p);
@@ -6199,10 +6372,15 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       if (cDash) {
         final c = map(g.data[0], g.data[1]);
         final r = g.data[2] * scale;
-        _dashedChain(canvas,
-            [for (var i = 0; i <= 96; i++) c + Offset(
-                r * math.cos(i * math.pi / 48),
-                r * math.sin(i * math.pi / 48))], p);
+        _dashedChain(
+            canvas,
+            [
+              for (var i = 0; i <= 96; i++)
+                c +
+                    Offset(r * math.cos(i * math.pi / 48),
+                        r * math.sin(i * math.pi / 48))
+            ],
+            p);
       } else {
         canvas.drawCircle(map(g.data[0], g.data[1]), g.data[2] * scale, p);
       }
@@ -6238,11 +6416,15 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       // world angles are CCW with y-up; screen y is flipped -> negate both
       if (cDash) {
         final n = math.max(8, (r * sweep.abs() / 6).ceil());
-        _dashedChain(canvas, [
-          for (var i = 0; i <= n; i++)
-            c + Offset(r * math.cos(-a1 - sweep * i / n),
-                r * math.sin(-a1 - sweep * i / n))
-        ], p);
+        _dashedChain(
+            canvas,
+            [
+              for (var i = 0; i <= n; i++)
+                c +
+                    Offset(r * math.cos(-a1 - sweep * i / n),
+                        r * math.sin(-a1 - sweep * i / n))
+            ],
+            p);
       } else {
         canvas.drawArc(
             Rect.fromCircle(center: c, radius: r), -a1, -sweep, false, p);
@@ -6290,7 +6472,8 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
 /// reversed) or null if collinear.
 (Offset, double, double, double, bool)? arcFrom3Points(
     Offset a, Offset b, Offset c) {
-  final d = 2 * (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
+  final d =
+      2 * (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
   if (d.abs() < 1e-9) return null;
   final ux = ((a.dx * a.dx + a.dy * a.dy) * (b.dy - c.dy) +
           (b.dx * b.dx + b.dy * b.dy) * (c.dy - a.dy) +
