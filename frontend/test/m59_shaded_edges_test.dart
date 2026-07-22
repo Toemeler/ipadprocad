@@ -117,15 +117,22 @@ void main() {
       expect(occ.hidden(cam.project(back), cam.depth(back)), isTrue);
     });
 
-    test('a coplanar point on a solid face is NOT occluded by that face', () {
+    test('a point in front of the whole solid is never occluded', () {
       final cam = sideCam(size);
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final occ = solidOccluder([solid], cam);
-      // a point on the top cap (z=5) near the axis: the sketch that lives on
-      // that face must stay visible, not be swallowed by it.
-      final onFace = Vec3(3, 0, 5);
-      expect(occ.hidden(cam.project(onFace), cam.depth(onFace)), isFalse,
-          reason: 'sketch on a face stays visible (bias covers tessellation)');
+      // camera looks along +X (depth grows toward -X); a point well in FRONT
+      // of the nearest surface (x > +10) must always be visible — this is a
+      // sketch/plane sitting between the camera and the model.
+      final inFront = Vec3(25, 0, 2.5);
+      expect(occ.hidden(cam.project(inFront), cam.depth(inFront)), isFalse,
+          reason: 'a sketch in front of the model is drawn over it');
+      // and a point on the near surface itself (the front of the barrel at
+      // x=+10) is visible — its own face does not swallow it (bias).
+      final onNearFace = Vec3(10, 0, 2.5);
+      expect(
+          occ.hidden(cam.project(onNearFace), cam.depth(onNearFace)), isFalse,
+          reason: 'a sketch on the front face stays visible');
     });
 
     test('empty occluder list hides nothing', () {
