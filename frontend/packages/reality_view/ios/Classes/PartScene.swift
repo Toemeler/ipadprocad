@@ -70,7 +70,9 @@ enum Colors {
         UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255,
                 blue: CGFloat(b) / 255, alpha: a)
     }
-    static let steel = rgb(0x8C, 0x93, 0x9A)
+    // Neutral mid grey: reads clearly as a SURFACE against the near-black
+    // edges and the coloured sketch/overlay lines drawn on top of it.
+    static let steel = rgb(0x86, 0x89, 0x8D)
     static let edge = rgb(0x23, 0x27, 0x2C)
     static let orange = rgb(0xEA, 0x9E, 0x5C)
     static let orangeEdge = rgb(0xF0, 0xA8, 0x68)
@@ -88,7 +90,9 @@ enum Materials {
     // .nonAR scene has none of, and could render black. Matches the CPU
     // painter's flat-Lambert steel look.
     static func steel() -> RealityKit.Material {
-        return SimpleMaterial(color: Colors.steel, roughness: 0.4, isMetallic: false)
+        // High roughness: a CAD surface should read matte, so shading tells
+        // you the form without a specular sheen competing with the edges.
+        return SimpleMaterial(color: Colors.steel, roughness: 0.9, isMetallic: false)
     }
 
     static func preview() -> RealityKit.Material {

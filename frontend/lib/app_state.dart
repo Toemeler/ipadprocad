@@ -2086,10 +2086,14 @@ class AppState extends ChangeNotifier {
     if (p == null || !pickPlane) return;
     pickPlane = false;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
-    // Look AT the face from outside: the camera views along the direction
-    // OPPOSITE the outward normal, so the face points back at the camera
-    // (n·dir < 0). Using +n would look from inside the solid through the back.
-    p.camera.orientToDir(frame.n * -1);
+    // A plane can be faced from either side. Take the side NEARER the current
+    // view, so the model never flips around behind you when a sketch starts.
+    // The old code always used -n on the belief that a visible face satisfies
+    // n·dir < 0; the device measurement (mesh3d convention log) showed the
+    // opposite — the camera sits at +dir and a face you can see has n·dir > 0 —
+    // so -n put the camera INSIDE the solid, looking at the face from behind.
+    final fn = frame.n;
+    p.camera.orientToDir(fn.dot(p.camera.dir) >= 0 ? fn : fn * -1);
     final sk = SketchModel(p.nextSketchName());
     p.childSketches.add(ChildSketch(sk, 'face', frame));
     p.dirty = true;

@@ -229,12 +229,15 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     if (!cs.visible && !showForSession) continue;
     final frame = sketchFrameOf(cs);
     final polylines = <Float64List>[];
-    for (final g in cs.model.geometry) {
+    final keys = <String>[];
+    for (var gi = 0; gi < cs.model.geometry.length; gi++) {
+      final g = cs.model.geometry[gi];
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
       final li = cs.model.layers.indexOf(g.layer);
       if (li >= 0 && li >= cs.model.eosAfter) continue;
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
+      keys.add(sketchKey(cs.model.name, gi));
       final buf = Float64List(pts.length * 3);
       for (var i = 0; i < pts.length; i++) {
         final w = frame.toWorld(pts[i]);
@@ -247,6 +250,7 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     if (polylines.isNotEmpty) {
       out.add({
         'polylines': polylines,
+        'keys': keys,
         // Normal of the sketch plane: lets the renderer lift a sketch drawn ON
         // a solid face clear of that face (they are exactly coplanar).
         'n': [frame.n.x, frame.n.y, frame.n.z],
@@ -255,6 +259,10 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
   }
   return out;
 }
+
+/// Stable address of one sketch curve: sketch name + its index in the sketch's
+/// geometry list. Used to highlight and select individual curves in 3D.
+String sketchKey(String sketchName, int geoIndex) => '$sketchName#$geoIndex';
 
 /// The blue prehighlight target ({solid id, face id}) or null.
 Map<String, dynamic>? _highlightPayload(
@@ -273,6 +281,8 @@ Map<String, dynamic>? _highlightPayload(
 Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     {String? hover,
     (KernelSolid, int)? hoverFace,
+    String? hoverSketch,
+    Set<String>? selSketch,
     Map<String, int>? knownRevs}) {
   final sess = app.extrudeSession;
   final scene = <String, dynamic>{
@@ -292,12 +302,17 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
+  if (hoverSketch != null) scene['hoverSketch'] = hoverSketch;
+  scene['selSketch'] = (selSketch ?? const <String>{}).toList();
   return scene;
 }
 
 /// Light per-move push: hover tints + visibility + face highlight, no meshes.
 Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
-    {String? hover, (KernelSolid, int)? hoverFace}) {
+    {String? hover,
+    (KernelSolid, int)? hoverFace,
+    String? hoverSketch,
+    Set<String>? selSketch}) {
   final out = <String, dynamic>{
     'planes': [
       for (final key in kPlaneKeys)
@@ -315,6 +330,8 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
   };
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) out['highlight'] = hl;
+  if (hoverSketch != null) out['hoverSketch'] = hoverSketch;
+  out['selSketch'] = (selSketch ?? const <String>{}).toList();
   return out;
 }
 

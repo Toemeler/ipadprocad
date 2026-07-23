@@ -100,7 +100,7 @@ final class PartRenderer: NSObject {
     private var sketchRoot = Entity()
     /// Sketch polyline entities with the normal of the plane they lie on, so
     /// a sketch drawn ON a solid face can be lifted clear of it.
-    private var sketchEntities: [(Entity, SIMD3<Float>)] = []
+    private var sketchEntities: [(Entity, SIMD3<Float>, String)] = []
     /// Edge tubes, kept so they can be nudged toward the camera: a tube is
     /// centred ON the face boundary, so half of it sits INSIDE the solid and
     /// speckles through the surface at grazing angles.
@@ -154,9 +154,9 @@ final class PartRenderer: NSObject {
         // pointing at the viewer is brightest — same intent as Cam3.solidLight —
         // plus a dim fixed FILL so faces angled away never go pure black (there
         // is no image-based lighting in a .nonAR scene).
-        headlight.light.intensity = 2000
+        headlight.light.intensity = 1450
         root.addChild(headlight)
-        fillLight.light.intensity = 650
+        fillLight.light.intensity = 480
         fillLight.transform = Transform(matrix: Self.lookAt(
             eye: SIMD3<Float>(-3, 6, -4), target: .zero, up: SIMD3<Float>(0, 1, 0)))
         root.addChild(fillLight)
@@ -264,7 +264,7 @@ final class PartRenderer: NSObject {
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
         for e in edgeEntities { e.position = dir * bias }
-        for (e, n) in sketchEntities {
+        for (e, n, _) in sketchEntities {
             let side: Float = simd_dot(n, dir) >= 0 ? 1 : -1
             e.position = n * (bias * side)
         }
@@ -300,6 +300,8 @@ final class PartRenderer: NSObject {
         rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
         rebuildCenterPoint(a["cp"] as? [String: Any])
         rebuildSketches(a["sketches"] as? [[String: Any]] ?? [])
+        applySketchAccents(hover: a["hoverSketch"] as? String,
+                           selected: Set(a["selSketch"] as? [String] ?? []))
         rebuildPreview(a["preview"] as? [String: Any])
         cpState = nil
         builtHighlight = nil
@@ -326,7 +328,24 @@ final class PartRenderer: NSObject {
         if let c = a["cp"] as? [String: Any] {
             rebuildCenterPoint(c)
         }
+        applySketchAccents(hover: a["hoverSketch"] as? String,
+                           selected: Set(a["selSketch"] as? [String] ?? []))
         rebuildHighlight(from: a["highlight"] as? [String: Any])
+    }
+
+    /// Blue prehighlight / selection on individual sketch curves. Cheap: it
+    /// only swaps a material, and only on the entities whose state changed.
+    private var sketchAccent: [String: Bool] = [:]
+    private func applySketchAccents(hover: String?, selected: Set<String>) {
+        for (e, _, key) in sketchEntities {
+            guard !key.isEmpty, let me = e as? ModelEntity else { continue }
+            let on = (key == hover) || selected.contains(key)
+            if sketchAccent[key] == on { continue }
+            sketchAccent[key] = on
+            me.model?.materials = [
+                Materials.unlit(on ? Colors.highlight : Colors.sketch)
+            ]
+        }
     }
 
     private func rebuildSolids(_ solids: [[String: Any]]) {
@@ -420,17 +439,19 @@ final class PartRenderer: NSObject {
         sketchRoot.removeFromParent()
         sketchRoot = Entity()
         sketchEntities.removeAll()
+        sketchAccent.removeAll()
         for sk in sketches {
             guard let polys = sk["polylines"] as? [Any] else { continue }
             // Normal of the sketch plane (origin plane or the picked face).
             let n = Payload.vec3(sk["n"]) ?? SIMD3<Float>(0, 0, 1)
-            for raw in polys {
+            let keys = sk["keys"] as? [String] ?? []
+            for (i, raw) in polys.enumerated() {
                 guard let pts = Payload.floats(raw) else { continue }
                 if let e = TubeBuilder.polyline(
                     pts, radius: edgeRadius * 1.2,
                     material: Materials.unlit(Colors.sketch)) {
                     sketchRoot.addChild(e)
-                    sketchEntities.append((e, n))
+                    sketchEntities.append((e, n, i < keys.count ? keys[i] : ""))
                 }
             }
         }

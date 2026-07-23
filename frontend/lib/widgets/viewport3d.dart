@@ -87,6 +87,11 @@ class _Viewport3DState extends State<Viewport3D> {
   // unaffected. When present, all world-space geometry is rendered by
   // RealityKit (GPU depth buffer), and this widget only pushes scene/camera/
   // overlay payloads; the Flutter layer keeps gestures, ViewCube and triad.
+  /// Hovered / selected sketch curve, addressed by [sketchKey]. Selection has
+  /// no consumer yet — it exists so curves are already pickable in 3D.
+  String? _hoverSketch;
+  final Set<String> _selSketch = <String>{};
+
   RealityViewController? _reality;
   String? _lastSceneSig;
   /// Mesh revisions the native side currently holds. Reset together with
@@ -94,6 +99,50 @@ class _Viewport3DState extends State<Viewport3D> {
   Map<String, int> _sentRevs = const {};
 
   PartModel? get part => widget.app.currentPart;
+
+  static double _distToSeg(Offset p, Offset a, Offset b) {
+    final vx = b.dx - a.dx, vy = b.dy - a.dy;
+    final len2 = vx * vx + vy * vy;
+    if (len2 < 1e-9) return (p - a).distance;
+    var t = ((p.dx - a.dx) * vx + (p.dy - a.dy) * vy) / len2;
+    t = t.clamp(0.0, 1.0);
+    return (p - Offset(a.dx + vx * t, a.dy + vy * t)).distance;
+  }
+
+  /// Nearest VISIBLE sketch curve under the cursor, or null. Mirrors exactly
+  /// the curves reality_scene draws, so what highlights is what you see.
+  String? _pickSketchCurve(Cam3 cam, Offset px) {
+    final p = part;
+    if (p == null) return null;
+    final sess = widget.app.extrudeSession;
+    String? best;
+    var bestD = 9.0; // px tolerance
+    for (final cs in p.childSketches) {
+      final showForSession = sess?.sketchName == cs.model.name ||
+          (sess != null && sess.sketchName == null);
+      if (!cs.visible && !showForSession) continue;
+      final frame = sketchFrameOf(cs);
+      for (var gi = 0; gi < cs.model.geometry.length; gi++) {
+        final g = cs.model.geometry[gi];
+        if (cs.model.hiddenLayers.contains(g.layer)) continue;
+        final li = cs.model.layers.indexOf(g.layer);
+        if (li >= 0 && li >= cs.model.eosAfter) continue;
+        final pts = sketchCurve(g);
+        if (pts.length < 2) continue;
+        var prev = cam.project(frame.toWorld(pts.first));
+        for (var i = 1; i < pts.length; i++) {
+          final cur = cam.project(frame.toWorld(pts[i]));
+          final d = _distToSeg(px, prev, cur);
+          if (d < bestD) {
+            bestD = d;
+            best = sketchKey(cs.model.name, gi);
+          }
+          prev = cur;
+        }
+      }
+    }
+    return best;
+  }
 
   /// Push the current camera (always), the scene (only when its signature
   /// changed — meshes are large) and the light overlay state to RealityKit.
@@ -108,11 +157,18 @@ class _Viewport3DState extends State<Viewport3D> {
         logMeshConvention(id, s.mesh);
       }
       c.setScene(buildScenePayload(app, p,
-          hover: _hover, hoverFace: _hoverFace, knownRevs: _sentRevs));
+          hover: _hover,
+          hoverFace: _hoverFace,
+          hoverSketch: _hoverSketch,
+          selSketch: _selSketch,
+          knownRevs: _sentRevs));
       _sentRevs = sceneRevs(app, p);
     }
-    c.setOverlays(
-        buildOverlaysPayload(app, p, hover: _hover, hoverFace: _hoverFace));
+    c.setOverlays(buildOverlaysPayload(app, p,
+        hover: _hover,
+        hoverFace: _hoverFace,
+        hoverSketch: _hoverSketch,
+        selSketch: _selSketch));
   }
 
   @override
@@ -395,14 +451,22 @@ class _Viewport3DState extends State<Viewport3D> {
         }
       }
     }
+    // Sketch curves prehighlight in plain 3D (nothing consumes the selection
+    // yet — this makes them addressable for later). Origin geometry, profile
+    // regions and solid faces all outrank them.
+    final sk = (hit == null && region == null && hf == null)
+        ? _pickSketchCurve(cam, px)
+        : null;
     if (hit != _hover ||
         region != _hoverRegion ||
+        sk != _hoverSketch ||
         hf?.$1 != _hoverFace?.$1 ||
         hf?.$2 != _hoverFace?.$2) {
       setState(() {
         _hover = hit;
         _hoverRegion = region;
         _hoverFace = hf;
+        _hoverSketch = sk;
       });
     } else {
       setState(() {}); // cursor moved (plane-pick marker etc.)
@@ -558,6 +622,27 @@ class _Viewport3DState extends State<Viewport3D> {
   void _tap(Cam3 cam, Offset px) {
     final app = widget.app;
     final p = part!;
+    // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
+    // set, a plain tap replaces it, a tap on empty space clears it.
+    if (!app.pickPlane && app.extrudeSession == null) {
+      final sk = _pickSketchCurve(cam, px);
+      if (sk != null) {
+        setState(() {
+          final add = HardwareKeyboard.instance.isShiftPressed ||
+              HardwareKeyboard.instance.isControlPressed ||
+              HardwareKeyboard.instance.isMetaPressed;
+          if (!add) {
+            final had = _selSketch.contains(sk);
+            _selSketch.clear();
+            if (!had) _selSketch.add(sk);
+          } else if (!_selSketch.remove(sk)) {
+            _selSketch.add(sk);
+          }
+        });
+        return;
+      }
+      if (_selSketch.isNotEmpty) setState(_selSketch.clear);
+    }
     // 1. plane pick (Start 2D Sketch): origin planes first, then any planar
     //    face of a solid (Inventor's sketch-on-face)
     if (app.pickPlane) {
