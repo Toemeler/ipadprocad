@@ -37,6 +37,18 @@ class Geo {
   // This is what makes a spline expose only its few control points, like Inventor.
   static const straight = 0, splineCv = 1, splineFit = 2, ellipseTag = 3;
 
+  // gearTag (M61): a parametric involute gear. Same mechanism as the ellipse —
+  // the polyline stores ONLY two defining vertices [center, orientation handle]
+  // followed by a PARAMETER BLOCK (module, teeth, pressure angle deg, profile
+  // shift, internal flag, bore dia). count stays 2, so the solver, grips and
+  // DXF see exactly two points (center translates the gear, handle rotates it),
+  // while the full tooth outline is generated Dart-side (gear.dart gearCurve)
+  // for render / snap / hit-test / 3D. The trailing block sits past
+  // 2 + 2*count and is preserved by the solver's _unpack (it copies the whole
+  // data list and only overwrites the packed params); it is also persisted in a
+  // .gears.json sidecar keyed by entity index, exactly like the spline tag.
+  static const gearTag = 4;
+
   final int type;
   final List<double> data;
 
@@ -115,6 +127,7 @@ class Geo {
       layer: layer, spline: spline, style: st, proj: proj, projSeg: projSeg);
 
   bool get isSpline => spline != straight;
+  bool get isGear => spline == gearTag;
   bool get isCenterline => style == styleCenterline;
   bool get isConstruction => style == styleConstruction;
 }

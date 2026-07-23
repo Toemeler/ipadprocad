@@ -709,6 +709,16 @@ class _RibbonState extends State<Ribbon> {
                       onTap: app.toggleParams,
                       active: app.showParams),
                 ]),
+            Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SmallRow(
+                      icon: IN['gear']!,
+                      label: 'Gear',
+                      onTap: app.toggleGear,
+                      active: app.gear != null),
+                ]),
           ]),
         ),
         // 8. Modify (LAST block). Only the three sketch-shaping commands keep

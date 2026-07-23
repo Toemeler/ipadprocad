@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../gear.dart';
 import '../diag.dart';
 import '../log.dart';
 import '../constraints.dart';
@@ -35,6 +36,7 @@ import '../theme.dart';
 import '../touch.dart';
 import 'pattern_dialog.dart';
 import 'parameters_dialog.dart';
+import 'gear_dialog.dart';
 import 'text_editor_window.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -701,6 +703,7 @@ class _Viewport2DState extends State<Viewport2D> {
 
   /// M43: position of the movable Parameters window (viewport coords).
   Offset _paramsPos = const Offset(60, 60);
+  Offset _gearPos = const Offset(60, 60);
 
   /// M45: position of the movable text editor window.
   Offset _textWinPos = const Offset(90, 90);
@@ -1340,6 +1343,7 @@ class _Viewport2DState extends State<Viewport2D> {
                 final typing = _inlineDim != null ||
                     app.editingText != null ||
                     app.showParams ||
+                    app.gear != null ||
                     app.hudActive ||
                     _editableHasFocus();
                 if (!typing && app.dragGrip == null) {
@@ -1427,6 +1431,15 @@ class _Viewport2DState extends State<Viewport2D> {
                       child: ParametersDialog(
                           app: app,
                           onDrag: (d) => setState(() => _paramsPos += d)),
+                    ),
+                  // M61: movable Gear window
+                  if (app.gear != null)
+                    Positioned(
+                      left: _gearPos.dx.clamp(0.0, size.width - 120),
+                      top: _gearPos.dy.clamp(0.0, size.height - 60),
+                      child: GearDialog(
+                          app: app,
+                          onDrag: (d) => setState(() => _gearPos += d)),
                     ),
                   // M45: movable parametric-text editor window
                   if (app.editingText != null)
@@ -1894,6 +1907,60 @@ class _ViewportPainter extends CustomPainter {
               Paint()..color = const Color(0xFFE05555));
         }
       }
+    }
+
+    // ---- gear tool ghost: the whole gear (or planetary set) at the cursor,
+    // exactly what a tap would commit ----
+    if (app.tool == Tool.gear &&
+        app.gear != null &&
+        app.hoverWorld != null) {
+      final g = app.gear!;
+      final c = app.hoverWorld!;
+      final ang = g.angleRad;
+      final ghost = Paint()
+        ..color = T.blue.withOpacity(0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..strokeJoin = StrokeJoin.round;
+      void loop(List<Offset> pw) {
+        if (pw.length < 2) return;
+        final first = map(pw.first.dx, pw.first.dy);
+        final p = Path()..moveTo(first.dx, first.dy);
+        for (var i = 1; i < pw.length; i++) {
+          final o = map(pw[i].dx, pw[i].dy);
+          p.lineTo(o.dx, o.dy);
+        }
+        p.close();
+        canvas.drawPath(p, ghost);
+      }
+
+      try {
+        if (g.kind == GearKind.planetary) {
+          if (g.sunTeeth >= 4 && g.planetTeeth >= 4 && g.planetCount >= 2) {
+            final layout = buildPlanetaryLayout(
+                base: g.params,
+                sunTeeth: g.sunTeeth,
+                planetTeeth: g.planetTeeth,
+                planetCount: g.planetCount,
+                systemAngle: ang);
+            for (final m in layout.members) {
+              loop(gearProfile(
+                  center: c + m.center,
+                  angle: m.angle,
+                  params: m.params,
+                  flankSamples: 14));
+            }
+          }
+        } else {
+          final p = g.params.copy()..internal = g.kind == GearKind.internal;
+          if (p.valid) {
+            loop(gearProfile(
+                center: c, angle: ang, params: p, flankSamples: 16));
+          }
+        }
+      } catch (_) {/* half-typed params: skip the ghost this frame */}
+      // centre marker
+      canvas.drawCircle(map(c.dx, c.dy), 3, Paint()..color = T.blue);
     }
 
     // ---- in-progress tool preview (blue, like the accent) ----

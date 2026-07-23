@@ -13,6 +13,7 @@ import 'constraints.dart';
 import 'diag.dart';
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
+import 'gear.dart';
 import 'hud.dart';
 import 'log.dart';
 import 'modify.dart';
@@ -58,6 +59,7 @@ enum Tool {
   fillet,
   chamfer,
   point,
+  gear, // M61: parametric involute gear (external / internal), placed by a tap
   project,
   // modify tools (operate on the geometry list, engine gets rebuilt)
   move,
@@ -120,6 +122,41 @@ class PatternSession {
   bool associative = true;
   bool fitted = true;
   PatternSession(this.kind);
+}
+
+/// Kind of gear the dialog is currently building.
+enum GearKind { external, internal, planetary }
+
+/// Live state of the modeless Gear dialog (M61). Like a [PatternSession] it
+/// floats over the viewport while the Gear tool is armed: the parameters drive
+/// a LIVE preview (both in the dialog and as a ghost following the cursor), and
+/// the gear is placed by a viewport tap or the Insert button. [editing] holds
+/// the entity index when re-opening an existing single gear (Insert then
+/// REPLACES it in place instead of adding a new one).
+class GearSession {
+  GearKind kind;
+  GearParams params; // module / α / x / fillet / bore (+ teeth for single)
+  // planetary-only
+  int sunTeeth;
+  int planetTeeth;
+  int planetCount;
+  Offset center; // where Insert / the ghost currently sits (world)
+  double angleDeg; // orientation (from +X, degrees)
+  bool placedOnce; // a tap has set the centre at least once
+  int? editing; // entity index being edited (single gears only)
+  GearSession({
+    this.kind = GearKind.external,
+    GearParams? params,
+    this.sunTeeth = 20,
+    this.planetTeeth = 16,
+    this.planetCount = 4,
+    this.center = Offset.zero,
+    this.angleDeg = 0,
+    this.placedOnce = false,
+    this.editing,
+  }) : params = params ?? GearParams();
+
+  double get angleRad => angleDeg * math.pi / 180.0;
 }
 
 /// Live state of the modeless Fillet / Chamfer dialog (M36) — Inventor's
@@ -254,6 +291,14 @@ class SketchModel {
     // fallback does), and the re-tagging below writes into it
     final next = List<Geo>.of(engine.allGeometry());
     for (var i = 0; i < next.length && i < prev.length; i++) {
+      // A gear was pushed to the backend as its BAKED outline (many vertices)
+      // but its in-memory form is the compact [centre, handle] + parameter
+      // block. Keep the compact form verbatim — adopting the baked polyline
+      // would lose the parameters and turn the gear into a dumb loop.
+      if (prev[i].spline == Geo.gearTag && next[i].type == Geo.polyline) {
+        next[i] = prev[i];
+        continue;
+      }
       if (prev[i].spline != Geo.straight && next[i].type == Geo.polyline) {
         next[i] = next[i].asSpline(prev[i].spline);
       }
@@ -755,6 +800,7 @@ class AppState extends ChangeNotifier {
     '.texts.json',
     '.images.json',
     '.splines.json',
+    '.gears.json',
     '.styles.json',
     '.proj.json',
     '.layers.json',
@@ -981,6 +1027,32 @@ class AppState extends ChangeNotifier {
           }
         } catch (e) {
           Log.w('state', 'spline sidecar read failed: $e');
+        }
+        // Gears: the DXF gave back each gear as its baked outline polyline. The
+        // .splines.json above re-tagged it gearTag; here we restore the COMPACT
+        // editable form (centre, handle + parameter block) stored in the gear
+        // sidecar, so the reloaded gear drags and edits like a live gear.
+        try {
+          final gf = File('${_sketchDir.path}/$name.gears.json');
+          if (gf.existsSync()) {
+            final j = jsonDecode(gf.readAsStringSync()) as Map<String, dynamic>;
+            j.forEach((k, v) {
+              final i = int.tryParse(k);
+              if (i == null || i < 0 || i >= s.geometry.length) return;
+              List<double>? data;
+              if (v is Map && v['d'] is List) {
+                data =
+                    (v['d'] as List).map((e) => (e as num).toDouble()).toList();
+              }
+              if (data != null && data.length >= 6 + 6) {
+                final prev = s.geometry[i];
+                s.geometry[i] = Geo(Geo.polyline, data,
+                    layer: prev.layer, spline: Geo.gearTag, style: prev.style);
+              }
+            });
+          }
+        } catch (e) {
+          Log.w('state', 'gear sidecar read failed: $e');
         }
         try {
           final stf = File('${_sketchDir.path}/$name.styles.json');
@@ -2383,6 +2455,12 @@ class AppState extends ChangeNotifier {
       File('$base.splines.json').writeAsStringSync(jsonEncode(spl));
       File('$base.styles.json').writeAsStringSync(jsonEncode(sty));
       File('$base.proj.json').writeAsStringSync(jsonEncode(prj));
+      final grs = <String, dynamic>{};
+      for (var i = 0; i < s.geometry.length; i++) {
+        final gp = gearParams(s.geometry[i]);
+        if (gp != null) grs['$i'] = {'d': s.geometry[i].data, 'p': gp.toJson()};
+      }
+      File('$base.gears.json').writeAsStringSync(jsonEncode(grs));
       File('$base.layers.json').writeAsStringSync(jsonEncode({
         'version': 3,
         'layers': s.layers,
@@ -2434,6 +2512,17 @@ class AppState extends ChangeNotifier {
             '$base.splines.json',
             (g, v) =>
                 g.type == Geo.polyline ? g.asSpline((v as num).toInt()) : g);
+        retag('$base.gears.json', (g, v) {
+          if (v is Map && v['d'] is List) {
+            final d =
+                (v['d'] as List).map((e) => (e as num).toDouble()).toList();
+            if (d.length >= 6 + 6) {
+              return Geo(Geo.polyline, d,
+                  layer: g.layer, spline: Geo.gearTag, style: g.style);
+            }
+          }
+          return g;
+        });
         retag('$base.styles.json', (g, v) => g.withStyle((v as num).toInt()));
         retag(
             '$base.proj.json',
@@ -2894,7 +2983,11 @@ class AppState extends ChangeNotifier {
     // minor axis here, the one place every edit funnels through.
     final gs = [
       for (final g in gsIn)
-        g.spline == Geo.ellipseTag ? normalizedEllipse(g) : g
+        g.spline == Geo.ellipseTag
+            ? normalizedEllipse(g)
+            : g.spline == Geo.gearTag
+                ? normalizedGear(g)
+                : g
     ];
     Log.i('engine', 'rebuild with ${gs.length} entities');
     s.engine.dispose();
@@ -2927,6 +3020,23 @@ class AppState extends ChangeNotifier {
               reversed: g.data.length > 5 && g.data[5] != 0);
           break;
         case Geo.polyline:
+          if (g.spline == Geo.gearTag) {
+            // The backend (and DXF / 3D) gets the REAL baked tooth outline —
+            // "constructed from the lines the backend offers" — while the
+            // in-memory Geo keeps its compact two-point form (refresh restores
+            // it from tagSource below, so allGeometry never overwrites it).
+            final curve = gearCurve(g);
+            final xy = <double>[for (final p in curve) ...[p.dx, p.dy]];
+            if (xy.length >= 4) {
+              s.engine.addPolyline(xy, closed: true);
+            } else {
+              // degenerate params: fall back to the two defining points
+              s.engine.addPolyline(
+                  [g.data[2], g.data[3], g.data[4], g.data[5]],
+                  closed: false);
+            }
+            break;
+          }
           final n = g.data[1].toInt();
           s.engine.addPolyline([
             for (var i = 0; i < n; i++) ...[
@@ -3005,7 +3115,354 @@ class AppState extends ChangeNotifier {
     } else {
       filletSess = null;
     }
+    // Gear tool opens its modeless dialog (M61), seeded with the last-used
+    // parameters. If exactly one existing gear is selected it is opened for
+    // EDITING (Insert replaces it in place).
+    if (t == Tool.gear) {
+      final s = current;
+      GearParams seed = lastGearParams.copy();
+      GearKind kind = seed.internal ? GearKind.internal : GearKind.external;
+      if (s != null) {
+        // If a single gear is selected, copy its STYLE into the dialog as a
+        // convenient starting point (a fresh gear is still placed by a tap).
+        final sel = selection
+            .where(
+                (i) => i >= 0 && i < s.geometry.length && s.geometry[i].isGear)
+            .toList();
+        if (sel.length == 1) {
+          final p = gearParams(s.geometry[sel.first]);
+          if (p != null) {
+            seed = p;
+            kind = p.internal ? GearKind.internal : GearKind.external;
+          }
+        }
+      }
+      gear = GearSession(
+        kind: kind,
+        params: seed,
+        sunTeeth: lastGearSun,
+        planetTeeth: lastGearPlanet,
+        planetCount: lastGearPlanetCount,
+      );
+      selection.clear();
+    } else {
+      gear = null;
+    }
     notifyListeners();
+  }
+
+  // ---- gear session (M61) ----
+  GearSession? gear;
+  GearParams lastGearParams = GearParams();
+  int lastGearSun = 20, lastGearPlanet = 16, lastGearPlanetCount = 4;
+
+  /// The ribbon's Gear button. Toggles the modeless Gear dialog / tool.
+  void toggleGear() {
+    if (gear != null || tool == Tool.gear) {
+      cancelTool();
+    } else {
+      selectTool(Tool.gear);
+    }
+  }
+
+  /// The dialog mutates [gear] and calls this to repaint the live preview
+  /// (dialog swatch + viewport ghost) and remember the last-used values.
+  void gearNotify() {
+    final g = gear;
+    if (g != null) {
+      lastGearParams = g.params.copy();
+      lastGearSun = g.sunTeeth;
+      lastGearPlanet = g.planetTeeth;
+      lastGearPlanetCount = g.planetCount;
+    }
+    notifyListeners();
+  }
+
+  /// Places the gear the dialog describes at [GearSession.center]. Called by a
+  /// viewport tap (which sets the centre) and by the dialog's Insert button.
+  /// Atomic, exactly like [commitPattern]: geometry + constraints are appended
+  /// then solved on a copy; a failure rolls the constraints back so the sketch
+  /// is never left in a diverged state.
+  bool commitGear() {
+    final s = current;
+    final g = gear;
+    final lay = editingLayer;
+    if (s == null || g == null || lay == null) return false;
+    if (!g.placedOnce) {
+      toast('Tap in the sketch to place the gear.');
+      return false;
+    }
+    final ok = g.kind == GearKind.planetary
+        ? _commitPlanetaryGear(s, g, lay)
+        : _commitSingleGear(s, g, lay);
+    if (ok) {
+      gearNotify(); // remember the values
+      gear = null;
+      tool = Tool.none;
+      notifyListeners();
+    }
+    return ok;
+  }
+
+  /// One dimension helper for the gear skeleton: makes a driving dimension with
+  /// a fresh parameter name and adds it to [s].
+  Constraint _gearDim(SketchModel s, String kind, List<PRef> pts, double value,
+      Offset textPos,
+      {List<int> ents = const []}) {
+    final c = Constraint(CType.dimension,
+        dimKind: kind, pts: pts, ents: ents, value: value, textPos: textPos);
+    c.paramName = _newParamName(s);
+    s.constraints.add(c);
+    return c;
+  }
+
+  /// A single external / internal gear: the rim + a centred horizontal &
+  /// vertical construction cross + a rotation reference line (+ optional bore),
+  /// wired so the sketch gains exactly THREE degrees of freedom — centre x,
+  /// centre y and orientation. The user then dimensions the middle point and
+  /// one angle to fully constrain it.
+  bool _commitSingleGear(SketchModel s, GearSession g, String lay) {
+    final p = g.params.copy()..internal = g.kind == GearKind.internal;
+    if (!p.valid) {
+      toast(p.internal
+          ? 'Internal gear needs at least 3 teeth and a valid module.'
+          : 'Gear needs at least 4 teeth and a valid module.');
+      return false;
+    }
+    final center = g.center;
+    final ang = g.angleRad;
+    final rp = p.pitchRadius;
+    final crossHalf = 1.15 * p.outerRadius; // cross overhangs the tips a little
+    final crossLen = 2 * crossHalf;
+    final dir = Offset(math.cos(ang), math.sin(ang));
+    final handle = center + dir * rp;
+
+    final gs = List<Geo>.from(s.geometry);
+    final consBefore = s.constraints.length;
+
+    final rim = buildGearGeo(center, ang, p, layer: lay);
+    final rimIdx = gs.length;
+    gs.add(rim);
+
+    Geo constr(List<double> d) =>
+        Geo(Geo.line, d, layer: lay, style: Geo.styleConstruction);
+    final hlIdx = gs.length;
+    gs.add(constr(
+        [center.dx - crossHalf, center.dy, center.dx + crossHalf, center.dy]));
+    final vlIdx = gs.length;
+    gs.add(constr(
+        [center.dx, center.dy - crossHalf, center.dx, center.dy + crossHalf]));
+    final rlIdx = gs.length;
+    gs.add(constr([center.dx, center.dy, handle.dx, handle.dy]));
+
+    int? boreIdx;
+    if (p.bore > 1e-6) {
+      boreIdx = gs.length;
+      gs.add(Geo(Geo.circle, [center.dx, center.dy, p.bore / 2], layer: lay));
+    }
+
+    // rigid skeleton (see class docs) — 13 equations over 16 params -> 3 DOF
+    s.constraints
+      ..add(Constraint(CType.midpoint,
+          pts: [PRef(rimIdx, 0)], ents: [hlIdx]))
+      ..add(Constraint(CType.horizontal, ents: [hlIdx]))
+      ..add(Constraint(CType.midpoint,
+          pts: [PRef(rimIdx, 0)], ents: [vlIdx]))
+      ..add(Constraint(CType.vertical, ents: [vlIdx]))
+      ..add(Constraint(CType.coincident,
+          pts: [PRef(rlIdx, 0), PRef(rimIdx, 0)]))
+      ..add(Constraint(CType.coincident,
+          pts: [PRef(rlIdx, 1), PRef(rimIdx, 1)]))
+      ..add(Constraint(CType.equal, ents: [hlIdx, vlIdx]));
+    // the gear's two own driving dimensions: pitch radius (pins the handle /
+    // rotation line length) and the cross size.
+    _gearDim(s, 'dist', [PRef(rimIdx, 0), PRef(rimIdx, 1)], rp,
+        center + dir * (rp * 0.5));
+    _gearDim(s, 'dist', [PRef(hlIdx, 0), PRef(hlIdx, 1)], crossLen,
+        Offset(center.dx, center.dy - crossHalf - 3));
+    if (boreIdx != null) {
+      s.constraints.add(Constraint(CType.coincident,
+          pts: [PRef(boreIdx, 0), PRef(rimIdx, 0)]));
+      _gearDim(s, 'rad', const [], p.bore / 2,
+          center + const Offset(0, 0), ents: [boreIdx]);
+    }
+
+    if (!_solveAndRebuild(s, gs)) {
+      s.constraints.removeRange(consBefore, s.constraints.length);
+      toast('Could not place the gear here.');
+      notifyListeners();
+      return false;
+    }
+    Log.i('gear',
+        '${p.internal ? "internal" : "external"} gear z${p.teeth} m${p.module} on "$lay"');
+    toast('${p.internal ? "Internal" : "External"} gear placed — '
+        'dimension the centre and one angle to fully constrain it.');
+    return true;
+  }
+
+  /// A planetary set: sun (with the full cross + rotation skeleton), N planets
+  /// on a carrier circle (each on a spoke from the centre), and a ring, phased
+  /// so the teeth mesh. The whole assembly is one rigid body with three DOF
+  /// (system centre + orientation). Degrades gracefully: if the constrained
+  /// system cannot be solved, the gears are still placed (unconstrained) so the
+  /// user gets geometry rather than nothing.
+  bool _commitPlanetaryGear(SketchModel s, GearSession g, String lay) {
+    if (g.planetTeeth < 4 || g.sunTeeth < 4 || g.planetCount < 2) {
+      toast('Planetary needs sun and planet teeth ≥ 4 and ≥ 2 planets.');
+      return false;
+    }
+    final layout = buildPlanetaryLayout(
+      base: g.params,
+      sunTeeth: g.sunTeeth,
+      planetTeeth: g.planetTeeth,
+      planetCount: g.planetCount,
+      systemAngle: g.angleRad,
+    );
+    if (!layout.sun.params.valid || !layout.ring.params.valid) {
+      toast('These planetary parameters cannot be drawn.');
+      return false;
+    }
+    final center = g.center;
+    final ang = g.angleRad;
+    final gs = List<Geo>.from(s.geometry);
+    final consBefore = s.constraints.length;
+
+    Geo constr(List<double> d) =>
+        Geo(Geo.line, d, layer: lay, style: Geo.styleConstruction);
+
+    // --- sun with its full single-gear skeleton (provides the 3 system DOF) ---
+    final sunP = layout.sun.params;
+    final rpSun = sunP.pitchRadius;
+    final crossHalf = 1.05 * layout.ring.params.outerRadius;
+    final crossLen = 2 * crossHalf;
+    final dir = Offset(math.cos(ang), math.sin(ang));
+    final sunHandle = center + dir * rpSun;
+    final sunIdx = gs.length;
+    gs.add(buildGearGeo(center, ang, sunP, layer: lay));
+    final hlIdx = gs.length;
+    gs.add(constr(
+        [center.dx - crossHalf, center.dy, center.dx + crossHalf, center.dy]));
+    final vlIdx = gs.length;
+    gs.add(constr(
+        [center.dx, center.dy - crossHalf, center.dx, center.dy + crossHalf]));
+    final rlIdx = gs.length;
+    gs.add(constr([center.dx, center.dy, sunHandle.dx, sunHandle.dy]));
+
+    // --- ring: concentric to the sun, orientation locked to the sun ---
+    final ringP = layout.ring.params;
+    final ringIdx = gs.length;
+    gs.add(buildGearGeo(center, ang, ringP, layer: lay));
+
+    // --- carrier circle (construction) through the planet centres ---
+    final carrierIdx = gs.length;
+    gs.add(Geo(Geo.circle, [center.dx, center.dy, layout.carrierRadius],
+        layer: lay, style: Geo.styleConstruction));
+
+    // --- planets, each on a spoke from the centre ---
+    final planetIdx = <int>[];
+    final spokeIdx = <int>[];
+    final planets = layout.planets.toList();
+    for (var i = 0; i < planets.length; i++) {
+      final pl = planets[i];
+      final pc = center + pl.center; // pl.center is relative to the system
+      final pIdx = gs.length;
+      gs.add(buildGearGeo(pc, pl.angle, pl.params, layer: lay));
+      planetIdx.add(pIdx);
+      final sIdx = gs.length;
+      gs.add(constr([center.dx, center.dy, pc.dx, pc.dy]));
+      spokeIdx.add(sIdx);
+    }
+
+    // ---- constraints ----
+    s.constraints
+      ..add(Constraint(CType.midpoint, pts: [PRef(sunIdx, 0)], ents: [hlIdx]))
+      ..add(Constraint(CType.horizontal, ents: [hlIdx]))
+      ..add(Constraint(CType.midpoint, pts: [PRef(sunIdx, 0)], ents: [vlIdx]))
+      ..add(Constraint(CType.vertical, ents: [vlIdx]))
+      ..add(Constraint(CType.coincident, pts: [PRef(rlIdx, 0), PRef(sunIdx, 0)]))
+      ..add(Constraint(CType.coincident, pts: [PRef(rlIdx, 1), PRef(sunIdx, 1)]))
+      ..add(Constraint(CType.equal, ents: [hlIdx, vlIdx]));
+    _gearDim(s, 'dist', [PRef(sunIdx, 0), PRef(sunIdx, 1)], rpSun,
+        center + dir * (rpSun * 0.5));
+    _gearDim(s, 'dist', [PRef(hlIdx, 0), PRef(hlIdx, 1)], crossLen,
+        Offset(center.dx, center.dy - crossHalf - 3));
+    // ring: centre on the sun centre, handle on the sun's rotation line
+    s.constraints
+      ..add(Constraint(CType.coincident,
+          pts: [PRef(ringIdx, 0), PRef(sunIdx, 0)]))
+      ..add(Constraint(CType.coincident,
+          pts: [PRef(ringIdx, 1)], ents: [rlIdx]));
+    _gearDim(s, 'dist', [PRef(ringIdx, 0), PRef(ringIdx, 1)],
+        ringP.pitchRadius, center + dir * (ringP.pitchRadius * 0.5));
+    // carrier circle: concentric to the sun, radius = centre distance
+    s.constraints.add(Constraint(CType.coincident,
+        pts: [PRef(carrierIdx, 0), PRef(sunIdx, 0)]));
+    _gearDim(s, 'rad', const [], layout.carrierRadius,
+        center + Offset(layout.carrierRadius, 0),
+        ents: [carrierIdx]);
+    // each planet: spoke from centre to planet centre, planet centre on the
+    // Each planet is tied to the system as a RIGID TRIANGLE (sun centre,
+    // planet centre, planet handle) whose three pairwise distances are pinned:
+    // the triangle rotates with the assembly, so the planet both orbits AND
+    // keeps its meshing phase — its tooth 0 stays put relative to the sun.
+    for (var i = 0; i < planetIdx.length; i++) {
+      final pIdx = planetIdx[i], sIdx = spokeIdx[i];
+      final phi = layout.planetCarrierAngles[i];
+      final phaseDeg = ((phi - ang) * 180 / math.pi);
+      final pl = planets[i];
+      final pc = center + pl.center;
+      final planetHandle =
+          pc + Offset(math.cos(pl.angle), math.sin(pl.angle)) * pl.params.pitchRadius;
+      final sunToHandle = (planetHandle - center).distance;
+      s.constraints
+        ..add(Constraint(CType.coincident,
+            pts: [PRef(sIdx, 0), PRef(sunIdx, 0)])) // spoke starts at centre
+        ..add(Constraint(CType.coincident,
+            pts: [PRef(pIdx, 0), PRef(sIdx, 1)])); // planet centre = spoke end
+      _gearDim(s, 'dist', [PRef(sIdx, 0), PRef(sIdx, 1)], layout.carrierRadius,
+          pc); // spoke length = centre distance
+      // triangle side 2: planet handle radius (planet centre → handle)
+      _gearDim(s, 'dist', [PRef(pIdx, 0), PRef(pIdx, 1)], pl.params.pitchRadius,
+          (pc + planetHandle) / 2);
+      // triangle side 3: sun centre → planet handle — locks the planet's
+      // orientation (and thus the mesh phase) without forcing it radial
+      _gearDim(s, 'dist', [PRef(sunIdx, 0), PRef(pIdx, 1)], sunToHandle,
+          (center + planetHandle) / 2);
+      // spoke angle from the rotation line ties the triangle's rotation to the
+      // system orientation. The first planet's spoke is collinear with the
+      // rotation line (phase 0) — an angle dimension there would be degenerate,
+      // so it gets a parallel constraint instead (same one equation).
+      final phaseMod = phaseDeg.abs() % 360;
+      if (phaseMod < 0.5 || phaseMod > 359.5) {
+        s.constraints.add(Constraint(CType.parallel, ents: [rlIdx, sIdx]));
+      } else {
+        s.constraints.add(Constraint(CType.dimension,
+            dimKind: 'ang',
+            ents: [rlIdx, sIdx],
+            value: phaseDeg,
+            textPos: center + dir * (layout.carrierRadius * 0.7))
+          ..paramName = _newParamName(s));
+      }
+    }
+
+    if (!_solveAndRebuild(s, gs)) {
+      // graceful degrade: drop the inter-gear constraints, keep the geometry
+      s.constraints.removeRange(consBefore, s.constraints.length);
+      _rebuildEngine(s, gs);
+      Log.w('gear', 'planetary constraints unsatisfied — placed unconstrained');
+      toast(layout.assemblyOk
+          ? 'Planetary set placed (as free geometry).'
+          : 'Planetary set placed. Note: ${g.planetCount} planets do not '
+              'evenly divide for exact meshing.');
+      return true;
+    }
+    Log.i('gear',
+        'planetary sun${g.sunTeeth} planet${g.planetTeeth}x${g.planetCount} ring${layout.ringTeeth}');
+    toast(layout.assemblyOk
+        ? 'Planetary set placed — dimension the centre and one angle.'
+        : 'Planetary set placed (${g.planetCount} planets are not evenly '
+            'spaced for exact meshing).');
+    return true;
   }
 
   // ---- fillet / chamfer session (M36) ----
@@ -3052,6 +3509,13 @@ class AppState extends ChangeNotifier {
     // pick-chain step-back like the drawing tools.
     if (pattern != null) {
       pattern = null;
+      tool = Tool.none;
+      notifyListeners();
+      return;
+    }
+    // The gear dialog cancels as a whole too (Esc = Cancel).
+    if (gear != null) {
+      gear = null;
       tool = Tool.none;
       notifyListeners();
       return;
@@ -3131,6 +3595,18 @@ class AppState extends ChangeNotifier {
     }
     if (tool == Tool.dimension) {
       _dimensionClick(s, w);
+      notifyListeners();
+      return;
+    }
+    if (tool == Tool.gear) {
+      // A tap places the gear centre here and commits (the dialog stays open
+      // only for editing an existing gear). Snapping already resolved [w].
+      final g = gear;
+      if (g != null) {
+        g.center = w;
+        g.placedOnce = true;
+        commitGear();
+      }
       notifyListeners();
       return;
     }
@@ -6193,6 +6669,23 @@ class AppState extends ChangeNotifier {
         if (sf.existsSync()) sf.deleteSync();
       } else {
         sf.writeAsStringSync(jsonEncode(spl));
+      }
+      // Gear parameter blocks ride in their own sidecar keyed by entity index.
+      // The DXF only carries a gear's baked outline; we store the compact
+      // editable form (centre, handle + the parameter block) so the gear
+      // reloads as a live, draggable gear rather than a dumb polygon. The
+      // human-readable params travel alongside for inspection / future tools.
+      final grs = <String, dynamic>{};
+      for (var i = 0; i < s.geometry.length; i++) {
+        final g = s.geometry[i];
+        final gp = gearParams(g);
+        if (gp != null) grs['$i'] = {'d': g.data, 'p': gp.toJson()};
+      }
+      final gf = File('${_sketchDir.path}/$name.gears.json');
+      if (grs.isEmpty) {
+        if (gf.existsSync()) gf.deleteSync();
+      } else {
+        gf.writeAsStringSync(jsonEncode(grs));
       }
       // Line styles (centerlines) ride in their own sidecar, same scheme.
       final sty = <String, int>{};

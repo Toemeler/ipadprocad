@@ -163,6 +163,20 @@ final Map<String, String> IN = {
       '<line x1="9" y1="2.5" x2="9" y2="15.5" stroke="#3D9BE9" stroke-width="1.4"/><line x1="2.5" y1="9" x2="15.5" y2="9" stroke="#3D9BE9" stroke-width="1.4"/><path d="M9 2.5l-1.5 1.8M9 2.5l1.5 1.8M9 15.5l-1.5-1.8M9 15.5l1.5-1.8M2.5 9l1.8-1.5M2.5 9l1.8 1.5M15.5 9l-1.8-1.5M15.5 9l-1.8 1.5" stroke="#3D9BE9" stroke-width="1.1"/>'),
   'showfmt': S(18,
       '<rect x="2.5" y="3" width="13" height="12" fill="none" stroke="$GC" stroke-width="1.1"/><path d="M2.5 6.5h13M6.5 6.5V15" stroke="$GC" stroke-width="1"/><rect x="8" y="8.5" width="5.5" height="1.6" fill="#3D9BE9"/><rect x="8" y="11.5" width="4" height="1.6" fill="#3D9BE9"/>'),
+  'gear': S(
+      18,
+      '<circle cx="9" cy="9" r="5" fill="#2E6FA8" stroke="#1a4a75" stroke-width="1"/>'
+      '<g stroke="#3D9BE9" stroke-width="2.1" stroke-linecap="round">'
+      '<line x1="14" y1="9" x2="16.2" y2="9"/>'
+      '<line x1="12.54" y1="5.46" x2="14.09" y2="3.91"/>'
+      '<line x1="9" y1="4" x2="9" y2="1.8"/>'
+      '<line x1="5.46" y1="5.46" x2="3.91" y2="3.91"/>'
+      '<line x1="4" y1="9" x2="1.8" y2="9"/>'
+      '<line x1="5.46" y1="12.54" x2="3.91" y2="14.09"/>'
+      '<line x1="9" y1="14" x2="9" y2="16.2"/>'
+      '<line x1="12.54" y1="12.54" x2="14.09" y2="14.09"/>'
+      '</g>'
+      '<circle cx="9" cy="9" r="1.9" fill="#171A1F" stroke="#1a4a75" stroke-width="0.8"/>'),
 };
 
 // ==== Modify panel ====
