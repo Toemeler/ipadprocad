@@ -2093,7 +2093,25 @@ class AppState extends ChangeNotifier {
     // opposite — the camera sits at +dir and a face you can see has n·dir > 0 —
     // so -n put the camera INSIDE the solid, looking at the face from behind.
     final fn = frame.n;
-    p.camera.orientToDir(fn.dot(p.camera.dir) >= 0 ? fn : fn * -1);
+    final camBefore = p.camera.dir;
+    final dot = fn.dot(camBefore);
+    final chosen = dot >= 0 ? fn : fn * -1;
+    p.camera.orientToDir(chosen);
+    // DIAGNOSTIC: clicking the TOP face is reported to land on the BOTTOM
+    // view, which the arithmetic here cannot produce — both signs of fn give
+    // the top view when the camera is above. So record what actually happens:
+    // the face normal, the view direction it was compared against, the side
+    // chosen, and the camera angles that came out. If pol is ~0 (camera above)
+    // yet the screen shows the bottom, something AFTER this call is moving the
+    // camera; if pol is ~pi, the fault is right here.
+    String f3(double v) => v.toStringAsFixed(2);
+    Log.i(
+        'part',
+        'face view: n=(${f3(fn.x)},${f3(fn.y)},${f3(fn.z)}) '
+        'camDir=(${f3(camBefore.x)},${f3(camBefore.y)},${f3(camBefore.z)}) '
+        'dot=${f3(dot)} chose=(${f3(chosen.x)},${f3(chosen.y)},${f3(chosen.z)}) '
+        '-> pol=${f3(p.camera.pol)} az=${f3(p.camera.az)} '
+        '(pol~0 = camera above/TOP, pol~3.14 = below/BOTTOM)');
     final sk = SketchModel(p.nextSketchName());
     p.childSketches.add(ChildSketch(sk, 'face', frame));
     p.dirty = true;
