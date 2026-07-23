@@ -171,11 +171,36 @@ struct SolidGeom {
         return out
     }
 
+    /// Two-sided WITH FLIPPED NORMALS on the back copy. Sharing one normal
+    /// between both windings (as before) only works if every face's normals
+    /// point outward — and the device diagnostic showed they do not:
+    /// normal_outward measured 1.00 on a plain prism but 0.63 on a body built
+    /// from several joined features. A face whose normals point inward is lit
+    /// from behind by the camera headlight, renders almost black, and reads as
+    /// a HOLE in the solid — which is exactly the "open box" seen when
+    /// extruding a rectangle with a circular hole, while a circle-in-circle
+    /// (all normals outward) came out fine.
+    /// Giving the reversed copy negated normals makes whichever side faces the
+    /// camera light correctly, so shading no longer depends on the kernel's
+    /// per-face orientation at all.
     func shadedEntity(material: RealityKit.Material) -> Entity {
+        let n = UInt32(positions.count)
+        var pos = positions
+        pos.append(contentsOf: positions)
+        var nrm = normals
+        if !normals.isEmpty { nrm.append(contentsOf: normals.map { -$0 }) }
+        var idx = indices
+        var t = 0
+        while t + 2 < indices.count {
+            idx.append(n + indices[t])
+            idx.append(n + indices[t + 2])
+            idx.append(n + indices[t + 1])
+            t += 3
+        }
         var d = MeshDescriptor(name: "solid")
-        d.positions = MeshBuffers.Positions(positions)
-        if !normals.isEmpty { d.normals = MeshBuffers.Normals(normals) }
-        d.primitives = .triangles(Self.doubleSided(indices))
+        d.positions = MeshBuffers.Positions(pos)
+        if nrm.count == pos.count { d.normals = MeshBuffers.Normals(nrm) }
+        d.primitives = .triangles(idx)
         guard let mesh = try? MeshResource.generate(from: [d]) else { return Entity() }
         return ModelEntity(mesh: mesh, materials: [material])
     }
