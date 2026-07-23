@@ -42,6 +42,8 @@
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -135,13 +137,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v4 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v5 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 4; }
+extern "C" int occt_shim_version(void) { return 5; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -260,7 +262,11 @@ static TopoDS_Wire arc_loop_wire(const double *xyb, int npts, bool forward,
         const double dx = p1.X() - p0.X(), dy = p1.Y() - p0.Y();
         const double chord = std::hypot(dx, dy);
         if (chord < 1e-12)
-            return TopoDS_Wire(); /* degenerate edge */
+            continue; /* zero-length edge (e.g. a closed spline whose last
+                       * sample lands exactly on the start): skip it — the
+                       * wire still closes through the shared endpoints, and
+                       * a redundant point must not sink the whole profile.
+                       * Callers also de-duplicate, this is belt-and-braces. */
         if (std::fabs(b) < 1e-12) {
             BRepBuilderAPI_MakeEdge e(p0, p1);
             if (!e.IsDone())
@@ -438,6 +444,64 @@ extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
     }
     return wrap(fuse.Shape(), "occt_fuse");
     OCCT_CATCH("occt_fuse", nullptr)
+}
+
+/* True when `s` holds no solid/shell material — a boolean whose result is
+ * empty (b removes all of a, or disjoint intersect) comes back as an empty
+ * compound. We reject that as failure so callers keep the old body instead of
+ * replacing it with nothing. */
+static bool has_solid_material(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return false;
+    for (TopExp_Explorer ex(s, TopAbs_SOLID); ex.More(); ex.Next())
+        return true;
+    /* accept a lone shell/face result too (rare, but not "empty") */
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
+        return true;
+    return false;
+}
+
+extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
+{
+    OCCT_TRY("occt_cut")
+    if (!a || !b) {
+        set_err("occt_cut", "null operand");
+        return nullptr;
+    }
+    BRepAlgoAPI_Cut cut(a->s, b->s);
+    if (!cut.IsDone()) {
+        set_err("occt_cut", "boolean cut did not complete");
+        return nullptr;
+    }
+    const TopoDS_Shape r = cut.Shape();
+    if (!has_solid_material(r)) {
+        set_err("occt_cut", "cut removed all material (empty result)");
+        return nullptr;
+    }
+    return wrap(r, "occt_cut");
+    OCCT_CATCH("occt_cut", nullptr)
+}
+
+extern "C" occt_shape *occt_common(const occt_shape *a, const occt_shape *b)
+{
+    OCCT_TRY("occt_common")
+    if (!a || !b) {
+        set_err("occt_common", "null operand");
+        return nullptr;
+    }
+    BRepAlgoAPI_Common common(a->s, b->s);
+    if (!common.IsDone()) {
+        set_err("occt_common", "boolean common did not complete");
+        return nullptr;
+    }
+    const TopoDS_Shape r = common.Shape();
+    if (!has_solid_material(r)) {
+        set_err("occt_common", "inputs do not overlap (empty result)");
+        return nullptr;
+    }
+    return wrap(r, "occt_common");
+    OCCT_CATCH("occt_common", nullptr)
 }
 
 /* Signed area of loop i (positive = counter-clockwise in the z=0 plane). */

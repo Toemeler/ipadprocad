@@ -15,6 +15,7 @@
 //     suspend even when the user was only viewing (finishEdit early-returns
 //     there, and a fresh part had no preview at all). Works for 2D and 3D.
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -52,6 +53,14 @@ class FakeKernel implements PartKernel {
   @override
   KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) =>
       fail ? null : KernelSolid(a.mesh, a.volume + b.volume, null);
+
+  @override
+  KernelSolid? cutSolids(KernelSolid base, KernelSolid tool) =>
+      fail ? null : KernelSolid(base.mesh, base.volume - tool.volume, null);
+
+  @override
+  KernelSolid? intersectSolids(KernelSolid a, KernelSolid b) =>
+      fail ? null : KernelSolid(a.mesh, math.min(a.volume, b.volume), null);
 
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;

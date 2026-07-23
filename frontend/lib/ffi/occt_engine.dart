@@ -293,7 +293,8 @@ class OcctShape {
   }
 }
 
-/// Probe-once singleton over the 29-symbol OCCT shim v4 surface.
+/// Probe-once singleton over the 31-symbol OCCT shim v5 surface (v4 + the two
+/// booleans occt_cut / occt_common).
 class OcctFfi {
   OcctFfi._(
       this.version,
@@ -303,6 +304,8 @@ class OcctFfi {
       this._makeCylinder,
       this._extrude,
       this._fuse,
+      this._cut,
+      this._common,
       this._counts,
       this._valid,
       this._volume,
@@ -339,6 +342,8 @@ class OcctFfi {
   final _MakeCylD _makeCylinder;
   final _ExtrudeD _extrude;
   final _FuseD _fuse;
+  final _FuseD _cut; // v5 (occt_cut: a \ b) — same ABI as fuse
+  final _FuseD _common; // v5 (occt_common: a ∩ b)
   final _CountsD _counts;
   final _ValidD _valid;
   final _VolumeD _volume;
@@ -391,6 +396,8 @@ class OcctFfi {
         lib.lookupFunction<_MakeCylN, _MakeCylD>('occt_make_cylinder'),
         lib.lookupFunction<_ExtrudeN, _ExtrudeD>('occt_extrude_polygon'),
         lib.lookupFunction<_FuseN, _FuseD>('occt_fuse'),
+        lib.lookupFunction<_FuseN, _FuseD>('occt_cut'),
+        lib.lookupFunction<_FuseN, _FuseD>('occt_common'),
         lib.lookupFunction<_CountsN, _CountsD>('occt_shape_counts'),
         lib.lookupFunction<_ValidN, _ValidD>('occt_shape_valid'),
         lib.lookupFunction<_VolumeN, _VolumeD>('occt_shape_volume'),
@@ -528,6 +535,16 @@ class OcctFfi {
   /// Boolean union. Inputs remain owned/valid; result is a NEW shape.
   OcctShape? fuse(OcctShape a, OcctShape b) =>
       _wrap(_fuse(a._handle, b._handle));
+
+  /// v5 boolean cut (a \ b, Inventor's Cut). Inputs remain owned/valid;
+  /// result is a NEW shape. Null on failure incl. an empty result.
+  OcctShape? cut(OcctShape a, OcctShape b) =>
+      _wrap(_cut(a._handle, b._handle));
+
+  /// v5 boolean common (a ∩ b, Inventor's Intersect). Inputs remain
+  /// owned/valid; result is a NEW shape. Null on failure incl. an empty result.
+  OcctShape? common(OcctShape a, OcctShape b) =>
+      _wrap(_common(a._handle, b._handle));
 
   /// v4: merge same-domain faces/edges (cleans boolean results so no
   /// spurious split lines render). Input stays owned; result is NEW.

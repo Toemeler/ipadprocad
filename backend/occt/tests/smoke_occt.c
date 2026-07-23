@@ -38,6 +38,10 @@
  *        records (plane/cylinder + frames), per-edge ANALYTIC curves
  *        (the rims report as exact circles r=10, sweep 2π), and occt_unify
  *        collapsing the split faces of a box|box fuse
+ *   [17] v5 boolean CUT — block with a through-pocket (analytic volume,
+ *        operands left intact, an all-erasing cut reported as failure)
+ *   [18] v5 boolean COMMON — overlap of two offset cubes (analytic volume,
+ *        disjoint inputs reported as failure)
  *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
@@ -664,6 +668,71 @@ int main(void)
         check(occt_mesh_edge_curves(NULL, NULL) == 0,
               "[16] edge_curves(NULL)");
         check(occt_unify(NULL) == NULL, "[16] unify(NULL)");
+    }
+
+    /* [17] v5 boolean CUT — a 20x20x20 block with a 10x10 through-pocket (a
+     * 10x10x30 tool centred in x/y, taller than the block so it cuts clean
+     * through) has volume 8000 - 10*10*20 = 6000, and more faces than the
+     * plain block. */
+    {
+        occt_shape *blk = occt_make_box(20, 20, 20);
+        occt_shape *tool0 = occt_make_box(10, 10, 30);
+        /* place the tool at (5,5,-5): centred in x/y, poking out both ends */
+        const double place[12] = {1, 0, 0, 5, 0, 1, 0, 5, 0, 0, 1, -5};
+        occt_shape *tool = tool0 ? occt_transform(tool0, place) : NULL;
+        occt_shape *cut = (blk && tool) ? occt_cut(blk, tool) : NULL;
+        if (check(cut != NULL, "[17] cut returned NULL")) {
+            const double v = occt_shape_volume(cut);
+            int nf = 0;
+            occt_shape_counts(cut, &nf, NULL, NULL);
+            printf("[17] cut volume %.6f faces %d\n", v, nf);
+            check(near_rel(v, 6000.0, 1e-6), "[17] cut volume != 6000");
+            check(occt_shape_valid(cut), "[17] cut result invalid");
+            check(nf >= 10, "[17] cut should add pocket walls");
+            /* inputs untouched: the block still measures 8000 */
+            check(near_rel(occt_shape_volume(blk), 8000.0, 1e-9),
+                  "[17] cut mutated operand a");
+        }
+        /* empty result is a failure, not a null shape */
+        occt_shape *bigger = occt_make_box(40, 40, 40);
+        occt_shape *small = occt_make_box(10, 10, 10);
+        const double c2[12] = {1, 0, 0, 5, 0, 1, 0, 5, 0, 0, 1, 5};
+        occt_shape *smallP = small ? occt_transform(small, c2) : NULL;
+        if (bigger && smallP)
+            check(occt_cut(smallP, bigger) == NULL,
+                  "[17] cut that erases everything must report failure");
+        check(occt_cut(NULL, NULL) == NULL, "[17] cut(NULL)");
+        occt_free_shape(cut); occt_free_shape(tool); occt_free_shape(tool0);
+        occt_free_shape(blk); occt_free_shape(bigger);
+        occt_free_shape(small); occt_free_shape(smallP);
+    }
+
+    /* [18] v5 boolean COMMON (intersect) — two 20-cubes offset by (10,10,10)
+     * overlap in a 10x10x10 corner: volume 1000. Disjoint boxes give an empty
+     * result (reported as failure). */
+    {
+        occt_shape *a = occt_make_box(20, 20, 20);
+        occt_shape *b0 = occt_make_box(20, 20, 20);
+        const double off[12] = {1, 0, 0, 10, 0, 1, 0, 10, 0, 0, 1, 10};
+        occt_shape *b = b0 ? occt_transform(b0, off) : NULL;
+        occt_shape *cm = (a && b) ? occt_common(a, b) : NULL;
+        if (check(cm != NULL, "[18] common returned NULL")) {
+            const double v = occt_shape_volume(cm);
+            printf("[18] common volume %.6f\n", v);
+            check(near_rel(v, 1000.0, 1e-6), "[18] common volume != 1000");
+            check(occt_shape_valid(cm), "[18] common result invalid");
+            check(near_rel(occt_shape_volume(a), 8000.0, 1e-9),
+                  "[18] common mutated operand a");
+        }
+        occt_shape *far0 = occt_make_box(5, 5, 5);
+        const double faraway[12] = {1, 0, 0, 100, 0, 1, 0, 0, 0, 0, 1, 0};
+        occt_shape *far = far0 ? occt_transform(far0, faraway) : NULL;
+        if (a && far)
+            check(occt_common(a, far) == NULL,
+                  "[18] disjoint common must report failure");
+        check(occt_common(NULL, NULL) == NULL, "[18] common(NULL)");
+        occt_free_shape(cm); occt_free_shape(b); occt_free_shape(b0);
+        occt_free_shape(a); occt_free_shape(far); occt_free_shape(far0);
     }
 
     if (g_failures == 0) {

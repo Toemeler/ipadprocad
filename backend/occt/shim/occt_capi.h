@@ -66,6 +66,18 @@ occt_shape *occt_extrude_polygon(const double *xy, int npts, double height);
  * remain valid. NULL on failure. */
 occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b);
 
+/* v5 — Boolean cut (difference a \ b): the material of `a` with the material
+ * of `b` removed (Inventor's Cut). Inputs stay owned by the caller and remain
+ * valid; the result is a NEW shape. NULL on failure (an empty result — b fully
+ * swallows a — is reported as failure, not a null shape). */
+occt_shape *occt_cut(const occt_shape *a, const occt_shape *b);
+
+/* v5 — Boolean common (intersection a ∩ b): only the material shared by both
+ * (Inventor's Intersect). Inputs stay owned by the caller and remain valid;
+ * the result is a NEW shape. NULL on failure (disjoint inputs give an empty
+ * result, reported as failure). */
+occt_shape *occt_common(const occt_shape *a, const occt_shape *b);
+
 /* v4 — Merge same-domain faces and edges (ShapeUpgrade_UnifySameDomain):
  * boolean results and arc-built prisms carry split faces/edges that render
  * as spurious lines; unify returns a NEW cleaned shape. NULL on failure. */

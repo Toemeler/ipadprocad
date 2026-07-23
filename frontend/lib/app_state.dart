@@ -420,9 +420,16 @@ class ExtrudeSession {
   String exprA = '5 mm', exprB = '5 mm', exprTaper = '0.00 deg';
   String bodyName = '';
   bool iMate = false, matchShape = true;
-  String output = 'join'; // Inventor Output boolean: 'join' | 'new' (M58)
+  // Inventor Output boolean: 'join' | 'cut' | 'intersect' | 'new'.
+  String output = 'join';
   KernelSolid? preview;
   String? previewError;
+
+  /// When the live [preview] is the RESULT of a boolean (join/cut/intersect)
+  /// against an existing body, this is that body's name — the viewport hides
+  /// the old body so the boolean result stands in for it, instead of drawing
+  /// both. Null when the preview is a standalone new prism.
+  String? previewReplacesBody;
 
   /// True while the only selection is [AppState.openExtrude]'s convenience
   /// pre-pick, so an explicit pick in ANOTHER sketch may replace it.
@@ -434,6 +441,7 @@ class ExtrudeSession {
   void disposePreview() {
     preview?.dispose();
     preview = null;
+    previewReplacesBody = null;
   }
 }
 
@@ -2187,6 +2195,34 @@ class AppState extends ChangeNotifier {
     return (f, null);
   }
 
+  /// The existing body a boolean would act on, and its accumulated solid, for
+  /// the current session — the last committed body for a NEW feature (matching
+  /// [applyExtrude]'s "adopt the last body"), or the accumulation strictly
+  /// before an EDITED feature. Returns (null, null) when there is nothing to
+  /// combine with (no prior solid), so the base feature previews as a plain
+  /// prism. Never disposes anything: the returned solid stays owned by its
+  /// feature (a boolean makes a NEW solid without consuming its inputs).
+  (KernelSolid?, String?) _extrudeBooleanTarget(ExtrudeSession s) {
+    final p = currentPart;
+    if (p == null) return (null, null);
+    if (s.editing != null) {
+      final body = s.editing!.bodyName;
+      return (bodyBaseBefore(p, body, s.editing!), body);
+    }
+    final lf = lastSolidFeature(p);
+    if (lf == null) return (null, null);
+    return (currentBodySolid(p, lf.bodyName), lf.bodyName);
+  }
+
+  /// True when a Cut/Intersect could act on an existing body — the dialog dims
+  /// those options otherwise (the base feature has nothing to cut from).
+  bool get extrudeHasBooleanTarget {
+    final s = extrudeSession;
+    if (s == null) return false;
+    final (base, _) = _extrudeBooleanTarget(s);
+    return base != null;
+  }
+
   void _updateExtrudePreview() {
     final s = extrudeSession;
     final p = currentPart;
@@ -2203,12 +2239,32 @@ class AppState extends ChangeNotifier {
       s.previewError = err;
       return;
     }
-    if (recomputeFeature(p, f, partKernel)) {
-      s.preview = f.solid;
-      f.solid = null; // ownership moved to the session
-    } else {
+    // 1. build this feature's own prism (the throwaway feature owns it)
+    if (!recomputeFeature(p, f, partKernel)) {
       s.previewError = f.computeError;
+      return;
     }
+    // 2. for a boolean output with an existing target body, show the ACTUAL
+    //    combined result (join/cut/intersect) and mark the body it stands in
+    //    for; otherwise the standalone prism is the preview. This is what
+    //    makes the joined/cut/intersected shape visible while the dialog is
+    //    open, not only after OK.
+    final (base, bodyName) = _extrudeBooleanTarget(s);
+    if (s.output != 'new' && base != null && f.solid != null) {
+      final combined = combineSolids(partKernel, s.output, base, f.solid!);
+      if (combined != null) {
+        f.disposeSolid(); // drop the throwaway prism
+        s.preview = combined;
+        s.previewReplacesBody = bodyName;
+        return;
+      }
+      // boolean failed (e.g. a cut that removes everything, or disjoint
+      // intersect) — say so and fall back to showing the prism alone.
+      s.previewError = partKernel.lastError;
+    }
+    s.preview = f.solid;
+    s.previewReplacesBody = null;
+    f.solid = null; // ownership moved to the session
   }
 
   /// OK / "+" of the Extrusion panel. With [keepOpen] the feature commits
@@ -2247,11 +2303,11 @@ class AppState extends ChangeNotifier {
       f = parsed;
       f.name = p.nextFeatureName();
       if (f.bodyName.trim().isEmpty) {
-        // Inventor: Join merges into the existing body — adopt the last
-        // feature's body name; New Solid (or the base feature) gets a fresh
-        // Solid name.
+        // Inventor: a boolean output (Join/Cut/Intersect) acts on the
+        // existing body — adopt the last feature's body name; New Solid (or
+        // the base feature, with no body yet) gets a fresh Solid name.
         final lastBody = p.features.isEmpty ? null : p.features.last.bodyName;
-        f.bodyName = (f.output == 'join' && lastBody != null)
+        f.bodyName = (f.output != 'new' && lastBody != null)
             ? lastBody
             : p.nextSolidName();
       } else {

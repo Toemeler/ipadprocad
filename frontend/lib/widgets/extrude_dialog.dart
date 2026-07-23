@@ -149,36 +149,23 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             ]),
             _section('Output', _outputOpen,
                 () => setState(() => _outputOpen = !_outputOpen), [
-              // Inventor's Output boolean: Join merges into the existing
-              // body, New Solid starts a separate one (Cut/Intersect later).
+              // Inventor's Output boolean, applied against the existing body:
+              // Join (union), Cut (subtract), Intersect (overlap), New Solid
+              // (separate body). Cut/Intersect need something to act on, so
+              // they are dimmed for the base feature.
               _row(
                   'Boolean',
                   Row(children: [
-                    for (final o in const [('join', 'Join'), ('new', 'New Solid')]) ...[
-                      GestureDetector(
-                        onTap: () => app.setExtrude(output: o.$1),
-                        child: Container(
-                          height: 26,
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 10),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: s.output == o.$1
-                                ? const Color(0xFF2B4A66)
-                                : const Color(0xFF212429),
-                            border: Border.all(
-                                color: s.output == o.$1
-                                    ? T.blue
-                                    : const Color(0xFF3A3F45)),
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                          child: Text(o.$2,
-                              style: ts(12,
-                                  s.output == o.$1 ? T.hover : T.text)),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
+                    _boolButton('join', 'Join'),
+                    const SizedBox(width: 6),
+                    _boolButton('cut', 'Cut',
+                        enabled: app.extrudeHasBooleanTarget),
+                    const SizedBox(width: 6),
+                    _boolButton('intersect', 'Intersect',
+                        enabled: app.extrudeHasBooleanTarget),
+                    const SizedBox(width: 6),
+                    _boolButton('new', 'New Solid'),
+                    const Spacer(),
                   ])),
               _row(
                   'Body Name',
@@ -359,6 +346,53 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
       Icon(trailingIcon ?? Icons.swap_vert,
           size: 15, color: T.dim),
     ]);
+  }
+
+  /// Inventor Output-boolean toggle: a compact icon button (like [_dirButton])
+  /// with a tooltip. [enabled] false dims it and ignores taps — used for
+  /// Cut/Intersect when there is no body to act on yet.
+  Widget _boolButton(String key, String label, {bool enabled = true}) {
+    final active = sess.output == key;
+    const icons = {
+      // two overlapping squares merged = union
+      'join':
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><rect x="3" y="6.5" width="8" height="8" rx="1" fill="#E8C63F" fill-opacity=".22" stroke="#E8C63F" stroke-width="1.3"/><rect x="7" y="3.5" width="8" height="8" rx="1" fill="#E8C63F" fill-opacity=".22" stroke="#E8C63F" stroke-width="1.3"/></svg>',
+      // base square, dashed tool being removed from a corner = difference
+      'cut':
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><path d="M3 6.5 h5 V3.5 h7 v11 H3 Z" fill="#9aa0a6" fill-opacity=".28" stroke="#9aa0a6" stroke-width="1.2"/><rect x="8" y="3.5" width="7" height="7" fill="none" stroke="#E8C63F" stroke-width="1.2" stroke-dasharray="2 1.4"/></svg>',
+      // two outlined squares, only the overlap lens filled = intersection
+      'intersect':
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><rect x="3" y="6.5" width="8" height="8" fill="none" stroke="#9aa0a6" stroke-width="1.1"/><rect x="7" y="3.5" width="8" height="8" fill="none" stroke="#9aa0a6" stroke-width="1.1"/><rect x="7" y="6.5" width="4" height="5" fill="#E8C63F" fill-opacity=".6" stroke="#E8C63F" stroke-width="1"/></svg>',
+      // single square with a small plus = a brand-new body
+      'new':
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><rect x="3.5" y="5.5" width="9" height="9" rx="1" fill="#E8C63F" fill-opacity=".2" stroke="#E8C63F" stroke-width="1.3"/><path d="M13 3 v3.4 M11.3 4.7 h3.4" stroke="#E8C63F" stroke-width="1.3"/></svg>',
+    };
+    return Tooltip(
+      message: enabled ? label : '$label (needs an existing body)',
+      child: GestureDetector(
+        onTap: enabled
+            ? () {
+                widget.app.setExtrude(output: key);
+                setState(() {});
+              }
+            : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.35,
+          child: Container(
+            width: 28,
+            height: 26,
+            decoration: BoxDecoration(
+              color: active ? const Color(0xFF2F6FB0) : const Color(0xFF212429),
+              border: Border.all(
+                  color: active ? T.blue : const Color(0xFF3A3F45)),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: Center(
+                child: SvgPicture.string(icons[key]!, width: 16, height: 16)),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _dirButton(ExtrudeDirection d) {

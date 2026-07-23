@@ -16,7 +16,74 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **Stand dieser Session (Kopf = M59, „Shaded with Edges" + Skizzen-Verbrauch):**
+> **Stand dieser Session (Kopf = M60, Cut/Intersect + Live-Boolean-Vorschau +
+> Spline-Extrude-Fix):** Drei Punkte des Nutzers in einem Durchgang, „profes-
+> sionell und production ready\":
+>
+> **(1) Cut & Intersect wie Inventor.** Shim **v5** (`backend/occt/shim`):
+> `occt_cut` (`BRepAlgoAPI_Cut`) und `occt_common` (`BRepAlgoAPI_Common`),
+> beide mit `has_solid_material`-Guard — ein leeres Ergebnis (Cut entfernt
+> alles, disjunkter Intersect) ist ein FEHLER (`occt_last_error` erklaert), kein
+> Null-Solid, damit der Aufrufer den alten Body behaelt. `occt_shim_version`→5,
+> Marker „iPadProCAD OCCT shim v5\". Dart-FFI: `_cut`/`_common` (gleiche ABI wie
+> `_fuse`, im Konstruktor + `instance()`-Lookup + `cut()`/`common()`).
+> `part_model.dart`: `PartKernel.cutSolids`/`intersectSolids` (+ geteilter
+> `_boolean`-Helper mit `unify`), Top-Level `combineSolids(kernel, output,
+> base, tool)`. `recomputeAllFeatures` ist von „nur Join-Kette\" auf **pro Body
+> die Op JEDES Features abspielen** umgebaut: Vorgänger-Gate `output != 'new'`,
+> dann `combineSolids` → Join/Cut/Intersect; `consumedByJoin` markiert wie
+> gehabt die eingeschmolzenen Vorgaenger. `applyExtrude` uebernimmt fuer
+> cut/intersect (wie join) den letzten Body-Namen. Dialog (`extrude_dialog.dart`):
+> vier kompakte Icon-Toggles (Join/Cut/Intersect/New Solid, SVG im
+> Gelb-/Stahl-Look wie `_dirButton`); Cut/Intersect sind gedimmt+inaktiv, wenn
+> `app.extrudeHasBooleanTarget` false ist (Basis-Feature).
+>
+> **(2) Live-Vorschau des ECHTEN Bool-Ergebnisses.** Bisher zeigte
+> `_updateExtrudePreview` nur das rohe neue Prisma. Jetzt: Prisma bauen, dann bei
+> join/cut/intersect gegen den Ziel-Body (`_extrudeBooleanTarget` → bei NEU das
+> letzte Solid-Feature via `lastSolidFeature`/`currentBodySolid`, beim EDITIEREN
+> die Akkumulation davor via `bodyBaseBefore`) das tatsaechliche
+> `combineSolids`-Ergebnis rechnen, in `s.preview` legen und `s.previewReplacesBody`
+> setzen. Der Viewport (`viewport3d.dart`) blendet den Body mit diesem Namen aus
+> (opake Solids-Liste + `_liveSolids`), sodass das Bool-Ergebnis an seiner Stelle
+> steht statt mit dem alten Body zu z-fighten. Jede Dialog-Aenderung
+> (`setExtrude`) rechnet neu. Basis-Frame/Prisma-Vorschau (New Solid, kein Ziel)
+> unveraendert.
+>
+> **(3) Geschlossene Spline liess sich nicht extrudieren.** Ursache mit purem
+> Dart-Repro FESTGENAGELT: eine geschlossene **Interpolations-Spline**
+> (`fitCurve` in `spline.dart`) sampelt ihren letzten Punkt bei t=1 EXAKT auf
+> p[0] und der Sampler haengt p[0] nochmal an. `_profileChain` entfernt nur das
+> exakte Duplikat → es bleibt eine Schliess-Kante der Laenge 0, die
+> `arc_loop_wire` im Shim verwarf (`chord < 1e-12` → leerer Wire → „outer wire
+> construction failed\" → Extrude null). CV-Splines trifft es NICHT (letztes
+> Sample ≠ Start). Fix an der Quelle: neue `dedupeClosedLoop` (Toleranz 1e-7 mm,
+> weit unter Skizzen-Massstab) in `profileLoops.addLoop` entfernt deckungsgleiche
+> Folgepunkte und einen Schluss==Start-Punkt → heilt Extrude UND
+> Region/Flaeche/Highlight. Zusaetzlich haertet der Shim `arc_loop_wire`
+> (degenerierte Kante `continue` statt Wire zu versenken; MakePolygon-Pfad war
+> schon tolerant). Repro-Beleg: Fit-Spline-Schliesskante 0.000 → nach Dedup min.
+> Kante 0.766; CV-Spline 0 Duplikate.
+>
+> **Lokal verifiziert (was ohne Flutter/OCCT ging):** `smoke_occt.c` C-kompiliert
+> fehlerfrei (`gcc -Wall -Wextra`), Spline-Dedup + Fold-Algorithmus in purem
+> Dart durchgerechnet (`/tmp/repro.dart`, `/tmp/fold.dart` — alle Werte korrekt).
+> **Gates, die nur CI/Geraet stellen kann (ehrlich):** Shim-v5-Kompilat gegen
+> OCCT, Host-Test-Suite (Flutter), `flutter analyze`, und der **Metal-Render der
+> Bool-Vorschau auf dem Geraet**. Symbol-Gates `-ge 31` in `occt-build.yml` +
+> `m1-core-build.yml`; Smoke **[17]** Cut (Durchbruch=6000, Operanden intakt,
+> Alles-weg=Fehler) + **[18]** Common (Ueberlappung=1000, disjunkt=Fehler).
+> **Neu/berührt:** `occt_capi.{h,cpp}`, `smoke_occt.c`, beide CI-Workflows,
+> `occt_engine.dart`, `part_model.dart`, `app_state.dart`, `viewport3d.dart`,
+> `extrude_dialog.dart`, neuer Test `m60_boolean_test.dart`, `cutSolids`/
+> `intersectSolids` in den 3 Fake-Kerneln (m56/m57/m59).
+> **Ehrliche Restschuld:** Vorschau beim Editieren eines MITTIG in der Kette
+> liegenden Features zeigt nur bis dorthin (nachgelagerte Ops erst nach OK, dann
+> korrekt via `recomputeAllFeatures`); Kegel/Kugel/Torus-Silhouetten weiter
+> Mesh-Fallback; Spline-Profile weiterhin polygonal tesselliert (Extrude geht
+> jetzt, nur eben als Vieleck-Prisma — echte B-Spline-Flaechen waeren separat).
+
+> **Vorherige Session (M59, „Shaded with Edges" + Skizzen-Verbrauch):**
 > Alle Geraete-Rueckmeldungen aus M58 adressiert, in einem Durchgang (Nutzer:
 > „Do all phases at once. Make it professional and production ready.").
 > **(A) Rendering** komplett neu: Faces per **Gouraud** (`buildSceneSolid` →

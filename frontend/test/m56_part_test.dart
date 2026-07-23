@@ -57,6 +57,23 @@ class FakeKernel implements PartKernel {
     return KernelSolid(a.mesh, a.volume + b.volume, null);
   }
 
+  int cuts = 0, intersects = 0;
+
+  @override
+  KernelSolid? cutSolids(KernelSolid base, KernelSolid tool) {
+    if (fail) return null;
+    cuts++;
+    // distinct stub volume so fold tests can tell cut from join/intersect
+    return KernelSolid(base.mesh, base.volume - tool.volume, null);
+  }
+
+  @override
+  KernelSolid? intersectSolids(KernelSolid a, KernelSolid b) {
+    if (fail) return null;
+    intersects++;
+    return KernelSolid(a.mesh, math.min(a.volume, b.volume), null);
+  }
+
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
 }

@@ -322,12 +322,36 @@ class _HalfEdge {
 /// actually coincide (tolerance 1e-6 mm) — coincident-constrained sketches
 /// do; crossings without a shared endpoint are NOT split (like a sketch
 /// without the intersection point in Inventor). Dangling ends are pruned.
+/// Drops consecutive coincident vertices of a loop (tolerance [tol] mm) and
+/// any trailing vertex that coincides with the first, so the loop never
+/// contains a zero-length edge. This matters because a closed
+/// INTERPOLATION spline samples its last point EXACTLY on its start (a closed
+/// Catmull-Rom segment ends at t=1 on p[0]) while the sampler also appends
+/// p[0] — leaving a degenerate closing edge that the OCCT wire builder rejects
+/// (chord < 1e-12), which is why closed fit-splines could not be extruded.
+/// Cleaning the loop at the source fixes both the extrude and the on-screen
+/// region/area/highlight, and is a no-op on line/arc/circle loops (their
+/// vertices are already distinct). [tol] is far below sketch scale so distinct
+/// geometry is never merged.
+List<Offset> dedupeClosedLoop(List<Offset> p, [double tol = 1e-7]) {
+  if (p.length < 2) return p;
+  final out = <Offset>[];
+  for (final q in p) {
+    if (out.isEmpty || (out.last - q).distance > tol) out.add(q);
+  }
+  while (out.length > 1 && (out.first - out.last).distance <= tol) {
+    out.removeLast();
+  }
+  return out;
+}
+
 List<ProfileLoop> profileLoops(SketchModel s) {
   const tol = 1e-6;
   final loops = <ProfileLoop>[];
   var nextId = 0;
 
-  void addLoop(List<Offset> raw, Set<int> ents) {
+  void addLoop(List<Offset> raw0, Set<int> ents) {
+    final raw = dedupeClosedLoop(raw0);
     if (raw.length < 3) return;
     final a = _signedArea(raw);
     if (a.abs() < 1e-6) return; // degenerate sliver
@@ -584,9 +608,15 @@ class ExtrudeFeature {
   bool iMate, matchShape;
   bool visible;
 
-  /// Inventor's Output boolean: 'join' merges this volume into the previous
-  /// body (the default once a base feature exists), 'new' starts a separate
-  /// solid body. Cut/Intersect are future work.
+  /// Inventor's Output boolean, applied against the accumulated body this
+  /// feature shares a [bodyName] with:
+  ///   'join'      — union this volume into the body (default once a base
+  ///                 feature exists);
+  ///   'cut'       — subtract this volume from the body;
+  ///   'intersect' — keep only the overlap of this volume with the body;
+  ///   'new'       — start a separate solid body (no boolean).
+  /// The FIRST feature of a body has nothing to combine with, so it always
+  /// materialises as its own prism regardless of this value.
   String output;
 
   // runtime (never serialised)
@@ -1077,8 +1107,35 @@ abstract class PartKernel {
   /// caller; the result is a NEW solid. Null on failure.
   KernelSolid? fuseSolids(KernelSolid a, KernelSolid b);
 
+  /// Boolean cut [base] \ [tool] (Inventor's Cut). Inputs stay owned by the
+  /// caller; the result is a NEW solid. Null on failure (incl. empty result).
+  KernelSolid? cutSolids(KernelSolid base, KernelSolid tool);
+
+  /// Boolean intersection [a] ∩ [b] (Inventor's Intersect). Inputs stay owned
+  /// by the caller; the result is a NEW solid. Null on failure (incl. empty).
+  KernelSolid? intersectSolids(KernelSolid a, KernelSolid b);
+
   /// Writes the union of [solids] as STEP to [path].
   bool exportStep(List<KernelSolid> solids, String path);
+}
+
+/// Applies Inventor's Output boolean [output] to combine [base] (the
+/// accumulated body) with [tool] (this feature's fresh prism) via [kernel].
+/// 'join' → union, 'cut' → subtract, 'intersect' → common; anything else
+/// (incl. 'new') has no combine and returns null. Shared by the feature fold
+/// and the live preview so both agree exactly.
+KernelSolid? combineSolids(
+    PartKernel kernel, String output, KernelSolid base, KernelSolid tool) {
+  switch (output) {
+    case 'cut':
+      return kernel.cutSolids(base, tool);
+    case 'intersect':
+      return kernel.intersectSolids(base, tool);
+    case 'join':
+      return kernel.fuseSolids(base, tool);
+    default:
+      return null; // 'new' (or unknown): no boolean
+  }
 }
 
 /// The real kernel over the linked OCCT shim. [available] is false on host
@@ -1164,7 +1221,24 @@ class OcctPartKernel implements PartKernel {
   }
 
   @override
-  KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) {
+  KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) =>
+      _boolean('fuse', a, b, (ffi, sa, sb) => ffi.fuse(sa, sb));
+
+  @override
+  KernelSolid? cutSolids(KernelSolid base, KernelSolid tool) =>
+      _boolean('cut', base, tool, (ffi, sa, sb) => ffi.cut(sa, sb));
+
+  @override
+  KernelSolid? intersectSolids(KernelSolid a, KernelSolid b) =>
+      _boolean('intersect', a, b, (ffi, sa, sb) => ffi.common(sa, sb));
+
+  /// Shared body of the three boolean ops: run [op] on the two operands'
+  /// B-Reps, clean the same-domain faces/edges the boolean leaves behind
+  /// (v4 — otherwise the seam renders spurious fragment lines, M58 device
+  /// find), then build the coarse display mesh. Inputs stay owned by the
+  /// caller; the result is a NEW solid.
+  KernelSolid? _boolean(String what, KernelSolid a, KernelSolid b,
+      OcctShape? Function(OcctFfi ffi, OcctShape sa, OcctShape sb) op) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -1172,30 +1246,28 @@ class OcctPartKernel implements PartKernel {
     }
     final sa = a.shape, sb = b.shape;
     if (sa == null || sb == null) {
-      _err = 'fuse needs kernel-backed solids';
+      _err = '$what needs kernel-backed solids';
       return null;
     }
-    final raw = ffi.fuse(sa, sb);
+    final raw = op(ffi, sa, sb);
     if (raw == null) {
       _err = ffi.lastError();
       return null;
     }
-    // v4: merge the same-domain faces/edges the boolean leaves behind —
-    // otherwise the weld renders spurious fragment lines (M58 device find).
-    final fused = ffi.unify(raw) ?? raw;
-    if (!identical(fused, raw)) raw.dispose();
-    final mesh = fused.mesh(
+    final result = ffi.unify(raw) ?? raw;
+    if (!identical(result, raw)) raw.dispose();
+    final mesh = result.mesh(
         linDeflection: kCoarseLinDeflection,
         angDeflection: kCoarseAngDeflection);
     if (mesh == null) {
       _err = ffi.lastError();
-      fused.dispose();
+      result.dispose();
       return null;
     }
-    return KernelSolid(mesh, fused.volume, fused,
+    return KernelSolid(mesh, result.volume, result,
         meshLin: kCoarseLinDeflection,
         remesher: (lin, ang) =>
-            fused.mesh(linDeflection: lin, angDeflection: ang));
+            result.mesh(linDeflection: lin, angDeflection: ang));
   }
 
   @override
@@ -1334,13 +1406,15 @@ double? parseValueExpr(String raw) {
   return v.isFinite ? v : null;
 }
 
-/// Recomputes EVERY feature in order and folds Inventor's Join chains: each
-/// 'join' feature's solid becomes the boolean union of its own volume with
-/// the accumulated body it joins (matched by bodyName), and every earlier
-/// feature of that chain is flagged [ExtrudeFeature.consumedByJoin] so the
-/// viewport draws exactly ONE solid per body — Inventor's "everything is one
-/// part unless you chose New Solid". 'new' features start a fresh chain.
-/// Returns true when every visible feature computed.
+/// Recomputes EVERY feature in order and folds Inventor's boolean chains per
+/// body: each non-'new' feature COMBINES its own volume with the accumulated
+/// body it shares a [bodyName] with — union for 'join', subtract for 'cut',
+/// overlap for 'intersect' — and every earlier feature of that chain is
+/// flagged [ExtrudeFeature.consumedByJoin] so the viewport draws exactly ONE
+/// solid per body (Inventor's "everything is one part unless you chose New
+/// Solid"). The FIRST feature of a body has nothing to combine with, so it
+/// materialises as its own prism whatever its output is. 'new' starts a fresh
+/// chain. Returns true when every visible feature computed.
 bool recomputeAllFeatures(PartModel part, PartKernel kernel) {
   var allOk = true;
   final chainLast = <String, ExtrudeFeature>{}; // bodyName -> last in chain
@@ -1352,12 +1426,12 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel) {
       chainLast.remove(f.bodyName); // a broken chain stops accumulating
       continue;
     }
-    final prev = f.output == 'join' ? chainLast[f.bodyName] : null;
+    final prev = f.output != 'new' ? chainLast[f.bodyName] : null;
     if (prev != null && prev.solid != null && f.solid != null) {
-      final fused = kernel.fuseSolids(prev.solid!, f.solid!);
-      if (fused != null) {
+      final combined = combineSolids(kernel, f.output, prev.solid!, f.solid!);
+      if (combined != null) {
         f.disposeSolid();
-        f.solid = fused;
+        f.solid = combined;
         prev.consumedByJoin = true;
       } else {
         // honest failure: keep both standalone solids visible
@@ -1368,4 +1442,47 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel) {
     if (f.visible) chainLast[f.bodyName] = f;
   }
   return allOk;
+}
+
+/// The solid that currently STANDS IN for [bodyName] in the folded scene: the
+/// last non-consumed feature of that body carrying a solid (after
+/// [recomputeAllFeatures], exactly one feature per body is non-consumed). Null
+/// when the body has no computed solid. Used to resolve the target a live
+/// boolean preview operates against.
+KernelSolid? currentBodySolid(PartModel part, String bodyName) {
+  KernelSolid? found;
+  for (final f in part.features) {
+    if (f.bodyName == bodyName && f.solid != null && !f.consumedByJoin) {
+      found = f.solid;
+    }
+  }
+  return found;
+}
+
+/// The accumulated solid of [bodyName] considering only features strictly
+/// BEFORE [before] in list order — i.e. exactly the base a boolean at
+/// [before]'s position operates on. Each folded feature stores its running
+/// accumulation at its own position, so the last same-body feature before
+/// [before] already holds the union/cut/intersect of everything earlier.
+/// Used for the live preview while EDITING an existing feature.
+KernelSolid? bodyBaseBefore(
+    PartModel part, String bodyName, ExtrudeFeature before) {
+  KernelSolid? head;
+  for (final f in part.features) {
+    if (identical(f, before)) break;
+    if (f.bodyName == bodyName && f.solid != null) head = f.solid;
+  }
+  return head;
+}
+
+/// The last feature (in list order) that currently carries a computed solid,
+/// or null. A NEW extrude with a boolean output targets this feature's body —
+/// mirroring [applyExtrude], which adopts the last feature's [bodyName] for a
+/// non-'new' output.
+ExtrudeFeature? lastSolidFeature(PartModel part) {
+  ExtrudeFeature? last;
+  for (final f in part.features) {
+    if (f.solid != null && !f.consumedByJoin) last = f;
+  }
+  return last;
 }

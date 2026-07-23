@@ -224,10 +224,16 @@ class _Viewport3DState extends State<Viewport3D> {
   Iterable<KernelSolid> _liveSolids() sync* {
     final p = part;
     if (p == null) return;
+    final sess = widget.app.extrudeSession;
     for (final f in p.features) {
-      if (f.visible && f.solid != null && !f.consumedByJoin) yield f.solid!;
+      if (f.visible &&
+          f.solid != null &&
+          !f.consumedByJoin &&
+          f.bodyName != sess?.previewReplacesBody) {
+        yield f.solid!;
+      }
     }
-    final prev = widget.app.extrudeSession?.preview;
+    final prev = sess?.preview;
     if (prev != null) yield prev;
   }
 
@@ -610,15 +616,18 @@ class _ScenePainter extends CustomPainter {
 
     // ---- solids: depth-sorted triangles + B-Rep edges (painter algo) ----
     // The feature being edited is hidden while its live preview stands in;
-    // that preview is drawn translucent on top. Same picture the gallery
-    // thumbnail renders off-screen (minus the session preview) via the shared
-    // paintPartSolids in part_render.dart.
+    // that preview is drawn translucent on top. For a boolean preview
+    // (join/cut/intersect) the WHOLE target body is hidden too, so the
+    // combined result — carried by sess.preview — stands in for it instead of
+    // z-fighting the old body. Same picture the gallery thumbnail renders
+    // off-screen (minus the session preview) via paintPartSolids.
     final solids = [
       for (final f in part.features)
         if (f.visible &&
             f.solid != null &&
             !f.consumedByJoin &&
-            f != sess?.editing)
+            f != sess?.editing &&
+            f.bodyName != sess?.previewReplacesBody)
           f.solid!
     ];
     paintPartSolids(canvas, cam, solids,
