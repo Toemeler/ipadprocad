@@ -168,7 +168,11 @@ struct SolidGeom {
 
     /// Submesh of the triangles belonging to [face], nudged out along their
     /// (shared, planar) normal so the blue prehighlight sits above the surface.
-    func faceHighlightEntity(face: Int32) -> ModelEntity? {
+    /// Takes an Int because that is what NSNumber.intValue yields on the wire;
+    /// the per-triangle face buffer is Int32, so the conversion happens once
+    /// here instead of at every call site.
+    func faceHighlightEntity(face faceId: Int) -> ModelEntity? {
+        let face = Int32(faceId)
         guard triFaces.count * 3 == indices.count else { return nil }
         var pos = [SIMD3<Float>]()
         var nrm = [SIMD3<Float>]()

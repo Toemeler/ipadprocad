@@ -262,9 +262,16 @@ final class PartRenderer: NSObject {
             guard let id = s["id"] as? String,
                   let geom = SolidGeom(payload: s) else { continue }
             solidCache[id] = geom
-            let material: RealityKit.Material = (s["material"] as? NSNumber)?.intValue == 1
-                ? Materials.preview()
-                : Materials.steel()
+            // if/else, not a ternary: the two branches are DIFFERENT concrete
+            // types (PhysicallyBasedMaterial vs SimpleMaterial) and Swift
+            // rejects a ternary whose arms mismatch even with an existential
+            // annotation.
+            let material: RealityKit.Material
+            if (s["material"] as? NSNumber)?.intValue == 1 {
+                material = Materials.preview()
+            } else {
+                material = Materials.steel()
+            }
             let shaded = geom.shadedEntity(material: material)
             let edges = geom.edgeEntity()
             let holder = Entity()

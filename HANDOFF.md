@@ -82,6 +82,19 @@ Token NIE in Dateien/.git/config schreiben.
 > sie unverdeckt obenauf. Das entspricht Inventor besser, ist aber am Gerät zu
 > bestätigen.
 >
+> **CI-Runde 1 (Run #162, `2a9302e`) — ehrlich gelesen:** Dart-Seite GRÜN
+> (`flutter analyze` 0 errors, alle Host-Tests inkl. `reality_scene_test.dart`
+> bestanden, Step 12 + 18). Gescheitert ist NUR Step 19 (`flutter build ios`)
+> an **einem** Swift-Typfehler: `Cannot convert value of type 'Int' to expected
+> argument type 'Int32'` in `RealityPartView.swift` — `NSNumber.intValue`
+> liefert `Int`, `faceHighlightEntity` erwartete `Int32`. Behoben (Signatur
+> nimmt jetzt `Int` und konvertiert einmalig intern); zusätzlich präventiv der
+> Material-Ternary in `rebuildSolids` durch if/else ersetzt, weil dessen zwei
+> Zweige verschiedene konkrete Typen sind (`PhysicallyBasedMaterial` vs
+> `SimpleMaterial`) und Swift das auch mit Existential-Annotation ablehnen
+> kann. Da Xcode den Build beim ersten Fehler abbricht, kann Runde 2 weitere
+> Fehler zutage fördern — das ist der normale Rhythmus ohne lokale Toolchain.
+>
 > **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
 > Xcode/Flutter im Container):**
 > 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale
