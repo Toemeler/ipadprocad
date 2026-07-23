@@ -100,6 +100,49 @@ void logMeshConvention(String id, OcctMeshData m) {
   if (sampled == 0) return;
   final w = (agree / sampled).toStringAsFixed(2);
   final o = (outward / sampled).toStringAsFixed(2);
+
+  // WATERTIGHT CHECK + FACE INVENTORY (only worth it on the coarse first
+  // tessellation). A missing face is invisible in a render but unmistakable
+  // here: in a closed shell EVERY edge is shared by exactly two triangles.
+  // OCCT duplicates vertices along face boundaries, so the check is done on
+  // quantised POSITIONS rather than on indices, otherwise every face seam
+  // would count as a boundary.
+  if (nTri <= 400) {
+    int canon(int v) {
+      final x = (pos[v * 3] * 1e5).round();
+      final y = (pos[v * 3 + 1] * 1e5).round();
+      final z = (pos[v * 3 + 2] * 1e5).round();
+      return Object.hash(x, y, z);
+    }
+
+    final edgeUse = <int, int>{};
+    final triPerFace = <int, int>{};
+    for (var t = 0; t < nTri; t++) {
+      final vs = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]].map(canon).toList();
+      for (var k = 0; k < 3; k++) {
+        final a = vs[k], b = vs[(k + 1) % 3];
+        final key = Object.hash(a < b ? a : b, a < b ? b : a);
+        edgeUse[key] = (edgeUse[key] ?? 0) + 1;
+      }
+      if (m.triFaces.length == nTri) {
+        final f = m.triFaces[t];
+        triPerFace[f] = (triPerFace[f] ?? 0) + 1;
+      }
+    }
+    final boundary = edgeUse.values.where((c) => c != 2).length;
+    final faces = triPerFace.keys.toList()..sort();
+    final inv = faces.map((f) {
+      final type = m.faceInfos.length > 15 * f
+          ? m.faceInfos[15 * f].round()
+          : -1;
+      return 'f$f:t$type/${triPerFace[f]}';
+    }).join(' ');
+    Log.i(
+        'mesh3d',
+        'shell $id: tris=$nTri faces=${faces.length} '
+            'nonManifoldOrBoundaryEdges=$boundary '
+            '(0 = watertight) [$inv]');
+  }
   Log.i('mesh3d',
       'convention $id: tris=$nTri wind_agrees_normal=$w normal_outward=$o');
 }
