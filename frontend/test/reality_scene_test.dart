@@ -127,12 +127,26 @@ void main() {
       expect(scene.containsKey('highlight'), isFalse);
     });
 
-    test('pickPlane makes every origin plane visible', () {
-      final p = _partWith([_feat('Extrusion1', _cyl())]);
+    test('pickPlane shows the origin planes only while the part is empty', () {
       final app = AppState()..pickPlane = true;
+      // empty part (first sketch): all three planes offered automatically
+      final empty = _partWith([]);
+      expect(
+          (buildScenePayload(app, empty)['planes'] as List)
+              .cast<Map>()
+              .every((pl) => pl['visible'] == true),
+          isTrue);
+      // once geometry exists you sketch on faces — planes stay hidden unless
+      // explicitly switched on in the browser
+      final withSolid = _partWith([_feat('Extrusion1', _cyl())]);
       final planes =
-          (buildScenePayload(app, p)['planes'] as List).cast<Map>();
-      expect(planes.every((pl) => pl['visible'] == true), isTrue);
+          (buildScenePayload(app, withSolid)['planes'] as List).cast<Map>();
+      expect(planes.every((pl) => pl['visible'] == false), isTrue);
+      withSolid.vis['xy'] = true;
+      final again =
+          (buildScenePayload(app, withSolid)['planes'] as List).cast<Map>();
+      expect(again.firstWhere((pl) => pl['key'] == 'xy')['visible'], isTrue);
+      expect(again.firstWhere((pl) => pl['key'] == 'yz')['visible'], isFalse);
     });
 
     test('a child sketch becomes a world-space polyline on its plane', () {

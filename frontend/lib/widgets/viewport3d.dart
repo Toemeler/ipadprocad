@@ -418,7 +418,10 @@ class _Viewport3DState extends State<Viewport3D> {
     String? best;
     var bestD = double.infinity;
     for (final key in kPlaneKeys) {
-      if (!(p.vis[key] == true || (planesOnly && widget.app.pickPlane))) {
+      // Origin planes are auto-pickable only while the part is still empty
+      // (first extrusion); afterwards only if explicitly switched on.
+      if (!(p.vis[key] == true ||
+          (planesOnly && widget.app.pickPlane && !p.hasSolid))) {
         continue;
       }
       final f = planeFrame(key);
@@ -641,7 +644,8 @@ class _ScenePainter extends CustomPainter {
 
     // ---- origin planes (fills first: everything else draws over them) ----
     for (final key in kPlaneKeys) {
-      final visible = part.vis[key] == true || app.pickPlane;
+      final visible =
+          part.vis[key] == true || (app.pickPlane && !part.hasSolid);
       if (!visible) continue;
       final f = planeFrame(key);
       final corners = [

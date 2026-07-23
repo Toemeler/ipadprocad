@@ -156,6 +156,31 @@ Token NIE in Dateien/.git/config schreiben.
 > Auge im Browser holt sie zurück). Falls die Skizze auch nach dem Fix fehlt,
 > ist es diese Semantik und kein Renderfehler.
 >
+> **GERÄTETEST RUNDE 3 — die Wicklungs-Konvention war die eigentliche Ursache:**
+> Zwei gemeldete Fehler hatten DIESELBE Wurzel, und sie erklärt auch, warum der
+> Tiefenpuffer-Fix aus Runde 2 das Highlight nicht heilte. In diesen Meshes
+> zeigt die GEOMETRISCHE Wicklungs-Normale nach INNEN — `projectSolidTriangles`
+> verwirft Rückseiten mit `n·dir < 0`, also mit genau dieser Konvention
+> (vgl. M59b „Facing-Konvention global invertiert").
+> - **Face-Prehighlight unsichtbar:** `faceHighlightEntity` hob die Fläche
+>   entlang eben dieser Wicklungs-Normalen an — also INS Solid hinein. Mehr
+>   Tiefenpräzision machte es nur zuverlässiger unsichtbar. Fix: Anhebung
+>   entlang der per-Vertex-Normale (laut `occt_capi.h` autoritativ „OUTWARD").
+> - **Teil mit Loch durchsichtig:** die Innenwand eines Lochs kommt aus OCCT
+>   mit umgekehrter Face-Orientierung; die GPU cullt streng nach Wicklung und
+>   verwarf sie, man sah durchs Loch hindurch. Der CPU-Painter fiel darauf nie
+>   herein, weil er pro Dreieck selbst cullt. Fix: `SolidGeom` normalisiert
+>   beim Aufbau JEDES Dreieck gegen die Vertex-Normale (Invariante:
+>   `gn·vn < 0`), notfalls durch Index-Tausch — damit ist das Culling
+>   konsistent, unabhängig von der Kernel-Orientierung.
+>
+> **Verhaltensänderung auf Wunsch:** die drei Ursprungsebenen werden nur noch
+> AUTOMATISCH gezeigt und pickbar, solange das Teil leer ist (`PartModel.hasSolid`
+> == false), also für die erste Skizze/Extrusion. Danach skizziert man auf
+> Flächen; eine Ebene erscheint nur noch, wenn sie im Browser explizit
+> eingeschaltet ist. Gilt einheitlich für RealityKit-Payload, Picking und den
+> CPU-Painter; der Host-Test deckt beide Fälle ab.
+>
 > **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
 > Xcode/Flutter im Container):**
 > 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale

@@ -78,7 +78,7 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
       'frame': _frame9(f),
       'origin': [f.origin.x, f.origin.y, f.origin.z],
       'ext': 10.0,
-      'visible': p.vis[key] == true || app.pickPlane,
+      'visible': p.vis[key] == true || (app.pickPlane && !p.hasSolid),
       'hot': hover == key,
     });
   }
@@ -185,7 +185,7 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
       for (final key in kPlaneKeys)
         {
           'key': key,
-          'visible': p.vis[key] == true || app.pickPlane,
+          'visible': p.vis[key] == true || (app.pickPlane && !p.hasSolid),
           'hot': hover == key,
         }
     ],

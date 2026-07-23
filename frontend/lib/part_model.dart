@@ -750,6 +750,13 @@ class PartModel {
     return [for (final n in order) (n, byName[n]!)];
   }
 
+  /// True once the part carries real geometry. Inventor-like rule: the three
+  /// origin planes are offered AUTOMATICALLY (shown + pickable) only while the
+  /// part is still empty — that is the first sketch/extrusion. Afterwards you
+  /// sketch on faces, and a plane is only shown when explicitly switched on in
+  /// the browser (its 'vis' flag).
+  bool get hasSolid => features.any((f) => f.solid != null);
+
   ChildSketch? sketchByName(String n) {
     for (final c in childSketches) {
       if (c.model.name == n) return c;

@@ -132,7 +132,30 @@ struct SolidGeom {
         // Normals must match positions 1:1; if the buffers disagree, drop them
         // and let RealityKit compute (a shaded blob still beats a crash).
         normals = (n.count == p.count) ? n : []
-        indices = idx
+
+        // WINDING NORMALISATION (device fix, M60 round 3).
+        // In these meshes the GEOMETRIC winding normal points INWARD — the CPU
+        // painter culls on `n·dir < 0` with exactly that convention. The faces
+        // of a HOLE come back from OCCT with the opposite orientation, so the
+        // GPU culled them and you could see straight THROUGH the part. The
+        // per-vertex normals are authoritative ("unit length, OUTWARD facing",
+        // occt_capi.h), so every triangle is flipped to agree with them. This
+        // makes culling consistent no matter what orientation the kernel used.
+        var fixed = idx
+        if !normals.isEmpty {
+            var t = 0
+            while t + 2 < fixed.count {
+                let a = Int(fixed[t]), b = Int(fixed[t + 1]), c = Int(fixed[t + 2])
+                if a < p.count, b < p.count, c < p.count {
+                    let gn = simd_cross(p[b] - p[a], p[c] - p[a])
+                    let vn = normals[a] + normals[b] + normals[c]
+                    // invariant: geometric normal OPPOSES the outward normal
+                    if simd_dot(gn, vn) > 0 { fixed.swapAt(t + 1, t + 2) }
+                }
+                t += 3
+            }
+        }
+        indices = fixed
         edgePts = Payload.floats(s["edgePts"]) ?? []
         edgeStarts = (Payload.ints(s["edgeStarts"]) ?? []).map { Int($0) }
         triFaces = Payload.ints(s["triFaces"]) ?? []
@@ -192,11 +215,16 @@ struct SolidGeom {
                 let i0 = Int(indices[t * 3]), i1 = Int(indices[t * 3 + 1]), i2 = Int(indices[t * 3 + 2])
                 guard i0 < positions.count, i1 < positions.count, i2 < positions.count else { t += 1; continue }
                 // Geometric normal for the outward nudge.
+                // Lift along the OUTWARD normal. Using the winding normal
+                // pushed the highlight INTO the solid (see the winding note
+                // above) — which is why it never appeared on device however
+                // much depth precision it got.
                 let gn = simd_normalize(simd_cross(positions[i1] - positions[i0],
                                                    positions[i2] - positions[i0]))
                 for i in [i0, i1, i2] {
-                    pos.append(positions[i] + gn * eps)
-                    nrm.append(normals.isEmpty ? gn : normals[i])
+                    let outward = normals.isEmpty ? -gn : normals[i]
+                    pos.append(positions[i] + outward * eps)
+                    nrm.append(outward)
                     idx.append(next); next += 1
                 }
             }
