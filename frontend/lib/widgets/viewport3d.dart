@@ -89,6 +89,9 @@ class _Viewport3DState extends State<Viewport3D> {
   // overlay payloads; the Flutter layer keeps gestures, ViewCube and triad.
   RealityViewController? _reality;
   String? _lastSceneSig;
+  /// Mesh revisions the native side currently holds. Reset together with
+  /// [_lastSceneSig] whenever a fresh platform view appears.
+  Map<String, int> _sentRevs = const {};
 
   PartModel? get part => widget.app.currentPart;
 
@@ -101,8 +104,9 @@ class _Viewport3DState extends State<Viewport3D> {
     final sig = sceneSignature(app, p);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
-      c.setScene(
-          buildScenePayload(app, p, hover: _hover, hoverFace: _hoverFace));
+      c.setScene(buildScenePayload(app, p,
+          hover: _hover, hoverFace: _hoverFace, knownRevs: _sentRevs));
+      _sentRevs = sceneRevs(app, p);
     }
     c.setOverlays(
         buildOverlaysPayload(app, p, hover: _hover, hoverFace: _hoverFace));
@@ -140,6 +144,13 @@ class _Viewport3DState extends State<Viewport3D> {
                           placeholder: const ColoredBox(color: T.viewport),
                           onCreated: (c) {
                             _reality = c;
+                            // A FRESH platform view starts empty. Without
+                            // clearing these, the signature would still match
+                            // the old view's contents, setScene would never
+                            // fire and the viewport would stay blank forever
+                            // (app resume, tab switch, part switch).
+                            _lastSceneSig = null;
+                            _sentRevs = const {};
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted) setState(() {});
                             });

@@ -46,12 +46,25 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
   return out;
 }
 
+/// Current mesh revision per visible solid. The widget keeps the last set it
+/// pushed and hands it back as `knownRevs`, so unchanged solids travel as a
+/// two-field stub instead of megabytes of geometry.
+Map<String, int> sceneRevs(AppState app, PartModel p) => {
+      for (final (id, s) in visibleSolids(app, p)) id: identityHashCode(s.mesh),
+    };
+
 /// One solid's mesh payload. Buffers are passed by reference (no copy).
+/// With [includeGeometry] false only the identity travels — the renderer then
+/// keeps the mesh it already holds for this id.
 Map<String, dynamic> solidPayload(String id, KernelSolid s,
-    {int material = kMatSteel}) {
+    {int material = kMatSteel, bool includeGeometry = true}) {
   final m = s.mesh;
+  if (!includeGeometry) {
+    return {'id': id, 'rev': identityHashCode(m), 'material': material};
+  }
   return {
     'id': id,
+    'rev': identityHashCode(m),
     'positions': m.positions, // Float64List, world xyz per vertex
     'normals': m.normals, // Float64List, unit outward
     'indices': m.indices, // Int32List, CCW from outside
@@ -157,11 +170,15 @@ Map<String, dynamic>? _highlightPayload(
 /// The full scene: geometry + overlays' current visibility/hover. Sent only
 /// when [sceneSignature] changes.
 Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
-    {String? hover, (KernelSolid, int)? hoverFace}) {
+    {String? hover,
+    (KernelSolid, int)? hoverFace,
+    Map<String, int>? knownRevs}) {
   final sess = app.extrudeSession;
   final scene = <String, dynamic>{
     'solids': [
-      for (final (id, s) in visibleSolids(app, p)) solidPayload(id, s),
+      for (final (id, s) in visibleSolids(app, p))
+        solidPayload(id, s,
+            includeGeometry: knownRevs?[id] != identityHashCode(s.mesh)),
     ],
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),

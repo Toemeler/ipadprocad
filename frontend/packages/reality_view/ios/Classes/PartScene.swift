@@ -257,6 +257,10 @@ final class PlaneEntity {
     /// face). Without this the two surfaces z-fight; the user-visible rule is
     /// "the work plane wins", same as Inventor.
     private let normal: SIMD3<Float>
+    // Cached state: setHot/setVisible arrive on EVERY pointer move, and
+    // rebuilding the quad + outline meshes each time is pure churn.
+    private var hot = false
+    private var visible = true
 
     init?(payload p: [String: Any]) {
         guard let frame = Payload.doubles(p["frame"]), frame.count >= 9 else { return nil }
@@ -271,8 +275,10 @@ final class PlaneEntity {
             origin + u * ext + v * ext,
             origin + u * -ext + v * ext,
         ]
-        build(hot: (p["hot"] as? NSNumber)?.boolValue ?? false)
-        entity.isEnabled = (p["visible"] as? NSNumber)?.boolValue ?? true
+        hot = (p["hot"] as? NSNumber)?.boolValue ?? false
+        visible = (p["visible"] as? NSNumber)?.boolValue ?? true
+        build(hot: hot)
+        entity.isEnabled = visible
     }
 
     private func build(hot: Bool) {
@@ -300,8 +306,17 @@ final class PlaneEntity {
         }
     }
 
-    func setHot(_ hot: Bool) { build(hot: hot) }
-    func setVisible(_ v: Bool) { entity.isEnabled = v }
+    func setHot(_ h: Bool) {
+        guard h != hot else { return }
+        hot = h
+        build(hot: h)
+    }
+
+    func setVisible(_ v: Bool) {
+        guard v != visible else { return }
+        visible = v
+        entity.isEnabled = v
+    }
 
     /// Shift the plane a hair toward the camera along its own normal, so a
     /// coplanar solid face can never win the depth test against it. [eps]
@@ -320,13 +335,17 @@ final class AxisEntity {
     let entity = Entity()
     private let dir: SIMD3<Float>
     private let ext: Float
+    private var hot = false
+    private var visible = true
 
     init?(payload a: [String: Any]) {
         guard let d = Payload.vec3(a["dir"]) else { return nil }
         dir = d
         ext = Float((a["ext"] as? NSNumber)?.doubleValue ?? 10)
-        build(hot: (a["hot"] as? NSNumber)?.boolValue ?? false)
-        entity.isEnabled = (a["visible"] as? NSNumber)?.boolValue ?? true
+        hot = (a["hot"] as? NSNumber)?.boolValue ?? false
+        visible = (a["visible"] as? NSNumber)?.boolValue ?? true
+        build(hot: hot)
+        entity.isEnabled = visible
     }
 
     private func build(hot: Bool) {
@@ -338,8 +357,17 @@ final class AxisEntity {
         }
     }
 
-    func setHot(_ hot: Bool) { build(hot: hot) }
-    func setVisible(_ v: Bool) { entity.isEnabled = v }
+    func setHot(_ h: Bool) {
+        guard h != hot else { return }
+        hot = h
+        build(hot: h)
+    }
+
+    func setVisible(_ v: Bool) {
+        guard v != visible else { return }
+        visible = v
+        entity.isEnabled = v
+    }
 }
 
 // ---------------------------------------------------------------------------
