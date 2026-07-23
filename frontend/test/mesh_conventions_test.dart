@@ -46,11 +46,17 @@ void main() {
       final src = synthCylinderMesh(10, 40, 0.2);
       final nor = Float64List.fromList(src.normals);
       // Flip the normals of every vertex used by the top cap only.
+      // Per VERTEX, not per triangle reference: the cap's centre vertex is
+      // shared by all n triangles and each ring vertex by two, so flipping
+      // inside the triangle loop would flip them an even number of times and
+      // change nothing at all. (This test failed on exactly that first.)
       final nTri = src.indices.length ~/ 3;
+      final seen = <int>{};
       for (var t = 0; t < nTri; t++) {
         if (src.triFaces[t] != synthTopFace) continue;
         for (var k = 0; k < 3; k++) {
           final v = src.indices[t * 3 + k];
+          if (!seen.add(v)) continue;
           for (var c = 0; c < 3; c++) {
             nor[v * 3 + c] = -nor[v * 3 + c];
           }
