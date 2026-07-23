@@ -95,6 +95,35 @@ Token NIE in Dateien/.git/config schreiben.
 > kann. Da Xcode den Build beim ersten Fehler abbricht, kann Runde 2 weitere
 > Fehler zutage fördern — das ist der normale Rhythmus ohne lokale Toolchain.
 >
+> **GERÄTETEST RUNDE 1 (Build `0f04ca2`, iPad, iOS 27) — zwei Funde, beide
+> waren die vorab markierten Risiken:** Zuerst das Gute: **RealityKit rendert**,
+> die Ursprungsebenen durchdringen sich korrekt → der GPU-Tiefenpuffer arbeitet,
+> das Kernziel von M60 ist erreicht. CI-Runde 2 war grün (IPA gebaut, Link-Check
+> bestanden).
+>
+> **(1) Ortho-Maßstab war exakt 2× zu klein** (Risiko Nr. 1, wie vermutet).
+> Nachgerechnet gegen den Screenshot mit den Kamerawerten aus dem Part-Sidecar:
+> der gelbe Mittelpunkt landet exakt auf der Cam3-Projektion (1310/1136
+> gerechnet vs. 1310/1140 gemessen) → Dart-Mathematik und `_OverlayPainter`
+> korrekt; die XZ-Ebene misst 1105 px statt 2194 px → **Faktor 1.985 ≈ 2**.
+> `OrthographicCameraComponent.scale` ist also die HALBE vertikale
+> Weltausdehnung (Unity-`orthographicSize`-Konvention), nicht die volle. Fix:
+> `oc.scale = halfH` statt `2*halfH`. Sichtbares Symptom war „die Ebenen sind
+> kleiner als ihre Eckpunkte" — die Eckringe zeichnet Dart, die Ebene RealityKit.
+>
+> **(2) Taps erreichten Flutter nicht** (Risiko Nr. 2, wie vermutet). Ebene
+> anklicken tat nichts; `planePicked` loggt `part: child sketch "…" on <key>` —
+> diese Zeile fehlt im Gerätelog vollständig, der Tap kam also nie in `_tap` an.
+> Beweis, dass NICHT die Pick-Mathematik schuld ist: Hover funktionierte
+> (grüne Ebene + Label + Ringe) und nutzt dieselbe `_hitOrigin`. Der Unterschied
+> ist die Zustellung — Hover ist ein Pointer-Event, ein Tap ist ein TOUCH und
+> läuft auf iOS durch die Touch-Interception der eingebetteten Platform-View.
+> Fix: die Gesten-Schicht liegt jetzt als transparente `SizedBox.expand()` im
+> Stack ÜBER der RealityKit-Fläche, und die `RealityView` steckt in
+> `IgnorePointer` — eine Platform-View darf nie oberstes Hit-Test-Ziel sein.
+> Alle Handler (Orbit/Pan/Zoom/Tap/Hover) sind unverändert, nur die
+> Verschachtelung hat sich gedreht.
+>
 > **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
 > Xcode/Flutter im Container):**
 > 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale

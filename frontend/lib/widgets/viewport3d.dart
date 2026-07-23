@@ -123,6 +123,49 @@ class _Viewport3DState extends State<Viewport3D> {
       // CustomPaint fallback below renders instead.
       if (RealityView.isSupported) _pushReality(app, p, size);
       return Stack(children: [
+        // The render surfaces sit at the BOTTOM and are never hit-tested; the
+        // gesture layer is stacked on top of them (see below).
+        Positioned.fill(
+          child: ClipRect(
+            child: Stack(children: [
+              Positioned.fill(
+                child: RealityView.isSupported
+                    // IgnorePointer: the ARView is a pure output surface. A
+                    // platform view must never be the topmost hit target — on
+                    // iOS its touch interception swallowed taps before the
+                    // Flutter gesture arena saw them (hover worked, taps did
+                    // not: device build 0f04ca2).
+                    ? IgnorePointer(
+                        child: RealityView(
+                          placeholder: const ColoredBox(color: T.viewport),
+                          onCreated: (c) {
+                            _reality = c;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) setState(() {});
+                            });
+                          },
+                        ),
+                      )
+                    : CustomPaint(
+                        painter: _ScenePainter(
+                            app, p, _hover, _hoverRegion, _hoverFace),
+                        size: Size.infinite,
+                      ),
+              ),
+              // Screen-space decorations (iOS only — the CPU painter draws its
+              // own): profile regions, hover rings, plane label.
+              if (RealityView.isSupported)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _OverlayPainter(app, p, _hover, _hoverRegion),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ),
         Positioned.fill(
           child: Listener(
             onPointerDown: (e) {
@@ -188,45 +231,10 @@ class _Viewport3DState extends State<Viewport3D> {
                   }
                   _mmbLast = d.localFocalPoint;
                 }),
-                child: ClipRect(
-                  // On iOS the RealityKit platform view is the output surface
-                  // (this Listener/GestureDetector above still owns every
-                  // gesture, since the ARView disables its own interaction).
-                  // Everywhere else the CPU painter draws — unchanged.
-                  child: RealityView.isSupported
-                      ? Stack(children: [
-                          Positioned.fill(
-                            child: RealityView(
-                              placeholder: const ColoredBox(color: T.viewport),
-                              onCreated: (c) {
-                                _reality = c;
-                                // First real push once the view exists.
-                                WidgetsBinding.instance
-                                    .addPostFrameCallback((_) {
-                                  if (mounted) setState(() {});
-                                });
-                              },
-                            ),
-                          ),
-                          // Screen-space decorations stay in Flutter (they were
-                          // never depth-tested): profile regions, hover rings,
-                          // plane label.
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: CustomPaint(
-                                painter: _OverlayPainter(
-                                    app, p, _hover, _hoverRegion),
-                                size: Size.infinite,
-                              ),
-                            ),
-                          ),
-                        ])
-                      : CustomPaint(
-                          painter: _ScenePainter(
-                              app, p, _hover, _hoverRegion, _hoverFace),
-                          size: Size.infinite,
-                        ),
-                ),
+                // Transparent hit surface: the render layers sit BELOW
+                // this in the outer Stack, so the topmost hit target is
+                // always a plain Flutter widget, never the platform view.
+                child: const SizedBox.expand(),
               ),
             ),
           ),

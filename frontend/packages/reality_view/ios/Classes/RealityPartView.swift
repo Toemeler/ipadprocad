@@ -149,10 +149,14 @@ final class PartRenderer: NSObject {
         // (long lens far away keeps CAD parallax negligible).
         if #available(iOS 18.0, *) {
             var oc = OrthographicCameraComponent()
-            // scale = full vertical world extent mapped to the viewport height
-            // (Cam3 maps [-halfH, halfH] ⇒ 2·halfH). If a device shows a 2×
-            // zoom offset, this constant is the one to calibrate.
-            oc.scale = Float(max(cam.halfH * 2, 1e-4))
+            // CALIBRATED ON DEVICE (M60, build 0f04ca2): RealityKit's ortho
+            // `scale` is the HALF vertical world extent (Unity's
+            // orthographicSize convention), NOT the full height. Cam3 maps
+            // [-halfH, +halfH] onto the viewport height, so its half extent is
+            // exactly halfH. Passing 2*halfH showed twice the world and made
+            // everything render at half size — measured against the Dart
+            // overlay's projected plane corners: factor 1.985 ≈ 2.
+            oc.scale = Float(max(cam.halfH, 1e-4))
             oc.near = 0.01
             oc.far = 1_000_000
             cameraEntity.components.set(oc)
