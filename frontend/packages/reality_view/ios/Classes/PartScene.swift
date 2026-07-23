@@ -200,7 +200,13 @@ struct SolidGeom {
     /// Takes an Int because that is what NSNumber.intValue yields on the wire;
     /// the per-triangle face buffer is Int32, so the conversion happens once
     /// here instead of at every call site.
-    func faceHighlightEntity(face faceId: Int, eps: Float = 0.04) -> ModelEntity? {
+    /// [lift] is the direction the sheet is nudged along. Pass the CAMERA
+    /// direction: lifting along the surface normal only works if the supplied
+    /// normals really are outward, and that assumption has now been wrong
+    /// twice on device. Toward the camera is correct no matter what convention
+    /// the kernel used for normals or winding.
+    func faceHighlightEntity(face faceId: Int, eps: Float = 0.04,
+                             lift: SIMD3<Float>) -> ModelEntity? {
         let face = Int32(faceId)
         guard triFaces.count * 3 == indices.count else { return nil }
         var pos = [SIMD3<Float>]()
@@ -220,9 +226,8 @@ struct SolidGeom {
                 let gn = simd_normalize(simd_cross(positions[i1] - positions[i0],
                                                    positions[i2] - positions[i0]))
                 for i in [i0, i1, i2] {
-                    let outward = normals.isEmpty ? -gn : normals[i]
-                    pos.append(positions[i] + outward * eps)
-                    nrm.append(outward)
+                    pos.append(positions[i] + lift * eps)
+                    nrm.append(normals.isEmpty ? gn : normals[i])
                     idx.append(next); next += 1
                 }
             }

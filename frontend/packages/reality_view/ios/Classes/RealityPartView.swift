@@ -479,7 +479,8 @@ final class PartRenderer: NSObject {
               let face = (h["face"] as? NSNumber)?.intValue,
               face >= 0,
               let geom = solidCache[id] else { return }
-        guard let e = geom.faceHighlightEntity(face: face, eps: highlightEps) else { return }
+        guard let e = geom.faceHighlightEntity(
+            face: face, eps: highlightEps, lift: cam.dir) else { return }
         highlightEntity = e
         root.addChild(e)
     }

@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import 'dart:ui' show Size;
 
 import 'app_state.dart';
+import 'ffi/occt_engine.dart' show OcctMeshData;
+import 'log.dart';
 import 'part_model.dart';
 
 /// Material tags understood by Materials.swift.
@@ -44,6 +46,62 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
     }
   }
   return out;
+}
+
+final Set<int> _conventionLogged = <int>{};
+
+/// ONE-SHOT DIAGNOSTIC per mesh — it exists because the surface convention of
+/// these meshes could not be settled by reading the code, and guessing it wrong
+/// has now cost three device rounds (invisible face highlight, see-through
+/// holes, a solid that reads inside-out).
+///
+/// It measures the two unknowns directly and writes them to the device log:
+///  * `wind`  — share of triangles whose WINDING normal cross(p1-p0, p2-p0)
+///              agrees with the supplied per-vertex normal. ~1.0 means winding
+///              and normals point the same way, ~0.0 means they oppose.
+///  * `out`   — share of sampled vertices whose normal points AWAY from the
+///              mesh centroid. ~1.0 means the normals really are outward (as
+///              occt_capi.h claims), ~0.0 means they are inward. Reliable for
+///              the convex-ish test bodies (cylinder, box).
+/// Together these pin down both the winding and the normal orientation, which
+/// is everything the renderer needs to be made correct rather than lucky.
+void logMeshConvention(String id, OcctMeshData m) {
+  if (!_conventionLogged.add(identityHashCode(m))) return;
+  final pos = m.positions, nor = m.normals, idx = m.indices;
+  final nTri = idx.length ~/ 3;
+  if (nTri == 0 || nor.length != pos.length) return;
+
+  var cx = 0.0, cy = 0.0, cz = 0.0;
+  final nV = pos.length ~/ 3;
+  for (var i = 0; i < nV; i++) {
+    cx += pos[i * 3];
+    cy += pos[i * 3 + 1];
+    cz += pos[i * 3 + 2];
+  }
+  cx /= nV;
+  cy /= nV;
+  cz /= nV;
+
+  var agree = 0, outward = 0, sampled = 0;
+  final step = nTri > 600 ? nTri ~/ 600 : 1;
+  for (var t = 0; t < nTri; t += step) {
+    final a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+    final ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+    final ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az;
+    final vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az;
+    // winding normal
+    final gx = uy * vz - uz * vy, gy = uz * vx - ux * vz, gz = ux * vy - uy * vx;
+    final nx = nor[a * 3], ny = nor[a * 3 + 1], nz = nor[a * 3 + 2];
+    if (gx * nx + gy * ny + gz * nz > 0) agree++;
+    // does the vertex normal point away from the centroid?
+    if (nx * (ax - cx) + ny * (ay - cy) + nz * (az - cz) > 0) outward++;
+    sampled++;
+  }
+  if (sampled == 0) return;
+  final w = (agree / sampled).toStringAsFixed(2);
+  final o = (outward / sampled).toStringAsFixed(2);
+  Log.i('mesh3d',
+      'convention $id: tris=$nTri wind_agrees_normal=$w normal_outward=$o');
 }
 
 /// Current mesh revision per visible solid. The widget keeps the last set it

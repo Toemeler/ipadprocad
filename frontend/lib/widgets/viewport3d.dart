@@ -104,6 +104,9 @@ class _Viewport3DState extends State<Viewport3D> {
     final sig = sceneSignature(app, p);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
+      for (final (id, s) in visibleSolids(app, p)) {
+        logMeshConvention(id, s.mesh);
+      }
       c.setScene(buildScenePayload(app, p,
           hover: _hover, hoverFace: _hoverFace, knownRevs: _sentRevs));
       _sentRevs = sceneRevs(app, p);
