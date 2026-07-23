@@ -90,6 +90,13 @@ class _Viewport3DState extends State<Viewport3D> {
   // overlay payloads; the Flutter layer keeps gestures, ViewCube and triad.
   /// Hovered / selected sketch curve, addressed by [sketchKey]. Selection has
   /// no consumer yet — it exists so curves are already pickable in 3D.
+  /// Trackpad two-finger gesture in progress (PointerPanZoom), and the kind of
+  /// device that started the current drag. Touch keeps its old behaviour; the
+  /// trackpad gets Inventor-style navigation instead.
+  bool _tpActive = false;
+  Offset _tpLastPan = Offset.zero;
+  PointerDeviceKind _dragKind = PointerDeviceKind.touch;
+
   String? _hoverSketch;
   final Set<String> _selSketch = <String>{};
 
@@ -240,6 +247,7 @@ class _Viewport3DState extends State<Viewport3D> {
         Positioned.fill(
           child: Listener(
             onPointerDown: (e) {
+              _dragKind = e.kind;
               if (e.kind == PointerDeviceKind.mouse &&
                   e.buttons == kMiddleMouseButton) {
                 _mmb = true;
@@ -264,6 +272,36 @@ class _Viewport3DState extends State<Viewport3D> {
             },
             onPointerUp: (_) => _mmb = false,
             onPointerCancel: (_) => _mmb = false,
+            // Trackpad gestures arrive as PointerPanZoom, never as extra
+            // pointers, so they are handled here rather than through the scale
+            // recognizer: two fingers orbit, two fingers + shift pan, pinch
+            // still zooms. One finger (a click-drag, reported as a mouse
+            // pointer) deliberately does nothing.
+            onPointerPanZoomStart: (e) {
+              _tpActive = true;
+              _tpLastPan = Offset.zero;
+              _scaleStartH = p.camera.halfH;
+            },
+            onPointerPanZoomUpdate: (e) {
+              if (!_tpActive) return;
+              setState(() {
+                if (e.scale > 0 && (e.scale - 1).abs() > 1e-4) {
+                  final f = (_scaleStartH / e.scale) / p.camera.halfH;
+                  _zoomAt(p, Cam3(p.camera, size), e.localPosition, f);
+                }
+                final d = e.pan - _tpLastPan;
+                _tpLastPan = e.pan;
+                if (d == Offset.zero) return;
+                if (HardwareKeyboard.instance.isShiftPressed) {
+                  final wpp = (2 * p.camera.halfH) / size.height;
+                  p.camera.ox -= d.dx * wpp;
+                  p.camera.oy += d.dy * wpp;
+                } else {
+                  _orbit(p, d);
+                }
+              });
+            },
+            onPointerPanZoomEnd: (_) => _tpActive = false,
             onPointerSignal: (e) {
               if (e is PointerScrollEvent) {
                 setState(() => _zoomAt(
@@ -288,6 +326,8 @@ class _Viewport3DState extends State<Viewport3D> {
                   _mmbLast = d.localFocalPoint;
                 },
                 onScaleUpdate: (d) => setState(() {
+                  // the trackpad path above already handled this gesture
+                  if (_tpActive) return;
                   if (d.pointerCount >= 2) {
                     if (d.scale > 0) {
                       final f = (_scaleStartH / d.scale) / p.camera.halfH;
@@ -297,7 +337,11 @@ class _Viewport3DState extends State<Viewport3D> {
                     final wpp = (2 * p.camera.halfH) / size.height;
                     p.camera.ox -= mv.dx * wpp;
                     p.camera.oy += mv.dy * wpp;
-                  } else if (!_mmb) {
+                  } else if (!_mmb &&
+                      _dragKind == PointerDeviceKind.touch) {
+                    // One finger orbits ON TOUCH only. A single trackpad or
+                    // mouse drag is reserved for picking and must not move the
+                    // view; orbiting there is the two-finger gesture.
                     _orbit(p, d.localFocalPoint - _mmbLast);
                   }
                   _mmbLast = d.localFocalPoint;
