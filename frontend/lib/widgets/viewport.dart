@@ -153,6 +153,20 @@ class _Viewport2DState extends State<Viewport2D> {
   void _handleClick(Offset local, Size size,
       {Constraint? downDim, PointerDeviceKind kind = PointerDeviceKind.mouse}) {
     final app = widget.app;
+    // The Gear dialog floats INSIDE the same Stack that this Listener wraps, so
+    // the Listener sees pointer-ups over it too. Without this guard, tapping a
+    // dialog field would fall through to the Gear tool and place a gear. Ignore
+    // any click whose position is inside the dialog's rectangle. (`local` and
+    // the dialog's Positioned left/top share this Stack's coordinate space.)
+    if (app.gear != null) {
+      final gl = _gearPos.dx.clamp(0.0, size.width - 120);
+      final gt = _gearPos.dy.clamp(0.0, size.height - 60);
+      final box = _gearDialogKey.currentContext?.findRenderObject();
+      final dsize = box is RenderBox ? box.size : const Size(300, 560);
+      if (Rect.fromLTWH(gl, gt, dsize.width, dsize.height).contains(local)) {
+        return;
+      }
+    }
     // M43/M45: while a Parameters equation cell OR the text editor's template
     // field is focused, tapping a dimension label inserts its parameter name
     // there (the text window wraps it in quotes) instead of doing anything
@@ -704,6 +718,7 @@ class _Viewport2DState extends State<Viewport2D> {
   /// M43: position of the movable Parameters window (viewport coords).
   Offset _paramsPos = const Offset(60, 60);
   Offset _gearPos = const Offset(60, 60);
+  final GlobalKey _gearDialogKey = GlobalKey();
 
   /// M45: position of the movable text editor window.
   Offset _textWinPos = const Offset(90, 90);
@@ -1445,6 +1460,7 @@ class _Viewport2DState extends State<Viewport2D> {
                       left: _gearPos.dx.clamp(0.0, size.width - 120),
                       top: _gearPos.dy.clamp(0.0, size.height - 60),
                       child: GearDialog(
+                          key: _gearDialogKey,
                           app: app,
                           onDrag: (d) => setState(() => _gearPos += d)),
                     ),
