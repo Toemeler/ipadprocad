@@ -58,6 +58,30 @@ Token NIE in Dateien/.git/config schreiben.
 > Kopie, 9-Doubles-Ebenenframes, Skizzen-Weltmapping, Signatur-Wechsel bei
 > Re-Tessellierung, Hover-Face-Auflösung.
 >
+> **Was RealityKit rendert — und was NICHT (wichtig, häufige Fehlannahme):**
+> RealityKit ersetzt ausschließlich die **tiefengetestete Weltgeometrie im
+> 3D-Part-Viewport**: Solids, Ursprungsebenen, Achsen, Center Point, Skizzen-
+> kurven, B-Rep-Kanten, blaues Face-Prehighlight. WEITERHIN Flutter-Canvas:
+> der komplette 2D-Sketcher (`viewport.dart`), `paintPartUnderlay` (geghostetes
+> Modell im Skizzenmodus), die Galerie-Thumbnails (`_writePartPreview` →
+> `paintPartSolids`, headless), ViewCube, Triade, Toast, sämtliche UI-Chrome
+> (Ribbon, Browser, Dialoge) und der gesamte Nicht-iOS-Pfad.
+>
+> **Dabei gefunden und behoben (sonst Geräte-Regression):** `_paintRegions`
+> (blaue Profil-Flächen beim Extrude, hovered/selected) sowie die Hover-
+> Dekorationen (Ebenen-Eckringe + Mittelpunkt + gedrehtes Ebenen-Label,
+> Achsen-Endringe, CP-Ring) hingen NUR am `_ScenePainter` — der auf iOS nicht
+> mehr läuft. Ohne Fix hätte man beim Extrudieren kein Profil-Highlight mehr
+> gesehen (Picking lief weiter, nur unsichtbar). Diese Elemente wurden im
+> Original OHNE Occluder gezeichnet, sind also reines Screen-Space-HUD: neu als
+> `_OverlayPainter` in Flutter ÜBER die RealityKit-Fläche gestapelt —
+> verhaltensgleich, ohne Polygon-Triangulierung mit Löchern in Swift.
+>
+> **Bewusste Verhaltensänderung:** Achsen und Center Point sind jetzt echte
+> 3D-Entities und werden damit von Solids VERDECKT; im CPU-Painter schwebten
+> sie unverdeckt obenauf. Das entspricht Inventor besser, ist aber am Gerät zu
+> bestätigen.
+>
 > **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
 > Xcode/Flutter im Container):**
 > 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale

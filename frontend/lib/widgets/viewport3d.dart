@@ -194,16 +194,33 @@ class _Viewport3DState extends State<Viewport3D> {
                   // gesture, since the ARView disables its own interaction).
                   // Everywhere else the CPU painter draws — unchanged.
                   child: RealityView.isSupported
-                      ? RealityView(
-                          placeholder: const ColoredBox(color: T.viewport),
-                          onCreated: (c) {
-                            _reality = c;
-                            // First real push once the view exists.
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) setState(() {});
-                            });
-                          },
-                        )
+                      ? Stack(children: [
+                          Positioned.fill(
+                            child: RealityView(
+                              placeholder: const ColoredBox(color: T.viewport),
+                              onCreated: (c) {
+                                _reality = c;
+                                // First real push once the view exists.
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) setState(() {});
+                                });
+                              },
+                            ),
+                          ),
+                          // Screen-space decorations stay in Flutter (they were
+                          // never depth-tested): profile regions, hover rings,
+                          // plane label.
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _OverlayPainter(
+                                    app, p, _hover, _hoverRegion),
+                                size: Size.infinite,
+                              ),
+                            ),
+                          ),
+                        ])
                       : CustomPaint(
                           painter: _ScenePainter(
                               app, p, _hover, _hoverRegion, _hoverFace),
@@ -785,6 +802,123 @@ class _ScenePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ScenePainter old) => true;
+}
+
+// ---------------------------------------------------------------------------
+// screen-space overlay painter (M60)
+//
+// The decorations the CPU painter drew WITHOUT any occluder — profile-region
+// fills, plane hover rings/label, axis end rings, centre-point ring. They are
+// pure screen-space HUD, so on iOS they stay in Flutter and are stacked ON TOP
+// of the RealityKit surface, reproducing the previous behaviour exactly. Only
+// the depth-tested world geometry moved to RealityKit.
+// ---------------------------------------------------------------------------
+class _OverlayPainter extends CustomPainter {
+  final AppState app;
+  final PartModel part;
+  final String? hover;
+  final int? hoverRegion;
+  _OverlayPainter(this.app, this.part, this.hover, this.hoverRegion);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cam = Cam3(part.camera, size);
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = _greenBright;
+
+    // ---- hovered origin plane: corner rings + centre dot + name label ----
+    if (hover != null && kPlaneKeys.contains(hover)) {
+      final f = planeFrame(hover!);
+      final corners = [
+        f.toWorld(const Offset(-_ext, -_ext)),
+        f.toWorld(const Offset(_ext, -_ext)),
+        f.toWorld(const Offset(_ext, _ext)),
+        f.toWorld(const Offset(-_ext, _ext)),
+      ];
+      for (final c in corners) {
+        canvas.drawCircle(cam.project(c), 6, ring);
+      }
+      canvas.drawCircle(
+          cam.project(Vec3.zero), 4, Paint()..color = const Color(0xFFFFE07A));
+      final p0 = cam.project(f.toWorld(const Offset(-_ext + 0.6, -_ext + 1.4)));
+      final p1 = cam.project(f.toWorld(const Offset(-_ext + 4.6, -_ext + 1.4)));
+      final ang = math.atan2(p1.dy - p0.dy, p1.dx - p0.dx);
+      canvas.save();
+      canvas.translate(p0.dx, p0.dy);
+      canvas.rotate(ang);
+      final tp = TextPainter(
+          text: TextSpan(
+              text: planeLabel(hover!),
+              style: ts(12, _greenBright, w: FontWeight.w700)),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      tp.paint(canvas, Offset(0, -tp.height));
+      canvas.restore();
+    }
+
+    // ---- hovered axis: rings at both ends ----
+    for (final e in [
+      ('x', const Vec3(1, 0, 0)),
+      ('y', const Vec3(0, 1, 0)),
+      ('z', const Vec3(0, 0, 1))
+    ]) {
+      if (part.vis[e.$1] != true || hover != e.$1) continue;
+      for (final p in [
+        cam.project(e.$2 * -_ext),
+        cam.project(e.$2 * _ext),
+      ]) {
+        canvas.drawCircle(p, 6, ring);
+      }
+    }
+
+    // ---- hovered centre point: highlight ring (the dot itself is a
+    // RealityKit entity, so it stays depth-tested) ----
+    if (part.vis['cp'] == true && hover == 'cp') {
+      canvas.drawCircle(cam.project(Vec3.zero), 9, ring);
+    }
+
+    // ---- extrude profile regions (hovered / selected) ----
+    final sess = app.extrudeSession;
+    if (sess == null) return;
+    for (final cs in part.childSketches) {
+      final showForSession =
+          sess.sketchName == cs.model.name || sess.sketchName == null;
+      if (!showForSession) continue;
+      final frame = sketchFrameOf(cs);
+      for (final r in app.sessionRegions(cs)) {
+        final selected = sess.sketchName == cs.model.name &&
+            sess.hasProfileAt(interiorPointOf(r.outer));
+        final hovered = hoverRegion == r.outer.id;
+        if (!selected && !hovered) continue;
+        final path = Path()..fillType = PathFillType.evenOdd;
+        void loopPath(List<Offset> pts) {
+          for (var i = 0; i < pts.length; i++) {
+            final s = cam.project(frame.toWorld(pts[i]));
+            i == 0 ? path.moveTo(s.dx, s.dy) : path.lineTo(s.dx, s.dy);
+          }
+          path.close();
+        }
+
+        loopPath(r.outer.pts);
+        for (final h in r.holes) {
+          loopPath(h.pts);
+        }
+        canvas.drawPath(
+            path, Paint()..color = T.blue.withOpacity(selected ? 0.38 : 0.16));
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = selected ? 1.6 : 1
+              ..color = selected ? T.hover : T.blue.withOpacity(0.7));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _OverlayPainter old) => true;
 }
 
 // ---------------------------------------------------------------------------

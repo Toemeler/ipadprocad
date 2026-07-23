@@ -186,7 +186,7 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
       for (final (key, _) in _axisDirs)
         {'key': key, 'visible': p.vis[key] == true, 'hot': hover == key}
     ],
-    'cp': {'visible': p.vis['cp'] == true},
+    'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},
   };
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) out['highlight'] = hl;

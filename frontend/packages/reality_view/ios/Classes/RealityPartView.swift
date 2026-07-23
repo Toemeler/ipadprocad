@@ -247,7 +247,7 @@ final class PartRenderer: NSObject {
             }
         }
         if let c = a["cp"] as? [String: Any] {
-            cpEntity?.isEnabled = (c["visible"] as? NSNumber)?.boolValue ?? true
+            rebuildCenterPoint(c)
         }
         rebuildHighlight(from: a["highlight"] as? [String: Any])
     }
@@ -300,9 +300,10 @@ final class PartRenderer: NSObject {
     private func rebuildCenterPoint(_ c: [String: Any]?) {
         cpEntity?.removeFromParent(); cpEntity = nil
         guard let c = c, ((c["visible"] as? NSNumber)?.boolValue ?? false) else { return }
+        let hot = (c["hot"] as? NSNumber)?.boolValue ?? false
         let e = ModelEntity(
-            mesh: .generateSphere(radius: 0.5),
-            materials: [Materials.unlit(Colors.orange)])
+            mesh: .generateSphere(radius: hot ? 0.6 : 0.5),
+            materials: [Materials.unlit(hot ? Colors.green : Colors.orange)])
         cpEntity = e
         root.addChild(e)
     }

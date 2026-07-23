@@ -219,5 +219,15 @@ void main() {
       final axes = (oa['axes'] as List).cast<Map>();
       expect(axes.firstWhere((m) => m['key'] == 'y')['hot'], isTrue);
     });
+
+    test('carries the centre-point hover state', () {
+      final p = _partWith([_feat('Extrusion1', _cyl())]);
+      p.vis['cp'] = true;
+      final o = buildOverlaysPayload(AppState(), p, hover: 'cp');
+      expect((o['cp'] as Map)['visible'], isTrue);
+      expect((o['cp'] as Map)['hot'], isTrue);
+      final off = buildOverlaysPayload(AppState(), p, hover: 'xy');
+      expect((off['cp'] as Map)['hot'], isFalse);
+    });
   });
 }
