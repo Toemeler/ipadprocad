@@ -138,6 +138,14 @@ struct SolidGeom {
         triFaces = Payload.ints(s["triFaces"]) ?? []
     }
 
+    /// Distance of the farthest vertex from the world origin — feeds the
+    /// scene-fitted near/far range (see PartRenderer.placeCamera).
+    var boundingRadius: Float {
+        var r: Float = 0
+        for p in positions { r = max(r, simd_length(p)) }
+        return r
+    }
+
     func shadedEntity(material: RealityKit.Material) -> Entity {
         var d = MeshDescriptor(name: "solid")
         d.positions = MeshBuffers.Positions(positions)
@@ -147,12 +155,12 @@ struct SolidGeom {
         return ModelEntity(mesh: mesh, materials: [material])
     }
 
-    func edgeEntity(color: UIColor = Colors.edge) -> Entity? {
+    func edgeEntity(color: UIColor = Colors.edge, radius: Float = 0.10) -> Entity? {
         guard edgeStarts.count >= 2 else {
             // No per-edge offsets: draw the whole edge point cloud as one tube
             // chain if any points exist.
             if edgePts.isEmpty { return nil }
-            return TubeBuilder.polyline(edgePts, radius: 0.10,
+            return TubeBuilder.polyline(edgePts, radius: radius,
                                         material: Materials.unlit(color))
         }
         var segs = [(SIMD3<Float>, SIMD3<Float>)]()
@@ -163,7 +171,7 @@ struct SolidGeom {
                 segs.append((edgePts[i], edgePts[i + 1]))
             }
         }
-        return TubeBuilder.segments(segs, radius: 0.10, material: Materials.unlit(color))
+        return TubeBuilder.segments(segs, radius: radius, material: Materials.unlit(color))
     }
 
     /// Submesh of the triangles belonging to [face], nudged out along their
@@ -171,14 +179,13 @@ struct SolidGeom {
     /// Takes an Int because that is what NSNumber.intValue yields on the wire;
     /// the per-triangle face buffer is Int32, so the conversion happens once
     /// here instead of at every call site.
-    func faceHighlightEntity(face faceId: Int) -> ModelEntity? {
+    func faceHighlightEntity(face faceId: Int, eps: Float = 0.04) -> ModelEntity? {
         let face = Int32(faceId)
         guard triFaces.count * 3 == indices.count else { return nil }
         var pos = [SIMD3<Float>]()
         var nrm = [SIMD3<Float>]()
         var idx = [UInt32]()
         var next: UInt32 = 0
-        let eps: Float = 0.04
         var t = 0
         while t < triFaces.count {
             if triFaces[t] == face {
@@ -217,11 +224,17 @@ final class PlaneEntity {
     private var fill: ModelEntity?
     private var outline: Entity?
     private let corners: [SIMD3<Float>]
+    /// Plane normal — used to lift the plane toward the camera when a solid
+    /// face happens to be EXACTLY coplanar with it (origin plane through a
+    /// face). Without this the two surfaces z-fight; the user-visible rule is
+    /// "the work plane wins", same as Inventor.
+    private let normal: SIMD3<Float>
 
     init?(payload p: [String: Any]) {
         guard let frame = Payload.doubles(p["frame"]), frame.count >= 9 else { return nil }
         let u = SIMD3<Float>(Float(frame[0]), Float(frame[1]), Float(frame[2]))
         let v = SIMD3<Float>(Float(frame[3]), Float(frame[4]), Float(frame[5]))
+        normal = SIMD3<Float>(Float(frame[6]), Float(frame[7]), Float(frame[8]))
         let origin = Payload.vec3(p["origin"]) ?? SIMD3<Float>(0, 0, 0)
         let ext = Float((p["ext"] as? NSNumber)?.doubleValue ?? 10)
         corners = [
@@ -261,6 +274,14 @@ final class PlaneEntity {
 
     func setHot(_ hot: Bool) { build(hot: hot) }
     func setVisible(_ v: Bool) { entity.isEnabled = v }
+
+    /// Shift the plane a hair toward the camera along its own normal, so a
+    /// coplanar solid face can never win the depth test against it. [eps]
+    /// scales with the zoom, so the lift stays sub-pixel at every scale.
+    func applyBias(camDir: SIMD3<Float>, eps: Float) {
+        let side: Float = simd_dot(normal, camDir) >= 0 ? 1 : -1
+        entity.position = normal * (eps * side)
+    }
 }
 
 // ---------------------------------------------------------------------------

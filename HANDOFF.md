@@ -124,6 +124,38 @@ Token NIE in Dateien/.git/config schreiben.
 > Alle Handler (Orbit/Pan/Zoom/Tap/Hover) sind unverändert, nur die
 > Verschachtelung hat sich gedreht.
 >
+> **GERÄTETEST RUNDE 2 (Build `9e5f60c`) — Skalierung + Tap bestätigt, fünf
+> Darstellungsfehler mit EINER gemeinsamen Ursache:** Skizzieren und Extrudieren
+> funktionieren jetzt. Gemeldet wurden: (a) kein blaues Face-Prehighlight beim
+> Skizzenebenen-Pick, (b) bei starkem Zoom KEINE Kantenlinien, (c) bei normaler
+> Größe ausgefranste/gesprenkelte Umrisse, (d) Artefakte wenn Ebene und Fläche
+> exakt koplanar sind, (e) Skizzen auf Flächen unsichtbar.
+>
+> **Ursache: Tiefenpuffer-Präzision.** Die Kamera lief mit `near = 0.01`,
+> `far = 1_000_000` bei Distanz 100_000. Orthografische Tiefe ist LINEAR, der
+> Puffer verteilte 24 Bit also über eine Million Millimeter → ~0.06 mm
+> Auflösung. Mein Kantenradius war 0.10 mm, der Highlight-Versatz 0.04 mm —
+> beide am oder unter dem Rauschen. Damit erklären sich (a) bis (e) zwanglos:
+> alles, was auf oder knapp über einer Fläche liegt, wurde von ihr verschluckt.
+>
+> **Fixes:** (1) **Szenen-angepasste Tiefenspanne** — `sceneRadius` aus den
+> Mesh-Bounds, `pad = max(sceneRadius, halfH) + 10`, `dist = 4·pad`,
+> `near/far = dist ∓ 2·pad`. Statt 1e6 mm nur noch ~100 mm Spanne → Auflösung
+> um ~4 Größenordnungen besser. (2) **Koplanar-Versatz**: Ursprungsebenen und
+> Skizzen werden entlang ihrer eigenen Normalen um einen zoom-skalierten
+> Sub-Pixel-Betrag ZUR KAMERA gehoben — die Ebene/Skizze gewinnt gegen eine
+> exakt koplanare Fläche, wie gewünscht und wie in Inventor. Dafür sendet Dart
+> jetzt die Skizzen-Normale (`'n'`) mit. (3) **Kantenröhren** werden ebenfalls
+> zur Kamera versetzt (sie liegen mittig auf der Flächengrenze, halb IM Solid —
+> das war das Sprenkeln) und ihr Radius skaliert jetzt mit `halfH`
+> (`1.2e-3·halfH`), damit Linien bei jedem Zoom etwa gleich stark bleiben.
+> (4) Der Highlight-Versatz skaliert mit (`2e-3·halfH`).
+>
+> **Offen/unbestätigt:** ob (e) wirklich nur Z-Fighting war — eine VERBRAUCHTE
+> Skizze ist per Inventor-Semantik absichtlich unsichtbar (`cs.visible=false`,
+> Auge im Browser holt sie zurück). Falls die Skizze auch nach dem Fix fehlt,
+> ist es diese Semantik und kein Renderfehler.
+>
 > **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
 > Xcode/Flutter im Container):**
 > 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale

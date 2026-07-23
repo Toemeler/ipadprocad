@@ -145,6 +145,9 @@ void main() {
       expect(sketches.length, 1);
       final polys = (sketches.first as Map)['polylines'] as List;
       expect(polys.length, 1);
+      // the plane normal rides along so the renderer can lift a face sketch
+      // clear of the coplanar face
+      expect((sketches.first as Map)['n'], [0.0, 0.0, 1.0]);
       final buf = polys.first as Float64List;
       // Two endpoints, xyz each, lying on the XY plane (z == 0).
       expect(buf.length, 6);

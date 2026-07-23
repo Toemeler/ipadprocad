@@ -130,7 +130,14 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
       }
       polylines.add(buf);
     }
-    if (polylines.isNotEmpty) out.add({'polylines': polylines});
+    if (polylines.isNotEmpty) {
+      out.add({
+        'polylines': polylines,
+        // Normal of the sketch plane: lets the renderer lift a sketch drawn ON
+        // a solid face clear of that face (they are exactly coplanar).
+        'n': [frame.n.x, frame.n.y, frame.n.z],
+      });
+    }
   }
   return out;
 }

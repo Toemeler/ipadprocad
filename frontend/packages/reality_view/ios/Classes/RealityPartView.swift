@@ -98,6 +98,16 @@ final class PartRenderer: NSObject {
     private var axisEntities: [String: AxisEntity] = [:]
     private var cpEntity: Entity?
     private var sketchRoot = Entity()
+    /// Sketch polyline entities with the normal of the plane they lie on, so
+    /// a sketch drawn ON a solid face can be lifted clear of it.
+    private var sketchEntities: [(Entity, SIMD3<Float>)] = []
+    /// Edge tubes, kept so they can be nudged toward the camera: a tube is
+    /// centred ON the face boundary, so half of it sits INSIDE the solid and
+    /// speckles through the surface at grazing angles.
+    private var edgeEntities: [Entity] = []
+    /// Radius of the rendered geometry around the origin — drives the fitted
+    /// near/far range. Starts at the origin-plane extent (±10 mm diagonal).
+    private var sceneRadius: Float = 15
     private var previewEntity: Entity?
     private var highlightEntity: ModelEntity?
 
@@ -136,7 +146,7 @@ final class PartRenderer: NSObject {
             eye: SIMD3<Float>(-3, 6, -4), target: .zero, up: SIMD3<Float>(0, 1, 0)))
         root.addChild(fillLight)
 
-        applyCameraComponent()
+        applyCameraComponent(dist: 400, near: 1, far: 800)
         root.addChild(cameraEntity)
         root.addChild(sketchRoot)
         arView.scene.anchors.append(root)
@@ -144,9 +154,13 @@ final class PartRenderer: NSObject {
 
     // MARK: - Camera
 
-    private func applyCameraComponent() {
-        // True orthographic on iOS 18+, near-orthographic perspective below
-        // (long lens far away keeps CAD parallax negligible).
+    /// [dist] is where the camera sits along +dir; [near]/[far] bracket the
+    /// scene TIGHTLY. This matters far more than it looks: an orthographic
+    /// depth buffer is LINEAR, so a 0.01…1_000_000 range spread 24 bits over a
+    /// million millimetres (~0.06 mm resolution) — coarser than the edge tubes
+    /// and the face-highlight lift, which is what made edges speckle, vanish
+    /// when zoomed in, and coplanar surfaces fight.
+    private func applyCameraComponent(dist: Float, near: Float, far: Float) {
         if #available(iOS 18.0, *) {
             var oc = OrthographicCameraComponent()
             // CALIBRATED ON DEVICE (M60, build 0f04ca2): RealityKit's ortho
@@ -157,17 +171,18 @@ final class PartRenderer: NSObject {
             // everything render at half size — measured against the Dart
             // overlay's projected plane corners: factor 1.985 ≈ 2.
             oc.scale = Float(max(cam.halfH, 1e-4))
-            oc.near = 0.01
-            oc.far = 1_000_000
+            oc.near = near
+            oc.far = far
             cameraEntity.components.set(oc)
             cameraEntity.components.remove(PerspectiveCameraComponent.self)
         } else {
             var pc = PerspectiveCameraComponent()
-            pc.near = 0.01
-            pc.far = 1_000_000
+            pc.near = near
+            pc.far = far
             pc.fieldOfViewInDegrees = Float(cam.nearOrthoFovDeg)
             cameraEntity.components.set(pc)
         }
+        _ = dist
     }
 
     func setCamera(_ a: [String: Any]) {
@@ -186,19 +201,37 @@ final class PartRenderer: NSObject {
         let up = simd_normalize(simd_cross(right, fwd))
 
         let center = right * Float(cam.ox) + up * Float(cam.oy)
-        // Perspective fallback needs D tuned to halfH so the FOV frames 2·halfH;
-        // orthographic ignores D for size, so a large constant is fine there.
-        let dist: Float = {
-            if #available(iOS 18.0, *) { return 100_000 }
-            return Float(cam.halfH) / tan(Float(cam.nearOrthoFovRad) * 0.5)
-        }()
+        // Fit the depth range to the scene instead of using a huge constant:
+        // pad covers the geometry radius AND the current view height, so
+        // nothing ever clips, while the range stays small enough for a precise
+        // depth buffer.
+        let pad = max(sceneRadius, Float(cam.halfH)) + 10
+        let dist: Float
+        if #available(iOS 18.0, *) {
+            dist = pad * 4
+        } else {
+            dist = Float(cam.halfH) / tan(Float(cam.nearOrthoFovRad) * 0.5)
+        }
+        let near = max(0.001, dist - pad * 2)
+        let far = dist + pad * 2
         let pos = center + dir * dist
 
         // Right-handed look-at: RealityKit cameras look down local -Z, +Y up.
         cameraEntity.transform = Transform(matrix: Self.lookAt(eye: pos, target: center, up: up))
 
-        // Update ortho scale / fallback distance for the new zoom.
-        applyCameraComponent()
+        // Update ortho scale + the fitted depth range for the new zoom.
+        applyCameraComponent(dist: dist, near: near, far: far)
+
+        // Coplanar overlays (origin planes, sketches on faces) are lifted a
+        // hair toward the camera so they win against an exactly coincident
+        // solid face — "the work plane / sketch is in front", like Inventor.
+        let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
+        for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
+        for e in edgeEntities { e.position = dir * bias }
+        for (e, n) in sketchEntities {
+            let side: Float = simd_dot(n, dir) >= 0 ? 1 : -1
+            e.position = n * (bias * side)
+        }
 
         // Headlight follows the camera (points along the view direction).
         headlight.transform = Transform(matrix: Self.lookAt(eye: pos, target: center, up: up))
@@ -224,6 +257,8 @@ final class PartRenderer: NSObject {
     // MARK: - Scene
 
     func setScene(_ a: [String: Any]) {
+        sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
+        edgeEntities.removeAll()
         rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
         rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
         rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
@@ -276,11 +311,15 @@ final class PartRenderer: NSObject {
             } else {
                 material = Materials.steel()
             }
+            sceneRadius = max(sceneRadius, geom.boundingRadius)
             let shaded = geom.shadedEntity(material: material)
-            let edges = geom.edgeEntity()
+            let edges = geom.edgeEntity(radius: edgeRadius)
             let holder = Entity()
             holder.addChild(shaded)
-            if let edges = edges { holder.addChild(edges) }
+            if let edges = edges {
+                holder.addChild(edges)
+                edgeEntities.append(edges)
+            }
             // Replace the previous holder for this id.
             solidEntities[id]?.removeFromParent()
             root.addChild(holder)
@@ -322,25 +361,43 @@ final class PartRenderer: NSObject {
     private func rebuildSketches(_ sketches: [[String: Any]]) {
         sketchRoot.removeFromParent()
         sketchRoot = Entity()
+        sketchEntities.removeAll()
         for sk in sketches {
             guard let polys = sk["polylines"] as? [Any] else { continue }
+            // Normal of the sketch plane (origin plane or the picked face).
+            let n = Payload.vec3(sk["n"]) ?? SIMD3<Float>(0, 0, 1)
             for raw in polys {
                 guard let pts = Payload.floats(raw) else { continue }
                 if let e = TubeBuilder.polyline(
-                    pts, radius: 0.12, material: Materials.unlit(Colors.sketch)) {
+                    pts, radius: edgeRadius * 1.2,
+                    material: Materials.unlit(Colors.sketch)) {
                     sketchRoot.addChild(e)
+                    sketchEntities.append((e, n))
                 }
             }
         }
         root.addChild(sketchRoot)
     }
 
+    /// Edge/sketch tube radius tied to the zoom, so lines keep a roughly
+    /// constant on-screen weight instead of vanishing when zoomed in.
+    private var edgeRadius: Float { max(Float(cam.halfH) * 1.2e-3, 1e-6) }
+
+    /// Outward lift of the blue face prehighlight — must comfortably exceed
+    /// the depth resolution at the current zoom, or the highlight is swallowed
+    /// by the face it is supposed to mark.
+    private var highlightEps: Float { max(Float(cam.halfH) * 2e-3, 1e-5) }
+
     private func rebuildPreview(_ p: [String: Any]?) {
         previewEntity?.removeFromParent(); previewEntity = nil
         guard let p = p, let geom = SolidGeom(payload: p) else { return }
+        sceneRadius = max(sceneRadius, geom.boundingRadius)
         let holder = Entity()
         holder.addChild(geom.shadedEntity(material: Materials.preview()))
-        if let edges = geom.edgeEntity(color: Colors.previewEdge) { holder.addChild(edges) }
+        if let edges = geom.edgeEntity(color: Colors.previewEdge, radius: edgeRadius) {
+            holder.addChild(edges)
+            edgeEntities.append(edges)
+        }
         previewEntity = holder
         root.addChild(holder)
     }
@@ -354,7 +411,7 @@ final class PartRenderer: NSObject {
               let face = (h["face"] as? NSNumber)?.intValue,
               face >= 0,
               let geom = solidCache[id] else { return }
-        guard let e = geom.faceHighlightEntity(face: face) else { return }
+        guard let e = geom.faceHighlightEntity(face: face, eps: highlightEps) else { return }
         highlightEntity = e
         root.addChild(e)
     }
