@@ -1,0 +1,23 @@
+name: reality_view
+description: >-
+  In-repo iOS plugin: a RealityKit-backed 3D viewport surface for Flutter,
+  driven from Dart. Vends a UiKitView hosting an ARView (.nonAR) with a true
+  orthographic camera; the app pushes mesh/overlay/camera payloads over a
+  method channel and RealityKit renders them on the GPU (real depth buffer,
+  physically-based shading) — replacing the CPU painter's-algorithm renderer.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: RealityViewPlugin

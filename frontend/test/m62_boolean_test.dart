@@ -1,4 +1,4 @@
-// M60 — Cut/Intersect booleans, the live boolean preview, and the closed-
+// M62 — Cut/Intersect booleans, the live boolean preview, and the closed-
 // spline extrude fix. The OCCT kernel is NOT linked on host, so a fake
 // [PartKernel] with DISTINCT stub volumes per op exercises the fold and
 // preview machinery; the spline fix is pure Dart (profile loop cleaning) and

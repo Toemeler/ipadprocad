@@ -13,10 +13,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
 import '../part_model.dart';
 import '../part_render.dart';
+import '../reality_scene.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
 
@@ -47,6 +49,9 @@ class _Viewport3DState extends State<Viewport3D> {
   @override
   void dispose() {
     _refineTimer?.cancel();
+    // The controller itself is owned (and disposed) by the RealityView widget's
+    // own State; just drop our reference so late pushes are no-ops.
+    _reality = null;
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
@@ -76,7 +81,32 @@ class _Viewport3DState extends State<Viewport3D> {
   // coalesces into a single kernel re-mesh once the gesture settles.
   Timer? _refineTimer;
 
+  // M60: the RealityKit output surface. Null until the platform view is
+  // created, and always null off-iOS — where the CPU painter (_ScenePainter)
+  // still draws, so host/widget tests and the headless thumbnail path are
+  // unaffected. When present, all world-space geometry is rendered by
+  // RealityKit (GPU depth buffer), and this widget only pushes scene/camera/
+  // overlay payloads; the Flutter layer keeps gestures, ViewCube and triad.
+  RealityViewController? _reality;
+  String? _lastSceneSig;
+
   PartModel? get part => widget.app.currentPart;
+
+  /// Push the current camera (always), the scene (only when its signature
+  /// changed — meshes are large) and the light overlay state to RealityKit.
+  void _pushReality(AppState app, PartModel p, Size size) {
+    final c = _reality;
+    if (c == null) return;
+    c.setCamera(cameraPayload(p.camera, size));
+    final sig = sceneSignature(app, p);
+    if (sig != _lastSceneSig) {
+      _lastSceneSig = sig;
+      c.setScene(
+          buildScenePayload(app, p, hover: _hover, hoverFace: _hoverFace));
+    }
+    c.setOverlays(
+        buildOverlaysPayload(app, p, hover: _hover, hoverFace: _hoverFace));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +119,53 @@ class _Viewport3DState extends State<Viewport3D> {
       // Keep solids at screen resolution: refine on the first frame, on resize,
       // and whenever a new (coarse) preview appears. Cheap no-op once smooth.
       _armRefine(size);
+      // Drive the RealityKit surface (iOS). Off-iOS this is a no-op and the
+      // CustomPaint fallback below renders instead.
+      if (RealityView.isSupported) _pushReality(app, p, size);
       return Stack(children: [
+        // The render surfaces sit at the BOTTOM and are never hit-tested; the
+        // gesture layer is stacked on top of them (see below).
+        Positioned.fill(
+          child: ClipRect(
+            child: Stack(children: [
+              Positioned.fill(
+                child: RealityView.isSupported
+                    // IgnorePointer: the ARView is a pure output surface. A
+                    // platform view must never be the topmost hit target — on
+                    // iOS its touch interception swallowed taps before the
+                    // Flutter gesture arena saw them (hover worked, taps did
+                    // not: device build 0f04ca2).
+                    ? IgnorePointer(
+                        child: RealityView(
+                          placeholder: const ColoredBox(color: T.viewport),
+                          onCreated: (c) {
+                            _reality = c;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) setState(() {});
+                            });
+                          },
+                        ),
+                      )
+                    : CustomPaint(
+                        painter: _ScenePainter(
+                            app, p, _hover, _hoverRegion, _hoverFace),
+                        size: Size.infinite,
+                      ),
+              ),
+              // Screen-space decorations (iOS only — the CPU painter draws its
+              // own): profile regions, hover rings, plane label.
+              if (RealityView.isSupported)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _OverlayPainter(app, p, _hover, _hoverRegion),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ),
         Positioned.fill(
           child: Listener(
             onPointerDown: (e) {
@@ -155,11 +231,10 @@ class _Viewport3DState extends State<Viewport3D> {
                   }
                   _mmbLast = d.localFocalPoint;
                 }),
-                child: CustomPaint(
-                  painter:
-                      _ScenePainter(app, p, _hover, _hoverRegion, _hoverFace),
-                  size: Size.infinite,
-                ),
+                // Transparent hit surface: the render layers sit BELOW
+                // this in the outer Stack, so the topmost hit target is
+                // always a plain Flutter widget, never the platform view.
+                child: const SizedBox.expand(),
               ),
             ),
           ),
@@ -296,11 +371,21 @@ class _Viewport3DState extends State<Viewport3D> {
       hit = _hitOrigin(cam, px, p, planesOnly: app.pickPlane);
     }
     // Inventor prehighlight (M59): while picking a sketch plane, hovering a
-    // planar solid face tints it blue. Origin planes win, like the tap.
+    // planar solid face tints it blue. The face wins over an origin plane
+    // BEHIND it — compare view depth, since the huge origin planes otherwise
+    // capture every pixel and the face would never highlight.
     (KernelSolid, int)? hf;
-    if (app.pickPlane && hit == null) {
+    if (app.pickPlane && region == null) {
       final pick = _pickSolidFace(cam, px);
-      if (pick != null && pick.$2 >= 0) hf = (pick.$1, pick.$2);
+      if (pick != null && pick.$2 >= 0) {
+        final planeD = hit == null
+            ? double.infinity
+            : _planeDepthAt(cam, px, hit) ?? double.infinity;
+        if (pick.$4 <= planeD + 1e-6) {
+          hf = (pick.$1, pick.$2);
+          hit = null; // the face is in front: it prehighlights, not the plane
+        }
+      }
     }
     if (hit != _hover ||
         region != _hoverRegion ||
@@ -339,7 +424,10 @@ class _Viewport3DState extends State<Viewport3D> {
     String? best;
     var bestD = double.infinity;
     for (final key in kPlaneKeys) {
-      if (!(p.vis[key] == true || (planesOnly && widget.app.pickPlane))) {
+      // Origin planes are auto-pickable only while the part is still empty
+      // (first extrusion); afterwards only if explicitly switched on.
+      if (!(p.vis[key] == true ||
+          (planesOnly && widget.app.pickPlane && !p.hasSolid))) {
         continue;
       }
       final f = planeFrame(key);
@@ -357,15 +445,26 @@ class _Viewport3DState extends State<Viewport3D> {
     return best;
   }
 
+  /// View depth of origin plane [key] directly under the pointer, or null if
+  /// the ray misses the plane's bounded extent. Lets hover/tap compare a
+  /// plane against a solid face sitting in front of it.
+  double? _planeDepthAt(Cam3 cam, Offset px, String key) {
+    if (!kPlaneKeys.contains(key)) return null;
+    final f = planeFrame(key);
+    final w = cam.rayOnPlane(px, f.n);
+    if (w == null) return null;
+    return cam.depth(w);
+  }
+
   /// Nearest front-facing solid triangle under the pointer -> the frame of
   /// the planar face it belongs to (Inventor's sketch-on-face, M58). The
   /// orthographic projection is affine, so barycentric coordinates of the
   /// screen hit reproduce the world point exactly.
   /// The nearest PLANAR solid face under [px]: (solid, v4 face id or -1,
-  /// sketch frame). Planarity comes from the B-Rep face record when the mesh
-  /// carries v4 metadata, else from the vertex-normal test (fake kernels).
-  (KernelSolid, int, PlaneFrame)? _pickSolidFace(Cam3 cam, Offset px) {
-    (KernelSolid, int, PlaneFrame)? best;
+  /// sketch frame, view depth). Planarity comes from the B-Rep face record
+  /// when the mesh carries v4 metadata, else from the vertex-normal test.
+  (KernelSolid, int, PlaneFrame, double)? _pickSolidFace(Cam3 cam, Offset px) {
+    (KernelSolid, int, PlaneFrame, double)? best;
     var bestDepth = double.infinity;
     for (final s in _liveSolids()) {
       final m = s.mesh;
@@ -382,7 +481,7 @@ class _Viewport3DState extends State<Viewport3D> {
         final w2 =
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) >= 0) continue;
         final nn = n.normalized();
         var faceId = -1;
         if (v4) {
@@ -429,7 +528,7 @@ class _Viewport3DState extends State<Viewport3D> {
                     m.faceInfos[15 * faceId + 5], m.faceInfos[15 * faceId + 6])
                 .normalized();
           }
-          best = (s, faceId, faceFrame(w, fn));
+          best = (s, faceId, faceFrame(w, fn), d);
         }
       }
     }
@@ -443,11 +542,21 @@ class _Viewport3DState extends State<Viewport3D> {
     //    face of a solid (Inventor's sketch-on-face)
     if (app.pickPlane) {
       final key = _hitOrigin(cam, px, p, planesOnly: true);
+      final face = _pickSolidFace(cam, px);
+      // whichever surface is NEARER under the pointer wins — a solid face in
+      // front of an origin plane must be the one you sketch on (Inventor).
+      final planeD = key != null
+          ? (_planeDepthAt(cam, px, key) ?? double.infinity)
+          : double.infinity;
+      final faceD = face?.$4 ?? double.infinity;
+      if (face != null && faceD <= planeD + 1e-6) {
+        app.facePicked(face.$3);
+        return;
+      }
       if (key != null && kPlaneKeys.contains(key)) {
         app.planePicked(key);
         return;
       }
-      final face = _pickSolidFace(cam, px);
       if (face != null) app.facePicked(face.$3);
       return;
     }
@@ -503,9 +612,50 @@ class _ScenePainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
     final cam = Cam3(part.camera, size);
 
+    // The opaque solids form a depth occluder: origin planes and sketches are
+    // infinitely thin, so their pixels are hidden wherever a nearer solid
+    // front face covers them. This is what makes the 2D overlays read as
+    // truly 3D (a sketch behind the model is hidden; one in front covers it).
+    final occSolids = [
+      for (final f in part.features)
+        if (f.visible &&
+            f.solid != null &&
+            !f.consumedByJoin &&
+            f != app.extrudeSession?.editing &&
+            f.bodyName != app.extrudeSession?.previewReplacesBody)
+          f.solid!
+    ];
+    final occ = occSolids.isEmpty ? null : solidOccluder(occSolids, cam);
+
+    // Draw the SOLIDS first, then origin planes, then sketches. This gives the
+    // Inventor coplanar tie-break — a sketch or plane on the exact plane of a
+    // face is not hidden by it (occlusion bias) and, being drawn later, layers
+    // ON TOP: sketch > plane > geometry. Overlays genuinely BEHIND the model
+    // are still removed per-pixel by [occ]. The edited feature is replaced by
+    // its translucent live preview, drawn on top by paintPartSolids. For a
+    // boolean preview the whole target body is hidden too, so the combined
+    // result (sess.preview) stands in for it rather than z-fighting it.
+    {
+      final sess = app.extrudeSession;
+      final solids = [
+        for (final f in part.features)
+          if (f.visible &&
+              f.solid != null &&
+              !f.consumedByJoin &&
+              f != sess?.editing &&
+              f.bodyName != sess?.previewReplacesBody)
+            f.solid!
+      ];
+      paintPartSolids(canvas, cam, solids,
+          previewSolid: sess?.preview,
+          highlightSolid: hoverFace?.$1,
+          highlightFace: hoverFace?.$2 ?? -1);
+    }
+
     // ---- origin planes (fills first: everything else draws over them) ----
     for (final key in kPlaneKeys) {
-      final visible = part.vis[key] == true || app.pickPlane;
+      final visible =
+          part.vis[key] == true || (app.pickPlane && !part.hasSolid);
       if (!visible) continue;
       final f = planeFrame(key);
       final corners = [
@@ -514,19 +664,23 @@ class _ScenePainter extends CustomPainter {
         f.toWorld(const Offset(_ext, _ext)),
         f.toWorld(const Offset(-_ext, _ext)),
       ];
-      final path = Path()
-        ..addPolygon([for (final c in corners) cam.project(c)], true);
       final hot = hover == key;
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = (hot ? _green : _orange).withOpacity(hot ? 0.45 : 0.30));
-      canvas.drawPath(
-          path,
+      // The construction plane fill is a real 3D surface: it is occluded by
+      // the solids so it passes THROUGH the model instead of floating on top.
+      drawOccludedQuadFill(canvas, cam, corners[0], corners[1], corners[2],
+          corners[3], (hot ? _green : _orange).withOpacity(hot ? 0.42 : 0.28),
+          occ: occ);
+      drawOccludedPolyline(
+          canvas,
+          cam,
+          corners,
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1
-            ..color = hot ? _greenBright : _orangeEdge);
+            ..color = hot ? _greenBright : _orangeEdge,
+          occ: occ,
+          close: true,
+          extra: occ?.edgeMargin ?? 0);
       if (hot) {
         // corner rings + centre dot + name label lying on the plane
         for (final c in corners) {
@@ -608,35 +762,15 @@ class _ScenePainter extends CustomPainter {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
       if (!cs.visible && !showForSession) continue;
-      _paintSketch(canvas, cam, cs);
+      _paintSketch(canvas, cam, cs, occ: occ);
       if (sess != null && showForSession) {
         _paintRegions(canvas, cam, cs, sess);
       }
     }
-
-    // ---- solids: depth-sorted triangles + B-Rep edges (painter algo) ----
-    // The feature being edited is hidden while its live preview stands in;
-    // that preview is drawn translucent on top. For a boolean preview
-    // (join/cut/intersect) the WHOLE target body is hidden too, so the
-    // combined result — carried by sess.preview — stands in for it instead of
-    // z-fighting the old body. Same picture the gallery thumbnail renders
-    // off-screen (minus the session preview) via paintPartSolids.
-    final solids = [
-      for (final f in part.features)
-        if (f.visible &&
-            f.solid != null &&
-            !f.consumedByJoin &&
-            f != sess?.editing &&
-            f.bodyName != sess?.previewReplacesBody)
-          f.solid!
-    ];
-    paintPartSolids(canvas, cam, solids,
-        previewSolid: sess?.preview,
-        highlightSolid: hoverFace?.$1,
-        highlightFace: hoverFace?.$2 ?? -1);
   }
 
-  void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs) {
+  void _paintSketch(Canvas canvas, Cam3 cam, ChildSketch cs,
+      {SceneOccluders? occ}) {
     final frame = sketchFrameOf(cs);
     final pen = Paint()
       ..style = PaintingStyle.stroke
@@ -648,12 +782,11 @@ class _ScenePainter extends CustomPainter {
       if (li >= 0 && li >= cs.model.eosAfter) continue;
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
-      final path = Path();
-      for (var i = 0; i < pts.length; i++) {
-        final s = cam.project(frame.toWorld(pts[i]));
-        i == 0 ? path.moveTo(s.dx, s.dy) : path.lineTo(s.dx, s.dy);
-      }
-      canvas.drawPath(path, pen);
+      // Project to world on the sketch plane, then stroke only the parts not
+      // hidden behind a nearer solid face — the sketch now sits in 3D.
+      drawOccludedPolyline(
+          canvas, cam, [for (final p in pts) frame.toWorld(p)], pen,
+          occ: occ, extra: occ?.edgeMargin ?? 0);
     }
   }
 
@@ -691,6 +824,123 @@ class _ScenePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ScenePainter old) => true;
+}
+
+// ---------------------------------------------------------------------------
+// screen-space overlay painter (M60)
+//
+// The decorations the CPU painter drew WITHOUT any occluder — profile-region
+// fills, plane hover rings/label, axis end rings, centre-point ring. They are
+// pure screen-space HUD, so on iOS they stay in Flutter and are stacked ON TOP
+// of the RealityKit surface, reproducing the previous behaviour exactly. Only
+// the depth-tested world geometry moved to RealityKit.
+// ---------------------------------------------------------------------------
+class _OverlayPainter extends CustomPainter {
+  final AppState app;
+  final PartModel part;
+  final String? hover;
+  final int? hoverRegion;
+  _OverlayPainter(this.app, this.part, this.hover, this.hoverRegion);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cam = Cam3(part.camera, size);
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = _greenBright;
+
+    // ---- hovered origin plane: corner rings + centre dot + name label ----
+    if (hover != null && kPlaneKeys.contains(hover)) {
+      final f = planeFrame(hover!);
+      final corners = [
+        f.toWorld(const Offset(-_ext, -_ext)),
+        f.toWorld(const Offset(_ext, -_ext)),
+        f.toWorld(const Offset(_ext, _ext)),
+        f.toWorld(const Offset(-_ext, _ext)),
+      ];
+      for (final c in corners) {
+        canvas.drawCircle(cam.project(c), 6, ring);
+      }
+      canvas.drawCircle(
+          cam.project(Vec3.zero), 4, Paint()..color = const Color(0xFFFFE07A));
+      final p0 = cam.project(f.toWorld(const Offset(-_ext + 0.6, -_ext + 1.4)));
+      final p1 = cam.project(f.toWorld(const Offset(-_ext + 4.6, -_ext + 1.4)));
+      final ang = math.atan2(p1.dy - p0.dy, p1.dx - p0.dx);
+      canvas.save();
+      canvas.translate(p0.dx, p0.dy);
+      canvas.rotate(ang);
+      final tp = TextPainter(
+          text: TextSpan(
+              text: planeLabel(hover!),
+              style: ts(12, _greenBright, w: FontWeight.w700)),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      tp.paint(canvas, Offset(0, -tp.height));
+      canvas.restore();
+    }
+
+    // ---- hovered axis: rings at both ends ----
+    for (final e in [
+      ('x', const Vec3(1, 0, 0)),
+      ('y', const Vec3(0, 1, 0)),
+      ('z', const Vec3(0, 0, 1))
+    ]) {
+      if (part.vis[e.$1] != true || hover != e.$1) continue;
+      for (final p in [
+        cam.project(e.$2 * -_ext),
+        cam.project(e.$2 * _ext),
+      ]) {
+        canvas.drawCircle(p, 6, ring);
+      }
+    }
+
+    // ---- hovered centre point: highlight ring (the dot itself is a
+    // RealityKit entity, so it stays depth-tested) ----
+    if (part.vis['cp'] == true && hover == 'cp') {
+      canvas.drawCircle(cam.project(Vec3.zero), 9, ring);
+    }
+
+    // ---- extrude profile regions (hovered / selected) ----
+    final sess = app.extrudeSession;
+    if (sess == null) return;
+    for (final cs in part.childSketches) {
+      final showForSession =
+          sess.sketchName == cs.model.name || sess.sketchName == null;
+      if (!showForSession) continue;
+      final frame = sketchFrameOf(cs);
+      for (final r in app.sessionRegions(cs)) {
+        final selected = sess.sketchName == cs.model.name &&
+            sess.hasProfileAt(interiorPointOf(r.outer));
+        final hovered = hoverRegion == r.outer.id;
+        if (!selected && !hovered) continue;
+        final path = Path()..fillType = PathFillType.evenOdd;
+        void loopPath(List<Offset> pts) {
+          for (var i = 0; i < pts.length; i++) {
+            final s = cam.project(frame.toWorld(pts[i]));
+            i == 0 ? path.moveTo(s.dx, s.dy) : path.lineTo(s.dx, s.dy);
+          }
+          path.close();
+        }
+
+        loopPath(r.outer.pts);
+        for (final h in r.holes) {
+          loopPath(h.pts);
+        }
+        canvas.drawPath(
+            path, Paint()..color = T.blue.withOpacity(selected ? 0.38 : 0.16));
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = selected ? 1.6 : 1
+              ..color = selected ? T.hover : T.blue.withOpacity(0.7));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _OverlayPainter old) => true;
 }
 
 // ---------------------------------------------------------------------------

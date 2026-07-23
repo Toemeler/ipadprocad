@@ -37,7 +37,8 @@ class FakeKernel implements PartKernel {
     lastMat = mat34;
     if (fail) return null;
     return KernelSolid(
-        OcctMeshData(Float64List.fromList(const [0, 0, 0, 1, 0, 0, 0, 1, 0]),
+        OcctMeshData(
+            Float64List.fromList(const [0, 0, 0, 1, 0, 0, 0, 1, 0]),
             Float64List.fromList(const [0, 0, 1, 0, 0, 1, 0, 0, 1]),
             Int32List.fromList(const [0, 1, 2]),
             Int32List.fromList(const [0, 3]),
@@ -80,8 +81,7 @@ class FakeKernel implements PartKernel {
 
 AppState makeApp() {
   final app = AppState();
-  app.docsDirForTest =
-      Directory.systemTemp.createTempSync('ipadprocad_m56_');
+  app.docsDirForTest = Directory.systemTemp.createTempSync('ipadprocad_m56_');
   return app;
 }
 
@@ -100,7 +100,8 @@ void addRectLines(SketchModel s, double x0, double y0, double x1, double y1,
 
 void main() {
   group('plane frames', () {
-    test('every frame is right-handed and orthonormal (occt_transform '
+    test(
+        'every frame is right-handed and orthonormal (occt_transform '
         'rejects anything else)', () {
       for (final key in kPlaneKeys) {
         final f = planeFrame(key);
@@ -114,7 +115,8 @@ void main() {
       }
     });
 
-    test('mat34 places the sketch origin on the plane and offsets along '
+    test(
+        'mat34 places the sketch origin on the plane and offsets along '
         'the normal', () {
       final f = planeFrame('xz');
       final m = f.mat34(-2.5);
@@ -173,19 +175,40 @@ void main() {
       expect(loops.first.area, closeTo(math.pi * 9, 0.05));
     });
 
-    test('circle inside a rectangle becomes an outer region WITH a hole', () {
+    test('circle inside a rectangle is ONE region with a hole (Inventor)', () {
       final s = SketchModel('t')..layers.add('Layer 1');
       addRectLines(s, 0, 0, 20, 10);
       s.engine.setCurrentLayer('Layer 1');
       s.engine.addCircle(10, 5, 2);
       s.refresh();
       final regions = regionsFrom(profileLoops(s));
-      final outer = regions.firstWhere((r) => r.outer.area > 100);
+      // The circle is the rectangle's HOLE, not its own region, so a
+      // rectangle-with-a-hole auto-selects and extrudes as a solid with a
+      // bore — the whole point of this fix.
+      expect(regions.length, 1, reason: 'the hole is not a separate region');
+      final outer = regions.single;
+      expect(outer.outer.area, closeTo(200, 0.5));
       expect(outer.holes.length, 1);
       expect(outer.holes.first.area, closeTo(math.pi * 4, 0.05));
-      // the circle itself is also a pickable region, with no holes
-      final inner = regions.firstWhere((r) => r.outer.area < 100);
-      expect(inner.holes, isEmpty);
+    });
+
+    test('an island inside a hole is a region again (even/odd nesting)', () {
+      final s = SketchModel('t')..layers.add('Layer 1');
+      addRectLines(s, 0, 0, 40, 40); // outer solid
+      s.engine.setCurrentLayer('Layer 1');
+      s.engine.addCircle(20, 20, 15); // big hole
+      s.engine.addCircle(20, 20, 5); // island inside the hole -> solid again
+      s.refresh();
+      final regions = regionsFrom(profileLoops(s));
+      // Two solid regions: the outer ring (with the big circle as its hole)
+      // and the small island (depth 2 -> solid, no holes).
+      expect(regions.length, 2);
+      final ring = regions.firstWhere((r) => r.outer.area > 1000);
+      expect(ring.holes.length, 1);
+      expect(ring.holes.first.area, closeTo(math.pi * 225, 1.0));
+      final island = regions.firstWhere((r) => r.outer.area < 1000);
+      expect(island.holes, isEmpty);
+      expect(island.outer.area, closeTo(math.pi * 25, 0.5));
     });
 
     test('a rectangle split by a diagonal yields TWO triangle faces', () {
@@ -229,26 +252,32 @@ void main() {
       expect(loops.first.area, closeTo(100, 1e-6));
     });
 
-    test('regionAt picks the SMALLEST containing region (Inventor)', () {
+    test('regionAt uses filled material — a tap in a hole selects nothing', () {
       final s = SketchModel('t')..layers.add('Layer 1');
       addRectLines(s, 0, 0, 20, 20);
       s.engine.setCurrentLayer('Layer 1');
       s.engine.addCircle(10, 10, 4);
       s.refresh();
       final regions = regionsFrom(profileLoops(s));
-      final inCircle = regionAt(regions, const Offset(10, 10))!;
-      expect(inCircle.outer.area, closeTo(math.pi * 16, 0.2));
+      // Tapping the ring material returns the rectangle-with-hole.
       final inRing = regionAt(regions, const Offset(2, 2))!;
       expect(inRing.outer.area, closeTo(400, 1e-6));
       expect(inRing.holes.length, 1);
+      // Tapping the empty centre of the hole selects nothing (Inventor).
+      expect(regionAt(regions, const Offset(10, 10)), isNull);
+      // Outside everything: null.
       expect(regionAt(regions, const Offset(-5, -5)), isNull);
     });
 
     test('interiorPointOf lands inside a concave (L) profile', () {
       final s = SketchModel('t')..layers.add('Layer 1');
       const pts = [
-        Offset(0, 0), Offset(40, 0), Offset(40, 10),
-        Offset(10, 10), Offset(10, 30), Offset(0, 30),
+        Offset(0, 0),
+        Offset(40, 0),
+        Offset(40, 10),
+        Offset(10, 10),
+        Offset(10, 30),
+        Offset(0, 30),
       ];
       s.engine.setCurrentLayer('Layer 1');
       for (var i = 0; i < pts.length; i++) {
@@ -280,7 +309,8 @@ void main() {
   });
 
   group('kernel honesty', () {
-    test('the real OCCT kernel reports unavailable on host — never fakes '
+    test(
+        'the real OCCT kernel reports unavailable on host — never fakes '
         'a solid', () {
       final k = OcctPartKernel();
       expect(k.available, isFalse);
@@ -322,8 +352,7 @@ void main() {
       expect(part.childSketches.single.plane, 'xy');
 
       // draw a 20x10 rectangle, finish the sketch
-      addRectLines(app.activeChild!, 0, 0, 20, 10,
-          layer: app.editingLayer!);
+      addRectLines(app.activeChild!, 0, 0, 20, 10, layer: app.editingLayer!);
       app.finishPartSketch();
       expect(app.activeChild, isNull);
       expect(app.currentPart, isNotNull, reason: 'back in the 3D part');

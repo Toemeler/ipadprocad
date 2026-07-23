@@ -16,7 +16,7 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **Stand dieser Session (Kopf = M60, Cut/Intersect + Live-Boolean-Vorschau +
+> **Stand dieser Session (Kopf = M62, Cut/Intersect + Live-Boolean-Vorschau +
 > Spline-Extrude-Fix):** Drei Punkte des Nutzers in einem Durchgang, „profes-
 > sionell und production ready\":
 >
@@ -44,11 +44,13 @@ Token NIE in Dateien/.git/config schreiben.
 > letzte Solid-Feature via `lastSolidFeature`/`currentBodySolid`, beim EDITIEREN
 > die Akkumulation davor via `bodyBaseBefore`) das tatsaechliche
 > `combineSolids`-Ergebnis rechnen, in `s.preview` legen und `s.previewReplacesBody`
-> setzen. Der Viewport (`viewport3d.dart`) blendet den Body mit diesem Namen aus
-> (opake Solids-Liste + `_liveSolids`), sodass das Bool-Ergebnis an seiner Stelle
-> steht statt mit dem alten Body zu z-fighten. Jede Dialog-Aenderung
-> (`setExtrude`) rechnet neu. Basis-Frame/Prisma-Vorschau (New Solid, kein Ziel)
-> unveraendert.
+> setzen. Der Viewport blendet den Body mit diesem Namen aus — im
+> RealityKit-Pfad (M60) via `reality_scene.visibleSolids`, `sceneSignature`
+> nimmt `previewReplacesBody` mit auf; im CPU-Painter (`viewport3d._ScenePainter`,
+> off-iOS) via Solids- + Occluder-Liste; `_liveSolids` (Pick/Refine) filtert
+> ebenso —, sodass das Bool-Ergebnis an seiner Stelle steht statt mit dem alten
+> Body zu z-fighten. Jede Dialog-Aenderung (`setExtrude`) rechnet neu.
+> Basis-Frame/Prisma-Vorschau (New Solid, kein Ziel) unveraendert.
 >
 > **(3) Geschlossene Spline liess sich nicht extrudieren.** Ursache mit purem
 > Dart-Repro FESTGENAGELT: eine geschlossene **Interpolations-Spline**
@@ -75,14 +77,277 @@ Token NIE in Dateien/.git/config schreiben.
 > Alles-weg=Fehler) + **[18]** Common (Ueberlappung=1000, disjunkt=Fehler).
 > **Neu/berührt:** `occt_capi.{h,cpp}`, `smoke_occt.c`, beide CI-Workflows,
 > `occt_engine.dart`, `part_model.dart`, `app_state.dart`, `viewport3d.dart`,
-> `extrude_dialog.dart`, neuer Test `m60_boolean_test.dart`, `cutSolids`/
+> `extrude_dialog.dart`, neuer Test `m62_boolean_test.dart`, `cutSolids`/
 > `intersectSolids` in den 3 Fake-Kerneln (m56/m57/m59).
 > **Ehrliche Restschuld:** Vorschau beim Editieren eines MITTIG in der Kette
 > liegenden Features zeigt nur bis dorthin (nachgelagerte Ops erst nach OK, dann
 > korrekt via `recomputeAllFeatures`); Kegel/Kugel/Torus-Silhouetten weiter
 > Mesh-Fallback; Spline-Profile weiterhin polygonal tesselliert (Extrude geht
 > jetzt, nur eben als Vieleck-Prisma — echte B-Spline-Flaechen waeren separat).
-
+>
+> ---
+>
+> **M60 — RealityKit ersetzt den CPU-Renderer (GPU-Tiefenpuffer).** Antwort auf
+> den offenen Punkt (A) aus M59c: Canvas hat KEINEN Z-Buffer, Verdeckung lief
+> in Screen-Space (Painter-Algorithmus + Occluder-Gitter + Bias-Margen). Das
+> ist bei gekrümmten Flächen und sich durchdringenden Solids grundsätzlich
+> fragil — jetzt ersetzt durch echtes GPU-Rendering.
+>
+> **Architektur (bewusst minimal-invasiv):** Die gesamte Dart-Kamera- und
+> Pick-Logik bleibt UNVERÄNDERT (`Cam3`, `_hitOrigin`, `_pickSolidFace`,
+> `_tap` — reine Geometrie, bereits getestet). Ersetzt wird NUR die
+> Ausgabefläche:
+> - Neues In-Repo-Plugin `frontend/packages/reality_view/` (gleicher Pfad wie
+>   `native_menu`: Podspec + Swift, von CocoaPods über
+>   `.flutter-plugins-dependencies` gezogen — es gibt kein `frontend/ios/`).
+> - Swift: `ARView(cameraMode: .nonAR)` als Flutter-`UiKitView`, mit
+>   `isUserInteractionEnabled = false`. Die Flutter-Gestenschicht liegt DARÜBER,
+>   also greifen Orbit/Pan/Zoom/Tap/Hover unverändert weiter.
+> - **Echte Ortho-Kamera:** `OrthographicCameraComponent` (iOS 18+), darunter
+>   ein Near-Ortho-`PerspectiveCamera`-Fallback (3° Tele aus großer Distanz).
+>   Kamera-Konvention 1:1 aus `part_render.dart` (`dir`, `forward=-dir`,
+>   `s=fwd×up`, `u=s×fwd`, vertikale Weltausdehnung `2·halfH`).
+> - Alles Weltraum-Geometrische (Solids, Ursprungsebenen, Achsen, Center Point,
+>   Skizzen, B-Rep-Kanten, Face-Highlight) sind jetzt RealityKit-Entities →
+>   **der Tiefenpuffer erledigt die Verdeckung**. `solidOccluder`,
+>   `drawOccludedQuadFill`, `edgeMargin` & Co. werden auf dem Gerät nicht mehr
+>   gebraucht. ViewCube, Triade und Meldungs-Toast bleiben Flutter-HUD.
+> - **Protokoll** (3 Verben, `ipadprocad/reality_view/<id>`): `setScene`
+>   (schwer, nur wenn sich `sceneSignature` ändert), `setOverlays` (leicht:
+>   Hover/Sichtbarkeit, pro Pointer-Move), `setCamera` (5 Doubles pro Frame).
+>   Mesh-Puffer werden per REFERENZ übergeben (`Float64List`/`Int32List` →
+>   StandardMessageCodec-Bytebuffer), nicht kopiert.
+> - Der CPU-Painter (`_ScenePainter`/`paintPartSolids`) BLEIBT — für die
+>   Galerie-Thumbnails (`_writePartPreview`, headless) und als Nicht-iOS-Pfad
+>   (Host-/Widget-Tests). Dort ändert sich nichts.
+>
+> **Was CI verifizieren kann:** Swift kompiliert/linkt, `-framework RealityKit`
+> im Runner (neuer `REALITYKIT LINK CHECK` per `otool -L`), `flutter analyze`,
+> und die neuen Host-Tests `test/reality_scene_test.dart` über die REINEN
+> Payload-Builder (`lib/reality_scene.dart`): Kamera-Doubles, Solid-Auswahl
+> (unsichtbar/`consumedByJoin`/`editing` fallen raus), Puffer-Identität ohne
+> Kopie, 9-Doubles-Ebenenframes, Skizzen-Weltmapping, Signatur-Wechsel bei
+> Re-Tessellierung, Hover-Face-Auflösung.
+>
+> **Was RealityKit rendert — und was NICHT (wichtig, häufige Fehlannahme):**
+> RealityKit ersetzt ausschließlich die **tiefengetestete Weltgeometrie im
+> 3D-Part-Viewport**: Solids, Ursprungsebenen, Achsen, Center Point, Skizzen-
+> kurven, B-Rep-Kanten, blaues Face-Prehighlight. WEITERHIN Flutter-Canvas:
+> der komplette 2D-Sketcher (`viewport.dart`), `paintPartUnderlay` (geghostetes
+> Modell im Skizzenmodus), die Galerie-Thumbnails (`_writePartPreview` →
+> `paintPartSolids`, headless), ViewCube, Triade, Toast, sämtliche UI-Chrome
+> (Ribbon, Browser, Dialoge) und der gesamte Nicht-iOS-Pfad.
+>
+> **Dabei gefunden und behoben (sonst Geräte-Regression):** `_paintRegions`
+> (blaue Profil-Flächen beim Extrude, hovered/selected) sowie die Hover-
+> Dekorationen (Ebenen-Eckringe + Mittelpunkt + gedrehtes Ebenen-Label,
+> Achsen-Endringe, CP-Ring) hingen NUR am `_ScenePainter` — der auf iOS nicht
+> mehr läuft. Ohne Fix hätte man beim Extrudieren kein Profil-Highlight mehr
+> gesehen (Picking lief weiter, nur unsichtbar). Diese Elemente wurden im
+> Original OHNE Occluder gezeichnet, sind also reines Screen-Space-HUD: neu als
+> `_OverlayPainter` in Flutter ÜBER die RealityKit-Fläche gestapelt —
+> verhaltensgleich, ohne Polygon-Triangulierung mit Löchern in Swift.
+>
+> **Bewusste Verhaltensänderung:** Achsen und Center Point sind jetzt echte
+> 3D-Entities und werden damit von Solids VERDECKT; im CPU-Painter schwebten
+> sie unverdeckt obenauf. Das entspricht Inventor besser, ist aber am Gerät zu
+> bestätigen.
+>
+> **CI-Runde 1 (Run #162, `2a9302e`) — ehrlich gelesen:** Dart-Seite GRÜN
+> (`flutter analyze` 0 errors, alle Host-Tests inkl. `reality_scene_test.dart`
+> bestanden, Step 12 + 18). Gescheitert ist NUR Step 19 (`flutter build ios`)
+> an **einem** Swift-Typfehler: `Cannot convert value of type 'Int' to expected
+> argument type 'Int32'` in `RealityPartView.swift` — `NSNumber.intValue`
+> liefert `Int`, `faceHighlightEntity` erwartete `Int32`. Behoben (Signatur
+> nimmt jetzt `Int` und konvertiert einmalig intern); zusätzlich präventiv der
+> Material-Ternary in `rebuildSolids` durch if/else ersetzt, weil dessen zwei
+> Zweige verschiedene konkrete Typen sind (`PhysicallyBasedMaterial` vs
+> `SimpleMaterial`) und Swift das auch mit Existential-Annotation ablehnen
+> kann. Da Xcode den Build beim ersten Fehler abbricht, kann Runde 2 weitere
+> Fehler zutage fördern — das ist der normale Rhythmus ohne lokale Toolchain.
+>
+> **GERÄTETEST RUNDE 1 (Build `0f04ca2`, iPad, iOS 27) — zwei Funde, beide
+> waren die vorab markierten Risiken:** Zuerst das Gute: **RealityKit rendert**,
+> die Ursprungsebenen durchdringen sich korrekt → der GPU-Tiefenpuffer arbeitet,
+> das Kernziel von M60 ist erreicht. CI-Runde 2 war grün (IPA gebaut, Link-Check
+> bestanden).
+>
+> **(1) Ortho-Maßstab war exakt 2× zu klein** (Risiko Nr. 1, wie vermutet).
+> Nachgerechnet gegen den Screenshot mit den Kamerawerten aus dem Part-Sidecar:
+> der gelbe Mittelpunkt landet exakt auf der Cam3-Projektion (1310/1136
+> gerechnet vs. 1310/1140 gemessen) → Dart-Mathematik und `_OverlayPainter`
+> korrekt; die XZ-Ebene misst 1105 px statt 2194 px → **Faktor 1.985 ≈ 2**.
+> `OrthographicCameraComponent.scale` ist also die HALBE vertikale
+> Weltausdehnung (Unity-`orthographicSize`-Konvention), nicht die volle. Fix:
+> `oc.scale = halfH` statt `2*halfH`. Sichtbares Symptom war „die Ebenen sind
+> kleiner als ihre Eckpunkte" — die Eckringe zeichnet Dart, die Ebene RealityKit.
+>
+> **(2) Taps erreichten Flutter nicht** (Risiko Nr. 2, wie vermutet). Ebene
+> anklicken tat nichts; `planePicked` loggt `part: child sketch "…" on <key>` —
+> diese Zeile fehlt im Gerätelog vollständig, der Tap kam also nie in `_tap` an.
+> Beweis, dass NICHT die Pick-Mathematik schuld ist: Hover funktionierte
+> (grüne Ebene + Label + Ringe) und nutzt dieselbe `_hitOrigin`. Der Unterschied
+> ist die Zustellung — Hover ist ein Pointer-Event, ein Tap ist ein TOUCH und
+> läuft auf iOS durch die Touch-Interception der eingebetteten Platform-View.
+> Fix: die Gesten-Schicht liegt jetzt als transparente `SizedBox.expand()` im
+> Stack ÜBER der RealityKit-Fläche, und die `RealityView` steckt in
+> `IgnorePointer` — eine Platform-View darf nie oberstes Hit-Test-Ziel sein.
+> Alle Handler (Orbit/Pan/Zoom/Tap/Hover) sind unverändert, nur die
+> Verschachtelung hat sich gedreht.
+>
+> **GERÄTETEST RUNDE 2 (Build `9e5f60c`) — Skalierung + Tap bestätigt, fünf
+> Darstellungsfehler mit EINER gemeinsamen Ursache:** Skizzieren und Extrudieren
+> funktionieren jetzt. Gemeldet wurden: (a) kein blaues Face-Prehighlight beim
+> Skizzenebenen-Pick, (b) bei starkem Zoom KEINE Kantenlinien, (c) bei normaler
+> Größe ausgefranste/gesprenkelte Umrisse, (d) Artefakte wenn Ebene und Fläche
+> exakt koplanar sind, (e) Skizzen auf Flächen unsichtbar.
+>
+> **Ursache: Tiefenpuffer-Präzision.** Die Kamera lief mit `near = 0.01`,
+> `far = 1_000_000` bei Distanz 100_000. Orthografische Tiefe ist LINEAR, der
+> Puffer verteilte 24 Bit also über eine Million Millimeter → ~0.06 mm
+> Auflösung. Mein Kantenradius war 0.10 mm, der Highlight-Versatz 0.04 mm —
+> beide am oder unter dem Rauschen. Damit erklären sich (a) bis (e) zwanglos:
+> alles, was auf oder knapp über einer Fläche liegt, wurde von ihr verschluckt.
+>
+> **Fixes:** (1) **Szenen-angepasste Tiefenspanne** — `sceneRadius` aus den
+> Mesh-Bounds, `pad = max(sceneRadius, halfH) + 10`, `dist = 4·pad`,
+> `near/far = dist ∓ 2·pad`. Statt 1e6 mm nur noch ~100 mm Spanne → Auflösung
+> um ~4 Größenordnungen besser. (2) **Koplanar-Versatz**: Ursprungsebenen und
+> Skizzen werden entlang ihrer eigenen Normalen um einen zoom-skalierten
+> Sub-Pixel-Betrag ZUR KAMERA gehoben — die Ebene/Skizze gewinnt gegen eine
+> exakt koplanare Fläche, wie gewünscht und wie in Inventor. Dafür sendet Dart
+> jetzt die Skizzen-Normale (`'n'`) mit. (3) **Kantenröhren** werden ebenfalls
+> zur Kamera versetzt (sie liegen mittig auf der Flächengrenze, halb IM Solid —
+> das war das Sprenkeln) und ihr Radius skaliert jetzt mit `halfH`
+> (`1.2e-3·halfH`), damit Linien bei jedem Zoom etwa gleich stark bleiben.
+> (4) Der Highlight-Versatz skaliert mit (`2e-3·halfH`).
+>
+> **Offen/unbestätigt:** ob (e) wirklich nur Z-Fighting war — eine VERBRAUCHTE
+> Skizze ist per Inventor-Semantik absichtlich unsichtbar (`cs.visible=false`,
+> Auge im Browser holt sie zurück). Falls die Skizze auch nach dem Fix fehlt,
+> ist es diese Semantik und kein Renderfehler.
+>
+> **GERÄTETEST RUNDE 3 — die Wicklungs-Konvention war die eigentliche Ursache:**
+> Zwei gemeldete Fehler hatten DIESELBE Wurzel, und sie erklärt auch, warum der
+> Tiefenpuffer-Fix aus Runde 2 das Highlight nicht heilte. In diesen Meshes
+> zeigt die GEOMETRISCHE Wicklungs-Normale nach INNEN — `projectSolidTriangles`
+> verwirft Rückseiten mit `n·dir < 0`, also mit genau dieser Konvention
+> (vgl. M59b „Facing-Konvention global invertiert").
+> - **Face-Prehighlight unsichtbar:** `faceHighlightEntity` hob die Fläche
+>   entlang eben dieser Wicklungs-Normalen an — also INS Solid hinein. Mehr
+>   Tiefenpräzision machte es nur zuverlässiger unsichtbar. Fix: Anhebung
+>   entlang der per-Vertex-Normale (laut `occt_capi.h` autoritativ „OUTWARD").
+> - **Teil mit Loch durchsichtig:** die Innenwand eines Lochs kommt aus OCCT
+>   mit umgekehrter Face-Orientierung; die GPU cullt streng nach Wicklung und
+>   verwarf sie, man sah durchs Loch hindurch. Der CPU-Painter fiel darauf nie
+>   herein, weil er pro Dreieck selbst cullt. Fix: `SolidGeom` normalisiert
+>   beim Aufbau JEDES Dreieck gegen die Vertex-Normale (Invariante:
+>   `gn·vn < 0`), notfalls durch Index-Tausch — damit ist das Culling
+>   konsistent, unabhängig von der Kernel-Orientierung.
+>
+> **Verhaltensänderung auf Wunsch:** die drei Ursprungsebenen werden nur noch
+> AUTOMATISCH gezeigt und pickbar, solange das Teil leer ist (`PartModel.hasSolid`
+> == false), also für die erste Skizze/Extrusion. Danach skizziert man auf
+> Flächen; eine Ebene erscheint nur noch, wenn sie im Browser explizit
+> eingeschaltet ist. Gilt einheitlich für RealityKit-Payload, Picking und den
+> CPU-Painter; der Host-Test deckt beide Fälle ab.
+>
+> **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
+> Xcode/Flutter im Container):**
+> 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale
+>    Weltausdehnung). Ist es in Wahrheit die HALBE Höhe, ist das Bild exakt 2×
+>    verzoomt — dann diese eine Konstante in `applyCameraComponent()` ändern.
+>    Erkennbar am Vergleich mit ViewCube/Triade (die weiter Dart rechnen).
+> 2. **Gesten durch die Platform-View:** ob der Flutter-`GestureDetector` über
+>    einer `UiKitView` wirklich JEDE Geste bekommt (Pinch/Hover/Pencil), ist
+>    Verhalten der Embedder-Schicht — die `ARView` ist interaktionsfrei
+>    gestellt, aber das ist am Gerät zu bestätigen.
+> 3. **Kanten als Röhren mit fester Weltdicke** (r = 0.10 mm): bei starkem
+>    Zoom werden sie sichtbar dick, bei starkem Auszoomen dünn. Bewusster
+>    v1-Kompromiss (RealityKit hat kein Linien-Primitiv); eine
+>    bildschirmkonstante Breite bräuchte ein Custom-Material/Shader.
+> 4. **Analytische Kanten (Shim v4) werden noch nicht genutzt** — gezeichnet
+>    wird die Kanten-Polylinie. Die M59-Bezier-Exaktheit gilt weiter für die
+>    Thumbnails, nicht für die RealityKit-Ansicht.
+> 5. **Renderer ist auf iOS 15+ gegattert** (`MeshDescriptor`,
+>    `MeshResource.generate(from:)`, `PhysicallyBasedMaterial`, `blending` sind
+>    RealityKit-2-APIs). Deployment-Floor bleibt 14.0, weil Qt-iOS das
+>    erzwingt → auf iOS 14 bliebe der 3D-Viewport LEER. Zielgerät ist iPad Pro
+>    auf iOS 26; sauber wäre, den App-Floor auf 15 zu heben.
+> 6. Material ist `SimpleMaterial` (nicht-metallisch) + Key/Fill-Light: eine
+>    metallische PBR-Fläche bräuchte Image-Based-Lighting, das eine
+>    `.nonAR`-Szene nicht hat (Risiko: schwarz gerendert).
+>
+> ---
+>
+> **Nachtrag M59c (weitere Geräte-Fixes, CI-grün auf 78da7d8):** (1)
+> **Skizze-auf-Fläche blickte von der falschen Seite:** `facePicked`
+> orientierte die Kamera ENTLANG der Außennormale → man sah von innen durch
+> die Rückseite. Fix: entlang `-normale` blicken (Fläche zeigt zur Kamera,
+> konsistent mit `n·dir < 0`). (2) **Ursprungsebenen lagen VOR dem Modell**
+> statt hindurchzugehen: nur der Ebenen-Rand war tiefengetestet, die
+> transluzente FÜLLUNG war ein flaches 2D-Polygon ohne Verdeckung. Neu:
+> `drawOccludedQuadFill` (rastert die Ebene in ein Gitter, verwirft verdeckte
+> Zellen) → die Konstruktionsebene schneidet jetzt durchs Modell wie in
+> Inventor. (3) **Komplexe Profile mit Löchern nicht extrudierbar:**
+> `regionsFrom` gab EINE Region PRO Schleife zurück, ein Rechteck-mit-Kreis
+> wurde also ZWEI Regionen → Auto-Select (nur bei genau 1 Region) griff nie.
+> Neu über gerade/ungerade Verschachtelungstiefe: eine in einer anderen
+> liegende Schleife ist deren LOCH, keine eigene Region (Insel im Loch = wieder
+> Solid). `regionAt` ist jetzt loch-bewusst (Tipp ins leere Loch wählt nichts).
+> Der Shim schneidet Löcher bereits (`faceMk.Add(holeWire)`), also extrudiert
+> ein Donut jetzt mit Bohrung. m56-Tests korrigiert + Insel-im-Loch-Test. (4)
+> **Kanten-Sägezahn an gekrümmten Flächen:** Kanten liegen auf
+> Flächengrenzen, Screen-Space-Selbstverdeckung flackerte bei streifenden
+> Winkeln. Neu: Verdeckungs-`extra`-Marge (`SceneOccluders.edgeMargin` = 6× der
+> Flächen-Bias) für Kanten/Silhouetten/On-Surface-Overlays. **#4 ist eine
+> defensive Marge — Artefakt am Gerät noch zu bestätigen (offline nicht exakt
+> reproduzierbar).**
+>
+> **Offen, ehrlich:** (A) Falls die Artefakte am Gerät bleiben, braucht es die
+> tiefere Renderer-Überarbeitung — Canvas hat KEINEN Z-Buffer, Verdeckung
+> läuft in Screen-Space (Painter-Algorithmus per Zentroid-Tiefe), das ist bei
+> gekrümmten Flächen / sich durchdringenden Solids grundsätzlich fragil.
+> Flutters `drawVertices` bietet keinen Tiefenpuffer; eine echte Lösung wäre
+> ein Fragment-Shader oder Triangle-Splitting. (B) **Skizzenmodus zeigt kein
+> 3D-Modell + keinen Navigationswürfel wie Inventor:** die App wechselt im
+> Skizzenmodus auf das flache `Viewport2D` (2613 Zeilen mit allen Sketch-Tools,
+> Snapping, Gesten). `paintPartUnderlay` zeigt das Modell zwar geghostet
+> flach-von-oben (Inventor blickt auch senkrecht auf die Skizze), aber der
+> Würfel fehlt. Echtes „im 3D-Viewport skizzieren" hieße den Sketcher in
+> Viewport3D nachzubauen — großer, riskanter Umbau, am Gerät nicht offline
+> verifizierbar. Bewusst NICHT spekulativ gemacht; wartet auf Geräte-Feedback.
+>
+> ---
+>
+> **Nachtrag M59b (Geräte-Fixes, dieselbe Session):** Drei Geräte-Funde
+> behoben. **(1) Facing-/Tiefen-Konvention war global invertiert:** Kamera
+> blickt entlang `dir`, eine SICHTBARE Fläche zeigt mit der Außennormale zur
+> Kamera zurück (`n·dir < 0`) — der Code nahm `> 0` (also Rückseiten) als
+> Front. Bei EINEM konvexen Solid fiel das nicht auf (die Silhouette bleibt
+> stimmig, daher „shaded smooth"), brach aber Verdeckung, Silhouetten UND
+> Licht. Fix konsistent: `front = n·dir < 0`, Headlight von der Kamera
+> (`-dir + tilt`, vorher zeigte Licht von hinten → Fläche zur Kamera war am
+> DUNKELSTEN), Verdeckung `td > d + bias` (näher = höhere Tiefe). Das war
+> zugleich die Ursache der „zerstörten Mesh-Artefakte" (Rückseiten mit falscher
+> Wicklung landeten im selben `drawVertices`-Buffer wie die Front und
+> flackerten). Offline verifiziert: exakt die halben Dreiecke sind Front,
+> Shade 0.42→0.92 (hell zur Kamera), Skizzenlinie durch den Zylinder fern
+> verdeckt / nah sichtbar. **(2) Zeichenreihenfolge für koplanare Fälle:**
+> Solids ZUERST, dann Ebenen, dann Skizzen — Bias hält eine koplanare Skizze
+> sichtbar und, später gezeichnet, liegt sie OBEN (Skizze > Ebene > Geometrie),
+> während echt dahinter liegende Overlays weiter pixelgenau von `occ` entfernt
+> werden. **(3) `ClipRect`** um den 3D-`CustomPaint` (Geometrie lief sonst über
+> den Model-Browser). Zusätzlich **Face-Hover/Tap tiefenpriorisiert** (nähere
+> Fläche schlägt die dahinterliegende Ursprungsebene) und **„Solid Bodies(N)"-
+> Ordner** über Origin wie in Inventor (`PartModel.solidBodies()`, Body-Augen-
+> Toggle `toggleBodyVisible`, Body = Features gleicher `bodyName`). Tests in
+> `m59_shaded_edges_test.dart` erweitert (Verdeckung front/back, Solid-Bodies-
+> Aufzählung + Toggle). **Alle Konventions-Vorzeichen offline geprüft; CI +
+> Gerät noch zu bestätigen.**
+>
+> ---
+>
 > **Vorherige Session (M59, „Shaded with Edges" + Skizzen-Verbrauch):**
 > Alle Geraete-Rueckmeldungen aus M58 adressiert, in einem Durchgang (Nutzer:
 > „Do all phases at once. Make it professional and production ready.").

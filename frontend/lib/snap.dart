@@ -68,6 +68,13 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
         break;
       case Geo.polyline:
         final n = g.data[1].toInt();
+        if (g.spline == Geo.gearTag && n >= 2) {
+          // A gear exposes exactly two points: the CENTRE (the middle point the
+          // user dimensions) and the orientation handle on the pitch circle.
+          offer(Offset(g.data[2], g.data[3]), 'center', 1.05);
+          offer(Offset(g.data[4], g.data[5]), 'vertex');
+          break;
+        }
         if (g.spline == Geo.ellipseTag && n >= 3) {
           // Inventor's ellipse snaps: the CENTER and all FOUR quadrant
           // points. The stored vertices are center/major/minor — mirror the
@@ -245,9 +252,10 @@ List<Grip> gripsOf(List<Geo> geos) {
         break;
       case Geo.polyline:
         final n = g.data[1].toInt();
+        final gear = g.spline == Geo.gearTag;
         for (var i = 0; i < n; i++) {
           out.add(Grip(e, i, Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]),
-              'vertex'));
+              gear && i == 0 ? 'center' : 'vertex'));
         }
         break;
     }

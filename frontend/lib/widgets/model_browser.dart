@@ -31,6 +31,7 @@ class ModelBrowser extends StatefulWidget {
 
 class _ModelBrowserState extends State<ModelBrowser> {
   bool originOpen = false;
+  bool bodiesOpen = true; // Solid Bodies folder starts expanded (Inventor)
   OverlayEntry? _ctx;
   // M53 — End-of-Sketch drag: the marker's PREVIEW slot while the finger /
   // mouse moves; committed to the app on release, discarded on Escape.
@@ -612,6 +613,23 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   icon: part != null ? partCubeIcon : sketchCubeIcon,
                   label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
                 ),
+                // Inventor: the Solid Bodies folder sits ABOVE Origin, with a
+                // (N) body count; expand it to list each body with its own
+                // visibility eye. Only shown for a 3D part that has bodies.
+                if (part != null && app.activeChild == null) ...[
+                  if (part.solidBodies().isNotEmpty) ...[
+                    _row(
+                      indent: 8,
+                      exp: bodiesOpen ? '−' : '+',
+                      icon: originIcon,
+                      label: 'Solid Bodies(${part.solidBodies().length})',
+                      onTap: () => setState(() => bodiesOpen = !bodiesOpen),
+                    ),
+                    if (bodiesOpen)
+                      for (final b in part.solidBodies())
+                        _bodyRow(app, part, b.$1, b.$2),
+                  ],
+                ],
                 _row(
                   indent: 8,
                   exp: originOpen ? '−' : '+',
@@ -677,6 +695,21 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ),
       ]),
     );
+  }
+
+  /// A solid body in the Solid Bodies folder (Inventor). The eye toggles the
+  /// whole body's visibility; the label is its bodyName.
+  Widget _bodyRow(AppState app, PartModel part, String bodyName,
+      List<ExtrudeFeature> feats) {
+    final on = feats.any((f) => f.visible);
+    final row = _row(
+      indent: 30,
+      icon: partCubeIcon,
+      label: bodyName,
+      trailing: _EyeButton(
+          visible: on, onTap: () => app.toggleBodyVisible(part, bodyName)),
+    );
+    return on ? row : Opacity(opacity: 0.45, child: row);
   }
 
   Widget _originRow(AppState app, PartModel part, String label, String key) {

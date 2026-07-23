@@ -69,7 +69,8 @@ class Cam3 {
         (x * 0.5 + 0.5) * size.width, (1 - (y * 0.5 + 0.5)) * size.height);
   }
 
-  /// Distance along the view ray — bigger = farther from the camera.
+  /// Signed view coordinate along the ray: NEARER the camera = LARGER value
+  /// (depth = w·(-dir); the camera sits on the -dir side looking along dir).
   double depth(Vec3 w) => w.dot(_fwd(dir));
 
   /// LINEAR part of [project]: the screen displacement of a world VECTOR.
@@ -125,9 +126,11 @@ class ProjectedEdge {
   const ProjectedEdge(this.a, this.b, this.depth);
 }
 
-/// The headlight used for flat shading (camera direction plus a fixed tilt).
+/// The headlight for shading: it comes FROM the camera (along -dir) with a
+/// fixed tilt, so a face pointing at the viewer is brightest and one angled
+/// away darkens smoothly. (depth/facing convention: camera looks along dir.)
 Vec3 solidLight(Cam3 cam) =>
-    (cam.dir + const Vec3(0.35, 0.55, 0.2)).normalized();
+    (cam.dir * -1 + const Vec3(0.35, 0.55, 0.2)).normalized();
 
 /// Projects the front-facing triangles of [m]: backface-culled against the
 /// camera, flat-shaded against [solidLight], depth = triangle centroid along
@@ -143,7 +146,7 @@ List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
     final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
     final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
     final n = (w1 - w0).cross(w2 - w0).normalized();
-    if (n.dot(cam.dir) <= 0) continue; // backface (camera sits at +dir)
+    if (n.dot(cam.dir) >= 0) continue; // backface (visible face has n·dir<0)
     final shade =
         (0.42 + 0.58 * math.max(0, n.dot(light))).clamp(0.0, 1.0).toDouble();
     out.add(ProjectedTri(cam.project(w0), cam.project(w1), cam.project(w2),
@@ -251,7 +254,11 @@ SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
     final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
     final n = (w1 - w0).cross(w2 - w0);
     if (n.length < 1e-15) continue;
-    final front = n.normalized().dot(cam.dir) > 0;
+    // A face is FRONT (visible) when its outward normal opposes the view
+    // direction — the camera looks along dir, so a face we see points back
+    // toward it (n·dir < 0). Backfaces (n·dir > 0) are kept with front=false
+    // only for silhouette detection.
+    final front = n.normalized().dot(cam.dir) < 0;
     tris.add(SceneTri(
         cam.project(w0),
         cam.project(w1),
@@ -309,8 +316,11 @@ class SceneOccluders {
   }
 
   /// True when world point (projected to [p], view depth [d]) is behind an
-  /// opaque triangle.
-  bool hidden(Offset p, double d) {
+  /// opaque triangle. [extra] adds to the per-triangle bias: edges and
+  /// overlays that are KNOWN to lie on the surface pass a generous margin so
+  /// they are never sawtoothed off by their own grazing-angle tessellation
+  /// (only geometry meaningfully in front of them hides them).
+  bool hidden(Offset p, double d, {double extra = 0}) {
     final key = (p.dx / cell).floor() * 100003 + (p.dy / cell).floor();
     final bucket = _cells[key];
     if (bucket == null) return false;
@@ -329,9 +339,25 @@ class SceneOccluders {
       const e = 1e-6;
       if (l0 < -e || l1 < -e || l2 < -e) continue;
       final td = l0 * t.da + l1 * t.db + l2 * t.dc;
-      if (td < d - triBias[i]) return true;
+      // Convention: depth = w·(-dir), so NEARER the camera = HIGHER depth.
+      // A point is hidden when some front triangle covers it at a depth
+      // meaningfully NEARER (greater) than the point's own, beyond the
+      // tessellation-sag bias (plus any caller [extra] margin).
+      if (td > d + triBias[i] + extra) return true;
     }
     return false;
+  }
+
+  /// A generous depth margin for occluding EDGES/overlays that lie on the
+  /// surface: several times the largest face bias, so a grazing-angle barrel
+  /// triangle can never sawtooth an edge off, while geometry a real
+  /// millimetre in front still hides it.
+  double get edgeMargin {
+    var m = 0.0;
+    for (final b in triBias) {
+      if (b > m) m = b;
+    }
+    return m * 6;
   }
 }
 
@@ -541,7 +567,8 @@ List<(Offset, Offset, double)> meshSilhouetteSegments(
 void _drawShaded(Canvas canvas, List<SceneTri> tris, int alpha) {
   if (tris.isEmpty) return;
   final sorted = [for (final t in tris) t]
-    ..sort((a, b) => b.depth.compareTo(a.depth));
+    // near = higher depth, so draw FAR (lower depth) first (painter's algo)
+    ..sort((a, b) => a.depth.compareTo(b.depth));
   final pos = Float32List(sorted.length * 6);
   final col = Int32List(sorted.length * 3);
   var pi = 0, ci = 0;
@@ -592,7 +619,7 @@ void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
             m.edgePoints[3 * k + 2]);
         final p = cam.project(w);
         pts.add(p);
-        vis.add(!occ.hidden(p, cam.depth(w)));
+        vis.add(!occ.hidden(p, cam.depth(w), extra: occ.edgeMargin));
       }
       final path = Path();
       for (final (a, b) in visibleRuns(vis)) {
@@ -617,7 +644,7 @@ void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
     final vis = <bool>[];
     for (final t in ts) {
       final w = e.pointAt(t); // line t0/t1 are 0/1, so t is already normalized
-      vis.add(!occ.hidden(cam.project(w), cam.depth(w)));
+      vis.add(!occ.hidden(cam.project(w), cam.depth(w), extra: occ.edgeMargin));
     }
     final path = Path();
     for (final (a, b) in visibleRuns(vis)) {
@@ -662,7 +689,7 @@ void _paintSolidSilhouettes(Canvas canvas, Cam3 cam, SceneSolid scene,
           final w = w0 + (w1 - w0) * (i / k);
           final p = cam.project(w);
           pts.add(p);
-          vis.add(!occ.hidden(p, cam.depth(w)));
+          vis.add(!occ.hidden(p, cam.depth(w), extra: occ.edgeMargin));
         }
         final path = Path();
         for (final (a, b) in visibleRuns(vis)) {
@@ -678,7 +705,7 @@ void _paintSolidSilhouettes(Canvas canvas, Cam3 cam, SceneSolid scene,
     final path = Path();
     for (final (a, b, d) in meshSilhouetteSegments(m, scene, f)) {
       final mid = Offset((a.dx + b.dx) / 2, (a.dy + b.dy) / 2);
-      if (occ.hidden(mid, d - scene.bias)) continue;
+      if (occ.hidden(mid, d, extra: occ.edgeMargin)) continue;
       path.moveTo(a.dx, a.dy);
       path.lineTo(b.dx, b.dy);
     }
@@ -776,4 +803,134 @@ void paintPartUnderlay(Canvas canvas, Size size, List<KernelSolid> solids,
     size: size,
   );
   paintPartSolids(canvas, cam, solids);
+}
+
+// ---------------------------------------------------------------------------
+// M59 fix — 3D compositing for the 2D overlays (planes + sketches).
+//
+// The scene painter draws origin planes and child sketches with a fixed
+// order, which cannot express depth: a sketch behind the model bled through,
+// and one in front could not cover it. These helpers let the painter test
+// overlay pixels against the solid's front faces (the same watertight
+// occluder the edge renderer uses), so planes/sketches occlude and are
+// occluded exactly as if they lived in 3D.
+
+/// Builds the front-face occluder for [solids] under [cam]. Empty solids give
+/// an occluder that hides nothing.
+SceneOccluders solidOccluder(List<KernelSolid> solids, Cam3 cam) =>
+    SceneOccluders([for (final s in solids) buildSceneSolid(s, cam)]);
+
+/// Strokes the world polyline [worldPts] projected through [cam], but only the
+/// portions NOT hidden behind [occ] (a nearer solid front face). Used for
+/// origin planes and sketch geometry so they read as truly 3D. When [occ] is
+/// null every segment is drawn (no solids present).
+void drawOccludedPolyline(
+  Canvas canvas,
+  Cam3 cam,
+  List<Vec3> worldPts,
+  Paint paint, {
+  SceneOccluders? occ,
+  bool close = false,
+  double extra = 0,
+}) {
+  if (worldPts.length < 2) return;
+  final pts = <Offset>[];
+  final vis = <bool>[];
+  final loop = close ? [...worldPts, worldPts.first] : worldPts;
+  for (final w in loop) {
+    pts.add(cam.project(w));
+    vis.add(occ == null
+        ? true
+        : !occ.hidden(cam.project(w), cam.depth(w), extra: extra));
+  }
+  // A segment is drawn when BOTH endpoints are visible; finer occlusion of a
+  // long segment is handled by sampling its midpoints too.
+  final path = Path();
+  for (var i = 0; i + 1 < pts.length; i++) {
+    if (!vis[i] || !vis[i + 1]) {
+      // sample the interior: draw the visible sub-spans
+      const steps = 6;
+      Offset? runStart;
+      Offset prev = pts[i];
+      for (var k = 0; k <= steps; k++) {
+        final t = k / steps;
+        final w = loop[i] + (loop[i + 1] - loop[i]) * t;
+        final sp = cam.project(w);
+        final shown =
+            occ == null ? true : !occ.hidden(sp, cam.depth(w), extra: extra);
+        if (shown) {
+          runStart ??= sp;
+          prev = sp;
+        } else if (runStart != null) {
+          path.moveTo(runStart.dx, runStart.dy);
+          path.lineTo(prev.dx, prev.dy);
+          runStart = null;
+        }
+      }
+      if (runStart != null) {
+        path.moveTo(runStart.dx, runStart.dy);
+        path.lineTo(prev.dx, prev.dy);
+      }
+      continue;
+    }
+    path.moveTo(pts[i].dx, pts[i].dy);
+    path.lineTo(pts[i + 1].dx, pts[i + 1].dy);
+  }
+  canvas.drawPath(path, paint);
+}
+
+/// Fills the world quad [a,b,c,d] (a planar face, e.g. an origin plane)
+/// as a semi-transparent surface that is CORRECTLY occluded by the solids:
+/// the quad is tessellated into an NxN grid and each cell is kept only where
+/// its centre is not hidden behind a nearer solid front face. This is what
+/// lets a construction plane pass THROUGH the model instead of floating on
+/// top of it. [occ] null -> the whole quad is filled.
+void drawOccludedQuadFill(
+  Canvas canvas,
+  Cam3 cam,
+  Vec3 a,
+  Vec3 b,
+  Vec3 c,
+  Vec3 d,
+  Color color, {
+  SceneOccluders? occ,
+  int grid = 24,
+}) {
+  // bilinear corners: P(s,t) = lerp(lerp(a,b,s), lerp(d,c,s), t)
+  Vec3 at(double s, double t) {
+    final top = a + (b - a) * s;
+    final bot = d + (c - d) * s;
+    return top + (bot - top) * t;
+  }
+
+  final pos = <double>[];
+  void tri(Vec3 p0, Vec3 p1, Vec3 p2) {
+    final s0 = cam.project(p0), s1 = cam.project(p1), s2 = cam.project(p2);
+    pos
+      ..add(s0.dx)
+      ..add(s0.dy)
+      ..add(s1.dx)
+      ..add(s1.dy)
+      ..add(s2.dx)
+      ..add(s2.dy);
+  }
+
+  for (var i = 0; i < grid; i++) {
+    for (var j = 0; j < grid; j++) {
+      final s0 = i / grid, s1 = (i + 1) / grid;
+      final t0 = j / grid, t1 = (j + 1) / grid;
+      // keep the cell if its centre is visible (not behind the solid)
+      final cW = at((s0 + s1) / 2, (t0 + t1) / 2);
+      if (occ != null && occ.hidden(cam.project(cW), cam.depth(cW))) continue;
+      final p00 = at(s0, t0), p10 = at(s1, t0);
+      final p11 = at(s1, t1), p01 = at(s0, t1);
+      tri(p00, p10, p11);
+      tri(p00, p11, p01);
+    }
+  }
+  if (pos.isEmpty) return;
+  canvas.drawVertices(
+      ui.Vertices.raw(ui.VertexMode.triangles, Float32List.fromList(pos)),
+      BlendMode.srcOver,
+      Paint()..color = color);
 }

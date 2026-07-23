@@ -13,6 +13,7 @@ import 'dart:math' as math;
 import 'dart:ui' show Offset;
 
 import 'ffi/qcad_engine.dart';
+import 'gear.dart' show gearCurve;
 
 /// The control/fit points of a (possibly spline-tagged) polyline [g].
 List<Offset> polyPoints(Geo g) {
@@ -29,6 +30,11 @@ List<Offset> polyPoints(Geo g) {
 /// so callers can treat every polyline uniformly.
 List<Offset> splineCurveFor(Geo g) {
   final pts = polyPoints(g);
+  // A gear stores only [centre, handle] + a parameter block; the full involute
+  // tooth outline is generated from them (gear.dart). Everything that draws or
+  // snaps a curve funnels through here, so this one line makes gears render,
+  // hit-test, snap and extrude like any other closed curve.
+  if (g.spline == Geo.gearTag) return gearCurve(g);
   if (g.spline == Geo.ellipseTag) return ellipseCurve(pts);
   if (g.spline == Geo.straight || pts.length < 3) return pts;
   final closed = g.data[0] != 0;

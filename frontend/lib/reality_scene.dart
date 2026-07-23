@@ -1,0 +1,241 @@
+// iPadProCAD — maps the PartModel onto the RealityKit surface's payloads (M60).
+//
+// These are PURE functions (no channels, no platform), so they are exercised
+// by host tests exactly as the native side will receive them. The heavy mesh
+// buffers are the very Float64List/Int32List objects OcctMeshData already
+// holds, referenced (never copied) into the payload maps — StandardMessageCodec
+// transmits them as raw typed-data byte buffers.
+//
+// The camera/plane/axis/sketch conventions here MUST match Cam3 and the Swift
+// PartRenderer; the two are two ends of one wire.
+import 'dart:typed_data';
+import 'dart:ui' show Size;
+
+import 'app_state.dart';
+import 'part_model.dart';
+
+/// Material tags understood by Materials.swift.
+const int kMatSteel = 0;
+const int kMatPreview = 1;
+
+/// The five orthographic camera doubles + the viewport size (for aspect).
+Map<String, dynamic> cameraPayload(PartCamera c, Size size) => {
+      'az': c.az,
+      'pol': c.pol,
+      'halfH': c.halfH,
+      'ox': c.ox,
+      'oy': c.oy,
+      'w': size.width,
+      'h': size.height,
+    };
+
+/// The committed solids the viewport draws: visible, non-consumed features,
+/// minus the one being edited (its live preview is sent separately) and minus
+/// the body a live BOOLEAN preview is replacing (the combined join/cut/
+/// intersect result stands in for it, sent as the preview). Keyed by the
+/// feature name, which is unique within a part.
+List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
+  final sess = app.extrudeSession;
+  final out = <(String, KernelSolid)>[];
+  for (final f in p.features) {
+    if (f.visible &&
+        f.solid != null &&
+        !f.consumedByJoin &&
+        f != sess?.editing &&
+        f.bodyName != sess?.previewReplacesBody) {
+      out.add((f.name, f.solid!));
+    }
+  }
+  return out;
+}
+
+/// One solid's mesh payload. Buffers are passed by reference (no copy).
+Map<String, dynamic> solidPayload(String id, KernelSolid s,
+    {int material = kMatSteel}) {
+  final m = s.mesh;
+  return {
+    'id': id,
+    'positions': m.positions, // Float64List, world xyz per vertex
+    'normals': m.normals, // Float64List, unit outward
+    'indices': m.indices, // Int32List, CCW from outside
+    'edgePts': m.edgePoints, // Float64List, B-Rep edge polyline points
+    'edgeStarts': m.edgeStarts, // Int32List, nEdges+1 offsets
+    'triFaces': m.triFaces, // Int32List (empty on legacy meshes)
+    'material': material,
+  };
+}
+
+Float64List _frame9(PlaneFrame f) => Float64List.fromList([
+      f.u.x, f.u.y, f.u.z, //
+      f.v.x, f.v.y, f.v.z, //
+      f.n.x, f.n.y, f.n.z, //
+    ]);
+
+List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
+    {String? hover}) {
+  final out = <Map<String, dynamic>>[];
+  for (final key in kPlaneKeys) {
+    final f = planeFrame(key);
+    out.add({
+      'key': key,
+      'frame': _frame9(f),
+      'origin': [f.origin.x, f.origin.y, f.origin.z],
+      'ext': 10.0,
+      'visible': p.vis[key] == true || (app.pickPlane && !p.hasSolid),
+      'hot': hover == key,
+    });
+  }
+  return out;
+}
+
+const _axisDirs = <(String, Vec3)>[
+  ('x', Vec3(1, 0, 0)),
+  ('y', Vec3(0, 1, 0)),
+  ('z', Vec3(0, 0, 1)),
+];
+
+List<Map<String, dynamic>> _axisPayloads(PartModel p, {String? hover}) {
+  return [
+    for (final (key, d) in _axisDirs)
+      {
+        'key': key,
+        'dir': [d.x, d.y, d.z],
+        'ext': 10.0,
+        'visible': p.vis[key] == true,
+        'hot': hover == key,
+      }
+  ];
+}
+
+/// Child sketches as world-space polylines, honouring hidden layers, the
+/// end-of-sketch marker and session visibility (mirrors Viewport3D._paintSketch).
+List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
+  final sess = app.extrudeSession;
+  final out = <Map<String, dynamic>>[];
+  for (final cs in p.childSketches) {
+    final showForSession = sess?.sketchName == cs.model.name ||
+        (sess != null && sess.sketchName == null);
+    if (!cs.visible && !showForSession) continue;
+    final frame = sketchFrameOf(cs);
+    final polylines = <Float64List>[];
+    for (final g in cs.model.geometry) {
+      if (cs.model.hiddenLayers.contains(g.layer)) continue;
+      final li = cs.model.layers.indexOf(g.layer);
+      if (li >= 0 && li >= cs.model.eosAfter) continue;
+      final pts = sketchCurve(g);
+      if (pts.length < 2) continue;
+      final buf = Float64List(pts.length * 3);
+      for (var i = 0; i < pts.length; i++) {
+        final w = frame.toWorld(pts[i]);
+        buf[i * 3] = w.x;
+        buf[i * 3 + 1] = w.y;
+        buf[i * 3 + 2] = w.z;
+      }
+      polylines.add(buf);
+    }
+    if (polylines.isNotEmpty) {
+      out.add({
+        'polylines': polylines,
+        // Normal of the sketch plane: lets the renderer lift a sketch drawn ON
+        // a solid face clear of that face (they are exactly coplanar).
+        'n': [frame.n.x, frame.n.y, frame.n.z],
+      });
+    }
+  }
+  return out;
+}
+
+/// The blue prehighlight target ({solid id, face id}) or null.
+Map<String, dynamic>? _highlightPayload(
+    AppState app, PartModel p, (KernelSolid, int)? hoverFace) {
+  if (hoverFace == null || hoverFace.$2 < 0) return null;
+  for (final (id, s) in visibleSolids(app, p)) {
+    if (identical(s, hoverFace.$1)) {
+      return {'solid': id, 'face': hoverFace.$2};
+    }
+  }
+  return null;
+}
+
+/// The full scene: geometry + overlays' current visibility/hover. Sent only
+/// when [sceneSignature] changes.
+Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
+    {String? hover, (KernelSolid, int)? hoverFace}) {
+  final sess = app.extrudeSession;
+  final scene = <String, dynamic>{
+    'solids': [
+      for (final (id, s) in visibleSolids(app, p)) solidPayload(id, s),
+    ],
+    'planes': _planePayloads(app, p, hover: hover),
+    'axes': _axisPayloads(p, hover: hover),
+    'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},
+    'sketches': _sketchPayloads(app, p),
+  };
+  final preview = sess?.preview;
+  if (preview != null) {
+    scene['preview'] = solidPayload('__preview__', preview, material: kMatPreview);
+  }
+  final hl = _highlightPayload(app, p, hoverFace);
+  if (hl != null) scene['highlight'] = hl;
+  return scene;
+}
+
+/// Light per-move push: hover tints + visibility + face highlight, no meshes.
+Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
+    {String? hover, (KernelSolid, int)? hoverFace}) {
+  final out = <String, dynamic>{
+    'planes': [
+      for (final key in kPlaneKeys)
+        {
+          'key': key,
+          'visible': p.vis[key] == true || (app.pickPlane && !p.hasSolid),
+          'hot': hover == key,
+        }
+    ],
+    'axes': [
+      for (final (key, _) in _axisDirs)
+        {'key': key, 'visible': p.vis[key] == true, 'hot': hover == key}
+    ],
+    'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},
+  };
+  final hl = _highlightPayload(app, p, hoverFace);
+  if (hl != null) out['highlight'] = hl;
+  return out;
+}
+
+/// A cheap signature over everything that lives in a [buildScenePayload]. When
+/// it is unchanged the app skips re-uploading the (large) mesh buffers. Mesh
+/// identity flips on extrude/refine; sketch geometry is static in the 3D view
+/// (edits happen in the 2D sketcher, which shows a different widget), so a
+/// count/eos/visibility fingerprint suffices there.
+String sceneSignature(AppState app, PartModel p) {
+  final sess = app.extrudeSession;
+  final sb = StringBuffer();
+  for (final (id, s) in visibleSolids(app, p)) {
+    sb..write(id)..write(':')..write(identityHashCode(s.mesh))..write(';');
+  }
+  sb
+    ..write('prev:')
+    ..write(sess?.preview == null ? 0 : identityHashCode(sess!.preview!.mesh))
+    ..write(';prevrepl:')
+    ..write(sess?.previewReplacesBody ?? '')
+    ..write(';pick:')
+    ..write(app.pickPlane ? 1 : 0)
+    ..write(';vis:');
+  for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
+    sb.write(p.vis[k] == true ? '1' : '0');
+  }
+  sb.write(';sk:');
+  for (final cs in p.childSketches) {
+    sb
+      ..write(cs.model.name)
+      ..write('#')
+      ..write(cs.model.geometry.length)
+      ..write('/')
+      ..write(cs.model.eosAfter)
+      ..write('/')
+      ..write(cs.visible ? 1 : 0)
+      ..write(',');
+  }
+  return sb.toString();
+}
