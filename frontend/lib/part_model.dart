@@ -775,6 +775,19 @@ class PartModel {
   String nextFeatureName() => 'Extrusion${++featureN}';
   String nextSolidName() => 'Solid${++solidN}';
 
+  /// The LIVE solid bodies, in creation order — one entry per distinct body
+  /// name that still owns geometry (a feature consumed by a join no longer
+  /// does). Drives Inventor's Output behaviour: Join targets an existing body,
+  /// and only when there is more than one does the user have to choose.
+  List<String> get bodyNames {
+    final out = <String>[];
+    for (final f in features) {
+      if (f.solid == null || f.consumedByJoin) continue;
+      if (!out.contains(f.bodyName)) out.add(f.bodyName);
+    }
+    return out;
+  }
+
   Map<String, dynamic> toJson() => {
         'version': 1,
         'type': 'part',

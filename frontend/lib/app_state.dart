@@ -2060,6 +2060,7 @@ class AppState extends ChangeNotifier {
     p.childSketches.add(ChildSketch(sk, key));
     p.dirty = true;
     activeChild = sk;
+    sketchZoomNeedsFit = true;
     _reanalyze();
     Log.i('part', 'child sketch "${sk.name}" on $key of "${p.name}"');
     startNewLayer(); // enters edit + notifies, like createNamedSketch
@@ -2093,6 +2094,7 @@ class AppState extends ChangeNotifier {
     p.childSketches.add(ChildSketch(sk, 'face', frame));
     p.dirty = true;
     activeChild = sk;
+    sketchZoomNeedsFit = true;
     _reanalyze();
     Log.i('part', 'child sketch "${sk.name}" on a solid face of "${p.name}"');
     startNewLayer();
@@ -2125,6 +2127,7 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     p.camera.orientToPlane(cs.plane);
     activeChild = cs.model;
+    sketchZoomNeedsFit = true;
     editingLayer = null;
     tool = Tool.none;
     _reanalyze();
@@ -2170,7 +2173,18 @@ class AppState extends ChangeNotifier {
         s.profiles.add(ProfileSel(x.ax, x.ay, x.area));
       }
     } else {
-      s.bodyName = 'Solid${p.solidN + 1}';
+      // Inventor: Join merges into an EXISTING body, so default the target to
+      // one — the newest. Handing out a fresh "SolidN+1" here (as before) meant
+      // Join never matched anything and silently behaved like New Solid unless
+      // the user retyped the existing name by hand.
+      final bodies = p.bodyNames;
+      if (bodies.isEmpty) {
+        s.output = 'new'; // nothing to join to yet: this is the base feature
+        s.bodyName = 'Solid${p.solidN + 1}';
+      } else {
+        s.output = 'join';
+        s.bodyName = bodies.last;
+      }
       final cs = p.childSketches.last;
       s.sketchName = cs.model.name;
       final regs = sessionRegions(cs);
@@ -2240,7 +2254,19 @@ class AppState extends ChangeNotifier {
     if (bodyName != null) s.bodyName = bodyName;
     if (iMate != null) s.iMate = iMate;
     if (matchShape != null) s.matchShape = matchShape;
-    if (output != null) s.output = output;
+    if (output != null && output != s.output) {
+      s.output = output;
+      final p = currentPart;
+      if (p != null) {
+        final bodies = p.bodyNames;
+        if (output == 'join' && bodies.isNotEmpty) {
+          // keep an explicit choice, otherwise target the newest body
+          if (!bodies.contains(s.bodyName)) s.bodyName = bodies.last;
+        } else if (output == 'new') {
+          s.bodyName = 'Solid${p.solidN + 1}';
+        }
+      }
+    }
     _updateExtrudePreview();
     notifyListeners();
   }
@@ -6644,6 +6670,22 @@ class AppState extends ChangeNotifier {
   // ~5-order span each way from 1px/mm).
   static const double minZoom = 1e-4;
   static const double maxZoom = 1e6;
+
+  /// Set when the 2D sketcher is entered, so it opens showing the SAME world
+  /// height as the 3D viewport instead of its own unrelated default (zoom 1.0
+  /// = 1 mm per logical pixel, which showed roughly a metre of world).
+  bool sketchZoomNeedsFit = false;
+
+  /// Called by the 2D viewport once it knows its height.
+  void fitSketchZoom(double viewportHeightPx) {
+    if (!sketchZoomNeedsFit) return;
+    sketchZoomNeedsFit = false;
+    final halfH = currentPart?.camera.halfH ?? 27.0;
+    if (viewportHeightPx <= 0 || halfH <= 0) return;
+    // 3D maps [-halfH, +halfH] onto the viewport height; match it exactly.
+    zoom = (viewportHeightPx / (2 * halfH)).clamp(minZoom, maxZoom).toDouble();
+    notifyListeners();
+  }
 
   void zoomBy(double factor, {Offset? aroundWorld}) {
     final raw = zoom * factor;

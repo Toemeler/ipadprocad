@@ -1061,6 +1061,13 @@ class _Viewport2DState extends State<Viewport2D> {
     return LayoutBuilder(builder: (context, cons) {
       final size = Size(cons.maxWidth, cons.maxHeight);
       widget.app.viewportSize = size; // M45: for cursor-anchored inserts
+      // Entering the sketcher: open at the SAME world scale as the 3D view.
+      // Deferred to after this frame — it mutates app state and notifies.
+      if (widget.app.sketchZoomNeedsFit) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.app.fitSketchZoom(size.height);
+        });
+      }
       return Focus(
         focusNode: _focus,
         autofocus: true,
