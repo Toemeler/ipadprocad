@@ -108,15 +108,6 @@ class _Viewport3DState extends State<Viewport3D> {
 
   PartModel? get part => widget.app.currentPart;
 
-  static double _distToSeg(Offset p, Offset a, Offset b) {
-    final vx = b.dx - a.dx, vy = b.dy - a.dy;
-    final len2 = vx * vx + vy * vy;
-    if (len2 < 1e-9) return (p - a).distance;
-    var t = ((p.dx - a.dx) * vx + (p.dy - a.dy) * vy) / len2;
-    t = t.clamp(0.0, 1.0);
-    return (p - Offset(a.dx + vx * t, a.dy + vy * t)).distance;
-  }
-
   /// Nearest VISIBLE sketch curve under the cursor, or null. Mirrors exactly
   /// the curves reality_scene draws, so what highlights is what you see.
   String? _pickSketchCurve(Cam3 cam, Offset px) {
