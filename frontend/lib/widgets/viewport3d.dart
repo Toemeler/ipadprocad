@@ -489,7 +489,19 @@ class _Viewport3DState extends State<Viewport3D> {
         final w2 =
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) >= 0) continue;
+        // Keep the triangles FACING THE CAMERA. Measured on device
+        // (mesh3d convention log, build 2648d2e): the winding normal
+        // cross(p1-p0, p2-p0) agrees with the per-vertex normal for 100% of
+        // triangles, and those normals point outward for 100% of vertices —
+        // so this normal IS the outward one, and the camera sits at +dir
+        // ("camera at dir*D", Cam3). A visible face therefore has n·dir > 0.
+        // The old test kept n·dir < 0, i.e. the BACK faces, which is why:
+        // sketches landed on the far side of the body (making an extrusion
+        // read as a recess), the blue prehighlight was built on a face hidden
+        // behind the solid, and picking missed entirely near the silhouette
+        // where no back face lies under the cursor. The ViewCube uses the
+        // n·dir > 0 form and has always worked.
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
         final nn = n.normalized();
         var faceId = -1;
         if (v4) {
