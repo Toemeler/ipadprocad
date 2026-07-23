@@ -50,101 +50,135 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
 
 final Set<int> _conventionLogged = <int>{};
 
-/// ONE-SHOT DIAGNOSTIC per mesh — it exists because the surface convention of
-/// these meshes could not be settled by reading the code, and guessing it wrong
-/// has now cost three device rounds (invisible face highlight, see-through
-/// holes, a solid that reads inside-out).
+/// ONE-SHOT SELF-REPORT per mesh — ONE line, everything a device round can
+/// possibly need to know about a new solid. It exists because the surface
+/// convention of these meshes could not be settled by reading the code, and
+/// guessing it wrong has now cost several device rounds (invisible face
+/// highlight, see-through holes, a solid that reads inside-out). Each device
+/// run must answer as many open questions as possible at once, so this is
+/// deliberately a permanent report, not a temporary probe.
 ///
-/// It measures the two unknowns directly and writes them to the device log:
-///  * `wind`  — share of triangles whose WINDING normal cross(p1-p0, p2-p0)
-///              agrees with the supplied per-vertex normal. ~1.0 means winding
-///              and normals point the same way, ~0.0 means they oppose.
-///  * `out`   — share of sampled vertices whose normal points AWAY from the
-///              mesh centroid. ~1.0 means the normals really are outward (as
-///              occt_capi.h claims), ~0.0 means they are inward. Reliable for
-///              the convex-ish test bodies (cylinder, box).
-/// Together these pin down both the winding and the normal orientation, which
-/// is everything the renderer needs to be made correct rather than lucky.
-void logMeshConvention(String id, OcctMeshData m) {
-  if (!_conventionLogged.add(identityHashCode(m))) return;
+/// Fields:
+///  * `tris/faces/verts`  — size and B-Rep face count of the tessellation.
+///  * `wind`   — share of triangles whose WINDING normal cross(p1-p0, p2-p0)
+///               agrees with the supplied per-vertex normal. ~1.0 means
+///               winding follows the normals, ~0.0 means they oppose.
+///  * `out`    — share of sampled vertices whose normal points AWAY from the
+///               mesh centroid. ~1.0 = outward normals as occt_capi.h claims.
+///               Reliable only for convex-ish bodies; on joined bodies it
+///               drops, which is exactly what `inward` then localises.
+///  * `inward` — the B-Rep faces that actually carry INWARD normals (majority
+///               vote per face). This is the actionable list: a renderer bug
+///               that only affects some faces will name them here.
+///  * `edges`  — non-manifold or boundary edges on quantised POSITIONS (OCCT
+///               duplicates vertices along face seams, so index-based counting
+///               would report every seam). 0 = watertight shell, i.e. the
+///               kernel is fine and any visual defect sits in the renderer.
+///  * `bbox`   — world extent, to catch scale/placement surprises.
+String meshSelfReport(String id, OcctMeshData m) {
   final pos = m.positions, nor = m.normals, idx = m.indices;
   final nTri = idx.length ~/ 3;
-  if (nTri == 0 || nor.length != pos.length) return;
+  final nV = pos.length ~/ 3;
+  if (nTri == 0 || nor.length != pos.length) {
+    return 'mesh $id: EMPTY tris=$nTri verts=$nV '
+        '(normals ${nor.length} != positions ${pos.length})';
+  }
 
   var cx = 0.0, cy = 0.0, cz = 0.0;
-  final nV = pos.length ~/ 3;
+  var minX = pos[0], minY = pos[1], minZ = pos[2];
+  var maxX = pos[0], maxY = pos[1], maxZ = pos[2];
   for (var i = 0; i < nV; i++) {
-    cx += pos[i * 3];
-    cy += pos[i * 3 + 1];
-    cz += pos[i * 3 + 2];
+    final x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    cx += x;
+    cy += y;
+    cz += z;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
   }
   cx /= nV;
   cy /= nV;
   cz /= nV;
 
+  // Per-triangle votes. Sampled for the two global ratios (cheap on huge
+  // meshes), but the per-face vote runs over ALL triangles: a single wrongly
+  // oriented face is the whole point of the report and must not be sampled
+  // away.
   var agree = 0, outward = 0, sampled = 0;
   final step = nTri > 600 ? nTri ~/ 600 : 1;
-  for (var t = 0; t < nTri; t += step) {
+  final faceOut = <int, int>{};
+  final faceTris = <int, int>{};
+  final hasFaces = m.triFaces.length == nTri;
+  for (var t = 0; t < nTri; t++) {
     final a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
     final ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-    final ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az;
-    final vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az;
-    // winding normal
+    final ux = pos[b * 3] - ax,
+        uy = pos[b * 3 + 1] - ay,
+        uz = pos[b * 3 + 2] - az;
+    final vx = pos[c * 3] - ax,
+        vy = pos[c * 3 + 1] - ay,
+        vz = pos[c * 3 + 2] - az;
     final gx = uy * vz - uz * vy, gy = uz * vx - ux * vz, gz = ux * vy - uy * vx;
     final nx = nor[a * 3], ny = nor[a * 3 + 1], nz = nor[a * 3 + 2];
-    if (gx * nx + gy * ny + gz * nz > 0) agree++;
-    // does the vertex normal point away from the centroid?
-    if (nx * (ax - cx) + ny * (ay - cy) + nz * (az - cz) > 0) outward++;
-    sampled++;
+    final isOut = nx * (ax - cx) + ny * (ay - cy) + nz * (az - cz) > 0;
+    if (t % step == 0) {
+      if (gx * nx + gy * ny + gz * nz > 0) agree++;
+      if (isOut) outward++;
+      sampled++;
+    }
+    if (hasFaces) {
+      final f = m.triFaces[t];
+      faceTris[f] = (faceTris[f] ?? 0) + 1;
+      if (isOut) faceOut[f] = (faceOut[f] ?? 0) + 1;
+    }
   }
-  if (sampled == 0) return;
   final w = (agree / sampled).toStringAsFixed(2);
   final o = (outward / sampled).toStringAsFixed(2);
 
-  // WATERTIGHT CHECK + FACE INVENTORY (only worth it on the coarse first
-  // tessellation). A missing face is invisible in a render but unmistakable
-  // here: in a closed shell EVERY edge is shared by exactly two triangles.
-  // OCCT duplicates vertices along face boundaries, so the check is done on
-  // quantised POSITIONS rather than on indices, otherwise every face seam
-  // would count as a boundary.
-  if (nTri <= 400) {
-    int canon(int v) {
-      final x = (pos[v * 3] * 1e5).round();
-      final y = (pos[v * 3 + 1] * 1e5).round();
-      final z = (pos[v * 3 + 2] * 1e5).round();
-      return Object.hash(x, y, z);
+  // Watertightness on quantised positions.
+  int canon(int v) => Object.hash((pos[v * 3] * 1e5).round(),
+      (pos[v * 3 + 1] * 1e5).round(), (pos[v * 3 + 2] * 1e5).round());
+  final edgeUse = <int, int>{};
+  for (var t = 0; t < nTri; t++) {
+    final v0 = canon(idx[t * 3]),
+        v1 = canon(idx[t * 3 + 1]),
+        v2 = canon(idx[t * 3 + 2]);
+    for (final (a, b) in [(v0, v1), (v1, v2), (v2, v0)]) {
+      final key = Object.hash(a < b ? a : b, a < b ? b : a);
+      edgeUse[key] = (edgeUse[key] ?? 0) + 1;
     }
-
-    final edgeUse = <int, int>{};
-    final triPerFace = <int, int>{};
-    for (var t = 0; t < nTri; t++) {
-      final vs = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]].map(canon).toList();
-      for (var k = 0; k < 3; k++) {
-        final a = vs[k], b = vs[(k + 1) % 3];
-        final key = Object.hash(a < b ? a : b, a < b ? b : a);
-        edgeUse[key] = (edgeUse[key] ?? 0) + 1;
-      }
-      if (m.triFaces.length == nTri) {
-        final f = m.triFaces[t];
-        triPerFace[f] = (triPerFace[f] ?? 0) + 1;
-      }
-    }
-    final boundary = edgeUse.values.where((c) => c != 2).length;
-    final faces = triPerFace.keys.toList()..sort();
-    final inv = faces.map((f) {
-      final type = m.faceInfos.length > 15 * f
-          ? m.faceInfos[15 * f].round()
-          : -1;
-      return 'f$f:t$type/${triPerFace[f]}';
-    }).join(' ');
-    Log.i(
-        'mesh3d',
-        'shell $id: tris=$nTri faces=${faces.length} '
-            'nonManifoldOrBoundaryEdges=$boundary '
-            '(0 = watertight) [$inv]');
   }
-  Log.i('mesh3d',
-      'convention $id: tris=$nTri wind_agrees_normal=$w normal_outward=$o');
+  final boundary = edgeUse.values.where((c) => c != 2).length;
+
+  final inward = faceTris.keys
+      .where((f) => (faceOut[f] ?? 0) * 2 < faceTris[f]!)
+      .toList()
+    ..sort();
+  final inwardStr = !hasFaces
+      ? 'n/a'
+      : inward.isEmpty
+          ? 'none'
+          : inward.map((f) {
+              final type = m.faceInfos.length > 15 * f
+                  ? m.faceInfos[15 * f].round()
+                  : -1;
+              return 'f$f:t$type/${faceTris[f]}';
+            }).join(',');
+
+  String r(double v) => v.toStringAsFixed(1);
+  return 'mesh $id: tris=$nTri faces=${faceTris.length} verts=$nV '
+      'wind=$w out=$o inward=$inwardStr '
+      'edges=$boundary(0=watertight) '
+      'bbox=${r(minX)},${r(minY)},${r(minZ)}..${r(maxX)},${r(maxY)},${r(maxZ)}';
+}
+
+/// Emits [meshSelfReport] once per distinct mesh object.
+void logMeshConvention(String id, OcctMeshData m) {
+  if (!_conventionLogged.add(identityHashCode(m))) return;
+  Log.i('mesh3d', meshSelfReport(id, m));
 }
 
 /// Current mesh revision per visible solid. The widget keeps the last set it
