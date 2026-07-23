@@ -407,11 +407,19 @@ class PlanetaryLayout {
   final List<PlanetPlacement> members;
   final int ringTeeth;
   final double centerDistance; // sun↔planet
-  final double carrierRadius; // = centerDistance
   final bool assemblyOk; // equal spacing + meshing is exact
   final List<double> planetCarrierAngles; // absolute angles of planet centres
   const PlanetaryLayout(this.members, this.ringTeeth, this.centerDistance,
       this.assemblyOk, this.planetCarrierAngles);
+
+  /// Radius the planet centres sit on. Identical to [centerDistance] by
+  /// construction — buildPlanetaryLayout places every planet at
+  /// `a·(cos φ, sin φ)` where `a` IS the sun↔planet centre distance. It is
+  /// therefore derived, not stored: as a final field it was never initialised
+  /// by the constructor, which failed compilation of the whole library and
+  /// with it every test that imports the app (CI run #168: 44 failures from
+  /// this one line).
+  double get carrierRadius => centerDistance;
 
   PlanetPlacement get sun => members.firstWhere((m) => m.role == 'sun');
   PlanetPlacement get ring => members.firstWhere((m) => m.role == 'ring');
