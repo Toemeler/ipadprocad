@@ -13,10 +13,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
 import '../part_model.dart';
 import '../part_render.dart';
+import '../reality_scene.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
 
@@ -47,6 +49,9 @@ class _Viewport3DState extends State<Viewport3D> {
   @override
   void dispose() {
     _refineTimer?.cancel();
+    // The controller itself is owned (and disposed) by the RealityView widget's
+    // own State; just drop our reference so late pushes are no-ops.
+    _reality = null;
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
@@ -76,7 +81,32 @@ class _Viewport3DState extends State<Viewport3D> {
   // coalesces into a single kernel re-mesh once the gesture settles.
   Timer? _refineTimer;
 
+  // M60: the RealityKit output surface. Null until the platform view is
+  // created, and always null off-iOS — where the CPU painter (_ScenePainter)
+  // still draws, so host/widget tests and the headless thumbnail path are
+  // unaffected. When present, all world-space geometry is rendered by
+  // RealityKit (GPU depth buffer), and this widget only pushes scene/camera/
+  // overlay payloads; the Flutter layer keeps gestures, ViewCube and triad.
+  RealityViewController? _reality;
+  String? _lastSceneSig;
+
   PartModel? get part => widget.app.currentPart;
+
+  /// Push the current camera (always), the scene (only when its signature
+  /// changed — meshes are large) and the light overlay state to RealityKit.
+  void _pushReality(AppState app, PartModel p, Size size) {
+    final c = _reality;
+    if (c == null) return;
+    c.setCamera(cameraPayload(p.camera, size));
+    final sig = sceneSignature(app, p);
+    if (sig != _lastSceneSig) {
+      _lastSceneSig = sig;
+      c.setScene(
+          buildScenePayload(app, p, hover: _hover, hoverFace: _hoverFace));
+    }
+    c.setOverlays(
+        buildOverlaysPayload(app, p, hover: _hover, hoverFace: _hoverFace));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +119,9 @@ class _Viewport3DState extends State<Viewport3D> {
       // Keep solids at screen resolution: refine on the first frame, on resize,
       // and whenever a new (coarse) preview appears. Cheap no-op once smooth.
       _armRefine(size);
+      // Drive the RealityKit surface (iOS). Off-iOS this is a no-op and the
+      // CustomPaint fallback below renders instead.
+      if (RealityView.isSupported) _pushReality(app, p, size);
       return Stack(children: [
         Positioned.fill(
           child: Listener(
@@ -156,11 +189,26 @@ class _Viewport3DState extends State<Viewport3D> {
                   _mmbLast = d.localFocalPoint;
                 }),
                 child: ClipRect(
-                  child: CustomPaint(
-                    painter:
-                        _ScenePainter(app, p, _hover, _hoverRegion, _hoverFace),
-                    size: Size.infinite,
-                  ),
+                  // On iOS the RealityKit platform view is the output surface
+                  // (this Listener/GestureDetector above still owns every
+                  // gesture, since the ARView disables its own interaction).
+                  // Everywhere else the CPU painter draws — unchanged.
+                  child: RealityView.isSupported
+                      ? RealityView(
+                          placeholder: const ColoredBox(color: T.viewport),
+                          onCreated: (c) {
+                            _reality = c;
+                            // First real push once the view exists.
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) setState(() {});
+                            });
+                          },
+                        )
+                      : CustomPaint(
+                          painter: _ScenePainter(
+                              app, p, _hover, _hoverRegion, _hoverFace),
+                          size: Size.infinite,
+                        ),
                 ),
               ),
             ),

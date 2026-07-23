@@ -16,6 +16,76 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M60 — RealityKit ersetzt den CPU-Renderer (GPU-Tiefenpuffer).** Antwort auf
+> den offenen Punkt (A) aus M59c: Canvas hat KEINEN Z-Buffer, Verdeckung lief
+> in Screen-Space (Painter-Algorithmus + Occluder-Gitter + Bias-Margen). Das
+> ist bei gekrümmten Flächen und sich durchdringenden Solids grundsätzlich
+> fragil — jetzt ersetzt durch echtes GPU-Rendering.
+>
+> **Architektur (bewusst minimal-invasiv):** Die gesamte Dart-Kamera- und
+> Pick-Logik bleibt UNVERÄNDERT (`Cam3`, `_hitOrigin`, `_pickSolidFace`,
+> `_tap` — reine Geometrie, bereits getestet). Ersetzt wird NUR die
+> Ausgabefläche:
+> - Neues In-Repo-Plugin `frontend/packages/reality_view/` (gleicher Pfad wie
+>   `native_menu`: Podspec + Swift, von CocoaPods über
+>   `.flutter-plugins-dependencies` gezogen — es gibt kein `frontend/ios/`).
+> - Swift: `ARView(cameraMode: .nonAR)` als Flutter-`UiKitView`, mit
+>   `isUserInteractionEnabled = false`. Die Flutter-Gestenschicht liegt DARÜBER,
+>   also greifen Orbit/Pan/Zoom/Tap/Hover unverändert weiter.
+> - **Echte Ortho-Kamera:** `OrthographicCameraComponent` (iOS 18+), darunter
+>   ein Near-Ortho-`PerspectiveCamera`-Fallback (3° Tele aus großer Distanz).
+>   Kamera-Konvention 1:1 aus `part_render.dart` (`dir`, `forward=-dir`,
+>   `s=fwd×up`, `u=s×fwd`, vertikale Weltausdehnung `2·halfH`).
+> - Alles Weltraum-Geometrische (Solids, Ursprungsebenen, Achsen, Center Point,
+>   Skizzen, B-Rep-Kanten, Face-Highlight) sind jetzt RealityKit-Entities →
+>   **der Tiefenpuffer erledigt die Verdeckung**. `solidOccluder`,
+>   `drawOccludedQuadFill`, `edgeMargin` & Co. werden auf dem Gerät nicht mehr
+>   gebraucht. ViewCube, Triade und Meldungs-Toast bleiben Flutter-HUD.
+> - **Protokoll** (3 Verben, `ipadprocad/reality_view/<id>`): `setScene`
+>   (schwer, nur wenn sich `sceneSignature` ändert), `setOverlays` (leicht:
+>   Hover/Sichtbarkeit, pro Pointer-Move), `setCamera` (5 Doubles pro Frame).
+>   Mesh-Puffer werden per REFERENZ übergeben (`Float64List`/`Int32List` →
+>   StandardMessageCodec-Bytebuffer), nicht kopiert.
+> - Der CPU-Painter (`_ScenePainter`/`paintPartSolids`) BLEIBT — für die
+>   Galerie-Thumbnails (`_writePartPreview`, headless) und als Nicht-iOS-Pfad
+>   (Host-/Widget-Tests). Dort ändert sich nichts.
+>
+> **Was CI verifizieren kann:** Swift kompiliert/linkt, `-framework RealityKit`
+> im Runner (neuer `REALITYKIT LINK CHECK` per `otool -L`), `flutter analyze`,
+> und die neuen Host-Tests `test/reality_scene_test.dart` über die REINEN
+> Payload-Builder (`lib/reality_scene.dart`): Kamera-Doubles, Solid-Auswahl
+> (unsichtbar/`consumedByJoin`/`editing` fallen raus), Puffer-Identität ohne
+> Kopie, 9-Doubles-Ebenenframes, Skizzen-Weltmapping, Signatur-Wechsel bei
+> Re-Tessellierung, Hover-Face-Auflösung.
+>
+> **Ehrlich offen — Geräte-Test ist das Gate (nichts davon lokal prüfbar, kein
+> Xcode/Flutter im Container):**
+> 1. **Ortho-`scale`-Semantik:** angenommen `scale = 2·halfH` (volle vertikale
+>    Weltausdehnung). Ist es in Wahrheit die HALBE Höhe, ist das Bild exakt 2×
+>    verzoomt — dann diese eine Konstante in `applyCameraComponent()` ändern.
+>    Erkennbar am Vergleich mit ViewCube/Triade (die weiter Dart rechnen).
+> 2. **Gesten durch die Platform-View:** ob der Flutter-`GestureDetector` über
+>    einer `UiKitView` wirklich JEDE Geste bekommt (Pinch/Hover/Pencil), ist
+>    Verhalten der Embedder-Schicht — die `ARView` ist interaktionsfrei
+>    gestellt, aber das ist am Gerät zu bestätigen.
+> 3. **Kanten als Röhren mit fester Weltdicke** (r = 0.10 mm): bei starkem
+>    Zoom werden sie sichtbar dick, bei starkem Auszoomen dünn. Bewusster
+>    v1-Kompromiss (RealityKit hat kein Linien-Primitiv); eine
+>    bildschirmkonstante Breite bräuchte ein Custom-Material/Shader.
+> 4. **Analytische Kanten (Shim v4) werden noch nicht genutzt** — gezeichnet
+>    wird die Kanten-Polylinie. Die M59-Bezier-Exaktheit gilt weiter für die
+>    Thumbnails, nicht für die RealityKit-Ansicht.
+> 5. **Renderer ist auf iOS 15+ gegattert** (`MeshDescriptor`,
+>    `MeshResource.generate(from:)`, `PhysicallyBasedMaterial`, `blending` sind
+>    RealityKit-2-APIs). Deployment-Floor bleibt 14.0, weil Qt-iOS das
+>    erzwingt → auf iOS 14 bliebe der 3D-Viewport LEER. Zielgerät ist iPad Pro
+>    auf iOS 26; sauber wäre, den App-Floor auf 15 zu heben.
+> 6. Material ist `SimpleMaterial` (nicht-metallisch) + Key/Fill-Light: eine
+>    metallische PBR-Fläche bräuchte Image-Based-Lighting, das eine
+>    `.nonAR`-Szene nicht hat (Risiko: schwarz gerendert).
+>
+> ---
+>
 > **Nachtrag M59c (weitere Geräte-Fixes, CI-grün auf 78da7d8):** (1)
 > **Skizze-auf-Fläche blickte von der falschen Seite:** `facePicked`
 > orientierte die Kamera ENTLANG der Außennormale → man sah von innen durch

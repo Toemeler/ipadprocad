@@ -667,7 +667,7 @@ jobs:
           echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
           printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
           IPHONEOS_DEPLOYMENT_TARGET = 14.0
           XC
           # strip the heredoc's leading indentation xcconfig can't handle
@@ -740,6 +740,15 @@ jobs:
             echo "OCCT LINK CHECK: PASS ($NOCCT _occt_* symbols exported in Runner)"
           else
             echo "OCCT LINK CHECK: FAIL (only ${NOCCT:-0} _occt_* symbols exported, want >= 29)"; exit 1
+          fi
+          # M60: the RealityKit viewport plugin must be linked (the GPU 3D
+          # renderer that replaces the CPU painter on device). The framework
+          # shows in the Runner's load commands whether linked normal or weak.
+          RKIT="$(otool -L "$APP/Runner" 2>/dev/null | grep -c RealityKit || true)"
+          if [ "${RKIT:-0}" -gt 0 ]; then
+            echo "REALITYKIT LINK CHECK: PASS (RealityKit framework linked into Runner)"
+          else
+            echo "REALITYKIT LINK CHECK: FAIL (RealityKit not linked — 3D viewport cannot render)"; exit 1
           fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload

@@ -16,6 +16,11 @@ dependencies:
   # like file_picker — no hand-written code in the CI-scaffolded Runner target.
   native_menu:
     path: packages/native_menu
+  # In-repo iOS plugin: RealityKit-backed 3D viewport (GPU depth buffer + PBR
+  # shading) that replaces the CPU painter's-algorithm renderer on device.
+  # Same path-dependency delivery as native_menu.
+  reality_view:
+    path: packages/reality_view
   flutter_svg: ^2.0.10
   path_provider: ^2.1.2
 
