@@ -100,11 +100,26 @@ final class PartRenderer: NSObject {
     private var sketchRoot = Entity()
     /// Sketch polyline entities with the normal of the plane they lie on, so
     /// a sketch drawn ON a solid face can be lifted clear of it.
-    private var sketchEntities: [(Entity, SIMD3<Float>)] = []
+    private var sketchEntities: [(Entity, SIMD3<Float>, String)] = []
     /// Edge tubes, kept so they can be nudged toward the camera: a tube is
     /// centred ON the face boundary, so half of it sits INSIDE the solid and
     /// speckles through the surface at grazing angles.
-    private var edgeEntities: [Entity] = []
+    private var solidEdges: [String: Entity] = [:]
+    private var previewEdge: Entity?
+    private var edgeEntities: [Entity] {
+        Array(solidEdges.values) + (previewEdge.map { [$0] } ?? [])
+    }
+    /// Mesh revision last uploaded per solid — lets Dart omit the (large)
+    /// buffers for solids that did not change, which is what keeps dragging an
+    /// extrude distance smooth on a part with several bodies.
+    private var solidRev: [String: Int] = [:]
+    /// halfH the edge tubes were built for; rebuilt when the zoom drifts far
+    /// enough that their on-screen weight would change noticeably.
+    private var edgeBuildHalfH: Double = 0
+    /// Last highlight actually built, so hovering the same face does not
+    /// regenerate its submesh every frame.
+    private var builtHighlight: (String, Int)?
+    private var cpState: (Bool, Bool)?
     /// Radius of the rendered geometry around the origin — drives the fitted
     /// near/far range. Starts at the origin-plane extent (±10 mm diagonal).
     private var sceneRadius: Float = 15
@@ -139,9 +154,9 @@ final class PartRenderer: NSObject {
         // pointing at the viewer is brightest — same intent as Cam3.solidLight —
         // plus a dim fixed FILL so faces angled away never go pure black (there
         // is no image-based lighting in a .nonAR scene).
-        headlight.light.intensity = 2000
+        headlight.light.intensity = 1450
         root.addChild(headlight)
-        fillLight.light.intensity = 650
+        fillLight.light.intensity = 480
         fillLight.transform = Transform(matrix: Self.lookAt(
             eye: SIMD3<Float>(-3, 6, -4), target: .zero, up: SIMD3<Float>(0, 1, 0)))
         root.addChild(fillLight)
@@ -187,7 +202,28 @@ final class PartRenderer: NSObject {
 
     func setCamera(_ a: [String: Any]) {
         cam.update(from: a)
+        if edgeBuildHalfH > 0 {
+            let ratio = cam.halfH / edgeBuildHalfH
+            if ratio > 1.8 || ratio < 0.55 { rebuildEdgesForZoom() }
+        }
         placeCamera()
+    }
+
+    /// Re-tube the cached solids at the current zoom. Edge tubes have a fixed
+    /// WORLD radius, so without this they thin to nothing when zooming in and
+    /// turn into bars when zooming out.
+    private func rebuildEdgesForZoom() {
+        let r = edgeRadius
+        for (id, geom) in solidCache {
+            guard let holder = solidEntities[id] else { continue }
+            solidEdges[id]?.removeFromParent()
+            solidEdges[id] = nil
+            if let e = geom.edgeEntity(radius: r) {
+                holder.addChild(e)
+                solidEdges[id] = e
+            }
+        }
+        edgeBuildHalfH = cam.halfH
     }
 
     private func placeCamera() {
@@ -228,7 +264,7 @@ final class PartRenderer: NSObject {
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
         for e in edgeEntities { e.position = dir * bias }
-        for (e, n) in sketchEntities {
+        for (e, n, _) in sketchEntities {
             let side: Float = simd_dot(n, dir) >= 0 ? 1 : -1
             e.position = n * (bias * side)
         }
@@ -258,13 +294,17 @@ final class PartRenderer: NSObject {
 
     func setScene(_ a: [String: Any]) {
         sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
-        edgeEntities.removeAll()
+        edgeBuildHalfH = cam.halfH
         rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
         rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
         rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
         rebuildCenterPoint(a["cp"] as? [String: Any])
         rebuildSketches(a["sketches"] as? [[String: Any]] ?? [])
+        applySketchAccents(hover: a["hoverSketch"] as? String,
+                           selected: Set(a["selSketch"] as? [String] ?? []))
         rebuildPreview(a["preview"] as? [String: Any])
+        cpState = nil
+        builtHighlight = nil
         rebuildHighlight(from: a["highlight"] as? [String: Any])
         placeCamera()
     }
@@ -288,7 +328,24 @@ final class PartRenderer: NSObject {
         if let c = a["cp"] as? [String: Any] {
             rebuildCenterPoint(c)
         }
+        applySketchAccents(hover: a["hoverSketch"] as? String,
+                           selected: Set(a["selSketch"] as? [String] ?? []))
         rebuildHighlight(from: a["highlight"] as? [String: Any])
+    }
+
+    /// Blue prehighlight / selection on individual sketch curves. Cheap: it
+    /// only swaps a material, and only on the entities whose state changed.
+    private var sketchAccent: [String: Bool] = [:]
+    private func applySketchAccents(hover: String?, selected: Set<String>) {
+        for (e, _, key) in sketchEntities {
+            guard !key.isEmpty, let me = e as? ModelEntity else { continue }
+            let on = (key == hover) || selected.contains(key)
+            if sketchAccent[key] == on { continue }
+            sketchAccent[key] = on
+            me.model?.materials = [
+                Materials.unlit(on ? Colors.highlight : Colors.sketch)
+            ]
+        }
     }
 
     private func rebuildSolids(_ solids: [[String: Any]]) {
@@ -297,9 +354,23 @@ final class PartRenderer: NSObject {
         for (id, e) in solidEntities where !ids.contains(id) {
             e.removeFromParent(); solidEntities[id] = nil; solidCache[id] = nil
         }
+        for (id, e) in solidEdges where !ids.contains(id) {
+            e.removeFromParent(); solidEdges[id] = nil; solidRev[id] = nil
+        }
         for s in solids {
-            guard let id = s["id"] as? String,
-                  let geom = SolidGeom(payload: s) else { continue }
+            guard let id = s["id"] as? String else { continue }
+            let rev = (s["rev"] as? NSNumber)?.intValue ?? 0
+            // Dart omits the buffers when a solid's mesh is unchanged: keep the
+            // entity and the cached geometry that are already on screen.
+            if s["positions"] == nil {
+                if let cached = solidCache[id] {
+                    sceneRadius = max(sceneRadius, cached.boundingRadius)
+                    solidRev[id] = rev
+                }
+                continue
+            }
+            guard let geom = SolidGeom(payload: s) else { continue }
+            solidRev[id] = rev
             solidCache[id] = geom
             // if/else, not a ternary: the two branches are DIFFERENT concrete
             // types (PhysicallyBasedMaterial vs SimpleMaterial) and Swift
@@ -316,9 +387,11 @@ final class PartRenderer: NSObject {
             let edges = geom.edgeEntity(radius: edgeRadius)
             let holder = Entity()
             holder.addChild(shaded)
+            solidEdges[id]?.removeFromParent()
+            solidEdges[id] = nil
             if let edges = edges {
                 holder.addChild(edges)
-                edgeEntities.append(edges)
+                solidEdges[id] = edges
             }
             // Replace the previous holder for this id.
             solidEntities[id]?.removeFromParent()
@@ -348,9 +421,13 @@ final class PartRenderer: NSObject {
     }
 
     private func rebuildCenterPoint(_ c: [String: Any]?) {
+        let vis = ((c?["visible"] as? NSNumber)?.boolValue ?? false)
+        let hotNow = ((c?["hot"] as? NSNumber)?.boolValue ?? false)
+        if let st = cpState, st == (vis, hotNow) { return }
+        cpState = (vis, hotNow)
         cpEntity?.removeFromParent(); cpEntity = nil
-        guard let c = c, ((c["visible"] as? NSNumber)?.boolValue ?? false) else { return }
-        let hot = (c["hot"] as? NSNumber)?.boolValue ?? false
+        guard vis else { return }
+        let hot = hotNow
         let e = ModelEntity(
             mesh: .generateSphere(radius: hot ? 0.6 : 0.5),
             materials: [Materials.unlit(hot ? Colors.green : Colors.orange)])
@@ -362,17 +439,19 @@ final class PartRenderer: NSObject {
         sketchRoot.removeFromParent()
         sketchRoot = Entity()
         sketchEntities.removeAll()
+        sketchAccent.removeAll()
         for sk in sketches {
             guard let polys = sk["polylines"] as? [Any] else { continue }
             // Normal of the sketch plane (origin plane or the picked face).
             let n = Payload.vec3(sk["n"]) ?? SIMD3<Float>(0, 0, 1)
-            for raw in polys {
+            let keys = sk["keys"] as? [String] ?? []
+            for (i, raw) in polys.enumerated() {
                 guard let pts = Payload.floats(raw) else { continue }
                 if let e = TubeBuilder.polyline(
                     pts, radius: edgeRadius * 1.2,
                     material: Materials.unlit(Colors.sketch)) {
                     sketchRoot.addChild(e)
-                    sketchEntities.append((e, n))
+                    sketchEntities.append((e, n, i < keys.count ? keys[i] : ""))
                 }
             }
         }
@@ -390,13 +469,14 @@ final class PartRenderer: NSObject {
 
     private func rebuildPreview(_ p: [String: Any]?) {
         previewEntity?.removeFromParent(); previewEntity = nil
+        previewEdge = nil
         guard let p = p, let geom = SolidGeom(payload: p) else { return }
         sceneRadius = max(sceneRadius, geom.boundingRadius)
         let holder = Entity()
         holder.addChild(geom.shadedEntity(material: Materials.preview()))
         if let edges = geom.edgeEntity(color: Colors.previewEdge, radius: edgeRadius) {
             holder.addChild(edges)
-            edgeEntities.append(edges)
+            previewEdge = edges
         }
         previewEntity = holder
         root.addChild(holder)
@@ -405,13 +485,23 @@ final class PartRenderer: NSObject {
     // Blue prehighlight of the hovered planar face: a submesh of just that
     // face's triangles, nudged a hair toward the camera to beat z-fighting.
     private func rebuildHighlight(from h: [String: Any]?) {
+        let want: (String, Int)? = {
+            guard let h = h, let id = h["solid"] as? String,
+                  let f = (h["face"] as? NSNumber)?.intValue, f >= 0 else { return nil }
+            return (id, f)
+        }()
+        // Hovering the same face must not regenerate its submesh every frame.
+        if let w = want, let b = builtHighlight, w == b, highlightEntity != nil { return }
+        if want == nil, builtHighlight == nil, highlightEntity == nil { return }
+        builtHighlight = want
         highlightEntity?.removeFromParent(); highlightEntity = nil
         guard let h = h,
               let id = h["solid"] as? String,
               let face = (h["face"] as? NSNumber)?.intValue,
               face >= 0,
               let geom = solidCache[id] else { return }
-        guard let e = geom.faceHighlightEntity(face: face, eps: highlightEps) else { return }
+        guard let e = geom.faceHighlightEntity(
+            face: face, eps: highlightEps, lift: cam.dir) else { return }
         highlightEntity = e
         root.addChild(e)
     }

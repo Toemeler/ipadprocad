@@ -48,6 +48,8 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
   Widget build(BuildContext context) {
     final app = widget.app;
     final s = sess;
+    // Live bodies available as a Join target (empty for the base feature).
+    final bodies = app.currentPart?.bodyNames ?? const <String>[];
     final sketchLabel = s.sketchName ?? 'Sketch1';
     return Positioned(
       left: _pos.dx,
@@ -167,7 +169,51 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     _boolButton('new', 'New Solid'),
                     const Spacer(),
                   ])),
-              _row(
+              // Inventor: with Join you PICK a target body (and only need to
+              // when there is more than one); a name is yours to type only for
+              // New Solid.
+              if (s.output == 'join' && bodies.isNotEmpty)
+                _row(
+                    bodies.length == 1 ? 'Body' : 'Target Body',
+                    bodies.length == 1
+                        ? Container(
+                            height: 26,
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Text(bodies.first, style: ts(12.5, T.text)),
+                          )
+                        : Container(
+                            height: 26,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF212429),
+                              border:
+                                  Border.all(color: const Color(0xFF3A3F45)),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: bodies.contains(s.bodyName)
+                                    ? s.bodyName
+                                    : bodies.last,
+                                isDense: true,
+                                isExpanded: true,
+                                dropdownColor: const Color(0xFF212429),
+                                style: ts(12.5, T.text),
+                                items: [
+                                  for (final b in bodies)
+                                    DropdownMenuItem(
+                                        value: b,
+                                        child: Text(b, style: ts(12.5, T.text)))
+                                ],
+                                onChanged: (v) {
+                                  if (v != null) app.setExtrude(bodyName: v);
+                                },
+                              ),
+                            ),
+                          ))
+              else
+                _row(
                   'Body Name',
                   Container(
                     height: 26,
@@ -186,7 +232,8 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                           contentPadding: EdgeInsets.only(bottom: 10)),
                       onChanged: (v) => app.setExtrude(bodyName: v),
                     ),
-                  )),
+                  ),
+                ),
             ]),
             _section('Advanced Properties', _advancedOpen,
                 () => setState(() => _advancedOpen = !_advancedOpen), [

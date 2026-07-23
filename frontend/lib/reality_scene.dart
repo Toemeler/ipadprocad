@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import 'dart:ui' show Size;
 
 import 'app_state.dart';
+import 'ffi/occt_engine.dart' show OcctMeshData;
+import 'log.dart';
 import 'part_model.dart';
 
 /// Material tags understood by Materials.swift.
@@ -49,12 +51,158 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
   return out;
 }
 
+final Set<int> _conventionLogged = <int>{};
+
+/// ONE-SHOT SELF-REPORT per mesh — ONE line, everything a device round can
+/// possibly need to know about a new solid. It exists because the surface
+/// convention of these meshes could not be settled by reading the code, and
+/// guessing it wrong has now cost several device rounds (invisible face
+/// highlight, see-through holes, a solid that reads inside-out). Each device
+/// run must answer as many open questions as possible at once, so this is
+/// deliberately a permanent report, not a temporary probe.
+///
+/// Fields:
+///  * `tris/faces/verts`  — size and B-Rep face count of the tessellation.
+///  * `wind`   — share of triangles whose WINDING normal cross(p1-p0, p2-p0)
+///               agrees with the supplied per-vertex normal. ~1.0 means
+///               winding follows the normals, ~0.0 means they oppose.
+///  * `out`    — share of sampled vertices whose normal points AWAY from the
+///               mesh centroid. ~1.0 = outward normals as occt_capi.h claims.
+///               Reliable only for convex-ish bodies; on joined bodies it
+///               drops, which is exactly what `inward` then localises.
+///  * `inward` — the B-Rep faces that actually carry INWARD normals (majority
+///               vote per face). This is the actionable list: a renderer bug
+///               that only affects some faces will name them here.
+///  * `edges`  — non-manifold or boundary edges on quantised POSITIONS (OCCT
+///               duplicates vertices along face seams, so index-based counting
+///               would report every seam). 0 = watertight shell, i.e. the
+///               kernel is fine and any visual defect sits in the renderer.
+///  * `bbox`   — world extent, to catch scale/placement surprises.
+String meshSelfReport(String id, OcctMeshData m) {
+  final pos = m.positions, nor = m.normals, idx = m.indices;
+  final nTri = idx.length ~/ 3;
+  final nV = pos.length ~/ 3;
+  if (nTri == 0 || nor.length != pos.length) {
+    return 'mesh $id: EMPTY tris=$nTri verts=$nV '
+        '(normals ${nor.length} != positions ${pos.length})';
+  }
+
+  var cx = 0.0, cy = 0.0, cz = 0.0;
+  var minX = pos[0], minY = pos[1], minZ = pos[2];
+  var maxX = pos[0], maxY = pos[1], maxZ = pos[2];
+  for (var i = 0; i < nV; i++) {
+    final x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    cx += x;
+    cy += y;
+    cz += z;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+  cx /= nV;
+  cy /= nV;
+  cz /= nV;
+
+  // Per-triangle votes. Sampled for the two global ratios (cheap on huge
+  // meshes), but the per-face vote runs over ALL triangles: a single wrongly
+  // oriented face is the whole point of the report and must not be sampled
+  // away.
+  var agree = 0, outward = 0, sampled = 0;
+  final step = nTri > 600 ? nTri ~/ 600 : 1;
+  final faceOut = <int, int>{};
+  final faceTris = <int, int>{};
+  final hasFaces = m.triFaces.length == nTri;
+  for (var t = 0; t < nTri; t++) {
+    final a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+    final ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+    final ux = pos[b * 3] - ax,
+        uy = pos[b * 3 + 1] - ay,
+        uz = pos[b * 3 + 2] - az;
+    final vx = pos[c * 3] - ax,
+        vy = pos[c * 3 + 1] - ay,
+        vz = pos[c * 3 + 2] - az;
+    final gx = uy * vz - uz * vy, gy = uz * vx - ux * vz, gz = ux * vy - uy * vx;
+    final nx = nor[a * 3], ny = nor[a * 3 + 1], nz = nor[a * 3 + 2];
+    final isOut = nx * (ax - cx) + ny * (ay - cy) + nz * (az - cz) > 0;
+    if (t % step == 0) {
+      if (gx * nx + gy * ny + gz * nz > 0) agree++;
+      if (isOut) outward++;
+      sampled++;
+    }
+    if (hasFaces) {
+      final f = m.triFaces[t];
+      faceTris[f] = (faceTris[f] ?? 0) + 1;
+      if (isOut) faceOut[f] = (faceOut[f] ?? 0) + 1;
+    }
+  }
+  final w = (agree / sampled).toStringAsFixed(2);
+  final o = (outward / sampled).toStringAsFixed(2);
+
+  // Watertightness on quantised positions.
+  int canon(int v) => Object.hash((pos[v * 3] * 1e5).round(),
+      (pos[v * 3 + 1] * 1e5).round(), (pos[v * 3 + 2] * 1e5).round());
+  final edgeUse = <int, int>{};
+  for (var t = 0; t < nTri; t++) {
+    final v0 = canon(idx[t * 3]),
+        v1 = canon(idx[t * 3 + 1]),
+        v2 = canon(idx[t * 3 + 2]);
+    for (final (a, b) in [(v0, v1), (v1, v2), (v2, v0)]) {
+      final key = Object.hash(a < b ? a : b, a < b ? b : a);
+      edgeUse[key] = (edgeUse[key] ?? 0) + 1;
+    }
+  }
+  final boundary = edgeUse.values.where((c) => c != 2).length;
+
+  final inward = faceTris.keys
+      .where((f) => (faceOut[f] ?? 0) * 2 < faceTris[f]!)
+      .toList()
+    ..sort();
+  final inwardStr = !hasFaces
+      ? 'n/a'
+      : inward.isEmpty
+          ? 'none'
+          : inward.map((f) {
+              final type = m.faceInfos.length > 15 * f
+                  ? m.faceInfos[15 * f].round()
+                  : -1;
+              return 'f$f:t$type/${faceTris[f]}';
+            }).join(',');
+
+  String r(double v) => v.toStringAsFixed(1);
+  return 'mesh $id: tris=$nTri faces=${faceTris.length} verts=$nV '
+      'wind=$w out=$o inward=$inwardStr '
+      'edges=$boundary(0=watertight) '
+      'bbox=${r(minX)},${r(minY)},${r(minZ)}..${r(maxX)},${r(maxY)},${r(maxZ)}';
+}
+
+/// Emits [meshSelfReport] once per distinct mesh object.
+void logMeshConvention(String id, OcctMeshData m) {
+  if (!_conventionLogged.add(identityHashCode(m))) return;
+  Log.i('mesh3d', meshSelfReport(id, m));
+}
+
+/// Current mesh revision per visible solid. The widget keeps the last set it
+/// pushed and hands it back as `knownRevs`, so unchanged solids travel as a
+/// two-field stub instead of megabytes of geometry.
+Map<String, int> sceneRevs(AppState app, PartModel p) => {
+      for (final (id, s) in visibleSolids(app, p)) id: identityHashCode(s.mesh),
+    };
+
 /// One solid's mesh payload. Buffers are passed by reference (no copy).
+/// With [includeGeometry] false only the identity travels — the renderer then
+/// keeps the mesh it already holds for this id.
 Map<String, dynamic> solidPayload(String id, KernelSolid s,
-    {int material = kMatSteel}) {
+    {int material = kMatSteel, bool includeGeometry = true}) {
   final m = s.mesh;
+  if (!includeGeometry) {
+    return {'id': id, 'rev': identityHashCode(m), 'material': material};
+  }
   return {
     'id': id,
+    'rev': identityHashCode(m),
     'positions': m.positions, // Float64List, world xyz per vertex
     'normals': m.normals, // Float64List, unit outward
     'indices': m.indices, // Int32List, CCW from outside
@@ -118,12 +266,15 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     if (!cs.visible && !showForSession) continue;
     final frame = sketchFrameOf(cs);
     final polylines = <Float64List>[];
-    for (final g in cs.model.geometry) {
+    final keys = <String>[];
+    for (var gi = 0; gi < cs.model.geometry.length; gi++) {
+      final g = cs.model.geometry[gi];
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
       final li = cs.model.layers.indexOf(g.layer);
       if (li >= 0 && li >= cs.model.eosAfter) continue;
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
+      keys.add(sketchKey(cs.model.name, gi));
       final buf = Float64List(pts.length * 3);
       for (var i = 0; i < pts.length; i++) {
         final w = frame.toWorld(pts[i]);
@@ -136,6 +287,7 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     if (polylines.isNotEmpty) {
       out.add({
         'polylines': polylines,
+        'keys': keys,
         // Normal of the sketch plane: lets the renderer lift a sketch drawn ON
         // a solid face clear of that face (they are exactly coplanar).
         'n': [frame.n.x, frame.n.y, frame.n.z],
@@ -144,6 +296,10 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
   }
   return out;
 }
+
+/// Stable address of one sketch curve: sketch name + its index in the sketch's
+/// geometry list. Used to highlight and select individual curves in 3D.
+String sketchKey(String sketchName, int geoIndex) => '$sketchName#$geoIndex';
 
 /// The blue prehighlight target ({solid id, face id}) or null.
 Map<String, dynamic>? _highlightPayload(
@@ -160,11 +316,17 @@ Map<String, dynamic>? _highlightPayload(
 /// The full scene: geometry + overlays' current visibility/hover. Sent only
 /// when [sceneSignature] changes.
 Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
-    {String? hover, (KernelSolid, int)? hoverFace}) {
+    {String? hover,
+    (KernelSolid, int)? hoverFace,
+    String? hoverSketch,
+    Set<String>? selSketch,
+    Map<String, int>? knownRevs}) {
   final sess = app.extrudeSession;
   final scene = <String, dynamic>{
     'solids': [
-      for (final (id, s) in visibleSolids(app, p)) solidPayload(id, s),
+      for (final (id, s) in visibleSolids(app, p))
+        solidPayload(id, s,
+            includeGeometry: knownRevs?[id] != identityHashCode(s.mesh)),
     ],
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),
@@ -177,12 +339,17 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
+  if (hoverSketch != null) scene['hoverSketch'] = hoverSketch;
+  scene['selSketch'] = (selSketch ?? const <String>{}).toList();
   return scene;
 }
 
 /// Light per-move push: hover tints + visibility + face highlight, no meshes.
 Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
-    {String? hover, (KernelSolid, int)? hoverFace}) {
+    {String? hover,
+    (KernelSolid, int)? hoverFace,
+    String? hoverSketch,
+    Set<String>? selSketch}) {
   final out = <String, dynamic>{
     'planes': [
       for (final key in kPlaneKeys)
@@ -200,6 +367,8 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
   };
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) out['highlight'] = hl;
+  if (hoverSketch != null) out['hoverSketch'] = hoverSketch;
+  out['selSketch'] = (selSketch ?? const <String>{}).toList();
   return out;
 }
 

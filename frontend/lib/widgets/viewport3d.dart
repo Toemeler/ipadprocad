@@ -8,6 +8,7 @@
 // the OCCT tessellation — no GPU dependency, plain CustomPainter).
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -87,10 +88,60 @@ class _Viewport3DState extends State<Viewport3D> {
   // unaffected. When present, all world-space geometry is rendered by
   // RealityKit (GPU depth buffer), and this widget only pushes scene/camera/
   // overlay payloads; the Flutter layer keeps gestures, ViewCube and triad.
+  /// Hovered / selected sketch curve, addressed by [sketchKey]. Selection has
+  /// no consumer yet — it exists so curves are already pickable in 3D.
+  /// Trackpad two-finger gesture in progress (PointerPanZoom), and the kind of
+  /// device that started the current drag. Touch keeps its old behaviour; the
+  /// trackpad gets Inventor-style navigation instead.
+  bool _tpActive = false;
+  Offset _tpLastPan = Offset.zero;
+  PointerDeviceKind _dragKind = PointerDeviceKind.touch;
+
+  String? _hoverSketch;
+  final Set<String> _selSketch = <String>{};
+
   RealityViewController? _reality;
   String? _lastSceneSig;
+  /// Mesh revisions the native side currently holds. Reset together with
+  /// [_lastSceneSig] whenever a fresh platform view appears.
+  Map<String, int> _sentRevs = const {};
 
   PartModel? get part => widget.app.currentPart;
+
+  /// Nearest VISIBLE sketch curve under the cursor, or null. Mirrors exactly
+  /// the curves reality_scene draws, so what highlights is what you see.
+  String? _pickSketchCurve(Cam3 cam, Offset px) {
+    final p = part;
+    if (p == null) return null;
+    final sess = widget.app.extrudeSession;
+    String? best;
+    var bestD = 9.0; // px tolerance
+    for (final cs in p.childSketches) {
+      final showForSession = sess?.sketchName == cs.model.name ||
+          (sess != null && sess.sketchName == null);
+      if (!cs.visible && !showForSession) continue;
+      final frame = sketchFrameOf(cs);
+      for (var gi = 0; gi < cs.model.geometry.length; gi++) {
+        final g = cs.model.geometry[gi];
+        if (cs.model.hiddenLayers.contains(g.layer)) continue;
+        final li = cs.model.layers.indexOf(g.layer);
+        if (li >= 0 && li >= cs.model.eosAfter) continue;
+        final pts = sketchCurve(g);
+        if (pts.length < 2) continue;
+        var prev = cam.project(frame.toWorld(pts.first));
+        for (var i = 1; i < pts.length; i++) {
+          final cur = cam.project(frame.toWorld(pts[i]));
+          final d = _distToSeg(px, prev, cur);
+          if (d < bestD) {
+            bestD = d;
+            best = sketchKey(cs.model.name, gi);
+          }
+          prev = cur;
+        }
+      }
+    }
+    return best;
+  }
 
   /// Push the current camera (always), the scene (only when its signature
   /// changed — meshes are large) and the light overlay state to RealityKit.
@@ -101,11 +152,22 @@ class _Viewport3DState extends State<Viewport3D> {
     final sig = sceneSignature(app, p);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
-      c.setScene(
-          buildScenePayload(app, p, hover: _hover, hoverFace: _hoverFace));
+      for (final (id, s) in visibleSolids(app, p)) {
+        logMeshConvention(id, s.mesh);
+      }
+      c.setScene(buildScenePayload(app, p,
+          hover: _hover,
+          hoverFace: _hoverFace,
+          hoverSketch: _hoverSketch,
+          selSketch: _selSketch,
+          knownRevs: _sentRevs));
+      _sentRevs = sceneRevs(app, p);
     }
-    c.setOverlays(
-        buildOverlaysPayload(app, p, hover: _hover, hoverFace: _hoverFace));
+    c.setOverlays(buildOverlaysPayload(app, p,
+        hover: _hover,
+        hoverFace: _hoverFace,
+        hoverSketch: _hoverSketch,
+        selSketch: _selSketch));
   }
 
   @override
@@ -140,6 +202,13 @@ class _Viewport3DState extends State<Viewport3D> {
                           placeholder: const ColoredBox(color: T.viewport),
                           onCreated: (c) {
                             _reality = c;
+                            // A FRESH platform view starts empty. Without
+                            // clearing these, the signature would still match
+                            // the old view's contents, setScene would never
+                            // fire and the viewport would stay blank forever
+                            // (app resume, tab switch, part switch).
+                            _lastSceneSig = null;
+                            _sentRevs = const {};
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted) setState(() {});
                             });
@@ -169,6 +238,7 @@ class _Viewport3DState extends State<Viewport3D> {
         Positioned.fill(
           child: Listener(
             onPointerDown: (e) {
+              _dragKind = e.kind;
               if (e.kind == PointerDeviceKind.mouse &&
                   e.buttons == kMiddleMouseButton) {
                 _mmb = true;
@@ -193,6 +263,36 @@ class _Viewport3DState extends State<Viewport3D> {
             },
             onPointerUp: (_) => _mmb = false,
             onPointerCancel: (_) => _mmb = false,
+            // Trackpad gestures arrive as PointerPanZoom, never as extra
+            // pointers, so they are handled here rather than through the scale
+            // recognizer: two fingers orbit, two fingers + shift pan, pinch
+            // still zooms. One finger (a click-drag, reported as a mouse
+            // pointer) deliberately does nothing.
+            onPointerPanZoomStart: (e) {
+              _tpActive = true;
+              _tpLastPan = Offset.zero;
+              _scaleStartH = p.camera.halfH;
+            },
+            onPointerPanZoomUpdate: (e) {
+              if (!_tpActive) return;
+              setState(() {
+                if (e.scale > 0 && (e.scale - 1).abs() > 1e-4) {
+                  final f = (_scaleStartH / e.scale) / p.camera.halfH;
+                  _zoomAt(p, Cam3(p.camera, size), e.localPosition, f);
+                }
+                final d = e.pan - _tpLastPan;
+                _tpLastPan = e.pan;
+                if (d == Offset.zero) return;
+                if (HardwareKeyboard.instance.isShiftPressed) {
+                  final wpp = (2 * p.camera.halfH) / size.height;
+                  p.camera.ox -= d.dx * wpp;
+                  p.camera.oy += d.dy * wpp;
+                } else {
+                  _orbit(p, d);
+                }
+              });
+            },
+            onPointerPanZoomEnd: (_) => _tpActive = false,
             onPointerSignal: (e) {
               if (e is PointerScrollEvent) {
                 setState(() => _zoomAt(
@@ -217,6 +317,8 @@ class _Viewport3DState extends State<Viewport3D> {
                   _mmbLast = d.localFocalPoint;
                 },
                 onScaleUpdate: (d) => setState(() {
+                  // the trackpad path above already handled this gesture
+                  if (_tpActive) return;
                   if (d.pointerCount >= 2) {
                     if (d.scale > 0) {
                       final f = (_scaleStartH / d.scale) / p.camera.halfH;
@@ -226,7 +328,11 @@ class _Viewport3DState extends State<Viewport3D> {
                     final wpp = (2 * p.camera.halfH) / size.height;
                     p.camera.ox -= mv.dx * wpp;
                     p.camera.oy += mv.dy * wpp;
-                  } else if (!_mmb) {
+                  } else if (!_mmb &&
+                      _dragKind == PointerDeviceKind.touch) {
+                    // One finger orbits ON TOUCH only. A single trackpad or
+                    // mouse drag is reserved for picking and must not move the
+                    // view; orbiting there is the two-finger gesture.
                     _orbit(p, d.localFocalPoint - _mmbLast);
                   }
                   _mmbLast = d.localFocalPoint;
@@ -387,14 +493,22 @@ class _Viewport3DState extends State<Viewport3D> {
         }
       }
     }
+    // Sketch curves prehighlight in plain 3D (nothing consumes the selection
+    // yet — this makes them addressable for later). Origin geometry, profile
+    // regions and solid faces all outrank them.
+    final sk = (hit == null && region == null && hf == null)
+        ? _pickSketchCurve(cam, px)
+        : null;
     if (hit != _hover ||
         region != _hoverRegion ||
+        sk != _hoverSketch ||
         hf?.$1 != _hoverFace?.$1 ||
         hf?.$2 != _hoverFace?.$2) {
       setState(() {
         _hover = hit;
         _hoverRegion = region;
         _hoverFace = hf;
+        _hoverSketch = sk;
       });
     } else {
       setState(() {}); // cursor moved (plane-pick marker etc.)
@@ -481,7 +595,19 @@ class _Viewport3DState extends State<Viewport3D> {
         final w2 =
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) >= 0) continue;
+        // Keep the triangles FACING THE CAMERA. Measured on device
+        // (mesh3d convention log, build 2648d2e): the winding normal
+        // cross(p1-p0, p2-p0) agrees with the per-vertex normal for 100% of
+        // triangles, and those normals point outward for 100% of vertices —
+        // so this normal IS the outward one, and the camera sits at +dir
+        // ("camera at dir*D", Cam3). A visible face therefore has n·dir > 0.
+        // The old test kept n·dir < 0, i.e. the BACK faces, which is why:
+        // sketches landed on the far side of the body (making an extrusion
+        // read as a recess), the blue prehighlight was built on a face hidden
+        // behind the solid, and picking missed entirely near the silhouette
+        // where no back face lies under the cursor. The ViewCube uses the
+        // n·dir > 0 form and has always worked.
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
         final nn = n.normalized();
         var faceId = -1;
         if (v4) {
@@ -538,6 +664,27 @@ class _Viewport3DState extends State<Viewport3D> {
   void _tap(Cam3 cam, Offset px) {
     final app = widget.app;
     final p = part!;
+    // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
+    // set, a plain tap replaces it, a tap on empty space clears it.
+    if (!app.pickPlane && app.extrudeSession == null) {
+      final sk = _pickSketchCurve(cam, px);
+      if (sk != null) {
+        setState(() {
+          final add = HardwareKeyboard.instance.isShiftPressed ||
+              HardwareKeyboard.instance.isControlPressed ||
+              HardwareKeyboard.instance.isMetaPressed;
+          if (!add) {
+            final had = _selSketch.contains(sk);
+            _selSketch.clear();
+            if (!had) _selSketch.add(sk);
+          } else if (!_selSketch.remove(sk)) {
+            _selSketch.add(sk);
+          }
+        });
+        return;
+      }
+      if (_selSketch.isNotEmpty) setState(_selSketch.clear);
+    }
     // 1. plane pick (Start 2D Sketch): origin planes first, then any planar
     //    face of a solid (Inventor's sketch-on-face)
     if (app.pickPlane) {
@@ -1169,9 +1316,20 @@ class _CubePainter extends CustomPainter {
       if (lit.contains(_nkey(n))) {
         canvas.drawPath(path, Paint()..color = const Color(0x8C7EC0F0));
       }
-      // label at the face centre, following the face's screen orientation
-      final c0 = (quad[0] + quad[2]) / 2;
-      final dirX = (quad[1] - quad[0]);
+      // Label painted ON the face like a decal. Its basis is the face's FIXED
+      // (u, v) axes, so the text turns, tilts and foreshortens exactly with the
+      // face it belongs to. The old version rotated by the angle of ONE quad
+      // edge; which edge that was changed as the cube turned, so the text
+      // re-oriented on screen and could come out upside down (TOP read "dOT").
+      final (fu, fv) = faceBasis(n);
+      final fc = n * 0.5;
+      final c0 = cam.project(fc);
+      // Screen delta of a unit step along each face axis, normalised by the
+      // head-on projected length: the glyphs keep their size when a face looks
+      // straight at you and only compress as it turns away.
+      final s0 = size.height / 2 / 0.86;
+      final ex = (cam.project(fc + fu * 0.5) - cam.project(fc - fu * 0.5)) / s0;
+      final ey = (cam.project(fc + fv * 0.5) - cam.project(fc - fv * 0.5)) / s0;
       final tp = TextPainter(
           text: TextSpan(
               text: label,
@@ -1181,9 +1339,19 @@ class _CubePainter extends CustomPainter {
                   color: Color(0xFF565B61))),
           textDirection: TextDirection.ltr)
         ..layout();
+      // Column-major affine: text +x follows u, text +y (down on screen)
+      // follows -v. (u, v, n) is right-handed, so nothing ever mirrors.
+      final m = Float64List(16);
+      m[0] = ex.dx;
+      m[1] = ex.dy;
+      m[4] = -ey.dx;
+      m[5] = -ey.dy;
+      m[10] = 1;
+      m[12] = c0.dx;
+      m[13] = c0.dy;
+      m[15] = 1;
       canvas.save();
-      canvas.translate(c0.dx, c0.dy);
-      canvas.rotate(math.atan2(dirX.dy, dirX.dx));
+      canvas.transform(m);
       tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
       canvas.restore();
     }

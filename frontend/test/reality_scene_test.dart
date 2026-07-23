@@ -96,6 +96,39 @@ void main() {
       expect(m['indices'], isA<Int32List>());
     });
 
+    test('an unchanged solid travels as a stub, a changed one in full', () {
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState();
+      final revs = sceneRevs(app, p);
+      expect(revs['Extrusion1'], identityHashCode(s.mesh));
+
+      // nothing changed -> geometry omitted, identity still carried
+      final stub =
+          (buildScenePayload(app, p, knownRevs: revs)['solids'] as List).single
+              as Map;
+      expect(stub['id'], 'Extrusion1');
+      expect(stub['rev'], identityHashCode(s.mesh));
+      expect(stub.containsKey('positions'), isFalse,
+          reason: 'unchanged meshes must not be re-serialised');
+
+      // re-tessellation flips the mesh identity -> full payload again
+      s.mesh = synthCylinderMesh(10, 5, 0.1);
+      final full =
+          (buildScenePayload(app, p, knownRevs: revs)['solids'] as List).single
+              as Map;
+      expect(identical(full['positions'], s.mesh.positions), isTrue);
+      expect(full['rev'], identityHashCode(s.mesh));
+    });
+
+    test('without knownRevs every solid carries its geometry', () {
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final m = (buildScenePayload(AppState(), p)['solids'] as List).single
+          as Map;
+      expect(identical(m['positions'], s.mesh.positions), isTrue);
+    });
+
     test('preview tag distinguishes the translucent live solid', () {
       final m = solidPayload('__preview__', _cyl(), material: kMatPreview);
       expect(m['material'], kMatPreview);

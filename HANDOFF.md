@@ -87,6 +87,30 @@ Token NIE in Dateien/.git/config schreiben.
 >
 > ---
 >
+> **WERKZEUG-RUNDE (vor der naechsten Fehlersuche).** Die Feedbackschleife war
+> der Flaschenhals, nicht das Denken. Drei Aenderungen:
+>
+> 1. **Neuer Job `dart-checks`** (ubuntu, parallel): `pub get` + `analyze` +
+>    `flutter test`. Bisher liefen beide Pruefungen als Step 12/18 INNERHALB von
+>    `m5-flutter-ipa`, also erst nach Qt-Install und Core-Build — ein
+>    Dart-Tippfehler kostete ~20 min statt ~3. Die Schritte in m5 bleiben
+>    zusaetzlich stehen (sie pruefen das `flutter create`-Projekt).
+> 2. **Ein Selbstbericht statt zwei Diagnosezeilen.** `logMeshConvention` ist
+>    jetzt der reine, testbare `meshSelfReport(id, mesh)` und schreibt EINE
+>    Zeile pro neuem Solid: `tris/faces/verts`, `wind`, `out`, **`inward`**,
+>    `edges`, `bbox`. Neu und entscheidend ist `inward`: die alte Zeile sagte
+>    nur, DASS bei zusammengefuegten Koerpern 0.82/0.63 der Normalen einwaerts
+>    zeigen, nicht WELCHE Flaechen. Die Wasserdichtigkeitspruefung lief bisher
+>    nur bei `nTri <= 400` und entfiel damit genau bei den interessanten
+>    Koerpern; sie laeuft jetzt immer.
+> 3. **`test/mesh_conventions_test.dart`** nagelt die auf dem Geraet GEMESSENEN
+>    Konventionen fest: Wicklung folgt den Normalen, geschlossene Huelle, eine
+>    einzelne invertierte Flaeche wird namentlich gemeldet, und die Seitenwahl
+>    in `facePicked` (`n·dir >= 0`) ergibt beim Klick auf die Deckflaeche die
+>    TOP- und nicht die Bottom-Ansicht.
+
+> ---
+>
 > **M60 — RealityKit ersetzt den CPU-Renderer (GPU-Tiefenpuffer).** Antwort auf
 > den offenen Punkt (A) aus M59c: Canvas hat KEINEN Z-Buffer, Verdeckung lief
 > in Screen-Space (Painter-Algorithmus + Occluder-Gitter + Bias-Margen). Das

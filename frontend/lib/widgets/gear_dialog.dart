@@ -184,8 +184,11 @@ class _GearDialogState extends State<GearDialog> {
                     _sync();
                     final gg = widget.app.gear;
                     if (gg != null && !gg.placedOnce) {
-                      // no tap yet: drop it at the origin so Insert always works
-                      gg.center = Offset.zero;
+                      // No viewport tap yet: drop it at the CENTRE OF THE VIEW
+                      // (app.pan is the world point at the viewport centre), so
+                      // the gear always lands where the user can see it rather
+                      // than off-screen at the origin.
+                      gg.center = widget.app.pan;
                       gg.placedOnce = true;
                     }
                     widget.app.commitGear();

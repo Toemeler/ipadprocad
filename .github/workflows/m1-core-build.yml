@@ -19,6 +19,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # FAST FEEDBACK — läuft parallel zu allem anderen und wird in ~3 min rot.
+  #
+  # Warum: `flutter analyze` + die Host-Tests laufen ausserdem in
+  # `m5-flutter-ipa`, dort aber erst NACH Qt-Install, OCCT-Cache und
+  # Core-Build. Ein Dart-Tippfehler kostete dadurch ~20 Minuten statt ~3.
+  # Dieser Job dupliziert die beiden Schritte bewusst auf einem billigen
+  # ubuntu-Runner; die Prüfungen in m5 bleiben als Absicherung stehen (sie
+  # laufen dort gegen das per `flutter create` erzeugte Projekt).
+  #
+  # Kein iOS-Scaffolding hier: `flutter analyze`/`test` brauchen nur
+  # `pub get`. Die In-Repo-Plugin-Pods sind Path-Dependencies mit reinem
+  # Dart-Interface, das auf Linux auflösbar ist.
+  dart-checks:
+    name: Dart analyze + host tests (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Analyze Dart
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # infos/warnings duerfen nicht failen — nur echte Fehler (gleiche
+          # Flags wie in m5, sonst weichen die beiden Jobs auseinander).
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 \
+            | tee ../ci-dart-analyze.log
+
+      - name: Host tests
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # pipefail macht den Exitcode massgeblich. NICHT nach einer
+          # Erfolgsmeldung greppen — die Formulierung wechselt zwischen
+          # Flutter-Versionen.
+          flutter test 2>&1 | tee ../ci-dart-tests.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-checks-logs
+          path: |
+            ci-dart-analyze.log
+            ci-dart-tests.log
+          if-no-files-found: ignore
+
   build-core-ios:
     runs-on: macos-14
     steps:

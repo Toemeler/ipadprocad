@@ -70,7 +70,9 @@ enum Colors {
         UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255,
                 blue: CGFloat(b) / 255, alpha: a)
     }
-    static let steel = rgb(0x8C, 0x93, 0x9A)
+    // Neutral mid grey: reads clearly as a SURFACE against the near-black
+    // edges and the coloured sketch/overlay lines drawn on top of it.
+    static let steel = rgb(0x86, 0x89, 0x8D)
     static let edge = rgb(0x23, 0x27, 0x2C)
     static let orange = rgb(0xEA, 0x9E, 0x5C)
     static let orangeEdge = rgb(0xF0, 0xA8, 0x68)
@@ -88,7 +90,9 @@ enum Materials {
     // .nonAR scene has none of, and could render black. Matches the CPU
     // painter's flat-Lambert steel look.
     static func steel() -> RealityKit.Material {
-        return SimpleMaterial(color: Colors.steel, roughness: 0.4, isMetallic: false)
+        // High roughness: a CAD surface should read matte, so shading tells
+        // you the form without a specular sheen competing with the edges.
+        return SimpleMaterial(color: Colors.steel, roughness: 0.9, isMetallic: false)
     }
 
     static func preview() -> RealityKit.Material {
@@ -133,29 +137,7 @@ struct SolidGeom {
         // and let RealityKit compute (a shaded blob still beats a crash).
         normals = (n.count == p.count) ? n : []
 
-        // WINDING NORMALISATION (device fix, M60 round 3).
-        // In these meshes the GEOMETRIC winding normal points INWARD — the CPU
-        // painter culls on `n·dir < 0` with exactly that convention. The faces
-        // of a HOLE come back from OCCT with the opposite orientation, so the
-        // GPU culled them and you could see straight THROUGH the part. The
-        // per-vertex normals are authoritative ("unit length, OUTWARD facing",
-        // occt_capi.h), so every triangle is flipped to agree with them. This
-        // makes culling consistent no matter what orientation the kernel used.
-        var fixed = idx
-        if !normals.isEmpty {
-            var t = 0
-            while t + 2 < fixed.count {
-                let a = Int(fixed[t]), b = Int(fixed[t + 1]), c = Int(fixed[t + 2])
-                if a < p.count, b < p.count, c < p.count {
-                    let gn = simd_cross(p[b] - p[a], p[c] - p[a])
-                    let vn = normals[a] + normals[b] + normals[c]
-                    // invariant: geometric normal OPPOSES the outward normal
-                    if simd_dot(gn, vn) > 0 { fixed.swapAt(t + 1, t + 2) }
-                }
-                t += 3
-            }
-        }
-        indices = fixed
+        indices = idx
         edgePts = Payload.floats(s["edgePts"]) ?? []
         edgeStarts = (Payload.ints(s["edgeStarts"]) ?? []).map { Int($0) }
         triFaces = Payload.ints(s["triFaces"]) ?? []
@@ -169,11 +151,56 @@ struct SolidGeom {
         return r
     }
 
+    /// Every triangle in BOTH windings. RealityKit culls strictly by winding,
+    /// and OCCT's orientation is not uniform across a shape — the inner wall of
+    /// a HOLE comes back reversed, which culled it and let you see straight
+    /// through the part. Guessing a winding invariant proved fragile (it also
+    /// silently culled the whole solid when the guess was backwards), so the
+    /// geometry is simply made two-sided: exactly one of the two copies
+    /// survives the cull, whatever convention the renderer uses, and they are
+    /// coplanar so nothing can z-fight. Only the index buffer doubles —
+    /// vertices are shared.
+    static func doubleSided(_ idx: [UInt32]) -> [UInt32] {
+        var out = idx
+        out.reserveCapacity(idx.count * 2)
+        var t = 0
+        while t + 2 < idx.count {
+            out.append(idx[t]); out.append(idx[t + 2]); out.append(idx[t + 1])
+            t += 3
+        }
+        return out
+    }
+
+    /// Two-sided WITH FLIPPED NORMALS on the back copy. Sharing one normal
+    /// between both windings (as before) only works if every face's normals
+    /// point outward — and the device diagnostic showed they do not:
+    /// normal_outward measured 1.00 on a plain prism but 0.63 on a body built
+    /// from several joined features. A face whose normals point inward is lit
+    /// from behind by the camera headlight, renders almost black, and reads as
+    /// a HOLE in the solid — which is exactly the "open box" seen when
+    /// extruding a rectangle with a circular hole, while a circle-in-circle
+    /// (all normals outward) came out fine.
+    /// Giving the reversed copy negated normals makes whichever side faces the
+    /// camera light correctly, so shading no longer depends on the kernel's
+    /// per-face orientation at all.
     func shadedEntity(material: RealityKit.Material) -> Entity {
+        let n = UInt32(positions.count)
+        var pos = positions
+        pos.append(contentsOf: positions)
+        var nrm = normals
+        if !normals.isEmpty { nrm.append(contentsOf: normals.map { -$0 }) }
+        var idx = indices
+        var t = 0
+        while t + 2 < indices.count {
+            idx.append(n + indices[t])
+            idx.append(n + indices[t + 2])
+            idx.append(n + indices[t + 1])
+            t += 3
+        }
         var d = MeshDescriptor(name: "solid")
-        d.positions = MeshBuffers.Positions(positions)
-        if !normals.isEmpty { d.normals = MeshBuffers.Normals(normals) }
-        d.primitives = .triangles(indices)
+        d.positions = MeshBuffers.Positions(pos)
+        if nrm.count == pos.count { d.normals = MeshBuffers.Normals(nrm) }
+        d.primitives = .triangles(idx)
         guard let mesh = try? MeshResource.generate(from: [d]) else { return Entity() }
         return ModelEntity(mesh: mesh, materials: [material])
     }
@@ -202,7 +229,13 @@ struct SolidGeom {
     /// Takes an Int because that is what NSNumber.intValue yields on the wire;
     /// the per-triangle face buffer is Int32, so the conversion happens once
     /// here instead of at every call site.
-    func faceHighlightEntity(face faceId: Int, eps: Float = 0.04) -> ModelEntity? {
+    /// [lift] is the direction the sheet is nudged along. Pass the CAMERA
+    /// direction: lifting along the surface normal only works if the supplied
+    /// normals really are outward, and that assumption has now been wrong
+    /// twice on device. Toward the camera is correct no matter what convention
+    /// the kernel used for normals or winding.
+    func faceHighlightEntity(face faceId: Int, eps: Float = 0.04,
+                             lift: SIMD3<Float>) -> ModelEntity? {
         let face = Int32(faceId)
         guard triFaces.count * 3 == indices.count else { return nil }
         var pos = [SIMD3<Float>]()
@@ -222,9 +255,8 @@ struct SolidGeom {
                 let gn = simd_normalize(simd_cross(positions[i1] - positions[i0],
                                                    positions[i2] - positions[i0]))
                 for i in [i0, i1, i2] {
-                    let outward = normals.isEmpty ? -gn : normals[i]
-                    pos.append(positions[i] + outward * eps)
-                    nrm.append(outward)
+                    pos.append(positions[i] + lift * eps)
+                    nrm.append(normals.isEmpty ? gn : normals[i])
                     idx.append(next); next += 1
                 }
             }
@@ -234,7 +266,10 @@ struct SolidGeom {
         var d = MeshDescriptor(name: "facehl")
         d.positions = MeshBuffers.Positions(pos)
         d.normals = MeshBuffers.Normals(nrm)
-        d.primitives = .triangles(idx)
+        // A single-sided sheet is invisible when its winding faces away — the
+        // origin planes render precisely because they were built two-sided by
+        // hand, the highlight was not. That is why it never showed up.
+        d.primitives = .triangles(Self.doubleSided(idx))
         guard let mesh = try? MeshResource.generate(from: [d]) else { return nil }
         return ModelEntity(mesh: mesh,
                            materials: [Materials.unlitTransparent(Colors.highlight, 0.55)])
@@ -257,6 +292,10 @@ final class PlaneEntity {
     /// face). Without this the two surfaces z-fight; the user-visible rule is
     /// "the work plane wins", same as Inventor.
     private let normal: SIMD3<Float>
+    // Cached state: setHot/setVisible arrive on EVERY pointer move, and
+    // rebuilding the quad + outline meshes each time is pure churn.
+    private var hot = false
+    private var visible = true
 
     init?(payload p: [String: Any]) {
         guard let frame = Payload.doubles(p["frame"]), frame.count >= 9 else { return nil }
@@ -271,8 +310,10 @@ final class PlaneEntity {
             origin + u * ext + v * ext,
             origin + u * -ext + v * ext,
         ]
-        build(hot: (p["hot"] as? NSNumber)?.boolValue ?? false)
-        entity.isEnabled = (p["visible"] as? NSNumber)?.boolValue ?? true
+        hot = (p["hot"] as? NSNumber)?.boolValue ?? false
+        visible = (p["visible"] as? NSNumber)?.boolValue ?? true
+        build(hot: hot)
+        entity.isEnabled = visible
     }
 
     private func build(hot: Bool) {
@@ -300,8 +341,17 @@ final class PlaneEntity {
         }
     }
 
-    func setHot(_ hot: Bool) { build(hot: hot) }
-    func setVisible(_ v: Bool) { entity.isEnabled = v }
+    func setHot(_ h: Bool) {
+        guard h != hot else { return }
+        hot = h
+        build(hot: h)
+    }
+
+    func setVisible(_ v: Bool) {
+        guard v != visible else { return }
+        visible = v
+        entity.isEnabled = v
+    }
 
     /// Shift the plane a hair toward the camera along its own normal, so a
     /// coplanar solid face can never win the depth test against it. [eps]
@@ -320,13 +370,17 @@ final class AxisEntity {
     let entity = Entity()
     private let dir: SIMD3<Float>
     private let ext: Float
+    private var hot = false
+    private var visible = true
 
     init?(payload a: [String: Any]) {
         guard let d = Payload.vec3(a["dir"]) else { return nil }
         dir = d
         ext = Float((a["ext"] as? NSNumber)?.doubleValue ?? 10)
-        build(hot: (a["hot"] as? NSNumber)?.boolValue ?? false)
-        entity.isEnabled = (a["visible"] as? NSNumber)?.boolValue ?? true
+        hot = (a["hot"] as? NSNumber)?.boolValue ?? false
+        visible = (a["visible"] as? NSNumber)?.boolValue ?? true
+        build(hot: hot)
+        entity.isEnabled = visible
     }
 
     private func build(hot: Bool) {
@@ -338,8 +392,17 @@ final class AxisEntity {
         }
     }
 
-    func setHot(_ hot: Bool) { build(hot: hot) }
-    func setVisible(_ v: Bool) { entity.isEnabled = v }
+    func setHot(_ h: Bool) {
+        guard h != hot else { return }
+        hot = h
+        build(hot: h)
+    }
+
+    func setVisible(_ v: Bool) {
+        guard v != visible else { return }
+        visible = v
+        entity.isEnabled = v
+    }
 }
 
 // ---------------------------------------------------------------------------
