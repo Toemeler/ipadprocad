@@ -133,29 +133,7 @@ struct SolidGeom {
         // and let RealityKit compute (a shaded blob still beats a crash).
         normals = (n.count == p.count) ? n : []
 
-        // WINDING NORMALISATION (device fix, M60 round 3).
-        // In these meshes the GEOMETRIC winding normal points INWARD — the CPU
-        // painter culls on `n·dir < 0` with exactly that convention. The faces
-        // of a HOLE come back from OCCT with the opposite orientation, so the
-        // GPU culled them and you could see straight THROUGH the part. The
-        // per-vertex normals are authoritative ("unit length, OUTWARD facing",
-        // occt_capi.h), so every triangle is flipped to agree with them. This
-        // makes culling consistent no matter what orientation the kernel used.
-        var fixed = idx
-        if !normals.isEmpty {
-            var t = 0
-            while t + 2 < fixed.count {
-                let a = Int(fixed[t]), b = Int(fixed[t + 1]), c = Int(fixed[t + 2])
-                if a < p.count, b < p.count, c < p.count {
-                    let gn = simd_cross(p[b] - p[a], p[c] - p[a])
-                    let vn = normals[a] + normals[b] + normals[c]
-                    // invariant: geometric normal OPPOSES the outward normal
-                    if simd_dot(gn, vn) > 0 { fixed.swapAt(t + 1, t + 2) }
-                }
-                t += 3
-            }
-        }
-        indices = fixed
+        indices = idx
         edgePts = Payload.floats(s["edgePts"]) ?? []
         edgeStarts = (Payload.ints(s["edgeStarts"]) ?? []).map { Int($0) }
         triFaces = Payload.ints(s["triFaces"]) ?? []
@@ -169,11 +147,31 @@ struct SolidGeom {
         return r
     }
 
+    /// Every triangle in BOTH windings. RealityKit culls strictly by winding,
+    /// and OCCT's orientation is not uniform across a shape — the inner wall of
+    /// a HOLE comes back reversed, which culled it and let you see straight
+    /// through the part. Guessing a winding invariant proved fragile (it also
+    /// silently culled the whole solid when the guess was backwards), so the
+    /// geometry is simply made two-sided: exactly one of the two copies
+    /// survives the cull, whatever convention the renderer uses, and they are
+    /// coplanar so nothing can z-fight. Only the index buffer doubles —
+    /// vertices are shared.
+    static func doubleSided(_ idx: [UInt32]) -> [UInt32] {
+        var out = idx
+        out.reserveCapacity(idx.count * 2)
+        var t = 0
+        while t + 2 < idx.count {
+            out.append(idx[t]); out.append(idx[t + 2]); out.append(idx[t + 1])
+            t += 3
+        }
+        return out
+    }
+
     func shadedEntity(material: RealityKit.Material) -> Entity {
         var d = MeshDescriptor(name: "solid")
         d.positions = MeshBuffers.Positions(positions)
         if !normals.isEmpty { d.normals = MeshBuffers.Normals(normals) }
-        d.primitives = .triangles(indices)
+        d.primitives = .triangles(Self.doubleSided(indices))
         guard let mesh = try? MeshResource.generate(from: [d]) else { return Entity() }
         return ModelEntity(mesh: mesh, materials: [material])
     }
@@ -234,7 +232,10 @@ struct SolidGeom {
         var d = MeshDescriptor(name: "facehl")
         d.positions = MeshBuffers.Positions(pos)
         d.normals = MeshBuffers.Normals(nrm)
-        d.primitives = .triangles(idx)
+        // A single-sided sheet is invisible when its winding faces away — the
+        // origin planes render precisely because they were built two-sided by
+        // hand, the highlight was not. That is why it never showed up.
+        d.primitives = .triangles(Self.doubleSided(idx))
         guard let mesh = try? MeshResource.generate(from: [d]) else { return nil }
         return ModelEntity(mesh: mesh,
                            materials: [Materials.unlitTransparent(Colors.highlight, 0.55)])

@@ -2015,10 +2015,21 @@ class AppState extends ChangeNotifier {
       isPartName(name) ? duplicatePart(name) : duplicateSketch(name);
 
   // ---- child-sketch flow (Start 2D Sketch -> plane pick -> 2D env) ----
+  /// True while the origin planes were switched on BY the plane pick, so
+  /// cancelling or finishing it only hides the ones we showed and leaves a
+  /// plane the user enabled in the browser alone.
+  bool _planesAutoShown = false;
+
   void startPartSketch() {
     final p = currentPart;
     if (p == null) return;
-    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    // Inventor: the origin planes are offered automatically only while the
+    // part is still EMPTY (the first sketch). Once a body exists you sketch on
+    // its faces — a plane is then offered only if switched on in the browser.
+    _planesAutoShown = !p.hasSolid;
+    if (_planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    }
     pickPlane = true;
     toast('Select a plane to create the sketch on.');
     notifyListeners();
@@ -2027,7 +2038,10 @@ class AppState extends ChangeNotifier {
   void cancelPlanePick() {
     final p = currentPart;
     pickPlane = false;
-    if (p != null) p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    if (p != null && _planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
     notifyListeners();
   }
 
@@ -2037,7 +2051,10 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (p == null || !pickPlane) return;
     pickPlane = false;
-    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    if (_planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
     p.camera.orientToPlane(key);
     final sk = SketchModel(p.nextSketchName());
     p.childSketches.add(ChildSketch(sk, key));
