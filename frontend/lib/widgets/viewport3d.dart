@@ -8,6 +8,7 @@
 // the OCCT tessellation — no GPU dependency, plain CustomPainter).
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -1270,9 +1271,20 @@ class _CubePainter extends CustomPainter {
       if (lit.contains(_nkey(n))) {
         canvas.drawPath(path, Paint()..color = const Color(0x8C7EC0F0));
       }
-      // label at the face centre, following the face's screen orientation
-      final c0 = (quad[0] + quad[2]) / 2;
-      final dirX = (quad[1] - quad[0]);
+      // Label painted ON the face like a decal. Its basis is the face's FIXED
+      // (u, v) axes, so the text turns, tilts and foreshortens exactly with the
+      // face it belongs to. The old version rotated by the angle of ONE quad
+      // edge; which edge that was changed as the cube turned, so the text
+      // re-oriented on screen and could come out upside down (TOP read "dOT").
+      final (fu, fv) = faceBasis(n);
+      final fc = n * 0.5;
+      final c0 = cam.project(fc);
+      // Screen delta of a unit step along each face axis, normalised by the
+      // head-on projected length: the glyphs keep their size when a face looks
+      // straight at you and only compress as it turns away.
+      final s0 = size.height / 2 / 0.86;
+      final ex = (cam.project(fc + fu * 0.5) - cam.project(fc - fu * 0.5)) / s0;
+      final ey = (cam.project(fc + fv * 0.5) - cam.project(fc - fv * 0.5)) / s0;
       final tp = TextPainter(
           text: TextSpan(
               text: label,
@@ -1282,9 +1294,19 @@ class _CubePainter extends CustomPainter {
                   color: Color(0xFF565B61))),
           textDirection: TextDirection.ltr)
         ..layout();
+      // Column-major affine: text +x follows u, text +y (down on screen)
+      // follows -v. (u, v, n) is right-handed, so nothing ever mirrors.
+      final m = Float64List(16);
+      m[0] = ex.dx;
+      m[1] = ex.dy;
+      m[4] = -ey.dx;
+      m[5] = -ey.dy;
+      m[10] = 1;
+      m[12] = c0.dx;
+      m[13] = c0.dy;
+      m[15] = 1;
       canvas.save();
-      canvas.translate(c0.dx, c0.dy);
-      canvas.rotate(math.atan2(dirX.dy, dirX.dx));
+      canvas.transform(m);
       tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
       canvas.restore();
     }
