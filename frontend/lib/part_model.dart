@@ -346,7 +346,170 @@ List<Offset> dedupeClosedLoop(List<Offset> p, [double tol = 1e-7]) {
   return out;
 }
 
+/// Planar ARRANGEMENT of the sketch's profile curves.
+///
+/// Every segment is split at every crossing, dangling ends are pruned, and the
+/// minimal cycles of the resulting planar graph are the selectable faces. This
+/// is what lets merely CROSSING lines bound a region, the way Inventor behaves.
+/// The previous loop finder only closed a loop when entities met at shared
+/// ENDPOINTS, so an X of two lines — or a rectangle cut by a diagonal — yielded
+/// no profile at all, and a sketch holding several areas offered nothing to
+/// pick.
+///
+/// Disjoint closed shapes come out exactly as before (a circle inside a
+/// rectangle still gives the two loops), so nesting in [regionsFrom] is
+/// unchanged for them.
+List<ProfileLoop> arrangementLoops(SketchModel s) {
+  const tol = 1e-6;
+
+  // ---- 1. every profile curve as straight segments -------------------------
+  final segA = <Offset>[], segB = <Offset>[], segE = <int>[];
+  for (var i = 0; i < s.geometry.length; i++) {
+    final g = s.geometry[i];
+    if (!_profileGeo(s, g)) continue;
+    final (pts, closed) = _profileChain(g);
+    if (pts.length < 2) continue;
+    for (var k = 0; k + 1 < pts.length; k++) {
+      segA.add(pts[k]);
+      segB.add(pts[k + 1]);
+      segE.add(i);
+    }
+    if (closed && (pts.first - pts.last).distance > tol) {
+      segA.add(pts.last);
+      segB.add(pts.first);
+      segE.add(i);
+    }
+  }
+  if (segA.isEmpty) return const [];
+
+  // ---- 2. split parameters from pairwise crossings -------------------------
+  final cuts = List<List<double>>.generate(segA.length, (_) => <double>[]);
+  for (var i = 0; i < segA.length; i++) {
+    final a = segA[i], b = segB[i];
+    final rx = b.dx - a.dx, ry = b.dy - a.dy;
+    for (var j = i + 1; j < segA.length; j++) {
+      final c = segA[j], d = segB[j];
+      final sx = d.dx - c.dx, sy = d.dy - c.dy;
+      final den = rx * sy - ry * sx;
+      if (den.abs() < 1e-12) continue; // parallel — shared endpoints cover it
+      final t = ((c.dx - a.dx) * sy - (c.dy - a.dy) * sx) / den;
+      final u = ((c.dx - a.dx) * ry - (c.dy - a.dy) * rx) / den;
+      if (t < -tol || t > 1 + tol || u < -tol || u > 1 + tol) continue;
+      if (t > tol && t < 1 - tol) cuts[i].add(t);
+      if (u > tol && u < 1 - tol) cuts[j].add(u);
+    }
+  }
+
+  // ---- 3. node pool, snapping coincident points ---------------------------
+  final nodePt = <Offset>[];
+  final grid = <int, List<int>>{};
+  int cell(double v) => (v / 1e-5).floor();
+  int nodeOf(Offset p) {
+    final cx = cell(p.dx), cy = cell(p.dy);
+    for (var dx = -1; dx <= 1; dx++) {
+      for (var dy = -1; dy <= 1; dy++) {
+        for (final n in grid[Object.hash(cx + dx, cy + dy)] ?? const <int>[]) {
+          if ((nodePt[n] - p).distance <= 1e-6) return n;
+        }
+      }
+    }
+    nodePt.add(p);
+    (grid[Object.hash(cx, cy)] ??= <int>[]).add(nodePt.length - 1);
+    return nodePt.length - 1;
+  }
+
+  // ---- 4. undirected graph of the split segments --------------------------
+  final adj = <int, Set<int>>{};
+  final edgeEnt = <int, int>{};
+  int key(int u, int v) => u < v ? u * 1000003 + v : v * 1000003 + u;
+  for (var i = 0; i < segA.length; i++) {
+    final ts = <double>[0, 1, ...cuts[i]]..sort();
+    final a = segA[i], b = segB[i];
+    for (var k = 0; k + 1 < ts.length; k++) {
+      if (ts[k + 1] - ts[k] < tol) continue;
+      Offset at(double t) =>
+          Offset(a.dx + (b.dx - a.dx) * t, a.dy + (b.dy - a.dy) * t);
+      final u = nodeOf(at(ts[k])), v = nodeOf(at(ts[k + 1]));
+      if (u == v) continue;
+      (adj[u] ??= <int>{}).add(v);
+      (adj[v] ??= <int>{}).add(u);
+      edgeEnt[key(u, v)] = segE[i];
+    }
+  }
+
+  // ---- 5. prune dangling ends: they cannot bound a face -------------------
+  var pruned = true;
+  while (pruned) {
+    pruned = false;
+    for (final n in adj.keys.toList()) {
+      if ((adj[n]?.length ?? 0) >= 2) continue;
+      for (final m in adj[n] ?? const <int>{}) {
+        adj[m]?.remove(n);
+      }
+      adj.remove(n);
+      pruned = true;
+    }
+  }
+  if (adj.isEmpty) return const [];
+
+  // ---- 6. faces = minimal cycles of the planar graph ----------------------
+  double ang(int from, int to) {
+    final d = nodePt[to] - nodePt[from];
+    return math.atan2(d.dy, d.dx);
+  }
+
+  final around = <int, List<int>>{};
+  for (final n in adj.keys) {
+    around[n] = adj[n]!.toList()
+      ..sort((x, y) => ang(n, x).compareTo(ang(n, y)));
+  }
+  // Leaving v having arrived from u, take the neighbour just BEFORE u in the
+  // counter-clockwise order — the sharpest clockwise turn. That walks each
+  // face with its interior on one side, so every bounded face closes as its
+  // own minimal cycle and the unbounded one comes back with the opposite sign.
+  int nextNode(int u, int v) {
+    final l = around[v]!;
+    final i = l.indexOf(u);
+    return l[(i - 1 + l.length) % l.length];
+  }
+
+  final loops = <ProfileLoop>[];
+  final used = <int>{};
+  var nextId = 0;
+  for (final u0 in adj.keys) {
+    for (final v0 in adj[u0]!) {
+      if (!used.add(u0 * 1000003 + v0)) continue;
+      final cyc = <int>[];
+      final ents = <int>{};
+      var a = u0, b = v0;
+      while (true) {
+        cyc.add(a);
+        ents.add(edgeEnt[key(a, b)] ?? -1);
+        final c = nextNode(a, b);
+        a = b;
+        b = c;
+        if (a == u0 && b == v0) break;
+        used.add(a * 1000003 + b);
+        if (cyc.length > 200000) return const []; // malformed — bail out
+      }
+      if (cyc.length < 3) continue;
+      final pts = [for (final n in cyc) nodePt[n]];
+      final ar = _signedArea(pts);
+      // Negative area is the UNBOUNDED face of this component: not a profile.
+      if (ar <= 1e-9) continue;
+      loops.add(ProfileLoop(
+          nextId++, pts, ar, _centroidOf(pts), ents..removeWhere((e) => e < 0)));
+    }
+  }
+  return loops;
+}
+
 List<ProfileLoop> profileLoops(SketchModel s) {
+  // The arrangement subsumes the endpoint-chaining finder below and adds
+  // crossings; the old path stays as a fallback so a bail-out can never leave
+  // the sketch with no profile at all.
+  final arranged = arrangementLoops(s);
+  if (arranged.isNotEmpty) return arranged;
   const tol = 1e-6;
   final loops = <ProfileLoop>[];
   var nextId = 0;
@@ -547,15 +710,18 @@ List<ProfileRegion> regionsFrom(List<ProfileLoop> loops) {
     return dpt;
   }
 
+  // EVERY loop is a selectable face, with its immediate children as holes.
+  // A circle inside a rectangle therefore offers both the ring AND the disc,
+  // which is what Inventor does — previously odd-depth loops were treated as
+  // holes only and could never be picked. depthOf still runs: it is what makes
+  // a loop's own children (and not its grandchildren) its holes.
+  depthOf(loops.isEmpty ? 0 : loops.first.id);
   return [
     for (final l in loops)
-      // SOLID rings sit at even depth; odd-depth loops are the holes of the
-      // ring that contains them, so they are not top-level regions.
-      if (depthOf(l.id).isEven)
-        ProfileRegion(l, [
-          for (final c in loops)
-            if (parent[c.id] == l.id) c
-        ]),
+      ProfileRegion(l, [
+        for (final c in loops)
+          if (parent[c.id] == l.id) c
+      ]),
   ];
 }
 

@@ -724,7 +724,8 @@ class _Viewport3DState extends State<Viewport3D> {
         final sp = Offset(w.dot(frame.u), w.dot(frame.v));
         final r = regionAt(app.sessionRegions(cs), sp);
         if (r != null) {
-          app.toggleSessionProfile(cs.model.name, r);
+          app.toggleSessionProfile(cs.model.name, r,
+              remove: HardwareKeyboard.instance.isShiftPressed);
           return;
         }
         if (sess.sketchName == cs.model.name) break; // locked, no fallback

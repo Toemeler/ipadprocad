@@ -2229,7 +2229,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleSessionProfile(String sketchName, ProfileRegion r) {
+  /// Click ADDS a face to the extrusion, shift-click REMOVES it — so building
+  /// up a multi-face profile never accidentally drops one you already had.
+  void toggleSessionProfile(String sketchName, ProfileRegion r,
+      {bool remove = false}) {
     final s = extrudeSession;
     if (s == null) return;
     if (s.sketchName != null && s.sketchName != sketchName) {
@@ -2247,9 +2250,9 @@ class AppState extends ChangeNotifier {
     final ip = interiorPointOf(r.outer);
     final i =
         s.profiles.indexWhere((x) => (Offset(x.ax, x.ay) - ip).distance < 1e-6);
-    if (i >= 0) {
-      s.profiles.removeAt(i);
-    } else {
+    if (remove) {
+      if (i >= 0) s.profiles.removeAt(i);
+    } else if (i < 0) {
       s.profiles.add(ProfileSel(ip.dx, ip.dy, r.outer.area));
     }
     _updateExtrudePreview();
