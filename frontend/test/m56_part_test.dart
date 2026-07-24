@@ -182,14 +182,17 @@ void main() {
       s.engine.addCircle(10, 5, 2);
       s.refresh();
       final regions = regionsFrom(profileLoops(s));
-      // The circle is the rectangle's HOLE, not its own region, so a
-      // rectangle-with-a-hole auto-selects and extrudes as a solid with a
-      // bore — the whole point of this fix.
-      expect(regions.length, 1, reason: 'the hole is not a separate region');
-      final outer = regions.single;
+      // SPEC CHANGE: every closed face is pickable now, so the disc is a
+      // region in its OWN right alongside the ring — that is how Inventor
+      // behaves, and picking only the ring still extrudes a bored solid.
+      expect(regions.length, 2);
+      final outer = regions.firstWhere((r) => r.outer.area > 100);
       expect(outer.outer.area, closeTo(200, 0.5));
-      expect(outer.holes.length, 1);
+      expect(outer.holes.length, 1, reason: 'the circle is still its hole');
       expect(outer.holes.first.area, closeTo(math.pi * 4, 0.05));
+      final disc = regions.firstWhere((r) => r.outer.area < 100);
+      expect(disc.outer.area, closeTo(math.pi * 4, 0.05));
+      expect(disc.holes, isEmpty);
     });
 
     test('an island inside a hole is a region again (even/odd nesting)', () {
@@ -200,9 +203,10 @@ void main() {
       s.engine.addCircle(20, 20, 5); // island inside the hole -> solid again
       s.refresh();
       final regions = regionsFrom(profileLoops(s));
-      // Two solid regions: the outer ring (with the big circle as its hole)
-      // and the small island (depth 2 -> solid, no holes).
-      expect(regions.length, 2);
+      // SPEC CHANGE: three faces are pickable — the outer ring, the annulus
+      // between the two circles, and the island. Nesting is unchanged; what
+      // changed is that an odd-depth loop is no longer hole-only.
+      expect(regions.length, 3);
       final ring = regions.firstWhere((r) => r.outer.area > 1000);
       expect(ring.holes.length, 1);
       expect(ring.holes.first.area, closeTo(math.pi * 225, 1.0));
@@ -263,8 +267,11 @@ void main() {
       final inRing = regionAt(regions, const Offset(2, 2))!;
       expect(inRing.outer.area, closeTo(400, 1e-6));
       expect(inRing.holes.length, 1);
-      // Tapping the empty centre of the hole selects nothing (Inventor).
-      expect(regionAt(regions, const Offset(10, 10)), isNull);
+      // SPEC CHANGE: the hole's interior is itself a pickable face now, so a
+      // tap there selects the disc rather than nothing.
+      final inDisc = regionAt(regions, const Offset(10, 10))!;
+      expect(inDisc.outer.area, closeTo(math.pi * 16, 0.5));
+      expect(inDisc.holes, isEmpty);
       // Outside everything: null.
       expect(regionAt(regions, const Offset(-5, -5)), isNull);
     });
