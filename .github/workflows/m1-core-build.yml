@@ -468,6 +468,13 @@ jobs:
   # ---------------------------------------------------------------------------
   m5-flutter-ipa:
     name: M5 Flutter iOS build + unsigned IPA
+    # Gated on the fast Dart job. Without this the iOS build kept grinding for
+    # the better part of an hour after dart-checks had already gone red three
+    # minutes in, producing an IPA that could not possibly be worth installing
+    # and burning a macOS runner for nothing. build-core-ios and the simulator
+    # smoke test stay independent — they are native and a Dart error says
+    # nothing about them.
+    needs: dart-checks
     # macos-26 (Tahoe, Xcode 26.x) — NOT cosmetic and NOT optional:
     #
     #  1. The native context menu is a real UIMenu, so its APPEARANCE comes
