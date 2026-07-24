@@ -18,6 +18,7 @@ import 'dart:ui';
 import 'app_state.dart' show SketchModel;
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
+import 'log.dart';
 import 'snap.dart' show sampleEntity;
 import 'spline.dart' show splineCurveFor, polyPoints;
 import 'tools.dart' show ExprParser;
@@ -1226,6 +1227,30 @@ class OcctPartKernel implements PartKernel {
       for (final g in groups) {
         // Recover true arcs from the polygonized loops so circles reach OCCT
         // as exact cylindrical faces — no facet edges on curved walls.
+        // DIAGNOSTIC: the shim treats loop 0 as the OUTER boundary and the
+        // rest as holes. Measured on device, the extruded caps keep coming
+        // back with exactly the CIRCLE's area for a rectangle-with-hole, and
+        // identically so for both rectangle winding directions — which rules
+        // out the orientation theory and points at what is handed over here.
+        // So record it: loop order, point counts, signed areas and extents.
+        for (var li = 0; li < g.length; li++) {
+          final lp = g[li];
+          var a2 = 0.0, x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
+          for (var i = 0; i < lp.length; i++) {
+            final p0 = lp[i], p1 = lp[(i + 1) % lp.length];
+            a2 += p0.dx * p1.dy - p1.dx * p0.dy;
+            if (p0.dx < x0) x0 = p0.dx;
+            if (p0.dy < y0) y0 = p0.dy;
+            if (p0.dx > x1) x1 = p0.dx;
+            if (p0.dy > y1) y1 = p0.dy;
+          }
+          Log.i(
+              'extrude',
+              'loop[$li] pts=${lp.length} signedArea=${(a2 / 2).toStringAsFixed(2)} '
+              'bbox=${x0.toStringAsFixed(1)},${y0.toStringAsFixed(1)}'
+              '..${x1.toStringAsFixed(1)},${y1.toStringAsFixed(1)}'
+              '${li == 0 ? "  <-- treated as OUTER" : "  <-- treated as hole"}');
+        }
         final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
         final part = ffi.extrudeProfileArcs(loops, height, taperDeg: taperDeg);
         if (part == null) {
