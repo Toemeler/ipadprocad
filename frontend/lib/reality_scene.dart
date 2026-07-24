@@ -8,6 +8,7 @@
 //
 // The camera/plane/axis/sketch conventions here MUST match Cam3 and the Swift
 // PartRenderer; the two are two ends of one wire.
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Size;
 
@@ -114,6 +115,8 @@ String meshSelfReport(String id, OcctMeshData m) {
   final step = nTri > 600 ? nTri ~/ 600 : 1;
   final faceOut = <int, int>{};
   final faceTris = <int, int>{};
+  final faceArea = <int, double>{};
+  final faceN = <int, List<double>>{};
   final hasFaces = m.triFaces.length == nTri;
   for (var t = 0; t < nTri; t++) {
     final a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
@@ -136,6 +139,20 @@ String meshSelfReport(String id, OcctMeshData m) {
       final f = m.triFaces[t];
       faceTris[f] = (faceTris[f] ?? 0) + 1;
       if (isOut) faceOut[f] = (faceOut[f] ?? 0) + 1;
+      // |cross| is twice the triangle area; the cross vector also gives the
+      // face orientation. A face that is listed but renders as nothing is
+      // either DEGENERATE (area ~ 0) or misplaced — these two numbers say
+      // which, without needing another guess.
+      final gl = math.sqrt(gx * gx + gy * gy + gz * gz);
+      faceArea[f] = (faceArea[f] ?? 0) + 0.5 * gl;
+      if (gl > 1e-12) {
+        faceN[f] = (faceN[f] ?? const [0.0, 0.0, 0.0]);
+        faceN[f] = [
+          faceN[f]![0] + gx / gl,
+          faceN[f]![1] + gy / gl,
+          faceN[f]![2] + gz / gl,
+        ];
+      }
     }
   }
   final w = (agree / sampled).toStringAsFixed(2);
@@ -172,10 +189,24 @@ String meshSelfReport(String id, OcctMeshData m) {
             }).join(',');
 
   String r(double v) => v.toStringAsFixed(1);
+
+  // Per-face inventory, capped so the line stays readable.
+  final fids = faceTris.keys.toList()..sort();
+  final inv = fids.take(12).map((f) {
+    final type =
+        m.faceInfos.length > 15 * f ? m.faceInfos[15 * f].round() : -1;
+    final nsum = faceN[f] ?? const [0.0, 0.0, 0.0];
+    final k = faceTris[f]!;
+    String c(double v) => (v / k).toStringAsFixed(1);
+    return 'f$f:t$type/${k}tri/a${(faceArea[f] ?? 0).toStringAsFixed(1)}'
+        '/n(${c(nsum[0])},${c(nsum[1])},${c(nsum[2])})';
+  }).join(' ');
+
   return 'mesh $id: tris=$nTri faces=${faceTris.length} verts=$nV '
       'wind=$w out=$o inward=$inwardStr '
       'edges=$boundary(0=watertight) '
-      'bbox=${r(minX)},${r(minY)},${r(minZ)}..${r(maxX)},${r(maxY)},${r(maxZ)}';
+      'bbox=${r(minX)},${r(minY)},${r(minZ)}..${r(maxX)},${r(maxY)},${r(maxZ)} '
+      '[$inv]';
 }
 
 /// Emits [meshSelfReport] once per distinct mesh object.
