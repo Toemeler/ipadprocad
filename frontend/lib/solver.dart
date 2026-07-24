@@ -1388,6 +1388,19 @@ bool _trySolveWithSlvs(
           d.add(q.dx);
           d.add(q.dy);
         }
+        // Keep everything AFTER the point block — same lesson as the arc case
+        // above, one field further along. A gear is stored compactly as a
+        // [closed, count, centre, handle] polyline FOLLOWED BY its parameter
+        // block (module, teeth, angles...). Rebuilding the list from scratch
+        // silently dropped that block, so gearParams() returned null and
+        // gearCurve() fell back to its two-point line: the tooth contour
+        // vanished the instant the solver ran. That is exactly why the gear
+        // PREVIEW looked right (drawn before the solve) while the placed gear
+        // showed nothing but its construction lines. The Newton path never had
+        // the bug — it copies g.data and edits the points in place.
+        if (g.data.length > 2 + 2 * n) {
+          d.addAll(g.data.sublist(2 + 2 * n));
+        }
         newGs[e] = g.withData(d);
         break;
     }

@@ -15,6 +15,7 @@ import 'package:ipadprocad/app_state.dart';
 import 'package:ipadprocad/ffi/qcad_engine.dart' show Geo;
 import 'package:ipadprocad/part_model.dart';
 import 'package:ipadprocad/reality_scene.dart';
+import 'package:ipadprocad/solver.dart' show solveConstraints;
 
 import 'synth_mesh.dart';
 
@@ -278,6 +279,29 @@ void main() {
       expect((o['cp'] as Map)['hot'], isTrue);
       final off = buildOverlaysPayload(AppState(), p, hover: 'xy');
       expect((off['cp'] as Map)['hot'], isFalse);
+    });
+  });
+
+  group('solver write-back', () {
+    test('keeps a tagged polyline\'s gear parameter block', () {
+      // A gear rides in a polyline as [closed, count, centre, handle] followed
+      // by its parameter block. The slvs write-back rebuilt that list from
+      // scratch and dropped the tail, so the tooth contour disappeared the
+      // moment the sketch was solved — the preview looked right, the placed
+      // gear did not.
+      final s = SketchModel('t');
+      final tail = [2.0, 20.0, 7.5, 0.0];
+      s.geometry.add(Geo(
+        Geo.polyline,
+        [1.0, 2.0, 0.0, 0.0, 20.0, 0.0, ...tail],
+        spline: Geo.gearTag,
+      ));
+      final gs = List<Geo>.from(s.geometry);
+      solveConstraints(gs, s.constraints);
+      expect(gs[0].data.length, 6 + tail.length,
+          reason: 'the block after the points must survive a solve');
+      expect(gs[0].data.sublist(6), tail);
+      expect(gs[0].spline, Geo.gearTag);
     });
   });
 }
