@@ -137,13 +137,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v7 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v8 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 7; }
+extern "C" int occt_shim_version(void) { return 8; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -282,10 +282,16 @@ static TopoDS_Wire arc_loop_wire(const double *xyb, int npts, bool forward,
             mk.Add(e.Edge());
         } else {
             /* Three-point arc: mid-arc point = chord midpoint pushed by the
-             * sagitta s = b·chord/2 along the LEFT normal of p0->p1 (positive
-             * bulge = counter-clockwise, i.e. the arc bows left). */
+             * sagitta s = b·chord/2 along the RIGHT normal of p0->p1.
+             * Positive bulge = counter-clockwise sweep (DXF): the CENTRE then
+             * lies LEFT of travel and the arc bows AWAY from it, i.e. RIGHT.
+             * The left normal here mirrored every arc across its chord — for
+             * a full circle (two half-turns across a diameter) that maps the
+             * circle onto itself, which is why only asymmetric profiles ever
+             * showed it. arc_loop_signed_area already uses this convention:
+             * it adds the segment POSITIVELY for a positive bulge. */
             const double s = b * 0.5 * chord;
-            const double nx = -dy / chord, ny = dx / chord;
+            const double nx = dy / chord, ny = -dx / chord;
             const gp_Pnt pm(0.5 * (p0.X() + p1.X()) + nx * s,
                             0.5 * (p0.Y() + p1.Y()) + ny * s, 0.0);
             GC_MakeArcOfCircle arc(p0, pm, p1);

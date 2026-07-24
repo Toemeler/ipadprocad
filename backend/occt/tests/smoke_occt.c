@@ -42,6 +42,10 @@
  *        operands left intact, an all-erasing cut reported as failure)
  *   [18] v5 boolean COMMON — overlap of two offset cubes (analytic volume,
  *        disjoint inputs reported as failure)
+ *   [19] v8 ASYMMETRIC arc — a circular segment (arc + its chord) keeps its
+ *        bulge on the RIGHT of p0->p1: bbox proves the arc is not mirrored
+ *        across the chord (volume cannot — a mirror preserves area), and
+ *        the reverse traversal gives the identical solid
  *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
@@ -733,6 +737,62 @@ int main(void)
         check(occt_common(NULL, NULL) == NULL, "[18] common(NULL)");
         occt_free_shape(cm); occt_free_shape(b); occt_free_shape(b0);
         occt_free_shape(a); occt_free_shape(far); occt_free_shape(far0);
+    }
+
+    /* [19] v8 ASYMMETRIC arc: the bulge must bow to the RIGHT of p0->p1.
+     * Device find (build a0f1c35): every arc came out mirrored across its
+     * chord. A circle is written as two half-turns across a diameter, so the
+     * mirror maps it onto itself and [15]/[16] stayed green — only a profile
+     * that is NOT symmetric about its chord can catch it, and the volume
+     * cannot (a mirror preserves area). The bounding box can.
+     * Lens from the report: arc centre (1.888714,-0.506745) r=8.878410 swept
+     * CCW 45.977189deg -> 158.593988deg, closed by its chord. Segment area
+     * 41.085636 -> volume 205.428179 at height 5; the arc peaks at
+     * y = cy + r = 8.371665. Mirrored, the peak would fall to y = 5.877393
+     * (the higher chord end) and ymin would drop to 0.239375. */
+    {
+        const double L[] = {
+            8.0587183242952332,  5.8773928201870458, 0.5351665491544619,
+            -6.3772415162043483, 2.7336479404453176, 0.0,
+        };
+        const int lc[] = {2};
+        occt_shape *s19 = occt_extrude_profile_arcs(L, lc, 1, 5.0, 0.0);
+        if (check(s19 != NULL, "[19] lens extrude returned NULL")) {
+            const double v = occt_shape_volume(s19);
+            printf("[19] lens volume %.6f (analytic 205.428179)\n", v);
+            check(near_rel(v, 205.42817888207543, 1e-6),
+                  "[19] lens volume not analytic");
+            double bb[6] = {0};
+            if (check(occt_bbox(s19, bb), "[19] bbox failed")) {
+                printf("[19] lens bbox y %.6f..%.6f (want 2.733648..8.371665)\n",
+                       bb[1], bb[4]);
+                check(fabs(bb[4] - 8.371665146120012) < 1e-6,
+                      "[19] arc bows the wrong way (peak mirrored below chord)");
+                check(fabs(bb[1] - 2.7336479404453176) < 1e-6,
+                      "[19] arc bows the wrong way (bottom below the chord)");
+                check(fabs(bb[0] + 6.3772415162043483) < 1e-6 &&
+                          fabs(bb[3] - 8.0587183242952332) < 1e-6,
+                      "[19] lens x extent wrong");
+            }
+            occt_free_shape(s19);
+        }
+        /* same lens traversed the other way round (vertices swapped, bulge
+         * negated) must give the IDENTICAL solid — the shim reverses the wire
+         * itself when the signed area comes out negative. */
+        const double R[] = {
+            -6.3772415162043483, 2.7336479404453176, -0.5351665491544619,
+            8.0587183242952332,  5.8773928201870458, 0.0,
+        };
+        occt_shape *s19r = occt_extrude_profile_arcs(R, lc, 1, 5.0, 0.0);
+        if (check(s19r != NULL, "[19] reversed lens returned NULL")) {
+            double bb[6] = {0};
+            if (occt_bbox(s19r, bb))
+                check(fabs(bb[4] - 8.371665146120012) < 1e-6,
+                      "[19] reversed lens bows the wrong way");
+            check(near_rel(occt_shape_volume(s19r), 205.42817888207543, 1e-6),
+                  "[19] reversed lens volume not analytic");
+            occt_free_shape(s19r);
+        }
     }
 
     if (g_failures == 0) {
