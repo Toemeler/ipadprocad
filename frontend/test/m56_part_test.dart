@@ -207,12 +207,22 @@ void main() {
       // between the two circles, and the island. Nesting is unchanged; what
       // changed is that an odd-depth loop is no longer hole-only.
       expect(regions.length, 3);
+      // Pick each face by its own area — with three of them, "< 1000" now
+      // matches the middle annulus (pi*225 = 707) as well as the island.
       final ring = regions.firstWhere((r) => r.outer.area > 1000);
+      expect(ring.outer.area, closeTo(1600, 0.5));
       expect(ring.holes.length, 1);
       expect(ring.holes.first.area, closeTo(math.pi * 225, 1.0));
-      final island = regions.firstWhere((r) => r.outer.area < 1000);
-      expect(island.holes, isEmpty);
+      // the annulus between the two circles: bounded by the big one, bored by
+      // the small one
+      final annulus =
+          regions.firstWhere((r) => r.outer.area > 100 && r.outer.area < 1000);
+      expect(annulus.outer.area, closeTo(math.pi * 225, 1.0));
+      expect(annulus.holes.length, 1);
+      expect(annulus.holes.first.area, closeTo(math.pi * 25, 0.5));
+      final island = regions.firstWhere((r) => r.outer.area < 100);
       expect(island.outer.area, closeTo(math.pi * 25, 0.5));
+      expect(island.holes, isEmpty);
     });
 
     test('a rectangle split by a diagonal yields TWO triangle faces', () {
