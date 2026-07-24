@@ -137,13 +137,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v6 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v7 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 6; }
+extern "C" int occt_shim_version(void) { return 7; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -219,6 +219,10 @@ extern "C" occt_shape *occt_extrude_polygon(const double *xy, int npts,
  * θ = 4·atan b, radius r = c / (2 sin(θ/2)), segment = r²(θ − sin θ)/2,
  * signed like the bulge). Needed because e.g. a full circle written as two
  * half-arcs has ZERO shoelace area — the segments carry all of it. */
+/* Defined further down next to the boolean entry points; the extrude paths
+ * need it earlier to validate a hole cut. */
+static bool has_solid_material(const TopoDS_Shape &s);
+
 static double arc_loop_signed_area(const double *xyb, int npts)
 {
     double a = 0.0;
@@ -356,25 +360,62 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
         return nullptr;
     }
     p += 3 * loop_counts[0];
+
+    /* HOLES ARE CUT, NOT ADDED AS WIRES.
+     *
+     * BRepBuilderAPI_MakeFace::Add() was silently producing a face whose
+     * MATERIAL was the hole: measured on device (build 37aba27), a
+     * 12.3 x 15.0 rectangle with an r=2.65 circle came back with cap faces of
+     * area 22.0 — exactly pi*r^2, the circle — while the four side walls were
+     * dimensionally perfect and the shell reported 8 boundary edges, one pair
+     * per wall with no cap to close against. The loops reach here in the right
+     * order and with the right winding (outer +185 forward, hole +22 reversed,
+     * both logged from Dart), and arc_loop_wire's reverse traversal is
+     * correct, so the fault is in Add() itself.
+     *
+     * The same device run proved the SINGLE-wire path is exact for polygons —
+     * a plain rectangle gives 6 faces, 12 triangles, watertight, caps 162.0 =
+     * the rectangle's own area — and it has always been exact for circles. So
+     * the outer and every hole are each built through that proven path and the
+     * holes are then subtracted with a boolean. Nothing depends on multi-wire
+     * face assembly any more.
+     *
+     * The cutting prisms overshoot the body at both ends: a tool whose cap is
+     * COPLANAR with the body's cap is the classic way to make an OCCT boolean
+     * fragile, and the overshoot costs nothing. */
+    std::vector<TopoDS_Shape> hole_tools;
+    const double pad = 0.01 * (std::fabs(height) + 1.0);
     for (int l = 1; l < nloops; ++l) {
         const double a = arc_loop_signed_area(p, loop_counts[l]);
         if (std::fabs(a) < 1e-12) {
             set_err("occt_extrude_profile_arcs", "hole loop is degenerate");
             return nullptr;
         }
-        TopoDS_Wire holeW = arc_loop_wire(p, loop_counts[l], a < 0.0, &ok);
+        /* built like an OUTER boundary — it is the outer boundary of the tool */
+        TopoDS_Wire holeW = arc_loop_wire(p, loop_counts[l], a > 0.0, &ok);
         if (!ok) {
             set_err("occt_extrude_profile_arcs",
                     "hole wire construction failed");
             return nullptr;
         }
-        faceMk.Add(holeW);
+        BRepBuilderAPI_MakeFace holeMk(profilePln, holeW, Standard_True);
+        if (!holeMk.IsDone()) {
+            set_err("occt_extrude_profile_arcs",
+                    "hole loop is not a valid planar face");
+            return nullptr;
+        }
+        const double sgn = height >= 0.0 ? 1.0 : -1.0;
+        BRepPrimAPI_MakePrism tool(holeMk.Face(),
+                                   gp_Vec(0.0, 0.0, height + sgn * 2.0 * pad));
+        gp_Trsf down;
+        down.SetTranslation(gp_Vec(0.0, 0.0, -sgn * pad));
+        BRepBuilderAPI_Transform mv(tool.Shape(), down, Standard_True);
+        hole_tools.push_back(mv.Shape());
         p += 3 * loop_counts[l];
     }
     if (!faceMk.IsDone()) {
         set_err("occt_extrude_profile_arcs",
-                "profile face with holes failed (hole outside the outer "
-                "loop, or loops intersect?)");
+                "outer loop did not yield a planar face");
         return nullptr;
     }
     /* A full circle arrives as TWO half arcs (a single closed arc edge is
@@ -384,9 +425,19 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
      * together: one cylindrical face (its seam is suppressed by the mesher)
      * and full-circle rims. */
     BRepPrimAPI_MakePrism prism(faceMk.Face(), gp_Vec(0.0, 0.0, height));
+    TopoDS_Shape body = prism.Shape();
+    for (const TopoDS_Shape &tool : hole_tools) {
+        BRepAlgoAPI_Cut cut(body, tool);
+        if (!cut.IsDone() || !has_solid_material(cut.Shape())) {
+            set_err("occt_extrude_profile_arcs",
+                    "cutting a hole out of the profile failed");
+            return nullptr;
+        }
+        body = cut.Shape();
+    }
     if (std::fabs(taper_deg) < 1e-9) {
-        ShapeUpgrade_UnifySameDomain uni(prism.Shape(), Standard_True,
-                                         Standard_True, Standard_False);
+        ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
+                                         Standard_False);
         uni.Build();
         return wrap(uni.Shape(), "occt_extrude_profile_arcs");
     }
@@ -402,9 +453,9 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
     const double occtAngle = -taper_deg * (3.14159265358979323846 / 180.0);
     const gp_Dir pullDir(0.0, 0.0, 1.0);
     const gp_Pln neutral(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
-    BRepOffsetAPI_DraftAngle draft(prism.Shape());
+    BRepOffsetAPI_DraftAngle draft(body);
     int added = 0;
-    for (TopExp_Explorer ex(prism.Shape(), TopAbs_FACE); ex.More();
+    for (TopExp_Explorer ex(body, TopAbs_FACE); ex.More();
          ex.Next()) {
         const TopoDS_Face f = TopoDS::Face(ex.Current());
         BRepAdaptor_Surface surf(f, Standard_False);
