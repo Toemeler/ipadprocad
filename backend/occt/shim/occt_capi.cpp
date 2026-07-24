@@ -196,7 +196,11 @@ extern "C" occt_shape *occt_extrude_polygon(const double *xy, int npts,
         return nullptr;
     }
     const TopoDS_Wire wire = poly.Wire();
-    BRepBuilderAPI_MakeFace faceMk(wire, Standard_True /* planar only */);
+    /* Same explicit plane as the loop profiles: a wire-inferred plane flips
+     * its normal with the winding, which also flips the resulting solid's
+     * face orientation. */
+    const gp_Pln profilePln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+    BRepBuilderAPI_MakeFace faceMk(profilePln, wire, Standard_True);
     if (!faceMk.IsDone()) {
         set_err("occt_extrude_polygon",
                 "profile is not a valid planar face (self-intersecting?)");
@@ -329,7 +333,23 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
         set_err("occt_extrude_profile_arcs", "outer wire construction failed");
         return nullptr;
     }
-    BRepBuilderAPI_MakeFace faceMk(outer, Standard_True /* planar only */);
+    /* Build the profile face on an EXPLICIT plane instead of letting MakeFace
+     * infer one from the wire. Inferred from a POLYGON, the plane's normal
+     * follows the wire's winding, so a rectangle drawn one way yields +Z and
+     * the other way -Z. "Counter-clockwise" is defined in that parametric
+     * frame, so when it flips, the outer boundary and the holes swap roles:
+     * the face's material becomes the HOLE. Measured on device (build
+     * d30bb6b) for a 19.5x13.5 rectangle with an r=2.73 hole — the caps came
+     * back with area 23.3 (= pi*r^2, the circle alone) instead of 239.5
+     * (rectangle minus circle), while the four side walls and the cylinder
+     * wall were exact, and the shell reported 8 boundary edges: the walls had
+     * no cap to close against. A circle outer never showed this because its
+     * plane comes from the circle's own geometry, which is why
+     * circle-in-circle extruded correctly all along.
+     * Pinning the plane to +Z — the direction the prism is swept along
+     * anyway — makes the orientation deterministic for every profile shape. */
+    const gp_Pln profilePln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+    BRepBuilderAPI_MakeFace faceMk(profilePln, outer, Standard_True);
     if (!faceMk.IsDone()) {
         set_err("occt_extrude_profile_arcs",
                 "outer loop is not a valid planar face (self-intersecting?)");
@@ -566,7 +586,23 @@ extern "C" occt_shape *occt_extrude_profile(const double *xy,
         set_err("occt_extrude_profile", "outer wire construction failed");
         return nullptr;
     }
-    BRepBuilderAPI_MakeFace faceMk(outer, Standard_True /* planar only */);
+    /* Build the profile face on an EXPLICIT plane instead of letting MakeFace
+     * infer one from the wire. Inferred from a POLYGON, the plane's normal
+     * follows the wire's winding, so a rectangle drawn one way yields +Z and
+     * the other way -Z. "Counter-clockwise" is defined in that parametric
+     * frame, so when it flips, the outer boundary and the holes swap roles:
+     * the face's material becomes the HOLE. Measured on device (build
+     * d30bb6b) for a 19.5x13.5 rectangle with an r=2.73 hole — the caps came
+     * back with area 23.3 (= pi*r^2, the circle alone) instead of 239.5
+     * (rectangle minus circle), while the four side walls and the cylinder
+     * wall were exact, and the shell reported 8 boundary edges: the walls had
+     * no cap to close against. A circle outer never showed this because its
+     * plane comes from the circle's own geometry, which is why
+     * circle-in-circle extruded correctly all along.
+     * Pinning the plane to +Z — the direction the prism is swept along
+     * anyway — makes the orientation deterministic for every profile shape. */
+    const gp_Pln profilePln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+    BRepBuilderAPI_MakeFace faceMk(profilePln, outer, Standard_True);
     if (!faceMk.IsDone()) {
         set_err("occt_extrude_profile",
                 "outer loop is not a valid planar face (self-intersecting?)");
