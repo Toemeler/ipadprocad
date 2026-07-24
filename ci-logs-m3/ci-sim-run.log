@@ -1,0 +1,72 @@
+smoke: /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/qcad_capi_smoke.app/qcad_capi_smoke
+app bundle: /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/qcad_capi_smoke.app
+2026-07-24 10:36:45.220 softwareupdate[12489:35291] Package Authoring Error: 122-77908: Package reference com.apple.pkg.RosettaUpdateAuto is missing installKBytes attribute
+By using the agreetolicense option, you are agreeing that you have run this tool with the license only option and have read and agreed to the terms.
+If you do not agree, press CTRL-C and cancel this process immediately.
+Installing: 0.0%Installing: 0.0%Installing: 100.0%Installing: 100.0%Installing: -1.0%Installing: 2.0%Installing: 100.0%Install of Rosetta 2 finished successfully
+writing minimal Info.plist (overwriting CMake default)
+bundle id: com.ipadprocad.smoke
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>com.ipadprocad.smoke</string>
+  <key>CFBundleExecutable</key><string>qcad_capi_smoke</string>
+  <key>CFBundleName</key><string>qcad_capi_smoke</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>MinimumOSVersion</key><string>14.0</string>
+</dict></plist>
+created sim 'iPhone 15' -> 4C02594B-600E-4F40-994C-9B87806F99FD
+sim booted (after ~5s)
+== launch (console-pty) ==
+version: iPadProCAD C-API 0.1.0 (Qt 6.7.3)
+ok:   create document
+ok:   add line
+ok:   add circle
+ok:   add arc
+ok:   add closed polyline
+entity count: 4
+ok:   entity count == 4
+ok:   bounding box valid
+bbox: [0.000, 0.000] .. [100.000, 75.000]
+ok:   entity_ids total == 4
+ok:   entity_ids fills buffer
+ok:   geometry: entity[0] is a line (4 doubles)
+ok:   geometry: line coordinates match
+ok:   geometry: entity[1] is circle r=25
+ok:   geometry: entity[2] is arc r=40
+ok:   geometry: entity[3] is closed 4-vertex polyline
+ok:   geometry: sizing call (max=0) returns need
+ok:   geometry: unknown id returns -1
+dxf path: /Users/runner/Library/Developer/CoreSimulator/Devices/4C02594B-600E-4F40-994C-9B87806F99FD/data/Containers/Data/Application/60EB9259-4BBF-499B-B932-2E687DD60597/tmp/ipadprocad_smoke.dxf
+RDxfExporter::writeLayer:  "0"
+RDxfExporter::exportFile: unsupported extension data type:  65537
+QVariant(RColor, RColor(RGBA: 255, 255, 255, 255) )
+ok:   save DXF (default R2000)
+ok:   create second document
+ok:   load DXF
+reloaded entity count: 4
+ok:   DXF round-trip preserves entity count
+ok:   layer: create document
+ok:   layer: set current layer
+ok:   layer: add line on current layer
+ok:   layer: exactly one entity present
+ok:   layer: read entity layer
+ok:   layer: new entity is on the current layer, not "0"
+RDxfExporter::writeLayer:  "0"
+RDxfExporter::writeLayer:  "Walls"
+Layer  "Walls"  has invalid line type ID
+RDxfExporter::exportFile: unsupported extension data type:  65537
+QVariant(RColor, RColor(RGBA: 255, 255, 255, 255) )
+ok:   layer: save DXF
+RDxfImporter::importEntity:  creating layer:  "Walls"
+ok:   layer: reload DXF
+ok:   layer: one entity after reload
+ok:   layer: read entity layer after reload
+ok:   layer: entity layer survives the DXF round-trip
+
+SMOKE: PASS
+com.ipadprocad.smoke: 14888
+== launch exit: 0 ==
+M3 LOGIC TEST: PASS
