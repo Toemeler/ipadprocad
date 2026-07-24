@@ -1,0 +1,24 @@
+M6 QIOS CHECK: PASS (no qt_main_wrapper in Runner)
+M5 LINK CHECK: PASS (C-API version string present in Runner binary)
+SLVS LINK CHECK: PASS (libslvs shim marker present in Runner binary)
+OCCT MARKER CHECK: PASS (OCCT shim version string present in Runner binary)
+OCCT LINK CHECK: PASS (31 _occt_* symbols exported in Runner)
+REALITYKIT LINK CHECK: PASS (RealityKit framework linked into Runner)
+0000000100015548 T _qcad_add_arc
+0000000100015300 T _qcad_add_circle
+0000000100014cc0 T _qcad_add_line
+00000001000157e4 T _qcad_add_polyline
+0000000100015c08 T _qcad_bounding_box
+00000001000144fc T _qcad_document_free
+000000010001449c T _qcad_document_new
+0000000100015a78 T _qcad_entity_count
+000000010001605c T _qcad_entity_geometry
+0000000100015d30 T _qcad_entity_ids
+0000000100014a90 T _qcad_entity_layer
+0000000100014000 T _qcad_init
+000000010001456c T _qcad_layer_add
+0000000100016d18 T _qcad_load_dxf
+0000000100016efc T _qcad_save_dxf
+0000000100014988 T _qcad_set_current_layer
+0000000100014278 T _qcad_version
+-rw-r--r--  1 runner  staff  23636854 Jul 24 11:09 ../ipadprocad-unsigned.ipa

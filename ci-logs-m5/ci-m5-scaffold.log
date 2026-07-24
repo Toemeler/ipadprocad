@@ -1,6 +1,6 @@
-Flutter 3.44.6 • channel stable • https://github.com/flutter/flutter.git
-Framework • revision ee80f08bbf (3 days ago) • 2026-07-08 15:02:06 -0700
-Engine • hash d3a3293399556a85388faf8c6f0723a7a5597aa8 (revision 83675ed276) (11 days ago) • 2026-06-30 16:59:03.000Z
+Flutter 3.44.8 • channel stable • https://github.com/flutter/flutter.git
+Framework • revision 058e0af2c2 (17 hours ago) • 2026-07-23 10:56:21 -0700
+Engine • hash 13ffd72b2f9a5ca4db2a74ea52d5353ec2e8f939 (revision 0cd610717b) (25 hours ago) • 2026-07-23 16:11:34.000Z
 Tools • Dart 3.12.2 • DevTools 2.57.0
 Recreating project ....
   ios/Runner.xcworkspace/contents.xcworkspacedata (created)
@@ -44,7 +44,6 @@ Recreating project ....
   ios/Flutter/AppFrameworkInfo.plist (created)
   ios/.gitignore (created)
   ipadprocad.iml (created)
-  .gitignore (created)
   README.md (created)
   analysis_options.yaml (created)
   .idea/runConfigurations/main_dart.xml (created)
@@ -56,7 +55,7 @@ Recreating project ....
 Resolving dependencies...
 Downloading packages...
 Got dependencies.
-Wrote 50 files.
+Wrote 49 files.
 
 All done!
 You can find general documentation for Flutter at: https://docs.flutter.dev/
@@ -72,15 +71,31 @@ Your application code is in ./lib/main.dart.
 true
 Resolving dependencies...
 Downloading packages...
+  file_picker 8.3.7 (11.0.2 available)
   flutter_lints 3.0.2 (6.0.0 available)
+  hooks 2.0.2 (2.1.0 available)
   lints 3.0.0 (6.1.0 available)
   matcher 0.12.19 (0.12.20 available)
   meta 1.18.0 (1.19.0 available)
   package_config 2.2.0 (3.0.0 available)
+  record_use 0.6.0 (1.0.0 available)
   test_api 0.7.11 (0.7.13 available)
-  vector_math 2.2.0 (2.4.0 available)
+  vector_math 2.2.0 (2.4.1 available)
+  win32 5.15.0 (6.3.0 available)
 Got dependencies!
-7 packages have newer versions incompatible with dependency constraints.
+11 packages have newer versions incompatible with dependency constraints.
 Try `flutter pub outdated` for more information.
 Warning: Building for device with codesigning disabled. You will have to manually codesign before deploying to device.
+Xcode is fetching Swift Package Manager dependencies. This may take several minutes...
+  Fetching from https://github.com/zhangao0086/DKImagePickerController...     
+  Fetching from https://github.com/zhangao0086/DKCamera...      
+  Fetching from https://github.com/zhangao0086/DKPhotoGallery...     
+  Fetching from https://github.com/SDWebImage/SDWebImage...     
+  Fetching from https://github.com/kirualex/SwiftyGif.git...     
+  Fetching from https://github.com/TimOliver/TOCropViewController...     
 Building com.ipadprocad.ipadprocad for device (ios-release)...
+The following plugins do not support Swift Package Manager for ios:
+  - native_menu
+  - reality_view
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+Running pod install...                                           1,226ms
