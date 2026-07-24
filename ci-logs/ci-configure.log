@@ -1,0 +1,88 @@
+qt_host path: /Users/runner/work/ipadprocad/ipadprocad/qt-host/Qt/6.7.3/macos
+qt_ios path: /Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios
+Qt6CoreToolsAdditionalTargetInfo.cmake
+Qt6CoreToolsConfig.cmake
+Qt6CoreToolsConfigVersion.cmake
+Qt6CoreToolsConfigVersionImpl.cmake
+Qt6CoreToolsDependencies.cmake
+Qt6CoreToolsTargets-relwithdebinfo.cmake
+Qt6CoreToolsTargets.cmake
+Qt6CoreToolsVersionlessTargets.cmake
+-- The CXX compiler identification is AppleClang 15.0.0.15000309
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found ZLIB: /Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/lib/libz.tbd (found version "1.2.12")
+-- Found WrapSystemZLIB: TRUE (found version "1.2.12")
+-- Using system ZLIB.
+-- Found WrapZLIB: TRUE
+-- Performing Test HAVE_STDATOMIC
+-- Performing Test HAVE_STDATOMIC - Success
+-- Found WrapAtomic: TRUE
+-- Looking for backtrace
+-- Looking for backtrace - found
+-- backtrace facility detected in default set of libraries
+-- Found Backtrace: /Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include
+-- Using Qt bundled PCRE2.
+-- Found WrapPCRE2: TRUE
+-- Performing Test HAVE_GETTIME
+-- Performing Test HAVE_GETTIME - Success
+-- Performing Test HAVE_SHM_OPEN_SHM_UNLINK
+-- Performing Test HAVE_SHM_OPEN_SHM_UNLINK - Success
+-- Found WrapRt: TRUE
+-- Performing Test HAVE_EGL
+-- Performing Test HAVE_EGL - Failed
+-- Could NOT find EGL (missing: EGL_INCLUDE_DIR HAVE_EGL EGL_LIBRARY) 
+-- Performing Test HAVE_GLESv2
+-- Performing Test HAVE_GLESv2 - Success
+-- Found GLESv2: /Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/System/Library/Frameworks/OpenGLES.framework
+-- Using Qt bundled PNG.
+-- Found WrapPNG: TRUE
+-- Using Qt bundled Harfbuzz.
+-- Found WrapHarfbuzz: TRUE
+-- Using Qt bundled Freetype.
+-- Found WrapFreetype: TRUE
+-- Using Qt bundled Jpeg.
+-- Found WrapJpeg: TRUE
+-- Using system ZLIB.
+-- Using Qt bundled PCRE2.
+-- Could NOT find EGL (missing: EGL_INCLUDE_DIR HAVE_EGL EGL_LIBRARY) 
+-- Using Qt bundled PNG.
+-- Using Qt bundled Harfbuzz.
+-- Using Qt bundled Freetype.
+-- Using Qt bundled Jpeg.
+-- Using system ZLIB.
+-- Using Qt bundled PCRE2.
+-- Could NOT find EGL (missing: EGL_INCLUDE_DIR HAVE_EGL EGL_LIBRARY) 
+-- Using Qt bundled PNG.
+-- Using Qt bundled Harfbuzz.
+-- Using Qt bundled Freetype.
+-- Using Qt bundled Jpeg.
+-- Using system ZLIB.
+-- Using Qt bundled PCRE2.
+-- Could NOT find EGL (missing: EGL_INCLUDE_DIR HAVE_EGL EGL_LIBRARY) 
+-- Using Qt bundled PNG.
+-- Using Qt bundled Harfbuzz.
+-- Using Qt bundled Freetype.
+-- Using Qt bundled Jpeg.
+-- The C compiler identification is AppleClang 15.0.0.15000309
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Using system ZLIB.
+-- Using Qt bundled PCRE2.
+-- Could NOT find EGL (missing: EGL_INCLUDE_DIR HAVE_EGL EGL_LIBRARY) 
+-- Using Qt bundled PNG.
+-- Using Qt bundled Harfbuzz.
+-- Using Qt bundled Freetype.
+-- Using Qt bundled Jpeg.
+-- Configuring done (10.4s)
+-- Generating done (0.3s)
+-- Build files have been written to: /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/build

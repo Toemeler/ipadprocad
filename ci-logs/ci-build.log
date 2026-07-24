@@ -1,0 +1,1438 @@
+[1/228] Building CXX object src/core/CMakeFiles/qcadcore_resources_1.dir/.qt/rcc/qrc_qcadcore_init.cpp.o
+[2/228] Building CXX object src/3rdparty/dxflib/CMakeFiles/dxflib.dir/src/dl_writer_ascii.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/3rdparty/dxflib/src/dl_writer_ascii.cpp:64:9: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+        sprintf(str, "%.6lf", value);
+        ^
+/Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h:180:1: note: 'sprintf' has been explicitly marked deprecated here
+__deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+^
+/Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include/sys/cdefs.h:218:48: note: expanded from macro '__deprecated_msg'
+        #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+                                                      ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/3rdparty/dxflib/src/dl_writer_ascii.cpp:67:9: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+        sprintf(str, "%.16lf", value);
+        ^
+/Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h:180:1: note: 'sprintf' has been explicitly marked deprecated here
+__deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+^
+/Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include/sys/cdefs.h:218:48: note: expanded from macro '__deprecated_msg'
+        #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+                                                      ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/3rdparty/dxflib/src/dl_writer_ascii.cpp:115:5: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+    sprintf(str, "%0X", value);
+    ^
+/Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h:180:1: note: 'sprintf' has been explicitly marked deprecated here
+__deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+^
+/Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk/usr/include/sys/cdefs.h:218:48: note: expanded from macro '__deprecated_msg'
+        #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+                                                      ^
+3 warnings generated.
+[3/228] Automatic MOC and UIC for target qcadcore
+[4/228] Running rcc for resource qcadcore
+[5/228] Building CXX object src/3rdparty/dxflib/CMakeFiles/dxflib.dir/src/dl_dxf.cpp.o
+[6/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RBlock.cpp.o
+[7/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RArcExporter.cpp.o
+[8/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/qcadcore_autogen/mocs_compilation.cpp.o
+[9/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RAction.cpp.o
+[10/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RCommandEvent.cpp.o
+[11/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RColor.cpp.o
+[12/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDebug.cpp.o
+[13/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RBlockReferenceData.cpp.o
+[14/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RCoordinateEvent.cpp.o
+[15/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RBlockReferenceEntity.cpp.o
+[16/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDimStyleData.cpp.o
+[17/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDimStyle.cpp.o
+[18/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDocumentVariables.cpp.o
+[19/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/REntity.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:345:19: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                  ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:345:39: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                      ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:345:52: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:345:72: warning: 'LongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                                                       ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:347:26: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        } else if (value.type() == QVariant::String) {
+                         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:347:46: warning: 'String' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        } else if (value.type() == QVariant::String) {
+                                             ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:355:19: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                  ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:355:39: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                      ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:355:52: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:355:72: warning: 'LongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                                                       ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:368:19: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                  ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:368:37: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                                    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:368:50: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/REntity.cpp:368:68: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                                                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+14 warnings generated.
+[20/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDxfServices.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RDxfServices.cpp:344:41: warning: 'insertMulti' is deprecated: Use insert() instead [-Wdeprecated-declarations]
+                            ellipseData.insertMulti(iCode, values[k]);
+                                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qmap.h:1450:5: note: 'insertMulti' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use insert() instead")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RDxfServices.cpp:408:25: warning: 'insertMulti' is deprecated: Use insert() instead [-Wdeprecated-declarations]
+            ellipseData.insertMulti(iCode, value);
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qmap.h:1450:5: note: 'insertMulti' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use insert() instead")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+2 warnings generated.
+[21/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDocument.cpp.o
+[22/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RDocumentInterface.cpp.o
+[23/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFileCache.cpp.o
+[24/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/REntityData.cpp.o
+[25/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFileExporterRegistry.cpp.o
+[26/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/REntityExportListener.cpp.o
+[27/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/REntityPickEvent.cpp.o
+[28/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFileExporter.cpp.o
+[29/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFileImporterRegistry.cpp.o
+[30/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFileImporter.cpp.o
+[31/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RExporter.cpp.o
+[32/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFontList.cpp.o
+[33/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RFont.cpp.o
+[34/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RGrid.cpp.o
+[35/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RGraphicsScene.cpp.o
+[36/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RGraphicsView.cpp.o
+[37/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RImporter.cpp.o
+[38/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RGuiAction.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RGuiAction.cpp:357:22: warning: 'operator int' is deprecated: Use QKeyCombination instead of int [-Wdeprecated-declarations]
+        key += QChar(shortcut[i]);
+                     ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qnamespace.h:1901:5: note: 'operator int' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X(6, 0, "Use QKeyCombination instead of int")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:223:53: note: expanded from macro 'QT_DEPRECATED_VERSION_X'
+#define QT_DEPRECATED_VERSION_X(major, minor, text) QT_DEPRECATED_VERSION_X_##major##_##minor(text)
+                                                    ^
+<scratch space>:342:1: note: expanded from here
+QT_DEPRECATED_VERSION_X_6_0
+^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+1 warning generated.
+[39/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RInputEvent.cpp.o
+[40/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLayerState.cpp.o
+[41/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLayer.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:154:19: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                  ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:154:39: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                      ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:154:52: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:154:72: warning: 'LongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type() == QVariant::Int || value.type() == QVariant::LongLong) {
+                                                                       ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:166:19: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                  ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:166:37: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                                    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:166:50: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLayer.cpp:166:68: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (value.type()==QVariant::Int || value.type()==QVariant::Double) {
+                                                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+8 warnings generated.
+[42/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLayout.cpp.o
+[43/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinetype.cpp.o
+[44/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinetypeListImperial.cpp.o
+[45/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinetypeList.cpp.o
+[46/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinetypeListMetric.cpp.o
+[47/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLockedFile.cpp.o
+[48/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLocalPeer.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLocalPeer.cpp:55:21: warning: 'qChecksum' is deprecated: Use the QByteArrayView overload. [-Wdeprecated-declarations]
+    quint16 idNum = qChecksum(idc.constData(), idc.size());
+                    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qbytearrayview.h:366:1: note: 'qChecksum' has been explicitly marked deprecated here
+QT_DEPRECATED_VERSION_X_6_0("Use the QByteArrayView overload.")
+^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+1 warning generated.
+[49/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLineweight.cpp.o
+[50/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RMouseEvent.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RMouseEvent.cpp:31:5: warning: 'QMouseEvent' is deprecated: Use another constructor [-Wdeprecated-declarations]
+    QMouseEvent(type, QPoint(position.x, position.y), button, buttons, modifiers),
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtGui/qevent.h:199:5: note: 'QMouseEvent' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_4("Use another constructor")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:159:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_4'
+# define QT_DEPRECATED_VERSION_X_6_4(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RMouseEvent.cpp:39:36: warning: 'localPos' is deprecated: Use position() [-Wdeprecated-declarations]
+    RInputEvent(RVector(mouseEvent.localPos().x(), mouseEvent.localPos().y()), s, v, devicePixelRatio) {
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtGui/qevent.h:233:5: note: 'localPos' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use position()")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RMouseEvent.cpp:39:63: warning: 'localPos' is deprecated: Use position() [-Wdeprecated-declarations]
+    RInputEvent(RVector(mouseEvent.localPos().x(), mouseEvent.localPos().y()), s, v, devicePixelRatio) {
+                                                              ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtGui/qevent.h:233:5: note: 'localPos' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use position()")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+3 warnings generated.
+[51/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinetypePattern.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLinetypePattern.cpp:465:13: warning: ignoring return value of function declared with 'nodiscard' attribute [-Wunused-result]
+            part.indexOf(rx, 0, &match);
+            ^~~~~~~~~~~~ ~~~~~~~~~~~~~
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RLinetypePattern.cpp:878:13: warning: ignoring return value of function declared with 'nodiscard' attribute [-Wunused-result]
+            line.indexOf(rx, 0, &match);
+            ^~~~~~~~~~~~ ~~~~~~~~~~~~~
+2 warnings generated.
+[52/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinkedStorage.cpp.o
+[53/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RMainWindow.cpp.o
+[54/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RNavigationAction.cpp.o
+[55/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPainterPathDevice.cpp.o
+[56/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPainterPath.cpp.o
+[57/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPainterPathEngine.cpp.o
+[58/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RObject.cpp.o
+[59/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPainterPathSource.cpp.o
+[60/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RMemoryStorage.cpp.o
+[61/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPattern.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPattern.cpp:70:13: warning: ignoring return value of function declared with 'nodiscard' attribute [-Wunused-result]
+            line.indexOf(rx, 0, &match);
+            ^~~~~~~~~~~~ ~~~~~~~~~~~~~
+1 warning generated.
+[62/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPainterPathExporter.cpp.o
+[63/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPatternLine.cpp.o
+[64/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPatternListImperial.cpp.o
+[65/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPropertyAttributes.cpp.o
+[66/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPatternList.cpp.o
+[67/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPatternListMetric.cpp.o
+[68/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPluginLoader.cpp.o
+[69/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPropertyEvent.cpp.o
+[70/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RRuler.cpp.o
+[71/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RResourceList.cpp.o
+[72/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPropertyChange.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPropertyChange.cpp:26:18: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+    if (oldValue.type()==QVariant::UserType &&
+                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPropertyChange.cpp:26:36: warning: 'UserType' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    if (oldValue.type()==QVariant::UserType &&
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPropertyChange.cpp:86:18: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+    if (oldValue.type()==QVariant::UserType &&
+                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPropertyChange.cpp:86:36: warning: 'UserType' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    if (oldValue.type()==QVariant::UserType &&
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPropertyChange.cpp:147:22: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (oldValue.type()!=newValue.type() && oldValue.isValid() && newValue.isValid()) {
+                     ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RPropertyChange.cpp:147:39: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (oldValue.type()!=newValue.type() && oldValue.isValid() && newValue.isValid()) {
+                                      ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+6 warnings generated.
+[73/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPropertyTypeId.cpp.o
+[74/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RScriptAction.cpp.o
+[75/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSPlatform.cpp.o
+[76/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSelectionChangedEvent.cpp.o
+[77/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RScriptHandler.cpp.o
+[78/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RS.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:71:16: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+    switch (v1.type()) {
+               ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:72:20: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::Double:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:74:20: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Double) {
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:74:38: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Double) {
+                                     ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:77:25: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Int) {
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:77:43: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Int) {
+                                          ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:82:20: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Double) {
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:82:38: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Double) {
+                                     ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:85:25: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Int) {
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:85:43: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Int) {
+                                          ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:91:20: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::Int:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:93:20: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Int) {
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:93:38: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Int) {
+                                     ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:96:25: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Double) {
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:96:43: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Double) {
+                                          ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:101:20: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Int) {
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:101:38: warning: 'Int' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            if (v2.type()==QVariant::Int) {
+                                     ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:104:25: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Double) {
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:104:43: warning: 'Double' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+            else if (v2.type()==QVariant::Double) {
+                                          ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:110:20: warning: 'Bool' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::Bool:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:111:16: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::Bool) {
+               ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:111:34: warning: 'Bool' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::Bool) {
+                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:116:20: warning: 'UInt' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::UInt:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:117:16: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::UInt) {
+               ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:117:34: warning: 'UInt' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::UInt) {
+                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:122:20: warning: 'LongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::LongLong:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:123:16: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::LongLong) {
+               ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:123:34: warning: 'LongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::LongLong) {
+                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:128:20: warning: 'ULongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::ULongLong:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:129:16: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::ULongLong) {
+               ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:129:34: warning: 'ULongLong' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::ULongLong) {
+                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:134:20: warning: 'String' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    case QVariant::String:
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:135:16: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::String) {
+               ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RS.cpp:135:34: warning: 'String' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+        if (v2.type()==QVariant::String) {
+                                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+34 warnings generated.
+[79/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RScriptHandlerRegistry.cpp.o
+[80/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RPropertyEditor.cpp.o
+[81/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSingleton.cpp.o
+[82/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSettings.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RSettings.cpp:1823:18: warning: 'canConvert' is deprecated [-Wdeprecated-declarations]
+    else if (ret.canConvert(QMetaType::QString)) {
+                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:352:5: note: 'canConvert' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_6_0
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:128:44: note: expanded from macro 'QT_DEPRECATED_VERSION_6_0'
+# define QT_DEPRECATED_VERSION_6_0         QT_DEPRECATED
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:25:25: note: expanded from macro 'QT_DEPRECATED'
+#  define QT_DEPRECATED Q_DECL_DEPRECATED
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:999:31: note: expanded from macro 'Q_DECL_DEPRECATED'
+#  define Q_DECL_DEPRECATED [[deprecated]]
+                              ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RSettings.cpp:1830:18: warning: 'canConvert' is deprecated [-Wdeprecated-declarations]
+    else if (ret.canConvert(QMetaType::QColor)) {
+                 ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:352:5: note: 'canConvert' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_6_0
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:128:44: note: expanded from macro 'QT_DEPRECATED_VERSION_6_0'
+# define QT_DEPRECATED_VERSION_6_0         QT_DEPRECATED
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:25:25: note: expanded from macro 'QT_DEPRECATED'
+#  define QT_DEPRECATED Q_DECL_DEPRECATED
+                        ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:999:31: note: expanded from macro 'Q_DECL_DEPRECATED'
+#  define Q_DECL_DEPRECATED [[deprecated]]
+                              ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RSettings.cpp:1849:13: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+    if (ret.type()==QVariant::List
+            ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RSettings.cpp:1849:31: warning: 'List' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+    if (ret.type()==QVariant::List
+                              ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+4 warnings generated.
+[83/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSpatialIndex.cpp.o
+[84/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSnap.cpp.o
+[85/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RSpatialIndexSimple.cpp.o
+[86/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLinetypePatternExporter.cpp.o
+[87/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTabletEvent.cpp.o
+[88/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RStorageLayerSort.cpp.o
+[89/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RStorageBlockSort.cpp.o
+[90/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTextLayout.cpp.o
+[91/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTextBasedData.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RTextBasedData.cpp:320:13: warning: enumeration values 'HAlignAlign' and 'HAlignFit' not handled in switch [-Wswitch]
+    switch (horizontalAlignment) {
+            ^~~~~~~~~~~~~~~~~~~
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RTextBasedData.cpp:320:13: note: add missing switch cases
+    switch (horizontalAlignment) {
+            ^
+1 warning generated.
+[92/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTextBasedEntity.cpp.o
+[93/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RThread.cpp.o
+[94/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RStorage.cpp.o
+[95/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTransactionEvent.cpp.o
+[96/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTextRenderer.cpp.o
+[97/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RUcs.cpp.o
+[98/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTransactionStack.cpp.o
+[99/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RUnit.cpp.o
+[100/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RView.cpp.o
+[101/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RTransaction.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RTransaction.cpp:819:20: warning: expression with side effects will be evaluated despite being used as an operand to 'typeid' [-Wpotentially-evaluated-expression]
+        if (typeid(*oldObject) != typeid(*object)) {
+                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/core/RTransaction.cpp:819:42: warning: expression with side effects will be evaluated despite being used as an operand to 'typeid' [-Wpotentially-evaluated-expression]
+        if (typeid(*oldObject) != typeid(*object)) {
+                                         ^
+2 warnings generated.
+[102/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RWheelEvent.cpp.o
+[103/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/bridges/RSettingsBridge.cpp.o
+[104/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RViewportData.cpp.o
+[105/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RArc.cpp.o
+[106/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RDirected.cpp.o
+[107/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RViewportEntity.cpp.o
+[108/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RBox.cpp.o
+[109/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RCircle.cpp.o
+[110/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RMath.cpp.o
+[111/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RLine.cpp.o
+[112/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RMatrix.cpp.o
+[113/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/REllipse.cpp.o
+[114/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RPoint.cpp.o
+[115/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RRefPoint.cpp.o
+[116/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RRay.cpp.o
+[117/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RPolyline.cpp.o
+[118/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RTransform.cpp.o
+[119/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RTextLabel.cpp.o
+[120/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RSpline.cpp.o
+[121/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/.qt/rcc/qrc_qcadcore.cpp.o
+[122/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RShape.cpp.o
+[123/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/RLockedFile_unix.cpp.o
+[124/228] Linking CXX static library /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/libdxflib.a
+[125/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RTriangle.cpp.o
+[126/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RXLine.cpp.o
+[127/228] Building CXX object src/core/CMakeFiles/qcadcore.dir/math/RVector.cpp.o
+[128/228] Linking CXX static library /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/libqcadcore.a
+[129/228] Automatic MOC and UIC for target qcadentity
+[130/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/qcadentity_autogen/mocs_compilation.cpp.o
+[131/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RAttributeDefinitionData.cpp.o
+[132/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RArcData.cpp.o
+[133/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RAttributeDefinitionEntity.cpp.o
+[134/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RArcEntity.cpp.o
+[135/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RAttributeData.cpp.o
+[136/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RCircleData.cpp.o
+[137/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RAttributeEntity.cpp.o
+[138/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RCircleEntity.cpp.o
+[139/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAlignedData.cpp.o
+[140/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAlignedEntity.cpp.o
+[141/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAngular2LData.cpp.o
+[142/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAngular3PData.cpp.o
+[143/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAngular2LEntity.cpp.o
+[144/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAngular3PEntity.cpp.o
+[145/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAngularData.cpp.o
+[146/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimAngularEntity.cpp.o
+[147/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimArcLengthData.cpp.o
+[148/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimArcLengthEntity.cpp.o
+[149/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimDiametricData.cpp.o
+[150/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimDiametricEntity.cpp.o
+[151/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimLinearData.cpp.o
+[152/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimLinearEntity.cpp.o
+[153/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimOrdinateData.cpp.o
+[154/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimOrdinateEntity.cpp.o
+[155/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimRadialData.cpp.o
+[156/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimRadialEntity.cpp.o
+[157/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimRotatedData.cpp.o
+[158/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimRotatedEntity.cpp.o
+[159/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimStyleProxyBasic.cpp.o
+[160/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimensionData.cpp.o
+[161/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/REllipseData.cpp.o
+[162/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/REllipseEntity.cpp.o
+[163/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RDimensionEntity.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/entity/RDimensionEntity.cpp:255:27: warning: 'type' is deprecated: Use typeId() or metaType(). [-Wdeprecated-declarations]
+                if (value.type()==QVariant::String) {
+                          ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:431:5: note: 'type' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use typeId() or metaType().")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/entity/RDimensionEntity.cpp:255:45: warning: 'String' is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+                if (value.type()==QVariant::String) {
+                                            ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qvariant.h:142:10: note: 'Type' has been explicitly marked deprecated here
+    enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+         ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+2 warnings generated.
+[164/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RFaceData.cpp.o
+[165/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RFaceEntity.cpp.o
+[166/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RImageEntity.cpp.o
+[167/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RHatchData.cpp.o
+[168/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RImageData.cpp.o
+[169/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RHatchEntity.cpp.o
+[170/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RLeaderData.cpp.o
+[171/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RLineEntity.cpp.o
+[172/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RLineData.cpp.o
+[173/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RPointData.cpp.o
+[174/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RLeaderEntity.cpp.o
+[175/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RPointEntity.cpp.o
+[176/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RPolylineData.cpp.o
+[177/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RWipeoutData.cpp.o
+[178/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RPolylineEntity.cpp.o
+[179/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RWipeoutEntity.cpp.o
+[180/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RRayData.cpp.o
+[181/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RRayEntity.cpp.o
+[182/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RSolidEntity.cpp.o
+[183/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RSolidData.cpp.o
+[184/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RSplineData.cpp.o
+[185/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RSplineEntity.cpp.o
+[186/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RTextData.cpp.o
+[187/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RTextEntity.cpp.o
+[188/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RToleranceData.cpp.o
+[189/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RTraceData.cpp.o
+[190/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RToleranceEntity.cpp.o
+[191/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RTraceEntity.cpp.o
+[192/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RXLineData.cpp.o
+[193/228] Building CXX object src/entity/CMakeFiles/qcadentity.dir/RXLineEntity.cpp.o
+[194/228] Linking CXX static library /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/libqcadentity.a
+[195/228] Automatic MOC and UIC for target qcadoperations
+[196/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/qcadoperations_autogen/mocs_compilation.cpp.o
+[197/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RAddObjectOperation.cpp.o
+[198/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RAddObjectsOperation.cpp.o
+[199/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RClickReferencePointOperation.cpp.o
+[200/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RChangePropertyOperation.cpp.o
+[201/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RCopyOperation.cpp.o
+[202/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RDeleteAllEntitiesOperation.cpp.o
+[203/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RClipboardOperation.cpp.o
+[204/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RDeleteObjectOperation.cpp.o
+[205/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RDeleteObjectsOperation.cpp.o
+[206/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RDeleteSelectionOperation.cpp.o
+[207/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RModifyObjectOperation.cpp.o
+[208/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RMixedOperation.cpp.o
+[209/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RMultiOperation.cpp.o
+[210/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RModifyObjectsOperation.cpp.o
+[211/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RMoveReferencePointOperation.cpp.o
+[212/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RMoveSelectionOperation.cpp.o
+[213/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/ROperationUtils.cpp.o
+[214/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RPasteOperation.cpp.o
+[215/228] Building CXX object src/operations/CMakeFiles/qcadoperations.dir/RScaleSelectionOperation.cpp.o
+[216/228] Linking CXX static library /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/libqcadoperations.a
+[217/228] Automatic MOC and UIC for target qcaddxf
+[218/228] Building CXX object src/io/dxf/CMakeFiles/qcaddxf.dir/qcaddxf_autogen/mocs_compilation.cpp.o
+[219/228] Building CXX object src/io/dxf/CMakeFiles/qcaddxf.dir/RDxfExporterFactory.cpp.o
+[220/228] Building CXX object src/io/dxf/CMakeFiles/qcaddxf.dir/RDxfImporterFactory.cpp.o
+[221/228] Building CXX object src/io/dxf/CMakeFiles/qcaddxf.dir/RDxfPlugin.cpp.o
+[222/228] Building CXX object src/io/dxf/CMakeFiles/qcaddxf.dir/RDxfExporter.cpp.o
+[223/228] Building CXX object src/io/dxf/CMakeFiles/qcaddxf.dir/RDxfImporter.cpp.o
+/Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/src/io/dxf/RDxfImporter.cpp:1404:12: warning: 'insertMulti' is deprecated: Use insert() instead [-Wdeprecated-declarations]
+    images.insertMulti(handle, entity->getId());
+           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qmap.h:1450:5: note: 'insertMulti' has been explicitly marked deprecated here
+    QT_DEPRECATED_VERSION_X_6_0("Use insert() instead")
+    ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:127:44: note: expanded from macro 'QT_DEPRECATED_VERSION_X_6_0'
+# define QT_DEPRECATED_VERSION_X_6_0(text) QT_DEPRECATED_X(text)
+                                           ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qtdeprecationmarkers.h:27:33: note: expanded from macro 'QT_DEPRECATED_X'
+#  define QT_DEPRECATED_X(text) Q_DECL_DEPRECATED_X(text)
+                                ^
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/include/QtCore/qcompilerdetection.h:1000:36: note: expanded from macro 'Q_DECL_DEPRECATED_X'
+#  define Q_DECL_DEPRECATED_X(x) [[deprecated(x)]]
+                                   ^
+1 warning generated.
+[224/228] Linking CXX static library /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/plugins/libqcaddxf.a
+[225/228] Automatic MOC and UIC for target qcadcapi
+[226/228] Building CXX object src/capi/CMakeFiles/qcadcapi.dir/qcadcapi_autogen/mocs_compilation.cpp.o
+[227/228] Building CXX object src/capi/CMakeFiles/qcadcapi.dir/qcad_capi.cpp.o
+[228/228] Linking CXX static library /Users/runner/work/ipadprocad/ipadprocad/backend/qcad-core/release/libqcadcapi.a

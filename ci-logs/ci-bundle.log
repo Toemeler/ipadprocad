@@ -1,0 +1,7 @@
+/Applications/Xcode_15.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/libtool: warning duplicate member name 'mocs_compilation.cpp.o' from 'plugins/libqcaddxf.a(mocs_compilation.cpp.o)' and 'release/libqcadoperations.a(mocs_compilation.cpp.o)'
+/Applications/Xcode_15.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/libtool: warning duplicate member name 'mocs_compilation.cpp.o' from 'release/libqcadoperations.a(mocs_compilation.cpp.o)' and 'release/libqcadcapi.a(mocs_compilation.cpp.o)'
+/Applications/Xcode_15.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/libtool: warning duplicate member name 'mocs_compilation.cpp.o' from 'release/libqcadcapi.a(mocs_compilation.cpp.o)' and 'release/libqcadcore.a(mocs_compilation.cpp.o)'
+/Applications/Xcode_15.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/libtool: warning duplicate member name 'mocs_compilation.cpp.o' from 'release/libqcadcore.a(mocs_compilation.cpp.o)' and 'release/libqcadentity.a(mocs_compilation.cpp.o)'
+Combined library:
+-rw-r--r--  1 runner  staff  11098536 Jul 24 11:38 release/libipadprocad.a
+Non-fat file: release/libipadprocad.a is architecture: arm64
