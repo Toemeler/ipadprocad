@@ -4042,3 +4042,59 @@ Schicht, weil der `perf:`-Logkanal nur den Remesh abdeckt und ein Log keine
 Framezeit waehrend eines Drags zeigen kann.
 
 analyze 0 errors, **472 Tests gruen** (16 in m76_project_3d_test.dart).
+
+## M78 (GEPLANT) — Skizzenmodus muss die LEBENDE 3D-Szene behalten
+
+### Zwei Befunde
+
+**(1) Mein M75-Cache deckt das Pannen NICHT ab.** Der Schluessel enthaelt
+`pan` und `zoom`, also invalidiert jede Panbewegung ihn und der volle
+34 236-Dreieck-Aufbau in Dart laeuft wieder pro Frame. M75 hat das Stocken
+beim ZEICHNEN behoben, nicht beim Navigieren. Das war in der Meldung zu weit
+gefasst.
+
+**(2) Inventor rastert das Modell gar nicht.** Belegt durch die
+Autodesk-Doku zu Slice Graphics: man soll "das Modell drehen, sodass der
+wegzuschneidende Teil zur Kamera zeigt", und Modellgeometrie kann die
+Skizzenebene VERDECKEN. Beides ist in einer flachen Unterlage unmoeglich —
+Verdeckung ist Tiefe, Drehen ist eine lebende Szene. Slice Graphics ist eine
+Near-Plane-Clip im 3D-Renderer.
+
+### Konsequenz: die richtige Architektur
+
+Statt `paintPartUnderlay` (CPU, O(Dreiecke) pro Frame) die RealityKit-Szene
+im Skizzenmodus STEHEN LASSEN, die Kamera auf die Skizzennormale ausrichten
+und den 2D-Skizzen-Canvas transparent darueberlegen. Das Modell wird dann von
+der GPU gezeichnet, wie im 3D-Modus auch — Pan und Zoom kosten nichts, weil
+sie nur die Kameramatrix aendern.
+
+Vorteile ueber die Performance hinaus: echte Verdeckung, Drehen waehrend der
+Skizze moeglich, und Slice Graphics (F7) waere spaeter eine Near-Plane am
+Skizzenursprung statt eines Sonderfalls im Painter.
+
+### Umsetzung, skizziert
+
+1. Im Skizzenmodus die `RealityPartView` sichtbar lassen statt sie gegen den
+   2D-Painter zu tauschen; Kamera auf `sketchFrameOf(cs).n` ausrichten,
+   orthografisch, Pan/Zoom auf die Kamera abbilden statt auf `map()`.
+2. Den 2D-Painter transparent darueber (`ColoredBox` entfaellt), er zeichnet
+   nur noch Skizzengeometrie, Grips, Bemassung, Snap.
+3. `paintPartUnderlay` und `_UnderlayCache` entfallen danach ersatzlos.
+4. Der Veil (`T.viewport.withOpacity(0.55)`) wird eine Eigenschaft des
+   3D-Materials, damit die Skizze der klare Vordergrund bleibt.
+
+**Haken, ehrlich:** die 2D-Welt-Transformation (`map()`, Pan/Zoom, Snap,
+Hit-Test) muss exakt mit der 3D-Kamera uebereinstimmen, sonst laufen Cursor
+und Modell auseinander. Das ist der eigentliche Aufwand, nicht das Rendern.
+Eine gemeinsame Quelle fuer beide Transformationen ist Voraussetzung.
+
+### Zwischenschritt, falls das zu gross ist
+
+`_UnderlayCache` pan/zoom-invariant machen: das Bild EINMAL mit
+Identitaets-Transformation aufzeichnen und beim Blitten
+`canvas.translate/scale` anwenden. Eine `ui.Picture` speichert Vektorbefehle,
+kein Bitmap, also bleibt die Qualitaet erhalten. Damit faellt Pan und Zoom aus
+dem Cache-Schluessel und beides wird sofort fluessig — ohne die
+Architekturaenderung. Voraussetzung: `paintPartUnderlay` mit neutralem
+Pan/Zoom aufzeichnen und pruefen, dass `map()` wirklich affin in beiden ist
+(es zentriert auf `size/2`, das muss beim Aufzeichnen mitgedacht werden).
