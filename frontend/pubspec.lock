@@ -287,6 +287,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
+  reality_view:
+    dependency: "direct main"
+    description:
+      path: "packages/reality_view"
+      relative: true
+    source: path
+    version: "0.1.0"
   sky_engine:
     dependency: transitive
     description: flutter

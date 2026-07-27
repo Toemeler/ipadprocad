@@ -212,14 +212,30 @@ final class PartRenderer: NSObject {
     /// Re-tube the cached solids at the current zoom. Edge tubes have a fixed
     /// WORLD radius, so without this they thin to nothing when zooming in and
     /// turn into bars when zooming out.
+    /// Master switch for the M70/M71 outline ribbons.
+    ///
+    /// OFF: on device (build 8fb292f) the ribbons rendered NOTHING — no
+    /// outlines at all, which is worse than the tube they replaced. Rather
+    /// than guess at the cause blind, we fall back to the 16-sided tube
+    /// (M69), which looks right and whose width swing is under 2%.
+    /// RibbonBuilder and the whole rebuild path stay in place; flipping this
+    /// to true re-enables them. See HANDOFF M72 for the suspect list.
+    private static let useRibbons = false
+
     /// View direction the outline ribbons were last built for.
     private var ribbonDir: SIMD3<Float> = .init(0, 0, 1)
+
+    /// View direction to build outlines for, or nil to use the tube.
+    private var outlineDir: SIMD3<Float>? {
+        Self.useRibbons ? ribbonDir : nil
+    }
 
     /// Ribbons are only correct while they face the camera, so they have to be
     /// rebuilt when the view turns. Doing that every frame would cost more
     /// than the tube ever did, so it happens behind an angular threshold:
     /// cos(3 deg). Below that the error in apparent width is under 0.2%.
     private func rebuildEdgesIfTurned(_ dir: SIMD3<Float>) {
+        if !Self.useRibbons { return } // tubes are orientation-independent
         if simd_dot(dir, ribbonDir) > 0.99863 { return } // cos(3 deg)
         ribbonDir = dir
         rebuildEdgesForZoom()
@@ -231,7 +247,7 @@ final class PartRenderer: NSObject {
             guard let holder = solidEntities[id] else { continue }
             solidEdges[id]?.removeFromParent()
             solidEdges[id] = nil
-            if let e = geom.edgeEntity(radius: r, viewDir: ribbonDir) {
+            if let e = geom.edgeEntity(radius: r, viewDir: outlineDir) {
                 holder.addChild(e)
                 solidEdges[id] = e
             }
@@ -403,7 +419,7 @@ final class PartRenderer: NSObject {
             }
             sceneRadius = max(sceneRadius, geom.boundingRadius)
             let shaded = geom.shadedEntity(material: material)
-            let edges = geom.edgeEntity(radius: edgeRadius, viewDir: ribbonDir)
+            let edges = geom.edgeEntity(radius: edgeRadius, viewDir: outlineDir)
             let holder = Entity()
             holder.addChild(shaded)
             solidEdges[id]?.removeFromParent()

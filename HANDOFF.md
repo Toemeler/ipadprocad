@@ -3657,3 +3657,58 @@ es `Isolate.run` mit reinen Daten hin und zurueck statt geteilter Handles.
 - **200-ms-Drag** aus dem 39555ac-Log: Solver braucht davon 0,4 ms, der Rest
   ist unbekannt. Es fehlt Instrumentierung im Drag-Handler; bis dahin ist
   jede Aussage dazu geraten.
+
+## M72 — Baender abgeschaltet (Rueckfall auf Roehre), Verdachtsliste
+
+Auf dem Geraet (build 8fb292f) zeichneten die Baender **gar keine Umrisse**.
+Das ist schlechter als der Zustand davor, deshalb steht
+`RealityPartView.useRibbons` jetzt auf `false` und es wird wieder die
+16-seitige Roehre aus M69 verwendet (Breitenschwankung unter 2 %, sah auf dem
+Geraet gut aus). `RibbonBuilder`, `RampTexture` und der komplette
+Neuaufbaupfad bleiben erhalten — das Flag auf `true` reaktiviert alles.
+
+### Verdachtsliste, nach Wahrscheinlichkeit
+
+1. **Backface-Culling.** Das Band ist eine flache Flaeche ohne Dicke. Wenn die
+   Dreieckswindung von der Kamera wegzeigt, wird ALLES weggeschnitten — was
+   exakt zum Symptom passt (nicht "duenn" oder "fleckig", sondern nichts).
+   `side = cross(dir, v)` kehrt sich je nach Segmentrichtung um, die Windung
+   ist also nicht konsistent. Fix: `faceCulling = .none` am Material (iOS 15+),
+   oder jedes Quad zusaetzlich mit umgekehrter Windung ausgeben.
+2. **`opacityThreshold = 0`.** In `Materials.unlitSoft` gesetzt. Alpha-Testing
+   mit Schwelle 0 kann je nach Auslegung ALLES verwerfen. Zuerst diese Zeile
+   entfernen und ohne sie testen.
+3. **Opacity-Textur falsch angebunden.** `.transparent(opacity: .init(scale:
+   1, texture: .init(tex)))` — falls RealityKit daraus Alpha 0 liest (z. B.
+   weil die Rampe im falschen Kanal landet), ist alles unsichtbar. Gegenprobe:
+   `unlitSoft` voruebergehend `unlit(color)` zurueckgeben lassen; kommen die
+   Baender dann, liegt es an der Textur, nicht an der Geometrie.
+4. **Fehlende Normalen** im MeshDescriptor. Fuer ein Unlit-Material sollte das
+   egal sein, ist aber nicht ausgeschlossen.
+
+### Vorgehen beim naechsten Mal
+
+Nicht alles auf einmal. Reihenfolge: erst 2 (eine Zeile), dann 1
+(`faceCulling`), dann 3 (Material-Gegenprobe). Nach jedem Schritt aufs Geraet.
+Das Flag macht das billig — eine Zeile hin, eine Zeile zurueck.
+
+**Lehre:** Ich haette das Band hinter dem Flag ausliefern sollen, nicht
+stattdessen. Eine nie ausgefuehrte Renderaenderung gehoert abschaltbar
+eingebaut, sonst kostet ein Fehlschlag einen ganzen Geraetezyklus.
+
+## Float32 — Vorbereitung fuer die naechste Session
+
+Noch NICHT gemacht. Betroffene Kette:
+
+- `frontend/lib/ffi/occt_engine.dart`: `OcctMeshData.positions/normals` sind
+  `Float64List`. Die Werte kommen per FFI aus dem Shim, der `double`
+  schreibt — entweder dort auf `float` umstellen (ABI-Aenderung, neue
+  Shim-Version) ODER in Dart beim Auslesen nach `Float32List` konvertieren
+  (kein ABI-Bruch, spart aber nur den Upload, nicht die Konvertierung).
+  Empfehlung: erst die Dart-Seite, weil ohne Shim-Aenderung testbar.
+- `frontend/lib/reality_scene.dart`: `buildScenePayload` packt die Buffer.
+- Swift `Payload`/`SolidGeom`: dekodiert heute `Float64`.
+
+Groessenordnung: bei 53 904 Vertices sind Positionen + Normalen rund 3,4 MB
+je Push. Halbiert sich, und die GPU rechnet ohnehin in Float32 — die
+Konvertierung passiert also heute schon irgendwo.
