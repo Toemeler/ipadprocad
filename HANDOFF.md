@@ -3502,3 +3502,36 @@ Hintergrund-Isolate. Isolate und `isInParallel` beruehren beide
 OCCT-Threading; zusammen eingebaut waere bei einem CI- oder Geraetefehler
 nicht zu unterscheiden, welches der beiden schuld ist. Erst v10 auf dem
 Geraet bestaetigen, dann das Isolate.
+
+## M68 — Outlines entkoppelt (Shim v11), kein Remesh beim Zeichnen
+
+Geraete-Log nach M67: die Neuvernetzung ist durch v10 von 700-2580 ms auf
+**389-586 ms** gefallen, Zoomen ist sauber, 3D allgemein ruhig. Zwei Punkte
+blieben, beide mit derselben Wurzel wie zuvor: das Budget spart an der
+falschen Stelle.
+
+**(1) Outlines waren an die Flaechen-Deflection gekoppelt.**
+`GCPnts_TangentialDeflection(curve, ang_deflection, lin_deflection, 2)` nutzte
+exakt die Zahlen der FLAECHEN. Eine Kante ist aber 1D und damit fast gratis,
+die Flaechentessellierung ist 2D und bestimmt die Kosten. Sobald das
+Dreiecksbudget die Flaechen groeber machte, wurden die schwarzen Umrisse
+sichtbar eckig mit — der billigste Teil des Bildes verschlechterte sich, um
+den teuersten zu bezahlen. Kanten bekommen jetzt eine eigene feste feine
+Deflection (5e-3 mm / 0.05 rad), unabhaengig vom Budget. Shim **v11**.
+
+**(2) Waehrend des Zeichnens wurde neu vernetzt.** Das Log zeigt ~500-ms-
+Remeshes genau dann, wenn auf einer Solid-Flaeche skizziert wird — das ist
+das Stocken. `_armRefine` bricht jetzt ab, solange `activeChild != null`. Im
+Skizzenmodus bewegt sich die 3D-Kamera nicht und niemand schaut hin, es ist
+also nichts zu gewinnen; Verfeinerung laeuft nach dem Beenden weiter.
+
+**Tests.** `m68_outline_quality_test.dart`; analyze 0 errors, **452 gruen**.
+
+**Weiterhin offen.** Die Outline-DICKE schwankt noch. Ursache ist strukturell:
+Umrisse werden als 3D-Roehren (`TubeBuilder.polyline`) mit weltbezogenem
+Radius gezeichnet, und eine Roehre wirkt je nach Blickwinkel unterschiedlich
+breit, an Silhouetten duenner. Wirklich konstante Strichstaerke gibt es nur
+mit bildschirmbezogenem Linienrendering (Metal-Shader oder Screen-Space-
+Quads) — das ist ein Swift/Metal-Umbau und gehoert in einen eigenen Schritt,
+nicht neben eine Shim-Aenderung. Ebenfalls offen: Float32-Buffer,
+Hintergrund-Isolate, Kontextmenue.

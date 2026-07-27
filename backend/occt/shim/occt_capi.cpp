@@ -140,13 +140,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v10 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v11 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 10; }
+extern "C" int occt_shim_version(void) { return 11; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1071,8 +1071,17 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                 continue;
         }
         BRepAdaptor_Curve curve(edge);
-        GCPnts_TangentialDeflection disc(curve, ang_deflection,
-                                         lin_deflection, 2);
+        /* v11: edges are discretised MUCH finer than the faces. An edge is a
+         * 1D curve, so points on it are nearly free, while the face
+         * tessellation that shares the same deflection is 2D and dominates
+         * the cost. Sharing one number meant that every time the triangle
+         * budget coarsened the faces, the black outlines went visibly
+         * angular with it — the cheapest part of the picture degraded to pay
+         * for the most expensive. Outlines are what the eye judges, so they
+         * get a fixed fine deflection of their own. */
+        const double edge_lin = lin_deflection < 5.0e-3 ? lin_deflection : 5.0e-3;
+        const double edge_ang = ang_deflection < 0.05 ? ang_deflection : 0.05;
+        GCPnts_TangentialDeflection disc(curve, edge_ang, edge_lin, 2);
         const int np = disc.NbPoints();
         if (np < 2)
             continue;

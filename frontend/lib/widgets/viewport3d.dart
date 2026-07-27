@@ -443,6 +443,14 @@ class _Viewport3DState extends State<Viewport3D> {
   /// (Re)arm the debounce so a burst of zoom steps triggers exactly one
   /// kernel re-mesh after the gesture settles.
   void _armRefine(Size size) {
+    // Never re-tessellate while a sketch is being edited. Even at v10's
+    // parallel speed one pass still blocks the UI thread for ~400-590 ms, and
+    // the device log shows those landing WHILE the user is drawing on a solid
+    // face — which is exactly the stutter. The 3D view is not what is being
+    // looked at during sketching and its camera is not moving, so there is
+    // nothing to gain; refinement resumes on the next camera change after the
+    // sketch is finished.
+    if (widget.app.activeChild != null) return;
     if (!_anyCoarse(size)) return;
     _refineTimer?.cancel();
     _refineTimer = Timer(const Duration(milliseconds: 80), () {
