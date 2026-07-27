@@ -3762,3 +3762,30 @@ spart die Konvertierung. Betroffen: `OcctMeshData` in `ffi/occt_engine.dart`,
 der Payload-Bau in `reality_scene.dart`, die Dekodierung in `Payload`/
 `SolidGeom` auf der Swift-Seite. Als EIGENER Commit — es beruehrt die ganze
 Kette, und wenn etwas bricht, soll es eindeutig zuordenbar sein.
+
+## M73 — Skizzenlinien in 3D ebenfalls als Baender
+
+Nachdem die Outlines auf dem Geraet bestaetigt sind, laufen die Skizzenkurven
+jetzt durch dieselbe Maschinerie: `RibbonBuilder` statt `TubeBuilder`, also
+2 statt 12 Dreiecke je Segment und exakt konstante Bildschirmbreite.
+
+Drei Dinge waren dafuer noetig:
+1. **`sketchCache`** haelt das letzte Sketch-Payload. Anders als bei den
+   Solids (`solidCache`) gab es das noch nicht, es wird aber gebraucht, weil
+   ein Band nur solange stimmt, wie es zur Kamera zeigt.
+2. **Neuausrichtung** in `rebuildEdgesIfTurned` auf derselben 3-Grad-Schwelle
+   wie die Kanten. Ohne das behielten die Skizzenlinien die Ausrichtung ihrer
+   Entstehung und wuerden beim Drehen duenner.
+3. **Akzente ueberleben** die Neuausrichtung: `rebuildSketches` loescht
+   `sketchAccent`, deshalb merken sich `accentHover`/`accentSelected` die
+   letzten Eingaben und `applySketchAccents` wird danach erneut aufgerufen.
+   `applySketchAccents` malt ausserdem mit `unlitSoft`, wenn Baender aktiv
+   sind — sonst haette eine hervorgehobene Kurve ihre weiche Kante verloren.
+
+Rueckfall unveraendert: `useRibbons = false` schaltet Kanten UND Skizzen
+zurueck auf Roehren, weil beide durch `outlineDir` gehen.
+
+**Fehlerklasse, die zweimal zuschlug:** iOS-Verfuegbarkeit. Erst
+`TextureResource.generate` (iOS 15+), dann `faceCulling` (**iOS 18+**, nicht
+15). Beides nur von CI gefangen. Bei jeder neuen RealityKit-API vorher die
+Mindestversion pruefen — lokal ist das hier nicht feststellbar.

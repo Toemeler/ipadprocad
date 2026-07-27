@@ -239,6 +239,15 @@ final class PartRenderer: NSObject {
         if simd_dot(dir, ribbonDir) > 0.99863 { return } // cos(3 deg)
         ribbonDir = dir
         rebuildEdgesForZoom()
+        // Sketch curves are ribbons on the same terms, so they have to be
+        // re-aimed on the same threshold — otherwise they would keep the
+        // orientation they were created with and thin out as the view turns.
+        if !sketchCache.isEmpty {
+            let hover = accentHover
+            let sel = accentSelected
+            rebuildSketches(sketchCache) // clears sketchAccent
+            applySketchAccents(hover: hover, selected: sel)
+        }
     }
 
     private func rebuildEdgesForZoom() {
@@ -371,15 +380,21 @@ final class PartRenderer: NSObject {
     /// Blue prehighlight / selection on individual sketch curves. Cheap: it
     /// only swaps a material, and only on the entities whose state changed.
     private var sketchAccent: [String: Bool] = [:]
+    /// Last accent inputs, so re-aiming the sketch ribbons on a camera turn
+    /// can restore highlight state that rebuildSketches wipes.
+    private var accentHover: String?
+    private var accentSelected: Set<String> = []
     private func applySketchAccents(hover: String?, selected: Set<String>) {
+        accentHover = hover
+        accentSelected = selected
         for (e, _, key) in sketchEntities {
             guard !key.isEmpty, let me = e as? ModelEntity else { continue }
             let on = (key == hover) || selected.contains(key)
             if sketchAccent[key] == on { continue }
             sketchAccent[key] = on
-            me.model?.materials = [
-                Materials.unlit(on ? Colors.highlight : Colors.sketch)
-            ]
+            let c = on ? Colors.highlight : Colors.sketch
+            me.model?.materials =
+                [Self.useRibbons ? Materials.unlitSoft(c) : Materials.unlit(c)]
         }
     }
 
@@ -470,7 +485,12 @@ final class PartRenderer: NSObject {
         root.addChild(e)
     }
 
+    /// Last sketch payload, kept so the ribbons can be re-aimed when the view
+    /// turns — a ribbon is only correct while it faces the camera.
+    private var sketchCache: [[String: Any]] = []
+
     private func rebuildSketches(_ sketches: [[String: Any]]) {
+        sketchCache = sketches
         sketchRoot.removeFromParent()
         sketchRoot = Entity()
         sketchEntities.removeAll()
@@ -482,9 +502,18 @@ final class PartRenderer: NSObject {
             let keys = sk["keys"] as? [String] ?? []
             for (i, raw) in polys.enumerated() {
                 guard let pts = Payload.floats(raw) else { continue }
-                if let e = TubeBuilder.polyline(
-                    pts, radius: sketchRadius,
-                    material: Materials.unlit(Colors.sketch)) {
+                var made: Entity?
+                if #available(iOS 15.0, *), let v = outlineDir,
+                   let m = RibbonBuilder.mesh([pts], halfWidth: sketchRadius,
+                                              viewDir: v) {
+                    made = ModelEntity(
+                        mesh: m, materials: [Materials.unlitSoft(Colors.sketch)])
+                } else {
+                    made = TubeBuilder.polyline(
+                        pts, radius: sketchRadius,
+                        material: Materials.unlit(Colors.sketch))
+                }
+                if let e = made {
                     sketchRoot.addChild(e)
                     sketchEntities.append((e, n, i < keys.count ? keys[i] : ""))
                 }
