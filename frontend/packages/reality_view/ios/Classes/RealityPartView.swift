@@ -527,6 +527,10 @@ final class PartRenderer: NSObject {
             // Normal of the sketch plane (origin plane or the picked face).
             let n = Payload.vec3(sk["n"]) ?? SIMD3<Float>(0, 0, 1)
             let keys = sk["keys"] as? [String] ?? []
+            // Per-curve colours (M81): 2D paints white / blue-violet / yellow
+            // by constraint state and projection, and 3D used one flat tone,
+            // so the same sketch read differently in the two viewports.
+            let cols = sk["colors"] as? [Any]
             for (i, raw) in polys.enumerated() {
                 guard let pts = Payload.floats(raw) else { continue }
                 var tone = Colors.sketch
