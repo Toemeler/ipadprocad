@@ -28,6 +28,7 @@ Map<String, dynamic> cameraPayload(PartCamera c, Size size) => {
       'halfH': c.halfH,
       'ox': c.ox,
       'oy': c.oy,
+      'roll': c.roll,
       'w': size.width,
       'h': size.height,
     };

@@ -4204,3 +4204,79 @@ fehlender Roll nicht auf.
   Einzeln ausliefern, es fasst wie `isInParallel` OCCT-Threading an.
 - M3-CI-Flake: Ausgabe wird abgegriffen, bevor die App fertig schreibt.
 - Projizierte TEIL-Ellipse bleibt Polylinie (kein Grip-Modell dafuer).
+
+## M80 — Inventor-Verhalten: die LEBENDE 3D-Szene im Skizzenmodus
+
+Umgesetzt. Der CPU-Underlay ist ersatzlos entfallen.
+
+### Was sich geaendert hat
+
+**`main.dart`:** In einem Part wird IMMER `Viewport3D` gerendert. Eine offene
+Kindskizze legt `Viewport2D` transparent darueber. Vorher wurde zwischen
+beiden umgeschaltet und das Modell im 2D-Painter nachgezeichnet.
+
+**`Viewport2D._paint`:** zeichnet im Part-Skizzenmodus keinen opaken
+Hintergrund mehr, nur noch den Veil (`T.viewport` @ 55 %) ueber die echte
+3D-Szene. `paintPartUnderlay` und `_UnderlayCache` sind geloescht.
+
+**`PartCamera.roll`** (neu) plus `PartCamera.forSketch(frame, size, pan, zoom)`.
+`Cam3` dreht die Basis um den Roll; bei `roll = 0` kommt exakt die alte
+abgeleitete Basis heraus, Orbiten ist also unveraendert. Roll geht als
+`'roll'` im `cameraPayload` mit und wird in `RealityPartView.placeCamera()`
+auf `right`/`up` angewandt.
+
+**`Viewport3D._effectiveCamera`:** waehrend einer offenen Kindskizze besitzt
+der 2D-Editor die Navigation, die 3D-Kamera wird aus dessen `pan`/`zoom`
+abgeleitet. EINE Quelle — das ist der ganze Grund, warum der Cursor nicht vom
+Modell wegdriften kann.
+
+### Warum der Roll noetig war
+
+`az`/`pol` allein koennen nicht jede Orientierung ausdruecken: die Basis
+entsteht durch Kreuzen der Blickrichtung mit dem Welt-Up, was den Roll
+festnagelt. `paintPartUnderlay` bekam dagegen die expliziten `frame.u`/`v`.
+Auf einer GEKIPPTEN Flaeche unterscheiden sich beide um genau diesen Winkel,
+und das Modell erschiene in der Skizzenebene verdreht. Auf xy/xz/yz faellt
+das NICHT auf — genau so ueberlebt so ein Fehler eine Sichtpruefung.
+
+### Beweis statt Augenschein
+
+`m80_sketch_camera_test.dart` (10) projiziert dieselben Skizzenpunkte einmal
+durch `Viewport2D.map()` und einmal durch `Cam3(PartCamera.forSketch(...))`
+und verlangt Uebereinstimmung auf **1e-6 Pixel** — bei 0, 15, 42, 90 und 137
+Grad Neigung. Dazu: Blickrichtung == Skizzennormale, `halfH` == `h/(2*zoom)`,
+Zoom 0 ergibt keine kaputte Kamera, und eine gerollte Basis bleibt
+orthonormal.
+
+### Gewinn
+
+Pan und Zoom bewegen jetzt nur noch eine Kamera — die GPU zeichnet das
+Modell. Der Posten, der pro Frame ein `SceneTri` je Dreieck allokierte
+(34 236 bei einem Zahnrad), existiert nicht mehr. Dazu kommt, was Inventor
+auszeichnet und mit einer flachen Unterlage prinzipiell unmoeglich war: echte
+VERDECKUNG des Skizzenplans durch Modellgeometrie.
+
+### Geraete-Test — was zu pruefen ist
+
+1. **Gekippte Flaeche.** Skizze auf eine schraege Flaeche, dann pannen und
+   zoomen. Modell und Skizze duerfen sich nicht gegeneinander verschieben
+   oder verdrehen. Das ist der Roll-Test; auf den Ursprungsebenen sagt er
+   nichts aus.
+2. **Cursor-Treue.** Ein Snap auf eine Modellkante muss dort greifen, wo die
+   Kante GEZEICHNET wird.
+3. **Verdeckung.** Skizzengeometrie hinter dem Solid muss verdeckt sein.
+4. **Kein Stocken** beim Pannen/Zoomen in der Skizze.
+
+### Bewusst beibehalten
+
+Die Verfeinerung bleibt waehrend einer offenen Skizze gesperrt (M68). Das
+Modell behaelt die Aufloesung, die es beim Oeffnen hatte — stark
+Hineinzoomen zeigt es also etwas grob, dafuer stockt nichts. Wenn das
+stoert, ist die Stelle `_armRefine` in viewport3d.dart; eine einmalige
+Verfeinerung beim Betreten der Skizze waere der naechste Kompromiss.
+
+### Rueckfall
+
+Es gibt keinen Schalter mehr — der Underlay-Pfad ist geloescht. Falls das
+Verhalten auf dem Geraet nicht stimmt, ist `f6475cd` der letzte Commit mit
+dem alten Weg.

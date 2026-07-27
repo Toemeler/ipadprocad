@@ -35,8 +35,23 @@ class Cam3 {
         halfH = c.halfH,
         ox = c.ox,
         oy = c.oy,
-        s = _basisS(c.dir),
-        u = _basisU(c.dir);
+        s = _rolledS(c.dir, c.roll),
+        u = _rolledU(c.dir, c.roll);
+
+  /// Basis rotated about the view direction by [roll] (M80). At roll 0 these
+  /// return exactly the old derived basis, so every existing camera is
+  /// unaffected.
+  static Vec3 _rolledS(Vec3 d, double roll) {
+    if (roll == 0) return _basisS(d);
+    final s0 = _basisS(d), u0 = _basisU(d);
+    return (s0 * math.cos(roll) + u0 * math.sin(roll)).normalized();
+  }
+
+  static Vec3 _rolledU(Vec3 d, double roll) {
+    if (roll == 0) return _basisU(d);
+    final s0 = _basisS(d), u0 = _basisU(d);
+    return (u0 * math.cos(roll) - s0 * math.sin(roll)).normalized();
+  }
 
   /// Explicit-basis camera (M59): the sketch-underlay looks straight down a
   /// face frame, whose u/v axes must map to screen x/y EXACTLY as the 2D

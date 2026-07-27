@@ -164,11 +164,28 @@ class PrototypeApp extends StatelessWidget {
                                   // A 3D part shows the part viewport; an
                                   // open child sketch falls through to the
                                   // unchanged 2D sketcher (M56).
-                                  child: app.currentPart != null &&
-                                          app.activeChild == null
+                                  // M80 — Inventor keeps the LIVE 3D scene
+                                  // while you sketch; it does not draw a flat
+                                  // picture of the model. Autodesk's own Slice
+                                  // Graphics docs give it away: you rotate the
+                                  // model during a sketch, and model geometry
+                                  // can OCCLUDE the sketch plane. Both need
+                                  // real depth.
+                                  //
+                                  // So in a part we ALWAYS render Viewport3D,
+                                  // and an open child sketch simply puts the
+                                  // 2D editor transparently on top with the
+                                  // camera aimed down its plane. The model is
+                                  // then drawn by the GPU: pan and zoom only
+                                  // move the camera and cost nothing, which is
+                                  // what the CPU underlay could never manage.
+                                  child: app.currentPart != null
                                       ? Stack(children: [
                                           Positioned.fill(
                                               child: Viewport3D(app: app)),
+                                          if (app.activeChild != null)
+                                            Positioned.fill(
+                                                child: Viewport2D(app: app)),
                                           if (app.extrudeSession != null)
                                             ExtrudeDialog(app: app),
                                         ])

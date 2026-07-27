@@ -27,8 +27,6 @@ import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../perf.dart';
-import '../part_model.dart' show ChildSketch, sketchFrameOf, KernelSolid, PlaneFrame;
-import '../part_render.dart' show paintPartUnderlay;
 import 'package:native_menu/native_menu.dart';
 
 import '../snap.dart';
@@ -1521,88 +1519,7 @@ class _Viewport2DState extends State<Viewport2D> {
 
 bool _overlayErrorLogged = false;
 
-/// Rasterises the sketch-mode model underlay once and reuses it until the
-/// solids or the view transform actually change.
-class _UnderlayCache {
-  ui.Picture? _pic;
-  String? _key;
-  Offset _recPan = Offset.zero;
-
-  /// How far the view may pan before the picture is rebuilt, as a fraction of
-  /// the viewport. paintPartSolids culls to the visible rect, so a recorded
-  /// picture has nothing beyond its own margin — pan far enough and the model
-  /// would run out. Within this window panning is a pure translate.
-  static const _panMarginFrac = 0.25;
-
-  void paint(Canvas canvas, Size size, List<KernelSolid> solids, PlaneFrame fr,
-      Offset pan, double zoom) {
-    // PAN IS NOT IN THE KEY. It was, and that is why panning still stuttered
-    // after M75: every pan invalidated the cache and rebuilt all 34 236
-    // triangles per frame. pan only shifts the camera in-plane, so at the same
-    // zoom it is exactly a translation of the recorded vectors — and a
-    // ui.Picture stores vector commands, not pixels, so replaying it under a
-    // transform costs nothing and loses no quality.
-    final k = StringBuffer()
-      ..write(size.width)
-      ..write('x')
-      ..write(size.height)
-      ..write('@')
-      ..write(zoom)
-      ..write('|')
-      ..write(fr.key)
-      ..write(fr.origin.x)
-      ..write(',')
-      ..write(fr.origin.y)
-      ..write(',')
-      ..write(fr.origin.z)
-      ..write(',')
-      ..write(fr.n.x)
-      ..write(',')
-      ..write(fr.n.y)
-      ..write(',')
-      ..write(fr.n.z)
-      ..write('|');
-    for (final s in solids) {
-      k
-        ..write(identityHashCode(s.mesh))
-        ..write(';');
-    }
-    final key = k.toString();
-    final drift = pan - _recPan;
-    final tooFar = drift.dx.abs() > size.width * _panMarginFrac ||
-        drift.dy.abs() > size.height * _panMarginFrac;
-    if (key != _key || _pic == null || tooFar) {
-      final rec = ui.PictureRecorder();
-      // The expensive path: rebuilding the underlay from scratch. Separately
-      // named so the log shows how often the cache actually MISSES.
-      Perf.span(
-          '2d.underlay.rebuild',
-          () => paintPartUnderlay(
-              Canvas(rec, Offset.zero & size), size, solids, fr, pan, zoom));
-      _pic?.dispose();
-      _pic = rec.endRecording();
-      _key = key;
-      _recPan = pan;
-    } else {
-      Perf.count('2d.underlay.hit');
-    }
-    // Screen shift for a pan delta, derived from Cam3.project (part_render):
-    //   x = (W.s - ox)/(halfH*aspect) -> screen_x = (x/2 + 0.5)*w
-    //   y = (W.u - oy)/halfH          -> screen_y = (1 - (y/2 + 0.5))*h
-    // with halfH = h/(2*zoom) and ox/oy carrying pan, this gives
-    //   d(screen_x)/d(pan.dx) = -zoom      d(screen_y)/d(pan.dy) = +zoom
-    // The Y SIGN IS FLIPPED — the sketch Y axis points up, the screen's down.
-    // Matches Viewport2D.map(), which is what the underlay must move with.
-    final d = pan - _recPan;
-    canvas.save();
-    canvas.translate(-d.dx * zoom, d.dy * zoom);
-    canvas.drawPicture(_pic!);
-    canvas.restore();
-  }
-}
-
 class _ViewportPainter extends CustomPainter {
-  static final _underlay = _UnderlayCache();
   final AppState app;
   final bool projCpSelected;
 
@@ -1624,44 +1541,24 @@ class _ViewportPainter extends CustomPainter {
       Perf.span('2d.paint', () => _paint(canvas, size));
 
   void _paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
-    // ---- M59: while sketching inside a part, Inventor keeps the 3D model
-    // visible — render the committed solids straight down the sketch frame
-    // with THIS view's pan/zoom, then dim them behind a veil so the sketch
-    // stays the crisp foreground.
-    final part59 = app.currentPart;
-    final child59 = app.activeChild;
-    if (part59 != null && child59 != null) {
-      ChildSketch? cs59;
-      for (final c in part59.childSketches) {
-        if (identical(c.model, child59) || c.model.name == child59.name) {
-          cs59 = c;
-          break;
-        }
-      }
-      if (cs59 != null) {
-        final solids = [
-          for (final f in part59.features)
-            if (f.visible && f.solid != null && !f.consumedByJoin) f.solid!
-        ];
-        if (solids.isNotEmpty) {
-          // CACHED. buildSceneSolid allocates one SceneTri PER TRIANGLE and
-          // rescans every position for maxAbs, so a single extruded gear cost
-          // 34 236 allocations plus a 105 000-value scan — on EVERY paint,
-          // i.e. every frame while sketching. That was the stutter, and it
-          // grows linearly with the model, which is why more geometry made it
-          // hopeless. The underlay only depends on the solids and the view
-          // transform, and while drawing neither moves, so it is rasterised
-          // once into a Picture and blitted afterwards.
-          final fr59 = sketchFrameOf(cs59!);
-          Perf.span(
-              '2d.underlay',
-              () => _underlay.paint(
-                  canvas, size, solids, fr59, app.pan, app.zoom));
-          canvas.drawRect(Offset.zero & size,
-              Paint()..color = T.viewport.withOpacity(0.55));
-        }
-      }
+    // M80 — when a sketch is open inside a part, the LIVE RealityKit scene is
+    // rendered behind this canvas (main.dart) with its camera aimed down the
+    // sketch plane. So this painter must stay TRANSPARENT and only veil the
+    // model, instead of drawing its own opaque background over it.
+    //
+    // This replaces the CPU underlay (paintPartUnderlay), which rebuilt one
+    // SceneTri per triangle on every paint — 34 236 for a single gear — and
+    // was the real cause of the sketch-mode stutter (HANDOFF M75). The GPU now
+    // draws the model, so pan and zoom only move a camera and cost nothing.
+    final inPartSketch =
+        app.currentPart != null && app.activeChild != null;
+    if (inPartSketch) {
+      // Dim the model so the sketch reads as the crisp foreground, exactly
+      // what the old veil did — but over real 3D, with real occlusion.
+      canvas.drawRect(Offset.zero & size,
+          Paint()..color = T.viewport.withOpacity(0.55));
+    } else {
+      canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
     }
     final s = app.current;
     Offset map(double x, double y) => Offset(

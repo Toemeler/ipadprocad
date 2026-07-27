@@ -153,7 +153,12 @@ class _Viewport3DState extends State<Viewport3D> {
   void _pushRealityInner(AppState app, PartModel p, Size size) {
     final c = _reality;
     if (c == null) return;
-    c.setCamera(cameraPayload(p.camera, size));
+    // M80 — while a child sketch is open the 2D editor OWNS navigation, so the
+    // 3D camera is derived from its pan/zoom rather than kept independently.
+    // One source of truth is the whole reason the cursor cannot drift away
+    // from the model: PartCamera.forSketch reproduces exactly the projection
+    // Viewport2D.map() uses (pinned by a test in m79_perf_test.dart).
+    c.setCamera(cameraPayload(_effectiveCamera(app, p, size), size));
     final sig = sceneSignature(app, p);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
@@ -182,7 +187,7 @@ class _Viewport3DState extends State<Viewport3D> {
     if (p == null) return const ColoredBox(color: T.viewport);
     return LayoutBuilder(builder: (context, bc) {
       final size = Size(bc.maxWidth, bc.maxHeight);
-      final cam = Cam3(p.camera, size);
+      final cam = Cam3(_effectiveCamera(app, p, size), size);
       // Keep solids at screen resolution: refine on the first frame, on resize,
       // and whenever a new (coarse) preview appears. Cheap no-op once smooth.
       _armRefine(size);
@@ -425,6 +430,20 @@ class _Viewport3DState extends State<Viewport3D> {
 
   /// True when any live solid is coarser than this viewport's screen-space
   /// target — i.e. a re-mesh would make a curve visibly smoother.
+  /// The camera actually shown: the part's own while orbiting, or one aimed
+  /// down the open sketch's plane and driven by the 2D pan/zoom.
+  PartCamera _effectiveCamera(AppState app, PartModel p, Size size) {
+    final child = app.activeChild;
+    if (child == null) return p.camera;
+    for (final cs in p.childSketches) {
+      if (identical(cs.model, child) || cs.model.name == child.name) {
+        return PartCamera.forSketch(
+            sketchFrameOf(cs), size, app.pan, app.zoom);
+      }
+    }
+    return p.camera;
+  }
+
   int _sceneTriangles() {
     var n = 0;
     for (final s in _liveSolids()) {

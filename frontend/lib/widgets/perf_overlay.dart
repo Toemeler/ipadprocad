@@ -16,7 +16,6 @@ import 'package:flutter/scheduler.dart';
 
 import '../app_state.dart';
 import '../perf.dart';
-import '../part_model.dart';
 import '../theme.dart';
 
 /// Rolling frame-time statistics fed by [SchedulerBinding]'s timings callback.

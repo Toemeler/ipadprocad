@@ -272,7 +272,19 @@ final class PartRenderer: NSObject {
             right = simd_cross(fwd, SIMD3<Float>(0, 0, 1))
         }
         right = simd_normalize(right)
-        let up = simd_normalize(simd_cross(right, fwd))
+        var up = simd_normalize(simd_cross(right, fwd))
+
+        // M80: roll about the view direction. az/pol pin the basis to world
+        // up, which is fine while orbiting but wrong for a sketch on a TILTED
+        // face — that face's own u/v must land on screen x/y, and they differ
+        // from the derived basis by exactly this angle. Roll is 0 for every
+        // camera that existed before, so orbiting is untouched.
+        if abs(cam.roll) > 1e-9 {
+            let c = Float(cos(cam.roll)), s = Float(sin(cam.roll))
+            let r0 = right, u0 = up
+            right = simd_normalize(r0 * c + u0 * s)
+            up = simd_normalize(u0 * c - r0 * s)
+        }
 
         let center = right * Float(cam.ox) + up * Float(cam.oy)
         // Fit the depth range to the scene instead of using a huge constant:
@@ -589,6 +601,8 @@ struct CameraParams {
     var halfH: Double = 27
     var ox: Double = 0
     var oy: Double = 0
+    /// Rotation about the view direction (M80); see placeCamera().
+    var roll: Double = 0
 
     // Near-ortho fallback lens (<iOS 18): a narrow FOV keeps parallax tiny.
     var nearOrthoFovDeg: Double = 3.0
@@ -600,6 +614,7 @@ struct CameraParams {
         halfH = (a["halfH"] as? NSNumber)?.doubleValue ?? halfH
         ox = (a["ox"] as? NSNumber)?.doubleValue ?? ox
         oy = (a["oy"] as? NSNumber)?.doubleValue ?? oy
+        roll = (a["roll"] as? NSNumber)?.doubleValue ?? roll
     }
 
     var dir: SIMD3<Float> {

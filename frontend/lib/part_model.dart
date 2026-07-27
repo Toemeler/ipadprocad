@@ -137,12 +137,53 @@ String planeLabel(String key) => key == 'yz'
 /// [halfH] (zoom), frustum pan offset [ox]/[oy]. 1 world unit = 1 mm.
 class PartCamera {
   double az, pol, halfH, ox, oy;
+
+  /// Rotation about the view direction, radians (M80).
+  ///
+  /// az/pol alone cannot express every orientation: the basis is derived by
+  /// crossing the view direction with world up, which pins the roll. A sketch
+  /// on a TILTED face needs its own u/v to land on screen x/y, and that
+  /// generally differs from the derived basis by a roll. Without this the
+  /// model appears rotated inside the sketch plane. 0 for every camera that
+  /// existed before, so orbiting is unchanged.
+  double roll;
+
   PartCamera(
       {this.az = math.pi / 4,
       this.pol = 0.955,
       this.halfH = 27,
       this.ox = 0,
-      this.oy = 0});
+      this.oy = 0,
+      this.roll = 0});
+
+  /// Aims straight down [fr]'s normal with [fr]'s own axes mapped to screen
+  /// x/y, matching how Viewport2D.map() draws that sketch. [zoom] and [pan]
+  /// come from the 2D editor, which stays the single source of navigation.
+  static PartCamera forSketch(PlaneFrame fr, Size size, Offset pan, double zoom) {
+    final n = fr.n;
+    final pol = math.acos(n.y.clamp(-1.0, 1.0));
+    final az = math.atan2(n.x, n.z);
+    // roll = signed angle from the derived right vector to the frame's u,
+    // measured about the view direction.
+    final sDer = _derivedRight(n);
+    final uDer = sDer.cross(n * -1).normalized();
+    final roll = math.atan2(fr.u.dot(uDer), fr.u.dot(sDer));
+    return PartCamera(
+      az: az,
+      pol: pol,
+      halfH: clampHalfH(size.height / (2 * (zoom <= 0 ? 1 : zoom))),
+      ox: fr.origin.dot(fr.u) + pan.dx,
+      oy: fr.origin.dot(fr.v) + pan.dy,
+      roll: roll,
+    );
+  }
+
+  static Vec3 _derivedRight(Vec3 d) {
+    final f = d * -1;
+    var s = f.cross(const Vec3(0, 1, 0));
+    if (s.length < 1e-9) s = f.cross(const Vec3(0, 0, 1));
+    return s.normalized();
+  }
 
   // Practically-endless orthographic zoom (halfH = half the visible height in
   // mm). Not literally infinite: outside this band the ortho projection loses
