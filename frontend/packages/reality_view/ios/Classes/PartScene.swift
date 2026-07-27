@@ -114,10 +114,14 @@ enum Materials {
     /// a ramp failure costs sharpness, never the line itself.
     static func unlitSoft(_ color: UIColor) -> RealityKit.Material {
         var m = UnlitMaterial(color: color)
-        if #available(iOS 15.0, *) {
-            // A ribbon has no thickness, so it must render from both sides;
-            // relying on winding is what made the outlines disappear entirely.
+        if #available(iOS 18.0, *) {
+            // A ribbon has no thickness, so it renders from both sides where
+            // the OS allows it (faceCulling is iOS 18+). This is belt and
+            // braces: the reversed winding in RibbonBuilder is what actually
+            // fixes the vanished outlines, and it works on every version.
             m.faceCulling = .none
+        }
+        if #available(iOS 15.0, *) {
             // TextureResource.generate needs iOS 15; below that the outline is
             // simply hard-edged rather than feathered.
             // NB: no opacityThreshold here — that switches on alpha MASKING,
