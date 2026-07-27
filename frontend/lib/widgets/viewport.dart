@@ -26,6 +26,7 @@ import '../diag.dart';
 import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
+import '../perf.dart';
 import '../part_model.dart' show ChildSketch, sketchFrameOf, KernelSolid, PlaneFrame;
 import '../part_render.dart' show paintPartUnderlay;
 import 'package:native_menu/native_menu.dart';
@@ -1525,17 +1526,26 @@ bool _overlayErrorLogged = false;
 class _UnderlayCache {
   ui.Picture? _pic;
   String? _key;
+  Offset _recPan = Offset.zero;
+
+  /// How far the view may pan before the picture is rebuilt, as a fraction of
+  /// the viewport. paintPartSolids culls to the visible rect, so a recorded
+  /// picture has nothing beyond its own margin — pan far enough and the model
+  /// would run out. Within this window panning is a pure translate.
+  static const _panMarginFrac = 0.25;
 
   void paint(Canvas canvas, Size size, List<KernelSolid> solids, PlaneFrame fr,
       Offset pan, double zoom) {
+    // PAN IS NOT IN THE KEY. It was, and that is why panning still stuttered
+    // after M75: every pan invalidated the cache and rebuilt all 34 236
+    // triangles per frame. pan only shifts the camera in-plane, so at the same
+    // zoom it is exactly a translation of the recorded vectors — and a
+    // ui.Picture stores vector commands, not pixels, so replaying it under a
+    // transform costs nothing and loses no quality.
     final k = StringBuffer()
       ..write(size.width)
       ..write('x')
       ..write(size.height)
-      ..write('|')
-      ..write(pan.dx)
-      ..write(',')
-      ..write(pan.dy)
       ..write('@')
       ..write(zoom)
       ..write('|')
@@ -1558,15 +1568,36 @@ class _UnderlayCache {
         ..write(';');
     }
     final key = k.toString();
-    if (key != _key || _pic == null) {
+    final drift = pan - _recPan;
+    final tooFar = drift.dx.abs() > size.width * _panMarginFrac ||
+        drift.dy.abs() > size.height * _panMarginFrac;
+    if (key != _key || _pic == null || tooFar) {
       final rec = ui.PictureRecorder();
-      paintPartUnderlay(
-          Canvas(rec, Offset.zero & size), size, solids, fr, pan, zoom);
+      // The expensive path: rebuilding the underlay from scratch. Separately
+      // named so the log shows how often the cache actually MISSES.
+      Perf.span(
+          '2d.underlay.rebuild',
+          () => paintPartUnderlay(
+              Canvas(rec, Offset.zero & size), size, solids, fr, pan, zoom));
       _pic?.dispose();
       _pic = rec.endRecording();
       _key = key;
+      _recPan = pan;
+    } else {
+      Perf.count('2d.underlay.hit');
     }
+    // Screen shift for a pan delta, derived from Cam3.project (part_render):
+    //   x = (W.s - ox)/(halfH*aspect) -> screen_x = (x/2 + 0.5)*w
+    //   y = (W.u - oy)/halfH          -> screen_y = (1 - (y/2 + 0.5))*h
+    // with halfH = h/(2*zoom) and ox/oy carrying pan, this gives
+    //   d(screen_x)/d(pan.dx) = -zoom      d(screen_y)/d(pan.dy) = +zoom
+    // The Y SIGN IS FLIPPED — the sketch Y axis points up, the screen's down.
+    // Matches Viewport2D.map(), which is what the underlay must move with.
+    final d = pan - _recPan;
+    canvas.save();
+    canvas.translate(-d.dx * zoom, d.dy * zoom);
     canvas.drawPicture(_pic!);
+    canvas.restore();
   }
 }
 
@@ -1589,7 +1620,10 @@ class _ViewportPainter extends CustomPainter {
       this.selImage});
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, Size size) =>
+      Perf.span('2d.paint', () => _paint(canvas, size));
+
+  void _paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
     // ---- M59: while sketching inside a part, Inventor keeps the 3D model
     // visible — render the committed solids straight down the sketch frame
@@ -1619,8 +1653,11 @@ class _ViewportPainter extends CustomPainter {
           // hopeless. The underlay only depends on the solids and the view
           // transform, and while drawing neither moves, so it is rasterised
           // once into a Picture and blitted afterwards.
-          _underlay.paint(canvas, size, solids, sketchFrameOf(cs59), app.pan,
-              app.zoom);
+          final fr59 = sketchFrameOf(cs59!);
+          Perf.span(
+              '2d.underlay',
+              () => _underlay.paint(
+                  canvas, size, solids, fr59, app.pan, app.zoom));
           canvas.drawRect(Offset.zero & size,
               Paint()..color = T.viewport.withOpacity(0.55));
         }

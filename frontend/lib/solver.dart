@@ -19,6 +19,7 @@ import 'dart:ui';
 import 'constraints.dart';
 import 'diag.dart';
 import 'log.dart';
+import 'perf.dart';
 import 'ffi/qcad_engine.dart';
 import 'ffi/slvs_ffi.dart';
 
@@ -1539,7 +1540,10 @@ const double kProjAxisSpan = 10000;
 /// line mirrors the source line's endpoints, a projected axis is the fixed
 /// long line through the projected center point. A broken projection (source
 /// deleted) freezes where it is. Mutates [gs] in place, returns it.
-List<Geo> syncProjections(List<Geo> gs) {
+List<Geo> syncProjections(List<Geo> gs) =>
+    Perf.span('sketch.syncProjections', () => _syncProjections(gs));
+
+List<Geo> _syncProjections(List<Geo> gs) {
   for (var i = 0; i < gs.length; i++) {
     final g = gs[i];
     if (!g.isProjection) continue;

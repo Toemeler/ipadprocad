@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'log.dart';
+import 'perf.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
@@ -23,6 +24,7 @@ import 'widgets/extrude_dialog.dart';
 void main() {
   // Logger FIRST — works synchronously, before any binding exists.
   Log.init();
+  Perf.init();
   runZonedGuarded(() {
     Log.step('main', 'WidgetsFlutterBinding.ensureInitialized', () {
       WidgetsFlutterBinding.ensureInitialized();

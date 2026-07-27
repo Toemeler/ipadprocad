@@ -18,6 +18,7 @@ import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
 import '../log.dart';
+import '../perf.dart';
 import '../part_model.dart';
 import '../part_render.dart';
 import '../reality_scene.dart';
@@ -146,7 +147,10 @@ class _Viewport3DState extends State<Viewport3D> {
 
   /// Push the current camera (always), the scene (only when its signature
   /// changed — meshes are large) and the light overlay state to RealityKit.
-  void _pushReality(AppState app, PartModel p, Size size) {
+  void _pushReality(AppState app, PartModel p, Size size) =>
+      Perf.span('3d.push', () => _pushRealityInner(app, p, size));
+
+  void _pushRealityInner(AppState app, PartModel p, Size size) {
     final c = _reality;
     if (c == null) return;
     c.setCamera(cameraPayload(p.camera, size));
@@ -156,12 +160,12 @@ class _Viewport3DState extends State<Viewport3D> {
       for (final (id, s) in visibleSolids(app, p)) {
         logMeshConvention(id, s.mesh);
       }
-      c.setScene(buildScenePayload(app, p,
+      c.setScene(Perf.span('3d.payload', () => buildScenePayload(app, p,
           hover: _hover,
           hoverFace: _hoverFace,
           hoverSketch: _hoverSketch,
           selSketch: _selSketch,
-          knownRevs: _sentRevs));
+          knownRevs: _sentRevs)));
       _sentRevs = sceneRevs(app, p);
     }
     c.setOverlays(buildOverlaysPayload(app, p,
@@ -481,10 +485,14 @@ class _Viewport3DState extends State<Viewport3D> {
       // re-tessellated FOUR times on the way in (41640 -> 46180 -> 49040 ->
       // 50548) and then thrown back to 4304 and redone when a second extrude
       // started. Without a timing here that is invisible.
+      final tris = _sceneTriangles();
+      Perf.record('kernel.remesh', sw.elapsedMicroseconds / 1000.0);
+      Perf.gauge('sceneTris', tris);
+      Perf.gauge('remeshCount', remeshed);
       Log.i(
           'perf',
           'remesh n=$remeshed lin=${target.toStringAsExponential(2)} '
-          'tris=${_sceneTriangles()} in ${sw.elapsedMilliseconds}ms');
+          'tris=$tris in ${sw.elapsedMilliseconds}ms');
     }
     if (changed && mounted) setState(() {});
   }

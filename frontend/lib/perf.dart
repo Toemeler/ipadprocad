@@ -229,6 +229,38 @@ class Perf {
     (_stats[name] ??= PerfStat()).add(0);
   }
 
+  // ---- system resources -------------------------------------------------
+  //
+  // What is actually obtainable from Dart on iOS, and what is not:
+  //
+  //  RAM  — ProcessInfo.currentRss is the resident set size of the whole
+  //         process, reported by the OS. Real and exact.
+  //  GPU  — no API exposes GPU utilisation to a sandboxed iOS app. But
+  //         FrameTiming.rasterDuration IS the time the raster thread spent
+  //         producing the frame, which is the number that matters for us:
+  //         it rises exactly when the GPU work per frame grows.
+  //  CPU  — no per-process CPU percentage either. frame.build is the Dart
+  //         (UI-thread) cost and the named spans below attribute it to
+  //         concrete work, which answers "which part costs what" without
+  //         pretending to a percentage we cannot measure.
+  //
+  // Anything not measurable is left out rather than estimated. A plausible
+  // wrong number is worse than a missing one.
+  static int _peakRssMb = 0;
+
+  static Map<String, int> _resources() {
+    final out = <String, int>{};
+    try {
+      final rss = ProcessInfo.currentRss ~/ (1024 * 1024);
+      if (rss > _peakRssMb) _peakRssMb = rss;
+      out['rssMB'] = rss;
+      out['rssPeakMB'] = _peakRssMb;
+      final max = ProcessInfo.maxRss ~/ (1024 * 1024);
+      if (max > 0) out['rssMaxMB'] = max;
+    } catch (_) {/* not all platforms report it */}
+    return out;
+  }
+
   static String _row(String name, PerfStat s) =>
       '  ${name.padRight(26)} n=${s.count.toString().padLeft(6)}  '
       '${s.lastMs.toStringAsFixed(1).padLeft(7)} /'
@@ -267,6 +299,12 @@ class Perf {
       final share = elapsed <= 0 ? 0.0 : 100 * st.totalMs / elapsed;
       b.writeln('${_row(n, st)}  tot=${(st.totalMs / 1000).toStringAsFixed(2)}s'
           ' ${share.toStringAsFixed(1)}%');
+    }
+    final res = _resources();
+    if (res.isNotEmpty) {
+      final r = res.keys.toList()..sort();
+      b.writeln(
+          '  MEMORY  ${[for (final k in r) '$k=${res[k]}'].join('  ')}');
     }
     if (gauges.isNotEmpty) {
       final g = gauges.keys.toList()..sort();

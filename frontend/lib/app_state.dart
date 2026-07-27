@@ -16,6 +16,7 @@ import 'ffi/qcad_engine.dart';
 import 'gear.dart';
 import 'hud.dart';
 import 'log.dart';
+import 'perf.dart';
 import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
@@ -734,6 +735,7 @@ class AppState extends ChangeNotifier {
     // actually reachable in Files > On My iPad > prototype > logs. The early
     // logger uses $HOME (empty on some iOS builds -> temp dir, not file-shared).
     Log.retarget(_docsDir!.path);
+    Perf.retarget(_docsDir!.path);
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
@@ -3852,6 +3854,7 @@ class AppState extends ChangeNotifier {
   /// flattening a gear's ~440 edges per frame is exactly the kind of
   /// per-frame O(geometry) work that made sketching stutter (see M75).
   List<PartEdge> projectableEdges() {
+    Perf.count('project.edgesQuery');
     final part = currentPart;
     final cs = _activeChildSketch();
     if (part == null || cs == null) return const [];
@@ -4052,7 +4055,10 @@ class AppState extends ChangeNotifier {
   /// copy: change the parent and the projection follows; delete it and the
   /// projection freezes as fixed curves keeping its constraints. Both are
   /// handled by syncSolidProjections.
-  void _syncSolidProjections(PartModel p) {
+  void _syncSolidProjections(PartModel p) =>
+      Perf.span('project.syncSolid', () => _syncSolidProjectionsInner(p));
+
+  void _syncSolidProjectionsInner(PartModel p) {
     for (final cs in p.childSketches) {
       final gs = cs.model.geometry;
       if (!gs.any((g) => g.proj == Geo.projSolid)) continue;
@@ -4820,7 +4826,10 @@ class AppState extends ChangeNotifier {
   /// false — WITHOUT touching the sketch — when the solve failed to hold the
   /// constraints, so callers can roll back whatever change made the system
   /// unsatisfiable instead of committing a diverged configuration.
-  bool _solveAndRebuild(SketchModel s, [List<Geo>? base]) {
+  bool _solveAndRebuild(SketchModel s, [List<Geo>? base]) =>
+      Perf.span('sketch.solveRebuild', () => _solveAndRebuildInner(s, base));
+
+  bool _solveAndRebuildInner(SketchModel s, [List<Geo>? base]) {
     final gs = List<Geo>.from(base ?? s.geometry);
     final ok = solveConstraints(gs, s.constraints);
     if (!ok) {

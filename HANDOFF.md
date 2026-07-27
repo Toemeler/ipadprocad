@@ -4098,3 +4098,109 @@ dem Cache-Schluessel und beides wird sofort fluessig — ohne die
 Architekturaenderung. Voraussetzung: `paintPartUnderlay` mit neutralem
 Pan/Zoom aufzeichnen und pruefen, dass `map()` wirklich affin in beiden ist
 (es zentriert auf `size/2`, das muss beim Aufzeichnen mitgedacht werden).
+
+## M79 — Performance-Logging vollstaendig + Pan-Fix + Befund zur 3D-Skizze
+
+### (1) `performance_logs.txt` — eigene Datei, eigener Zweck
+
+`lib/perf.dart`, verdrahtet in `main.dart` (`Perf.init()`) und
+`app_state.dart` (`Perf.retarget()`, neben `Log.retarget`). Getrennt vom
+Ereignislog, weil Performance-Daten periodisch und massenhaft anfallen und die
+Ereignisse ertraenken wuerden, die einen Bug reproduzierbar machen.
+Rotation bei 4 MB nach `performance_logs_prev.txt`, Snapshot alle 5 s.
+
+Pro Eintrag: `n=Aufrufe  letzte / Schnitt / p95 / schlechteste ms`.
+
+**Frames** getrennt nach `frame.build` (Dart, UI-Thread) und
+`frame.raster` (GPU-Thread) — welcher hoch ist, sagt dir, ob du Widgets oder
+Zeichnen ansehen musst. Dazu fps und `jank(>33ms)` mit Prozentsatz.
+
+**Benannte Spans** (`Perf.span`): `2d.paint`, `2d.underlay`,
+`2d.underlay.rebuild`, `3d.push`, `3d.payload`, `kernel.remesh`,
+`kernel.feature`, `sketch.solveRebuild`, `sketch.profileLoops`,
+`sketch.syncProjections`, `project.partEdges`, `project.syncSolid`.
+Zaehler: `2d.underlay.hit`, `project.edgesQuery`.
+Gauges: `sceneTris`, `triangles`, `features`, `solids`, `sketchEntities`,
+`sketchProjections`, `remeshCount`.
+
+**Ressourcen — was geht und was nicht, ehrlich:**
+- RAM: `ProcessInfo.currentRss`, echt und exakt (`rssMB`, `rssPeakMB`,
+  `rssMaxMB`).
+- GPU: iOS gibt einer Sandbox-App KEINE GPU-Auslastung. Aber
+  `FrameTiming.rasterDuration` IST die Zeit des Raster-Threads pro Frame und
+  steigt genau dann, wenn die GPU-Arbeit waechst — das ist die brauchbare
+  Groesse.
+- CPU: ebenfalls kein Prozentwert verfuegbar. `frame.build` plus die
+  benannten Spans schluesseln die UI-Thread-Zeit auf konkrete Arbeit auf, was
+  "welcher Teil kostet was" beantwortet, ohne einen Prozentsatz zu erfinden.
+Nicht Messbares wird WEGGELASSEN statt geschaetzt.
+
+`Perf.span` ist Stopwatch aus einem Pool plus ein Map-Lookup — keine
+Allokation je Aufruf, Formatierung erst beim Flush. Per Test auf < 20 us
+gedeckelt: ein Messgeraet, das in den eigenen Zahlen auftaucht, ist wertlos.
+
+### (2) Pannen im Skizzenmodus — der M75-Cache war luecken haft
+
+`_UnderlayCache` hatte `pan` im Schluessel, jede Panbewegung invalidierte ihn
+also und der 34 236-Dreieck-Aufbau lief wieder pro Frame. Jetzt ist `pan`
+NICHT mehr im Schluessel: bei gleichem Zoom ist eine Panbewegung exakt eine
+Translation der aufgezeichneten Vektoren, und eine `ui.Picture` speichert
+Vektorbefehle statt Pixel — Qualitaet bleibt erhalten.
+
+**Vorzeichenfalle, die mir dabei passiert ist:** aus `Cam3.project` folgt
+`d(screen_x)/d(pan.dx) = -zoom`, aber `d(screen_y)/d(pan.dy) = +zoom` — die
+Skizzen-Y-Achse zeigt nach oben, die Bildschirm-Y nach unten. Ich hatte erst
+zweimal minus, das haette die Unterlage beim Pannen vertikal wegdriften
+lassen. Jetzt per Test gegen `map()` festgenagelt.
+
+`_panMarginFrac` (25 % des Viewports) erzwingt einen Neuaufbau, bevor man aus
+dem aufgezeichneten Bereich herauspannt — `paintPartSolids` cullt auf den
+sichtbaren Bereich, ausserhalb ist im Bild nichts.
+
+### (3) 3D-Szene im Skizzenmodus — Befund, NICHT umgesetzt
+
+Recherche (M78) steht: Inventor haelt die lebende 3D-Szene. Beim Umsetzen bin
+ich auf zwei Dinge gestossen, die die naechste Session direkt verwerten kann.
+
+**Gute Nachricht: die Transformationen stimmen bereits ueberein.** Per Test
+bewiesen (`m79_perf_test.dart`, "the 3D camera and the 2D map agree"):
+`Cam3` mit `halfH = h/(2*zoom)` und `ox/oy = origin·u + pan` liefert EXAKT
+dieselben Bildschirmkoordinaten wie `Viewport2D.map()`. Die gemeinsame Quelle,
+vor der ich in M78 als Hauptaufwand gewarnt hatte, existiert also schon.
+
+**Der echte Blocker ist der KAMERA-ROLL.** `Cam3.basis` bekommt in
+`paintPartUnderlay` die expliziten `frame.u`/`frame.v`. `PartCamera` dagegen
+hat nur `az, pol, halfH, ox, oy` und leitet ihre Basis ueber
+`_basisS(d) = fwd × (0,1,0)` her — also **kein Rollwinkel**. Auf einer
+beliebigen Flaeche weicht `frame.u` davon um einen Roll ab, und das Modell
+erschiene in der Skizzenebene verdreht.
+
+**Zu tun, in dieser Reihenfolge:**
+1. `PartCamera` um `roll` erweitern; Basis = um `roll` gedrehte
+   `_basisS/_basisU`. Fuer bestehende Kameras `roll = 0`, also verhaltensneutral.
+2. `roll` in `cameraPayload` mitschicken und in `RealityPartView` auf die
+   RealityKit-Kamera anwenden.
+3. Beim Oeffnen einer Kindskizze setzen:
+   `pol = acos(n.y)`, `az = atan2(n.x, n.z)`,
+   `halfH = size.height/(2*zoom)`, `ox = origin·u + pan.dx`,
+   `oy = origin·v + pan.dy`, `roll` = Winkel zwischen `_basisS(n)` und
+   `frame.u`.
+4. In `main.dart` den Skizzenfall nicht mehr auf `Viewport2D` allein
+   schalten, sondern `Viewport3D` darunter und `Viewport2D` transparent
+   darueber.
+5. `paintPartUnderlay` und `_UnderlayCache` entfallen dann ersatzlos.
+6. Der Veil (`T.viewport.withOpacity(0.55)`) wird eine Materialeigenschaft.
+
+**Pruefkriterium auf dem Geraet:** Cursor und Modell duerfen beim Pannen,
+Zoomen und auf einer GEKIPPTEN Flaeche nicht auseinanderlaufen. Die gekippte
+Flaeche ist der Fall, der den Roll aufdeckt — auf xy/xz/yz faellt ein
+fehlender Roll nicht auf.
+
+### Weiterhin offen
+
+- Kontextmenue auf Extrusion/Solid (loeschen, umbenennen, sichtbar). Sechsmal
+  angefragt, sechsmal nicht geliefert — das gehoert als Naechstes dran.
+- Hintergrund-Isolate fuer `occt_mesh_create` (389-586 ms auf dem UI-Thread).
+  Einzeln ausliefern, es fasst wie `isInParallel` OCCT-Threading an.
+- M3-CI-Flake: Ausgabe wird abgegriffen, bevor die App fertig schreibt.
+- Projizierte TEIL-Ellipse bleibt Polylinie (kein Grip-Modell dafuer).

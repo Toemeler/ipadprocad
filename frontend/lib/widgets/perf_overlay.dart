@@ -8,12 +8,14 @@
 //
 // It measures the FRAME time Flutter actually reports, not a wall clock, so it
 // reflects the real cost of building and rasterising each frame.
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../app_state.dart';
+import '../perf.dart';
 import '../part_model.dart';
 import '../theme.dart';
 
@@ -91,6 +93,9 @@ class _PerfOverlayState extends State<PerfOverlay> {
       solids++;
       tris += s.mesh.indices.length ~/ 3;
     }
+    Perf.gauge('features', feats);
+    Perf.gauge('solids', solids);
+    Perf.gauge('triangles', tris);
     return 'f$feats s$solids ${_k(tris)}tri';
   }
 
@@ -102,7 +107,18 @@ class _PerfOverlayState extends State<PerfOverlay> {
     for (final g in s.geometry) {
       if (g.isProjection) proj++;
     }
+    Perf.gauge('sketchEntities', n);
+    Perf.gauge('sketchProjections', proj);
     return 'geo $n${proj > 0 ? ' (proj $proj)' : ''}';
+  }
+
+  String _memLine() {
+    try {
+      final mb = ProcessInfo.currentRss ~/ (1024 * 1024);
+      return '${mb}MB';
+    } catch (_) {
+      return '';
+    }
   }
 
   static String _k(int v) =>
@@ -121,8 +137,11 @@ class _PerfOverlayState extends State<PerfOverlay> {
     final lines = <String>[
       '${fps.toStringAsFixed(0)} fps  '
           '${_stats.avgMs.toStringAsFixed(1)}/${worst.toStringAsFixed(0)}ms',
+      'build ${Perf.frameBuild.avgMs.toStringAsFixed(1)}  '
+          'raster ${Perf.frameRaster.avgMs.toStringAsFixed(1)}ms',
       _sceneLine(),
       _sketchLine(),
+      _memLine(),
     ].where((l) => l.isNotEmpty).toList();
 
     return Positioned(

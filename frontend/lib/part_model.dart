@@ -19,6 +19,7 @@ import 'app_state.dart' show SketchModel;
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
+import 'perf.dart';
 import 'snap.dart' show sampleEntity;
 import 'spline.dart' show splineCurveFor, polyPoints;
 import 'tools.dart' show ExprParser;
@@ -504,7 +505,10 @@ List<ProfileLoop> arrangementLoops(SketchModel s) {
   return loops;
 }
 
-List<ProfileLoop> profileLoops(SketchModel s) {
+List<ProfileLoop> profileLoops(SketchModel s) =>
+    Perf.span('sketch.profileLoops', () => _profileLoops(s));
+
+List<ProfileLoop> _profileLoops(SketchModel s) {
   // The arrangement subsumes the endpoint-chaining finder below and adds
   // crossings; the old path stays as a fallback so a bail-out can never leave
   // the sketch with no profile at all.
@@ -1612,7 +1616,10 @@ class OcctPartKernel implements PartKernel {
 /// the anchors are updated; on failure the old solid is dropped and
 /// [ExtrudeFeature.computeError] says exactly why (Inventor's sick-feature
 /// behaviour, minus the guessing).
-bool recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
+bool recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) =>
+    Perf.span('kernel.feature', () => _recomputeFeature(part, f, kernel));
+
+bool _recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
   f.disposeSolid();
   f.computeError = null;
   final cs = part.sketchByName(f.sketchName);
@@ -2056,7 +2063,10 @@ PartEdge? analyticProjectedEdge(
 /// Projection is orthogonal onto the plane, so an edge hidden behind the solid
 /// projects exactly like a visible one. That is deliberate: Inventor lets you
 /// project hidden edges too, they are only DRAWN differently.
-List<PartEdge> partEdges(PartModel part, PlaneFrame fr) {
+List<PartEdge> partEdges(PartModel part, PlaneFrame fr) =>
+    Perf.span('project.partEdges', () => _partEdges(part, fr));
+
+List<PartEdge> _partEdges(PartModel part, PlaneFrame fr) {
   final out = <PartEdge>[];
   var idx = 0;
   for (final f in part.features) {
