@@ -1879,3 +1879,147 @@ ExtrudeFeature? lastSolidFeature(PartModel part) {
   }
   return last;
 }
+
+// ---------------------------------------------------------------------------
+// M76 — projecting 3D model edges into a sketch (Inventor's Project Geometry)
+// ---------------------------------------------------------------------------
+
+/// One projectable model edge, already flattened onto a sketch plane.
+class PartEdge {
+  /// Index in the part's visible-solid edge list — what `Geo.projSeg` stores
+  /// for a `Geo.projSolid` projection.
+  final int index;
+
+  /// The edge orthogonally projected onto the sketch plane.
+  final List<Offset> pts;
+  const PartEdge(this.index, this.pts);
+}
+
+/// Every B-Rep edge of [part]'s visible solids, projected onto [fr].
+///
+/// The order is deterministic — features in tree order, then edge index within
+/// each solid — because that order IS the identity a projection stores. If the
+/// model changes so much that an index no longer exists, the projection is
+/// orphaned rather than silently re-pointed at a different edge (Inventor
+/// converts an orphan to fixed curves; see [syncSolidProjections]).
+///
+/// Projection is orthogonal onto the plane, so an edge hidden behind the solid
+/// projects exactly like a visible one. That is deliberate: Inventor lets you
+/// project hidden edges too, they are only DRAWN differently.
+List<PartEdge> partEdges(PartModel part, PlaneFrame fr) {
+  final out = <PartEdge>[];
+  var idx = 0;
+  for (final f in part.features) {
+    final sol = f.solid;
+    if (!f.visible || sol == null || f.consumedByJoin) continue;
+    final m = sol.mesh;
+    final starts = m.edgeStarts;
+    final pts = m.edgePoints;
+    for (var e = 0; e + 1 < starts.length; e++) {
+      final a = starts[e], b = starts[e + 1];
+      if (a < 0 || b * 3 > pts.length || b - a < 2) {
+        idx++;
+        continue;
+      }
+      final poly = <Offset>[];
+      for (var i = a; i < b; i++) {
+        poly.add(fr.toSketch(
+            Vec3(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2])));
+      }
+      out.add(PartEdge(idx, poly));
+      idx++;
+    }
+  }
+  return out;
+}
+
+/// Turns a projected edge polyline into the sketch entity that represents it:
+/// a plain LINE for two points, otherwise an open POLYLINE. Kept simple on
+/// purpose — a projection is reference geometry, it is never edited, so it
+/// does not need to round-trip as an arc or spline to behave correctly.
+Geo geoForProjectedEdge(List<Offset> pts, int edgeIndex, String layer) {
+  if (pts.length == 2) {
+    return Geo(Geo.line, [pts[0].dx, pts[0].dy, pts[1].dx, pts[1].dy],
+        layer: layer, proj: Geo.projSolid, projSeg: edgeIndex);
+  }
+  return Geo(
+      Geo.polyline,
+      [
+        0, // open
+        pts.length.toDouble(),
+        for (final p in pts) ...[p.dx, p.dy],
+      ],
+      layer: layer,
+      proj: Geo.projSolid,
+      projSeg: edgeIndex);
+}
+
+/// Re-projects every `projSolid` entity in [gs] from the current model.
+///
+/// Mirrors what [syncProjections] does for in-sketch sources, but at the part
+/// level because the source lives in 3D. Returns true if anything changed.
+///
+/// An orphan — the source edge no longer exists — becomes [Geo.projBroken]
+/// and freezes where it is, exactly as Inventor converts a reference whose
+/// parent feature is gone into fixed sketch curves, keeping its constraints.
+bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
+  var any = false;
+  List<PartEdge>? edges;
+  for (var i = 0; i < gs.length; i++) {
+    final g = gs[i];
+    if (g.proj != Geo.projSolid) continue;
+    edges ??= partEdges(part, fr);
+    PartEdge? src;
+    for (final e in edges) {
+      if (e.index == g.projSeg) {
+        src = e;
+        break;
+      }
+    }
+    if (src == null || src.pts.length < 2) {
+      gs[i] = g.withProj(Geo.projBroken, -1); // orphaned: freeze in place
+      any = true;
+      continue;
+    }
+    final fresh = geoForProjectedEdge(src.pts, g.projSeg, g.layer);
+    if (fresh.type != g.type || !_sameData(fresh.data, g.data)) {
+      gs[i] = fresh.withStyle(g.style);
+      any = true;
+    }
+  }
+  return any;
+}
+
+bool _sameData(List<double> a, List<double> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if ((a[i] - b[i]).abs() > 1e-9) return false;
+  }
+  return true;
+}
+
+/// Index of the [edges] entry within [tol] of [w], nearest first, or null.
+/// Used for both hover highlight and the tap that creates the projection.
+int? pickPartEdge(List<PartEdge> edges, Offset w, double tol) {
+  var best = -1;
+  var bestD = tol;
+  for (final e in edges) {
+    for (var i = 0; i + 1 < e.pts.length; i++) {
+      final d = _segDist(w, e.pts[i], e.pts[i + 1]);
+      if (d < bestD) {
+        bestD = d;
+        best = e.index;
+      }
+    }
+  }
+  return best >= 0 ? best : null;
+}
+
+double _segDist(Offset p, Offset a, Offset b) {
+  final vx = b.dx - a.dx, vy = b.dy - a.dy;
+  final len2 = vx * vx + vy * vy;
+  if (len2 < 1e-18) return (p - a).distance;
+  var t = ((p.dx - a.dx) * vx + (p.dy - a.dy) * vy) / len2;
+  t = t.clamp(0.0, 1.0);
+  return (p - Offset(a.dx + vx * t, a.dy + vy * t)).distance;
+}

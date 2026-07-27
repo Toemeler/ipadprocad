@@ -1751,6 +1751,34 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      // ---- Project tool: the 3D model edges you can pick (M76) ----------
+      // Drawn only while the tool is active, so the sketch stays clean
+      // otherwise. Inventor shows projectable edges the same way: faint until
+      // you hover one, highlighted when a tap would take it.
+      if (app.tool == Tool.project) {
+        final hovered = app.hoverSolidEdge;
+        final faint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0
+          ..color = T.projYellowEdge.withOpacity(0.45);
+        final hot = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round
+          ..color = T.hover;
+        for (final e in app.projectableEdges()) {
+          if (e.pts.length < 2) continue;
+          final path = Path()
+            ..moveTo(map(e.pts[0].dx, e.pts[0].dy).dx,
+                map(e.pts[0].dx, e.pts[0].dy).dy);
+          for (var i = 1; i < e.pts.length; i++) {
+            final q = map(e.pts[i].dx, e.pts[i].dy);
+            path.lineTo(q.dx, q.dy);
+          }
+          canvas.drawPath(path, e.index == hovered ? hot : faint);
+        }
+      }
+
       final he = app.hoverEnt;
       if (he != null && he < gs.length && app.dragGrip == null) {
         if (gs[he].type == Geo.polyline && !gs[he].isSpline) {

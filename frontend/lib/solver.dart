@@ -1552,6 +1552,12 @@ List<Geo> syncProjections(List<Geo> gs) {
         break;
       case Geo.projBroken:
         break; // frozen in place
+      case Geo.projSolid:
+        // Owned by syncSolidProjections(): the source is a 3D model edge and
+        // re-projecting it needs the PartModel and the sketch plane, neither
+        // of which the solver sees. It is still PINNED like every other
+        // projection by _withProjectionPins below.
+        break;
       default:
         final src = g.proj;
         if (src < 0 || src >= gs.length) break;

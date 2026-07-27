@@ -1809,6 +1809,8 @@ class AppState extends ChangeNotifier {
       _loadedSketchVis.clear();
       if (partKernel.available) {
         recomputeAllFeatures(p, partKernel);
+      _syncSolidProjections(p);
+        _syncSolidProjections(p);
       }
       Log.i(
           'part',
@@ -2483,6 +2485,7 @@ class AppState extends ChangeNotifier {
     }
     if (partKernel.available) {
       recomputeAllFeatures(p, partKernel); // fold Inventor join chains
+      _syncSolidProjections(p);
     }
     p.dirty = true;
     s.disposePreview();
@@ -3838,10 +3841,78 @@ class AppState extends ChangeNotifier {
       s.geometry.any((g) =>
           g.isProjection && g.proj == ent && g.projSeg < 0 && g.layer == lay);
 
+  /// Model edges projectable into the sketch being edited, already flattened
+  /// onto its plane. Empty outside a part sketch. Rebuilt on demand and cached
+  /// per (part rev, plane) by [projectableEdges].
+  List<PartEdge> _projEdges = const [];
+  String _projEdgesKey = '';
+
+  /// The 3D edges the Project tool can pick right now. Cached because both the
+  /// hover highlight (every pointer move) and the tap go through it, and
+  /// flattening a gear's ~440 edges per frame is exactly the kind of
+  /// per-frame O(geometry) work that made sketching stutter (see M75).
+  List<PartEdge> projectableEdges() {
+    final part = currentPart;
+    final cs = _activeChildSketch();
+    if (part == null || cs == null) return const [];
+    final fr = sketchFrameOf(cs);
+    final k = StringBuffer()
+      ..write(fr.key)
+      ..write(fr.origin.x)
+      ..write(',')
+      ..write(fr.origin.y)
+      ..write(',')
+      ..write(fr.origin.z);
+    for (final f in part.features) {
+      k
+        ..write(';')
+        ..write(f.name)
+        ..write(f.visible ? '1' : '0')
+        ..write(f.consumedByJoin ? 'c' : '-')
+        ..write(f.solid == null ? 'n' : identityHashCode(f.solid!.mesh));
+    }
+    final key = k.toString();
+    if (key != _projEdgesKey) {
+      _projEdgesKey = key;
+      _projEdges = partEdges(part, fr);
+    }
+    return _projEdges;
+  }
+
+  /// Model edge under the cursor while the Project tool is active, for the
+  /// hover highlight. Null when nothing is close enough.
+  int? projectHoverEdge(Offset w) {
+    if (tool != Tool.project) return null;
+    final edges = projectableEdges();
+    if (edges.isEmpty) return null;
+    return pickPartEdge(edges, w, 8 / zoom);
+  }
+
+  /// The ChildSketch currently being edited, or null.
+  ChildSketch? _activeChildSketch() {
+    final part = currentPart;
+    final child = activeChild;
+    if (part == null || child == null) return null;
+    for (final c in part.childSketches) {
+      if (identical(c.model, child) || c.model.name == child.name) return c;
+    }
+    return null;
+  }
+
   void _projectClick(SketchModel s, Offset w) {
     final lay = editingLayer;
     if (lay == null) return;
+    // A 3D model edge wins over sketch geometry only when nothing in the
+    // sketch is closer, so projecting inside the sketch keeps working exactly
+    // as before.
     final picked = pickVisibleAny(s, w);
+    if (picked == null) {
+      final hit = pickPartEdge(projectableEdges(), w, 8 / zoom);
+      if (hit != null) {
+        _projectSolidEdge(s, hit, lay);
+        return;
+      }
+    }
     int? src;
     var seg = -1;
     Geo? proto;
@@ -3925,6 +3996,57 @@ class AppState extends ChangeNotifier {
     Log.i(
         'project',
         'projected ${src >= 0 ? "entity $src (${proto.type})" : src == Geo.projAxisX ? "X axis" : "Y axis"} onto "$lay"');
+  }
+
+  /// Creates the reference curve for model edge [edgeIndex] on [lay].
+  void _projectSolidEdge(SketchModel s, int edgeIndex, String lay) {
+    for (final g in s.geometry) {
+      if (g.proj == Geo.projSolid &&
+          g.projSeg == edgeIndex &&
+          g.layer == lay) {
+        toast('Already projected onto this layer.');
+        return;
+      }
+    }
+    PartEdge? src;
+    for (final e in projectableEdges()) {
+      if (e.index == edgeIndex) {
+        src = e;
+        break;
+      }
+    }
+    if (src == null || src.pts.length < 2) return;
+    final copy = geoForProjectedEdge(src.pts, edgeIndex, lay);
+    final tags = List<Geo>.of(s.geometry)..add(copy);
+    s.engine.setCurrentLayer(lay);
+    final d = copy.data;
+    if (copy.type == Geo.line) {
+      s.engine.addLine(d[0], d[1], d[2], d[3]);
+    } else {
+      final n = d[1].toInt();
+      s.engine.addPolyline([
+        for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
+      ], closed: false);
+    }
+    _committed(s, tags: tags);
+    _solveAndRebuild(s);
+    Log.i('project', 'projected model edge $edgeIndex onto "$lay"');
+  }
+
+
+  /// Re-projects every model-edge reference in [p]'s sketches after the
+  /// feature tree changed. Inventor's projected geometry is a LINK, not a
+  /// copy: change the parent and the projection follows; delete it and the
+  /// projection freezes as fixed curves keeping its constraints. Both are
+  /// handled by syncSolidProjections.
+  void _syncSolidProjections(PartModel p) {
+    for (final cs in p.childSketches) {
+      final gs = cs.model.geometry;
+      if (!gs.any((g) => g.proj == Geo.projSolid)) continue;
+      // Mutated in place, exactly like syncProjections() does for in-sketch
+      // sources; the next solve of that sketch pushes it to the engine.
+      syncSolidProjections(gs, p, sketchFrameOf(cs));
+    }
   }
 
   // ---- sketch patterns (M35, Inventor's Pattern panel) ----
@@ -6709,13 +6831,19 @@ class AppState extends ChangeNotifier {
     s.dirty = true;
   }
 
+  /// Model edge highlighted under the cursor while the Project tool is
+  /// active (index into [projectableEdges]), or null.
+  int? hoverSolidEdge;
+
   void setHover(Offset? w) {
     hoverWorld = w;
     final s = current;
     if (s == null || w == null) {
       hoverEnt = null;
       hoverEdge = null;
+      hoverSolidEdge = null;
     } else if (tool == Tool.project) {
+      hoverSolidEdge = null;
       // project mode highlights the PROJECTABLE geometry under the cursor:
       // entities of OTHER layers that are not yet projected onto this one
       final e = pickVisibleAny(s, w);
@@ -6733,7 +6861,12 @@ class AppState extends ChangeNotifier {
           ? polySegmentAt(s, hoverEnt!, w)
           : null;
       hoverEdge = seg == null ? null : (seg.$1.ent, seg.$1.pt);
+      // Nothing in the sketch under the cursor? Then offer the 3D model edge,
+      // matching the click order in _projectClick so the highlight always
+      // shows what a tap would actually project.
+      hoverSolidEdge = hoverEnt == null ? projectHoverEdge(w) : null;
     } else {
+      hoverSolidEdge = null;
       hoverEnt = _pickEntity(s, w);
       final seg = hoverEnt == null ? null : polySegmentAt(s, hoverEnt!, w);
       hoverEdge = seg == null ? null : (seg.$1.ent, seg.$1.pt);

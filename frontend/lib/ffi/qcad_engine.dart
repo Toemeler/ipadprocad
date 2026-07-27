@@ -83,7 +83,16 @@ class Geo {
   //   projAxisX (-2)   the sketch X axis through the projected center point
   //   projAxisY (-3)   the sketch Y axis
   //   projBroken(-4)   source was deleted: the projection freezes in place
-  static const projNone = -1, projAxisX = -2, projAxisY = -3, projBroken = -4;
+  ///   projSolid (-5)   a 3D model EDGE, orthogonally projected onto the
+  ///                    sketch plane. [projSeg] is the edge's index in the
+  ///                    part's visible-solid edge list (see partEdges()).
+  ///                    Re-projected by syncSolidProjections(), which needs
+  ///                    the PartModel and so cannot live in the solver.
+  static const projNone = -1,
+      projAxisX = -2,
+      projAxisY = -3,
+      projBroken = -4,
+      projSolid = -5;
   final int proj;
 
   /// For a projection of a single POLYLINE EDGE (a rectangle side, M34):

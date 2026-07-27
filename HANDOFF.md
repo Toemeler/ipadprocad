@@ -3871,7 +3871,7 @@ ausserhalb des Skizzenmodus pro Frame laeuft, und ob der 2D-Painter weitere
 O(Geometrie)-Arbeit pro Frame macht (Snap-Suche, Hit-Test-Aufbau). Der
 Cache behebt den groessten Posten, nicht zwangslaeufig alle.
 
-## M76 (GEPLANT) — Project Geometry, recherchierte Inventor-Semantik
+## M76 — Project Geometry aus 3D (IMPLEMENTIERT)
 
 Recherche steht, Implementierung NICHT begonnen. Diese Notiz existiert, damit
 die naechste Session nicht nochmal recherchieren muss und nicht das Falsche
@@ -3940,3 +3940,60 @@ Fundament verstaerkt.
 erzeugt dort also 440 Referenzkurven in der Skizze. Vor diesem Schritt MUSS
 die Painter-Instrumentierung aus M75 stehen, sonst ist der naechste
 Stotter-Bericht wieder nicht zuzuordnen.
+
+
+## M76 — Umsetzung: 3D-Kanten in die Skizze projizieren
+
+Gebaut auf dem vorhandenen Projektionsmodell (M32-M34, Layer zu Layer), nicht
+daneben. Es gab bereits `Geo.proj` / `projSeg`, `syncProjections()` und
+`_withProjectionPins()` — letzteres fixiert JEDE Projektion fuer den Solver
+und gilt damit automatisch auch fuer die neuen.
+
+**KEINE Auto-Projektion.** Bewusst gegen Inventors Vorgabe entschieden: nur
+der Center Point wird weiter automatisch projiziert, alles andere manuell.
+Der Nutzer will kontrollieren, was projiziert wird — und eine Zahnradflaeche
+haette sonst ~440 Referenzkurven auf einmal erzeugt.
+
+**Neu:** `Geo.projSolid` (-5). `projSeg` traegt den Index in
+`partEdges(part, frame)` — Features in Baumreihenfolge, darin Kantenindex.
+Diese Reihenfolge IST die Identitaet, deshalb ist sie deterministisch
+definiert und wird nie stillschweigend umgehaengt.
+
+**Warum die Nachfuehrung nicht im Solver liegt:** `syncProjections()` sieht
+nur `List<Geo>`, die Quelle einer 3D-Projektion braucht aber PartModel und
+Ebene. `syncSolidProjections()` sitzt darum in part_model.dart und wird nach
+jedem `recomputeAllFeatures()` aufgerufen; der Solver ueberspringt
+`projSolid` explizit.
+
+**Waise:** Quellkante weg -> `projBroken`, Kurve friert an Ort und Stelle ein,
+statt zu verschwinden. Genau Inventors Verhalten (Referenz ohne Parent wird zu
+festen Kurven, Constraints bleiben). Per Test festgehalten.
+
+**Verdeckte Kanten** sind kein Sonderfall: orthogonal projiziert zaehlt
+Sichtbarkeit geometrisch nicht. Sie sind projizierbar wie sichtbare.
+
+**UI:** Bei aktivem Project-Werkzeug werden alle projizierbaren Modellkanten
+schwach gezeichnet, die unter dem Cursor hervorgehoben (`hoverSolidEdge`).
+Reihenfolge beim Tippen: Skizzengeometrie zuerst, Modellkante nur wenn nichts
+in der Skizze naeher liegt — so bleibt Layer-zu-Layer unveraendert. Die
+Kantenliste ist ueber Ebene + Feature-Mesh-Identitaeten gecacht, damit die
+Hover-Abfrage nicht pro Frame ~440 Kanten neu flacht (die Lektion aus M75).
+
+**Tests** `m76_project_3d_test.dart` (9): Aufzaehlung inkl. unsichtbarer/
+konsumierter Features, Line vs. offene Polyline, bewegte Quelle zieht die
+Projektion mit, unveraendertes Modell meldet keine Aenderung, Waise friert
+ein statt zu verschwinden, normale Geometrie bleibt unangetastet, Picking mit
+Toleranz. analyze 0 errors, **465 Tests gruen**.
+
+**Ehrliche Grenzen.**
+- Kanten werden als Linie/Polylinie projiziert, nicht als Bogen oder Spline.
+  Fuer Referenzgeometrie ist das korrekt genug (sie wird nie editiert), aber
+  ein projizierter Kreis ist damit ein feines Polygon statt eines echten
+  Kreises — Bemassung darauf misst Sehnen, nicht den Radius. Wer das braucht:
+  `edgeCurves` (16 Doubles je Kante, Shim v4) traegt bereits Typ und
+  Parameter, damit liesse sich ein echter Bogen rekonstruieren.
+- `syncSolidProjections` mutiert die Geometrieliste direkt, wie
+  `syncProjections` es tut; die Engine sieht es beim naechsten Solve dieser
+  Skizze. Auf dem Geraet pruefen, ob eine geoeffnete Skizze sofort nachzieht,
+  wenn man das Elternfeature aendert.
+- Nur auf Host-Ebene getestet, **Geraete-Test offen**.
