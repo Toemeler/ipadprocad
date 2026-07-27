@@ -3834,3 +3834,39 @@ Dreimal in dieser Session von CI gefangen, nie lokal feststellbar:
 iOS-Verfuegbarkeit neuer RealityKit-APIs. `TextureResource.generate` (15+),
 `faceCulling` (**18+**, nicht 15). Bei jeder neuen RealityKit-API zuerst die
 Mindestversion nachschlagen.
+
+## M75 — Das Stocken im Skizzenmodus war NIE der Kernel
+
+Drei Runden lang (M64/M66/M68) habe ich die 3D-Vernetzung optimiert. Das war
+alles fuer sich richtig, aber es hat das gemeldete Problem nicht beruehrt.
+Der Beweis steht im Log von build 9852b09: zwischen 20:25:31 (Skizze
+angelegt) und 20:25:37 (Kreis fertig) gibt es **keine einzige** `perf:
+remesh`-Zeile. Der M68-Guard wirkt, waehrend des Zeichnens vernetzt nichts.
+
+**Die echte Ursache.** M59 zeichnet waehrend des Skizzierens das Modell als
+Unterlage in den 2D-Painter (`paintPartUnderlay`). Darunter laeuft
+`buildSceneSolid`, und das
+
+- allokiert **ein `SceneTri` pro Dreieck** — 34 236 bei einem Zahnrad
+- scannt zusaetzlich alle ~105 000 Positionswerte fuer `maxAbs`
+
+und zwar bei **jedem `paint()`**, also jedem Frame, solange die Skizze offen
+ist. Das ist das Stocken. Es waechst linear mit dem Modell — deshalb war
+"hunderte Zahnraeder" mit dieser Architektur ausgeschlossen.
+
+**Fix.** Die Unterlage haengt nur von den Solids und der Ansichtstransformation
+ab, und beim Zeichnen bewegt sich keins von beidem. `_UnderlayCache`
+rasterisiert sie einmal in eine `ui.Picture` und blittet danach nur noch.
+Schluessel: Groesse, Pan, Zoom, Skizzenebene und die Mesh-Identitaeten.
+
+**Lehre fuers naechste Mal.** Ich habe dreimal die Ebene optimiert, die ich
+schon vermessen hatte, statt die zu messen, ueber die berichtet wurde. Der
+`perf`-Kanal deckt bis heute nur den Remesh ab. **Vor der naechsten
+Performance-Aenderung: `paint()` und den Drag-Handler instrumentieren**, sonst
+wiederholt sich das. Der unerklaerte 200-ms-Drag aus dem 39555ac-Log ist
+sehr wahrscheinlich dieselbe Ursache.
+
+**Noch nicht geprueft, aber verdaechtig:** ob `paintPartUnderlay` auch
+ausserhalb des Skizzenmodus pro Frame laeuft, und ob der 2D-Painter weitere
+O(Geometrie)-Arbeit pro Frame macht (Snap-Suche, Hit-Test-Aufbau). Der
+Cache behebt den groessten Posten, nicht zwangslaeufig alle.

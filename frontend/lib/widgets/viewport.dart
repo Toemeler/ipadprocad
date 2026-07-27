@@ -26,7 +26,7 @@ import '../diag.dart';
 import '../log.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
-import '../part_model.dart' show ChildSketch, sketchFrameOf;
+import '../part_model.dart' show ChildSketch, sketchFrameOf, KernelSolid, PlaneFrame;
 import '../part_render.dart' show paintPartUnderlay;
 import 'package:native_menu/native_menu.dart';
 
@@ -1520,7 +1520,58 @@ class _Viewport2DState extends State<Viewport2D> {
 
 bool _overlayErrorLogged = false;
 
+/// Rasterises the sketch-mode model underlay once and reuses it until the
+/// solids or the view transform actually change.
+class _UnderlayCache {
+  ui.Picture? _pic;
+  String? _key;
+
+  void paint(Canvas canvas, Size size, List<KernelSolid> solids, PlaneFrame fr,
+      Offset pan, double zoom) {
+    final k = StringBuffer()
+      ..write(size.width)
+      ..write('x')
+      ..write(size.height)
+      ..write('|')
+      ..write(pan.dx)
+      ..write(',')
+      ..write(pan.dy)
+      ..write('@')
+      ..write(zoom)
+      ..write('|')
+      ..write(fr.key)
+      ..write(fr.origin.x)
+      ..write(',')
+      ..write(fr.origin.y)
+      ..write(',')
+      ..write(fr.origin.z)
+      ..write(',')
+      ..write(fr.n.x)
+      ..write(',')
+      ..write(fr.n.y)
+      ..write(',')
+      ..write(fr.n.z)
+      ..write('|');
+    for (final s in solids) {
+      k
+        ..write(identityHashCode(s.mesh))
+        ..write(';');
+    }
+    final key = k.toString();
+    if (key != _key || _pic == null) {
+      final rec = ui.PictureRecorder();
+      paintPartUnderlay(
+          Canvas(rec, Offset.zero & size), size, solids, fr, pan, zoom);
+      _pic?.dispose();
+      _pic = rec.endRecording();
+      _key = key;
+    }
+    canvas.drawPicture(_pic!);
+  }
+}
+
 class _ViewportPainter extends CustomPainter {
+  static final _underlay = _UnderlayCache();
   final AppState app;
   final bool projCpSelected;
 
@@ -1560,8 +1611,16 @@ class _ViewportPainter extends CustomPainter {
             if (f.visible && f.solid != null && !f.consumedByJoin) f.solid!
         ];
         if (solids.isNotEmpty) {
-          paintPartUnderlay(
-              canvas, size, solids, sketchFrameOf(cs59), app.pan, app.zoom);
+          // CACHED. buildSceneSolid allocates one SceneTri PER TRIANGLE and
+          // rescans every position for maxAbs, so a single extruded gear cost
+          // 34 236 allocations plus a 105 000-value scan — on EVERY paint,
+          // i.e. every frame while sketching. That was the stutter, and it
+          // grows linearly with the model, which is why more geometry made it
+          // hopeless. The underlay only depends on the solids and the view
+          // transform, and while drawing neither moves, so it is rasterised
+          // once into a Picture and blitted afterwards.
+          _underlay.paint(canvas, size, solids, sketchFrameOf(cs59), app.pan,
+              app.zoom);
           canvas.drawRect(Offset.zero & size,
               Paint()..color = T.viewport.withOpacity(0.55));
         }
