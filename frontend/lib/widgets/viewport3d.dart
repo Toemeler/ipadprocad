@@ -25,7 +25,10 @@ import '../reality_scene.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
 
-const double _ext = 10; // origin half-extent (20mm planes/axes), like the mock
+// M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
+// the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
+// survives only as the empty-part default, which lives there as
+// kOriginExtentDefault; nothing in this file should size geometry with it.
 const _orange = Color(0xFFEA9E5C);
 const _orangeEdge = Color(0xE6F0A868);
 const _green = Color(0xFF39D65B);
@@ -592,7 +595,9 @@ class _Viewport3DState extends State<Viewport3D> {
         ('z', const Vec3(0, 0, 1))
       ]) {
         if (p.vis[e.$1] != true) continue;
-        final a = cam.project(e.$2 * -_ext), b = cam.project(e.$2 * _ext);
+        // M83: same span the renderer draws — see _axisEnds.
+        final (al, ah) = originAxisSpan(p, e.$2);
+        final a = cam.project(e.$2 * al), b = cam.project(e.$2 * ah);
         if (_distToSeg(px, a, b) < pickPx) return e.$1;
       }
     }
@@ -610,7 +615,10 @@ class _Viewport3DState extends State<Viewport3D> {
       final w = cam.rayOnPlane(px, f.n);
       if (w == null) continue;
       final uu = w.dot(f.u), vv = w.dot(f.v);
-      if (uu.abs() <= _ext && vv.abs() <= _ext) {
+      // M83: the picked rectangle is the DRAWN rectangle. Both come from
+      // originPlaneRect, so a plane is never clickable off its own edge.
+      final (uMin, uMax, vMin, vMax) = originPlaneRect(p, key);
+      if (uu >= uMin && uu <= uMax && vv >= vMin && vv <= vMax) {
         final d = cam.depth(w);
         if (d < bestD) {
           bestD = d;
@@ -868,11 +876,14 @@ class _ScenePainter extends CustomPainter {
           part.vis[key] == true || (app.pickPlane && !part.hasSolid);
       if (!visible) continue;
       final f = planeFrame(key);
+      // M83: the plane's own padded rectangle around the part, NOT a fixed
+      // square. Same function the RealityKit payload and the hit-test use.
+      final (uMin, uMax, vMin, vMax) = originPlaneRect(part, key);
       final corners = [
-        f.toWorld(const Offset(-_ext, -_ext)),
-        f.toWorld(const Offset(_ext, -_ext)),
-        f.toWorld(const Offset(_ext, _ext)),
-        f.toWorld(const Offset(-_ext, _ext)),
+        f.toWorld(Offset(uMin, vMin)),
+        f.toWorld(Offset(uMax, vMin)),
+        f.toWorld(Offset(uMax, vMax)),
+        f.toWorld(Offset(uMin, vMax)),
       ];
       final hot = hover == key;
       // The construction plane fill is a real 3D surface: it is occluded by
@@ -904,8 +915,8 @@ class _ScenePainter extends CustomPainter {
         }
         canvas.drawCircle(cam.project(Vec3.zero), 4,
             Paint()..color = const Color(0xFFFFE07A));
-        final p0 = cam.project(f.toWorld(Offset(-_ext + 0.6, -_ext + 1.4)));
-        final p1 = cam.project(f.toWorld(Offset(-_ext + 4.6, -_ext + 1.4)));
+        final p0 = cam.project(f.toWorld(Offset(uMin + 0.6, vMin + 1.4)));
+        final p1 = cam.project(f.toWorld(Offset(uMin + 4.6, vMin + 1.4)));
         final ang = math.atan2(p1.dy - p0.dy, p1.dx - p0.dx);
         canvas.save();
         canvas.translate(p0.dx, p0.dy);
@@ -929,7 +940,8 @@ class _ScenePainter extends CustomPainter {
     ]) {
       if (part.vis[e.$1] != true) continue;
       final hot = hover == e.$1;
-      final a = cam.project(e.$2 * -_ext), b = cam.project(e.$2 * _ext);
+      final (al, ah) = originAxisSpan(part, e.$2);
+      final a = cam.project(e.$2 * al), b = cam.project(e.$2 * ah);
       canvas.drawLine(
           a,
           b,
@@ -1063,19 +1075,22 @@ class _OverlayPainter extends CustomPainter {
     // ---- hovered origin plane: corner rings + centre dot + name label ----
     if (hover != null && kPlaneKeys.contains(hover)) {
       final f = planeFrame(hover!);
+      // M83: the plane's own padded rectangle around the part, NOT a fixed
+      // square. Same function the RealityKit payload and the hit-test use.
+      final (uMin, uMax, vMin, vMax) = originPlaneRect(part, hover!);
       final corners = [
-        f.toWorld(const Offset(-_ext, -_ext)),
-        f.toWorld(const Offset(_ext, -_ext)),
-        f.toWorld(const Offset(_ext, _ext)),
-        f.toWorld(const Offset(-_ext, _ext)),
+        f.toWorld(Offset(uMin, vMin)),
+        f.toWorld(Offset(uMax, vMin)),
+        f.toWorld(Offset(uMax, vMax)),
+        f.toWorld(Offset(uMin, vMax)),
       ];
       for (final c in corners) {
         canvas.drawCircle(cam.project(c), 6, ring);
       }
       canvas.drawCircle(
           cam.project(Vec3.zero), 4, Paint()..color = const Color(0xFFFFE07A));
-      final p0 = cam.project(f.toWorld(const Offset(-_ext + 0.6, -_ext + 1.4)));
-      final p1 = cam.project(f.toWorld(const Offset(-_ext + 4.6, -_ext + 1.4)));
+      final p0 = cam.project(f.toWorld(Offset(uMin + 0.6, vMin + 1.4)));
+      final p1 = cam.project(f.toWorld(Offset(uMin + 4.6, vMin + 1.4)));
       final ang = math.atan2(p1.dy - p0.dy, p1.dx - p0.dx);
       canvas.save();
       canvas.translate(p0.dx, p0.dy);
@@ -1097,9 +1112,10 @@ class _OverlayPainter extends CustomPainter {
       ('z', const Vec3(0, 0, 1))
     ]) {
       if (part.vis[e.$1] != true || hover != e.$1) continue;
+      final (al, ah) = originAxisSpan(part, e.$2);
       for (final p in [
-        cam.project(e.$2 * -_ext),
-        cam.project(e.$2 * _ext),
+        cam.project(e.$2 * al),
+        cam.project(e.$2 * ah),
       ]) {
         canvas.drawCircle(p, 6, ring);
       }

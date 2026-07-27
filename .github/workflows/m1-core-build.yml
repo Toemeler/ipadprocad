@@ -823,10 +823,22 @@ jobs:
           # which is precisely the failure this repo refuses to accept.
           # The channel name is a Swift string LITERAL; on the Dart side it is
           # built by interpolation ('$_channelName/thumb') and never appears
-          # whole, so a hit here proves the Swift half is really in the binary.
-          THUMB="$(strings "$APP/Runner" | grep -c "prototype/reality_view/thumb" || true)"
+          # whole, so a hit proves the Swift half is really in the bundle.
+          #
+          # WHERE TO LOOK — verified empirically on the IPA of run 30309544477,
+          # do not "simplify" this to Runner alone: the in-repo plugin pods
+          # declare no `static_framework`, so CocoaPods delivers them as DYNAMIC
+          # frameworks and NONE of their Swift literals are in the Runner binary
+          # ("prototype/reality_view": 0 hits in Runner, 2 in
+          # Frameworks/reality_view.framework/reality_view). The first version of
+          # this gate grepped Runner and failed a build whose feature was
+          # perfectly fine. Both binaries are scanned so the check keeps working
+          # if the pod is ever made static.
+          RVFW="$APP/Frameworks/reality_view.framework/reality_view"
+          THUMB="$( { strings -a "$APP/Runner"; [ -f "$RVFW" ] && strings -a "$RVFW"; } \
+            | grep -c "prototype/reality_view/thumb" || true)"
           if [ "${THUMB:-0}" -gt 0 ]; then
-            echo "THUMB CHANNEL CHECK: PASS (off-screen still renderer registered in Runner)"
+            echo "THUMB CHANNEL CHECK: PASS (off-screen still renderer present in bundle)"
           else
             echo "THUMB CHANNEL CHECK: FAIL (thumb channel missing — previews would silently stay on the CPU painter)"; exit 1
           fi

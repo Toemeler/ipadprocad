@@ -975,6 +975,11 @@ class PartModel {
     'cp': false,
   };
   final PartCamera camera = PartCamera();
+
+  /// Memo for [partContentBounds] (M83). Not serialised, not part of the
+  /// document — a pure cache, rebuilt on demand.
+  String? extentSig;
+  (Vec3, Vec3)? extentCache;
   int featureN = 0, solidN = 0;
   bool dirty = false;
 
@@ -2270,4 +2275,179 @@ double _segDist(Offset p, Offset a, Offset b) {
   var t = ((p.dx - a.dx) * vx + (p.dy - a.dy) * vy) / len2;
   t = t.clamp(0.0, 1.0);
   return (p - Offset(a.dx + vx * t, a.dy + vy * t)).distance;
+}
+
+// ===========================================================================
+// Origin plane / axis extent (M83)
+// ===========================================================================
+//
+// The origin planes used to be fixed 20x20 mm squares (a single half-extent of
+// 10, "like the mock"). That is only ever right by accident: on a 200 mm
+// bracket the planes disappear inside the part, on a 2 mm pin they swamp it.
+// They now FRAME the geometry — each plane's width and height are the part's
+// extent along that plane's own u and v axes, plus a little padding.
+//
+// ONE source of truth on purpose: the RealityKit payload, the CPU painter and
+// the plane HIT-TEST all read these functions. If picking used a different
+// rectangle than the renderer draws, a plane would be clickable where it is
+// not visible (and vice versa) — the exact class of bug the two-renderer split
+// keeps producing.
+
+/// Half-extent used when a part has no geometry at all — a fresh part, where
+/// the planes are the only thing on screen and are what you pick to start the
+/// first sketch. Unchanged from the original fixed size, so an empty part
+/// looks exactly as before.
+const double kOriginExtentDefault = 10;
+
+/// Padding around the content: a fraction of the extent, never less than
+/// [kOriginExtentPadMin] mm. Proportional so the border reads the same at any
+/// part size; floored so a flat or tiny part still gets a visible margin.
+const double kOriginExtentPadFrac = 0.12;
+const double kOriginExtentPadMin = 1.5;
+
+/// Axis-aligned world bounds of everything drawable in [p] — solid meshes plus
+/// visible sketch curves — or null when the part holds nothing yet.
+///
+/// Sketches count: on a fresh part the first sketch exists BEFORE any solid,
+/// and a plane that did not grow with it would be the one thing on screen that
+/// ignores the drawing on it.
+(Vec3, Vec3)? partContentBounds(PartModel p) {
+  // MEMOISED. This is called per plane by the painter, per plane by the
+  // hit-test on every pointer move, and again when the RealityKit payload is
+  // built — and it tessellates sketch curves, which is exactly the funnel M63
+  // had to memoise for the gear. The signature below is cheap (it reads the
+  // stored numbers, never the tessellation), so the walk happens once per
+  // actual geometry change instead of several times per frame.
+  final sig = _contentSignature(p);
+  if (p.extentSig == sig) return p.extentCache;
+  final b = _partContentBounds(p);
+  p.extentSig = sig;
+  p.extentCache = b;
+  return b;
+}
+
+/// Cheap digest of everything [partContentBounds] reads. Solids travel by mesh
+/// identity (a re-tessellation replaces the object); sketch geometry by its
+/// stored parameters, so dragging a curve invalidates immediately.
+String _contentSignature(PartModel p) {
+  final b = StringBuffer();
+  for (final f in p.features) {
+    if (!f.visible || f.consumedByJoin) continue;
+    final m = f.solid?.mesh;
+    if (m == null) continue;
+    b.write('s${identityHashCode(m)};');
+  }
+  for (final cs in p.childSketches) {
+    if (!cs.visible) continue;
+    b.write('k${cs.plane}${identityHashCode(cs.face)}:');
+    for (final g in cs.model.geometry) {
+      if (cs.model.hiddenLayers.contains(g.layer)) continue;
+      b.write(g.type.index);
+      for (final d in g.data) {
+        b.write(',');
+        b.write(d);
+      }
+      b.write(';');
+    }
+  }
+  return b.toString();
+}
+
+(Vec3, Vec3)? _partContentBounds(PartModel p) {
+  var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
+  var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
+  var any = false;
+  void add(double x, double y, double z) {
+    if (!x.isFinite || !y.isFinite || !z.isFinite) return;
+    any = true;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+
+  for (final f in p.features) {
+    if (!f.visible || f.consumedByJoin) continue;
+    final pos = f.solid?.mesh.positions;
+    if (pos == null) continue;
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      add(pos[i], pos[i + 1], pos[i + 2]);
+    }
+  }
+  for (final cs in p.childSketches) {
+    if (!cs.visible) continue;
+    final fr = sketchFrameOf(cs);
+    for (final g in cs.model.geometry) {
+      if (cs.model.hiddenLayers.contains(g.layer)) continue;
+      for (final q in sketchCurve(g)) {
+        final w = fr.toWorld(q);
+        add(w.x, w.y, w.z);
+      }
+    }
+  }
+  if (!any) return null;
+  return (Vec3(minX, minY, minZ), Vec3(maxX, maxY, maxZ));
+}
+
+/// Padded world bounds, with the ORIGIN always inside.
+///
+/// Including the origin costs nothing for the normal case (parts are modelled
+/// around it) and prevents the degenerate one: a part modelled far off-origin
+/// would otherwise push its own origin planes off into the distance, away from
+/// the origin axes and centre point that are supposed to lie ON them.
+(Vec3, Vec3) originExtentBounds(PartModel p) {
+  final b = partContentBounds(p);
+  if (b == null) {
+    const d = kOriginExtentDefault;
+    return (const Vec3(-d, -d, -d), const Vec3(d, d, d));
+  }
+  final (lo, hi) = b;
+  double padOf(double a, double c) =>
+      math.max(kOriginExtentPadMin, (c - a).abs() * kOriginExtentPadFrac);
+  final px = padOf(lo.x, hi.x), py = padOf(lo.y, hi.y), pz = padOf(lo.z, hi.z);
+  return (
+    Vec3(math.min(lo.x, 0) - px, math.min(lo.y, 0) - py, math.min(lo.z, 0) - pz),
+    Vec3(math.max(hi.x, 0) + px, math.max(hi.y, 0) + py, math.max(hi.z, 0) + pz),
+  );
+}
+
+/// The rectangle origin plane [key] should occupy, in ITS OWN (u, v)
+/// coordinates: (uMin, uMax, vMin, vMax).
+///
+/// Asymmetric on purpose. A part sketched from the origin outwards spans
+/// x in [0, 60]; a symmetric half-extent would draw a 120 mm plane for a 60 mm
+/// part. Projecting the world box onto the frame's own axes gives the plane
+/// the part's width and height, which is what was asked for.
+(double, double, double, double) originPlaneRect(PartModel p, String key) {
+  final (lo, hi) = originExtentBounds(p);
+  final f = planeFrame(key);
+  // The frame axes are signed unit world axes, so projecting the two box
+  // corners and ordering the result is exact — no need to test all eight.
+  double along(Vec3 axis, bool wantMax) {
+    final x = axis.x >= 0 == wantMax ? hi.x : lo.x;
+    final y = axis.y >= 0 == wantMax ? hi.y : lo.y;
+    final z = axis.z >= 0 == wantMax ? hi.z : lo.z;
+    return Vec3(x, y, z).dot(axis) - f.origin.dot(axis);
+  }
+
+  return (
+    along(f.u, false),
+    along(f.u, true),
+    along(f.v, false),
+    along(f.v, true)
+  );
+}
+
+/// How far origin axis [dir] should reach: (lo, hi) along the axis, so the
+/// axes span the same box the planes do instead of poking out of them (or
+/// vanishing inside a large part).
+(double, double) originAxisSpan(PartModel p, Vec3 dir) {
+  final (lo, hi) = originExtentBounds(p);
+  final a = Vec3(dir.x >= 0 ? lo.x : hi.x, dir.y >= 0 ? lo.y : hi.y,
+      dir.z >= 0 ? lo.z : hi.z);
+  final b = Vec3(dir.x >= 0 ? hi.x : lo.x, dir.y >= 0 ? hi.y : lo.y,
+      dir.z >= 0 ? hi.z : lo.z);
+  return (a.dot(dir), b.dot(dir));
 }

@@ -16,6 +16,80 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **CI-FALLE (M82-Nachtrag, teuer gelernt): Plugin-Swift steckt NICHT im
+> Runner-Binary.** Das neue Gate `THUMB CHANNEL CHECK` hat den Build rot gemacht
+> — zu Recht in der Form, aber aus dem falschen Grund: gegrept wurde
+> `strings $APP/Runner`, und die In-Repo-Pods deklarieren kein
+> `static_framework`, also liefert CocoaPods sie als DYNAMISCHE Frameworks. Am
+> IPA von Lauf 30309544477 nachgemessen: `"prototype/reality_view"` kommt im
+> Runner **0x** vor und in `Frameworks/reality_view.framework/reality_view`
+> **2x**. Das Feature war in Ordnung, das Gate war falsch. Es scannt jetzt
+> beide Binaries (bleibt damit gueltig, falls der Pod je statisch wird). Wer
+> kuenftig eine native Flaeche absichert: **erst nachsehen, wo das Literal
+> landet** — `otool -L Runner | grep RealityKit` trifft weiterhin, weil die
+> Framework-Verlinkung an die App-Target durchschlaegt, die Swift-STRINGS aber
+> nicht.
+
+> **M83 — Ursprungs-Ebenen und -Achsen RAHMEN das Teil.** Bisher waren sie ein
+> fester 20x20-mm-Quadrat (`_ext = 10`, "wie im Mock"). Das stimmt nur zufaellig:
+> an einem 200-mm-Winkel verschwinden die Ebenen im Bauteil, an einem 2-mm-Stift
+> ersaufen sie es. Jetzt hat jede Ebene die **Breite und Hoehe des Teils entlang
+> ihrer EIGENEN u/v-Achsen**, plus etwas Rand.
+>
+> **Asymmetrisch, mit Absicht.** Ein von der Null aus gezeichnetes Teil belegt
+> x in [0, 60]; ein symmetrisches Halb-Mass wuerde daraus eine 120-mm-Ebene fuer
+> ein 60-mm-Teil machen. `originPlaneRect(part, key)` projiziert die gepolsterte
+> Welt-Box auf die Achsen des jeweiligen Frames und liefert
+> `(uMin, uMax, vMin, vMax)` — die Ebene ist damit wirklich so breit wie das
+> Teil. Rand = 12 % der Ausdehnung, mindestens 1.5 mm (proportional, damit er
+> bei jeder Teilegroesse gleich aussieht; mit Untergrenze, damit ein flaches
+> Teil trotzdem einen sichtbaren Rand bekommt).
+>
+> **Zwei bewusste Entscheidungen (bitte gegenlesen):** (1) **Der Ursprung liegt
+> immer drin.** Kostet im Normalfall nichts (Teile werden um die Null modelliert)
+> und verhindert den entarteten Fall, dass ein weit ausserhalb modelliertes Teil
+> seine eigenen Ursprungsebenen von den Achsen und dem Center Point wegzieht, die
+> auf ihnen liegen sollen. (2) **Skizzen zaehlen als Inhalt**, nicht nur Solids —
+> auf einem frischen Teil existiert die erste Skizze VOR jedem Solid, und eine
+> Ebene, die nicht mit ihr mitwaechst, waere das einzige auf dem Schirm, das die
+> Zeichnung auf ihr ignoriert. Ein leeres Teil faellt auf die alte feste Groesse
+> zurueck (`kOriginExtentDefault = 10`), also ist der Erst-Eindruck unveraendert.
+> **Die Achsen spannen dieselbe Box** (`originAxisSpan`), sonst staeche die Triade
+> aus einer kleinen Ebene heraus bzw. verschwaende in einem grossen Teil.
+>
+> **EINE Quelle der Wahrheit.** `originPlaneRect`/`originAxisSpan` in
+> `part_model.dart` speisen den RealityKit-Payload, den CPU-Painter UND den
+> **Hit-Test**. Das ist kein Stil-Punkt: pickte der Test ein anderes Rechteck als
+> gezeichnet wird, waere eine Ebene neben ihrer sichtbaren Kante anklickbar — die
+> Fehlerklasse, die der Zwei-Renderer-Split immer wieder produziert. `_ext` ist
+> aus `viewport3d.dart` verschwunden.
+>
+> **Perf.** `partContentBounds` liegt auf dem Pfad JEDES Frames und jeder
+> Zeigerbewegung (drei Ebenen im Painter, drei im Hit-Test) und tesselliert
+> Skizzenkurven — genau der Trichter, den M63 fuer das Zahnrad memoisieren
+> musste. Daher Memo auf einer billigen Signatur (Mesh-Identitaet je Solid,
+> gespeicherte Parameter je Skizzen-Geo — nie die Tessellierung), Cache auf dem
+> PartModel. Der Walk laeuft einmal pro echter Aenderung statt mehrfach pro Frame.
+>
+> **Wire-Format:** Ebenen tragen jetzt `uMin/uMax/vMin/vMax`, Achsen `lo/hi`.
+> `ext` bleibt als groesstes Halb-Mass zusaetzlich drin, damit ein aelterer
+> nativer Build degradiert statt zu brechen (Swift faellt bei fehlenden Keys auf
+> das symmetrische Quadrat zurueck).
+>
+> **Neu/berührt:** `part_model.dart` (Extent-Mathematik + Memo + Cache-Felder auf
+> PartModel), `reality_scene.dart` (`_planePayloads`/`_axisPayloads`),
+> `packages/reality_view/ios/Classes/PartScene.swift` (PlaneEntity/AxisEntity),
+> `widgets/viewport3d.dart` (Painter, Overlay-Painter, Hit-Test; `_ext` entfernt),
+> neuer Test `test/m83_origin_extent_test.dart`.
+>
+> **Verifikationsstand:** wieder BLIND geschrieben — in dieser Session gibt es
+> weder Flutter/Dart noch Swift. Was `dart-checks` sagt, steht im CI-Log des
+> Pushes; die Swift-Aenderung prueft erst `m5-flutter-ipa`, und wie es AUSSIEHT
+> kann nur das Geraet sagen. **Offen fuer die naechste Runde:** ob 12 % Rand am
+> Geraet richtig wirken; ob die Ebene beim Skizzieren mitwachsen soll (heute ja,
+> weil Skizzen als Inhalt zaehlen — das kann waehrend des Zeichnens unruhig
+> aussehen und ist der wahrscheinlichste Punkt, den man zuruecknehmen will).
+
 > **M82 — Die Vorschau kommt jetzt aus DERSELBEN Engine wie der 3D-Modus, und
 > immer aus der Ecke oben-vorne-rechts.** Bisher zeichnete die Galerie-/
 > Kontextmenue-Vorschau der CPU-Painter (`paintPartSolids`), waehrend der Live-

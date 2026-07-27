@@ -368,12 +368,19 @@ final class PlaneEntity {
         let v = SIMD3<Float>(Float(frame[3]), Float(frame[4]), Float(frame[5]))
         normal = SIMD3<Float>(Float(frame[6]), Float(frame[7]), Float(frame[8]))
         let origin = Payload.vec3(p["origin"]) ?? SIMD3<Float>(0, 0, 0)
+        // M83: the plane frames the part, so its (u,v) rectangle is ASYMMETRIC
+        // — width/height are the part's, not a fixed square. `ext` remains the
+        // fallback for a payload from before M83 (symmetric square).
         let ext = Float((p["ext"] as? NSNumber)?.doubleValue ?? 10)
+        let uMin = Float((p["uMin"] as? NSNumber)?.doubleValue ?? Double(-ext))
+        let uMax = Float((p["uMax"] as? NSNumber)?.doubleValue ?? Double(ext))
+        let vMin = Float((p["vMin"] as? NSNumber)?.doubleValue ?? Double(-ext))
+        let vMax = Float((p["vMax"] as? NSNumber)?.doubleValue ?? Double(ext))
         corners = [
-            origin + u * -ext + v * -ext,
-            origin + u * ext + v * -ext,
-            origin + u * ext + v * ext,
-            origin + u * -ext + v * ext,
+            origin + u * uMin + v * vMin,
+            origin + u * uMax + v * vMin,
+            origin + u * uMax + v * vMax,
+            origin + u * uMin + v * vMax,
         ]
         hot = (p["hot"] as? NSNumber)?.boolValue ?? false
         visible = (p["visible"] as? NSNumber)?.boolValue ?? true
@@ -428,20 +435,24 @@ final class PlaneEntity {
 }
 
 // ---------------------------------------------------------------------------
-// Origin axis: a thin tube from -ext to +ext along its direction.
+// Origin axis: a thin tube spanning [lo, hi] along its direction (M83 — the
+// same padded box the planes use; pre-M83 payloads fall back to [-ext, +ext]).
 // ---------------------------------------------------------------------------
 @available(iOS 15.0, *)
 final class AxisEntity {
     let entity = Entity()
     private let dir: SIMD3<Float>
-    private let ext: Float
+    private let lo: Float
+    private let hi: Float
     private var hot = false
     private var visible = true
 
     init?(payload a: [String: Any]) {
         guard let d = Payload.vec3(a["dir"]) else { return nil }
         dir = d
-        ext = Float((a["ext"] as? NSNumber)?.doubleValue ?? 10)
+        let ext = Float((a["ext"] as? NSNumber)?.doubleValue ?? 10)
+        lo = Float((a["lo"] as? NSNumber)?.doubleValue ?? Double(-ext))
+        hi = Float((a["hi"] as? NSNumber)?.doubleValue ?? Double(ext))
         hot = (a["hot"] as? NSNumber)?.boolValue ?? false
         visible = (a["visible"] as? NSNumber)?.boolValue ?? true
         build(hot: hot)
@@ -451,7 +462,7 @@ final class AxisEntity {
     private func build(hot: Bool) {
         for c in entity.children.map({ $0 }) { c.removeFromParent() }
         let color = hot ? Colors.green : Colors.orange
-        if let t = TubeBuilder.polyline([dir * -ext, dir * ext], radius: 0.06,
+        if let t = TubeBuilder.polyline([dir * lo, dir * hi], radius: 0.06,
                                         material: Materials.unlit(color)) {
             entity.addChild(t)
         }

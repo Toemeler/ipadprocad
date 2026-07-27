@@ -264,11 +264,21 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
   final out = <Map<String, dynamic>>[];
   for (final key in kPlaneKeys) {
     final f = planeFrame(key);
+    // M83: the plane FRAMES the part — its own (u,v) rectangle, padded, and
+    // asymmetric, so its width/height are the part's width/height. `ext` is
+    // kept alongside as the largest half-extent purely so an older native
+    // build (which reads only `ext`) still draws something sane.
+    final (uMin, uMax, vMin, vMax) = originPlaneRect(p, key);
     out.add({
       'key': key,
       'frame': _frame9(f),
       'origin': [f.origin.x, f.origin.y, f.origin.z],
-      'ext': 10.0,
+      'uMin': uMin,
+      'uMax': uMax,
+      'vMin': vMin,
+      'vMax': vMax,
+      'ext': [uMin.abs(), uMax.abs(), vMin.abs(), vMax.abs()]
+          .reduce((a, b) => a > b ? a : b),
       'visible': p.vis[key] == true || (app.pickPlane && !p.hasSolid),
       'hot': hover == key,
     });
@@ -283,16 +293,23 @@ const _axisDirs = <(String, Vec3)>[
 ];
 
 List<Map<String, dynamic>> _axisPayloads(PartModel p, {String? hover}) {
-  return [
-    for (final (key, d) in _axisDirs)
-      {
-        'key': key,
-        'dir': [d.x, d.y, d.z],
-        'ext': 10.0,
-        'visible': p.vis[key] == true,
-        'hot': hover == key,
-      }
-  ];
+  final out = <Map<String, dynamic>>[];
+  for (final (key, d) in _axisDirs) {
+    // M83: axes span the same padded box as the planes, so the triad neither
+    // pokes out of a small plane nor vanishes inside a large part. `ext` stays
+    // as the largest half-length for older native builds.
+    final (lo, hi) = originAxisSpan(p, d);
+    out.add({
+      'key': key,
+      'dir': [d.x, d.y, d.z],
+      'lo': lo,
+      'hi': hi,
+      'ext': hi.abs() > lo.abs() ? hi.abs() : lo.abs(),
+      'visible': p.vis[key] == true,
+      'hot': hover == key,
+    });
+  }
+  return out;
 }
 
 /// ARGB colour a sketch curve is drawn in, matching Viewport2D exactly.
