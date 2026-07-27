@@ -11,6 +11,7 @@ import 'log.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
+import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
@@ -128,7 +129,10 @@ class PrototypeApp extends StatelessWidget {
         // and read as random pan/zoom drift on the device.
         resizeToAvoidBottomInset: false,
         // Apple status bar (time etc.) must not overlap the ribbon.
-        body: AnimatedBuilder(
+        // The perf readout sits above everything and ignores pointers, so it
+        // can never interfere with the canvas it is measuring.
+        body: Stack(children: [
+          AnimatedBuilder(
           animation: app,
           builder: (context, _) {
             // The strip SafeArea reserves for the status bar is painted by
@@ -176,6 +180,8 @@ class PrototypeApp extends StatelessWidget {
             );
           },
         ),
+          PerfOverlay(app: app),
+        ]),
       ),
     );
   }

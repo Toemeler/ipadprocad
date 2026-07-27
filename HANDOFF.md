@@ -3997,3 +3997,48 @@ Toleranz. analyze 0 errors, **465 Tests gruen**.
   Skizze. Auf dem Geraet pruefen, ob eine geoeffnete Skizze sofort nachzieht,
   wenn man das Elternfeature aendert.
 - Nur auf Host-Ebene getestet, **Geraete-Test offen**.
+
+## M77 — Projektionen behalten ihren TYP + Performance-Overlay
+
+**(1) Exakte projizierte Geometrie.** M76 hat jede Kante als Linie/Polylinie
+projiziert; ein projizierter Kreis war damit ein feines Polygon und eine
+Bemassung darauf mass Sehnen. Jetzt wird der analytische Datensatz des Kernels
+benutzt (`edgeCurves`, 16 Doubles je Kante, Shim v4 — war laengst da, nur
+ungenutzt).
+
+Die Mathematik, die man hier NICHT ueberspringen darf: orthografische
+Projektion erhaelt Linien und Kegelschnitte, aber **nicht den Typ**. Ein Kreis
+bleibt nur dann ein Kreis, wenn seine Ebene parallel zur Skizzenebene liegt;
+gekippt ist er eine echte Ellipse, hochkant eine Strecke. `analyticProjectedEdge`
+unterscheidet alle drei.
+
+Und der Teil, den man leicht falsch macht: projiziert man Mittelpunkt und die
+beiden Halbachsenvektoren einzeln, erhaelt man **konjugierte** Halbmesser, NICHT
+die Hauptachsen — die Ellipsen-Grips waeren schief. Rytz' Konstruktion dreht
+sie auf die Hauptachsen: `tan(2t) = 2(X·Y) / (|X|² − |Y|²)`.
+
+Faelle: Linie -> Linie, paralleler Kreis -> Kreis, Teilkreis in Ebene -> Bogen,
+gekippter Kreis -> Ellipse (3 Grips), hochkant -> Strecke, Typ 0 -> Polylinie.
+Eine TEIL-Ellipse hat in diesem Skizzenmodell keine Grip-Form und bleibt
+bewusst Polylinie, statt stillschweigend zur vollen Ellipse geschlossen zu
+werden.
+
+`PartEdge.displayPts` erzeugt Punkte nur fuers Zeichnen und Picken — niemals
+fuer die Entity, die baut `geoForPartEdge` exakt.
+
+**(2) Performance-Overlay** (`widgets/perf_overlay.dart`), unten rechts, grau,
+50 % Deckkraft, `IgnorePointer`. Zeigt fps, **Durchschnitt/SCHLECHTESTE**
+Framezeit im 60-Frame-Fenster, Features/Solids/Dreiecke der Szene sowie
+Entities und Projektionen der Skizze. Faerbt sich nur bei Problemen (gelb ab
+20 ms, rot ab 33 ms).
+
+Bewusst die SCHLECHTESTE Framezeit, nicht nur der Schnitt: ein Mittel von
+16 ms mit einem 200-ms-Aussetzer stottert trotzdem, und genau solche
+Aussetzer suchen wir. Das Overlay zeichnet sich selbst nur mit ~5 Hz neu —
+ein Messinstrument, das pro Frame rebuildet, misst sich selbst mit.
+
+Es existiert wegen M75: drei Runden Performance-Arbeit gingen in die falsche
+Schicht, weil der `perf:`-Logkanal nur den Remesh abdeckt und ein Log keine
+Framezeit waehrend eines Drags zeigen kann.
+
+analyze 0 errors, **472 Tests gruen** (16 in m76_project_3d_test.dart).

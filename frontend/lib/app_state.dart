@@ -4015,18 +4015,31 @@ class AppState extends ChangeNotifier {
         break;
       }
     }
-    if (src == null || src.pts.length < 2) return;
-    final copy = geoForProjectedEdge(src.pts, edgeIndex, lay);
+    if (src == null) return;
+    if (src.kind == ProjKind.polyline && src.pts.length < 2) return;
+    // EXACT form: a projected circle becomes a circle, an arc an arc, a
+    // tilted circle a true ellipse. Only a kernel edge with no analytic
+    // record falls back to a polyline.
+    final copy = geoForPartEdge(src, lay);
     final tags = List<Geo>.of(s.geometry)..add(copy);
     s.engine.setCurrentLayer(lay);
     final d = copy.data;
-    if (copy.type == Geo.line) {
-      s.engine.addLine(d[0], d[1], d[2], d[3]);
-    } else {
-      final n = d[1].toInt();
-      s.engine.addPolyline([
-        for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
-      ], closed: false);
+    switch (copy.type) {
+      case Geo.line:
+        s.engine.addLine(d[0], d[1], d[2], d[3]);
+        break;
+      case Geo.circle:
+        s.engine.addCircle(d[0], d[1], d[2]);
+        break;
+      case Geo.arc:
+        s.engine.addArc(d[0], d[1], d[2], d[3], d[4],
+            reversed: d.length > 5 && d[5] != 0);
+        break;
+      default: // plain polyline OR the 3-vertex ellipse tag
+        final n = d[1].toInt();
+        s.engine.addPolyline([
+          for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
+        ], closed: d[0] != 0);
     }
     _committed(s, tags: tags);
     _solveAndRebuild(s);

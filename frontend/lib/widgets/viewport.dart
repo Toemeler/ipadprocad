@@ -1767,12 +1767,12 @@ class _ViewportPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round
           ..color = T.hover;
         for (final e in app.projectableEdges()) {
-          if (e.pts.length < 2) continue;
-          final path = Path()
-            ..moveTo(map(e.pts[0].dx, e.pts[0].dy).dx,
-                map(e.pts[0].dx, e.pts[0].dy).dy);
-          for (var i = 1; i < e.pts.length; i++) {
-            final q = map(e.pts[i].dx, e.pts[i].dy);
+          final ep = e.displayPts;
+          if (ep.length < 2) continue;
+          final p0 = map(ep[0].dx, ep[0].dy);
+          final path = Path()..moveTo(p0.dx, p0.dy);
+          for (var i = 1; i < ep.length; i++) {
+            final q = map(ep[i].dx, ep[i].dy);
             path.lineTo(q.dx, q.dy);
           }
           canvas.drawPath(path, e.index == hovered ? hot : faint);

@@ -1884,6 +1884,15 @@ ExtrudeFeature? lastSolidFeature(PartModel part) {
 // M76 — projecting 3D model edges into a sketch (Inventor's Project Geometry)
 // ---------------------------------------------------------------------------
 
+/// Analytic form of a projected edge, when the kernel gave us one.
+///
+/// Orthographic projection maps lines to lines and circles/ellipses to
+/// ellipses (occt_capi.h says as much), so an exact projection is always
+/// possible — it is NOT always the same TYPE. A circle only stays a circle
+/// when its plane is parallel to the sketch plane; tilted, it is a genuine
+/// ellipse, and drawing it as a circle would be wrong, not just imprecise.
+enum ProjKind { polyline, line, circle, arc, ellipse }
+
 /// One projectable model edge, already flattened onto a sketch plane.
 class PartEdge {
   /// Index in the part's visible-solid edge list — what `Geo.projSeg` stores
@@ -1892,7 +1901,148 @@ class PartEdge {
 
   /// The edge orthogonally projected onto the sketch plane.
   final List<Offset> pts;
-  const PartEdge(this.index, this.pts);
+
+  /// Exact projected form, or [ProjKind.polyline] when the kernel reported no
+  /// analytic curve (type 0) and the tessellation is all we have.
+  final ProjKind kind;
+
+  /// circle/arc: [c, r]; arc adds [a0, a1]. ellipse: [c, majorVertex,
+  /// minorVertex]. line: [p0, p1]. Meaningless for polyline.
+  final List<Offset> defs;
+  final double radius, a0, a1;
+
+  const PartEdge(this.index, this.pts,
+      {this.kind = ProjKind.polyline,
+      this.defs = const [],
+      this.radius = 0,
+      this.a0 = 0,
+      this.a1 = 0});
+
+  /// Points for DISPLAY and PICKING only. An analytic edge carries no
+  /// tessellation (that is the point of it), so one is generated here — never
+  /// use these to build the sketch entity, [geoForPartEdge] does that exactly.
+  List<Offset> get displayPts {
+    switch (kind) {
+      case ProjKind.polyline:
+        return pts;
+      case ProjKind.line:
+        return defs;
+      case ProjKind.circle:
+        return _sample(defs[0], radius, radius, 0, 2 * math.pi, 0);
+      case ProjKind.arc:
+        var sweep = a1 - a0;
+        while (sweep <= 0) {
+          sweep += 2 * math.pi;
+        }
+        return _sample(defs[0], radius, radius, a0, a0 + sweep, 0);
+      case ProjKind.ellipse:
+        final maj = defs[1] - defs[0], min = defs[2] - defs[0];
+        return _sample(defs[0], maj.distance, min.distance, 0, 2 * math.pi,
+            math.atan2(maj.dy, maj.dx));
+    }
+  }
+
+  static List<Offset> _sample(
+      Offset c, double rx, double ry, double t0, double t1, double rot) {
+    const n = 64;
+    final ca = math.cos(rot), sa = math.sin(rot);
+    return [
+      for (var i = 0; i <= n; i++)
+        () {
+          final t = t0 + (t1 - t0) * i / n;
+          final x = rx * math.cos(t), y = ry * math.sin(t);
+          return Offset(c.dx + x * ca - y * sa, c.dy + x * sa + y * ca);
+        }()
+    ];
+  }
+}
+
+/// Projects the analytic edge record [rec] (16 doubles, occt_capi.h) onto
+/// [fr]. Returns null when the kernel reported type 0 (no analytic form).
+///
+/// The maths: a circle/ellipse is C + X·cos t + Y·sin t. Projecting C, X and Y
+/// individually gives a 2D curve of the same form, but the projected X and Y
+/// are CONJUGATE semi-diameters, not the principal axes — so they cannot be
+/// used as ellipse grips directly. Rytz's construction rotates them onto the
+/// real axes: the extreme of |X·cos t + Y·sin t| sits at
+/// tan(2t) = 2(X·Y) / (|X|² − |Y|²).
+PartEdge? analyticProjectedEdge(
+    int index, List<double> rec, int off, PlaneFrame fr) {
+  final type = rec[off].toInt();
+  Offset proj(int i) =>
+      fr.toSketch(Vec3(rec[off + i], rec[off + i + 1], rec[off + i + 2]));
+  // direction vectors project WITHOUT the origin shift
+  Offset dir(int i) {
+    final o = fr.toSketch(Vec3.zero);
+    return proj(i) - o;
+  }
+
+  if (type == 1) {
+    final a = proj(1), b = proj(4);
+    return PartEdge(index, [a, b], kind: ProjKind.line, defs: [a, b]);
+  }
+  if (type != 2 && type != 3) return null;
+
+  final c = proj(1);
+  final xd = dir(4), yd = dir(7);
+  final double rx, ry, t0, t1;
+  if (type == 2) {
+    rx = ry = rec[off + 10];
+    t0 = rec[off + 11];
+    t1 = rec[off + 12];
+  } else {
+    rx = rec[off + 10];
+    ry = rec[off + 11];
+    t0 = rec[off + 12];
+    t1 = rec[off + 13];
+  }
+  // conjugate semi-diameters in the sketch plane
+  final ax = Offset(xd.dx * rx, xd.dy * rx);
+  final by = Offset(yd.dx * ry, yd.dy * ry);
+  if (ax.distance < 1e-12 && by.distance < 1e-12) return null;
+
+  // Rytz: rotate the conjugate pair onto the principal axes
+  final dot = ax.dx * by.dx + ax.dy * by.dy;
+  final den = ax.distanceSquared - by.distanceSquared;
+  final th = 0.5 * math.atan2(2 * dot, den);
+  Offset at(double t) => Offset(ax.dx * math.cos(t) + by.dx * math.sin(t),
+      ax.dy * math.cos(t) + by.dy * math.sin(t));
+  var p = at(th), q = at(th + math.pi / 2);
+  if (q.distance > p.distance) {
+    final t = p;
+    p = q;
+    q = t;
+  }
+  final full = (t1 - t0).abs() >= 2 * math.pi - 1e-6;
+
+  // Degenerate: the circle is seen EDGE ON and projects to a line segment.
+  if (q.distance < 1e-9) {
+    return PartEdge(index, [c - p, c + p],
+        kind: ProjKind.line, defs: [c - p, c + p]);
+  }
+  // Equal axes -> a true circle (the source plane is parallel to the sketch)
+  if ((p.distance - q.distance).abs() <= 1e-7 * p.distance) {
+    final r = p.distance;
+    if (full) {
+      return PartEdge(index, const [],
+          kind: ProjKind.circle, defs: [c], radius: r);
+    }
+    final s0 = c + Offset(ax.dx * math.cos(t0) + by.dx * math.sin(t0),
+        ax.dy * math.cos(t0) + by.dy * math.sin(t0));
+    final s1 = c + Offset(ax.dx * math.cos(t1) + by.dx * math.sin(t1),
+        ax.dy * math.cos(t1) + by.dy * math.sin(t1));
+    return PartEdge(index, const [],
+        kind: ProjKind.arc,
+        defs: [c],
+        radius: r,
+        a0: math.atan2(s0.dy - c.dy, s0.dx - c.dx),
+        a1: math.atan2(s1.dy - c.dy, s1.dx - c.dx));
+  }
+  // A partial ellipse has no grip form in this sketch model, so it stays a
+  // polyline rather than being silently closed into a full ellipse.
+  if (!full) return null;
+  return PartEdge(index, const [],
+      kind: ProjKind.ellipse, defs: [c, c + p, c + q]);
 }
 
 /// Every B-Rep edge of [part]'s visible solids, projected onto [fr].
@@ -1926,7 +2076,14 @@ List<PartEdge> partEdges(PartModel part, PlaneFrame fr) {
         poly.add(fr.toSketch(
             Vec3(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2])));
       }
-      out.add(PartEdge(idx, poly));
+      // Prefer the kernel's ANALYTIC record: a projected circle should be a
+      // real circle, not a fine polygon that dimensions as chords.
+      PartEdge? exact;
+      final cur = m.edgeCurves;
+      if ((e + 1) * 16 <= cur.length) {
+        exact = analyticProjectedEdge(idx, cur, e * 16, fr);
+      }
+      out.add(exact ?? PartEdge(idx, poly));
       idx++;
     }
   }
@@ -1954,6 +2111,42 @@ Geo geoForProjectedEdge(List<Offset> pts, int edgeIndex, String layer) {
       projSeg: edgeIndex);
 }
 
+/// The sketch entity for a projected edge, using its EXACT form where the
+/// kernel gave one: a circle projects as a circle, an arc as an arc, a tilted
+/// circle as a true ellipse (Inventor's grips: centre, major, minor vertex).
+/// Only a type-0 edge, or a partial ellipse the sketch model cannot express,
+/// falls back to the tessellated polyline.
+Geo geoForPartEdge(PartEdge e, String layer) {
+  switch (e.kind) {
+    case ProjKind.line:
+      return Geo(Geo.line,
+          [e.defs[0].dx, e.defs[0].dy, e.defs[1].dx, e.defs[1].dy],
+          layer: layer, proj: Geo.projSolid, projSeg: e.index);
+    case ProjKind.circle:
+      return Geo(Geo.circle, [e.defs[0].dx, e.defs[0].dy, e.radius],
+          layer: layer, proj: Geo.projSolid, projSeg: e.index);
+    case ProjKind.arc:
+      return Geo(Geo.arc,
+          [e.defs[0].dx, e.defs[0].dy, e.radius, e.a0, e.a1, 0.0],
+          layer: layer, proj: Geo.projSolid, projSeg: e.index);
+    case ProjKind.ellipse:
+      return Geo(
+          Geo.polyline,
+          [
+            0, 3, //
+            e.defs[0].dx, e.defs[0].dy, //
+            e.defs[1].dx, e.defs[1].dy, //
+            e.defs[2].dx, e.defs[2].dy,
+          ],
+          layer: layer,
+          spline: Geo.ellipseTag,
+          proj: Geo.projSolid,
+          projSeg: e.index);
+    case ProjKind.polyline:
+      return geoForProjectedEdge(e.pts, e.index, layer);
+  }
+}
+
 /// Re-projects every `projSolid` entity in [gs] from the current model.
 ///
 /// Mirrors what [syncProjections] does for in-sketch sources, but at the part
@@ -1976,13 +2169,16 @@ bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
         break;
       }
     }
-    if (src == null || src.pts.length < 2) {
+    if (src == null ||
+        (src.kind == ProjKind.polyline && src.pts.length < 2)) {
       gs[i] = g.withProj(Geo.projBroken, -1); // orphaned: freeze in place
       any = true;
       continue;
     }
-    final fresh = geoForProjectedEdge(src.pts, g.projSeg, g.layer);
-    if (fresh.type != g.type || !_sameData(fresh.data, g.data)) {
+    final fresh = geoForPartEdge(src, g.layer);
+    if (fresh.type != g.type ||
+        fresh.spline != g.spline ||
+        !_sameData(fresh.data, g.data)) {
       gs[i] = fresh.withStyle(g.style);
       any = true;
     }
@@ -2004,8 +2200,9 @@ int? pickPartEdge(List<PartEdge> edges, Offset w, double tol) {
   var best = -1;
   var bestD = tol;
   for (final e in edges) {
-    for (var i = 0; i + 1 < e.pts.length; i++) {
-      final d = _segDist(w, e.pts[i], e.pts[i + 1]);
+    final ep = e.displayPts;
+    for (var i = 0; i + 1 < ep.length; i++) {
+      final d = _segDist(w, ep[i], ep[i + 1]);
       if (d < bestD) {
         bestD = d;
         best = e.index;

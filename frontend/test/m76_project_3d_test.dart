@@ -6,6 +6,7 @@
 //  * it is reference geometry - selectable, never edited, so the solver must
 //    treat it as fixed (handled by the existing _withProjectionPins);
 //  * an ORPHAN (source gone) does not vanish - it freezes as fixed curves.
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -142,12 +143,126 @@ void main() {
     });
   });
 
+  _m77();
+
   group('picking', () {
     test('finds the nearest edge inside the tolerance, else null', () {
       final e = partEdges(_part(), _xy());
       expect(pickPartEdge(e, const Offset(5, 0.05), 0.5), 0);
       expect(pickPartEdge(e, const Offset(5, 9), 0.5), isNull);
       expect(pickPartEdge(const [], const Offset(0, 0), 1), isNull);
+    });
+  });
+}
+
+// --- M77: exact projected types -------------------------------------------
+// A projected circle must be a CIRCLE, not a fine polygon that dimensions as
+// chords. Orthographic projection keeps lines and conics, but NOT always the
+// same type: a tilted circle is a genuine ellipse.
+List<double> _circleRec(
+    {required List<double> c,
+    required List<double> xd,
+    required List<double> yd,
+    required double r,
+    double t0 = 0,
+    double t1 = 6.283185307179586}) {
+  final v = List<double>.filled(16, 0);
+  v[0] = 2;
+  v.setRange(1, 4, c);
+  v.setRange(4, 7, xd);
+  v.setRange(7, 10, yd);
+  v[10] = r;
+  v[11] = t0;
+  v[12] = t1;
+  return v;
+}
+
+void _m77() {
+  group('exact projected geometry', () {
+    test('a line stays a line', () {
+      final rec = List<double>.filled(16, 0)
+        ..[0] = 1
+        ..setRange(1, 4, [0, 0, 0])
+        ..setRange(4, 7, [5, 3, 0]);
+      final e = analyticProjectedEdge(0, rec, 0, _xy())!;
+      expect(e.kind, ProjKind.line);
+      final g = geoForPartEdge(e, 'L');
+      expect(g.type, Geo.line);
+      expect(g.data, [0.0, 0.0, 5.0, 3.0]);
+    });
+
+    test('a circle PARALLEL to the sketch plane stays a circle', () {
+      final e = analyticProjectedEdge(
+          1,
+          _circleRec(c: [2, 3, 7], xd: [1, 0, 0], yd: [0, 1, 0], r: 4),
+          0,
+          _xy())!;
+      expect(e.kind, ProjKind.circle);
+      expect(e.radius, closeTo(4, 1e-9));
+      final g = geoForPartEdge(e, 'L');
+      expect(g.type, Geo.circle);
+      expect(g.data, [2.0, 3.0, 4.0]);
+      expect(g.proj, Geo.projSolid);
+    });
+
+    test('a TILTED circle becomes a true ellipse, not a fake circle', () {
+      // 45 degrees about x: the y semi-axis foreshortens by cos45
+      final s = math.sqrt(0.5);
+      final e = analyticProjectedEdge(
+          2,
+          _circleRec(c: [0, 0, 0], xd: [1, 0, 0], yd: [0, s, s], r: 10),
+          0,
+          _xy())!;
+      expect(e.kind, ProjKind.ellipse);
+      final maj = (e.defs[1] - e.defs[0]).distance;
+      final min = (e.defs[2] - e.defs[0]).distance;
+      expect(maj, closeTo(10, 1e-6));
+      expect(min, closeTo(10 * s, 1e-6));
+      final g = geoForPartEdge(e, 'L');
+      expect(g.spline, Geo.ellipseTag);
+      expect(g.data[1], 3, reason: 'centre + major + minor vertex');
+    });
+
+    test('a circle seen EDGE ON degenerates to a line, not a zero circle', () {
+      final e = analyticProjectedEdge(
+          3,
+          _circleRec(c: [0, 0, 0], xd: [1, 0, 0], yd: [0, 0, 1], r: 6),
+          0,
+          _xy())!;
+      expect(e.kind, ProjKind.line);
+      expect((e.defs[1] - e.defs[0]).distance, closeTo(12, 1e-6));
+    });
+
+    test('a partial circle in plane becomes an ARC', () {
+      final e = analyticProjectedEdge(
+          4,
+          _circleRec(
+              c: [0, 0, 0], xd: [1, 0, 0], yd: [0, 1, 0], r: 5, t0: 0, t1: 1.5),
+          0,
+          _xy())!;
+      expect(e.kind, ProjKind.arc);
+      expect(geoForPartEdge(e, 'L').type, Geo.arc);
+      expect(e.a0, closeTo(0, 1e-9));
+      expect(e.a1, closeTo(1.5, 1e-9));
+    });
+
+    test('type 0 has no analytic form and falls back to the polyline', () {
+      final rec = List<double>.filled(16, 0);
+      expect(analyticProjectedEdge(5, rec, 0, _xy()), isNull);
+    });
+
+    test('every kind yields display points for hover and picking', () {
+      final circ = analyticProjectedEdge(
+          6,
+          _circleRec(c: [0, 0, 0], xd: [1, 0, 0], yd: [0, 1, 0], r: 3),
+          0,
+          _xy())!;
+      final pts = circ.displayPts;
+      expect(pts.length, greaterThan(8));
+      for (final p in pts) {
+        expect(p.distance, closeTo(3, 1e-6));
+      }
+      expect(pickPartEdge([circ], const Offset(3, 0), 0.2), 6);
     });
   });
 }
