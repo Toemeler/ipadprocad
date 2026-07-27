@@ -3870,3 +3870,73 @@ sehr wahrscheinlich dieselbe Ursache.
 ausserhalb des Skizzenmodus pro Frame laeuft, und ob der 2D-Painter weitere
 O(Geometrie)-Arbeit pro Frame macht (Snap-Suche, Hit-Test-Aufbau). Der
 Cache behebt den groessten Posten, nicht zwangslaeufig alle.
+
+## M76 (GEPLANT) — Project Geometry, recherchierte Inventor-Semantik
+
+Recherche steht, Implementierung NICHT begonnen. Diese Notiz existiert, damit
+die naechste Session nicht nochmal recherchieren muss und nicht das Falsche
+baut.
+
+### Was Inventor tatsaechlich macht (Autodesk-Doku)
+
+1. **Referenz, kein Abzug.** Projizierte Geometrie bleibt mit der Quelle
+   VERKNUEPFT und aktualisiert sich, wenn die Quelle sich aendert. Deshalb
+   heisst sie "reference geometry". Ein einmaliger Snapshot waere falsch.
+2. **Waehlbar, nicht editierbar.** Sie kann bemasst und als Constraint-Ziel
+   benutzt werden, aber nicht gezogen werden. Fuer den Solver also FIX.
+3. **Auto-Projektion.** Beim Anlegen einer Skizze auf einer Modellflaeche
+   werden ALLE Kanten dieser Flaeche automatisch Referenzgeometrie. Diese
+   automatischen sind NICHT loeschbar, manuell projizierte schon. Das ist ein
+   echter Unterschied im Datenmodell, kein UI-Detail.
+4. **Quellen:** Kanten, Vertices, Loops, Work Features, und Kurven aus
+   anderen sichtbaren Skizzen.
+5. **Verwaiste Referenz.** Faellt das Quell-Feature weg, verliert die Referenz
+   ihre Verknuepfung und wird zu FESTEN Skizzenkurven — Constraints und
+   Bemassungen bleiben erhalten. Nicht einfach mitloeschen.
+6. **Ausnahme:** projizierte Schnittkanten (cut edges) sind NICHT assoziativ.
+7. Optional in Inventor: "Autoproject Edges During Curve Creation".
+
+### Vorgeschlagenes Datenmodell hier
+
+- Neues `Geo`-Flag `reference` (analog zu `construction`), plus eine
+  Quellreferenz: `(featureName, edgeIndex)` — die Extrusion und der Index in
+  `edgePolylines()`.
+- **Solver:** Referenzgeometrie geht als FIXE Punkte in slvs, nie als DOF.
+  Sonst zieht der Solver am Modell.
+- **Rebuild:** in `recomputeAllFeatures` nach dem Feature-Cache die Referenzen
+  neu projizieren, wenn sich die Signatur ihres Quell-Features geaendert hat.
+  Der Cache-Schluessel aus M67 liefert das bereits.
+- **Verwaist:** Quelle weg -> `reference` bleibt, Quellreferenz auf null,
+  Geometrie bleibt stehen. NICHT loeschen.
+- **Nicht loeschbar:** bei Auto-Projektion ein zweites Flag `autoRef`.
+
+### Projektion selbst
+
+Kanten kommen als Weltraum-Polylinien aus `SolidGeom.edgePolylines()`
+(v9 filtert dort bereits tangentenstetige Kanten heraus — fuer die Projektion
+will man aber MEHR als die Silhouette, also ggf. den ungefilterten Satz).
+`sketchFrameOf(cs)` liefert die Ebene; `frame.toLocal(worldPt)` projiziert.
+Verdeckte Kanten sind dabei kein Sonderfall: es wird orthogonal auf die Ebene
+projiziert, Sichtbarkeit spielt geometrisch keine Rolle. Sie sollen nur
+ANDERS dargestellt werden (gestrichelt), wie in Inventor.
+
+### UI
+
+- Werkzeug "Project" in der Skizzen-Ribbon, Mehrfachauswahl bis Escape.
+- Hover-Highlight beim Ueberfahren einer projizierbaren Kante: es gibt bereits
+  `applySketchAccents(hover:selected:)` und `_hoverFace` in viewport3d — den
+  gleichen Mechanismus fuer Kanten erweitern statt neu bauen.
+- Darstellung: Referenzgeometrie in eigener Farbe (Inventor nimmt eine
+  andere als normale Skizzenkurven), verdeckte gestrichelt.
+
+### Reihenfolge
+
+Erst Datenmodell + Solver-Fixierung + Rebuild, dann Rendering, zuletzt
+Auto-Projektion der Flaechenkanten. Auto-Projektion zuletzt, weil sie sonst
+bei jedem Sketch-auf-Flaeche sofort viele Referenzen erzeugt und Fehler im
+Fundament verstaerkt.
+
+**ACHTUNG Performance:** eine Zahnradflaeche hat ~440 Kanten. Auto-Projektion
+erzeugt dort also 440 Referenzkurven in der Skizze. Vor diesem Schritt MUSS
+die Painter-Instrumentierung aus M75 stehen, sonst ist der naechste
+Stotter-Bericht wieder nicht zuzuordnen.
