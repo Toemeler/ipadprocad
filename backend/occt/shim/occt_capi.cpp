@@ -140,13 +140,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v9 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v10 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 9; }
+extern "C" int occt_shim_version(void) { return 10; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -935,9 +935,13 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
         return nullptr;
     }
     /* Triangulate in place (results are cached on the faces). */
+    /* v10: mesh the faces IN PARALLEL (last argument). A gear prism carries
+     * 442-827 faces and each is tessellated independently, so this is
+     * embarrassingly parallel; on device the single-threaded mesher cost
+     * 397-2580 ms per call and blocked the UI thread for all of it. */
     BRepMesh_IncrementalMesh mesher(shape->s, lin_deflection,
                                     Standard_False, ang_deflection,
-                                    Standard_False);
+                                    Standard_True);
     (void)mesher;
 
     std::vector<double> verts, norms, edge_pts, edge_curves;

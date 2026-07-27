@@ -3463,3 +3463,42 @@ bedingungslos neu aus), Kontextmenue auf Extrusion/Solid, und die
 Neuvernetzung laeuft weiterhin synchron auf dem UI-Thread — das Budget
 begrenzt jetzt nur, wie oft und wie teuer sie wird. Richtig waere ein
 Hintergrund-Isolate.
+
+## M67 — Feature-Cache + paralleles Vernetzen (Shim v10)
+
+**(1) Feature-Cache — der groesste Posten, endlich weg.**
+`recomputeAllFeatures` fuehrte jedes Feature bedingungslos neu aus. Beleg
+(build 9ef0425): Extrusion1 fiel von 50 548 auf 4 304 Dreiecke und verfeinerte
+sich viermal neu, nur weil eine ZWEITE Extrusion begann — bei 0.4-2.6 s pro
+Vernetzung waren das Sekunden voellig unnoetiger Kernel-Arbeit.
+
+Neu: `featureInputSig` erfasst alles, was das Ergebnis bestimmt — eigene
+Parameter, gewaehlte Profile, und den vollen Zustand der Quellskizze
+(Geometrie, Layer, EOS-Marker, Ebene). Der Schluessel ist eine LAUFENDE
+KETTENSIGNATUR: der Schluessel jedes Features enthaelt den des vorherigen
+Features desselben Bodies. Damit invalidiert eine Aenderung stromaufwaerts
+automatisch alles stromabwaerts, und eine veraltete Faltung kann nie
+wiederverwendet werden. `disposeSolid()` loescht `builtSig` mit.
+`force: true` fuer Laden/Undo, wo die Kernel-Handles neu sind.
+
+Wichtig fuer die Wirkung: das wiederverwendete Feature behaelt SEIN SOLID,
+also auch dessen bereits verfeinertes Mesh — genau das, was vorher verloren
+ging.
+
+**(2) Shim v10 — `BRepMesh_IncrementalMesh(..., isInParallel = true)`.**
+Stand auf `Standard_False`. Ein Zahnrad-Prisma hat 442-827 Flaechen, die
+unabhaengig voneinander tesselliert werden; das ist perfekt parallelisierbar
+und war ein einziges Boolean. Auf einem Mehrkern-iPad sollte das die 397-2580
+ms deutlich druecken — wieviel genau, sagt erst das Geraet.
+
+**Tests.** `m67_feature_cache_test.dart` (5): unveraendertes Feature wird nicht
+neu ausgefuehrt UND behaelt dasselbe Solid-Objekt; Parameteraenderung baut neu;
+Skizzenaenderung baut das darauf gebaute Feature neu; `force` baut alles neu;
+Signatur ist deterministisch, reversibel und deckt die relevanten Eingaben ab.
+analyze 0 errors, **449 Tests gruen**.
+
+**Bewusst NICHT zusammen gemacht:** Float32-Buffer und das
+Hintergrund-Isolate. Isolate und `isInParallel` beruehren beide
+OCCT-Threading; zusammen eingebaut waere bei einem CI- oder Geraetefehler
+nicht zu unterscheiden, welches der beiden schuld ist. Erst v10 auf dem
+Geraet bestaetigen, dann das Isolate.

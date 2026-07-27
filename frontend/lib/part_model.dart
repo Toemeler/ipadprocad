@@ -875,9 +875,14 @@ class ExtrudeFeature {
         output: j['output'] as String? ?? 'join',
       );
 
+  /// Input signature this feature's [solid] was last built from. Null means
+  /// "must rebuild". See [recomputeAllFeatures].
+  String? builtSig;
+
   void disposeSolid() {
     solid?.dispose();
     solid = null;
+    builtSig = null; // the cached result is gone with it
   }
 }
 
@@ -1701,11 +1706,111 @@ double? parseValueExpr(String raw) {
 /// Solid"). The FIRST feature of a body has nothing to combine with, so it
 /// materialises as its own prism whatever its output is. 'new' starts a fresh
 /// chain. Returns true when every visible feature computed.
-bool recomputeAllFeatures(PartModel part, PartKernel kernel) {
+/// Everything that can change what [f] computes to: its own parameters, the
+/// profiles it picked, and the full state of the sketch it is built on
+/// (geometry, layers, end-of-sketch marker and the plane it sits on).
+String featureInputSig(PartModel part, ExtrudeFeature f) {
+  final b = StringBuffer()
+    ..write(f.sketchName)
+    ..write('|')
+    ..write(f.distanceA)
+    ..write(',')
+    ..write(f.distanceB)
+    ..write(',')
+    ..write(f.taperDeg)
+    ..write(',')
+    ..write(f.iMate)
+    ..write(',')
+    ..write(f.matchShape)
+    ..write(',')
+    ..write(f.output)
+    ..write(',')
+    ..write(f.bodyName)
+    ..write(',')
+    ..write(f.visible)
+    ..write('|');
+  for (final p in f.profiles) {
+    b
+      ..write(p.ax)
+      ..write(':')
+      ..write(p.ay)
+      ..write(';');
+  }
+  b.write('|');
+  final cs = part.sketchByName(f.sketchName);
+  if (cs == null) {
+    b.write('MISSING');
+    return b.toString();
+  }
+  b
+    ..write(cs.model.eosAfter)
+    ..write('/')
+    ..write(cs.model.hiddenLayers.join(','))
+    ..write('/');
+  for (final g in cs.model.geometry) {
+    b
+      ..write(g.type)
+      ..write(',')
+      ..write(g.spline)
+      ..write(',')
+      ..write(g.layer)
+      ..write(',');
+    for (final d in g.data) {
+      b
+        ..write(d)
+        ..write(' ');
+    }
+    b.write(';');
+  }
+  final fr = sketchFrameOf(cs);
+  b
+    ..write('|')
+    ..write(fr.origin.x)
+    ..write(',')
+    ..write(fr.origin.y)
+    ..write(',')
+    ..write(fr.origin.z)
+    ..write(',')
+    ..write(fr.n.x)
+    ..write(',')
+    ..write(fr.n.y)
+    ..write(',')
+    ..write(fr.n.z);
+  return b.toString();
+}
+
+/// Recomputes the feature tree, REUSING features whose inputs are unchanged.
+///
+/// Before this, every feature was re-executed on any edit and each rebuilt
+/// solid restarted at coarse tessellation: the device log showed Extrusion1
+/// dropping from 50 548 triangles back to 4 304 and re-refining four times
+/// just because a SECOND extrude was started — seconds of kernel work thrown
+/// away although nothing about it had changed.
+///
+/// The signature is a RUNNING CHAIN hash: each feature's key includes the key
+/// of the previous feature in its body. So a change anywhere upstream changes
+/// every downstream key automatically, and a stale fold can never be reused.
+/// Pass [force] after loading or undoing, where the kernel handles are new.
+bool recomputeAllFeatures(PartModel part, PartKernel kernel,
+    {bool force = false}) {
   var allOk = true;
   final chainLast = <String, ExtrudeFeature>{}; // bodyName -> last in chain
+  final upstream = <String, String>{}; // bodyName -> running chain key
   for (final f in part.features) {
     f.consumedByJoin = false;
+    final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
+    if (!force &&
+        f.solid != null &&
+        f.computeError == null &&
+        f.builtSig == sig) {
+      // Unchanged: f.solid already holds the folded result AT THIS POSITION,
+      // so the boolean below must not run again — only the bookkeeping.
+      final prev = f.output != 'new' ? chainLast[f.bodyName] : null;
+      if (prev != null && prev.solid != null) prev.consumedByJoin = true;
+      if (f.visible) chainLast[f.bodyName] = f;
+      upstream[f.bodyName] = sig;
+      continue;
+    }
     final ok = recomputeFeature(part, f, kernel);
     if (!ok) {
       allOk = false;
@@ -1726,6 +1831,8 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel) {
       }
     }
     if (f.visible) chainLast[f.bodyName] = f;
+    f.builtSig = f.solid != null && f.computeError == null ? sig : null;
+    upstream[f.bodyName] = sig;
   }
   return allOk;
 }
