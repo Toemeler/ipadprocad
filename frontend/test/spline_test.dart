@@ -8,11 +8,11 @@
 //  4. _spline (via buildToolGeometry) closes when the last point coincides
 //     with the first
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/spline.dart';
-import 'package:ipadprocad/tools.dart';
-import 'package:ipadprocad/snap.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/spline.dart';
+import 'package:prototype/tools.dart';
+import 'package:prototype/snap.dart';
 
 void main() {
   test('spline tag survives a rebuild that added the spline', () {

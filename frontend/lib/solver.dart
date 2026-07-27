@@ -1,4 +1,4 @@
-// iPadProCAD — the sketch solver.
+// Prototype — the sketch solver.
 //
 // This replaces the earlier projection sweeps with a proper numeric solver,
 // which is what makes Inventor's behaviour possible at all:

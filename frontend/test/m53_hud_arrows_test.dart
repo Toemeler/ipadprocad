@@ -6,9 +6,9 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/hud.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/hud.dart';
 
 AppState makeApp({String name = 't'}) {
   final app = AppState();

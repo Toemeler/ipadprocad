@@ -7,10 +7,10 @@
 // on rectangle corners, so "nearest end to the partner" was a tie: the end
 // (and the edge) must be resolved from where the user actually clicked.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/constraints.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/solver.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/constraints.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/solver.dart';
 
 Offset _pt(Geo g, int i) => Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]);
 

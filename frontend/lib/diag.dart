@@ -1,4 +1,4 @@
-// iPadProCAD — diagnostic formatting for the log.
+// Prototype — diagnostic formatting for the log.
 //
 // The point of these dumps is REPRODUCIBILITY: a dump must contain enough to
 // rebuild the exact sketch (geometry + constraints) off-device and replay the

@@ -330,7 +330,7 @@ class OcctFfi {
       this._freeMesh);
 
   /// occt_version() marker string, e.g.
-  /// "iPadProCAD OCCT shim v1 (OCCT 7.9.3)".
+  /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
   final String version;
 
   /// occt_shim_version() of the linked binary (>= 1). Gate new surface on

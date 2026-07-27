@@ -1,4 +1,4 @@
-// iPadProCAD — maps the PartModel onto the RealityKit surface's payloads (M60).
+// Prototype — maps the PartModel onto the RealityKit surface's payloads (M60).
 //
 // These are PURE functions (no channels, no platform), so they are exercised
 // by host tests exactly as the native side will receive them. The heavy mesh

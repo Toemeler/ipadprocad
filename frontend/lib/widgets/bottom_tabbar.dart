@@ -1,4 +1,4 @@
-// iPadProCAD — bottom tab bar (#tabbar, 30px, #14171B), 1:1 port.
+// Prototype — bottom tab bar (#tabbar, 30px, #14171B), 1:1 port.
 // Home on the left, one tab per open sketch with ✕, active tab lighter with
 // a 2px blue underline, burger on the far right.
 import 'package:flutter/material.dart';

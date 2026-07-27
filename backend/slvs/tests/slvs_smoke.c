@@ -1,4 +1,4 @@
-/* app_smoke.c — proves libslvs supports exactly what iPadProCAD needs:
+/* app_smoke.c — proves libslvs supports exactly what Prototype needs:
  * a rectangle whose skewed corners are forced true by Horizontal/Vertical,
  * a driving width dimension, a point-on-line, plus result + DOF readout
  * (DOF is what drives the white/violet "fully constrained" colouring). */

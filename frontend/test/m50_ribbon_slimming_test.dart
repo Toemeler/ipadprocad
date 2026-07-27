@@ -22,11 +22,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/widgets/bottom_tabbar.dart';
-import 'package:ipadprocad/widgets/model_browser.dart';
-import 'package:ipadprocad/widgets/ribbon.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/widgets/bottom_tabbar.dart';
+import 'package:prototype/widgets/model_browser.dart';
+import 'package:prototype/widgets/ribbon.dart';
 
 AppState makeApp() {
   final app = AppState();

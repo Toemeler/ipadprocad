@@ -1,5 +1,5 @@
 /*
- * iPadProCAD — flat C-ABI shim over OpenCASCADE (OCCT). See occt_capi.h.
+ * Prototype — flat C-ABI shim over OpenCASCADE (OCCT). See occt_capi.h.
  *
  * Implementation rules:
  *   - Nothing OCCT-ish crosses the ABI: occt_shape wraps a TopoDS_Shape.
@@ -134,10 +134,10 @@ static occt_shape *wrap(const TopoDS_Shape &s, const char *where)
 
 extern "C" const char *occt_version(void)
 {
-    /* Keep the grep marker "iPadProCAD OCCT shim" a single literal. */
+    /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "iPadProCAD OCCT shim v8 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v8 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;

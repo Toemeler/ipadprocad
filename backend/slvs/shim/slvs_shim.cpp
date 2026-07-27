@@ -22,7 +22,7 @@ static double paramVal(const Slvs_System *s, Slvs_hParam h) {
  * Dart LM solver instead, so the dimension is never silently dropped. */
 int slvs_shim_version(void) { return 4; }
 
-const char* slvs_shim_id(void) { return "iPadProCAD SLVS shim v2"; }
+const char* slvs_shim_id(void) { return "Prototype SLVS shim v2"; }
 
 int slvs_solve(
     int nPts, double *px, double *py, const int *fixed,

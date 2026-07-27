@@ -1,4 +1,4 @@
-// iPadProCAD — shared 3D render helpers (M57).
+// Prototype — shared 3D render helpers (M57).
 //
 // The orthographic turntable camera math (Cam3) and the shaded-solid painter
 // (paintPartSolids) were born inside widgets/viewport3d.dart. They are lifted

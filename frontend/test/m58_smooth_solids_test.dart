@@ -8,9 +8,9 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart' show OcctMeshData;
-import 'package:ipadprocad/part_model.dart';
-import 'package:ipadprocad/part_render.dart';
+import 'package:prototype/ffi/occt_engine.dart' show OcctMeshData;
+import 'package:prototype/part_model.dart';
+import 'package:prototype/part_render.dart';
 import 'synth_mesh.dart' show synthCylinderMesh;
 
 List<Offset> circlePts(double r, int n, {Offset c = Offset.zero}) => [

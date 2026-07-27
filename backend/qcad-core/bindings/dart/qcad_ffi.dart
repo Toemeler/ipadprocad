@@ -1,6 +1,6 @@
-// iPadProCAD — Dart FFI bindings for the QCAD C-ABI wrapper (see qcad_capi.h).
+// Prototype — Dart FFI bindings for the QCAD C-ABI wrapper (see qcad_capi.h).
 //
-// M2, step 4. On iOS the combined static library (libipadprocad.a) is linked
+// M2, step 4. On iOS the combined static library (libprototype.a) is linked
 // directly into the app binary, so its symbols are resolved via
 // DynamicLibrary.process(). For desktop experiments, build a shared library
 // from the wrapper and use QcadBindings.open('<path-to-.so/.dylib>').

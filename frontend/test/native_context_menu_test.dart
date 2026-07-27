@@ -18,8 +18,8 @@ import 'dart:io';
 import 'dart:ui' show Rect;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/widgets/home_view.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/widgets/home_view.dart';
 import 'package:native_menu/native_menu.dart';
 
 Directory _scratch() => Directory.systemTemp.createTempSync('ipc_ctxmenu');

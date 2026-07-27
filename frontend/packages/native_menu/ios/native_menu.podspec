@@ -1,5 +1,5 @@
 #
-# iPadProCAD — in-repo iOS plugin providing REAL UIKit context menus.
+# Prototype — in-repo iOS plugin providing REAL UIKit context menus.
 #
 # There is no `frontend/ios/` in this repository: CI scaffolds the Runner
 # project with `flutter create` on every run, so hand-written Swift can never
@@ -11,7 +11,7 @@
 Pod::Spec.new do |s|
   s.name             = 'native_menu'
   s.version          = '0.1.0'
-  s.summary          = 'Native iOS context menu, share sheet and Files exporter for iPadProCAD.'
+  s.summary          = 'Native iOS context menu, share sheet and Files exporter for Prototype.'
   s.description      = <<-DESC
 Bridges UIContextMenuInteraction, UIActivityViewController and
 UIDocumentPickerViewController to Flutter. Menus are real UIMenu instances, so
@@ -20,7 +20,7 @@ SDK or later) at no cost.
                        DESC
   s.homepage         = 'https://github.com/Toemeler/ipadprocad'
   s.license          = { :type => 'GPLv3' }
-  s.author           = { 'iPadProCAD' => 'noreply@example.com' }
+  s.author           = { 'Prototype' => 'noreply@example.com' }
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.dependency 'Flutter'

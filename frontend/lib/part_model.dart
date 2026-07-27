@@ -1,4 +1,4 @@
-// iPadProCAD — 3D part documents (M56).
+// Prototype — 3D part documents (M56).
 //
 // A PART is a document that CONTAINS 2D sketches (each on one of the three
 // origin work planes) and parametric FEATURES computed from them by the OCCT

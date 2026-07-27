@@ -1,4 +1,4 @@
-// iPadProCAD — model browser (300px, Inventor style), 1:1 port of #mb.
+// Prototype — model browser (300px, Inventor style), 1:1 port of #mb.
 // Tree: blue cube "SketchName", Origin folder (+/- expander) with X Axis /
 // Y Axis / Center Point (auto-projected), then the layer container, then
 // "End of Sketch". Right-click on a layer row -> context menu (Edit on top),

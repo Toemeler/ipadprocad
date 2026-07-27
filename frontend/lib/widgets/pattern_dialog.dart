@@ -1,4 +1,4 @@
-// iPadProCAD — the Pattern dialogs (M35): Rectangular / Circular / Mirror,
+// Prototype — the Pattern dialogs (M35): Rectangular / Circular / Mirror,
 // 1:1 with Inventor's sketch dialogs (see HANDOFF, mock screenshots):
 //
 //   Rectangular: Geometry | Direction 1 + Direction 2 (select/flip, count,

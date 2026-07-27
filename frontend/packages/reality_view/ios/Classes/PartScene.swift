@@ -1,4 +1,4 @@
-// iPadProCAD — RealityKit geometry builders.
+// Prototype — RealityKit geometry builders.
 //
 // Turns the app's payload maps into RealityKit entities. All geometry arrives
 // in WORLD coordinates (the app has already placed every solid), so builders

@@ -1,4 +1,4 @@
-// iPadProCAD — hand-drawn Inventor-style inline SVGs, ported VERBATIM from
+// Prototype — hand-drawn Inventor-style inline SVGs, ported VERBATIM from
 // create-panel.html (the binding design spec). Icon language: light gray
 // geometry, blue square grips, red constraints with grey cursor arrows/checks,
 // yellow bolts, no green except the plus in the layer icon.
@@ -263,7 +263,7 @@ final Map<String, String> PD = {
 };
 
 
-// ==== M56: 3D part UI (ported verbatim from the ipadprocad-ui.html dummy) ====
+// ==== M56: 3D part UI (ported verbatim from the prototype-ui.html dummy) ====
 
 // Create panel (3D part features)
 final Map<String, String> CR = {

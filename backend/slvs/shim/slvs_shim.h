@@ -1,4 +1,4 @@
-/* slvs_shim.h — a flat, FFI-friendly surface over libslvs for iPadProCAD.
+/* slvs_shim.h — a flat, FFI-friendly surface over libslvs for Prototype.
  *
  * The Dart side owns the sketch model (Geo entities + Constraint list). It
  * decomposes each entity into POINTS plus a typed entity that references

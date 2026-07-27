@@ -1,4 +1,4 @@
-// iPadProCAD — drawing engine facade.
+// Prototype — drawing engine facade.
 //
 // Primary path: real QCAD core via Dart FFI (symbols statically linked into
 // the app binary on iOS -> DynamicLibrary.process()). If the native symbols

@@ -1,5 +1,5 @@
 /*
- * iPadProCAD — C-ABI smoke test (pure C).
+ * Prototype — C-ABI smoke test (pure C).
  *
  * Verifies that:
  *   1. qcad_capi.h is valid C and the symbols have C linkage,
@@ -96,9 +96,9 @@ int main(void) {
         tmpdir = "/tmp";
     }
     if (tmpdir[strlen(tmpdir) - 1] == '/') {
-        snprintf(path, sizeof(path), "%sipadprocad_smoke.dxf", tmpdir);
+        snprintf(path, sizeof(path), "%sprototype_smoke.dxf", tmpdir);
     } else {
-        snprintf(path, sizeof(path), "%s/ipadprocad_smoke.dxf", tmpdir);
+        snprintf(path, sizeof(path), "%s/prototype_smoke.dxf", tmpdir);
     }
     printf("dxf path: %s\n", path);
     CHECK(qcad_save_dxf(doc, path, NULL), "save DXF (default R2000)");
@@ -135,9 +135,9 @@ int main(void) {
 
         char lpath[1024];
         if (tmpdir[strlen(tmpdir) - 1] == '/') {
-            snprintf(lpath, sizeof(lpath), "%sipadprocad_smoke_layer.dxf", tmpdir);
+            snprintf(lpath, sizeof(lpath), "%sprototype_smoke_layer.dxf", tmpdir);
         } else {
-            snprintf(lpath, sizeof(lpath), "%s/ipadprocad_smoke_layer.dxf", tmpdir);
+            snprintf(lpath, sizeof(lpath), "%s/prototype_smoke_layer.dxf", tmpdir);
         }
         CHECK(qcad_save_dxf(ld, lpath, NULL), "layer: save DXF");
 

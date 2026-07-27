@@ -1,4 +1,4 @@
-// iPadProCAD — real UIKit context menus for Flutter content.
+// Prototype — real UIKit context menus for Flutter content.
 //
 // HOW THIS WORKS (and why it is not a platform view)
 // --------------------------------------------------
@@ -58,7 +58,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
-            name: "ipadprocad/native_menu",
+            name: "prototype/native_menu",
             binaryMessenger: registrar.messenger())
         let instance = NativeMenuPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)

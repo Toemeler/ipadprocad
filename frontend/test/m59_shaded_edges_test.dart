@@ -16,10 +16,10 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart';
-import 'package:ipadprocad/part_model.dart';
-import 'package:ipadprocad/part_render.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/part_model.dart';
+import 'package:prototype/part_render.dart';
 
 import 'synth_mesh.dart';
 
@@ -77,7 +77,7 @@ class CylKernel implements PartKernel {
 
 AppState makeApp() {
   final app = AppState();
-  app.docsDirForTest = Directory.systemTemp.createTempSync('ipadprocad_m59_');
+  app.docsDirForTest = Directory.systemTemp.createTempSync('prototype_m59_');
   app.partKernel = CylKernel();
   return app;
 }

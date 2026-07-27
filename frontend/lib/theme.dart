@@ -1,4 +1,4 @@
-// iPadProCAD — design tokens, 1:1 from create-panel.html (FINAL mock).
+// Prototype — design tokens, 1:1 from create-panel.html (FINAL mock).
 import 'package:flutter/material.dart';
 
 class T {

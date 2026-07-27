@@ -1,4 +1,4 @@
-// iPadProCAD — 3D part viewport (M56), a 1:1 Flutter port of the HTML
+// Prototype — 3D part viewport (M56), a 1:1 Flutter port of the HTML
 // dummy's Part3D module: orthographic turntable camera about the origin,
 // the three 20x20mm orange work planes + axes + centre point with green
 // hover highlights, a ViewCube (face/edge/corner snap + Home + face-view

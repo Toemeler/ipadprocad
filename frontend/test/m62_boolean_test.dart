@@ -9,10 +9,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/part_model.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/part_model.dart';
 
 /// Distinct stub volumes so a fold/preview can prove WHICH op ran:
 ///   join → a+b, cut → a−b, intersect → min(a,b). extrude returns a solid
@@ -75,7 +75,7 @@ class FakeKernel implements PartKernel {
 
 AppState makeApp() {
   final app = AppState();
-  app.docsDirForTest = Directory.systemTemp.createTempSync('ipadprocad_m60_');
+  app.docsDirForTest = Directory.systemTemp.createTempSync('prototype_m60_');
   app.partKernel = FakeKernel();
   return app;
 }

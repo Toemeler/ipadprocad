@@ -1,4 +1,4 @@
-// iPadProCAD — app shell. Layout 1:1 with the mock's #stage:
+// Prototype — app shell. Layout 1:1 with the mock's #stage:
 //   ribbon (full width) / main (model browser | viewport  OR  home) / tabbar.
 // Starts on the Home view (goHome() in the mock).
 import 'dart:async';
@@ -73,7 +73,7 @@ void main() {
     WidgetsBinding.instance.addObserver(_LogFlusher(app));
     Log.i('main', 'LOG FILE: ${Log.path}');
     Log.i('main', 'build=${Log.build}');
-    Log.step('main', 'runApp', () => runApp(IpadProCadApp(app: app)));
+    Log.step('main', 'runApp', () => runApp(PrototypeApp(app: app)));
     Log.i('main', 'main() completed — first frame pending');
   }, (error, stack) {
     Log.e('zone', 'UNCAUGHT ZONE ERROR', error, stack);
@@ -99,14 +99,14 @@ class _LogFlusher extends WidgetsBindingObserver {
   }
 }
 
-class IpadProCadApp extends StatelessWidget {
+class PrototypeApp extends StatelessWidget {
   final AppState app;
-  const IpadProCadApp({super.key, required this.app});
+  const PrototypeApp({super.key, required this.app});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'iPadProCAD',
+      title: 'Prototype',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,

@@ -1,4 +1,4 @@
-// iPadProCAD — Create-tool geometry. ONE source of truth used both by the
+// Prototype — Create-tool geometry. ONE source of truth used both by the
 // commit path (AppState.toolClick) and the live preview (viewport painter),
 // so what you see while drawing is exactly what lands in the document.
 //

@@ -1,4 +1,4 @@
-// iPadProCAD — sketch constraints + dimensions (Inventor's Constrain panel).
+// Prototype — sketch constraints + dimensions (Inventor's Constrain panel).
 //
 // Model: constraints reference entities by index and points by (entity,
 // point-index) using the same point numbering as grips: line 0/1 = ends,

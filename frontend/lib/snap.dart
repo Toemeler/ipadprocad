@@ -1,4 +1,4 @@
-// iPadProCAD — object snapping, grip editing and box-select geometry.
+// Prototype — object snapping, grip editing and box-select geometry.
 //
 // Snapping (Inventor-style, priority ordered): endpoint > midpoint >
 // center > quadrant > on-curve, plus horizontal/vertical alignment guides

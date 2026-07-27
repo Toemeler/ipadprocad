@@ -1,4 +1,4 @@
-// iPadProCAD — the RealityKit platform view.
+// Prototype — the RealityKit platform view.
 //
 // Hosts an ARView (.nonAR) as a passive output surface (user interaction is
 // OFF — Flutter owns every gesture). Reconstructs the app's orthographic

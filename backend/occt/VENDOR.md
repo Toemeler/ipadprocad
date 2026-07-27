@@ -42,7 +42,7 @@ fine for this app.
 backend/occt/
   upstream/            OCCT V7_9_3 (submodule — do not edit, ever)
   shim/occt_capi.{h,cpp}  flat C ABI over OCCT (14 functions, marker string
-                          "iPadProCAD OCCT shim" for the CI link check)
+                          "Prototype OCCT shim" for the CI link check)
   tests/smoke_occt.c   standalone C smoke test → "OCCT SMOKE: PASS"
   CMakeLists.txt       builds libocct_capi.a against an OCCT install tree
 ```

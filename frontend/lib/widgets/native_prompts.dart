@@ -1,4 +1,4 @@
-// iPadProCAD — text prompts and confirmations.
+// Prototype — text prompts and confirmations.
 //
 // NATIVE FIRST, Flutter as the fallback. On the device these are real
 // UIAlertControllers (system font, system buttons, destructive action drawn

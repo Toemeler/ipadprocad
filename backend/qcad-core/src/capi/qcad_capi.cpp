@@ -1,5 +1,5 @@
 /*
- * iPadProCAD — C-ABI wrapper implementation around the headless QCAD core.
+ * Prototype — C-ABI wrapper implementation around the headless QCAD core.
  * Milestone M2. See qcad_capi.h for the contract.
  *
  * This translation unit is the ONLY place C++/Qt/QCAD types are used; the
@@ -98,7 +98,7 @@ bool g_initialised = false;
 void ensureApp() {
     if (QCoreApplication::instance() == nullptr) {
         static int argc = 1;
-        static char arg0[] = "ipadprocad";
+        static char arg0[] = "prototype";
         static char *argv[] = { arg0, nullptr };
         new QCoreApplication(argc, argv);
     }
@@ -106,10 +106,10 @@ void ensureApp() {
     // Set names (only if the host has not) so QCAD's settings layer works and
     // stops logging "RSettings not initialized". Reads simply return defaults.
     if (QCoreApplication::organizationName().isEmpty()) {
-        QCoreApplication::setOrganizationName(QStringLiteral("iPadProCAD"));
+        QCoreApplication::setOrganizationName(QStringLiteral("Prototype"));
     }
     if (QCoreApplication::applicationName().isEmpty()) {
-        QCoreApplication::setApplicationName(QStringLiteral("iPadProCAD"));
+        QCoreApplication::setApplicationName(QStringLiteral("Prototype"));
     }
 }
 
@@ -198,7 +198,7 @@ void qcad_init(void) {
 
 const char *qcad_version(void) {
     static const std::string v =
-        std::string("iPadProCAD C-API 0.1.0 (Qt ") + QT_VERSION_STR + ")";
+        std::string("Prototype C-API 0.1.0 (Qt ") + QT_VERSION_STR + ")";
     return v.c_str();
 }
 

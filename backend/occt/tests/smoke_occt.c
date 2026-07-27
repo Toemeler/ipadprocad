@@ -1,5 +1,5 @@
 /*
- * iPadProCAD — OCCT shim smoke test. Pure C, no Flutter, no Dart: calls the
+ * Prototype — OCCT shim smoke test. Pure C, no Flutter, no Dart: calls the
  * flat C ABI exactly the way the (future) Dart FFI will, and asserts REAL
  * geometry with hard numbers. This is the gate that decides whether OCCT
  * holds up as the 3D kernel — treat a red run as a real red.
@@ -92,7 +92,7 @@ int main(void)
 {
     const double PI = 3.14159265358979323846;
     printf("%s (shim ABI v%d)\n", occt_version(), occt_shim_version());
-    if (!check(strstr(occt_version(), "iPadProCAD OCCT shim") != NULL,
+    if (!check(strstr(occt_version(), "Prototype OCCT shim") != NULL,
                "version marker string missing"))
         return 1; /* nothing else is trustworthy */
 
@@ -182,7 +182,7 @@ int main(void)
     /* [5] STEP roundtrip on the fused solid ------------------------------ */
     const char *tmpdir = getenv("TMPDIR");
     char step_path[1024];
-    snprintf(step_path, sizeof(step_path), "%s/ipadprocad_smoke.step",
+    snprintf(step_path, sizeof(step_path), "%s/prototype_smoke.step",
              (tmpdir && *tmpdir) ? tmpdir : "/tmp");
     if (fused != NULL) {
         if (check(occt_export_step(fused, step_path) == 1,
@@ -223,7 +223,7 @@ int main(void)
     occt_free_shape(fused);
 
     /* [6] failure paths must not crash ----------------------------------- */
-    occt_shape *ghost = occt_import_step("/nonexistent/ipadprocad-nope.step");
+    occt_shape *ghost = occt_import_step("/nonexistent/prototype-nope.step");
     check(ghost == NULL, "[6] import of missing file did not return NULL");
     printf("[6] missing-file import -> NULL, last_error=\"%s\"\n",
            occt_last_error());

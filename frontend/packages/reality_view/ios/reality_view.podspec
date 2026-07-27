@@ -1,5 +1,5 @@
 #
-# iPadProCAD — in-repo iOS plugin: a RealityKit-backed 3D viewport.
+# Prototype — in-repo iOS plugin: a RealityKit-backed 3D viewport.
 #
 # Same delivery path as native_menu (M48) and file_picker (M44): there is no
 # hand-written frontend/ios/ in this repo — CI scaffolds the Runner with
@@ -10,7 +10,7 @@
 Pod::Spec.new do |s|
   s.name             = 'reality_view'
   s.version          = '0.1.0'
-  s.summary          = 'RealityKit 3D viewport surface for iPadProCAD.'
+  s.summary          = 'RealityKit 3D viewport surface for Prototype.'
   s.description      = <<-DESC
 Embeds a RealityKit ARView (.nonAR) as a Flutter platform view and renders the
 CAD part on the GPU: true orthographic camera (OrthographicCameraComponent on
@@ -20,7 +20,7 @@ edges occlude correctly without the CPU painter's screen-space tricks.
                        DESC
   s.homepage         = 'https://github.com/Toemeler/ipadprocad'
   s.license          = { :type => 'GPLv3' }
-  s.author           = { 'iPadProCAD' => 'noreply@example.com' }
+  s.author           = { 'Prototype' => 'noreply@example.com' }
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.dependency 'Flutter'

@@ -7,11 +7,11 @@
 //   * eine unmögliche Operation wird abgelehnt und ändert NICHTS.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/constraints.dart';
-import 'package:ipadprocad/diag.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/solver.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/constraints.dart';
+import 'package:prototype/diag.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/solver.dart';
 
 AppState makeApp() {
   final app = AppState();

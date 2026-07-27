@@ -1,4 +1,4 @@
-name: ipadprocad
+name: prototype
 description: 2D CAD for iPad (Flutter frontend, QCAD core via FFI)
 publish_to: 'none'
 version: 0.1.0+1

@@ -6,7 +6,7 @@ import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/touch.dart';
+import 'package:prototype/touch.dart';
 
 void main() {
   test('touchSlop widens fingers only', () {

@@ -7,10 +7,10 @@
 //   * Sidecar-Codec + Undo-Journal round-trippen User-Parameter
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/constraints.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/params.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/constraints.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/params.dart';
 
 AppState makeApp() {
   final app = AppState();

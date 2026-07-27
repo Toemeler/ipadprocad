@@ -8,9 +8,9 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart' show OcctMeshData;
-import 'package:ipadprocad/part_model.dart' show PartCamera, Vec3;
-import 'package:ipadprocad/reality_scene.dart';
+import 'package:prototype/ffi/occt_engine.dart' show OcctMeshData;
+import 'package:prototype/part_model.dart' show PartCamera, Vec3;
+import 'package:prototype/reality_scene.dart';
 
 import 'synth_mesh.dart';
 

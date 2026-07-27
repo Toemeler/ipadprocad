@@ -1,4 +1,4 @@
-// iPadProCAD — home view (#home): a Procreate-style sketch gallery.
+// Prototype — home view (#home): a Procreate-style sketch gallery.
 //
 // Big bold title top-left, a round "+" (new sketch) button top-right, and a
 // responsive grid of large, rounded, drop-shadowed thumbnail cards — one per

@@ -1,4 +1,4 @@
-// iPadProCAD — RealityKit viewport surface for Flutter (M60).
+// Prototype — RealityKit viewport surface for Flutter (M60).
 //
 // This package is deliberately DOMAIN-FREE: it knows nothing about parts,
 // sketches or OCCT. It exposes one platform view and a small controller with
@@ -15,13 +15,13 @@
 // layer stacked ON TOP receives every pointer exactly as before. The platform
 // view is a pure output surface — all camera/pick logic remains in Dart.
 //
-// The channel name mirrors native_menu's convention: `ipadprocad/<plugin>`.
+// The channel name mirrors native_menu's convention: `prototype/<plugin>`.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-const String _viewType = 'ipadprocad/reality_view';
-const String _channelName = 'ipadprocad/reality_view';
+const String _viewType = 'prototype/reality_view';
+const String _channelName = 'prototype/reality_view';
 
 /// Drives one RealityKit viewport. Obtained from [RealityView] via
 /// [RealityView.onCreated]. Every method is a fire-and-forget push to native;

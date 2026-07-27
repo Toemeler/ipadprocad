@@ -1,4 +1,4 @@
-// iPadProCAD — application state (tabs, layers, edit mode, active tool) and
+// Prototype — application state (tabs, layers, edit mode, active tool) and
 // persistence (DXF per sketch + preview PNG in the app Documents directory).
 import 'dart:convert';
 import 'dart:io';
@@ -731,7 +731,7 @@ class AppState extends ChangeNotifier {
       _docsDir = Directory.systemTemp;
     }
     // Move the log into the SAME Documents directory as the sketches, so it is
-    // actually reachable in Files > On My iPad > ipadprocad > logs. The early
+    // actually reachable in Files > On My iPad > prototype > logs. The early
     // logger uses $HOME (empty on some iOS builds -> temp dir, not file-shared).
     Log.retarget(_docsDir!.path);
     final probe = Log.step(

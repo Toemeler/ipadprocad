@@ -1,8 +1,8 @@
-// iPadProCAD — RealityKit viewport plugin: registration + platform-view factory.
+// Prototype — RealityKit viewport plugin: registration + platform-view factory.
 //
 // Registers a FlutterPlatformViewFactory under the view type
-// "ipadprocad/reality_view". Each embedded view gets its OWN method channel
-// "ipadprocad/reality_view/<id>" (the id Flutter assigns the platform view),
+// "prototype/reality_view". Each embedded view gets its OWN method channel
+// "prototype/reality_view/<id>" (the id Flutter assigns the platform view),
 // so several viewports could coexist without cross-talk — though the app only
 // ever shows one at a time.
 import Flutter
@@ -11,7 +11,7 @@ import UIKit
 public class RealityViewPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let factory = RealityPartViewFactory(messenger: registrar.messenger())
-        registrar.register(factory, withId: "ipadprocad/reality_view")
+        registrar.register(factory, withId: "prototype/reality_view")
     }
 }
 
@@ -34,7 +34,7 @@ final class RealityPartViewFactory: NSObject, FlutterPlatformViewFactory {
         arguments args: Any?
     ) -> FlutterPlatformView {
         let channel = FlutterMethodChannel(
-            name: "ipadprocad/reality_view/\(viewId)",
+            name: "prototype/reality_view/\(viewId)",
             binaryMessenger: messenger)
         return RealityPartView(frame: frame, channel: channel)
     }

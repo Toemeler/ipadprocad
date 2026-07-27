@@ -1,4 +1,4 @@
-# HANDOFF — iPadProCAD
+# HANDOFF — Prototype
 
 Übergabestand für die Fortsetzung in einem neuen Chat.
 
@@ -25,7 +25,7 @@ Token NIE in Dateien/.git/config schreiben.
 > beide mit `has_solid_material`-Guard — ein leeres Ergebnis (Cut entfernt
 > alles, disjunkter Intersect) ist ein FEHLER (`occt_last_error` erklaert), kein
 > Null-Solid, damit der Aufrufer den alten Body behaelt. `occt_shim_version`→5,
-> Marker „iPadProCAD OCCT shim v5\". Dart-FFI: `_cut`/`_common` (gleiche ABI wie
+> Marker „Prototype OCCT shim v5\". Dart-FFI: `_cut`/`_common` (gleiche ABI wie
 > `_fuse`, im Konstruktor + `instance()`-Lookup + `cut()`/`common()`).
 > `part_model.dart`: `PartKernel.cutSolids`/`intersectSolids` (+ geteilter
 > `_boolean`-Helper mit `unify`), Top-Level `combineSolids(kernel, output,
@@ -136,7 +136,7 @@ Token NIE in Dateien/.git/config schreiben.
 >   **der Tiefenpuffer erledigt die Verdeckung**. `solidOccluder`,
 >   `drawOccludedQuadFill`, `edgeMargin` & Co. werden auf dem Gerät nicht mehr
 >   gebraucht. ViewCube, Triade und Meldungs-Toast bleiben Flutter-HUD.
-> - **Protokoll** (3 Verben, `ipadprocad/reality_view/<id>`): `setScene`
+> - **Protokoll** (3 Verben, `prototype/reality_view/<id>`): `setScene`
 >   (schwer, nur wenn sich `sceneSignature` ändert), `setOverlays` (leicht:
 >   Hover/Sichtbarkeit, pro Pointer-Move), `setCamera` (5 Doubles pro Frame).
 >   Mesh-Puffer werden per REFERENZ übergeben (`Float64List`/`Int32List` →
@@ -568,11 +568,11 @@ Token NIE in Dateien/.git/config schreiben.
     Design-Dummies nur im Erststart.
   - Eingabe: Maus/Keyboard; Trackpad-2-Finger-Pan + Pinch-Zoom (PointerPanZoom)
     integriert, Scrollrad zoomt, Esc bricht Tool ab. Touch-Gesten spaeter.
-  - **IPA: CI-Job `m5-flutter-ipa` liefert Artefakt `ipadprocad-unsigned-ipa`**
+  - **IPA: CI-Job `m5-flutter-ipa` liefert Artefakt `prototype-unsigned-ipa`**
     (unsigniert, ~15 MB, Retention 3 Tage — pro Run neu erzeugt). Verifiziert:
     "M5 LINK CHECK: PASS" + alle 14 `_qcad_*`-Symbole per nm EXPORTIERT im
     Runner-Binary (DynamicLibrary.process() findet sie). Installation:
-    Artefakt laden, entzippen -> ipadprocad-unsigned.ipa, per Sideloadly oder
+    Artefakt laden, entzippen -> prototype-unsigned.ipa, per Sideloadly oder
     AltStore aufs iPad (re-signiert mit eigener Apple-ID).
 
   **CI-Fix-Erkenntnisse M5 (fuer die Zukunft):**
@@ -582,7 +582,7 @@ Token NIE in Dateien/.git/config schreiben.
     `-DQCAD_CAPI_SMOKE=ON` bauen und die exakte Linkzeile via
     `ninja -C build -t commands` extrahieren (Ninja hat KEIN link.txt),
     mit `ci/parse_link_txt.py` in OTHER_LDFLAGS uebersetzen (cwd=Build-Root).
-  - qcad_* ueberleben per `-force_load libipadprocad.a` +
+  - qcad_* ueberleben per `-force_load libprototype.a` +
     `-Wl,-exported_symbols_list` (`_qcad_*`); qios-Plugin NIE linken
     (interponiert main). IPHONEOS_DEPLOYMENT_TARGET=14.0 im pbxproj sedden
     (Target-Settings schlagen xcconfig).
@@ -627,7 +627,7 @@ Token NIE in Dateien/.git/config schreiben.
     Auto-H/V + Ecken-Auto-Coincident/Point-on-Line.
   - **M11** iOS-Link: neuer Job-Schritt baut `libslvs.a`, `ffi.xcconfig`
     `-force_load libslvs.a` + Export `_slvs_*`, Link-Check greppt den Shim-
-    Marker „iPadProCAD SLVS shim" per `strings` im Runner (analog QCAD-Check,
+    Marker „Prototype SLVS shim" per `strings` im Runner (analog QCAD-Check,
     PASS). → auf dem Geraet ist `SlvsFfi.available` true, `solveConstraints`
     nutzt den echten Solver.
   - **OFFEN (nur auf dem iPad pruefbar, hier nicht):** Laufzeit-Verhalten des
@@ -748,8 +748,8 @@ Token NIE in Dateien/.git/config schreiben.
     `geoFinite`/`allFinite`/`maxAbs` und `gripStr` (zeigt, ob `grip.idx`
     ueberhaupt ein Punktindex ist — bei Kreisen ist er das fuer die vier
     Radius-Grips NICHT).
-  - LOG-PFAD: Dateien-App > Auf meinem iPad > ipadprocad > logs >
-    `ipadprocad_log.txt` (die Info.plist-Keys setzt der M5-Job bereits).
+  - LOG-PFAD: Dateien-App > Auf meinem iPad > prototype > logs >
+    `prototype_log.txt` (die Info.plist-Keys setzt der M5-Job bereits).
   - SCHRANKEN (zugleich Fix): `displayGeometry` laeuft INNERHALB von
     `CustomPainter.paint`. Eine Exception dort bricht den Paint ab, alles danach
     bleibt ungemalt — das sieht aus, als waere die Geometrie verschwunden. Und
@@ -910,7 +910,7 @@ Token NIE in Dateien/.git/config schreiben.
     iOS teils leer -> Temp-Verzeichnis, das die Files-App NICHT zeigt — daher
     Skizzen sichtbar, aber kein Log). Neu: `Log.retarget(docsDir)` aus
     `AppState.init` schiebt das Log (inkl. Historie) ins ECHTE Documents-Verz.
-    neben die Skizzen (`On My iPad > ipadprocad > logs > ipadprocad_log.txt`).
+    neben die Skizzen (`On My iPad > prototype > logs > prototype_log.txt`).
   - **Altbestand:** bereits auf "0" gestrandete Geometrie (Skizzen vom kaputten
     Build) bleibt auf "0", bis sie verschoben wird — dafuer ist M18 "Move N here".
   - **Geaenderte Dateien:** `backend/qcad-core/src/capi/qcad_capi.cpp`,
@@ -1077,7 +1077,7 @@ Häkchen, gelbe Blitze, KEIN Grün außer dem Plus im Layer-Icon.
 
 ## Frühere funktionierende Tool-Engine (Referenz, aktuell NICHT im Mock)
 In einer früheren Iteration dieses Chats existierte eine Canvas-Engine
-(ipadprocad-ribbon.html, überschrieben) mit: Line/Polyline/Circle(CR/2P/3P)/
+(prototype-ribbon.html, überschrieben) mit: Line/Polyline/Circle(CR/2P/3P)/
 Arc(3P/Center)/Rectangle/Ellipse/Point; Move/Copy/Rotate/Mirror/Scale/Erase/
 Offset; Snapping (Endpunkte, Ursprung, projizierte Achsen); Achsen-Projektion;
 **Dimension-Tool wie Inventor** (Shortcut `d`): Linie→Platzieren=Länge,
@@ -1117,7 +1117,7 @@ neuen PAT selbst zur Verfügung.**
 - `frontend/` neu aufsetzen (flutter create, ffi ^2.1.0), Ribbon/Browser/
   Canvas/Home/Tabbar als Widgets, SVG-Icons via CustomPainter oder
   flutter_svg; alten `main.dart` (8e241b3) ersetzen.
-- XCFramework linken (CI-Artefakt `ipadprocad-ios-capi`) + Qt-iOS-Static-Libs
+- XCFramework linken (CI-Artefakt `prototype-ios-capi`) + Qt-iOS-Static-Libs
   (Liste in `src/capi/CMakeLists.txt`); Achtung Qt-main-Wrapper vs.
   Flutter-main (headless: libqios ggf. weglassen).
 - Erster echter Dart-FFI-Lauf (M2-Restschuld): `bindings/dart/qcad_ffi.dart`,
@@ -1977,7 +1977,7 @@ den Schnitt.
 
 ## M37 — Produktions-Härtung nach dem ersten echten Geräte-Test
 
-Grundlage: Geräte-Log (`ipadprocad_log.txt`, 59 563 Zeilen, **1 802 WARN**),
+Grundlage: Geräte-Log (`prototype_log.txt`, 59 563 Zeilen, **1 802 WARN**),
 `Sketch1.dxf` + Sidecars, plus statische Tiefenanalyse. Der volle Audit steht
 im README (Abschnitt „PRODUKTIONS-AUDIT", P0–P3 + Tests, mit Erledigt-Notizen);
 hier die Essenz für die nächste Session.
@@ -2790,7 +2790,7 @@ Tests via CMake (SLVS_SMOKE=ON, „ALL SHIM TESTS PASS", **13 Szenarien**).
 Beide sind CI-Gates. Auf dem Host läuft die Dart-Fallback-Engine + LM-Pfad —
 genau die Pfade, die die Tests absichern sollen; das native Verhalten sichert
 zusätzlich das Shim-Host-Gate. IPA: Workflow „Core + C-API Build (iOS)",
-Artefakt `ipadprocad-unsigned-ipa`. Lokal reproduzierbar mit
+Artefakt `prototype-unsigned-ipa`. Lokal reproduzierbar mit
 heruntergeladenem Flutter-SDK (stable) + CMake — beide Gates grün.
 
 ## M53 — End of Sketch wie Inventors EOP + Apple-Pencil/Touch komplett
@@ -2916,7 +2916,7 @@ backend/occt/
                          shape_volume, bbox, export_step, import_step,
                          free_shape. Jeder Entry-Point fängt ALLE
                          OCCT-Exceptions (nichts entkommt später ins FFI).
-                         Marker-String: "iPadProCAD OCCT shim" (strings-Check).
+                         Marker-String: "Prototype OCCT shim" (strings-Check).
   tests/smoke_occt.c     Standalone-C-Smoke mit harten Zahlen (s.u.)
   CMakeLists.txt         Shim-Projekt; konsumiert einen OCCT-Install-Tree
                          via find_package(OpenCASCADE CONFIG)
@@ -3055,7 +3055,7 @@ eine echte Shape anfassen (makeBox/counts/volume/dispose), liefen daher
 noch NIE gegen den gelinkten Kernel — auf Host greift der SKIP-Zweig.
 Erster IPA-Start auf Gerät/Simulator muss
 `DART SMOKE: PASS (backend=occt-ffi, …)` im Log zeigen (Files > On My iPad
-> ipadprocad > logs). Bis dahin gilt: "gelinkt und gegated, Geräte-Smoke
+> prototype > logs). Bis dahin gilt: "gelinkt und gegated, Geräte-Smoke
 ausstehend" — nicht "fertig bewiesen".
 
 **Lektion dieser Session:** M3s `SMOKE: PASS`-Marker und der Dart
@@ -3251,3 +3251,80 @@ auf geschriebene Dateien pruefen koennen; der Setter nimmt jetzt `Directory?`
   fehl; das ist erwartet, nicht neu.
 
 **Naechste Session:** weitere vom Geraet gemeldete Punkte sammelt der User noch.
+
+## M63 — Zahnrad: echte Kurven, Cache, Corner radius (ersetzt Pitch radius)
+
+**Ausgangslage (gemessen, nicht geschaetzt).** Ein Standard-Zahnrad (m=2, z=20)
+erzeugte 1300 Punkte; `arcFitLoop` gewann daraus nur 80 Boegen zurueck und
+lieferte **920 Kanten, davon 840 Geraden** → 920 Mantelflaechen im extrudierten
+Prisma. Ursache war ein verlustbehafteter Rundweg: `gearProfile` KENNT die
+exakten Boegen (Kopf, Lueckengrund, Fillets), polygonisiert sie und laesst
+`arcFitLoop` sie anschliessend erraten. Die Evolventen-Flanke ist kein Kreis,
+also verwarf die `1e-6*r`-Toleranz sie zwangslaeufig.
+
+**(1) Flanke als Bogenkette.** `_greedySpans` sucht per Binaersuche die WENIGSTEN
+Kreisboegen, die innerhalb `_flankTolMm` (1 um) an der exakten Evolvente bleiben;
+`_arcSamples` emittiert Punkte, die EXAKT auf diesen Boegen liegen (5 pro Bogen =
+4 Sehnen, eine mehr als arcFitLoops Mindestlauf). Der Refit ist dadurch
+konstruktionsbedingt verlustfrei. Preview-Aufrufer (`flankSamples <= 12`) bekommen
+eine lockerere Toleranz statt eines duenneren Polygonzugs.
+Ergebnis z=20: 1200 Punkte, **440 Kanten (200 Boegen)**.
+
+**(2) Memo fuer die Outline.** `splineCurveFor()` ist der Trichter fuer jeden
+Paint/Hit-Test/Snap und rief `gearCurve` ungecacht. Key = vollstaendige
+geometrische Identitaet (`center`, `angle`, `GearParams.signature`), Bound 64,
+`clearGearCurveCache()` fuer Tests.
+
+**(3) Corner radius statt Pitch radius.** Der Pitch-Radius war ein redundantes
+Eingabefeld (r = m*z/2, vollstaendig aus Modul + Zaehnezahl bestimmt) mit einer
+Ruecksynchronisation auf das Modul. Ersetzt durch `Corner radius (mm)`
+(`GearParams.cornerRadius`, 0 = auto/klassisch modulrelativ; speist
+`rootFilletRadius`/`tipRoundRadius`). Serialisiert als Block-Slot 9 und
+JSON-Key `cr`, beides abwaertskompatibel (pre-M63-Blocks mit 9 Slots laden
+unveraendert). `Pitch Ø` bleibt als abgeleitete ANZEIGE in der Infozeile.
+
+**(4) Zwei echte Altfehler, die dabei auffielen.**
+- `_roundCorner` deckelte den Ruecksprung auf `0.48 * la/lb`, wobei la/lb die
+  NACHBAR-SEHNEN der Tessellierung waren (~0.006..0.1 mm). Jedes Fillet war damit
+  auf Sehnengroesse zusammengedrueckt — der Corner-Radius aenderte die Outline
+  **ueberhaupt nicht** (bit-identisch von 0.2 bis 1.4 mm, `maxTurn` und `minR`
+  unveraendert). Das war der Grund, warum das neue Feature wirkungslos blieb.
+- Der Wurzel-Fillet am Zahnuebergang war ein No-Op: der Lueckenbogen ENDET exakt
+  dort, wo die naechste Flanke BEGINNT, also bekam `_roundCorner` einen
+  Schenkel der Laenge 0, brach ab und gab die nackte Ecke zurueck — pro Zahn ein
+  **doppelter Punkt, also eine Kante der Laenge 0** (20 Stueck im Standardrad).
+  Genau die Degeneration, die einen OCCT-Wire versenkt (M62); bisher nur von
+  `dedupeClosedLoop` stillschweigend geheilt.
+
+**Fix:** `_filletChain` baut den Umriss aus FEATURES (Flanke/Kopf/Flanke/Luecke,
+4z Stueck) und rundet jeden Uebergang, indem es beide Nachbarn entlang ihrer
+BOGENLAENGE auf die Tangentenpunkte trimmt (`_trimPoly`, `_alongFromEnd/Start`).
+Weil die Schenkel gekruemmt sind, iteriert die Konstruktion (8 Durchlaeufe) ueber
+die Tangentenlinien an den aktuellen Trimmpunkten auf echte Tangentialitaet; der
+Radius wird VORHER auf das geklemmt, was 45% der Nachbarlaenge hergibt (ein
+nachtraeglich beschnittener Ruecksprung passt nicht mehr zum Radius und
+hinterliess einen 95°-Knick). `_roundCorner` ist entfallen.
+Gemessen: realisierter Kruemmungsradius == angeforderter auf 1e-3 mm; keine
+Kanten der Laenge 0 mehr; `maxTurn` bleibt ueber den gesamten Radiusbereich glatt.
+
+**Tests** (`m63_gear_curves_test.dart`, 14): Kantenbudget je z, Genauigkeit gegen
+eine UNABHAENGIGE Evolventen-Referenz (< 1 um), geschlossene/nicht-degenerierte/
+positiv gewundene Outline ueber 5 Parametersaetze inkl. `fillet: false`,
+Innenverzahnung, Cache-Identitaet + Miss bei Move/Reparametrisierung + Bound,
+Corner-Radius-Monotonie und Treffgenauigkeit, Default == klassische Form,
+pre-M63-Sidecar-Roundtrip, Pitch-Radius weiterhin als abgeleitete Groesse.
+
+**Verifikation.** Lokal mit Flutter 3.32.0 (= CI-Version) ausgefuehrt:
+`flutter analyze` **0 errors**, `flutter test` **438 gruen** (Baseline vor der
+Session: 424). **Geraete-Test offen.**
+
+**Ehrliche Restschuld.** Die ~240 verbliebenen Geraden sind je EIN
+Uebergangsvertex zwischen zwei Features — arcFitLoops `ratioOk` (Sehnenverhaeltnis
+<= 2) bricht dort zwangslaeufig, weil ein 0.04-mm-Fillet neben einer 0.4-mm-
+Flankensehne liegt. Sie verschwinden erst, wenn der Extrude-Pfad EXAKTE Segmente
+bekommt statt Punktschleifen: `PartKernel.extrude` nimmt heute
+`List<List<List<Offset>>>`, die Entity-Herkunft ist an dieser Grenze verloren
+(`ProfileLoop.ents` existiert, reicht aber nicht bis zum Kernel). Das theoretische
+Optimum liegt bei ~8 Kanten/Zahn (160 bei z=20) mit einem B-Spline-Eintrag im
+Shim (v6) — beides bewusst NICHT in dieser Session, weil es C++ plus ein neues
+Symbol-Gate braucht und nur in CI verifizierbar waere.

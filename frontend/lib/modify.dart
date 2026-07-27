@@ -1,4 +1,4 @@
-// iPadProCAD — Modify tools (Move, Copy, Rotate, Scale, Stretch, Offset,
+// Prototype — Modify tools (Move, Copy, Rotate, Scale, Stretch, Offset,
 // Trim, Extend, Split). All operations work on the Dart-side geometry list;
 // the engine document is rebuilt afterwards (the C-API is add-only).
 //

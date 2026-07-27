@@ -179,7 +179,7 @@ jobs:
           {
             # Merge the C-API wrapper + all core libs into a single archive the
             # app can link directly. libtool resolves duplicate members.
-            libtool -static -o release/libipadprocad.a \
+            libtool -static -o release/libprototype.a \
               release/libqcadcapi.a \
               release/libqcadcore.a \
               release/libqcadentity.a \
@@ -187,8 +187,8 @@ jobs:
               plugins/libqcaddxf.a \
               release/libdxflib.a
             echo "Combined library:"
-            ls -la release/libipadprocad.a
-            lipo -info release/libipadprocad.a
+            ls -la release/libprototype.a
+            lipo -info release/libprototype.a
           } 2>&1 | tee ../../ci-bundle.log
 
       - name: Package XCFramework (best-effort)
@@ -199,14 +199,14 @@ jobs:
           set -e
           set -o pipefail
           {
-            rm -rf release/ipadprocad.xcframework include-public
+            rm -rf release/prototype.xcframework include-public
             mkdir -p include-public
             cp src/capi/qcad_capi.h include-public/
             xcodebuild -create-xcframework \
-              -library release/libipadprocad.a -headers include-public \
-              -output release/ipadprocad.xcframework
+              -library release/libprototype.a -headers include-public \
+              -output release/prototype.xcframework
             echo "XCFramework created:"
-            find release/ipadprocad.xcframework -maxdepth 2 -print
+            find release/prototype.xcframework -maxdepth 2 -print
           } 2>&1 | tee ../../ci-xcframework.log
 
       - name: Upload iOS artifacts
@@ -214,11 +214,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           retention-days: 3
-          name: ipadprocad-ios-capi
+          name: prototype-ios-capi
           path: |
-            backend/qcad-core/release/libipadprocad.a
+            backend/qcad-core/release/libprototype.a
             backend/qcad-core/src/capi/qcad_capi.h
-            backend/qcad-core/release/ipadprocad.xcframework
+            backend/qcad-core/release/prototype.xcframework
           if-no-files-found: warn
 
       - name: Commit debug logs
@@ -230,8 +230,8 @@ jobs:
           done
           cp backend/qcad-core/build/CMakeFiles/CMakeError.log ci-logs/ 2>/dev/null || true
           cp backend/qcad-core/build/CMakeFiles/CMakeOutput.log ci-logs/ 2>/dev/null || true
-          git config user.email "ci@ipadprocad.local"
-          git config user.name "iPadProCAD CI"
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
           git add -f ci-logs
           git commit -m "CI: debug logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs --force
@@ -381,7 +381,7 @@ jobs:
                 '<?xml version="1.0" encoding="UTF-8"?>' \
                 '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
                 '<plist version="1.0"><dict>' \
-                '  <key>CFBundleIdentifier</key><string>com.ipadprocad.smoke</string>' \
+                '  <key>CFBundleIdentifier</key><string>com.prototype.smoke</string>' \
                 '  <key>CFBundleExecutable</key><string>qcad_capi_smoke</string>' \
                 '  <key>CFBundleName</key><string>qcad_capi_smoke</string>' \
                 '  <key>CFBundlePackageType</key><string>APPL</string>' \
@@ -389,7 +389,7 @@ jobs:
                 '  <key>CFBundleShortVersionString</key><string>1.0</string>' \
                 '  <key>MinimumOSVersion</key><string>14.0</string>' \
                 '</dict></plist>' > "$APP_DIR/Info.plist"
-            BID="com.ipadprocad.smoke"
+            BID="com.prototype.smoke"
             echo "bundle id: $BID"
             cat "$APP_DIR/Info.plist"
             UDID=""
@@ -432,8 +432,8 @@ jobs:
             cp "$l.log" ci-logs-m3/ 2>/dev/null || true
           done
           cp backend/qcad-core/build-sim/CMakeFiles/CMakeError.log ci-logs-m3/ 2>/dev/null || true
-          git config user.email "ci@ipadprocad.local"
-          git config user.name "iPadProCAD CI"
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
           git add -f ci-logs-m3
           git commit -m "CI(M3): iOS-sim logic-test logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs-m3 --force
@@ -443,7 +443,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           retention-days: 3
-          name: ipadprocad-m3-sim-logic
+          name: prototype-m3-sim-logic
           path: |
             ci-sim-run.log
             ci-sim-build.log
@@ -453,7 +453,7 @@ jobs:
   # M5 — Flutter app (1:1 UI port) linked against the QCAD core, packaged as an
   # UNSIGNED IPA for sideloading (AltStore/Sideloadly re-sign on install).
   #
-  # Link strategy: the combined static lib (libipadprocad.a) is force-loaded
+  # Link strategy: the combined static lib (libprototype.a) is force-loaded
   # into the Runner binary and the qcad_* symbols are kept in the export trie
   # (exported_symbols_list) so Dart's DynamicLibrary.process() can dlsym them.
   # All Qt-for-iOS static archives from <qt-ios>/lib are appended; ld64 only
@@ -565,14 +565,14 @@ jobs:
           # the Qt package (undefined QQml*Foreign, runs 29143874907/...136545/
           # ...547027); only the consumer build generates them.
           cmake --build build -j -- -k 0
-          libtool -static -o release/libipadprocad.a \
+          libtool -static -o release/libprototype.a \
             release/libqcadcapi.a \
             release/libqcadcore.a \
             release/libqcadentity.a \
             release/libqcadoperations.a \
             plugins/libqcaddxf.a \
             release/libdxflib.a
-          lipo -info release/libipadprocad.a
+          lipo -info release/libprototype.a
           } 2>&1 | tee ../../ci-m5-core.log
 
       - name: Install Flutter
@@ -587,8 +587,8 @@ jobs:
           set -o pipefail
           {
           flutter --version
-          flutter create --platforms=ios --org com.ipadprocad --project-name ipadprocad .
-          # Expose the app's Documents dir (incl. logs/ipadprocad_log.txt)
+          flutter create --platforms=ios --org com.prototype --project-name prototype .
+          # Expose the app's Documents dir (incl. logs/prototype_log.txt)
           # in the iPad Files app for on-device crash debugging.
           /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
@@ -730,7 +730,7 @@ jobs:
           echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
           printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libipadprocad.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
           IPHONEOS_DEPLOYMENT_TARGET = 14.0
           XC
           # strip the heredoc's leading indentation xcconfig can't handle
@@ -775,19 +775,19 @@ jobs:
             echo "M6 QIOS CHECK: FAIL (qt_main_wrapper present — qios plugin linked, app will crash at launch)"; exit 1
           fi
           echo "M6 QIOS CHECK: PASS (no qt_main_wrapper in Runner)"
-          HITS="$(strings "$APP/Runner" | grep -c "iPadProCAD C-API" || true)"
+          HITS="$(strings "$APP/Runner" | grep -c "Prototype C-API" || true)"
           if [ "${HITS:-0}" -gt 0 ]; then
             echo "M5 LINK CHECK: PASS (C-API version string present in Runner binary)"
           else
             echo "M5 LINK CHECK: FAIL (C-API not linked into Runner)"; exit 1
           fi
-          SHITS="$(strings "$APP/Runner" | grep -c "iPadProCAD SLVS shim" || true)"
+          SHITS="$(strings "$APP/Runner" | grep -c "Prototype SLVS shim" || true)"
           if [ "${SHITS:-0}" -gt 0 ]; then
             echo "SLVS LINK CHECK: PASS (libslvs shim marker present in Runner binary)"
           else
             echo "SLVS LINK CHECK: FAIL (libslvs/shim not linked into Runner)"; exit 1
           fi
-          OHITS="$(strings "$APP/Runner" | grep -c "iPadProCAD OCCT shim" || true)"
+          OHITS="$(strings "$APP/Runner" | grep -c "Prototype OCCT shim" || true)"
           if [ "${OHITS:-0}" -gt 0 ]; then
             echo "OCCT MARKER CHECK: PASS (OCCT shim version string present in Runner binary)"
           else
@@ -816,16 +816,16 @@ jobs:
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
-          zip -qry ../ipadprocad-unsigned.ipa Payload
-          ls -la ../ipadprocad-unsigned.ipa
+          zip -qry ../prototype-unsigned.ipa Payload
+          ls -la ../prototype-unsigned.ipa
           } 2>&1 | tee ../ci-m5-verify.log
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           retention-days: 3
-          name: ipadprocad-unsigned-ipa
-          path: ipadprocad-unsigned.ipa
+          name: prototype-unsigned-ipa
+          path: prototype-unsigned.ipa
           if-no-files-found: error
 
       - name: Commit M5 debug logs
@@ -835,8 +835,8 @@ jobs:
           for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-analyze ci-m5-build ci-m5-verify; do
             cp "$l.log" ci-logs-m5/ 2>/dev/null || true
           done
-          git config user.email "ci@ipadprocad.local"
-          git config user.name "iPadProCAD CI"
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
           git add -f ci-logs-m5
           git commit -m "CI(M5): Flutter-IPA build logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs-m5 --force

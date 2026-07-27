@@ -1,4 +1,4 @@
-// iPadProCAD — viewport (#viewport / #sketchsvg), 1:1 port + real drawing.
+// Prototype — viewport (#viewport / #sketchsvg), 1:1 port + real drawing.
 //
 // - Renders entities REAL from the QCAD document (geometry query via FFI).
 // - Edit mode overlay exactly like the mock: grey X/Y axes + grey center

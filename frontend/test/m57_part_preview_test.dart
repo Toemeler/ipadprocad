@@ -19,9 +19,9 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart';
-import 'package:ipadprocad/part_model.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/part_model.dart';
 
 /// A kernel that hands back a one-triangle solid with a real mesh, so the
 /// off-screen preview renderer has something to draw (the host build links no
@@ -69,7 +69,7 @@ class FakeKernel implements PartKernel {
 AppState makeApp() {
   final app = AppState();
   app.docsDirForTest =
-      Directory.systemTemp.createTempSync('ipadprocad_m57_');
+      Directory.systemTemp.createTempSync('prototype_m57_');
   return app;
 }
 

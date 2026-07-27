@@ -7,9 +7,9 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart' show Geo;
-import 'package:ipadprocad/part_model.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/qcad_engine.dart' show Geo;
+import 'package:prototype/part_model.dart';
 
 Geo ln(double x1, double y1, double x2, double y2) =>
     Geo(Geo.line, [x1, y1, x2, y2]);

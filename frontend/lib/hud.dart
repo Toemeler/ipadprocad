@@ -1,4 +1,4 @@
-// iPadProCAD — Heads-Up Display (Dynamic Input), Inventor-faithful.
+// Prototype — Heads-Up Display (Dynamic Input), Inventor-faithful.
 //
 // Inventor shows floating value boxes near the cursor while a create tool is
 // running (Line, Circle, Arc, Rectangle, Point, Slot, ...). As the cursor

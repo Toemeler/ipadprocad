@@ -103,7 +103,7 @@ typedef NativePencilGesture = void Function(String event, double? x, double? y);
 class NativeMenu {
   NativeMenu._();
 
-  static const MethodChannel _ch = MethodChannel('ipadprocad/native_menu');
+  static const MethodChannel _ch = MethodChannel('prototype/native_menu');
 
   /// There is ONE interaction on the Flutter view but several widgets want to
   /// own targets (the gallery, the model browser). Each registers under its own

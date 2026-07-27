@@ -1,4 +1,4 @@
-// iPadProCAD — ribbon, 1:1 port of the mock's #ribbon.
+// Prototype — ribbon, 1:1 port of the mock's #ribbon.
 // Panel order (binding): Layer, Create, Project Geometry, Pattern, Constrain,
 // Insert, Format, Modify (last). Exit panel appears top-right in edit mode.
 // Home view: all panels hidden except the single "Create New Sketch" panel.

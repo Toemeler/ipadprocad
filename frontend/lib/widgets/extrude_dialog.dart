@@ -1,4 +1,4 @@
-// iPadProCAD — Extrusion properties panel (M56), the modeless dialog from
+// Prototype — Extrusion properties panel (M56), the modeless dialog from
 // the reference screenshot: "Properties ✕ | +" header, "Extrusion > Sketch1"
 // breadcrumb, collapsible Input Geometry / Behavior / Output / Advanced
 // Properties sections, OK / Cancel / +. Draggable over the viewport like

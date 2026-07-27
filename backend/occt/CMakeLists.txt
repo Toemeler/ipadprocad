@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-project(ipadprocad_occt CXX C)
+project(prototype_occt CXX C)
 
 # ---------------------------------------------------------------------------
-# iPadProCAD OCCT layer: a thin, flat C shim (occt_capi) built as a STATIC
+# Prototype OCCT layer: a thin, flat C shim (occt_capi) built as a STATIC
 # library over an already-built OpenCASCADE, for linking into the Flutter iOS
 # app via FFI in a LATER session. Mirrors backend/slvs/CMakeLists.txt.
 #

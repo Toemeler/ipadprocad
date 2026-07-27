@@ -9,8 +9,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/widgets/home_view.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/widgets/home_view.dart';
 
 AppState makeApp() {
   final app = AppState();

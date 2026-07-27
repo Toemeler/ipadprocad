@@ -2,9 +2,9 @@
 // from the M24 bug report: line + ellipse center, ellipse as pick target,
 // and Inventor's aligned/horizontal/vertical choice by placement position.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/constraints.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/constraints.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
 
 AppState makeApp(List<Geo> tagged) {
   final app = AppState();

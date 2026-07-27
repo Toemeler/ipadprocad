@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(ipadprocad_slvs CXX C)
+project(prototype_slvs CXX C)
 
 # ---------------------------------------------------------------------------
 # Vendored SolveSpace constraint solver (libslvs), built as a STATIC library

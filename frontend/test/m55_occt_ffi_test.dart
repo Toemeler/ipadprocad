@@ -10,7 +10,7 @@
 //   3. Pure-Dart input validation of extrudePolygon's preconditions is
 //      testable via the argument contract without a kernel.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart';
+import 'package:prototype/ffi/occt_engine.dart';
 
 void main() {
   setUp(OcctFfi.resetForTest);

@@ -1,5 +1,5 @@
 /*
- * iPadProCAD — flat C-ABI shim over OpenCASCADE (OCCT).
+ * Prototype — flat C-ABI shim over OpenCASCADE (OCCT).
  *
  * First hand-picked surface: just enough B-Rep + STEP to prove the kernel
  * works end-to-end (primitive, sketch-profile extrusion, boolean fuse,
@@ -30,8 +30,8 @@ typedef struct occt_shape occt_shape;
 
 /*
  * Human-readable version/marker string, e.g.
- *   "iPadProCAD OCCT shim v1 (OCCT 7.9.3)".
- * The literal prefix "iPadProCAD OCCT shim" is what the CI link check greps
+ *   "Prototype OCCT shim v1 (OCCT 7.9.3)".
+ * The literal prefix "Prototype OCCT shim" is what the CI link check greps
  * for in the Runner binary (same mechanism as the QCAD / SLVS markers).
  */
 const char *occt_version(void);

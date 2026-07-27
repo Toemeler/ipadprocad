@@ -1,4 +1,4 @@
-// iPadProCAD — the Gear dialog (M61). A MOVABLE modeless window over the
+// Prototype — the Gear dialog (M61). A MOVABLE modeless window over the
 // viewport, matching the Parameters / Pattern dialogs: pick a gear kind
 // (External / Internal / Planetary), set the metric parameters, watch a LIVE
 // preview, then place the gear with a viewport tap or the Insert button.
@@ -32,7 +32,7 @@ class GearDialog extends StatefulWidget {
 class _GearDialogState extends State<GearDialog> {
   late final TextEditingController _module,
       _teeth,
-      _radius,
+      _corner,
       _angle,
       _shift,
       _bore,
@@ -48,7 +48,7 @@ class _GearDialogState extends State<GearDialog> {
     final g = gs;
     _module = TextEditingController(text: _n(g.params.module));
     _teeth = TextEditingController(text: '${g.params.teeth}');
-    _radius = TextEditingController(text: _n(g.params.pitchRadius));
+    _corner = TextEditingController(text: _n(g.params.rootFilletRadius));
     _angle = TextEditingController(text: _n(g.params.pressureAngleDeg));
     _shift = TextEditingController(text: _n(g.params.profileShift));
     _bore = TextEditingController(text: _n(g.params.bore));
@@ -62,7 +62,7 @@ class _GearDialogState extends State<GearDialog> {
     for (final c in [
       _module,
       _teeth,
-      _radius,
+      _corner,
       _angle,
       _shift,
       _bore,
@@ -85,33 +85,11 @@ class _GearDialogState extends State<GearDialog> {
   int _i(TextEditingController c, int fallback) =>
       int.tryParse(c.text.trim()) ?? fallback;
 
-  /// Pitch radius is r = m·z/2 — the same value from the other side. Editing it
-  /// keeps the tooth COUNT and solves for the module, which is what "make this
-  /// gear 30 mm" means (changing z instead would only be possible in whole
-  /// teeth and would jump the size around). Module and radius therefore mirror
-  /// each other: whichever the user types, the other follows.
-  void _syncRadius() {
-    final g = gs;
-    final r = _d(_radius, g.params.pitchRadius);
-    final z = _i(_teeth, g.params.teeth);
-    g.params.teeth = z;
-    if (r > 0 && z > 0) {
-      // round to 1e-6 mm so 30/15 shows as "4", not "3.9999999999999996"
-      g.params.module = (2 * r / z * 1e6).roundToDouble() / 1e6;
-      _module.text = _n(g.params.module);
-    }
-    g.params.pressureAngleDeg = _d(_angle, g.params.pressureAngleDeg);
-    g.params.profileShift = _d(_shift, g.params.profileShift);
-    g.params.bore = _d(_bore, g.params.bore);
-    widget.app.gearNotify();
-    setState(() {}); // info line (pitch/tip/root diameters) follows
-  }
-
   void _sync() {
     final g = gs;
     g.params.module = _d(_module, g.params.module);
     g.params.teeth = _i(_teeth, g.params.teeth);
-    _radius.text = _n(g.params.pitchRadius);
+    g.params.cornerRadius = _d(_corner, g.params.rootFilletRadius);
     g.params.pressureAngleDeg = _d(_angle, g.params.pressureAngleDeg);
     g.params.profileShift = _d(_shift, g.params.profileShift);
     g.params.bore = _d(_bore, g.params.bore);
@@ -192,8 +170,7 @@ class _GearDialogState extends State<GearDialog> {
                 // ---- fields ----
                 _field('Module (mm)', _module),
                 if (!planetary) _field('Teeth', _teeth),
-                if (!planetary)
-                  _field('Pitch radius (mm)', _radius, on: _syncRadius),
+                _field('Corner radius (mm)', _corner),
                 if (planetary) ...[
                   _field('Sun teeth', _sun),
                   _field('Planet teeth', _planet),

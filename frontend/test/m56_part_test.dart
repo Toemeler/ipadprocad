@@ -8,10 +8,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/occt_engine.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart';
-import 'package:ipadprocad/part_model.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/part_model.dart';
 
 /// Records what the kernel was asked for and hands back a stub solid, so
 /// the tests can assert the GEOMETRY HANDED DOWN without a 3D kernel.
@@ -81,7 +81,7 @@ class FakeKernel implements PartKernel {
 
 AppState makeApp() {
   final app = AppState();
-  app.docsDirForTest = Directory.systemTemp.createTempSync('ipadprocad_m56_');
+  app.docsDirForTest = Directory.systemTemp.createTempSync('prototype_m56_');
   return app;
 }
 

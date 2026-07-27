@@ -1,10 +1,10 @@
-// iPadProCAD — crash-safe file logger for on-device debugging.
+// Prototype — crash-safe file logger for on-device debugging.
 //
 // LOG LOCATION (iPad Files app):
-//   On My iPad > ipadprocad > logs > ipadprocad_log.txt
+//   On My iPad > prototype > logs > prototype_log.txt
 // Visible because the M5 CI job patches UIFileSharingEnabled +
 // LSSupportsOpeningDocumentsInPlace into Info.plist. The previous session is
-// kept as ipadprocad_log_prev.txt.
+// kept as prototype_log_prev.txt.
 //
 // WRITE POLICY. Lines are BUFFERED and flushed in batches. The grip drag solves
 // (and therefore logs) at ~60 Hz, and an fsync per line would stall the very
@@ -48,13 +48,13 @@ class Log {
       docs ??= Directory.systemTemp.path;
       final dir = Directory('$docs/logs');
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final f = File('${dir.path}/ipadprocad_log.txt');
+      final f = File('${dir.path}/prototype_log.txt');
       if (f.existsSync() && f.lengthSync() > _maxBytes) {
-        final old = File('${dir.path}/ipadprocad_log_prev.txt');
+        final old = File('${dir.path}/prototype_log_prev.txt');
         if (old.existsSync()) old.deleteSync();
         f.renameSync(old.path);
       }
-      _file = File('${dir.path}/ipadprocad_log.txt');
+      _file = File('${dir.path}/prototype_log.txt');
       _file!.writeAsStringSync(
           '\n================ APP LAUNCH ${DateTime.now().toIso8601String()}'
           ' build=$build ================\n',
@@ -85,7 +85,7 @@ class Log {
   /// available. [init] runs before any platform channel exists, so it derives
   /// the path from $HOME — which on iOS can be empty, in which case the log
   /// falls back to the temp directory that the Files app does NOT expose (so
-  /// "On My iPad > ipadprocad" shows the sketches but no log). Calling this with
+  /// "On My iPad > prototype" shows the sketches but no log). Calling this with
   /// getApplicationDocumentsDirectory().path guarantees the log lands next to
   /// the sketches, where it can actually be retrieved. Existing lines are
   /// carried across so the launch/FFI/smoke history is not lost. Never throws.
@@ -95,7 +95,7 @@ class Log {
       flush();
       final dir = Directory('$documentsDir/logs');
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final newFile = File('${dir.path}/ipadprocad_log.txt');
+      final newFile = File('${dir.path}/prototype_log.txt');
       final old = _file;
       if (old != null && old.path == newFile.path) return; // already there
       // Carry the history across, then continue in the new location.

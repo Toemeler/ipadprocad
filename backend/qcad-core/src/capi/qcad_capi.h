@@ -1,5 +1,5 @@
 /*
- * iPadProCAD — C-ABI wrapper around the (headless) QCAD core.
+ * Prototype — C-ABI wrapper around the (headless) QCAD core.
  *
  * Milestone M2. Pure C interface (extern "C"), opaque handles, no C++ types at
  * the ABI boundary. Designed to be consumed from Dart FFI on iOS and from a
@@ -32,7 +32,7 @@ typedef struct qcad_document qcad_document;
  */
 void qcad_init(void);
 
-/* Human-readable version string, e.g. "iPadProCAD C-API 0.1.0 (Qt 6.4.2)". */
+/* Human-readable version string, e.g. "Prototype C-API 0.1.0 (Qt 6.4.2)". */
 const char *qcad_version(void);
 
 /* ---- Document lifecycle ---- */

@@ -11,11 +11,11 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ipadprocad/app_state.dart';
-import 'package:ipadprocad/ffi/qcad_engine.dart' show Geo;
-import 'package:ipadprocad/part_model.dart';
-import 'package:ipadprocad/reality_scene.dart';
-import 'package:ipadprocad/solver.dart' show solveConstraints;
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/qcad_engine.dart' show Geo;
+import 'package:prototype/part_model.dart';
+import 'package:prototype/reality_scene.dart';
+import 'package:prototype/solver.dart' show solveConstraints;
 
 import 'synth_mesh.dart';
 
