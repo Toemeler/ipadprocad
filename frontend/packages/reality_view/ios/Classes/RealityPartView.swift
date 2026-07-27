@@ -212,15 +212,15 @@ final class PartRenderer: NSObject {
     /// Re-tube the cached solids at the current zoom. Edge tubes have a fixed
     /// WORLD radius, so without this they thin to nothing when zooming in and
     /// turn into bars when zooming out.
-    /// Master switch for the M70/M71 outline ribbons.
+    /// Master switch for the outline ribbons (M70-M72).
     ///
-    /// OFF: on device (build 8fb292f) the ribbons rendered NOTHING — no
-    /// outlines at all, which is worse than the tube they replaced. Rather
-    /// than guess at the cause blind, we fall back to the 16-sided tube
-    /// (M69), which looks right and whose width swing is under 2%.
-    /// RibbonBuilder and the whole rebuild path stay in place; flipping this
-    /// to true re-enables them. See HANDOFF M72 for the suspect list.
-    private static let useRibbons = false
+    /// On build 8fb292f these rendered NOTHING on device: the triangle
+    /// winding put every ribbon facing away from the camera, so the whole
+    /// outline was back-face culled. Fixed in M72 (winding reversed AND the
+    /// material made double-sided). The switch stays as an escape hatch — set
+    /// it to false to fall back to the 16-sided tube from M69, which is
+    /// orientation-independent and swings under 2% in width.
+    private static let useRibbons = true
 
     /// View direction the outline ribbons were last built for.
     private var ribbonDir: SIMD3<Float> = .init(0, 0, 1)

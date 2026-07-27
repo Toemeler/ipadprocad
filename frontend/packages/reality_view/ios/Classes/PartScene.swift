@@ -114,11 +114,18 @@ enum Materials {
     /// a ramp failure costs sharpness, never the line itself.
     static func unlitSoft(_ color: UIColor) -> RealityKit.Material {
         var m = UnlitMaterial(color: color)
-        // TextureResource.generate needs iOS 15; below that the outline is
-        // simply hard-edged rather than feathered.
-        if #available(iOS 15.0, *), let tex = RampTexture.shared {
-            m.opacityThreshold = 0
-            m.blending = .transparent(opacity: .init(scale: 1, texture: .init(tex)))
+        if #available(iOS 15.0, *) {
+            // A ribbon has no thickness, so it must render from both sides;
+            // relying on winding is what made the outlines disappear entirely.
+            m.faceCulling = .none
+            // TextureResource.generate needs iOS 15; below that the outline is
+            // simply hard-edged rather than feathered.
+            // NB: no opacityThreshold here — that switches on alpha MASKING,
+            // which fights the smooth ramp we are blending with.
+            if let tex = RampTexture.shared {
+                m.blending =
+                    .transparent(opacity: .init(scale: 1, texture: .init(tex)))
+            }
         }
         return m
     }
@@ -553,13 +560,24 @@ enum RibbonBuilder {
                     positions.append(b + side * o)
                     uvs.append(SIMD2<Float>(u, 1))
                 }
-                // three quads: (rail0,rail1), (rail1,rail2), (rail2,rail3)
+                // Three quads across: (rail0,rail1), (rail1,rail2),
+                // (rail2,rail3).
+                //
+                // WINDING MATTERS AND GOT THIS WRONG ONCE. The obvious order
+                // (i0,i1,j1) has normal cross(dir, side), and with
+                // side = cross(dir, v) that is cross(dir, cross(dir, v)) = -v.
+                // Since v points TOWARD the camera, every triangle then faced
+                // AWAY and the whole outline was culled — on device the
+                // outlines vanished completely. Reversed here, and the
+                // material also disables culling, because a zero-thickness
+                // ribbon is genuinely two-sided and should never depend on
+                // which way round it was generated.
                 for r in 0..<3 {
                     let i0 = base + UInt32(r * 2)
                     let i1 = base + UInt32(r * 2 + 1)
                     let j0 = base + UInt32((r + 1) * 2)
                     let j1 = base + UInt32((r + 1) * 2 + 1)
-                    indices.append(contentsOf: [i0, i1, j1, i0, j1, j0])
+                    indices.append(contentsOf: [i0, j1, i1, i0, j0, j1])
                 }
             }
         }

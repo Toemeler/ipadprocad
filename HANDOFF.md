@@ -3712,3 +3712,53 @@ Noch NICHT gemacht. Betroffene Kette:
 Groessenordnung: bei 53 904 Vertices sind Positionen + Normalen rund 3,4 MB
 je Push. Halbiert sich, und die GPU rechnet ohnehin in Float32 — die
 Konvertierung passiert also heute schon irgendwo.
+
+## M72 — Baender waren unsichtbar: Winding
+
+**Symptom.** Auf build 8fb292f gar keine Outlines mehr — schlechter als die
+Roehre davor.
+
+**Ursache, nachgerechnet statt geraten.** Die Dreiecke waren als
+`(a_r, b_r, b_{r+1})` gewickelt. Deren Normale ist `cross(dir, side)`, und mit
+`side = cross(dir, v)` ergibt das
+
+    cross(dir, cross(dir, v)) = dir*(dir·v) - v*(dir·dir) = -v
+
+fuer `dir ⊥ v`. Und `v` ist genau die Richtung ZUR Kamera — dieselbe `dir`,
+mit der die Kanten per Bias zur Kamera geschoben werden. Jedes Band-Dreieck
+zeigte also von der Kamera WEG und wurde vollstaendig rueckseitig gecullt.
+
+**Fix, zweifach abgesichert.**
+1. Winding umgedreht: `[i0, j1, i1, i0, j0, j1]`.
+2. `m.faceCulling = .none` in `Materials.unlitSoft`. Ein Band hat keine Dicke,
+   ist also echt zweiseitig und darf gar nicht davon abhaengen, in welcher
+   Reihenfolge es erzeugt wurde. Punkt 1 allein haette gereicht, aber die
+   Klasse von Fehler soll nicht wiederkommen.
+
+Ausserdem entfernt: `opacityThreshold = 0`. Das schaltet Alpha-MASKING ein und
+arbeitet gegen die weiche Rampe, mit der wir blenden wollen.
+
+**Notausschalter.** `RealityPartView.useRibbons` (jetzt `true`). Auf `false`
+faellt alles auf die 16-Eck-Roehre aus M69 zurueck — orientierungsunabhaengig,
+unter 2 % Breitenschwankung. Eine Zeile, falls auf dem Geraet noch etwas
+klemmt.
+
+**Falls die Outlines immer noch fehlen**, in dieser Reihenfolge pruefen:
+1. `useRibbons = false` — kommen die Roehren zurueck? Dann liegt es sicher am
+   Band und nicht an der Kanten-Pipeline darueber.
+2. Rampe verdaechtigen: in `unlitSoft` den `blending`-Block auskommentieren.
+   Erscheint dann eine harte Linie, ist die Opacity-Textur schuld
+   (`.init(scale:texture:)`-Signatur oder das Alpha-Format der 32x1-Textur).
+3. `halfWidth`: `edgeRadius` war als ROEHRENRADIUS gedacht. Beim Band ist es
+   die halbe Breite — optisch also dieselbe Groessenordnung, aber falls die
+   Linien extrem duenn wirken, ist hier der Hebel.
+
+### Naechster Schritt: Float32
+
+Positionen und Normalen reisen heute als `Float64` von Dart nach Swift: bei
+53 904 Vertices rund 3,4 MB je Push, obwohl die GPU ohnehin nur `Float32`
+rechnet, es also irgendwo konvertiert wird. Umstellen halbiert den Upload UND
+spart die Konvertierung. Betroffen: `OcctMeshData` in `ffi/occt_engine.dart`,
+der Payload-Bau in `reality_scene.dart`, die Dekodierung in `Payload`/
+`SolidGeom` auf der Swift-Seite. Als EIGENER Commit — es beruehrt die ganze
+Kette, und wenn etwas bricht, soll es eindeutig zuordenbar sein.
