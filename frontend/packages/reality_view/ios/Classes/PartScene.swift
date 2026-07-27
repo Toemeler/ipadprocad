@@ -412,7 +412,16 @@ final class AxisEntity {
 // ---------------------------------------------------------------------------
 @available(iOS 15.0, *)
 enum TubeBuilder {
-    private static let sides = 6
+    /// Cross-section resolution of the swept tube.
+    ///
+    /// This was 6, and a hexagon is the reason outline thickness visibly
+    /// changed with the view: seen across the flats it is 2*r*cos(30) = 1.73r
+    /// wide, across the corners 2r — a 15% swing purely from rotating the
+    /// camera, plus a faceted look where segments meet at an angle. At 16
+    /// sides the swing is 2*r*cos(11.25) = 1.96r, i.e. under 2%, which is
+    /// below a pixel at any sane stroke weight. Edges are 1D and cheap next to
+    /// the face tessellation, so this is an affordable place to spend.
+    private static let sides = 16
 
     static func polyline(_ pts: [SIMD3<Float>], radius: Float,
                          material: RealityKit.Material) -> Entity? {
