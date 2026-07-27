@@ -114,7 +114,9 @@ enum Materials {
     /// a ramp failure costs sharpness, never the line itself.
     static func unlitSoft(_ color: UIColor) -> RealityKit.Material {
         var m = UnlitMaterial(color: color)
-        if let tex = RampTexture.shared {
+        // TextureResource.generate needs iOS 15; below that the outline is
+        // simply hard-edged rather than feathered.
+        if #available(iOS 15.0, *), let tex = RampTexture.shared {
             m.opacityThreshold = 0
             m.blending = .transparent(opacity: .init(scale: 1, texture: .init(tex)))
         }
@@ -453,6 +455,7 @@ final class AxisEntity {
 // the ribbon's cross-width UV turns into a soft edge on a STOCK material —
 // no CustomMaterial, no Metal.
 // ---------------------------------------------------------------------------
+@available(iOS 15.0, *)
 enum RampTexture {
     static let shared: TextureResource? = make()
 
