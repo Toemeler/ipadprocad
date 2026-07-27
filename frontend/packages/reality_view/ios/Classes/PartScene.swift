@@ -405,6 +405,92 @@ final class AxisEntity {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Ribbon builder: a flat, camera-facing strip per polyline segment.
+//
+// Why this exists next to TubeBuilder. A swept k-gon is 2*k triangles per
+// segment (24 at 16 sides) and its apparent width still wobbles with the view
+// by 2*(1 - cos(pi/k)). A strip held perpendicular to the view direction is
+// TWO triangles per segment and its width is exact, because the camera is
+// ORTHOGRAPHIC: world width = pixels * worldPerPixel with no perspective term.
+// So it is both ~12x cheaper and strictly better looking - but it only holds
+// while the strip faces the camera, so it has to be rebuilt when the view
+// direction turns (see RealityPartView.refreshRibbons).
+//
+// Antialiasing without a shader: the strip is THREE quads across (an opaque
+// core plus a feather each side) and carries a U coordinate running 0..1
+// ACROSS the width. Feeding that through an alpha-ramp texture on a stock
+// UnlitMaterial gives a soft edge with no custom Metal. Vertex colours would
+// have been the obvious route, but RealityKit's stock materials do not read
+// them, so UV is the one that actually works here.
+// ---------------------------------------------------------------------------
+@available(iOS 15.0, *)
+enum RibbonBuilder {
+    /// Fraction of the half width spent on the soft edge on each side.
+    private static let feather: Float = 0.45
+
+    /// Builds one mesh for all [pts] polylines, flattened toward [viewDir].
+    /// [halfWidth] is in world units and is expected to be derived from the
+    /// zoom so the on-screen weight stays put.
+    static func mesh(_ polylines: [[SIMD3<Float>]], halfWidth w: Float,
+                     viewDir: SIMD3<Float>) -> MeshResource? {
+        var positions = [SIMD3<Float>]()
+        var uvs = [SIMD2<Float>]()
+        var indices = [UInt32]()
+        let v = simd_length(viewDir) < 1e-6
+            ? SIMD3<Float>(0, 0, 1) : simd_normalize(viewDir)
+        let core = w * (1 - feather)
+
+        for pts in polylines where pts.count >= 2 {
+            for i in 0..<(pts.count - 1) {
+                let a = pts[i], b = pts[i + 1]
+                let axis = b - a
+                let len = simd_length(axis)
+                if len < 1e-7 { continue }
+                let dir = axis / len
+                // In-plane normal: perpendicular to BOTH the segment and the
+                // view direction, i.e. exactly the on-screen sideways.
+                var side = simd_cross(dir, v)
+                let sl = simd_length(side)
+                if sl < 1e-5 {
+                    // Segment points (nearly) at the camera: it projects to a
+                    // dot, so any perpendicular will do and none is visible.
+                    var up = SIMD3<Float>(0, 1, 0)
+                    if abs(simd_dot(dir, up)) > 0.9 { up = SIMD3<Float>(1, 0, 0) }
+                    side = simd_normalize(simd_cross(dir, up))
+                } else {
+                    side /= sl
+                }
+                let base = UInt32(positions.count)
+                // four rails across the strip: -w, -core, +core, +w
+                let offs: [Float] = [-w, -core, core, w]
+                let us: [Float] = [0, 0.5, 0.5, 1]
+                for (o, u) in zip(offs, us) {
+                    positions.append(a + side * o)
+                    uvs.append(SIMD2<Float>(u, 0))
+                    positions.append(b + side * o)
+                    uvs.append(SIMD2<Float>(u, 1))
+                }
+                // three quads: (rail0,rail1), (rail1,rail2), (rail2,rail3)
+                for r in 0..<3 {
+                    let i0 = base + UInt32(r * 2)
+                    let i1 = base + UInt32(r * 2 + 1)
+                    let j0 = base + UInt32((r + 1) * 2)
+                    let j1 = base + UInt32((r + 1) * 2 + 1)
+                    indices.append(contentsOf: [i0, i1, j1, i0, j1, j0])
+                }
+            }
+        }
+        guard !positions.isEmpty else { return nil }
+        var d = MeshDescriptor(name: "ribbon")
+        d.positions = MeshBuffers.Positions(positions)
+        d.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
+        d.primitives = .triangles(indices)
+        return try? MeshResource.generate(from: [d])
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tube builder: sweeps a k-gon cross-section along polyline segments. Each
 // segment is an independent short prism (tiny joint gaps are invisible at

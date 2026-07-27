@@ -3535,3 +3535,95 @@ mit bildschirmbezogenem Linienrendering (Metal-Shader oder Screen-Space-
 Quads) — das ist ein Swift/Metal-Umbau und gehoert in einen eigenen Schritt,
 nicht neben eine Shim-Aenderung. Ebenfalls offen: Float32-Buffer,
 Hintergrund-Isolate, Kontextmenue.
+
+## M70 — Outline-Baender (RibbonBuilder), Stand und naechste Schritte
+
+### Was drin ist
+
+**`RibbonBuilder` in PartScene.swift.** Ein flaches, kamerazugewandtes Band
+statt eines gefegten k-Ecks:
+
+| | Dreiecke je Segment | Breitenschwankung |
+|---|---|---|
+| Sechskant-Prisma (bis M68) | 12 | 15 % |
+| 16-Eck-Prisma (M69, `17884ea`) | 32 | < 2 % |
+| **Band (M70)** | **2** | **0 %** |
+
+Die Null ist exakt, nicht gerundet: die Kamera ist ORTHOGRAFISCH, also gilt
+Weltbreite = Pixel x worldPerPixel ohne Perspektivterm. Das Band wird
+senkrecht zur Blickrichtung aufgespannt (`cross(segmentDir, viewDir)`), mit
+Sonderfall fuer Segmente, die auf die Kamera zeigen (projizieren zu einem
+Punkt, jede Senkrechte taugt).
+
+**Antialiasing.** Das Band ist DREI Quads breit — opaker Kern plus Feder
+beidseits — und traegt eine U-Koordinate 0..1 QUER zur Breite. Ueber eine
+Alpha-Rampen-Textur auf einem normalen `UnlitMaterial` ergibt das eine weiche
+Kante ohne eigenes Metal. Vertex-Farben waeren der naheliegende Weg gewesen,
+aber **RealityKits Standardmaterialien lesen keine Vertex-Farben** — deshalb
+UV. Das ist der Fallstrick, ueber den man hier stolpert.
+
+### NICHT fertig — hier weitermachen
+
+`RibbonBuilder` ist gebaut, aber **noch nicht verdrahtet**. Es fehlen drei
+Dinge, alle in `RealityPartView.swift`:
+
+1. **Polylinien vorhalten.** `edgeEntities` und `sketchEntities` speichern
+   heute nur die Entity. Fuer den Neuaufbau braucht es die Quellpunkte, also
+   z. B. `[(Entity, [[SIMD3<Float>]], SIMD3<Float>)]` (Entity, Polylinien,
+   Ebenennormale bei Skizzen).
+2. **Bei Kameradrehung neu aufbauen.** Hook existiert bereits: die Schleife um
+   Zeile 266, die `e.position = dir * bias` setzt, laeuft bei jeder
+   Kameraaenderung. Dort `RibbonBuilder.mesh(...)` neu erzeugen und per
+   `MeshResource.replace` zuweisen — Apple weist ausdruecklich darauf hin,
+   dass man NICHT jedes Frame ein neues MeshResource bauen soll.
+   **Wichtig: mit Schwelle.** Nur neu aufbauen, wenn sich die Blickrichtung um
+   mehr als ca. 3 Grad geaendert hat, sonst kostet das Orbiten mehr als das
+   Prisma je gekostet hat. Beim Zoomen genuegt die Breite anzupassen, die
+   Ausrichtung bleibt.
+3. **Alpha-Rampen-Textur.** 1x16 Pixel, opak in der Mitte, transparent am
+   Rand, per `TextureResource.generate` aus einem `CGImage`, Material mit
+   `.blending = .transparent`. Ohne sie zeichnet das Band hart und die
+   Feder-Quads sind wirkungslos (aber es sieht nicht falsch aus, nur nicht
+   weich) — man kann also in dieser Reihenfolge vorgehen und zwischendurch
+   testen.
+
+`TubeBuilder` bleibt vorerst stehen: er ist der Rueckfall, falls sich der
+Neuaufbau beim Orbiten auf dem Geraet als zu teuer erweist.
+
+### Danach: Float32
+
+Heute reisen Positionen und Normalen als `Float64` von Dart nach Swift. Bei
+53 904 Vertices sind das rund 3,4 MB pro Push, und die GPU rechnet ohnehin nur
+in `Float32` — es wird also irgendwo konvertiert. Umstellen halbiert den
+Upload UND spart die Konvertierung. Betroffen: die Buffer in
+`ffi/occt_engine.dart` (`OcctMeshData`), der Payload-Bau in
+`reality_scene.dart`, und die Dekodierung in `Payload`/`SolidGeom` auf der
+Swift-Seite. Als EIGENER Commit, weil es die ganze Kette beruehrt.
+
+### Danach: Hintergrund-Isolate
+
+Zuletzt und allein. `occt_mesh_create` blockiert trotz M67 (paralleles
+Vernetzen, v10) noch 389-586 ms auf dem UI-Thread. Ein Isolate loest das,
+fasst aber OCCT-Threading an — genau wie `isInParallel`, das seit v10 aktiv
+ist. Deshalb NICHT mit etwas anderem zusammen ausliefern: bei einem CI- oder
+Geraetefehler waere sonst nicht zu trennen, welche der beiden Aenderungen
+schuld ist. Genau dieser Fall ist bei M67 eingetreten (roter M3-Job, der sich
+als Flake herausstellte) und die Trennung war der Grund, warum es in Minuten
+geklaert war.
+
+Zu pruefen ist dabei, ob OCCT-Shape-Pointer ueber Isolate-Grenzen hinweg
+benutzbar sind — sie gehoeren heute dem Haupt-Isolate. Wahrscheinlich braucht
+es `Isolate.run` mit reinen Daten hin und zurueck statt geteilter Handles.
+
+### Ebenfalls weiter offen
+
+- **Kontextmenue** auf Extrusion/Solid (loeschen, umbenennen, sichtbar),
+  analog zu den nativen 2D-Menues aus M47. Dreimal angefragt, dreimal nicht
+  geliefert.
+- **M3-CI-Flake**: der Simulator-Smoke greift die Ausgabe ab, bevor die App
+  fertig geschrieben hat — einmal falsches Gruen (Run 29043802347), einmal
+  falsches Rot (Run 30270619849). Fix waere, auf den Prozess zu warten bzw.
+  mit Timeout auf den Marker zu pollen.
+- **200-ms-Drag** aus dem 39555ac-Log: Solver braucht davon 0,4 ms, der Rest
+  ist unbekannt. Es fehlt Instrumentierung im Drag-Handler; bis dahin ist
+  jede Aussage dazu geraten.
