@@ -17,8 +17,14 @@ import RealityKit
 #endif
 
 // ---------------------------------------------------------------------------
-// Typed-data payload decoding. The Dart side sends Float64List / Int32List,
+// Typed-data payload decoding. The Dart side sends Float32List / Int32List,
 // which arrive as FlutterStandardTypedData; reinterpret their bytes.
+//
+// M74: the vertex buffers moved from Float64 to Float32. They used to arrive
+// as doubles and get converted here one vertex at a time — pointless, since
+// the GPU only takes Float32 — so this now reinterprets the bytes straight
+// into SIMD3<Float> with no conversion pass and half the bytes on the wire
+// (~3.4 MB -> ~1.7 MB for a 54k-vertex gear).
 // ---------------------------------------------------------------------------
 enum Payload {
     static func doubles(_ any: Any?) -> [Double]? {
@@ -29,16 +35,21 @@ enum Payload {
         }
     }
 
+    /// Flat Float32 triples -> SIMD3<Float>, no per-element conversion.
     static func floats(_ any: Any?) -> [SIMD3<Float>]? {
-        guard let d = doubles(any), d.count % 3 == 0 else { return nil }
-        var out = [SIMD3<Float>]()
-        out.reserveCapacity(d.count / 3)
-        var i = 0
-        while i < d.count {
-            out.append(SIMD3<Float>(Float(d[i]), Float(d[i + 1]), Float(d[i + 2])))
-            i += 3
+        guard let td = any as? FlutterStandardTypedData else { return nil }
+        return td.data.withUnsafeBytes { raw -> [SIMD3<Float>]? in
+            let buf = raw.bindMemory(to: Float.self)
+            guard buf.count % 3 == 0 else { return nil }
+            var out = [SIMD3<Float>]()
+            out.reserveCapacity(buf.count / 3)
+            var i = 0
+            while i < buf.count {
+                out.append(SIMD3<Float>(buf[i], buf[i + 1], buf[i + 2]))
+                i += 3
+            }
+            return out
         }
-        return out
     }
 
     static func ints(_ any: Any?) -> [Int32]? {

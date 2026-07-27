@@ -87,13 +87,16 @@ void main() {
       expect(m['id'], 'Extrusion1');
       expect(m['material'], kMatSteel);
       // Same object identity — no defensive copy of megabytes of geometry.
-      expect(identical(m['positions'], s.mesh.positions), isTrue);
-      expect(identical(m['normals'], s.mesh.normals), isTrue);
+      // M74: the vertex buffers travel as Float32 (half the bytes, and no
+      // per-vertex conversion in Swift). They are still not re-copied per
+      // push — the Float32 view is built once per mesh and reused.
+      expect(identical(m['positions'], s.mesh.positions32), isTrue);
+      expect(identical(m['normals'], s.mesh.normals32), isTrue);
       expect(identical(m['indices'], s.mesh.indices), isTrue);
-      expect(identical(m['edgePts'], s.mesh.edgePoints), isTrue);
+      expect(identical(m['edgePts'], s.mesh.edgePoints32), isTrue);
       expect(identical(m['edgeStarts'], s.mesh.edgeStarts), isTrue);
       expect(identical(m['triFaces'], s.mesh.triFaces), isTrue);
-      expect(m['positions'], isA<Float64List>());
+      expect(m['positions'], isA<Float32List>());
       expect(m['indices'], isA<Int32List>());
     });
 
@@ -118,7 +121,7 @@ void main() {
       final full =
           (buildScenePayload(app, p, knownRevs: revs)['solids'] as List).single
               as Map;
-      expect(identical(full['positions'], s.mesh.positions), isTrue);
+      expect(identical(full['positions'], s.mesh.positions32), isTrue);
       expect(full['rev'], identityHashCode(s.mesh));
     });
 
@@ -127,7 +130,7 @@ void main() {
       final p = _partWith([_feat('Extrusion1', s)]);
       final m = (buildScenePayload(AppState(), p)['solids'] as List).single
           as Map;
-      expect(identical(m['positions'], s.mesh.positions), isTrue);
+      expect(identical(m['positions'], s.mesh.positions32), isTrue);
     });
 
     test('preview tag distinguishes the translucent live solid', () {
@@ -196,7 +199,7 @@ void main() {
       // the plane normal rides along so the renderer can lift a face sketch
       // clear of the coplanar face
       expect((sketches.first as Map)['n'], [0.0, 0.0, 1.0]);
-      final buf = polys.first as Float64List;
+      final buf = polys.first as Float32List;
       // Two endpoints, xyz each, lying on the XY plane (z == 0).
       expect(buf.length, 6);
       expect(buf[0], 0);

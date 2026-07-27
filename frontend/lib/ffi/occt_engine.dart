@@ -107,6 +107,18 @@ class OcctCounts {
 ///    edge i spans points `[edgeStarts[i], edgeStarts[i+1])` of
 ///    [edgePoints] (3 doubles per point).
 class OcctMeshData {
+  /// Float32 copies of the vertex buffers, built once per mesh and reused on
+  /// every scene push.
+  ///
+  /// The kernel hands us Float64, but the GPU only ever consumes Float32, so
+  /// the conversion happened anyway — vertex by vertex, in Swift, on every
+  /// push (`Payload.floats`). Doing it once here halves what crosses the
+  /// platform channel (~3.4 MB for a 54k-vertex gear) AND removes that loop.
+  Float32List? _pos32, _nor32, _edge32;
+  Float32List get positions32 => _pos32 ??= Float32List.fromList(positions);
+  Float32List get normals32 => _nor32 ??= Float32List.fromList(normals);
+  Float32List get edgePoints32 => _edge32 ??= Float32List.fromList(edgePoints);
+
   final Float64List positions;
   final Float64List normals;
   final Int32List indices;

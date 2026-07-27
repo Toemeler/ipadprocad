@@ -2,7 +2,7 @@
 //
 // These are PURE functions (no channels, no platform), so they are exercised
 // by host tests exactly as the native side will receive them. The heavy mesh
-// buffers are the very Float64List/Int32List objects OcctMeshData already
+// buffers are the very Float32List/Int32List objects OcctMeshData already
 // holds, referenced (never copied) into the payload maps — StandardMessageCodec
 // transmits them as raw typed-data byte buffers.
 //
@@ -279,10 +279,12 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
   return {
     'id': id,
     'rev': identityHashCode(m),
-    'positions': m.positions, // Float64List, world xyz per vertex
-    'normals': m.normals, // Float64List, unit outward
+    // Float32 (M74): half the bytes of Float64 and no per-vertex conversion
+    // on the Swift side, since the GPU wants Float32 regardless.
+    'positions': m.positions32, // world xyz per vertex
+    'normals': m.normals32, // unit outward
     'indices': m.indices, // Int32List, CCW from outside
-    'edgePts': m.edgePoints, // Float64List, B-Rep edge polyline points
+    'edgePts': m.edgePoints32, // B-Rep edge polyline points
     'edgeStarts': m.edgeStarts, // Int32List, nEdges+1 offsets
     'triFaces': m.triFaces, // Int32List (empty on legacy meshes)
     'material': material,
@@ -341,7 +343,7 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
         (sess != null && sess.sketchName == null);
     if (!cs.visible && !showForSession) continue;
     final frame = sketchFrameOf(cs);
-    final polylines = <Float64List>[];
+    final polylines = <Float32List>[];
     final keys = <String>[];
     for (var gi = 0; gi < cs.model.geometry.length; gi++) {
       final g = cs.model.geometry[gi];
@@ -351,7 +353,10 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
       keys.add(sketchKey(cs.model.name, gi));
-      final buf = Float64List(pts.length * 3);
+      // Float32 (M74) — must match the solid buffers, because Swift decodes
+      // both through the same Payload.floats. Sending one of them as Float64
+      // would make it read the bytes as Float32 and produce garbage.
+      final buf = Float32List(pts.length * 3);
       for (var i = 0; i < pts.length; i++) {
         final w = frame.toWorld(pts[i]);
         buf[i * 3] = w.x;

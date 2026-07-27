@@ -3789,3 +3789,48 @@ zurueck auf Roehren, weil beide durch `outlineDir` gehen.
 `TextureResource.generate` (iOS 15+), dann `faceCulling` (**iOS 18+**, nicht
 15). Beides nur von CI gefangen. Bei jeder neuen RealityKit-API vorher die
 Mindestversion pruefen — lokal ist das hier nicht feststellbar.
+
+## M74 — Float32 ueber den Platform-Channel
+
+Positionen, Normalen, Kantenpunkte und Skizzen-Polylinien reisen jetzt als
+`Float32` statt `Float64`. Der Kernel liefert Float64, die GPU nimmt aber nur
+Float32 — die Umwandlung passierte also ohnehin, nur an der teuersten Stelle:
+Vertex fuer Vertex in `Payload.floats`, bei JEDEM Push. Jetzt einmal pro Mesh
+in Dart, und Swift interpretiert die Bytes direkt.
+
+- ~3,4 MB -> ~1,7 MB je Push bei einem Zahnrad mit 54k Vertices
+- die Konvertierungsschleife in Swift entfaellt ersatzlos
+- `OcctMeshData.positions32/normals32/edgePoints32` sind lazy und gecacht, es
+  wird also NICHT pro Push kopiert (per Test festgehalten)
+
+**Die Falle dabei, festgenagelt in `m74_float32_test.dart`:** Swift dekodiert
+Solid-Buffer UND Skizzen-Polylinien durch dasselbe `Payload.floats`. Die
+Skizzen-Polylinien wurden in `reality_scene.dart` separat als `Float64List`
+gebaut — waeren sie so geblieben, haette Swift deren Bytes als Float32 gelesen
+und Muell gezeichnet. Wer hier je einen weiteren Float-Buffer ergaenzt: er
+MUSS Float32 sein, sonst bricht es still.
+
+Nicht umgestellt: `frame` (9 Doubles je Ebene) und `vec3`-Listen. Die sind
+winzig und gehen ueber den normalen Codec, nicht ueber `Payload.floats`.
+
+### Was noch offen ist
+
+1. **Hintergrund-Isolate.** `occt_mesh_create` blockiert trotz v10 noch
+   389-586 ms auf dem UI-Thread. Einzeln ausliefern — es fasst wie
+   `isInParallel` OCCT-Threading an. Zu klaeren: ob OCCT-Shape-Pointer ueber
+   Isolate-Grenzen benutzbar sind; wahrscheinlich `Isolate.run` mit reinen
+   Daten hin und zurueck statt geteilter Handles.
+2. **Kontextmenue** auf Extrusion/Solid (loeschen, umbenennen, sichtbar),
+   analog M47. Fuenfmal angefragt, fuenfmal nicht geliefert — das gehoert als
+   Naechstes drangenommen.
+3. **M3-CI-Flake**: Ausgabe wird abgegriffen, bevor die App fertig schreibt.
+   Einmal falsches Gruen (29043802347), einmal falsches Rot (30270619849).
+4. **200-ms-Drag**: unerklaert, Solver braucht davon 0,4 ms. Es fehlt
+   Instrumentierung im Drag-Handler.
+
+### Wiederkehrende Fehlerklasse
+
+Dreimal in dieser Session von CI gefangen, nie lokal feststellbar:
+iOS-Verfuegbarkeit neuer RealityKit-APIs. `TextureResource.generate` (15+),
+`faceCulling` (**18+**, nicht 15). Bei jeder neuen RealityKit-API zuerst die
+Mindestversion nachschlagen.
