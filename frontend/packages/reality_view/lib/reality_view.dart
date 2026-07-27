@@ -118,7 +118,7 @@ class _RealityViewState extends State<RealityView> {
   }
 }
 
-/// Off-screen RealityKit renderer for still images (M64).
+/// Off-screen RealityKit renderer for still images (M82).
 ///
 /// The gallery thumbnail used to be drawn by the Dart CPU painter while the
 /// live viewport was drawn by RealityKit — two engines, two pictures, visibly

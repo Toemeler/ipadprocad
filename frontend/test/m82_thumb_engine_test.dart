@@ -1,4 +1,4 @@
-// M64 — the gallery still comes from the SAME engine as the 3D viewport, from
+// M82 — the gallery still comes from the SAME engine as the 3D viewport, from
 // a fixed TOP-FRONT-RIGHT corner.
 //
 // What the host suite can honestly pin (no RealityKit here — the plugin's

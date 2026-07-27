@@ -465,6 +465,10 @@ jobs:
   #    string literal, which survives stripping — proof the core is linked in.
   #  - The Dart-FFI runtime smoke ("DART SMOKE: PASS (backend=qcad-ffi...)")
   #    prints at app start ON DEVICE; it is NOT exercised by this job.
+  #  - "THUMB CHANNEL CHECK" (M82) proves the off-screen still renderer got
+  #    compiled into the Runner. It cannot prove the SNAPSHOT succeeds — that
+  #    needs a window and a render loop, i.e. the device. A green check here
+  #    means "the RealityKit preview path exists", not "the preview is right".
   # ---------------------------------------------------------------------------
   m5-flutter-ipa:
     name: M5 Flutter iOS build + unsigned IPA
@@ -812,6 +816,19 @@ jobs:
             echo "REALITYKIT LINK CHECK: PASS (RealityKit framework linked into Runner)"
           else
             echo "REALITYKIT LINK CHECK: FAIL (RealityKit not linked — 3D viewport cannot render)"; exit 1
+          fi
+          # M82: the OFF-SCREEN still renderer must be compiled in, otherwise the
+          # gallery/context-menu preview silently falls back to the CPU painter
+          # forever and the two engines drift apart again — with a GREEN build,
+          # which is precisely the failure this repo refuses to accept.
+          # The channel name is a Swift string LITERAL; on the Dart side it is
+          # built by interpolation ('$_channelName/thumb') and never appears
+          # whole, so a hit here proves the Swift half is really in the binary.
+          THUMB="$(strings "$APP/Runner" | grep -c "prototype/reality_view/thumb" || true)"
+          if [ "${THUMB:-0}" -gt 0 ]; then
+            echo "THUMB CHANNEL CHECK: PASS (off-screen still renderer registered in Runner)"
+          else
+            echo "THUMB CHANNEL CHECK: FAIL (thumb channel missing — previews would silently stay on the CPU painter)"; exit 1
           fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload

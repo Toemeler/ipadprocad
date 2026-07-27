@@ -16,7 +16,7 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **M64 — Die Vorschau kommt jetzt aus DERSELBEN Engine wie der 3D-Modus, und
+> **M82 — Die Vorschau kommt jetzt aus DERSELBEN Engine wie der 3D-Modus, und
 > immer aus der Ecke oben-vorne-rechts.** Bisher zeichnete die Galerie-/
 > Kontextmenue-Vorschau der CPU-Painter (`paintPartSolids`), waehrend der Live-
 > Viewport seit M60 RealityKit ist — gleicher Koerper, zwei Engines, sichtbar
@@ -61,20 +61,43 @@ Token NIE in Dateien/.git/config schreiben.
 > `lib/reality_payload.dart` (neu), `lib/reality_scene.dart`,
 > `lib/app_state.dart`, neuer Test `test/m64_thumb_engine_test.dart`.
 >
-> **Ehrlicher Verifikationsstand:** In dieser Session standen WEDER Flutter/Dart
-> NOCH eine Swift-Toolchain zur Verfuegung — `flutter analyze`, die Host-Suite
-> und das Swift-Kompilat sind **nicht** gelaufen. Der neue Test pinnt, was der
-> Host ueberhaupt pinnen kann (exakte Iso-Richtung, Fixierung gegen die
-> Live-Kamera, Framung/Margin, Wire-Format, Fallback bei `null`); der
-> RealityKit-Pfad selbst ist per Konstruktion nur auf dem Geraet pruefbar.
-> **Offene Punkte fuer die naechste Runde:** (a) Warmup-Frame-Zahl am Geraet
-> gegenmessen — reichen 2 auch bei einem grossen Zahnrad, oder muss auf
-> "erste Szene fertig" statt auf Frames gewartet werden; (b) Kantenstaerke:
-> `edgeBuildHalfH` wird in `setScene` gesetzt, der Off-Screen-Renderer bekommt
-> die Kamera aber ERST danach — bei stark abweichendem Zoom koennten die Tubes
-> einmal zu dick/duenn gebaut werden (im Zweifel `setCamera` vor `setScene`
-> schicken); (c) Retina: es wird in Punkten gerendert und das PNG kann damit
-> 380x240 @2x = 760x480 gross sein — pruefen, ob die Karte das will.
+> **Verifikationsstand (nachgetragen, CI-Log gelesen):** Run 30313498504 auf
+> b33be2d — `dart-checks` **gruen**: `flutter analyze` ohne Fehler,
+> **504 Host-Tests gruen**, darunter alle 6 neuen aus
+> `m82_thumb_engine_test.dart` (namentlich im Log). Geschrieben wurde der Code
+> allerdings BLIND: in der Session gab es weder Flutter/Dart noch Swift, die
+> Gruen-Meldung stammt ausschliesslich aus dem CI-Log, nicht aus lokaler
+> Ausfuehrung. Das Swift-Kompilat prueft erst `m5-flutter-ipa`.
+>
+> **Nachtrag (Werkzeug-/Nummern-Runde nach dem CI-Lauf):**
+> 1. **Falsche Meilensteinnummer korrigiert.** Der Stand war M81, nicht M63 —
+>    "M64" war bereits vergeben (Szenenkosten, `m64_scene_cost_test.dart`).
+>    Alles umbenannt auf **M82**, inkl. Testdatei.
+> 2. **Fehlendes CI-Gate nachgereicht.** Jede andere native Flaeche hier hat
+>    einen Link-/Marker-Check auf dem gebauten Runner; meine hatte keinen — der
+>    Kanal haette stumm fehlen koennen (Tippfehler im Namen, Datei nicht im
+>    Pod-Glob) und der Haken waere trotzdem gruen gewesen, waehrend die
+>    Vorschau fuer immer auf dem CPU-Painter bleibt. Neu: **THUMB CHANNEL
+>    CHECK** in `m1-core-build.yml` — `strings Runner | grep
+>    prototype/reality_view/thumb`. Der Name ist auf der Swift-Seite ein
+>    LITERAL, auf der Dart-Seite interpoliert (`'$_channelName/thumb'`) und
+>    steht dort nie ganz drin; ein Treffer beweist also die Swift-Haelfte.
+>    Ehrliche Grenze: das Gate beweist "der Pfad existiert", NICHT "der
+>    Snapshot gelingt" — dafuer braucht es Window und Render-Loop, also das
+>    Geraet.
+> 3. **Offener Punkt (b) gleich behoben statt notiert.** Der Off-Screen-Renderer
+>    schickt jetzt **erst `setCamera`, dann `setScene`** (umgekehrt zum Live-
+>    Viewport): `setScene` latcht `edgeBuildHalfH` und dimensioniert die
+>    Kanten-Tubes fuer DIESEN Zoom, ein frischer Renderer haelt aber noch den
+>    Default — die Outlines waeren fuer den falschen Zoom gebaut worden, und
+>    das Re-Tubing greift erst ab Faktor 1.8/0.55, was bei genau einem Frame
+>    nie passiert. Dazu EIN Retry (6 Frames spaeter), falls der erste Snapshot
+>    nil ist, bevor der CPU-Fallback uebernimmt.
+>
+> **Weiter offen (nur am Geraet zu klaeren):** Warmup-Frame-Zahl bei einem
+> grossen Zahnrad; Retina — es wird in Punkten gerendert, das PNG kann also
+> 380x240 @2x = 760x480 gross sein, pruefen ob die Karte das will; und ob das
+> RealityKit-Standbild optisch wirklich mit dem Viewport deckungsgleich ist.
 
 > **Stand dieser Session (Kopf = M62, Cut/Intersect + Live-Boolean-Vorschau +
 > Spline-Extrude-Fix):** Drei Punkte des Nutzers in einem Durchgang, „profes-

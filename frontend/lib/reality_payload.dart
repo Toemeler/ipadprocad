@@ -1,4 +1,4 @@
-// Prototype — PURE RealityKit payload builders (M64).
+// Prototype — PURE RealityKit payload builders (M82).
 //
 // Split out of reality_scene.dart so that code which must NOT depend on
 // AppState can still speak the RealityKit wire format. reality_scene.dart
@@ -53,7 +53,7 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
   };
 }
 
-/// Scene payload for an OFF-SCREEN gallery still (M64).
+/// Scene payload for an OFF-SCREEN gallery still (M82).
 ///
 /// Deliberately geometry-only: no origin planes, axes, centre point, sketches,
 /// preview or highlight — a card should show the MODEL, not the editing

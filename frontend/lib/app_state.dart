@@ -1856,7 +1856,7 @@ class AppState extends ChangeNotifier {
   /// Renders the part's solids to <name>.png (380x240) for the gallery card
   /// and the long-press lift preview.
   ///
-  /// M64 — ONE ENGINE. The still is produced by the same RealityKit renderer
+  /// M82 — ONE ENGINE. The still is produced by the same RealityKit renderer
   /// that draws the live 3D viewport ([RealityThumbnailer.render] spins up an
   /// off-screen ARView and pushes the very same scene payload), so a body looks
   /// on the card exactly as it looks in the viewport. The Dart CPU painter

@@ -951,7 +951,7 @@ void drawOccludedQuadFill(
 }
 
 // ===========================================================================
-// Gallery thumbnail camera (M64 — shared by the CPU painter AND the RealityKit
+// Gallery thumbnail camera (M82 — shared by the CPU painter AND the RealityKit
 // snapshot path, so both engines frame a part identically).
 // ===========================================================================
 

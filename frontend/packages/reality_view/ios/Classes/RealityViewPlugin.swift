@@ -12,7 +12,7 @@ public class RealityViewPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let factory = RealityPartViewFactory(messenger: registrar.messenger())
         registrar.register(factory, withId: "prototype/reality_view")
-        // M64: plugin-level channel for off-screen stills (gallery thumbnails),
+        // M82: plugin-level channel for off-screen stills (gallery thumbnails),
         // independent of whether a viewport platform view currently exists.
         registerThumbChannel(with: registrar)
     }
@@ -44,7 +44,7 @@ final class RealityPartViewFactory: NSObject, FlutterPlatformViewFactory {
 }
 
 // ===========================================================================
-// Off-screen still renderer (M64) — "prototype/reality_view/thumb".
+// Off-screen still renderer (M82) — "prototype/reality_view/thumb".
 // ===========================================================================
 //
 // WHY: the gallery/context-menu thumbnail was drawn by the Dart CPU painter
@@ -67,6 +67,9 @@ final class RealityThumbRenderer: NSObject {
     /// value that reliably contains the geometry.
     private static let warmupFrames = 2
 
+    /// Extra frames granted to the one retry below.
+    private static let retryFrames = 6
+
     func render(
         scene: [String: Any],
         camera: [String: Any],
@@ -87,13 +90,35 @@ final class RealityThumbRenderer: NSObject {
         host.isUserInteractionEnabled = false
         window.insertSubview(host, at: 0)
 
-        renderer.setScene(scene)
+        // CAMERA FIRST, THEN SCENE — deliberately the reverse of the live
+        // viewport's order. `setScene` latches `edgeBuildHalfH = cam.halfH` and
+        // sizes the edge tubes for THAT zoom; a fresh renderer still holds the
+        // default halfH, so pushing the scene first would build the outlines
+        // for the wrong zoom and only re-tube once the ratio drifts past
+        // 1.8x/0.55x — which never happens here, because there is exactly one
+        // frame. Reversed, the tubes are right the first time.
         renderer.setCamera(camera)
+        renderer.setScene(scene)
 
         RealityThumbRenderer.afterFrames(RealityThumbRenderer.warmupFrames) {
             renderer.snapshot { image in
-                host.removeFromSuperview()
-                completion(image?.pngData())
+                if let data = image?.pngData() {
+                    host.removeFromSuperview()
+                    return completion(data)
+                }
+                // ONE retry, a few frames later. The warmup count is a guess
+                // until it is measured on the device (a big gear uploads a lot
+                // more mesh than the cube it was reasoned about), and a blank
+                // card is worse than a slightly slower save. Still bounded:
+                // after this the CPU fallback takes over.
+                RealityThumbRenderer.afterFrames(
+                    RealityThumbRenderer.retryFrames
+                ) {
+                    renderer.snapshot { retryImage in
+                        host.removeFromSuperview()
+                        completion(retryImage?.pngData())
+                    }
+                }
             }
         }
     }
