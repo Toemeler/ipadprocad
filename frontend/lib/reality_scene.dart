@@ -334,6 +334,25 @@ List<Map<String, dynamic>> _axisPayloads(PartModel p, {String? hover}) {
   ];
 }
 
+/// ARGB colour a sketch curve is drawn in, matching Viewport2D exactly.
+///
+/// The 2D editor uses four: white for geometry that is fully constrained on
+/// the layer you are editing, blue-violet for under-constrained, yellow for a
+/// projection, grey for reference geometry on another layer. 3D used to paint
+/// every curve one flat colour, so a sketch read completely differently
+/// depending on which viewport you were looking at.
+int sketchGeoColor({required bool projection, required bool editing,
+    required bool fullyConstrained}) {
+  const white = 0xFFFFFFFF;
+  const violet = 0xFF9A8CF5; // under-constrained, an EDITING signal
+  const yellow = 0xFFE8C84A; // projected geometry
+  if (projection) return yellow;
+  // Outside the sketch being edited, DOF is not information the viewer can
+  // act on, so everything reads plain white — same as 2D.
+  if (!editing) return white;
+  return fullyConstrained ? white : violet;
+}
+
 /// Child sketches as world-space polylines, honouring hidden layers, the
 /// end-of-sketch marker and session visibility (mirrors Viewport3D._paintSketch).
 List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
@@ -346,14 +365,34 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     final frame = sketchFrameOf(cs);
     final polylines = <Float32List>[];
     final keys = <String>[];
+    final colors = <int>[];
+    // Whether THIS sketch is the one open for editing. Construction geometry
+    // and the under-constrained tint are editing aids, so outside that they
+    // are not shown — exactly the rule Viewport2D already applies.
+    final editing = app.inEditMode &&
+        app.activeChild != null &&
+        (identical(app.activeChild, cs.model) ||
+            app.activeChild!.name == cs.model.name);
     for (var gi = 0; gi < cs.model.geometry.length; gi++) {
       final g = cs.model.geometry[gi];
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
       final li = cs.model.layers.indexOf(g.layer);
       if (li >= 0 && li >= cs.model.eosAfter) continue;
+      // Construction lines are scaffolding: hidden unless this sketch is the
+      // one being edited. Mirrors viewport.dart's
+      // `if (!app.inEditMode && g.isConstruction) continue`.
+      if (!editing && g.isConstruction) continue;
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
       keys.add(sketchKey(cs.model.name, gi));
+      colors.add(sketchGeoColor(
+          projection: g.isProjection,
+          editing: editing,
+          // carrierFixed is the same DOF source Viewport2D paints from; with
+          // no analysis yet, treat it as constrained rather than flashing
+          // every curve violet on the first frame.
+          fullyConstrained:
+              !editing || (app.analysis?.carrierFixed(gi, 0) ?? true)));
       // Float32 (M74) — must match the solid buffers, because Swift decodes
       // both through the same Payload.floats. Sending one of them as Float64
       // would make it read the bytes as Float32 and produce garbage.
@@ -370,6 +409,7 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
       out.add({
         'polylines': polylines,
         'keys': keys,
+        'colors': colors,
         // Normal of the sketch plane: lets the renderer lift a sketch drawn ON
         // a solid face clear of that face (they are exactly coplanar).
         'n': [frame.n.x, frame.n.y, frame.n.z],

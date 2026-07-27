@@ -238,16 +238,20 @@ final class PartRenderer: NSObject {
         if !Self.useRibbons { return } // tubes are orientation-independent
         if simd_dot(dir, ribbonDir) > 0.99863 { return } // cos(3 deg)
         ribbonDir = dir
-        rebuildEdgesForZoom()
-        // Sketch curves are ribbons on the same terms, so they have to be
-        // re-aimed on the same threshold — otherwise they would keep the
-        // orientation they were created with and thin out as the view turns.
-        if !sketchCache.isEmpty {
-            let hover = accentHover
-            let sel = accentSelected
-            rebuildSketches(sketchCache) // clears sketchAccent
-            applySketchAccents(hover: hover, selected: sel)
-        }
+        rebuildEdgesForZoom() // re-aims the sketch ribbons too
+    }
+
+    /// Re-aims the sketch ribbons at the current view. Needed on BOTH orbit
+    /// and zoom: a ribbon's orientation follows the view direction and its
+    /// width follows halfH, and only the orbit path used to call this — so
+    /// zooming left sketch lines at their old width while the model rescaled
+    /// around them.
+    private func rebuildSketchRibbons() {
+        guard Self.useRibbons, !sketchCache.isEmpty else { return }
+        let hover = accentHover
+        let sel = accentSelected
+        rebuildSketches(sketchCache) // clears sketchAccent
+        applySketchAccents(hover: hover, selected: sel)
     }
 
     private func rebuildEdgesForZoom() {
@@ -261,6 +265,7 @@ final class PartRenderer: NSObject {
                 solidEdges[id] = e
             }
         }
+        rebuildSketchRibbons()
         edgeBuildHalfH = cam.halfH
     }
 
@@ -396,15 +401,24 @@ final class PartRenderer: NSObject {
     /// can restore highlight state that rebuildSketches wipes.
     private var accentHover: String?
     private var accentSelected: Set<String> = []
+
+    /// The colour each sketch curve was BUILT with, parallel to
+    /// sketchEntities. Needed because clearing a highlight has to restore that
+    /// curve's own tone — falling back to a single flat colour would erase
+    /// the constraint-state colouring the moment you hovered anything.
+    private var sketchTones: [UIColor] = []
+
     private func applySketchAccents(hover: String?, selected: Set<String>) {
         accentHover = hover
         accentSelected = selected
-        for (e, _, key) in sketchEntities {
+        for (idx, item) in sketchEntities.enumerated() {
+            let (e, _, key) = item
             guard !key.isEmpty, let me = e as? ModelEntity else { continue }
             let on = (key == hover) || selected.contains(key)
             if sketchAccent[key] == on { continue }
             sketchAccent[key] = on
-            let c = on ? Colors.highlight : Colors.sketch
+            let base = idx < sketchTones.count ? sketchTones[idx] : Colors.sketch
+            let c = on ? Colors.highlight : base
             me.model?.materials =
                 [Self.useRibbons ? Materials.unlitSoft(c) : Materials.unlit(c)]
         }
@@ -506,6 +520,7 @@ final class PartRenderer: NSObject {
         sketchRoot.removeFromParent()
         sketchRoot = Entity()
         sketchEntities.removeAll()
+        sketchTones.removeAll() // parallel array, must reset together
         sketchAccent.removeAll()
         for sk in sketches {
             guard let polys = sk["polylines"] as? [Any] else { continue }
@@ -514,16 +529,26 @@ final class PartRenderer: NSObject {
             let keys = sk["keys"] as? [String] ?? []
             for (i, raw) in polys.enumerated() {
                 guard let pts = Payload.floats(raw) else { continue }
+                var tone = Colors.sketch
+                if let cols = cols, i < cols.count,
+                   let argb = (cols[i] as? NSNumber)?.intValue {
+                    tone = UIColor(
+                        red: CGFloat((argb >> 16) & 0xFF) / 255.0,
+                        green: CGFloat((argb >> 8) & 0xFF) / 255.0,
+                        blue: CGFloat(argb & 0xFF) / 255.0,
+                        alpha: CGFloat((argb >> 24) & 0xFF) / 255.0)
+                }
+                sketchTones.append(tone)
                 var made: Entity?
                 if #available(iOS 15.0, *), let v = outlineDir,
                    let m = RibbonBuilder.mesh([pts], halfWidth: sketchRadius,
                                               viewDir: v) {
                     made = ModelEntity(
-                        mesh: m, materials: [Materials.unlitSoft(Colors.sketch)])
+                        mesh: m, materials: [Materials.unlitSoft(tone)])
                 } else {
                     made = TubeBuilder.polyline(
                         pts, radius: sketchRadius,
-                        material: Materials.unlit(Colors.sketch))
+                        material: Materials.unlit(tone))
                 }
                 if let e = made {
                     sketchRoot.addChild(e)

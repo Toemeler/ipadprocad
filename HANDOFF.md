@@ -4280,3 +4280,40 @@ Verfeinerung beim Betreten der Skizze waere der naechste Kompromiss.
 Es gibt keinen Schalter mehr — der Underlay-Pfad ist geloescht. Falls das
 Verhalten auf dem Geraet nicht stimmt, ist `f6475cd` der letzte Commit mit
 dem alten Weg.
+
+## M81 — Skizzenlinien in 3D: Zoom, Konstruktionsgeometrie, Farben
+
+Vier Punkte, alle aus demselben Grund: die 3D-Skizzendarstellung war eine
+vereinfachte Kopie der 2D-Regeln statt derselben Regeln.
+
+**(1) Baender aktualisierten nur beim Orbit, nicht beim Zoom.**
+`rebuildEdgesIfTurned` (Richtungsaenderung) baute die Skizzen mit neu,
+`rebuildEdgesForZoom` aber nur die SOLID-Kanten. Ein Band haengt an beidem —
+Ausrichtung an der Blickrichtung, Breite an `halfH`. Beim Zoomen blieben die
+Skizzenlinien also auf ihrer alten Breite stehen, waehrend das Modell um sie
+herum skalierte. Neu: `rebuildSketchRibbons()`, aufgerufen aus BEIDEN Pfaden;
+der Orbit-Pfad ruft jetzt schlicht `rebuildEdgesForZoom()`, das beides macht.
+
+**(2) Konstruktionsgeometrie wurde in 3D immer gezeigt.** 2D hat die Regel
+laengst: `if (!app.inEditMode && g.isConstruction) continue`. Der
+Sketch-Payload filtert jetzt genauso — sichtbar nur, wenn GENAU diese Skizze
+gerade bearbeitet wird.
+
+**(3) Farben.** 2D benutzt vier: weiss (bestimmt, editierbare Ebene),
+blau-violett `9A8CF5` (unterbestimmt), gelb `E8C84A` (Projektion), grau
+(Referenz). 3D malte alles in einer Farbe. Jetzt traegt der Payload je Kurve
+eine ARGB-Farbe, `sketchGeoColor()` entscheidet sie, und Swift baut das
+Material damit. DOF-Quelle ist `app.analysis.carrierFixed(gi, 0)` — dieselbe,
+aus der Viewport2D malt.
+
+**(4) Ausserhalb der bearbeiteten Skizze: alles weiss.** DOF ist ein
+Editier-Signal; auf einer Skizze, die man nicht bearbeitet, waere es Rauschen,
+auf das man nicht reagieren kann. 2D macht es so, 3D jetzt auch.
+
+**Falle dabei:** `sketchTones` ist ein Parallel-Array zu `sketchEntities`.
+Ohne das haette das Loeschen eines Hover-Highlights die Kurve auf die flache
+Standardfarbe zurueckgesetzt — die Constraint-Faerbung waere also
+verschwunden, sobald man einmal irgendwo hovert. Beide Arrays werden in
+`rebuildSketches` gemeinsam geleert.
+
+Tests: `m81_sketch_style_test.dart` (5). analyze 0 errors, **498 gruen**.
