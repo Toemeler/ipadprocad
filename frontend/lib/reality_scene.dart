@@ -10,28 +10,13 @@
 // PartRenderer; the two are two ends of one wire.
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' show Size;
 
 import 'app_state.dart';
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'log.dart';
 import 'part_model.dart';
-
-/// Material tags understood by Materials.swift.
-const int kMatSteel = 0;
-const int kMatPreview = 1;
-
-/// The five orthographic camera doubles + the viewport size (for aspect).
-Map<String, dynamic> cameraPayload(PartCamera c, Size size) => {
-      'az': c.az,
-      'pol': c.pol,
-      'halfH': c.halfH,
-      'ox': c.ox,
-      'oy': c.oy,
-      'roll': c.roll,
-      'w': size.width,
-      'h': size.height,
-    };
+import 'reality_payload.dart';
+export 'reality_payload.dart';
 
 /// The committed solids the viewport draws: visible, non-consumed features,
 /// minus the one being edited (its live preview is sent separately) and minus
@@ -267,30 +252,6 @@ void logMeshConvention(String id, OcctMeshData m) {
 Map<String, int> sceneRevs(AppState app, PartModel p) => {
       for (final (id, s) in visibleSolids(app, p)) id: identityHashCode(s.mesh),
     };
-
-/// One solid's mesh payload. Buffers are passed by reference (no copy).
-/// With [includeGeometry] false only the identity travels — the renderer then
-/// keeps the mesh it already holds for this id.
-Map<String, dynamic> solidPayload(String id, KernelSolid s,
-    {int material = kMatSteel, bool includeGeometry = true}) {
-  final m = s.mesh;
-  if (!includeGeometry) {
-    return {'id': id, 'rev': identityHashCode(m), 'material': material};
-  }
-  return {
-    'id': id,
-    'rev': identityHashCode(m),
-    // Float32 (M74): half the bytes of Float64 and no per-vertex conversion
-    // on the Swift side, since the GPU wants Float32 regardless.
-    'positions': m.positions32, // world xyz per vertex
-    'normals': m.normals32, // unit outward
-    'indices': m.indices, // Int32List, CCW from outside
-    'edgePts': m.edgePoints32, // B-Rep edge polyline points
-    'edgeStarts': m.edgeStarts, // Int32List, nEdges+1 offsets
-    'triFaces': m.triFaces, // Int32List (empty on legacy meshes)
-    'material': material,
-  };
-}
 
 Float64List _frame9(PlaneFrame f) => Float64List.fromList([
       f.u.x, f.u.y, f.u.z, //
@@ -530,3 +491,4 @@ String sceneSignature(AppState app, PartModel p) {
   }
   return sb.toString();
 }
+

@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'constraints.dart';
 import 'diag.dart';
@@ -21,6 +22,9 @@ import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
 import 'part_render.dart';
+// PURE payload builders only — importing reality_scene.dart here would close a
+// cycle (it imports this file). See lib/reality_payload.dart.
+import 'reality_payload.dart';
 import 'inserts.dart';
 import 'snap.dart';
 import 'solver.dart';
@@ -1849,10 +1853,23 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  /// Renders the part's solids to <name>.png (380x240) from a fixed isometric
-  /// camera, so the gallery card and the long-press lift preview show the model
-  /// instead of the generic steel cube. Shares the viewport's exact painter via
-  /// paintPartSolids (part_render.dart).
+  /// Renders the part's solids to <name>.png (380x240) for the gallery card
+  /// and the long-press lift preview.
+  ///
+  /// M64 — ONE ENGINE. The still is produced by the same RealityKit renderer
+  /// that draws the live 3D viewport ([RealityThumbnailer.render] spins up an
+  /// off-screen ARView and pushes the very same scene payload), so a body looks
+  /// on the card exactly as it looks in the viewport. The Dart CPU painter
+  /// (paintPartSolids) remains as the FALLBACK for every place RealityKit is
+  /// unavailable — host tests, non-iOS, iOS < 15, app backgrounded with no key
+  /// window, or any failed snapshot — and is still the only path exercised by
+  /// the widget tests.
+  ///
+  /// Both engines are handed the IDENTICAL camera from [fitThumbCamera]: the
+  /// fixed TOP-FRONT-RIGHT isometric corner, framed to the silhouette and
+  /// independent of wherever the user left the live camera. A part therefore
+  /// always presents the same corner in the gallery, and switching engines
+  /// cannot change the framing.
   ///
   /// A part with no drawable solid — freshly created, or every feature deleted,
   /// or (on a build with no linked kernel) never computed — gets NO png and any
@@ -1860,24 +1877,38 @@ class AppState extends ChangeNotifier {
   Future<void> _writePartPreview(String name, PartModel p) async {
     final png = _pngFile(name);
     try {
-      final solids = [
+      final named = [
         for (final f in p.features)
-          if (f.visible && f.solid != null && !f.consumedByJoin) f.solid!
+          if (f.visible && f.solid != null && !f.consumedByJoin)
+            (f.name, f.solid!)
       ];
-      if (solids.isEmpty) {
+      if (named.isEmpty) {
         if (png.existsSync()) png.deleteSync();
         return;
       }
       const w = 380.0, h = 240.0;
-      // Fixed iso view (az 45°, a touch above the equator) framed to the
-      // solids' silhouette — independent of wherever the user left the live
-      // camera, so thumbnails are stable across saves.
-      final cam = _fitThumbCamera(solids, const Size(w, h));
+      const size = Size(w, h);
+      final solids = [for (final (_, s) in named) s];
+      final cam = fitThumbCamera(solids, size);
+
+      // Preferred path: the real engine.
+      final shot = await RealityThumbnailer.render(
+        scene: buildThumbScenePayload(named),
+        camera: cameraPayload(cam, size),
+        width: w.toInt(),
+        height: h.toInt(),
+      );
+      if (shot != null && shot.isNotEmpty) {
+        await png.writeAsBytes(shot);
+        return;
+      }
+
+      // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
       canvas.drawRect(
           const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
-      paintPartSolids(canvas, cam, solids);
+      paintPartSolids(canvas, Cam3(cam, size), solids);
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
@@ -7109,39 +7140,6 @@ class AppState extends ChangeNotifier {
       debugPrint('preview write failed: $e');
     }
   }
-}
-
-/// A fixed isometric [Cam3] framed to a part's solids, for off-screen gallery
-/// thumbnails. Azimuth 45° with a slight downward tilt (pol ≈ 0.955 rad) is
-/// the classic "corner" model view; the frustum is then centred and zoomed so
-/// the silhouette fills ~82% of the 380×240 card, leaving a small margin. The
-/// result is independent of the live viewport camera, so a part always looks
-/// the same in the gallery no matter where the user left it rotated.
-Cam3 _fitThumbCamera(List<KernelSolid> solids, Size size) {
-  final cam = PartCamera(az: math.pi / 4, pol: 0.955);
-  // A provisional camera gives the screen-space right/up basis (s, u) to
-  // measure the silhouette against before committing pan/zoom.
-  final basis = Cam3(cam, size);
-  double minS = 1e30, maxS = -1e30, minU = 1e30, maxU = -1e30;
-  for (final sol in solids) {
-    final pos = sol.mesh.positions;
-    for (var i = 0; i + 2 < pos.length; i += 3) {
-      final v = Vec3(pos[i], pos[i + 1], pos[i + 2]);
-      final su = v.dot(basis.s), uv = v.dot(basis.u);
-      minS = math.min(minS, su);
-      maxS = math.max(maxS, su);
-      minU = math.min(minU, uv);
-      maxU = math.max(maxU, uv);
-    }
-  }
-  if (minS > maxS) return basis; // no finite vertices — leave defaults
-  cam.ox = (minS + maxS) / 2;
-  cam.oy = (minU + maxU) / 2;
-  final hx = (maxS - minS) / 2, hy = (maxU - minU) / 2;
-  final aspect = size.width / size.height;
-  final halfH = math.max(hy, hx / (aspect <= 0 ? 1 : aspect)) / 0.82;
-  cam.halfH = halfH > 1e-6 ? halfH : 27;
-  return Cam3(cam, size);
 }
 
 /// Shared geometry painter used by viewport and preview generation.

@@ -131,6 +131,13 @@ final class PartRenderer: NSObject {
 
     var view: UIView { arView }
 
+    /// Grabs the current RealityKit picture (M64 — gallery stills go through
+    /// this so the card and the live viewport come from ONE engine).
+    /// `saveToHDR: false` yields a plain sRGB UIImage ready for PNG encoding.
+    func snapshot(_ done: @escaping (UIImage?) -> Void) {
+        arView.snapshot(saveToHDR: false) { done($0) }
+    }
+
     init(frame: CGRect) {
         arView = ARView(frame: frame,
                         cameraMode: .nonAR,

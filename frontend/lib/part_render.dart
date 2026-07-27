@@ -949,3 +949,61 @@ void drawOccludedQuadFill(
       BlendMode.srcOver,
       Paint()..color = color);
 }
+
+// ===========================================================================
+// Gallery thumbnail camera (M64 — shared by the CPU painter AND the RealityKit
+// snapshot path, so both engines frame a part identically).
+// ===========================================================================
+
+/// Azimuth of the canonical thumbnail view.
+///
+/// The world is Y-up (see [PlaneFrame]: the XZ plane carries normal +Y), so a
+/// camera sitting on +X/+Y/+Z looks at the model's TOP-FRONT-RIGHT corner —
+/// the ViewCube's home corner and Inventor's default isometric.
+const double kThumbAz = math.pi / 4; // between +X (right) and +Z (front)
+
+/// Polar angle of the canonical thumbnail view: the EXACT isometric corner,
+/// acos(1/sqrt(3)) ≈ 0.9553166. The old literal 0.955 was a rounded stand-in
+/// and tilted the view by ~0.02°; naming the exact value means the three
+/// direction components come out equal to machine precision, which is what
+/// [thumbCameraDir] is tested against.
+final double kThumbPol = math.acos(1 / math.sqrt(3));
+
+/// Fraction of the frame the silhouette fills — a small honest margin.
+const double kThumbFill = 0.82;
+
+/// The fixed top-front-right view direction, all three components equal.
+Vec3 get thumbCameraDir =>
+    PartCamera(az: kThumbAz, pol: kThumbPol).dir;
+
+/// A fixed top-front-right [PartCamera] framed to [solids], for gallery
+/// thumbnails. Independent of the live viewport camera, so a part always looks
+/// the same in the gallery no matter where the user left it rotated — and
+/// identical whether the picture is produced by the CPU painter or by the
+/// RealityKit snapshot, since both are handed THIS camera.
+PartCamera fitThumbCamera(List<KernelSolid> solids, Size size) {
+  final cam = PartCamera(az: kThumbAz, pol: kThumbPol);
+  // A provisional Cam3 gives the screen-space right/up basis (s, u) to measure
+  // the silhouette against before committing pan/zoom.
+  final basis = Cam3(cam, size);
+  double minS = 1e30, maxS = -1e30, minU = 1e30, maxU = -1e30;
+  for (final sol in solids) {
+    final pos = sol.mesh.positions;
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      final v = Vec3(pos[i], pos[i + 1], pos[i + 2]);
+      final su = v.dot(basis.s), uv = v.dot(basis.u);
+      minS = math.min(minS, su);
+      maxS = math.max(maxS, su);
+      minU = math.min(minU, uv);
+      maxU = math.max(maxU, uv);
+    }
+  }
+  if (minS > maxS) return cam; // no finite vertices — leave defaults
+  cam.ox = (minS + maxS) / 2;
+  cam.oy = (minU + maxU) / 2;
+  final hx = (maxS - minS) / 2, hy = (maxU - minU) / 2;
+  final aspect = size.width / size.height;
+  final halfH = math.max(hy, hx / (aspect <= 0 ? 1 : aspect)) / kThumbFill;
+  cam.halfH = halfH > 1e-6 ? halfH : 27;
+  return cam;
+}

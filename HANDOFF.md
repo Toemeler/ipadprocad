@@ -16,6 +16,66 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M64 — Die Vorschau kommt jetzt aus DERSELBEN Engine wie der 3D-Modus, und
+> immer aus der Ecke oben-vorne-rechts.** Bisher zeichnete die Galerie-/
+> Kontextmenue-Vorschau der CPU-Painter (`paintPartSolids`), waehrend der Live-
+> Viewport seit M60 RealityKit ist — gleicher Koerper, zwei Engines, sichtbar
+> andere Schattierung und Kantenstaerke.
+>
+> **(1) Off-Screen-RealityKit-Standbild.** Neuer Plugin-Kanal
+> `prototype/reality_view/thumb` (`RealityViewPlugin.registerThumbChannel`,
+> Methode `render`): `RealityThumbRenderer` baut eine losgeloeste `PartRenderer`
+> in der angeforderten Pixelgroesse, schickt Szene + Kamera durch **exakt den
+> Code-Pfad des Viewports**, und liefert PNG-Bytes. Der ARView haengt dafuer
+> kurz mit `alpha 0` ganz hinten im Key-Window — ohne Window laeuft die
+> Render-Loop nicht und `ARView.snapshot` gibt nil zurueck. Zwei Warmup-Frames
+> (`CADisplayLink`), weil in `setScene` hochgeladene MeshResources erst im
+> FOLGENDEN Frame sichtbar sind; ein Ein-Frame-Snapshot lieferte die leere
+> Viewport-Farbe. Dart: `RealityThumbnailer.render(...)` — wirft nie, gibt
+> `null` zurueck, wenn es kein natives RealityKit gibt (Host-Tests, non-iOS,
+> iOS < 15, App im Hintergrund, fehlgeschlagener Snapshot).
+> **Der CPU-Painter bleibt als Fallback** und ist weiterhin der Pfad, den die
+> Host-Tests tatsaechlich ausfuehren.
+>
+> **(2) Immer oben-vorne-rechts.** `_fitThumbCamera` (privat in `app_state.dart`)
+> ist zu `fitThumbCamera` in `part_render.dart` gewandert und wird jetzt an
+> BEIDE Engines gereicht — die Framung kann also beim Engine-Wechsel nicht
+> kippen. Der gerundete Literal `pol = 0.955` ist durch `kThumbPol =
+> acos(1/sqrt(3))` ersetzt: die Welt ist Y-up (die XZ-Ebene traegt Normale +Y),
+> also sitzt die Kamera bei az = pi/4 auf +X (rechts) / +Y (oben) / +Z (vorne),
+> und die drei Richtungskomponenten sind jetzt bis auf Maschinengenauigkeit
+> gleich statt um ~0.02 Grad verkippt. Unabhaengig von der Live-Kamera; nur
+> Pan/Zoom passen sich der Silhouette an (`kThumbFill = 0.82`).
+>
+> **(3) Layering.** `cameraPayload`/`solidPayload` + neuer
+> `buildThumbScenePayload` sind nach `lib/reality_payload.dart` ausgelagert
+> (haengt NUR an `part_model.dart`), weil `reality_scene.dart` `app_state.dart`
+> importiert und der Rueckweg sonst einen Zyklus schliessen wuerde.
+> `reality_scene.dart` re-exportiert die Datei, bestehende Importe bleiben
+> unveraendert. Die Thumbnail-Szene ist bewusst **geometrie-only**: keine
+> Ursprungs-Ebenen/Achsen/CP/Skizzen/Preview/Highlight auf einer Karte.
+>
+> **Neu/berührt:** `packages/reality_view/lib/reality_view.dart`,
+> `packages/reality_view/ios/Classes/RealityViewPlugin.swift`,
+> `.../RealityPartView.swift` (`PartRenderer.snapshot`), `lib/part_render.dart`,
+> `lib/reality_payload.dart` (neu), `lib/reality_scene.dart`,
+> `lib/app_state.dart`, neuer Test `test/m64_thumb_engine_test.dart`.
+>
+> **Ehrlicher Verifikationsstand:** In dieser Session standen WEDER Flutter/Dart
+> NOCH eine Swift-Toolchain zur Verfuegung — `flutter analyze`, die Host-Suite
+> und das Swift-Kompilat sind **nicht** gelaufen. Der neue Test pinnt, was der
+> Host ueberhaupt pinnen kann (exakte Iso-Richtung, Fixierung gegen die
+> Live-Kamera, Framung/Margin, Wire-Format, Fallback bei `null`); der
+> RealityKit-Pfad selbst ist per Konstruktion nur auf dem Geraet pruefbar.
+> **Offene Punkte fuer die naechste Runde:** (a) Warmup-Frame-Zahl am Geraet
+> gegenmessen — reichen 2 auch bei einem grossen Zahnrad, oder muss auf
+> "erste Szene fertig" statt auf Frames gewartet werden; (b) Kantenstaerke:
+> `edgeBuildHalfH` wird in `setScene` gesetzt, der Off-Screen-Renderer bekommt
+> die Kamera aber ERST danach — bei stark abweichendem Zoom koennten die Tubes
+> einmal zu dick/duenn gebaut werden (im Zweifel `setCamera` vor `setScene`
+> schicken); (c) Retina: es wird in Punkten gerendert und das PNG kann damit
+> 380x240 @2x = 760x480 gross sein — pruefen, ob die Karte das will.
+
 > **Stand dieser Session (Kopf = M62, Cut/Intersect + Live-Boolean-Vorschau +
 > Spline-Extrude-Fix):** Drei Punkte des Nutzers in einem Durchgang, „profes-
 > sionell und production ready\":

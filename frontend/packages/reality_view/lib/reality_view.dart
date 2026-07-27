@@ -117,3 +117,51 @@ class _RealityViewState extends State<RealityView> {
     );
   }
 }
+
+/// Off-screen RealityKit renderer for still images (M64).
+///
+/// The gallery thumbnail used to be drawn by the Dart CPU painter while the
+/// live viewport was drawn by RealityKit — two engines, two pictures, visibly
+/// different shading and edge weight for the same body. This renders the
+/// thumbnail with the SAME engine: native builds a detached ARView of the
+/// requested pixel size, pushes the given scene/camera payloads through the
+/// very same code path the on-screen viewport uses, and returns a PNG.
+///
+/// It is a plugin-level channel (not per platform view) because a thumbnail is
+/// written on save, when the 3D viewport may not be on screen at all.
+class RealityThumbnailer {
+  RealityThumbnailer._();
+  static const MethodChannel _channel =
+      MethodChannel('$_channelName/thumb');
+
+  /// True only where the native RealityKit renderer exists.
+  static bool get isSupported => RealityView.isSupported;
+
+  /// Renders [scene] from [camera] into a [width]x[height] PNG.
+  ///
+  /// Returns null when there is no native renderer (host tests, non-iOS), when
+  /// the platform is too old (the renderer needs iOS 15) or when the snapshot
+  /// fails for any reason — the caller is expected to keep its CPU fallback.
+  /// Never throws.
+  static Future<Uint8List?> render({
+    required Map<String, dynamic> scene,
+    required Map<String, dynamic> camera,
+    required int width,
+    required int height,
+  }) async {
+    if (!isSupported) return null;
+    try {
+      return await _channel.invokeMethod<Uint8List>('render', {
+        'scene': scene,
+        'camera': camera,
+        'w': width,
+        'h': height,
+      });
+    } on MissingPluginException {
+      return null;
+    } catch (e) {
+      if (kDebugMode) debugPrint('RealityThumbnailer.render failed: $e');
+      return null;
+    }
+  }
+}
