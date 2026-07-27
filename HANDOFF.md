@@ -3328,3 +3328,60 @@ bekommt statt Punktschleifen: `PartKernel.extrude` nimmt heute
 Optimum liegt bei ~8 Kanten/Zahn (160 bei z=20) mit einem B-Spline-Eintrag im
 Shim (v6) — beides bewusst NICHT in dieser Session, weil es C++ plus ein neues
 Symbol-Gate braucht und nur in CI verifizierbar waere.
+
+## M64 — Szenenkosten: Frame-Bremse entfernt, Skizzen sichtbar
+
+**Aus dem Geraete-Log (build 5879273) und dem Screenshot.**
+
+**(1) Der teuerste Code im Frame war eine DIAGNOSE.** `logMeshConvention` rief
+`meshSelfReport` synchron in `_pushReality`, also auf dem UI-Thread, bei JEDER
+Neuvernetzung. Gemessen mit einem synthetischen Mesh in Geraetegroesse:
+**6.9 ms bei 4 636 Dreiecken, 49.9 ms bei 34 236** — bei 16.7 ms Frame-Budget
+sind das drei verlorene Frames pro Zoomschritt, und das Log zeigt genau diesen
+Sprung (`tris=4636` -> `tris=34236` innerhalb einer Sekunde). Der Report machte
+pro Dreieck eine 3-Element-`List`-Allokation fuer die Flaechennormale und eine
+Liste aus drei Records fuer die Kanten-Hashmap.
+Jetzt: `meshDiagnostics` (default **false**) schaltet den vollen Report; sonst
+laeuft `meshBrief` — eine Bounding-Box-Passe ohne jede Allokation.
+Gemessen **47.1 ms -> 0.37 ms** bei 34 236 Dreiecken (127x). Der volle Report
+ist zusaetzlich allokationsfrei gemacht, und `_conventionLogged` (wuchs
+unbegrenzt, jede Neuvernetzung ein neues Mesh-Objekt) ist auf 256 begrenzt.
+
+**(2) Tessellierungs-Ratsche.** `meshNeedsRefine` verfeinert bewusst nur, nie
+zurueck — ohne Budget waechst die Szene damit bei jedem Zoom und gibt nie etwas
+zurueck. Ein einziges z=20-Zahnrad lag bei 34 236 Dreiecken. Neu:
+`budgetedLinDeflection` lockert das Bildschirm-Ziel proportional zur
+Ueberschreitung von `kSceneTriangleBudget` (120 000). Weil das Ziel dadurch nur
+GROEBER werden kann und `meshNeedsRefine` Groeberes ablehnt, pendelt nichts —
+die Schleife laeuft einfach aus.
+
+**(3) Skizzen im 3D.** Skizzenkurven wurden mit `edgeRadius * 1.2` gezeichnet
+und mit `halfH * 5e-4` von der Flaeche abgehoben — das ist **ein Viertel** von
+`highlightEps`, das im selben File als Minimum dokumentiert ist, das die
+Tiefenaufloesung ueberlebt. Deshalb lag eine Skizze auf einer Flaeche im
+Z-Fighting statt sichtbar darauf. Neu: eigene `sketchRadius` (2.8e-3) und
+`sketchEps` (3e-3).
+
+**Verifikation.** `flutter analyze` 0 errors, `flutter test` **443 gruen**
+(neu: `m64_scene_cost_test.dart`). Swift-Aenderungen nur von CI kompiliert.
+**Geraete-Test offen.**
+
+**OFFEN — die vielen senkrechten Linien (Screenshot).** Ursache gefunden, Fix
+bewusst NICHT in diesem Commit: eine bogenapproximierte Flanke (und genauso
+eine tessellierte Spline) erreicht den Kernel als KETTE getrennter Flaechen,
+und der Renderer zeichnet jede Flaechengrenze. `occt_unify`
+(ShapeUpgrade_UnifySameDomain) laeuft bereits — sowohl im Extrude-Pfad
+(occt_capi.cpp:445) als auch in `part_model.dart:1530` — kann hier aber nichts
+tun, weil benachbarte Flankenboegen ECHT verschiedene Zylinder sind
+(andere Mitte, anderer Radius) und darum nicht dieselbe Domaene haben.
+Richtiger Fix ist ein Anzeigefilter fuer tangentenstetige Kanten, wie Inventor
+ihn hat, und der gehoert in den Shim: `occt_mesh_create` baut bereits
+`TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edgeFaces)`
+(occt_capi.cpp:995) und filtert dort schon Seam-Kanten heraus. An genau dieser
+Stelle, direkt nach dem Seam-Check und vor `BRepAdaptor_Curve curve(edge)`,
+gehoert: bei genau zwei Nachbarflaechen die Normalen in der Kantenmitte
+vergleichen (`BRep_Tool::CurveOnSurface` -> `BRepLProp_SLProps`, Orientierung
+beachten) und die Kante bei kleinem Winkel ueberspringen — analog zum
+bestehenden `if (seam) continue;`. Das ist Shim **v9** samt Symbol-Gate und
+ausschliesslich in CI verifizierbar; deshalb als eigener, fokussierter Schritt
+statt blind zusammen mit drei anderen Aenderungen.

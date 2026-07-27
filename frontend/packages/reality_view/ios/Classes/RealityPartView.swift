@@ -264,9 +264,14 @@ final class PartRenderer: NSObject {
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
         for e in edgeEntities { e.position = dir * bias }
+        // A sketch drawn ON a solid face is EXACTLY coplanar with it, so it
+        // needs a lift comfortably past the depth resolution or it z-fights
+        // and reads as "inside" the face. The old bias here was 5e-4 — four
+        // times SMALLER than highlightEps, which the code below already
+        // documents as the minimum that survives. Match that and add margin.
         for (e, n, _) in sketchEntities {
             let side: Float = simd_dot(n, dir) >= 0 ? 1 : -1
-            e.position = n * (bias * side)
+            e.position = n * (sketchEps * side)
         }
 
         // Headlight follows the camera (points along the view direction).
@@ -448,7 +453,7 @@ final class PartRenderer: NSObject {
             for (i, raw) in polys.enumerated() {
                 guard let pts = Payload.floats(raw) else { continue }
                 if let e = TubeBuilder.polyline(
-                    pts, radius: edgeRadius * 1.2,
+                    pts, radius: sketchRadius,
                     material: Materials.unlit(Colors.sketch)) {
                     sketchRoot.addChild(e)
                     sketchEntities.append((e, n, i < keys.count ? keys[i] : ""))
@@ -461,6 +466,14 @@ final class PartRenderer: NSObject {
     /// Edge/sketch tube radius tied to the zoom, so lines keep a roughly
     /// constant on-screen weight instead of vanishing when zoomed in.
     private var edgeRadius: Float { max(Float(cam.halfH) * 1.2e-3, 1e-6) }
+
+    /// Sketch curves must read clearly against the B-Rep edges they sit on
+    /// top of, so they are drawn distinctly heavier rather than at 1.2x.
+    private var sketchRadius: Float { max(Float(cam.halfH) * 2.8e-3, 2e-6) }
+
+    /// Outward lift of a sketch off the face it was drawn on. Must exceed the
+    /// depth resolution at the current zoom (see highlightEps).
+    private var sketchEps: Float { max(Float(cam.halfH) * 3e-3, 1.5e-5) }
 
     /// Outward lift of the blue face prehighlight — must comfortably exceed
     /// the depth resolution at the current zoom, or the highlight is swallowed

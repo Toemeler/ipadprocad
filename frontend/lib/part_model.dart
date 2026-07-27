@@ -1063,6 +1063,29 @@ double viewAngularDeflection(double lin) =>
         .clamp(0.02, 0.5)
         .toDouble();
 
+/// Total triangles the 3D scene may carry before refinement stops asking for
+/// more. A single z=20 gear measured 34 236 triangles at full screen-space
+/// refinement on device, so a handful of gear-like features would otherwise
+/// walk into the hundreds of thousands with nothing to stop it: the mesh only
+/// ever gets FINER (see [meshNeedsRefine]), so every zoom-in ratchets the
+/// scene up and nothing ever gives it back.
+const int kSceneTriangleBudget = 120000;
+
+/// [target] deflection relaxed so the scene stays near [budget] triangles.
+///
+/// Triangle count for curved faces grows roughly as 1/deflection, so scaling
+/// the target by the overrun ratio lands close in one step. This can only make
+/// the target COARSER, and because [meshNeedsRefine] refuses to coarsen an
+/// existing mesh the pair simply stops refining once the budget is reached —
+/// there is no oscillation, the loop just settles.
+double budgetedLinDeflection(double target, int sceneTris,
+    {int budget = kSceneTriangleBudget}) {
+  if (budget <= 0 || sceneTris <= budget || !(target > 0)) return target;
+  final over = sceneTris / budget;
+  final relaxed = target * over;
+  return relaxed.isFinite ? relaxed : target;
+}
+
 /// Whether a mesh built at [current] deflection should be re-tessellated for
 /// a [target] deflection. We only ever refine FINER (never coarsen): refining
 /// is monotone-safe with OCCT's incremental mesher, and a too-fine mesh is

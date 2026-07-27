@@ -79,6 +79,40 @@ final Set<int> _conventionLogged = <int>{};
 ///               would report every seam). 0 = watertight shell, i.e. the
 ///               kernel is fine and any visual defect sits in the renderer.
 ///  * `bbox`   — world extent, to catch scale/placement surprises.
+/// When false (the default) the full [meshSelfReport] — an O(triangles) pass
+/// that also builds a watertightness hash map — is replaced by [meshBrief].
+///
+/// Measured on the device-sized gear from the M63 session: 6.9 ms at 4 636
+/// triangles and **49.9 ms at 34 236**. It ran synchronously inside
+/// `_pushReality`, i.e. on the UI thread, EVERY time a solid was
+/// re-tessellated — three dropped frames per zoom step on one gear, and it
+/// scales with the whole scene. The report is genuinely useful when chasing a
+/// winding/watertightness bug, so it stays one flag away.
+bool meshDiagnostics = false;
+
+/// Cheap always-on summary: no per-triangle map or list allocation, one pass
+/// for the bounding box only.
+String meshBrief(String id, OcctMeshData m) {
+  final pos = m.positions;
+  final nTri = m.indices.length ~/ 3;
+  final nV = pos.length ~/ 3;
+  if (nV == 0) return 'mesh $id: EMPTY tris=$nTri verts=0';
+  var minX = pos[0], minY = pos[1], minZ = pos[2];
+  var maxX = pos[0], maxY = pos[1], maxZ = pos[2];
+  for (var i = 1; i < nV; i++) {
+    final x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+  String r(double v) => v.toStringAsFixed(1);
+  return 'mesh $id: tris=$nTri faces=${m.faceCount} verts=$nV '
+      'bbox=${r(minX)},${r(minY)},${r(minZ)}..${r(maxX)},${r(maxY)},${r(maxZ)}';
+}
+
 String meshSelfReport(String id, OcctMeshData m) {
   final pos = m.positions, nor = m.normals, idx = m.indices;
   final nTri = idx.length ~/ 3;
@@ -116,7 +150,9 @@ String meshSelfReport(String id, OcctMeshData m) {
   final faceOut = <int, int>{};
   final faceTris = <int, int>{};
   final faceArea = <int, double>{};
-  final faceN = <int, List<double>>{};
+  final faceNx = <int, double>{};
+  final faceNy = <int, double>{};
+  final faceNz = <int, double>{};
   final hasFaces = m.triFaces.length == nTri;
   for (var t = 0; t < nTri; t++) {
     final a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
@@ -146,12 +182,12 @@ String meshSelfReport(String id, OcctMeshData m) {
       final gl = math.sqrt(gx * gx + gy * gy + gz * gz);
       faceArea[f] = (faceArea[f] ?? 0) + 0.5 * gl;
       if (gl > 1e-12) {
-        faceN[f] = (faceN[f] ?? const [0.0, 0.0, 0.0]);
-        faceN[f] = [
-          faceN[f]![0] + gx / gl,
-          faceN[f]![1] + gy / gl,
-          faceN[f]![2] + gz / gl,
-        ];
+        // Accumulate into three scalar maps. The previous version allocated a
+        // fresh 3-element List for EVERY triangle, which on a 34k-triangle
+        // mesh meant 34k throwaway lists inside a UI-thread frame.
+        faceNx[f] = (faceNx[f] ?? 0) + gx / gl;
+        faceNy[f] = (faceNy[f] ?? 0) + gy / gl;
+        faceNz[f] = (faceNz[f] ?? 0) + gz / gl;
       }
     }
   }
@@ -166,10 +202,15 @@ String meshSelfReport(String id, OcctMeshData m) {
     final v0 = canon(idx[t * 3]),
         v1 = canon(idx[t * 3 + 1]),
         v2 = canon(idx[t * 3 + 2]);
-    for (final (a, b) in [(v0, v1), (v1, v2), (v2, v0)]) {
+    // unrolled: the old `for (final (a,b) in [ ... ])` allocated a list of
+    // three records per triangle on top of the map work
+    void bump(int a, int b) {
       final key = Object.hash(a < b ? a : b, a < b ? b : a);
       edgeUse[key] = (edgeUse[key] ?? 0) + 1;
     }
+    bump(v0, v1);
+    bump(v1, v2);
+    bump(v2, v0);
   }
   final boundary = edgeUse.values.where((c) => c != 2).length;
 
@@ -195,11 +236,10 @@ String meshSelfReport(String id, OcctMeshData m) {
   final inv = fids.take(12).map((f) {
     final type =
         m.faceInfos.length > 15 * f ? m.faceInfos[15 * f].round() : -1;
-    final nsum = faceN[f] ?? const [0.0, 0.0, 0.0];
     final k = faceTris[f]!;
     String c(double v) => (v / k).toStringAsFixed(1);
     return 'f$f:t$type/${k}tri/a${(faceArea[f] ?? 0).toStringAsFixed(1)}'
-        '/n(${c(nsum[0])},${c(nsum[1])},${c(nsum[2])})';
+        '/n(${c(faceNx[f] ?? 0)},${c(faceNy[f] ?? 0)},${c(faceNz[f] ?? 0)})';
   }).join(' ');
 
   return 'mesh $id: tris=$nTri faces=${faceTris.length} verts=$nV '
@@ -209,10 +249,15 @@ String meshSelfReport(String id, OcctMeshData m) {
       '[$inv]';
 }
 
-/// Emits [meshSelfReport] once per distinct mesh object.
+/// Emits a report once per distinct mesh object. Cheap by default; the full
+/// convention/watertightness analysis only runs with [meshDiagnostics] on.
 void logMeshConvention(String id, OcctMeshData m) {
   if (!_conventionLogged.add(identityHashCode(m))) return;
-  Log.i('mesh3d', meshSelfReport(id, m));
+  // Bounded: every re-tessellation makes a NEW mesh object, so this set would
+  // otherwise grow for as long as the app runs.
+  if (_conventionLogged.length > 256) _conventionLogged.clear();
+  Log.i('mesh3d',
+      meshDiagnostics ? meshSelfReport(id, m) : meshBrief(id, m));
 }
 
 /// Current mesh revision per visible solid. The widget keeps the last set it

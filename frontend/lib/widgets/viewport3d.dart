@@ -420,10 +420,19 @@ class _Viewport3DState extends State<Viewport3D> {
 
   /// True when any live solid is coarser than this viewport's screen-space
   /// target — i.e. a re-mesh would make a curve visibly smoother.
+  int _sceneTriangles() {
+    var n = 0;
+    for (final s in _liveSolids()) {
+      n += s.mesh.indices.length ~/ 3;
+    }
+    return n;
+  }
+
   bool _anyCoarse(Size size) {
     final p = part;
     if (p == null) return false;
-    final target = viewLinearDeflection(p.camera.halfH, size.height);
+    final target = budgetedLinDeflection(
+        viewLinearDeflection(p.camera.halfH, size.height), _sceneTriangles());
     for (final s in _liveSolids()) {
       if (meshNeedsRefine(s.meshLin, target)) return true;
     }
@@ -443,7 +452,10 @@ class _Viewport3DState extends State<Viewport3D> {
   void _refineNow(Size size) {
     final p = part;
     if (p == null) return;
-    final target = viewLinearDeflection(p.camera.halfH, size.height);
+    // Refinement only ever makes meshes FINER, so without a budget every zoom
+    // step ratchets the scene up and nothing gives it back.
+    final target = budgetedLinDeflection(
+        viewLinearDeflection(p.camera.halfH, size.height), _sceneTriangles());
     final ang = viewAngularDeflection(target);
     var changed = false;
     for (final s in _liveSolids()) {
