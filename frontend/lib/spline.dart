@@ -13,7 +13,7 @@ import 'dart:math' as math;
 import 'dart:ui' show Offset;
 
 import 'ffi/qcad_engine.dart';
-import 'gear.dart' show gearCurve;
+import 'gear.dart' show gearCurve, arcChainResample;
 
 /// The control/fit points of a (possibly spline-tagged) polyline [g].
 List<Offset> polyPoints(Geo g) {
@@ -38,9 +38,32 @@ List<Offset> splineCurveFor(Geo g) {
   if (g.spline == Geo.ellipseTag) return ellipseCurve(pts);
   if (g.spline == Geo.straight || pts.length < 3) return pts;
   final closed = g.data[0] != 0;
-  return g.spline == Geo.splineCv
+  final dense = g.spline == Geo.splineCv
       ? bsplineCurve(pts, closed: closed)
       : fitCurve(pts, closed: closed);
+  // Put the spline on a chain of TRUE arcs for the same reason the gear flank
+  // is (gear.dart): sampled as a plain polyline it extrudes into a prism of
+  // flat strips, and every strip boundary is a genuine crease that the v9
+  // tangent filter therefore cannot hide. Points on arcs give arcFitLoop exact
+  // bulges, so the prism gets near-tangent cylindrical faces instead. The
+  // tolerance scales with the curve so a 2 mm detail and a 200 mm outline are
+  // both handled sensibly.
+  return arcChainResample(dense, tolMm: _splineArcTol(dense));
+}
+
+/// Arc-fit tolerance for a spline: 0.02% of its bounding box, clamped to a
+/// sane absolute band. Below this nothing is visible at any usable zoom.
+double _splineArcTol(List<Offset> pts) {
+  if (pts.isEmpty) return 5e-3;
+  var minX = pts.first.dx, maxX = minX, minY = pts.first.dy, maxY = minY;
+  for (final p in pts) {
+    if (p.dx < minX) minX = p.dx;
+    if (p.dx > maxX) maxX = p.dx;
+    if (p.dy < minY) minY = p.dy;
+    if (p.dy > maxY) maxY = p.dy;
+  }
+  final span = math.max(maxX - minX, maxY - minY);
+  return (span * 2e-4).clamp(1e-3, 5e-2).toDouble();
 }
 
 /// Canonical form of an ellipse-tagged polyline: the minor vertex is put back

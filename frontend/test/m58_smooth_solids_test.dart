@@ -89,14 +89,17 @@ void main() {
   group('screen-space adaptive deflection', () {
     test('finer zoom (smaller halfH) demands finer deflection', () {
       final coarse = viewLinearDeflection(100, 800);
-      final fine = viewLinearDeflection(1, 800);
+      final fine = viewLinearDeflection(5, 800);
       expect(fine, lessThan(coarse));
       // sub-pixel: 2*halfH/heightPx * 0.4
-      expect(fine, closeTo(2 * 1 / 800 * 0.4, 1e-12));
+      expect(fine, closeTo(2 * 5 / 800 * 0.4, 1e-12));
     });
 
     test('clamped on both ends and safe on garbage input', () {
-      expect(viewLinearDeflection(1e-9, 800), 1e-4); // floor
+      // M66: the floor is 2 um. The old 1e-4 was reachable on device
+      // (lin=1.28e-4 in the build-9ef0425 log) and cost 1 812 ms of kernel
+      // time for a 0.1 um chord sag no display can resolve.
+      expect(viewLinearDeflection(1e-9, 800), 2e-3); // floor
       expect(viewLinearDeflection(1e9, 800), 5.0); // ceil
       expect(viewLinearDeflection(double.nan, 800), kCoarseLinDeflection);
       expect(viewLinearDeflection(10, 0), kCoarseLinDeflection);

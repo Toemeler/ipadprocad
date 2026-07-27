@@ -1045,9 +1045,11 @@ const double kCoarseAngDeflection = 0.35;
 /// pixels at the given orthographic zoom. [halfH] is the half view height in
 /// mm, [viewHpx] the viewport height in device pixels. Clamped to [floor]
 /// (so extreme zoom-in can't demand an unbounded mesh) and [ceil] (so a tiny,
-/// far-away solid stays cheap). Falls back to the coarse default on bad input.
+/// far-away solid stays cheap). The floor is 2 um: the device log showed the
+/// old 1e-4 floor being reached (lin=1.28e-4), i.e. a 0.1 um chord sag, which
+/// no display can resolve and which cost 1 812 ms of kernel time to produce. Falls back to the coarse default on bad input.
 double viewLinearDeflection(double halfH, double viewHpx,
-    {double pxSag = 0.4, double floor = 1e-4, double ceil = 5.0}) {
+    {double pxSag = 0.4, double floor = 2e-3, double ceil = 5.0}) {
   if (!(halfH > 0) || !(viewHpx > 0) || !halfH.isFinite) {
     return kCoarseLinDeflection;
   }
@@ -1081,9 +1083,19 @@ const int kSceneTriangleBudget = 40000;
 /// there is no oscillation, the loop just settles.
 double budgetedLinDeflection(double target, int sceneTris,
     {int budget = kSceneTriangleBudget}) {
-  if (budget <= 0 || sceneTris <= budget || !(target > 0)) return target;
-  final over = sceneTris / budget;
-  final relaxed = target * over;
+  if (budget <= 0 || !(target > 0)) return target;
+  // HARD stop, not a proportional nudge. The M65 version scaled the target by
+  // sceneTris/budget, but that ratio is ~1.0 exactly when the scene first
+  // crosses the line, so the relaxation was negligible and refinement sailed
+  // on to 78 976 triangles (device log, build 9ef0425). Once the scene is at
+  // budget we ask for nothing finer at all; meshNeedsRefine then refuses and
+  // the ratchet stops dead.
+  if (sceneTris >= budget) return double.infinity;
+  final headroom = sceneTris / budget;
+  if (headroom < 0.8) return target;
+  // Inside the last 20% ease off so we approach the ceiling instead of
+  // slamming into it mid-gesture.
+  final relaxed = target / (1.0 - headroom).clamp(0.05, 1.0);
   return relaxed.isFinite ? relaxed : target;
 }
 

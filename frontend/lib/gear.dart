@@ -629,6 +629,34 @@ List<Offset> _trimPoly(List<Offset> p, double head, double tail) {
   return [a, ...mid, b];
 }
 
+
+/// Resamples the densely sampled curve [dense] onto a chain of TRUE circular
+/// arcs that stays within [tolMm] of it, returning points that lie EXACTLY on
+/// those arcs.
+///
+/// This is the same treatment the gear flank gets, exposed because a spline
+/// needs it for the identical reason: sampled as a plain polyline it reaches
+/// the kernel as a fan of PLANAR facets, so an extruded spline is a prism of
+/// flat strips. Each strip boundary is a real crease, so the v9 tangent filter
+/// cannot remove it and the surface stays visibly faceted. Points on arcs
+/// instead give arcFitLoop exact bulges, the prism gets cylindrical faces, and
+/// consecutive faces are near-tangent so the filter hides the joins.
+List<Offset> arcChainResample(List<Offset> dense,
+    {double tolMm = 5e-3, int maxArcs = 64, int ptsPerArc = _flankArcPts}) {
+  if (dense.length < 4) return dense;
+  final bounds = _greedySpans(dense, tolMm, maxArcs);
+  final out = <Offset>[];
+  for (var k = 0; k + 1 < bounds.length; k++) {
+    final i0 = bounds[k], i1 = bounds[k + 1];
+    if (i1 - i0 < 2) continue;
+    final pts = _arcSamples(dense[i0], dense[(i0 + i1) ~/ 2], dense[i1], ptsPerArc);
+    for (final q in pts) {
+      if (out.isEmpty || (out.last - q).distance > 1e-9) out.add(q);
+    }
+  }
+  return out.length < 4 ? dense : out;
+}
+
 // ---------------------------------------------------------------------------
 // involute → circular-arc chain
 // ---------------------------------------------------------------------------

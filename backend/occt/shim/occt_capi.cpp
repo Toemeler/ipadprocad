@@ -146,7 +146,7 @@ extern "C" const char *occt_version(void)
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 8; }
+extern "C" int occt_shim_version(void) { return 9; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 

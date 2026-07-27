@@ -3420,3 +3420,46 @@ Boolean-Kette exakt richtig behandeln, sonst wird das Modell korrupt.
 Ebenfalls offen: Kontextmenue auf Extrusion/Solid, und der 200-ms-Drag
 (Solver selbst nur 0.14-0.4 ms, die Zeit geht woanders hin — der perf-Kanal
 gehoert als naechstes um den Drag-Handler).
+
+## M66 — Remesh-Stocken, Splines als Boegen, Shim-Version geradegezogen
+
+Aus dem Geraete-Log build=9ef0425. Der v9-Filter wirkt (Zahnrad bestaetigt),
+aber der perf-Kanal hat sofort das eigentliche Problem gezeigt.
+
+**(1) Die Neuvernetzung blockiert 0.4-2.6 s auf dem UI-Thread.**
+`remesh ... in 696ms / 1133ms / 1251ms / 1634ms / 1812ms / 2130ms / 2580ms`.
+Das ist das Stocken beim Zoomen und im Skizzenmodus auf einer Zahnradflaeche —
+nicht das Zeichnen, sondern der Kernel.
+
+**(2) Das Budget aus M65 hat versagt.** Es skalierte mit `sceneTris/budget`,
+und genau beim Ueberschreiten ist dieses Verhaeltnis ~1.0 — die Lockerung war
+also praktisch null und das Geraet lief bis **78 976** Dreiecke weiter. Jetzt
+HARTER Stopp: ab Budget wird `double.infinity` zurueckgegeben, `meshNeedsRefine`
+lehnt ab, die Ratsche steht. Ab 80% Auslastung wird sanft eingebremst.
+
+**(3) Deflection-Boden war absurd fein.** Das Log erreichte `lin=1.28e-4`, also
+0.1 um Sehnenfehler — kein Display loest das auf, es kostete 1 812 ms. Boden
+von 1e-4 auf **2e-3** (2 um).
+
+**(4) Splines bekommen dieselbe Behandlung wie die Zahnradflanke.**
+Eine tessellierte Spline erreichte den Kernel als Polygonzug, also als Prisma
+aus PLANEN Streifen — jede Streifengrenze ist ein echter Knick, den der
+v9-Tangentenfilter darum NICHT entfernen kann. Genau deshalb waren beim
+Zahnrad die Linien weg, bei der Spline nicht. `arcChainResample` (aus gear.dart
+oeffentlich gemacht) legt die Spline auf eine Kette echter Kreisboegen mit
+groessenskalierter Toleranz (0.02% der Bounding-Box, 1e-3..5e-2 mm); arcFitLoop
+bekommt dadurch exakte Bulges, das Prisma echte Zylinderflaechen, und die
+Uebergaenge sind nahezu tangential und fallen unter den v9-Filter.
+
+**(5) `occt_shim_version()` gab noch 8 zurueck**, waehrend der Versionsstring
+schon v9 sagte — im Log gut sichtbar als `shim v8, Prototype OCCT shim v9`.
+Korrigiert.
+
+**Verifikation.** analyze 0 errors, **444 Tests gruen**. Die Spline-Umstellung
+hat keinen bestehenden Test gebrochen. C++ nur CI-verifiziert.
+
+**Weiterhin offen:** Feature-Cache (`recomputeAllFeatures` fuehrt jedes Feature
+bedingungslos neu aus), Kontextmenue auf Extrusion/Solid, und die
+Neuvernetzung laeuft weiterhin synchron auf dem UI-Thread — das Budget
+begrenzt jetzt nur, wie oft und wie teuer sie wird. Richtig waere ein
+Hintergrund-Isolate.

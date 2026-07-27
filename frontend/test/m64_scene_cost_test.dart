@@ -1,31 +1,41 @@
-// M64 — the 3D scene must not get more expensive the longer you use it.
+// M64/M66 — the 3D scene must not get more expensive the longer you use it.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/reality_scene.dart';
 
 void main() {
   group('scene triangle budget', () {
-    test('under budget the screen-space target is untouched', () {
+    test('well under budget the screen-space target is untouched', () {
       expect(budgetedLinDeflection(0.01, 1000), 0.01);
-      expect(budgetedLinDeflection(0.01, kSceneTriangleBudget), 0.01);
+      expect(budgetedLinDeflection(0.01, (kSceneTriangleBudget * 0.5).round()),
+          0.01);
     });
 
-    test('over budget the target is relaxed proportionally', () {
-      final t = budgetedLinDeflection(0.01, kSceneTriangleBudget * 3);
-      expect(t, closeTo(0.03, 1e-12));
-      // the budget must be tight enough to actually fire for ONE gear: the
-      // device log showed a single z=20 gear reaching 50 548 triangles
-      expect(kSceneTriangleBudget, lessThan(50548),
-          reason: 'a budget above one gear never engages');
-      expect(t, greaterThan(0.01), reason: 'must only ever get COARSER');
+    test('at or over budget refinement is refused outright', () {
+      // M66: the M65 version scaled the target by sceneTris/budget, but that
+      // ratio is ~1.0 exactly when the scene first crosses the line, so it
+      // barely relaxed and the device still ran up to 78 976 triangles
+      // (build 9ef0425 log). Now it is a hard stop.
+      expect(budgetedLinDeflection(0.01, kSceneTriangleBudget),
+          double.infinity);
+      expect(budgetedLinDeflection(0.01, kSceneTriangleBudget * 3),
+          double.infinity);
+      expect(meshNeedsRefine(0.02, budgetedLinDeflection(0.01, 999999)),
+          isFalse,
+          reason: 'a refused target must not trigger a re-mesh');
     });
 
-    test('relaxing stops the ratchet: the pair refuses to refine further', () {
-      // a mesh already built at the relaxed target must not ask for more
-      const current = 0.03;
-      final target = budgetedLinDeflection(0.01, kSceneTriangleBudget * 3);
-      expect(meshNeedsRefine(current, target), isFalse,
-          reason: 'budget + refine-only-finer must settle, not oscillate');
+    test('the budget is tight enough to fire for a SINGLE gear', () {
+      // one z=20 gear measured 50 548 triangles on device; the first guess of
+      // 120 000 therefore never engaged at all
+      expect(kSceneTriangleBudget, lessThan(50548));
+    });
+
+    test('the last stretch before the ceiling eases off', () {
+      final near =
+          budgetedLinDeflection(0.01, (kSceneTriangleBudget * 0.9).round());
+      expect(near, greaterThan(0.01), reason: 'must only ever get COARSER');
+      expect(near.isFinite, isTrue);
     });
 
     test('degenerate input is passed through unharmed', () {
