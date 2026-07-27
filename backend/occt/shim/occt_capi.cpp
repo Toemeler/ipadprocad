@@ -60,6 +60,9 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepLProp_SLProps.hxx>
+#include <Geom2d_Curve.hxx>
+#include <gp_Pnt2d.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <GeomAbs_SurfaceType.hxx>
 #include <GeomAbs_CurveType.hxx>
@@ -137,7 +140,7 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v8 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v9 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -863,6 +866,48 @@ extern "C" occt_shape *occt_transform(const occt_shape *shape,
 
 /* ---- v2: tessellation --------------------------------------------------- */
 
+
+/* v9 — Is `e` a TANGENT-CONTINUOUS join between its two faces?
+ *
+ * An arc-approximated gear flank, and equally a tessellated spline, reaches
+ * the kernel as a CHAIN of separate faces. Every face boundary was drawn, so
+ * a smooth flank came out covered in vertical lines. UnifySameDomain cannot
+ * merge these: consecutive flank arcs are genuinely different cylinders
+ * (different centre, different radius), so they are not the same domain.
+ * Inventor draws an edge only where the surface actually creases, so compare
+ * the two surface normals at the middle of the edge and treat a small angle
+ * as smooth. Orientation matters: a REVERSED face's natural normal points
+ * into the solid.
+ */
+static bool edge_is_smooth(const TopoDS_Edge &e, const TopoDS_Face &f1,
+                           const TopoDS_Face &f2, double cos_tol)
+{
+    try {
+        Standard_Real a0 = 0, a1 = 0, b0 = 0, b1 = 0;
+        Handle(Geom2d_Curve) c1 = BRep_Tool::CurveOnSurface(e, f1, a0, a1);
+        Handle(Geom2d_Curve) c2 = BRep_Tool::CurveOnSurface(e, f2, b0, b1);
+        if (c1.IsNull() || c2.IsNull())
+            return false;
+        const gp_Pnt2d uv1 = c1->Value(0.5 * (a0 + a1));
+        const gp_Pnt2d uv2 = c2->Value(0.5 * (b0 + b1));
+        BRepAdaptor_Surface s1(f1, Standard_False);
+        BRepAdaptor_Surface s2(f2, Standard_False);
+        BRepLProp_SLProps p1(s1, uv1.X(), uv1.Y(), 1, 1e-7);
+        BRepLProp_SLProps p2(s2, uv2.X(), uv2.Y(), 1, 1e-7);
+        if (!p1.IsNormalDefined() || !p2.IsNormalDefined())
+            return false;
+        gp_Dir n1 = p1.Normal();
+        gp_Dir n2 = p2.Normal();
+        if (f1.Orientation() == TopAbs_REVERSED)
+            n1.Reverse();
+        if (f2.Orientation() == TopAbs_REVERSED)
+            n2.Reverse();
+        return n1.Dot(n2) >= cos_tol;
+    } catch (const Standard_Failure &) {
+        return false; /* undecidable: keep the edge, never hide a real one */
+    }
+}
+
 struct occt_mesh
 {
     std::vector<double> verts;      /* 3 per vertex */
@@ -1011,6 +1056,16 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
         }
         if (seam)
             continue;
+        /* v9: drop tangent-continuous joins (see edge_is_smooth). cos(8 deg)
+         * — a real model crease is far sharper, and the arc-chain joins this
+         * removes are well under one degree. */
+        if (edgeFaces.Contains(edge)) {
+            const TopTools_ListOfShape &fl2 = edgeFaces.FindFromKey(edge);
+            if (fl2.Extent() == 2 &&
+                edge_is_smooth(edge, TopoDS::Face(fl2.First()),
+                               TopoDS::Face(fl2.Last()), 0.990268))
+                continue;
+        }
         BRepAdaptor_Curve curve(edge);
         GCPnts_TangentialDeflection disc(curve, ang_deflection,
                                          lin_deflection, 2);

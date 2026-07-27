@@ -1065,11 +1065,12 @@ double viewAngularDeflection(double lin) =>
 
 /// Total triangles the 3D scene may carry before refinement stops asking for
 /// more. A single z=20 gear measured 34 236 triangles at full screen-space
-/// refinement on device, so a handful of gear-like features would otherwise
-/// walk into the hundreds of thousands with nothing to stop it: the mesh only
+/// refinement on device (measured 50 548 on the build-39555ac log), so 120 000
+/// — the first guess — never fired at all for one gear. A handful of gear-like
+/// features would otherwise walk into the hundreds of thousands: the mesh only
 /// ever gets FINER (see [meshNeedsRefine]), so every zoom-in ratchets the
 /// scene up and nothing ever gives it back.
-const int kSceneTriangleBudget = 120000;
+const int kSceneTriangleBudget = 40000;
 
 /// [target] deflection relaxed so the scene stays near [budget] triangles.
 ///

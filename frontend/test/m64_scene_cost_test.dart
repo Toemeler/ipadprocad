@@ -13,6 +13,10 @@ void main() {
     test('over budget the target is relaxed proportionally', () {
       final t = budgetedLinDeflection(0.01, kSceneTriangleBudget * 3);
       expect(t, closeTo(0.03, 1e-12));
+      // the budget must be tight enough to actually fire for ONE gear: the
+      // device log showed a single z=20 gear reaching 50 548 triangles
+      expect(kSceneTriangleBudget, lessThan(50548),
+          reason: 'a budget above one gear never engages');
       expect(t, greaterThan(0.01), reason: 'must only ever get COARSER');
     });
 

@@ -3385,3 +3385,38 @@ beachten) und die Kante bei kleinem Winkel ueberspringen — analog zum
 bestehenden `if (seam) continue;`. Das ist Shim **v9** samt Symbol-Gate und
 ausschliesslich in CI verifizierbar; deshalb als eigener, fokussierter Schritt
 statt blind zusammen mit drei anderen Aenderungen.
+
+## M65 — Shim v9 Tangentenfilter, Budget nachgemessen, perf-Kanal
+
+Aus dem Geraete-Log build=39555ac.
+
+**(1) Shim v9 — tangentenstetige Kanten werden nicht mehr gezeichnet.**
+`edge_is_smooth` vergleicht in `occt_mesh_create` die beiden Flaechennormalen
+in der Kantenmitte (`BRep_Tool::CurveOnSurface` -> `BRepLProp_SLProps`,
+Orientierung beachtet) und ueberspringt die Kante ab cos(8 deg). Kein neues
+Symbol, keine ABI-Aenderung, kein neues Gate — der Filter sitzt intern neben
+dem bestehenden Seam-Filter. Bei Unentscheidbarkeit wird die Kante BEHALTEN,
+nie faelschlich versteckt.
+
+**(2) Budget war geraten und feuerte nie.** Ein z=20-Zahnrad erreichte im Log
+**50 548** Dreiecke, `kSceneTriangleBudget` stand auf 120 000. Jetzt 40 000,
+per Test gegen die gemessenen 50 548 abgesichert.
+
+**(3) perf-Kanal.** `Log.i('perf', 'remesh n=.. lin=.. tris=.. in ..ms')` nach
+jedem Verfeinerungslauf — im Log war sonst unsichtbar, dass EIN Zahnrad
+viermal neu vernetzt wurde (41640 -> 46180 -> 49040 -> 50548).
+
+**OFFEN, mit Belegen.** Der groesste Posten ist NICHT behoben: der
+Feature-Baum wird bei jeder Aenderung komplett neu ausgefuehrt.
+`recomputeAllFeatures` (part_model.dart:1691) ruft `recomputeFeature` fuer
+JEDES Feature bedingungslos. Beleg: um 13:44:13 faellt Extrusion1 von 50 548
+auf 4 304 Dreiecke zurueck und verfeinert sich viermal neu, nur weil eine
+zweite Extrusion beginnt — 20 Sekunden Kernel-Arbeit weggeworfen, obwohl sich
+an Extrusion1 nichts geaendert hat. Fix ist ein Signatur-Cache pro Feature
+(eigene Parameter + Quellskizze + akkumulierte Upstream-Signatur); wer
+unveraendert ist, behaelt Solid UND verfeinertes Mesh. Bewusst nicht blind
+gemacht: der Cache muss `consumedByJoin`, `disposeSolid()` und die
+Boolean-Kette exakt richtig behandeln, sonst wird das Modell korrupt.
+Ebenfalls offen: Kontextmenue auf Extrusion/Solid, und der 200-ms-Drag
+(Solver selbst nur 0.14-0.4 ms, die Zeit geht woanders hin — der perf-Kanal
+gehoert als naechstes um den Drag-Handler).

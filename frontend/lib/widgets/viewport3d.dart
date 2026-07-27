@@ -17,6 +17,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
+import '../log.dart';
 import '../part_model.dart';
 import '../part_render.dart';
 import '../reality_scene.dart';
@@ -458,10 +459,24 @@ class _Viewport3DState extends State<Viewport3D> {
         viewLinearDeflection(p.camera.halfH, size.height), _sceneTriangles());
     final ang = viewAngularDeflection(target);
     var changed = false;
+    var remeshed = 0;
+    final sw = Stopwatch()..start();
     for (final s in _liveSolids()) {
       if (meshNeedsRefine(s.meshLin, target) && s.refine(target, ang)) {
         changed = true;
+        remeshed++;
       }
+    }
+    sw.stop();
+    if (changed) {
+      // Why this is logged: the 39555ac device log showed one gear being
+      // re-tessellated FOUR times on the way in (41640 -> 46180 -> 49040 ->
+      // 50548) and then thrown back to 4304 and redone when a second extrude
+      // started. Without a timing here that is invisible.
+      Log.i(
+          'perf',
+          'remesh n=$remeshed lin=${target.toStringAsExponential(2)} '
+          'tris=${_sceneTriangles()} in ${sw.elapsedMilliseconds}ms');
     }
     if (changed && mounted) setState(() {});
   }
