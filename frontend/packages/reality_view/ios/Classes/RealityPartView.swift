@@ -212,13 +212,26 @@ final class PartRenderer: NSObject {
     /// Re-tube the cached solids at the current zoom. Edge tubes have a fixed
     /// WORLD radius, so without this they thin to nothing when zooming in and
     /// turn into bars when zooming out.
+    /// View direction the outline ribbons were last built for.
+    private var ribbonDir: SIMD3<Float> = .init(0, 0, 1)
+
+    /// Ribbons are only correct while they face the camera, so they have to be
+    /// rebuilt when the view turns. Doing that every frame would cost more
+    /// than the tube ever did, so it happens behind an angular threshold:
+    /// cos(3 deg). Below that the error in apparent width is under 0.2%.
+    private func rebuildEdgesIfTurned(_ dir: SIMD3<Float>) {
+        if simd_dot(dir, ribbonDir) > 0.99863 { return } // cos(3 deg)
+        ribbonDir = dir
+        rebuildEdgesForZoom()
+    }
+
     private func rebuildEdgesForZoom() {
         let r = edgeRadius
         for (id, geom) in solidCache {
             guard let holder = solidEntities[id] else { continue }
             solidEdges[id]?.removeFromParent()
             solidEdges[id] = nil
-            if let e = geom.edgeEntity(radius: r) {
+            if let e = geom.edgeEntity(radius: r, viewDir: ribbonDir) {
                 holder.addChild(e)
                 solidEdges[id] = e
             }
@@ -263,6 +276,7 @@ final class PartRenderer: NSObject {
         // solid face — "the work plane / sketch is in front", like Inventor.
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
+        rebuildEdgesIfTurned(dir)
         for e in edgeEntities { e.position = dir * bias }
         // A sketch drawn ON a solid face is EXACTLY coplanar with it, so it
         // needs a lift comfortably past the depth resolution or it z-fights
@@ -389,7 +403,7 @@ final class PartRenderer: NSObject {
             }
             sceneRadius = max(sceneRadius, geom.boundingRadius)
             let shaded = geom.shadedEntity(material: material)
-            let edges = geom.edgeEntity(radius: edgeRadius)
+            let edges = geom.edgeEntity(radius: edgeRadius, viewDir: ribbonDir)
             let holder = Entity()
             holder.addChild(shaded)
             solidEdges[id]?.removeFromParent()

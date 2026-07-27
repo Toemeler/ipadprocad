@@ -108,6 +108,19 @@ enum Materials {
         return UnlitMaterial(color: color)
     }
 
+    /// Unlit colour whose ALPHA comes from the ribbon ramp, sampled across
+    /// the strip via its cross-width UV. That is what feathers the outline
+    /// edges. Falls back to a hard unlit colour if the texture is missing, so
+    /// a ramp failure costs sharpness, never the line itself.
+    static func unlitSoft(_ color: UIColor) -> RealityKit.Material {
+        var m = UnlitMaterial(color: color)
+        if let tex = RampTexture.shared {
+            m.opacityThreshold = 0
+            m.blending = .transparent(opacity: .init(scale: 1, texture: .init(tex)))
+        }
+        return m
+    }
+
     static func unlitTransparent(_ color: UIColor, _ opacity: Float) -> RealityKit.Material {
         var m = UnlitMaterial(color: color)
         m.blending = .transparent(opacity: .init(floatLiteral: opacity))
@@ -205,7 +218,35 @@ struct SolidGeom {
         return ModelEntity(mesh: mesh, materials: [material])
     }
 
-    func edgeEntity(color: UIColor = Colors.edge, radius: Float = 0.10) -> Entity? {
+    /// Source polylines of the B-Rep edges, one array per edge.
+    func edgePolylines() -> [[SIMD3<Float>]] {
+        guard edgeStarts.count >= 2 else {
+            return edgePts.isEmpty ? [] : [edgePts]
+        }
+        var out = [[SIMD3<Float>]]()
+        for e in 0..<(edgeStarts.count - 1) {
+            let a = edgeStarts[e], b = edgeStarts[e + 1]
+            guard a >= 0, b <= edgePts.count, b - a >= 2 else { continue }
+            out.append(Array(edgePts[a..<b]))
+        }
+        return out
+    }
+
+    /// Outline entity. With [viewDir] set this is a camera-facing RIBBON —
+    /// two triangles per segment and exactly constant on-screen width — which
+    /// is only valid while it faces that direction, so the caller must rebuild
+    /// it when the view turns. Without it, the orientation-independent TUBE is
+    /// used instead: ~12x the triangles and a slight width wobble, but it
+    /// survives any camera move, which makes it the safe fallback.
+    func edgeEntity(color: UIColor = Colors.edge, radius: Float = 0.10,
+                    viewDir: SIMD3<Float>? = nil) -> Entity? {
+        if #available(iOS 15.0, *), let v = viewDir {
+            let lines = edgePolylines()
+            if !lines.isEmpty,
+               let m = RibbonBuilder.mesh(lines, halfWidth: radius, viewDir: v) {
+                return ModelEntity(mesh: m, materials: [Materials.unlitSoft(color)])
+            }
+        }
         guard edgeStarts.count >= 2 else {
             // No per-edge offsets: draw the whole edge point cloud as one tube
             // chain if any points exist.
@@ -405,6 +446,43 @@ final class AxisEntity {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Alpha ramp used to feather the ribbon edges. Built once: a 1-pixel-tall
+// strip that is transparent at u=0 and u=1 and opaque across the middle, so
+// the ribbon's cross-width UV turns into a soft edge on a STOCK material —
+// no CustomMaterial, no Metal.
+// ---------------------------------------------------------------------------
+enum RampTexture {
+    static let shared: TextureResource? = make()
+
+    private static func make() -> TextureResource? {
+        let w = 32
+        var px = [UInt8](repeating: 0, count: w * 4)
+        for i in 0..<w {
+            let u = (Float(i) + 0.5) / Float(w)
+            // opaque core between 0.25 and 0.75, smooth falloff outside
+            let d = abs(u - 0.5) * 2          // 0 centre .. 1 edge
+            let a = d <= 0.5 ? 1.0 : max(0, 1 - (d - 0.5) / 0.5)
+            px[i * 4 + 0] = 255
+            px[i * 4 + 1] = 255
+            px[i * 4 + 2] = 255
+            px[i * 4 + 3] = UInt8(max(0, min(255, a * 255)))
+        }
+        guard let provider = CGDataProvider(data: Data(px) as CFData),
+              let cg = CGImage(width: w, height: 1, bitsPerComponent: 8,
+                               bitsPerPixel: 32, bytesPerRow: w * 4,
+                               space: CGColorSpaceCreateDeviceRGB(),
+                               bitmapInfo: CGBitmapInfo(
+                                   rawValue: CGImageAlphaInfo.last.rawValue),
+                               provider: provider, decode: nil,
+                               shouldInterpolate: true,
+                               intent: .defaultIntent)
+        else { return nil }
+        return try? TextureResource.generate(
+            from: cg, options: .init(semantic: .color))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Ribbon builder: a flat, camera-facing strip per polyline segment.

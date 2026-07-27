@@ -3562,10 +3562,40 @@ Kante ohne eigenes Metal. Vertex-Farben waeren der naheliegende Weg gewesen,
 aber **RealityKits Standardmaterialien lesen keine Vertex-Farben** — deshalb
 UV. Das ist der Fallstrick, ueber den man hier stolpert.
 
-### NICHT fertig — hier weitermachen
+### Verdrahtet (M71)
 
-`RibbonBuilder` ist gebaut, aber **noch nicht verdrahtet**. Es fehlen drei
-Dinge, alle in `RealityPartView.swift`:
+Alle drei Schritte sind eingebaut — aber NUR von CI kompiliert, nie
+ausgefuehrt. Was zu pruefen ist, steht unter "Geraete-Test" weiter unten.
+
+1. **Polylinien** mussten gar nicht neu vorgehalten werden: `solidCache` haelt
+   die `SolidGeom` bereits, `edgePolylines()` schneidet sie ueber
+   `edgeStarts`/`edgePts` auf. Und mit `rebuildEdgesForZoom()` existierte der
+   Neuaufbaupfad schon fuer den Zoom.
+2. **Neuaufbau bei Kameradrehung**: `rebuildEdgesIfTurned(dir)` haengt in der
+   bestehenden Kameraschleife und feuert erst ab cos(3 Grad) = 0.99863.
+   Darunter liegt der Breitenfehler unter 0.2 %, ist also unsichtbar, und ein
+   Neuaufbau je Frame haette mehr gekostet als die Roehre je gekostet hat.
+3. **Alpha-Rampe**: `RampTexture` baut einmalig eine 32x1-Textur (opak
+   zwischen u=0.25..0.75, weicher Abfall nach aussen), `Materials.unlitSoft`
+   haengt sie als Opacity-Textur an ein normales `UnlitMaterial`. Faellt die
+   Textur aus, gibt es eine harte statt einer weichen Kante — nie gar keine
+   Linie.
+
+`edgeEntity(viewDir:)` waehlt: mit Blickrichtung das Band, ohne die Roehre.
+`TubeBuilder` bleibt damit als Rueckfall erhalten, indem man schlicht
+`viewDir: nil` uebergibt.
+
+### Geraete-Test fuer die Baender
+
+- Umrisse beim Orbiten: duerfen weder flackern noch bei der 3-Grad-Schwelle
+  sichtbar springen. Springt es, ist die Schwelle zu grob.
+- Ruckelt das Orbiten jetzt? Dann ist der Neuaufbau zu teuer und die Schwelle
+  muss hoch, oder zurueck auf `viewDir: nil`.
+- Sehen die Kanten weich aus? Wenn hart, hat `RampTexture.make()` nil
+  geliefert (Fallback greift lautlos).
+- Segmente, die genau auf die Kamera zeigen: duerfen nicht aufblitzen.
+
+### Falls es NICHT reicht — urspruengliche Notizen
 
 1. **Polylinien vorhalten.** `edgeEntities` und `sketchEntities` speichern
    heute nur die Entity. Fuer den Neuaufbau braucht es die Quellpunkte, also
