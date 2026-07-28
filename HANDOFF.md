@@ -16,6 +16,34 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M98 — Der gehoverte Koerper leuchtet jetzt auch in 3D.** Die in M97 offen
+> gelassene Luecke ist zu: waehrend `pickingBody` bekommt der Koerper unter dem
+> Zeiger das PREVIEW-Material, also dieselbe Hervorhebung, die die Browserzeile
+> tintet. Beide Seiten lesen `app.hoverBody` — sie koennen nicht auseinander
+> laufen.
+>
+> **Ganzer KOERPER, nicht ein Feature.** `visibleSolids` schluesselt Solids nach
+> FEATURE-Namen; ein Koerper ist der Name, in den mehrere Features bauen.
+> `_bodyIsHovered` loest das auf, sonst wuerde nur das Feature aufleuchten, ueber
+> dem der Zeiger zufaellig steht — und ein Join aus drei Extrusionen saehe
+> zerrissen aus.
+>
+> **Signatur.** Der Hover muss die Szenensignatur bewegen, sonst wird kein
+> Rebuild geschickt und es leuchtet gar nichts (dieselbe Falle wie M95). Das
+> Feld ist nur waehrend des Pickens gefuellt, gewoehnliches Hovern kostet also
+> nichts — im Test festgenagelt: Signatur vor dem Picken == Signatur nach dem
+> Abbrechen.
+>
+> **Zur Performance-Sorge aus M97:** `_pickSolidFace` laeuft nur, WAEHREND ein
+> Pick armiert ist — sonst ist der Zweig ein einzelner bool-Test. `setHoverBody`
+> kehrt bei unveraendertem Namen sofort zurueck, eine Bewegung ueber EINEN
+> Koerper repaintet also einmal, nicht pro Frame. Ob das am Geraet reicht,
+> zeigt erst das Geraet; wenn nicht, ist die naechste Stufe ein Zeit-Throttle
+> auf dem Pick, nicht mehr Payload.
+>
+> **Neu/berührt:** `reality_scene.dart`, `widgets/viewport3d.dart`, Test
+> ergaenzt in `test/m97_pick_body_test.dart`.
+
 > **M97 — Zielkoerper ANKLICKEN statt Dropdown + Koerper-Kontextmenue.**
 > Damit sind die beiden in M96 offen gelassenen Punkte erledigt.
 >

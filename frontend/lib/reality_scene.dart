@@ -451,8 +451,13 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
   final sess = app.extrudeSession;
   final scene = <String, dynamic>{
     'solids': [
+      // M98 — while a target body is being picked, the body under the cursor
+      // is drawn in the PREVIEW material, so 3D lights up the same body the
+      // browser row does. Both sides read app.hoverBody, so they cannot
+      // disagree about what a click would take.
       for (final (id, s) in visibleSolids(app, p))
         solidPayload(id, s,
+            material: _bodyIsHovered(app, p, id) ? kMatPreview : kMatSteel,
             includeGeometry: knownRevs?[id] != identityHashCode(s.mesh)),
     ],
     'planes': _planePayloads(app, p, hover: hover),
@@ -504,6 +509,21 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
 /// identity flips on extrude/refine; sketch geometry is static in the 3D view
 /// (edits happen in the 2D sketcher, which shows a different widget), so a
 /// count/eos/visibility fingerprint suffices there.
+/// M98 — is the solid published under [featureId] part of the hovered body?
+///
+/// `visibleSolids` keys solids by FEATURE name; a body is the name several
+/// features build into, so the whole body lights up rather than just the
+/// feature the cursor happens to be over.
+bool _bodyIsHovered(AppState app, PartModel p, String featureId) {
+  if (!app.pickingBody) return false;
+  final hb = app.hoverBody;
+  if (hb == null) return false;
+  for (final f in p.features) {
+    if (f.name == featureId) return f.bodyName == hb;
+  }
+  return false;
+}
+
 String sceneSignature(AppState app, PartModel p) {
   final sess = app.extrudeSession;
   final sb = StringBuffer();
@@ -529,6 +549,11 @@ String sceneSignature(AppState app, PartModel p) {
   // dialog, which moves `prev:`) forced one. That is exactly the reported
   // "sketch is gone until I open and cancel Extrude".
   sb
+    // M98 — the hovered body changes what the solids look like, so it must
+    // move the signature or no rebuild is pushed and nothing lights up. Only
+    // while picking, so ordinary hovering costs nothing.
+    ..write(';hb:')
+    ..write(app.pickingBody ? (app.hoverBody ?? '') : '')
     ..write(';edit:')
     ..write(app.inEditMode ? (app.activeChild?.name ?? '?') : '')
     ..write(';sk:');

@@ -611,6 +611,10 @@ class _Viewport3DState extends State<Viewport3D>
     // matters. Publishing it on AppState is what makes the model browser row
     // light up at the same time: both read app.hoverBody.
     if (app.pickingBody) {
+      // _pickSolidFace runs per pointer move, but only while a pick is armed
+      // — outside that mode this branch is a single bool test. setHoverBody
+      // early-returns when the name is unchanged, so a move across one body
+      // repaints once, not once per frame.
       final pick = _pickSolidFace(cam, px);
       app.setHoverBody(pick == null ? null : _bodyNameOf(p, pick.$1));
     }

@@ -2,6 +2,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
+import 'package:prototype/reality_scene.dart';
 
 ExtrudeFeature _feat(PartModel p, String name, String body) {
   final f = ExtrudeFeature(
@@ -12,6 +13,8 @@ ExtrudeFeature _feat(PartModel p, String name, String body) {
 }
 
 void main() {
+  group('M98 3D highlight', _highlightTests);
+
   test('hover is ignored unless a pick is actually armed', () {
     final app = AppState();
     expect(app.pickingBody, isFalse);
@@ -54,5 +57,23 @@ void main() {
     p.features.removeWhere((f) => f.bodyName == 'Solid1');
     expect(p.features, hasLength(1));
     expect(p.features.first.bodyName, 'Solid2');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M98 — the hovered body lights up in 3D too.
+void _highlightTests() {
+  test('the hover only moves the signature while a pick is armed', () {
+    final app = AppState();
+    final p = PartModel('P');
+    final base = sceneSignature(app, p);
+    expect(base, contains('hb:;'), reason: 'not picking -> empty field');
+    app.pickingBody = true;
+    app.setHoverBody('Solid1');
+    expect(sceneSignature(app, p), isNot(base),
+        reason: 'a hover must force a rebuild or nothing lights up');
+    app.cancelPickBody();
+    expect(sceneSignature(app, p), base,
+        reason: 'and cost nothing once the pick is over');
   });
 }
