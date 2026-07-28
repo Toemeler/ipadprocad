@@ -6758,7 +6758,7 @@ class AppState extends ChangeNotifier {
           tool == Tool.rect3P ||
           tool == Tool.rect2PC ||
           tool == Tool.rect3PC;
-      if (isRect && placed.length == 4) {
+      if (isRect && (placed.length == 4 || placed.length == 6)) {
         deterministicShape = true;
         // Inventor's rectangle: four LINES held together by constraints —
         // coincident at every corner, plus H/V (axis-aligned tools) or
@@ -6782,6 +6782,62 @@ class AppState extends ChangeNotifier {
             s.constraints.add(Constraint(CType.perpendicular,
                 ents: [firstNew + k, firstNew + k + 1]));
           }
+        }
+        // M92 — centre rectangles: the two CONSTRUCTION diagonals, entities
+        // 4 and 5, each spanning opposite corners. _rectLines emits corner k
+        // as line k's point 0, so diagonal 0 runs corner0 -> corner2 and
+        // diagonal 1 corner1 -> corner3. Four coincidents pin all eight
+        // diagonal parameters, so the rectangle's DOF is untouched and no row
+        // is redundant.
+        if (placed.length == 6) {
+          final d0 = firstNew + 4, d1 = firstNew + 5;
+          s.constraints.addAll([
+            Constraint(CType.coincident,
+                pts: [PRef(d0, 0), PRef(firstNew + 0, 0)]),
+            Constraint(CType.coincident,
+                pts: [PRef(d0, 1), PRef(firstNew + 2, 0)]),
+            Constraint(CType.coincident,
+                pts: [PRef(d1, 0), PRef(firstNew + 1, 0)]),
+            Constraint(CType.coincident,
+                pts: [PRef(d1, 1), PRef(firstNew + 3, 0)]),
+          ]);
+        }
+      } else if (tool == Tool.polygon && placed.length >= 4) {
+        deterministicShape = true;
+        // M92 — Inventor's polygon: n edge LINES + a circumscribed
+        // CONSTRUCTION circle (the last entity). The set is
+        //   * corner coincidents             2n equations
+        //   * equal edges, n-1 of them        n-1
+        //   * every vertex ON the circle       n
+        // = 4n-1 independent equations on 4n+3 parameters, leaving exactly the
+        // polygon's 4 DOF: centre x, centre y, radius, rotation. So dimension
+        // the centre and make ONE side vertical and the polygon is fully
+        // constrained, which is the whole point.
+        //
+        // Why n-1 equals and not n: with every vertex on one circle, n-1 equal
+        // chords force the last one too — the n-th equation would be the
+        // redundant row that makes the LM normal equations singular and
+        // libslvs call the sketch inconsistent (the same trap documented for
+        // the slot's parallel and the arc slot's equal below).
+        //
+        // Point-on-curve is plain `coincident` with ONE point and ONE entity,
+        // exactly as in Inventor — the solver already carries that residual
+        // (|q - centre| - r) for circles and arcs.
+        final n = placed.length - 1;
+        final circ = firstNew + n;
+        for (var k = 0; k < n; k++) {
+          s.constraints.add(Constraint(CType.coincident, pts: [
+            PRef(firstNew + k, 1),
+            PRef(firstNew + (k + 1) % n, 0),
+          ]));
+        }
+        for (var k = 0; k < n - 1; k++) {
+          s.constraints.add(
+              Constraint(CType.equal, ents: [firstNew + k, firstNew + k + 1]));
+        }
+        for (var k = 0; k < n; k++) {
+          s.constraints.add(Constraint(CType.coincident,
+              pts: [PRef(firstNew + k, 0)], ents: [circ]));
         }
       } else if ((tool == Tool.slotCC ||
               tool == Tool.slotOverall ||

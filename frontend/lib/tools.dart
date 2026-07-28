@@ -188,12 +188,15 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
     case Tool.rect2PC:
       if (p.length < 2) return null;
       final d = p[1] - p[0];
-      return _rectLines([
+      final c2p = [
         p[0] - d,
         p[0] + Offset(d.dx, -d.dy),
         p[0] + d,
         p[0] + Offset(-d.dx, d.dy)
-      ]);
+      ];
+      // M92: the centre-start rectangles carry their diagonals, so the centre
+      // you started from stays visible and snappable.
+      return [..._rectLines(c2p), ..._rectDiagonals(c2p)];
     case Tool.rect3PC:
       // center, edge-direction point, extent
       if (p.length < 3) return null;
@@ -204,12 +207,13 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       final hw = u.distance;
       final hh = ((p[2] - p[0]).dx * vn.dx + (p[2] - p[0]).dy * vn.dy).abs();
       if (hh < 1e-9) return null;
-      return _rectLines([
+      final c3p = [
         p[0] + un * hw + vn * hh,
         p[0] - un * hw + vn * hh,
         p[0] - un * hw - vn * hh,
         p[0] + un * hw - vn * hh
-      ]);
+      ];
+      return [..._rectLines(c3p), ..._rectDiagonals(c3p)]; // M92
     case Tool.slotCC:
       // arc-center 1, arc-center 2, width point
       if (p.length < 3) return null;
@@ -258,7 +262,21 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
               Offset(math.cos(a0 + 2 * math.pi * i / n),
                       math.sin(a0 + 2 * math.pi * i / n)) *
                   r);
-      return [_poly(pts, closed: true)];
+      // M92 — Inventor's polygon: n separate LINES plus the circumscribed
+      // CONSTRUCTION circle the vertices sit on. Separate lines (not one
+      // polyline) are what make the edges individually constrainable and
+      // dimensionable, exactly as the rectangle tools already do; the circle
+      // carries the polygon's centre point, so there is something to dimension
+      // the position against. The deterministic constraint set is added at
+      // commit (see _commitTool): corner coincidents, equal edges, and every
+      // vertex coincident ON the circle — 4n-1 independent equations on 4n+3
+      // parameters, leaving exactly the polygon's 4 DOF (centre x/y, radius,
+      // rotation). Dimension the centre and fix ONE edge's direction and it is
+      // fully constrained.
+      return [
+        for (var i = 0; i < n; i++) _line(pts[i], pts[(i + 1) % n]),
+        Geo(Geo.circle, [p[0].dx, p[0].dy, r]).withStyle(Geo.styleConstruction),
+      ];
     case Tool.fillet:
       if (p.length < 2) return null;
       return filletInventor(existing, p[0], p[1], params['radius'] ?? 5)
@@ -450,6 +468,19 @@ List<Geo>? _rectFromEdge(Offset a, Offset b, Offset c) {
   final off = vn * h;
   return _rectLines([a, b, b + off, a + off]);
 }
+
+/// M92 — the two corner-to-corner CONSTRUCTION diagonals of a rectangle.
+///
+/// Inventor draws them on the centre-start rectangles, where they are what
+/// makes the centre visible and snappable: their crossing IS the centre. Each
+/// diagonal is a line whose 4 parameters are fully pinned by 2 coincidents on
+/// the corners it spans, so the pair adds 8 parameters and 8 equations — the
+/// sketch's degrees of freedom are unchanged and nothing goes redundant. The
+/// coincidents themselves are added at commit, next to the rectangle's own.
+List<Geo> _rectDiagonals(List<Offset> c) => [
+      _line(c[0], c[2]).withStyle(Geo.styleConstruction),
+      _line(c[1], c[3]).withStyle(Geo.styleConstruction),
+    ];
 
 List<Geo>? _linearSlot(Offset c1, Offset c2, double r) {
   final u = c2 - c1;
