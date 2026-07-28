@@ -789,12 +789,47 @@ class _ModelBrowserState extends State<ModelBrowser> {
   double? _eopDragStartDy;
   int? _eopDragStartSlot;
 
+  /// Timeline rows above feature `i`, i.e. how many browser rows the marker
+  /// has to travel to reach that feature's slot (M103).
+  ///
+  /// The marker counts in FEATURES, but the browser shows sketches between
+  /// them — so a drag measured purely in features made the marker leap over a
+  /// sketch row in one step and feel like it was snapping. Converting travel
+  /// through the real row layout keeps it under the finger.
+  List<int> _eopRowIndexPerSlot(PartModel p) {
+    final out = <int>[];
+    var row = 0;
+    for (final n in partTimeline(p)) {
+      if (n.isFeature) {
+        out.add(row);
+        row++;
+      } else {
+        row++; // a sketch row the marker passes over without a slot of its own
+      }
+    }
+    out.add(row); // the slot after the last feature
+    return out;
+  }
+
   int _slotForDyPart(PartModel p, double dy) {
     final n = partBuildOrder(p).length;
     final dy0 = _eopDragStartDy, s0 = _eopDragStartSlot;
     if (dy0 == null || s0 == null) return _shownEop(p);
-    final steps = ((dy - dy0) / _kRowH).round();
-    return (s0 + steps).clamp(0, n);
+    final rows = _eopRowIndexPerSlot(p);
+    final start = rows[s0.clamp(0, n)];
+    final wantRow = start + ((dy - dy0) / _kRowH).round();
+    // Nearest slot to the row the finger is over — sketch rows in between
+    // simply have no slot, so the marker settles on the closer neighbour
+    // instead of jumping a whole feature.
+    var best = 0, bestD = 1 << 30;
+    for (var i = 0; i <= n; i++) {
+      final d = (rows[i] - wantRow).abs();
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
   }
 
   bool _eopEsc(KeyEvent e) {

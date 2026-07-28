@@ -623,15 +623,25 @@ class _Viewport3DState extends State<Viewport3D>
       // the current one rather than dropping it.
       final pick = _pickSolidFace(cam, px);
       final name = pick == null ? null : _bodyNameOf(p, pick.$1);
+      // M103 — hysteresis in BOTH directions. M102 only damped the drop to
+      // null, so a sweep across the seam between two bodies still switched on
+      // the first sample of the neighbour — and every switch recomputes the
+      // boolean preview, which is what flickered while the mouse moved. A new
+      // body now has to win twice in a row before the preview is rebuilt.
       if (name == app.hoverBody) {
         _hoverBodyMiss = 0;
+        _hoverBodyCand = null;
       } else if (name == null) {
-        // Off every body — but only believe it after a few consecutive
-        // samples, so a hairline crack cannot un-highlight the solid.
+        _hoverBodyCand = null;
         if (++_hoverBodyMiss >= 3) app.setHoverBody(null);
       } else {
         _hoverBodyMiss = 0;
-        app.setHoverBody(name);
+        if (_hoverBodyCand == name) {
+          _hoverBodyCand = null;
+          app.setHoverBody(name);
+        } else {
+          _hoverBodyCand = name; // first sighting — wait for confirmation
+        }
       }
     }
     (KernelSolid, int)? hf;
@@ -741,6 +751,9 @@ class _Viewport3DState extends State<Viewport3D>
   /// one FEATURE; the body is the name that feature builds into.
   /// Consecutive hover samples that hit no body (M102 — see the hover code).
   int _hoverBodyMiss = 0;
+
+  /// A body seen once under the cursor, not yet confirmed (M103).
+  String? _hoverBodyCand;
 
   String? _bodyNameOf(PartModel p, KernelSolid solid) {
     for (final f in p.features) {
@@ -861,13 +874,20 @@ class _Viewport3DState extends State<Viewport3D>
     // everything else: while the dialog is waiting, a tap on a solid means
     // "this one", not "sketch on this face".
     if (app.pickingBody) {
+      // M103 — take the body that is CURRENTLY highlighted, not a fresh
+      // frontmost pick. Re-picking at the instant of the tap could land on the
+      // neighbour at a seam, so you clicked the highlighted solid and got the
+      // other one — "selecting doesn't work". What you see is what you get.
+      final shown = app.hoverBody;
+      if (shown != null) {
+        app.pickBody(shown);
+        return;
+      }
       final face = _pickSolidFace(cam, px);
-      if (face != null) {
-        final name = _bodyNameOf(p, face.$1);
-        if (name != null) {
-          app.pickBody(name);
-          return;
-        }
+      final name = face == null ? null : _bodyNameOf(p, face.$1);
+      if (name != null) {
+        app.pickBody(name);
+        return;
       }
       app.cancelPickBody(); // tapping empty space backs out, like Esc
       return;

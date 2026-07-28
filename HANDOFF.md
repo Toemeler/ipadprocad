@@ -16,6 +16,29 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M103 — Flackern, Klick-Auswahl und das Ueberspringen von Skizzen.**
+>
+> **(1) Flackern beim Mausbewegen.** M102 daempfte nur den Weg nach NULL. Ein
+> Streifen ueber die Naht zwischen zwei Koerpern wechselte weiterhin beim
+> ERSTEN Sample des Nachbarn — und jeder Wechsel rechnet die boolesche
+> Vorschau neu. Genau das flackerte. Ein neuer Koerper muss jetzt **zweimal in
+> Folge** gesehen werden, bevor umgeschaltet wird; stillhalten war deshalb
+> schon vorher stabil.
+>
+> **(2) Klicken in 3D waehlte den falschen Koerper.** Der Tap hat frisch
+> gepickt statt den GEZEIGTEN zu nehmen — an einer Naht landete der frische
+> Pick auf dem Nachbarn, man klickte den hervorgehobenen Koerper und bekam den
+> anderen. Der Tap nimmt jetzt `app.hoverBody`: was man sieht, ist was man
+> bekommt. Fallback auf einen frischen Pick nur, wenn gar nichts hervorgehoben
+> ist.
+>
+> **(3) EOP sprang ueber Skizzen.** Die Marke zaehlt in FEATURES, der Browser
+> zeigt aber Skizzen dazwischen — ein rein in Features gemessener Zug lies sie
+> eine Skizzenzeile in einem Satz ueberspringen. Der Weg wird jetzt durch das
+> echte Zeilen-Layout umgerechnet (`_eopRowIndexPerSlot`): Skizzenzeilen haben
+> keinen eigenen Slot, die Marke rastet auf dem naeheren Nachbarn ein und
+> bleibt unter dem Finger.
+
 > **M102 — EOP: die WIRKLICHE Ursache. Es war nie die Gesten-Arena.**
 >
 > Das Log sagt es seit drei Runden dasselbe: `DOWN` … rund 150 ms … `CANCEL`,
