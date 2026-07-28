@@ -94,21 +94,39 @@ const flyouts = <String, List<FlyItem>>{
   ],
 };
 
-/// Which flyout group a tool belongs to (for the active highlight on the
-/// big ribbon buttons). Esc clears the tool and thus the highlight.
-const _toolGroup = <Tool, String>{
-  Tool.line: 'line', Tool.lineMid: 'line', Tool.splineCV: 'line',
-  Tool.splineInterp: 'line', Tool.eqCurve: 'line', Tool.bridge: 'line',
-  Tool.circleCenter: 'circle', Tool.circleTangent: 'circle',
-  Tool.ellipse: 'circle',
-  Tool.arcThreePoint: 'arc', Tool.arcTangent: 'arc', Tool.arcCenter: 'arc',
-  Tool.rectTwoPoint: 'rect', Tool.rect3P: 'rect', Tool.rect2PC: 'rect',
-  Tool.rect3PC: 'rect', Tool.slotCC: 'rect', Tool.slotOverall: 'rect',
-  Tool.slotCP: 'rect', Tool.slot3A: 'rect', Tool.slotCPA: 'rect',
-  Tool.polygon: 'rect',
-  Tool.fillet: 'fillet', Tool.chamfer: 'fillet',
-  Tool.point: 'point',
-};
+/// Group lookup for the active highlight. The table itself now lives in
+/// app_state.dart as [toolFlyoutGroup], because AppState.selectTool needs it
+/// to remember each split button's last variant (M85).
+const _toolGroup = toolFlyoutGroup;
+
+/// M85 — the FACE of a split button: the flyout variant it currently shows.
+///
+/// Inventor's split buttons are sticky: choose Slot from the Rectangle flyout
+/// and the button becomes Slot — icon, label and what a tap on the body
+/// starts — until you choose something else. It stays that way after the tool
+/// finishes or is cancelled, which is the point.
+///
+/// [dflt] is the group's standard tool, with the hand-drawn 34-px icon and
+/// short label the panel has always shown. While that is the pick, nothing
+/// changes visually; a variant swaps in its own 26-px flyout icon (scaled to
+/// 34) and the variant's name.
+class _Face {
+  final String icon, label;
+  final Tool tool;
+  const _Face(this.icon, this.label, this.tool);
+}
+
+_Face _faceFor(AppState app, String group,
+    {required Tool dflt, required String icon, required String label}) {
+  final pick = app.ribbonPick[group] ?? dflt;
+  if (pick == dflt) return _Face(icon, label, dflt);
+  for (final it in flyouts[group] ?? const <FlyItem>[]) {
+    if (it.tool == pick) {
+      return _Face(IC[it.icon] ?? icon, it.b, pick);
+    }
+  }
+  return _Face(icon, label, dflt);
+}
 
 /// Ribbon widget. Flyout state lives here; flyouts render in an Overlay
 /// anchored DIRECTLY under the clicked element (mock: anchor.bottom).
@@ -550,31 +568,41 @@ class _RibbonState extends State<Ribbon> {
           label: 'Create',
           arrow: false,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _Big(id: 'line', label: 'Line', icon: IC['line34']!, onFly: toggleFly,
-                onDefault: () => _startTool(Tool.line),
-                active: _toolGroup[app.tool] == 'line'),
-            _Big(id: 'circle', label: 'Circle', icon: IC['circle34']!, onFly: toggleFly,
-                onDefault: () => _startTool(Tool.circleCenter),
-                active: _toolGroup[app.tool] == 'circle'),
-            _Big(id: 'arc', label: 'Arc', icon: IC['arc34']!, onFly: toggleFly,
-                onDefault: () => _startTool(Tool.arcThreePoint),
-                active: _toolGroup[app.tool] == 'arc'),
-            _Big(id: 'rect', label: 'Rectangle', icon: IC['rect34']!, onFly: toggleFly,
-                onDefault: () => _startTool(Tool.rectTwoPoint),
-                active: _toolGroup[app.tool] == 'rect'),
+            _BigSplit(app: app, id: 'line', dflt: Tool.line,
+                icon: IC['line34']!, label: 'Line',
+                onFly: toggleFly, onStart: _startTool),
+            _BigSplit(app: app, id: 'circle', dflt: Tool.circleCenter,
+                icon: IC['circle34']!, label: 'Circle',
+                onFly: toggleFly, onStart: _startTool),
+            _BigSplit(app: app, id: 'arc', dflt: Tool.arcThreePoint,
+                icon: IC['arc34']!, label: 'Arc',
+                onFly: toggleFly, onStart: _startTool),
+            _BigSplit(app: app, id: 'rect', dflt: Tool.rectTwoPoint,
+                icon: IC['rect34']!, label: 'Rectangle',
+                onFly: toggleFly, onStart: _startTool),
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _SmallRow(icon: IC['fillet18']!, label: 'Fillet', flyId: 'fillet', onFly: toggleFly,
-                        // Inventor split-button: tapping the BODY starts the
-                        // default tool, the ▼ opens the flyout. Without this
-                        // onTap only the 14-px arrow did anything and the
-                        // Fillet button was effectively dead on touch.
-                        onTap: () => _startTool(Tool.fillet),
-                        active: _toolGroup[app.tool] == 'fillet'),
+                    // Inventor split-button: tapping the BODY starts the
+                    // CURRENT variant (M85 — Chamfer once chosen), the ▼ opens
+                    // the flyout. Without the body tap only the 14-px arrow did
+                    // anything and the Fillet button was dead on touch.
+                    Builder(builder: (_) {
+                      final f = _faceFor(app, 'fillet',
+                          dflt: Tool.fillet,
+                          icon: IC['fillet18']!,
+                          label: 'Fillet');
+                      return _SmallRow(
+                          icon: f.icon,
+                          label: f.label,
+                          flyId: 'fillet',
+                          onFly: toggleFly,
+                          onTap: () => _startTool(f.tool),
+                          active: _toolGroup[app.tool] == 'fillet');
+                    }),
                     const SizedBox(height: 2),
                     _SmallRow(icon: IC['text18']!, label: 'Text', flyId: 'text', onFly: toggleFly,
                         // M44: parametric sketch text — tap places, the
@@ -915,6 +943,42 @@ class _HoverState extends State<_Hover> {
           child: widget.child,
         ),
       ),
+    );
+  }
+}
+
+/// A big Create-panel button that REMEMBERS its last flyout variant (M85).
+///
+/// Thin wrapper over [_Big]: it resolves the face through [_faceFor] and wires
+/// the body tap to the variant currently shown, so the visible icon and what a
+/// tap does can never disagree.
+class _BigSplit extends StatelessWidget {
+  final AppState app;
+  final String id;
+  final Tool dflt;
+  final String icon, label;
+  final void Function(String, BuildContext) onFly;
+  final void Function(Tool) onStart;
+  const _BigSplit({
+    required this.app,
+    required this.id,
+    required this.dflt,
+    required this.icon,
+    required this.label,
+    required this.onFly,
+    required this.onStart,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final f = _faceFor(app, id, dflt: dflt, icon: icon, label: label);
+    return _Big(
+      id: id,
+      label: f.label,
+      icon: f.icon,
+      onFly: onFly,
+      onDefault: () => onStart(f.tool),
+      active: _toolGroup[app.tool] == id,
     );
   }
 }

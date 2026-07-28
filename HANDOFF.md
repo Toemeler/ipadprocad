@@ -16,6 +16,43 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M85 — Die Split-Buttons im Create-Panel merken sich ihre Variante.**
+> Gemeldet: Slot aus dem Rechteck-Flyout waehlen startete zwar den Slot und
+> markierte den Button aktiv, aber die Schaltflaeche zeigte weiter RECHTECK —
+> und nach Ende/Abbruch des Werkzeugs startete ein Tipp auf den Body wieder
+> Rectangle. Inventor ist in beidem klebrig.
+>
+> **Fix an der richtigen Stelle.** `AppState.ribbonPick` (Map Flyout-Gruppe →
+> zuletzt gewaehltes Tool) wird zentral in **`selectTool`** geschrieben, nicht
+> im Ribbon — damit aktualisieren Tastenkuerzel und das Long-Press-Quick-Menue
+> die Schaltflaeche genauso wie ein Flyout-Klick. `Tool.none` (Esc, Werkzeug
+> fertig) gehoert zu keiner Gruppe und kann eine Auswahl daher NIE loeschen;
+> genau das ist der zweite Teil des Wunsches. Ein ausserhalb des Editiermodus
+> ABGELEHNTES Werkzeug aendert das Gesicht ebenfalls nicht (der Guard steht vor
+> der Aufzeichnung).
+>
+> Das Gesicht selbst loest `_faceFor` auf: solange die Standard-Variante gewaehlt
+> ist, bleibt alles exakt wie bisher (die handgezeichneten 34-px-Icons); eine
+> Variante setzt ihr eigenes 26-px-Flyout-Icon (auf 34 skaliert) und ihren Namen
+> aus `FlyItem.b` ein — also "Slot", "Polygon", "Spline", "Chamfer". Neuer
+> `_BigSplit` verdrahtet Gesicht UND Body-Tipp aus derselben Quelle, damit
+> sichtbares Icon und ausgeloestes Werkzeug nie auseinanderlaufen koennen.
+> Gilt fuer Line / Circle / Arc / Rectangle und die Fillet-Zeile.
+>
+> `_toolGroup` ist aus `ribbon.dart` nach `app_state.dart` gewandert
+> (`toolFlyoutGroup`), weil `selectTool` es jetzt braucht.
+>
+> **Session-State mit Absicht:** die Auswahl gehoert nicht zum Dokument, wird
+> also nicht serialisiert und macht keine Skizze dirty.
+>
+> **Neu/berührt:** `app_state.dart`, `widgets/ribbon.dart`, neuer Test
+> `test/m85_ribbon_sticky_test.dart`.
+>
+> **Offen:** ob die Auswahl eine App-Sitzung ueberdauern soll (Inventor merkt
+> sie sich pro Sitzung — heute genauso); und das 26-px-Icon auf 34 skaliert
+> wirkt duenner als die handgezeichneten Grossicons — falls das am Geraet
+> stoert, brauchen die zehn Varianten eigene 34-px-Zeichnungen.
+
 > **M84 — Share Sketch (Inventor) + Kontextmenue im Model Browser.** Der seit
 > M74 sechsmal aufgeschobene Punkt ist damit erledigt.
 >

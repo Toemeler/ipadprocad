@@ -96,6 +96,41 @@ enum Tool {
   mirror,
 }
 
+/// M85 — which ribbon flyout group a tool belongs to.
+///
+/// This lived as a private `_toolGroup` inside widgets/ribbon.dart, used only
+/// for the active highlight. It moves here because [AppState.selectTool] now
+/// also needs it: the split button remembers the last variant per group, and
+/// that must be recorded wherever a tool starts (flyout, keyboard shortcut,
+/// long-press quick menu), not only where the ribbon happens to be involved.
+const Map<Tool, String> toolFlyoutGroup = {
+  Tool.line: 'line',
+  Tool.lineMid: 'line',
+  Tool.splineCV: 'line',
+  Tool.splineInterp: 'line',
+  Tool.eqCurve: 'line',
+  Tool.bridge: 'line',
+  Tool.circleCenter: 'circle',
+  Tool.circleTangent: 'circle',
+  Tool.ellipse: 'circle',
+  Tool.arcThreePoint: 'arc',
+  Tool.arcTangent: 'arc',
+  Tool.arcCenter: 'arc',
+  Tool.rectTwoPoint: 'rect',
+  Tool.rect3P: 'rect',
+  Tool.rect2PC: 'rect',
+  Tool.rect3PC: 'rect',
+  Tool.slotCC: 'rect',
+  Tool.slotOverall: 'rect',
+  Tool.slotCP: 'rect',
+  Tool.slot3A: 'rect',
+  Tool.slotCPA: 'rect',
+  Tool.polygon: 'rect',
+  Tool.fillet: 'fillet',
+  Tool.chamfer: 'fillet',
+  Tool.point: 'point',
+};
+
 const patternTools = {Tool.patRect, Tool.patCirc, Tool.mirror};
 
 /// Which input of the pattern dialog the next viewport tap feeds (the blue
@@ -533,6 +568,19 @@ class AppState extends ChangeNotifier {
 
   // ---- active drawing tool + in-progress points (world coords) ----
   Tool tool = Tool.none;
+
+  /// M85 — Inventor's SPLIT BUTTON memory: the variant last chosen from a
+  /// flyout, per flyout group ('line', 'circle', 'arc', 'rect', 'fillet').
+  ///
+  /// The ribbon face (icon + label) and the button BODY both follow this, so
+  /// picking Slot from the Rectangle flyout leaves a Slot button behind
+  /// instead of snapping back to Rectangle — and the next tap starts Slot,
+  /// not Rectangle. Written centrally in [selectTool], so a keyboard shortcut
+  /// updates the face exactly like a flyout pick.
+  ///
+  /// Session state on purpose: it is not part of the document, so it is not
+  /// serialised and never makes a sketch dirty.
+  final Map<String, Tool> ribbonPick = {};
   final List<Offset> toolPoints = [];
   Offset? hoverWorld;
 
@@ -3298,6 +3346,11 @@ class AppState extends ChangeNotifier {
       return;
     }
     tool = t;
+    // M85: remember the variant for its flyout group. Tool.none (Esc, tool
+    // finished) must NOT clear it — that is the whole point: the last used
+    // variant stays on the button after the tool ends.
+    final grp = toolFlyoutGroup[t];
+    if (grp != null) ribbonPick[grp] = t;
     toolPoints.clear();
     _hudResetAll();
     // Pattern tools open their modeless dialog (M35). The current selection
