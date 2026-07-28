@@ -35,23 +35,26 @@ class Cam3 {
         halfH = c.halfH,
         ox = c.ox,
         oy = c.oy,
-        s = _rolledS(c.dir, c.roll),
-        u = _rolledU(c.dir, c.roll);
+        s = _rolledS(c.dir, c.az, c.roll),
+        u = _rolledU(c.dir, c.az, c.roll);
 
   /// Basis rotated about the view direction by [roll] (M80). At roll 0 these
   /// return exactly the old derived basis, so every existing camera is
   /// unaffected.
-  static Vec3 _rolledS(Vec3 d, double roll) {
-    if (roll == 0) return _basisS(d);
-    final s0 = _basisS(d), u0 = _basisU(d);
+  static Vec3 _rolledS(Vec3 d, double az, double roll) {
+    final s0 = PartCamera.rightFor(az), u0 = _upFrom(d, az);
+    if (roll == 0) return s0;
     return (s0 * math.cos(roll) + u0 * math.sin(roll)).normalized();
   }
 
-  static Vec3 _rolledU(Vec3 d, double roll) {
-    if (roll == 0) return _basisU(d);
-    final s0 = _basisS(d), u0 = _basisU(d);
+  static Vec3 _rolledU(Vec3 d, double az, double roll) {
+    final s0 = PartCamera.rightFor(az), u0 = _upFrom(d, az);
+    if (roll == 0) return u0;
     return (u0 * math.cos(roll) - s0 * math.sin(roll)).normalized();
   }
+
+  static Vec3 _upFrom(Vec3 d, double az) =>
+      PartCamera.rightFor(az).cross(_fwd(d)).normalized();
 
   /// Explicit-basis camera (M59): the sketch-underlay looks straight down a
   /// face frame, whose u/v axes must map to screen x/y EXACTLY as the 2D
@@ -66,14 +69,8 @@ class Cam3 {
       required this.size});
 
   static Vec3 _fwd(Vec3 d) => d * -1;
-  static Vec3 _basisS(Vec3 d) {
-    final f = _fwd(d);
-    var s = f.cross(const Vec3(0, 1, 0));
-    if (s.length < 1e-9) s = f.cross(const Vec3(0, 0, 1));
-    return s.normalized();
-  }
 
-  static Vec3 _basisU(Vec3 d) => _basisS(d).cross(_fwd(d)).normalized();
+
 
   double get aspect => size.width / size.height;
 

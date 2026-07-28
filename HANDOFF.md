@@ -4730,3 +4730,56 @@ Skizze landet.
 Tests: `m88_camera_swing_test.dart` (6), `m81_sketch_style_test.dart` neu
 geschrieben (4) — die alten kodierten meine falsche Regel.
 analyze 0 errors, **558 gruen** (Baseline 553).
+
+## M89 — Der Sprung am Ende des Schwenks, und die verdrehte Skizze
+
+Beide Symptome hatten EINE Ursache: die Kamerabasis wurde aus der
+BLICKRICHTUNG abgeleitet, und das geht an den Polen nicht.
+
+### Die Rechnung
+
+Mit `dir = (sin p·sin a, cos p, sin p·cos a)` ist
+
+    fwd × (0,1,0) = (sin p·cos a, 0, −sin p·sin a)
+
+Normalisiert also `(cos a, 0, −sin a)` — fuer JEDES pol, weil sich `sin p`
+herauskuerzt. Die Basis haengt gar nicht von pol ab. Zwei Fehler folgten
+daraus:
+
+1. **Der Ersatzzweig sprang.** Wurde das Kreuzprodukt kurz, fiel der Code auf
+   `fwd × (0,0,1)` zurueck — das zeigt irgendwohin, nicht dorthin, wo die
+   Annaeherung hinlief. Eine Skizze auf einer Deck- oder Bodenflaeche landet
+   genau dort (`pol = acos(±1) = 0` bzw. `pi`), also jedes Mal.
+2. **Grundlegender: an einem Pol ist der Azimut nicht mehr in `dir`.** Bei
+   `pol = 0` ist `dir = (0,1,0)`, egal welches az vorher galt. Aus der
+   Richtung ist die Basis dort also prinzipiell nicht rekonstruierbar — mein
+   erster Reparaturversuch (`atan2(dir.x, dir.z)` im Ersatzzweig) war deshalb
+   ebenfalls falsch und fiel im Test durch.
+
+### Der Fix
+
+`PartCamera.rightFor(az) = (cos az, 0, −sin az)` — geschlossene Form im
+AZIMUT allein. Kein Kreuzprodukt, kein Sonderfall, stetig ueberall. `Cam3`
+und die Swift-`placeCamera()` nutzen jetzt beide diese Form, und `up` folgt
+als `right × fwd`.
+
+### Warum die Skizze verdreht erschien
+
+Es gab DREI Kopien dieser Konstruktion: `Cam3._basisS`, `placeCamera()` in
+Swift und `_derivedRight` in part_model.dart. Der Roll wird gegen die eine
+gemessen und auf die andere angewandt — sobald sie auseinanderlaufen, ist die
+Skizze rotiert oder gespiegelt. Genau das passierte an den Polen, wo die
+Ersatzzweige unterschiedlich zuschlugen. Jetzt existiert die Formel nur noch
+einmal (`rightFor`), die Swift-Seite traegt einen Kommentar, der auf sie
+verweist, und `_basisS`/`_basisU` sind geloescht.
+
+**Wichtig fuers Orbiten:** Ein Test prueft, dass die geschlossene Form
+ueberall dort mit dem alten Kreuzprodukt uebereinstimmt, wo dieses brauchbar
+war — das Orbitverhalten aendert sich also nicht, nur die Polfaelle werden
+richtig.
+
+Tests: `m89_basis_continuity_test.dart` (6), darunter Skizzen auf Deck- und
+Bodenflaeche sowie eine um 90 Grad gedrehte u-Achse, jeweils mit der
+Forderung, dass `+u` nach rechts und `+v` nach oben projiziert — dort taucht
+eine gespiegelte oder 180 Grad verdrehte Skizze auf.
+analyze 0 errors, **564 gruen**.

@@ -279,11 +279,24 @@ final class PartRenderer: NSObject {
     private func placeCamera() {
         let dir = cam.dir
         let fwd = -dir
-        var right = simd_cross(fwd, SIMD3<Float>(0, 1, 0))
-        if simd_length(right) < 1e-6 {
-            right = simd_cross(fwd, SIMD3<Float>(0, 0, 1))
-        }
-        right = simd_normalize(right)
+        // M89 — the right vector comes from the AZIMUTH, never from dir.
+        //
+        // It used to be normalize(fwd x (0,1,0)) with a fallback when that got
+        // short, and that caused both reported symptoms: the fallback pointed
+        // somewhere unrelated to the limit, so the sketch-entry swing SNAPPED
+        // at the end; and more basically, at a pole dir = (0,+/-1,0) whatever
+        // the azimuth was, so az cannot be recovered from it at all.
+        //
+        // With dir = (sin p sin a, cos p, sin p cos a):
+        //   fwd x (0,1,0) = (sin p cos a, 0, -sin p sin a)
+        // whose normalisation is (cos a, 0, -sin a) for EVERY pol, since sin p
+        // cancels. No degenerate case, continuous everywhere.
+        //
+        // Must stay identical to PartCamera.rightFor in part_model.dart: the
+        // roll is measured against that basis and applied to this one, so any
+        // disagreement renders the sketch rotated or mirrored.
+        let azf = Float(cam.az)
+        var right = SIMD3<Float>(cos(azf), 0, -sin(azf))
         var up = simd_normalize(simd_cross(right, fwd))
 
         // M80: roll about the view direction. az/pol pin the basis to world

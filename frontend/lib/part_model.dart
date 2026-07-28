@@ -165,7 +165,7 @@ class PartCamera {
     final az = math.atan2(n.x, n.z);
     // roll = signed angle from the derived right vector to the frame's u,
     // measured about the view direction.
-    final sDer = _derivedRight(n);
+    final sDer = rightFor(az);
     final uDer = sDer.cross(n * -1).normalized();
     final roll = math.atan2(fr.u.dot(uDer), fr.u.dot(sDer));
     return PartCamera(
@@ -212,12 +212,28 @@ class PartCamera {
     );
   }
 
-  static Vec3 _derivedRight(Vec3 d) {
-    final f = d * -1;
-    var s = f.cross(const Vec3(0, 1, 0));
-    if (s.length < 1e-9) s = f.cross(const Vec3(0, 0, 1));
-    return s.normalized();
-  }
+  /// Camera right vector, as a closed form in the AZIMUTH alone.
+  ///
+  /// M89 — this used to be `normalize(fwd x (0,1,0))` with a fallback for when
+  /// that got short. Two problems, and they caused both reported symptoms:
+  ///
+  ///  * The fallback `fwd x (0,0,1)` points somewhere unrelated to the limit
+  ///    the approach was heading for, so the swing SNAPPED at the end.
+  ///  * More fundamentally, the basis cannot be recovered from the DIRECTION
+  ///    at all near a pole: at pol = 0, dir = (0,1,0) whatever the azimuth
+  ///    was, so az is simply not in there any more.
+  ///
+  /// Writing the cross product out with dir = (sin p sin a, cos p, sin p cos a)
+  /// gives fwd x (0,1,0) = (sin p cos a, 0, -sin p sin a), whose normalisation
+  /// is (cos a, 0, -sin a) for EVERY pol — sin p cancels. So the azimuth is the
+  /// only input needed, there is no degenerate case, and it is continuous
+  /// everywhere. Derive it from az, never from dir.
+  ///
+  /// Cam3 (part_render.dart) and the Swift placeCamera() must use this same
+  /// form: the roll is measured against this basis and applied to theirs, so
+  /// any disagreement shows up as a rotated or mirrored sketch.
+  static Vec3 rightFor(double az) =>
+      Vec3(math.cos(az), 0, -math.sin(az));
 
   // Practically-endless orthographic zoom (halfH = half the visible height in
   // mm). Not literally infinite: outside this band the ortho projection loses
