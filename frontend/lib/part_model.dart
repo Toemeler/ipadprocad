@@ -1166,6 +1166,7 @@ class PartModel {
   /// Hands out the next creation-order number.
   int nextSeq() => seqNext++;
 
+
   /// Memo for [partContentBounds] (M83). Not serialised, not part of the
   /// document — a pure cache, rebuilt on demand.
   String? extentSig;
@@ -1216,6 +1217,21 @@ class PartModel {
 
   String nextFeatureName() => 'Extrusion${++featureN}';
   String nextSolidName() => 'Solid${++solidN}';
+
+  /// M96 — the next free body name WITHOUT consuming it.
+  ///
+  /// The extrude dialog needs a name to show the moment you press New Solid,
+  /// and that happens on every toggle — [nextSolidName] would bump the counter
+  /// each time and march the name up. It also skips names already in use, so a
+  /// renamed body cannot make "New Solid" silently target an existing one.
+  String peekSolidName() {
+    final taken = bodyNames.toSet();
+    var n = solidN + 1;
+    while (taken.contains('Solid$n')) {
+      n++;
+    }
+    return 'Solid$n';
+  }
 
   /// The LIVE solid bodies, in creation order — one entry per distinct body
   /// name that still owns geometry (a feature consumed by a join no longer

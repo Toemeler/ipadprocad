@@ -420,6 +420,16 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
         onTap: enabled
             ? () {
                 widget.app.setExtrude(output: key);
+                // M96 — the name field is built ONCE in initState, so when
+                // setExtrude picks a fresh body name for New Solid ("Solid2",
+                // "Solid3") the controller kept showing the old text and the
+                // user had to retype it. Pull the controller back onto the
+                // session whenever the output mode changes it.
+                if (_body.text != sess.bodyName) {
+                  _body.text = sess.bodyName;
+                  _body.selection =
+                      TextSelection.collapsed(offset: _body.text.length);
+                }
                 setState(() {});
               }
             : null,

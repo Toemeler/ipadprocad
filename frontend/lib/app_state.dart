@@ -2488,7 +2488,7 @@ class AppState extends ChangeNotifier {
           // keep an explicit choice, otherwise target the newest body
           if (!bodies.contains(s.bodyName)) s.bodyName = bodies.last;
         } else if (output == 'new') {
-          s.bodyName = 'Solid${p.solidN + 1}';
+          s.bodyName = p.peekSolidName(); // M96 — skips names already taken
         }
       }
     }

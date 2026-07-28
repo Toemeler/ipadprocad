@@ -35,6 +35,8 @@ ExtrudeFeature _feature(PartModel p, String name, String sketch) {
 List<String> _rows(PartModel p) => [for (final n in partTimeline(p)) n.name];
 
 void main() {
+  group('M96 solid naming', _solidNameTests);
+
   group('the top level is chronological', () {
     test('a sketch made after an extrusion sits BELOW it', () {
       final p = PartModel('P');
@@ -177,5 +179,41 @@ void main() {
       expect(_rows(p), ['Sketch2', 'Extrusion1']);
       expect(partIsRolledBack(p), isFalse);
     });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M96 — auto-named new solids.
+void _solidNameTests() {
+  test('peekSolidName does not consume the counter', () {
+    final p = PartModel('P');
+    expect(p.peekSolidName(), 'Solid1');
+    expect(p.peekSolidName(), 'Solid1', reason: 'peeking twice is stable');
+    expect(p.solidN, 0);
+  });
+
+  test('it counts up as bodies appear', () {
+    final p = PartModel('P');
+    _sketch(p, 'Sketch1');
+    final f = _feature(p, 'Extrusion1', 'Sketch1')..bodyName = 'Solid1';
+    expect(f.bodyName, 'Solid1');
+    p.solidN = 1;
+    expect(p.peekSolidName(), 'Solid2');
+  });
+
+  test('it skips a name already taken by a renamed body', () {
+    final p = PartModel('P');
+    _sketch(p, 'Sketch1');
+    _feature(p, 'Extrusion1', 'Sketch1')..bodyName = 'Solid2';
+    // solidN still says 1, so the naive answer would be Solid2 — which exists
+    // and would silently make "New Solid" join the existing body.
+    expect(p.peekSolidName(), isNot('Solid2'));
+    expect(p.bodyNames, contains('Solid2'));
+  });
+
+  test('nextSolidName still consumes, for the commit path', () {
+    final p = PartModel('P');
+    expect(p.nextSolidName(), 'Solid1');
+    expect(p.nextSolidName(), 'Solid2');
   });
 }

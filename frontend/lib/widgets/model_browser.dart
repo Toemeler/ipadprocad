@@ -694,17 +694,41 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// Which slot the marker would land in for a pointer at [dy] — counted in
   /// FEATURES, the same unit [PartModel.eopAfter] uses, so sketch rows in
   /// between are simply passed over.
-  int _slotForDyPart(PartModel p, double dy) {
-    var slot = 0;
+  /// Feature-row centres captured when the End of Part drag STARTS.
+  ///
+  /// M96 — this used to measure the rows live on every move, which is a
+  /// feedback loop: the marker occupies a row of its own, so moving it shifts
+  /// every row below it by one row height, which changes the centres being
+  /// measured, which flips the slot back — the marker stuttered and jumped.
+  /// A snapshot taken once cannot move under the finger.
+  List<double>? _eopRowMids;
+
+  void _captureEopRows(PartModel p) {
+    final mids = <double>[];
     for (final f in partBuildOrder(p)) {
-      final r = _globalRect(_rowKeys['$_kFeaturePrefix${f.name}'] ?? GlobalKey());
-      if (r != null && r.center.dy < dy) slot++;
+      final k = _rowKeys['$_kFeaturePrefix${f.name}'];
+      final r = k == null ? null : _globalRect(k);
+      // A collapsed or clipped row has no rect; use the previous midpoint so
+      // the list stays aligned with partBuildOrder and slots do not shift.
+      mids.add(r?.center.dy ?? (mids.isEmpty ? -1e9 : mids.last));
     }
-    return slot.clamp(0, partBuildOrder(p).length);
+    _eopRowMids = mids;
+  }
+
+  int _slotForDyPart(PartModel p, double dy) {
+    final mids = _eopRowMids;
+    final n = partBuildOrder(p).length;
+    if (mids == null) return _shownEop(p);
+    var slot = 0;
+    for (final m in mids) {
+      if (m < dy) slot++;
+    }
+    return slot.clamp(0, n);
   }
 
   bool _eopEsc(KeyEvent e) {
     if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape) {
+      _eopRowMids = null;
       setState(() => _dragEop = null); // Inventor: Esc aborts the reposition
       _uninstallEopEsc();
       return true;
@@ -743,6 +767,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
             : (d) => _showEopCtx(d.globalPosition),
         onVerticalDragStart: (d) {
           _installEopEsc();
+          // Snapshot BEFORE the marker starts moving (see _eopRowMids).
+          _captureEopRows(part);
           setState(() => _dragEop = _shownEop(part));
         },
         onVerticalDragUpdate: (d) {
@@ -752,11 +778,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
         onVerticalDragEnd: (_) {
           _uninstallEopEsc();
           final v = _dragEop;
+          _eopRowMids = null;
           setState(() => _dragEop = null);
           if (v != null) app.setEndOfPart(v);
         },
         onVerticalDragCancel: () {
           _uninstallEopEsc();
+          _eopRowMids = null;
           setState(() => _dragEop = null);
         },
         child: MouseRegion(

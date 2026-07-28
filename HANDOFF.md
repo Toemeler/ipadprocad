@@ -16,6 +16,41 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M96 — Zwei aus dem Extrude-/EOP-Bericht. ZWEI WEITERE SIND OFFEN.**
+>
+> **(1) New Solid benennt sich selbst.** `setExtrude` setzte den Namen zwar
+> schon, aber das Textfeld des Dialogs wird EINMAL in `initState` gebaut und
+> folgte der Session nie — man sah den alten Namen und musste ihn tippen. Der
+> Controller wird jetzt beim Moduswechsel nachgezogen. Dazu neu
+> `PartModel.peekSolidName()`: liefert den naechsten FREIEN Namen, ohne den
+> Zaehler zu verbrauchen (der Dialog fragt bei jedem Umschalten, `nextSolidName`
+> haette die Nummer jedes Mal hochgezaehlt) und ueberspringt bereits vergebene
+> Namen — sonst kann ein umbenannter Koerper dazu fuehren, dass "New Solid"
+> still auf einen existierenden Koerper joint.
+>
+> **(2) EOP-Ziehen war zappelig.** `_slotForDyPart` mass die Feature-Zeilen bei
+> JEDER Bewegung live — eine Rueckkopplung: die Marke belegt eine eigene Zeile,
+> ihr Verschieben schiebt alle Zeilen darunter um eine Zeilenhoehe, damit
+> aendern sich genau die Mittelpunkte, gegen die gemessen wird, und der Slot
+> kippt zurueck. Jetzt wird beim Drag-START einmal ein Schnappschuss der
+> Zeilenmitten genommen; der kann unter dem Finger nicht mehr wandern. Beim
+> Ende, Abbruch und Esc wird er verworfen.
+>
+> **NICHT umgesetzt, ausdruecklich angefragt — das ist die naechste Runde:**
+> * **Koerper durch ANKLICKEN waehlen** statt Dropdown: in 3D und im Model
+>   Browser, mit Hover-Highlight in BEIDEN waehrend des Auswahlmodus. Das ist
+>   ein eigener Auswahlmodus in der Extrude-Session (Pick-Target-State), plus
+>   Hit-Test auf Koerper im 3D-Viewport, plus Hover-Weiterleitung zwischen
+>   Browser und Viewport — deutlich groesser als die zwei Fixes oben.
+> * **Kontextmenue auf einer Koerper-Zeile im Model Browser.** Die
+>   Infrastruktur steht seit M84 (`_kFeaturePrefix`-Muster, `addTarget`,
+>   `_showCtxItems`); es fehlt eine Zeilen-Kennung fuer Koerper und ein
+>   Menuesatz (sichtbar/umbenennen/loeschen).
+>
+> **Neu/berührt:** `part_model.dart` (`peekSolidName`), `app_state.dart`,
+> `widgets/extrude_dialog.dart`, `widgets/model_browser.dart`, Tests ergaenzt in
+> `test/m91_timeline_eop_test.dart`.
+
 > **M95 — Zwei Nachwehen von M93.**
 >
 > **(1) Nach dem Verlassen der Skizze war sie in 3D weg** und tauchte erst auf,
