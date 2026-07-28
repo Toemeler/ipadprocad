@@ -1796,7 +1796,9 @@ class AppState extends ChangeNotifier {
             p.childSketches.add(ChildSketch(
                 model,
                 m['plane'] as String? ?? 'xy',
-                PlaneFrame.fromFrameJson(m['frame'] as List?)));
+                PlaneFrame.fromFrameJson(m['frame'] as List?),
+                true, // real visibility is applied below from 'vis'
+                m['shared'] as bool? ?? false));
             _loadedSketchVis[model.name] =
                 m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
           }
@@ -2118,6 +2120,38 @@ class AppState extends ChangeNotifier {
       p.dirty = true;
       if (curTab != null) savePart(curTab!);
     }
+    notifyListeners();
+  }
+
+  /// Inventor's **Share Sketch** (M84). A consumed sketch is normally locked
+  /// away under the feature that swallowed it; sharing publishes it back to
+  /// the top level of the browser so a SECOND feature can use it. Inventor
+  /// also expects a shared sketch to be visible — its own workflow says to
+  /// turn Visibility on before sharing — so this does that in one step rather
+  /// than leaving an invisible top-level row.
+  ///
+  /// A no-op on a sketch nothing has consumed: there is nothing to free.
+  void shareSketch(ChildSketch cs) {
+    final p = currentPart;
+    if (p == null || cs.shared || !sketchIsConsumed(p, cs)) return;
+    cs.shared = true;
+    cs.visible = true;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// Inventor's **Unshare** — offered only while a single feature consumes the
+  /// sketch (see [canUnshareSketch]). The sketch drops back under its parent
+  /// feature; visibility follows Inventor's consumed default and goes off, so
+  /// the result is indistinguishable from a sketch that was never shared.
+  void unshareSketch(ChildSketch cs) {
+    final p = currentPart;
+    if (p == null || !canUnshareSketch(p, cs)) return;
+    cs.shared = false;
+    cs.visible = false;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
 
@@ -2555,6 +2589,27 @@ class AppState extends ChangeNotifier {
     } else if (pickPlane) {
       cancelPlanePick();
     }
+  }
+
+  /// M84 — rename a feature from the browser context menu. Names are a
+  /// DISPLAY label: features are referenced by object identity everywhere
+  /// (recompute, consumedByJoin, the extrude session), so nothing has to be
+  /// remapped. A duplicate or empty name is refused rather than silently
+  /// producing two identical browser rows.
+  bool renameFeature(ExtrudeFeature f, String name) {
+    final p = currentPart;
+    final n = name.trim();
+    if (p == null || n.isEmpty || n == f.name) return false;
+    if (p.features.any((o) => !identical(o, f) && o.name == n)) {
+      message = 'A feature named "$n" already exists';
+      notifyListeners();
+      return false;
+    }
+    f.name = n;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+    return true;
   }
 
   void toggleFeatureVisible(ExtrudeFeature f) {

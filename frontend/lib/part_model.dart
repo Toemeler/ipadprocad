@@ -943,8 +943,40 @@ class ChildSketch {
   /// feature consumes it; consumption turns visibility OFF, and the browser
   /// eye can turn it back on (persisted).
   bool visible;
-  ChildSketch(this.model, this.plane, [this.face, this.visible = true]);
+
+  /// M84 — Inventor's **Share Sketch**. A sketch is normally CONSUMED by the
+  /// first feature that uses it and disappears under that feature in the
+  /// browser; sharing is the documented escape hatch that makes it available
+  /// to a second feature ("Selects a sketch already used in a feature for use
+  /// in a new feature", Part Browser Reference). A shared sketch keeps its
+  /// nested instance under the parent feature AND appears at the top level,
+  /// which is exactly what Inventor shows.
+  ///
+  /// False for every sketch that existed before M84, so old documents load
+  /// with today's behaviour unchanged.
+  bool shared;
+  ChildSketch(this.model, this.plane,
+      [this.face, this.visible = true, this.shared = false]);
 }
+
+/// Every feature that uses [sketchName] (Inventor's Unshare is only offered
+/// while exactly ONE feature does).
+List<ExtrudeFeature> consumersOf(PartModel part, String sketchName) =>
+    [for (final f in part.features) if (f.sketchName == sketchName) f];
+
+/// Whether [cs] is currently consumed by a feature — Inventor greys out
+/// "Share Sketch" for an unconsumed sketch, because there is nothing to free
+/// it from.
+bool sketchIsConsumed(PartModel part, ChildSketch cs) =>
+    firstConsumerOf(part, cs.model.name) != null;
+
+/// Inventor's rule, verbatim: "You can unshare a sketch or feature only if a
+/// single feature shares it and it is next to the feature in the browser."
+/// The second half is a browser-ordering condition that our tree has no
+/// equivalent for (the shared copy is always rendered directly at top level),
+/// so only the single-consumer half is enforced.
+bool canUnshareSketch(PartModel part, ChildSketch cs) =>
+    cs.shared && consumersOf(part, cs.model.name).length == 1;
 
 /// The first feature that consumes [sketchName], or null (Inventor nests the
 /// consumed sketch under exactly this feature in the browser).
@@ -1051,6 +1083,7 @@ class PartModel {
               'name': c.model.name,
               'plane': c.plane,
               'vis': c.visible,
+              if (c.shared) 'shared': true,
               if (c.face != null) 'frame': c.face!.frameJson(),
             }
         ],

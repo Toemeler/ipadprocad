@@ -16,6 +16,54 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M84 — Share Sketch (Inventor) + Kontextmenue im Model Browser.** Der seit
+> M74 sechsmal aufgeschobene Punkt ist damit erledigt.
+>
+> **Recherchiert (Autodesk-Doku), nicht geraten:** Der Befehl heisst **Share
+> Sketch**, nicht "Reuse". Part Browser Reference: "Selects a sketch already
+> used in a feature for use in a new feature. Places a copy of the sketch in the
+> browser. **Available only when the sketch was consumed by a feature.**" Das
+> Gegenstueck heisst schlicht **Unshare** und ist beschraenkt: "only if a single
+> feature shares it and it is next to the feature in the browser". Die zweite
+> Haelfte ist eine Browser-Reihenfolge-Bedingung, fuer die unser Baum kein
+> Aequivalent hat (die geteilte Kopie steht immer direkt auf oberster Ebene) —
+> umgesetzt ist daher nur die Ein-Consumer-Haelfte. Beim Teilen zeigt Inventor
+> die Skizze zusaetzlich auf oberster Ebene ("a copy of the sketch displays
+> above its parent feature"), die verschachtelte Instanz bleibt unter ihrem
+> Feature.
+>
+> **Symbol — ehrlich:** dass ein geteilter Sketch ein EIGENES Browser-Icon hat,
+> belegt nur eine Drittquelle ("a shared sketch typically appears with an
+> altered icon ... often accompanied by a 'shared' symbol"), nicht die
+> Autodesk-Doku. Die konkrete Grafik ist also NICHT nachgebaut, sondern eigen:
+> derselbe blaue Sketch-Wuerfel mit einem kleinen gelben Ketten-Badge. Traegt
+> nur die TOP-LEVEL-Kopie — die verschachtelte Instanz behaelt den schlichten
+> Wuerfel, sonst waeren die zwei gleichnamigen Zeilen nicht unterscheidbar.
+>
+> **Umgesetzt.** `ChildSketch.shared` (persistiert, nur wenn true → alte
+> Dokumente laden unveraendert), `shareSketch`/`unshareSketch` in `AppState`
+> (Teilen macht sichtbar, wie Inventors Workflow es verlangt; Unshare setzt auf
+> den Consumed-Default zurueck), Praedikate `consumersOf`/`sketchIsConsumed`/
+> `canUnshareSketch` in `part_model.dart`. Browser: geteilte Skizzen erscheinen
+> zusaetzlich oben, Badge-Icon, und **native Kontextmenues** (dieselbe
+> `native_menu`-Infrastruktur wie die Galerie aus M48, ids praefixiert
+> `sk:`/`skn:`/`ft:`, damit sie nie mit einem frei benannten Layer kollidieren):
+> Skizze = Edit Sketch / Hide-Show / **Share Sketch** bzw. **Unshare** (jeweils
+> nur wenn zulaessig); Feature = Edit Feature / Hide-Show / Rename / Delete.
+> Neu dafuer `AppState.renameFeature` (Namen sind reine Anzeige — referenziert
+> wird ueber Objektidentitaet —, Duplikate werden abgelehnt).
+>
+> **Neu/berührt:** `part_model.dart`, `app_state.dart`, `svg_icons.dart`
+> (`sharedSketchCubeIcon`), `widgets/model_browser.dart`, neuer Test
+> `test/m84_share_sketch_test.dart`.
+>
+> **Verifikationsstand:** blind geschrieben (kein Flutter/Swift in der Session);
+> CI-Ergebnis siehe Lauf zum Commit. **Nicht umgesetzt / offen:** das implizite
+> Teilen (Inventor teilt automatisch, wenn man eine konsumierte Skizze als Input
+> fuer ein neues Feature waehlt) — heute muss man explizit Share Sketch waehlen.
+> Ebenfalls offen: Suppress, Redefine Sketch, und der Geraete-Test (Long-Press
+> auf Sketch-/Feature-Zeile oeffnet ein echtes UIMenu, Delete rot).
+
 > **CI-FALLE (M82-Nachtrag, teuer gelernt): Plugin-Swift steckt NICHT im
 > Runner-Binary.** Das neue Gate `THUMB CHANNEL CHECK` hat den Build rot gemacht
 > — zu Recht in der Form, aber aus dem falschen Grund: gegrept wurde

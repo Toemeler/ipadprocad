@@ -64,6 +64,72 @@ class _ModelBrowserState extends State<ModelBrowser> {
   GlobalKey _keyFor(String layer) =>
       _rowKeys.putIfAbsent(layer, () => GlobalKey());
 
+  // M84 — menu-target ids for the PART tree. Prefixed so they can never
+  // collide with a layer name (which is arbitrary user text): the selection
+  // handler dispatches on the prefix.
+  static const String _kSketchPrefix = 'sk:';
+  static const String _kNestedSketchPrefix = 'skn:';
+  static const String _kFeaturePrefix = 'ft:';
+
+  GlobalKey _sketchKeyFor(String name, bool nested) => _rowKeys.putIfAbsent(
+      '${nested ? _kNestedSketchPrefix : _kSketchPrefix}$name',
+      () => GlobalKey());
+
+  GlobalKey _featureKeyFor(String name) =>
+      _rowKeys.putIfAbsent('$_kFeaturePrefix$name', () => GlobalKey());
+
+  /// Inventor's sketch context menu. **Share Sketch** appears only on a
+  /// CONSUMED, not-yet-shared sketch ("Available only when the sketch was
+  /// consumed by a feature", Part Browser Reference); **Unshare** replaces it
+  /// once shared, and only while a single feature consumes it.
+  List<List<NativeMenuItem>> _sketchMenu(
+      AppState app, PartModel part, ChildSketch cs) {
+    final consumed = sketchIsConsumed(part, cs);
+    return [
+      [
+        const NativeMenuItem(
+            id: 'skEdit', title: 'Edit Sketch', symbol: 'pencil.tip'),
+        NativeMenuItem(
+            id: 'skVisible',
+            title: cs.visible ? 'Hide' : 'Show',
+            symbol: cs.visible ? 'eye.slash' : 'eye'),
+      ],
+      [
+        if (consumed && !cs.shared)
+          const NativeMenuItem(
+              id: 'skShare',
+              title: 'Share Sketch',
+              symbol: 'square.on.square'),
+        if (canUnshareSketch(part, cs))
+          const NativeMenuItem(
+              id: 'skUnshare', title: 'Unshare', symbol: 'square.slash'),
+      ],
+    ];
+  }
+
+  /// The feature context menu the HANDOFF has listed as open since M74:
+  /// delete / rename / visibility on an Extrusion, plus Edit Feature, which is
+  /// what the row's double-tap already does.
+  List<List<NativeMenuItem>> _featureMenu(AppState app, ExtrudeFeature f) => [
+        [
+          const NativeMenuItem(
+              id: 'ftEdit', title: 'Edit Feature', symbol: 'slider.horizontal.3'),
+          NativeMenuItem(
+              id: 'ftVisible',
+              title: f.visible ? 'Hide' : 'Show',
+              symbol: f.visible ? 'eye.slash' : 'eye'),
+          const NativeMenuItem(
+              id: 'ftRename', title: 'Rename', symbol: 'pencil'),
+        ],
+        [
+          const NativeMenuItem(
+              id: 'ftDelete',
+              title: 'Delete',
+              symbol: 'trash',
+              destructive: true),
+        ],
+      ];
+
   void _schedulePush() {
     if (_pushScheduled) return;
     _pushScheduled = true;
@@ -198,6 +264,40 @@ class _ModelBrowserState extends State<ModelBrowser> {
         }
       }
     }
+    // M84 — part tree: sketches (top-level and the nested copy) and features.
+    final part = widget.app.currentPart;
+    if (part != null && widget.app.activeChild == null) {
+      void addTarget(String id, String title, GlobalKey key,
+          List<List<NativeMenuItem>> groups) {
+        final full = _globalRect(key);
+        if (full == null) return;
+        final hit = clip == null ? full : full.intersect(clip);
+        if (hit.width <= 1 || hit.height <= 1) return;
+        // Empty sections would render as a stray separator; an entirely empty
+        // menu would open a blank UIMenu, so the row is skipped instead.
+        final live = [for (final g in groups) if (g.isNotEmpty) g];
+        if (live.isEmpty) return;
+        targets.add(NativeMenuTarget(
+            id: id, title: title, rect: hit, cornerRadius: 4, groups: live));
+      }
+
+      for (final cs in part.childSketches) {
+        final name = cs.model.name;
+        final groups = _sketchMenu(widget.app, part, cs);
+        if (firstConsumerOf(part, name) == null || cs.shared) {
+          addTarget('$_kSketchPrefix$name', name,
+              _sketchKeyFor(name, false), groups);
+        }
+        if (_rowKeys.containsKey('$_kNestedSketchPrefix$name')) {
+          addTarget('$_kNestedSketchPrefix$name', name,
+              _sketchKeyFor(name, true), groups);
+        }
+      }
+      for (final f in part.features) {
+        addTarget('$_kFeaturePrefix${f.name}', f.name,
+            _featureKeyFor(f.name), _featureMenu(widget.app, f));
+      }
+    }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
     if (payload == _lastPayload) return;
     _lastPayload = payload;
@@ -208,6 +308,54 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (!mounted) return;
     final app = widget.app;
     final s = app.current;
+    // M84 — part tree ids are prefixed; layer ids are raw user text.
+    if (layer.startsWith(_kSketchPrefix) ||
+        layer.startsWith(_kNestedSketchPrefix)) {
+      final name = layer.startsWith(_kNestedSketchPrefix)
+          ? layer.substring(_kNestedSketchPrefix.length)
+          : layer.substring(_kSketchPrefix.length);
+      final cs = app.currentPart?.sketchByName(name);
+      if (cs == null) return;
+      switch (item) {
+        case 'skEdit':
+          app.openChildSketch(name);
+          break;
+        case 'skVisible':
+          app.toggleSketchVisible(cs);
+          break;
+        case 'skShare':
+          app.shareSketch(cs);
+          break;
+        case 'skUnshare':
+          app.unshareSketch(cs);
+          break;
+      }
+      return;
+    }
+    if (layer.startsWith(_kFeaturePrefix)) {
+      final name = layer.substring(_kFeaturePrefix.length);
+      final part = app.currentPart;
+      ExtrudeFeature? f;
+      for (final c in part?.features ?? const <ExtrudeFeature>[]) {
+        if (c.name == name) f = c;
+      }
+      if (f == null) return;
+      switch (item) {
+        case 'ftEdit':
+          app.openExtrude(f);
+          break;
+        case 'ftVisible':
+          app.toggleFeatureVisible(f);
+          break;
+        case 'ftRename':
+          _promptRenameFeature(f);
+          break;
+        case 'ftDelete':
+          _confirmDeleteFeature(f);
+          break;
+      }
+      return;
+    }
     if (layer == '__eos__') {
       if (s == null) return;
       switch (item) {
@@ -536,6 +684,23 @@ class _ModelBrowserState extends State<ModelBrowser> {
     }
   }
 
+  /// M84 — rename an Extrusion. Inventor renames the browser node only; the
+  /// feature's identity for the solver is its position in the tree, not the
+  /// label, so this is a pure display change.
+  Future<void> _promptRenameFeature(ExtrudeFeature f) async {
+    final app = widget.app;
+    final result = await promptForText(
+      context,
+      title: 'Rename feature',
+      initialValue: f.name,
+      placeholder: 'Feature name',
+      confirmLabel: 'Rename',
+    );
+    if (result != null && result.trim().isNotEmpty) {
+      app.renameFeature(f, result.trim());
+    }
+  }
+
   Future<void> _confirmDelete(String layer) async {
     final app = widget.app;
     final s = app.current;
@@ -670,8 +835,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   // Inventor: a sketch consumed by a feature nests UNDER that
                   // feature (see _featureRow); only unconsumed sketches stay
                   // top-level. The eye is the per-sketch Visibility toggle.
+                  // M84: a SHARED sketch also shows at the top level, next to
+                  // its nested copy under the parent feature — Inventor's
+                  // "a copy of the sketch displays above its parent feature".
                   for (final cs in part.childSketches)
-                    if (firstConsumerOf(part, cs.model.name) == null)
+                    if (firstConsumerOf(part, cs.model.name) == null ||
+                        cs.shared)
                       _sketchRow(app, cs, indent: 8),
                   for (final f in part.features) _featureRow(app, part, f),
                 ],
@@ -732,16 +901,24 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   /// Sketch row with Inventor's per-sketch Visibility eye. Double-tap opens
   /// the sketch for editing (consumed ones too — Inventor allows reuse).
-  Widget _sketchRow(AppState app, ChildSketch cs, {required double indent}) {
+  Widget _sketchRow(AppState app, ChildSketch cs,
+      {required double indent, bool nested = false}) {
+    // The TOP-LEVEL copy of a shared sketch carries the badge; the nested
+    // instance under its parent feature keeps the plain cube, so the two rows
+    // are told apart at a glance (they carry the same name).
+    final badged = cs.shared && !nested;
     final row = GestureDetector(
       onDoubleTap: () => app.openChildSketch(cs.model.name),
-      child: _row(
-        indent: indent,
-        exp: ' ',
-        icon: sketchCubeIcon,
-        label: cs.model.name,
-        trailing: _EyeButton(
-            visible: cs.visible, onTap: () => app.toggleSketchVisible(cs)),
+      child: Container(
+        key: _sketchKeyFor(cs.model.name, nested),
+        child: _row(
+          indent: indent,
+          exp: ' ',
+          icon: badged ? sharedSketchCubeIcon : sketchCubeIcon,
+          label: cs.model.name,
+          trailing: _EyeButton(
+              visible: cs.visible, onTap: () => app.toggleSketchVisible(cs)),
+        ),
       ),
     );
     return cs.visible ? row : Opacity(opacity: 0.45, child: row);
@@ -770,6 +947,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
           visible: f.visible, onTap: () => app.toggleFeatureVisible(f)),
     );
     final wrapped = Listener(
+      key: _featureKeyFor(f.name),
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
@@ -787,7 +965,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     // own eye — Inventor's Extrusion1 ▸ Sketch1
     return Column(mainAxisSize: MainAxisSize.min, children: [
       wrapped,
-      _sketchRow(app, consumedSketch, indent: 30),
+      _sketchRow(app, consumedSketch, indent: 30, nested: true),
     ]);
   }
 

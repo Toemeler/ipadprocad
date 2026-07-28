@@ -219,6 +219,14 @@ const layerRowIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2.5 9 L8 5.8 L13.5 9 L8 12.2 Z" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><path d="M2.5 6.5 L8 3.3 L13.5 6.5 L8 9.7 Z" fill="#2E8FD4" stroke="#1a5f95" stroke-width=".8"/></svg>';
 const sketchCubeIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#1d5c8a" stroke-width=".8" fill="none"/></svg>';
+// M84 — SHARED sketch (Inventor's Share Sketch). Same blue sketch cube so the
+// row still reads as a sketch at a glance, with a small two-node link badge in
+// the corner marking it as published for reuse. Inventor uses its own altered
+// glyph for this state; the exact artwork is not documented publicly, so this
+// is our own badge rather than a guess at theirs — the STATE it marks is what
+// matters and it must be distinguishable from an ordinary sketch at 16 px.
+const sharedSketchCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#1d5c8a" stroke-width=".8" fill="none"/><circle cx="13" cy="12.6" r="3.1" fill="#E8C63F" stroke="#8a7318" stroke-width=".7"/><path d="M11.7 12.6a.85.85 0 0 1 .85-.85h.5M14.3 12.6a.85.85 0 0 0-.85-.85h-.5M11.7 12.6a.85.85 0 0 0 .85.85h.5M14.3 12.6a.85.85 0 0 1-.85.85h-.5" stroke="#5c4c10" stroke-width=".75" fill="none" stroke-linecap="round"/></svg>';
 const originIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 13V3.5" stroke="#3D9BE9" stroke-width="1.4"/><path d="M3 13h10" stroke="#D65A56" stroke-width="1.4"/><path d="M3 13l5-4.5 5 1.5-5 4.5z" fill="#E8C63F" fill-opacity=".55" stroke="#a68b1f" stroke-width=".7"/></svg>';
 const xAxisIcon =
