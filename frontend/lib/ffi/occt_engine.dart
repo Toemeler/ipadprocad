@@ -60,6 +60,10 @@ typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
 
+// M110 — occt_split_solids(shape, out, max) -> count
+typedef _SplitN = Int32 Function(Pointer<Void>, Pointer<Pointer<Void>>, Int32);
+typedef _SplitD = int Function(Pointer<Void>, Pointer<Pointer<Void>>, int);
+
 typedef _FreeN = Void Function(Pointer<Void>);
 typedef _FreeD = void Function(Pointer<Void>);
 
@@ -324,6 +328,7 @@ class OcctFfi {
       this._bbox,
       this._exportStep,
       this._importStep,
+      this._splitSolids,
       this._free,
       this._extrudeProfile,
       this._extrudeProfileArcs,
@@ -362,6 +367,7 @@ class OcctFfi {
   final _BboxD _bbox;
   final _ExportD _exportStep;
   final _ImportD _importStep;
+  final _SplitD _splitSolids;
   final _FreeD _free;
   // shim v2 (M56)
   final _ExtrudeProfD _extrudeProfile;
@@ -416,6 +422,7 @@ class OcctFfi {
         lib.lookupFunction<_BboxN, _BboxD>('occt_bbox'),
         lib.lookupFunction<_ExportN, _ExportD>('occt_export_step'),
         lib.lookupFunction<_ImportN, _ImportD>('occt_import_step'),
+        lib.lookupFunction<_SplitN, _SplitD>('occt_split_solids'),
         lib.lookupFunction<_FreeN, _FreeD>('occt_free_shape'),
         lib.lookupFunction<_ExtrudeProfN, _ExtrudeProfD>(
             'occt_extrude_profile'),
@@ -569,6 +576,30 @@ class OcctFfi {
       return _wrap(_importStep(p));
     } finally {
       calloc.free(p);
+    }
+  }
+
+  /// M110 — a STEP file as one shape PER SOLID.
+  ///
+  /// [importStep] hands back OneShape(), which for a multi-part file is a
+  /// compound. The browser's unit is a BODY, so an assembly should arrive as
+  /// several bodies you can hide, rename and boolean against — not one opaque
+  /// lump. Returns an empty list for a file with no solids (a surface or
+  /// wireframe export), which the caller should report rather than turning
+  /// into an empty body.
+  List<OcctShape> importStepSolids(String path, {int max = 512}) {
+    final whole = importStep(path);
+    if (whole == null) return const [];
+    final out = calloc<Pointer<Void>>(max);
+    try {
+      final n = _splitSolids(whole._handle, out, max);
+      return [
+        for (var i = 0; i < n; i++)
+          if (out[i] != nullptr) OcctShape._(this, out[i])
+      ];
+    } finally {
+      calloc.free(out);
+      whole.dispose();
     }
   }
 }

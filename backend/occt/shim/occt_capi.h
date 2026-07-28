@@ -30,7 +30,7 @@ typedef struct occt_shape occt_shape;
 
 /*
  * Human-readable version/marker string, e.g.
- *   "Prototype OCCT shim v12 (OCCT 7.9.3)".
+ *   "Prototype OCCT shim v1 (OCCT 7.9.3)".
  * The literal prefix "Prototype OCCT shim" is what the CI link check greps
  * for in the Runner binary (same mechanism as the QCAD / SLVS markers).
  */
@@ -235,11 +235,11 @@ void occt_free_mesh(occt_mesh *m);
 /* ---- Lifecycle --------------------------------------------------------- */
 
 /* Release a shape returned by any constructor above. NULL is ignored. */
-/* M109 — STEP AP214 export. Writes the exact B-Rep, not the display mesh, so
- * the receiving CAD system gets real geometry. Unit pinned to MM. Returns 1 on
- * success, 0 on failure; never throws.
+/* M110 — explodes a shape into its SOLIDS (see the .cpp for why: an imported
+ * assembly should become several BODIES, not one opaque compound). Fills at
+ * most [max] entries, returns the count. The caller owns the results.
  */
-int occt_step_write(const occt_shape *shape, const char *path);
+int occt_split_solids(const occt_shape *shape, occt_shape **out, int max);
 
 void occt_free_shape(occt_shape *shape);
 
