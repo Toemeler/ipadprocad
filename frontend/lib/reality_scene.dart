@@ -358,6 +358,22 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
         app.activeChild != null &&
         (identical(app.activeChild, cs.model) ||
             app.activeChild!.name == cs.model.name);
+    // M93 — THE SKETCH BEING EDITED IS NOT SENT TO 3D AT ALL.
+    //
+    // Viewport2D draws it live, on top, every frame. The RealityKit copy is
+    // rebuilt only when the scene payload is rebuilt, so while you drag a grip
+    // the two drift apart and you see the SAME rectangle twice: the live one
+    // under your finger and a frozen ghost where it used to be (reported with
+    // a screenshot; the drag log shows 2D following the finger exactly while
+    // the 3D copy stayed put). It also leaked construction geometry into the
+    // 3D view, because `editing` was the very flag that switched construction
+    // ON here.
+    //
+    // Inventor keeps the MODEL live behind an open sketch — the solids, the
+    // other sketches — not a second copy of the sketch you are drawing. So the
+    // rule is simply: whoever owns the live rendering owns it alone.
+    if (editing) continue;
+
     // DOF colouring needs the analysis, and app.analysis describes app.current
     // ONLY — its indices mean nothing for any other sketch, so DOF is applied
     // just to that one. Note this is independent of edit mode: 2D tints by DOF

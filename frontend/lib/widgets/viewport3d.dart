@@ -1047,6 +1047,15 @@ class _ScenePainter extends CustomPainter {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
       if (!cs.visible && !showForSession) continue;
+      // M93 — same rule as the RealityKit payload: the sketch currently being
+      // edited is drawn LIVE by Viewport2D and must not be drawn a second time
+      // here, or a stale ghost trails the one under your finger.
+      if (app.inEditMode &&
+          app.activeChild != null &&
+          (identical(app.activeChild, cs.model) ||
+              app.activeChild!.name == cs.model.name)) {
+        continue;
+      }
       _paintSketch(canvas, cam, cs, occ: occ);
       if (sess != null && showForSession) {
         _paintRegions(canvas, cam, cs, sess);
@@ -1065,6 +1074,10 @@ class _ScenePainter extends CustomPainter {
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
       final li = cs.model.layers.indexOf(g.layer);
       if (li >= 0 && li >= cs.model.eosAfter) continue;
+      // M93: construction geometry is 2D scaffolding — never part of the 3D
+      // view. Only the sketch being edited ever showed it, and that sketch is
+      // no longer painted here at all.
+      if (g.isConstruction) continue;
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
       // Project to world on the sketch plane, then stroke only the parts not

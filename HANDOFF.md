@@ -16,6 +16,38 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M93 — Die offene Skizze wird nur EINMAL gezeichnet.** Mit Screenshot
+> gemeldet: im Skizzenmodus stand dasselbe Rechteck zweimal da — das lebende
+> 2D-Rechteck unter dem Finger und eine eingefrorene Kopie an der alten Stelle,
+> inklusive der Konstruktions-Diagonalen, die in 3D gar nichts zu suchen haben.
+>
+> **Ursache:** die Skizze wurde von ZWEI Stellen gerendert. `Viewport2D` malt
+> sie live in jedem Frame; `_sketchPayloads` schickte sie zusaetzlich an
+> RealityKit (und `viewport3d._paintSketch` an den CPU-Pfad), aber die
+> RealityKit-Kopie entsteht nur, wenn das Szenen-Payload neu gebaut wird — beim
+> Ziehen driften die beiden also auseinander. Das Drag-Log des Nutzers zeigt
+> genau das: die 2D-Geometrie folgt dem Finger exakt, die 3D-Kopie bleibt
+> stehen. Die Konstruktionslinien kamen durch dieselbe Tuer, denn das Flag
+> `editing` war es, das im Payload-Builder Konstruktion ANschaltete.
+>
+> **Fix:** wer live rendert, besitzt es allein. Die gerade editierte Skizze wird
+> weder ins RealityKit-Payload noch in den 3D-CPU-Painter gegeben. Inventor
+> haelt hinter einer offenen Skizze das MODELL lebendig — die Koerper, die
+> anderen Skizzen —, nicht eine zweite Kopie dessen, was man gerade zeichnet.
+> Zusaetzlich filtert der 3D-CPU-Painter Konstruktionsgeometrie jetzt hart
+> heraus, damit sie auch auf keinem anderen Weg dorthin gelangt.
+>
+> **Neu/berührt:** `reality_scene.dart`, `widgets/viewport3d.dart`, neuer Test
+> `test/m93_no_double_sketch_test.dart`.
+>
+> **NOCH OFFEN (vom Nutzer im selben Zug gemeldet, NICHT umgesetzt):** ein
+> Polygon soll sich beim Ziehen am MITTELPUNKT starr verschieben — Form und
+> Groesse halten, nur x/y wandern —, sofern keine Constraint etwas anderes
+> sagt. Heute zieht der Solver am Kreismittelpunkt und laesst Radius und
+> Drehung frei (das Polygon hat 4 DOF, der Griff pinnt 2), also kann es beim
+> Ziehen skalieren oder rotieren. Braucht einen starren Mitnehm-Modus im
+> Drag-Pfad, kein weiteres Constraint — sonst waere das Polygon ueberbestimmt.
+
 > **M91 — Model Browser als ZEITSTRAHL + End of Part.**
 >
 > **(1) Zeitbasiert.** Der Browser war "erst alle Skizzen, dann alle Features".
