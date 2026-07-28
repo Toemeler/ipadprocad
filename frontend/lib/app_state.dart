@@ -3636,14 +3636,40 @@ class AppState extends ChangeNotifier {
     if (!pickingBody && hoverBody == null) return;
     pickingBody = false;
     hoverBody = null;
+    final s = extrudeSession;
+    final back = _hoverBodyRestore;
+    _hoverBodyRestore = null;
+    if (s != null && back != null && s.bodyName != back) {
+      s.bodyName = back; // hovering must not change the target by itself
+      _updateExtrudePreview();
+    }
     notifyListeners();
   }
 
+  /// M100 — hovering a candidate body re-previews the extrusion AGAINST it.
+  ///
+  /// The first attempt tinted the hovered body with the preview material, on
+  /// top of the extrusion preview that was already drawn — two overlapping
+  /// highlights that read as a mess. What the user actually wants to see is
+  /// the ANSWER: hover Solid1 and you see the result of joining into Solid1,
+  /// hover Solid2 and you see that instead. So the session's target is moved
+  /// to the hovered body and the preview recomputed; leaving the hover puts
+  /// the committed target back.
   void setHoverBody(String? name) {
     if (!pickingBody || hoverBody == name) return;
     hoverBody = name;
+    final s = extrudeSession;
+    if (s != null) {
+      _hoverBodyRestore ??= s.bodyName;
+      s.bodyName = name ?? _hoverBodyRestore!;
+      _updateExtrudePreview();
+    }
     notifyListeners();
   }
+
+  /// The target the session had before hovering started, so leaving the hover
+  /// without picking does not silently retarget the feature.
+  String? _hoverBodyRestore;
 
   /// Commits the pick. Joining onto a body implies the Join output, so
   /// choosing one switches the mode rather than leaving a target set on a
@@ -3653,6 +3679,7 @@ class AppState extends ChangeNotifier {
     if (s == null) return;
     pickingBody = false;
     hoverBody = null;
+    _hoverBodyRestore = null; // this pick IS the new target
     if (s.output == 'new') s.output = 'join';
     s.bodyName = name;
     Log.i('extrude', 'target body picked: $name');

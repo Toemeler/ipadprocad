@@ -17,6 +17,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../log.dart';
 import '../part_model.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
@@ -807,44 +808,76 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// M91 — the End of Part row: everything the End of Sketch row does.
   /// Draggable with a live preview of the new position, Esc aborts, secondary
   /// click and long press open the same menu.
+  /// M100 — the End of Part row.
+  ///
+  /// The drag is driven by RAW POINTER EVENTS on a Listener, not by
+  /// GestureDetector's onVerticalDrag*. That was the bug: this row lives
+  /// inside the browser's ListView, and a vertical drag gesture has to win the
+  /// gesture arena against the scrollable. The list won every time, so the
+  /// marker never moved at all while the tree scrolled underneath — the menu
+  /// path worked, which is why "Move to Top" was the only thing that ever
+  /// repositioned it. A Listener does not enter the arena; it sees every
+  /// pointer event unconditionally.
+  ///
+  /// Logs each phase, because this is the second attempt and the first one
+  /// looked right in the source.
   Widget _eopRow(AppState app, PartModel part) {
     return Listener(
       key: _eopKey,
+      behavior: HitTestBehavior.opaque,
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
           _showEopCtx(e.position);
+          return;
         }
+        _installEopEsc();
+        _eopDragStartDy = e.position.dy;
+        _eopDragStartSlot = _shownEop(part);
+        Log.i(
+            'eop',
+            'DOWN kind=${e.kind.name} dy=${e.position.dy.toStringAsFixed(1)} '
+                'slot=$_eopDragStartSlot of ${partBuildOrder(part).length}');
+        setState(() => _dragEop = _eopDragStartSlot);
+      },
+      onPointerMove: (e) {
+        if (_eopDragStartDy == null) return;
+        final slot = _slotForDyPart(part, e.position.dy);
+        if (slot != _dragEop) {
+          Log.i(
+              'eop',
+              'MOVE dy=${e.position.dy.toStringAsFixed(1)} '
+                  'd=${(e.position.dy - _eopDragStartDy!).toStringAsFixed(1)} '
+                  '-> slot $slot');
+          setState(() => _dragEop = slot);
+        }
+      },
+      onPointerUp: (e) {
+        _uninstallEopEsc();
+        final v = _dragEop;
+        final moved = _eopDragStartDy == null
+            ? 0.0
+            : (e.position.dy - _eopDragStartDy!).abs();
+        _eopDragStartDy = null;
+        _eopDragStartSlot = null;
+        setState(() => _dragEop = null);
+        Log.i('eop',
+            'UP moved=${moved.toStringAsFixed(1)}px -> commit slot=$v');
+        // A tap (no travel) must not silently reposition the marker.
+        if (v != null && moved > 4) app.setEndOfPart(v);
+      },
+      onPointerCancel: (_) {
+        _uninstallEopEsc();
+        _eopDragStartDy = null;
+        _eopDragStartSlot = null;
+        Log.i('eop', 'CANCEL');
+        setState(() => _dragEop = null);
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onLongPressStart: NativeMenu.isSupported
             ? null // the UIKit menu owns the long press on device
             : (d) => _showEopCtx(d.globalPosition),
-        onVerticalDragStart: (d) {
-          _installEopEsc();
-          _eopDragStartDy = d.globalPosition.dy;
-          _eopDragStartSlot = _shownEop(part);
-          setState(() => _dragEop = _eopDragStartSlot);
-        },
-        onVerticalDragUpdate: (d) {
-          final slot = _slotForDyPart(part, d.globalPosition.dy);
-          if (slot != _dragEop) setState(() => _dragEop = slot);
-        },
-        onVerticalDragEnd: (_) {
-          _uninstallEopEsc();
-          final v = _dragEop;
-          _eopDragStartDy = null;
-          _eopDragStartSlot = null;
-          setState(() => _dragEop = null);
-          if (v != null) app.setEndOfPart(v);
-        },
-        onVerticalDragCancel: () {
-          _uninstallEopEsc();
-          _eopDragStartDy = null;
-          _eopDragStartSlot = null;
-          setState(() => _dragEop = null);
-        },
         child: MouseRegion(
           cursor: SystemMouseCursors.grab,
           child: _row(

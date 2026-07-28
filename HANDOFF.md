@@ -16,6 +16,41 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M100 — EOP-Ziehen: die eigentliche Ursache. Und der Hover zeigt jetzt die
+> ANTWORT statt eines zweiten Highlights.**
+>
+> **(1) Warum das Ziehen NIE ging.** Nicht die Slot-Mathematik (die war nach M99
+> in Ordnung) — die Zeile liegt in der ListView des Browsers, und ein
+> `onVerticalDrag*` eines GestureDetector muss die **Gesten-Arena** gegen das
+> Scrollable gewinnen. Die Liste gewann jedes Mal: der Baum scrollte, die Marke
+> bewegte sich nie. Deshalb hat ausschliesslich der Menue-Weg funktioniert —
+> im Log des Nutzers steht genau ein `End of Part -> after 0 of 3`, und das kam
+> von *Move to Top*. Der Zug laeuft jetzt ueber **rohe Pointer-Events auf einem
+> Listener**; der nimmt an der Arena gar nicht teil und sieht jedes Event.
+> Ein Tipp ohne Weg (< 4 px) committet nichts.
+>
+> **Logging drin gelassen**, weil das der zweite Anlauf ist und der erste im
+> Quelltext richtig aussah: `eop DOWN/MOVE/UP/CANCEL` mit Kind, dy, Delta und
+> Slot. Sollte es wieder klemmen, sagt eine einzige Zeile, ob ueberhaupt
+> Pointer ankommen oder ob nur die Slot-Rechnung falsch liegt.
+>
+> **Achtung fuers naechste Mal:** die End-of-SKETCH-Zeile haengt noch am
+> GestureDetector und hat damit dasselbe Problem — falls sie sich auch nicht
+> ziehen laesst, ist es dieselbe Ursache und dieselbe Loesung.
+>
+> **(2) Doppel-Highlight beim Koerper-Picken.** Der gehoverte Koerper bekam das
+> Preview-Material OBENDRAUF auf die ohnehin gezeichnete Extrusions-Vorschau —
+> zwei ueberlagerte Hervorhebungen auf demselben Solid, und genau das sah
+> "really off" aus. Der Tint ist weg. Stattdessen zeigt der Hover jetzt die
+> **Antwort**: das Ziel der Session wandert auf den gehoverten Koerper und die
+> Vorschau wird neu gerechnet — ueber Solid1 sieht man das Ergebnis mit Solid1,
+> ueber Solid2 das mit Solid2. Verlaesst man den Hover ohne zu picken, wird das
+> vorherige Ziel zurueckgesetzt; Hovern allein darf das Feature nicht
+> umhaengen.
+>
+> **Neu/berührt:** `widgets/model_browser.dart`, `app_state.dart`,
+> `reality_scene.dart`.
+
 > **M99 — Vier Nachbesserungen aus dem Extrude-/EOP-Bericht.**
 >
 > **(1) EOP liess sich GAR NICHT ziehen.** Meine Schnappschuss-Loesung aus M96

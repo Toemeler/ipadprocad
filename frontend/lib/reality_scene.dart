@@ -457,7 +457,11 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
       // disagree about what a click would take.
       for (final (id, s) in visibleSolids(app, p))
         solidPayload(id, s,
-            material: _bodyIsHovered(app, p, id) ? kMatPreview : kMatSteel,
+            // M100 — no extra tint on the hovered body. The hover already
+            // re-previews the extrusion against it (AppState.setHoverBody), so
+            // tinting as well produced two overlapping highlights on the same
+            // solid, which is what looked "really off".
+            material: kMatSteel,
             // M99 — a hovered body must carry its geometry even when the mesh
             // has not changed: the renderer applies the material while it
             // builds the mesh, so a material-only payload was silently
