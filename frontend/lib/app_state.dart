@@ -4336,11 +4336,17 @@ class AppState extends ChangeNotifier {
 
   void _syncSolidProjectionsInner(PartModel p) {
     for (final cs in p.childSketches) {
-      final gs = cs.model.geometry;
+      final gs = List<Geo>.of(cs.model.geometry);
       if (!gs.any((g) => g.proj == Geo.projSolid)) continue;
-      // Mutated in place, exactly like syncProjections() does for in-sketch
-      // sources; the next solve of that sketch pushes it to the engine.
-      syncSolidProjections(gs, p, sketchFrameOf(cs));
+      if (!syncSolidProjections(gs, p, sketchFrameOf(cs))) continue;
+      // M88 — the engine holds the REAL geometry; the tag list alone is not
+      // enough. syncProjections() gets away with mutating in place only
+      // because it runs INSIDE solveConstraints, whose result is then pushed
+      // by _rebuildEngine. This runs after a feature rebuild instead, so it
+      // has to push itself — without this, editing an extrusion left every
+      // curve projected from it frozen at its old shape.
+      _rebuildEngine(cs.model, gs);
+      cs.model.dirty = true;
     }
   }
 
@@ -7127,6 +7133,23 @@ class AppState extends ChangeNotifier {
     s.refresh(tagSource: tags);
     _syncLayers(s);
     s.dirty = true;
+  }
+
+  /// 0 while the sketch-entry camera swing is running, 1 once it has settled
+  /// (M88).
+  ///
+  /// The 2D sketch overlay draws with a FIXED transform while the 3D camera is
+  /// still moving, so during the swing the two would disagree and the sketch
+  /// would appear to slide across the model. The 3D scene already renders
+  /// sketch curves as ribbons, so nothing is lost by keeping the overlay
+  /// transparent until the camera arrives.
+  double sketchOverlayFade = 1;
+
+  void setSketchOverlayFade(double v) {
+    final c = v.clamp(0.0, 1.0);
+    if ((c - sketchOverlayFade).abs() < 0.001) return;
+    sketchOverlayFade = c;
+    notifyListeners();
   }
 
   /// Model edge highlighted under the cursor while the Project tool is

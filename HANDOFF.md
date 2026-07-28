@@ -4670,3 +4670,63 @@ verschwunden, sobald man einmal irgendwo hovert. Beide Arrays werden in
 `rebuildSketches` gemeinsam geleert.
 
 Tests: `m81_sketch_style_test.dart` (5). analyze 0 errors, **498 gruen**.
+
+## M88 — Kamera-Schwenk, Farbregel korrigiert, Projektionen aktualisieren
+
+Drei gemeldete Fehler, alle bestaetigt und behoben.
+
+### (1) Projizierte 3D-Geometrie aktualisierte nicht
+
+`_syncSolidProjectionsInner` hat die Tag-Liste mutiert, aber nie
+`_rebuildEngine` gerufen — die ENGINE haelt die echte Geometrie, die
+Tag-Liste allein reicht nicht. `syncProjections()` kommt damit durch, weil es
+INNERHALB von `solveConstraints` laeuft, dessen Ergebnis anschliessend von
+`_rebuildEngine` gepusht wird. Mein Sync laeuft dagegen nach einem
+Feature-Rebuild und muss selbst pushen. Ohne das blieb jede aus einer
+Extrusion projizierte Kurve auf ihrer alten Form stehen, wenn man die
+Extrusion aenderte. Genau als Risiko in M76 notiert und dann nicht
+nachgezogen.
+
+### (2) Skizzenlinien manchmal weiss statt blau-violett
+
+Meine Regel war GENAU UMGEKEHRT zu 2D. Viewport2D:
+`segFull(i,0) => hasAnalysis && analysis.carrierFixed(i,0)` — ohne Analyse
+ist das FALSE, die Kurve also violett. M81 hatte den Default auf `true`
+(weiss) gesetzt. Sichtbar wurde es vor allem direkt nach einer Aenderung,
+bevor `_reanalyze()` gelaufen ist.
+
+Zweiter Punkt derselben Ursache: ich hatte die DOF-Faerbung an
+`inEditMode` gekoppelt ("ausserhalb alles weiss"). Das war meine Erfindung —
+2D faerbt nach DOF unabhaengig vom Edit-Modus. Jetzt gilt: DOF-Faerbung fuer
+die Skizze, die `app.analysis` beschreibt (also `app.current`), sonst weiss,
+weil die Indizes fuer eine andere Skizze bedeutungslos waeren. Nur das
+Ausblenden von KONSTRUKTIONSGEOMETRIE haengt weiterhin an `inEditMode`, wie
+in 2D.
+
+### (3) Kamerawechsel jetzt animiert
+
+`PartCamera.lerp` plus ein 420-ms-`AnimationController` mit
+`easeInOutCubic` in Viewport3D. Zwei Details, die sonst falsch aussehen:
+
+- **Winkel nehmen den KURZEN Weg.** `az` kommt aus `atan2`, ein Paar
+  beiderseits von +/-pi ist also Alltag; ein simpler Lerp haette das Modell
+  fast eine ganze Umdrehung gedreht. Gilt auch fuer `roll`.
+- **Zoom interpoliert GEOMETRISCH.** Zoom ist multiplikativ: linear zwischen
+  27 und 2700 liegt 1363, was optisch schon fast ganz herausgezoomt ist —
+  der echte Mittelpunkt ist 270.
+
+Der Schwenk startet immer bei dem, was gerade auf dem Schirm ist, also
+springt es auch dann nicht, wenn man mitten in der Animation wieder
+umschaltet.
+
+**Das 2D-Overlay wird erst am Ende eingeblendet** (`app.sketchOverlayFade`,
+ab 85 % des Schwenks). Es zeichnet mit FESTER Transformation, waehrend die
+Kamera noch faehrt — beides liefe sonst auseinander und die Skizze wuerde
+ueber das Modell rutschen. Verloren geht nichts, weil die 3D-Szene
+Skizzenkurven ohnehin als Baender rendert. Waehrend der Blende ist das
+Overlay `IgnorePointer`, damit kein Tap auf einer noch nicht sichtbaren
+Skizze landet.
+
+Tests: `m88_camera_swing_test.dart` (6), `m81_sketch_style_test.dart` neu
+geschrieben (4) — die alten kodierten meine falsche Regel.
+analyze 0 errors, **558 gruen** (Baseline 553).

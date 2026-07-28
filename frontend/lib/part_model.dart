@@ -178,6 +178,40 @@ class PartCamera {
     );
   }
 
+  /// Interpolates between two cameras for the sketch-entry animation (M88).
+  ///
+  /// [t] runs 0..1. Angles are interpolated on the SHORT way round — plain
+  /// lerp on az would spin the model most of a turn whenever the two happen to
+  /// straddle +/-pi, which is common because az comes from atan2. halfH is
+  /// interpolated geometrically, since zoom is multiplicative: the linear
+  /// midpoint between 27 and 2700 is 1363, which is visually almost the whole
+  /// way there, while the geometric one (270) is the true halfway.
+  static PartCamera lerp(PartCamera a, PartCamera b, double t) {
+    final k = t.clamp(0.0, 1.0);
+    double ang(double x, double y) {
+      var d = y - x;
+      while (d > math.pi) {
+        d -= 2 * math.pi;
+      }
+      while (d < -math.pi) {
+        d += 2 * math.pi;
+      }
+      return x + d * k;
+    }
+
+    double geo(double x, double y) =>
+        (x > 0 && y > 0) ? x * math.pow(y / x, k) : x + (y - x) * k;
+
+    return PartCamera(
+      az: ang(a.az, b.az),
+      pol: a.pol + (b.pol - a.pol) * k,
+      halfH: clampHalfH(geo(a.halfH, b.halfH)),
+      ox: a.ox + (b.ox - a.ox) * k,
+      oy: a.oy + (b.oy - a.oy) * k,
+      roll: ang(a.roll, b.roll),
+    );
+  }
+
   static Vec3 _derivedRight(Vec3 d) {
     final f = d * -1;
     var s = f.cross(const Vec3(0, 1, 0));

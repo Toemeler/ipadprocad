@@ -319,15 +319,20 @@ List<Map<String, dynamic>> _axisPayloads(PartModel p, {String? hover}) {
 /// projection, grey for reference geometry on another layer. 3D used to paint
 /// every curve one flat colour, so a sketch read completely differently
 /// depending on which viewport you were looking at.
-int sketchGeoColor({required bool projection, required bool editing,
+int sketchGeoColor(
+    {required bool projection,
+    required bool dofKnown,
     required bool fullyConstrained}) {
   const white = 0xFFFFFFFF;
-  const violet = 0xFF9A8CF5; // under-constrained, an EDITING signal
+  const violet = 0xFF9A8CF5; // under-constrained
   const yellow = 0xFFE8C84A; // projected geometry
   if (projection) return yellow;
-  // Outside the sketch being edited, DOF is not information the viewer can
-  // act on, so everything reads plain white — same as 2D.
-  if (!editing) return white;
+  // Mirrors Viewport2D exactly: `segFull(i,0) => hasAnalysis && carrierFixed`,
+  // so NO analysis means NOT constrained, i.e. violet. M81 had this backwards
+  // and defaulted to white, which is why curves showed white in 3D while 2D
+  // showed them violet — most visibly right after an edit, before the next
+  // _reanalyze() has run.
+  if (!dofKnown) return violet;
   return fullyConstrained ? white : violet;
 }
 
@@ -344,13 +349,20 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     final polylines = <Float32List>[];
     final keys = <String>[];
     final colors = <int>[];
-    // Whether THIS sketch is the one open for editing. Construction geometry
-    // and the under-constrained tint are editing aids, so outside that they
-    // are not shown — exactly the rule Viewport2D already applies.
+    // Construction geometry is scaffolding, hidden unless this sketch is the
+    // one being edited — Viewport2D's
+    // `if (!app.inEditMode && g.isConstruction) continue`.
     final editing = app.inEditMode &&
         app.activeChild != null &&
         (identical(app.activeChild, cs.model) ||
             app.activeChild!.name == cs.model.name);
+    // DOF colouring needs the analysis, and app.analysis describes app.current
+    // ONLY — its indices mean nothing for any other sketch, so DOF is applied
+    // just to that one. Note this is independent of edit mode: 2D tints by DOF
+    // whether or not you are editing.
+    final cur = app.current;
+    final dofSketch = cur != null &&
+        (identical(cur, cs.model) || cur.name == cs.model.name);
     for (var gi = 0; gi < cs.model.geometry.length; gi++) {
       final g = cs.model.geometry[gi];
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
@@ -363,14 +375,11 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
       final pts = sketchCurve(g);
       if (pts.length < 2) continue;
       keys.add(sketchKey(cs.model.name, gi));
+      final a = dofSketch ? app.analysis : null;
       colors.add(sketchGeoColor(
           projection: g.isProjection,
-          editing: editing,
-          // carrierFixed is the same DOF source Viewport2D paints from; with
-          // no analysis yet, treat it as constrained rather than flashing
-          // every curve violet on the first frame.
-          fullyConstrained:
-              !editing || (app.analysis?.carrierFixed(gi, 0) ?? true)));
+          dofKnown: a != null,
+          fullyConstrained: a?.carrierFixed(gi, 0) ?? false));
       // Float32 (M74) — must match the solid buffers, because Swift decodes
       // both through the same Payload.floats. Sending one of them as Float64
       // would make it read the bytes as Float32 and produce garbage.

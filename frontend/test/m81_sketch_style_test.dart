@@ -1,61 +1,58 @@
-// M81 — a sketch must read the same in 3D as it does in 2D.
+// M81/M88 — a sketch must read the same in 3D as it does in 2D.
 //
-// Before this, the 3D view painted every sketch curve one flat colour and
-// showed construction geometry that the 2D editor hides, so the same sketch
-// looked like two different sketches depending on which viewport you were in.
+// The 2D rule, from viewport.dart, is the specification:
+//   segFull(i, 0) => hasAnalysis && analysis.carrierFixed(i, 0)
+//   paint         = isProjection ? yellow : (segFull ? white : violet)
+// Note what that means with NO analysis: segFull is false, so the curve is
+// VIOLET. M81 defaulted to white instead, which is exactly why curves came
+// out white in 3D while 2D showed them violet.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/reality_scene.dart';
 
 void main() {
-  group('sketch curve colour matches Viewport2D', () {
-    // The four tones the 2D painter uses.
-    const white = 0xFFFFFFFF;
-    const violet = 0xFF9A8CF5;
-    const yellow = 0xFFE8C84A;
+  const white = 0xFFFFFFFF;
+  const violet = 0xFF9A8CF5;
+  const yellow = 0xFFE8C84A;
 
-    test('a projection is yellow, editing or not', () {
+  group('sketch curve colour matches Viewport2D', () {
+    test('a projection is yellow whatever its constraint state', () {
       expect(
           sketchGeoColor(
-              projection: true, editing: true, fullyConstrained: true),
+              projection: true, dofKnown: true, fullyConstrained: true),
           yellow);
       expect(
           sketchGeoColor(
-              projection: true, editing: false, fullyConstrained: false),
+              projection: true, dofKnown: false, fullyConstrained: false),
           yellow);
     });
 
-    test('under-constrained geometry is blue-violet WHILE editing', () {
+    test('fully constrained is white', () {
       expect(
           sketchGeoColor(
-              projection: false, editing: true, fullyConstrained: false),
+              projection: false, dofKnown: true, fullyConstrained: true),
+          white);
+    });
+
+    test('under-constrained is blue-violet', () {
+      expect(
+          sketchGeoColor(
+              projection: false, dofKnown: true, fullyConstrained: false),
           violet);
     });
 
-    test('fully constrained geometry is white while editing', () {
+    test('NO analysis means violet, not white — this was the bug', () {
+      // Matches `hasAnalysis && ...` being false in 2D. Defaulting to white
+      // made curves flip colour between the two viewports, most visibly right
+      // after an edit, before the next _reanalyze() had run.
       expect(
           sketchGeoColor(
-              projection: false, editing: true, fullyConstrained: true),
-          white);
-    });
-
-    test('outside the edited sketch everything is plain white', () {
-      // DOF is an editing signal. Showing it on a sketch you are not editing
-      // would be noise you cannot act on, so 2D does not, and neither does 3D.
+              projection: false, dofKnown: false, fullyConstrained: false),
+          violet);
       expect(
           sketchGeoColor(
-              projection: false, editing: false, fullyConstrained: false),
-          white);
-      expect(
-          sketchGeoColor(
-              projection: false, editing: false, fullyConstrained: true),
-          white);
-    });
-
-    test('projection wins over constraint state', () {
-      expect(
-          sketchGeoColor(
-              projection: true, editing: true, fullyConstrained: false),
-          isNot(violet));
+              projection: false, dofKnown: false, fullyConstrained: true),
+          violet,
+          reason: 'without analysis the constrained flag carries no meaning');
     });
   });
 }

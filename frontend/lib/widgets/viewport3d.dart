@@ -45,15 +45,32 @@ class Viewport3D extends StatefulWidget {
   State<Viewport3D> createState() => _Viewport3DState();
 }
 
-class _Viewport3DState extends State<Viewport3D> {
+class _Viewport3DState extends State<Viewport3D>
+    with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _camAnim = AnimationController(vsync: this, duration: _camSwing)
+      ..addListener(() {
+        if (!mounted) return;
+        setState(() {});
+        // Overlay stays hidden until the swing has essentially arrived; a
+        // fixed-transform 2D canvas over a moving camera reads as the sketch
+        // sliding off the model.
+        final v = _camAnim!.value;
+        widget.app.setSketchOverlayFade(v < 0.85 ? 0 : (v - 0.85) / 0.15);
+      })
+      ..addStatusListener((st) {
+        if (st == AnimationStatus.completed) {
+          widget.app.setSketchOverlayFade(1);
+        }
+      });
     HardwareKeyboard.instance.addHandler(_onKey);
   }
 
   @override
   void dispose() {
+    _camAnim?.dispose();
     _refineTimer?.cancel();
     // The controller itself is owned (and disposed) by the RealityView widget's
     // own State; just drop our reference so late pushes are no-ops.
@@ -433,9 +450,19 @@ class _Viewport3DState extends State<Viewport3D> {
 
   /// True when any live solid is coarser than this viewport's screen-space
   /// target — i.e. a re-mesh would make a curve visibly smoother.
-  /// The camera actually shown: the part's own while orbiting, or one aimed
-  /// down the open sketch's plane and driven by the 2D pan/zoom.
-  PartCamera _effectiveCamera(AppState app, PartModel p, Size size) {
+  // ---- sketch-entry camera animation (M88) --------------------------------
+  //
+  // Snapping straight to the sketch plane is disorienting: the model appears
+  // to jump to an unrelated orientation and you lose track of which face you
+  // picked. Inventor swings the view across, which keeps that connection.
+  AnimationController? _camAnim;
+  PartCamera? _camFrom; // where the swing started
+  bool _wasSketching = false;
+
+  static const _camSwing = Duration(milliseconds: 420);
+
+  /// Target camera with no animation applied.
+  PartCamera _targetCamera(AppState app, PartModel p, Size size) {
     final child = app.activeChild;
     if (child == null) return p.camera;
     for (final cs in p.childSketches) {
@@ -446,6 +473,35 @@ class _Viewport3DState extends State<Viewport3D> {
     }
     return p.camera;
   }
+
+  /// The camera actually shown: the part's own while orbiting, one aimed down
+  /// the open sketch's plane while sketching, and a blend of the two while
+  /// entering or leaving a sketch.
+  PartCamera _effectiveCamera(AppState app, PartModel p, Size size) {
+    final target = _targetCamera(app, p, size);
+    final sketching = app.activeChild != null;
+    if (sketching != _wasSketching) {
+      // Start the swing FROM whatever is on screen right now, so entering and
+      // leaving mid-animation does not jump.
+      _camFrom = _camAnim?.isAnimating == true && _camFrom != null
+          ? PartCamera.lerp(_camFrom!, target, _camAnim!.value)
+          : (sketching ? p.camera : _lastShown ?? p.camera);
+      _wasSketching = sketching;
+      app.setSketchOverlayFade(0);
+      _camAnim
+        ?..reset()
+        ..forward();
+    }
+    final a = _camAnim;
+    final from = _camFrom;
+    final shown = (a != null && a.isAnimating && from != null)
+        ? PartCamera.lerp(from, target, Curves.easeInOutCubic.transform(a.value))
+        : target;
+    _lastShown = shown;
+    return shown;
+  }
+
+  PartCamera? _lastShown;
 
   int _sceneTriangles() {
     var n = 0;

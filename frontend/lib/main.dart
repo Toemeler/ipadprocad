@@ -185,7 +185,22 @@ class PrototypeApp extends StatelessWidget {
                                               child: Viewport3D(app: app)),
                                           if (app.activeChild != null)
                                             Positioned.fill(
-                                                child: Viewport2D(app: app)),
+                                              // Faded in by the camera swing
+                                              // (M88); IgnorePointer while
+                                              // invisible so a stray tap
+                                              // cannot land on a sketch that
+                                              // is not on screen yet.
+                                              child: IgnorePointer(
+                                                ignoring:
+                                                    app.sketchOverlayFade <
+                                                        0.99,
+                                                child: Opacity(
+                                                  opacity:
+                                                      app.sketchOverlayFade,
+                                                  child: Viewport2D(app: app),
+                                                ),
+                                              ),
+                                            ),
                                           if (app.extrudeSession != null)
                                             ExtrudeDialog(app: app),
                                         ])
