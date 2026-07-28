@@ -9,6 +9,7 @@ library;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 
 /// One row in a native menu.
@@ -307,8 +308,7 @@ class GlassPanel extends StatelessWidget {
   const GlassPanel({super.key});
 
   /// Only iOS has the material; elsewhere the caller keeps its own colour.
-  static bool get isSupported =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  static bool get isSupported => !kIsWeb && Platform.isIOS;
 
   @override
   Widget build(BuildContext context) {

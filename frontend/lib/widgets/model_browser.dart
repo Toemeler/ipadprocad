@@ -1158,7 +1158,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
         // The glass surface. IgnorePointer inside GlassPanel: every gesture in
         // this panel belongs to the Flutter rows above it, which is the
         // lesson M48 and M102 both cost a lot of debugging to learn.
-        if (GlassPanel.isSupported) const Positioned.fill(child: GlassPanel()),
+        if (GlassPanel.isSupported)
+          const Positioned.fill(child: GlassPanel()),
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         // header
         Container(
