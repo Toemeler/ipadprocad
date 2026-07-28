@@ -16,6 +16,7 @@ import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
+import 'widgets/native_browser_host.dart';
 import 'widgets/ribbon.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
@@ -159,7 +160,9 @@ class PrototypeApp extends StatelessWidget {
                         : Row(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                                ModelBrowser(app: app),
+                                // M107 — native Apple UI on iOS, the Flutter
+                                // tree everywhere else.
+                                NativeModelBrowser(app: app),
                                 Expanded(
                                   // A 3D part shows the part viewport; an
                                   // open child sketch falls through to the

@@ -69,6 +69,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         if #available(iOS 15.0, *) {
             registrar.register(GlassPanelFactory(),
                                withId: "prototype/glass_panel")
+            // M107 — the whole browser, native.
+            registrar.register(
+                GlassBrowserFactory(messenger: registrar.messenger()),
+                withId: "prototype/glass_browser")
         }
     }
 

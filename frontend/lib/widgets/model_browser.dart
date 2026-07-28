@@ -23,6 +23,10 @@ import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
 
+/// M107 — on iOS the whole panel is native (see native_browser.dart and
+/// GlassBrowser). This Flutter implementation stays as the non-iOS path and as
+/// the fallback if the platform view ever fails to come up, so the app is
+/// never left without a browser.
 class ModelBrowser extends StatefulWidget {
   final AppState app;
   const ModelBrowser({super.key, required this.app});

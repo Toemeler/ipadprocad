@@ -10,6 +10,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
+
+export 'glass_browser.dart';
 import 'package:flutter/services.dart';
 
 /// One row in a native menu.
