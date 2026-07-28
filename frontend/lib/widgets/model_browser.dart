@@ -85,6 +85,42 @@ class _ModelBrowserState extends State<ModelBrowser> {
   GlobalKey _featureKeyFor(String name) =>
       _rowKeys.putIfAbsent('$_kFeaturePrefix$name', () => GlobalKey());
 
+  static const String _kBodyPrefix = 'bd:';
+
+  GlobalKey _bodyKeyFor(String name) =>
+      _rowKeys.putIfAbsent('$_kBodyPrefix$name', () => GlobalKey());
+
+  /// M97 — the body context menu. Inventor offers visibility and a rename on a
+  /// solid body; Delete removes every feature that builds it, which is why it
+  /// is in its own destructive section.
+  List<List<NativeMenuItem>> _bodyMenu(
+      AppState app, PartModel part, String bodyName) {
+    final feats = [for (final f in part.features) if (f.bodyName == bodyName) f];
+    final on = feats.any((f) => f.visible);
+    return [
+      [
+        if (app.extrudeSession != null)
+          const NativeMenuItem(
+              id: 'bdPick',
+              title: 'Use as Target Body',
+              symbol: 'scope'),
+        NativeMenuItem(
+            id: 'bdVisible',
+            title: on ? 'Hide' : 'Show',
+            symbol: on ? 'eye.slash' : 'eye'),
+        const NativeMenuItem(
+            id: 'bdRename', title: 'Rename', symbol: 'pencil'),
+      ],
+      [
+        const NativeMenuItem(
+            id: 'bdDelete',
+            title: 'Delete Body',
+            symbol: 'trash',
+            destructive: true),
+      ],
+    ];
+  }
+
   /// Inventor's sketch context menu. **Share Sketch** appears only on a
   /// CONSUMED, not-yet-shared sketch ("Available only when the sketch was
   /// consumed by a feature", Part Browser Reference); **Unshare** replaces it
@@ -317,6 +353,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
       }
       // M91 — End of Part, same treatment as End of Sketch.
       addTarget('__eop__', 'End of Part', _eopKey, _eopMenuGroups(part));
+      // M97 — solid bodies.
+      for (final b in part.solidBodies()) {
+        addTarget('$_kBodyPrefix${b.$1}', b.$1, _bodyKeyFor(b.$1),
+            _bodyMenu(widget.app, part, b.$1));
+      }
     }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
     if (payload == _lastPayload) return;
@@ -372,6 +413,26 @@ class _ModelBrowserState extends State<ModelBrowser> {
           break;
         case 'ftDelete':
           _confirmDeleteFeature(f);
+          break;
+      }
+      return;
+    }
+    if (layer.startsWith(_kBodyPrefix)) {
+      final name = layer.substring(_kBodyPrefix.length);
+      final part = app.currentPart;
+      if (part == null) return;
+      switch (item) {
+        case 'bdPick':
+          app.pickBody(name);
+          break;
+        case 'bdVisible':
+          app.toggleBodyVisible(part, name);
+          break;
+        case 'bdRename':
+          _promptRenameBody(name);
+          break;
+        case 'bdDelete':
+          _confirmDeleteBody(name);
           break;
       }
       return;
@@ -919,6 +980,36 @@ class _ModelBrowserState extends State<ModelBrowser> {
     }
   }
 
+  /// M97 — renaming a body renames it on every feature that builds it.
+  Future<void> _promptRenameBody(String bodyName) async {
+    final app = widget.app;
+    final result = await promptForText(
+      context,
+      title: 'Rename body',
+      initialValue: bodyName,
+      placeholder: 'Body name',
+      confirmLabel: 'Rename',
+    );
+    if (result != null && result.trim().isNotEmpty) {
+      app.renameBody(bodyName, result.trim());
+    }
+  }
+
+  Future<void> _confirmDeleteBody(String bodyName) async {
+    final part = widget.app.currentPart;
+    if (part == null) return;
+    final n = part.features.where((f) => f.bodyName == bodyName).length;
+    if (n == 0) return;
+    final ok = await confirmAction(
+      context,
+      title: 'Delete "$bodyName"?',
+      message: 'Its $n feature${n == 1 ? '' : 's'} '
+          '${n == 1 ? 'is' : 'are'} removed from the part.',
+      confirmLabel: 'Delete',
+    );
+    if (ok) widget.app.deleteBody(bodyName);
+  }
+
   Future<void> _confirmDelete(String layer) async {
     final app = widget.app;
     final s = app.current;
@@ -1107,14 +1198,34 @@ class _ModelBrowserState extends State<ModelBrowser> {
   Widget _bodyRow(AppState app, PartModel part, String bodyName,
       List<ExtrudeFeature> feats) {
     final on = feats.any((f) => f.visible);
+    // M97 — while the extrude dialog is waiting for a target body, a body row
+    // is a PICK: hovering highlights it (in the 3D view too, since both read
+    // app.hoverBody) and a tap chooses it. Outside that mode the row behaves
+    // exactly as before.
+    final picking = app.pickingBody;
+    final hot = picking && app.hoverBody == bodyName;
     final row = _row(
       indent: 30,
       icon: partCubeIcon,
       label: bodyName,
+      onTap: picking ? () => app.pickBody(bodyName) : null,
       trailing: _EyeButton(
           visible: on, onTap: () => app.toggleBodyVisible(part, bodyName)),
     );
-    return on ? row : Opacity(opacity: 0.45, child: row);
+    Widget out = Container(
+      key: _bodyKeyFor(bodyName),
+      color: hot ? T.blue.withValues(alpha: 0.28) : null,
+      child: row,
+    );
+    if (picking) {
+      out = MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => app.setHoverBody(bodyName),
+        onExit: (_) => app.setHoverBody(null),
+        child: out,
+      );
+    }
+    return on ? out : Opacity(opacity: 0.45, child: out);
   }
 
   Widget _originRow(AppState app, PartModel part, String label, String key) {

@@ -234,6 +234,38 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     ),
                   ),
                 ),
+              // M97 — Inventor lets you PICK the target body instead of
+              // hunting through a dropdown. This arms a pick mode: the body
+              // then highlights under the cursor in the 3D view AND in the
+              // model browser (both read app.hoverBody) and a tap in either
+              // takes it. The dropdown stays for keyboard/precision use.
+              if (s.output == 'join' && bodies.length > 1)
+                _row(
+                    '',
+                    GestureDetector(
+                      onTap: () => app.pickingBody
+                          ? app.cancelPickBody()
+                          : app.beginPickBody(),
+                      child: Container(
+                        height: 24,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: app.pickingBody
+                              ? const Color(0xFF2F6FB0)
+                              : const Color(0xFF212429),
+                          border: Border.all(
+                              color: app.pickingBody
+                                  ? T.blue
+                                  : const Color(0xFF3A3F45)),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(
+                            app.pickingBody
+                                ? 'Pick a body… (tap to cancel)'
+                                : 'Select body in 3D / browser',
+                            style: ts(11.5, T.text)),
+                      ),
+                    )),
             ]),
             _section('Advanced Properties', _advancedOpen,
                 () => setState(() => _advancedOpen = !_advancedOpen), [

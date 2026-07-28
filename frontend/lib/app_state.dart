@@ -3575,6 +3575,91 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M97: pick a target body by CLICKING it ----
+
+  /// True while the extrude dialog is waiting for you to pick a target body,
+  /// in the 3D viewport or in the model browser. Inventor lets you click the
+  /// body instead of hunting through a dropdown.
+  bool pickingBody = false;
+
+  /// Body under the cursor while [pickingBody] — highlighted in BOTH the
+  /// browser and the 3D view, so the two agree about what a click would take.
+  String? hoverBody;
+
+  /// M97 — renames a body everywhere it is built.
+  bool renameBody(String from, String to) {
+    final p = currentPart;
+    final n = to.trim();
+    if (p == null || n.isEmpty || n == from) return false;
+    if (p.features.any((f) => f.bodyName == n)) {
+      message = 'A body named "$n" already exists';
+      notifyListeners();
+      return false;
+    }
+    for (final f in p.features) {
+      if (f.bodyName == from) f.bodyName = n;
+    }
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
+  /// M97 — deletes every feature that builds [bodyName].
+  int deleteBody(String bodyName) {
+    final p = currentPart;
+    if (p == null) return 0;
+    final victims = [for (final f in p.features) if (f.bodyName == bodyName) f];
+    if (victims.isEmpty) return 0;
+    for (final f in victims) {
+      f.disposeSolid();
+      p.features.remove(f);
+    }
+    p.eopAfter = partBuildOrder(p).length;
+    applyEndOfPart(p);
+    recomputeAllFeatures(p, partKernel);
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+    return victims.length;
+  }
+
+  void beginPickBody() {
+    if (extrudeSession == null) return;
+    pickingBody = true;
+    hoverBody = null;
+    toast('Select the target body — tap it in 3D or in the browser.');
+    notifyListeners();
+  }
+
+  void cancelPickBody() {
+    if (!pickingBody && hoverBody == null) return;
+    pickingBody = false;
+    hoverBody = null;
+    notifyListeners();
+  }
+
+  void setHoverBody(String? name) {
+    if (!pickingBody || hoverBody == name) return;
+    hoverBody = name;
+    notifyListeners();
+  }
+
+  /// Commits the pick. Joining onto a body implies the Join output, so
+  /// choosing one switches the mode rather than leaving a target set on a
+  /// New Solid — which would silently do nothing.
+  void pickBody(String name) {
+    final s = extrudeSession;
+    if (s == null) return;
+    pickingBody = false;
+    hoverBody = null;
+    if (s.output == 'new') s.output = 'join';
+    s.bodyName = name;
+    Log.i('extrude', 'target body picked: $name');
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
   // ---- freehand spline session (M87) ----
   FreehandSession? freehand;
 

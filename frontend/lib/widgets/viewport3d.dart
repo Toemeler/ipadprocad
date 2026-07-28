@@ -607,6 +607,13 @@ class _Viewport3DState extends State<Viewport3D>
     // planar solid face tints it blue. The face wins over an origin plane
     // BEHIND it — compare view depth, since the huge origin planes otherwise
     // capture every pixel and the face would never highlight.
+    // M97 — while picking a target body, the body under the cursor is what
+    // matters. Publishing it on AppState is what makes the model browser row
+    // light up at the same time: both read app.hoverBody.
+    if (app.pickingBody) {
+      final pick = _pickSolidFace(cam, px);
+      app.setHoverBody(pick == null ? null : _bodyNameOf(p, pick.$1));
+    }
     (KernelSolid, int)? hf;
     if (app.pickPlane && region == null) {
       final pick = _pickSolidFace(cam, px);
@@ -710,6 +717,15 @@ class _Viewport3DState extends State<Viewport3D>
   /// The nearest PLANAR solid face under [px]: (solid, v4 face id or -1,
   /// sketch frame, view depth). Planarity comes from the B-Rep face record
   /// when the mesh carries v4 metadata, else from the vertex-normal test.
+  /// M97 — which body a picked solid belongs to. The pick returns the mesh of
+  /// one FEATURE; the body is the name that feature builds into.
+  String? _bodyNameOf(PartModel p, KernelSolid solid) {
+    for (final f in p.features) {
+      if (identical(f.solid, solid)) return f.bodyName;
+    }
+    return null;
+  }
+
   (KernelSolid, int, PlaneFrame, double)? _pickSolidFace(Cam3 cam, Offset px) {
     (KernelSolid, int, PlaneFrame, double)? best;
     var bestDepth = double.infinity;
@@ -817,6 +833,21 @@ class _Viewport3DState extends State<Viewport3D>
         return;
       }
       if (_selSketch.isNotEmpty) setState(_selSketch.clear);
+    }
+    // M97 — 0. picking a TARGET BODY for the extrude dialog. Runs before
+    // everything else: while the dialog is waiting, a tap on a solid means
+    // "this one", not "sketch on this face".
+    if (app.pickingBody) {
+      final face = _pickSolidFace(cam, px);
+      if (face != null) {
+        final name = _bodyNameOf(p, face.$1);
+        if (name != null) {
+          app.pickBody(name);
+          return;
+        }
+      }
+      app.cancelPickBody(); // tapping empty space backs out, like Esc
+      return;
     }
     // 1. plane pick (Start 2D Sketch): origin planes first, then any planar
     //    face of a solid (Inventor's sketch-on-face)

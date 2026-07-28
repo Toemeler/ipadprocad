@@ -16,6 +16,45 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M97 — Zielkoerper ANKLICKEN statt Dropdown + Koerper-Kontextmenue.**
+> Damit sind die beiden in M96 offen gelassenen Punkte erledigt.
+>
+> **Auswahlmodus.** `AppState.pickingBody` / `hoverBody` + `beginPickBody`,
+> `cancelPickBody`, `setHoverBody`, `pickBody`. Der Extrude-Dialog bekommt bei
+> mehr als einem Koerper einen Knopf "Select body in 3D / browser"; das
+> Dropdown bleibt fuer Tastatur/Praezision. **Der Hover liegt bewusst auf
+> AppState** — deshalb leuchtet dieselbe Auswahl GLEICHZEITIG in 3D und im
+> Model Browser, beide lesen `app.hoverBody`, sie koennen also nicht
+> auseinanderlaufen.
+>
+> 3D: der Body-Pick laeuft VOR allem anderen im Tap-Pfad — solange der Dialog
+> wartet, heisst ein Tipp auf einen Koerper "diesen", nicht "auf dieser Flaeche
+> skizzieren". Ein Tipp ins Leere bricht ab, wie Esc. Browser: die Koerperzeile
+> wird zum Pick, mit Hover-Tint und Zeiger-Cursor; ausserhalb des Modus
+> verhaelt sie sich unveraendert.
+>
+> `pickBody` schaltet zusaetzlich von "New Solid" auf **Join** um: einen
+> Zielkoerper zu waehlen und ihn dann still zu ignorieren waere die
+> schlechtere Ueberraschung.
+>
+> **Koerper-Kontextmenue** (Model Browser, Prefix `bd:`): *Use as Target Body*
+> (nur bei laufender Extrude-Session), Hide/Show, Rename, **Delete Body** in
+> eigener destruktiver Sektion. `renameBody` benennt auf ALLEN Features um, die
+> den Koerper bauen, und lehnt Duplikate ab; `deleteBody` entfernt genau diese
+> Features, parkt die EOP-Marke am Ende und rechnet neu.
+>
+> **Neu/berührt:** `app_state.dart`, `widgets/extrude_dialog.dart`,
+> `widgets/model_browser.dart`, `widgets/viewport3d.dart`, neuer Test
+> `test/m97_pick_body_test.dart`.
+>
+> **Verifikationsstand:** die Zustandslogik ist host-getestet (kein Hover ohne
+> Armierung, kein Armieren ohne Session, Cancel raeumt beides, Rename/Delete
+> treffen genau die richtigen Features). **Geraete-Sache und offen:** ob der
+> 3D-Hover fluessig genug ist (er laeuft ueber `_pickSolidFace` bei jeder
+> Bewegung), und ob der Koerper in 3D sichtbar genug hervorgehoben wird — heute
+> faerbt nur die Browserzeile, in 3D zeigt der Hover bislang keine eigene
+> Einfaerbung.
+
 > **M96 — Zwei aus dem Extrude-/EOP-Bericht. ZWEI WEITERE SIND OFFEN.**
 >
 > **(1) New Solid benennt sich selbst.** `setExtrude` setzte den Namen zwar
