@@ -100,7 +100,7 @@ Token NIE in Dateien/.git/config schreiben.
 > geometrie zaehlte als Inhalt** — das auto-grosse Bounding-Rect um einen
 > Textblock (M45) ist Construction und haette damit die Groesse der
 > Ursprungsebenen bestimmt. Beides ausgeschlossen bzw. in den Schluessel
-> aufgenommen.
+> aufgenommen. (3) 2870349 — `reality_scene_test` nagelte noch den ALTEN Vertrag fest (`ext == 10`); auf den neuen umgestellt: das Rechteck (`uMin/uMax/vMin/vMax`) wird geprueft, `ext` nur noch als groesstes Halb-Mass, plus die Zusicherung, dass ein Teil MIT Geometrie nicht bei der Leer-Groesse bleibt.
 
 > **M82 — Die Vorschau kommt jetzt aus DERSELBEN Engine wie der 3D-Modus, und
 > immer aus der Ecke oben-vorne-rechts.** Bisher zeichnete die Galerie-/

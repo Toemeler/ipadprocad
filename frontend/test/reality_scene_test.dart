@@ -7,6 +7,7 @@
 // mesh buffers are referenced not copied, plane/axis/sketch geometry, the
 // scene signature that gates re-uploads, and hover-face resolution — is all
 // verified here.
+import 'dart:math' show max;
 import 'dart:typed_data';
 import 'dart:ui';
 
@@ -151,7 +152,20 @@ void main() {
       expect(planes.length, 3);
       for (final pl in planes.cast<Map>()) {
         expect((pl['frame'] as Float64List).length, 9);
-        expect(pl['ext'], 10.0);
+        // M83: a plane FRAMES the part, so its size is content-driven — it is
+        // no longer the fixed 10 this used to assert. What travels is the
+        // rectangle; `ext` remains only as the legacy fallback for a pre-M83
+        // native build, and must be the largest of its four half-extents.
+        final r = originPlaneRect(p, pl['key'] as String);
+        expect(pl['uMin'], r.$1);
+        expect(pl['uMax'], r.$2);
+        expect(pl['vMin'], r.$3);
+        expect(pl['vMax'], r.$4);
+        final widest =
+            [r.$1.abs(), r.$2.abs(), r.$3.abs(), r.$4.abs()].reduce(max);
+        expect(pl['ext'], widest);
+        expect(pl['ext'], isNot(kOriginExtentDefault),
+            reason: 'a part with geometry must not keep the empty-part size');
       }
       // yz/xz/xy in order.
       expect(planes.map((e) => (e as Map)['key']).toList(), ['yz', 'xz', 'xy']);
