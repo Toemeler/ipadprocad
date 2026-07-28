@@ -2238,7 +2238,7 @@ class AppState extends ChangeNotifier {
     }
     p.eopAfter = partBuildOrder(p).length;
     applyEndOfPart(p);
-    recomputeAllFeatures(p);
+    recomputeAllFeatures(p, partKernel);
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
