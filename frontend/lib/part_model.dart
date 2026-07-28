@@ -976,6 +976,17 @@ class ExtrudeFeature {
   /// inside the accumulated solid of the chain's last feature).
   bool consumedByJoin = false;
 
+  /// M111 — an IMPORTED body (STEP). It has no sketch and no profiles, so the
+  /// feature recompute must leave it alone: rebuilding it from inputs that do
+  /// not exist would delete the geometry the user just imported. Persisted,
+  /// together with [importPath], so it survives reopening the part.
+  bool imported = false;
+
+  /// Where the imported STEP lives, relative to the part folder. The B-Rep
+  /// itself is not serialised — the file IS the source of truth, and re-reading
+  /// it on open is both simpler and lossless.
+  String? importPath;
+
   /// M91 — creation order, shared with [ChildSketch.seq] (one counter across
   /// both, so sketches and features interleave on one timeline).
   int seq = 0;
@@ -1007,6 +1018,8 @@ class ExtrudeFeature {
         'kind': 'extrude',
         'name': name,
         'seq': seq, // M91 — position on the browser timeline
+        if (imported) 'imported': true,
+        if (importPath != null) 'importPath': importPath,
         'body': bodyName,
         'sketch': sketchName,
         'profiles': [for (final p in profiles) p.toJson()],
@@ -1050,6 +1063,8 @@ class ExtrudeFeature {
   /// which reproduces the old browser order exactly.
   static ExtrudeFeature _withSeq(Map<String, dynamic> j, ExtrudeFeature f) {
     f.seq = (j['seq'] as num?)?.toInt() ?? 0;
+    f.imported = j['imported'] as bool? ?? false;
+    f.importPath = j['importPath'] as String?;
     return f;
   }
 
@@ -1671,6 +1686,11 @@ abstract class PartKernel {
 
   /// Writes the union of [solids] as STEP to [path].
   bool exportStep(List<KernelSolid> solids, String path);
+
+  /// M111 — reads a STEP file as one [KernelSolid] per SOLID, so an imported
+  /// assembly becomes several bodies rather than one opaque compound. Empty
+  /// list on failure or when the file holds no solids.
+  List<KernelSolid> importStepSolids(String path);
 }
 
 /// Applies Inventor's Output boolean [output] to combine [base] (the
@@ -1891,6 +1911,39 @@ class OcctPartKernel implements PartKernel {
       acc?.dispose();
     }
   }
+  @override
+  List<KernelSolid> importStepSolids(String path) {
+    final ffi = OcctFfi.instance();
+    if (ffi == null) {
+      _err = 'no kernel';
+      return const [];
+    }
+    try {
+      final shapes = ffi.importStepSolids(path);
+      final out = <KernelSolid>[];
+      for (final sh in shapes) {
+        final mesh = sh.mesh(
+            linDeflection: kCoarseLinDeflection,
+            angDeflection: kCoarseAngDeflection);
+        if (mesh == null) {
+          // A solid we cannot tessellate is useless on screen; drop it rather
+          // than adding an invisible body the user cannot explain.
+          sh.dispose();
+          continue;
+        }
+        out.add(KernelSolid(mesh, sh.volume, sh,
+            meshLin: kCoarseLinDeflection,
+            remesher: (lin, ang) =>
+                sh.mesh(linDeflection: lin, angDeflection: ang)));
+      }
+      if (out.isEmpty) _err = 'no solids in file';
+      return out;
+    } catch (e) {
+      _err = '$e';
+      return const [];
+    }
+  }
+
 }
 
 /// Recomputes [f] against the CURRENT sketch state: re-matches the picked
@@ -2088,6 +2141,15 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
   final upstream = <String, String>{}; // bodyName -> running chain key
   for (final f in part.features) {
     f.consumedByJoin = false;
+    // M111 — an imported body is not computed FROM anything; it just is. Its
+    // solid was read from the STEP file, so recompute leaves it untouched and
+    // only does the chain bookkeeping around it.
+    if (f.imported) {
+      final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
+      if (prevI != null && prevI.solid != null) prevI.consumedByJoin = true;
+      if (f.visible && f.solid != null) chainLast[f.bodyName] = f;
+      continue;
+    }
     final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
     if (!force &&
         f.solid != null &&

@@ -73,6 +73,9 @@ class CylKernel implements PartKernel {
 
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
+
+  @override
+  List<KernelSolid> importStepSolids(String path) => const [];
 }
 
 AppState makeApp() {
