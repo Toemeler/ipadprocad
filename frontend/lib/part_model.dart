@@ -235,6 +235,66 @@ class PartCamera {
   static Vec3 rightFor(double az) =>
       Vec3(math.cos(az), 0, -math.sin(az));
 
+  /// The camera's own right vector, i.e. [rightFor] turned by [roll].
+  Vec3 get right {
+    final s0 = rightFor(az), u0 = s0.cross(dir * -1).normalized();
+    if (roll == 0) return s0;
+    return (s0 * math.cos(roll) + u0 * math.sin(roll)).normalized();
+  }
+
+  /// The camera's own up vector.
+  Vec3 get up => right.cross(dir * -1).normalized();
+
+  /// Rodrigues rotation of [v] about the unit axis [k] by [a] radians.
+  static Vec3 _rotate(Vec3 v, Vec3 k, double a) {
+    if (a == 0) return v;
+    final c = math.cos(a), sn = math.sin(a);
+    return v * c + k.cross(v) * sn + k * (k.dot(v) * (1 - c));
+  }
+
+  /// TRACKBALL orbit (M90) — rotates about the SCREEN axes, which is what
+  /// Inventor's Free Orbit and Blender's trackball do: [yaw] about the
+  /// camera's own up, [pitch] about its own right.
+  ///
+  /// The old orbit added straight onto az/pol, a TURNTABLE, and had to clamp
+  /// pol away from the poles because the basis was derived from the view
+  /// direction and degenerated there. That clamp is why the view could never
+  /// look straight down, let alone continue past it. Rotating the basis itself
+  /// has no preferred up and no degenerate case, so it runs 360 degrees in
+  /// every direction.
+  ///
+  /// Three degrees of freedom are needed to express the result, which is
+  /// exactly what az/pol/roll became in M89 — a two-angle camera could not
+  /// have represented a trackball at all.
+  void orbitScreen(double yaw, double pitch) {
+    var d = dir;
+    var r = right;
+    final u = up;
+    // yaw first, about the current up
+    d = _rotate(d, u, yaw);
+    r = _rotate(r, u, yaw);
+    // then pitch about the NEW right, so the two compose like a real ball
+    d = _rotate(d, r, pitch).normalized();
+    setBasis(d, r);
+  }
+
+  /// Rewrites az/pol/roll so the camera looks along [d] with [r] to the right.
+  ///
+  /// At a pole az is arbitrary (atan2(0,0)), and that is fine: roll is measured
+  /// against rightFor(az) and the renderer rebuilds from the SAME az, so the
+  /// pair stays consistent. That is precisely what a two-angle camera could
+  /// not do.
+  void setBasis(Vec3 d, Vec3 r) {
+    final dn = d.normalized();
+    // re-orthogonalise: drift accumulates over hundreds of drag events
+    final rn = (r - dn * r.dot(dn)).normalized();
+    pol = math.acos(dn.y.clamp(-1.0, 1.0));
+    az = math.atan2(dn.x, dn.z);
+    final s0 = rightFor(az);
+    final u0 = s0.cross(dn * -1).normalized();
+    roll = math.atan2(rn.dot(u0), rn.dot(s0));
+  }
+
   // Practically-endless orthographic zoom (halfH = half the visible height in
   // mm). Not literally infinite: outside this band the ortho projection loses
   // precision, so we cap far beyond any real part (0.1µm .. 20km of view).
@@ -257,8 +317,12 @@ class PartCamera {
   /// Face the camera along an arbitrary plane normal (sketch on a face).
   void orientToDir(Vec3 n) {
     final d = n.normalized();
-    pol = math.acos(d.y.clamp(-1.0, 1.0)).clamp(0.001, math.pi - 0.001);
+    // M90 — no pole clamp any more; the basis is continuous, so looking
+    // exactly straight down is a normal state. At a pole the azimuth carries
+    // no information, so the previous one is kept: the top view then keeps the
+    // rotation you approached it from, which is what the old code did too.
     if (d.y.abs() < 0.999) az = math.atan2(d.x, d.z);
+    setBasis(d, rightFor(az));
     ox = 0;
     oy = 0;
     halfH = 27;

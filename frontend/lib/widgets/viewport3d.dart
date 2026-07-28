@@ -413,8 +413,12 @@ class _Viewport3DState extends State<Viewport3D>
   }
 
   void _orbit(PartModel p, Offset d) {
-    p.camera.az -= d.dx * 0.01;
-    p.camera.pol = (p.camera.pol - d.dy * 0.01).clamp(0.02, math.pi - 0.02);
+    // TRACKBALL (M90). Was: az -= dx; pol = (pol - dy).clamp(0.02, pi - 0.02).
+    // That is a turntable, and the clamp meant you could never look straight
+    // down — let alone keep going. Rotating the basis about the SCREEN axes
+    // instead is Inventor's Free Orbit and Blender's trackball: no preferred
+    // up, no degenerate case, 360 degrees in every direction.
+    p.camera.orbitScreen(-d.dx * 0.01, -d.dy * 0.01);
   }
 
   void _zoomAt(PartModel p, Cam3 cam, Offset px, double factor) {
@@ -1332,10 +1336,10 @@ class _ViewCubeState extends State<_ViewCube> {
 
   void _snapTo(Vec3 d) {
     final c = widget.camera;
-    c.pol = math.acos(d.y.clamp(-1.0, 1.0));
+    // M90 — snapping to top/bottom is exact now; the clamp that kept it a
+    // thousandth of a radian short is gone with the trackball.
     if (d.y.abs() < 0.999) c.az = math.atan2(d.x, d.z);
-    if (c.pol < 0.001) c.pol = 0.001;
-    if (c.pol > math.pi - 0.001) c.pol = math.pi - 0.001;
+    c.setBasis(d, PartCamera.rightFor(c.az));
     c.ox = 0;
     c.oy = 0;
     c.halfH = 27;
@@ -1394,18 +1398,24 @@ class _ViewCubeState extends State<_ViewCube> {
           alignment: a,
           child: GestureDetector(
             onTap: () {
+              // M90 — these step arrows used to clamp pol away from the
+              // poles, which put the limit straight back after the drag was
+              // freed. Going through the same trackball rotation keeps them
+              // consistent with dragging, and a quarter turn up from the top
+              // now carries on over instead of sticking.
+              const q = math.pi / 2;
               switch (key) {
                 case 'up':
-                  c.pol = (c.pol - math.pi / 2).clamp(0.001, math.pi - 0.001);
+                  c.orbitScreen(0, q);
                   break;
                 case 'down':
-                  c.pol = (c.pol + math.pi / 2).clamp(0.001, math.pi - 0.001);
+                  c.orbitScreen(0, -q);
                   break;
                 case 'left':
-                  c.az -= math.pi / 2;
+                  c.orbitScreen(-q, 0);
                   break;
                 default:
-                  c.az += math.pi / 2;
+                  c.orbitScreen(q, 0);
               }
               c.ox = 0;
               c.oy = 0;

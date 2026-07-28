@@ -4963,3 +4963,81 @@ Bodenflaeche sowie eine um 90 Grad gedrehte u-Achse, jeweils mit der
 Forderung, dass `+u` nach rechts und `+v` nach oben projiziert — dort taucht
 eine gespiegelte oder 180 Grad verdrehte Skizze auf.
 analyze 0 errors, **564 gruen**.
+
+## M90 — Trackball-Orbit (Inventors Free Orbit / Blenders Trackball)
+
+### Was vorher war
+
+`_orbit` addierte auf `az`/`pol` und klemmte `pol` auf
+`[0.02, pi − 0.02]` — ein TURNTABLE, der nicht einmal den Pol erreichte. Man
+konnte also nie genau von oben schauen, geschweige denn darueber hinaus
+weiterdrehen.
+
+Die Klemme war eine Umgehung: die Basis wurde aus der Blickrichtung abgeleitet
+und degenerierte an den Polen. Seit M89 (`rightFor(az)`) gibt es diese
+Degeneration nicht mehr, der Grund fuer die Klemme war also entfallen.
+
+### Recherche
+
+- **Blender** hat zwei Methoden. Turntable haelt den Horizont waagerecht und
+  behaelt eine feste Up-Richtung — laut Handbuch bewusst mit dem Nachteil
+  verlorener Flexibilitaet. Trackball ist "less restrictive, allowing any
+  orientation". Turntable ist der Standard, und Nutzer empfinden Trackball
+  vielfach als unintuitiv.
+- **Inventor** hat Free Orbit (F4, der aeltere Standard) und Constrained Orbit
+  (2009 ergaenzt). Free Orbit dreht um die BILDSCHIRMachsen: links/rechts um
+  die vertikale, vor/zurueck um die horizontale, und ein Zug um den Kreis
+  herum rollt um die Bildschirmnormale. Constrained Orbit dreht um die
+  TOP/BOTTOM-Achse des ViewCube, "als laege das Modell auf einer Drehscheibe".
+
+Umgesetzt ist Free Orbit, weil das die gemeldete Erwartung ist. Constrained
+laesst sich spaeter als zweiter Modus ergaenzen — umgekehrt waere es Mehrarbeit.
+
+### Umsetzung
+
+`PartCamera.orbitScreen(yaw, pitch)` rotiert die BASIS um die Bildschirmachsen
+(Rodrigues): yaw um das kameraeigene Up, dann pitch um das NEUE Right, damit
+sich beides wie eine echte Kugel zusammensetzt. `setBasis(d, r)` schreibt
+`az`/`pol`/`roll` zurueck und orthogonalisiert `r` dabei neu — ueber hunderte
+Drag-Events summiert sich sonst Drift.
+
+Entscheidend: das braucht DREI Freiheitsgrade. Eine Zwei-Winkel-Kamera kann
+einen Trackball prinzipiell nicht darstellen; erst `roll` aus M89 macht es
+moeglich. An einem Pol ist `az` beliebig (`atan2(0,0)`), und das ist in Ordnung,
+weil der Roll gegen `rightFor(az)` gemessen und vom Renderer aus DEMSELBEN `az`
+wieder aufgebaut wird.
+
+**Alle fuenf Klemmen sind weg**, nicht nur die im Drag: die ViewCube-Pfeile
+gehen jetzt durch dieselbe Trackball-Rotation (sonst holen sie die
+Beschraenkung zurueck), und `orientToDir`/`_snapTo` schnappen exakt auf
+Top/Bottom statt eine Tausendstel-Radiante davor haengenzubleiben.
+
+### Tests
+
+`m90_trackball_test.dart` (9). Die wichtigsten pruefen, was vorher unmoeglich
+war: ein langer Pitch-Zug muss BEIDE Pole durchlaufen (`dir.y` unter −0.999
+und ueber +0.999), eine volle Umdrehung muss exakt zum Ausgangspunkt
+zuruecklaufen (Richtung UND Roll, sonst driftet es), und die Basis muss nach
+1000 zufaelligen Drags noch orthonormal sein. Dazu: yaw-dann-pitch unterscheidet
+sich von pitch-dann-yaw — Rotationen kommutieren nicht, und genau dieser
+Unterschied ist es, der einen Trackball frei anfuehlen laesst; ein Turntable
+auf zwei Winkeln kann ihn gar nicht zeigen.
+
+Beim Schreiben hatte ich die Pitch-RICHTUNG falsch angenommen und den Test
+entsprechend falsch formuliert; ein Trace zeigte `0.56 → −0.99 → +0.99`, also
+den vollen Durchlauf. Die Eigenschaft ist jetzt richtungsunabhaengig
+formuliert.
+
+analyze 0 errors, **573 gruen**.
+
+### Offen
+
+- **Constrained Orbit** als zweiter Modus samt Umschalter.
+- **Roll per Geste:** Inventors Zug um den Kreis herum ist mausgedacht; auf
+  dem iPad waere die Zwei-Finger-Drehgeste das idiomatische Gegenstueck.
+  `orbitScreen` deckt Roll noch nicht ab — dafuer braeuchte es eine Rotation
+  um `dir` selbst, was mit `setBasis` trivial ist.
+- Orbiten waehrend einer offenen Skizze aendert `p.camera`, angezeigt wird aber
+  `forSketch(...)`. Das ist ungefaehrlich (kein Ueberschreiben der
+  Ebenenausrichtung), aber die Eingabe erreicht die 3D-Ebene ohnehin nicht,
+  weil das 2D-Overlay darueber liegt.
