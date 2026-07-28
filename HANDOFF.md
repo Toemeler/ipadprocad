@@ -16,6 +16,40 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M99 — Vier Nachbesserungen aus dem Extrude-/EOP-Bericht.**
+>
+> **(1) EOP liess sich GAR NICHT ziehen.** Meine Schnappschuss-Loesung aus M96
+> war zweifach falsch. Sie mass Zeilen-Rechtecke, und das haengt daran, dass
+> JEDER Feature-Zeilen-GlobalKey einen fertig gelayouteten Context hat — eine
+> eingeklappte oder weggeclippte Zeile hat keinen, ihr Mittelpunkt fiel auf
+> einen Sentinel zurueck und der Slot schnappte ans Ende. Jetzt wird gar nichts
+> mehr gemessen: der Versatz ist `(dy - dyStart) / Zeilenhoehe`, gerundet, auf
+> `[0, n]` geklemmt. Nichts nachzuschlagen, nichts das sich unter dem Finger
+> bewegen kann.
+>
+> **(2) Namensfeld nur noch bei New Solid.** Join, Cut und Intersect arbeiten
+> auf einem BESTEHENDEN Koerper; dort ein Namensfeld anzubieten lud dazu ein,
+> etwas einzutippen, das nichts tut.
+>
+> **(3) Dropdown ersatzlos weg.** Der Zielkoerper wird gepickt, nicht aus einer
+> Liste gesucht — genau den Schritt ersetzt der Pick. Stattdessen zeigt eine
+> Zeile den AKTUELLEN Zielkoerper, darunter der Pick-Knopf (jetzt fuer Join,
+> Cut UND Intersect, nicht nur Join).
+>
+> **(4) Browser leuchtete, 3D nicht.** Der Renderer setzt das Material,
+> WAEHREND er das Mesh baut — ein Payload, das nur das Material aendert und
+> `includeGeometry: false` traegt, wurde still ignoriert. Waehrend eines Picks
+> reisen die Solids darum mit Geometrie. Bewusst ALLE, nicht nur der gehoverte:
+> wandert der Hover weiter, muss der vorher leuchtende Koerper sein
+> Stahl-Material zurueckbekommen, und auch das passiert nur mit Geometrie.
+>
+> **NOCH OFFEN:** der Nutzer meldet, dass die Auswahl **in 3D** gar nicht
+> reagiert. Der Zweig sitzt in `viewport3d._tap` VOR allen anderen, also liegt
+> der Verdacht darauf, dass Taps bei offenem Extrude-Dialog den Viewport nicht
+> erreichen (Dialog-Overlay faengt sie) — das ist am Geraet in einer Minute zu
+> sehen und blind nicht zu entscheiden. Naechster Schritt: im Tap-Pfad loggen
+> und pruefen, ob `_tap` waehrend `pickingBody` ueberhaupt gerufen wird.
+
 > **M98 — Der gehoverte Koerper leuchtet jetzt auch in 3D.** Die in M97 offen
 > gelassene Luecke ist zu: waehrend `pickingBody` bekommt der Koerper unter dem
 > Zeiger das PREVIEW-Material, also dieselbe Hervorhebung, die die Browserzeile

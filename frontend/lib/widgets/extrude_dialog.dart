@@ -169,77 +169,17 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     _boolButton('new', 'New Solid'),
                     const Spacer(),
                   ])),
-              // Inventor: with Join you PICK a target body (and only need to
-              // when there is more than one); a name is yours to type only for
-              // New Solid.
-              if (s.output == 'join' && bodies.isNotEmpty)
+              // M99 — no dropdown. The target body is PICKED, not chosen
+              // from a list: tap it in 3D or in the model browser (the button
+              // below arms that). A dropdown of body names is exactly the
+              // hunting-through-a-list step the pick replaces, and it showed
+              // names for bodies you cannot see.
+              if (s.output != 'new' && bodies.isNotEmpty)
                 _row(
-                    bodies.length == 1 ? 'Body' : 'Target Body',
-                    bodies.length == 1
-                        ? Container(
-                            height: 26,
-                            alignment: Alignment.centerLeft,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: Text(bodies.first, style: ts(12.5, T.text)),
-                          )
-                        : Container(
-                            height: 26,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF212429),
-                              border:
-                                  Border.all(color: const Color(0xFF3A3F45)),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: bodies.contains(s.bodyName)
-                                    ? s.bodyName
-                                    : bodies.last,
-                                isDense: true,
-                                isExpanded: true,
-                                dropdownColor: const Color(0xFF212429),
-                                style: ts(12.5, T.text),
-                                items: [
-                                  for (final b in bodies)
-                                    DropdownMenuItem(
-                                        value: b,
-                                        child: Text(b, style: ts(12.5, T.text)))
-                                ],
-                                onChanged: (v) {
-                                  if (v != null) app.setExtrude(bodyName: v);
-                                },
-                              ),
-                            ),
-                          ))
-              else
-                _row(
-                  'Body Name',
-                  Container(
-                    height: 26,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF212429),
-                      border: Border.all(color: const Color(0xFF3A3F45)),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: TextField(
-                      controller: _body,
-                      style: ts(12.5, T.text),
-                      decoration: const InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.only(bottom: 10)),
-                      onChanged: (v) => app.setExtrude(bodyName: v),
-                    ),
-                  ),
-                ),
-              // M97 — Inventor lets you PICK the target body instead of
-              // hunting through a dropdown. This arms a pick mode: the body
-              // then highlights under the cursor in the 3D view AND in the
-              // model browser (both read app.hoverBody) and a tap in either
-              // takes it. The dropdown stays for keyboard/precision use.
-              if (s.output == 'join' && bodies.length > 1)
+                    'Target Body',
+                    Text(bodies.contains(s.bodyName) ? s.bodyName : '—',
+                        style: ts(12.5, T.text))),
+              if (s.output != 'new' && bodies.length > 1)
                 _row(
                     '',
                     GestureDetector(

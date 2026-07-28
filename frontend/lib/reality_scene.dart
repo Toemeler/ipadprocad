@@ -458,7 +458,15 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
       for (final (id, s) in visibleSolids(app, p))
         solidPayload(id, s,
             material: _bodyIsHovered(app, p, id) ? kMatPreview : kMatSteel,
-            includeGeometry: knownRevs?[id] != identityHashCode(s.mesh)),
+            // M99 — a hovered body must carry its geometry even when the mesh
+            // has not changed: the renderer applies the material while it
+            // builds the mesh, so a material-only payload was silently
+            // ignored and the browser row lit up while 3D did not.
+            // Every solid, not just the hovered one: when the hover MOVES
+            // AWAY, the body that was lit needs its steel material applied
+            // again, and that only happens if its geometry travels too.
+            includeGeometry: app.pickingBody ||
+                knownRevs?[id] != identityHashCode(s.mesh)),
     ],
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),
