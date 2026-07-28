@@ -770,7 +770,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// Row height is fixed here (see [_row]), so the offset in rows is just the
   /// travelled distance over that height. Nothing to look up, nothing that can
   /// move while the finger is down.
-  static const double _kRowH = 26;
+  /// Height of one browser row. Measured off the device screenshot (rows sit
+  /// 32 px apart), not guessed from the padding constants — the drag converts
+  /// travel into rows with it, so a wrong value means the marker moves at the
+  /// wrong rate.
+  static const double _kRowH = 32;
   double? _eopDragStartDy;
   int? _eopDragStartSlot;
 
@@ -867,11 +871,20 @@ class _ModelBrowserState extends State<ModelBrowser> {
         if (v != null && moved > 4) app.setEndOfPart(v);
       },
       onPointerCancel: (_) {
+        // With the list locked this should no longer fire mid-drag; if it
+        // ever does, COMMIT what the user had rather than throwing the drag
+        // away silently — that is the behaviour they experienced as "nothing
+        // happens at all".
         _uninstallEopEsc();
+        final v = _dragEop;
+        final started = _eopDragStartSlot;
         _eopDragStartDy = null;
         _eopDragStartSlot = null;
-        Log.i('eop', 'CANCEL');
+        Log.i('eop', 'CANCEL at slot=$v (started $started)');
         setState(() => _dragEop = null);
+        if (v != null && started != null && v != started) {
+          widget.app.setEndOfPart(v);
+        }
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -1108,6 +1121,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
               return false;
             },
             child: ListView(
+              // M101 — WHY THE MARKER WOULD NOT DRAG. The log said it exactly:
+              // "eop DOWN ... / eop CANCEL", down then cancel, never a move.
+              // A Listener does not enter the gesture arena, but it is not
+              // immune to it either: the moment the scrollable CLAIMS the
+              // pointer, Flutter delivers a pointer-cancel to everyone below,
+              // and the events stop. Raw pointers were therefore not enough.
+              // Locking the list for the duration of the drag removes the only
+              // competitor, so the pointer stays ours from down to up.
+              physics: _eopDragStartDy != null
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
               key: _treeKey,
               padding: const EdgeInsets.symmetric(vertical: 5),
               children: [

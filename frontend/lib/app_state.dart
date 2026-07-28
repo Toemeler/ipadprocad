@@ -2544,6 +2544,20 @@ class AppState extends ChangeNotifier {
       final body = s.editing!.bodyName;
       return (bodyBaseBefore(p, body, s.editing!), body);
     }
+    // M101 — HONOUR THE CHOSEN TARGET BODY.
+    //
+    // This used to go straight to lastSolidFeature: whatever body was made
+    // most recently. So picking Solid1 set s.bodyName correctly and the COMMIT
+    // used it (the log shows "extrude created Extrusion3 (Solid1)"), but the
+    // preview kept combining against Solid2 — "it always shows the preview of
+    // Solid2 + extrusion even after I selected Solid1". The dropdown never
+    // exposed this because it was the last body anyway; picking made it
+    // visible.
+    final want = s.bodyName;
+    if (want != null && want.isNotEmpty) {
+      final base = currentBodySolid(p, want);
+      if (base != null) return (base, want);
+    }
     final lf = lastSolidFeature(p);
     if (lf == null) return (null, null);
     return (currentBodySolid(p, lf.bodyName), lf.bodyName);

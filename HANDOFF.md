@@ -16,6 +16,39 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M101 — Die beiden hartnaeckigen Fehler, diesmal an der Wurzel.**
+>
+> **(1) Vorschau ignorierte den gewaehlten Zielkoerper.** `_extrudeBooleanTarget`
+> ging fuer ein NEUES Feature direkt auf `lastSolidFeature` — den zuletzt
+> gebauten Koerper — und schaute `s.bodyName` nie an. Picken setzte den Namen
+> also korrekt und der COMMIT benutzte ihn auch (im Log: "extrude created
+> Extrusion3 (Solid1)"), aber die Vorschau kombinierte weiter gegen Solid2.
+> Genau der Bericht: "zeigt immer die Vorschau von Solid2 + Extrusion, auch
+> nachdem ich Solid1 gewaehlt habe". Das Dropdown hat das nie aufgedeckt, weil
+> dort ohnehin meist der letzte Koerper stand — erst das Picken macht es
+> sichtbar.
+>
+> **Das erklaert auch "Hover in 3D macht nichts".** Seit M100 ist der Hover
+> KEIN Tint mehr, sondern die neu gerechnete Vorschau gegen den gehoverten
+> Koerper — und genau die war fest auf Solid2 verdrahtet. Im Browser tintet die
+> Zeile zusaetzlich, deshalb sah es dort aus, als wuerde etwas passieren, und
+> in 3D nicht. EIN Fehler, zwei Symptome.
+>
+> **(2) EOP: Listener reicht NICHT.** Das Log sagt es woertlich: `eop DOWN` …
+> `eop CANCEL`, nie ein MOVE. Ein Listener nimmt zwar nicht an der Gesten-Arena
+> teil, ist ihr aber nicht entzogen: sobald das Scrollable den Pointer
+> BEANSPRUCHT, schickt Flutter allen darunter ein pointer-cancel und die
+> Events hoeren auf. Rohe Pointer allein waren also nicht genug. Die Liste
+> wird jetzt fuer die Dauer des Zugs auf `NeverScrollableScrollPhysics`
+> gestellt — kein Konkurrent, kein Cancel, der Pointer bleibt von DOWN bis UP
+> bei uns. Zusaetzlich: `_kRowH` von geratenen 26 auf **32** korrigiert (am
+> Geraete-Screenshot gemessen, die Zeilen stehen 32 px auseinander — mit 26
+> waere die Marke im falschen Tempo gewandert), und ein Cancel mitten im Zug
+> committet jetzt, statt still zu verwerfen.
+>
+> **Neu/berührt:** `app_state.dart` (`_extrudeBooleanTarget`),
+> `widgets/model_browser.dart` (ListView-Physics, Zeilenhoehe, Cancel).
+
 > **M100 — EOP-Ziehen: die eigentliche Ursache. Und der Hover zeigt jetzt die
 > ANTWORT statt eines zweiten Highlights.**
 >
