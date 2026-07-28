@@ -14,6 +14,7 @@ import 'constraints.dart';
 import 'diag.dart';
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
+import 'freehand.dart';
 import 'gear.dart';
 import 'hud.dart';
 import 'log.dart';
@@ -43,6 +44,7 @@ enum Tool {
   lineMid,
   splineCV,
   splineInterp,
+  splineFree, // M87 — draw freely with pencil/finger, then fit
   eqCurve,
   bridge,
   circleCenter,
@@ -108,6 +110,7 @@ const Map<Tool, String> toolFlyoutGroup = {
   Tool.lineMid: 'line',
   Tool.splineCV: 'line',
   Tool.splineInterp: 'line',
+  Tool.splineFree: 'line',
   Tool.eqCurve: 'line',
   Tool.bridge: 'line',
   Tool.circleCenter: 'circle',
@@ -173,6 +176,33 @@ enum GearKind { external, internal, planetary }
 /// the gear is placed by a viewport tap or the Insert button. [editing] holds
 /// the entity index when re-opening an existing single gear (Insert then
 /// REPLACES it in place instead of adding a new one).
+/// M87 — live state of the FREEHAND spline: the raw stroke plus the fit
+/// parameters the modeless dialog edits.
+///
+/// The raw stroke is kept for the whole session and never overwritten, so the
+/// Points and Smoothing sliders are non-destructive: every change re-fits from
+/// the original ink, in both directions. Only [fitFreehandStroke]'s OUTPUT is
+/// thrown away and rebuilt.
+class FreehandSession {
+  /// Ink as it was drawn, world coordinates.
+  final List<Offset> raw = [];
+
+  /// True while the pointer is still down — the viewport paints the raw ink;
+  /// once false the dialog is open and the fitted spline is previewed.
+  bool drawing = true;
+
+  int points = kFreehandDefaultPoints;
+  double smoothing = 0.35;
+
+  /// Close the curve when the two ends land near each other.
+  bool snapClosed = true;
+
+  /// Pull the two ENDPOINTS onto existing sketch points.
+  bool snapToPoints = true;
+
+  FreehandSession();
+}
+
 class GearSession {
   GearKind kind;
   GearParams params; // module / α / x / fillet / bore (+ teeth for single)
@@ -3416,6 +3446,113 @@ class AppState extends ChangeNotifier {
     } else {
       gear = null;
     }
+    notifyListeners();
+  }
+
+  // ---- freehand spline session (M87) ----
+  FreehandSession? freehand;
+
+  /// Snap tolerance for the freehand ends, in world mm — a few pixels at the
+  /// current zoom, so it feels the same however far you are zoomed in.
+  double get freehandSnapTol => (12.0 / (zoom <= 0 ? 1 : zoom)).clamp(0.05, 50.0);
+
+  /// Existing sketch points the freehand ends may snap to (endpoints and
+  /// centres of the visible geometry on the editable layer).
+  List<Offset> freehandSnapTargets() {
+    final s = current;
+    if (s == null) return const [];
+    final out = <Offset>[];
+    for (final g in displayGeometry(s)) {
+      for (final q in sketchCurve(g)) {
+        out.add(q);
+      }
+    }
+    return out;
+  }
+
+  /// The pointer went down with the freehand tool armed.
+  void freehandBegin(Offset w) {
+    if (tool != Tool.splineFree || !inEditMode) return;
+    freehand = FreehandSession()..raw.add(w);
+    toolPoints.clear();
+    notifyListeners();
+  }
+
+  /// The pointer moved while drawing. Samples closer than a hair are dropped
+  /// here already, so a resting hand cannot grow the stroke without bound.
+  void freehandExtend(Offset w) {
+    final f = freehand;
+    if (f == null || !f.drawing) return;
+    if (f.raw.isNotEmpty && (f.raw.last - w).distance < 1e-6) return;
+    f.raw.add(w);
+    notifyListeners();
+  }
+
+  /// The pointer lifted: stop recording and open the dialog on the fit.
+  /// A stroke too short to be a curve (a stray tap) is discarded silently
+  /// rather than opening a dialog over nothing.
+  void freehandEnd() {
+    final f = freehand;
+    if (f == null || !f.drawing) return;
+    f.drawing = false;
+    if (dedupeStroke(f.raw).length < 2) {
+      freehand = null;
+      toolPoints.clear();
+      notifyListeners();
+      return;
+    }
+    freehandRefit();
+  }
+
+  /// Re-fits the raw stroke with the session's current parameters and puts the
+  /// result into [toolPoints].
+  ///
+  /// That is the whole trick: the preview painter and `_commitTool` both read
+  /// toolPoints, so the freehand curve travels the ORDINARY tool pipeline —
+  /// layer stamping, constraint inference, undo — with no special case, and
+  /// the preview is by construction exactly what will be committed.
+  void freehandRefit() {
+    final f = freehand;
+    if (f == null) return;
+    final fit = fitFreehandStroke(
+      f.raw,
+      points: f.points,
+      smoothing: f.smoothing,
+      snapClosed: f.snapClosed,
+      snapToPoints: f.snapToPoints,
+      snapTargets: f.snapToPoints ? freehandSnapTargets() : const [],
+      snapTol: freehandSnapTol,
+    );
+    toolPoints
+      ..clear()
+      ..addAll(fit.points);
+    notifyListeners();
+  }
+
+  /// Dialog edit → re-fit → repaint. One entry point, so a slider can never
+  /// leave the preview and the pending geometry out of step.
+  void freehandNotify() => freehandRefit();
+
+  /// Finish (the ✓ or Enter): commit through the normal tool path.
+  void freehandCommit() {
+    final s = current;
+    final f = freehand;
+    if (s == null || f == null) return;
+    if (toolPoints.length < kFreehandMinPoints) {
+      freehandCancel();
+      return;
+    }
+    _commitTool(s);
+    freehand = null;
+    toolPoints.clear();
+    notifyListeners();
+  }
+
+  /// Esc / the dialog's close: throw the ink away, keep the tool armed so the
+  /// next stroke starts immediately (Inventor keeps sketch tools running).
+  void freehandCancel() {
+    freehand = null;
+    toolPoints.clear();
     notifyListeners();
   }
 

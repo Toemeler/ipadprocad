@@ -27,6 +27,10 @@ const toolMeta = <Tool, ToolMeta>{
   Tool.lineMid: ToolMeta.fixedPts(2),
   Tool.splineCV: ToolMeta.variable(3),
   Tool.splineInterp: ToolMeta.variable(2),
+  // M87: the freehand tool fills toolPoints itself (from the fitted stroke)
+  // rather than by clicking, but it commits through the same path, so it needs
+  // the same metadata.
+  Tool.splineFree: ToolMeta.variable(2),
   Tool.eqCurve: ToolMeta.fixedPts(1),
   Tool.bridge: ToolMeta.fixedPts(2),
   Tool.circleCenter: ToolMeta.fixedPts(2),
@@ -73,6 +77,14 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       if (p.length < 3) return null;
       return [_spline(p, Geo.splineCv)];
     case Tool.splineInterp:
+      if (p.length < 2) return null;
+      return [_spline(p, Geo.splineFit)];
+    case Tool.splineFree:
+      // M87 — the fitted freehand stroke is an ORDINARY interpolation spline;
+      // once committed nothing distinguishes it, so it can be dragged,
+      // constrained and dimensioned like any other. _spline closes it when the
+      // last fit point equals the first exactly, which is what
+      // fitFreehandStroke emits for a closed curve.
       if (p.length < 2) return null;
       return [_spline(p, Geo.splineFit)];
     case Tool.eqCurve:

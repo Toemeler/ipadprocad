@@ -52,6 +52,10 @@ final Map<String, String> IC = {
       '<path d="M4 20 C 8 6, 16 22, 22 7" stroke="$G" stroke-width="1.5"/><path d="M4 20L9 9L17 17L22 7" stroke="$DIM" stroke-width="1" stroke-dasharray="2 2"/>${gp(4, 20, 3)}${gp(9, 9, 3)}${gp(17, 17, 3)}${gp(22, 7, 3)}'),
   'fsplinei': S(26,
       '<path d="M4 19 C 8 8, 12 22, 16 12 S 22 6, 22 6" stroke="$G" stroke-width="1.5"/>${gp(4, 19, 3)}${gp(11, 14, 3)}${gp(17, 11, 3)}${gp(22, 6, 3)}'),
+  // M87 — freehand: a loose hand-drawn stroke plus a pencil tip, so it reads
+  // as "draw it yourself" rather than "place points".
+  'fsplinefree': S(26,
+      '<path d="M3 20 C 6 9, 10 21, 13 13 S 17 5, 21 9" stroke="$G" stroke-width="1.5" stroke-linecap="round"/><path d="M15.5 21.5l1.2-3.4 6.1-6.1 2.2 2.2-6.1 6.1z" fill="$BL" stroke="none" opacity=".85"/><path d="M21.6 12l2.2 2.2" stroke="$DIM" stroke-width="1"/>'),
   'feqcurve': S(26,
       '<path d="M4 22h18M4 22V5" stroke="$DIM" stroke-width="1"/><path d="M5 20 C 10 20, 12 7, 21 7" stroke="$G" stroke-width="1.5"/><text x="10" y="12" font-size="8" font-style="italic" fill="$BL" font-family="Georgia" stroke="none">fx</text><path d="M4 5l-1.2 2M4 5l1.2 2" stroke="$DIM" stroke-width="1"/>'),
   'fbridge': S(26,

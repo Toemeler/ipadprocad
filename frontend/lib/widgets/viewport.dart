@@ -35,6 +35,7 @@ import '../theme.dart';
 import '../touch.dart';
 import 'pattern_dialog.dart';
 import 'parameters_dialog.dart';
+import 'freehand_dialog.dart';
 import 'gear_dialog.dart';
 import 'text_editor_window.dart';
 import 'dart:io';
@@ -717,6 +718,8 @@ class _Viewport2DState extends State<Viewport2D> {
   /// M43: position of the movable Parameters window (viewport coords).
   Offset _paramsPos = const Offset(60, 60);
   Offset _gearPos = const Offset(60, 60);
+  // M87 — where the freehand fit window sits (set to the end of the stroke).
+  Offset _freehandPos = const Offset(120, 120);
   final GlobalKey _gearDialogKey = GlobalKey();
 
   /// M45: position of the movable text editor window.
@@ -1138,6 +1141,22 @@ class _Viewport2DState extends State<Viewport2D> {
               }
             }
           }
+          // M87 — the freehand fit window owns Enter and Esc while it is up,
+          // BEFORE the generic tool handlers below: Enter must finish the
+          // curve rather than the variable-point tool, and Esc must throw the
+          // ink away while leaving the tool armed for the next stroke.
+          if (event is KeyDownEvent && app.freehand != null) {
+            final k = event.logicalKey;
+            if (k == LogicalKeyboardKey.enter ||
+                k == LogicalKeyboardKey.numpadEnter) {
+              app.freehandCommit();
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.escape) {
+              app.freehandCancel();
+              return KeyEventResult.handled;
+            }
+          }
           if (event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.escape) {
             app.cancelTool();
@@ -1296,6 +1315,24 @@ class _Viewport2DState extends State<Viewport2D> {
             if (_pointers > 1) {
               _clickDown = null; // second finger: pan/zoom, never a click
               _cancelLp();
+              // M87: a second finger means pan/zoom, so the freehand stroke
+              // that the first finger started is abandoned rather than left
+              // half-drawn while the view moves under it.
+              if (app.freehand?.drawing == true) app.freehandCancel();
+              return;
+            }
+            // M87 — FREEHAND: the stroke owns the pointer from here. It must
+            // start before the click/long-press machinery so that drawing is
+            // never mistaken for a tap, and it only runs with a single pointer
+            // (checked above) so palm + pencil still behave.
+            if (app.tool == Tool.splineFree &&
+                app.freehand == null &&
+                app.inEditMode &&
+                (e.kind == PointerDeviceKind.touch ||
+                    e.kind == PointerDeviceKind.stylus ||
+                    e.kind == PointerDeviceKind.mouse)) {
+              app.freehandBegin(_toWorld(e.localPosition, size));
+              _cancelLp(); // drawing is not a long-press
               return;
             }
             _clickDown = e.localPosition;
@@ -1318,6 +1355,11 @@ class _Viewport2DState extends State<Viewport2D> {
           },
           onPointerMove: (e) {
             final rejected = _rejectedTouches.contains(e.pointer);
+            // M87 — freehand ink. A rejected touch (palm) must never draw.
+            if (!rejected && app.freehand?.drawing == true) {
+              app.freehandExtend(_toWorld(e.localPosition, size));
+              return;
+            }
             if (!rejected && e.kind == PointerDeviceKind.touch) {
               _mft.move(e.pointer, e.localPosition);
             }
@@ -1370,6 +1412,12 @@ class _Viewport2DState extends State<Viewport2D> {
                 e.kind == PointerDeviceKind.stylus ||
                 e.kind == PointerDeviceKind.invertedStylus) {
               app.setHover(null);
+            }
+            // M87: lifting ends the freehand stroke and opens the fit dialog.
+            if (app.freehand?.drawing == true) {
+              _freehandPos = e.localPosition + const Offset(18, 18);
+              app.freehandEnd();
+              return;
             }
             // M53: Procreate taps — a clean two-finger tap is UNDO, three
             // fingers REDO. The classifier separates them from pan/pinch
@@ -1478,6 +1526,16 @@ class _Viewport2DState extends State<Viewport2D> {
                           key: _gearDialogKey,
                           app: app,
                           onDrag: (d) => setState(() => _gearPos += d)),
+                    ),
+                  // M87: movable Freehand fit window — opens where the stroke
+                  // ended, so the curve is not hidden behind its own dialog.
+                  if (app.freehand != null && app.freehand!.drawing == false)
+                    Positioned(
+                      left: _freehandPos.dx.clamp(0.0, size.width - 268),
+                      top: _freehandPos.dy.clamp(0.0, size.height - 60),
+                      child: FreehandDialog(
+                          app: app,
+                          onDrag: (d) => setState(() => _freehandPos += d)),
                     ),
                   // M45: movable parametric-text editor window
                   if (app.editingText != null)
@@ -2021,6 +2079,28 @@ class _ViewportPainter extends CustomPainter {
       } catch (_) {/* half-typed params: skip the ghost this frame */}
       // centre marker
       canvas.drawCircle(map(c.dx, c.dy), 3, Paint()..color = T.blue);
+    }
+
+    // ---- M87: raw freehand ink, while the pointer is still down ----
+    // Thin and dimmer than committed geometry: this is ink, not yet a spline.
+    // Once the pointer lifts, `freehand.drawing` goes false and the ordinary
+    // preview below takes over — drawing the FITTED curve out of toolPoints,
+    // which is literally the geometry that Finish will commit.
+    final fh = app.freehand;
+    if (fh != null && fh.drawing && fh.raw.length > 1) {
+      final ink = Paint()
+        ..color = T.hover
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path()..moveTo(map(fh.raw.first.dx, fh.raw.first.dy).dx,
+          map(fh.raw.first.dx, fh.raw.first.dy).dy);
+      for (var i = 1; i < fh.raw.length; i++) {
+        final o = map(fh.raw[i].dx, fh.raw[i].dy);
+        path.lineTo(o.dx, o.dy);
+      }
+      canvas.drawPath(path, ink);
     }
 
     // ---- in-progress tool preview (blue, like the accent) ----

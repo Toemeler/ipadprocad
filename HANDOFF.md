@@ -16,6 +16,67 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M87 — Freihand-Spline-Werkzeug.** Mit Pencil oder Finger frei zeichnen,
+> beim Loslassen oeffnet ein modeless Fenster am Strichende: **Points**,
+> **Smoothing**, **Close if ends meet**, **Snap ends to points**, gruener
+> **Finish**-Knopf (oder Enter), Esc verwirft.
+>
+> **Der Kniff: keine zweite Commit-Strecke.** Das Fitting schreibt sein
+> Ergebnis in `toolPoints` — und Vorschau-Painter wie `_commitTool` lesen genau
+> die. Die Freihandkurve laeuft damit durch die GEWOEHNLICHE Werkzeugstrecke
+> (Layer-Stempel, Constraint-Inferenz, Undo), und die Vorschau ist per
+> Konstruktion exakt das, was Finish committet. Committet ist es ein ganz
+> normaler `splineFit`-Polyline — danach unterscheidet nichts die Kurve von
+> einer geklickten, sie laesst sich ziehen, bemassen und constrainen.
+>
+> **Pipeline (`lib/freehand.dart`, rein, ohne Flutter-State):**
+> 1. **dedupe** — eine ruhende Hand liefert denselben Punkt vielfach; Duplikate
+>    verzerren die Bogenlaengen-Verteilung.
+> 2. **smooth** — gleitender Mittelwert ueber den ROHSTRICH, VOR dem Resampling.
+>    Danach zu glaetten wuerde gegen die Fit-Punkte arbeiten und genau die Ecken
+>    verschleifen, die der Nutzer gesetzt hat. Fenster waechst mit der
+>    Samplezahl, damit dieselbe Reglerstellung bei kurzem wie langem Strich
+>    gleich wirkt. **Enden sind gepinnt** — sie sind der Anfang/das Ende der
+>    Zeichnung und das, woran gesnappt wird.
+> 3. **resample nach BOGENLAENGE** auf n Punkte — sonst clustern die Fit-Punkte
+>    dort, wo die Hand langsam war.
+> 4. **snap** — Schliessen gewinnt vor Endpunkt-Snap (wer eine geschlossene
+>    Kurve wollte, bekommt eine, statt zwei Enden an zwei Nachbarn). Geschlossen
+>    heisst: letzter Punkt EXAKT gleich dem ersten — die Konvention, die
+>    `_spline` in tools.dart ohnehin schon liest. Gesnappt werden nur die
+>    ENDPUNKTE; innere Fit-Punkte zu ziehen wuerde die Kurve vom gezeichneten
+>    Strich wegreissen.
+>
+> **Nicht-destruktiv:** der Rohstrich bleibt die ganze Sitzung erhalten, jede
+> Reglerbewegung fittet neu daraus. Points und Smoothing sind damit in BEIDE
+> Richtungen umkehrbar (im Test festgenagelt).
+>
+> **Eingabe.** Der Strich uebernimmt den Pointer VOR der Klick-/Long-Press-
+> Maschinerie, damit Zeichnen nie als Tap durchgeht; ein zweiter Finger bedeutet
+> Pan/Zoom und verwirft den angefangenen Strich, statt ihn halbfertig unter der
+> wandernden Ansicht stehen zu lassen; eine abgewiesene Handballen-Beruehrung
+> zeichnet nicht. Waehrend des Zeichnens malt der Viewport die rohe TINTE
+> (duenn, `T.hover`), nach dem Abheben die gefittete Kurve aus `toolPoints`.
+> Enter/Esc gehen an das Fit-Fenster, BEVOR die generischen Tool-Handler
+> greifen.
+>
+> **Neu/berührt:** `lib/freehand.dart` (neu), `lib/widgets/freehand_dialog.dart`
+> (neu), `app_state.dart` (`Tool.splineFree`, `FreehandSession`, Session-API),
+> `tools.dart` (Meta + `buildToolGeometry`), `widgets/viewport.dart`
+> (Capture, Tinten-Vorschau, Fenster, Tasten), `svg_icons.dart`
+> (`fsplinefree`), `widgets/ribbon.dart` (Flyout-Eintrag "Freehand"), neuer
+> Test `test/m87_freehand_test.dart`.
+>
+> **Verifikationsstand:** blind geschrieben, CI-Ergebnis siehe Lauf zum Commit.
+> Die Fitting-Mathematik ist im Host-Test echt geprueft (gleichmaessige
+> Bogenlaenge, gepinnte Enden, exaktes Schliessen, Umkehrbarkeit); **alles
+> Zeigerbezogene ist Geraete-Sache** und offen: ob der Strich sich gegen
+> Palm-Rejection und die M53-Gesten wirklich sauber verhaelt, ob das Fenster an
+> der richtigen Stelle aufgeht, und ob 12 % Fensterbreite Glaettung sich gut
+> anfuehlt. **Bewusst nicht drin:** Druck-/Neigungsempfindlichkeit, und
+> Nachbearbeiten eines bereits committeten Freihandzugs (danach ist es ein
+> normaler Spline und wird ueber Griffe editiert).
+
 > **M86 — Zwei gemeldete Spline-Fehler, beide im Code gefunden.**
 >
 > **(1) Der "Punkt, der keiner ist".** Die Vorschau haengt beim Zeichnen den

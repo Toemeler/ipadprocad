@@ -43,6 +43,7 @@ const flyouts = <String, List<FlyItem>>{
     FlyItem('fmidline', 'Line', 'Midpoint Line', Tool.lineMid),
     FlyItem('fsplinecv', 'Spline', 'Control Vertex', Tool.splineCV),
     FlyItem('fsplinei', 'Spline', 'Interpolation', Tool.splineInterp),
+    FlyItem('fsplinefree', 'Spline', 'Freehand', Tool.splineFree),
     FlyItem('feqcurve', 'Equation Curve', 'Equation Curve', Tool.eqCurve),
     FlyItem('fbridge', 'Bridge Curve', 'Bridge Curve', Tool.bridge),
   ],
