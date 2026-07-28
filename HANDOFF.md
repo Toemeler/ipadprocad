@@ -16,6 +16,49 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M107 — Der Model Browser ist jetzt 100% natives Apple-UI auf Liquid Glass.**
+>
+> `UICollectionView` mit List-Konfiguration auf `UIGlassEffect`. UIKit macht
+> ALLES: Zeilen, Einrueckung, Disclosure, die Augen-Schalter, die
+> Kontextmenues und den End-of-Part-Zug. Dart schickt ein flaches Zeilenmodell
+> (`GlassRow`) und bekommt Ereignisse zurueck — es zeichnet und trefferprueft
+> in diesem Panel nichts mehr.
+>
+> **Warum nativ hier wirklich besser ist, nicht nur huebscher:** jeder harte
+> Fehler dieses Panels sass an der Flutter/UIKit-Grenze. M48 — eine
+> Plattform-View schluckte Taps, bis sie in `IgnorePointer` lag. M102 — eine
+> `UIContextMenuInteraction` ueber der EOP-Zeile kassierte den Flutter-Zug, und
+> es hat VIER Meilensteine gedauert, das zu finden, weil UIKits
+> Long-Press-Recognizer die Beruehrung nach ~150 ms wegnimmt. Innerhalb von
+> UIKit gibt es diese Grenze nicht: das Kontextmenue der Zelle und der
+> Pan-Recognizer verhandeln in EINEM Gestensystem. Genau deshalb duerfen Zug
+> und Menue auf derselben Zeile endlich nebeneinander existieren.
+>
+> **Die Regeln bleiben in Dart.** Zeitstrahl-Reihenfolge, Pinning der geteilten
+> Skizze, was als zurueckgerollt gilt, wie viele ZEILEN einem Slot entsprechen —
+> das alles rechnet `native_browser.dart`; die native Seite meldet beim Ziehen
+> nur die zurueckgelegte Strecke in Zeilen. Damit liegt die Fachlogik weiter an
+> einer Stelle und Swift bleibt ein schneller, dummer Renderer.
+>
+> **Fallback bleibt:** auf Nicht-iOS (und im Host-Test) laeuft unveraendert der
+> Flutter-Baum aus `model_browser.dart`. Nichts daran wurde entfernt, der Umbau
+> ist also in einem Commit ruecknehmbar.
+>
+> **Neu:** `packages/native_menu/ios/Classes/GlassBrowser.swift`,
+> `packages/native_menu/lib/glass_browser.dart`,
+> `lib/widgets/native_browser.dart` (Zeilenmodell),
+> `lib/widgets/native_browser_host.dart` (Ereignis-Routing), `main.dart`.
+>
+> **Verifikationsstand — ehrlich:** `dart-checks` gruen (624), das Swift
+> kompiliert erst in `m5-flutter-ipa`, und **wie es sich anfuehlt, weiss nur das
+> Geraet**. Zu pruefen, in dieser Reihenfolge: (1) kommt die Liste ueberhaupt
+> hoch und bricht das Glas den Viewport, (2) SF-Symbole statt der eigenen
+> SVG-Icons — bewusst so, weil "natives Apple-UI" das heisst, aber es sieht
+> anders aus als bisher, (3) der EOP-Zug, (4) Hybrid-Composition-Kosten neben
+> der RealityKit-Surface. **Noch nicht drin:** Umbenennen-Dialoge sind weiter
+> Flutter-`AlertDialog`s, und die Skizzen-Auswahl im Baum (Highlight der
+> Auswahl) ist nur ueber `selected` abgebildet.
+
 > **M106 — Der Model Browser liegt auf ECHTEM Apple Liquid Glass.**
 >
 > Kein in Flutter gemalter Blur: ein natives `UIVisualEffectView` mit
