@@ -16,6 +16,34 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M105 — Hover fand gekruemmte Flaechen nicht.**
+>
+> Das Koerper-Hovern benutzte `_pickSolidFace`. Das Ding existiert fuer
+> Sketch-on-Face und ueberspringt darum JEDE nicht-planare Flaeche
+> (`kFacePlane`-Test). Die runde Flaeche eines Zylinders ist genau das — auf der
+> gekruemmten Seite fand das Hovern deshalb gar nichts. Neu `_pickSolidAny`:
+> derselbe Dreiecks-Durchlauf mit derselben Blickrichtungs- und Tiefenlogik,
+> aber OHNE Planaritaetstest, weil es beim Waehlen eines KOERPERS voellig
+> gleichgueltig ist, welche Art Flaeche man beruehrt. Hover und Tap benutzen
+> jetzt beide das.
+>
+> **NOCH OFFEN — EOP ueberspringt Skizzen, und meine Zeilenrechnung ist der
+> falsche Ansatz.** Viermal nachgebessert, viermal daneben. Der Grund ist
+> struktureller: `eopAfter` zaehlt **Features**, eine Skizze hat also gar keinen
+> Slot, und keine Umrechnung von Zeilen aendert daran etwas — die Marke KANN
+> nicht ueber einer Skizze stehen. Inventor kann das, weil dort auch Skizzen
+> zurueckgerollt werden.
+>
+> **Der richtige Umbau (naechste Runde, nicht blind zwischendurch):**
+> `eopAfter` zaehlt **Zeitstrahl-KNOTEN** statt Features. `applyEndOfPart`
+> laeuft `partTimeline` durch und setzt ab dem Schnitt: Feature →
+> `rolledBack = true` (wie heute), Skizze → neues abgeleitetes
+> `ChildSketch.rolledBack`, das Payload und Painter wie unsichtbar behandeln.
+> `partBuildOrder(p).length` als Klemmgrenze wird `partTimeline(p).length`. Die
+> Zeilenabbildung im Browser entfaellt damit komplett, weil Slot == Zeile ist —
+> und genau das ist der Grund, es so zu machen: die ganze Fehlerklasse
+> verschwindet, statt noch einmal umgerechnet zu werden.
+
 > **M104 — Das Flackern war eine Rueckkopplung, die ich in M100 selbst gebaut
 > habe. Die Hysterese aus M102/M103 hat nur das Symptom behandelt und es dann
 > verschlimmert.**

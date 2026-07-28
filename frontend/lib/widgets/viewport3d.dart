@@ -621,8 +621,8 @@ class _Viewport3DState extends State<Viewport3D>
       // only changes when the cursor is genuinely over a DIFFERENT body and
       // stays there; a momentary miss (a gap between facets, an edge) keeps
       // the current one rather than dropping it.
-      final pick = _pickSolidFace(cam, px);
-      final name = pick == null ? null : _bodyNameOf(p, pick.$1);
+      final pick = _pickSolidAny(cam, px); // M105 — any face, not just planar
+      final name = pick == null ? null : _bodyNameOf(p, pick);
       // M103 — hysteresis in BOTH directions. M102 only damped the drop to
       // null, so a sweep across the seam between two bodies still switched on
       // the first sample of the neighbour — and every switch recomputes the
@@ -752,6 +752,56 @@ class _Viewport3DState extends State<Viewport3D>
   /// Consecutive hover samples that hit no body (M102 — see the hover code).
   int _hoverBodyMiss = 0;
 
+
+  /// M105 — frontmost solid under [px], ANY face, planar or not.
+  ///
+  /// Body hovering used `_pickSolidFace`, which exists for sketch-on-face and
+  /// therefore skips every non-planar face (`kFacePlane`). On a cylinder the
+  /// round face is exactly that, so hovering the curved side of a body found
+  /// nothing at all — the reported dead spots. Picking a BODY does not care
+  /// what kind of surface you touched, so this drops the planarity test and
+  /// keeps only the facing and depth logic.
+  KernelSolid? _pickSolidAny(Cam3 cam, Offset px) {
+    KernelSolid? best;
+    var bestDepth = double.infinity;
+    for (final s in _liveSolids()) {
+      final m = s.mesh;
+      for (var t = 0; t < m.indices.length; t += 3) {
+        final i0 = m.indices[t] * 3,
+            i1 = m.indices[t + 1] * 3,
+            i2 = m.indices[t + 2] * 3;
+        final w0 =
+            Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+        final w1 =
+            Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+        final w2 =
+            Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+        final n = (w1 - w0).cross(w2 - w0);
+        // Camera-facing only, same convention as _pickSolidFace (n·dir > 0).
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        // Barycentric test in SCREEN space: cheap and independent of the
+        // surface type, which is the whole point here.
+        final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+        final d = (b.dx - a.dx) * (c.dy - a.dy) - (c.dx - a.dx) * (b.dy - a.dy);
+        if (d.abs() < 1e-9) continue;
+        final u = ((px.dx - a.dx) * (c.dy - a.dy) -
+                (c.dx - a.dx) * (px.dy - a.dy)) /
+            d;
+        final v = ((b.dx - a.dx) * (px.dy - a.dy) -
+                (px.dx - a.dx) * (b.dy - a.dy)) /
+            d;
+        if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
+        final depth = cam.depth(w0) * (1 - u - v) +
+            cam.depth(w1) * u +
+            cam.depth(w2) * v;
+        if (depth < bestDepth) {
+          bestDepth = depth;
+          best = s;
+        }
+      }
+    }
+    return best;
+  }
 
   String? _bodyNameOf(PartModel p, KernelSolid solid) {
     // M104 — THE FLICKER, and why holding still did not help either.
@@ -902,8 +952,8 @@ class _Viewport3DState extends State<Viewport3D>
         app.pickBody(shown);
         return;
       }
-      final face = _pickSolidFace(cam, px);
-      final name = face == null ? null : _bodyNameOf(p, face.$1);
+      final face = _pickSolidAny(cam, px); // M105
+      final name = face == null ? null : _bodyNameOf(p, face);
       if (name != null) {
         app.pickBody(name);
         return;
