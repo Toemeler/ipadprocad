@@ -16,6 +16,57 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M91 — Model Browser als ZEITSTRAHL + End of Part.**
+>
+> **(1) Zeitbasiert.** Der Browser war "erst alle Skizzen, dann alle Features".
+> Inventors Browser ist aber eine Historie: was zuletzt entstand, steht unten.
+> Neu ordnet `partTimeline(part)` die oberste Ebene nach Entstehungszeit
+> (`seq` auf ChildSketch UND ExtrudeFeature, EIN Zaehler pro Part, persistiert)
+> — eine nach einer Extrusion angelegte Skizze steht jetzt UNTER ihr. Zwei
+> Regeln obendrauf: eine KONSUMIERTE Skizze ist gar keine oberste Zeile (sie
+> haengt unter ihrem Feature), und die Kopie einer **geteilten** Skizze wird
+> direkt UEBER ihren ersten Consumer gepinnt statt an ihren eigenen Zeitplatz —
+> Inventors "a copy of the sketch displays above its parent feature". Das war
+> in M84 noch nicht so: dort standen geteilte Skizzen pauschal ganz oben.
+>
+> **(2) End of Part.** `PartModel.eopAfter` = Zahl der Features UEBER der Marke.
+> Alles darunter ist zurueckgerollt: nicht in den Koerper gerechnet, nicht
+> gezeichnet (alle vier Zeichen-Praedikate ergaenzt: `app_state`,
+> `reality_scene`, zweimal `viewport3d`), im Browser ausgegraut. Gezaehlt wird
+> in FEATURES, nicht in Zeilen — Skizzen werden nicht gebaut, ein Ziehen ueber
+> sie hinweg waere eine unsichtbare Nulloperation.
+>
+> **Genau wie im Sketch:** ziehbar mit Live-Vorschau der neuen Position
+> (`_dragEop`, gespiegelt zu `_dragEos`), **Esc bricht das Verschieben ab**,
+> Sekundaerklick und Long-Press oeffnen dasselbe Menue (nativ auf dem Geraet,
+> Overlay sonst) mit *Move to Top* / *Move to End* / *Delete All Features Below
+> EOP*. Der Fallback-Overlay ist zu `_showCtxItems` herausgezogen, damit End of
+> Sketch und End of Part nicht auseinanderdriften koennen.
+>
+> **Ein neues Feature landet UEBER einer geparkten Marke**, die dabei nach unten
+> rutscht — wie in Inventor, wo neue Arbeit vor die Marke kommt.
+>
+> **Migration ehrlich:** ein Dokument vor M91 hat nirgends `seq`. Beim Laden
+> bekommen erst die Skizzen, dann die Features fortlaufende Nummern — das
+> reproduziert EXAKT die alte Blockreihenfolge, ein altes Teil oeffnet also so,
+> wie der Autor es verlassen hat. Nur was ab jetzt entsteht, liegt nach echter
+> Zeit auf dem Strahl. `eop` wird nur geschrieben, wenn die Marke NICHT am Ende
+> steht; unveraenderte Dateien bleiben unveraendert.
+>
+> **Neu/berührt:** `part_model.dart` (`seq`, `eopAfter`, `PartNode`,
+> `partTimeline`, `partBuildOrder`, `applyEndOfPart`, Persistenz + Migration),
+> `app_state.dart` (`setEndOfPart`, `deleteBelowEndOfPart`, seq beim Anlegen,
+> Zeichen-Praedikat), `reality_scene.dart`, `widgets/viewport3d.dart`,
+> `widgets/model_browser.dart` (Zeitstrahl-Aufbau, EOP-Zeile mit Drag/Esc/Menue,
+> Ausgrauen), neuer Test `test/m91_timeline_eop_test.dart`.
+>
+> **Verifikationsstand:** blind geschrieben, CI-Ergebnis siehe Lauf zum Commit.
+> Die Modell-Logik ist host-getestet (Reihenfolge, Pinning, Rollback,
+> Migration); **Geraete-Sache und offen:** ob sich das Ziehen der EOP-Marke
+> genauso anfuehlt wie im Sketch, und ob das Ausgrauen im 3D-Viewport
+> ueberzeugt. **Nicht drin:** Umsortieren von Features per Drag (Inventor kann
+> das), und Suppress einzelner Features unabhaengig von der Marke.
+
 > **M90 — Der leere graue Klotz unter dem Browser-Kontextmenue.** Gemeldet mit
 > Screenshot: Long-Press auf eine Skizzenzeile hebt ein leeres, abgerundetes
 > Rechteck in Zeilengroesse aus der Seite, das den Baum verdeckt.

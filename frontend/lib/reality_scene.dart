@@ -30,6 +30,8 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
     if (f.visible &&
         f.solid != null &&
         !f.consumedByJoin &&
+        !f.rolledBack && // M91 — below End of Part
+
         f != sess?.editing &&
         f.bodyName != sess?.previewReplacesBody) {
       out.add((f.name, f.solid!));

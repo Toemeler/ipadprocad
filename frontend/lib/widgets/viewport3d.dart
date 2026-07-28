@@ -440,6 +440,8 @@ class _Viewport3DState extends State<Viewport3D>
       if (f.visible &&
           f.solid != null &&
           !f.consumedByJoin &&
+          !f.rolledBack && // M91
+
           f.bodyName != sess?.previewReplacesBody) {
         yield f.solid!;
       }
@@ -896,6 +898,8 @@ class _ScenePainter extends CustomPainter {
         if (f.visible &&
             f.solid != null &&
             !f.consumedByJoin &&
+            !f.rolledBack && // M91
+
             f != app.extrudeSession?.editing &&
             f.bodyName != app.extrudeSession?.previewReplacesBody)
           f.solid!
@@ -917,6 +921,8 @@ class _ScenePainter extends CustomPainter {
           if (f.visible &&
               f.solid != null &&
               !f.consumedByJoin &&
+              !f.rolledBack && // M91
+
               f != sess?.editing &&
               f.bodyName != sess?.previewReplacesBody)
             f.solid!

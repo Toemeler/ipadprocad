@@ -36,6 +36,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
   // M53 — End-of-Sketch drag: the marker's PREVIEW slot while the finger /
   // mouse moves; committed to the app on release, discarded on Escape.
   int? _dragEos;
+
+  /// M91 — in-flight End of Part drag (null = not dragging), mirroring
+  /// [_dragEos]. Kept separate so a drag in one tree cannot bleed into the
+  /// other.
+  int? _dragEop;
+  bool _eopEscInstalled = false;
+  final GlobalKey _eopKey = GlobalKey();
   final GlobalKey _eosKey = GlobalKey();
   bool _eosEscInstalled = false;
 
@@ -308,6 +315,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
         addTarget('$_kFeaturePrefix${f.name}', f.name,
             _featureKeyFor(f.name), _featureMenu(widget.app, f));
       }
+      // M91 — End of Part, same treatment as End of Sketch.
+      addTarget('__eop__', 'End of Part', _eopKey, _eopMenuGroups(part));
     }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
     if (payload == _lastPayload) return;
@@ -363,6 +372,22 @@ class _ModelBrowserState extends State<ModelBrowser> {
           break;
         case 'ftDelete':
           _confirmDeleteFeature(f);
+          break;
+      }
+      return;
+    }
+    if (layer == '__eop__') {
+      final part = app.currentPart;
+      if (part == null) return;
+      switch (item) {
+        case 'eoptop':
+          app.setEndOfPart(0);
+          break;
+        case 'eopend':
+          app.setEndOfPart(partBuildOrder(part).length);
+          break;
+        case 'eopDeleteBelow':
+          _confirmDeleteBelowPart();
           break;
       }
       return;
@@ -521,6 +546,48 @@ class _ModelBrowserState extends State<ModelBrowser> {
     Overlay.of(context).insert(_ctx!);
   }
 
+  /// M91 — desktop/fallback End of Part menu. Same items as the native one.
+  void _showEopCtx(Offset globalPos) {
+    _closeCtx();
+    final app = widget.app;
+    final part = app.currentPart;
+    if (part == null) return;
+    final eop = _shownEop(part);
+    final n = partBuildOrder(part).length;
+    _showCtxItems(globalPos, [
+      if (eop > 0)
+        _ctxItem('Move to Top', () {
+          _closeCtx();
+          app.setEndOfPart(0);
+        }),
+      if (eop < n)
+        _ctxItem('Move to End', () {
+          _closeCtx();
+          app.setEndOfPart(n);
+        }),
+      if (eop < n)
+        _ctxItem('Delete all features below', () {
+          _closeCtx();
+          _confirmDeleteBelowPart();
+        }, danger: true),
+    ]);
+  }
+
+  Future<void> _confirmDeleteBelowPart() async {
+    final part = widget.app.currentPart;
+    if (part == null) return;
+    final count = part.features.where((f) => f.rolledBack).length;
+    if (count == 0) return;
+    final ok = await confirmAction(
+      context,
+      title: 'Delete all features below EOP?',
+      message: '$count feature${count == 1 ? '' : 's'} '
+          '${count == 1 ? 'is' : 'are'} removed from the part.',
+      confirmLabel: 'Delete',
+    );
+    if (ok) widget.app.deleteBelowEndOfPart();
+  }
+
   void _showEosCtx(Offset globalPos) {
     _closeCtx();
     final app = widget.app;
@@ -544,6 +611,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
           _confirmDeleteBelow();
         }, danger: true),
     ];
+    _showCtxItems(globalPos, items);
+  }
+
+  /// The shared fallback-menu overlay (M91 — extracted so End of Sketch and
+  /// End of Part cannot drift apart).
+  void _showCtxItems(Offset globalPos, List<Widget> items) {
     if (items.isEmpty) return;
     _ctx = OverlayEntry(
       builder: (_) => Stack(children: [
@@ -613,6 +686,112 @@ class _ModelBrowserState extends State<ModelBrowser> {
       if (r != null && r.center.dy < dy) slot++;
     }
     return slot.clamp(0, s.layers.length);
+  }
+
+  int _shownEop(PartModel p) =>
+      (_dragEop ?? p.eopAfter).clamp(0, partBuildOrder(p).length);
+
+  /// Which slot the marker would land in for a pointer at [dy] — counted in
+  /// FEATURES, the same unit [PartModel.eopAfter] uses, so sketch rows in
+  /// between are simply passed over.
+  int _slotForDyPart(PartModel p, double dy) {
+    var slot = 0;
+    for (final f in partBuildOrder(p)) {
+      final r = _globalRect(_rowKeys['$_kFeaturePrefix${f.name}'] ?? GlobalKey());
+      if (r != null && r.center.dy < dy) slot++;
+    }
+    return slot.clamp(0, partBuildOrder(p).length);
+  }
+
+  bool _eopEsc(KeyEvent e) {
+    if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape) {
+      setState(() => _dragEop = null); // Inventor: Esc aborts the reposition
+      _uninstallEopEsc();
+      return true;
+    }
+    return false;
+  }
+
+  void _installEopEsc() {
+    if (_eopEscInstalled) return;
+    _eopEscInstalled = true;
+    HardwareKeyboard.instance.addHandler(_eopEsc);
+  }
+
+  void _uninstallEopEsc() {
+    if (!_eopEscInstalled) return;
+    _eopEscInstalled = false;
+    HardwareKeyboard.instance.removeHandler(_eopEsc);
+  }
+
+  /// M91 — the End of Part row: everything the End of Sketch row does.
+  /// Draggable with a live preview of the new position, Esc aborts, secondary
+  /// click and long press open the same menu.
+  Widget _eopRow(AppState app, PartModel part) {
+    return Listener(
+      key: _eopKey,
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          _showEopCtx(e.position);
+        }
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => _showEopCtx(d.globalPosition),
+        onVerticalDragStart: (d) {
+          _installEopEsc();
+          setState(() => _dragEop = _shownEop(part));
+        },
+        onVerticalDragUpdate: (d) {
+          final slot = _slotForDyPart(part, d.globalPosition.dy);
+          if (slot != _dragEop) setState(() => _dragEop = slot);
+        },
+        onVerticalDragEnd: (_) {
+          _uninstallEopEsc();
+          final v = _dragEop;
+          setState(() => _dragEop = null);
+          if (v != null) app.setEndOfPart(v);
+        },
+        onVerticalDragCancel: () {
+          _uninstallEopEsc();
+          setState(() => _dragEop = null);
+        },
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: _row(
+              indent: 8,
+              exp: ' ',
+              icon: endOfSketchIcon,
+              label: 'End of Part'),
+        ),
+      ),
+    );
+  }
+
+  List<List<NativeMenuItem>> _eopMenuGroups(PartModel part) {
+    final eop = _shownEop(part);
+    final n = partBuildOrder(part).length;
+    return [
+      [
+        if (eop > 0)
+          const NativeMenuItem(
+              id: 'eoptop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
+        if (eop < n)
+          const NativeMenuItem(
+              id: 'eopend', title: 'Move to End', symbol: 'arrow.down.to.line'),
+      ],
+      [
+        if (eop < n)
+          const NativeMenuItem(
+              id: 'eopDeleteBelow',
+              title: 'Delete All Features Below EOP',
+              symbol: 'trash',
+              destructive: true),
+      ],
+    ];
   }
 
   bool _eosEsc(KeyEvent e) {
@@ -849,11 +1028,29 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   // M84: a SHARED sketch also shows at the top level, next to
                   // its nested copy under the parent feature — Inventor's
                   // "a copy of the sketch displays above its parent feature".
-                  for (final cs in part.childSketches)
-                    if (firstConsumerOf(part, cs.model.name) == null ||
-                        cs.shared)
-                      _sketchRow(app, cs, indent: 8),
-                  for (final f in part.features) _featureRow(app, part, f),
+                  // M91 — ONE TIMELINE. Inventor's browser is a history, not
+                  // a set of folders: whatever was made last is at the bottom,
+                  // so a sketch created after an extrusion sits BELOW it. A
+                  // shared sketch's copy is pinned directly above the feature
+                  // using it. partTimeline() owns both rules.
+                  ...() {
+                    final rows = <Widget>[];
+                    final order = partBuildOrder(part);
+                    final eop = _shownEop(part);
+                    var built = 0;
+                    for (final n in partTimeline(part)) {
+                      if (n.isFeature) {
+                        if (built == eop) rows.add(_eopRow(app, part));
+                        built++;
+                        rows.add(_featureRow(app, part, n.feature!,
+                            rolled: built > eop));
+                      } else {
+                        rows.add(_sketchRow(app, n.sketch!, indent: 8));
+                      }
+                    }
+                    if (eop >= order.length) rows.add(_eopRow(app, part));
+                    return rows;
+                  }(),
                 ],
                 // layers container, with the End-of-Sketch marker at its
                 // slot (M53): everything after the marker renders rolled back
@@ -938,7 +1135,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// One feature row (Extrusion1, ...): eye toggles it, double-tap edits
   /// it in the properties panel, long-press / right-click deletes. The "+"
   /// expander reveals the consumed sketch nested beneath (M59, Inventor).
-  Widget _featureRow(AppState app, PartModel part, ExtrudeFeature f) {
+  Widget _featureRow(AppState app, PartModel part, ExtrudeFeature f,
+      {bool rolled = false}) {
     final broken = f.computeError != null;
     final consumedSketch = part.sketchByName(f.sketchName);
     final nests = consumedSketch != null &&
@@ -971,13 +1169,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
         child: broken ? Tooltip(message: f.computeError!, child: row) : row,
       ),
     );
-    if (!nests || !open) return wrapped;
+    // M91 — below End of Part: dimmed exactly like a rolled-back layer, so a
+    // part that is showing an earlier state of itself says so.
+    Widget dim(Widget w) => rolled ? Opacity(opacity: 0.4, child: w) : w;
+    if (!nests || !open) return dim(wrapped);
     // expanded: the consumed sketch sits nested one level deeper, with its
     // own eye — Inventor's Extrusion1 ▸ Sketch1
-    return Column(mainAxisSize: MainAxisSize.min, children: [
+    return dim(Column(mainAxisSize: MainAxisSize.min, children: [
       wrapped,
       _sketchRow(app, consumedSketch, indent: 30, nested: true),
-    ]);
+    ]));
   }
 
   Future<void> _confirmDeleteFeature(ExtrudeFeature f) async {

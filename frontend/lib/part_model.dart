@@ -912,6 +912,15 @@ class ExtrudeFeature {
   /// inside the accumulated solid of the chain's last feature).
   bool consumedByJoin = false;
 
+  /// M91 — creation order, shared with [ChildSketch.seq] (one counter across
+  /// both, so sketches and features interleave on one timeline).
+  int seq = 0;
+
+  /// M91 — suppressed because it sits below the End of Part marker. Not
+  /// persisted: it is derived from [PartModel.eopAfter] on every recompute,
+  /// exactly as a rolled-back layer is derived from the sketch's marker.
+  bool rolledBack = false;
+
   ExtrudeFeature({
     required this.name,
     required this.bodyName,
@@ -933,6 +942,7 @@ class ExtrudeFeature {
   Map<String, dynamic> toJson() => {
         'kind': 'extrude',
         'name': name,
+        'seq': seq, // M91 — position on the browser timeline
         'body': bodyName,
         'sketch': sketchName,
         'profiles': [for (final p in profiles) p.toJson()],
@@ -949,7 +959,8 @@ class ExtrudeFeature {
         'output': output,
       };
 
-  static ExtrudeFeature fromJson(Map<String, dynamic> j) => ExtrudeFeature(
+  static ExtrudeFeature fromJson(Map<String, dynamic> j) =>
+      _withSeq(j, ExtrudeFeature(
         name: j['name'] as String? ?? 'Extrusion',
         bodyName: j['body'] as String? ?? 'Solid1',
         sketchName: j['sketch'] as String? ?? '',
@@ -968,7 +979,15 @@ class ExtrudeFeature {
         matchShape: j['match'] as bool? ?? true,
         visible: j['visible'] as bool? ?? true,
         output: j['output'] as String? ?? 'join',
-      );
+      ));
+
+  /// M91 — restores the timeline position. A pre-M91 file has no 'seq'; it
+  /// stays 0 and [PartModel.loadJson] numbers the features after the sketches,
+  /// which reproduces the old browser order exactly.
+  static ExtrudeFeature _withSeq(Map<String, dynamic> j, ExtrudeFeature f) {
+    f.seq = (j['seq'] as num?)?.toInt() ?? 0;
+    return f;
+  }
 
   /// Input signature this feature's [solid] was last built from. Null means
   /// "must rebuild". See [recomputeAllFeatures].
@@ -1005,8 +1024,15 @@ class ChildSketch {
   /// False for every sketch that existed before M84, so old documents load
   /// with today's behaviour unchanged.
   bool shared;
+
+  /// M91 — creation order. The browser is a TIMELINE: a new sketch belongs at
+  /// the bottom, under the extrusions that already exist, not in a sketches
+  /// block above them. Persisted; documents from before M91 get sequence
+  /// numbers on load in their old list order, so they open looking exactly as
+  /// they did.
+  int seq;
   ChildSketch(this.model, this.plane,
-      [this.face, this.visible = true, this.shared = false]);
+      [this.face, this.visible = true, this.shared = false, this.seq = 0]);
 }
 
 /// Every feature that uses [sketchName] (Inventor's Unshare is only offered
@@ -1057,6 +1083,24 @@ class PartModel {
     'cp': false,
   };
   final PartCamera camera = PartCamera();
+
+  /// M91 — **End of Part**, the part-level twin of the sketch's End of Sketch
+  /// marker: the number of FEATURES above it. Features from this index on are
+  /// rolled back — not computed into the body, not drawn, greyed in the
+  /// browser — which is Inventor's EOP.
+  ///
+  /// Counted in features rather than timeline rows on purpose: sketches are
+  /// not "built", so dragging the marker past one would be a no-op the user
+  /// could not see. It clamps to [features].length, so a fresh part and every
+  /// pre-M91 document start with the marker at the end, i.e. nothing rolled
+  /// back and behaviour unchanged.
+  int eopAfter = 1 << 30;
+
+  /// Next value for [ChildSketch.seq] / [ExtrudeFeature.seq].
+  int seqNext = 0;
+
+  /// Hands out the next creation-order number.
+  int nextSeq() => seqNext++;
 
   /// Memo for [partContentBounds] (M83). Not serialised, not part of the
   /// document — a pure cache, rebuilt on demand.
@@ -1134,12 +1178,17 @@ class PartModel {
               'plane': c.plane,
               'vis': c.visible,
               if (c.shared) 'shared': true,
+              'seq': c.seq,
               if (c.face != null) 'frame': c.face!.frameJson(),
             }
         ],
         'features': [for (final f in features) f.toJson()],
         'featureN': featureN,
         'solidN': solidN,
+        // M91 — timeline + End of Part. `eopAfter` is only written when the
+        // marker is NOT at the end, so an untouched part's file is unchanged.
+        'seqNext': seqNext,
+        if (eopAfter < features.length) 'eop': eopAfter,
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -1155,6 +1204,27 @@ class PartModel {
     for (final f in (j['features'] as List? ?? const [])) {
       features.add(ExtrudeFeature.fromJson((f as Map).cast<String, dynamic>()));
     }
+    // M91 — creation order. A pre-M91 document has no 'seq' anywhere; the
+    // sketches are numbered first and the features after, which reproduces
+    // EXACTLY the old "sketches block, then features block" layout, so an old
+    // part opens looking the way its author left it. Only what is made from
+    // now on lands on the timeline by real creation time.
+    seqNext = (j['seqNext'] as num?)?.toInt() ?? 0;
+    var n = 0;
+    final sj = j['sketches'] as List? ?? const [];
+    for (var i = 0; i < childSketches.length; i++) {
+      final m = i < sj.length ? sj[i] as Map? : null;
+      childSketches[i].seq = (m?['seq'] as num?)?.toInt() ?? n;
+      n = math.max(n, childSketches[i].seq + 1);
+    }
+    for (final f in features) {
+      if (f.seq == 0) f.seq = n;
+      n = math.max(n, f.seq + 1);
+    }
+    if (seqNext < n) seqNext = n;
+    // End of Part: absent means "at the end", which is no rollback at all.
+    eopAfter = (j['eop'] as num?)?.toInt() ?? features.length;
+    applyEndOfPart(this);
   }
 
   void dispose() {
@@ -2543,3 +2613,109 @@ String _contentSignature(PartModel p) {
       dir.z >= 0 ? hi.z : lo.z);
   return (a.dot(dir), b.dot(dir));
 }
+
+// ===========================================================================
+// M91 — the browser TIMELINE and the End of Part marker
+// ===========================================================================
+
+/// One row of the part browser's top-level timeline.
+class PartNode {
+  /// Exactly one of these is set.
+  final ChildSketch? sketch;
+  final ExtrudeFeature? feature;
+
+  /// For a sketch row: true when this is the SHARED copy pinned above its
+  /// consumer, rather than a sketch that simply has not been consumed yet.
+  final bool sharedCopy;
+
+  const PartNode.forSketch(ChildSketch this.sketch, {this.sharedCopy = false})
+      : feature = null;
+  const PartNode.forFeature(ExtrudeFeature this.feature)
+      : sketch = null,
+        sharedCopy = false;
+
+  bool get isFeature => feature != null;
+  String get name => sketch?.model.name ?? feature!.name;
+}
+
+/// The part browser's top-level rows, in TIME order.
+///
+/// Inventor's browser is a history, not a set of folders: whatever you made
+/// last is at the bottom. So a sketch created after an extrusion appears BELOW
+/// that extrusion, and the old "all sketches, then all features" grouping is
+/// gone.
+///
+/// Two placement rules on top of plain creation order:
+///  * a **consumed** sketch is not a top-level row at all — it nests under the
+///    feature that swallowed it (drawn by the feature row).
+///  * a **shared** sketch's top-level copy is pinned DIRECTLY ABOVE its first
+///    consumer, which is Inventor's "a copy of the sketch displays above its
+///    parent feature" — not at its own creation slot, because the whole point
+///    of sharing is to show the sketch in relation to the feature using it.
+List<PartNode> partTimeline(PartModel part) {
+  // Shared sketches are emitted by their consumer, so index them by consumer.
+  final pinned = <ExtrudeFeature, List<ChildSketch>>{};
+  for (final cs in part.childSketches) {
+    if (!cs.shared) continue;
+    final f = firstConsumerOf(part, cs.model.name);
+    if (f != null) (pinned[f] ??= []).add(cs);
+  }
+
+  final rows = <(int, PartNode)>[];
+  for (final cs in part.childSketches) {
+    // Unconsumed sketches sit at their own creation slot. Consumed ones are
+    // either nested (handled by the feature row) or pinned above their
+    // consumer (below).
+    if (firstConsumerOf(part, cs.model.name) == null) {
+      rows.add((cs.seq, PartNode.forSketch(cs)));
+    }
+  }
+  for (final f in part.features) {
+    for (final cs in pinned[f] ?? const <ChildSketch>[]) {
+      // Same sort key as the feature, emitted first — "directly above".
+      rows.add((f.seq, PartNode.forSketch(cs, sharedCopy: true)));
+    }
+    rows.add((f.seq, PartNode.forFeature(f)));
+  }
+  // Stable sort: equal keys keep insertion order, which is what pins the
+  // shared copy immediately above its feature.
+  final idx = <(int, PartNode), int>{};
+  for (var i = 0; i < rows.length; i++) {
+    idx[rows[i]] = i;
+  }
+  rows.sort((a, b) {
+    final c = a.$1.compareTo(b.$1);
+    return c != 0 ? c : idx[a]!.compareTo(idx[b]!);
+  });
+  return [for (final r in rows) r.$2];
+}
+
+/// Features in build order — the order the End of Part marker counts in.
+List<ExtrudeFeature> partBuildOrder(PartModel part) =>
+    [for (final n in partTimeline(part)) if (n.isFeature) n.feature!];
+
+/// Applies [PartModel.eopAfter] to [ExtrudeFeature.rolledBack].
+///
+/// Call after anything that changes the feature list or the marker. Returns
+/// true when a flag actually changed, so callers can skip a recompute.
+bool applyEndOfPart(PartModel part) {
+  final order = partBuildOrder(part);
+  final cut = part.eopAfter.clamp(0, order.length);
+  var changed = false;
+  for (var i = 0; i < order.length; i++) {
+    final want = i >= cut;
+    if (order[i].rolledBack != want) {
+      order[i].rolledBack = want;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/// True when [f] is suppressed by the End of Part marker.
+bool featureRolledBack(PartModel part, ExtrudeFeature f) => f.rolledBack;
+
+/// Whether the End of Part marker is anywhere but the end — i.e. the part is
+/// showing an earlier state of itself.
+bool partIsRolledBack(PartModel part) =>
+    part.eopAfter < partBuildOrder(part).length;

@@ -1959,7 +1959,8 @@ class AppState extends ChangeNotifier {
     try {
       final named = [
         for (final f in p.features)
-          if (f.visible && f.solid != null && !f.consumedByJoin)
+          // M91: a feature below End of Part is not part of the model yet.
+          if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack)
             (f.name, f.solid!)
       ];
       if (named.isEmpty) {
@@ -2180,7 +2181,9 @@ class AppState extends ChangeNotifier {
     _planesAutoShown = false;
     p.camera.orientToPlane(key);
     final sk = SketchModel(p.nextSketchName());
-    p.childSketches.add(ChildSketch(sk, key));
+    // M91: stamped with the creation order so it lands at the BOTTOM of the
+    // browser timeline, under the extrusions that already exist.
+    p.childSketches.add(ChildSketch(sk, key, null, true, false, p.nextSeq()));
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
@@ -2199,6 +2202,47 @@ class AppState extends ChangeNotifier {
       if (curTab != null) savePart(curTab!);
     }
     notifyListeners();
+  }
+
+  /// M91 — moves the **End of Part** marker so that [after] features are
+  /// built. The part-level twin of [setEndOfSketch]: everything below is
+  /// suppressed — not built into the body, not drawn, greyed in the browser —
+  /// which is Inventor's rollback.
+  void setEndOfPart(int after) {
+    final p = currentPart;
+    if (p == null) return;
+    final n = partBuildOrder(p).length;
+    final v = after.clamp(0, n);
+    if (v == p.eopAfter.clamp(0, n)) return;
+    p.eopAfter = v;
+    Log.i('part', 'End of Part -> after $v of $n features');
+    applyEndOfPart(p);
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// Inventor's "Delete All Features Below EOP" — drops every suppressed
+  /// feature in one step, then parks the marker at the end.
+  int deleteBelowEndOfPart() {
+    final p = currentPart;
+    if (p == null) return 0;
+    final victims = [for (final f in p.features) if (f.rolledBack) f];
+    if (victims.isEmpty) {
+      toast('Nothing below End of Part.');
+      return 0;
+    }
+    for (final f in victims) {
+      f.disposeSolid();
+      p.features.remove(f);
+    }
+    p.eopAfter = partBuildOrder(p).length;
+    applyEndOfPart(p);
+    recomputeAllFeatures(p);
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+    return victims.length;
   }
 
   /// Inventor's **Share Sketch** (M84). A consumed sketch is normally locked
@@ -2268,7 +2312,8 @@ class AppState extends ChangeNotifier {
         '-> pol=${f3(p.camera.pol)} az=${f3(p.camera.az)} '
         '(pol~0 = camera above/TOP, pol~3.14 = below/BOTTOM)');
     final sk = SketchModel(p.nextSketchName());
-    p.childSketches.add(ChildSketch(sk, 'face', frame));
+    p.childSketches.add(
+        ChildSketch(sk, 'face', frame, true, false, p.nextSeq())); // M91
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
@@ -2620,7 +2665,12 @@ class AppState extends ChangeNotifier {
     }
     if (s.editing == null) {
       final firstConsumption = firstConsumerOf(p, f.sketchName) == null;
+      f.seq = p.nextSeq(); // M91 — bottom of the timeline
       p.features.add(f);
+      // A feature added while the marker is parked mid-tree belongs ABOVE it,
+      // exactly like Inventor: the marker moves down to admit the new work.
+      p.eopAfter = partBuildOrder(p).length;
+      applyEndOfPart(p);
       if (firstConsumption) {
         // Inventor: creating the feature CONSUMES the sketch — it nests
         // under the feature in the browser and its visibility turns off.
