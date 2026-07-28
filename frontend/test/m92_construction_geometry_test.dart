@@ -151,12 +151,16 @@ void main() {
         Constraint(CType.fix, pts: [PRef(n, 0)]),
         // "make a side vertical": 1 equation
         Constraint(CType.vertical, ents: [0]),
-        // and its size
+        // and its size — 'dist' between the edge's two endpoints, which is
+        // what the Dimension tool produces for a side.
         Constraint(CType.dimension,
-            pts: [PRef(0, 0), PRef(0, 1)], dimKind: 'pp', value: 20),
+            pts: [PRef(0, 0), PRef(0, 1)], dimKind: 'dist', value: 20),
       ];
       expect(_params(gs) - _equations(gs, cs), 0,
           reason: 'centre + one side direction + one size = fully constrained');
+      // And WITHOUT the size dimension exactly one DOF is left — the scale —
+      // so nothing is over- or under-counted along the way.
+      expect(_params(gs) - _equations(gs, cs.sublist(0, cs.length - 1)), 1);
     });
   });
 
