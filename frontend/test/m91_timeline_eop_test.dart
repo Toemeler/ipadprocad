@@ -205,10 +205,13 @@ void _solidNameTests() {
     final p = PartModel('P');
     _sketch(p, 'Sketch1');
     _feature(p, 'Extrusion1', 'Sketch1')..bodyName = 'Solid2';
-    // solidN still says 1, so the naive answer would be Solid2 — which exists
-    // and would silently make "New Solid" join the existing body.
-    expect(p.peekSolidName(), isNot('Solid2'));
-    expect(p.bodyNames, contains('Solid2'));
+    // solidN still says 0, so the naive answer would be Solid1; the real trap
+    // is Solid2, which an existing feature already owns even though it has no
+    // computed solid yet (so it is NOT in bodyNames).
+    expect(p.bodyNames, isEmpty, reason: 'nothing is built in a host test');
+    p.solidN = 1;
+    expect(p.peekSolidName(), 'Solid3',
+        reason: 'Solid2 is taken by a feature, so it must be skipped');
   });
 
   test('nextSolidName still consumes, for the commit path', () {

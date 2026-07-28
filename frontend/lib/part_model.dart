@@ -1225,7 +1225,11 @@ class PartModel {
   /// each time and march the name up. It also skips names already in use, so a
   /// renamed body cannot make "New Solid" silently target an existing one.
   String peekSolidName() {
-    final taken = bodyNames.toSet();
+    // EVERY feature's body name counts as taken, not just [bodyNames] — that
+    // one lists only bodies with a computed solid, so a body that is rolled
+    // back below End of Part (M91) or simply not built yet would not be
+    // skipped and "New Solid" would collide with it.
+    final taken = {for (final f in features) f.bodyName};
     var n = solidN + 1;
     while (taken.contains('Solid$n')) {
       n++;
