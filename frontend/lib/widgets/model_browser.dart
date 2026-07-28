@@ -1146,11 +1146,20 @@ class _ModelBrowserState extends State<ModelBrowser> {
     _schedulePush();
     return Container(
       width: 300,
-      decoration: const BoxDecoration(
-        color: T.mbBg,
-        border: Border(right: BorderSide(color: T.mbBorder)),
+      decoration: BoxDecoration(
+        // M106 — on iOS the panel's surface is REAL Apple Liquid Glass
+        // (UIGlassEffect), laid in behind the tree; the opaque fill is only
+        // for platforms without it. A colour here would sit on top of the
+        // glass and hide it.
+        color: GlassPanel.isSupported ? null : T.mbBg,
+        border: const Border(right: BorderSide(color: T.mbBorder)),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      child: Stack(children: [
+        // The glass surface. IgnorePointer inside GlassPanel: every gesture in
+        // this panel belongs to the Flutter rows above it, which is the
+        // lesson M48 and M102 both cost a lot of debugging to learn.
+        if (GlassPanel.isSupported) const Positioned.fill(child: GlassPanel()),
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         // header
         Container(
           height: 30,
@@ -1306,6 +1315,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
             ),
           ),
         ),
+        ]),
       ]),
     );
   }

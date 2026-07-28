@@ -16,6 +16,37 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M106 — Der Model Browser liegt auf ECHTEM Apple Liquid Glass.**
+>
+> Kein in Flutter gemalter Blur: ein natives `UIVisualEffectView` mit
+> **`UIGlassEffect`** (iOS 26) als Plattform-View
+> (`prototype/glass_panel`, registriert im native_menu-Plugin). Das ist das
+> System-Material selbst — Brechung, Glanzkante und Reaktion auf das, was
+> dahinter liegt, kommen von iOS und sind client-seitig nicht nachbaubar.
+> Unter iOS 26 faellt die native Seite auf `UIBlurEffect(.systemMaterial)`
+> zurueck, damit das Panel lesbar bleibt; auf Nicht-iOS bleibt die bisherige
+> Deckfarbe.
+>
+> **Bewusst nur die FLAECHE, nicht der Inhalt.** Die Zeilen zeichnet weiter
+> Flutter, ueber dem Glas. Das ist kein Abkuerzen: der Browser ist der
+> interaktionsdichteste Teil der App — EOP-Ziehen, Koerper-Picken,
+> Hover-Highlight, Kontextmenues — und JEDER dieser Punkte hat an der
+> Flutter/UIKit-Grenze schon Zeit gekostet (M48: eine Plattform-View schluckte
+> Taps und musste in `IgnorePointer`; M102: eine `UIContextMenuInteraction`
+> kassierte vier Meilensteine lang den EOP-Zug). Den INHALT nativ zu machen
+> hiesse, all das in Swift neu zu loesen. Die Glasflaeche nimmt darum
+> ausdruecklich keine Beruehrungen (`isUserInteractionEnabled = false` plus
+> `IgnorePointer` auf der Dart-Seite).
+>
+> **Geraete-Sache und ehrlich offen:** ob die Brechung unter Flutter wirklich
+> greift. Glas bricht, was in der NATIVEN Ebene darunter liegt; Flutter
+> rendert in eine eigene Surface, und ob der 3D-Viewport dort ankommt oder das
+> Glas flach wirkt, entscheidet die Hybrid-Composition — das ist am Geraet in
+> Minuten zu sehen und blind nicht zu beantworten. Falls es flach aussieht,
+> ist der naechste Schritt, die Glas-View ueber die FlutterView zu legen statt
+> in den Widget-Baum. Ebenfalls zu pruefen: die Kosten der Hybrid-Composition
+> neben der RealityKit-Surface (die App laeuft heute bei 60-80 fps).
+
 > **M105 — Hover fand gekruemmte Flaechen nicht.**
 >
 > Das Koerper-Hovern benutzte `_pickSolidFace`. Das Ding existiert fuer

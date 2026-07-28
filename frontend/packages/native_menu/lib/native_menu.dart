@@ -293,3 +293,31 @@ class NativeMenu {
     _handlers.clear();
   }
 }
+
+/// M106 — a REAL Apple Liquid Glass surface (`UIGlassEffect`, iOS 26), for use
+/// as the background of a panel.
+///
+/// Not a Flutter blur imitating one: the system material brings its own
+/// refraction, specular edge and response to what is behind it, none of which
+/// can be reproduced client-side. Below iOS 26 the native side falls back to
+/// `UIBlurEffect(.systemMaterial)` so the panel stays legible.
+///
+/// It takes no touches — put your own content above it in a [Stack].
+class GlassPanel extends StatelessWidget {
+  const GlassPanel({super.key});
+
+  /// Only iOS has the material; elsewhere the caller keeps its own colour.
+  static bool get isSupported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isSupported) return const SizedBox.shrink();
+    return const IgnorePointer(
+      child: UiKitView(
+        viewType: 'prototype/glass_panel',
+        creationParamsCodec: StandardMessageCodec(),
+      ),
+    );
+  }
+}
