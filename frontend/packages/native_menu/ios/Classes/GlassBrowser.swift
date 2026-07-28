@@ -81,6 +81,12 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         super.init()
         container.frame = frame
         container.backgroundColor = .clear
+        // M108 — the app is a dark tool UI. Left to its own devices the glass
+        // resolves light and UIKit then picks DARK label colours, which is the
+        // washed-out grey panel with near-black text in the device shot.
+        // Pinning the trait makes the material render dark and .label become
+        // light, which is the same decision every dark-chrome Apple app makes.
+        container.overrideUserInterfaceStyle = .dark
         buildGlass()
         buildCollection()
         channel.setMethodCallHandler { [weak self] call, result in
@@ -114,26 +120,43 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             effect = UIBlurEffect(style: .systemMaterial)
         }
         let ev = UIVisualEffectView(effect: effect)
-        ev.frame = container.bounds
+        // M108 — FLOATING: inset from the edges with rounded corners, so it
+        // reads as a panel resting over the model rather than a wall glued to
+        // the side. The viewport now runs underneath it (see main.dart).
+        ev.frame = container.bounds.inset(by: GlassBrowserView.inset)
         ev.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         ev.isUserInteractionEnabled = false
+        ev.layer.cornerRadius = 18
+        ev.layer.cornerCurve = .continuous
+        ev.clipsToBounds = true
         container.addSubview(ev)
     }
 
     // -- list ----------------------------------------------------------------
 
+    /// Margin around the floating panel.
+    static let inset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+
     private func buildCollection() {
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
+        // M108 — a CAD tree wants density, not Settings-app spacing; the row
+        // metrics are tightened per-cell below (contentConfiguration margins).
         // Let the glass through: no opaque list background of our own.
         config.backgroundColor = .clear
         config.showsSeparators = false
         config.trailingSwipeActionsConfigurationProvider = nil
         let layout = UICollectionViewCompositionalLayout.list(using: config)
 
-        collection = UICollectionView(frame: container.bounds,
-                                      collectionViewLayout: layout)
+        collection = UICollectionView(
+            frame: container.bounds.inset(by: GlassBrowserView.inset),
+            collectionViewLayout: layout)
         collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collection.backgroundColor = .clear
+        // Match the glass corners so rows cannot spill past the panel edge.
+        collection.layer.cornerRadius = 18
+        collection.layer.cornerCurve = .continuous
+        collection.clipsToBounds = true
+        collection.contentInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         collection.delegate = self
         collection.allowsSelection = true
         container.addSubview(collection)
@@ -143,11 +166,21 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             guard let self, let r = self.byId[id] else { return }
             var c = cell.defaultContentConfiguration()
             c.text = r.label
-            c.textProperties.font = .systemFont(ofSize: 13)
-            c.textProperties.color = r.dim ? .tertiaryLabel : .label
+            c.textProperties.font = .systemFont(ofSize: 11.5)
+            // Pull the row in tight: the default list metrics are sized for
+            // touch lists, and a feature tree needs to show a lot of rows.
+            c.directionalLayoutMargins = NSDirectionalEdgeInsets(
+                top: 3, leading: 4, bottom: 3, trailing: 4)
+            c.imageToTextPadding = 6
+            // Dark trait is pinned on the container, so .label is the light
+            // text the rest of the app uses; dim rows drop to secondary rather
+            // than tertiary, which was too faint to read on glass.
+            c.textProperties.color = r.dim ? .secondaryLabel : .label
             c.image = UIImage(systemName: r.symbol)
             c.imageProperties.preferredSymbolConfiguration =
-                UIImage.SymbolConfiguration(pointSize: 13)
+                UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+            c.imageProperties.reservedLayoutSize = CGSize(width: 16, height: 16)
+            c.imageProperties.maximumSize = CGSize(width: 16, height: 16)
             switch r.tint {
             case "blue": c.imageProperties.tintColor = .systemBlue
             case "red": c.imageProperties.tintColor = .systemRed
@@ -155,7 +188,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             }
             // Indentation is the tree: UIKit owns it, no manual padding.
             cell.indentationLevel = r.depth
-            cell.indentationWidth = 14
+            cell.indentationWidth = 11
             cell.contentConfiguration = c
 
             var bg = UIBackgroundConfiguration.listPlainCell()
@@ -177,6 +210,9 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 let b = UIButton(type: .system)
                 b.setImage(UIImage(systemName: r.eyeOn ? "eye" : "eye.slash"),
                            for: .normal)
+                b.setPreferredSymbolConfiguration(
+                    UIImage.SymbolConfiguration(pointSize: 11), forImageIn: .normal)
+                b.frame = CGRect(x: 0, y: 0, width: 22, height: 22)
                 b.tintColor = r.eyeOn ? .secondaryLabel : .tertiaryLabel
                 b.addAction(UIAction { [weak self] _ in
                     self?.channel.invokeMethod("eye", arguments: ["id": r.id])

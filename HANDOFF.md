@@ -16,6 +16,29 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M108 — Der native Browser schwebt, ist dichter und dunkel.**
+>
+> **Schwebend.** Er belegt keine eigene Spalte mehr; der Viewport laeuft in
+> voller Breite darunter und der Browser liegt als Panel darueber
+> (`Stack` in `main.dart`), 10 pt eingerueckt, 18 pt Eckenradius. Damit hat das
+> Glas ueberhaupt erst etwas zu brechen — vorher stand hinter ihm nur die
+> Fensterfarbe. Auf Nicht-iOS bleibt es eine Spalte: ein deckender Flutter-Baum,
+> der ueber dem Modell schwebt, wuerde es nur verdecken.
+>
+> **Textfarbe.** Der eigentliche Grund fuer das ausgewaschene Grau mit fast
+> schwarzer Schrift: das Glas loeste HELL auf, und UIKit waehlt dann dunkle
+> Label-Farben. `overrideUserInterfaceStyle = .dark` auf dem Container laesst
+> das Material dunkel rendern und `.label` hell werden — dieselbe Entscheidung,
+> die jede App mit dunkler Chrome trifft. Ausgegraute Zeilen gehen auf
+> `.secondaryLabel` statt `.tertiaryLabel`, das war auf Glas zu blass.
+>
+> **Dichter.** Schrift 11.5 statt 13, Symbole 11 pt mit fester 16-pt-Box,
+> Einrueckung 11 statt 14, Zeilenraender 3/4 pt. Ein Feature-Baum will Dichte,
+> keine Settings-App-Abstaende. Panelbreite 264 statt 300.
+>
+> **Offen:** ob die Brechung jetzt sichtbar wird — das war die eigentliche
+> Frage aus M106 und sie laesst sich erst mit dem Modell dahinter beantworten.
+
 > **M107 — Der Model Browser ist jetzt 100% natives Apple-UI auf Liquid Glass.**
 >
 > `UICollectionView` mit List-Konfiguration auf `UIGlassEffect`. UIKit macht

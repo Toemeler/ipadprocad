@@ -37,7 +37,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     return AnimatedBuilder(
       animation: app,
       builder: (_, __) => SizedBox(
-        width: 300,
+        // M108 — narrower now that it floats: it sits over the model, so it
+        // should take as little of the view as the tree needs.
+        width: 264,
         child: GlassBrowser(
           rows: buildBrowserRows(app, expanded: _expanded, dragEop: _dragEop),
           onTap: _onTap,
