@@ -154,8 +154,14 @@ List<Offset> fitCurve(List<Offset> p, {bool closed = false, int perSeg = 24}) {
 /// started the curve on cv[0] but ENDED it on cv[2] (a clamped curve ends on
 /// its last CV), so a closed spline visibly failed to meet its start point
 /// and had a corner there. Periodic closes exactly and C2-smooth.
+/// [samples] is the TOTAL number of samples along the whole curve. Passing a
+/// fixed value is what made long splines go coarse (M86): a 40-CV spline got
+/// the same 64 samples as a 4-CV one — under two samples per span — so it
+/// rendered as a visible polygon with kinks, and `arcChainResample` could not
+/// recover a smooth arc chain from points that were already too far apart.
+/// Left null it scales with the span count instead ([_bsplineSamples]).
 List<Offset> bsplineCurve(List<Offset> cvIn,
-    {bool closed = false, int samples = 64}) {
+    {bool closed = false, int? samples}) {
   const k = 3; // cubic
   if (closed && cvIn.length >= 3) {
     final cv = [...cvIn, cvIn[0], cvIn[1], cvIn[2]];
@@ -175,9 +181,9 @@ List<Offset> bsplineCurve(List<Offset> cvIn,
       return d[k];
     }
 
+    final ns = samples ?? _bsplineSamples(n - k);
     final out = <Offset>[
-      for (var i = 0; i < samples; i++)
-        deBoor(k + (n - k) * (i / samples))
+      for (var i = 0; i < ns; i++) deBoor(k + (n - k) * (i / ns))
     ];
     out.add(out[0]); // close EXACTLY (deBoor(n) == deBoor(k) up to rounding)
     return out;
@@ -204,8 +210,20 @@ List<Offset> bsplineCurve(List<Offset> cvIn,
     return d[k];
   }
 
+  final ns = samples ?? _bsplineSamples(n - k);
   return [
-    for (var i = 0; i <= samples; i++)
-      deBoor(i == samples ? 1.0 - 1e-12 : i / samples)
+    for (var i = 0; i <= ns; i++)
+      deBoor(i == ns ? 1.0 - 1e-12 : i / ns)
   ];
 }
+
+/// Total samples for a B-spline with [spans] polynomial spans.
+///
+/// 24 per span matches [fitCurve]'s `perSeg`, so the two spline kinds are
+/// equally smooth for the same number of points — before M86 the fit spline
+/// scaled and the CV spline did not, which is why only CV splines degraded.
+/// The floor keeps short splines exactly as smooth as they were; the ceiling
+/// keeps a 500-point freehand curve from producing 12 000 samples on a path
+/// that every paint, hit-test and snap query runs through.
+int _bsplineSamples(int spans) =>
+    (spans <= 0 ? 64 : (spans * 24)).clamp(64, 4000);

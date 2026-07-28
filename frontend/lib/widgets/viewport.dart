@@ -1355,6 +1355,22 @@ class _Viewport2DState extends State<Viewport2D> {
             _kinds.remove(e.pointer);
             final wasRejected = _rejectedTouches.remove(e.pointer);
             _cancelLp();
+            // M86 — THE PHANTOM SPLINE POINT. A finger and a no-hover Pencil
+            // have no cursor once they lift, but setHover was only ever
+            // called on down/move and never cleared. hoverWorld therefore kept
+            // the last contact point, and every in-progress preview kept
+            // treating it as a real pick: on a spline that is an extra fit
+            // point, drawn as a stray tail running past the last placed grip —
+            // "it looks like there is a point but there isn't", and it
+            // disappears on finish because the committed geometry never had
+            // it. Lifting now clears the hover. Hover-CAPABLE devices (mouse,
+            // Pencil Pro/M2) re-report on their very next hover event, so they
+            // are unaffected.
+            if (e.kind == PointerDeviceKind.touch ||
+                e.kind == PointerDeviceKind.stylus ||
+                e.kind == PointerDeviceKind.invertedStylus) {
+              app.setHover(null);
+            }
             // M53: Procreate taps — a clean two-finger tap is UNDO, three
             // fingers REDO. The classifier separates them from pan/pinch
             // (which always moves) and from a resting palm (poisoned).

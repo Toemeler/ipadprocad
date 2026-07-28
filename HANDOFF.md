@@ -16,6 +16,44 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M86 — Zwei gemeldete Spline-Fehler, beide im Code gefunden.**
+>
+> **(1) Der "Punkt, der keiner ist".** Die Vorschau haengt beim Zeichnen den
+> Hover-Punkt an die gesetzten Punkte — richtig fuer die Maus. Ein FINGER und
+> ein Pencil ohne Hover haben nach dem Abheben aber keinen Cursor mehr, und
+> `setHover` wurde nur bei Down/Move gerufen und NIE geleert
+> (`viewport.dart`, `onPointerUp`). `hoverWorld` behielt also den letzten
+> Kontaktpunkt, und jede laufende Vorschau behandelte ihn weiter als echten
+> Pick: beim Spline ist das ein zusaetzlicher Fit-Punkt, gezeichnet als
+> Schwanz ueber den letzten gesetzten Griff hinaus — exakt "es sieht aus als
+> waere da ein Punkt, ist aber keiner", und er verschwindet beim Finish, weil
+> die committete Geometrie ihn nie hatte. Abheben leert den Hover jetzt;
+> hover-FAEHIGE Geraete (Maus, Pencil Pro/M2) melden beim naechsten
+> Hover-Event sofort wieder und sind unberuehrt.
+>
+> **(2) Lange Splines wurden grob.** `bsplineCurve` sampelte **fest 64 Punkte
+> ueber die GANZE Kurve**, unabhaengig von der Zahl der Kontrollpunkte. Ein
+> Spline mit 40 CVs bekam also unter zwei Samples pro Span und wurde als
+> sichtbares Vieleck mit Knicken gezeichnet — und `arcChainResample` kann aus
+> bereits zu weit auseinanderliegenden Punkten keine glatte Bogenkette mehr
+> gewinnen. Genau das zeigt der Screenshot. `fitCurve` war NIE betroffen, weil
+> es `perSeg = 24` PRO SEGMENT sampelt — deshalb degradierten nur die
+> CV-Splines. Jetzt skaliert die Samplezahl mit den Spans (24 pro Span, wie
+> `fitCurve`), Untergrenze 64 (kurze Splines exakt wie bisher), Obergrenze
+> 4000, damit eine 500-Punkt-Kurve nicht 12 000 Samples durch jeden Paint,
+> Hit-Test und Snap schickt.
+>
+> **Neu/berührt:** `widgets/viewport.dart`, `spline.dart`, neuer Test
+> `test/m86_spline_fixes_test.dart`.
+>
+> **NICHT enthalten — bewusst als eigener Meilenstein offen: das
+> Freihand-Spline-Werkzeug** (mit Pencil/Finger frei zeichnen, beim Loslassen
+> Dialog mit Punktzahl / Glaettung / Snap-Optionen, Live-Vorschau, Finish per
+> Icon oder Enter). Das ist kein Fix, sondern ein Werkzeug mit eigenem
+> Pointer-Capture, Punktreduktion, modelessem Dialog und Snap-Logik — es
+> gehoert in einen eigenen Durchgang, nicht an zwei Bugfixes drangehaengt.
+> Entwurf steht, siehe Chat.
+
 > **M85 — Die Split-Buttons im Create-Panel merken sich ihre Variante.**
 > Gemeldet: Slot aus dem Rechteck-Flyout waehlen startete zwar den Slot und
 > markierte den Button aktiv, aber die Schaltflaeche zeigte weiter RECHTECK —
