@@ -2342,7 +2342,12 @@ String _contentSignature(PartModel p) {
     b.write('k${cs.plane}${identityHashCode(cs.face)}:');
     for (final g in cs.model.geometry) {
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
-      b.write(g.type.index);
+      if (g.isConstruction) continue;
+      b.write(g.type);
+      b.write('/');
+      // The spline TAG changes the curve completely for identical data
+      // (straight vs CV vs fit vs ellipse vs gear), so it belongs in the key.
+      b.write(g.spline);
       for (final d in g.data) {
         b.write(',');
         b.write(d);
@@ -2381,6 +2386,10 @@ String _contentSignature(PartModel p) {
     final fr = sketchFrameOf(cs);
     for (final g in cs.model.geometry) {
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
+      // Construction geometry is scaffolding, not the part — and M45's
+      // auto-sized bounding rect around a text block is construction, so
+      // counting it would let a label drive the size of the origin planes.
+      if (g.isConstruction) continue;
       for (final q in sketchCurve(g)) {
         final w = fr.toWorld(q);
         add(w.x, w.y, w.z);

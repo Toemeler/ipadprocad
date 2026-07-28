@@ -89,6 +89,18 @@ Token NIE in Dateien/.git/config schreiben.
 > Geraet richtig wirken; ob die Ebene beim Skizzieren mitwachsen soll (heute ja,
 > weil Skizzen als Inhalt zaehlen — das kann waehrend des Zeichnens unruhig
 > aussehen und ist der wahrscheinlichste Punkt, den man zuruecknehmen will).
+>
+> **Nachtrag (zwei rote Laeufe, beide meine):** (1) 649b20c — `THUMB CHANNEL
+> CHECK` rot, siehe CI-Falle oben: das Gate war falsch, nicht das Feature.
+> (2) 5790b50 — `flutter analyze`: `g.type.index`, aber `Geo.type` ist ein
+> **int** (`static const line = 1, circle = 2, …`), kein Enum. Behoben; dabei
+> zwei Folgefehler derselben Sorglosigkeit mitgenommen: der Memo-Schluessel
+> enthielt den **Spline-Tag nicht** (identische `data`, voellig andere Kurve bei
+> straight/CV/fit/ellipse/gear → veraltete Bounds), und **Konstruktions-
+> geometrie zaehlte als Inhalt** — das auto-grosse Bounding-Rect um einen
+> Textblock (M45) ist Construction und haette damit die Groesse der
+> Ursprungsebenen bestimmt. Beides ausgeschlossen bzw. in den Schluessel
+> aufgenommen.
 
 > **M82 — Die Vorschau kommt jetzt aus DERSELBEN Engine wie der 3D-Modus, und
 > immer aus der Ecke oben-vorne-rechts.** Bisher zeichnete die Galerie-/

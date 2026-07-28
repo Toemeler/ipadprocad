@@ -595,7 +595,8 @@ class _Viewport3DState extends State<Viewport3D> {
         ('z', const Vec3(0, 0, 1))
       ]) {
         if (p.vis[e.$1] != true) continue;
-        // M83: same span the renderer draws — see _axisEnds.
+        // M83: exactly the span the painter draws (originAxisSpan), so an
+        // axis is never pickable past its visible end.
         final (al, ah) = originAxisSpan(p, e.$2);
         final a = cam.project(e.$2 * al), b = cam.project(e.$2 * ah);
         if (_distToSeg(px, a, b) < pickPx) return e.$1;
