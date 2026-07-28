@@ -16,6 +16,41 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M94 — Ein Polygon am Mittelpunkt ziehen traegt die Form mit.** Gemeldet:
+> beim Ziehen am Mittelpunkt soll das Polygon Form und Groesse behalten und nur
+> in x/y wandern, sofern keine Constraint etwas anderes sagt.
+>
+> **Warum es vorher nicht so war:** ein Polygon hat 4 Freiheitsgrade (Mitte
+> x/y, Radius, Drehung). Der Mittelpunkt-Griff wuenscht auf 2 davon; Radius und
+> Drehung bleiben frei, also DURFTE der Solver unterwegs skalieren oder drehen.
+> Alle Constraints waren erfuellt — es war nur nicht gemeint.
+>
+> **Ohne neue Constraints geloest.** Zusaetzliche Constraints fuer Groesse und
+> Drehung wuerden das Polygon ueberbestimmen und uns direkt zurueck in die
+> singulaere Normalgleichung bringen, die M92 mit den `n-1` gleichen Kanten
+> gerade vermeidet. Stattdessen: `_centreRigidGroup` erkennt die
+> Konstruktionskreis-Mitte, an der ein Polygon haengt (Kreis, auf dem >= 3
+> Entitaeten per point-on-curve-`coincident` sitzen, plus alles, was ueber
+> Punkt-Koinzidenzen daran haengt), verschiebt die GANZE Gruppe starr um dasselbe
+> Delta und macht jeden ihrer Punkte zum Drag-Wunsch. Der Solver startet damit
+> auf der Loesung, die der Nutzer meint, und sein Minimum-Norm-Schritt haelt sie.
+> **Was der Nutzer WIRKLICH constrained hat, gewinnt weiterhin** — der Solve
+> laeuft danach normal und zieht zurueck, was die Constraints verlangen.
+>
+> Ein einzelner Kreis ist keine Form: ohne point-on-curve-Constraints bleibt der
+> Mittelpunkt-Zug ein gewoehnlicher Punkt-Zug. Body-Griffe sind unberuehrt.
+>
+> **Neu/berührt:** `app_state.dart` (`_centreRigidGroup` + Drag-Pfad), neuer
+> Test `test/m94_centre_drag_test.dart`.
+>
+> **Verifikationsstand:** host-getestet ist, dass das Polygon genau die 4 DOF
+> hat (weshalb der Mittelpunkt-Zug ueberhaupt mehrdeutig ist) und dass eine
+> starre Verschiebung den Constraint-Satz gar nicht erst verletzt — Koinzidenz,
+> Gleichheit und Punkt-auf-Kreis sind translationsinvariant, der Solver hat also
+> nichts zu korrigieren. **Geraete-Test offen:** wie es sich anfuehlt, und ob
+> die Gruppenerkennung auch bei einem Polygon greift, an dem weitere Geometrie
+> haengt.
+
 > **M93 — Die offene Skizze wird nur EINMAL gezeichnet.** Mit Screenshot
 > gemeldet: im Skizzenmodus stand dasselbe Rechteck zweimal da — das lebende
 > 2D-Rechteck unter dem Finger und eine eingefrorene Kopie an der alten Stelle,

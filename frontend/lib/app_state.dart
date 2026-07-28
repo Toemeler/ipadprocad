@@ -2966,9 +2966,38 @@ class AppState extends ChangeNotifier {
       // A body drag translates the WHOLE entity: every defining point is a
       // drag wish, so the entity moves rigidly (the solver still bends only as
       // far as the constraints allow). A point drag wishes on that one point.
-      final dragged = grip.isBody
+      var dragged = grip.isBody
           ? {for (var p = 0; p < ptCount(before); p++) (grip.entity, p)}
           : {(grip.entity, grip.idx)};
+
+      // M94 — DRAGGING A SHAPE BY ITS CENTRE CARRIES THE SHAPE.
+      //
+      // A polygon has 4 DOF (centre x/y, radius, rotation). Grabbing the
+      // construction circle's centre wishes on 2 of them and leaves radius and
+      // rotation free, so the solver was entitled to scale or spin the polygon
+      // on the way — it satisfied every constraint, it just was not what the
+      // user meant. Inventor carries the shape.
+      //
+      // Fixed WITHOUT new constraints: extra constraints to hold size and
+      // rotation would overdetermine the polygon and put us straight back into
+      // the singular-system trap M92 was careful to avoid. Instead the whole
+      // rigid group is pre-translated by the same delta and every one of its
+      // points becomes a drag wish, so the solver starts from the answer the
+      // user wants and its minimum-norm step keeps it. Anything the user HAS
+      // constrained still wins — the solve runs normally afterwards and pulls
+      // back whatever the constraints require.
+      final rigid = _centreRigidGroup(s, gs, grip);
+      if (rigid != null) {
+        final delta = dragPos! - grip.pos;
+        final wishes = <(int, int)>{};
+        for (final e in rigid) {
+          if (e != grip.entity) gs[e] = translateGeo(gs[e], delta);
+          for (var q = 0; q < ptCount(gs[e]); q++) {
+            wishes.add((e, q));
+          }
+        }
+        dragged = wishes;
+      }
       final ok =
           solveConstraints(gs, s.constraints, dragged: dragged, iterations: 25);
 
@@ -3156,6 +3185,53 @@ class AppState extends ChangeNotifier {
     dragPos = atWorld;
     _lastGoodDragGeo = null;
     notifyListeners();
+  }
+
+
+  /// M94 — the entities that must travel rigidly when [grip] drags a shape's
+  /// CENTRE, or null when this is an ordinary point drag.
+  ///
+  /// Recognises the construction-circle centre a polygon is built around
+  /// (M92): a circle whose centre is being dragged and which other entities
+  /// are pinned ON via point-on-curve `coincident`. Those entities, plus
+  /// anything coincident with them, form the shape.
+  ///
+  /// Returns null unless the group is genuinely a closed shape hanging off
+  /// this circle, so a lone circle still drags exactly as before.
+  Set<int>? _centreRigidGroup(SketchModel s, List<Geo> gs, Grip grip) {
+    if (grip.isBody || grip.idx != 0) return null;
+    final ci = grip.entity;
+    if (ci >= gs.length || gs[ci].type != Geo.circle) return null;
+
+    // Entities pinned ON this circle by a point-on-curve coincident.
+    final onCircle = <int>{};
+    for (final c in s.constraints) {
+      if (c.type != CType.coincident) continue;
+      if (c.pts.length != 1 || c.ents.length != 1 || c.ents.first != ci) {
+        continue;
+      }
+      onCircle.add(c.pts.first.ent);
+    }
+    if (onCircle.length < 3) return null; // not a polygon
+
+    // Grow across point-to-point coincidents so the whole rim comes along.
+    final group = <int>{ci, ...onCircle};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final c in s.constraints) {
+        if (c.type != CType.coincident || c.pts.length < 2) continue;
+        final a = c.pts[0].ent, b = c.pts[1].ent;
+        if (group.contains(a) && !group.contains(b)) {
+          group.add(b);
+          grew = true;
+        } else if (group.contains(b) && !group.contains(a)) {
+          group.add(a);
+          grew = true;
+        }
+      }
+    }
+    return group;
   }
 
   void updateGripDrag(Offset w) {
