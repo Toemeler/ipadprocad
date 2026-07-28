@@ -352,8 +352,19 @@ class _ModelBrowserState extends State<ModelBrowser> {
         addTarget('$_kFeaturePrefix${f.name}', f.name,
             _featureKeyFor(f.name), _featureMenu(widget.app, f));
       }
-      // M91 — End of Part, same treatment as End of Sketch.
-      addTarget('__eop__', 'End of Part', _eopKey, _eopMenuGroups(part));
+      // M102 — the End of Part row is deliberately NOT a native menu target.
+      //
+      // This is what defeated three attempts at the drag. A UIKit
+      // UIContextMenuInteraction covers every registered rect, and its
+      // long-press recogniser CANCELS the Flutter touch as soon as it begins
+      // — about 150 ms in, which is exactly the DOWN → CANCEL gap in the
+      // device log, with no MOVE in between. It was never the gesture arena
+      // and never the slot maths: UIKit was taking the touch away before
+      // Flutter could see a drag. Right-click and the native menu "worked"
+      // precisely because they are the interaction that was stealing it.
+      //
+      // The row keeps its menu through the Flutter long-press fallback in
+      // _eopRow, which does not compete for the pointer.
       // M97 — solid bodies.
       for (final b in part.solidBodies()) {
         addTarget('$_kBodyPrefix${b.$1}', b.$1, _bodyKeyFor(b.$1),
@@ -888,9 +899,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPressStart: NativeMenu.isSupported
-            ? null // the UIKit menu owns the long press on device
-            : (d) => _showEopCtx(d.globalPosition),
+        // M102 — always the Flutter menu here, on device too: this row has no
+        // UIKit interaction any more (see _pushTargets), so nothing else will
+        // provide one. It fires only after the drag threshold has NOT been
+        // met, so it cannot shadow the drag.
+        onLongPressStart: (d) => _showEopCtx(d.globalPosition),
         child: MouseRegion(
           cursor: SystemMouseCursors.grab,
           child: _row(

@@ -16,6 +16,42 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M102 — EOP: die WIRKLICHE Ursache. Es war nie die Gesten-Arena.**
+>
+> Das Log sagt es seit drei Runden dasselbe: `DOWN` … rund 150 ms … `CANCEL`,
+> nie ein `MOVE`. 150 ms ist kein Scroll — das ist ein **Long-Press**. Und ich
+> hatte die EOP-Zeile in M91 selbst als **nativen Menue-Target** registriert:
+> eine UIKit-`UIContextMenuInteraction` liegt ueber jedem registrierten Rect,
+> und ihr Long-Press-Recognizer **kassiert die Flutter-Beruehrung**, sobald er
+> anspringt. UIKit nahm den Finger weg, bevor Flutter einen Zug sehen konnte.
+> Dass Rechtsklick und natives Menue funktionierten, war kein Zufall, sondern
+> derselbe Mechanismus von der anderen Seite: genau die Interaktion, die den
+> Zug stahl, war die, die noch ging.
+>
+> Meine ersten drei Erklaerungen waren alle falsch (Slot-Mathematik, dann
+> GestureDetector-Arena, dann ListView-Physics) — jedes Mal habe ich ueber den
+> Code nachgedacht, statt zu lesen, was das Log sagt. Die Zeile ist jetzt KEIN
+> nativer Target mehr; ihr Menue kommt ueber den Flutter-Long-Press-Fallback,
+> der nicht um den Pointer konkurriert.
+>
+> **Merke fuer die naechste native Flaeche:** ein Rect, das im Menue-Payload
+> steht, kann in Flutter nicht mehr gezogen werden. Ziehbare Zeilen und
+> UIKit-Kontextmenues schliessen sich aus.
+>
+> **Hover klebt jetzt.** `_pickSolidFace` liefert die vorderste Flaeche; wo
+> sich zwei Koerper beruehren, kippte das bei Sub-Pixel-Bewegung hin und her
+> ("springt herum"). Der gehoverte Koerper wechselt nur noch, wenn der Zeiger
+> wirklich ueber einem ANDEREN steht; ein kurzer Fehlschlag (Fuge zwischen
+> Facetten, eine Kante) haelt den bisherigen, und erst drei Treffer ins Leere
+> loeschen ihn.
+>
+> **NOCH OFFEN:** der Nutzer meldet, die Vorschau stimme beim Wechsel nicht
+> immer, sei aber nach dem Oeffnen der Extrusion korrekt — klingt danach, dass
+> `_updateExtrudePreview` beim Hover-Wechsel zwar rechnet, die 3D-Szene aber
+> nicht neu gepusht wird (die Szenensignatur kennt `preview` nur ueber
+> `identityHashCode`, und ein neu gebautes Preview-Solid mit gleicher Identitaet
+> waere unsichtbar). Als Erstes dort nachsehen.
+
 > **M101 — Die beiden hartnaeckigen Fehler, diesmal an der Wurzel.**
 >
 > **(1) Vorschau ignorierte den gewaehlten Zielkoerper.** `_extrudeBooleanTarget`

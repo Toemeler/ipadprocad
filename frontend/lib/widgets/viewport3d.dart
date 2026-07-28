@@ -615,8 +615,24 @@ class _Viewport3DState extends State<Viewport3D>
       // — outside that mode this branch is a single bool test. setHoverBody
       // early-returns when the name is unchanged, so a move across one body
       // repaints once, not once per frame.
+      // M102 — STICKY. _pickSolidFace returns the frontmost face, and where
+      // two bodies meet or overlap that flips between them on sub-pixel
+      // movement — the highlight "jumped around". The body under the cursor
+      // only changes when the cursor is genuinely over a DIFFERENT body and
+      // stays there; a momentary miss (a gap between facets, an edge) keeps
+      // the current one rather than dropping it.
       final pick = _pickSolidFace(cam, px);
-      app.setHoverBody(pick == null ? null : _bodyNameOf(p, pick.$1));
+      final name = pick == null ? null : _bodyNameOf(p, pick.$1);
+      if (name == app.hoverBody) {
+        _hoverBodyMiss = 0;
+      } else if (name == null) {
+        // Off every body — but only believe it after a few consecutive
+        // samples, so a hairline crack cannot un-highlight the solid.
+        if (++_hoverBodyMiss >= 3) app.setHoverBody(null);
+      } else {
+        _hoverBodyMiss = 0;
+        app.setHoverBody(name);
+      }
     }
     (KernelSolid, int)? hf;
     if (app.pickPlane && region == null) {
@@ -723,6 +739,9 @@ class _Viewport3DState extends State<Viewport3D>
   /// when the mesh carries v4 metadata, else from the vertex-normal test.
   /// M97 — which body a picked solid belongs to. The pick returns the mesh of
   /// one FEATURE; the body is the name that feature builds into.
+  /// Consecutive hover samples that hit no body (M102 — see the hover code).
+  int _hoverBodyMiss = 0;
+
   String? _bodyNameOf(PartModel p, KernelSolid solid) {
     for (final f in p.features) {
       if (identical(f.solid, solid)) return f.bodyName;
