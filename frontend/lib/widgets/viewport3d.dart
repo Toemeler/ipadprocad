@@ -628,20 +628,20 @@ class _Viewport3DState extends State<Viewport3D>
       // the first sample of the neighbour — and every switch recomputes the
       // boolean preview, which is what flickered while the mouse moved. A new
       // body now has to win twice in a row before the preview is rebuilt.
+      // M104 — with the preview/body loop closed there is nothing left to
+      // damp: a sample either lands on a body (including the preview standing
+      // in for one) or on nothing. The two-sample confirmation added in M103
+      // is REMOVED — it made a genuine switch need a second sample that a slow
+      // hand might never deliver, which is why the highlight got worse rather
+      // than better. Only the miss counter stays, so a hairline crack between
+      // facets does not blink the highlight off.
       if (name == app.hoverBody) {
         _hoverBodyMiss = 0;
-        _hoverBodyCand = null;
       } else if (name == null) {
-        _hoverBodyCand = null;
         if (++_hoverBodyMiss >= 3) app.setHoverBody(null);
       } else {
         _hoverBodyMiss = 0;
-        if (_hoverBodyCand == name) {
-          _hoverBodyCand = null;
-          app.setHoverBody(name);
-        } else {
-          _hoverBodyCand = name; // first sighting — wait for confirmation
-        }
+        app.setHoverBody(name);
       }
     }
     (KernelSolid, int)? hf;
@@ -752,10 +752,29 @@ class _Viewport3DState extends State<Viewport3D>
   /// Consecutive hover samples that hit no body (M102 — see the hover code).
   int _hoverBodyMiss = 0;
 
-  /// A body seen once under the cursor, not yet confirmed (M103).
-  String? _hoverBodyCand;
 
   String? _bodyNameOf(PartModel p, KernelSolid solid) {
+    // M104 — THE FLICKER, and why holding still did not help either.
+    //
+    // Hovering a body builds the boolean preview and sets
+    // previewReplacesBody, and visibleSolids then HIDES that body and draws
+    // the combined preview in its place. The very next hover sample therefore
+    // hit the PREVIEW mesh, which belongs to the throwaway session feature and
+    // is in no p.features — so this returned null, the miss counter ran up,
+    // the hover cleared, the preview reverted, the real body reappeared and
+    // was hit again. A loop that repaints forever, entirely of my own making
+    // in M100.
+    //
+    // The preview STANDS IN for that body, so hovering it is hovering the
+    // body. Saying so breaks the loop at the root; the hysteresis added in
+    // M102/M103 was treating the symptom.
+    final sess = widget.app.extrudeSession;
+    if (sess != null &&
+        sess.preview != null &&
+        identical(sess.preview, solid) &&
+        sess.previewReplacesBody != null) {
+      return sess.previewReplacesBody;
+    }
     for (final f in p.features) {
       if (identical(f.solid, solid)) return f.bodyName;
     }

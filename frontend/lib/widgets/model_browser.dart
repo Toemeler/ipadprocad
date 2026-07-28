@@ -797,16 +797,31 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// sketch row in one step and feel like it was snapping. Converting travel
   /// through the real row layout keeps it under the finger.
   List<int> _eopRowIndexPerSlot(PartModel p) {
+    // M104 — the MARKER ITSELF occupies a row, and it sits at the slot being
+    // dragged from. Every row below it is therefore pushed down by one, which
+    // the first version ignored — so the mapping was off by a row as soon as
+    // the marker was above the feature in question and it still leapt over
+    // sketches. Nested sketch rows under an expanded feature shift things the
+    // same way, so the marker's own row is inserted at the slot the drag
+    // started from.
+    final startSlot = (_eopDragStartSlot ?? _shownEop(p))
+        .clamp(0, partBuildOrder(p).length);
     final out = <int>[];
     var row = 0;
+    var slot = 0;
     for (final n in partTimeline(p)) {
       if (n.isFeature) {
+        if (slot == startSlot) row++; // the End of Part row lives here
         out.add(row);
         row++;
+        slot++;
+        // An expanded feature shows its consumed sketch beneath it.
+        if (_expandedFeatures.contains(n.feature!.name)) row++;
       } else {
-        row++; // a sketch row the marker passes over without a slot of its own
+        row++; // a top-level sketch: passed over, no slot of its own
       }
     }
+    if (slot == startSlot) row++;
     out.add(row); // the slot after the last feature
     return out;
   }

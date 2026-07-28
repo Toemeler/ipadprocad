@@ -16,6 +16,39 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M104 — Das Flackern war eine Rueckkopplung, die ich in M100 selbst gebaut
+> habe. Die Hysterese aus M102/M103 hat nur das Symptom behandelt und es dann
+> verschlimmert.**
+>
+> Der Kreis: Hovern baut die boolesche Vorschau und setzt `previewReplacesBody`
+> → `visibleSolids` **versteckt genau diesen Koerper** und zeichnet an seiner
+> Stelle die Vorschau → das naechste Hover-Sample trifft also die
+> VORSCHAU-Mesh → die gehoert dem Wegwerf-Feature der Session und steht in
+> keinem `p.features` → `_bodyNameOf` gab **null** → Miss-Zaehler → Hover
+> geloescht → Vorschau zurueck → echter Koerper wieder da → getroffen →
+> umgeschaltet → von vorn. Das repaintet endlos, deshalb half auch Stillhalten
+> irgendwann nicht mehr.
+>
+> **Fix an der Wurzel:** die Vorschau STEHT FUER diesen Koerper, also ist sie
+> zu hovern dasselbe wie ihn zu hovern. `_bodyNameOf` bildet sie auf
+> `previewReplacesBody` ab. Damit ist der Kreis zu.
+>
+> **Und die Zwei-Sample-Bestaetigung aus M103 ist wieder RAUS.** Sie verlangte
+> fuer einen echten Wechsel ein zweites Sample, das eine langsame Hand nie
+> liefert — genau deshalb wurde die Hervorhebung schlechter statt besser. Nur
+> der Miss-Zaehler bleibt, damit eine Fuge zwischen Facetten das Highlight
+> nicht kurz ausknipst.
+>
+> **EOP ueberspringt weiter Skizzen:** die Marke belegt SELBST eine Zeile, und
+> zwar an dem Slot, von dem aus gezogen wird — alles darunter rutscht um eine
+> Zeile, was die erste Fassung ignorierte. Ebenso die verschachtelte
+> Skizzenzeile unter einem AUFGEKLAPPTEN Feature. Beides ist jetzt in der
+> Zeilenabbildung drin.
+>
+> **Lehre (dritte Runde derselben Sorte):** erst fragen, WARUM ein Sample
+> falsch ist, statt es zu daempfen. Zwei Meilensteine Hysterese haben den
+> eigentlichen Kreis nur verdeckt.
+
 > **M103 — Flackern, Klick-Auswahl und das Ueberspringen von Skizzen.**
 >
 > **(1) Flackern beim Mausbewegen.** M102 daempfte nur den Weg nach NULL. Ein
