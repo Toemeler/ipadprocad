@@ -16,6 +16,42 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M109 — STEP-Export im Kernel (Shim v12). DXF-Befund unten, WICHTIG.**
+>
+> **STEP.** Neu `occt_step_write(shape, path)`. Recherchiert statt geraten:
+> `STEPControl_Writer` + `Transfer(shape, STEPControl_AsIs)` + `Write(path)`,
+> Erfolg ist jeweils `IFSelect_RetDone`. **AsIs** mit Absicht — der Translator
+> waehlt damit die hoechstmoegliche Repraesentation (bei unseren Koerpern
+> `manifold_solid_brep`) statt einer facettierten Naeherung; genau das ist der
+> Sinn, aus dem KERNEL zu exportieren und nicht aus dem Anzeige-Mesh. Die
+> Einheit wird explizit auf **MM** gepinnt: OCCTs Default haengt an statischen
+> Interface-Einstellungen, die ein anderer Read/Write im selben Prozess
+> geaendert haben kann, und eine STEP-Datei, die still INCH sagt, ist die
+> klassische Art, ein um 25.4 falsches Teil zu uebergeben. Schema AP214CD.
+> **Kein Build-Umbau noetig:** `TKDESTEP` steht bereits in der Link-Liste
+> (`backend/occt/CMakeLists.txt`, Kommentar "STEPControl_* reader/writer").
+>
+> **DXF — was ich gefunden habe, NICHT gefixt (Kontext war zu Ende):** Der
+> Export reicht die STORAGE-Datei durch (`sketchExportPath` → `<name>.dxf`,
+> vorher geflusht). Geometrisch ist das in Ordnung, aber alles, was in
+> **Sidecars** liegt, ist in dieser Datei NICHT als solches markiert:
+> Spline-Tag, Gear-Tag, Konstruktions-/Mittellinien-Stil, Texte, Bilder.
+> Folgen, nach Schwere:
+> 1. **Konstruktionsgeometrie geht als NORMALE Geometrie raus.** Wer das DXF
+>    fertigt, fraest die Hilfslinien mit. Das ist der einzige Punkt, den ich
+>    als produktionsverhindernd einstufe. Fix: Konstruktions- und
+>    Mittellinien beim Export auf einen eigenen, nicht plottenden Layer legen
+>    (Konvention: `Defpoints`), statt sie in die Zeichenebene zu schreiben.
+> 2. Splines und Zahnraeder gehen als Polylinien raus (Sehnenzug). Verlustig,
+>    aber nicht falsch — wer exakte Kurven will, braucht echte SPLINE-Entities.
+> 3. Bemassungen/Constraints sind nicht im DXF; das ist erwartbar und in
+>    Ordnung.
+>
+> **Naechster Schritt (in dieser Reihenfolge):** (a) Export-Kopie statt
+> Storage-Datei erzeugen und darin Konstruktionsgeometrie auf `Defpoints`
+> legen; (b) STEP im Export-/Share-Menue anbieten (Dart-FFI-Binding auf
+> `occt_step_write` fehlt noch); (c) Splines als echte SPLINE-Entities.
+
 > **M108 — Der native Browser schwebt, ist dichter und dunkel.**
 >
 > **Schwebend.** Er belegt keine eigene Spalte mehr; der Viewport laeuft in

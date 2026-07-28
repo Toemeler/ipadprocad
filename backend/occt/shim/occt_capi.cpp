@@ -29,6 +29,13 @@
 #include <gp_Elips.hxx>
 #include <gp_Cylinder.hxx>
 
+// M109 — STEP export. TKDESTEP is already in the link list (see
+// backend/occt/CMakeLists.txt: "STEPControl_* reader/writer"), so this needs
+// no build change.
+#include <STEPControl_Writer.hxx>
+#include <IFSelect_ReturnStatus.hxx>
+#include <Interface_Static.hxx>
+
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Face.hxx>
@@ -140,7 +147,7 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v11 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v12 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -1305,7 +1312,46 @@ extern "C" occt_shape *occt_import_step(const char *path)
 
 /* ---- lifecycle -------------------------------------------------------------- */
 
-extern "C" void occt_free_shape(occt_shape *shape)
+extern "C" /* M109 — writes [shape] to [path] as STEP AP214.
+ *
+ * STEPControl_AsIs lets the translator pick the highest representation the
+ * shape supports (manifold_solid_brep for our solids) rather than forcing a
+ * faceted approximation — the whole point of exporting from the kernel instead
+ * of from the display mesh is that the receiving CAD system gets exact
+ * geometry, not triangles.
+ *
+ * The unit is pinned to MM explicitly. OCCT's default depends on static
+ * interface settings that another read/write could have changed in the same
+ * process, and a STEP file that silently says INCH is the classic way to hand
+ * someone a part that is 25.4x wrong.
+ *
+ * Returns 1 on success, 0 on failure. Never throws across the C boundary.
+ */
+int occt_step_write(const occt_shape *shape, const char *path)
+{
+    if (shape == nullptr || path == nullptr) return 0;
+    try
+    {
+        Interface_Static::SetCVal("write.step.unit", "MM");
+        // AP214 CD is the most widely accepted flavour for solid geometry.
+        Interface_Static::SetCVal("write.step.schema", "AP214CD");
+        STEPControl_Writer w;
+        if (w.Transfer(shape->s, STEPControl_AsIs) != IFSelect_RetDone)
+            return 0;
+        return w.Write(path) == IFSelect_RetDone ? 1 : 0;
+    }
+    catch (const Standard_Failure &e)
+    {
+        std::fprintf(stderr, "occt_step_write failed: %s\n", e.GetMessageString());
+        return 0;
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
+
+void occt_free_shape(occt_shape *shape)
 {
     delete shape; /* delete nullptr is a no-op */
 }
