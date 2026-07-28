@@ -16,6 +16,34 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M95 — Zwei Nachwehen von M93.**
+>
+> **(1) Nach dem Verlassen der Skizze war sie in 3D weg** und tauchte erst auf,
+> wenn man Extrude oeffnete und wieder abbrach. Ursache: seit M93 fehlt die
+> OFFENE Skizze absichtlich im Payload (Viewport2D zeichnet sie live) — damit
+> aendert Oeffnen UND Schliessen, was die Szene enthaelt. `sceneSignature`
+> wusste aber gar nicht, welche Skizze offen ist, also aenderte das Schliessen
+> die Signatur nicht, es wurde kein Rebuild geschickt, und die fertige Skizze
+> blieb unsichtbar, bis irgendeine fremde Aenderung (der Extrude-Dialog bewegt
+> `prev:`) einen Rebuild erzwang. Die Signatur traegt jetzt ein `edit:`-Feld.
+>
+> **(2) Skizzenlinien in 3D zu dick.** `sketchRadius` war `2.8e-3 * halfH` —
+> ein fester Bruchteil der Welthoehe, gewaehlt um "deutlich schwerer" als die
+> B-Rep-Kanten zu wirken. In Punkten sind das rund `2.8e-3 * Viewhoehe`, auf
+> einem iPad also ~4 pt gegen die 1 pt, die Viewport2D zeichnet. Jetzt aus der
+> VIEW hergeleitet statt geraten: die Ansicht zeigt `2*halfH` mm ueber
+> `bounds.height` Punkte, ein Punkt sind also `halfH / bounds.height` mm, und
+> ein Tube mit genau diesem RADIUS ist einen Punkt breit — dieselbe Strichbreite
+> wie in 2D. Fallback auf den alten Kantenwert, solange die View noch kein
+> Layout hat.
+>
+> **Neu/berührt:** `reality_scene.dart`, `packages/reality_view/ios/Classes/
+> RealityPartView.swift`, Test ergaenzt in `test/m93_no_double_sketch_test.dart`.
+>
+> **Verifikationsstand:** die Signatur ist host-getestet; die Strichbreite ist
+> Geraete-Sache — die Herleitung stimmt rechnerisch, ob 1 pt in 3D neben den
+> Kanten gut aussieht, sagt nur das Geraet.
+
 > **M94 — Ein Polygon am Mittelpunkt ziehen traegt die Form mit.** Gemeldet:
 > beim Ziehen am Mittelpunkt soll das Polygon Form und Groesse behalten und nur
 > in x/y wandern, sofern keine Constraint etwas anderes sagt.

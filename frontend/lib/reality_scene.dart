@@ -521,7 +521,17 @@ String sceneSignature(AppState app, PartModel p) {
   for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
     sb.write(p.vis[k] == true ? '1' : '0');
   }
-  sb.write(';sk:');
+  // M95 — WHICH sketch is open belongs in the signature. Since M93 the sketch
+  // being edited is deliberately left out of the payload (Viewport2D draws it
+  // live), so opening and CLOSING a sketch changes what the scene contains —
+  // but nothing here noticed, so no rebuild was pushed and the finished sketch
+  // stayed invisible in 3D until some unrelated change (opening the extrude
+  // dialog, which moves `prev:`) forced one. That is exactly the reported
+  // "sketch is gone until I open and cancel Extrude".
+  sb
+    ..write(';edit:')
+    ..write(app.inEditMode ? (app.activeChild?.name ?? '?') : '')
+    ..write(';sk:');
   for (final cs in p.childSketches) {
     sb
       ..write(cs.model.name)

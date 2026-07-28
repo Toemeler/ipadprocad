@@ -587,9 +587,24 @@ final class PartRenderer: NSObject {
     /// constant on-screen weight instead of vanishing when zoomed in.
     private var edgeRadius: Float { max(Float(cam.halfH) * 1.2e-3, 1e-6) }
 
-    /// Sketch curves must read clearly against the B-Rep edges they sit on
-    /// top of, so they are drawn distinctly heavier rather than at 1.2x.
-    private var sketchRadius: Float { max(Float(cam.halfH) * 2.8e-3, 2e-6) }
+    /// Sketch curves at the SAME on-screen weight as the 2D sketcher (M95).
+    ///
+    /// This used to be 2.8e-3 * halfH — a fixed multiple of the world height,
+    /// chosen to read "distinctly heavier" than the B-Rep edges. In points
+    /// that works out at roughly 2.8e-3 * viewHeight, about 4 pt on an iPad,
+    /// against the 1 pt stroke Viewport2D uses. Reported as "the sketch lines
+    /// in 3D are too thick; they should be the same thickness as in 2D".
+    ///
+    /// Derived from the view instead of guessed: the viewport spans
+    /// 2 * halfH millimetres over `bounds.height` points, so one point is
+    /// halfH / bounds.height millimetres, and a tube of that RADIUS is one
+    /// point across — the 2D stroke width. The floor keeps it from collapsing
+    /// to nothing before the view has been laid out.
+    private var sketchRadius: Float {
+        let h = Float(arView.bounds.height)
+        guard h > 1 else { return max(Float(cam.halfH) * 1.2e-3, 2e-6) }
+        return max(Float(cam.halfH) / h, 2e-6)
+    }
 
     /// Outward lift of a sketch off the face it was drawn on. Must exceed the
     /// depth resolution at the current zoom (see highlightEps).

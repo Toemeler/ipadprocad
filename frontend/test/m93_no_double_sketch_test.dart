@@ -30,6 +30,8 @@ ChildSketch _sketchWithGeometry(PartModel p, String name) {
 }
 
 void main() {
+  group('M95 scene signature', _signatureTests);
+
   test('a visible, NOT-edited sketch is sent to 3D', () {
     final app = AppState();
     final p = PartModel('P');
@@ -64,5 +66,36 @@ void main() {
     _sketchWithGeometry(p, 'Sketch1').visible = false;
     expect((buildScenePayload(app, p)['sketches'] as List?) ?? const [],
         isEmpty);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M95 — leaving the sketch must PUSH a rebuild.
+//
+// Since M93 the open sketch is deliberately absent from the payload, so
+// opening and closing one changes what the scene contains. The signature had
+// no idea which sketch was open, so closing it changed nothing, no rebuild was
+// pushed, and the finished sketch stayed invisible in 3D until an unrelated
+// change forced one — the reported "sketch is gone until I open and cancel
+// Extrude".
+void _signatureTests() {
+  test('the open sketch is part of the scene signature', () {
+    final app = AppState();
+    final p = PartModel('P');
+    _sketchWithGeometry(p, 'Sketch1');
+    final closed = sceneSignature(app, p);
+    expect(closed.contains('edit:;'), isTrue,
+        reason: 'nothing open -> empty edit field');
+    // The field is what makes open != closed, so a close forces a rebuild.
+    expect(closed, isNot(contains('edit:Sketch1')));
+  });
+
+  test('the signature still tracks the things it already tracked', () {
+    final app = AppState();
+    final p = PartModel('P');
+    final cs = _sketchWithGeometry(p, 'Sketch1');
+    final before = sceneSignature(app, p);
+    cs.visible = false;
+    expect(sceneSignature(app, p), isNot(before));
   });
 }
