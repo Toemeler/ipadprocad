@@ -246,6 +246,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         title: layer,
         rect: hit,
         cornerRadius: 4,
+        lift: false, // M90 — see the part-tree targets below
         groups: _menuFor(layer),
       ));
     }
@@ -259,6 +260,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
             title: 'End of Sketch',
             rect: hit,
             cornerRadius: 4,
+            lift: false, // M90
             groups: _eosMenuGroups(s),
           ));
         }
@@ -278,7 +280,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
         final live = [for (final g in groups) if (g.isNotEmpty) g];
         if (live.isEmpty) return;
         targets.add(NativeMenuTarget(
-            id: id, title: title, rect: hit, cornerRadius: 4, groups: live));
+            id: id,
+            title: title,
+            rect: hit,
+            cornerRadius: 4,
+            // M90: a browser row cannot be lifted — its pixels are in the
+            // Flutter Metal layer and UIKit cannot snapshot them, so a lift
+            // showed an empty grey slab over the tree. The row stays put and
+            // only the menu appears.
+            lift: false,
+            groups: live));
       }
 
       for (final cs in part.childSketches) {

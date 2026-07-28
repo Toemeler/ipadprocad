@@ -40,6 +40,9 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         let previewRect: CGRect
         let cornerRadius: CGFloat
         let previewImagePath: String?
+        /// M90 — false for targets whose pixels UIKit cannot obtain (Flutter
+        /// rows). Lifting those produced a blank slab; see buildPreview.
+        let lift: Bool
         let groups: [[Item]]
     }
 
@@ -340,6 +343,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             previewRect: parseRect(m["previewRect"]) ?? rect,
             cornerRadius: CGFloat((m["cornerRadius"] as? NSNumber)?.doubleValue ?? 0),
             previewImagePath: m["previewImagePath"] as? String,
+            lift: (m["lift"] as? NSNumber)?.boolValue ?? true,
             groups: groups)
     }
 }
@@ -403,30 +407,51 @@ extension NativeMenuPlugin: UIContextMenuInteractionDelegate {
     /// The card thumbnail lifts out of the page. Built from the sketch's own
     /// preview PNG rather than a snapshot of the Flutter view, because
     /// snapshotting a Metal-backed layer is unreliable.
+    ///
+    /// M90 — THE BLANK SLAB. This used to fill the container with the viewport
+    /// colour and only then draw the image, so a target WITHOUT an image (the
+    /// model browser rows added in M84) lifted an empty rounded rectangle the
+    /// size of the row: a grey slab sitting over the tree with nothing in it.
+    /// The row's real pixels are unobtainable — they live in Flutter's Metal
+    /// layer, which is exactly why the gallery hands over a PNG instead.
+    ///
+    /// So such targets now opt out of lifting entirely (`lift: false`). We
+    /// still return a preview rather than nil, because nil makes UIKit
+    /// snapshot the Flutter view itself and produce the same unreliable
+    /// result: an INVISIBLE one, with no background, no shadow and an empty
+    /// visible path. The row stays put and only the menu animates in, which is
+    /// how iOS list menus behave when a preview cannot be supplied.
     private func buildPreview(for configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
         guard let t = target(for: configuration), let host = attachedView else { return nil }
         let r = t.previewRect
         guard r.width > 1, r.height > 1 else { return nil }
 
         let container = UIView(frame: CGRect(origin: .zero, size: r.size))
-        container.backgroundColor = UIColor(
-            red: 0x21 / 255.0, green: 0x28 / 255.0, blue: 0x30 / 255.0, alpha: 1)
-        container.layer.cornerRadius = t.cornerRadius
-        container.layer.cornerCurve = .continuous
-        container.clipsToBounds = true
+        let params = UIPreviewParameters()
+        params.backgroundColor = .clear
 
-        if let path = t.previewImagePath, let image = UIImage(contentsOfFile: path) {
+        if t.lift, let path = t.previewImagePath,
+           let image = UIImage(contentsOfFile: path) {
+            container.backgroundColor = UIColor(
+                red: 0x21 / 255.0, green: 0x28 / 255.0, blue: 0x30 / 255.0, alpha: 1)
+            container.layer.cornerRadius = t.cornerRadius
+            container.layer.cornerCurve = .continuous
+            container.clipsToBounds = true
             let iv = UIImageView(image: image)
             iv.frame = container.bounds
             iv.contentMode = .scaleAspectFill
             iv.clipsToBounds = true
             container.addSubview(iv)
+            params.visiblePath = UIBezierPath(
+                roundedRect: container.bounds, cornerRadius: t.cornerRadius)
+        } else {
+            // Nothing to lift. An empty visible path draws no platter, and an
+            // empty shadow path suppresses the drop shadow UIKit would
+            // otherwise cast around it.
+            container.backgroundColor = .clear
+            params.visiblePath = UIBezierPath()
+            params.shadowPath = UIBezierPath()
         }
-
-        let params = UIPreviewParameters()
-        params.backgroundColor = .clear
-        params.visiblePath = UIBezierPath(
-            roundedRect: container.bounds, cornerRadius: t.cornerRadius)
 
         let previewTarget = UIPreviewTarget(
             container: host, center: CGPoint(x: r.midX, y: r.midY))

@@ -60,6 +60,16 @@ class NativeMenuTarget {
   /// snapshotting the Flutter surface.
   final String? previewImagePath;
 
+  /// Whether the target visually LIFTS out of the page under the menu (M90).
+  ///
+  /// True suits a card that has a [previewImagePath]: iOS lifts the picture.
+  /// False suits anything whose pixels we cannot hand to UIKit — a model
+  /// browser row lives in the Flutter Metal layer and cannot be snapshotted,
+  /// so lifting it produced an EMPTY slab the size of the row: a blank grey
+  /// rectangle covering the tree, which is what this flag exists to stop.
+  /// With it off the row simply stays where it is and only the menu appears.
+  final bool lift;
+
   final List<List<NativeMenuItem>> groups;
 
   const NativeMenuTarget({
@@ -70,6 +80,7 @@ class NativeMenuTarget {
     this.previewRect,
     this.cornerRadius = 0,
     this.previewImagePath,
+    this.lift = true,
   });
 
   static Map<String, Object?> _rect(Rect r) => {
@@ -86,6 +97,7 @@ class NativeMenuTarget {
         'previewRect': _rect(previewRect ?? rect),
         'cornerRadius': cornerRadius,
         if (previewImagePath != null) 'previewImagePath': previewImagePath,
+        'lift': lift,
         'groups': [
           for (final g in groups) [for (final i in g) i.toMap()]
         ],

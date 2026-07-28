@@ -16,6 +16,40 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M90 — Der leere graue Klotz unter dem Browser-Kontextmenue.** Gemeldet mit
+> Screenshot: Long-Press auf eine Skizzenzeile hebt ein leeres, abgerundetes
+> Rechteck in Zeilengroesse aus der Seite, das den Baum verdeckt.
+>
+> **Ursache, im Code gefunden:** `buildPreview` in `NativeMenuPlugin.swift`
+> fuellte den Container IMMER mit der Viewport-Farbe und zeichnete ERST DANACH
+> `previewImagePath` hinein. Fuer eine Galeriekarte ist das richtig (sie liefert
+> ihr 380x240-PNG). Fuer die in M84 hinzugekommenen Model-Browser-Zeilen gibt es
+> kein Bild — also blieb genau der gefuellte Container uebrig: ein grauer Klotz
+> mit nichts drin. Die echten Pixel der Zeile sind gar nicht zu bekommen, sie
+> liegen in Flutters Metal-Layer — eben deshalb reicht die Galerie ein PNG
+> herueber.
+>
+> **Fix:** neues Feld `lift` auf `NativeMenuTarget` (Default **true**, Galerie
+> unveraendert). Zeilen setzen `lift: false`; `buildPreview` gibt dann einen
+> UNSICHTBAREN Preview zurueck — kein Hintergrund, leerer `visiblePath`, leerer
+> `shadowPath`. Bewusst `nil` NICHT zurueckgegeben: dann wuerde UIKit die
+> Flutter-View selbst snapshotten und man haette dasselbe unzuverlaessige
+> Ergebnis. Die Zeile bleibt jetzt einfach liegen und nur das Menue faehrt auf,
+> so wie iOS-Listenmenues sich verhalten, wenn kein Preview lieferbar ist.
+>
+> **Nicht nur meine Zeilen:** Layer-Zeilen und "End of Sketch" hatten denselben
+> Fehler seit ihrer Einfuehrung (kein Bild → Klotz) und sind mitgefixt. Und die
+> Galerie faellt jetzt sauber zurueck, falls eine Karte kein PNG hat — was seit
+> M82 vorkommt, wenn ein Part keine zeichenbaren Solids hat.
+>
+> **Neu/berührt:** `packages/native_menu/lib/native_menu.dart`,
+> `packages/native_menu/ios/Classes/NativeMenuPlugin.swift`,
+> `widgets/model_browser.dart`, neuer Test `test/m90_menu_lift_test.dart`.
+>
+> **Verifikationsstand:** die Swift-Seite ist Geraete-Sache; der Host-Test nagelt
+> nur fest, dass das Flag wirklich ueber den Kanal geht, sicher defaultet und
+> die Galerie ihr Bild behaelt.
+
 > **M87 — Freihand-Spline-Werkzeug.** Mit Pencil oder Finger frei zeichnen,
 > beim Loslassen oeffnet ein modeless Fenster am Strichende: **Points**,
 > **Smoothing**, **Close if ends meet**, **Snap ends to points**, gruener
