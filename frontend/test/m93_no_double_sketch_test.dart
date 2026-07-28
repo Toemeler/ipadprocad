@@ -53,14 +53,16 @@ void main() {
     final app = AppState();
     final p = PartModel('P');
     p.childSketches.add(ChildSketch(SketchModel('Sketch1'), 'xy'));
-    final scene = buildScenePayload(app, p);
-    expect(scene.containsKey('sketches'), isFalse);
+    // The key is always present; what matters is that nothing is in it.
+    expect((buildScenePayload(app, p)['sketches'] as List?) ?? const [],
+        isEmpty);
   });
 
   test('a hidden sketch is not sent', () {
     final app = AppState();
     final p = PartModel('P');
     _sketchWithGeometry(p, 'Sketch1').visible = false;
-    expect(buildScenePayload(app, p).containsKey('sketches'), isFalse);
+    expect((buildScenePayload(app, p)['sketches'] as List?) ?? const [],
+        isEmpty);
   });
 }
