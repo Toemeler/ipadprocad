@@ -16,6 +16,82 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de`)
+>
+> **Alles gruen:** `dart-checks` 632 Tests + analyze sauber, `build-core-ios`,
+> `M3` und `m5-flutter-ipa` bestanden.
+>
+> **Was in dieser Sitzung entstand:** M82–M122. Grob: Galerie-Vorschau auf der
+> echten 3D-Engine, Ursprungsebenen rahmen das Teil, Share Sketch +
+> Browser-Kontextmenues, klebrige Split-Buttons, zwei Spline-Fixes, das
+> Freihand-Werkzeug, Zeitstrahl-Browser + End of Part, Polygon voll bestimmt,
+> Koerper-Picken fuer Extrude, STEP-Import als Koerper, DXF-Export ohne
+> gefaehrliche Konstruktionslinien, und der komplett native Model Browser auf
+> Liquid Glass.
+>
+> **OFFEN — nach Wichtigkeit:**
+> 1. **Geraete-Test des Panels** (M118–M122): Einziehen, EOP-Zug, ob die
+>    Rollback-Wirkung jetzt stimmt, ob 78 pt eingezogen reichen, ob das Glas
+>    ueberhaupt bricht. Fast alles seit M107 ist nur CI-gruen, nicht gesehen.
+> 2. **DXF: Splines/Zahnraeder gehen als Polylinien raus.** Verlustig, nicht
+>    gefaehrlich. Echte SPLINE-Entities brauchen eine `qcad_add_spline`-
+>    Erweiterung im C-API (dxflib kann es, das Prototype-API nicht).
+> 3. **Nummernkollision M90** — zweimal vergeben (mein Kontextmenue-Lift-Fix und
+>    der Trackball-Orbit einer anderen Sitzung). Nur Kosmetik, aber verwirrend.
+> 4. **Umbenennen-Dialoge im nativen Browser** sind weiter Flutter-`AlertDialog`s.
+> 5. **CI-Zeit**: ccache ist drin, greift ab dem zweiten Lauf. Naechster Hebel
+>    waere, die schweren Jobs bei reinen Dart-Aenderungen zu ueberspringen —
+>    aber nur mit sorgfaeltig geprueftem Pfadfilter, sonst rutscht eine echte
+>    C++-Regression durch.
+>
+> **Fehlermuster dieser Sitzung, bitte lesen — sie haben am meisten Zeit
+> gekostet:**
+> * **Vier Anlaeufe am EOP-Zug**, weil ich ueber den Code nachdachte, statt das
+>   Log zu lesen: `DOWN` … 150 ms … `CANCEL` ohne `MOVE` ist ein Long-Press,
+>   der die Beruehrung kassiert. Erst UIKits Kontextmenue (M102), dann der Pan
+>   der Liste (M121). **Wenn ein Zug nicht ankommt, ist es fast immer ein
+>   anderer Recognizer.**
+> * **Zweimal Hysterese gegen ein Symptom** (M102/M103), obwohl die Ursache eine
+>   Rueckkopplung war, die ich selbst gebaut hatte (M104). **Erst fragen, WARUM
+>   ein Sample falsch ist.**
+> * **Viermal Zeilen-Arithmetik**, obwohl die Zielposition im Modell gar nicht
+>   existierte (M113). **Stimmt eine Umrechnung wiederholt nicht, fehlt meist
+>   die Position.**
+> * **Signatur-Fallen**: alles, was das Bild aendert, MUSS in `sceneSignature`
+>   stehen (M95, M122) — sonst wird kein Rebuild geschickt und die Aenderung
+>   "wirkt nicht".
+> * **Ein `!` auf einem Map-Zugriff im Widget-Baum ist ein App-Killer** (M115):
+>   der Fehler nimmt den ganzen Teilbaum mit, hier das komplette Ribbon.
+> * **Vor dem Erweitern das vorhandene C-API lesen** (M109): STEP-Export gab es
+>   laengst, mein Duplikat hat die Uebersetzungseinheit zerschossen.
+
+> **M122 — End of Part wirkte nicht richtig, und der Extrude-Dialog lag hinter
+> dem Browser.**
+>
+> **(1) "Der ganze Koerper ist weg, obwohl nur eine Extrusion wegsollte."**
+> `setEndOfPart` hat nur `rolledBack` umgelegt und NIE neu gerechnet. Die
+> Join-Kette blieb damit stehen: `consumedByJoin` zeigte weiter auf ein
+> Feature, das jetzt zurueckgerollt ist. Extrusion2 unsichtbar, weil
+> zurueckgerollt — Extrusion1 unsichtbar, weil "in Extrusion2 aufgegangen".
+> Beide weg, also der ganze Koerper. Jetzt laeuft `recomputeAllFeatures` direkt
+> nach `applyEndOfPart`.
+>
+> **(2) "Auf Skizzen hat es gar keine Wirkung."** Zurueckgerollte Skizzen
+> fliegen seit M113 aus dem Payload, aber `sceneSignature` kannte weder
+> `cs.rolledBack` noch `eopAfter` — die Signatur blieb also gleich, es wurde
+> kein Rebuild geschickt, und in 3D aenderte sich nichts. Beide stehen jetzt
+> drin. (Dieselbe Falle wie M95; die Signatur muss ALLES enthalten, was das
+> Bild veraendert.)
+>
+> **(3) Ziehen "mal ja, mal nein".** `indexPathForItem(at:)` liefert im
+> Haarspalt ZWISCHEN Zellen nil; beginnt der Zug dort, scheiterte die Geste und
+> die Liste scrollte stattdessen. `eopIndex(at:)` probiert jetzt ein paar
+> Punkte um die Beruehrung herum.
+>
+> **(4) Extrude-Dialog** startete auf (12, 12) — also direkt unter der
+> schwebenden Browser-Karte. Er parkt jetzt rechts, vertikal zentriert, und
+> bleibt verschiebbar.
+
 > **M121 — Panel-Durchgang: Groesse, abgeschnittene Icons, und der EOP-Zug
 > eine Ebene tiefer.**
 >
