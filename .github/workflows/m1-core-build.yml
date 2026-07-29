@@ -797,7 +797,7 @@ jobs:
           else
             echo "OCCT LINK CHECK: FAIL (OCCT shim not linked into Runner)"; exit 1
           fi
-          # Authoritative export check: all 39 _occt_* C symbols (shim v12 +
+          # Authoritative export check: all 39 _occt_* C symbols (shim v13 +
           # M110 occt_split_solids:
           # v5 surface +occt_revolve_profile +occt_shape_edge_count
           # +occt_shape_edge_info +occt_mesh_edge_ids +occt_fillet_edges

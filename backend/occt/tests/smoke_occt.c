@@ -854,7 +854,7 @@ int main(void)
             check(ne == 12, "[21] a cube must report 12 edges");
             int vertical = -1;
             for (int i = 1; i <= ne; ++i) {
-                double info[10] = {0};
+                double info[12] = {0};
                 if (!occt_shape_edge_info(box, i, info))
                     continue;
                 if (info[0] != 1.0)
@@ -865,6 +865,10 @@ int main(void)
                       "[21] cube edge length must be 20");
                 check(info[9] == 2.0,
                       "[21] cube edge must have 2 adjacent faces");
+                /* v13: every edge of a plain box is an EXTERIOR corner */
+                check(fabs(info[10] - 90.0) < 1e-6,
+                      "[21] a cube edge is a 90 degree corner");
+                check(info[11] == 1.0, "[21] a cube edge must be CONVEX");
                 vertical = i;
                 break;
             }
@@ -947,6 +951,43 @@ int main(void)
             }
             occt_free_shape(box);
         }
+    }
+
+    /* [24] v13 CONVEXITY. Cutting a bar out of the top of a block leaves a
+     * channel: its two floor edges are INTERIOR corners (concave, what
+     * Inventor calls a fillet), while the block's outer edges stay exterior
+     * (convex, a round). Both must be reported, or "All Fillets" and "All
+     * Rounds" would select the same set. */
+    {
+        occt_shape *block = occt_make_box(40, 40, 20);
+        occt_shape *bar = occt_make_box(10, 60, 10);
+        if (block && bar) {
+            /* centre the bar across the block and sink it into the top */
+            const double mv[12] = {1, 0, 0, 15, 0, 1, 0, -10, 0, 0, 1, 15};
+            occt_shape *placed = occt_transform(bar, mv);
+            occt_shape *notched = placed ? occt_cut(block, placed) : NULL;
+            if (check(notched != NULL, "[24] notch cut returned NULL")) {
+                const int ne = occt_shape_edge_count(notched);
+                int convex = 0, concave = 0, tangent = 0;
+                for (int i = 1; i <= ne; ++i) {
+                    double d[12] = {0};
+                    if (!occt_shape_edge_info(notched, i, d)) continue;
+                    if (d[9] != 2.0) continue;
+                    if (d[11] > 0.5) convex++;
+                    else if (d[11] < -0.5) concave++;
+                    else tangent++;
+                }
+                printf("[24] notched block: %d convex, %d concave, %d tangent "
+                       "(of %d edges)\n", convex, concave, tangent, ne);
+                check(concave == 2,
+                      "[24] a rectangular channel has exactly 2 concave edges");
+                check(convex > 0, "[24] the block's own edges stay convex");
+                occt_free_shape(notched);
+            }
+            if (placed) occt_free_shape(placed);
+        }
+        if (bar) occt_free_shape(bar);
+        if (block) occt_free_shape(block);
     }
 
     if (g_failures == 0) {

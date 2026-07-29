@@ -29,11 +29,13 @@ class FilletRecorder implements PartKernel {
       1.0,
       null);
 
-  /// Three straight, filletable edges at x = 0, 10, 20.
+  /// Three straight filletable edges: two CONVEX (exterior) and one CONCAVE
+  /// (interior), so All Fillets and All Rounds must select different sets.
   @override
   List<OcctEdgeInfo> edgesOf(KernelSolid s) => [
-        for (var i = 0; i < 3; i++)
-          OcctEdgeInfo(i + 1, 1, i * 10.0, 0, 0, 1, 0, 0, 5, 0, 2)
+        OcctEdgeInfo(1, 1, 0, 0, 0, 1, 0, 0, 5, 0, 2, 90, 1),
+        OcctEdgeInfo(2, 1, 10, 0, 0, 1, 0, 0, 5, 0, 2, 90, 1),
+        OcctEdgeInfo(3, 1, 20, 0, 0, 1, 0, 0, 5, 0, 2, 90, -1),
       ];
 
   @override
@@ -241,6 +243,72 @@ void main() {
       expect(k.lastIds, [1, 2, 3]);
       expect(k.lastRadii, [2.0, 2.0, 4.0],
           reason: 'each edge takes ITS set radius, in edge order');
+    });
+  });
+
+  group('Select Mode (M142)', () {
+    KernelSolid stub() => KernelSolid(
+        OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+            Int32List.fromList(const [0]), Float64List(0)),
+        1.0,
+        null);
+
+    AppState withBody(FilletRecorder k) {
+      final app = AppState()..partKernel = k;
+      app.edgeSession = EdgeFeatureSession('fillet');
+      app.beginPickEdges();
+      // one manual pick establishes WHICH body, as the panel requires
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      return app;
+    }
+
+    test('All Rounds adds the convex edges only', () {
+      final app = withBody(FilletRecorder());
+      app.selectAllEdges(concave: false);
+      expect(app.pickedEdgeIds, [1, 2], reason: 'edge 3 is concave');
+      expect(app.edgeSession!.allRounds, isTrue);
+    });
+
+    test('All Fillets adds the concave edges only', () {
+      final app = withBody(FilletRecorder());
+      app.selectAllEdges(concave: true);
+      expect(app.pickedEdgeIds, [1, 3], reason: 'edge 1 was picked by hand');
+      expect(app.edgeSession!.allFillets, isTrue);
+    });
+
+    test('it never adds an edge twice', () {
+      final app = withBody(FilletRecorder());
+      app.selectAllEdges(concave: false);
+      app.selectAllEdges(concave: false);
+      expect(app.pickedEdgeIds, [1, 2]);
+    });
+
+    test('added edges land in the ACTIVE set', () {
+      final app = withBody(FilletRecorder());
+      app.newEdgeSet();
+      app.selectAllEdges(concave: true);
+      expect(app.edgesInSet(0), 1);
+      expect(app.edgesInSet(1), 1, reason: 'the concave edge joined set 2');
+    });
+
+    test('without a body it refuses rather than guessing', () {
+      final app = AppState()..partKernel = FilletRecorder();
+      app.edgeSession = EdgeFeatureSession('fillet');
+      app.beginPickEdges();
+      app.selectAllEdges(concave: true);
+      expect(app.pickedEdges, isEmpty);
+    });
+
+    test('convexity helpers read the shim contract', () {
+      expect(OcctEdgeInfo(1, 1, 0, 0, 0, 1, 0, 0, 5, 0, 2, 90, 1).isConvex,
+          isTrue);
+      expect(OcctEdgeInfo(1, 1, 0, 0, 0, 1, 0, 0, 5, 0, 2, 90, -1).isConcave,
+          isTrue);
+      // a tangent edge is neither
+      final t = OcctEdgeInfo(1, 1, 0, 0, 0, 1, 0, 0, 5, 0, 2, 0, 0);
+      expect(t.isConvex, isFalse);
+      expect(t.isConcave, isFalse);
     });
   });
 

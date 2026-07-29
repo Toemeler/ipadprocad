@@ -544,6 +544,9 @@ class EdgeFeatureSession {
   // feature", and within that feature each set carries its own radius.
   List<String> exprRadii = ['2 mm'];
 
+  /// Inventor's Select Mode toggles, persisted onto the feature.
+  bool allFillets = false, allRounds = false;
+
   /// Backwards-compatible view of the FIRST set's radius, still what a
   /// single-set fillet means and what gets persisted as exprRadius.
   String get exprRadius => exprRadii.isEmpty ? '2 mm' : exprRadii.first;
@@ -2581,6 +2584,8 @@ class AppState extends ChangeNotifier {
       for (final r in edit.radii) {
         if (!seen.any((x) => (x - r).abs() < 1e-12)) seen.add(r);
       }
+      s.allFillets = edit.allFillets;
+      s.allRounds = edit.allRounds;
       s.exprRadii = seen.isEmpty
           ? [edit.exprRadius]
           : [for (final r in seen) '${_mmExpr(r)} mm'];
@@ -2696,6 +2701,8 @@ class AppState extends ChangeNotifier {
                   .clamp(0, rs.length - 1)]
           ],
           exprRadius: s.exprRadius,
+          allFillets: s.allFillets,
+          allRounds: s.allRounds,
         ),
         null
       );
@@ -4450,6 +4457,50 @@ class AppState extends ChangeNotifier {
   void selectEdgeSet(int i) {
     if (i < 0 || i >= edgeSetCount) return;
     activeEdgeSet = i;
+    notifyListeners();
+  }
+
+  /// M142 — Inventor's Select Mode: fill the ACTIVE set with every concave
+  /// edge ("All Fillets") or every convex one ("All Rounds") of the body.
+  ///
+  /// Needs the convexity the shim reports (v13); before that the two would
+  /// have selected the same set, since nothing distinguished an interior
+  /// corner from an exterior one.
+  void selectAllEdges({required bool concave}) {
+    final s = edgeSession;
+    final base = pickedEdgeSolid;
+    if (s == null || !s.isFillet) return;
+    if (base == null) {
+      toast('Pick one edge first, so the body is known.');
+      return;
+    }
+    final live = partKernel.edgesOf(base);
+    if (live.isEmpty) {
+      toast('That body has no selectable edges.');
+      return;
+    }
+    var added = 0;
+    for (final e in live) {
+      if (!e.filletable) continue;
+      if (concave ? !e.isConcave : !e.isConvex) continue;
+      if (pickedEdgeIds.contains(e.index)) continue;
+      pickedEdgeIds.add(e.index);
+      pickedEdges.add(EdgeSel(e.mx, e.my, e.mz, e.length, e.kind, e.radius));
+      // No display index: these were not picked in the viewport, so they
+      // cannot be highlighted. -1 is honest; _edgeAccentPayload skips it.
+      pickedEdgeDisplay.add(-1);
+      pickedEdgeSet.add(activeEdgeSet);
+      added++;
+    }
+    if (concave) {
+      s.allFillets = true;
+    } else {
+      s.allRounds = true;
+    }
+    toast(added == 0
+        ? 'No ${concave ? 'interior' : 'exterior'} edges left to add.'
+        : 'Added $added ${concave ? 'fillet' : 'round'} edges.');
+    _updateEdgeFeaturePreview();
     notifyListeners();
   }
 

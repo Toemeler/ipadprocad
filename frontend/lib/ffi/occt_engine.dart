@@ -148,11 +148,28 @@ class OcctEdgeInfo {
   final double radius; // circle radius / ellipse major, else 0
   final int faceCount; // 2 = ordinary edge; 1 = free boundary (not filletable)
 
+  /// v13 — angle between the two adjacent faces, in degrees. 0 means
+  /// tangent-continuous (a smooth edge, which is why the display list drops
+  /// it); 90 is a square corner.
+  final double dihedralDeg;
+
+  /// v13 — +1 CONVEX (exterior corner; rounding one is what Inventor calls a
+  /// round), -1 CONCAVE (interior corner; rounding one is a fillet), 0 when
+  /// unknown or tangent.
+  final int convexity;
+
   const OcctEdgeInfo(this.index, this.kind, this.mx, this.my, this.mz, this.tx,
-      this.ty, this.tz, this.length, this.radius, this.faceCount);
+      this.ty, this.tz, this.length, this.radius, this.faceCount,
+      [this.dihedralDeg = 0, this.convexity = 0]);
 
   /// An edge a fillet or chamfer can actually be applied to.
   bool get filletable => kind != 0 && length > 0 && faceCount == 2;
+
+  /// An INTERIOR corner — what Inventor's "All Fillets" selects.
+  bool get isConcave => convexity < 0;
+
+  /// An EXTERIOR corner — what "All Rounds" selects.
+  bool get isConvex => convexity > 0;
 
   @override
   String toString() => 'edge#$index(k$kind len${length.toStringAsFixed(3)})';
@@ -279,11 +296,13 @@ class OcctShape {
 
   /// v12 — identity record of 1-based topological edge [index], or null.
   OcctEdgeInfo? edgeInfo(int index) {
-    final buf = calloc<Double>(10);
+    // 12 doubles since v13; the last two are the dihedral and the convexity.
+    final buf = calloc<Double>(12);
     try {
       if (_ffi._shapeEdgeInfo(_handle, index, buf) != 1) return null;
       return OcctEdgeInfo(index, buf[0].round(), buf[1], buf[2], buf[3], buf[4],
-          buf[5], buf[6], buf[7], buf[8], buf[9].round());
+          buf[5], buf[6], buf[7], buf[8], buf[9].round(), buf[10],
+          buf[11].round());
     } finally {
       calloc.free(buf);
     }

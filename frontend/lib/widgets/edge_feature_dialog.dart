@@ -219,6 +219,17 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                     (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i)),
               ),
             ])),
+      // Inventor's Select Mode. Enabled once a body is known, because
+      // "all edges" is meaningless without one.
+      panelRow(
+          'Select',
+          Row(children: [
+            _pill('All Fillets', () => app.selectAllEdges(concave: true),
+                app.pickedEdgeSolid != null),
+            const SizedBox(width: 3),
+            _pill('All Rounds', () => app.selectAllEdges(concave: false),
+                app.pickedEdgeSolid != null),
+          ])),
       panelRow(
           '',
           GestureDetector(
@@ -285,6 +296,25 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
             )),
     ];
   }
+
+  Widget _pill(String label, VoidCallback onTap, bool enabled) => Expanded(
+        child: Opacity(
+          opacity: enabled ? 1 : 0.4,
+          child: GestureDetector(
+            onTap: enabled ? onTap : null,
+            child: Container(
+              height: 24,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A2E33),
+                border: Border.all(color: const Color(0xFF3A3F45)),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text(label, style: ts(11.5, T.text)),
+            ),
+          ),
+        ),
+      );
 
   Widget _modeButton(int mode, String tip, String label) {
     final active = sess.mode == mode;

@@ -16,6 +16,52 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M142 — Shim v13: Kanten-KONVEXITAET, und damit Inventors „All Fillets" /
+> „All Rounds". 759/759 Tests, 0 Analyzer-Fehler.**
+>
+> **Warum das ein eigener Meilenstein war.** `allFillets`/`allRounds` lagen
+> seit M136 im Modell, aber unbedienbar: Verrundung (INNENkante) von Abrundung
+> (AUSSENkante) zu unterscheiden braucht die Konvexitaet, und
+> `occt_shape_edge_info` lieferte sie nicht. Ohne sie haetten beide Schalter
+> dieselbe Menge ausgewaehlt.
+>
+> **Shim:** `occt_shape_edge_info` gibt jetzt ZWOELF statt zehn Doubles;
+> [10] = Flaechenwinkel in Grad (0 = tangentenstetig, 90 = rechter Winkel),
+> [11] = +1 konvex / -1 konkav / 0 unbekannt. Version v13, Symbolzahl
+> unveraendert 39 (keine neue Funktion).
+>
+> **Der erste Versuch war falsch und der Test hat es gezeigt.** Vorzeichen
+> ueber den Mittelwert der beiden AUSSENnormalen zu bestimmen und dann
+> einwaerts zu schreiten liefert „innen" fuer JEDE Kante — bei einer
+> Innenkante liegt der Schritt genauso im Material wie bei einer Aussenkante.
+> Ergebnis im Smoke: 24 konvex, 0 konkav. Richtig ist die Winkelhalbierende
+> der beiden IN-DIE-FLAECHE-Richtungen (`nOut x T`, mit dem Tangenten-
+> Vorzeichen aus der Orientierung der Kante IN der jeweiligen Flaeche): bei
+> einer Aussenkante zeigt sie ins Material, bei einer Innenkante in den
+> Hohlraum, auf den die Ecke sich oeffnet. Danach 22 konvex, 2 konkav.
+>
+> **Smoke [24]** prueft es an echter Geometrie: ein Balken aus der Oberseite
+> eines Blocks geschnitten ergibt einen Kanal, dessen zwei Bodenkanten
+> INNENkanten sind, waehrend die 22 uebrigen Blockkanten aussen bleiben.
+> Zusaetzlich in [21]: jede Kante eines schlichten Wuerfels ist konvex bei
+> exakt 90 Grad. Fehlerparitaet zu HEAD weiterhin 4 = 4.
+>
+> **UI:** „All Fillets" / „All Rounds" fuellen den AKTIVEN Kantensatz mit
+> allen konkaven bzw. konvexen Kanten des Koerpers. Verlangt einen Pick
+> vorher, damit der Koerper bekannt ist — „alle Kanten" ohne Koerper ist
+> sinnlos, also wird es abgelehnt statt geraten. Automatisch hinzugefuegte
+> Kanten bekommen Display-Index -1: sie wurden nicht im Viewport getippt, sind
+> also nicht hervorhebbar, und `_edgeAccentPayload` ueberspringt sie.
+>
+> **6 neue Tests** (All Rounds nimmt nur konvexe, All Fillets nur konkave,
+> nie doppelt, landen im aktiven Satz, ohne Koerper Verweigerung,
+> `isConvex`/`isConcave` gegen den Shim-Vertrag).
+>
+> **NOCH OFFEN:** variabler Radius entlang EINER Kante; Revolve-Extents
+> (Winkel, bei dem der rotierende Sweep zuerst Material trifft);
+> CPU-Painter zeichnet den Kanten-Akzent nicht; die gesamte Swift-Seite
+> ungeprueft (kein Xcode).
+
 > **M141 — Fillet-Kantensaetze: Radius JE SATZ, wie in Inventor.
 > 753/753 Tests, 0 Analyzer-Fehler.**
 >

@@ -281,11 +281,15 @@ int occt_shape_edge_count(const occt_shape *shape);
  *   [8]    radius (circle) / major radius (ellipse), 0 otherwise
  *   [9]    number of faces adjacent to this edge (2 = ordinary manifold edge;
  *          1 = free boundary, which cannot be filleted)
+ *   [10]   v13: dihedral angle between the adjacent faces, in DEGREES
+ *          (0 = tangent-continuous, 90 = square corner)
+ *   [11]   v13: +1 CONVEX (exterior corner -> Inventor calls it a round),
+ *          -1 CONCAVE (interior corner -> a fillet), 0 unknown/tangent
  * This is the fingerprint Dart persists so a fillet survives a rebuild: OCCT
  * indices are NOT stable across a recompute, midpoint+length+type is.
  * Returns 1/0.
  */
-int occt_shape_edge_info(const occt_shape *shape, int index, double *out10);
+int occt_shape_edge_info(const occt_shape *shape, int index, double *out12);
 
 /*
  * v12 — For every DISPLAY edge of the mesh (same order and count as

@@ -89,6 +89,10 @@
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepIntCurveSurface_Inter.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepTools.hxx>
+#include <Geom_Surface.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <TopoDS_Edge.hxx>
 #include <algorithm>
@@ -151,13 +155,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v12 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v13 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 12; }
+extern "C" int occt_shim_version(void) { return 13; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1551,11 +1555,75 @@ extern "C" int occt_shape_edge_count(const occt_shape *shape)
     OCCT_CATCH("occt_shape_edge_count", -1)
 }
 
+/* Outward unit normal of [face] at the point on [edge] with parameter t.
+ * Honours the face orientation, which is what makes it OUTWARD rather than
+ * merely normal to the surface. */
+static bool face_outward_normal(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                                double t, gp_Dir &out)
+{
+    Standard_Real f = 0, l = 0;
+    Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(edge, face, f, l);
+    if (pc.IsNull())
+        return false;
+    const gp_Pnt2d uv = pc->Value(t);
+    BRepAdaptor_Surface surf(face, Standard_False);
+    gp_Pnt p;
+    gp_Vec du, dv;
+    surf.D1(uv.X(), uv.Y(), p, du, dv);
+    gp_Vec n = du.Crossed(dv);
+    if (n.Magnitude() < 1e-12)
+        return false;
+    n.Normalize();
+    if (face.Orientation() == TopAbs_REVERSED)
+        n.Reverse();
+    out = gp_Dir(n);
+    return true;
+}
+
+/* Unit direction that leaves [edge] and runs INTO [face], tangent to it.
+ *
+ * Built from the edge tangent oriented along the face's own boundary
+ * traversal: with an outward normal and a CCW outer loop seen from outside,
+ * the interior lies to the left, i.e. along nOut x T. Taking the orientation
+ * from the face's explorer (rather than assuming FORWARD) is what makes this
+ * work for the second face of the pair, where the shared edge is traversed
+ * the other way. */
+static bool into_face_dir(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                         double t, const gp_Dir &nOut, gp_Dir &out)
+{
+    TopAbs_Orientation ori = TopAbs_FORWARD;
+    bool found = false;
+    for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+        if (ex.Current().IsSame(edge)) {
+            ori = ex.Current().Orientation();
+            found = true;
+            break;
+        }
+    }
+    if (!found)
+        return false;
+    BRepAdaptor_Curve c(edge);
+    gp_Pnt p;
+    gp_Vec d1;
+    c.D1(t, p, d1);
+    if (d1.Magnitude() < 1e-12)
+        return false;
+    d1.Normalize();
+    if (ori == TopAbs_REVERSED)
+        d1.Reverse();
+    const gp_Vec u = gp_Vec(nOut).Crossed(d1);
+    if (u.Magnitude() < 1e-12)
+        return false;
+    out = gp_Dir(u);
+    return true;
+}
+
 extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
-                                    double *out10)
+                                    double *out12)
 {
     OCCT_TRY("occt_shape_edge_info")
-    if (!shape || !out10) {
+    double *out10 = out12; /* first ten fields are unchanged since v12 */
+    if (!shape || !out12) {
         set_err("occt_shape_edge_info", "null argument");
         return 0;
     }
@@ -1566,8 +1634,8 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
         return 0;
     }
     const TopoDS_Edge edge = TopoDS::Edge(m.FindKey(index));
-    for (int i = 0; i < 10; ++i)
-        out10[i] = 0.0;
+    for (int i = 0; i < 12; ++i)
+        out12[i] = 0.0;
     if (BRep_Tool::Degenerated(edge))
         return 1; /* type 0, zero length — an honest "nothing here" */
 
@@ -1619,6 +1687,51 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
     out10[9] = edgeFaces.Contains(edge)
                    ? (double)edgeFaces.FindFromKey(edge).Extent()
                    : 0.0;
+
+    /* v13 — dihedral angle and CONVEXITY, which is what tells a fillet
+     * (concave, interior corner) from a round (convex, exterior corner) and so
+     * what Inventor's "All Fillets" / "All Rounds" select on.
+     *
+     * Sign by classification rather than by juggling normal and tangent
+     * orientations: step a short way from the edge along the INWARD average
+     * normal and ask the solid whether that point is inside. Inside means the
+     * material wraps around the edge from outside, i.e. a convex edge. It is
+     * one classifier call per edge and immune to the face-orientation traps
+     * that make the cross-product formulations fragile. */
+    if (out10[9] == 2.0) {
+        const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+        const TopoDS_Face f1 = TopoDS::Face(fl.First());
+        const TopoDS_Face f2 = TopoDS::Face(fl.Last());
+        gp_Dir n1, n2, u1, u2;
+        if (face_outward_normal(f1, edge, tmid, n1) &&
+            face_outward_normal(f2, edge, tmid, n2)) {
+            const double c = std::max(-1.0, std::min(1.0, n1.Dot(n2)));
+            out12[10] = std::acos(c) * 180.0 / M_PI;
+            /* The BISECTOR OF THE TWO INTO-FACE DIRECTIONS, not of the two
+             * normals. The first attempt used the normals and reported every
+             * edge convex: stepping inward along the averaged normal lands in
+             * material for a concave edge just as much as for a convex one, so
+             * it does not discriminate at all. Walking into the faces does:
+             * for an exterior corner the bisector points into the solid, for
+             * an interior corner it points into the void the corner opens
+             * onto. */
+            if (out12[10] > 1.0e-3 &&
+                into_face_dir(f1, edge, tmid, n1, u1) &&
+                into_face_dir(f2, edge, tmid, n2, u2)) {
+                gp_Vec m(u1.XYZ() + u2.XYZ());
+                if (m.Magnitude() > 1e-9) {
+                    m.Normalize();
+                    Bnd_Box bb;
+                    BRepBndLib::Add(shape->s, bb);
+                    const double step =
+                        1.0e-3 * (bb.IsVoid() ? 1.0 : sqrt(bb.SquareExtent()));
+                    BRepClass3d_SolidClassifier cls(shape->s);
+                    cls.Perform(pm.Translated(m * step), 1.0e-7);
+                    out12[11] = (cls.State() == TopAbs_IN) ? 1.0 : -1.0;
+                }
+            }
+        }
+    }
     return 1;
     OCCT_CATCH("occt_shape_edge_info", 0)
 }
