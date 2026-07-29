@@ -351,17 +351,33 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         }
     }
 
+    /// M122 — the End of Part row under [pt], with a little slack.
+    ///
+    /// The drag was hit and miss because `indexPathForItem(at:)` returns nil in
+    /// the hairline BETWEEN cells and just outside a cell's bounds — start
+    /// there and the gesture failed, so the list scrolled instead and the
+    /// marker did not move. Probing a few points around the touch turns "grab
+    /// the marker" into something you can actually hit.
+    private func eopIndex(at pt: CGPoint) -> Int? {
+        for dy in [CGFloat(0), -6, 6, -12, 12] {
+            let probe = CGPoint(x: pt.x, y: pt.y + dy)
+            guard let ip = collection.indexPathForItem(at: probe),
+                  ip.item < rows.count else { continue }
+            if rows[ip.item].isEop { return ip.item }
+        }
+        return nil
+    }
+
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
         let pt = g.location(in: collection)
         switch g.state {
         case .began:
-            guard let ip = collection.indexPathForItem(at: pt),
-                  ip.item < rows.count, rows[ip.item].isEop else {
+            guard let i = eopIndex(at: pt) else {
                 g.state = .failed // not the marker: let the list scroll
                 return
             }
             eopStartY = pt.y
-            eopStartIndex = ip.item
+            eopStartIndex = i
             // Nothing should slide under the finger while the marker moves.
             collection.isScrollEnabled = false
         case .changed:
@@ -391,10 +407,7 @@ extension GlassBrowserView: UIGestureRecognizerDelegate {
     /// The pan only claims the touch when it starts ON the End of Part row;
     /// everywhere else the list keeps its scrolling.
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        let pt = g.location(in: collection)
-        guard let ip = collection.indexPathForItem(at: pt),
-              ip.item < rows.count else { return false }
-        return rows[ip.item].isEop
+        eopIndex(at: g.location(in: collection)) != nil
     }
 }
 

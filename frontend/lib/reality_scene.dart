@@ -544,6 +544,9 @@ String sceneSignature(AppState app, PartModel p) {
   for (final (id, s) in visibleSolids(app, p)) {
     sb..write(id)..write(':')..write(identityHashCode(s.mesh))..write(';');
   }
+  // The marker itself: rolling it changes which features are drawn, and after
+  // a recompute the surviving meshes can be the SAME objects as before.
+  sb..write('eop:')..write(p.eopAfter)..write(';');
   sb
     ..write('prev:')
     ..write(sess?.preview == null ? 0 : identityHashCode(sess!.preview!.mesh))
@@ -580,6 +583,11 @@ String sceneSignature(AppState app, PartModel p) {
       ..write(cs.model.eosAfter)
       ..write('/')
       ..write(cs.visible ? 1 : 0)
+      // M122 — rolled-back sketches are dropped from the payload, so the
+      // marker moving past one CHANGES the scene. Without this the signature
+      // was identical, no rebuild was pushed, and End of Part appeared to have
+      // no effect on sketches at all.
+      ..write(cs.rolledBack ? 'R' : '-')
       ..write(',');
   }
   return sb.toString();

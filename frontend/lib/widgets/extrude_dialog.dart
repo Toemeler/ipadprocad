@@ -19,7 +19,11 @@ class ExtrudeDialog extends StatefulWidget {
 }
 
 class _ExtrudeDialogState extends State<ExtrudeDialog> {
-  Offset _pos = const Offset(12, 12);
+  /// M122 — null until first laid out, then parked on the RIGHT, vertically
+  /// centred. The old default was (12, 12): the top-left corner, i.e. directly
+  /// underneath the floating model browser card, so the dialog opened half
+  /// hidden behind it. It stays draggable — this only changes where it starts.
+  Offset? _pos;
   bool _inputOpen = true, _behaviorOpen = true, _outputOpen = true,
       _advancedOpen = true;
   late final TextEditingController _a, _b, _taper, _body;
@@ -51,11 +55,17 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
     // Live bodies available as a Join target (empty for the base feature).
     final bodies = app.currentPart?.bodyNames ?? const <String>[];
     final sketchLabel = s.sketchName ?? 'Sketch1';
+    // Park it against the right edge, centred, the first time we know how big
+    // the viewport is.
+    const w = 300.0, h = 560.0;
+    final size = MediaQuery.sizeOf(context);
+    final pos = _pos ??
+        Offset(size.width - w - 18, ((size.height - h) / 2).clamp(12.0, 400.0));
     return Positioned(
-      left: _pos.dx,
-      top: _pos.dy,
+      left: pos.dx,
+      top: pos.dy,
       child: GestureDetector(
-        onPanUpdate: (d) => setState(() => _pos += d.delta),
+        onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
         child: Container(
           width: 300,
           decoration: BoxDecoration(
