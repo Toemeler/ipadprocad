@@ -32,6 +32,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
   final _d2 = TextEditingController();
   final _angle = TextEditingController();
   bool _inputOpen = true, _shapeOpen = true;
+
+  /// Null until first laid out, then wherever the user dragged it to.
+  Offset? _pos;
   String? _syncedFor;
 
   EdgeFeatureSession get sess => widget.app.edgeSession!;
@@ -71,9 +74,17 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     final n = app.pickedEdges.length;
     final title = s.isFillet ? 'Fillet' : 'Chamfer';
 
+    // M123 — the same fix M122 made for the extrude dialog: (12, 12) is the
+    // top-left corner, i.e. directly underneath the floating model browser
+    // card, so the panel opened half hidden behind it. Park it against the
+    // right edge, vertically centred, once the viewport size is known.
+    const w = 300.0, h = 520.0;
+    final vp = MediaQuery.sizeOf(context);
+    final pos = _pos ??
+        Offset(vp.width - w - 18, ((vp.height - h) / 2).clamp(12.0, 400.0));
     return Positioned(
-      left: 12,
-      top: 12,
+      left: pos.dx,
+      top: pos.dy,
       child: Material(
         color: Colors.transparent,
         child: Container(
@@ -90,7 +101,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
             ],
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
+            GestureDetector(
+              onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
+              child: Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
               decoration: const BoxDecoration(
                 color: T.fly,
@@ -108,7 +121,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 const Spacer(),
                 Icon(Icons.menu, size: 14, color: T.dim),
               ]),
-            ),
+            )),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [

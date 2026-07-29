@@ -2394,6 +2394,13 @@ class AppState extends ChangeNotifier {
     p.eopAfter = v;
     Log.i('part', 'End of Part -> after $v of $n rows');
     applyEndOfPart(p);
+    // M122 — RECOMPUTE. Rolling the marker only flipped `rolledBack`; the JOIN
+    // chain was never rebuilt, so `consumedByJoin` stayed as it was. Suppress
+    // Extrusion2 and Extrusion1 remained flagged as folded into it — one hidden
+    // because it is rolled back, the other because it is "consumed" by a
+    // feature that no longer exists. Both invisible, and the whole body
+    // appeared to vanish when only the last extrusion should have.
+    recomputeAllFeatures(p, partKernel);
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
