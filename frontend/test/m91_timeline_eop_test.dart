@@ -27,7 +27,7 @@ ExtrudeFeature _feature(PartModel p, String name, String sketch) {
     profiles: const [],
   )..seq = p.nextSeq();
   p.features.add(f);
-  p.eopAfter = partBuildOrder(p).length;
+  p.eopAfter = partTimeline(p).length;
   applyEndOfPart(p);
   return f;
 }
@@ -117,6 +117,8 @@ void main() {
 
     test('moving it up suppresses everything below', () {
       final p = _three();
+      // M113 — rows, not features: Extrusion1 is the second row (Sketch1 is
+      // consumed and nests, so the top level is Extrusion1, Extrusion2, ...).
       p.eopAfter = 1;
       applyEndOfPart(p);
       final order = partBuildOrder(p);
@@ -137,7 +139,7 @@ void main() {
       final p = _three();
       p.eopAfter = 0;
       applyEndOfPart(p);
-      p.eopAfter = partBuildOrder(p).length;
+      p.eopAfter = partTimeline(p).length;
       applyEndOfPart(p);
       expect(p.features.any((f) => f.rolledBack), isFalse);
     });
@@ -147,15 +149,55 @@ void main() {
       p.eopAfter = 1;
       applyEndOfPart(p);
       _feature(p, 'Extrusion4', 'Sketch1'); // helper does what AppState does
-      expect(p.eopAfter, partBuildOrder(p).length);
+      expect(p.eopAfter, partTimeline(p).length);
       expect(p.features.any((f) => f.rolledBack), isFalse);
+    });
+
+    test('M113 — the marker can stand ABOVE a sketch', () {
+      final p = PartModel('P');
+      _sketch(p, 'Sketch1');
+      _feature(p, 'Extrusion1', 'Sketch1');
+      final loose = _sketch(p, 'Sketch2'); // unconsumed -> its own row
+      final tl = partTimeline(p);
+      expect(tl.map((n) => n.name).toList(), ['Extrusion1', 'Sketch2']);
+      // One row down: Extrusion1 is built, Sketch2 is not.
+      p.eopAfter = 1;
+      applyEndOfPart(p);
+      expect(p.features.first.rolledBack, isFalse);
+      expect(loose.rolledBack, isTrue,
+          reason: 'a sketch below the marker is suppressed, as in Inventor');
+      // At the top: everything is suppressed, sketch included.
+      p.eopAfter = 0;
+      applyEndOfPart(p);
+      expect(p.features.first.rolledBack, isTrue);
+      expect(loose.rolledBack, isTrue);
+    });
+
+    test('a pre-M113 file storing a FEATURE count still opens the same', () {
+      final p = PartModel('P');
+      p.childSketches.add(ChildSketch(SketchModel('Sketch1'), 'xy'));
+      p.loadJson({
+        'sketches': [
+          {'name': 'Sketch1', 'plane': 'xy'}
+        ],
+        'features': [
+          {'kind': 'extrude', 'name': 'Extrusion1', 'sketch': 'Sketch1'},
+          {'kind': 'extrude', 'name': 'Extrusion2', 'sketch': 'Sketch1'},
+        ],
+        'eop': 1, // old meaning: one FEATURE built
+      });
+      final built = [
+        for (final f in p.features)
+          if (!f.rolledBack) f.name
+      ];
+      expect(built, ['Extrusion1'], reason: 'same picture as before M113');
     });
 
     test('it is only written to disk when it is NOT at the end', () {
       final p = _three();
-      expect(p.toJson().containsKey('eop'), isFalse);
+      expect(p.toJson().containsKey('eopNodes'), isFalse);
       p.eopAfter = 1;
-      expect(p.toJson()['eop'], 1);
+      expect(p.toJson()['eopNodes'], 1);
     });
   });
 

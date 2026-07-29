@@ -142,6 +142,7 @@ class _Viewport3DState extends State<Viewport3D>
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
       if (!cs.visible && !showForSession) continue;
+      if (cs.rolledBack) continue; // M113 — below End of Part
       final frame = sketchFrameOf(cs);
       for (var gi = 0; gi < cs.model.geometry.length; gi++) {
         final g = cs.model.geometry[gi];

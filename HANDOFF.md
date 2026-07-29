@@ -16,6 +16,33 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M113 — End of Part zaehlt jetzt ZEILEN. Damit ist das "springt ueber die
+> Skizze" an der Wurzel weg.**
+>
+> Vier Anlaeufe (M96, M99, M100, M103) haben versucht, das in der
+> Zeilen-Arithmetik des Browsers zu reparieren. Der Fehler lag im MODELL:
+> `eopAfter` zaehlte **Features**, eine Skizze hatte also gar keinen Slot, und
+> keine Umrechnung kann eine Position erzeugen, die es nicht gibt. Inventor
+> rollt Skizzen ebenfalls zurueck. Jetzt zaehlt `eopAfter`
+> **Zeitstrahl-Knoten**: Slot == Zeile, die Marke kann ueber einer Skizze
+> stehen, und die gesamte Umrechnung ist ersatzlos entfallen — in beiden
+> Browsern.
+>
+> `applyEndOfPart` laeuft ueber `partTimeline`: Features darunter →
+> `rolledBack`, Skizzen darunter → neues abgeleitetes `ChildSketch.rolledBack`
+> (nicht persistiert), das Payload und beide Painter wie unsichtbar behandeln.
+> Eine KONSUMIERTE Skizze hat keine eigene Zeile und folgt darum ihrem Feature.
+>
+> **Migration.** Alte Dokumente speichern unter `eop` eine FEATURE-Zahl. Die
+> wird beim Laden umgerechnet (Zeitstrahl ablaufen, bis so viele Features
+> passiert sind), geschrieben wird nur noch `eopNodes`. Im Test festgenagelt:
+> eine Datei mit `eop: 1` zeigt nach dem Laden exakt dieselbe Auswahl gebauter
+> Features wie vorher.
+>
+> **Lehre, dritte Wiederholung derselben Sorte:** wenn eine Koordinaten-
+> umrechnung viermal nicht stimmt, ist meist nicht die Umrechnung falsch,
+> sondern es gibt die Zielposition im Modell gar nicht.
+
 > **M111/M112 — STEP-Import als Koerper, ein Import-Knopf, und der
 > DXF-Export ist nicht mehr gefaehrlich.**
 >

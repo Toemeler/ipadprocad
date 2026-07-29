@@ -112,7 +112,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           app.setEndOfPart(0);
           break;
         case 'eopend':
-          app.setEndOfPart(partBuildOrder(part).length);
+          app.setEndOfPart(partTimeline(part).length);
           break;
         case 'eopDeleteBelow':
           app.deleteBelowEndOfPart();
@@ -232,8 +232,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   void _onEopDrag(int steps) {
     final part = app.currentPart;
     if (part == null) return;
-    _eopStart ??= part.eopAfter.clamp(0, partBuildOrder(part).length);
-    final n = partBuildOrder(part).length;
+    // M113 — rows, not features: one drag step is one browser row, so the
+    // marker follows the finger and can land above a sketch.
+    final n = partTimeline(part).length;
+    _eopStart ??= part.eopAfter.clamp(0, n);
     setState(() => _dragEop = (_eopStart! + steps).clamp(0, n));
   }
 

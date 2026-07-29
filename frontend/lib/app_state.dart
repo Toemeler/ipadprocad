@@ -2304,11 +2304,11 @@ class AppState extends ChangeNotifier {
   void setEndOfPart(int after) {
     final p = currentPart;
     if (p == null) return;
-    final n = partBuildOrder(p).length;
+    final n = partTimeline(p).length; // M113 — rows, not features
     final v = after.clamp(0, n);
     if (v == p.eopAfter.clamp(0, n)) return;
     p.eopAfter = v;
-    Log.i('part', 'End of Part -> after $v of $n features');
+    Log.i('part', 'End of Part -> after $v of $n rows');
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
@@ -2329,7 +2329,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partBuildOrder(p).length;
+    p.eopAfter = partTimeline(p).length;
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -2776,7 +2776,7 @@ class AppState extends ChangeNotifier {
       p.features.add(f);
       // A feature added while the marker is parked mid-tree belongs ABOVE it,
       // exactly like Inventor: the marker moves down to admit the new work.
-      p.eopAfter = partBuildOrder(p).length;
+      p.eopAfter = partTimeline(p).length;
       applyEndOfPart(p);
       if (firstConsumption) {
         // Inventor: creating the feature CONSUMES the sketch — it nests
@@ -3722,7 +3722,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partBuildOrder(p).length;
+    p.eopAfter = partTimeline(p).length;
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -6841,7 +6841,7 @@ class AppState extends ChangeNotifier {
         ..solid = solids[i]
         ..seq = p.nextSeq());
     }
-    p.eopAfter = partBuildOrder(p).length;
+    p.eopAfter = partTimeline(p).length;
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);

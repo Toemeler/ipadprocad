@@ -1104,6 +1104,11 @@ class ChildSketch {
   /// with today's behaviour unchanged.
   bool shared;
 
+  /// M113 — suppressed because it sits below the End of Part marker. Derived
+  /// from [PartModel.eopAfter] on every apply, never persisted — exactly like
+  /// [ExtrudeFeature.rolledBack].
+  bool rolledBack = false;
+
   /// M91 — creation order. The browser is a TIMELINE: a new sketch belongs at
   /// the bottom, under the extrusions that already exist, not in a sketches
   /// block above them. Persisted; documents from before M91 get sequence
@@ -1168,11 +1173,14 @@ class PartModel {
   /// rolled back — not computed into the body, not drawn, greyed in the
   /// browser — which is Inventor's EOP.
   ///
-  /// Counted in features rather than timeline rows on purpose: sketches are
-  /// not "built", so dragging the marker past one would be a no-op the user
-  /// could not see. It clamps to [features].length, so a fresh part and every
-  /// pre-M91 document start with the marker at the end, i.e. nothing rolled
-  /// back and behaviour unchanged.
+  /// M113 — counted in TIMELINE NODES, not features.
+  ///
+  /// It used to count features, which meant a sketch had no slot at all and
+  /// the marker could never stand above one. Four attempts were spent trying
+  /// to fix that in the browser's row arithmetic before the obvious answer:
+  /// the model had no position there to map to. Inventor rolls sketches back
+  /// too, so now every browser row is a slot, slot == row, and the whole
+  /// row-to-slot conversion is gone.
   int eopAfter = 1 << 30;
 
   /// Next value for [ChildSketch.seq] / [ExtrudeFeature.seq].
@@ -1287,7 +1295,9 @@ class PartModel {
         // M91 — timeline + End of Part. `eopAfter` is only written when the
         // marker is NOT at the end, so an untouched part's file is unchanged.
         'seqNext': seqNext,
-        if (eopAfter < features.length) 'eop': eopAfter,
+        // M113 — 'eopNodes' counts timeline rows; the old 'eop' counted
+        // features and is only READ, never written again.
+        if (eopAfter < partTimeline(this).length) 'eopNodes': eopAfter,
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -1322,7 +1332,26 @@ class PartModel {
     }
     if (seqNext < n) seqNext = n;
     // End of Part: absent means "at the end", which is no rollback at all.
-    eopAfter = (j['eop'] as num?)?.toInt() ?? features.length;
+    final nodesN = partTimeline(this).length;
+    final nodes = (j['eopNodes'] as num?)?.toInt();
+    if (nodes != null) {
+      eopAfter = nodes;
+    } else {
+      // Pre-M113: the stored number counted FEATURES. Convert by walking the
+      // timeline until that many features have been passed, so a rolled-back
+      // part opens showing exactly what it showed before.
+      final feats = (j['eop'] as num?)?.toInt();
+      if (feats == null) {
+        eopAfter = nodesN;
+      } else {
+        var seen = 0, at = 0;
+        final tl = partTimeline(this);
+        for (; at < tl.length && seen < feats; at++) {
+          if (tl[at].isFeature) seen++;
+        }
+        eopAfter = at;
+      }
+    }
     applyEndOfPart(this);
   }
 
@@ -2845,13 +2874,37 @@ List<ExtrudeFeature> partBuildOrder(PartModel part) =>
 /// Call after anything that changes the feature list or the marker. Returns
 /// true when a flag actually changed, so callers can skip a recompute.
 bool applyEndOfPart(PartModel part) {
-  final order = partBuildOrder(part);
-  final cut = part.eopAfter.clamp(0, order.length);
+  final nodes = partTimeline(part);
+  final cut = part.eopAfter.clamp(0, nodes.length);
   var changed = false;
-  for (var i = 0; i < order.length; i++) {
+  // Everything the marker has NOT reached yet is suppressed — features are not
+  // built, sketches are not drawn. A sketch nested under a rolled-back feature
+  // follows its feature, since the feature row is the one that carries it.
+  final rolled = <String>{};
+  for (var i = 0; i < nodes.length; i++) {
     final want = i >= cut;
-    if (order[i].rolledBack != want) {
-      order[i].rolledBack = want;
+    final n = nodes[i];
+    if (n.isFeature) {
+      if (n.feature!.rolledBack != want) {
+        n.feature!.rolledBack = want;
+        changed = true;
+      }
+      if (want) rolled.add(n.feature!.sketchName);
+    } else {
+      if (n.sketch!.rolledBack != want) {
+        n.sketch!.rolledBack = want;
+        changed = true;
+      }
+    }
+  }
+  // A consumed sketch has no row of its own; it is suppressed exactly when the
+  // feature that consumed it is.
+  for (final cs in part.childSketches) {
+    final f = firstConsumerOf(part, cs.model.name);
+    if (f == null || cs.shared) continue;
+    final want = f.rolledBack;
+    if (cs.rolledBack != want) {
+      cs.rolledBack = want;
       changed = true;
     }
   }
@@ -2864,4 +2917,4 @@ bool featureRolledBack(PartModel part, ExtrudeFeature f) => f.rolledBack;
 /// Whether the End of Part marker is anywhere but the end — i.e. the part is
 /// showing an earlier state of itself.
 bool partIsRolledBack(PartModel part) =>
-    part.eopAfter < partBuildOrder(part).length;
+    part.eopAfter < partTimeline(part).length;
