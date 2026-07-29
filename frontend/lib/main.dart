@@ -235,7 +235,7 @@ class PrototypeApp extends StatelessWidget {
                                 child: Align(
                                   alignment: Alignment.centerLeft,
                                   child: FractionallySizedBox(
-                                    heightFactor: 0.5,
+                                    heightFactor: 0.75, // M119 — taller card
                                     alignment: Alignment.centerLeft,
                                     child: NativeModelBrowser(app: app),
                                   ),

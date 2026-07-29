@@ -16,6 +16,34 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M119 — Panel-Feinschliff und ein schnelleres CI.**
+>
+> **Griff AUSSERHALB der Karte.** Der Chevron sitzt jetzt in einem 24-pt-Streifen
+> NEBEN dem Glas, nicht darauf, und blendet sich ein, wenn der Zeiger in die
+> Naehe kommt. Ein dauerhaft angeklebter Griff an einem CAD-Panel ist
+> Bildrauschen; man sucht ihn, wenn man ihn braucht. **Wichtig dabei:** auf
+> einem Geraet ganz ohne Zeiger gibt es nie ein `onEnter` — dort bliebe er
+> unerreichbar. Er ist deshalb sichtbar, bis zum ERSTEN Hover-Ereignis; danach
+> gilt die Naehe-Regel.
+>
+> Karte auf **75 %** Hoehe, linker Rand auf 28 pt, rechter auf 0 (der Streifen
+> liefert den Abstand).
+>
+> **CI: ccache fuer den C++-Teil.** Fast jeder Commit hier fasst nur Dart an,
+> trotzdem wurde jedes Mal die komplette native Seite neu uebersetzt — das ist
+> der Loewenanteil der ~20 Minuten. `build-core-ios` benutzt jetzt ccache
+> (`CMAKE_C/CXX_COMPILER_LAUNCHER`), der Cache-Key haengt am Hash der
+> C++-Quellen, `restore-keys` laesst ihn bei echten Backend-Aenderungen warm
+> starten statt kalt. Beim ersten Lauf passiert nichts (leerer Cache), ab dem
+> zweiten sollte eine reine Dart-Aenderung den nativen Teil in Sekunden statt
+> Minuten durchlaufen.
+>
+> **Nicht angefasst:** OCCT ist bereits ueber `actions/cache` abgedeckt, und
+> `m5-flutter-ipa` ist Flutter-gebunden. Wenn es weiter zu lang dauert, waere
+> der naechste Hebel, die schweren Jobs bei reinen Dart-Aenderungen ganz zu
+> ueberspringen — das braucht aber einen Pfadfilter, den man erst validieren
+> sollte, sonst faellt eine echte C++-Regression durch.
+
 > **M118 — Der Browser laesst sich einziehen.**
 >
 > Chevron am RECHTEN Rand der Karte: Tippen schaltet um, ein horizontaler Wisch

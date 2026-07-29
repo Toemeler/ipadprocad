@@ -139,7 +139,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// the right so the tree keeps its width.
     /// M118 — more on the LEFT so the card never sits on the iPad's edge, and
     /// room on the right for the retract chevron Flutter draws over the panel.
-    static let inset = UIEdgeInsets(top: 12, left: 18, bottom: 12, right: 4)
+    static let inset = UIEdgeInsets(top: 12, left: 28, bottom: 12, right: 0)
 
     private func buildCollection() {
         var config = UICollectionLayoutListConfiguration(appearance: .plain)

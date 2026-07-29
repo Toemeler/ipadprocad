@@ -80,6 +80,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # M119 — COMPILER CACHE. Most commits in this repo touch only Dart, yet
+      # every one of them recompiled the whole C++ side from scratch: that is
+      # the bulk of the ~20 minute wall time. ccache makes an unchanged
+      # translation unit a file copy. The key carries a hash of the C++ sources
+      # so a real backend change still gets a fresh-ish cache, and restore-keys
+      # let it start from the previous one instead of cold.
+      - name: Install ccache
+        run: brew list ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: Cache ccache tree
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-core-ios-${{ hashFiles('backend/**/*.cpp', 'backend/**/*.h', 'backend/**/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-core-ios-
+
       - name: Install Qt6 (host, for tools)
         id: qt_host_install
         uses: jurplel/install-qt-action@v4
@@ -631,6 +648,8 @@ jobs:
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-ios -j
           test -f build-ios/libslvs.a || { echo "MISSING build-ios/libslvs.a"; exit 1; }
@@ -699,6 +718,8 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-ios"
           cmake --build build-ios -j

@@ -35,6 +35,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   static const double _kWide = 264;
   static const double _kNarrow = 62;
 
+  /// M119 — the chevron lives OUTSIDE the glass, in a strip beside it, and
+  /// only shows when the pointer is near the panel. A handle permanently
+  /// stuck to a CAD panel is visual noise; you look for it when you want it.
+  static const double _kHandle = 24;
+  bool _near = false;
+
+  /// True once a hovering pointer has been seen. Until then this is a
+  /// touch-only session and the handle stays visible — hiding it behind hover
+  /// on a device that never hovers would make it unreachable.
+  bool _hasHover = false;
+
   AppState get app => widget.app;
 
   @override
@@ -42,14 +53,26 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (!GlassBrowser.isSupported) return ModelBrowser(app: app);
     return AnimatedBuilder(
       animation: app,
-      builder: (_, __) => AnimatedContainer(
+      builder: (_, __) => MouseRegion(
+        onEnter: (_) => setState(() {
+          _near = true;
+          _hasHover = true;
+        }),
+        onExit: (_) => setState(() => _near = false),
+        child: AnimatedContainer(
         // M118 — retracts to the timeline icons. Animated so the panel reads
         // as one object sliding, not two states swapping.
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        width: _collapsed ? _kNarrow : _kWide,
+        // The strip is part of the widget's width so the handle sits BESIDE
+        // the card, never over it.
+        width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
         child: Stack(children: [
-        Positioned.fill(
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: _collapsed ? _kNarrow : _kWide,
         child: GlassBrowser(
           rows: buildBrowserRows(app,
               expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
@@ -67,15 +90,20 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           onEopEnd: _onEopEnd,
         ),
         ),
-        // The handle: a chevron on the RIGHT edge. Tap toggles; a horizontal
-        // swipe on it does the same, in the direction you swipe — the panel
-        // should obey the gesture you would try first.
+        // The handle: a chevron in the strip beside the card. Tap toggles; a
+        // horizontal swipe on it does the same, in the direction you swipe —
+        // the panel should obey the gesture you would try first. It fades in
+        // when the pointer comes near, and on touch-only devices (no hover
+        // events at all) it stays visible so it is never unreachable.
         Positioned(
           right: 0,
           top: 0,
           bottom: 0,
-          width: 26,
-          child: GestureDetector(
+          width: _kHandle,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 150),
+            opacity: (!_hasHover || _near) ? 1 : 0,
+            child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _collapsed = !_collapsed),
             onHorizontalDragEnd: (d) {
@@ -92,8 +120,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
               ),
             ),
           ),
+          ),
         ),
         ]),
+      ),
       ),
     );
   }
