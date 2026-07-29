@@ -122,14 +122,30 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         let ev = UIVisualEffectView(effect: effect)
         // M108 — FLOATING: inset from the edges with rounded corners, so it
         // reads as a panel resting over the model rather than a wall glued to
-        // the side. The viewport now runs underneath it (see main.dart).
-        ev.frame = container.bounds.inset(by: GlassBrowserView.inset)
-        ev.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // the side. The viewport runs underneath it (see main.dart).
+        //
+        // M120 — AUTO LAYOUT, not frame + autoresizing. The frame was insetted
+        // once at init, when `container.bounds` is still whatever Flutter
+        // passed (often zero), and `flexibleWidth/Height` then SCALES that
+        // frame instead of preserving the margin — so the card ended up flush
+        // against the iPad's edge with no left padding at all. Constraints
+        // keep the inset whatever the panel is resized to.
+        ev.translatesAutoresizingMaskIntoConstraints = false
         ev.isUserInteractionEnabled = false
         ev.layer.cornerRadius = 18
         ev.layer.cornerCurve = .continuous
         ev.clipsToBounds = true
         container.addSubview(ev)
+        let i = GlassBrowserView.inset
+        NSLayoutConstraint.activate([
+            ev.leadingAnchor.constraint(
+                equalTo: container.leadingAnchor, constant: i.left),
+            ev.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor, constant: -i.right),
+            ev.topAnchor.constraint(equalTo: container.topAnchor, constant: i.top),
+            ev.bottomAnchor.constraint(
+                equalTo: container.bottomAnchor, constant: -i.bottom),
+        ])
     }
 
     // -- list ----------------------------------------------------------------
@@ -151,19 +167,30 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         config.trailingSwipeActionsConfigurationProvider = nil
         let layout = UICollectionViewCompositionalLayout.list(using: config)
 
-        collection = UICollectionView(
-            frame: container.bounds.inset(by: GlassBrowserView.inset),
-            collectionViewLayout: layout)
-        collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collection = UICollectionView(frame: .zero,
+                                      collectionViewLayout: layout)
+        // M120 — same reason as the glass: constraints, not autoresizing.
+        collection.translatesAutoresizingMaskIntoConstraints = false
         collection.backgroundColor = .clear
         // Match the glass corners so rows cannot spill past the panel edge.
         collection.layer.cornerRadius = 18
         collection.layer.cornerCurve = .continuous
         collection.clipsToBounds = true
         collection.contentInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+        container.addSubview(collection)
+        let ci = GlassBrowserView.inset
+        NSLayoutConstraint.activate([
+            collection.leadingAnchor.constraint(
+                equalTo: container.leadingAnchor, constant: ci.left),
+            collection.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor, constant: -ci.right),
+            collection.topAnchor.constraint(
+                equalTo: container.topAnchor, constant: ci.top),
+            collection.bottomAnchor.constraint(
+                equalTo: container.bottomAnchor, constant: -ci.bottom),
+        ])
         collection.delegate = self
         collection.allowsSelection = true
-        container.addSubview(collection)
 
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
             [weak self] cell, _, id in

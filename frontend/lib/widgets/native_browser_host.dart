@@ -68,11 +68,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // the card, never over it.
         width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
         child: Stack(children: [
+        // M120 — the card ends WHERE THE STRIP BEGINS. Sizing it by width let
+        // it run under the handle, and a Flutter GestureDetector on top of a
+        // platform view swallows the touch: tapping a folder's disclosure
+        // chevron hit the retract strip instead and collapsed the panel. With
+        // `right: _kHandle` the two cannot overlap by construction.
         Positioned(
           left: 0,
           top: 0,
           bottom: 0,
-          width: _collapsed ? _kNarrow : _kWide,
+          right: _kHandle,
         child: GlassBrowser(
           rows: buildBrowserRows(app,
               expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),

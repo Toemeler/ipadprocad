@@ -16,6 +16,28 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M120 — Drei gemeldete Symptome, zwei Ursachen.**
+>
+> **(1) Der Einzieh-Griff lag AUF der Karte und fraß die Ordner-Klicks.** Die
+> Karte war per `width:` bemessen, der Griff-Streifen daneben per `right: 0` —
+> also lief die Karte UNTER dem Streifen weiter. Ein Flutter-`GestureDetector`
+> ueber einer Plattform-View schluckt die Beruehrung, und genau deshalb klappte
+> ein Tipp auf das Disclosure-Chevron von *Solid Bodies* oder *Origin* nicht
+> den Ordner auf, sondern zog das Panel ein. Die Karte endet jetzt per
+> `right: _kHandle` genau dort, wo der Streifen beginnt — ueberlappen ist damit
+> konstruktiv ausgeschlossen.
+>
+> **(2) Kein linker Rand.** Die Insets wurden EINMAL beim Init auf
+> `container.bounds` gerechnet — zu dem Zeitpunkt oft `zero` — und
+> `flexibleWidth/Height` SKALIERT diesen Rahmen anschliessend, statt den Rand zu
+> erhalten. Ergebnis: die Karte klebte an der iPad-Kante. Glas und
+> `UICollectionView` haengen jetzt an **Auto-Layout-Constraints** mit den
+> Inset-Konstanten; die halten bei jeder Groessenaenderung.
+>
+> **Lehre:** `frame` + `autoresizingMask` und ein Rand, der erhalten bleiben
+> soll, passen nicht zusammen — Autoresizing skaliert, es respektiert keine
+> Konstanten.
+
 > **M119 — Panel-Feinschliff und ein schnelleres CI.**
 >
 > **Griff AUSSERHALB der Karte.** Der Chevron sitzt jetzt in einem 24-pt-Streifen
