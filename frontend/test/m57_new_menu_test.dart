@@ -34,12 +34,15 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('new-document menu contract', () {
-    test('two items: New 2D Sketch (2d) then New 3D Part (3d)', () {
+    test('three items: New 2D Sketch, New 3D Part, then Import', () {
       final items = newDocMenuItems();
-      expect(items.map((i) => i.id).toList(), ['2d', '3d'],
+      // M117 — Import joined the two create actions, because opening a file IS
+      // a third way to get a document. It comes LAST: the two you reach for
+      // most often stay at the top.
+      expect(items.map((i) => i.id).toList(), ['2d', '3d', 'import'],
           reason: 'ids must match the showMenu fallback values');
       expect(items.map((i) => i.title).toList(),
-          ['New 2D Sketch', 'New 3D Part']);
+          ['New 2D Sketch', 'New 3D Part', 'Import STEP / DXF…']);
       // Neither entry is destructive (no red styling on a create action).
       expect(items.every((i) => !i.destructive), isTrue);
       // Every item carries an SF Symbol name for the native glyph.

@@ -8127,7 +8127,7 @@ class AppState extends ChangeNotifier {
           Constraint(CType.coincident, pts: [PRef(ax, 1), PRef(c2, 0)]),
         ]);
       } else if ((tool == Tool.slot3A || tool == Tool.slotCPA) &&
-          placed.length == 4) {
+          (placed.length == 4 || placed.length == 6)) {
         deterministicShape = true;
         // Inventor's arc slot: [outer, inner, capA, capB]; capA runs
         // outer.start -> inner.start, capB inner.end -> outer.end (see
@@ -8153,6 +8153,27 @@ class AppState extends ChangeNotifier {
           Constraint(CType.tangent, ents: [o, cb]),
           Constraint(CType.tangent, ents: [inn, cb]),
         ]);
+        // M114 — the two construction RADII (sweep centre -> cap centre).
+        //
+        // A construction ARC would need concentric plus both endpoints: six
+        // equations on an arc's five parameters, rank five, and that redundant
+        // row is precisely what the notes above say makes the solver call the
+        // sketch inconsistent. Lines have no such problem — four parameters
+        // each, pinned by two coincidents each, so the slot's six DOF are
+        // untouched and nothing is redundant.
+        //
+        // Each radius runs from the rails' shared centre to a cap's centre;
+        // point 0 of an arc is its centre, so both ends are ordinary point
+        // coincidences.
+        if (placed.length == 6) {
+          final r1 = firstNew + 4, r2 = firstNew + 5;
+          s.constraints.addAll([
+            Constraint(CType.coincident, pts: [PRef(r1, 0), PRef(o, 0)]),
+            Constraint(CType.coincident, pts: [PRef(r1, 1), PRef(ca, 0)]),
+            Constraint(CType.coincident, pts: [PRef(r2, 0), PRef(o, 0)]),
+            Constraint(CType.coincident, pts: [PRef(r2, 1), PRef(cb, 0)]),
+          ]);
+        }
       } else if (tool == Tool.circleTangent && placed.length == 1) {
         deterministicShape = true;
         // Inventor's tangent circle: TANGENT to each of the three picked

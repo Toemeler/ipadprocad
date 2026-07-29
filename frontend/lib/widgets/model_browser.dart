@@ -768,23 +768,6 @@ class _ModelBrowserState extends State<ModelBrowser> {
   int _shownEop(PartModel p) =>
       (_dragEop ?? p.eopAfter).clamp(0, partTimeline(p).length);
 
-  /// Which slot the marker would land in for a pointer at [dy] — counted in
-  /// FEATURES, the same unit [PartModel.eopAfter] uses, so sketch rows in
-  /// between are simply passed over.
-  /// M99 — End of Part drag, measured in ROW HEIGHTS from where the finger
-  /// started, not from the rows' on-screen rectangles.
-  ///
-  /// Measuring rects was wrong twice over. It was a feedback loop (the marker
-  /// occupies a row, so moving it shifts every row below it, which changes the
-  /// very centres being measured), and it depended on every feature row's
-  /// GlobalKey resolving to a laid-out context — a row inside a collapsed or
-  /// clipped part of the tree has none, so its midpoint fell back to a
-  /// sentinel and the slot snapped to an end. The result was a marker that
-  /// would not follow the finger at all.
-  ///
-  /// Row height is fixed here (see [_row]), so the offset in rows is just the
-  /// travelled distance over that height. Nothing to look up, nothing that can
-  /// move while the finger is down.
   /// M113 — the marker counts ROWS now, so a drag step is simply a row and the
   /// whole slot-to-row conversion this used to need is gone. Four attempts
   /// lived here; the fix was in the model, not the arithmetic.

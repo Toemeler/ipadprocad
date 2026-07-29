@@ -223,12 +223,27 @@ class PrototypeApp extends StatelessWidget {
                                       : Viewport2D(app: app),
                                 ),
                               ])),
+                            // M116 — the panel is a FLOATING card, not a
+                            // full-height wall: half the viewport tall,
+                            // anchored top-left, so the origin triad in the
+                            // bottom-left corner stays visible under it. It
+                            // scrolls when the tree outgrows it (UIKit's list
+                            // does that for free).
                             if (GlassBrowser.isSupported)
-                              Positioned(
-                                  left: 0,
-                                  top: 0,
-                                  bottom: 0,
-                                  child: NativeModelBrowser(app: app)),
+                              Positioned.fill(
+                                // M117 — vertically CENTRED: the card sits in
+                                // the middle of the left edge, so there is
+                                // breathing room above it and the origin triad
+                                // stays clear below.
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: FractionallySizedBox(
+                                    heightFactor: 0.75, // M119 — taller card
+                                    alignment: Alignment.centerLeft,
+                                    child: NativeModelBrowser(app: app),
+                                  ),
+                                ),
+                              ),
                           ]),
                   ),
                   BottomTabBar(app: app),

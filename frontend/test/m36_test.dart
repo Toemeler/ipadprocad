@@ -88,9 +88,12 @@ void main() {
       app.toolClick(const Offset(100, 60));
       app.toolClick(const Offset(120, 40));
       app.toolClick(const Offset(100, 66)); // width -> r = 6
-      expect(s.geometry, hasLength(4));
+      // M114 — four rails/caps plus the two CONSTRUCTION radii.
+      expect(s.geometry, hasLength(6));
+      expect(s.geometry.where((g) => g.isConstruction), hasLength(2));
       expect(count(s, CType.concentric), 1);
-      expect(count(s, CType.coincident), 4);
+      // 4 seam coincidences + 4 pinning the two radii (M114).
+      expect(count(s, CType.coincident), 8);
       expect(count(s, CType.tangent), 4);
       // NO explicit equal: with concentric rails + both caps tangent to both
       // rails with their ends on them, each cap radius is forced to
@@ -99,8 +102,11 @@ void main() {
       // slot's parallel.
       expect(count(s, CType.equal), 0);
       final (rank, eqs, _) = debugRank(s.geometry, s.constraints);
+      // The whole point of using LINES for the radii rather than a centre arc:
+      // 8 more parameters, 8 more equations, still not one redundant row.
       expect(eqs - rank, 0, reason: 'construction must be redundancy-free');
-      expect(analyzeSketch(s.geometry, s.constraints).dof, 6);
+      expect(analyzeSketch(s.geometry, s.constraints).dof, 6,
+          reason: 'the radii must not remove a slot DOF');
       // ...and the equality still HOLDS functionally
       expect(s.geometry[2].data[2], closeTo(s.geometry[3].data[2], 1e-6));
     });

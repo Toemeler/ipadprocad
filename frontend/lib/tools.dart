@@ -519,11 +519,28 @@ List<Geo>? _arcSlot((Offset, double, double, double, bool) arc, double r) {
   final capB = arcFrom3Points(
       onArc(a2, rr - r), onArc(a2, rr) + tangent(a2, -1) * r, onArc(a2, rr + r));
   if (capA == null || capB == null) return null;
+  // M114 — construction geometry for the ARC slot, which had none while the
+  // linear slot has had its axis all along.
+  //
+  // NOT a centre arc, deliberately. An arc has five parameters (centre,
+  // radius, two angles); pinning one with concentric + both endpoints is six
+  // equations of rank five, and that redundant row is exactly what the linear
+  // slot's comments record as making the solver call the sketch inconsistent
+  // and drags flicker. Pinning fewer leaves it free to bulge.
+  //
+  // Two construction LINES from the sweep centre to the two cap centres do the
+  // job with no such problem: four parameters each, fully pinned by two
+  // coincidents each, zero net degrees of freedom. They also give you the
+  // sweep centre and the two radii to dimension against, which is what you
+  // actually reach for on an arc slot.
+  final mid1 = onArc(a1, rr), mid2 = onArc(a2, rr);
   return [
     Geo(Geo.arc, [c.dx, c.dy, rr + r, a1, a2, rev ? 1.0 : 0.0]),
     Geo(Geo.arc, [c.dx, c.dy, rr - r, a1, a2, rev ? 1.0 : 0.0]),
     _arcT(capA),
     _arcT(capB),
+    _line(c, mid1).withStyle(Geo.styleConstruction),
+    _line(c, mid2).withStyle(Geo.styleConstruction),
   ];
 }
 

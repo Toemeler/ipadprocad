@@ -248,35 +248,23 @@ class _RibbonState extends State<Ribbon> {
     }
   }
 
-  /// M111 — ONE Import entry for both worlds. The picker offers STEP and DXF
-  /// together and the extension decides where it goes: a STEP becomes solid
-  /// bodies in the part, a DXF becomes sketch geometry. Asking the user to
-  /// pick the right menu item for the file they already chose would be
-  /// ceremony.
-  Future<void> _pickImport(AppState app) async {
+  /// M117 — in-sketch DXF import: merges into the OPEN sketch. Creating a new
+  /// document from a file is the gallery's job (the "+" menu).
+  Future<void> _pickDxfIntoSketch(AppState app) async {
+    if (app.current == null) return;
     try {
       final res = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['step', 'stp', 'STEP', 'STP', 'dxf', 'DXF']);
+          type: FileType.custom, allowedExtensions: ['dxf', 'DXF']);
       final path = res?.files.single.path;
       if (path == null) return;
-      final lower = path.toLowerCase();
-      if (lower.endsWith('.step') || lower.endsWith('.stp')) {
-        await app.importStepIntoPart(path);
-      } else if (lower.endsWith('.dxf')) {
-        if (app.current == null) {
-          app.toast('Open a sketch to import DXF geometry into.');
-          return;
-        }
-        app.importDxf(path);
-      } else {
-        app.toast('Unsupported file type.');
-      }
+      app.importDxf(path);
     } catch (e) {
-      Log.w('insert', 'import pick failed: $e');
-      app.toast('Could not import that file.');
+      Log.w('insert', 'dxf pick failed: $e');
+      app.toast('Could not import the DXF file.');
     }
   }
+
+
 
 
 
@@ -510,20 +498,6 @@ class _RibbonState extends State<Ribbon> {
             ], leftPad: 0),
           ]),
         ),
-        // M111 — Import lives in the PART ribbon too, not just the sketch
-        // one: a STEP arrives as solid bodies and has nothing to do with a
-        // sketch, so hiding it behind sketch mode would be wrong.
-        _panel(
-          label: 'Import',
-          arrow: false,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _BigWide(
-                width: 62,
-                icon: IC['acad']!,
-                label: 'Import',
-                onTap: () => _pickImport(widget.app)),
-          ]),
-        ),
         _panel(
           label: 'Modify',
           arrow: false,
@@ -754,7 +728,11 @@ class _RibbonState extends State<Ribbon> {
                   _SmallRow(
                       icon: IN['acad']!,
                       label: 'ACAD',
-                      onTap: () => _pickImport(app)),
+                      // M117 — Import moved to the gallery "+" menu; this
+                      // button stays as the in-sketch DXF drop, which is a
+                      // different job: it merges geometry into the sketch you
+                      // already have open.
+                      onTap: () => _pickDxfIntoSketch(app)),
                 ]),
             Column(
                 mainAxisAlignment: MainAxisAlignment.center,

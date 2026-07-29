@@ -80,6 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+
       - name: Install Qt6 (host, for tools)
         id: qt_host_install
         uses: jurplel/install-qt-action@v4
@@ -503,6 +504,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # M119 fix — ccache must exist in THIS job. The install step went into
+      # build-core-ios, but the C++ builds carrying the launcher flags live
+      # here, so the compiler line became literally `ccache <clang>` with no
+      # ccache on PATH: "make[2]: ccache: No such file or directory".
+      - name: Install ccache
+        run: brew list ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: Cache ccache tree
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-ipa-${{ hashFiles('backend/**/*.cpp', 'backend/**/*.h', 'backend/**/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-ipa-
+
+
       # Print the toolchain FIRST: this is the single line that tells us
       # whether the IPA can carry the iOS 26 appearance at all, and it makes a
       # runner-image change obvious at the top of the log instead of halfway
@@ -631,6 +648,8 @@ jobs:
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-ios -j
           test -f build-ios/libslvs.a || { echo "MISSING build-ios/libslvs.a"; exit 1; }
@@ -699,6 +718,8 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-ios"
           cmake --build build-ios -j

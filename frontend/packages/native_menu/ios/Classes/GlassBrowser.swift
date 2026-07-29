@@ -134,8 +134,12 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
 
     // -- list ----------------------------------------------------------------
 
-    /// Margin around the floating panel.
-    static let inset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+    /// Margin around the floating panel. M116 — a little more on the left,
+    /// top and bottom now that it is a card rather than a wall, and less on
+    /// the right so the tree keeps its width.
+    /// M118 — more on the LEFT so the card never sits on the iPad's edge, and
+    /// room on the right for the retract chevron Flutter draws over the panel.
+    static let inset = UIEdgeInsets(top: 12, left: 28, bottom: 12, right: 0)
 
     private func buildCollection() {
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
@@ -171,7 +175,14 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // touch lists, and a feature tree needs to show a lot of rows.
             c.directionalLayoutMargins = NSDirectionalEdgeInsets(
                 top: 3, leading: 4, bottom: 3, trailing: 4)
-            c.imageToTextPadding = 6
+            // M118 — with no label the row is icon-only (the retracted
+            // panel); centring it keeps the column of glyphs straight instead
+            // of hugging the left edge where the text used to start.
+            c.imageToTextPadding = r.label.isEmpty ? 0 : 6
+            if r.label.isEmpty {
+                c.directionalLayoutMargins = NSDirectionalEdgeInsets(
+                    top: 4, leading: 12, bottom: 4, trailing: 4)
+            }
             // Dark trait is pinned on the container, so .label is the light
             // text the rest of the app uses; dim rows drop to secondary rather
             // than tertiary, which was too faint to read on glass.

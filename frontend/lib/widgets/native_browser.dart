@@ -31,7 +31,47 @@ List<GlassRow> buildBrowserRows(
   AppState app, {
   required Set<String> expanded,
   int? dragEop,
+  bool collapsed = false,
 }) {
+  // M118 — COLLAPSED: the timeline only, as icons. Sketches, features and the
+  // End of Part marker are the spine of the document; the folders (Solid
+  // Bodies, Origin) and the labels are what you open the panel FOR, so they
+  // are what a collapse removes. Every row keeps its id, so a tap still does
+  // the same thing at either width.
+  if (collapsed) {
+    final part = app.activeChild == null ? app.currentPart : null;
+    if (part == null) return const [];
+    final rows = <GlassRow>[];
+    final timeline = partTimeline(part);
+    final eop = (dragEop ?? part.eopAfter).clamp(0, timeline.length);
+    for (var ti = 0; ti < timeline.length; ti++) {
+      final n = timeline[ti];
+      if (ti == eop) rows.add(_eopRow(compact: true));
+      if (n.isFeature) {
+        final f = n.feature!;
+        rows.add(GlassRow(
+          id: '$kIdFeature${f.name}',
+          label: '',
+          symbol: f.computeError != null ? 'exclamationmark.triangle' : 'cube',
+          tint: f.computeError != null ? 'red' : null,
+          dim: !f.visible || f.rolledBack,
+          menu: _featureMenu(f),
+        ));
+      } else {
+        final cs = n.sketch!;
+        rows.add(GlassRow(
+          id: '$kIdSketch${cs.model.name}',
+          label: '',
+          symbol: n.sharedCopy ? 'link' : 'square.on.square',
+          tint: 'blue',
+          dim: !cs.visible || cs.rolledBack,
+          menu: _sketchMenu(part, cs),
+        ));
+      }
+    }
+    if (eop >= timeline.length) rows.add(_eopRow(compact: true));
+    return rows;
+  }
   final rows = <GlassRow>[];
   final part = app.activeChild == null ? app.currentPart : null;
   final s = app.current;
@@ -188,14 +228,14 @@ List<GlassRow> buildBrowserRows(
   return rows;
 }
 
-GlassRow _eopRow() => const GlassRow(
+GlassRow _eopRow({bool compact = false}) => GlassRow(
       id: kIdEop,
-      label: 'End of Part',
+      label: compact ? '' : 'End of Part',
       symbol: 'xmark.circle.fill',
       tint: 'red',
-      depth: 1,
+      depth: compact ? 0 : 1,
       isEop: true,
-      menu: [
+      menu: const [
         [
           GlassMenuItem(
               id: 'eoptop', title: 'Move to Top', symbol: 'arrow.up.to.line'),

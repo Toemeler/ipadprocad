@@ -899,6 +899,128 @@ Token NIE in Dateien/.git/config schreiben.
 > heisst das, dass jede neue Aufrufstelle gegen die Deklarationen typprueft.
 > 38 Definitionen == 38 Deklarationen, Klammern balanciert. Erwartungswert
 > fuer den ersten CI-Lauf: Korrekturen an OCCT-Include-Namen.
+> **M119 — Panel-Feinschliff und ein schnelleres CI.**
+>
+> **Griff AUSSERHALB der Karte.** Der Chevron sitzt jetzt in einem 24-pt-Streifen
+> NEBEN dem Glas, nicht darauf, und blendet sich ein, wenn der Zeiger in die
+> Naehe kommt. Ein dauerhaft angeklebter Griff an einem CAD-Panel ist
+> Bildrauschen; man sucht ihn, wenn man ihn braucht. **Wichtig dabei:** auf
+> einem Geraet ganz ohne Zeiger gibt es nie ein `onEnter` — dort bliebe er
+> unerreichbar. Er ist deshalb sichtbar, bis zum ERSTEN Hover-Ereignis; danach
+> gilt die Naehe-Regel.
+>
+> Karte auf **75 %** Hoehe, linker Rand auf 28 pt, rechter auf 0 (der Streifen
+> liefert den Abstand).
+>
+> **CI: ccache fuer den C++-Teil.** Fast jeder Commit hier fasst nur Dart an,
+> trotzdem wurde jedes Mal die komplette native Seite neu uebersetzt — das ist
+> der Loewenanteil der ~20 Minuten. `build-core-ios` benutzt jetzt ccache
+> (`CMAKE_C/CXX_COMPILER_LAUNCHER`), der Cache-Key haengt am Hash der
+> C++-Quellen, `restore-keys` laesst ihn bei echten Backend-Aenderungen warm
+> starten statt kalt. Beim ersten Lauf passiert nichts (leerer Cache), ab dem
+> zweiten sollte eine reine Dart-Aenderung den nativen Teil in Sekunden statt
+> Minuten durchlaufen.
+>
+> **Nicht angefasst:** OCCT ist bereits ueber `actions/cache` abgedeckt, und
+> `m5-flutter-ipa` ist Flutter-gebunden. Wenn es weiter zu lang dauert, waere
+> der naechste Hebel, die schweren Jobs bei reinen Dart-Aenderungen ganz zu
+> ueberspringen — das braucht aber einen Pfadfilter, den man erst validieren
+> sollte, sonst faellt eine echte C++-Regression durch.
+
+> **M118 — Der Browser laesst sich einziehen.**
+>
+> Chevron am RECHTEN Rand der Karte: Tippen schaltet um, ein horizontaler Wisch
+> darauf tut dasselbe in der Richtung, in die man wischt — das ist die Geste,
+> die man zuerst probiert. Die Breite animiert (264 ↔ 62), damit es wie EIN
+> gleitendes Objekt wirkt und nicht wie zwei getauschte Zustaende.
+>
+> **Eingezogen bleibt der Zeitstrahl, als Icons:** Skizzen, Features und die
+> End-of-Part-Marke. Die Ordner (Solid Bodies, Origin) und die Beschriftungen
+> sind das, wofuer man das Panel AUFmacht — also genau das, was das Einziehen
+> entfernt. Jede Zeile behaelt ihre id, ein Tipp tut in beiden Breiten
+> dasselbe, und die Kontextmenues bleiben ebenfalls dran.
+>
+> Nativ: ohne Label wird die Zelle icon-only und das Glyph mittig gesetzt,
+> sonst klebte die Spalte dort, wo vorher der Text anfing. Linker Rand auf
+> 18 pt, damit die Karte nie auf der iPad-Kante sitzt.
+
+> **M117 — Import gehoert in das "+"-Menue der Galerie, nicht ins Ribbon.**
+>
+> Der Knopf aus M111 ist aus BEIDEN Ribbons entfernt. Stattdessen steht
+> **"Import STEP / DXF…"** als dritter Eintrag unter *New 2D Sketch* und
+> *New 3D Part* — denn genau das ist er: ein dritter Weg, an ein Dokument zu
+> kommen. Im Ribbon stand er zwischen Modellierwerkzeugen, im falschen Regal.
+> Eine STEP wird zu einem NEUEN PART (ein Koerper je Solid), eine DXF zu einer
+> neuen Skizze; benannt nach der Datei, mit Kollisionszaehler. So muss man
+> nicht erst ein leeres Dokument anlegen, nur um irgendwo hin zu importieren —
+> genau das erzwang der Ribbon-Knopf.
+>
+> Der ACAD-Knopf im Skizzen-Ribbon bleibt, hat aber wieder seine eigene
+> Aufgabe: DXF in die BEREITS OFFENE Skizze mergen. Das ist etwas anderes als
+> ein Dokument aus einer Datei anzulegen.
+>
+> **Browser vertikal zentriert** (`Alignment.centerLeft`): halbe Hoehe, mittig
+> an der linken Kante, Luft darueber und die Triade frei darunter.
+
+> **M116 — Der Browser ist eine Karte, keine Wand.** Halbe Viewport-Hoehe,
+> oben links verankert (`FractionallySizedBox(heightFactor: 0.5)` in einem
+> `Align` innerhalb des `Positioned.fill`), damit die Ursprungs-Triade unten
+> links darunter sichtbar bleibt. Raender auf 12 pt links/oben/unten und 6 pt
+> rechts, damit der Baum seine Breite behaelt. Laeuft die Liste ueber, scrollt
+> sie — das kann die `UICollectionView` von sich aus.
+>
+> Das `Align` ist wichtig: `Positioned.fill` allein wuerde den ganzen Stack
+> belegen; ein `Align` trifft beim Hit-Test nur sein Kind, Tipps neben der
+> Karte gehen also weiter an den Viewport.
+
+> **M115 — KRITISCH: c697a81 hatte GAR KEIN Ribbon. Meine Schuld, ein
+> falscher Map-Name.**
+>
+> Der Import-Knopf aus M111 stand als `IC['acad']!` im Quelltext — das Icon
+> liegt aber in der Map **`IN`**, nicht `IC`. Der Null-Check-Operator warf also
+> beim Bauen, Flutter ersetzte das GESAMTE Ribbon durch sein rotes
+> Error-Widget (das ist der rote Balken im Screenshot), und damit waren alle
+> Werkzeuge weg — inklusive des Import-Knopfes, den die Aenderung gerade
+> hinzufuegen wollte. Im Geraete-Log steht es woertlich:
+> `widget: build failed: Null check operator used on a null value`.
+>
+> **Warum die CI das nicht gefangen hat:** die Icon-Maps sind
+> `Map<String, String>`, ein fehlender Schluessel ist also ein Laufzeit-`null`
+> und kein Typfehler. `flutter analyze` kann das nicht sehen, und kein
+> Host-Test baute das Ribbon.
+>
+> **Behoben** (`IN['acad']`), und der ganze Ribbon-Quelltext wurde gegen alle
+> fuenf Maps auditiert — das war der einzige Treffer. Neu
+> `test/m115_ribbon_icons_test.dart`: liest `ribbon.dart` und prueft JEDEN
+> `IC/IN/CN/MO/MD['key']`-Zugriff gegen die Map, in der er nachschlaegt. Die
+> Maps sind einfache Top-Level-Konstanten, das kostet also nichts und faengt
+> die ganze Fehlerklasse, bevor sie ein Geraet erreicht.
+>
+> **Lehre:** ein `!` auf einem Map-Zugriff im Widget-Baum ist ein
+> App-Killer, kein lokaler Fehler — der Fehler nimmt den kompletten Teilbaum
+> mit. Fuer Icons lieber einen Fallback als `!`.
+
+> **M114 — Der Bogen-Slot hat endlich Konstruktionsgeometrie. Und zwar
+> LINIEN, nicht den Mittenbogen, an dem ich in M92 haengengeblieben bin.**
+>
+> Damals hiess es hier "keine saubere Loesung": ein Bogen hat fuenf Parameter
+> (Mitte, Radius, zwei Winkel), und ihn mit `concentric` plus beiden
+> Endpunkten festzunageln sind SECHS Gleichungen vom Rang FUENF — genau die
+> ueberzaehlige Zeile, die laut den Notizen des linearen Slots die
+> Normalgleichungen singulaer macht, libslvs die Skizze fuer inkonsistent
+> erklaeren laesst und das Ziehen flackern liess. Weniger festnageln laesst ihn
+> ausbeulen.
+>
+> **Die Loesung war, die Form zu wechseln:** zwei Konstruktions-LINIEN vom
+> Sweep-Mittelpunkt zu den beiden Kappenmittelpunkten. Vier Parameter je Linie,
+> je zwei Koinzidenzen — voll bestimmt, kein ueberzaehliger Rang, die sechs
+> Freiheitsgrade des Slots bleiben unberuehrt. Praktisch sind sie sogar besser
+> als ein Mittenbogen: man bekommt den Sweep-Mittelpunkt und die beiden Radien
+> zum Bemassen, und genau danach greift man beim Bogen-Slot.
+>
+> (Punkt 0 eines Bogens ist sein Mittelpunkt, also sind beide Enden gewoehnliche
+> Punkt-Koinzidenzen — nichts Neues im Solver noetig.)
+
 > **M113 — End of Part zaehlt jetzt ZEILEN. Damit ist das "springt ueber die
 > Skizze" an der Wurzel weg.**
 >
