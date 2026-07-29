@@ -7,6 +7,7 @@
 // entity if nothing intersects), Extend prolongs the clicked end to the
 // next intersection, Split cuts at the clicked point (circles split at
 // their intersections with other geometry).
+import 'pick_math.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -710,13 +711,12 @@ List<Offset> intersectionsWithOthers(List<Geo> geos, int i) {
 // ---------------------------------------------------------------------------
 // param helpers (position along an entity)
 // ---------------------------------------------------------------------------
-double _lineParam(Geo g, Offset p) {
-  final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
-  final d = b - a;
-  final l2 = d.dx * d.dx + d.dy * d.dy;
-  if (l2 < _eps) return 0;
-  return (((p - a).dx * d.dx + (p - a).dy * d.dy) / l2).clamp(0.0, 1.0);
-}
+/// Clamped parameter of [p] projected onto line [g]. The projection itself is
+/// the shared [segDistSq]; only the threshold is local.
+double _lineParam(Geo g, Offset p) => segDistSq(p,
+        Offset(g.data[0], g.data[1]), Offset(g.data[2], g.data[3]),
+        eps: _eps)
+    .$2;
 
 double _arcParam(Geo g, Offset p) {
   // 0..sweep along direction of travel

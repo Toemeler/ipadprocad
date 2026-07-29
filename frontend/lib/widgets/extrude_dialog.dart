@@ -170,7 +170,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         ),
                         child: Text(
                             app.pickingRevolveAxis
-                                ? 'Tap a sketch line…'
+                                ? 'Tap a line or origin axis…'
                                 : (s.axisPicked
                                     ? s.axisLabel
                                     : 'Select Axis'),

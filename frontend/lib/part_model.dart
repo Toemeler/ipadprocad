@@ -22,6 +22,7 @@ import 'log.dart';
 import 'perf.dart';
 import 'snap.dart' show sampleEntity;
 import 'spline.dart' show splineCurveFor, polyPoints;
+import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
 
 // ---------------------------------------------------------------------------
@@ -3593,14 +3594,10 @@ int? pickPartEdge(List<PartEdge> edges, Offset w, double tol) {
   return best >= 0 ? best : null;
 }
 
-double _segDist(Offset p, Offset a, Offset b) {
-  final vx = b.dx - a.dx, vy = b.dy - a.dy;
-  final len2 = vx * vx + vy * vy;
-  if (len2 < 1e-18) return (p - a).distance;
-  var t = ((p.dx - a.dx) * vx + (p.dy - a.dy) * vy) / len2;
-  t = t.clamp(0.0, 1.0);
-  return (p - Offset(a.dx + vx * t, a.dy + vy * t)).distance;
-}
+/// Distance from [p] to the segment [a]-[b]. Delegates to the shared
+/// [segDistSq], keeping this call site's own 1e-18 degenerate threshold.
+double _segDist(Offset p, Offset a, Offset b) =>
+    math.sqrt(segDistSq(p, a, b, eps: 1e-18).$1);
 
 // ===========================================================================
 // Origin plane / axis extent (M83)

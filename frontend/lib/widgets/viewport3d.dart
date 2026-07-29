@@ -985,6 +985,14 @@ class _Viewport3DState extends State<Viewport3D>
     // picker: an axis IS a sketch line, and _pickSketchCurve already returns
     // the sketchName#index key that identifies one.
     if (app.pickingRevolveAxis) {
+      // An ORIGIN AXIS outranks a sketch line: it is drawn thinner and is
+      // easier to miss, so if the tap is within tolerance of both, the axis
+      // is what was meant.
+      final origin = _hitOrigin(cam, px, p);
+      if (origin == 'x' || origin == 'y' || origin == 'z') {
+        app.revolveAxisPickedOrigin(origin!);
+        return;
+      }
       final key = _pickSketchCurve(cam, px);
       if (key != null) {
         final i = key.lastIndexOf('#');

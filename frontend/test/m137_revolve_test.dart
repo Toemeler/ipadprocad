@@ -152,6 +152,52 @@ void main() {
     });
   });
 
+  group('origin axis (M140)', () {
+    test('the Y axis becomes the sketch-space axis on an XY sketch', () async {
+      // XY sketch: u = +X, v = +Y, origin at 0. The world Y axis therefore
+      // maps to sketch (0,0) direction (0,1).
+      final app = await partWithRect(RecordingKernel());
+      app.openRevolve();
+      app.revolveAxisPickedOrigin('y');
+      final s = app.extrudeSession!;
+      expect(s.axisPicked, isTrue);
+      expect(s.axPx, closeTo(0, 1e-12));
+      expect(s.axPy, closeTo(0, 1e-12));
+      expect(s.axDx, closeTo(0, 1e-12));
+      expect(s.axDy, closeTo(1, 1e-12));
+      expect(s.axisLabel, 'Y Axis');
+    });
+
+    test('the Z axis is NOT in an XY sketch plane and is refused', () async {
+      // Inventor requires axis and profile coplanar; Z is the XY normal.
+      final app = await partWithRect(RecordingKernel());
+      app.openRevolve();
+      app.revolveAxisPickedOrigin('z');
+      expect(app.extrudeSession!.axisPicked, isFalse,
+          reason: 'a non-coplanar axis must be refused, not projected');
+    });
+
+    test('an unknown key is refused', () async {
+      final app = await partWithRect(RecordingKernel());
+      app.openRevolve();
+      app.revolveAxisPickedOrigin('w');
+      expect(app.extrudeSession!.axisPicked, isFalse);
+    });
+
+    test('a revolve about the Y axis reaches the kernel', () async {
+      final k = RecordingKernel();
+      final app = await partWithRect(k);
+      app.openRevolve();
+      app.revolveAxisPickedOrigin('y');
+      expect(await app.applyExtrude(), isTrue);
+      expect(k.lastAngle, 360);
+      expect(k.lastAxDx, closeTo(0, 1e-12));
+      expect(k.lastAxDy, closeTo(1, 1e-12));
+      final f = app.currentPart!.features.single as RevolveFeature;
+      expect(f.axDy, closeTo(1, 1e-12));
+    });
+  });
+
   group('validation', () {
     test('no axis means no feature', () async {
       final app = await partWithRect(RecordingKernel());

@@ -2056,7 +2056,9 @@ class AppState extends ChangeNotifier {
           }
         }
         recomputeAllFeatures(p, partKernel);
-      _syncSolidProjections(p);
+        // was called twice here (a stray duplicated line with broken
+        // indentation); the second pass re-projected every solid edge for
+        // nothing on every part open that contains an imported body.
         _syncSolidProjections(p);
       }
       Log.i(
@@ -2783,13 +2785,70 @@ class AppState extends ChangeNotifier {
   void beginPickRevolveAxis() {
     if (extrudeSession == null) return;
     pickingRevolveAxis = true;
-    toast('Tap a sketch line to use as the axis.');
+    toast('Tap a sketch line or an origin axis to use as the axis.');
     notifyListeners();
   }
 
   void cancelPickRevolveAxis() {
     if (!pickingRevolveAxis) return;
     pickingRevolveAxis = false;
+    notifyListeners();
+  }
+
+  /// An ORIGIN AXIS (x/y/z) was tapped while [pickingRevolveAxis].
+  ///
+  /// Inventor takes a work axis as a revolve axis, and revolving about Y is
+  /// the commonest revolve there is — requiring a drawn construction line for
+  /// it was pure friction.
+  ///
+  /// Inventor's rule still holds: the axis must be COPLANAR with the profile.
+  /// An origin axis passes through the world origin, so it lies in the sketch
+  /// plane exactly when the world origin is on that plane AND the axis
+  /// direction has no component along the plane normal. Both are checked, and
+  /// a non-coplanar axis is refused with the reason rather than silently
+  /// projected — a projected axis would revolve about a line the user never
+  /// chose.
+  void revolveAxisPickedOrigin(String axisKey) {
+    final s = extrudeSession;
+    final p = currentPart;
+    pickingRevolveAxis = false;
+    if (s == null || p == null) {
+      notifyListeners();
+      return;
+    }
+    final dir = switch (axisKey) {
+      'x' => const Vec3(1, 0, 0),
+      'y' => const Vec3(0, 1, 0),
+      'z' => const Vec3(0, 0, 1),
+      _ => null,
+    };
+    final cs = s.sketchName == null ? null : p.sketchByName(s.sketchName!);
+    if (dir == null || cs == null) {
+      toast('Pick a sketch line or an origin axis.');
+      notifyListeners();
+      return;
+    }
+    final frame = sketchFrameOf(cs);
+    // world origin on the plane?
+    if ((Vec3.zero - frame.origin).dot(frame.n).abs() > 1e-7) {
+      toast('That axis is not in the sketch plane.');
+      notifyListeners();
+      return;
+    }
+    // direction parallel to the plane?
+    if (dir.dot(frame.n).abs() > 1e-7) {
+      toast('That axis is not in the sketch plane.');
+      notifyListeners();
+      return;
+    }
+    final o = frame.toSketch(Vec3.zero);
+    s.axPx = o.dx;
+    s.axPy = o.dy;
+    s.axDx = dir.dot(frame.u);
+    s.axDy = dir.dot(frame.v);
+    s.axisPicked = true;
+    s.axisLabel = '${axisKey.toUpperCase()} Axis';
+    _updateExtrudePreview();
     notifyListeners();
   }
 

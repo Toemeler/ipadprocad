@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'pick_math.dart';
 import 'ffi/qcad_engine.dart';
 import 'snap.dart';
 
@@ -479,12 +480,8 @@ List<Constraint> remapAfterReplace(List<Constraint> cs, int removed,
       case Geo.line:
         final a = Offset(g.data[0], g.data[1]),
             b = Offset(g.data[2], g.data[3]);
-        final ab = b - a;
-        final len2 = ab.distanceSquared;
-        if (len2 < 1e-18) return (p - a).distance;
-        final t =
-            (((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2).clamp(0.0, 1.0);
-        return (p - (a + ab * t)).distance;
+        // shared arithmetic, this site's own 1e-18 degenerate threshold
+        return math.sqrt(segDistSq(p, a, b, eps: 1e-18).$1);
       case Geo.circle:
       case Geo.arc:
         return ((p - Offset(g.data[0], g.data[1])).distance - g.data[2])

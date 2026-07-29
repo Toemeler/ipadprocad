@@ -15,10 +15,18 @@ import 'dart:ui';
 ///
 /// Squared, because every caller compares against a tolerance and the square
 /// root is only needed for the one candidate that actually wins.
-(double, double) segDistSq(Offset p, Offset a, Offset b) {
+///
+/// [eps] is the SQUARED length below which the segment counts as a point.
+/// It is a parameter rather than a constant because the callers genuinely
+/// disagree: the pickers use 1e-12, while the constraint solver and the 2D
+/// modify tools use 1e-18 and depend on that — collapsing them to one value
+/// would quietly change solver behaviour for segments between 1e-9 and 1e-6
+/// long.
+(double, double) segDistSq(Offset p, Offset a, Offset b,
+    {double eps = 1e-12}) {
   final vx = b.dx - a.dx, vy = b.dy - a.dy;
   final len2 = vx * vx + vy * vy;
-  if (len2 < 1e-12) {
+  if (len2 < eps) {
     final dx = p.dx - a.dx, dy = p.dy - a.dy;
     return (dx * dx + dy * dy, 0.0);
   }

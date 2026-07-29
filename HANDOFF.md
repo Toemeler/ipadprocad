@@ -16,6 +16,46 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M140 — Offene Punkte abgearbeitet, jetzt mit laufender Toolchain.
+> 745/745 Tests, 0 Analyzer-Fehler.**
+>
+> **Alle SIEBEN Kopien der Punkt-Segment-Mathematik sind jetzt EINE.** In M134
+> wurden vier zusammengelegt und drei bewusst liegen gelassen
+> (`part_model._segDist`, der Inline-Fall in `constraints.dart`,
+> `modify._lineParam`), weil sie mit Degeneriert-Schwelle 1e-18 statt 1e-12
+> arbeiten und ohne laufende Tests niemand haette pruefen koennen, ob das
+> Angleichen den Constraint-Solver veraendert. Loesung: `segDistSq` bekommt
+> einen `eps`-Parameter, jeder Aufrufer behaelt seine eigene Schwelle — eine
+> Implementierung, unveraendertes Verhalten. Die Solver-Tests bestaetigen es.
+>
+> **Doppelter `_syncSolidProjections(p)` entfernt.** Stand seit laengerem als
+> versehentlich duplizierte Zeile mit kaputter Einrueckung in `app_state.dart`
+> und projizierte bei jedem Oeffnen eines Teils mit importiertem Koerper alle
+> Solid-Kanten zweimal.
+>
+> **Revolve um eine URSPRUNGSACHSE (X/Y/Z).** Vorher war eine gezeichnete
+> Konstruktionslinie Pflicht — fuer die haeufigste Drehung ueberhaupt (um Y)
+> reine Reibung. Inventors Koplanaritaets-Regel gilt weiter und wird BEIDES
+> geprueft: liegt der Weltursprung in der Skizzenebene, und hat die Achse
+> keine Komponente entlang der Ebenennormalen. Eine nicht-koplanare Achse (Z
+> auf einer XY-Skizze) wird mit Begruendung ABGELEHNT statt still projiziert —
+> eine projizierte Achse waere eine Drehachse, die der Benutzer nie gewaehlt
+> hat. Im Tap-Pfad schlaegt die Ursprungsachse eine Skizzenlinie, weil sie
+> duenner gezeichnet und leichter zu verfehlen ist.
+>
+> **4 neue Tests** in `m137_revolve_test.dart` (Y-Achse wird korrekt in
+> Skizzenkoordinaten uebersetzt, Z wird abgelehnt, unbekannter Schluessel
+> wird abgelehnt, die Achse erreicht den Kernel), damit 21 in der Datei und
+> 745 im Ganzen.
+>
+> **NOCH OFFEN:** Fillet-Panel setzt EINEN Radius fuer alle Kanten, obwohl das
+> Modell Radius je Kante traegt (`radii` ist eine Liste) — Inventors
+> „mehrere Kantensaetze in einem Feature" ist damit noch nicht bedienbar,
+> ebenso `allFillets`/`allRounds`. Revolve-Extents (To Next/To/Through All)
+> brauchen den Winkel, bei dem der rotierende Sweep zuerst auf Material
+> trifft — echte Arbeit. Der CPU-Painter zeichnet den Kanten-Akzent nicht.
+> Und alles Swift bleibt ungeprueft (kein Xcode).
+
 > **MERGE — `origin/main` (M101-M111) in die Sitzungsarbeit (M130-M139)
 > integriert. 0 Analyzer-Fehler, 739/739 Tests, Shim uebersetzt mit 39
 > Symbolen.**
