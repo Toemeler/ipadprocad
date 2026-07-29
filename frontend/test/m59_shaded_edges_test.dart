@@ -91,6 +91,9 @@ class CylKernel implements PartKernel {
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
           double d1, double d2, double angleDeg) =>
       null;
+
+  @override
+  List<KernelSolid> importStepSolids(String path) => const [];
 }
 
 AppState makeApp() {

@@ -14,6 +14,9 @@ import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/part_model.dart';
 
 class CountingKernel implements PartKernel {
+  @override
+  List<KernelSolid> importStepSolids(String path) => const [];
+
   int extrudes = 0;
   int fusions = 0;
 

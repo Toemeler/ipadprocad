@@ -797,7 +797,8 @@ jobs:
           else
             echo "OCCT LINK CHECK: FAIL (OCCT shim not linked into Runner)"; exit 1
           fi
-          # Authoritative export check: all 38 _occt_* C symbols (shim v12:
+          # Authoritative export check: all 39 _occt_* C symbols (shim v12 +
+          # M110 occt_split_solids:
           # v5 surface +occt_revolve_profile +occt_shape_edge_count
           # +occt_shape_edge_info +occt_mesh_edge_ids +occt_fillet_edges
           # +occt_chamfer_edges +occt_ray_hits) must sit in the export trie
@@ -805,10 +806,10 @@ jobs:
           # exported_symbols_list keeps them through strip/dead_strip
           # (same mechanism as the 14 _qcad_* symbols).
           NOCCT="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _occt_' || true)"
-          if [ "${NOCCT:-0}" -ge 38 ]; then
+          if [ "${NOCCT:-0}" -ge 39 ]; then
             echo "OCCT LINK CHECK: PASS ($NOCCT _occt_* symbols exported in Runner)"
           else
-            echo "OCCT LINK CHECK: FAIL (only ${NOCCT:-0} _occt_* symbols exported, want >= 38)"; exit 1
+            echo "OCCT LINK CHECK: FAIL (only ${NOCCT:-0} _occt_* symbols exported, want >= 39)"; exit 1
           fi
           # M60: the RealityKit viewport plugin must be linked (the GPU 3D
           # renderer that replaces the CPU painter on device). The framework

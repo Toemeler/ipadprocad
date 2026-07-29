@@ -1326,6 +1326,37 @@ extern "C" occt_shape *occt_import_step(const char *path)
     OCCT_CATCH("occt_import_step", nullptr)
 }
 
+/* M110 — explodes a shape into its SOLIDS.
+ *
+ * occt_import_step returns OneShape(), which for a multi-part STEP file is a
+ * compound. The browser's unit of work is a BODY, so an imported assembly
+ * should arrive as several bodies you can hide, rename and boolean against
+ * individually, exactly like the ones this app builds. A compound would be one
+ * opaque lump instead.
+ *
+ * Fills at most [max] entries of [out] and returns how many were written; 0
+ * for a shape with no solids (a surface or wireframe import), so the caller
+ * can say something honest rather than adding an empty body. The caller owns
+ * every returned shape.
+ */
+extern "C" int occt_split_solids(const occt_shape *shape, occt_shape **out,
+                                 int max)
+{
+    OCCT_TRY("occt_split_solids")
+    if (!shape || !out || max <= 0) {
+        set_err("occt_split_solids", "null shape/out or max <= 0");
+        return 0;
+    }
+    int n = 0;
+    for (TopExp_Explorer ex(shape->s, TopAbs_SOLID); ex.More() && n < max;
+         ex.Next()) {
+        occt_shape *w = wrap(ex.Current(), "occt_split_solids");
+        if (w) out[n++] = w;
+    }
+    return n;
+    OCCT_CATCH("occt_split_solids", 0)
+}
+
 /* ---- lifecycle -------------------------------------------------------------- */
 
 extern "C" void occt_free_shape(occt_shape *shape)

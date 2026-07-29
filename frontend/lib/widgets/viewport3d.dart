@@ -629,8 +629,34 @@ class _Viewport3DState extends State<Viewport3D>
       // — outside that mode this branch is a single bool test. setHoverBody
       // early-returns when the name is unchanged, so a move across one body
       // repaints once, not once per frame.
-      final pick = _pickSolidFace(cam, px);
-      app.setHoverBody(pick == null ? null : _bodyNameOf(p, pick.$1));
+      // M102 — STICKY. _pickSolidFace returns the frontmost face, and where
+      // two bodies meet or overlap that flips between them on sub-pixel
+      // movement — the highlight "jumped around". The body under the cursor
+      // only changes when the cursor is genuinely over a DIFFERENT body and
+      // stays there; a momentary miss (a gap between facets, an edge) keeps
+      // the current one rather than dropping it.
+      final pick = _pickSolidAny(cam, px); // M105 — any face, not just planar
+      final name = pick == null ? null : _bodyNameOf(p, pick);
+      // M103 — hysteresis in BOTH directions. M102 only damped the drop to
+      // null, so a sweep across the seam between two bodies still switched on
+      // the first sample of the neighbour — and every switch recomputes the
+      // boolean preview, which is what flickered while the mouse moved. A new
+      // body now has to win twice in a row before the preview is rebuilt.
+      // M104 — with the preview/body loop closed there is nothing left to
+      // damp: a sample either lands on a body (including the preview standing
+      // in for one) or on nothing. The two-sample confirmation added in M103
+      // is REMOVED — it made a genuine switch need a second sample that a slow
+      // hand might never deliver, which is why the highlight got worse rather
+      // than better. Only the miss counter stays, so a hairline crack between
+      // facets does not blink the highlight off.
+      if (name == app.hoverBody) {
+        _hoverBodyMiss = 0;
+      } else if (name == null) {
+        if (++_hoverBodyMiss >= 3) app.setHoverBody(null);
+      } else {
+        _hoverBodyMiss = 0;
+        app.setHoverBody(name);
+      }
     }
     // M105 — prehighlight the edge under the pointer while an edge pick is
     // armed. Same shape as the body hover above: gated on the mode, and
@@ -746,7 +772,82 @@ class _Viewport3DState extends State<Viewport3D>
   /// when the mesh carries v4 metadata, else from the vertex-normal test.
   /// M97 — which body a picked solid belongs to. The pick returns the mesh of
   /// one FEATURE; the body is the name that feature builds into.
+  /// Consecutive hover samples that hit no body (M102 — see the hover code).
+  int _hoverBodyMiss = 0;
+
+
+  /// M105 — frontmost solid under [px], ANY face, planar or not.
+  ///
+  /// Body hovering used `_pickSolidFace`, which exists for sketch-on-face and
+  /// therefore skips every non-planar face (`kFacePlane`). On a cylinder the
+  /// round face is exactly that, so hovering the curved side of a body found
+  /// nothing at all — the reported dead spots. Picking a BODY does not care
+  /// what kind of surface you touched, so this drops the planarity test and
+  /// keeps only the facing and depth logic.
+  KernelSolid? _pickSolidAny(Cam3 cam, Offset px) {
+    KernelSolid? best;
+    var bestDepth = double.infinity;
+    for (final s in _liveSolids()) {
+      final m = s.mesh;
+      for (var t = 0; t < m.indices.length; t += 3) {
+        final i0 = m.indices[t] * 3,
+            i1 = m.indices[t + 1] * 3,
+            i2 = m.indices[t + 2] * 3;
+        final w0 =
+            Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+        final w1 =
+            Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+        final w2 =
+            Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+        final n = (w1 - w0).cross(w2 - w0);
+        // Camera-facing only, same convention as _pickSolidFace (n·dir > 0).
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        // Barycentric test in SCREEN space: cheap and independent of the
+        // surface type, which is the whole point here.
+        final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+        final d = (b.dx - a.dx) * (c.dy - a.dy) - (c.dx - a.dx) * (b.dy - a.dy);
+        if (d.abs() < 1e-9) continue;
+        final u = ((px.dx - a.dx) * (c.dy - a.dy) -
+                (c.dx - a.dx) * (px.dy - a.dy)) /
+            d;
+        final v = ((b.dx - a.dx) * (px.dy - a.dy) -
+                (px.dx - a.dx) * (b.dy - a.dy)) /
+            d;
+        if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
+        final depth = cam.depth(w0) * (1 - u - v) +
+            cam.depth(w1) * u +
+            cam.depth(w2) * v;
+        if (depth < bestDepth) {
+          bestDepth = depth;
+          best = s;
+        }
+      }
+    }
+    return best;
+  }
+
   String? _bodyNameOf(PartModel p, KernelSolid solid) {
+    // M104 — THE FLICKER, and why holding still did not help either.
+    //
+    // Hovering a body builds the boolean preview and sets
+    // previewReplacesBody, and visibleSolids then HIDES that body and draws
+    // the combined preview in its place. The very next hover sample therefore
+    // hit the PREVIEW mesh, which belongs to the throwaway session feature and
+    // is in no p.features — so this returned null, the miss counter ran up,
+    // the hover cleared, the preview reverted, the real body reappeared and
+    // was hit again. A loop that repaints forever, entirely of my own making
+    // in M100.
+    //
+    // The preview STANDS IN for that body, so hovering it is hovering the
+    // body. Saying so breaks the loop at the root; the hysteresis added in
+    // M102/M103 was treating the symptom.
+    final sess = widget.app.extrudeSession;
+    if (sess != null &&
+        sess.preview != null &&
+        identical(sess.preview, solid) &&
+        sess.previewReplacesBody != null) {
+      return sess.previewReplacesBody;
+    }
     for (final f in p.features) {
       if (identical(f.solid, solid)) return f.bodyName;
     }
@@ -924,13 +1025,20 @@ class _Viewport3DState extends State<Viewport3D>
     // everything else: while the dialog is waiting, a tap on a solid means
     // "this one", not "sketch on this face".
     if (app.pickingBody) {
-      final face = _pickSolidFace(cam, px);
-      if (face != null) {
-        final name = _bodyNameOf(p, face.$1);
-        if (name != null) {
-          app.pickBody(name);
-          return;
-        }
+      // M103 — take the body that is CURRENTLY highlighted, not a fresh
+      // frontmost pick. Re-picking at the instant of the tap could land on the
+      // neighbour at a seam, so you clicked the highlighted solid and got the
+      // other one — "selecting doesn't work". What you see is what you get.
+      final shown = app.hoverBody;
+      if (shown != null) {
+        app.pickBody(shown);
+        return;
+      }
+      final face = _pickSolidAny(cam, px); // M105
+      final name = face == null ? null : _bodyNameOf(p, face);
+      if (name != null) {
+        app.pickBody(name);
+        return;
       }
       app.cancelPickBody(); // tapping empty space backs out, like Esc
       return;

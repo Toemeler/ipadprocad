@@ -65,6 +65,15 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger())
         let instance = NativeMenuPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
+        // M106 — real Apple Liquid Glass surface for the model browser.
+        if #available(iOS 15.0, *) {
+            registrar.register(GlassPanelFactory(),
+                               withId: "prototype/glass_panel")
+            // M107 — the whole browser, native.
+            registrar.register(
+                GlassBrowserFactory(messenger: registrar.messenger()),
+                withId: "prototype/glass_browser")
+        }
     }
 
     // MARK: - Method channel
@@ -510,5 +519,67 @@ extension NativeMenuPlugin: UIPencilInteractionDelegate {
             args["y"] = Double(inWindow.y)
         }
         channel.invokeMethod("pencil", arguments: args)
+    }
+}
+
+// ===========================================================================
+// M106 — REAL Apple Liquid Glass for the model browser panel.
+// ===========================================================================
+//
+// A genuine UIVisualEffectView driven by UIGlassEffect (iOS 26), not a blur
+// painted in Flutter. UIGlassEffect is the actual system material, so it picks
+// up the system's refraction, specular edge and interactive response — none of
+// which can be reproduced client-side.
+//
+// It is a BACKGROUND surface: Flutter keeps drawing the tree rows on top with
+// a transparent background. That is deliberate, not a shortcut. The browser is
+// the most interaction-dense part of the app — EOP dragging, body picking,
+// hover highlight, context menus — and every one of those has already cost
+// this project debugging time at the Flutter/UIKit boundary (M48: a platform
+// view swallowed taps and had to be wrapped in IgnorePointer; M102: a
+// UIContextMenuInteraction cancelled the EOP drag for four milestones).
+// Moving the CONTENT native would mean re-solving all of it in Swift. The
+// glass is what you see; the rows keep working.
+@available(iOS 15.0, *)
+final class GlassPanelView: NSObject, FlutterPlatformView {
+    private let container = UIView()
+
+    init(frame: CGRect) {
+        super.init()
+        container.frame = frame
+        container.backgroundColor = .clear
+        // The glass must never take touches: Flutter's rows sit above it and
+        // own every gesture in this panel.
+        container.isUserInteractionEnabled = false
+
+        let effect: UIVisualEffect
+        if #available(iOS 26.0, *) {
+            let glass = UIGlassEffect()
+            glass.isInteractive = false // a background surface, not a control
+            effect = glass
+        } else {
+            // Pre-26 devices get the closest system material rather than
+            // nothing, so the panel is still legible.
+            effect = UIBlurEffect(style: .systemMaterial)
+        }
+        let ev = UIVisualEffectView(effect: effect)
+        ev.frame = container.bounds
+        ev.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        ev.isUserInteractionEnabled = false
+        container.addSubview(ev)
+    }
+
+    func view() -> UIView { container }
+}
+
+@available(iOS 15.0, *)
+final class GlassPanelFactory: NSObject, FlutterPlatformViewFactory {
+    func create(withFrame frame: CGRect, viewIdentifier viewId: Int64,
+                arguments args: Any?) -> FlutterPlatformView {
+        GlassPanelView(frame: frame)
+    }
+
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        FlutterStandardMessageCodec.sharedInstance()
     }
 }

@@ -1244,6 +1244,17 @@ class ExtrudeFeature extends PartFeature {
   FeatureExtent extent;
   FaceSel? extentFace; // set iff extent == toFace
 
+  /// M111 — an IMPORTED body (STEP). It has no sketch and no profiles, so the
+  /// feature recompute must leave it alone: rebuilding it from inputs that do
+  /// not exist would delete the geometry the user just imported. Persisted,
+  /// together with [importPath], so it survives reopening the part.
+  bool imported = false;
+
+  /// Where the imported STEP lives, relative to the part folder. The B-Rep
+  /// itself is not serialised — the file IS the source of truth, and
+  /// re-reading it on open is both simpler and lossless.
+  String? importPath;
+
   ExtrudeFeature({
     required super.name,
     required super.bodyName,
@@ -1278,6 +1289,8 @@ class ExtrudeFeature extends PartFeature {
   @override
   Map<String, dynamic> toJson() => {
         ...baseJson(),
+        if (imported) 'imported': true,
+        if (importPath != null) 'importPath': importPath,
         'sketch': sketchName,
         'profiles': [for (final p in profiles) p.toJson()],
         'dir': extrudeDirName(direction),
@@ -1321,6 +1334,9 @@ class ExtrudeFeature extends PartFeature {
       output: j['output'] as String? ?? 'join',
     );
     f.readBaseJson(j);
+    // M111 — an imported body carries no sketch inputs; these two say so.
+    f.imported = j['imported'] as bool? ?? false;
+    f.importPath = j['importPath'] as String?;
     return f;
   }
 }
@@ -2298,6 +2314,11 @@ abstract class PartKernel {
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
           double d1, double d2, double angleDeg) =>
       null;
+
+  /// M111 — reads a STEP file as one [KernelSolid] per SOLID, so an imported
+  /// assembly becomes several bodies rather than one opaque compound. Empty
+  /// list on failure or when the file holds no solids.
+  List<KernelSolid> importStepSolids(String path);
 }
 
 /// Applies Inventor's Output boolean [output] to combine [base] (the
@@ -2645,6 +2666,39 @@ class OcctPartKernel implements PartKernel {
       acc?.dispose();
     }
   }
+  @override
+  List<KernelSolid> importStepSolids(String path) {
+    final ffi = OcctFfi.instance();
+    if (ffi == null) {
+      _err = 'no kernel';
+      return const [];
+    }
+    try {
+      final shapes = ffi.importStepSolids(path);
+      final out = <KernelSolid>[];
+      for (final sh in shapes) {
+        final mesh = sh.mesh(
+            linDeflection: kCoarseLinDeflection,
+            angDeflection: kCoarseAngDeflection);
+        if (mesh == null) {
+          // A solid we cannot tessellate is useless on screen; drop it rather
+          // than adding an invisible body the user cannot explain.
+          sh.dispose();
+          continue;
+        }
+        out.add(KernelSolid(mesh, sh.volume, sh,
+            meshLin: kCoarseLinDeflection,
+            remesher: (lin, ang) =>
+                sh.mesh(linDeflection: lin, angDeflection: ang)));
+      }
+      if (out.isEmpty) _err = 'no solids in file';
+      return out;
+    } catch (e) {
+      _err = '$e';
+      return const [];
+    }
+  }
+
 }
 
 /// Re-matches [profiles] against the current regions of [sketchName] and
@@ -3065,6 +3119,17 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
   final upstream = <String, String>{}; // bodyName -> running chain key
   for (final f in part.features) {
     f.consumedByJoin = false;
+    // M111 — an imported body is not computed FROM anything; it just is. Its
+    // solid was read from the STEP file, so recompute leaves it untouched and
+    // only does the chain bookkeeping around it.
+    // (f is ExtrudeFeature) is needed since M102: `features` is
+    // List<PartFeature> now, and only an extrude can be an imported body.
+    if (f is ExtrudeFeature && f.imported) {
+      final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
+      if (prevI != null && prevI.solid != null) prevI.consumedByJoin = true;
+      if (f.visible && f.solid != null) chainLast[f.bodyName] = f;
+      continue;
+    }
     final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
     if (!force &&
         f.solid != null &&

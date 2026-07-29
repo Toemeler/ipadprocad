@@ -342,6 +342,12 @@ int occt_ray_hits(const occt_shape *shape, double ox, double oy, double oz,
 /* ---- Lifecycle --------------------------------------------------------- */
 
 /* Release a shape returned by any constructor above. NULL is ignored. */
+/* M110 — explodes a shape into its SOLIDS (see the .cpp for why: an imported
+ * assembly should become several BODIES, not one opaque compound). Fills at
+ * most [max] entries, returns the count. The caller owns the results.
+ */
+int occt_split_solids(const occt_shape *shape, occt_shape **out, int max);
+
 void occt_free_shape(occt_shape *shape);
 
 #ifdef __cplusplus

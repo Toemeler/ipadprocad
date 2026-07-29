@@ -23,6 +23,10 @@ import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
 
+/// M107 — on iOS the whole panel is native (see native_browser.dart and
+/// GlassBrowser). This Flutter implementation stays as the non-iOS path and as
+/// the fallback if the platform view ever fails to come up, so the app is
+/// never left without a browser.
 class ModelBrowser extends StatefulWidget {
   final AppState app;
   const ModelBrowser({super.key, required this.app});
@@ -352,8 +356,19 @@ class _ModelBrowserState extends State<ModelBrowser> {
         addTarget('$_kFeaturePrefix${f.name}', f.name,
             _featureKeyFor(f.name), _featureMenu(widget.app, f));
       }
-      // M91 — End of Part, same treatment as End of Sketch.
-      addTarget('__eop__', 'End of Part', _eopKey, _eopMenuGroups(part));
+      // M102 — the End of Part row is deliberately NOT a native menu target.
+      //
+      // This is what defeated three attempts at the drag. A UIKit
+      // UIContextMenuInteraction covers every registered rect, and its
+      // long-press recogniser CANCELS the Flutter touch as soon as it begins
+      // — about 150 ms in, which is exactly the DOWN → CANCEL gap in the
+      // device log, with no MOVE in between. It was never the gesture arena
+      // and never the slot maths: UIKit was taking the touch away before
+      // Flutter could see a drag. Right-click and the native menu "worked"
+      // precisely because they are the interaction that was stealing it.
+      //
+      // The row keeps its menu through the Flutter long-press fallback in
+      // _eopRow, which does not compete for the pointer.
       // M97 — solid bodies.
       for (final b in part.solidBodies()) {
         addTarget('$_kBodyPrefix${b.$1}', b.$1, _bodyKeyFor(b.$1),
@@ -770,16 +785,70 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// Row height is fixed here (see [_row]), so the offset in rows is just the
   /// travelled distance over that height. Nothing to look up, nothing that can
   /// move while the finger is down.
-  static const double _kRowH = 26;
+  /// Height of one browser row. Measured off the device screenshot (rows sit
+  /// 32 px apart), not guessed from the padding constants — the drag converts
+  /// travel into rows with it, so a wrong value means the marker moves at the
+  /// wrong rate.
+  static const double _kRowH = 32;
   double? _eopDragStartDy;
   int? _eopDragStartSlot;
+
+  /// Timeline rows above feature `i`, i.e. how many browser rows the marker
+  /// has to travel to reach that feature's slot (M103).
+  ///
+  /// The marker counts in FEATURES, but the browser shows sketches between
+  /// them — so a drag measured purely in features made the marker leap over a
+  /// sketch row in one step and feel like it was snapping. Converting travel
+  /// through the real row layout keeps it under the finger.
+  List<int> _eopRowIndexPerSlot(PartModel p) {
+    // M104 — the MARKER ITSELF occupies a row, and it sits at the slot being
+    // dragged from. Every row below it is therefore pushed down by one, which
+    // the first version ignored — so the mapping was off by a row as soon as
+    // the marker was above the feature in question and it still leapt over
+    // sketches. Nested sketch rows under an expanded feature shift things the
+    // same way, so the marker's own row is inserted at the slot the drag
+    // started from.
+    final startSlot = (_eopDragStartSlot ?? _shownEop(p))
+        .clamp(0, partBuildOrder(p).length);
+    final out = <int>[];
+    var row = 0;
+    var slot = 0;
+    for (final n in partTimeline(p)) {
+      if (n.isFeature) {
+        if (slot == startSlot) row++; // the End of Part row lives here
+        out.add(row);
+        row++;
+        slot++;
+        // An expanded feature shows its consumed sketch beneath it.
+        if (_expandedFeatures.contains(n.feature!.name)) row++;
+      } else {
+        row++; // a top-level sketch: passed over, no slot of its own
+      }
+    }
+    if (slot == startSlot) row++;
+    out.add(row); // the slot after the last feature
+    return out;
+  }
 
   int _slotForDyPart(PartModel p, double dy) {
     final n = partBuildOrder(p).length;
     final dy0 = _eopDragStartDy, s0 = _eopDragStartSlot;
     if (dy0 == null || s0 == null) return _shownEop(p);
-    final steps = ((dy - dy0) / _kRowH).round();
-    return (s0 + steps).clamp(0, n);
+    final rows = _eopRowIndexPerSlot(p);
+    final start = rows[s0.clamp(0, n)];
+    final wantRow = start + ((dy - dy0) / _kRowH).round();
+    // Nearest slot to the row the finger is over — sketch rows in between
+    // simply have no slot, so the marker settles on the closer neighbour
+    // instead of jumping a whole feature.
+    var best = 0, bestD = 1 << 30;
+    for (var i = 0; i <= n; i++) {
+      final d = (rows[i] - wantRow).abs();
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
   }
 
   bool _eopEsc(KeyEvent e) {
@@ -867,17 +936,28 @@ class _ModelBrowserState extends State<ModelBrowser> {
         if (v != null && moved > 4) app.setEndOfPart(v);
       },
       onPointerCancel: (_) {
+        // With the list locked this should no longer fire mid-drag; if it
+        // ever does, COMMIT what the user had rather than throwing the drag
+        // away silently — that is the behaviour they experienced as "nothing
+        // happens at all".
         _uninstallEopEsc();
+        final v = _dragEop;
+        final started = _eopDragStartSlot;
         _eopDragStartDy = null;
         _eopDragStartSlot = null;
-        Log.i('eop', 'CANCEL');
+        Log.i('eop', 'CANCEL at slot=$v (started $started)');
         setState(() => _dragEop = null);
+        if (v != null && started != null && v != started) {
+          widget.app.setEndOfPart(v);
+        }
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPressStart: NativeMenu.isSupported
-            ? null // the UIKit menu owns the long press on device
-            : (d) => _showEopCtx(d.globalPosition),
+        // M102 — always the Flutter menu here, on device too: this row has no
+        // UIKit interaction any more (see _pushTargets), so nothing else will
+        // provide one. It fires only after the drag threshold has NOT been
+        // met, so it cannot shadow the drag.
+        onLongPressStart: (d) => _showEopCtx(d.globalPosition),
         child: MouseRegion(
           cursor: SystemMouseCursors.grab,
           child: _row(
@@ -1070,11 +1150,21 @@ class _ModelBrowserState extends State<ModelBrowser> {
     _schedulePush();
     return Container(
       width: 300,
-      decoration: const BoxDecoration(
-        color: T.mbBg,
-        border: Border(right: BorderSide(color: T.mbBorder)),
+      decoration: BoxDecoration(
+        // M106 — on iOS the panel's surface is REAL Apple Liquid Glass
+        // (UIGlassEffect), laid in behind the tree; the opaque fill is only
+        // for platforms without it. A colour here would sit on top of the
+        // glass and hide it.
+        color: GlassPanel.isSupported ? null : T.mbBg,
+        border: const Border(right: BorderSide(color: T.mbBorder)),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      child: Stack(children: [
+        // The glass surface. IgnorePointer inside GlassPanel: every gesture in
+        // this panel belongs to the Flutter rows above it, which is the
+        // lesson M48 and M102 both cost a lot of debugging to learn.
+        if (GlassPanel.isSupported)
+          const Positioned.fill(child: GlassPanel()),
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         // header
         Container(
           height: 30,
@@ -1108,6 +1198,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
               return false;
             },
             child: ListView(
+              // M101 — WHY THE MARKER WOULD NOT DRAG. The log said it exactly:
+              // "eop DOWN ... / eop CANCEL", down then cancel, never a move.
+              // A Listener does not enter the gesture arena, but it is not
+              // immune to it either: the moment the scrollable CLAIMS the
+              // pointer, Flutter delivers a pointer-cancel to everyone below,
+              // and the events stop. Raw pointers were therefore not enough.
+              // Locking the list for the duration of the drag removes the only
+              // competitor, so the pointer stays ours from down to up.
+              physics: _eopDragStartDy != null
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
               key: _treeKey,
               padding: const EdgeInsets.symmetric(vertical: 5),
               children: [
@@ -1219,6 +1320,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
             ),
           ),
         ),
+        ]),
       ]),
     );
   }

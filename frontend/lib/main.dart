@@ -16,6 +16,9 @@ import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
+import 'package:native_menu/native_menu.dart';
+
+import 'widgets/native_browser_host.dart';
 import 'widgets/ribbon.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
@@ -157,10 +160,20 @@ class PrototypeApp extends StatelessWidget {
                   Expanded(
                     child: app.isHome
                         ? HomeView(app: app)
-                        : Row(
+                        // M108 — the browser FLOATS over the viewport instead
+                        // of taking a column of its own, so the model runs
+                        // behind the glass and the panel actually has
+                        // something to refract. On platforms without the
+                        // native panel it stays a column, because an opaque
+                        // Flutter tree floating over the model would just hide
+                        // it.
+                        : Stack(children: [
+                            Positioned.fill(
+                                child: Row(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                                ModelBrowser(app: app),
+                                if (!GlassBrowser.isSupported)
+                                  NativeModelBrowser(app: app),
                                 Expanded(
                                   // A 3D part shows the part viewport; an
                                   // open child sketch falls through to the
@@ -209,7 +222,14 @@ class PrototypeApp extends StatelessWidget {
                                         ])
                                       : Viewport2D(app: app),
                                 ),
-                              ]),
+                              ])),
+                            if (GlassBrowser.isSupported)
+                              Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  child: NativeModelBrowser(app: app)),
+                          ]),
                   ),
                   BottomTabBar(app: app),
                 ]),

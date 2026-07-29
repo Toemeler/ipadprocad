@@ -2986,6 +2986,20 @@ class AppState extends ChangeNotifier {
       final body = s.editing!.bodyName;
       return (bodyBaseBefore(p, body, s.editing!), body);
     }
+    // M101 — HONOUR THE CHOSEN TARGET BODY.
+    //
+    // This used to go straight to lastSolidFeature: whatever body was made
+    // most recently. So picking Solid1 set s.bodyName correctly and the COMMIT
+    // used it (the log shows "extrude created Extrusion3 (Solid1)"), but the
+    // preview kept combining against Solid2 — "it always shows the preview of
+    // Solid2 + extrusion even after I selected Solid1". The dropdown never
+    // exposed this because it was the last body anyway; picking made it
+    // visible.
+    final want = s.bodyName;
+    if (want != null && want.isNotEmpty) {
+      final base = currentBodySolid(p, want);
+      if (base != null) return (base, want);
+    }
     final lf = lastSolidFeature(p);
     if (lf == null) return (null, null);
     return (currentBodySolid(p, lf.bodyName), lf.bodyName);
@@ -7337,6 +7351,60 @@ class AppState extends ChangeNotifier {
   /// parsed by the same backend loader that opens sketches, re-homed onto the
   /// layer being edited (or the default layer) and committed as ONE journal
   /// step through the normal solve/rebuild pipeline.
+  /// M111 — imports a STEP file into the current part: one BODY per solid.
+  ///
+  /// The file is copied into the part folder and the features remember it,
+  /// because the imported B-Rep is not serialised — re-reading the STEP on
+  /// open is simpler and lossless, and it keeps the document a description of
+  /// where geometry came from rather than a second copy of it.
+  Future<int> importStepIntoPart(String path) async {
+    final p = currentPart;
+    if (p == null) {
+      toast('Open a part first — STEP imports arrive as solid bodies.');
+      return 0;
+    }
+    final solids = partKernel.importStepSolids(path);
+    if (solids.isEmpty) {
+      toast('No solids in that STEP file (${partKernel.lastError}).');
+      return 0;
+    }
+    // Keep the source next to the part so it can be re-read on open.
+    String? rel;
+    try {
+      final dir = Directory('${_sketchDir.path}/${curTab}_imports');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final base = path.split('/').last;
+      final dst = File('${dir.path}/$base');
+      File(path).copySync(dst.path);
+      rel = '${curTab}_imports/$base';
+    } catch (e) {
+      Log.w('import', 'could not stash the STEP file: $e');
+    }
+    for (var i = 0; i < solids.length; i++) {
+      final body = p.nextSolidName();
+      p.features.add(ExtrudeFeature(
+        name: 'Import${p.features.length + 1}',
+        bodyName: body,
+        sketchName: '',
+        profiles: const [],
+        output: 'new',
+      )
+        ..imported = true
+        ..importPath = rel
+        ..solid = solids[i]
+        ..seq = p.nextSeq());
+    }
+    p.eopAfter = partBuildOrder(p).length;
+    applyEndOfPart(p);
+    p.dirty = true;
+    if (curTab != null) await savePart(curTab!);
+    Log.i('import', 'STEP: ${solids.length} solid(s) from $path');
+    toast('Imported ${solids.length} '
+        'bod${solids.length == 1 ? 'y' : 'ies'}.');
+    notifyListeners();
+    return solids.length;
+  }
+
   bool importDxf(String path) {
     final s = current;
     if (s == null) return false;

@@ -16,6 +16,16 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **!! NUMMERNKOLLISION M101-M107 !!** Diese Sitzung hat offline an
+> M101-M107 gearbeitet (OCCT-Shim v12: Revolve/Fillet/Chamfer/Kanten,
+> Feature-Polymorphie, Extents, Kanten-Pick, Dialoge), waehrend auf `main`
+> UNABHAENGIG andere M101-M111 entstanden sind (Preview/Hover, nativer
+> Browser, Liquid Glass, STEP-Import). Die Nummern ueberschneiden sich
+> vollstaendig, die Inhalte gar nicht. Unten stehen BEIDE Reihen: zuerst die
+> dieser Sitzung, dann ab „M111" die von `main`. Vor dem naechsten
+> Meilenstein sollte eine der beiden Reihen umnummeriert werden — Vorschlag:
+> diese Sitzung auf M112ff, da `main` die veroeffentlichte Reihe ist.
+
 > **M107b — M106 nachgetestet (die Luecke aus dem letzten Meilenstein) und
 > dabei einen echten Bug gefunden. 739/739 Tests gruen.**
 >
@@ -606,6 +616,279 @@ Token NIE in Dateien/.git/config schreiben.
 > heisst das, dass jede neue Aufrufstelle gegen die Deklarationen typprueft.
 > 38 Definitionen == 38 Deklarationen, Klammern balanciert. Erwartungswert
 > fuer den ersten CI-Lauf: Korrekturen an OCCT-Include-Namen.
+> **M109 (KORRIGIERT) — STEP-Export gab es LAENGST. Mein Zusatz war ein
+> Duplikat und hat den Shim zerschossen.**
+>
+> Ich habe `occt_step_write`/`occt_step_read` in den Shim geschrieben, ohne
+> vorher nachzusehen: `occt_export_step` und `occt_import_step` existieren seit
+> Langem, mit FFI-Bindung und Menue-Anbindung (Galerie-Karte → Share/Export,
+> Part → STEP, Skizze → DXF, `home_view._sendFile`). Schlimmer: mein Block
+> landete zwischen `extern "C"` und der folgenden Funktion, also war die
+> Uebersetzungseinheit kaputt. Beides ist zurueckgenommen, Shim wieder v11.
+>
+> **Lehre, teuer bezahlt:** erst das vorhandene C-API lesen, dann etwas
+> hinzufuegen. Der Header ist kurz genug, das kostet eine Minute.
+>
+> **M110 — was WIRKLICH fehlte: `occt_split_solids`.** `occt_import_step`
+> liefert `OneShape()`, bei einer Baugruppe also ein Compound. Die Einheit des
+> Browsers ist aber ein KOERPER — eine importierte Baugruppe soll als mehrere
+> Bodies ankommen, die man einzeln ausblenden, umbenennen und boolschen kann,
+> genau wie die selbst gebauten. Neu daher `occt_split_solids(shape, out, max)`
+> (Explorer ueber `TopAbs_SOLID`) plus `OcctFfi.importStepSolids(path)`, das
+> beides verbindet und bei einer Datei ohne Solids eine leere Liste liefert,
+> damit der Aufrufer etwas Ehrliches sagen kann statt einen leeren Body
+> anzulegen.
+
+
+> **M108 — Der native Browser schwebt, ist dichter und dunkel.**
+>
+> **Schwebend.** Er belegt keine eigene Spalte mehr; der Viewport laeuft in
+> voller Breite darunter und der Browser liegt als Panel darueber
+> (`Stack` in `main.dart`), 10 pt eingerueckt, 18 pt Eckenradius. Damit hat das
+> Glas ueberhaupt erst etwas zu brechen — vorher stand hinter ihm nur die
+> Fensterfarbe. Auf Nicht-iOS bleibt es eine Spalte: ein deckender Flutter-Baum,
+> der ueber dem Modell schwebt, wuerde es nur verdecken.
+>
+> **Textfarbe.** Der eigentliche Grund fuer das ausgewaschene Grau mit fast
+> schwarzer Schrift: das Glas loeste HELL auf, und UIKit waehlt dann dunkle
+> Label-Farben. `overrideUserInterfaceStyle = .dark` auf dem Container laesst
+> das Material dunkel rendern und `.label` hell werden — dieselbe Entscheidung,
+> die jede App mit dunkler Chrome trifft. Ausgegraute Zeilen gehen auf
+> `.secondaryLabel` statt `.tertiaryLabel`, das war auf Glas zu blass.
+>
+> **Dichter.** Schrift 11.5 statt 13, Symbole 11 pt mit fester 16-pt-Box,
+> Einrueckung 11 statt 14, Zeilenraender 3/4 pt. Ein Feature-Baum will Dichte,
+> keine Settings-App-Abstaende. Panelbreite 264 statt 300.
+>
+> **Offen:** ob die Brechung jetzt sichtbar wird — das war die eigentliche
+> Frage aus M106 und sie laesst sich erst mit dem Modell dahinter beantworten.
+
+> **M107 — Der Model Browser ist jetzt 100% natives Apple-UI auf Liquid Glass.**
+>
+> `UICollectionView` mit List-Konfiguration auf `UIGlassEffect`. UIKit macht
+> ALLES: Zeilen, Einrueckung, Disclosure, die Augen-Schalter, die
+> Kontextmenues und den End-of-Part-Zug. Dart schickt ein flaches Zeilenmodell
+> (`GlassRow`) und bekommt Ereignisse zurueck — es zeichnet und trefferprueft
+> in diesem Panel nichts mehr.
+>
+> **Warum nativ hier wirklich besser ist, nicht nur huebscher:** jeder harte
+> Fehler dieses Panels sass an der Flutter/UIKit-Grenze. M48 — eine
+> Plattform-View schluckte Taps, bis sie in `IgnorePointer` lag. M102 — eine
+> `UIContextMenuInteraction` ueber der EOP-Zeile kassierte den Flutter-Zug, und
+> es hat VIER Meilensteine gedauert, das zu finden, weil UIKits
+> Long-Press-Recognizer die Beruehrung nach ~150 ms wegnimmt. Innerhalb von
+> UIKit gibt es diese Grenze nicht: das Kontextmenue der Zelle und der
+> Pan-Recognizer verhandeln in EINEM Gestensystem. Genau deshalb duerfen Zug
+> und Menue auf derselben Zeile endlich nebeneinander existieren.
+>
+> **Die Regeln bleiben in Dart.** Zeitstrahl-Reihenfolge, Pinning der geteilten
+> Skizze, was als zurueckgerollt gilt, wie viele ZEILEN einem Slot entsprechen —
+> das alles rechnet `native_browser.dart`; die native Seite meldet beim Ziehen
+> nur die zurueckgelegte Strecke in Zeilen. Damit liegt die Fachlogik weiter an
+> einer Stelle und Swift bleibt ein schneller, dummer Renderer.
+>
+> **Fallback bleibt:** auf Nicht-iOS (und im Host-Test) laeuft unveraendert der
+> Flutter-Baum aus `model_browser.dart`. Nichts daran wurde entfernt, der Umbau
+> ist also in einem Commit ruecknehmbar.
+>
+> **Neu:** `packages/native_menu/ios/Classes/GlassBrowser.swift`,
+> `packages/native_menu/lib/glass_browser.dart`,
+> `lib/widgets/native_browser.dart` (Zeilenmodell),
+> `lib/widgets/native_browser_host.dart` (Ereignis-Routing), `main.dart`.
+>
+> **Verifikationsstand — ehrlich:** `dart-checks` gruen (624), das Swift
+> kompiliert erst in `m5-flutter-ipa`, und **wie es sich anfuehlt, weiss nur das
+> Geraet**. Zu pruefen, in dieser Reihenfolge: (1) kommt die Liste ueberhaupt
+> hoch und bricht das Glas den Viewport, (2) SF-Symbole statt der eigenen
+> SVG-Icons — bewusst so, weil "natives Apple-UI" das heisst, aber es sieht
+> anders aus als bisher, (3) der EOP-Zug, (4) Hybrid-Composition-Kosten neben
+> der RealityKit-Surface. **Noch nicht drin:** Umbenennen-Dialoge sind weiter
+> Flutter-`AlertDialog`s, und die Skizzen-Auswahl im Baum (Highlight der
+> Auswahl) ist nur ueber `selected` abgebildet.
+
+> **M106 — Der Model Browser liegt auf ECHTEM Apple Liquid Glass.**
+>
+> Kein in Flutter gemalter Blur: ein natives `UIVisualEffectView` mit
+> **`UIGlassEffect`** (iOS 26) als Plattform-View
+> (`prototype/glass_panel`, registriert im native_menu-Plugin). Das ist das
+> System-Material selbst — Brechung, Glanzkante und Reaktion auf das, was
+> dahinter liegt, kommen von iOS und sind client-seitig nicht nachbaubar.
+> Unter iOS 26 faellt die native Seite auf `UIBlurEffect(.systemMaterial)`
+> zurueck, damit das Panel lesbar bleibt; auf Nicht-iOS bleibt die bisherige
+> Deckfarbe.
+>
+> **Bewusst nur die FLAECHE, nicht der Inhalt.** Die Zeilen zeichnet weiter
+> Flutter, ueber dem Glas. Das ist kein Abkuerzen: der Browser ist der
+> interaktionsdichteste Teil der App — EOP-Ziehen, Koerper-Picken,
+> Hover-Highlight, Kontextmenues — und JEDER dieser Punkte hat an der
+> Flutter/UIKit-Grenze schon Zeit gekostet (M48: eine Plattform-View schluckte
+> Taps und musste in `IgnorePointer`; M102: eine `UIContextMenuInteraction`
+> kassierte vier Meilensteine lang den EOP-Zug). Den INHALT nativ zu machen
+> hiesse, all das in Swift neu zu loesen. Die Glasflaeche nimmt darum
+> ausdruecklich keine Beruehrungen (`isUserInteractionEnabled = false` plus
+> `IgnorePointer` auf der Dart-Seite).
+>
+> **Geraete-Sache und ehrlich offen:** ob die Brechung unter Flutter wirklich
+> greift. Glas bricht, was in der NATIVEN Ebene darunter liegt; Flutter
+> rendert in eine eigene Surface, und ob der 3D-Viewport dort ankommt oder das
+> Glas flach wirkt, entscheidet die Hybrid-Composition — das ist am Geraet in
+> Minuten zu sehen und blind nicht zu beantworten. Falls es flach aussieht,
+> ist der naechste Schritt, die Glas-View ueber die FlutterView zu legen statt
+> in den Widget-Baum. Ebenfalls zu pruefen: die Kosten der Hybrid-Composition
+> neben der RealityKit-Surface (die App laeuft heute bei 60-80 fps).
+
+> **M105 — Hover fand gekruemmte Flaechen nicht.**
+>
+> Das Koerper-Hovern benutzte `_pickSolidFace`. Das Ding existiert fuer
+> Sketch-on-Face und ueberspringt darum JEDE nicht-planare Flaeche
+> (`kFacePlane`-Test). Die runde Flaeche eines Zylinders ist genau das — auf der
+> gekruemmten Seite fand das Hovern deshalb gar nichts. Neu `_pickSolidAny`:
+> derselbe Dreiecks-Durchlauf mit derselben Blickrichtungs- und Tiefenlogik,
+> aber OHNE Planaritaetstest, weil es beim Waehlen eines KOERPERS voellig
+> gleichgueltig ist, welche Art Flaeche man beruehrt. Hover und Tap benutzen
+> jetzt beide das.
+>
+> **NOCH OFFEN — EOP ueberspringt Skizzen, und meine Zeilenrechnung ist der
+> falsche Ansatz.** Viermal nachgebessert, viermal daneben. Der Grund ist
+> struktureller: `eopAfter` zaehlt **Features**, eine Skizze hat also gar keinen
+> Slot, und keine Umrechnung von Zeilen aendert daran etwas — die Marke KANN
+> nicht ueber einer Skizze stehen. Inventor kann das, weil dort auch Skizzen
+> zurueckgerollt werden.
+>
+> **Der richtige Umbau (naechste Runde, nicht blind zwischendurch):**
+> `eopAfter` zaehlt **Zeitstrahl-KNOTEN** statt Features. `applyEndOfPart`
+> laeuft `partTimeline` durch und setzt ab dem Schnitt: Feature →
+> `rolledBack = true` (wie heute), Skizze → neues abgeleitetes
+> `ChildSketch.rolledBack`, das Payload und Painter wie unsichtbar behandeln.
+> `partBuildOrder(p).length` als Klemmgrenze wird `partTimeline(p).length`. Die
+> Zeilenabbildung im Browser entfaellt damit komplett, weil Slot == Zeile ist —
+> und genau das ist der Grund, es so zu machen: die ganze Fehlerklasse
+> verschwindet, statt noch einmal umgerechnet zu werden.
+
+> **M104 — Das Flackern war eine Rueckkopplung, die ich in M100 selbst gebaut
+> habe. Die Hysterese aus M102/M103 hat nur das Symptom behandelt und es dann
+> verschlimmert.**
+>
+> Der Kreis: Hovern baut die boolesche Vorschau und setzt `previewReplacesBody`
+> → `visibleSolids` **versteckt genau diesen Koerper** und zeichnet an seiner
+> Stelle die Vorschau → das naechste Hover-Sample trifft also die
+> VORSCHAU-Mesh → die gehoert dem Wegwerf-Feature der Session und steht in
+> keinem `p.features` → `_bodyNameOf` gab **null** → Miss-Zaehler → Hover
+> geloescht → Vorschau zurueck → echter Koerper wieder da → getroffen →
+> umgeschaltet → von vorn. Das repaintet endlos, deshalb half auch Stillhalten
+> irgendwann nicht mehr.
+>
+> **Fix an der Wurzel:** die Vorschau STEHT FUER diesen Koerper, also ist sie
+> zu hovern dasselbe wie ihn zu hovern. `_bodyNameOf` bildet sie auf
+> `previewReplacesBody` ab. Damit ist der Kreis zu.
+>
+> **Und die Zwei-Sample-Bestaetigung aus M103 ist wieder RAUS.** Sie verlangte
+> fuer einen echten Wechsel ein zweites Sample, das eine langsame Hand nie
+> liefert — genau deshalb wurde die Hervorhebung schlechter statt besser. Nur
+> der Miss-Zaehler bleibt, damit eine Fuge zwischen Facetten das Highlight
+> nicht kurz ausknipst.
+>
+> **EOP ueberspringt weiter Skizzen:** die Marke belegt SELBST eine Zeile, und
+> zwar an dem Slot, von dem aus gezogen wird — alles darunter rutscht um eine
+> Zeile, was die erste Fassung ignorierte. Ebenso die verschachtelte
+> Skizzenzeile unter einem AUFGEKLAPPTEN Feature. Beides ist jetzt in der
+> Zeilenabbildung drin.
+>
+> **Lehre (dritte Runde derselben Sorte):** erst fragen, WARUM ein Sample
+> falsch ist, statt es zu daempfen. Zwei Meilensteine Hysterese haben den
+> eigentlichen Kreis nur verdeckt.
+
+> **M103 — Flackern, Klick-Auswahl und das Ueberspringen von Skizzen.**
+>
+> **(1) Flackern beim Mausbewegen.** M102 daempfte nur den Weg nach NULL. Ein
+> Streifen ueber die Naht zwischen zwei Koerpern wechselte weiterhin beim
+> ERSTEN Sample des Nachbarn — und jeder Wechsel rechnet die boolesche
+> Vorschau neu. Genau das flackerte. Ein neuer Koerper muss jetzt **zweimal in
+> Folge** gesehen werden, bevor umgeschaltet wird; stillhalten war deshalb
+> schon vorher stabil.
+>
+> **(2) Klicken in 3D waehlte den falschen Koerper.** Der Tap hat frisch
+> gepickt statt den GEZEIGTEN zu nehmen — an einer Naht landete der frische
+> Pick auf dem Nachbarn, man klickte den hervorgehobenen Koerper und bekam den
+> anderen. Der Tap nimmt jetzt `app.hoverBody`: was man sieht, ist was man
+> bekommt. Fallback auf einen frischen Pick nur, wenn gar nichts hervorgehoben
+> ist.
+>
+> **(3) EOP sprang ueber Skizzen.** Die Marke zaehlt in FEATURES, der Browser
+> zeigt aber Skizzen dazwischen — ein rein in Features gemessener Zug lies sie
+> eine Skizzenzeile in einem Satz ueberspringen. Der Weg wird jetzt durch das
+> echte Zeilen-Layout umgerechnet (`_eopRowIndexPerSlot`): Skizzenzeilen haben
+> keinen eigenen Slot, die Marke rastet auf dem naeheren Nachbarn ein und
+> bleibt unter dem Finger.
+
+> **M102 — EOP: die WIRKLICHE Ursache. Es war nie die Gesten-Arena.**
+>
+> Das Log sagt es seit drei Runden dasselbe: `DOWN` … rund 150 ms … `CANCEL`,
+> nie ein `MOVE`. 150 ms ist kein Scroll — das ist ein **Long-Press**. Und ich
+> hatte die EOP-Zeile in M91 selbst als **nativen Menue-Target** registriert:
+> eine UIKit-`UIContextMenuInteraction` liegt ueber jedem registrierten Rect,
+> und ihr Long-Press-Recognizer **kassiert die Flutter-Beruehrung**, sobald er
+> anspringt. UIKit nahm den Finger weg, bevor Flutter einen Zug sehen konnte.
+> Dass Rechtsklick und natives Menue funktionierten, war kein Zufall, sondern
+> derselbe Mechanismus von der anderen Seite: genau die Interaktion, die den
+> Zug stahl, war die, die noch ging.
+>
+> Meine ersten drei Erklaerungen waren alle falsch (Slot-Mathematik, dann
+> GestureDetector-Arena, dann ListView-Physics) — jedes Mal habe ich ueber den
+> Code nachgedacht, statt zu lesen, was das Log sagt. Die Zeile ist jetzt KEIN
+> nativer Target mehr; ihr Menue kommt ueber den Flutter-Long-Press-Fallback,
+> der nicht um den Pointer konkurriert.
+>
+> **Merke fuer die naechste native Flaeche:** ein Rect, das im Menue-Payload
+> steht, kann in Flutter nicht mehr gezogen werden. Ziehbare Zeilen und
+> UIKit-Kontextmenues schliessen sich aus.
+>
+> **Hover klebt jetzt.** `_pickSolidFace` liefert die vorderste Flaeche; wo
+> sich zwei Koerper beruehren, kippte das bei Sub-Pixel-Bewegung hin und her
+> ("springt herum"). Der gehoverte Koerper wechselt nur noch, wenn der Zeiger
+> wirklich ueber einem ANDEREN steht; ein kurzer Fehlschlag (Fuge zwischen
+> Facetten, eine Kante) haelt den bisherigen, und erst drei Treffer ins Leere
+> loeschen ihn.
+>
+> **NOCH OFFEN:** der Nutzer meldet, die Vorschau stimme beim Wechsel nicht
+> immer, sei aber nach dem Oeffnen der Extrusion korrekt — klingt danach, dass
+> `_updateExtrudePreview` beim Hover-Wechsel zwar rechnet, die 3D-Szene aber
+> nicht neu gepusht wird (die Szenensignatur kennt `preview` nur ueber
+> `identityHashCode`, und ein neu gebautes Preview-Solid mit gleicher Identitaet
+> waere unsichtbar). Als Erstes dort nachsehen.
+
+> **M101 — Die beiden hartnaeckigen Fehler, diesmal an der Wurzel.**
+>
+> **(1) Vorschau ignorierte den gewaehlten Zielkoerper.** `_extrudeBooleanTarget`
+> ging fuer ein NEUES Feature direkt auf `lastSolidFeature` — den zuletzt
+> gebauten Koerper — und schaute `s.bodyName` nie an. Picken setzte den Namen
+> also korrekt und der COMMIT benutzte ihn auch (im Log: "extrude created
+> Extrusion3 (Solid1)"), aber die Vorschau kombinierte weiter gegen Solid2.
+> Genau der Bericht: "zeigt immer die Vorschau von Solid2 + Extrusion, auch
+> nachdem ich Solid1 gewaehlt habe". Das Dropdown hat das nie aufgedeckt, weil
+> dort ohnehin meist der letzte Koerper stand — erst das Picken macht es
+> sichtbar.
+>
+> **Das erklaert auch "Hover in 3D macht nichts".** Seit M100 ist der Hover
+> KEIN Tint mehr, sondern die neu gerechnete Vorschau gegen den gehoverten
+> Koerper — und genau die war fest auf Solid2 verdrahtet. Im Browser tintet die
+> Zeile zusaetzlich, deshalb sah es dort aus, als wuerde etwas passieren, und
+> in 3D nicht. EIN Fehler, zwei Symptome.
+>
+> **(2) EOP: Listener reicht NICHT.** Das Log sagt es woertlich: `eop DOWN` …
+> `eop CANCEL`, nie ein MOVE. Ein Listener nimmt zwar nicht an der Gesten-Arena
+> teil, ist ihr aber nicht entzogen: sobald das Scrollable den Pointer
+> BEANSPRUCHT, schickt Flutter allen darunter ein pointer-cancel und die
+> Events hoeren auf. Rohe Pointer allein waren also nicht genug. Die Liste
+> wird jetzt fuer die Dauer des Zugs auf `NeverScrollableScrollPhysics`
+> gestellt — kein Konkurrent, kein Cancel, der Pointer bleibt von DOWN bis UP
+> bei uns. Zusaetzlich: `_kRowH` von geratenen 26 auf **32** korrigiert (am
+> Geraete-Screenshot gemessen, die Zeilen stehen 32 px auseinander — mit 26
+> waere die Marke im falschen Tempo gewandert), und ein Cancel mitten im Zug
+> committet jetzt, statt still zu verwerfen.
+>
+> **Neu/berührt:** `app_state.dart` (`_extrudeBooleanTarget`),
+> `widgets/model_browser.dart` (ListView-Physics, Zeilenhoehe, Cancel).
 
 > **M100 — EOP-Ziehen: die eigentliche Ursache. Und der Hover zeigt jetzt die
 > ANTWORT statt eines zweiten Highlights.**
