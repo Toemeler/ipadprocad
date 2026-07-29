@@ -273,7 +273,14 @@ class _HomeViewState extends State<HomeView> {
           allowedExtensions: ['step', 'stp', 'STEP', 'STP', 'dxf', 'DXF']);
       final path = res?.files.single.path;
       if (path == null || !mounted) return;
-      final base = path.split('/').last.replaceAll(RegExp(r'\.[^.]+\$'), '');
+      // Name the document after the file, with a collision counter.
+      var base = path.split('/').last;
+      final dot = base.lastIndexOf('.');
+      if (dot > 0) base = base.substring(0, dot);
+      var name = base;
+      for (var i = 2; app.docNameExists(name); i++) {
+        name = '$base $i';
+      }
       final lower = path.toLowerCase();
       if (lower.endsWith('.step') || lower.endsWith('.stp')) {
         await app.createNamedPart(name);
