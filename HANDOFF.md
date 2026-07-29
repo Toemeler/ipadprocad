@@ -16,6 +16,597 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M107b — M106 nachgetestet (die Luecke aus dem letzten Meilenstein) und
+> dabei einen echten Bug gefunden. 739/739 Tests gruen.**
+>
+> **Der Bug, den erst der Test zeigte.** Die Achsen-Pruefung in
+> `_revolveSessionFeature` lautete
+> `if (!s.axisPicked && !(s.axDx != 0 || s.axDy != 0))`. Die Vorgabeachse ist
+> (0, 1) — also NICHT degeneriert — womit die zweite Klausel falsch wird und
+> die ganze Bedingung nie greift. Folge: ein Revolve liess sich committen,
+> ohne dass je eine Achse gewaehlt wurde, gedreht um eine Y-Achse, die der
+> Benutzer nie angefasst hat. Jetzt ist `axisPicked` das EINZIGE Tor, die
+> Richtung wird getrennt auf Nulllaenge geprueft.
+>
+> **17 neue Tests** in `test/m106_revolve_test.dart`, end-to-end durch
+> `AppState` mit einem AUFZEICHNENDEN Fake-Kernel — geprueft wird also, was
+> tatsaechlich beim Kernel ankommt, nicht was ankommen sollte: Full sendet
+> exakt 360; Full ueberstimmt einen getippten Winkel; Symmetric sweept
+> Angle A und liefert die Startdrehung als `mat34Rotated(...,-45)` im
+> Placement (bei Full ist es das schlichte `mat34(0)`); Asymmetric summiert
+> A+B und startet bei -B; Achse als Punkt+Richtung in Skizzenkoordinaten;
+> unbekannte Skizze und Index ausserhalb werden abgelehnt; A+B > 360 wird
+> abgelehnt; Bearbeiten ERSETZT das Feature (Name und seq bleiben) statt ein
+> zweites anzulegen.
+>
+> **Revolve-Extents: bewusst entfernt statt kaputt gelassen.** Die drei
+> Knoepfe erschienen im Revolve-Panel, weil das Panel geteilt ist, aber
+> `resolveExtrudeSpan` loest nur den linearen Fall — ein Revolve waere still
+> auf den Winkel zurueckgefallen. Die Knoepfe sind jetzt fuer Revolve
+> ausgeblendet UND das Modell weist einen Nicht-Distance-Extent auf einem
+> Revolve mit einer Meldung ab (fuer den Fall, dass eine Datei aus einem
+> spaeteren Build so etwas mitbringt). Ein Bedienelement anzubieten, das
+> nichts tut, ist schlechter als keins.
+>
+> **Stand nach diesem Meilenstein:** `flutter analyze` 0 Fehler,
+> `flutter test` 739/739, Shim uebersetzt gegen echtes OCCT und die
+> Smoke-Checks [20]-[23] liefern weiter exakt die analytischen Werte.
+> Fehlerparitaet zu HEAD im Smoke unveraendert 4 = 4 (das 7.6-Normalen-
+> Artefakt im bestehenden Mesh-Pfad).
+>
+> **OFFEN:** Revolve-Extents richtig implementieren hiesse, den Winkel zu
+> finden, bei dem der rotierende Sweep zuerst auf Material trifft — das ist
+> echte Arbeit, kein Nachziehen. Ausserdem unveraendert ungeprueft: alles
+> Swift (kein Xcode), also die Kanten-Akzente aus M105a, das Aussehen der
+> Panels, und OCCT 7.9.3 selbst.
+
+> **M107 — ECHTE Verifikation. Flutter-SDK und OCCT lokal installiert; alles
+> von M101-M106 wurde zum ersten Mal wirklich uebersetzt und ausgefuehrt.
+> Ergebnis: 18 Analyzer-Fehler gefunden und behoben, 722/722 Tests gruen,
+> Shim kompiliert und rechnet analytisch korrekt.**
+>
+> **Setup:** Flutter 3.44.8 / Dart 3.12.2 (Tarball), OCCT 7.6.3 (Ubuntu
+> `libocct-*-dev`). Die Produktion nutzt 7.9.3; fuer 7.6 fehlt
+> `BRepLib_ToolTriangulatedShape` (kam erst in 7.7), dafuer ein Stub auf
+> `Poly_Triangulation::AddNormals()`.
+>
+> **`flutter analyze`: 18 Fehler → 0.** Was ein Klammer-Zaehler NIE gefunden
+> haette:
+> - **`hoverEdge` war schon vergeben.** `app_state.dart:849` hat ein
+>   `(int, int)? hoverEdge` fuer den Polyliniensegment-Hover des 2D-Sketchers;
+>   mein `(KernelSolid, int)? hoverEdge` kollidierte damit. EIN Fehler, VIER
+>   Folgefehler (zwei falsche Zuweisungen in `_projectHover`, eine in
+>   `viewport.dart`). Umbenannt in `hoverEdge3d` / `setHoverEdge3d`.
+> - **`edgeFingerprint` war verschwunden.** Beim Herausschneiden der lokalen
+>   `segDistSq`/`PickBest`-Kopien in M104b hat mein Skript die dazwischen
+>   liegende Funktion mitgenommen. `part_pick.dart` rief sie weiter auf.
+> - **`ExtrudeSession` fehlte der Import** in `m103_extents_test.dart`.
+> - **10 Fehler in den ALTEN Tests** (`m56_part_test`, `m67_feature_cache_test`)
+>   — genau die in M102 vorhergesagte Folge der Polymorphie: `features` ist
+>   `List<PartFeature>`, `distanceA`/`taperDeg`/`direction`/`exprA` brauchen
+>   den konkreten Typ. Casts ergaenzt.
+>
+> **`flutter test`: 722/722 gruen**, davon 115 in den sechs neuen/erweiterten
+> Dateien. Der QCAD-FFI faellt auf Linux erwartungsgemaess auf die
+> Dart-Engine zurueck; das aendert nichts am Ergebnis.
+>
+> **Shim gegen echtes OCCT: 0 Compilerfehler.** Und die Smoke-Tests
+> [20]-[23] rechnen EXAKT die analytischen Werte:
+> - Revolve-Rohr `706.858347` = 225*pi, 4 Flaechen
+> - 12 topologische Wuerfelkanten
+> - Fillet r=5: `7892.699082` = 8000 - 25*(1-pi/4)*20
+> - Chamfer d=4: `7840.000000`
+> - Ray durch den Wuerfel: Treffer bei 10 und 30, je EINMAL
+>
+> Damit sind Revolve, Kanten-Identitaet, Fillet, Chamfer und Ray-Cast nicht
+> mehr „blind geschrieben", sondern gerechnet.
+>
+> **Eigene falsche Testannahme korrigiert:** `[21]` erwartete, dass ein
+> Fillet mit r=15 auf einer 20-mm-Kante scheitert. Tut es nicht — 15 < 20,
+> das ist ein voellig legaler Radius. Auf r=25 geaendert (groesser als die
+> Flaeche, auf der er liegen muss).
+>
+> **Kontrollexperiment gegen HEAD.** Vier Smoke-Checks ([11], [12], [15],
+> [16], alle `mesh_create`) scheitern unter 7.6 mit
+> `gp_Dir() - input vector has zero norm`. HEADs UNVERAENDERTER Shim,
+> identisch gebaut, scheitert an GENAU denselben vier. Also ein
+> 7.6-gegen-7.9-Artefakt des Normalen-Stubs im bestehenden Mesh-Pfad, keine
+> Regression: Fehlerparitaet 4 = 4.
+>
+> **Was weiterhin NICHT geprueft ist:** alles Swift (kein Xcode) — also die
+> Kanten-Akzent-Overlays aus M105a komplett; das AUSSEHEN der Panels; alles
+> Zeigerbezogene (ob 14 px die richtige Tippgroesse ist); und OCCT 7.9.3
+> selbst, denn lokal lief 7.6.3.
+>
+> **Hinweis fuer CI:** die 48 verbleibenden Analyzer-Meldungen sind Warnungen
+> und Infos, ueberwiegend Alt-Bestand (ungenutzte Importe in aelteren Tests,
+> `withOpacity` deprecated). Keine davon ist neu genug, um sie hier still
+> mitzuaendern.
+
+> **M106 — Revolve-Dialog samt Achsen-Pick. Damit sind alle vier
+> Feature-Typen aus M102 bedienbar.**
+>
+> **Vorher nachgesehen, wieder drei Sachen gespart.** (1) Der Ribbon-Knopf
+> „Revolve" existiert samt Icon, nur `onTap: () {}`. (2) Der Sketcher kennt
+> `Geo.styleCenterline` und `Geo.styleConstruction` bereits — genau das, was
+> Inventor als Revolve-Achse akzeptiert; nichts Neues noetig. (3)
+> `_pickSketchCurve` liefert schon einen `sketchName#index`-Schluessel, also
+> IST der Achsen-Pick ein Sketch-Kurven-Pick, kein neuer Mechanismus.
+>
+> **EINE Session und EIN Panel fuer Extrude und Revolve.** Von den 13 Feldern
+> der `ExtrudeSession` sind nur `exprTaper`/`iMate`/`matchShape`
+> extrude-eigen; Profile, Sketch-Bindung, Richtung, Output, Koerper, Extents,
+> Vorschau und Auto-Pick sind identisch. Eine `RevolveSession` haette das
+> alles verdoppelt. Stattdessen additiv: `kind`, dazu Achse + `full`. Das
+> Panel verzweigt — Angle statt Distance (Einheit deg), Achsen-Zeile ueber
+> dem Winkel, Full-Schalter (dimmt den Winkel), Taper ausgeblendet (ein
+> Revolve hat keine Formschraege).
+>
+> Der KLASSENNAME bleibt `ExtrudeSession`, obwohl er jetzt beides traegt: er
+> steht in main, ribbon, viewport3d, part_render und zwei Testdateien, und
+> Umbenennen waere blind reines Risiko fuer Kosmetik. `kind` ist, was
+> tatsaechlich schaltet. Bewusste Schuld, hier vermerkt.
+>
+> **`editing` wurde auf `PartFeature?` verbreitert.** Die Extrude-Bearbeitung
+> mutiert das Feature IN PLACE; Revolve ersetzt es stattdessen im Timeline-
+> Slot (derselbe Zug wie `applyEdgeFeature`), weil eine In-Place-Variante eine
+> zweite Kopie jeder Feldzuweisung bedeutet haette, ohne Gewinn.
+>
+> **Achse als GEOMETRIE gespeichert**, nicht als Referenz auf die Linie:
+> Punkt + Richtung in Skizzenkoordinaten. Die Linie darf spaeter geloescht
+> oder neu gezeichnet werden — woran das Feature haengt, ist die Achse, die
+> sie definiert hat. Genau der Vertrag, den `RevolveFeature` seit M102 hat.
+> Nicht-Linien und Nulllaengen-Linien werden mit einer Meldung abgelehnt.
+>
+> **Validierung:** Winkel A in (0, 360], A+B <= 360 bei Asymmetric, Achse
+> zwingend. `sweepDeg`/`startOffsetDeg` (M102, host-getestet) rechnen
+> Flipped/Symmetric/Asymmetric aus; die Startdrehung reitet im Placement
+> (`mat34Rotated`), der Shim sweept immer positiv.
+>
+> **Neu/berührt:** `app_state.dart` (`kind`+Achsenfelder in ExtrudeSession,
+> `openRevolve`, `_revolveSessionFeature`, Achsen-Pick, `setExtrude(full:)`,
+> `applyExtrude`-Zweig, `editFeature`), `widgets/extrude_dialog.dart`
+> (Verzweigungen), `widgets/viewport3d.dart` (Achsen-Zweig im Tap-Pfad),
+> `widgets/ribbon.dart`.
+>
+> **Verifikationsstand — ehrlich:** kein `flutter analyze`, keine Host-Tests.
+> Die Winkel- und Placement-Mathematik ist seit M102 host-getestet und
+> numerisch geprueft; NEU und ungetestet sind die Session-Verzweigung, der
+> Achsen-Pick und die Panel-Verzweigungen — dafuer wurden in dieser Sitzung
+> keine Tests geschrieben (Budget), was die groesste Luecke dieses
+> Meilensteins ist. `applyExtrude` traegt jetzt zwei Pfade in einer Funktion;
+> das ist die Stelle, die beim ersten CI-Lauf am ehesten bricht.
+>
+> **OFFEN:** keine Tests fuer M106; Revolve-Extents (To Next/To/Through All)
+> sind im Modell und im Panel sichtbar, aber `resolveExtrudeSpan` gilt nur
+> fuer Extrude — ein Revolve mit „Through All" nimmt derzeit still den
+> Winkel-Pfad. Ausserdem weiterhin: Ursprungsachsen (X/Y/Z) sind als
+> Revolve-Achse nicht waehlbar, nur Skizzenlinien.
+
+> **M105b — Fillet- und Chamfer-Dialog. Kernel, Feature-Modell, Kanten-Pick
+> und Hervorhebung lagen; das hier ist die Bedienoberflaeche.**
+>
+> **Vorher nachgesehen, drei Sachen gespart.** (1) Die Ribbon-Knoepfe fuer
+> Fillet und Chamfer EXISTIEREN samt Icons (`MO['fillet']`, `MO['chamfer']`),
+> sie hatten nur `onTap: () {}` — es war nur zu verdrahten, nichts zu bauen.
+> (2) Ein 2D-Sketch-Fillet gibt es NICHT (die Treffer in `gear.dart` sind
+> Zahnfuss-Rundungen, eine reine 2D-Konstruktion). (3) Eine gemeinsame
+> Dialog-Huelle gab es nicht — Kopfzeile, Abschnitt, Beschriftungszeile,
+> Wert- und Pick-Feld lagen alle PRIVAT in `ExtrudeDialog`.
+>
+> **Also zuerst extrahiert, dann gebaut.** Neu `widgets/properties_panel.dart`
+> mit `panelSection` / `panelRow` / `panelPickField` / `panelValueField` /
+> `panelDimWhen`. Die Rumpfe sind die Originale aus dem Extrude-Dialog,
+> VERSCHOBEN statt neu geschrieben, damit sich am bestehenden Panel optisch
+> nichts aendert; `ExtrudeDialog` hat seine privaten Kopien verloren und ruft
+> jetzt dieselben Funktionen. Ohne diesen Schritt haetten drei Panels drei
+> Kopien derselben Felder gehabt — genau das Muster, das schon einmal
+> passiert ist.
+>
+> **EIN Dialog fuer beide Befehle.** `EdgeFeatureDialog` + `EdgeFeatureSession`
+> mit `kind` = fillet|chamfer. Inventor zeigt zwei Befehle, aber die Panels
+> unterscheiden sich nur in den Zahlen unter der Kantenliste — Kanten-Picker,
+> Vorschau, OK/Abbrechen und die gesamte Huelle sind identisch. Zwei Sessions
+> waeren zwei Orte, an denen die Kantenbehandlung synchron bleiben muesste.
+>
+> **Chamfer-Methoden** wie in Inventor: Distance / Two Distances / Distance
+> and Angle, plus Flip (nur sichtbar wenn die beiden Seiten ueberhaupt
+> unterschiedlich sind — bei gleicher Distanz bedeutet Flip nichts).
+> `kernelParams` rechnet Flip weg, bevor irgendetwas den Shim erreicht.
+>
+> **Beim Wiederoeffnen** eines bestehenden Features wandern dessen Kanten
+> zurueck in den Picker, damit 3D zeigt, worauf das Feature wirkt, statt einer
+> leeren Auswahl.
+>
+> **Esc schliesst beides:** der Kanten-Pick gehoert ZUM Panel, nur den Pick
+> abzubrechen liesse ein Panel zurueck, dem man keine Kanten mehr geben kann.
+> `_openEdgeFeature` schliesst ausserdem eine offene Extrude-Session — zwei
+> Property-Panels in derselben Ecke wuerden beide die 3D-Taps beanspruchen.
+>
+> **`editFeature` fertig verdrahtet:** Doppeltipp auf eine Fillet- oder
+> Chamfer-Zeile im Browser oeffnet jetzt das richtige Panel. Revolve faellt
+> weiterhin bewusst durch (kein Panel), statt ersatzweise das Extrude-Panel zu
+> oeffnen.
+>
+> **Nebenbei gefunden, NICHT von mir:** `app_state.dart:1898-1899` ruft
+> `_syncSolidProjections(p)` ZWEIMAL hintereinander, mit kaputter Einrueckung.
+> Steht schon so in HEAD. Nicht angefasst, aber vermutlich ein Versehen.
+>
+> **Neu/berührt:** neu `widgets/properties_panel.dart`,
+> `widgets/edge_feature_dialog.dart`, `test/m105_edge_feature_test.dart`
+> (12 Tests); `app_state.dart` (Session, open/set/apply/cancel, Vorschau,
+> `editFeature`, Esc), `widgets/extrude_dialog.dart` (delegiert jetzt),
+> `widgets/ribbon.dart`, `main.dart`.
+>
+> **Verifikationsstand — ehrlich:** kein `flutter analyze`, keine Host-Tests,
+> kein Xcode. Getestet ist die Session-Logik, die Validierung, die
+> Chamfer-Parameterabbildung inkl. Flip, die getrennte Nummerierung und der
+> JSON-Roundtrip. NICHT testbar: Vorschau und Commit, beide brauchen einen
+> gelinkten Kernel — die Tests nageln nur fest, dass ohne Kernel ehrlich
+> gescheitert statt ein Solid erfunden wird. Das Layout selbst hat niemand
+> gesehen; dass der Dialog gut AUSSIEHT, ist unbelegt.
+>
+> **OFFEN:** Revolve-Dialog samt Achsen-Pick (M106) — das Modell, der Shim und
+> `RevolveFeature` liegen seit M101/M102 vollstaendig, es fehlt nur das Panel.
+> Ausserdem: Inventors „All Fillets / All Rounds"-Auswahlmodi und variabler
+> Radius sind im Modell vorgesehen (`allFillets`/`allRounds`, Radius je Kante)
+> aber im Panel nicht bedienbar — es setzt einen Radius fuer alle Kanten.
+
+> **M105a — Kanten-Hervorhebung in 3D: Hover + Auswahl sichtbar. Die
+> Fillet-/Chamfer-Dialoge koennen jetzt darauf aufsetzen.**
+>
+> **Der Plan aus M104b war falsch — Nachschauen hat ihn ersetzt.** Dort stand,
+> das Basis-Kanten-Mesh muesse in zwei Meshes zerlegt werden. Muss es nicht:
+> `rebuildHighlight` macht fuer FLAECHEN laengst genau das Richtige, naemlich
+> eine SEPARATE Overlay-Entity aus einer Teilmenge bauen, gecached darauf was
+> zuletzt gebaut wurde, und das Basis-Mesh nie anfassen. Fuer Kanten gilt
+> dasselbe Muster eins zu eins. `edgeEntity()` bleibt voellig unberuehrt.
+>
+> **Neu Swift-seitig:** `SolidGeom.edgeHighlightEntity(edges:halfWidth:
+> viewDir:lift:eps:color:)` — Spiegelbild von `faceHighlightEntity`, baut ein
+> Ribbon nur ueber die akzentuierten DISPLAY-Kanten. Dazu
+> `RealityPartView.rebuildEdgeAccents(from:)` mit `builtEdgeAccent`-Cache
+> (gleicher Waechter wie `builtHighlight`: dieselbe Kante hovern baut nicht
+> jeden Frame neu), aufgerufen aus `setScene` UND `setOverlays`.
+>
+> **Warum breiter statt nur naeher:** Akzent und Basis-Kante sind
+> konstruktionsbedingt KOPLANAR. Ein Tiefen-Nudge allein laesst sie weiter
+> z-fighten und der Akzent liest sich als Sprenkel; ein deutlich breiteres
+> Ribbon (2.2x) zeigt beidseitig einen Saum, egal wie der Tiefentest ausgeht.
+> Nudge ist trotzdem drin, aus demselben Grund wie beim Flaechen-Highlight.
+>
+> **DISPLAY-Indizes reisen, nicht topologische.** Swift indiziert
+> `edgeStarts`; die Anzeige-Liste ueberspringt degenerierte, Naht- und
+> tangentenstetige Kanten. Nur Dart muss wissen, dass die beiden Raeume
+> auseinanderlaufen — deshalb schickt `solidPayload` auch weiterhin KEINE
+> `edgeIds`.
+>
+> **Hover und Auswahl teilen sich EINE Menge und EINE Farbe**, weil
+> `applySketchAccents` hovered und selected schon immer gleich behandelt
+> (`let on = (key == hover) || selected.contains(key)`). Zwei Farben waeren
+> ein drittes Highlight-Idiom im selben Viewport.
+>
+> **Der Akzent reist auf dem LEICHTEN Pfad** (`buildOverlaysPayload`), der
+> ohnehin jeden Frame gepusht wird — `sceneSignature` bleibt unangetastet, ein
+> Hover laedt also kein Mesh neu. Auf dem leichten Pfad ist der Schluessel
+> IMMER dabei, auch leer: ein geloeschter Akzent muss reisen, sonst bleibt das
+> letzte Highlight stehen.
+>
+> **Zwei Fehler dabei gefunden und behoben:** (1) die Akzent-Ribbons sind
+> kamera-zugewandt und muessen beim Orbit/Zoom neu ausgerichtet werden wie die
+> Sketch-Ribbons — sonst stehen sie nach dem Drehen quer. (2) Die
+> Overlay-Entity haengt an `root`, nicht am Solid, verschwindet also NICHT mit
+> ihm; ein zurueckgerolltes oder geloeschtes Feature haette seine
+> hervorgehobenen Kanten im Raum stehen lassen.
+>
+> **Ein Koerper pro Feature:** ein Pick auf einem ZWEITEN Solid beginnt eine
+> neue Menge statt zu mischen. Inventors Fillet arbeitet auf einem Solid, und
+> eine Menge ueber zwei haette keine sinnvolle Basis zum Modifizieren.
+>
+> **Neu/berührt:** `PartScene.swift`, `RealityPartView.swift`,
+> `app_state.dart` (`pickedEdgeDisplay`, `pickedEdgeSolid`, `hoverEdge`,
+> `setHoverEdge`, Koerperwechsel-Regel), `reality_scene.dart`
+> (`_edgeAccentPayload` in beiden Payloads), `widgets/viewport3d.dart`
+> (Hover-Zweig + Solid/Display beim Tap); 7 Tests ANGEHAENGT an das
+> bestehende `reality_scene_test.dart` statt einer neuen Datei.
+>
+> **Verifikationsstand — ehrlich:** kein `flutter analyze`, keine Host-Tests,
+> und Swift wurde NICHT kompiliert (kein Xcode). Host-testbar und getestet ist
+> die Payload-Seite (leer/gesetzt, Hover+Auswahl verschmolzen, keine
+> Doppelung, leerer Schluessel auf dem leichten Pfad, Koerperwechsel,
+> Abbruch). Der RENDER ist reine Geraete-Sache, wie jeder 3D-Meilenstein
+> vorher.
+>
+> **OFFEN:** der CPU-Painter (`part_render.dart`) zeichnet den Kanten-Akzent
+> NICHT — auf Nicht-iOS und in Galerie-Thumbnails fehlt er also. Fuer
+> Thumbnails richtig so, fuer Desktop-Entwicklung ein blinder Fleck.
+
+> **M104b — Aufraeumen: vier Kopien derselben Mathematik zusammengelegt.
+> Grund: in M104 wurde Funktionalitaet nachgebaut, die es laengst gab.**
+>
+> **Was schon da war und uebersehen wurde.** Fuer SKIZZENKURVEN existiert die
+> Kette Hover → Auswahl → Highlight vollstaendig, und sie wurde ausdruecklich
+> als Geruest gebaut — der Kommentar in `viewport3d.dart:635` sagt woertlich
+> „nothing consumes the selection yet — this makes them addressable for
+> later". Konkret: `_pickSketchCurve` (Polylinien-Pick), `_distToSeg`,
+> `sketchKey()`, `_hoverSketch` + `_selSketch` inkl. Tap-Toggle,
+> `hoverSketch`/`selSketch` im Payload, und Swift-seitig
+> `applySketchAccents`, das die adressierte Kurve umfaerbt
+> (`sketchEntities` ist EINE Entity pro Kurve, mit Key).
+>
+> **Zusammengelegt (vier → eine):** neu `lib/pick_math.dart`, ein BLATT (nur
+> `dart:ui`). Enthaelt `segDistSq` und `PickBest`. Blatt sein MUSS es: in
+> keine der bestehenden Dateien konnte es wandern, weil `part_model`
+> `tools.dart` importiert — alles, was `tools` importiert, darf also nicht
+> nach `part_model` zurueckgreifen. Bisherige Kopien: `tools._distToSegment`,
+> `viewport3d._distToSeg`, die private in `part_pick`, und
+> `snap.closestOnSegment`. Alle vier delegieren jetzt.
+>
+> **Nebenbei ein echter Bug behoben:** `_pickSketchCurve` brach Gleichstaende
+> NUR ueber den Pixelabstand auf, der Kanten- und Flaechen-Pick dagegen ueber
+> die TIEFE. Eine Kurve auf der ABGEWANDTEN Seite des Modells konnte damit
+> die gewinnen, auf die man zeigt. `PickBest` erzwingt jetzt ueberall
+> dieselbe Regel: naeher schlaegt naeher-am-Cursor, Pixel entscheiden nur bei
+> gleicher Tiefe.
+>
+> **Ebenfalls doppelt und jetzt geteilt:** die Rodrigues-Rotation lag ZWEIMAL
+> in `part_model.dart` (`PartCamera._rotate` und, neu dazugekommen, inline in
+> `mat34Rotated`) → `rotateAboutAxis`; die Box-Projektion auf eine Richtung
+> lag in `originAxisSpan` und, neu dazugekommen, als 8-Ecken-Schleife in
+> `bodySpanAlong` → `boxSpanAlong` (die Vorzeichen-Variante braucht 2 statt 8
+> Skalarprodukte; gegen die Brute-Force-Variante ueber 20 000 Zufallsboxen
+> geprueft, 0 Abweichungen).
+>
+> **BEWUSST NICHT angefasst:** `part_model._segDist`, der Inline-Fall in
+> `constraints.dart:486` und `modify._lineParam`. Dieselbe Formel, ABER mit
+> Degeneriert-Schwelle 1e-18 statt 1e-12. Das blind anzugleichen aendert das
+> Verhalten des Constraint-Solvers bei Segmenten zwischen 1e-9 und 1e-6
+> Laenge, und ohne laufende Tests ist das kein Tausch, den man machen sollte.
+> Steht hier, damit es nicht wieder uebersehen wird.
+>
+> **Neu/berührt:** neu `lib/pick_math.dart`, neu `test/pick_math_test.dart`
+> (14 Tests, inkl. Degeneriert-Fall und Stabilitaet bei Gleichstand);
+> `part_pick.dart`, `widgets/viewport3d.dart`, `tools.dart`, `snap.dart`,
+> `part_model.dart`.
+>
+> **Verifikationsstand — ehrlich:** kein `flutter analyze`, keine Host-Tests
+> (weiterhin kein Dart in der Session). Numerisch nachgerechnet: die
+> umgeschriebene `mat34Rotated` liefert dieselben fuenf Eigenschaften wie
+> vorher (Achsenpunkte bleiben stehen, Radius erhalten, Hin-und-Rueck =
+> Identitaet, orthonormal, det = +1), und `boxSpanAlong` stimmt exakt mit der
+> 8-Ecken-Variante ueberein. Ein Compile-Bruch, den dieses Aufraeumen selbst
+> erzeugt hatte (`viewport3d:688` rief das geloeschte `_distToSeg`), wurde
+> gefunden und behoben.
+>
+> **OFFEN, unveraendert:** B-Rep-KANTEN sind Swift-seitig EINE zusammengefasste
+> Entity pro Solid (`edgeEntity()` baut ein einziges `RibbonBuilder.mesh`
+> ueber alle Kantenpolylinien mit EINEM Material), es gibt keinen Key und
+> keine Per-Kanten-Entity — deshalb kann bisher keine einzelne Kante getoent
+> werden. `solidPayload` schickt ausserdem `edgeIds` (M101) gar nicht mit.
+> ACHTUNG beim Beheben: naive Per-Kanten-Entities machen M67-M70 zunichte
+> (ein Zahnrad hat 440 Kanten). Richtige Form sind ZWEI Meshes je Solid —
+> „alle Kanten ausser den akzentuierten" und „die akzentuierten" — neu gebaut
+> nur wenn sich die Akzent-MENGE aendert.
+
+> **M104 — Die Pick-Schicht: Kanten in 3D auswaehlen, und der Flaechen-Pick
+> fuer „To". Damit ist M103 wirklich fertig und M105 nur noch Dialog.**
+>
+> **Kanten-Pick liegt in `part_pick.dart`, NICHT im Viewport.** Der Viewport
+> braucht eine lebende `Cam3`, einen Widget-Baum und ein Geraet; diese Datei
+> braucht nichts davon. Sie bekommt die Meshes und ZWEI CLOSURES (Weltpunkt →
+> Bildschirm, Weltpunkt → Tiefe) und liefert eine Entscheidung — also ist die
+> Mathematik, die entscheidet WELCHE Kante getroffen wurde, host-testbar. Der
+> Widget-Teil ist zwanzig Zeilen Verdrahtung.
+>
+> **Warum Kanten kein Sonderfall des Flaechen-Picks sind.** Eine Flaeche ist
+> ein Gebiet, der Baryzentrik-Test beantwortet „drin oder nicht". Eine Kante
+> ist eine Kurve ohne Breite — es gibt kein „drin". Die Antwort ist immer
+> „die naechste, falls nah genug", und das braucht eine Pixeltoleranz UND
+> einen Tie-Break.
+>
+> **Der Tie-Break ist TIEFE, nicht Pixelabstand.** An jedem realen Modell
+> projizieren die Silhouette einer nahen Flaeche und eine Kante auf der
+> ABGEWANDTEN Seite desselben Koerpers staendig ein paar Pixel nebeneinander;
+> nach Pixelabstand zu waehlen liefert etwa in der Haelfte der Faelle die
+> Kante, die man gar nicht sieht. Der Flaechen-Pick loest Ueberlappungen aus
+> genau demselben Grund ueber die Tiefe. Pixelabstand entscheidet nur noch bei
+> gleicher Tiefe (zwei Kanten an einer Ecke).
+>
+> **Beinahe-Fehler, im Test festgenagelt:** der erste Wurf speicherte den
+> TIPP-PUNKT als Fingerabdruck. `EdgeSel.bestMatch` vergleicht aber gegen
+> `occt_shape_edge_info`, dessen Anker der BOGENLAENGEN-MITTELPUNKT ist — ein
+> Tipp nahe einem Ende einer langen Kante haette also gegen deren Mitte
+> verglichen und die Kante fuer verschwunden erklaert. `EdgePick.toSel()`
+> liefert jetzt den Mittelpunkt, und der wird ueber die Bogenlaenge gelaufen,
+> nicht am mittleren INDEX genommen: der Diskretisierer setzt Punkte dort, wo
+> die Kruemmung sie braucht, auf einem Bogen liegt der mittlere Index also
+> nirgends in der Mitte.
+>
+> **„To" ist verdrahtet.** Der Flaechen-Pick benutzt `_pickSolidFace`
+> unveraendert — eine PLANARE Flaeche ist genau der Fall, den
+> `resolveExtrudeSpan` analytisch loest. Ein Tipp auf „To" armiert sofort den
+> Pick (wie Inventor), ein Wechsel weg entwaffnet.
+>
+> **Esc ist jetzt geschichtet:** Esc waehrend eines Picks bricht den PICK ab,
+> nicht den Dialog — vorher haette es die gerade eingegebenen Profile und
+> Einstellungen mitgenommen. `cancelExtrude` entwaffnet ausserdem alle
+> Arm-Flags, sonst schluckt der Viewport nach dem Schliessen weiter Taps, ohne
+> dass es dafuer noch eine sichtbare Ursache oder eine Abbruch-Zeile gibt.
+>
+> **Neu/berührt:** neu `lib/part_pick.dart`; `app_state.dart`
+> (`pickingExtentFace`/`extentFacePicked`, `pickingEdges`/`toggleEdgePick`/
+> `pickedEdges`, geschichtetes Esc, Entwaffnen beim Schliessen),
+> `widgets/viewport3d.dart` (zwei Zweige im Tap-Pfad + `_pickEdgeAt`),
+> `widgets/extrude_dialog.dart` (Zeile „Terminate on" ist ein Pick-Feld),
+> neuer Test `test/m104_edge_pick_test.dart` (17 Tests).
+>
+> **Verifikationsstand — ehrlich:** wieder ohne Flutter/Dart, also KEIN
+> `flutter analyze`, KEINE Host-Tests. Die Pick-Mathematik ist vollstaendig
+> host-testbar und die Tests decken sie ab (Treffer, Toleranzgrenze, Tipp
+> HINTER dem Segmentende, Kante ohne topologische ID, Tiefe-schlaegt-Pixel,
+> Mehrfach-Mesh, Bogenlaengen-Mittelpunkt, Ende-zu-Ende-Rematch). Die
+> Auswahl-Zustandsmaschine wird gegen die ECHTE `AppState` getestet, nicht
+> gegen eine Kopie. NICHT getestet: alles am Zeiger — ob 14 px am Geraet die
+> richtige Toleranz sind, ist eine Fingerfrage und Geraete-Sache.
+>
+> **OFFEN:** HOVER-Feedback fuer Kanten fehlt (der Tap-Pfad ist verdrahtet,
+> der Hover-Pfad bei `viewport3d:613` nicht) — ohne Highlight sieht man vor
+> dem Tippen nicht, welche Kante man treffen wuerde, und beim Verrunden ist
+> das die halbe Bedienung. Ausserdem: die ausgewaehlten Kanten werden noch
+> NICHT hervorgehoben gezeichnet. Beides gehoert in M105 vor die Dialoge.
+
+> **M103 — Inventors Extents: To Next / To / Through All, in Extrude
+> verdrahtet.** Das war die urspruengliche Frage.
+>
+> **Wo sie sitzen.** Rechts vom Wert, wie im Referenz-Panel. Das Feld SELBST
+> ist die Distance-Option: waehlt man einen der drei, dimmt es; tippt man den
+> aktiven Knopf nochmal, geht es zurueck auf Distance. Alle drei sind
+> ausgegraut, solange es keinen Koerper gibt — Inventor macht das genauso,
+> denn ein Basis-Feature hat nichts, woran es enden koennte. Die Bedingung
+> dafuer existierte schon: `extrudeHasBooleanTarget`, dieselbe, die Cut und
+> Intersect dimmt.
+>
+> **Aufgeloest wird beim Recompute, nicht beim Klicken.** `resolveExtrudeSpan`
+> liefert dasselbe (Hoehe, Startversatz)-Paar wie `extrudeSpan` bisher:
+> - *Through All* misst die Bounding-Box des Zielkoerpers ENTLANG der
+>   Skizzennormalen und schlaegt an beiden Enden ueber. Ein Werkzeug-Deckel,
+>   der mit einem Koerper-Deckel KOPLANAR liegt, ist der klassische Weg, ein
+>   OCCT-Boolean zerbrechlich zu machen; der Ueberstand kostet nichts.
+> - *To Next* castet `occt_ray_hits` von JEDEM Profil-Anker und nimmt den
+>   kleinsten positiven Treffer. Strahlen starten auf der Skizzenebene, ein
+>   Treffer bei t≈0 wird gefiltert — sonst loeste jedes To Next einer Skizze,
+>   die AUF einer Flaeche liegt, zu null auf.
+> - *To* loest eine PLANARE Zielflaeche analytisch (exakt in jeder Entfernung,
+>   ohne Tesselierung); alles andere — Zylinder, unregelmaessige Flaechen —
+>   faellt auf den Ray-Cast zurueck. Genau zwischen diesen Loesungen waehlen
+>   Inventors „Alternate/Minimum Solution\"-Schalter, die noch fehlen.
+>
+> **`base` geht jetzt an JEDES Feature**, nicht nur an die
+> koerper-modifizierenden: die Extents brauchen den Koerper, in den gebaut
+> wird. Output 'new' hat keinen Vorgaenger — und genau deshalb greift dort die
+> Inventor-Regel „nicht fuer Basis-Features\". Der Cache bleibt korrekt, weil
+> der laufende Ketten-Schluessel den Upstream schon enthaelt.
+>
+> Vorschau UND Commit reichen denselben `base` durch; sonst waere ein To-Next
+> im Dialog gescheitert und erst im nachfolgenden Fold gelungen.
+>
+> **Neu/berührt:** `part_model.dart` (`resolveExtrudeSpan`, `bodySpanAlong`,
+> `nextFaceDistance`, `faceDistance`, `extentLabel`), `app_state.dart`
+> (Session-Feld, `setExtrude(extent:)`, Vorschau + Commit),
+> `widgets/extrude_dialog.dart` (drei Toggles + drei SVG-Icons), neuer Test
+> `test/m103_extents_test.dart` (19 Tests).
+>
+> **Verifikationsstand — ehrlich:** wieder ohne Flutter/Dart in der Session,
+> also KEIN `flutter analyze`, KEINE Host-Tests. Host-testbar ist die
+> Entscheidungslogik und die analytische Planar-Mathematik (die Tests decken
+> sie ab, inkl. gekippter Flaeche, Flaeche HINTER der Richtung und Flaeche
+> PARALLEL zur Richtung — letztere darf nicht durch null teilen). NICHT
+> host-testbar: Through All und To Next, weil ein `KernelSolid` ohne
+> gelinkten Kernel keine `shape` hat; die Tests nageln dort nur fest, dass
+> ehrlich gescheitert statt eine Zahl erfunden wird.
+>
+> **OFFEN:** Extents fehlen im Revolve (Modell traegt sie schon, Dialog
+> existiert noch nicht); der FLAECHEN-Pick fuer „To\" ist noch nicht an den
+> Viewport verdrahtet — `FaceSel` wird gespeichert und ausgewertet, aber
+> gesetzt wird es bisher von niemandem, die Zeile im Dialog sagt deshalb
+> „Select a face in 3D\" und bleibt leer. Ausserdem: Alternate/Minimum
+> Solution, und Inventors „Between\"-Extent gibt es gar nicht.
+
+> **M102 — `PartFeature`-Polymorphie, `EdgeSel` (topologische Benennung),
+> Revolve/Fillet/Chamfer im Modell. Die UI fehlt noch.**
+>
+> **Warum zuerst.** `part.features` war `List<ExtrudeFeature>`, und Timeline,
+> Browser, EOP-Marke und der Bool-Fold griffen direkt auf extrude-eigene
+> Felder zu. Revolve, Fillet und Chamfer konnten schlicht nicht existieren.
+> Neu: abstrakte Basis `PartFeature` (name/body/visible/output/seq/solid/
+> computeError/consumedByJoin/rolledBack/builtSig + `ownSig()`), darunter
+> `ExtrudeFeature`, `RevolveFeature` und — ueber die Zwischenbasis
+> `BodyModifyFeature` — `FilletFeature` und `ChamferFeature`.
+>
+> **Der Fold kennt jetzt zwei Sorten.** Ein sketch-basiertes Feature
+> KOMBINIERT sein Volumen mit dem Koerper (join/cut/intersect wie bisher).
+> Ein koerper-modifizierendes Feature bekommt den akkumulierten Solid als
+> EINGABE (`recomputeFeature(..., base:)`) und ersetzt ihn — es gibt da keine
+> Boolean-Operation, und genau deshalb laeuft es an der Bool-Strecke vorbei.
+> Ohne Vorgaenger meldet es ehrlich „nothing to modify", statt zu raten.
+>
+> **`EdgeSel` — der eigentliche Knackpunkt.** OCCT numeriert Kanten bei JEDEM
+> Rebuild neu. „Kante 7" zu speichern haette das Fillet beim naechsten Edit
+> auf eine andere Kante gesetzt. Gespeichert wird darum die GEOMETRIE:
+> Bogenlaengen-Mittelpunkt, Laenge, Kurventyp, Radius — dieselbe Vertragsform
+> wie `ProfileSel` sie fuer Profile schon hat. `bestMatch` sucht die
+> naechstgelegene lebende Kante, ein TYPWECHSEL disqualifiziert (eine Gerade,
+> die ein Bogen wurde, ist nicht dieselbe Kante), die Toleranz skaliert mit
+> der Kantenlaenge, und `resolveEdges` vergibt jede lebende Kante nur EINMAL —
+> sonst kollabieren zwei driftende Picks still zu einem Doppelradius-Fillet.
+> Verlorene Picks werden fallengelassen und geloggt, der Rest wird weiter
+> verrundet (Inventor-Verhalten).
+>
+> **`mat34Rotated`.** Der Shim dreht immer positiv ab der Profilebene;
+> Flipped/Symmetric/Asymmetric reiten als Vor-Rotation im Placement — das
+> rotatorische Gegenstueck zum z-Offset von `extrudeSpan`. Darum kann auch
+> der Revolve-Pfad keinen gespiegelten Solid erzeugen. Numerisch geprueft:
+> orthonormal, det = +1 (`occt_transform` VERWEIGERT alles andere), Punkte
+> auf der Achse bleiben stehen, Radius erhalten, Hin-und-Rueck = Identitaet.
+>
+> **Achtung Fakes.** Die Test-Kernel benutzen `implements PartKernel`, nicht
+> `extends` — konkrete Defaults in der Basis helfen dort NICHT. Die vier
+> betroffenen Fakes wurden ergaenzt; `CountingKernel` hat `noSuchMethod` und
+> war schon abgedeckt.
+>
+> **Neu/berührt:** `part_model.dart` (Basis, 3 Feature-Typen, EdgeSel/FaceSel,
+> Recompute-Dispatch, Fold, Kernel-Interface + OCCT-Implementierungen),
+> `app_state.dart` (`editFeature`-Dispatcher, generische Signaturen),
+> `widgets/model_browser.dart`, 4 Test-Fakes, neuer Test
+> `test/m102_feature_polymorphism_test.dart` (28 Tests).
+>
+> **Verifikationsstand — ehrlich:** in dieser Session standen WEDER Flutter
+> noch Dart zur Verfuegung, `flutter analyze` und die Host-Tests sind also
+> NICHT gelaufen. Geprueft wurden: Klammerbilanz aller beruehrten Dateien
+> (Delta 0 gegen HEAD), Konstruktor/Feld/Lookup-Konsistenz der FFI-Klasse
+> (36/36), Aufloesbarkeit aller im Test benutzten Symbole, und die
+> Rotationsmathematik numerisch in Python. Alles Weitere ist CI-Sache.
+>
+> **OFFEN (M103-M105):** die Extents-Knoepfe (To Next / To / Through All) in
+> Extrude UND Revolve — Modell und `occt_ray_hits` liegen, die UI fehlt; der
+> Revolve-Dialog samt Achsen-Pick; Fillet-/Chamfer-Dialoge samt
+> 3D-KANTEN-Pick (heute pickt der Viewport nur Flaechen, `_pickSolidFace`);
+> `editFeature` oeffnet fuer alles ausser Extrude noch nichts.
+
+> **M101 — OCCT-Shim v12: Revolve, Kanten-Identitaet, Fillet/Chamfer,
+> Ray-Cast. 31 -> 38 Symbole.**
+>
+> Neu: `occt_revolve_profile` (Achse IN der Skizzenebene, Loecher werden wie
+> beim Extrude einzeln revolviert und ausgeschnitten, Profil-kreuzt-Achse
+> wird VERWEIGERT statt durch sich selbst gesweept), `occt_shape_edge_count` /
+> `occt_shape_edge_info` (Fingerabdruck je Kante), `occt_mesh_edge_ids`,
+> `occt_fillet_edges`, `occt_chamfer_edges` (alle drei Inventor-Methoden),
+> `occt_ray_hits`.
+>
+> **Gefunden dabei:** die Anzeige-Kantenliste des Meshs ueberspringt
+> degenerierte, Naht- und tangentenstetige Kanten — Anzeige-Index und
+> `TopExp::MapShapes`-Index laufen also auseinander, sobald ein Modell einen
+> Zylinder oder ein Fillet enthaelt. Ein Fillet auf dem Anzeige-Index haette
+> still die FALSCHE Kante verrundet. Dafuer gibt es `occt_mesh_edge_ids`.
+>
+> **Smoke [20]-[23]** mit analytischen Zahlen: Rohr aus Rechteck-Revolve =
+> 225*pi bei 4 Flaechen, halbe Drehung = die Haelfte, Profil ueber der Achse
+> muss scheitern; Wuerfel = 12 Kanten, Fillet r=5 = 8000 - 25*(1-pi/4)*20 bei
+> 7 Flaechen, r=15 muss sauber scheitern; Chamfer d=4 = 7840, d=4/45deg
+> ergibt dasselbe, Winkel >= 90 muss scheitern; Strahl durch den Wuerfel
+> trifft bei 10 und 30, jede Kreuzung GENAU einmal.
+>
+> CI-Gates auf 38 gezogen (`occt-build.yml` und der LINK CHECK in
+> `m1-core-build.yml` — beide, sonst luegt einer von beiden).
+>
+> **Verifikationsstand — ehrlich:** das C++ wurde NIE gegen OCCT kompiliert
+> (kein cmake in der Session, `backend/occt/upstream` ist ein leeres
+> Submodul). Bewiesen ist nur: `smoke_occt.c` uebersetzt sauber mit
+> `gcc -fsyntax-only` — und da es ausschliesslich `occt_capi.h` einbindet,
+> heisst das, dass jede neue Aufrufstelle gegen die Deklarationen typprueft.
+> 38 Definitionen == 38 Deklarationen, Klammern balanciert. Erwartungswert
+> fuer den ersten CI-Lauf: Korrekturen an OCCT-Include-Namen.
+
 > **M100 — EOP-Ziehen: die eigentliche Ursache. Und der Hover zeigt jetzt die
 > ANTWORT statt eines zweiten Highlights.**
 >

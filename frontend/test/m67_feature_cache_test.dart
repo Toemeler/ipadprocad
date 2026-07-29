@@ -102,7 +102,7 @@ void main() {
     final part = await onePart(app);
     final built = k.extrudes;
 
-    part.features.single.distanceA = 9;
+    (part.features.single as ExtrudeFeature).distanceA = 9;
     recomputeAllFeatures(part, k);
     expect(k.extrudes, built + 1);
   });
@@ -138,7 +138,7 @@ void main() {
     final app = makeApp();
     app.partKernel = CountingKernel();
     final part = await onePart(app);
-    final f = part.features.single;
+    final f = part.features.single as ExtrudeFeature;
 
     final a = featureInputSig(part, f);
     expect(featureInputSig(part, f), a, reason: 'must be deterministic');

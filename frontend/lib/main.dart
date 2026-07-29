@@ -19,6 +19,7 @@ import 'widgets/model_browser.dart';
 import 'widgets/ribbon.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
+import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
 
 void main() {
@@ -203,6 +204,8 @@ class PrototypeApp extends StatelessWidget {
                                             ),
                                           if (app.extrudeSession != null)
                                             ExtrudeDialog(app: app),
+                                          if (app.edgeSession != null)
+                                            EdgeFeatureDialog(app: app),
                                         ])
                                       : Viewport2D(app: app),
                                 ),

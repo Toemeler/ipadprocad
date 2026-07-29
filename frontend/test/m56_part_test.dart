@@ -77,6 +77,24 @@ class FakeKernel implements PartKernel {
 
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
+
+  // M102 — the fake does not model revolve or body modification; saying so
+  // honestly is what the feature will surface as its computeError.
+  @override
+  KernelSolid? revolve(List<List<List<Offset>>> groups, double angleDeg,
+          double axPx, double axPy, double axDx, double axDy,
+          List<double> mat34) =>
+      null;
+  @override
+  List<OcctEdgeInfo> edgesOf(KernelSolid s) => const [];
+  @override
+  KernelSolid? filletEdges(
+          KernelSolid base, List<int> edgeIds, List<double> radii) =>
+      null;
+  @override
+  KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
+          double d1, double d2, double angleDeg) =>
+      null;
 }
 
 AppState makeApp() {
@@ -387,7 +405,9 @@ void main() {
       final f = part.features.single;
       expect(f.name, 'Extrusion1');
       expect(f.bodyName, 'Solid1');
-      expect(f.distanceA, 5);
+      // M102: features are PartFeature now; the extrude-specific fields need
+      // the concrete type.
+      expect((f as ExtrudeFeature).distanceA, 5);
       expect(f.solid, isNotNull);
       expect(f.computeError, isNull);
 
@@ -573,7 +593,7 @@ void main() {
       expect(p.childSketches.single.model.geometry.length, 4,
           reason: 'the child sketch DXF round-trips');
       expect(p.features.length, 1);
-      final f = p.features.single;
+      final f = p.features.single as ExtrudeFeature;
       expect(f.distanceA, 7);
       expect(f.taperDeg, 3);
       expect(f.direction, ExtrudeDirection.flipped);

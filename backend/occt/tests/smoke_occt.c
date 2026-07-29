@@ -795,6 +795,160 @@ int main(void)
         }
     }
 
+
+    /* [20] v12 REVOLVE: a rectangle x in [5,10], y in [0,3] revolved a full
+     * turn about the Y axis is an annular tube, outer r=10, inner r=5,
+     * height 3 -> V = pi*(100-25)*3 = 225*pi. Analytic, so a sign error in
+     * the axis lift or a swapped inner/outer boundary cannot hide. */
+    {
+        const double P[] = {
+            5.0, 0.0, 0.0,  10.0, 0.0, 0.0,  10.0, 3.0, 0.0,  5.0, 3.0, 0.0,
+        };
+        const int lc[] = {4};
+        occt_shape *s = occt_revolve_profile(P, lc, 1, 0.0, 0.0, 0.0, 1.0,
+                                             360.0);
+        if (check(s != NULL, "[20] full revolve returned NULL")) {
+            const double want = 225.0 * 3.14159265358979323846;
+            const double v = occt_shape_volume(s);
+            printf("[20] tube volume %.6f (analytic %.6f)\n", v, want);
+            check(near_rel(v, want, 1e-6), "[20] tube volume not analytic");
+            int nf = 0;
+            occt_shape_counts(s, &nf, NULL, NULL);
+            printf("[20] tube faces %d (want 4)\n", nf);
+            check(nf == 4, "[20] tube should be 4 faces after unify");
+            check(occt_shape_valid(s), "[20] tube is not a valid solid");
+            occt_free_shape(s);
+        }
+        /* half a turn is exactly half the material */
+        occt_shape *h = occt_revolve_profile(P, lc, 1, 0.0, 0.0, 0.0, 1.0,
+                                             180.0);
+        if (check(h != NULL, "[20] half revolve returned NULL")) {
+            check(near_rel(occt_shape_volume(h),
+                           112.5 * 3.14159265358979323846, 1e-6),
+                  "[20] half revolve volume wrong");
+            occt_free_shape(h);
+        }
+        /* a profile straddling the axis must be REFUSED, not swept through
+         * itself: same rectangle moved to x in [-2,3]. */
+        const double X[] = {
+            -2.0, 0.0, 0.0,  3.0, 0.0, 0.0,  3.0, 3.0, 0.0,  -2.0, 3.0, 0.0,
+        };
+        check(occt_revolve_profile(X, lc, 1, 0.0, 0.0, 0.0, 1.0, 360.0) == NULL,
+              "[20] profile crossing the axis must fail");
+        check(occt_revolve_profile(P, lc, 1, 0.0, 0.0, 0.0, 1.0, 0.0) == NULL,
+              "[20] zero angle must fail");
+        check(occt_revolve_profile(P, lc, 1, 0.0, 0.0, 0.0, 0.0, 90.0) == NULL,
+              "[20] degenerate axis must fail");
+    }
+
+    /* [21] v12 EDGE IDENTITY + FILLET. A 20-cube has 12 edges; find a
+     * vertical one through occt_shape_edge_info (which is exactly how Dart
+     * re-matches a stored fillet after a rebuild) and round it with r=5.
+     * A 90-degree fillet removes r^2*(1 - pi/4) of cross-section over the
+     * edge length: 25*(1-pi/4)*20 = 107.300918. */
+    {
+        occt_shape *box = occt_make_box(20, 20, 20);
+        if (check(box != NULL, "[21] box returned NULL")) {
+            const int ne = occt_shape_edge_count(box);
+            printf("[21] cube topological edges %d (want 12)\n", ne);
+            check(ne == 12, "[21] a cube must report 12 edges");
+            int vertical = -1;
+            for (int i = 1; i <= ne; ++i) {
+                double info[10] = {0};
+                if (!occt_shape_edge_info(box, i, info))
+                    continue;
+                if (info[0] != 1.0)
+                    continue; /* must be a straight edge */
+                if (fabs(fabs(info[6]) - 1.0) > 1e-9)
+                    continue; /* tangent along Z */
+                check(fabs(info[7] - 20.0) < 1e-9,
+                      "[21] cube edge length must be 20");
+                check(info[9] == 2.0,
+                      "[21] cube edge must have 2 adjacent faces");
+                vertical = i;
+                break;
+            }
+            if (check(vertical > 0, "[21] no vertical cube edge found")) {
+                const int ids[] = {vertical};
+                const double radii[] = {5.0};
+                occt_shape *f = occt_fillet_edges(box, ids, radii, 1);
+                if (check(f != NULL, "[21] fillet returned NULL")) {
+                    const double want =
+                        8000.0 - 25.0 * (1.0 - 3.14159265358979323846 / 4.0) *
+                                     20.0;
+                    const double v = occt_shape_volume(f);
+                    printf("[21] filleted cube volume %.6f (analytic %.6f)\n",
+                           v, want);
+                    check(near_rel(v, want, 1e-6),
+                          "[21] filleted volume not analytic");
+                    int nf = 0;
+                    occt_shape_counts(f, &nf, NULL, NULL);
+                    check(nf == 7, "[21] filleted cube should have 7 faces");
+                    check(occt_shape_valid(f), "[21] filleted cube invalid");
+                    occt_free_shape(f);
+                }
+                /* A radius LARGER than the face it must lie on cannot fit:
+                 * clean failure, no solid. (r=15 does fit on a 20 mm face —
+                 * 15 < 20 — so it is a legal fillet, not an error case.) */
+                const double huge[] = {25.0};
+                check(occt_fillet_edges(box, ids, huge, 1) == NULL,
+                      "[21] oversized fillet must fail cleanly");
+                const int bad[] = {999};
+                check(occt_fillet_edges(box, bad, radii, 1) == NULL,
+                      "[21] out-of-range edge index must fail");
+
+                /* [22] CHAMFER, equal distance d=4 removes d^2/2 * 20 = 160 */
+                const int modes[] = {0};
+                const double d1[] = {4.0};
+                occt_shape *c = occt_chamfer_edges(box, ids, modes, d1, NULL,
+                                                   NULL, 1);
+                if (check(c != NULL, "[22] chamfer returned NULL")) {
+                    const double v = occt_shape_volume(c);
+                    printf("[22] chamfered cube volume %.6f (want 7840)\n", v);
+                    check(near_rel(v, 7840.0, 1e-9),
+                          "[22] chamfer volume wrong");
+                    int nf = 0;
+                    occt_shape_counts(c, &nf, NULL, NULL);
+                    check(nf == 7, "[22] chamfered cube should have 7 faces");
+                    occt_free_shape(c);
+                }
+                /* distance+angle: d=4 at 45 deg is the same wedge as above */
+                const int modesDA[] = {2};
+                const double ang[] = {45.0};
+                occt_shape *ca = occt_chamfer_edges(box, ids, modesDA, d1, NULL,
+                                                    ang, 1);
+                if (check(ca != NULL, "[22] distance+angle returned NULL")) {
+                    check(near_rel(occt_shape_volume(ca), 7840.0, 1e-6),
+                          "[22] 45 deg chamfer must equal the d/d chamfer");
+                    occt_free_shape(ca);
+                }
+                const double ang0[] = {95.0};
+                check(occt_chamfer_edges(box, ids, modesDA, d1, NULL, ang0,
+                                         1) == NULL,
+                      "[22] angle >= 90 deg must fail");
+            }
+
+            /* [23] RAY HITS — what "To Next" measures. A ray up the middle of
+             * the cube from 10 below it crosses the bottom cap at 10 and the
+             * top cap at 30, and reports each crossing ONCE. */
+            {
+                double hits[8] = {0};
+                const int n = occt_ray_hits(box, 10, 10, -10, 0, 0, 1, hits, 8);
+                printf("[23] ray hits %d at %.6f, %.6f (want 2: 10, 30)\n", n,
+                       n > 0 ? hits[0] : -1.0, n > 1 ? hits[1] : -1.0);
+                check(n == 2, "[23] a ray through a cube must hit twice");
+                if (n == 2) {
+                    check(fabs(hits[0] - 10.0) < 1e-6, "[23] near hit wrong");
+                    check(fabs(hits[1] - 30.0) < 1e-6, "[23] far hit wrong");
+                }
+                double miss[4] = {0};
+                check(occt_ray_hits(box, -50, -50, -50, 0, 0, 1, miss, 4) == 0,
+                      "[23] a ray beside the cube must report no hits");
+            }
+            occt_free_shape(box);
+        }
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

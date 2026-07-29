@@ -243,6 +243,85 @@ void main() {
     });
   });
 
+  // M105 — accented B-Rep edges. DISPLAY indices travel, not topological
+  // ones: the renderer indexes the mesh's edge list, and only Dart knows the
+  // two spaces differ.
+  group('edgeAccent', () {
+    test('absent entirely when nothing is picked or hovered', () {
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      expect(buildScenePayload(AppState(), p).containsKey('edgeAccent'),
+          isFalse);
+    });
+
+    test('picked edges resolve to their solid id', () {
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 2);
+      app.toggleEdgePick(12, EdgeSel(1, 0, 0, 5, 1, 0), solid: s, display: 7);
+      final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
+      expect(ea['Extrusion1'], [2, 7]);
+    });
+
+    test('hover and selection merge into ONE set', () {
+      // applySketchAccents already treats hovered and selected curves the
+      // same way; a second colour would be a third highlight idiom.
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 2);
+      app.setHoverEdge3d(s, 5);
+      final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
+      expect(ea['Extrusion1'], [2, 5]);
+    });
+
+    test('a hovered edge already selected is not listed twice', () {
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 4);
+      app.setHoverEdge3d(s, 4);
+      final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
+      expect(ea['Extrusion1'], [4]);
+    });
+
+    test('the LIGHT overlay path always carries the key, even when empty', () {
+      // A cleared accent has to travel or the last highlight stays on screen.
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final out = buildOverlaysPayload(AppState(), p);
+      expect(out.containsKey('edgeAccent'), isTrue);
+      expect(out['edgeAccent'], isEmpty);
+    });
+
+    test('picking on a second body starts a new set, never mixes', () {
+      // A fillet operates on ONE solid; a set spanning two would have no
+      // meaningful base to modify.
+      final a = _cyl();
+      final b = _cyl(r: 4);
+      final p = _partWith(
+          [_feat('Extrusion1', a), _feat('Extrusion2', b, body: 'Solid2')]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0), solid: a, display: 1);
+      app.toggleEdgePick(2, EdgeSel(0, 0, 0, 5, 1, 0), solid: b, display: 3);
+      final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
+      expect(ea.containsKey('Extrusion1'), isFalse);
+      expect(ea['Extrusion2'], [3]);
+    });
+
+    test('cancelling the pick clears everything', () {
+      final s = _cyl();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 2);
+      app.cancelPickEdges();
+      expect(app.pickedEdgeSolid, isNull);
+      expect(app.hoverEdge, isNull);
+      expect(buildScenePayload(app, p).containsKey('edgeAccent'), isFalse);
+    });
+  });
+
   group('sceneSignature', () {
     test('changes when a solid re-tessellates (mesh identity flips)', () {
       final s = _cyl();

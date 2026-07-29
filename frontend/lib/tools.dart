@@ -12,6 +12,7 @@ import 'dart:ui';
 
 import 'app_state.dart' show Tool, arcFrom3Points;
 import 'ffi/qcad_engine.dart';
+import 'pick_math.dart';
 
 /// Per-tool metadata: how many picks commit the tool. `fixed` == null means
 /// a variable-length tool (splines): commit via Enter once >= `minVar`.
@@ -350,14 +351,14 @@ Offset _hermitePt(Offset p0, Offset m0, Offset p1, Offset m1, double t) {
 // ---------------------------------------------------------------------------
 const _snap = 8.0; // world units — generous, sketches are unit-scale for now
 
-double _distToSegment(Offset p, Offset a, Offset b) {
-  final ab = b - a;
-  final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-  if (len2 < 1e-12) return (p - a).distance;
-  var t = ((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2;
-  t = t.clamp(0.0, 1.0);
-  return (p - (a + ab * t)).distance;
-}
+/// Distance from [p] to the segment [a]-[b].
+///
+/// Delegates to the shared [segDistSq]: this was the THIRD copy of the same
+/// formula in the codebase (with viewport3d's `_distToSeg` and part_pick's).
+/// The seven 2D hit-tests below keep their existing signature and behaviour —
+/// only the arithmetic moved.
+double _distToSegment(Offset p, Offset a, Offset b) =>
+    math.sqrt(segDistSq(p, a, b).$1);
 
 /// Nearest LINE entity to [p] (as endpoint pair), or null.
 (Offset, Offset)? _lineNear(List<Geo> geos, Offset p) {

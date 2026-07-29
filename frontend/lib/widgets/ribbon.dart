@@ -474,8 +474,12 @@ class _RibbonState extends State<Ribbon> {
                 label: 'Extrude',
                 onTap: () => app.openExtrude(),
                 active: app.extrudeSession != null),
-            _BigWide(width: 58, icon: CR['revolve']!, label: 'Revolve',
-                onTap: () {}),
+            _BigWide(
+                width: 58,
+                icon: CR['revolve']!,
+                label: 'Revolve',
+                onTap: () => app.openRevolve(),
+                active: app.extrudeSession?.isRevolve == true),
             col([
               (CR['sweep']!, 'Sweep', null),
               (CR['loft']!, 'Loft', null),
@@ -494,9 +498,13 @@ class _RibbonState extends State<Ribbon> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(width: 58, icon: MO['hole']!, label: 'Hole', onTap: () {}),
             _BigWide(
-                width: 58, icon: MO['fillet']!, label: 'Fillet', onTap: () {}),
+                width: 58,
+                icon: MO['fillet']!,
+                label: 'Fillet',
+                onTap: () => app.openFillet(),
+                active: app.edgeSession?.isFillet == true),
             col([
-              (MO['chamfer']!, 'Chamfer', null),
+              (MO['chamfer']!, 'Chamfer', () => app.openChamfer()),
               (MO['shell']!, 'Shell', null),
               (MO['draft']!, 'Draft', null),
             ]),

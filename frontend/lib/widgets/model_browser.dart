@@ -154,7 +154,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// The feature context menu the HANDOFF has listed as open since M74:
   /// delete / rename / visibility on an Extrusion, plus Edit Feature, which is
   /// what the row's double-tap already does.
-  List<List<NativeMenuItem>> _featureMenu(AppState app, ExtrudeFeature f) => [
+  List<List<NativeMenuItem>> _featureMenu(AppState app, PartFeature f) => [
         [
           const NativeMenuItem(
               id: 'ftEdit', title: 'Edit Feature', symbol: 'slider.horizontal.3'),
@@ -397,14 +397,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (layer.startsWith(_kFeaturePrefix)) {
       final name = layer.substring(_kFeaturePrefix.length);
       final part = app.currentPart;
-      ExtrudeFeature? f;
-      for (final c in part?.features ?? const <ExtrudeFeature>[]) {
+      PartFeature? f;
+      for (final c in part?.features ?? const <PartFeature>[]) {
         if (c.name == name) f = c;
       }
       if (f == null) return;
       switch (item) {
         case 'ftEdit':
-          app.openExtrude(f);
+          app.editFeature(f);
           break;
         case 'ftVisible':
           app.toggleFeatureVisible(f);
@@ -996,7 +996,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// M84 — rename an Extrusion. Inventor renames the browser node only; the
   /// feature's identity for the solver is its position in the tree, not the
   /// label, so this is a pure display change.
-  Future<void> _promptRenameFeature(ExtrudeFeature f) async {
+  Future<void> _promptRenameFeature(PartFeature f) async {
     final app = widget.app;
     final result = await promptForText(
       context,
@@ -1226,7 +1226,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// A solid body in the Solid Bodies folder (Inventor). The eye toggles the
   /// whole body's visibility; the label is its bodyName.
   Widget _bodyRow(AppState app, PartModel part, String bodyName,
-      List<ExtrudeFeature> feats) {
+      List<PartFeature> feats) {
     final on = feats.any((f) => f.visible);
     // M97 — while the extrude dialog is waiting for a target body, a body row
     // is a PICK: hovering highlights it (in the 3D view too, since both read
@@ -1304,7 +1304,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// One feature row (Extrusion1, ...): eye toggles it, double-tap edits
   /// it in the properties panel, long-press / right-click deletes. The "+"
   /// expander reveals the consumed sketch nested beneath (M59, Inventor).
-  Widget _featureRow(AppState app, PartModel part, ExtrudeFeature f,
+  Widget _featureRow(AppState app, PartModel part, PartFeature f,
       {bool rolled = false}) {
     final broken = f.computeError != null;
     final consumedSketch = part.sketchByName(f.sketchName);
@@ -1333,7 +1333,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         }
       },
       child: GestureDetector(
-        onDoubleTap: () => app.openExtrude(f),
+        onDoubleTap: () => app.editFeature(f),
         onLongPress: () => _confirmDeleteFeature(f),
         child: broken ? Tooltip(message: f.computeError!, child: row) : row,
       ),
@@ -1350,7 +1350,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     ]));
   }
 
-  Future<void> _confirmDeleteFeature(ExtrudeFeature f) async {
+  Future<void> _confirmDeleteFeature(PartFeature f) async {
     final ok = await confirmAction(
       context,
       title: 'Delete “${f.name}”?',

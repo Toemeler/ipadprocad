@@ -60,6 +60,28 @@ typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
 
+// shim v12 (M101): revolve, edge identity, fillet/chamfer, ray casting
+typedef _RevolveN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
+    Int32, Double, Double, Double, Double, Double);
+typedef _RevolveD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
+    int, double, double, double, double, double);
+typedef _EdgeCountN = Int32 Function(Pointer<Void>);
+typedef _EdgeCountD = int Function(Pointer<Void>);
+typedef _EdgeInfoN = Int32 Function(Pointer<Void>, Int32, Pointer<Double>);
+typedef _EdgeInfoD = int Function(Pointer<Void>, int, Pointer<Double>);
+typedef _FilletN = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, Pointer<Double>, Int32);
+typedef _FilletD = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, Pointer<Double>, int);
+typedef _ChamferN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, Int32);
+typedef _ChamferD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, int);
+typedef _RayHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
+    Double, Double, Double, Pointer<Double>, Int32);
+typedef _RayHitsD = int Function(Pointer<Void>, double, double, double, double,
+    double, double, Pointer<Double>, int);
+
 typedef _FreeN = Void Function(Pointer<Void>);
 typedef _FreeD = void Function(Pointer<Void>);
 
@@ -106,6 +128,32 @@ class OcctCounts {
 ///  * [edgeStarts]/[edgePoints]: B-Rep edge polylines for edge display —
 ///    edge i spans points `[edgeStarts[i], edgeStarts[i+1])` of
 ///    [edgePoints] (3 doubles per point).
+/// v12 — identity record of one TOPOLOGICAL edge (see occt_capi.h).
+///
+/// [index] is 1-based and only meaningful for the shape it was read from:
+/// OCCT re-indexes on every rebuild. The geometry — [mid], [length], [kind],
+/// [radius] — is what survives, and is what a stored fillet is re-matched
+/// against after a recompute. Same contract as [ProfileSel] in part_model:
+/// remember the geometry, re-find the index.
+class OcctEdgeInfo {
+  final int index;
+  final int kind; // 1 line, 2 circle, 3 ellipse, 4 other, 0 degenerate
+  final double mx, my, mz; // midpoint BY ARC LENGTH
+  final double tx, ty, tz; // unit tangent there
+  final double length;
+  final double radius; // circle radius / ellipse major, else 0
+  final int faceCount; // 2 = ordinary edge; 1 = free boundary (not filletable)
+
+  const OcctEdgeInfo(this.index, this.kind, this.mx, this.my, this.mz, this.tx,
+      this.ty, this.tz, this.length, this.radius, this.faceCount);
+
+  /// An edge a fillet or chamfer can actually be applied to.
+  bool get filletable => kind != 0 && length > 0 && faceCount == 2;
+
+  @override
+  String toString() => 'edge#$index(k$kind len${length.toStringAsFixed(3)})';
+}
+
 class OcctMeshData {
   /// Float32 copies of the vertex buffers, built once per mesh and reused on
   /// every scene push.
@@ -131,12 +179,29 @@ class OcctMeshData {
   final Float64List faceInfos; // 15 doubles per face (see occt_capi.h)
   final Float64List edgeCurves; // 16 doubles per edge (see occt_capi.h)
 
+  /// v12 — the 1-based TOPOLOGICAL edge index behind each display edge.
+  /// Display edges are a filtered subset (no degenerate, seam or
+  /// tangent-continuous edges), so display index i and topological index i
+  /// are different numbers the moment the model has a fillet or a cylinder
+  /// in it. Fillet/chamfer address the topological one; picking produces the
+  /// display one. Empty on fakes/legacy meshes — treat that as "unknown" and
+  /// disable edge-based features rather than guessing an index.
+  final Int32List edgeIds;
+
   OcctMeshData(this.positions, this.normals, this.indices, this.edgeStarts,
       this.edgePoints,
-      {Int32List? triFaces, Float64List? faceInfos, Float64List? edgeCurves})
+      {Int32List? triFaces,
+      Float64List? faceInfos,
+      Float64List? edgeCurves,
+      Int32List? edgeIds})
       : triFaces = triFaces ?? Int32List(0),
         faceInfos = faceInfos ?? Float64List(0),
-        edgeCurves = edgeCurves ?? Float64List(0);
+        edgeCurves = edgeCurves ?? Float64List(0),
+        edgeIds = edgeIds ?? Int32List(0);
+
+  /// Topological edge index of display edge [i], or -1 when unknown.
+  int topoEdgeId(int i) =>
+      (i >= 0 && i < edgeIds.length) ? edgeIds[i] : -1;
 
   int get faceCount => faceInfos.length ~/ 15;
 
@@ -203,6 +268,112 @@ class OcctShape {
     }
   }
 
+  /// v12 — number of topological edges (the index space fillet/chamfer use).
+  /// NOT the number of DISPLAY edges: the mesh drops degenerate, seam and
+  /// tangent-continuous edges. -1 on error.
+  int get edgeCount => _ffi._shapeEdgeCount(_handle);
+
+  /// v12 — identity record of 1-based topological edge [index], or null.
+  OcctEdgeInfo? edgeInfo(int index) {
+    final buf = calloc<Double>(10);
+    try {
+      if (_ffi._shapeEdgeInfo(_handle, index, buf) != 1) return null;
+      return OcctEdgeInfo(index, buf[0].round(), buf[1], buf[2], buf[3], buf[4],
+          buf[5], buf[6], buf[7], buf[8], buf[9].round());
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// v12 — every topological edge in one pass (one call per edge underneath,
+  /// but a single allocation). Degenerate edges come back with kind 0.
+  List<OcctEdgeInfo> allEdges() {
+    final n = edgeCount;
+    if (n <= 0) return const [];
+    final out = <OcctEdgeInfo>[];
+    for (var i = 1; i <= n; i++) {
+      final e = edgeInfo(i);
+      if (e != null) out.add(e);
+    }
+    return out;
+  }
+
+  /// v12 — constant-radius edge fillet. [edgeIds] are 1-based TOPOLOGICAL
+  /// indices (translate a picked display edge through
+  /// [OcctMeshData.edgeIds]); [radii] is one radius per edge, so a single
+  /// call can carry the several edge sets Inventor folds into one fillet
+  /// feature. Result is a NEW shape; this one stays owned by the caller.
+  /// Null on failure — a radius the adjacent faces cannot hold fails loudly
+  /// instead of quietly shrinking to fit.
+  OcctShape? filletEdges(List<int> edgeIds, List<double> radii) {
+    if (edgeIds.isEmpty || edgeIds.length != radii.length) return null;
+    final n = edgeIds.length;
+    final ids = calloc<Int32>(n);
+    final rs = calloc<Double>(n);
+    try {
+      for (var i = 0; i < n; i++) {
+        ids[i] = edgeIds[i];
+        rs[i] = radii[i];
+      }
+      return _ffi._wrap(_ffi._filletEdges(_handle, ids, rs, n));
+    } finally {
+      calloc.free(ids);
+      calloc.free(rs);
+    }
+  }
+
+  /// v12 — edge chamfer with Inventor's three methods. [modes] per edge:
+  /// 0 equal distance ([d1] only), 1 two distances ([d1] on the reference
+  /// face, [d2] on the other), 2 distance and angle ([d1] plus [angleDeg],
+  /// which must be in (0, 90)). [d2] / [angleDeg] may be empty when no edge
+  /// uses that mode. Result is a NEW shape; null on failure.
+  OcctShape? chamferEdges(List<int> edgeIds, List<int> modes, List<double> d1,
+      {List<double> d2 = const [], List<double> angleDeg = const []}) {
+    final n = edgeIds.length;
+    if (n == 0 || modes.length != n || d1.length != n) return null;
+    if (d2.isNotEmpty && d2.length != n) return null;
+    if (angleDeg.isNotEmpty && angleDeg.length != n) return null;
+    final ids = calloc<Int32>(n);
+    final md = calloc<Int32>(n);
+    final p1 = calloc<Double>(n);
+    final p2 = d2.isEmpty ? nullptr : calloc<Double>(n);
+    final pa = angleDeg.isEmpty ? nullptr : calloc<Double>(n);
+    try {
+      for (var i = 0; i < n; i++) {
+        ids[i] = edgeIds[i];
+        md[i] = modes[i];
+        p1[i] = d1[i];
+        if (p2 != nullptr) p2[i] = d2[i];
+        if (pa != nullptr) pa[i] = angleDeg[i];
+      }
+      return _ffi._wrap(
+          _ffi._chamferEdges(_handle, ids, md, p1, p2, pa, n));
+    } finally {
+      calloc.free(ids);
+      calloc.free(md);
+      calloc.free(p1);
+      if (p2 != nullptr) calloc.free(p2);
+      if (pa != nullptr) calloc.free(pa);
+    }
+  }
+
+  /// v12 — sorted, de-duplicated distances along the unit ray
+  /// (origin + t * dir) at which it crosses a face of this solid. Empty on a
+  /// miss. This is what "To Next" measures: extrude from the sketch plane and
+  /// stop at the first hit strictly beyond the start.
+  List<double> rayHits(double ox, double oy, double oz, double dx, double dy,
+      double dz,
+      {int maxHits = 32}) {
+    final buf = calloc<Double>(maxHits);
+    try {
+      final n = _ffi._rayHits(_handle, ox, oy, oz, dx, dy, dz, buf, maxHits);
+      if (n <= 0) return const [];
+      return List<double>.generate(n, (i) => buf[i], growable: false);
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
   /// Rigid placement (shim v2): returns a NEW shape moved by the row-major
   /// 3x4 matrix [mat34] = {r00 r01 r02 tx, r10 r11 r12 ty, r20 r21 r22 tz}.
   /// The 3x3 part must be a pure rotation — the shim refuses scale, shear
@@ -256,11 +427,16 @@ class OcctShape {
           final tfBuf = calloc<Int32>(tN);
           final fiBuf = calloc<Double>(15 * (fN > 0 ? fN : 1));
           final ecBuf = calloc<Double>(16 * (eN > 0 ? eN : 1));
+          final eiBuf = calloc<Int32>(eN > 0 ? eN : 1);
           try {
             final v4ok = fN >= 0 &&
                 f._meshTriangleFaces(mp, tfBuf) == 1 &&
                 f._meshFaceInfos(mp, fiBuf) == 1 &&
                 f._meshEdgeCurves(mp, ecBuf) == 1;
+            // v12: the display-edge -> topological-edge map. Read separately
+            // from the v4 block so a failure here costs edge-based features
+            // (fillet/chamfer picking) and nothing else.
+            final v12ok = eN > 0 && f._meshEdgeIds(mp, eiBuf) == 1;
             return OcctMeshData(
               Float64List.fromList(vBuf.asTypedList(3 * vN)),
               Float64List.fromList(nBuf.asTypedList(3 * vN)),
@@ -274,10 +450,13 @@ class OcctShape {
               edgeCurves: v4ok
                   ? Float64List.fromList(ecBuf.asTypedList(16 * eN))
                   : null,
+              edgeIds:
+                  v12ok ? Int32List.fromList(eiBuf.asTypedList(eN)) : null,
             );
           } finally {
             calloc.free(tfBuf);
             calloc.free(fiBuf);
+            calloc.free(eiBuf);
             calloc.free(ecBuf);
           }
         } finally {
@@ -339,7 +518,14 @@ class OcctFfi {
       this._meshFaceInfos,
       this._meshEdgeCurves,
       this._unify,
-      this._freeMesh);
+      this._freeMesh,
+      this._revolveProfile,
+      this._shapeEdgeCount,
+      this._shapeEdgeInfo,
+      this._meshEdgeIds,
+      this._filletEdges,
+      this._chamferEdges,
+      this._rayHits);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -379,6 +565,14 @@ class OcctFfi {
   final _MeshDblOutD _meshEdgeCurves; // v4
   final _Shape1D _unify; // v4
   final _FreeD _freeMesh;
+  // shim v12 (M101)
+  final _RevolveD _revolveProfile;
+  final _EdgeCountD _shapeEdgeCount;
+  final _EdgeInfoD _shapeEdgeInfo;
+  final _MeshIntOutD _meshEdgeIds;
+  final _FilletD _filletEdges;
+  final _ChamferD _chamferEdges;
+  final _RayHitsD _rayHits;
 
   static OcctFfi? _cached;
   static bool _probed = false;
@@ -436,6 +630,18 @@ class OcctFfi {
         lib.lookupFunction<_MeshDblOutN, _MeshDblOutD>('occt_mesh_edge_curves'),
         lib.lookupFunction<_Shape1N, _Shape1D>('occt_unify'),
         lib.lookupFunction<_FreeN, _FreeD>('occt_free_mesh'),
+        // v12 — looked up EAGERLY like everything else. A v11 binary makes
+        // instance() null, i.e. "no 3D kernel", which is the documented
+        // policy above: shim and app ship in one IPA, so a partial surface
+        // can only be a stale build, and refusing it loudly beats a dlsym
+        // crash the first time somebody taps Fillet.
+        lib.lookupFunction<_RevolveN, _RevolveD>('occt_revolve_profile'),
+        lib.lookupFunction<_EdgeCountN, _EdgeCountD>('occt_shape_edge_count'),
+        lib.lookupFunction<_EdgeInfoN, _EdgeInfoD>('occt_shape_edge_info'),
+        lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_edge_ids'),
+        lib.lookupFunction<_FilletN, _FilletD>('occt_fillet_edges'),
+        lib.lookupFunction<_ChamferN, _ChamferD>('occt_chamfer_edges'),
+        lib.lookupFunction<_RayHitsN, _RayHitsD>('occt_ray_hits'),
       );
     } catch (_) {
       _cached = null;
@@ -538,6 +744,42 @@ class OcctFfi {
       }
       return _wrap(
           _extrudeProfileArcs(xyb, counts, loops.length, height, taperDeg));
+    } finally {
+      calloc.free(xyb);
+      calloc.free(counts);
+    }
+  }
+
+  /// v12 — Revolve a multi-loop arc profile about an axis lying IN the
+  /// sketch plane. [loops] uses the same (x, y, bulge) triplet encoding as
+  /// [extrudeProfileArcs]: loop 0 is the outer boundary, the rest are holes.
+  /// The axis is the 2D line through ([axPx], [axPy]) along ([axDx], [axDy]);
+  /// [angleDeg] is in (0, 360]. Null on failure (see [lastError]) — notably
+  /// when the profile crosses the axis, which the shim refuses outright
+  /// rather than sweeping the profile through itself.
+  OcctShape? revolveProfile(List<List<double>> loops, double angleDeg,
+      {required double axPx,
+      required double axPy,
+      required double axDx,
+      required double axDy}) {
+    if (loops.isEmpty) return null;
+    var total = 0;
+    for (final l in loops) {
+      if (l.length < 6 || l.length % 3 != 0) return null;
+      total += l.length;
+    }
+    final xyb = calloc<Double>(total);
+    final counts = calloc<Int32>(loops.length);
+    try {
+      var k = 0;
+      for (var i = 0; i < loops.length; i++) {
+        counts[i] = loops[i].length ~/ 3;
+        for (final v in loops[i]) {
+          xyb[k++] = v;
+        }
+      }
+      return _wrap(_revolveProfile(
+          xyb, counts, loops.length, axPx, axPy, axDx, axDy, angleDeg));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);

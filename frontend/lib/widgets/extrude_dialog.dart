@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../app_state.dart';
 import '../part_model.dart';
 import '../theme.dart';
+import 'properties_panel.dart';
 
 class ExtrudeDialog extends StatefulWidget {
   final AppState app;
@@ -98,7 +99,8 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ?? 'Extrusion',
+                Text(s.editing?.name ??
+                        (s.isRevolve ? 'Revolution' : 'Extrusion'),
                     style: TextStyle(
                         fontSize: 12.5,
                         color: T.blue,
@@ -115,9 +117,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
             ),
-            _section('Input Geometry', _inputOpen,
+            panelSection('Input Geometry', _inputOpen,
                 () => setState(() => _inputOpen = !_inputOpen), [
-              _row('Profiles', _pickField(
+              panelRow('Profiles', panelPickField(
                   icon: Icons.touch_app_outlined,
                   label: s.profiles.isEmpty
                       ? 'Select a profile in the viewport'
@@ -126,14 +128,14 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                   active: true,
                   onClear:
                       s.profiles.isEmpty ? null : app.clearSessionProfiles)),
-              _row('From', _pickField(
+              panelRow('From', panelPickField(
                   icon: Icons.layers_outlined,
                   label: '1 Sketch Plane',
                   active: false)),
             ]),
-            _section('Behavior', _behaviorOpen,
+            panelSection('Behavior', _behaviorOpen,
                 () => setState(() => _behaviorOpen = !_behaviorOpen), [
-              _row(
+              panelRow(
                   'Direction',
                   Row(children: [
                     for (final d in ExtrudeDirection.values) ...[
@@ -143,19 +145,136 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     const Spacer(),
                     Text('▾', style: ts(9, T.dim)),
                   ])),
-              _row('Distance A',
-                  _valueField(_a, 'mm', (v) => app.setExtrude(exprA: v))),
-              if (s.direction == ExtrudeDirection.asymmetric)
-                _row('Distance B',
-                    _valueField(_b, 'mm', (v) => app.setExtrude(exprB: v))),
+              // M106 — Revolve needs an axis before anything else can be
+              // computed, so it sits above the angle.
+              if (s.isRevolve)
+                panelRow(
+                    'Axis',
+                    GestureDetector(
+                      onTap: app.pickingRevolveAxis
+                          ? app.cancelPickRevolveAxis
+                          : app.beginPickRevolveAxis,
+                      child: Container(
+                        height: 26,
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF212429),
+                          border: Border.all(
+                              color: app.pickingRevolveAxis
+                                  ? T.blue
+                                  : (s.axisPicked
+                                      ? const Color(0xFF3A3F45)
+                                      : const Color(0xFFA05A2C))),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(
+                            app.pickingRevolveAxis
+                                ? 'Tap a sketch line…'
+                                : (s.axisPicked
+                                    ? s.axisLabel
+                                    : 'Select Axis'),
+                            style: ts(
+                                12, s.axisPicked ? T.text : T.dim)),
+                      ),
+                    )),
+              // Inventor's Full: a complete turn, which overrides the angle.
+              if (s.isRevolve)
+                panelRow(
+                    'Full',
+                    GestureDetector(
+                      onTap: () => app.setExtrude(full: !s.full),
+                      child: Container(
+                        height: 24,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: s.full
+                              ? const Color(0xFF2E4A6B)
+                              : const Color(0xFF2A2E33),
+                          border: Border.all(
+                              color:
+                                  s.full ? T.blue : const Color(0xFF3A3F45)),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text('360°', style: ts(12, T.text)),
+                      ),
+                    )),
+              // M103 — Inventor's Extents sit right of the value, as in the
+              // reference panel. The field itself IS the Distance option, so
+              // it dims while one of the three is active, and tapping the
+              // active one returns to Distance.
+              panelRow(
+                  s.isRevolve ? 'Angle A' : 'Distance A',
+                  Row(children: [
+                    Expanded(
+                      child: panelDimWhen(
+                        s.extent != FeatureExtent.distance ||
+                            (s.isRevolve && s.full),
+                        panelValueField(_a, s.isRevolve ? 'deg' : 'mm',
+                            (v) => app.setExtrude(exprA: v)),
+                      ),
+                    ),
+                    // M107 — Extents are EXTRUDE-only for now. Inventor
+                    // offers them for a revolve too, but resolveExtrudeSpan
+                    // only solves the linear case; a revolve would silently
+                    // fall back to the angle. Offering a control that does
+                    // nothing is worse than not offering it.
+                    if (!s.isRevolve) ...[
+                      const SizedBox(width: 6),
+                      _extentButton(FeatureExtent.toNext),
+                      const SizedBox(width: 3),
+                      _extentButton(FeatureExtent.toFace),
+                      const SizedBox(width: 3),
+                      _extentButton(FeatureExtent.throughAll),
+                    ],
+                  ])),
+              if (s.direction == ExtrudeDirection.asymmetric &&
+                  s.extent == FeatureExtent.distance &&
+                  !(s.isRevolve && s.full))
+                panelRow(
+                    s.isRevolve ? 'Angle B' : 'Distance B',
+                    panelValueField(_b, s.isRevolve ? 'deg' : 'mm',
+                        (v) => app.setExtrude(exprB: v))),
+              if (s.extent == FeatureExtent.toFace)
+                panelRow(
+                    'Terminate on',
+                    GestureDetector(
+                      onTap: app.pickingExtentFace
+                          ? app.cancelPickExtentFace
+                          : app.beginPickExtentFace,
+                      child: Container(
+                        height: 26,
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF212429),
+                          border: Border.all(
+                              color: app.pickingExtentFace
+                                  ? T.blue
+                                  : const Color(0xFF3A3F45)),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(
+                            app.pickingExtentFace
+                                ? 'Tap a face in 3D…'
+                                : (s.extentFace == null
+                                    ? 'Select face'
+                                    : 'Face selected — tap to change'),
+                            style: ts(
+                                12,
+                                s.extentFace == null && !app.pickingExtentFace
+                                    ? T.dim
+                                    : T.text)),
+                      ),
+                    )),
             ]),
-            _section('Output', _outputOpen,
+            panelSection('Output', _outputOpen,
                 () => setState(() => _outputOpen = !_outputOpen), [
               // Inventor's Output boolean, applied against the existing body:
               // Join (union), Cut (subtract), Intersect (overlap), New Solid
               // (separate body). Cut/Intersect need something to act on, so
               // they are dimmed for the base feature.
-              _row(
+              panelRow(
                   'Boolean',
                   Row(children: [
                     _boolButton('join', 'Join'),
@@ -175,12 +294,12 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
               // hunting-through-a-list step the pick replaces, and it showed
               // names for bodies you cannot see.
               if (s.output != 'new' && bodies.isNotEmpty)
-                _row(
+                panelRow(
                     'Target Body',
                     Text(bodies.contains(s.bodyName) ? s.bodyName : '—',
                         style: ts(12.5, T.text))),
               if (s.output != 'new' && bodies.length > 1)
-                _row(
+                panelRow(
                     '',
                     GestureDetector(
                       onTap: () => app.pickingBody
@@ -207,13 +326,15 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                       ),
                     )),
             ]),
-            _section('Advanced Properties', _advancedOpen,
+            panelSection('Advanced Properties', _advancedOpen,
                 () => setState(() => _advancedOpen = !_advancedOpen), [
-              _row(
-                  'Taper A',
-                  _valueField(
-                      _taper, 'deg', (v) => app.setExtrude(exprTaper: v),
-                      trailingIcon: Icons.edit_outlined)),
+              // Taper is an extrude-only concept — a revolve has no draft.
+              if (!s.isRevolve)
+                panelRow(
+                    'Taper A',
+                    panelValueField(
+                        _taper, 'deg', (v) => app.setExtrude(exprTaper: v),
+                        trailingIcon: Icons.edit_outlined)),
               _checkRow('iMate', s.iMate, true,
                   (v) => app.setExtrude(iMate: v)),
               _checkRow('Match Shape', s.matchShape, false, (_) {}),
@@ -268,108 +389,68 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
     );
   }
 
-  Widget _section(String title, bool open, VoidCallback onToggle,
-          List<Widget> children) =>
-      Column(mainAxisSize: MainAxisSize.min, children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onToggle,
-          child: Container(
-            height: 24,
-            margin: const EdgeInsets.fromLTRB(6, 3, 6, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            color: const Color(0xFF2E3237),
-            child: Row(children: [
-              Text(open ? '▾' : '▸', style: ts(9, T.dim)),
-              const SizedBox(width: 6),
-              Text(title, style: ts(12, T.text, w: FontWeight.w600)),
-            ]),
-          ),
-        ),
-        if (open)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
-            child: Column(children: children),
-          ),
-      ]);
-
-  Widget _row(String label, Widget field) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          SizedBox(width: 82, child: Text(label, style: ts(12, T.dim))),
-          Expanded(child: field),
-        ]),
-      );
-
-  Widget _pickField(
-      {required IconData icon,
-      required String label,
-      required bool active,
-      VoidCallback? onClear}) {
-    return Container(
-      height: 26,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF212429),
-        border: Border.all(
-            color: active ? T.blue : const Color(0xFF3A3F45),
-            width: active ? 1.4 : 1),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Row(children: [
-        Icon(icon, size: 13, color: active ? T.blue : T.dim),
-        const SizedBox(width: 6),
-        Expanded(
-            child: Text(label,
-                overflow: TextOverflow.ellipsis, style: ts(12, T.text))),
-        if (onClear != null)
-          GestureDetector(
-            onTap: onClear,
-            child: const Icon(Icons.cancel_outlined,
-                size: 13, color: Color(0xFF9EA4AA)),
-          ),
-      ]),
-    );
-  }
-
-  Widget _valueField(TextEditingController c, String suffix,
-      ValueChanged<String> onChanged,
-      {IconData? trailingIcon}) {
-    return Row(children: [
-      Expanded(
-        child: Container(
-          height: 26,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF212429),
-            border: Border.all(color: const Color(0xFF3A3F45)),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
-                controller: c,
-                style: ts(12.5, T.text),
-                decoration: const InputDecoration(
-                    isDense: true,
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.only(bottom: 10)),
-                onChanged: onChanged,
-              ),
-            ),
-            Text('▸', style: ts(9, T.dim)),
-          ]),
-        ),
-      ),
-      const SizedBox(width: 6),
-      Icon(trailingIcon ?? Icons.swap_vert,
-          size: 15, color: T.dim),
-    ]);
-  }
-
   /// Inventor Output-boolean toggle: a compact icon button (like [_dirButton])
   /// with a tooltip. [enabled] false dims it and ignores taps — used for
   /// Cut/Intersect when there is no body to act on yet.
+  /// One Extents toggle. Inventor greys To Next / To / Through All out for a
+  /// base feature, because with nothing built yet there is no face to
+  /// terminate against — [AppState.extrudeHasBooleanTarget] is exactly that
+  /// condition, and it is already what dims Cut and Intersect below.
+  Widget _extentButton(FeatureExtent e) {
+    final app = widget.app;
+    final active = sess.extent == e;
+    final enabled = app.extrudeHasBooleanTarget;
+    const icons = {
+      // arrow stopping at the FIRST plate it meets
+      FeatureExtent.toNext:
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><path d="M3 3.5 v11" stroke="#9aa0a6" stroke-width="1.2"/><path d="M11.5 2.5 v13" stroke="#9aa0a6" stroke-width="1.4"/><path d="M15.5 2.5 v13" stroke="#9aa0a6" stroke-width="1.4" stroke-opacity=".45"/><path d="M4.5 9 h5.4" stroke="#E8C63F" stroke-width="1.4"/><path d="M9.2 6.9 L11.4 9 L9.2 11.1 Z" fill="#E8C63F"/></svg>',
+      // arrow stopping at a HIGHLIGHTED plate (the picked face)
+      FeatureExtent.toFace:
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><path d="M3 3.5 v11" stroke="#9aa0a6" stroke-width="1.2"/><path d="M11.5 2.5 v13" stroke="#9aa0a6" stroke-width="1.4" stroke-opacity=".45"/><path d="M15.5 2.5 v13" stroke="#E8C63F" stroke-width="1.8"/><path d="M4.5 9 h9.4" stroke="#E8C63F" stroke-width="1.4"/><path d="M13.2 6.9 L15.4 9 L13.2 11.1 Z" fill="#E8C63F"/></svg>',
+      // arrow passing THROUGH everything
+      FeatureExtent.throughAll:
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><path d="M3 3.5 v11" stroke="#9aa0a6" stroke-width="1.2"/><path d="M8.5 2.5 v13" stroke="#9aa0a6" stroke-width="1.4" stroke-opacity=".45"/><path d="M12.5 2.5 v13" stroke="#9aa0a6" stroke-width="1.4" stroke-opacity=".45"/><path d="M4.5 9 h10.4" stroke="#E8C63F" stroke-width="1.4"/><path d="M14 6.6 L17 9 L14 11.4 Z" fill="#E8C63F"/></svg>',
+      FeatureExtent.distance: '',
+    };
+    return Tooltip(
+      message: enabled
+          ? extentLabel(e)
+          : '${extentLabel(e)} (needs an existing body)',
+      child: GestureDetector(
+        onTap: enabled
+            ? () {
+                // tapping the active one goes back to a typed Distance
+                final next = active ? FeatureExtent.distance : e;
+                widget.app.setExtrude(extent: next);
+                // Inventor asks for the face the moment you choose "To";
+                // leaving it disarms, so switching away cannot strand the
+                // viewport in a pick mode with no dialog row to cancel it.
+                if (next == FeatureExtent.toFace) {
+                  widget.app.beginPickExtentFace();
+                } else {
+                  widget.app.cancelPickExtentFace();
+                }
+              }
+            : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.35,
+          child: Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+              border: Border.all(
+                  color: active ? T.blue : const Color(0xFF3A3F45)),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            padding: const EdgeInsets.all(4),
+            child: SvgPicture.string(icons[e] ?? ''),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _boolButton(String key, String label, {bool enabled = true}) {
     final active = sess.output == key;
     const icons = {

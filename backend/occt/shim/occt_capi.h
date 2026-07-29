@@ -232,6 +232,113 @@ int occt_mesh_edge_curves(const occt_mesh *m, double *out);
 /* Release a mesh returned by occt_mesh_create. NULL is ignored. */
 void occt_free_mesh(occt_mesh *m);
 
+/* ---- v12: revolve, edge identity, fillet/chamfer, ray casting ----------- */
+
+/*
+ * v12 — Revolve a multi-loop profile around an axis LYING IN the profile
+ * plane (Inventor's Revolve). Profile encoding is identical to
+ * occt_extrude_profile_arcs: `xyb` holds 3 doubles per vertex (x, y, bulge of
+ * the edge leaving that vertex), `loop_counts[l]` the vertex count of loop l,
+ * loop 0 the outer boundary and the rest holes.
+ *
+ * The axis is the 2D line through (ax_px, ax_py) with direction
+ * (ax_dx, ax_dy) in the SAME z=0 sketch frame; it is lifted to
+ * gp_Ax1((ax_px, ax_py, 0), (ax_dx, ax_dy, 0)). `angle_deg` is in (0, 360].
+ *
+ * Inventor requires the profile and the axis to be coplanar and the profile
+ * NOT to cross the axis (a profile straddling the axis sweeps through itself).
+ * That is enforced here on the loop VERTICES: every vertex must lie on one
+ * side, touching allowed. A loop whose BULGE arcs cross the axis while its
+ * vertices do not is not detected — OCCT then fails on its own and the error
+ * comes back through occt_last_error().
+ *
+ * Holes are revolved separately and cut, exactly as in
+ * occt_extrude_profile_arcs, because multi-wire faces are not trustworthy
+ * here (see the long note at that function). NULL on failure.
+ */
+occt_shape *occt_revolve_profile(const double *xyb, const int *loop_counts,
+                                 int nloops, double ax_px, double ax_py,
+                                 double ax_dx, double ax_dy, double angle_deg);
+
+/*
+ * v12 — Number of TOPOLOGICAL edges of the shape, i.e. the extent of
+ * TopExp::MapShapes(shape, TopAbs_EDGE). This index space (1-based, as OCCT
+ * maps are) is what occt_fillet_edges / occt_chamfer_edges address.
+ *
+ * It is deliberately NOT the same as the mesh's DISPLAY edge list, which
+ * drops degenerate, seam and tangent-continuous edges — use
+ * occt_mesh_edge_ids to translate a picked display edge into an index here.
+ * -1 on error.
+ */
+int occt_shape_edge_count(const occt_shape *shape);
+
+/*
+ * v12 — Identity record of topological edge `index` (1-based), 10 doubles:
+ *   [0]    type: 1 line, 2 circle, 3 ellipse, 4 bspline/other curve, 0 unknown
+ *   [1..3] midpoint (by arc length) in shape coordinates
+ *   [4..6] unit tangent at the midpoint
+ *   [7]    arc length
+ *   [8]    radius (circle) / major radius (ellipse), 0 otherwise
+ *   [9]    number of faces adjacent to this edge (2 = ordinary manifold edge;
+ *          1 = free boundary, which cannot be filleted)
+ * This is the fingerprint Dart persists so a fillet survives a rebuild: OCCT
+ * indices are NOT stable across a recompute, midpoint+length+type is.
+ * Returns 1/0.
+ */
+int occt_shape_edge_info(const occt_shape *shape, int index, double *out10);
+
+/*
+ * v12 — For every DISPLAY edge of the mesh (same order and count as
+ * occt_mesh_edges), its 1-based topological index in the owning shape.
+ * `out` must hold nedges ints. This is the bridge from "the user tapped this
+ * drawn edge" to "fillet that B-Rep edge". Returns 1/0.
+ */
+int occt_mesh_edge_ids(const occt_mesh *m, int *out);
+
+/*
+ * v12 — Constant-radius edge fillet (Inventor's 3D Model > Modify > Fillet).
+ * `edge_ids` holds n 1-based topological edge indices, `radii` the radius per
+ * edge (each > 0); differing radii in ONE call are allowed and are what
+ * Inventor calls multiple edge sets of a single fillet feature. Inputs stay
+ * owned by the caller; the result is a NEW shape. NULL on failure — a radius
+ * too large for the adjacent faces is a clean failure with an OCCT message,
+ * never a corrupt solid.
+ */
+occt_shape *occt_fillet_edges(const occt_shape *shape, const int *edge_ids,
+                              const double *radii, int n);
+
+/*
+ * v12 — Edge chamfer with Inventor's three methods, per edge:
+ *   modes[i] == 0  equal distance      -> d1[i] on both faces
+ *   modes[i] == 1  two distances       -> d1[i] on the reference face,
+ *                                         d2[i] on the other
+ *   modes[i] == 2  distance and angle  -> d1[i] on the reference face,
+ *                                         angle_deg[i] measured from it
+ * The reference face is the FIRST face adjacent to the edge in OCCT's
+ * ancestor map — deterministic for a given shape, and what Dart's "Flip"
+ * toggle swaps by exchanging d1/d2 (mode 1) or sending 90-angle (mode 2).
+ * `d2` and `angle_deg` may be NULL when no edge uses the corresponding mode.
+ * NULL on failure.
+ */
+occt_shape *occt_chamfer_edges(const occt_shape *shape, const int *edge_ids,
+                               const int *modes, const double *d1,
+                               const double *d2, const double *angle_deg,
+                               int n);
+
+/*
+ * v12 — Cast a ray and report where it enters/leaves the solid: the sorted,
+ * de-duplicated distances from the origin along the UNIT direction at which
+ * the ray crosses a face of `shape`. Writes at most `max_hits` values into
+ * `out` and returns how many were written (0 = miss, -1 = error).
+ *
+ * This is what Inventor's "To Next" termination needs: extrude from the
+ * sketch plane, and the first hit strictly beyond the start is the next face
+ * the feature should stop on. "To" on a curved face uses it too, since a
+ * cylinder has no single termination plane to intersect analytically.
+ */
+int occt_ray_hits(const occt_shape *shape, double ox, double oy, double oz,
+                  double dx, double dy, double dz, double *out, int max_hits);
+
 /* ---- Lifecycle --------------------------------------------------------- */
 
 /* Release a shape returned by any constructor above. NULL is ignored. */

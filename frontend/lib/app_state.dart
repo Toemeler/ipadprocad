@@ -527,8 +527,68 @@ class SavedSketchInfo {
 /// Live state of the modeless Extrusion properties panel (M56) — one
 /// session per open dialog, exactly like [PatternSession]. Esc / Cancel
 /// discards it, OK / + commits through [AppState.applyExtrude].
+/// Live state of the Fillet / Chamfer panel.
+///
+/// ONE session type for both: Inventor presents them as separate commands,
+/// but they differ only in which numbers sit under the edge list, and two
+/// near-identical sessions would be two places to keep the edge handling in
+/// step. [kind] selects the fields.
+class EdgeFeatureSession {
+  EdgeFeatureSession(this.kind, {this.editing});
+
+  final String kind; // 'fillet' | 'chamfer'
+  final BodyModifyFeature? editing; // null = creating
+
+  // fillet
+  String exprRadius = '2 mm';
+
+  // chamfer
+  int mode = 0; // 0 equal distance, 1 two distances, 2 distance and angle
+  String exprD1 = '1 mm';
+  String exprD2 = '1 mm';
+  String exprAngle = '45.00 deg';
+  bool flip = false;
+  bool edgeChain = true;
+
+  KernelSolid? preview;
+  String? previewError;
+
+  bool get isFillet => kind == 'fillet';
+
+  void disposePreview() {
+    preview?.dispose();
+    preview = null;
+  }
+}
+
+/// Live state of the Extrude AND Revolve panels.
+///
+/// One session for both: of its fields only exprTaper/iMate/matchShape are
+/// extrude-only and only the axis + Full are revolve-only — profiles, the
+/// sketch lock, direction, output, body, extents, preview and the auto-pick
+/// are identical. A parallel RevolveSession would have duplicated all of
+/// that, which is the pattern this codebase has already been bitten by.
+///
+/// The name is kept because it appears across main, ribbon, viewport3d and
+/// the tests; [kind] is what actually selects the behaviour.
 class ExtrudeSession {
-  ExtrudeFeature? editing; // null = creating a new feature
+  /// 'extrude' | 'revolve'.
+  String kind = 'extrude';
+  bool get isRevolve => kind == 'revolve';
+
+  // ---- revolve only ----
+  /// Axis in SKETCH coordinates: a point plus a direction. Stored as geometry
+  /// rather than as a reference to the sketch entity that produced it, for
+  /// the same reason RevolveFeature does — the line can be deleted or
+  /// redrawn, the axis it defined is what the feature depends on.
+  double axPx = 0, axPy = 0, axDx = 0, axDy = 1;
+  bool axisPicked = false;
+  String axisLabel = '';
+  bool full = true;
+
+  /// The feature being edited, or null when creating. Widened to
+  /// [PartFeature] in M106 so the same session can carry a revolve.
+  PartFeature? editing;
   String? sketchName; // locked to ONE sketch by the first profile pick
   final List<ProfileSel> profiles = [];
   ExtrudeDirection direction = ExtrudeDirection.defaultDir;
@@ -537,6 +597,11 @@ class ExtrudeSession {
   bool iMate = false, matchShape = true;
   // Inventor Output boolean: 'join' | 'cut' | 'intersect' | 'new'.
   String output = 'join';
+
+  /// M103 — Inventor's Extents. Distance uses [exprA]; the other three
+  /// resolve against the body at recompute time.
+  FeatureExtent extent = FeatureExtent.distance;
+  FaceSel? extentFace; // set iff extent == toFace
   KernelSolid? preview;
   String? previewError;
 
@@ -2371,6 +2436,309 @@ class AppState extends ChangeNotifier {
   /// Opens the Extrusion panel — for a NEW feature, or to [edit] an
   /// existing one. Inventor-style: with exactly one profile in the latest
   /// sketch it is pre-selected.
+  /// M102 — "edit this feature", whatever kind it is. The browser has one
+  /// double-tap and one context-menu entry; which dialog that opens is a
+  /// property of the feature, not of the row.
+  ///
+  /// Kinds whose dialog does not exist yet log and do nothing, rather than
+  /// falling back to the extrude panel — opening the wrong editor on a
+  /// revolve would let the user change a value that silently belongs to a
+  /// different feature.
+  void editFeature(PartFeature f) {
+    if (f is ExtrudeFeature) {
+      openExtrude(f);
+    } else if (f is FilletFeature) {
+      openFillet(f);
+    } else if (f is ChamferFeature) {
+      openChamfer(f);
+    } else if (f is RevolveFeature) {
+      openRevolve(f);
+    } else {
+      // Revolve still has no panel; opening the extrude one instead would let
+      // the user change a value that belongs to a different feature.
+      Log.i('feature', 'no editor wired for ${f.kind} yet (${f.name})');
+    }
+  }
+
+  // ---- M105 — Fillet / Chamfer -----------------------------------------
+  EdgeFeatureSession? edgeSession;
+
+  void openFillet([FilletFeature? edit]) => _openEdgeFeature('fillet', edit);
+  void openChamfer([ChamferFeature? edit]) => _openEdgeFeature('chamfer', edit);
+
+  void _openEdgeFeature(String kind, BodyModifyFeature? edit) {
+    if (currentPart == null) return;
+    cancelExtrude();
+    final s = EdgeFeatureSession(kind, editing: edit);
+    if (edit is FilletFeature) {
+      s.exprRadius = edit.exprRadius;
+    } else if (edit is ChamferFeature) {
+      s.mode = edit.mode;
+      s.exprD1 = edit.exprD1;
+      s.exprD2 = edit.exprD2;
+      s.exprAngle = edit.exprAngle;
+      s.flip = edit.flip;
+      s.edgeChain = edit.edgeChain;
+    }
+    edgeSession = s;
+    // Re-open on an existing feature: put its edges back in the picker so the
+    // 3D view shows what this feature acts on, not an empty selection.
+    pickedEdges.clear();
+    pickedEdgeIds.clear();
+    pickedEdgeDisplay.clear();
+    pickedEdgeSolid = null;
+    if (edit != null) pickedEdges.addAll(edit.edges);
+    beginPickEdges();
+    _updateEdgeFeaturePreview();
+    notifyListeners();
+  }
+
+  void setEdgeFeature(
+      {String? exprRadius,
+      int? mode,
+      String? exprD1,
+      String? exprD2,
+      String? exprAngle,
+      bool? flip,
+      bool? edgeChain}) {
+    final s = edgeSession;
+    if (s == null) return;
+    if (exprRadius != null) s.exprRadius = exprRadius;
+    if (mode != null) s.mode = mode;
+    if (exprD1 != null) s.exprD1 = exprD1;
+    if (exprD2 != null) s.exprD2 = exprD2;
+    if (exprAngle != null) s.exprAngle = exprAngle;
+    if (flip != null) s.flip = flip;
+    if (edgeChain != null) s.edgeChain = edgeChain;
+    _updateEdgeFeaturePreview();
+    notifyListeners();
+  }
+
+  void cancelEdgeFeature() {
+    edgeSession?.disposePreview();
+    edgeSession = null;
+    cancelPickEdges();
+    notifyListeners();
+  }
+
+  /// The feature the current session describes, or an error to show.
+  (BodyModifyFeature?, String?) _edgeSessionFeature() {
+    final s = edgeSession;
+    final p = currentPart;
+    if (s == null || p == null) return (null, 'no session');
+    if (pickedEdges.isEmpty) return (null, 'Select at least one edge.');
+    final body = pickedEdgeSolid == null
+        ? (s.editing?.bodyName ?? 'Solid1')
+        : (_bodyNameOfSolid(pickedEdgeSolid!) ?? 'Solid1');
+    if (s.isFillet) {
+      final r = parseValueExpr(s.exprRadius);
+      if (r == null || !(r > 0)) return (null, 'Radius must be > 0.');
+      return (
+        FilletFeature(
+          name: s.editing?.name ?? p.nextFeatureName('Fillet'),
+          bodyName: body,
+          edges: [for (final e in pickedEdges) e],
+          radii: List<double>.filled(pickedEdges.length, r),
+          exprRadius: s.exprRadius,
+        ),
+        null
+      );
+    }
+    final d1 = parseValueExpr(s.exprD1);
+    if (d1 == null || !(d1 > 0)) return (null, 'Distance must be > 0.');
+    var d2 = d1, ang = 45.0;
+    if (s.mode == 1) {
+      final v = parseValueExpr(s.exprD2);
+      if (v == null || !(v > 0)) return (null, 'Distance 2 must be > 0.');
+      d2 = v;
+    } else if (s.mode == 2) {
+      final v = parseValueExpr(s.exprAngle);
+      if (v == null || !(v > 0) || v >= 90) {
+        return (null, 'Angle must be between 0 and 90 deg.');
+      }
+      ang = v;
+    }
+    return (
+      ChamferFeature(
+        name: s.editing?.name ?? p.nextFeatureName('Chamfer'),
+        bodyName: body,
+        edges: [for (final e in pickedEdges) e],
+        mode: s.mode,
+        distance1: d1,
+        distance2: d2,
+        angleDeg: ang,
+        exprD1: s.exprD1,
+        exprD2: s.exprD2,
+        exprAngle: s.exprAngle,
+        flip: s.flip,
+        edgeChain: s.edgeChain,
+      ),
+      null
+    );
+  }
+
+  String? _bodyNameOfSolid(KernelSolid s) {
+    final p = currentPart;
+    if (p == null) return null;
+    for (final f in p.features) {
+      if (identical(f.solid, s)) return f.bodyName;
+    }
+    return null;
+  }
+
+  void _updateEdgeFeaturePreview() {
+    final s = edgeSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    s.disposePreview();
+    s.previewError = null;
+    final (f, err) = _edgeSessionFeature();
+    if (f == null) {
+      s.previewError = err;
+      return;
+    }
+    final base = pickedEdgeSolid;
+    if (base == null) {
+      s.previewError = 'Select at least one edge.';
+      return;
+    }
+    // The throwaway feature owns the solid it builds; hand it straight to the
+    // session so the viewport shows the rounded body while the panel is open.
+    if (!recomputeFeature(p, f, partKernel, base: base)) {
+      s.previewError = f.computeError;
+      return;
+    }
+    s.preview = f.solid;
+    f.solid = null; // ownership moved to the session
+  }
+
+  Future<bool> applyEdgeFeature() async {
+    final s = edgeSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    final (f, err) = _edgeSessionFeature();
+    if (f == null) {
+      toast(err ?? 'Cannot create the feature.');
+      return false;
+    }
+    final edit = s.editing;
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.features.add(f);
+    }
+    s.disposePreview();
+    edgeSession = null;
+    cancelPickEdges();
+    if (partKernel.available) {
+      recomputeAllFeatures(p, partKernel);
+      _syncSolidProjections(p);
+    }
+    p.dirty = true;
+    Log.i('part',
+        '${s.kind} ${edit == null ? "created" : "edited"} ${f.name} '
+        '(${f.bodyName}) edges=${f.edges.length}');
+    notifyListeners();
+    return true;
+  }
+
+  /// M106 — Revolve. Shares the extrude session and panel; [kind] switches
+  /// Distance for Angle, Taper for the axis, and adds Full.
+  void openRevolve([RevolveFeature? edit]) {
+    openExtrude();
+    final s = extrudeSession;
+    if (s == null) return;
+    s.kind = 'revolve';
+    s.exprA = '360.00 deg';
+    s.exprB = '0.00 deg';
+    if (edit != null) {
+      s.editing = edit;
+      s.sketchName = edit.sketchName;
+      s.bodyName = edit.bodyName;
+      s.direction = edit.direction;
+      s.output = edit.output;
+      s.exprA = edit.exprA;
+      s.exprB = edit.exprB;
+      s.full = edit.full;
+      s.axPx = edit.axPx;
+      s.axPy = edit.axPy;
+      s.axDx = edit.axDx;
+      s.axDy = edit.axDy;
+      s.axisPicked = true;
+      s.axisLabel = 'Axis';
+      s.profiles
+        ..clear()
+        ..addAll(
+            [for (final x in edit.profiles) ProfileSel(x.ax, x.ay, x.area)]);
+    }
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  /// Armed while the panel is waiting for an axis line to be tapped in 3D.
+  bool pickingRevolveAxis = false;
+
+  void beginPickRevolveAxis() {
+    if (extrudeSession == null) return;
+    pickingRevolveAxis = true;
+    toast('Tap a sketch line to use as the axis.');
+    notifyListeners();
+  }
+
+  void cancelPickRevolveAxis() {
+    if (!pickingRevolveAxis) return;
+    pickingRevolveAxis = false;
+    notifyListeners();
+  }
+
+  /// A sketch line was tapped while [pickingRevolveAxis]. The axis is stored
+  /// as GEOMETRY (point + direction in sketch coordinates), not as a
+  /// reference to this entity — the line may later be deleted or redrawn, and
+  /// what the feature actually depends on is the axis it defined.
+  void revolveAxisPicked(String sketchName, int geoIndex) {
+    final s = extrudeSession;
+    final p = currentPart;
+    pickingRevolveAxis = false;
+    if (s == null || p == null) {
+      notifyListeners();
+      return;
+    }
+    final cs = p.sketchByName(sketchName);
+    if (cs == null || geoIndex < 0 || geoIndex >= cs.model.geometry.length) {
+      toast('That line is no longer available.');
+      notifyListeners();
+      return;
+    }
+    final g = cs.model.geometry[geoIndex];
+    if (g.type != Geo.line || g.data.length < 4) {
+      toast('The axis must be a straight line.');
+      notifyListeners();
+      return;
+    }
+    final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
+    if (dx.abs() < 1e-9 && dy.abs() < 1e-9) {
+      toast('That line has no length.');
+      notifyListeners();
+      return;
+    }
+    s.axPx = g.data[0];
+    s.axPy = g.data[1];
+    s.axDx = dx;
+    s.axDy = dy;
+    s.axisPicked = true;
+    s.axisLabel = g.isCenterline
+        ? 'Centerline'
+        : (g.isConstruction ? 'Construction line' : 'Line');
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
   void openExtrude([ExtrudeFeature? edit]) {
     final p = currentPart;
     if (p == null) return;
@@ -2469,7 +2837,9 @@ class AppState extends ChangeNotifier {
       String? bodyName,
       bool? iMate,
       bool? matchShape,
-      String? output}) {
+      String? output,
+      FeatureExtent? extent,
+      bool? full}) {
     final s = extrudeSession;
     if (s == null) return;
     if (direction != null) s.direction = direction;
@@ -2479,6 +2849,13 @@ class AppState extends ChangeNotifier {
     if (bodyName != null) s.bodyName = bodyName;
     if (iMate != null) s.iMate = iMate;
     if (matchShape != null) s.matchShape = matchShape;
+    if (full != null) s.full = full;
+    if (extent != null && extent != s.extent) {
+      s.extent = extent;
+      // Leaving "To" clears the face: keeping a stale termination face around
+      // would silently reapply it if the user came back to To later.
+      if (extent != FeatureExtent.toFace) s.extentFace = null;
+    }
     if (output != null && output != s.output) {
       s.output = output;
       final p = currentPart;
@@ -2497,12 +2874,75 @@ class AppState extends ChangeNotifier {
   }
 
   /// Parses the session values into a throwaway feature (also used for the
+  /// Revolve twin of [_sessionFeature]. Angle A is the sweep unless Full is
+  /// set; Angle B only matters for Asymmetric, exactly as Distance B does.
+  (PartFeature?, String?) _revolveSessionFeature(ExtrudeSession s) {
+    // Belt and braces with the hidden buttons above: a file written by a
+    // later build (or a session restored with one set) must not compute a
+    // revolve as if the extent were a plain angle.
+    if (s.extent != FeatureExtent.distance) {
+      return (null, 'Revolve supports a typed angle only, for now.');
+    }
+    // axisPicked is the ONLY gate. Testing the direction instead let the
+    // default (0, 1) through — a non-degenerate vector — so a revolve could
+    // be committed about a Y axis the user never chose.
+    if (!s.axisPicked) {
+      return (null, 'Select an axis of revolution.');
+    }
+    if (s.axDx == 0 && s.axDy == 0) {
+      return (null, 'The axis has no direction.');
+    }
+    var a = 360.0, b = 0.0;
+    if (!s.full) {
+      final pa = parseValueExpr(s.exprA);
+      if (pa == null || !(pa > 0) || pa > 360) {
+        return (null, 'Angle A must be between 0 and 360 degrees.');
+      }
+      a = pa;
+      if (s.direction == ExtrudeDirection.asymmetric) {
+        final pb = parseValueExpr(s.exprB);
+        if (pb == null || !(pb > 0)) return (null, 'Angle B must be > 0.');
+        b = pb;
+      }
+      if (a + b > 360.0 + 1e-9) {
+        return (null, 'Angle A + B cannot exceed 360 degrees.');
+      }
+    }
+    return (
+      RevolveFeature(
+        name: s.editing?.name ?? '(preview)',
+        bodyName: s.bodyName,
+        sketchName: s.sketchName ?? '',
+        profiles: [for (final x in s.profiles) ProfileSel(x.ax, x.ay, x.area)],
+        axPx: s.axPx,
+        axPy: s.axPy,
+        axDx: s.axDx,
+        axDy: s.axDy,
+        direction: s.direction,
+        angleA: a,
+        angleB: b,
+        exprA: s.exprA,
+        exprB: s.exprB,
+        full: s.full,
+        extent: s.extent,
+        extentFace: s.extentFace,
+        output: s.output,
+      ),
+      null
+    );
+  }
+
   /// preview). Returns null + a toastable reason when a value is invalid.
-  (ExtrudeFeature?, String?) _sessionFeature(ExtrudeSession s) {
-    final a = parseValueExpr(s.exprA);
-    if (a == null || !(a > 0)) return (null, 'Distance A must be > 0.');
+  (PartFeature?, String?) _sessionFeature(ExtrudeSession s) {
+    if (s.isRevolve) return _revolveSessionFeature(s);
+    final usesDistance = s.extent == FeatureExtent.distance;
+    final a = parseValueExpr(s.exprA) ?? 0.0;
+    // Only a plain Distance is driven by the typed value; To Next / To /
+    // Through All resolve against the model, so an empty or nonsense field
+    // must not block them.
+    if (usesDistance && !(a > 0)) return (null, 'Distance A must be > 0.');
     var b = 0.0;
-    if (s.direction == ExtrudeDirection.asymmetric) {
+    if (usesDistance && s.direction == ExtrudeDirection.asymmetric) {
       final pb = parseValueExpr(s.exprB);
       if (pb == null || !(pb > 0)) return (null, 'Distance B must be > 0.');
       b = pb;
@@ -2525,6 +2965,8 @@ class AppState extends ChangeNotifier {
       exprTaper: s.exprTaper,
       iMate: s.iMate,
       matchShape: s.matchShape,
+      extent: s.extent,
+      extentFace: s.extentFace,
       output: s.output,
     );
     return (f, null);
@@ -2574,8 +3016,12 @@ class AppState extends ChangeNotifier {
       s.previewError = err;
       return;
     }
+    // The target body is resolved FIRST now: M103's extents resolve against
+    // it, so the prism cannot be built without it. It is also what step 2
+    // combines against, so this is one lookup, not two.
+    final (base, bodyName) = _extrudeBooleanTarget(s);
     // 1. build this feature's own prism (the throwaway feature owns it)
-    if (!recomputeFeature(p, f, partKernel)) {
+    if (!recomputeFeature(p, f, partKernel, base: base)) {
       s.previewError = f.computeError;
       return;
     }
@@ -2584,7 +3030,6 @@ class AppState extends ChangeNotifier {
     //    for; otherwise the standalone prism is the preview. This is what
     //    makes the joined/cut/intersected shape visible while the dialog is
     //    open, not only after OK.
-    final (base, bodyName) = _extrudeBooleanTarget(s);
     if (s.output != 'new' && base != null && f.solid != null) {
       final combined = combineSolids(partKernel, s.output, base, f.solid!);
       if (combined != null) {
@@ -2617,9 +3062,35 @@ class AppState extends ChangeNotifier {
       toast(err!);
       return false;
     }
-    ExtrudeFeature f;
-    if (s.editing != null) {
-      f = s.editing!
+    PartFeature f;
+    final editing = s.editing;
+    if (s.isRevolve) {
+      // Revolve has no in-place mutation path, so an edit REPLACES the
+      // feature in the timeline (the same move applyEdgeFeature makes).
+      // Mutating in place would mean a second copy of every field assignment
+      // below, for no gain.
+      f = parsed;
+      if (editing != null) {
+        f.name = editing.name;
+        f.seq = editing.seq;
+        f.bodyName = editing.bodyName;
+        final i = p.features.indexOf(editing);
+        if (i >= 0) {
+          editing.disposeSolid();
+          p.features[i] = f;
+        }
+      } else {
+        f.name = p.nextFeatureName('Revolution');
+        if (f.bodyName.trim().isEmpty) {
+          final lastBody =
+              p.features.isEmpty ? null : p.features.last.bodyName;
+          f.bodyName = (f.output != 'new' && lastBody != null)
+              ? lastBody
+              : p.nextSolidName();
+        }
+      }
+    } else if (editing is ExtrudeFeature && parsed is ExtrudeFeature) {
+      f = editing
         ..direction = parsed.direction
         ..distanceA = parsed.distanceA
         ..distanceB = parsed.distanceB
@@ -2630,8 +3101,10 @@ class AppState extends ChangeNotifier {
         ..bodyName = parsed.bodyName
         ..iMate = parsed.iMate
         ..matchShape = parsed.matchShape
+        ..extent = parsed.extent
+        ..extentFace = parsed.extentFace
         ..output = parsed.output;
-      f.profiles
+      (f as ExtrudeFeature).profiles
         ..clear()
         ..addAll(parsed.profiles);
     } else {
@@ -2651,7 +3124,10 @@ class AppState extends ChangeNotifier {
         if (num != null && num > p.solidN) p.solidN = num;
       }
     }
-    final ok = recomputeFeature(p, f, partKernel);
+    // M103 — hand the boolean target in, or a To Next/Through All feature
+    // would fail here on commit and only succeed in the fold that follows.
+    final (commitBase, _) = _extrudeBooleanTarget(s);
+    final ok = recomputeFeature(p, f, partKernel, base: commitBase);
     if (!ok) {
       if (partKernel.available || f.computeError != 'no 3D kernel linked') {
         toast('${f.name}: ${f.computeError ?? partKernel.lastError}');
@@ -2663,7 +3139,7 @@ class AppState extends ChangeNotifier {
         return false; // a NEW feature that cannot compute is not created
       }
     }
-    if (s.editing == null) {
+    if (s.editing == null && !(s.isRevolve && p.features.contains(f))) {
       final firstConsumption = firstConsumerOf(p, f.sketchName) == null;
       f.seq = p.nextSeq(); // M91 — bottom of the timeline
       p.features.add(f);
@@ -2686,12 +3162,22 @@ class AppState extends ChangeNotifier {
     s.disposePreview();
     Log.i(
         'part',
-        'extrude ${s.editing == null ? "created" : "edited"} '
-            '${f.name} (${f.bodyName}) profiles=${f.profiles.length} '
-            'h=${f.distanceA}/${f.distanceB} ${extrudeDirName(f.direction)} '
-            'taper=${f.taperDeg} ok=$ok');
+        '${s.kind} ${s.editing == null ? "created" : "edited"} '
+            '${f.name} (${f.bodyName}) '
+            '${f is ExtrudeFeature ? "h=${f.distanceA}/${f.distanceB} "
+                "taper=${f.taperDeg}" : f is RevolveFeature ? "ang=${f.sweepDeg} "
+                "axis=(${f.axPx},${f.axPy})->(${f.axDx},${f.axDy})" : ""} '
+            'ok=$ok');
     if (keepOpen) {
       extrudeSession = ExtrudeSession()
+        ..kind = s.kind
+        ..full = s.full
+        ..axPx = s.axPx
+        ..axPy = s.axPy
+        ..axDx = s.axDx
+        ..axDy = s.axDy
+        ..axisPicked = s.axisPicked
+        ..axisLabel = s.axisLabel
         ..sketchName = s.sketchName
         ..bodyName = 'Solid${p.solidN + 1}';
     } else {
@@ -2707,11 +3193,31 @@ class AppState extends ChangeNotifier {
     extrudeSession?.disposePreview();
     extrudeSession = null;
     _regionCache.clear();
+    // M104 — the dialog owns these arm-flags. Closing it while a pick is
+    // armed would leave the viewport swallowing taps with no visible reason
+    // and no row left to cancel from.
+    pickingExtentFace = false;
+    pickingBody = false;
+    hoverBody = null;
   }
 
   /// Esc in the 3D viewport: session first, then an armed plane pick.
   void escape3D() {
-    if (extrudeSession != null) {
+    // Innermost mode first: Esc during a pick backs OUT of the pick, it does
+    // not throw the whole dialog away. Anything else loses the profiles and
+    // settings the user just entered.
+    if (pickingEdges && edgeSession == null) {
+      cancelPickEdges();
+    } else if (edgeSession != null) {
+      // The edge pick belongs TO the fillet panel, so Esc closes both at
+      // once — cancelling only the pick would leave a panel that can no
+      // longer be given edges.
+      cancelEdgeFeature();
+    } else if (pickingExtentFace) {
+      cancelPickExtentFace();
+    } else if (pickingBody) {
+      cancelPickBody();
+    } else if (extrudeSession != null) {
       cancelExtrude();
       notifyListeners();
     } else if (pickPlane) {
@@ -2724,7 +3230,7 @@ class AppState extends ChangeNotifier {
   /// (recompute, consumedByJoin, the extrude session), so nothing has to be
   /// remapped. A duplicate or empty name is refused rather than silently
   /// producing two identical browser rows.
-  bool renameFeature(ExtrudeFeature f, String name) {
+  bool renameFeature(PartFeature f, String name) {
     final p = currentPart;
     final n = name.trim();
     if (p == null || n.isEmpty || n == f.name) return false;
@@ -2740,7 +3246,7 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  void toggleFeatureVisible(ExtrudeFeature f) {
+  void toggleFeatureVisible(PartFeature f) {
     f.visible = !f.visible;
     currentPart?.dirty = true;
     notifyListeners();
@@ -2761,7 +3267,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteFeature(ExtrudeFeature f) async {
+  Future<void> deleteFeature(PartFeature f) async {
     final p = currentPart;
     if (p == null) return;
     f.disposeSolid();
@@ -3623,6 +4129,146 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     return victims.length;
   }
+
+  // ---- M104: picking a termination FACE for the "To" extent -------------
+  //
+  // Separate arm-flag from pickingBody on purpose. Both are "tap something in
+  // 3D", but they consume different things and can never be active at once —
+  // one flag with a mode would just be two flags with extra steps, and the
+  // tap path reads better as two explicit branches.
+  bool pickingExtentFace = false;
+
+  void beginPickExtentFace() {
+    if (extrudeSession == null) return;
+    pickingExtentFace = true;
+    toast('Select the face to terminate on.');
+    notifyListeners();
+  }
+
+  void cancelPickExtentFace() {
+    if (!pickingExtentFace) return;
+    pickingExtentFace = false;
+    notifyListeners();
+  }
+
+  /// A planar face was tapped while [pickingExtentFace]. The frame carries a
+  /// point ON the face and its outward normal, which is exactly a [FaceSel] —
+  /// and exactly what resolveExtrudeSpan solves analytically.
+  void extentFacePicked(PlaneFrame frame) {
+    final s = extrudeSession;
+    pickingExtentFace = false;
+    if (s == null) {
+      notifyListeners();
+      return;
+    }
+    s.extentFace = FaceSel(frame.origin.x, frame.origin.y, frame.origin.z,
+        frame.n.x, frame.n.y, frame.n.z);
+    s.extent = FeatureExtent.toFace;
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  // ---- M104: picking EDGES (fillet/chamfer, wired up in M105) ------------
+  //
+  // The selection lives on AppState rather than inside a fillet session for
+  // the same reason hoverBody does: the viewport and the dialog must read one
+  // list, or they will disagree about what is selected.
+  bool pickingEdges = false;
+
+  /// Edges picked so far, as re-attachable fingerprints. Order is the order
+  /// they were tapped, which is the order their radii are entered in.
+  final List<EdgeSel> pickedEdges = [];
+
+  /// Topological ids of [pickedEdges] against the solid they were taken from.
+  /// Only valid for as long as that solid lives; the fingerprints are what
+  /// survive a rebuild.
+  final List<int> pickedEdgeIds = [];
+
+  /// DISPLAY indices of the same edges, parallel to [pickedEdgeIds].
+  ///
+  /// Kept alongside because the two index spaces are different and each side
+  /// needs its own: the kernel addresses topological edges, the renderer
+  /// indexes the mesh's display edge list. Converting on demand would mean
+  /// re-deriving the mapping on every payload push.
+  final List<int> pickedEdgeDisplay = [];
+
+  /// The solid the current edge set was picked from. Held by identity, like
+  /// hoverFace, because a rebuild replaces the object.
+  KernelSolid? pickedEdgeSolid;
+
+  /// B-Rep edge under the pointer while [pickingEdges]: (solid, display
+  /// index).
+  ///
+  /// NOT `hoverEdge` — that name was already taken by the 2D sketcher's
+  /// polyline-segment hover, an `(int, int)?` of (entity, point). The
+  /// collision compiled as a duplicate definition and silently retyped every
+  /// existing assignment, which is exactly the kind of thing a grep for
+  /// "does this already exist" catches and a balance check does not.
+  (KernelSolid, int)? hoverEdge3d;
+
+  void setHoverEdge3d(KernelSolid? solid, int display) {
+    if (solid == null) {
+      if (hoverEdge3d == null) return;
+      hoverEdge3d = null;
+    } else {
+      if (hoverEdge3d != null &&
+          identical(hoverEdge3d!.$1, solid) &&
+          hoverEdge3d!.$2 == display) {
+        return; // unchanged — do not repaint once per frame
+      }
+      hoverEdge3d = (solid, display);
+    }
+    notifyListeners();
+  }
+
+  void beginPickEdges() {
+    pickingEdges = true;
+    toast('Select edges — tap to add, tap again to remove.');
+    notifyListeners();
+  }
+
+  void cancelPickEdges() {
+    if (!pickingEdges && pickedEdges.isEmpty) return;
+    pickingEdges = false;
+    pickedEdges.clear();
+    pickedEdgeIds.clear();
+    pickedEdgeDisplay.clear();
+    pickedEdgeSolid = null;
+    hoverEdge3d = null;
+    notifyListeners();
+  }
+
+  /// Inventor's edge selection is a toggle: tapping a selected edge removes
+  /// it. Matching is by topological id, which is stable for as long as the
+  /// solid this selection was made against is alive.
+  void toggleEdgePick(int topoId, EdgeSel sel,
+      {KernelSolid? solid, int display = -1}) {
+    if (!pickingEdges) return;
+    // One body per feature: Inventor's fillet operates on a single solid, and
+    // a set spanning two would have no meaningful base to modify. Switching
+    // body starts a new set rather than silently mixing them.
+    if (solid != null &&
+        pickedEdgeSolid != null &&
+        !identical(pickedEdgeSolid, solid)) {
+      pickedEdges.clear();
+      pickedEdgeIds.clear();
+      pickedEdgeDisplay.clear();
+    }
+    if (solid != null) pickedEdgeSolid = solid;
+    final i = pickedEdgeIds.indexOf(topoId);
+    if (i >= 0) {
+      pickedEdgeIds.removeAt(i);
+      pickedEdges.removeAt(i);
+      if (i < pickedEdgeDisplay.length) pickedEdgeDisplay.removeAt(i);
+    } else {
+      pickedEdgeIds.add(topoId);
+      pickedEdges.add(sel);
+      pickedEdgeDisplay.add(display);
+    }
+    notifyListeners();
+  }
+
+  bool edgeIsPicked(int topoId) => pickedEdgeIds.contains(topoId);
 
   void beginPickBody() {
     if (extrudeSession == null) return;

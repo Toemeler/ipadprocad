@@ -428,6 +428,32 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
 /// geometry list. Used to highlight and select individual curves in 3D.
 String sketchKey(String sketchName, int geoIndex) => '$sketchName#$geoIndex';
 
+/// M105 — accented B-Rep edges per solid: {solidId: [display index, ...]}.
+///
+/// Hover and selection are merged into ONE set with one colour, exactly as
+/// applySketchAccents already treats hovered and selected sketch curves. Two
+/// colours would be a third highlight idiom in the same viewport.
+///
+/// DISPLAY indices travel, not topological ones: the renderer indexes the
+/// mesh's edge list, and only Dart needs to know the two spaces differ.
+Map<String, dynamic>? _edgeAccentPayload(AppState app, PartModel p) {
+  final sel = app.pickedEdgeSolid;
+  final hov = app.hoverEdge3d;
+  if (sel == null && hov == null) return null;
+  final out = <String, List<int>>{};
+  for (final (id, s) in visibleSolids(app, p)) {
+    final idx = <int>{};
+    if (sel != null && identical(s, sel)) {
+      for (final d in app.pickedEdgeDisplay) {
+        if (d >= 0) idx.add(d);
+      }
+    }
+    if (hov != null && identical(s, hov.$1) && hov.$2 >= 0) idx.add(hov.$2);
+    if (idx.isNotEmpty) out[id] = idx.toList()..sort();
+  }
+  return out.isEmpty ? null : out;
+}
+
 /// The blue prehighlight target ({solid id, face id}) or null.
 Map<String, dynamic>? _highlightPayload(
     AppState app, PartModel p, (KernelSolid, int)? hoverFace) {
@@ -483,6 +509,8 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
+  final ea = _edgeAccentPayload(app, p);
+  if (ea != null) scene['edgeAccent'] = ea;
   if (hoverSketch != null) scene['hoverSketch'] = hoverSketch;
   scene['selSketch'] = (selSketch ?? const <String>{}).toList();
   return scene;
@@ -511,6 +539,9 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
   };
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) out['highlight'] = hl;
+  // Always present on the LIGHT path, even when empty: an accent that has
+  // just been cleared has to travel, or the last highlight stays on screen.
+  out['edgeAccent'] = _edgeAccentPayload(app, p) ?? const <String, List<int>>{};
   if (hoverSketch != null) out['hoverSketch'] = hoverSketch;
   out['selSketch'] = (selSketch ?? const <String>{}).toList();
   return out;

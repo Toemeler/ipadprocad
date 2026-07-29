@@ -18,6 +18,8 @@ import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
 import '../log.dart';
+import '../part_pick.dart';
+import '../pick_math.dart';
 import '../perf.dart';
 import '../part_model.dart';
 import '../part_render.dart';
@@ -132,12 +134,20 @@ class _Viewport3DState extends State<Viewport3D>
 
   /// Nearest VISIBLE sketch curve under the cursor, or null. Mirrors exactly
   /// the curves reality_scene draws, so what highlights is what you see.
+  /// M104 — sketch curve under the pointer.
+  ///
+  /// Shares [segDistSq] and [PickBest] with the B-Rep edge picker in
+  /// part_pick.dart. It used to carry a private distance function and a
+  /// pixel-only tie-break, which meant a curve on the FAR side of the model
+  /// could win over the one you were pointing at; PickBest resolves by depth
+  /// first, exactly as face and edge picking do.
   String? _pickSketchCurve(Cam3 cam, Offset px) {
     final p = part;
     if (p == null) return null;
     final sess = widget.app.extrudeSession;
-    String? best;
-    var bestD = 9.0; // px tolerance
+    const tolPx = 9.0;
+    const tol2 = tolPx * tolPx;
+    final best = PickBest<String>();
     for (final cs in p.childSketches) {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
@@ -150,19 +160,23 @@ class _Viewport3DState extends State<Viewport3D>
         if (li >= 0 && li >= cs.model.eosAfter) continue;
         final pts = sketchCurve(g);
         if (pts.length < 2) continue;
-        var prev = cam.project(frame.toWorld(pts.first));
+        var prevW = frame.toWorld(pts.first);
+        var prev = cam.project(prevW);
         for (var i = 1; i < pts.length; i++) {
-          final cur = cam.project(frame.toWorld(pts[i]));
-          final d = _distToSeg(px, prev, cur);
-          if (d < bestD) {
-            bestD = d;
-            best = sketchKey(cs.model.name, gi);
+          final w = frame.toWorld(pts[i]);
+          final cur = cam.project(w);
+          final (d2, t) = segDistSq(px, prev, cur);
+          if (d2 <= tol2) {
+            final hit = prevW + (w - prevW) * t;
+            best.offer(sketchKey(cs.model.name, gi), cam.depth(hit),
+                math.sqrt(d2));
           }
+          prevW = w;
           prev = cur;
         }
       }
     }
-    return best;
+    return best.value;
   }
 
   /// Push the current camera (always), the scene (only when its signature
@@ -618,6 +632,15 @@ class _Viewport3DState extends State<Viewport3D>
       final pick = _pickSolidFace(cam, px);
       app.setHoverBody(pick == null ? null : _bodyNameOf(p, pick.$1));
     }
+    // M105 — prehighlight the edge under the pointer while an edge pick is
+    // armed. Same shape as the body hover above: gated on the mode, and
+    // setHoverEdge early-returns when nothing changed, so holding still costs
+    // one comparison rather than a ribbon rebuild per frame.
+    if (app.pickingEdges) {
+      final hit = _pickEdgeAt(cam, px);
+      app.setHoverEdge3d(
+          hit?.$1, (hit != null && hit.$2.usable) ? hit.$2.displayEdge : -1);
+    }
     (KernelSolid, int)? hf;
     if (app.pickPlane && region == null) {
       final pick = _pickSolidFace(cam, px);
@@ -672,7 +695,7 @@ class _Viewport3DState extends State<Viewport3D>
         // axis is never pickable past its visible end.
         final (al, ah) = originAxisSpan(p, e.$2);
         final a = cam.project(e.$2 * al), b = cam.project(e.$2 * ah);
-        if (_distToSeg(px, a, b) < pickPx) return e.$1;
+        if (segDistSq(px, a, b).$1 < pickPx * pickPx) return e.$1;
       }
     }
     // planes, nearest first
@@ -728,6 +751,24 @@ class _Viewport3DState extends State<Viewport3D>
       if (identical(f.solid, solid)) return f.bodyName;
     }
     return null;
+  }
+
+  /// M104 — the B-Rep edge under the pointer, or null.
+  ///
+  /// The decision itself lives in part_pick.dart so it can be tested without
+  /// a device; all this does is hand it the live meshes and the camera's two
+  /// projections, then map the mesh index back to its solid.
+  (KernelSolid, EdgePick)? _pickEdgeAt(Cam3 cam, Offset px) {
+    final solids = _liveSolids().toList();
+    if (solids.isEmpty) return null;
+    final hit = pickEdge(
+      [for (final s in solids) s.mesh],
+      cam.project,
+      cam.depth,
+      px,
+    );
+    if (hit == null) return null;
+    return (solids[hit.meshIndex], hit);
   }
 
   (KernelSolid, int, PlaneFrame, double)? _pickSolidFace(Cam3 cam, Offset px) {
@@ -838,6 +879,47 @@ class _Viewport3DState extends State<Viewport3D>
       }
       if (_selSketch.isNotEmpty) setState(_selSketch.clear);
     }
+    // M106 — 0. picking the AXIS of revolution. Reuses the sketch-curve
+    // picker: an axis IS a sketch line, and _pickSketchCurve already returns
+    // the sketchName#index key that identifies one.
+    if (app.pickingRevolveAxis) {
+      final key = _pickSketchCurve(cam, px);
+      if (key != null) {
+        final i = key.lastIndexOf('#');
+        final name = i < 0 ? key : key.substring(0, i);
+        final gi = i < 0 ? -1 : (int.tryParse(key.substring(i + 1)) ?? -1);
+        app.revolveAxisPicked(name, gi);
+      } else {
+        app.cancelPickRevolveAxis();
+      }
+      return;
+    }
+    // M104 — 0a. picking the termination FACE for the "To" extent. Reuses
+    // the planar face pick: a planar face is exactly the case
+    // resolveExtrudeSpan can solve analytically.
+    if (app.pickingExtentFace) {
+      final face = _pickSolidFace(cam, px);
+      if (face != null) {
+        app.extentFacePicked(face.$3);
+      } else {
+        app.cancelPickExtentFace(); // tapping empty space backs out, like Esc
+      }
+      return;
+    }
+    // M104 — 0b. picking EDGES for fillet/chamfer. Unlike the single-shot
+    // picks above this one STAYS armed: an edge set is built up over several
+    // taps, and a miss must not throw away what is already selected.
+    if (app.pickingEdges) {
+      final hit = _pickEdgeAt(cam, px);
+      if (hit != null && hit.$2.usable) {
+        // toSel() fingerprints the edge's arc-length MIDPOINT, not the tap
+        // location — that is the anchor occt_shape_edge_info reports and the
+        // only one a rebuild can be matched against.
+        app.toggleEdgePick(hit.$2.topoEdge, hit.$2.toSel(),
+            solid: hit.$1, display: hit.$2.displayEdge);
+      }
+      return;
+    }
     // M97 — 0. picking a TARGET BODY for the extrude dialog. Runs before
     // everything else: while the dialog is waiting, a tap on a solid means
     // "this one", not "sketch on this face".
@@ -902,13 +984,6 @@ class _Viewport3DState extends State<Viewport3D>
     }
   }
 
-  static double _distToSeg(Offset p, Offset a, Offset b) {
-    final ab = b - a;
-    final t = (((p - a).dx * ab.dx + (p - a).dy * ab.dy) /
-            (ab.distance * ab.distance + 1e-12))
-        .clamp(0.0, 1.0);
-    return (a + ab * t - p).distance;
-  }
 }
 
 // ---------------------------------------------------------------------------

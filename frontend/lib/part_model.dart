@@ -53,6 +53,31 @@ class Vec3 {
 // facing a plane head-on shows the sketch exactly as it was drawn
 // (sketch +u = screen right, +v = screen up), and u × v = normal so every
 // frame is a proper right-handed rotation (accepted by occt_transform).
+/// Rodrigues rotation of [v] about the UNIT axis [k] by [a] radians.
+///
+/// One implementation, used by the trackball orbit (PartCamera) and by the
+/// revolve placement (PlaneFrame.mat34Rotated). They had drifted into two
+/// copies of the same formula in this very file.
+Vec3 rotateAboutAxis(Vec3 v, Vec3 k, double a) {
+  if (a == 0) return v;
+  final c = math.cos(a), sn = math.sin(a);
+  return v * c + k.cross(v) * sn + k * (k.dot(v) * (1 - c));
+}
+
+/// Extent of the axis-aligned box [lo]..[hi] projected onto [dir]: (lo, hi)
+/// as distances along that direction from the world origin.
+///
+/// Picks the extreme corner per axis by the sign of [dir] — two dot products
+/// instead of walking all eight corners. Used by the origin-axis span (M83)
+/// and by Through All (M103).
+(double, double) boxSpanAlong(Vec3 lo, Vec3 hi, Vec3 dir) {
+  final a = Vec3(dir.x >= 0 ? lo.x : hi.x, dir.y >= 0 ? lo.y : hi.y,
+      dir.z >= 0 ? lo.z : hi.z);
+  final b = Vec3(dir.x >= 0 ? hi.x : lo.x, dir.y >= 0 ? hi.y : lo.y,
+      dir.z >= 0 ? hi.z : lo.z);
+  return (a.dot(dir), b.dot(dir));
+}
+
 // ---------------------------------------------------------------------------
 class PlaneFrame {
   final String key; // 'xy' | 'yz' | 'xz' | 'face'
@@ -76,6 +101,45 @@ class PlaneFrame {
         u.y, v.y, n.y, origin.y + n.y * zOffset, //
         u.z, v.z, n.z, origin.z + n.z * zOffset, //
       ];
+
+  /// [mat34] pre-composed with a rotation of [angleDeg] about the SKETCH-space
+  /// axis through (px, py) along (dx, dy).
+  ///
+  /// This is how a revolve honours Inventor's Flipped / Symmetric /
+  /// Asymmetric directions. The shim always sweeps in the positive direction
+  /// starting at the profile, so "start half a turn back" is expressed by
+  /// rotating the finished solid backwards — the rotational twin of the z
+  /// offset [mat34] already applies for a linear extrude. Doing it in the
+  /// placement keeps the kernel call itself direction-free, which is why
+  /// neither path can ever produce a mirrored solid.
+  List<double> mat34Rotated(
+      double px, double py, double dx, double dy, double angleDeg) {
+    final len = math.sqrt(dx * dx + dy * dy);
+    if (len < 1e-12 || angleDeg.abs() < 1e-12) return mat34(0);
+    final k = Vec3(dx / len, dy / len, 0);
+    final t = angleDeg * math.pi / 180.0;
+    // Column j of (M3 * R3) is M3 applied to R3's column j, and R3's column j
+    // is the rotated basis vector — so the whole matrix falls out of three
+    // calls to the shared Rodrigues helper, with no second copy of the
+    // formula to keep in step.
+    Vec3 col(Vec3 e) {
+      final r = rotateAboutAxis(e, k, t);
+      return u * r.x + v * r.y + n * r.z;
+    }
+
+    final cx = col(const Vec3(1, 0, 0));
+    final cy = col(const Vec3(0, 1, 0));
+    final cz = col(const Vec3(0, 0, 1));
+    // Rotation about a LINE, not the origin: p -> R(p - a) + a.
+    final a = Vec3(px, py, 0);
+    final tr = a - rotateAboutAxis(a, k, t);
+    final off = u * tr.x + v * tr.y + n * tr.z;
+    return [
+      cx.x, cy.x, cz.x, origin.x + off.x, //
+      cx.y, cy.y, cz.y, origin.y + off.y, //
+      cx.z, cy.z, cz.z, origin.z + off.z, //
+    ];
+  }
 
   List<double> frameJson() => [
         u.x, u.y, u.z, v.x, v.y, v.z, //
@@ -246,11 +310,9 @@ class PartCamera {
   Vec3 get up => right.cross(dir * -1).normalized();
 
   /// Rodrigues rotation of [v] about the unit axis [k] by [a] radians.
-  static Vec3 _rotate(Vec3 v, Vec3 k, double a) {
-    if (a == 0) return v;
-    final c = math.cos(a), sn = math.sin(a);
-    return v * c + k.cross(v) * sn + k * (k.dot(v) * (1 - c));
-  }
+  /// Thin alias for the shared [rotateAboutAxis]; kept so the orbit code
+  /// below reads unchanged.
+  static Vec3 _rotate(Vec3 v, Vec3 k, double a) => rotateAboutAxis(v, k, a);
 
   /// TRACKBALL orbit (M90) — rotates about the SCREEN axes, which is what
   /// Inventor's Free Orbit and Blender's trackball do: [yaw] about the
@@ -945,49 +1007,246 @@ class ProfileSel {
       (j['a'] as num).toDouble());
 }
 
-class ExtrudeFeature {
-  String name; // Extrusion1, Extrusion2, ...
+// ---------------------------------------------------------------------------
+// M102 — feature polymorphism
+// ---------------------------------------------------------------------------
+
+/// Inventor's termination options, shared by Extrude and Revolve.
+///
+/// [distance] is the typed value (Angle A for a revolve). The other three
+/// resolve against the MODEL at recompute time, which is why they carry no
+/// number of their own:
+///   [toNext]     — stop on the next face met in the extrude direction. Not
+///                  offered for a base feature: with nothing built yet there
+///                  is no next face, exactly as Inventor greys it out.
+///   [toFace]     — stop on a picked face (see [FaceSel]).
+///   [throughAll] — pass through the entire body.
+enum FeatureExtent { distance, toNext, toFace, throughAll }
+
+String featureExtentName(FeatureExtent e) => switch (e) {
+      FeatureExtent.toNext => 'toNext',
+      FeatureExtent.toFace => 'toFace',
+      FeatureExtent.throughAll => 'throughAll',
+      FeatureExtent.distance => 'distance',
+    };
+
+FeatureExtent featureExtentFrom(String? s) => switch (s) {
+      'toNext' => FeatureExtent.toNext,
+      'toFace' => FeatureExtent.toFace,
+      'throughAll' => FeatureExtent.throughAll,
+      _ => FeatureExtent.distance,
+    };
+
+/// A picked TERMINATION face, stored re-attachably as a point on the face plus
+/// its outward normal — the same "remember the geometry, re-find the index"
+/// contract as [ProfileSel] and [EdgeSel], because OCCT face indices are not
+/// stable across a rebuild either.
+class FaceSel {
+  double px, py, pz, nx, ny, nz;
+  FaceSel(this.px, this.py, this.pz, this.nx, this.ny, this.nz);
+  Map<String, dynamic> toJson() =>
+      {'p': [px, py, pz], 'n': [nx, ny, nz]};
+  static FaceSel? fromJson(Map<String, dynamic> j) {
+    final p = (j['p'] as List?)?.cast<num>(), n = (j['n'] as List?)?.cast<num>();
+    if (p == null || n == null || p.length != 3 || n.length != 3) return null;
+    return FaceSel(p[0].toDouble(), p[1].toDouble(), p[2].toDouble(),
+        n[0].toDouble(), n[1].toDouble(), n[2].toDouble());
+  }
+}
+
+/// A picked EDGE, stored the way a fillet has to store it: by geometry, never
+/// by index.
+///
+/// OCCT renumbers every edge on every rebuild, so persisting "edge 7" would
+/// move the fillet to a different edge the moment anything upstream changes —
+/// the classic topological-naming failure. What does survive a rebuild is
+/// where the edge IS: its arc-length midpoint, its length, its curve type and
+/// radius. [bestMatch] re-finds the index from those.
+///
+/// This mirrors [ProfileSel] exactly, which already solves the same problem
+/// for profiles (interior anchor + area, re-matched to the nearest region).
+class EdgeSel {
+  double mx, my, mz; // arc-length midpoint at pick time, WORLD coords
+  double length;
+  int kind; // 1 line, 2 circle, 3 ellipse, 4 other
+  double radius;
+
+  EdgeSel(this.mx, this.my, this.mz, this.length, this.kind, this.radius);
+
+  Map<String, dynamic> toJson() =>
+      {'m': [mx, my, mz], 'l': length, 'k': kind, 'r': radius};
+
+  static EdgeSel? fromJson(Map<String, dynamic> j) {
+    final m = (j['m'] as List?)?.cast<num>();
+    if (m == null || m.length != 3) return null;
+    return EdgeSel(
+        m[0].toDouble(),
+        m[1].toDouble(),
+        m[2].toDouble(),
+        (j['l'] as num?)?.toDouble() ?? 0,
+        (j['k'] as num?)?.toInt() ?? 0,
+        (j['r'] as num?)?.toDouble() ?? 0);
+  }
+
+  /// Distance between this fingerprint and a live edge. Lower is better;
+  /// [double.infinity] means "cannot be this edge".
+  ///
+  /// Position dominates, because that is what the user actually pointed at.
+  /// Length is a weak tiebreaker only — a fillet legitimately changes the
+  /// length of its own neighbours, so a hard length match would lose the edge
+  /// on exactly the edits where keeping it matters most. A TYPE change is
+  /// disqualifying: a line that became an arc is not the same edge any more.
+  double score(OcctEdgeInfo e) {
+    if (!e.filletable) return double.infinity;
+    if (kind != 0 && e.kind != 0 && kind != e.kind) return double.infinity;
+    final dx = e.mx - mx, dy = e.my - my, dz = e.mz - mz;
+    final d = math.sqrt(dx * dx + dy * dy + dz * dz);
+    return d + 0.05 * (e.length - length).abs();
+  }
+
+  /// The live edge this selection now refers to, or null when it is gone.
+  /// [tol] is in model units and scales with the edge: a 200 mm edge may
+  /// legitimately shift further than a 2 mm one.
+  OcctEdgeInfo? bestMatch(List<OcctEdgeInfo> edges) {
+    OcctEdgeInfo? best;
+    var bestScore = double.infinity;
+    for (final e in edges) {
+      final s = score(e);
+      if (s < bestScore) {
+        bestScore = s;
+        best = e;
+      }
+    }
+    if (best == null) return null;
+    final tol = 0.25 * (length.abs() + 1.0);
+    return bestScore <= tol ? best : null;
+  }
+
+  /// Re-anchor onto the edge we just matched, so the fingerprint tracks the
+  /// model instead of drifting further from it with every rebuild.
+  void reanchor(OcctEdgeInfo e) {
+    mx = e.mx;
+    my = e.my;
+    mz = e.mz;
+    length = e.length;
+    kind = e.kind;
+    radius = e.radius;
+  }
+}
+
+/// Everything the timeline, the browser, the End-of-Part marker and the
+/// boolean fold need from a feature, whatever kind it is.
+///
+/// Before M102 the feature list was `List<ExtrudeFeature>` and every one of
+/// those subsystems reached straight into extrude-specific fields. Revolve,
+/// Fillet and Chamfer could not exist until this base did.
+abstract class PartFeature {
+  PartFeature({
+    required this.name,
+    required this.bodyName,
+    this.visible = true,
+    this.output = 'join',
+  });
+
+  String name; // Extrusion1, Revolution1, Fillet1, ...
   String bodyName; // Solid1, ...
+  bool visible;
+
+  /// Inventor's Output boolean: 'join' | 'cut' | 'intersect' | 'new'.
+  /// Body-modifying features (fillet, chamfer) ignore it — see [modifiesBody].
+  String output;
+
+  /// M91 — position on the browser timeline, shared with [ChildSketch.seq].
+  int seq = 0;
+
+  // ---- runtime, never serialised ----
+  KernelSolid? solid;
+  String? computeError;
+  bool consumedByJoin = false;
+  bool rolledBack = false;
+
+  /// Input signature [solid] was last built from; null = must rebuild.
+  String? builtSig;
+
+  /// Discriminator written to JSON and used by the browser for icons.
+  String get kind;
+
+  /// Human label for a new feature of this kind ("Extrusion", "Fillet", ...).
+  String get typeLabel;
+
+  /// The sketch this feature consumes, or '' when it does not consume one.
+  String get sketchName => '';
+
+  /// True for features built FROM a sketch (extrude, revolve). False for
+  /// features that MODIFY an existing body (fillet, chamfer) — those need an
+  /// upstream solid as input and fail honestly without one, whereas a
+  /// sketch-based feature can be a base feature.
+  bool get modifiesBody => false;
+
+  /// This feature's own contribution to the rebuild key. The upstream chain
+  /// hash is prepended by [recomputeAllFeatures], so subclasses only describe
+  /// THEMSELVES — anything reachable upstream is already covered.
+  String ownSig();
+
+  Map<String, dynamic> toJson();
+
+  /// Common fields every subclass writes. Subclasses spread this and add
+  /// their own, so a new field is never forgotten in one of four places.
+  Map<String, dynamic> baseJson() => {
+        'kind': kind,
+        'name': name,
+        'seq': seq,
+        'body': bodyName,
+        'visible': visible,
+        'output': output,
+      };
+
+  void readBaseJson(Map<String, dynamic> j) {
+    seq = (j['seq'] as num?)?.toInt() ?? 0;
+  }
+
+  void disposeSolid() {
+    solid?.dispose();
+    solid = null;
+    builtSig = null;
+  }
+
+  /// Dispatching loader. An unknown 'kind' returns null and the caller drops
+  /// the entry rather than inventing a feature — a file from a newer build
+  /// should lose a feature loudly, not silently become a different part.
+  static PartFeature? fromJson(Map<String, dynamic> j) {
+    switch (j['kind'] as String? ?? 'extrude') {
+      case 'extrude':
+        return ExtrudeFeature.fromJson(j);
+      case 'revolve':
+        return RevolveFeature.fromJson(j);
+      case 'fillet':
+        return FilletFeature.fromJson(j);
+      case 'chamfer':
+        return ChamferFeature.fromJson(j);
+      default:
+        return null;
+    }
+  }
+}
+
+class ExtrudeFeature extends PartFeature {
+  @override
   final String sketchName;
   final List<ProfileSel> profiles;
   ExtrudeDirection direction;
   double distanceA, distanceB, taperDeg;
   String exprA, exprB, exprTaper; // what the user typed (redisplayed on edit)
   bool iMate, matchShape;
-  bool visible;
 
-  /// Inventor's Output boolean, applied against the accumulated body this
-  /// feature shares a [bodyName] with:
-  ///   'join'      — union this volume into the body (default once a base
-  ///                 feature exists);
-  ///   'cut'       — subtract this volume from the body;
-  ///   'intersect' — keep only the overlap of this volume with the body;
-  ///   'new'       — start a separate solid body (no boolean).
-  /// The FIRST feature of a body has nothing to combine with, so it always
-  /// materialises as its own prism regardless of this value.
-  String output;
-
-  // runtime (never serialised)
-  KernelSolid? solid;
-  String? computeError;
-
-  /// True when a LATER visible join-feature carries the fused body this
-  /// feature is part of — the viewport then skips this one (its volume is
-  /// inside the accumulated solid of the chain's last feature).
-  bool consumedByJoin = false;
-
-  /// M91 — creation order, shared with [ChildSketch.seq] (one counter across
-  /// both, so sketches and features interleave on one timeline).
-  int seq = 0;
-
-  /// M91 — suppressed because it sits below the End of Part marker. Not
-  /// persisted: it is derived from [PartModel.eopAfter] on every recompute,
-  /// exactly as a rolled-back layer is derived from the sketch's marker.
-  bool rolledBack = false;
+  /// M103 — Inventor's Extents. [distanceA] is only consulted for
+  /// [FeatureExtent.distance]; the others resolve against the model.
+  FeatureExtent extent;
+  FaceSel? extentFace; // set iff extent == toFace
 
   ExtrudeFeature({
-    required this.name,
-    required this.bodyName,
+    required super.name,
+    required super.bodyName,
     required this.sketchName,
     required this.profiles,
     this.direction = ExtrudeDirection.defaultDir,
@@ -999,15 +1258,26 @@ class ExtrudeFeature {
     this.exprTaper = '0.00 deg',
     this.iMate = false,
     this.matchShape = true,
-    this.visible = true,
-    this.output = 'join',
+    this.extent = FeatureExtent.distance,
+    this.extentFace,
+    super.visible,
+    super.output,
   });
 
+  @override
+  String get kind => 'extrude';
+  @override
+  String get typeLabel => 'Extrusion';
+
+  @override
+  String ownSig() => 'ex|$sketchName|$distanceA,$distanceB,$taperDeg,'
+      '${extrudeDirName(direction)},${featureExtentName(extent)},'
+      '$iMate,$matchShape|'
+      '${profiles.map((p) => '${p.ax}:${p.ay}').join(';')}';
+
+  @override
   Map<String, dynamic> toJson() => {
-        'kind': 'extrude',
-        'name': name,
-        'seq': seq, // M91 — position on the browser timeline
-        'body': bodyName,
+        ...baseJson(),
         'sketch': sketchName,
         'profiles': [for (final p in profiles) p.toJson()],
         'dir': extrudeDirName(direction),
@@ -1019,48 +1289,360 @@ class ExtrudeFeature {
         'exprTaper': exprTaper,
         'imate': iMate,
         'match': matchShape,
-        'visible': visible,
-        'output': output,
+        'extent': featureExtentName(extent),
+        if (extentFace != null) 'extentFace': extentFace!.toJson(),
       };
 
-  static ExtrudeFeature fromJson(Map<String, dynamic> j) =>
-      _withSeq(j, ExtrudeFeature(
-        name: j['name'] as String? ?? 'Extrusion',
-        bodyName: j['body'] as String? ?? 'Solid1',
-        sketchName: j['sketch'] as String? ?? '',
-        profiles: [
-          for (final p in (j['profiles'] as List? ?? const []))
-            ProfileSel.fromJson((p as Map).cast<String, dynamic>())
-        ],
-        direction: extrudeDirFrom(j['dir'] as String? ?? 'default'),
-        distanceA: (j['a'] as num?)?.toDouble() ?? 5,
-        distanceB: (j['b'] as num?)?.toDouble() ?? 5,
-        taperDeg: (j['taper'] as num?)?.toDouble() ?? 0,
-        exprA: j['exprA'] as String? ?? '5 mm',
-        exprB: j['exprB'] as String? ?? '5 mm',
-        exprTaper: j['exprTaper'] as String? ?? '0.00 deg',
-        iMate: j['imate'] as bool? ?? false,
-        matchShape: j['match'] as bool? ?? true,
-        visible: j['visible'] as bool? ?? true,
-        output: j['output'] as String? ?? 'join',
-      ));
-
-  /// M91 — restores the timeline position. A pre-M91 file has no 'seq'; it
-  /// stays 0 and [PartModel.loadJson] numbers the features after the sketches,
-  /// which reproduces the old browser order exactly.
-  static ExtrudeFeature _withSeq(Map<String, dynamic> j, ExtrudeFeature f) {
-    f.seq = (j['seq'] as num?)?.toInt() ?? 0;
+  static ExtrudeFeature fromJson(Map<String, dynamic> j) {
+    final f = ExtrudeFeature(
+      name: j['name'] as String? ?? 'Extrusion',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sketchName: j['sketch'] as String? ?? '',
+      profiles: [
+        for (final p in (j['profiles'] as List? ?? const []))
+          ProfileSel.fromJson((p as Map).cast<String, dynamic>())
+      ],
+      direction: extrudeDirFrom(j['dir'] as String? ?? 'default'),
+      distanceA: (j['a'] as num?)?.toDouble() ?? 5,
+      distanceB: (j['b'] as num?)?.toDouble() ?? 5,
+      taperDeg: (j['taper'] as num?)?.toDouble() ?? 0,
+      exprA: j['exprA'] as String? ?? '5 mm',
+      exprB: j['exprB'] as String? ?? '5 mm',
+      exprTaper: j['exprTaper'] as String? ?? '0.00 deg',
+      iMate: j['imate'] as bool? ?? false,
+      matchShape: j['match'] as bool? ?? true,
+      // Pre-M103 files have no 'extent' and were all plain distances, so the
+      // default reproduces them exactly.
+      extent: featureExtentFrom(j['extent'] as String?),
+      extentFace: j['extentFace'] == null
+          ? null
+          : FaceSel.fromJson((j['extentFace'] as Map).cast<String, dynamic>()),
+      visible: j['visible'] as bool? ?? true,
+      output: j['output'] as String? ?? 'join',
+    );
+    f.readBaseJson(j);
     return f;
   }
+}
 
-  /// Input signature this feature's [solid] was last built from. Null means
-  /// "must rebuild". See [recomputeAllFeatures].
-  String? builtSig;
+/// Inventor's Revolve: a profile swept about an axis lying in its own plane.
+///
+/// The axis is stored in SKETCH coordinates as a point plus a direction, not
+/// as a reference to the sketch entity that produced it. A construction line
+/// can be deleted or re-drawn; the geometry it defined is what the feature
+/// actually depends on, and storing that keeps the revolve alive exactly as
+/// [ProfileSel] keeps a profile alive.
+class RevolveFeature extends PartFeature {
+  @override
+  final String sketchName;
+  final List<ProfileSel> profiles;
 
-  void disposeSolid() {
-    solid?.dispose();
-    solid = null;
-    builtSig = null; // the cached result is gone with it
+  double axPx, axPy, axDx, axDy; // axis in sketch coords
+  ExtrudeDirection direction; // reuses Inventor's four direction modes
+  double angleA, angleB;
+  String exprA, exprB;
+  bool full; // Inventor's "Full" — a complete 360 turn
+  FeatureExtent extent;
+  FaceSel? extentFace;
+
+  RevolveFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sketchName,
+    required this.profiles,
+    this.axPx = 0,
+    this.axPy = 0,
+    this.axDx = 0,
+    this.axDy = 1,
+    this.direction = ExtrudeDirection.defaultDir,
+    this.angleA = 360,
+    this.angleB = 0,
+    this.exprA = '360.00 deg',
+    this.exprB = '0.00 deg',
+    this.full = true,
+    this.extent = FeatureExtent.distance,
+    this.extentFace,
+    super.visible,
+    super.output,
+  });
+
+  @override
+  String get kind => 'revolve';
+  @override
+  String get typeLabel => 'Revolution';
+
+  /// Total sweep actually handed to the kernel. Inventor's Full wins over the
+  /// typed angle; Symmetric splits Angle A; Asymmetric adds A and B.
+  double get sweepDeg {
+    if (full) return 360.0;
+    final t = switch (direction) {
+      ExtrudeDirection.asymmetric => angleA + angleB,
+      _ => angleA,
+    };
+    return t.clamp(0.0, 360.0);
+  }
+
+  /// Where the sweep STARTS, as an angle offset from the profile plane —
+  /// the rotational twin of [extrudeSpan]'s start offset.
+  double get startOffsetDeg {
+    if (full) return 0.0;
+    return switch (direction) {
+      ExtrudeDirection.defaultDir => 0.0,
+      ExtrudeDirection.flipped => -sweepDeg,
+      ExtrudeDirection.symmetric => -sweepDeg / 2,
+      ExtrudeDirection.asymmetric => -angleB,
+    };
+  }
+
+  @override
+  String ownSig() => 'rv|$sketchName|$angleA,$angleB,$full,'
+      '${extrudeDirName(direction)},${featureExtentName(extent)}|'
+      '$axPx,$axPy,$axDx,$axDy|'
+      '${profiles.map((p) => '${p.ax}:${p.ay}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'sketch': sketchName,
+        'profiles': [for (final p in profiles) p.toJson()],
+        'ax': [axPx, axPy, axDx, axDy],
+        'dir': extrudeDirName(direction),
+        'angA': angleA,
+        'angB': angleB,
+        'exprA': exprA,
+        'exprB': exprB,
+        'full': full,
+        'extent': featureExtentName(extent),
+        if (extentFace != null) 'extentFace': extentFace!.toJson(),
+      };
+
+  static RevolveFeature fromJson(Map<String, dynamic> j) {
+    final ax = (j['ax'] as List?)?.cast<num>();
+    final f = RevolveFeature(
+      name: j['name'] as String? ?? 'Revolution',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sketchName: j['sketch'] as String? ?? '',
+      profiles: [
+        for (final p in (j['profiles'] as List? ?? const []))
+          ProfileSel.fromJson((p as Map).cast<String, dynamic>())
+      ],
+      axPx: (ax != null && ax.length == 4) ? ax[0].toDouble() : 0,
+      axPy: (ax != null && ax.length == 4) ? ax[1].toDouble() : 0,
+      axDx: (ax != null && ax.length == 4) ? ax[2].toDouble() : 0,
+      axDy: (ax != null && ax.length == 4) ? ax[3].toDouble() : 1,
+      direction: extrudeDirFrom(j['dir'] as String? ?? 'default'),
+      angleA: (j['angA'] as num?)?.toDouble() ?? 360,
+      angleB: (j['angB'] as num?)?.toDouble() ?? 0,
+      exprA: j['exprA'] as String? ?? '360.00 deg',
+      exprB: j['exprB'] as String? ?? '0.00 deg',
+      full: j['full'] as bool? ?? true,
+      extent: featureExtentFrom(j['extent'] as String?),
+      extentFace: j['extentFace'] == null
+          ? null
+          : FaceSel.fromJson((j['extentFace'] as Map).cast<String, dynamic>()),
+      visible: j['visible'] as bool? ?? true,
+      output: j['output'] as String? ?? 'join',
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Base for the two features that MODIFY an existing body instead of adding
+/// one. They consume no sketch, they cannot be a base feature, and the fold
+/// feeds them the accumulated solid of their body as input.
+abstract class BodyModifyFeature extends PartFeature {
+  BodyModifyFeature({
+    required super.name,
+    required super.bodyName,
+    required this.edges,
+    super.visible,
+  }) : super(output: 'modify');
+
+  /// The picked edges, stored as geometry so they survive a rebuild.
+  final List<EdgeSel> edges;
+
+  @override
+  bool get modifiesBody => true;
+
+  /// Resolve every stored selection against the live edge list. Returns the
+  /// topological indices in the same order, and re-anchors the fingerprints.
+  /// A selection that no longer matches is DROPPED from the result and
+  /// reported through [lostEdges] — Inventor's behaviour for a fillet whose
+  /// edge set partly survives is to keep filleting the rest.
+  (List<int>, int) resolveEdges(List<OcctEdgeInfo> live) {
+    final ids = <int>[];
+    var lost = 0;
+    final taken = <int>{};
+    for (final sel in edges) {
+      final m = sel.bestMatch(live);
+      // One live edge can only serve one selection: without this, two picks
+      // that both drifted toward the same survivor would silently collapse
+      // into a double-radius fillet on one edge.
+      if (m == null || !taken.add(m.index)) {
+        lost++;
+        continue;
+      }
+      sel.reanchor(m);
+      ids.add(m.index);
+    }
+    return (ids, lost);
+  }
+}
+
+/// Inventor's 3D Model > Modify > Fillet, constant radius.
+///
+/// One feature carries MANY edges with possibly DIFFERENT radii, which is
+/// exactly what Inventor means by several edge sets inside a single fillet
+/// feature — "all fillets and rounds that you create in a single operation
+/// become a single feature".
+class FilletFeature extends BodyModifyFeature {
+  final List<double> radii; // parallel to [edges]
+  String exprRadius; // what the user typed for the shared default
+  bool allFillets, allRounds; // Inventor's Select Mode toggles
+
+  FilletFeature({
+    required super.name,
+    required super.bodyName,
+    required super.edges,
+    required this.radii,
+    this.exprRadius = '2 mm',
+    this.allFillets = false,
+    this.allRounds = false,
+    super.visible,
+  });
+
+  @override
+  String get kind => 'fillet';
+  @override
+  String get typeLabel => 'Fillet';
+
+  @override
+  String ownSig() => 'fi|${radii.join(',')}|$allFillets,$allRounds|'
+      '${edges.map((e) => '${e.mx},${e.my},${e.mz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'edges': [for (final e in edges) e.toJson()],
+        'radii': radii,
+        'exprRadius': exprRadius,
+        'allFillets': allFillets,
+        'allRounds': allRounds,
+      };
+
+  static FilletFeature fromJson(Map<String, dynamic> j) {
+    final es = <EdgeSel>[];
+    for (final e in (j['edges'] as List? ?? const [])) {
+      final s = EdgeSel.fromJson((e as Map).cast<String, dynamic>());
+      if (s != null) es.add(s);
+    }
+    final rs = [
+      for (final r in (j['radii'] as List? ?? const [])) (r as num).toDouble()
+    ];
+    // Keep the two lists the same length no matter what the file says: every
+    // downstream loop indexes them together.
+    while (rs.length < es.length) {
+      rs.add(rs.isEmpty ? 2.0 : rs.last);
+    }
+    final f = FilletFeature(
+      name: j['name'] as String? ?? 'Fillet',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      edges: es,
+      radii: rs.sublist(0, es.length),
+      exprRadius: j['exprRadius'] as String? ?? '2 mm',
+      allFillets: j['allFillets'] as bool? ?? false,
+      allRounds: j['allRounds'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Inventor's 3D Model > Modify > Chamfer, with all three methods:
+/// 0 = equal distance, 1 = two distances, 2 = distance and angle.
+class ChamferFeature extends BodyModifyFeature {
+  int mode;
+  double distance1, distance2, angleDeg;
+  String exprD1, exprD2, exprAngle;
+  bool flip; // swaps which adjacent face distance1 is measured on
+  bool edgeChain; // Inventor's "All Tangentially Connected Edges"
+
+  ChamferFeature({
+    required super.name,
+    required super.bodyName,
+    required super.edges,
+    this.mode = 0,
+    this.distance1 = 1,
+    this.distance2 = 1,
+    this.angleDeg = 45,
+    this.exprD1 = '1 mm',
+    this.exprD2 = '1 mm',
+    this.exprAngle = '45.00 deg',
+    this.flip = false,
+    this.edgeChain = true,
+    super.visible,
+  });
+
+  @override
+  String get kind => 'chamfer';
+  @override
+  String get typeLabel => 'Chamfer';
+
+  /// Distances as the shim wants them, with Flip already applied. Flip is a
+  /// pure presentation swap for mode 1 and the complementary angle for
+  /// mode 2, so the kernel never needs to know the toggle exists.
+  (double, double, double) get kernelParams => switch (mode) {
+        1 => flip
+            ? (distance2, distance1, 0.0)
+            : (distance1, distance2, 0.0),
+        2 => (distance1, 0.0, flip ? 90.0 - angleDeg : angleDeg),
+        _ => (distance1, 0.0, 0.0),
+      };
+
+  @override
+  String ownSig() => 'ch|$mode,$distance1,$distance2,$angleDeg,$flip,'
+      '$edgeChain|${edges.map((e) => '${e.mx},${e.my},${e.mz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'edges': [for (final e in edges) e.toJson()],
+        'mode': mode,
+        'd1': distance1,
+        'd2': distance2,
+        'ang': angleDeg,
+        'exprD1': exprD1,
+        'exprD2': exprD2,
+        'exprAngle': exprAngle,
+        'flip': flip,
+        'chain': edgeChain,
+      };
+
+  static ChamferFeature fromJson(Map<String, dynamic> j) {
+    final es = <EdgeSel>[];
+    for (final e in (j['edges'] as List? ?? const [])) {
+      final s = EdgeSel.fromJson((e as Map).cast<String, dynamic>());
+      if (s != null) es.add(s);
+    }
+    final f = ChamferFeature(
+      name: j['name'] as String? ?? 'Chamfer',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      edges: es,
+      mode: (j['mode'] as num?)?.toInt() ?? 0,
+      distance1: (j['d1'] as num?)?.toDouble() ?? 1,
+      distance2: (j['d2'] as num?)?.toDouble() ?? 1,
+      angleDeg: (j['ang'] as num?)?.toDouble() ?? 45,
+      exprD1: j['exprD1'] as String? ?? '1 mm',
+      exprD2: j['exprD2'] as String? ?? '1 mm',
+      exprAngle: j['exprAngle'] as String? ?? '45.00 deg',
+      flip: j['flip'] as bool? ?? false,
+      edgeChain: j['chain'] as bool? ?? true,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
   }
 }
 
@@ -1101,7 +1683,7 @@ class ChildSketch {
 
 /// Every feature that uses [sketchName] (Inventor's Unshare is only offered
 /// while exactly ONE feature does).
-List<ExtrudeFeature> consumersOf(PartModel part, String sketchName) =>
+List<PartFeature> consumersOf(PartModel part, String sketchName) =>
     [for (final f in part.features) if (f.sketchName == sketchName) f];
 
 /// Whether [cs] is currently consumed by a feature — Inventor greys out
@@ -1120,7 +1702,7 @@ bool canUnshareSketch(PartModel part, ChildSketch cs) =>
 
 /// The first feature that consumes [sketchName], or null (Inventor nests the
 /// consumed sketch under exactly this feature in the browser).
-ExtrudeFeature? firstConsumerOf(PartModel part, String sketchName) {
+PartFeature? firstConsumerOf(PartModel part, String sketchName) {
   for (final f in part.features) {
     if (f.sketchName == sketchName) return f;
   }
@@ -1134,7 +1716,7 @@ PlaneFrame sketchFrameOf(ChildSketch cs) => cs.face ?? planeFrame(cs.plane);
 class PartModel {
   final String name;
   final List<ChildSketch> childSketches = [];
-  final List<ExtrudeFeature> features = [];
+  final List<PartFeature> features = [];
 
   /// Origin-item visibility (all invisible by default, like the mock).
   final Map<String, bool> vis = {
@@ -1180,14 +1762,14 @@ class PartModel {
   /// folder). A body is the set of features sharing a bodyName; its display
   /// entry is the LAST feature that actually carries geometry for it (join
   /// chains fold into one body). Returns [(bodyName, features-of-body)].
-  List<(String, List<ExtrudeFeature>)> solidBodies() {
+  List<(String, List<PartFeature>)> solidBodies() {
     final order = <String>[];
-    final byName = <String, List<ExtrudeFeature>>{};
+    final byName = <String, List<PartFeature>>{};
     for (final f in features) {
       if (f.solid == null && f.computeError == null) continue;
       byName.putIfAbsent(f.bodyName, () {
         order.add(f.bodyName);
-        return <ExtrudeFeature>[];
+        return <PartFeature>[];
       }).add(f);
     }
     return [for (final n in order) (n, byName[n]!)];
@@ -1215,7 +1797,19 @@ class PartModel {
     return 'Sketch$n';
   }
 
-  String nextFeatureName() => 'Extrusion${++featureN}';
+  /// M102 — Inventor numbers each feature TYPE separately (Extrusion1,
+  /// Revolution1, Fillet1 can all coexist), so the name is derived from what
+  /// already exists rather than from one shared counter. [featureN] is still
+  /// written to the file and still drives the legacy Extrusion sequence, so
+  /// documents from before M102 keep the names they were saved with.
+  String nextFeatureName([String label = 'Extrusion']) {
+    if (label == 'Extrusion') return 'Extrusion${++featureN}';
+    var n = 1;
+    while (features.any((f) => f.name == '$label$n')) {
+      n++;
+    }
+    return '$label$n';
+  }
   String nextSolidName() => 'Solid${++solidN}';
 
   /// M96 — the next free body name WITHOUT consuming it.
@@ -1286,7 +1880,8 @@ class PartModel {
     featureN = (j['featureN'] as num?)?.toInt() ?? 0;
     solidN = (j['solidN'] as num?)?.toInt() ?? 0;
     for (final f in (j['features'] as List? ?? const [])) {
-      features.add(ExtrudeFeature.fromJson((f as Map).cast<String, dynamic>()));
+      final pf = PartFeature.fromJson((f as Map).cast<String, dynamic>());
+      if (pf != null) features.add(pf);
     }
     // M91 — creation order. A pre-M91 document has no 'seq' anywhere; the
     // sketches are numbered first and the features after, which reproduces
@@ -1671,6 +2266,38 @@ abstract class PartKernel {
 
   /// Writes the union of [solids] as STEP to [path].
   bool exportStep(List<KernelSolid> solids, String path);
+
+  // ---- M102: revolve + body modification -------------------------------
+  //
+  // These are CONCRETE and fail honestly rather than abstract, deliberately.
+  // Three test fakes implement PartKernel; making these abstract would break
+  // all of them in one commit for machinery most of their tests never touch.
+  // A fake that wants to exercise revolve or fillet overrides the one method
+  // it needs, and any fake that does not simply reports "unsupported" — which
+  // is the truth, and is what the feature will surface as its computeError.
+
+  /// Revolves [groups] about the sketch-space axis through ([axPx], [axPy])
+  /// along ([axDx], [axDy]) by [angleDeg], then places it with [mat34].
+  KernelSolid? revolve(List<List<List<Offset>>> groups, double angleDeg,
+          double axPx, double axPy, double axDx, double axDy,
+          List<double> mat34) =>
+      null;
+
+  /// Topological edges of [s], in the index space [filletEdges] and
+  /// [chamferEdges] address. Empty when the kernel cannot enumerate them.
+  List<OcctEdgeInfo> edgesOf(KernelSolid s) => const [];
+
+  /// Constant-radius fillet on [edgeIds] (1-based topological indices) with
+  /// one radius each. Returns a NEW solid; [base] stays owned by the caller.
+  KernelSolid? filletEdges(
+          KernelSolid base, List<int> edgeIds, List<double> radii) =>
+      null;
+
+  /// Chamfer on [edgeIds] with Inventor method [mode] (0 equal distance,
+  /// 1 two distances, 2 distance and angle). Returns a NEW solid.
+  KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
+          double d1, double d2, double angleDeg) =>
+      null;
 }
 
 /// Applies Inventor's Output boolean [output] to combine [base] (the
@@ -1848,6 +2475,133 @@ class OcctPartKernel implements PartKernel {
             result.mesh(linDeflection: lin, angDeflection: ang));
   }
 
+  /// Mesh a freshly produced shape and wrap it, taking ownership. Shared tail
+  /// of every M102 path; identical to [_boolean]'s ending minus the unify.
+  KernelSolid? _wrapOwned(OcctFfi ffi, OcctShape? shape) {
+    if (shape == null) {
+      _err = ffi.lastError();
+      return null;
+    }
+    final mesh = shape.mesh(
+        linDeflection: kCoarseLinDeflection,
+        angDeflection: kCoarseAngDeflection);
+    if (mesh == null) {
+      _err = ffi.lastError();
+      shape.dispose();
+      return null;
+    }
+    return KernelSolid(mesh, shape.volume, shape,
+        meshLin: kCoarseLinDeflection,
+        remesher: (lin, ang) =>
+            shape.mesh(linDeflection: lin, angDeflection: ang));
+  }
+
+  @override
+  KernelSolid? revolve(List<List<List<Offset>>> groups, double angleDeg,
+      double axPx, double axPy, double axDx, double axDy, List<double> mat34) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    OcctShape? acc;
+    try {
+      for (final g in groups) {
+        final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
+        final part = ffi.revolveProfile(loops, angleDeg,
+            axPx: axPx, axPy: axPy, axDx: axDx, axDy: axDy);
+        if (part == null) {
+          _err = ffi.lastError();
+          acc?.dispose();
+          return null;
+        }
+        if (acc == null) {
+          acc = part;
+        } else {
+          final fused = ffi.fuse(acc, part);
+          acc.dispose();
+          part.dispose();
+          if (fused == null) {
+            _err = ffi.lastError();
+            return null;
+          }
+          acc = fused;
+        }
+      }
+      if (acc == null) {
+        _err = 'nothing to revolve';
+        return null;
+      }
+      final placed = acc.transformed(mat34);
+      acc.dispose();
+      acc = null;
+      return _wrapOwned(ffi, placed);
+    } catch (e) {
+      _err = '$e';
+      acc?.dispose();
+      return null;
+    }
+  }
+
+  @override
+  List<OcctEdgeInfo> edgesOf(KernelSolid s) {
+    final shape = s.shape;
+    if (shape == null) {
+      _err = 'edge query needs a kernel-backed solid';
+      return const [];
+    }
+    try {
+      return shape.allEdges();
+    } catch (e) {
+      _err = '$e';
+      return const [];
+    }
+  }
+
+  @override
+  KernelSolid? filletEdges(
+      KernelSolid base, List<int> edgeIds, List<double> radii) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final shape = base.shape;
+    if (shape == null) {
+      _err = 'fillet needs a kernel-backed solid';
+      return null;
+    }
+    // No unify here, unlike the boolean path: OCCT's filleting algorithm
+    // already emits clean topology, and running ShapeUpgrade over a fresh
+    // fillet is a well-known way to lose the very faces it just built.
+    return _wrapOwned(ffi, shape.filletEdges(edgeIds, radii));
+  }
+
+  @override
+  KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
+      double d1, double d2, double angleDeg) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final shape = base.shape;
+    if (shape == null) {
+      _err = 'chamfer needs a kernel-backed solid';
+      return null;
+    }
+    final n = edgeIds.length;
+    return _wrapOwned(
+        ffi,
+        shape.chamferEdges(
+          edgeIds,
+          List<int>.filled(n, mode),
+          List<double>.filled(n, d1),
+          d2: mode == 1 ? List<double>.filled(n, d2) : const [],
+          angleDeg: mode == 2 ? List<double>.filled(n, angleDeg) : const [],
+        ));
+  }
+
   @override
   bool exportStep(List<KernelSolid> solids, String path) {
     final ffi = _ffi;
@@ -1893,30 +2647,19 @@ class OcctPartKernel implements PartKernel {
   }
 }
 
-/// Recomputes [f] against the CURRENT sketch state: re-matches the picked
-/// profiles (nearest region by anchor, sanity-checked by area), builds the
-/// loop groups, and asks the kernel for the solid. On success the solid and
-/// the anchors are updated; on failure the old solid is dropped and
-/// [ExtrudeFeature.computeError] says exactly why (Inventor's sick-feature
-/// behaviour, minus the guessing).
-bool recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) =>
-    Perf.span('kernel.feature', () => _recomputeFeature(part, f, kernel));
-
-bool _recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
-  f.disposeSolid();
-  f.computeError = null;
-  final cs = part.sketchByName(f.sketchName);
-  if (cs == null) {
-    f.computeError = 'sketch "${f.sketchName}" no longer exists';
-    return false;
-  }
+/// Re-matches [profiles] against the current regions of [sketchName] and
+/// returns the loop groups to hand the kernel, or an error string.
+///
+/// Shared by extrude and revolve: both pick profiles from a sketch the same
+/// way, and duplicating this was how the two would have drifted apart.
+(List<List<List<Offset>>>?, PlaneFrame?, String?) resolveProfiles(
+    PartModel part, String sketchName, List<ProfileSel> profiles) {
+  final cs = part.sketchByName(sketchName);
+  if (cs == null) return (null, null, 'sketch "$sketchName" no longer exists');
   final regions = regionsFrom(profileLoops(cs.model));
-  if (regions.isEmpty) {
-    f.computeError = 'no closed profile in "${f.sketchName}"';
-    return false;
-  }
+  if (regions.isEmpty) return (null, null, 'no closed profile in "$sketchName"');
   final groups = <List<List<Offset>>>[];
-  for (final sel in f.profiles) {
+  for (final sel in profiles) {
     final anchor = Offset(sel.ax, sel.ay);
     ProfileRegion? best;
     var bestD = double.infinity;
@@ -1932,8 +2675,7 @@ bool _recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
     if (best == null ||
         (!pointInPolygon(anchor, best.outer.pts) &&
             (best.outer.area - sel.area).abs() > 0.5 * sel.area)) {
-      f.computeError = 'a picked profile could not be found any more';
-      return false;
+      return (null, null, 'a picked profile could not be found any more');
     }
     final ip = interiorPointOf(best.outer);
     sel.ax = ip.dx;
@@ -1941,22 +2683,272 @@ bool _recomputeFeature(PartModel part, ExtrudeFeature f, PartKernel kernel) {
     sel.area = best.outer.area;
     groups.add([best.outer.pts, for (final h in best.holes) h.pts]);
   }
-  if (groups.isEmpty) {
-    f.computeError = 'no profile selected';
+  if (groups.isEmpty) return (null, null, 'no profile selected');
+  return (groups, sketchFrameOf(cs), null);
+}
+
+/// Recomputes [f] against the CURRENT model state and stores the resulting
+/// solid, or an honest [PartFeature.computeError] (Inventor's sick-feature
+/// behaviour, minus the guessing).
+///
+/// [base] is the accumulated solid of this feature's body at this position.
+/// A body-modifying feature (fillet, chamfer) REQUIRES it — that is its
+/// input, not something to combine with afterwards.
+bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
+        {KernelSolid? base}) =>
+    Perf.span('kernel.feature', () => _recomputeFeature(part, f, kernel, base));
+
+bool _recomputeFeature(
+    PartModel part, PartFeature f, PartKernel kernel, KernelSolid? base) {
+  f.disposeSolid();
+  f.computeError = null;
+  if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
+  if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base);
+  if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel);
+  f.computeError = 'unknown feature kind "${f.kind}"';
+  return false;
+}
+
+/// Human label for an extent, used in error messages and tooltips.
+String extentLabel(FeatureExtent e) => switch (e) {
+      FeatureExtent.toNext => 'To Next',
+      FeatureExtent.toFace => 'To',
+      FeatureExtent.throughAll => 'Through All',
+      FeatureExtent.distance => 'Distance',
+    };
+
+/// Signed extent of [solid] along [frame]'s normal, measured from the sketch
+/// origin: (tMin, tMax). Null when the solid carries no B-Rep — on a test
+/// fake that is the truth, and the caller reports it instead of guessing a
+/// number.
+(double, double)? bodySpanAlong(KernelSolid solid, PlaneFrame frame) {
+  final bb = solid.shape?.bbox();
+  if (bb == null || bb.length != 6) return null;
+  // Deliberately this BODY's box, not partContentBounds(): Through All must
+  // pass through the body it builds into, and the whole-part bounds include
+  // other bodies and sketch curves, which would silently overshoot and also
+  // break the "nothing lies above the sketch plane" answer.
+  final (lo, hi) = boxSpanAlong(
+      Vec3(bb[0], bb[1], bb[2]), Vec3(bb[3], bb[4], bb[5]), frame.n);
+  // measured FROM the sketch plane
+  final base = frame.origin.dot(frame.n);
+  return (lo - base, hi - base);
+}
+
+/// Distance from the sketch plane to the next face of [solid] along [dir],
+/// looking from every picked profile anchor. Null when nothing is hit.
+///
+/// The MINIMUM positive hit wins: "To Next" means the next face encountered,
+/// and on a stepped block the nearest step is that face. Rays start on the
+/// sketch plane, so a sketch drawn ON a face registers that face at t≈0 and
+/// it is filtered out — otherwise every To Next would resolve to zero.
+double? nextFaceDistance(
+    KernelSolid solid, PlaneFrame frame, List<ProfileSel> profiles, Vec3 dir) {
+  final shape = solid.shape;
+  if (shape == null) return null;
+  var best = double.infinity;
+  for (final p in profiles) {
+    final o = frame.toWorld(Offset(p.ax, p.ay));
+    final hits = shape.rayHits(o.x, o.y, o.z, dir.x, dir.y, dir.z);
+    for (final t in hits) {
+      if (t > 1e-6 && t < best) best = t;
+    }
+  }
+  return best.isFinite ? best : null;
+}
+
+/// Where the extrusion should stop for [FeatureExtent.toFace].
+///
+/// A planar termination face is solved analytically — that is exact at any
+/// distance and needs no tessellation. Anything else (a cylinder, an
+/// irregular surface) has no single termination plane, so it falls back to
+/// the ray cast, which is also what Inventor's "Alternate/Minimum Solution"
+/// toggles are choosing between.
+double? faceDistance(KernelSolid solid, PlaneFrame frame,
+    List<ProfileSel> profiles, Vec3 dir, FaceSel face) {
+  final fn = Vec3(face.nx, face.ny, face.nz);
+  final denom = dir.dot(fn);
+  if (denom.abs() > 1e-9 && profiles.isNotEmpty) {
+    final p = Vec3(face.px, face.py, face.pz);
+    var best = double.infinity;
+    for (final s in profiles) {
+      final o = frame.toWorld(Offset(s.ax, s.ay));
+      final t = (p - o).dot(fn) / denom;
+      if (t > 1e-6 && t < best) best = t;
+    }
+    if (best.isFinite) return best;
+  }
+  return nextFaceDistance(solid, frame, profiles, dir);
+}
+
+/// Turns Inventor's Extents into the (height, startOffset) pair the kernel
+/// wants, or an honest error.
+///
+/// [base] is the body this feature builds into. Every extent except a plain
+/// Distance resolves against it, which is exactly why Inventor greys those
+/// options out on a base feature — there is nothing to terminate against.
+(double, double, String?) resolveExtrudeSpan(
+    ExtrudeFeature f, PlaneFrame frame, KernelSolid? base) {
+  if (f.extent == FeatureExtent.distance) {
+    final (h, z) = extrudeSpan(f.direction, f.distanceA, f.distanceB);
+    return (h, z, h > 0 ? null : 'distance must be greater than 0');
+  }
+  if (base == null) {
+    return (
+      0,
+      0,
+      '${extentLabel(f.extent)} needs an existing body — '
+          'a base feature has nothing to terminate against'
+    );
+  }
+  final flipped = f.direction == ExtrudeDirection.flipped;
+  final both = f.direction == ExtrudeDirection.symmetric ||
+      f.direction == ExtrudeDirection.asymmetric;
+  final dir = flipped ? frame.n * -1.0 : frame.n;
+
+  if (f.extent == FeatureExtent.throughAll) {
+    final span = bodySpanAlong(base, frame);
+    if (span == null) {
+      return (0, 0, 'Through All could not measure the body');
+    }
+    final (lo, hi) = span;
+    // Overshoot both ends: a tool cap COPLANAR with a body cap is the classic
+    // way to make an OCCT boolean fragile, and the overshoot costs nothing.
+    final pad = 0.01 * ((hi - lo).abs() + 1.0) + 1.0;
+    if (both) return (hi - lo + 2 * pad, lo - pad, null);
+    if (flipped) {
+      final h = -(lo - pad);
+      return h > 0 ? (h, lo - pad, null) : (0, 0, 'nothing lies below the sketch plane');
+    }
+    final h = hi + pad;
+    return h > 0 ? (h, 0.0, null) : (0, 0, 'nothing lies above the sketch plane');
+  }
+
+  final d = f.extent == FeatureExtent.toFace && f.extentFace != null
+      ? faceDistance(base, frame, f.profiles, dir, f.extentFace!)
+      : nextFaceDistance(base, frame, f.profiles, dir);
+  if (d == null || !(d > 0)) {
+    return (
+      0,
+      0,
+      f.extent == FeatureExtent.toFace
+          ? 'the termination face is not reachable from this profile'
+          : 'no next face in that direction'
+    );
+  }
+  // Symmetric/asymmetric measure the SAME resolved distance either side, the
+  // way a symmetric Distance splits one typed value.
+  if (both) return (2 * d, -d, null);
+  return (d, flipped ? -d : 0.0, null);
+}
+
+bool _recomputeExtrude(PartModel part, ExtrudeFeature f, PartKernel kernel,
+    KernelSolid? base) {
+  final (groups, frame, err) =
+      resolveProfiles(part, f.sketchName, f.profiles);
+  if (groups == null || frame == null) {
+    f.computeError = err ?? 'profile resolution failed';
     return false;
   }
-  final (height, zOff) = extrudeSpan(f.direction, f.distanceA, f.distanceB);
-  if (!(height > 0)) {
-    f.computeError = 'distance must be greater than 0';
+  final (height, zOff, spanErr) = resolveExtrudeSpan(f, frame, base);
+  if (spanErr != null || !(height > 0)) {
+    f.computeError = spanErr ?? 'distance must be greater than 0';
     return false;
   }
-  final frame = sketchFrameOf(cs);
   final solid = kernel.extrude(groups, height, f.taperDeg, frame.mat34(zOff));
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;
   }
   f.solid = solid;
+  return true;
+}
+
+bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel) {
+  final (groups, frame, err) =
+      resolveProfiles(part, f.sketchName, f.profiles);
+  if (groups == null || frame == null) {
+    f.computeError = err ?? 'profile resolution failed';
+    return false;
+  }
+  final sweep = f.sweepDeg;
+  if (!(sweep > 0)) {
+    f.computeError = 'angle must be greater than 0';
+    return false;
+  }
+  if (f.axDx == 0 && f.axDy == 0) {
+    f.computeError = 'no axis of revolution selected';
+    return false;
+  }
+  // Inventor's Symmetric/Flipped/Asymmetric rotate WHERE the sweep starts.
+  // The shim always sweeps in the positive direction from the profile, so the
+  // offset rides in the placement transform — the same trick extrudeSpan uses
+  // for the linear case, and the reason neither path ever mirrors a solid.
+  final solid = kernel.revolve(groups, sweep, f.axPx, f.axPy, f.axDx, f.axDy,
+      frame.mat34Rotated(f.axPx, f.axPy, f.axDx, f.axDy, f.startOffsetDeg));
+  if (solid == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = solid;
+  return true;
+}
+
+bool _recomputeBodyModify(
+    BodyModifyFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    // Inventor greys Fillet out with nothing to fillet; a saved file can
+    // still reach this if the upstream feature broke, so say so plainly.
+    f.computeError = 'nothing to modify — no solid before this feature';
+    return false;
+  }
+  if (f.edges.isEmpty) {
+    f.computeError = 'no edges selected';
+    return false;
+  }
+  final live = kernel.edgesOf(base);
+  if (live.isEmpty) {
+    f.computeError = kernel.lastError.isEmpty
+        ? 'the body has no selectable edges'
+        : kernel.lastError;
+    return false;
+  }
+  final (ids, lost) = f.resolveEdges(live);
+  if (ids.isEmpty) {
+    f.computeError = 'none of the selected edges exist any more';
+    return false;
+  }
+  KernelSolid? out;
+  if (f is FilletFeature) {
+    // resolveEdges DROPS lost selections, so the radii must be re-aligned to
+    // the surviving ids by the same rule, not indexed by their old position.
+    final radii = <double>[];
+    var k = 0;
+    for (var i = 0; i < f.edges.length && k < ids.length; i++) {
+      if (f.edges[i].bestMatch(live)?.index == ids[k]) {
+        radii.add(i < f.radii.length ? f.radii[i] : f.radii.last);
+        k++;
+      }
+    }
+    while (radii.length < ids.length) {
+      radii.add(f.radii.isEmpty ? 2.0 : f.radii.last);
+    }
+    out = kernel.filletEdges(base, ids, radii);
+  } else if (f is ChamferFeature) {
+    final (d1, d2, ang) = f.kernelParams;
+    out = kernel.chamferEdges(base, ids, f.mode, d1, d2, ang);
+  }
+  if (out == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = out;
+  // A partial loss is not a failure — Inventor keeps filleting the edges that
+  // survived — but it must not be silent either.
+  if (lost > 0) {
+    Log.i('feature',
+        '${f.name}: $lost of ${f.edges.length} picked edges no longer exist');
+  }
   return true;
 }
 
@@ -1999,37 +2991,22 @@ double? parseValueExpr(String raw) {
 /// Everything that can change what [f] computes to: its own parameters, the
 /// profiles it picked, and the full state of the sketch it is built on
 /// (geometry, layers, end-of-sketch marker and the plane it sits on).
-String featureInputSig(PartModel part, ExtrudeFeature f) {
+String featureInputSig(PartModel part, PartFeature f) {
   final b = StringBuffer()
-    ..write(f.sketchName)
+    ..write(f.ownSig())
     ..write('|')
-    ..write(f.distanceA)
-    ..write(',')
-    ..write(f.distanceB)
-    ..write(',')
-    ..write(f.taperDeg)
-    ..write(',')
-    ..write(f.iMate)
-    ..write(',')
-    ..write(f.matchShape)
-    ..write(',')
     ..write(f.output)
     ..write(',')
     ..write(f.bodyName)
     ..write(',')
     ..write(f.visible)
     ..write('|');
-  for (final p in f.profiles) {
-    b
-      ..write(p.ax)
-      ..write(':')
-      ..write(p.ay)
-      ..write(';');
-  }
-  b.write('|');
+  // A body-modifying feature has no sketch of its own; everything it depends
+  // on arrives through the upstream chain key that recomputeAllFeatures
+  // prepends, so there is nothing further to hash here.
   final cs = part.sketchByName(f.sketchName);
   if (cs == null) {
-    b.write('MISSING');
+    b.write(f.modifiesBody ? 'BODY' : 'MISSING');
     return b.toString();
   }
   b
@@ -2084,7 +3061,7 @@ String featureInputSig(PartModel part, ExtrudeFeature f) {
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var allOk = true;
-  final chainLast = <String, ExtrudeFeature>{}; // bodyName -> last in chain
+  final chainLast = <String, PartFeature>{}; // bodyName -> last in chain
   final upstream = <String, String>{}; // bodyName -> running chain key
   for (final f in part.features) {
     f.consumedByJoin = false;
@@ -2095,20 +3072,37 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
         f.builtSig == sig) {
       // Unchanged: f.solid already holds the folded result AT THIS POSITION,
       // so the boolean below must not run again — only the bookkeeping.
-      final prev = f.output != 'new' ? chainLast[f.bodyName] : null;
+      // A body-modifying feature ALWAYS consumes its predecessor, whatever
+      // its (meaningless) output value says.
+      final prev = (f.modifiesBody || f.output != 'new')
+          ? chainLast[f.bodyName]
+          : null;
       if (prev != null && prev.solid != null) prev.consumedByJoin = true;
       if (f.visible) chainLast[f.bodyName] = f;
       upstream[f.bodyName] = sig;
       continue;
     }
-    final ok = recomputeFeature(part, f, kernel);
+    final prev = (f.modifiesBody || f.output != 'new')
+        ? chainLast[f.bodyName]
+        : null;
+    // Fillet and chamfer MODIFY the accumulated body, so it is their input,
+    // not a second operand. Handing it to recomputeFeature (rather than
+    // combining afterwards) is what keeps them out of the boolean path
+    // entirely — there is no union to perform, the kernel returns the
+    // already-modified solid.
+    // `base` is handed to EVERY feature now, not just the body-modifying
+    // ones: M103's extents (To Next / To / Through All) resolve against the
+    // body this feature builds into. A 'new' output has no predecessor, which
+    // is precisely why Inventor greys those extents out on a base feature.
+    final ok = recomputeFeature(part, f, kernel, base: prev?.solid);
     if (!ok) {
       allOk = false;
       chainLast.remove(f.bodyName); // a broken chain stops accumulating
       continue;
     }
-    final prev = f.output != 'new' ? chainLast[f.bodyName] : null;
-    if (prev != null && prev.solid != null && f.solid != null) {
+    if (f.modifiesBody) {
+      if (prev != null && prev.solid != null) prev.consumedByJoin = true;
+    } else if (prev != null && prev.solid != null && f.solid != null) {
       final combined = combineSolids(kernel, f.output, prev.solid!, f.solid!);
       if (combined != null) {
         f.disposeSolid();
@@ -2149,7 +3143,7 @@ KernelSolid? currentBodySolid(PartModel part, String bodyName) {
 /// [before] already holds the union/cut/intersect of everything earlier.
 /// Used for the live preview while EDITING an existing feature.
 KernelSolid? bodyBaseBefore(
-    PartModel part, String bodyName, ExtrudeFeature before) {
+    PartModel part, String bodyName, PartFeature before) {
   KernelSolid? head;
   for (final f in part.features) {
     if (identical(f, before)) break;
@@ -2162,8 +3156,8 @@ KernelSolid? bodyBaseBefore(
 /// or null. A NEW extrude with a boolean output targets this feature's body —
 /// mirroring [applyExtrude], which adopts the last feature's [bodyName] for a
 /// non-'new' output.
-ExtrudeFeature? lastSolidFeature(PartModel part) {
-  ExtrudeFeature? last;
+PartFeature? lastSolidFeature(PartModel part) {
+  PartFeature? last;
   for (final f in part.features) {
     if (f.solid != null && !f.consumedByJoin) last = f;
   }
@@ -2691,11 +3685,7 @@ String _contentSignature(PartModel p) {
 /// vanishing inside a large part).
 (double, double) originAxisSpan(PartModel p, Vec3 dir) {
   final (lo, hi) = originExtentBounds(p);
-  final a = Vec3(dir.x >= 0 ? lo.x : hi.x, dir.y >= 0 ? lo.y : hi.y,
-      dir.z >= 0 ? lo.z : hi.z);
-  final b = Vec3(dir.x >= 0 ? hi.x : lo.x, dir.y >= 0 ? hi.y : lo.y,
-      dir.z >= 0 ? hi.z : lo.z);
-  return (a.dot(dir), b.dot(dir));
+  return boxSpanAlong(lo, hi, dir);
 }
 
 // ===========================================================================
@@ -2706,7 +3696,7 @@ String _contentSignature(PartModel p) {
 class PartNode {
   /// Exactly one of these is set.
   final ChildSketch? sketch;
-  final ExtrudeFeature? feature;
+  final PartFeature? feature;
 
   /// For a sketch row: true when this is the SHARED copy pinned above its
   /// consumer, rather than a sketch that simply has not been consumed yet.
@@ -2714,7 +3704,7 @@ class PartNode {
 
   const PartNode.forSketch(ChildSketch this.sketch, {this.sharedCopy = false})
       : feature = null;
-  const PartNode.forFeature(ExtrudeFeature this.feature)
+  const PartNode.forFeature(PartFeature this.feature)
       : sketch = null,
         sharedCopy = false;
 
@@ -2738,7 +3728,7 @@ class PartNode {
 ///    of sharing is to show the sketch in relation to the feature using it.
 List<PartNode> partTimeline(PartModel part) {
   // Shared sketches are emitted by their consumer, so index them by consumer.
-  final pinned = <ExtrudeFeature, List<ChildSketch>>{};
+  final pinned = <PartFeature, List<ChildSketch>>{};
   for (final cs in part.childSketches) {
     if (!cs.shared) continue;
     final f = firstConsumerOf(part, cs.model.name);
@@ -2775,7 +3765,7 @@ List<PartNode> partTimeline(PartModel part) {
 }
 
 /// Features in build order — the order the End of Part marker counts in.
-List<ExtrudeFeature> partBuildOrder(PartModel part) =>
+List<PartFeature> partBuildOrder(PartModel part) =>
     [for (final n in partTimeline(part)) if (n.isFeature) n.feature!];
 
 /// Applies [PartModel.eopAfter] to [ExtrudeFeature.rolledBack].
@@ -2797,7 +3787,7 @@ bool applyEndOfPart(PartModel part) {
 }
 
 /// True when [f] is suppressed by the End of Part marker.
-bool featureRolledBack(PartModel part, ExtrudeFeature f) => f.rolledBack;
+bool featureRolledBack(PartModel part, PartFeature f) => f.rolledBack;
 
 /// Whether the End of Part marker is anywhere but the end — i.e. the part is
 /// showing an earlier state of itself.

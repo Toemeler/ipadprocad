@@ -73,6 +73,24 @@ class CylKernel implements PartKernel {
 
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
+
+  // M102 — the fake does not model revolve or body modification; saying so
+  // honestly is what the feature will surface as its computeError.
+  @override
+  KernelSolid? revolve(List<List<List<Offset>>> groups, double angleDeg,
+          double axPx, double axPy, double axDx, double axDy,
+          List<double> mat34) =>
+      null;
+  @override
+  List<OcctEdgeInfo> edgesOf(KernelSolid s) => const [];
+  @override
+  KernelSolid? filletEdges(
+          KernelSolid base, List<int> edgeIds, List<double> radii) =>
+      null;
+  @override
+  KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
+          double d1, double d2, double angleDeg) =>
+      null;
 }
 
 AppState makeApp() {

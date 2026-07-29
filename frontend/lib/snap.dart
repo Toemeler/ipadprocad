@@ -9,6 +9,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'pick_math.dart';
 import 'ffi/qcad_engine.dart';
 import 'spline.dart';
 
@@ -179,14 +180,12 @@ List<Offset> _quadrants(Offset c, double r) => [
       c + Offset(0, -r)
     ];
 
-Offset closestOnSegment(Offset p, Offset a, Offset b) {
-  final ab = b - a;
-  final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-  if (len2 < 1e-12) return a;
-  var t = ((p - a).dx * ab.dx + (p - a).dy * ab.dy) / len2;
-  t = t.clamp(0.0, 1.0);
-  return a + ab * t;
-}
+/// Closest point to [p] on the segment [a]-[b].
+///
+/// The clamped projection itself lives in [segDistSq], which also returns the
+/// parameter — this was the fourth copy of that arithmetic in the codebase.
+Offset closestOnSegment(Offset p, Offset a, Offset b) =>
+    a + (b - a) * segDistSq(p, a, b).$2;
 
 bool _angleOnArc(double a, double a1, double a2, bool reversed) {
   double norm(double x) {

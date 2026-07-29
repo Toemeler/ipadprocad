@@ -82,6 +82,17 @@
 #include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 
+/* v12: revolve, fillet/chamfer, ray casting, edge identity */
+#include <gp_Ax1.hxx>
+#include <gp_Lin.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepFilletAPI_MakeChamfer.hxx>
+#include <BRepIntCurveSurface_Inter.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <TopoDS_Edge.hxx>
+#include <algorithm>
+
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
@@ -140,13 +151,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v11 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v12 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 11; }
+extern "C" int occt_shim_version(void) { return 12; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -919,6 +930,8 @@ struct occt_mesh
     std::vector<int> tri_face;      /* 1 face index per triangle */
     std::vector<double> face_infos; /* 15 doubles per face (see header) */
     std::vector<double> edge_curves;/* 16 doubles per edge (see header) */
+    /* v12 */
+    std::vector<int> edge_ids;      /* 1-based topological index per display edge */
 };
 
 extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
@@ -946,6 +959,7 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
 
     std::vector<double> verts, norms, edge_pts, edge_curves;
     std::vector<int> tris, edge_starts;
+    std::vector<int> edge_ids; /* v12: topological index per display edge */
     edge_starts.push_back(0);
 
     /* Faces -> shaded triangles. Vertices are emitted PER FACE, so B-Rep
@@ -1092,6 +1106,14 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
             edge_pts.push_back(p.Z());
         }
         edge_starts.push_back((int)(edge_pts.size() / 3));
+        /* v12: remember WHICH topological edge this display edge came from.
+         * The loop above skips degenerate, seam and tangent-continuous edges,
+         * so the display index and the TopExp::MapShapes index drift apart
+         * the moment a model has a fillet or a cylinder in it. Fillet and
+         * chamfer address the topological index; picking hands back a display
+         * index. Without this row the two silently disagree and the fillet
+         * lands on a different edge than the one the user tapped. */
+        edge_ids.push_back(i);
         /* v4: one 16-double analytic record per exported edge, so the
          * display can draw lines/circles/ellipses as exact vector curves.
          * Anything else keeps type 0 and renders from the polyline. */
@@ -1156,6 +1178,7 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     m->tri_face.swap(tri_face);
     m->face_infos.swap(face_infos);
     m->edge_curves.swap(edge_curves);
+    m->edge_ids.swap(edge_ids);
     return m;
     OCCT_CATCH("occt_mesh_create", nullptr)
 }
@@ -1308,4 +1331,440 @@ extern "C" occt_shape *occt_import_step(const char *path)
 extern "C" void occt_free_shape(occt_shape *shape)
 {
     delete shape; /* delete nullptr is a no-op */
+}
+
+/* ---- v12: revolve, edge identity, fillet/chamfer, ray casting ----------- */
+
+/* Signed offset of (x,y) from the 2D line through (px,py) along (dx,dy).
+ * Only the SIGN is used — it says which side of the revolve axis a profile
+ * vertex sits on. */
+static double axis_side(double px, double py, double dx, double dy,
+                        double x, double y)
+{
+    return dx * (y - py) - dy * (x - px);
+}
+
+/* The face a chamfer measures its first distance on. OCCT needs one to
+ * disambiguate the two asymmetric methods; the ancestor map's first entry is
+ * deterministic for a given shape, which is all the caller needs in order to
+ * offer a stable "Flip". Null face when the edge is a free boundary. */
+static TopoDS_Face edge_ref_face(
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces,
+    const TopoDS_Edge &edge)
+{
+    if (!edgeFaces.Contains(edge))
+        return TopoDS_Face();
+    const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+    if (fl.IsEmpty())
+        return TopoDS_Face();
+    return TopoDS::Face(fl.First());
+}
+
+extern "C" occt_shape *occt_revolve_profile(const double *xyb,
+                                            const int *loop_counts, int nloops,
+                                            double ax_px, double ax_py,
+                                            double ax_dx, double ax_dy,
+                                            double angle_deg)
+{
+    OCCT_TRY("occt_revolve_profile")
+    if (!xyb || !loop_counts || nloops < 1) {
+        set_err("occt_revolve_profile", "null profile arguments");
+        return nullptr;
+    }
+    if (!(angle_deg > 0.0) || angle_deg > 360.0 + 1e-9) {
+        set_err("occt_revolve_profile", "angle must be in (0, 360] deg");
+        return nullptr;
+    }
+    const double alen = std::sqrt(ax_dx * ax_dx + ax_dy * ax_dy);
+    if (!(alen > 1e-12)) {
+        set_err("occt_revolve_profile", "axis direction is degenerate");
+        return nullptr;
+    }
+    ax_dx /= alen;
+    ax_dy /= alen;
+    for (int l = 0; l < nloops; ++l) {
+        if (loop_counts[l] < 2) {
+            set_err("occt_revolve_profile",
+                    "every loop needs at least 2 vertices");
+            return nullptr;
+        }
+    }
+
+    /* The profile must stay on ONE side of the axis. A profile straddling it
+     * sweeps through itself and OCCT either fails deep inside the sweeper or,
+     * worse, returns a self-intersecting solid that only shows up as a broken
+     * boolean three features later. Inventor rejects it up front, so do that
+     * here — with a tolerance scaled to the profile, not an absolute epsilon,
+     * because a profile whose edge merely TOUCHES the axis (the common case:
+     * a shaft revolved about its own centreline) is legal and must pass. */
+    {
+        int ntot = 0;
+        for (int l = 0; l < nloops; ++l)
+            ntot += loop_counts[l];
+        double scale = 0.0;
+        for (int i = 0; i < ntot; ++i) {
+            const double s =
+                std::fabs(axis_side(ax_px, ax_py, ax_dx, ax_dy,
+                                    xyb[3 * i], xyb[3 * i + 1]));
+            if (s > scale)
+                scale = s;
+        }
+        const double tol = 1e-7 * (scale + 1.0);
+        bool anyPos = false, anyNeg = false;
+        for (int i = 0; i < ntot; ++i) {
+            const double s = axis_side(ax_px, ax_py, ax_dx, ax_dy,
+                                       xyb[3 * i], xyb[3 * i + 1]);
+            if (s > tol)
+                anyPos = true;
+            if (s < -tol)
+                anyNeg = true;
+        }
+        if (anyPos && anyNeg) {
+            set_err("occt_revolve_profile",
+                    "profile crosses the axis of revolution");
+            return nullptr;
+        }
+    }
+
+    const gp_Ax1 axis(gp_Pnt(ax_px, ax_py, 0.0), gp_Dir(ax_dx, ax_dy, 0.0));
+    const double angle_rad = angle_deg * M_PI / 180.0;
+    /* Same explicit +Z profile plane as occt_extrude_profile_arcs: inferring
+     * it from the wire makes the normal follow the winding, which swaps
+     * material and hole. See the long note there. */
+    const gp_Pln profilePln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+
+    const double *p = xyb;
+    bool ok = false;
+    const double a0 = arc_loop_signed_area(p, loop_counts[0]);
+    if (std::fabs(a0) < 1e-12) {
+        set_err("occt_revolve_profile", "outer loop is degenerate");
+        return nullptr;
+    }
+    TopoDS_Wire outer = arc_loop_wire(p, loop_counts[0], a0 > 0.0, &ok);
+    if (!ok) {
+        set_err("occt_revolve_profile", "outer wire construction failed");
+        return nullptr;
+    }
+    BRepBuilderAPI_MakeFace faceMk(profilePln, outer, Standard_True);
+    if (!faceMk.IsDone()) {
+        set_err("occt_revolve_profile",
+                "outer loop is not a valid planar face (self-intersecting?)");
+        return nullptr;
+    }
+    p += 3 * loop_counts[0];
+
+    BRepPrimAPI_MakeRevol rev(faceMk.Face(), axis, angle_rad);
+    if (!rev.IsDone()) {
+        set_err("occt_revolve_profile", "revolution of the outer loop failed");
+        return nullptr;
+    }
+    TopoDS_Shape body = rev.Shape();
+
+    /* Holes are revolved separately and cut, for the same reason the extrude
+     * path cuts them: multi-wire faces came back with the HOLE as the
+     * material. Every tool is a full solid of revolution built through the
+     * proven single-wire path. */
+    for (int l = 1; l < nloops; ++l) {
+        const double a = arc_loop_signed_area(p, loop_counts[l]);
+        if (std::fabs(a) < 1e-12) {
+            set_err("occt_revolve_profile", "hole loop is degenerate");
+            return nullptr;
+        }
+        TopoDS_Wire holeW = arc_loop_wire(p, loop_counts[l], a > 0.0, &ok);
+        if (!ok) {
+            set_err("occt_revolve_profile", "hole wire construction failed");
+            return nullptr;
+        }
+        BRepBuilderAPI_MakeFace holeMk(profilePln, holeW, Standard_True);
+        if (!holeMk.IsDone()) {
+            set_err("occt_revolve_profile",
+                    "hole loop is not a valid planar face");
+            return nullptr;
+        }
+        BRepPrimAPI_MakeRevol holeRev(holeMk.Face(), axis, angle_rad);
+        if (!holeRev.IsDone()) {
+            set_err("occt_revolve_profile", "revolution of a hole failed");
+            return nullptr;
+        }
+        BRepAlgoAPI_Cut cut(body, holeRev.Shape());
+        if (!cut.IsDone() || !has_solid_material(cut.Shape())) {
+            set_err("occt_revolve_profile",
+                    "cutting a hole out of the revolution failed");
+            return nullptr;
+        }
+        body = cut.Shape();
+        p += 3 * loop_counts[l];
+    }
+
+    /* A full 360 revolution of an arc-built profile arrives as several
+     * same-surface patches split at the seam, exactly like the two-half-arc
+     * circle in the extrude path. Merge them so the display shows one
+     * cylindrical/toroidal face and no phantom meridian lines. */
+    ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
+                                     Standard_False);
+    uni.Build();
+    return wrap(uni.Shape(), "occt_revolve_profile");
+    OCCT_CATCH("occt_revolve_profile", nullptr)
+}
+
+extern "C" int occt_shape_edge_count(const occt_shape *shape)
+{
+    OCCT_TRY("occt_shape_edge_count")
+    if (!shape) {
+        set_err("occt_shape_edge_count", "null shape");
+        return -1;
+    }
+    TopTools_IndexedMapOfShape m;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
+    return m.Extent();
+    OCCT_CATCH("occt_shape_edge_count", -1)
+}
+
+extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
+                                    double *out10)
+{
+    OCCT_TRY("occt_shape_edge_info")
+    if (!shape || !out10) {
+        set_err("occt_shape_edge_info", "null argument");
+        return 0;
+    }
+    TopTools_IndexedMapOfShape m;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
+    if (index < 1 || index > m.Extent()) {
+        set_err("occt_shape_edge_info", "edge index out of range");
+        return 0;
+    }
+    const TopoDS_Edge edge = TopoDS::Edge(m.FindKey(index));
+    for (int i = 0; i < 10; ++i)
+        out10[i] = 0.0;
+    if (BRep_Tool::Degenerated(edge))
+        return 1; /* type 0, zero length — an honest "nothing here" */
+
+    BRepAdaptor_Curve c(edge);
+    const double len = GCPnts_AbscissaPoint::Length(c);
+    /* Midpoint by ARC LENGTH, not by parameter: on a B-spline the parametric
+     * midpoint wanders as the curve is rebuilt, and this point is the anchor
+     * a fillet is re-matched against after a recompute. Arc length is a
+     * geometric property of the curve, so it stays put. */
+    double tmid = 0.5 * (c.FirstParameter() + c.LastParameter());
+    if (len > 1e-12) {
+        GCPnts_AbscissaPoint ap(c, len * 0.5, c.FirstParameter());
+        if (ap.IsDone())
+            tmid = ap.Parameter();
+    }
+    gp_Pnt pm;
+    gp_Vec d1;
+    c.D1(tmid, pm, d1);
+    if (d1.Magnitude() > 1e-12)
+        d1.Normalize();
+
+    switch (c.GetType()) {
+    case GeomAbs_Line:
+        out10[0] = 1;
+        break;
+    case GeomAbs_Circle:
+        out10[0] = 2;
+        out10[8] = c.Circle().Radius();
+        break;
+    case GeomAbs_Ellipse:
+        out10[0] = 3;
+        out10[8] = c.Ellipse().MajorRadius();
+        break;
+    default:
+        out10[0] = 4;
+        break;
+    }
+    out10[1] = pm.X();
+    out10[2] = pm.Y();
+    out10[3] = pm.Z();
+    out10[4] = d1.X();
+    out10[5] = d1.Y();
+    out10[6] = d1.Z();
+    out10[7] = len;
+
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
+                                  edgeFaces);
+    out10[9] = edgeFaces.Contains(edge)
+                   ? (double)edgeFaces.FindFromKey(edge).Extent()
+                   : 0.0;
+    return 1;
+    OCCT_CATCH("occt_shape_edge_info", 0)
+}
+
+extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)
+{
+    OCCT_TRY("occt_mesh_edge_ids")
+    if (!m || !out) {
+        set_err("occt_mesh_edge_ids", "null argument");
+        return 0;
+    }
+    for (size_t i = 0; i < m->edge_ids.size(); ++i)
+        out[i] = m->edge_ids[i];
+    return 1;
+    OCCT_CATCH("occt_mesh_edge_ids", 0)
+}
+
+extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
+                                         const int *edge_ids,
+                                         const double *radii, int n)
+{
+    OCCT_TRY("occt_fillet_edges")
+    if (!shape || !edge_ids || !radii || n < 1) {
+        set_err("occt_fillet_edges", "null or empty edge set");
+        return nullptr;
+    }
+    TopTools_IndexedMapOfShape m;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
+    BRepFilletAPI_MakeFillet mk(shape->s);
+    int added = 0;
+    for (int i = 0; i < n; ++i) {
+        if (edge_ids[i] < 1 || edge_ids[i] > m.Extent()) {
+            set_err("occt_fillet_edges", "edge index out of range");
+            return nullptr;
+        }
+        if (!(radii[i] > 0.0)) {
+            set_err("occt_fillet_edges", "radius must be > 0");
+            return nullptr;
+        }
+        const TopoDS_Edge e = TopoDS::Edge(m.FindKey(edge_ids[i]));
+        if (BRep_Tool::Degenerated(e))
+            continue;
+        mk.Add(radii[i], e);
+        ++added;
+    }
+    if (added == 0) {
+        set_err("occt_fillet_edges", "no filletable edge in the set");
+        return nullptr;
+    }
+    mk.Build();
+    if (!mk.IsDone()) {
+        /* Overwhelmingly this is "radius too large for the adjacent faces".
+         * Report it as a clean failure: a fillet that silently shrank itself
+         * to fit would be a dimension the model does not actually hold. */
+        set_err("occt_fillet_edges",
+                "fillet failed (radius too large for the adjacent faces?)");
+        return nullptr;
+    }
+    if (!has_solid_material(mk.Shape())) {
+        set_err("occt_fillet_edges", "fillet consumed the solid");
+        return nullptr;
+    }
+    return wrap(mk.Shape(), "occt_fillet_edges");
+    OCCT_CATCH("occt_fillet_edges", nullptr)
+}
+
+extern "C" occt_shape *occt_chamfer_edges(const occt_shape *shape,
+                                          const int *edge_ids, const int *modes,
+                                          const double *d1, const double *d2,
+                                          const double *angle_deg, int n)
+{
+    OCCT_TRY("occt_chamfer_edges")
+    if (!shape || !edge_ids || !modes || !d1 || n < 1) {
+        set_err("occt_chamfer_edges", "null or empty edge set");
+        return nullptr;
+    }
+    TopTools_IndexedMapOfShape m;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
+                                  edgeFaces);
+    BRepFilletAPI_MakeChamfer mk(shape->s);
+    int added = 0;
+    for (int i = 0; i < n; ++i) {
+        if (edge_ids[i] < 1 || edge_ids[i] > m.Extent()) {
+            set_err("occt_chamfer_edges", "edge index out of range");
+            return nullptr;
+        }
+        if (!(d1[i] > 0.0)) {
+            set_err("occt_chamfer_edges", "distance must be > 0");
+            return nullptr;
+        }
+        const TopoDS_Edge e = TopoDS::Edge(m.FindKey(edge_ids[i]));
+        if (BRep_Tool::Degenerated(e))
+            continue;
+        const TopoDS_Face ref = edge_ref_face(edgeFaces, e);
+        if (ref.IsNull()) {
+            set_err("occt_chamfer_edges",
+                    "edge has no adjacent face to measure from");
+            return nullptr;
+        }
+        switch (modes[i]) {
+        case 1: /* two distances */
+            if (!d2 || !(d2[i] > 0.0)) {
+                set_err("occt_chamfer_edges",
+                        "two-distance chamfer needs a positive second distance");
+                return nullptr;
+            }
+            mk.Add(d1[i], d2[i], e, ref);
+            break;
+        case 2: /* distance and angle */
+            if (!angle_deg || !(angle_deg[i] > 0.0) ||
+                angle_deg[i] >= 90.0) {
+                set_err("occt_chamfer_edges",
+                        "chamfer angle must be in (0, 90) deg");
+                return nullptr;
+            }
+            mk.AddDA(d1[i], angle_deg[i] * M_PI / 180.0, e, ref);
+            break;
+        default: /* 0 — equal distance on both faces */
+            mk.Add(d1[i], e);
+            break;
+        }
+        ++added;
+    }
+    if (added == 0) {
+        set_err("occt_chamfer_edges", "no chamferable edge in the set");
+        return nullptr;
+    }
+    mk.Build();
+    if (!mk.IsDone()) {
+        set_err("occt_chamfer_edges",
+                "chamfer failed (distance too large for the adjacent faces?)");
+        return nullptr;
+    }
+    if (!has_solid_material(mk.Shape())) {
+        set_err("occt_chamfer_edges", "chamfer consumed the solid");
+        return nullptr;
+    }
+    return wrap(mk.Shape(), "occt_chamfer_edges");
+    OCCT_CATCH("occt_chamfer_edges", nullptr)
+}
+
+extern "C" int occt_ray_hits(const occt_shape *shape, double ox, double oy,
+                             double oz, double dx, double dy, double dz,
+                             double *out, int max_hits)
+{
+    OCCT_TRY("occt_ray_hits")
+    if (!shape || !out || max_hits < 1) {
+        set_err("occt_ray_hits", "null argument");
+        return -1;
+    }
+    const double dlen = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (!(dlen > 1e-12)) {
+        set_err("occt_ray_hits", "ray direction is degenerate");
+        return -1;
+    }
+    const gp_Lin line(gp_Pnt(ox, oy, oz),
+                      gp_Dir(dx / dlen, dy / dlen, dz / dlen));
+    BRepIntCurveSurface_Inter inter;
+    inter.Init(shape->s, line, 1.0e-7);
+    std::vector<double> ws;
+    for (; inter.More(); inter.Next())
+        ws.push_back(inter.W());
+    std::sort(ws.begin(), ws.end());
+    /* Adjacent faces meeting on an edge report the same crossing twice, and a
+     * "To Next" that stopped on a duplicate would measure zero thickness. */
+    int written = 0;
+    double last = 0.0;
+    bool have = false;
+    for (size_t i = 0; i < ws.size() && written < max_hits; ++i) {
+        if (have && std::fabs(ws[i] - last) <= 1.0e-7)
+            continue;
+        out[written++] = ws[i];
+        last = ws[i];
+        have = true;
+    }
+    return written;
+    OCCT_CATCH("occt_ray_hits", -1)
 }
