@@ -16,6 +16,23 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M118 — Der Browser laesst sich einziehen.**
+>
+> Chevron am RECHTEN Rand der Karte: Tippen schaltet um, ein horizontaler Wisch
+> darauf tut dasselbe in der Richtung, in die man wischt — das ist die Geste,
+> die man zuerst probiert. Die Breite animiert (264 ↔ 62), damit es wie EIN
+> gleitendes Objekt wirkt und nicht wie zwei getauschte Zustaende.
+>
+> **Eingezogen bleibt der Zeitstrahl, als Icons:** Skizzen, Features und die
+> End-of-Part-Marke. Die Ordner (Solid Bodies, Origin) und die Beschriftungen
+> sind das, wofuer man das Panel AUFmacht — also genau das, was das Einziehen
+> entfernt. Jede Zeile behaelt ihre id, ein Tipp tut in beiden Breiten
+> dasselbe, und die Kontextmenues bleiben ebenfalls dran.
+>
+> Nativ: ohne Label wird die Zelle icon-only und das Glyph mittig gesetzt,
+> sonst klebte die Spalte dort, wo vorher der Text anfing. Linker Rand auf
+> 18 pt, damit die Karte nie auf der iPad-Kante sitzt.
+
 > **M117 — Import gehoert in das "+"-Menue der Galerie, nicht ins Ribbon.**
 >
 > Der Knopf aus M111 ist aus BEIDEN Ribbons entfernt. Stattdessen steht

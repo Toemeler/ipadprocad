@@ -29,6 +29,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   int? _eopStart;
   int? _dragEop;
 
+  /// M118 — retracted to icons only.
+  bool _collapsed = false;
+
+  static const double _kWide = 264;
+  static const double _kNarrow = 62;
+
   AppState get app => widget.app;
 
   @override
@@ -36,12 +42,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (!GlassBrowser.isSupported) return ModelBrowser(app: app);
     return AnimatedBuilder(
       animation: app,
-      builder: (_, __) => SizedBox(
-        // M108 — narrower now that it floats: it sits over the model, so it
-        // should take as little of the view as the tree needs.
-        width: 264,
+      builder: (_, __) => AnimatedContainer(
+        // M118 — retracts to the timeline icons. Animated so the panel reads
+        // as one object sliding, not two states swapping.
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        width: _collapsed ? _kNarrow : _kWide,
+        child: Stack(children: [
+        Positioned.fill(
         child: GlassBrowser(
-          rows: buildBrowserRows(app, expanded: _expanded, dragEop: _dragEop),
+          rows: buildBrowserRows(app,
+              expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
           onTap: _onTap,
           onEye: _onEye,
           onExpand: (id, on) => setState(() {
@@ -55,6 +66,34 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           onEopDrag: _onEopDrag,
           onEopEnd: _onEopEnd,
         ),
+        ),
+        // The handle: a chevron on the RIGHT edge. Tap toggles; a horizontal
+        // swipe on it does the same, in the direction you swipe — the panel
+        // should obey the gesture you would try first.
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 26,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _collapsed = !_collapsed),
+            onHorizontalDragEnd: (d) {
+              final v = d.primaryVelocity ?? 0;
+              if (v.abs() < 50) return;
+              setState(() => _collapsed = v < 0);
+            },
+            child: Center(
+              child: AnimatedRotation(
+                duration: const Duration(milliseconds: 220),
+                turns: _collapsed ? 0.5 : 0,
+                child: Icon(Icons.chevron_left,
+                    size: 18, color: Colors.white.withValues(alpha: 0.55)),
+              ),
+            ),
+          ),
+        ),
+        ]),
       ),
     );
   }
