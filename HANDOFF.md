@@ -16,6 +16,66 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M144 — Die letzten drei offenen Punkte in einem Zug: variabler
+> Fillet-Radius, Revolve „To <Flaeche>", Kanten-Akzent im CPU-Painter.
+> Shim 41 Symbole, 771/771 Tests, 0 Analyzer-Fehler.**
+>
+> **1) Variabler Radius.** `occt_fillet_edges` nimmt jetzt ein optionales
+> zweites Radius-Array; wo `radii2[i] > 0` ist, benutzt der Shim
+> `BRepFilletAPI_MakeFillet::Add(r1, r2, edge)` und der Radius laeuft LINEAR
+> von einem Kantenende zum anderen (Inventors variabler Radius mit zwei
+> Kontrollpunkten). Null oder NULL heisst konstant, also aendert sich fuer ein
+> gewoehnliches Fillet nichts und alte Dateien laden unveraendert. Im Panel
+> gibt es je Satz ein optionales Feld „to"; leer = konstant. Ein nicht leerer,
+> aber unbrauchbarer Wert ist ein FEHLER, nicht ein stiller Rueckfall auf
+> konstant.
+>
+> **Smoke [26] behauptet ABSICHTLICH keine Formel.** Das Integral der
+> konstanten Querschnittsflaeche ueber die Kante,
+> `(1-pi/4)*L*(r1^2+r1*r2+r2^2)/3`, sagt 7925.605 voraus, gemessen wird
+> 7924.190 — die Naeherung ist um 1.8e-4 falsch, weil sie annimmt, die
+> Fillet-Flaeche bleibe senkrecht zur Kante, und ein wandernder Radius kippt
+> sie. Statt eine Toleranz aufzuweichen, bis eine falsche Formel durchgeht,
+> prueft der Test, was EXAKT gilt: mehr Material weg als bei konstant 2 mm,
+> weniger als bei konstant 6 mm, und NICHT der Mittelwert der beiden — was
+> genau das waere, was Radien-Mitteln statt Variieren liefern wuerde.
+> (7924.19 gegen 7982.83 / 7845.49, Mittel 7914.16.)
+>
+> **2) Revolve „To <Flaeche>".** In M143 blieb das aus, weil
+> `occt_revolve_hits` das ERSTE Material meldet, nicht die GEWAEHLTE Flaeche —
+> ein Profil kann auf dem Weg dorthin durch andere Flaechen laufen. Neu:
+> `occt_revolve_hits_face`, das den Kreis nur gegen EINE Flaeche schneidet
+> (die dem gepickten Punkt naechste; `BRepIntCurveSurface_Inter` nimmt jede
+> `TopoDS_Shape`, also auch ein einzelnes Face). Kreisaufbau und
+> Winkel-Extraktion sind jetzt gemeinsame Helfer, damit der Winkelnullpunkt
+> nur an EINER Stelle definiert ist. Smoke [27]: dieselbe Box und Bahn wie
+> [25], aber nur nach der y=-5-Flaeche gefragt — genau ein Treffer bei
+> 340.5288, der bei 19.4712 taucht korrekt NICHT auf. Ein Test nagelt zudem
+> fest, dass `resolveRevolveSweep` wirklich `revolveHitsFace` benutzt und
+> nicht die Ganzkoerper-Variante.
+>
+> **3) Kanten-Akzent im CPU-Painter.** `paintPartSolids` bekommt
+> `accentSolid`/`accentEdges`/`accentColor` — genau parallel zum bestehenden
+> `highlightSolid`/`highlightFace`. Damit zeigen Nicht-iOS-Builds und
+> Galerie-Thumbnails dieselbe Auswahl wie das RealityKit-Overlay, in derselben
+> Farbe, mit Hover und Auswahl in EINER Menge wie auf dem Geraet.
+> Nebenbei entdeckt: `projectSolidEdges` in `part_render.dart` hat KEINE
+> Aufrufer mehr — toter Code seit die M59-Pipeline uebernahm. Nicht angefasst,
+> aber hier vermerkt.
+>
+> **12 neue Tests** (6 variabler Radius inkl. „konstant schickt gar keine
+> Endradien", 2 Revolve-To-Face, 4 uebrige).
+>
+> **Stand:** `flutter analyze` 0 Fehler, `flutter test` 771/771, Shim
+> uebersetzt gegen echtes OCCT mit 41 Symbolen, Smoke-Fehlerparitaet zu HEAD
+> unveraendert 4 = 4. CI-Gates auf 41.
+>
+> **Damit ist die Liste offener Punkte dieser Sitzung leer — bis auf das
+> Eine, das hier nicht zu schliessen ist: SWIFT wurde nie uebersetzt (kein
+> Xcode). Die Kanten-Akzent-Overlays aus M135 in `PartScene.swift` und
+> `RealityPartView.swift` sind der groesste ungepruefte Teil und brauchen
+> einen Geraetebuild.**
+
 > **M143 — Revolve-Extents richtig: `occt_revolve_hits` (Shim 40 Symbole).
 > 764/764 Tests, 0 Analyzer-Fehler.**
 >

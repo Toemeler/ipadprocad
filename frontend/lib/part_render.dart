@@ -23,6 +23,10 @@ import 'part_model.dart';
 
 // Steel, same family as partCubeIcon — the committed-solid look.
 const Color kSolidBase = Color(0xFF8C939A);
+/// M144 — accented (hovered or selected) B-Rep edge in the CPU painter. Same
+/// hue as the RealityKit accent so the two renderers agree.
+const Color kEdgeAccent = Color(0xFFE8C63F);
+
 const Color kSolidEdge = Color(0xFF23272C);
 
 /// Shared orthographic camera math (also used by the ViewCube/triad).
@@ -617,9 +621,16 @@ void _strokeRuns(Canvas canvas, Path path, Color color) {
 }
 
 void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
-    SceneOccluders occ, Color color) {
+    SceneOccluders occ, Color color,
+    {Set<int> accent = const {}, Color accentColor = kEdgeAccent}) {
   final m = scene.solid.mesh;
+  var ei = -1;
   for (final e in DisplayEdge.of(m)) {
+    // DisplayEdge.of walks the display edges in order, so the counter IS the
+    // display index the accent set is expressed in.
+    ei++;
+    // Cannot shadow the parameter, so name it for what it is.
+    final edgeColor = accent.contains(ei) ? accentColor : color;
     if (e.type == kEdgeOther) {
       // adaptive polyline fallback with per-point visibility
       final n = e.polyEnd - e.polyStart;
@@ -641,7 +652,7 @@ void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
           path.lineTo(pts[k].dx, pts[k].dy);
         }
       }
-      _strokeRuns(canvas, path, color);
+      _strokeRuns(canvas, path, edgeColor);
       continue;
     }
     // analytic: sample for visibility, DRAW as exact vector geometry
@@ -678,7 +689,7 @@ void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
         }
       }
     }
-    _strokeRuns(canvas, path, color);
+    _strokeRuns(canvas, path, edgeColor);
   }
 }
 
@@ -736,6 +747,12 @@ void paintPartSolids(
   KernelSolid? highlightSolid,
   int highlightFace = -1,
   Color highlightColor = kFaceHighlight,
+  /// M144 — DISPLAY edge indices of [accentSolid] to draw in
+  /// [accentColor], mirroring the RealityKit accent overlay so the CPU
+  /// painter (non-iOS, and gallery thumbnails) shows the same selection.
+  KernelSolid? accentSolid,
+  Set<int> accentEdges = const {},
+  Color accentColor = kEdgeAccent,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   final occ = SceneOccluders(opaque);
@@ -777,7 +794,11 @@ void paintPartSolids(
 
   // 3. edges + silhouettes over the shading
   for (final s in opaque) {
-    _paintSolidEdges(canvas, cam, s, occ, kSolidEdge);
+    _paintSolidEdges(canvas, cam, s, occ, kSolidEdge,
+        accent: (accentSolid != null && identical(s.solid, accentSolid))
+            ? accentEdges
+            : const {},
+        accentColor: accentColor);
     _paintSolidSilhouettes(canvas, cam, s, occ, kSolidEdge);
   }
 

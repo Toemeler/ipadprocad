@@ -91,6 +91,8 @@
 #include <BRepIntCurveSurface_Inter.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <Geom_Circle.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <GeomAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
@@ -1753,7 +1755,8 @@ extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)
 
 extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
                                          const int *edge_ids,
-                                         const double *radii, int n)
+                                         const double *radii,
+                                         const double *radii2, int n)
 {
     OCCT_TRY("occt_fillet_edges")
     if (!shape || !edge_ids || !radii || n < 1) {
@@ -1776,7 +1779,15 @@ extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
         const TopoDS_Edge e = TopoDS::Edge(m.FindKey(edge_ids[i]));
         if (BRep_Tool::Degenerated(e))
             continue;
-        mk.Add(radii[i], e);
+        /* v13: a positive second radius makes the fillet vary linearly from
+         * one end of the edge to the other (Inventor's variable radius with
+         * two control points). Absent or zero means constant. */
+        if (radii2 && radii2[i] > 0.0 &&
+            std::fabs(radii2[i] - radii[i]) > 1.0e-12) {
+            mk.Add(radii[i], radii2[i], e);
+        } else {
+            mk.Add(radii[i], e);
+        }
         ++added;
     }
     if (added == 0) {
@@ -1915,45 +1926,41 @@ extern "C" int occt_ray_hits(const occt_shape *shape, double ox, double oy,
     OCCT_CATCH("occt_ray_hits", -1)
 }
 
-extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
-                                 double ax_py, double ax_pz, double ax_dx,
-                                 double ax_dy, double ax_dz, double px,
-                                 double py, double pz, double *out,
-                                 int max_hits)
+/* The circle a point traces about an axis, plus its validity. Shared by the
+ * whole-shape and single-face variants so the angle origin can only be
+ * defined once. */
+static bool revolve_circle(double ax_px, double ax_py, double ax_pz,
+                          double ax_dx, double ax_dy, double ax_dz, double px,
+                          double py, double pz, Handle(Geom_Circle) &out)
 {
-    OCCT_TRY("occt_revolve_hits")
-    if (!shape || !out || max_hits < 1) {
-        set_err("occt_revolve_hits", "null argument");
-        return -1;
-    }
     const gp_Vec axis(ax_dx, ax_dy, ax_dz);
-    if (axis.Magnitude() < 1e-12) {
-        set_err("occt_revolve_hits", "axis direction is degenerate");
-        return -1;
-    }
+    if (axis.Magnitude() < 1e-12)
+        return false;
     const gp_Dir adir(axis);
     const gp_Pnt apt(ax_px, ax_py, ax_pz);
     const gp_Pnt p(px, py, pz);
-    /* foot of the perpendicular from p onto the axis = the circle centre */
     const gp_Vec w(apt, p);
     const gp_Pnt centre = apt.Translated(gp_Vec(adir) * w.Dot(gp_Vec(adir)));
     const gp_Vec radial(centre, p);
-    const double r = radial.Magnitude();
-    if (r < 1e-12)
-        return 0; /* the point is ON the axis: it never moves */
-    /* Angle 0 is placed AT the point, so every hit is measured as a sweep
-     * from where the profile actually starts — the caller then takes the
-     * smallest positive one as "To Next" without any further bookkeeping. */
-    const gp_Ax2 frame(centre, adir, gp_Dir(radial));
-    Handle(Geom_Circle) circ = new Geom_Circle(frame, r);
+    if (radial.Magnitude() < 1e-12)
+        return false; /* on the axis: no path */
+    out = new Geom_Circle(gp_Ax2(centre, adir, gp_Dir(radial)),
+                          radial.Magnitude());
+    return true;
+}
+
+/* Sorted, de-duplicated crossing angles in degrees of `circ` against `target`,
+ * measured from the circle's own X direction. */
+static int circle_hit_angles(const TopoDS_Shape &target,
+                            const Handle(Geom_Circle) &circ, double *out,
+                            int max_hits)
+{
     GeomAdaptor_Curve gac(circ, 0.0, 2.0 * M_PI);
     BRepIntCurveSurface_Inter inter;
-    inter.Init(shape->s, gac, 1.0e-7);
+    inter.Init(target, gac, 1.0e-7);
     std::vector<double> ang;
     for (; inter.More(); inter.Next()) {
-        double a = inter.W(); /* radians along the circle */
-        /* fold into (0, 2pi]: a crossing exactly at the start is where the
-         * profile already is, not somewhere it arrives at */
+        double a = inter.W();
         while (a <= 1.0e-9)
             a += 2.0 * M_PI;
         while (a > 2.0 * M_PI + 1.0e-9)
@@ -1965,7 +1972,6 @@ extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
     double last = 0.0;
     bool have = false;
     for (size_t i = 0; i < ang.size() && written < max_hits; ++i) {
-        /* adjacent faces meeting on an edge report the same crossing twice */
         if (have && std::fabs(ang[i] - last) <= 1.0e-6)
             continue;
         out[written++] = ang[i];
@@ -1973,5 +1979,72 @@ extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
         have = true;
     }
     return written;
+}
+
+extern "C" int occt_revolve_hits_face(const occt_shape *shape, double ax_px,
+                                      double ax_py, double ax_pz, double ax_dx,
+                                      double ax_dy, double ax_dz, double px,
+                                      double py, double pz, double fx,
+                                      double fy, double fz, double *out,
+                                      int max_hits)
+{
+    OCCT_TRY("occt_revolve_hits_face")
+    if (!shape || !out || max_hits < 1) {
+        set_err("occt_revolve_hits_face", "null argument");
+        return -1;
+    }
+    Handle(Geom_Circle) circ;
+    if (!revolve_circle(ax_px, ax_py, ax_pz, ax_dx, ax_dy, ax_dz, px, py, pz,
+                       circ)) {
+        if (std::sqrt(ax_dx * ax_dx + ax_dy * ax_dy + ax_dz * ax_dz) < 1e-12) {
+            set_err("occt_revolve_hits_face", "axis direction is degenerate");
+            return -1;
+        }
+        return 0;
+    }
+    /* nearest face to the picked point — FaceSel stores a point ON the face,
+     * so the nearest face is the one that was picked */
+    const TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(gp_Pnt(fx, fy, fz));
+    TopoDS_Face best;
+    double bestD = 1.0e300;
+    for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        BRepExtrema_DistShapeShape d(v, f);
+        if (!d.IsDone() || d.NbSolution() < 1)
+            continue;
+        if (d.Value() < bestD) {
+            bestD = d.Value();
+            best = f;
+        }
+    }
+    if (best.IsNull()) {
+        set_err("occt_revolve_hits_face", "no face found near that point");
+        return -1;
+    }
+    return circle_hit_angles(best, circ, out, max_hits);
+    OCCT_CATCH("occt_revolve_hits_face", -1)
+}
+
+extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
+                                 double ax_py, double ax_pz, double ax_dx,
+                                 double ax_dy, double ax_dz, double px,
+                                 double py, double pz, double *out,
+                                 int max_hits)
+{
+    OCCT_TRY("occt_revolve_hits")
+    if (!shape || !out || max_hits < 1) {
+        set_err("occt_revolve_hits", "null argument");
+        return -1;
+    }
+    Handle(Geom_Circle) circ;
+    if (!revolve_circle(ax_px, ax_py, ax_pz, ax_dx, ax_dy, ax_dz, px, py, pz,
+                       circ)) {
+        if (std::sqrt(ax_dx * ax_dx + ax_dy * ax_dy + ax_dz * ax_dz) < 1e-12) {
+            set_err("occt_revolve_hits", "axis direction is degenerate");
+            return -1;
+        }
+        return 0; /* the point is ON the axis: it never moves */
+    }
+    return circle_hit_angles(shape->s, circ, out, max_hits);
     OCCT_CATCH("occt_revolve_hits", -1)
 }

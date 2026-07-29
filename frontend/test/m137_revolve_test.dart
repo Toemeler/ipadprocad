@@ -326,13 +326,43 @@ void main() {
       expect(await app.applyExtrude(), isFalse);
     });
 
-    test('To <face> is refused, not silently treated as To Next', () async {
+    test('To <face> without a picked face reports why', () async {
+      // M144 — the extent itself is supported now (occt_revolve_hits_face),
+      // but it still needs a face.
       final app = await partWithRect(RecordingKernel());
       app.openRevolve();
       final name = app.currentPart!.childSketches.single.model.name;
       app.revolveAxisPicked(name, kAxisLine);
       app.setExtrude(full: false, extent: FeatureExtent.toFace);
       expect(await app.applyExtrude(), isFalse);
+      expect(app.currentPart!.features, isEmpty);
+    });
+
+    test('resolveRevolveSweep asks the FACE, not the whole shape', () {
+      // The distinction matters: a profile can pass through other faces before
+      // reaching the picked one, so To <face> and To Next differ.
+      final k = _FaceAskingKernel();
+      final f = RevolveFeature(
+          name: 'R',
+          bodyName: 'S',
+          sketchName: 'Sketch1',
+          profiles: [ProfileSel(5, 5, 1)],
+          axDy: 1,
+          full: false,
+          angleA: 90,
+          extent: FeatureExtent.toFace,
+          extentFace: FaceSel(1, 2, 3, 0, 0, 1));
+      final base = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList(const [0]), Float64List(0)),
+          1.0,
+          null);
+      final (sweep, _, err) =
+          resolveRevolveSweep(f, planeFrame('xy'), base, k);
+      expect(err, isNull);
+      expect(k.faceAsked, isTrue, reason: 'must use revolveHitsFace');
+      expect(k.wholeShapeAsked, isFalse);
+      expect(sweep, closeTo(75, 1e-9));
     });
 
     test('resolveRevolveSweep: a plain angle is unchanged', () {
@@ -420,4 +450,32 @@ void main() {
       expect(k.lastAngle, 120);
     });
   });
+}
+
+/// Reports which of the two hit queries resolveRevolveSweep uses.
+class _FaceAskingKernel implements PartKernel {
+  bool faceAsked = false, wholeShapeAsked = false;
+
+  @override
+  bool get available => true;
+  @override
+  String get info => 'face asking';
+  @override
+  String get lastError => 'face asking failure';
+
+  @override
+  List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) {
+    wholeShapeAsked = true;
+    return const [10];
+  }
+
+  @override
+  List<double> revolveHitsFace(
+      KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p, Vec3 facePoint) {
+    faceAsked = true;
+    return const [75];
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
 }

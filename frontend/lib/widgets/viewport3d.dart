@@ -1158,10 +1158,25 @@ class _ScenePainter extends CustomPainter {
               f.bodyName != sess?.previewReplacesBody)
             f.solid!
       ];
+      // M144 — the accent set the RealityKit overlay draws, drawn here too so
+      // the CPU painter (non-iOS, and gallery thumbnails) agrees with it.
+      // Hover and selection merge into one set, as they do on device.
+      final accentSolid = app.pickedEdgeSolid ?? app.hoverEdge3d?.$1;
+      final accent = <int>{
+        if (app.pickedEdgeSolid != null)
+          for (final d in app.pickedEdgeDisplay)
+            if (d >= 0) d,
+        if (app.hoverEdge3d != null &&
+            identical(app.hoverEdge3d!.$1, accentSolid) &&
+            app.hoverEdge3d!.$2 >= 0)
+          app.hoverEdge3d!.$2,
+      };
       paintPartSolids(canvas, cam, solids,
           previewSolid: sess?.preview,
           highlightSolid: hoverFace?.$1,
-          highlightFace: hoverFace?.$2 ?? -1);
+          highlightFace: hoverFace?.$2 ?? -1,
+          accentSolid: accentSolid,
+          accentEdges: accent);
     }
 
     // ---- origin planes (fills first: everything else draws over them) ----

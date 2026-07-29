@@ -1515,6 +1515,12 @@ abstract class BodyModifyFeature extends PartFeature {
 /// become a single feature".
 class FilletFeature extends BodyModifyFeature {
   final List<double> radii; // parallel to [edges]
+
+  /// M144 — END radius per edge, for Inventor's VARIABLE-radius fillet. An
+  /// entry of 0 (or a missing one) means that edge is constant, so a plain
+  /// fillet stores nothing extra and old files load unchanged.
+  final List<double> radii2;
+
   String exprRadius; // what the user typed for the shared default
   bool allFillets, allRounds; // Inventor's Select Mode toggles
 
@@ -1523,6 +1529,7 @@ class FilletFeature extends BodyModifyFeature {
     required super.bodyName,
     required super.edges,
     required this.radii,
+    this.radii2 = const [],
     this.exprRadius = '2 mm',
     this.allFillets = false,
     this.allRounds = false,
@@ -1535,7 +1542,8 @@ class FilletFeature extends BodyModifyFeature {
   String get typeLabel => 'Fillet';
 
   @override
-  String ownSig() => 'fi|${radii.join(',')}|$allFillets,$allRounds|'
+  String ownSig() => 'fi|${radii.join(',')}|${radii2.join(',')}|'
+      '$allFillets,$allRounds|'
       '${edges.map((e) => '${e.mx},${e.my},${e.mz}').join(';')}';
 
   @override
@@ -1543,6 +1551,7 @@ class FilletFeature extends BodyModifyFeature {
         ...baseJson(),
         'edges': [for (final e in edges) e.toJson()],
         'radii': radii,
+        if (radii2.any((r) => r > 0)) 'radii2': radii2,
         'exprRadius': exprRadius,
         'allFillets': allFillets,
         'allRounds': allRounds,
@@ -1567,6 +1576,10 @@ class FilletFeature extends BodyModifyFeature {
       bodyName: j['body'] as String? ?? 'Solid1',
       edges: es,
       radii: rs.sublist(0, es.length),
+      radii2: [
+        for (final r in (j['radii2'] as List? ?? const []))
+          (r as num).toDouble()
+      ],
       exprRadius: j['exprRadius'] as String? ?? '2 mm',
       allFillets: j['allFillets'] as bool? ?? false,
       allRounds: j['allRounds'] as bool? ?? false,
@@ -2335,13 +2348,18 @@ abstract class PartKernel {
 
   /// Constant-radius fillet on [edgeIds] (1-based topological indices) with
   /// one radius each. Returns a NEW solid; [base] stays owned by the caller.
-  KernelSolid? filletEdges(
-          KernelSolid base, List<int> edgeIds, List<double> radii) =>
+  KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
+          List<double> radii, {List<double> radii2 = const []}) =>
       null;
 
   /// Angles in degrees at which the circular path of [p] about the axis
   /// through [axP] along [axD] crosses [s]. Empty when it never does.
   List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) =>
+      const [];
+
+  /// As [revolveHits], but only crossings of the face nearest [facePoint].
+  List<double> revolveHitsFace(
+          KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p, Vec3 facePoint) =>
       const [];
 
   /// Chamfer on [edgeIds] with Inventor method [mode] (0 equal distance,
@@ -2615,8 +2633,8 @@ class OcctPartKernel implements PartKernel {
   }
 
   @override
-  KernelSolid? filletEdges(
-      KernelSolid base, List<int> edgeIds, List<double> radii) {
+  KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
+      List<double> radii, {List<double> radii2 = const []}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -2630,7 +2648,8 @@ class OcctPartKernel implements PartKernel {
     // No unify here, unlike the boolean path: OCCT's filleting algorithm
     // already emits clean topology, and running ShapeUpgrade over a fresh
     // fillet is a well-known way to lose the very faces it just built.
-    return _wrapOwned(ffi, shape.filletEdges(edgeIds, radii));
+    return _wrapOwned(
+        ffi, shape.filletEdges(edgeIds, radii, radii2: radii2));
   }
 
   @override
@@ -2640,6 +2659,20 @@ class OcctPartKernel implements PartKernel {
     try {
       return shape.revolveHits(
           axP.x, axP.y, axP.z, axD.x, axD.y, axD.z, p.x, p.y, p.z);
+    } catch (e) {
+      _err = '$e';
+      return const [];
+    }
+  }
+
+  @override
+  List<double> revolveHitsFace(
+      KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p, Vec3 facePoint) {
+    final shape = s.shape;
+    if (shape == null) return const [];
+    try {
+      return shape.revolveHitsFace(axP.x, axP.y, axP.z, axD.x, axD.y, axD.z,
+          p.x, p.y, p.z, facePoint.x, facePoint.y, facePoint.z);
     } catch (e) {
       _err = '$e';
       return const [];
@@ -2915,12 +2948,23 @@ double? faceDistance(KernelSolid solid, PlaneFrame frame,
   final axP = frame.toWorld(Offset(f.axPx, f.axPy));
   final axD = frame.u * f.axDx + frame.v * f.axDy;
   final flipped = f.direction == ExtrudeDirection.flipped;
+  final face = f.extentFace;
+  if (f.extent == FeatureExtent.toFace && face == null) {
+    return (0, 0, 'no termination face selected');
+  }
   var best = double.infinity;
   for (final s in f.profiles) {
     final p = frame.toWorld(Offset(s.ax, s.ay));
+    // M144 — "To <face>" asks a DIFFERENT question from To Next: not the
+    // first material met, but the angle at which the sweep reaches THAT face,
+    // which it may only do after passing through others.
+    final hits = face == null
+        ? kernel.revolveHits(base, axP, axD, p)
+        : kernel.revolveHitsFace(
+            base, axP, axD, p, Vec3(face.px, face.py, face.pz));
     // Flipped sweeps the other way, so "the next face" is the nearest hit
     // going backwards — i.e. the largest angle, read as 360 minus it.
-    for (final a in kernel.revolveHits(base, axP, axD, p)) {
+    for (final a in hits) {
       final v = flipped ? 360.0 - a : a;
       if (v > 1e-6 && v < best) best = v;
     }
@@ -3090,7 +3134,22 @@ bool _recomputeBodyModify(
     while (radii.length < ids.length) {
       radii.add(f.radii.isEmpty ? 2.0 : f.radii.last);
     }
-    out = kernel.filletEdges(base, ids, radii);
+    // The end radii ride along with the same alignment as the start radii;
+    // an all-zero list means every edge is constant and the shim skips it.
+    final radii2 = <double>[];
+    if (f.radii2.any((r) => r > 0)) {
+      var k2 = 0;
+      for (var i = 0; i < f.edges.length && k2 < ids.length; i++) {
+        if (f.edges[i].bestMatch(live)?.index == ids[k2]) {
+          radii2.add(i < f.radii2.length ? f.radii2[i] : 0.0);
+          k2++;
+        }
+      }
+      while (radii2.length < ids.length) {
+        radii2.add(0.0);
+      }
+    }
+    out = kernel.filletEdges(base, ids, radii, radii2: radii2);
   } else if (f is ChamferFeature) {
     final (d1, d2, ang) = f.kernelParams;
     out = kernel.chamferEdges(base, ids, f.mode, d1, d2, ang);

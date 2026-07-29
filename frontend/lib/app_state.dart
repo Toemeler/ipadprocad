@@ -544,6 +544,11 @@ class EdgeFeatureSession {
   // feature", and within that feature each set carries its own radius.
   List<String> exprRadii = ['2 mm'];
 
+  /// M144 — optional END radius per set, for a VARIABLE-radius fillet. Blank
+  /// (the default) means that set is constant, so a plain fillet is unaffected
+  /// and nothing extra is written to the file.
+  List<String> exprRadii2 = [''];
+
   /// Inventor's Select Mode toggles, persisted onto the feature.
   bool allFillets = false, allRounds = false;
 
@@ -2633,6 +2638,7 @@ class AppState extends ChangeNotifier {
 
   void setEdgeFeature(
       {String? exprRadius,
+      String? exprRadius2,
       int? radiusSet,
       int? mode,
       String? exprD1,
@@ -2648,6 +2654,13 @@ class AppState extends ChangeNotifier {
         s.exprRadii.add(s.exprRadii.isEmpty ? '2 mm' : s.exprRadii.last);
       }
       s.exprRadii[i] = exprRadius;
+    }
+    if (exprRadius2 != null) {
+      final i = radiusSet ?? 0;
+      while (s.exprRadii2.length <= i) {
+        s.exprRadii2.add('');
+      }
+      s.exprRadii2[i] = exprRadius2;
     }
     if (mode != null) s.mode = mode;
     if (exprD1 != null) s.exprD1 = exprD1;
@@ -2689,6 +2702,23 @@ class AppState extends ChangeNotifier {
         rs.add(v);
       }
       if (rs.isEmpty) return (null, 'Radius must be > 0.');
+      // End radii: blank means constant (0). A non-blank value that does not
+      // parse is an error, not a silent fallback to constant.
+      final rs2 = <double>[];
+      for (var i = 0; i < rs.length; i++) {
+        final t = i < s.exprRadii2.length ? s.exprRadii2[i].trim() : '';
+        if (t.isEmpty) {
+          rs2.add(0);
+          continue;
+        }
+        final v = parseValueExpr(t);
+        if (v == null || !(v > 0)) {
+          return (null, rs.length == 1
+              ? 'End radius must be > 0.'
+              : 'End radius of set ${i + 1} must be > 0.');
+        }
+        rs2.add(v);
+      }
       return (
         FilletFeature(
           name: s.editing?.name ?? p.nextFeatureName('Fillet'),
@@ -2700,6 +2730,13 @@ class AppState extends ChangeNotifier {
               rs[(i < pickedEdgeSet.length ? pickedEdgeSet[i] : 0)
                   .clamp(0, rs.length - 1)]
           ],
+          radii2: rs2.any((r) => r > 0)
+              ? [
+                  for (var i = 0; i < pickedEdges.length; i++)
+                    rs2[(i < pickedEdgeSet.length ? pickedEdgeSet[i] : 0)
+                        .clamp(0, rs2.length - 1)]
+                ]
+              : const [],
           exprRadius: s.exprRadius,
           allFillets: s.allFillets,
           allRounds: s.allRounds,
@@ -3097,13 +3134,10 @@ class AppState extends ChangeNotifier {
   /// Revolve twin of [_sessionFeature]. Angle A is the sweep unless Full is
   /// set; Angle B only matters for Asymmetric, exactly as Distance B does.
   (PartFeature?, String?) _revolveSessionFeature(ExtrudeSession s) {
-    // M143 — To Next and Through All are resolved by resolveRevolveSweep now.
-    // "To <face>" is not: terminating a rotation on a PICKED face needs the
-    // angle at which the sweep reaches that face specifically, which
-    // occt_revolve_hits does not distinguish. Refused rather than silently
-    // treated as To Next.
-    if (s.extent == FeatureExtent.toFace) {
-      return (null, 'Revolve cannot terminate on a picked face yet.');
+    // M144 — all three extents are resolved by resolveRevolveSweep now;
+    // occt_revolve_hits_face answers the picked-face question.
+    if (s.extent == FeatureExtent.toFace && s.extentFace == null) {
+      return (null, 'Select the face to terminate on.');
     }
     // axisPicked is the ONLY gate. Testing the direction instead let the
     // default (0, 1) through — a non-degenerate vector — so a revolve could
@@ -4452,6 +4486,9 @@ class AppState extends ChangeNotifier {
     activeEdgeSet = edgeSetCount;
     while (s.exprRadii.length <= activeEdgeSet) {
       s.exprRadii.add(s.exprRadii.isEmpty ? '2 mm' : s.exprRadii.last);
+    }
+    while (s.exprRadii2.length <= activeEdgeSet) {
+      s.exprRadii2.add('');
     }
     notifyListeners();
   }

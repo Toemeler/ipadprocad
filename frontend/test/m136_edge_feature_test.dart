@@ -38,11 +38,14 @@ class FilletRecorder implements PartKernel {
         OcctEdgeInfo(3, 1, 20, 0, 0, 1, 0, 0, 5, 0, 2, 90, -1),
       ];
 
+  List<double>? lastRadii2;
+
   @override
-  KernelSolid? filletEdges(
-      KernelSolid base, List<int> edgeIds, List<double> radii) {
+  KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
+      List<double> radii, {List<double> radii2 = const []}) {
     lastIds = List.of(edgeIds);
     lastRadii = List.of(radii);
+    lastRadii2 = List.of(radii2);
     return _stub();
   }
 
@@ -309,6 +312,95 @@ void main() {
       final t = OcctEdgeInfo(1, 1, 0, 0, 0, 1, 0, 0, 5, 0, 2, 0, 0);
       expect(t.isConvex, isFalse);
       expect(t.isConcave, isFalse);
+    });
+  });
+
+  // M144 — Inventor's variable-radius fillet: a second radius per set makes
+  // the fillet vary linearly along each edge of that set.
+  group('variable radius', () {
+    test('a blank end radius means constant, and writes nothing', () {
+      final f = FilletFeature(
+          name: 'F', bodyName: 'S', edges: const [], radii: const [2.0]);
+      expect(f.radii2, isEmpty);
+      expect(f.toJson().containsKey('radii2'), isFalse,
+          reason: 'a plain fillet must not grow the file');
+    });
+
+    test('end radii round-trip through JSON', () {
+      final f = FilletFeature(
+          name: 'F',
+          bodyName: 'S',
+          edges: [EdgeSel(0, 0, 0, 5, 1, 0)],
+          radii: const [2.0],
+          radii2: const [6.0]);
+      expect(f.toJson()['radii2'], [6.0]);
+      final back = PartFeature.fromJson(f.toJson()) as FilletFeature;
+      expect(back.radii2, [6.0]);
+      expect(back.ownSig(), f.ownSig(),
+          reason: 'the end radii must move the rebuild signature');
+    });
+
+    test('a varying radius changes the signature', () {
+      final a = FilletFeature(
+          name: 'F', bodyName: 'S', edges: const [], radii: const [2.0]);
+      final b = FilletFeature(
+          name: 'F',
+          bodyName: 'S',
+          edges: const [],
+          radii: const [2.0],
+          radii2: const [6.0]);
+      expect(a.ownSig(), isNot(b.ownSig()));
+    });
+
+    test('the end radii reach the kernel, aligned to the edges', () {
+      final k = FilletRecorder();
+      final base = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList(const [0]), Float64List(0)),
+          1.0,
+          null);
+      final f = FilletFeature(
+          name: 'F',
+          bodyName: 'S',
+          edges: [
+            EdgeSel(0, 0, 0, 5, 1, 0),
+            EdgeSel(10, 0, 0, 5, 1, 0),
+            EdgeSel(20, 0, 0, 5, 1, 0),
+          ],
+          radii: const [2.0, 2.0, 3.0],
+          radii2: const [6.0, 0.0, 0.0]);
+      expect(recomputeFeature(PartModel('P'), f, k, base: base), isTrue);
+      expect(k.lastRadii, [2.0, 2.0, 3.0]);
+      expect(k.lastRadii2, [6.0, 0.0, 0.0],
+          reason: '0 means that edge stays constant');
+    });
+
+    test('an all-constant feature sends NO end radii at all', () {
+      final k = FilletRecorder();
+      final base = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList(const [0]), Float64List(0)),
+          1.0,
+          null);
+      final f = FilletFeature(
+          name: 'F',
+          bodyName: 'S',
+          edges: [EdgeSel(0, 0, 0, 5, 1, 0)],
+          radii: const [2.0]);
+      expect(recomputeFeature(PartModel('P'), f, k, base: base), isTrue);
+      expect(k.lastRadii2, isEmpty,
+          reason: 'the shim then skips the variable path entirely');
+    });
+
+    test('setEdgeFeature writes the end radius of the addressed set', () {
+      final app = AppState();
+      final s = EdgeFeatureSession('fillet');
+      app.edgeSession = s;
+      app.beginPickEdges();
+      app.newEdgeSet();
+      app.setEdgeFeature(exprRadius2: '5 mm', radiusSet: 1);
+      expect(s.exprRadii2[0], '');
+      expect(s.exprRadii2[1], '5 mm');
     });
   });
 

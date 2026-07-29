@@ -875,7 +875,7 @@ int main(void)
             if (check(vertical > 0, "[21] no vertical cube edge found")) {
                 const int ids[] = {vertical};
                 const double radii[] = {5.0};
-                occt_shape *f = occt_fillet_edges(box, ids, radii, 1);
+                occt_shape *f = occt_fillet_edges(box, ids, radii, NULL, 1);
                 if (check(f != NULL, "[21] fillet returned NULL")) {
                     const double want =
                         8000.0 - 25.0 * (1.0 - 3.14159265358979323846 / 4.0) *
@@ -895,10 +895,10 @@ int main(void)
                  * clean failure, no solid. (r=15 does fit on a 20 mm face —
                  * 15 < 20 — so it is a legal fillet, not an error case.) */
                 const double huge[] = {25.0};
-                check(occt_fillet_edges(box, ids, huge, 1) == NULL,
+                check(occt_fillet_edges(box, ids, huge, NULL, 1) == NULL,
                       "[21] oversized fillet must fail cleanly");
                 const int bad[] = {999};
-                check(occt_fillet_edges(box, bad, radii, 1) == NULL,
+                check(occt_fillet_edges(box, bad, radii, NULL, 1) == NULL,
                       "[21] out-of-range edge index must fail");
 
                 /* [22] CHAMFER, equal distance d=4 removes d^2/2 * 20 = 160 */
@@ -1016,6 +1016,87 @@ int main(void)
                   "[25] a point on the axis has no path");
             check(occt_revolve_hits(bx, 0, 0, 0, 0, 0, 0, 15, 0, 0, h, 8) == -1,
                   "[25] a degenerate axis must be an error");
+            occt_free_shape(bx);
+        }
+        if (b0) occt_free_shape(b0);
+    }
+
+    /* [26] v13 VARIABLE RADIUS, 2 mm -> 6 mm along a 20 mm cube edge.
+     *
+     * NOT asserted against a closed form. Integrating the constant-radius
+     * cross section along the edge,
+     *   (1-pi/4) * L * (r1^2 + r1*r2 + r2^2)/3 = 74.395
+     * predicts V = 7925.605, but the measured value is 7924.190 — the
+     * approximation is wrong by 1.8e-4 because it assumes the fillet surface
+     * stays perpendicular to the edge, and a varying radius tilts it. Rather
+     * than loosen a tolerance until a wrong formula passes, the check asserts
+     * what IS exactly true and is what the feature promises:
+     *   - it removes MORE than a constant 2 mm fillet,
+     *   - LESS than a constant 6 mm one,
+     *   - and is NOT the mean of the two, which is what averaging the radii
+     *     instead of varying them would give. */
+    {
+        occt_shape *box = occt_make_box(20, 20, 20);
+        if (check(box != NULL, "[26] box returned NULL")) {
+            const int ne = occt_shape_edge_count(box);
+            int vertical = -1;
+            for (int i = 1; i <= ne; ++i) {
+                double d[12] = {0};
+                if (!occt_shape_edge_info(box, i, d)) continue;
+                if (d[0] != 1.0) continue;
+                if (fabs(fabs(d[6]) - 1.0) > 1e-9) continue;
+                vertical = i;
+                break;
+            }
+            if (check(vertical > 0, "[26] no vertical edge")) {
+                const int ids[] = {vertical};
+                const double r1[] = {2.0}, r2[] = {6.0};
+                const double rr2[] = {2.0}, rr6[] = {6.0};
+                occt_shape *c2 = occt_fillet_edges(box, ids, rr2, NULL, 1);
+                occt_shape *c6 = occt_fillet_edges(box, ids, rr6, NULL, 1);
+                occt_shape *v = occt_fillet_edges(box, ids, r1, r2, 1);
+                if (check(v != NULL && c2 != NULL && c6 != NULL,
+                          "[26] fillets returned NULL")) {
+                    const double got = occt_shape_volume(v);
+                    const double lo = occt_shape_volume(c6); /* removes most */
+                    const double hi = occt_shape_volume(c2); /* removes least */
+                    const double mean = 0.5 * (lo + hi);
+                    printf("[26] variable %.4f, const2 %.4f, const6 %.4f, "
+                           "mean %.4f\n", got, hi, lo, mean);
+                    check(got < hi - 1e-6,
+                          "[26] must remove more than a constant 2 mm fillet");
+                    check(got > lo + 1e-6,
+                          "[26] must remove less than a constant 6 mm fillet");
+                    check(fabs(got - mean) > 1.0,
+                          "[26] must VARY, not average the two radii");
+                }
+                if (v) occt_free_shape(v);
+                if (c2) occt_free_shape(c2);
+                if (c6) occt_free_shape(c6);
+            }
+            occt_free_shape(box);
+        }
+    }
+
+    /* [27] v13 REVOLVE HITS ON ONE FACE. Same box and circle as [25], but
+     * asking only about the y = -5 face: its single crossing is at
+     * 360 - 19.4712 = 340.5288, and the y = +5 crossing must NOT appear. */
+    {
+        occt_shape *b0 = occt_make_box(10, 10, 10);
+        const double mv[12] = {1, 0, 0, 10, 0, 1, 0, -5, 0, 0, 1, -5};
+        occt_shape *bx = b0 ? occt_transform(b0, mv) : NULL;
+        if (check(bx != NULL, "[27] box placement returned NULL")) {
+            double h[8] = {0};
+            /* a point on the y = -5 face, mid-span */
+            const int n = occt_revolve_hits_face(bx, 0, 0, 0, 0, 0, 1,
+                                                 15, 0, 0, 15, -5, 0, h, 8);
+            printf("[27] face hits %d at %.4f (want 1: 340.5288)\n", n,
+                   n > 0 ? h[0] : -1.0);
+            check(n == 1, "[27] one face is crossed once by this path");
+            if (n == 1) {
+                check(fabs(h[0] - 340.528779366) < 1e-4,
+                      "[27] the picked face's angle is wrong");
+            }
             occt_free_shape(bx);
         }
         if (b0) occt_free_shape(b0);

@@ -75,8 +75,8 @@ class FakeKernel implements PartKernel {
   @override
   List<OcctEdgeInfo> edgesOf(KernelSolid s) => const [];
   @override
-  KernelSolid? filletEdges(
-          KernelSolid base, List<int> edgeIds, List<double> radii) =>
+  KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
+          List<double> radii, {List<double> radii2 = const []}) =>
       null;
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
@@ -87,6 +87,10 @@ class FakeKernel implements PartKernel {
   List<KernelSolid> importStepSolids(String path) => const [];
   @override
   List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) =>
+      const [];
+  @override
+  List<double> revolveHitsFace(
+          KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p, Vec3 facePoint) =>
       const [];
 }
 

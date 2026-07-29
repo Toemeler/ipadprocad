@@ -303,13 +303,19 @@ int occt_mesh_edge_ids(const occt_mesh *m, int *out);
  * v12 — Constant-radius edge fillet (Inventor's 3D Model > Modify > Fillet).
  * `edge_ids` holds n 1-based topological edge indices, `radii` the radius per
  * edge (each > 0); differing radii in ONE call are allowed and are what
- * Inventor calls multiple edge sets of a single fillet feature. Inputs stay
- * owned by the caller; the result is a NEW shape. NULL on failure — a radius
- * too large for the adjacent faces is a clean failure with an OCCT message,
- * never a corrupt solid.
+ * Inventor calls multiple edge sets of a single fillet feature.
+ *
+ * v13: `radii2` is optional (may be NULL). Where radii2[i] > 0 the fillet
+ * VARIES LINEARLY along that edge, from radii[i] at its start to radii2[i] at
+ * its end — Inventor's variable-radius fillet with two control points. A zero
+ * or absent radii2[i] means constant.
+ *
+ * Inputs stay owned by the caller; the result is a NEW shape. NULL on failure
+ * — a radius too large for the adjacent faces is a clean failure with an OCCT
+ * message, never a corrupt solid.
  */
 occt_shape *occt_fillet_edges(const occt_shape *shape, const int *edge_ids,
-                              const double *radii, int n);
+                              const double *radii, const double *radii2, int n);
 
 /*
  * v12 — Edge chamfer with Inventor's three methods, per edge:
@@ -359,6 +365,22 @@ int occt_revolve_hits(const occt_shape *shape, double ax_px, double ax_py,
                       double ax_pz, double ax_dx, double ax_dy, double ax_dz,
                       double px, double py, double pz, double *out,
                       int max_hits);
+
+/*
+ * v13 — as occt_revolve_hits, but crossings of ONE face only: the face of
+ * `shape` nearest to (fx, fy, fz).
+ *
+ * This is what a revolve's "To <face>" needs. The whole-shape version reports
+ * the first material the sweep meets, which is a different question — a
+ * profile can pass through two other faces before reaching the one that was
+ * picked. Intersecting a single face answers the picked-face question
+ * directly, and OCCT allows it because a TopoDS_Face is a TopoDS_Shape.
+ */
+int occt_revolve_hits_face(const occt_shape *shape, double ax_px, double ax_py,
+                           double ax_pz, double ax_dx, double ax_dy,
+                           double ax_dz, double px, double py, double pz,
+                           double fx, double fy, double fz, double *out,
+                           int max_hits);
 
 /* ---- Lifecycle --------------------------------------------------------- */
 

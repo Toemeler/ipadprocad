@@ -69,14 +69,20 @@ typedef _EdgeCountN = Int32 Function(Pointer<Void>);
 typedef _EdgeCountD = int Function(Pointer<Void>);
 typedef _EdgeInfoN = Int32 Function(Pointer<Void>, Int32, Pointer<Double>);
 typedef _EdgeInfoD = int Function(Pointer<Void>, int, Pointer<Double>);
-typedef _FilletN = Pointer<Void> Function(
-    Pointer<Void>, Pointer<Int32>, Pointer<Double>, Int32);
-typedef _FilletD = Pointer<Void> Function(
-    Pointer<Void>, Pointer<Int32>, Pointer<Double>, int);
+typedef _FilletN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Double>, Pointer<Double>, Int32);
+typedef _FilletD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Double>, Pointer<Double>, int);
 typedef _ChamferN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
     Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, Int32);
 typedef _ChamferD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
     Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, int);
+typedef _RevFaceN = Int32 Function(Pointer<Void>, Double, Double, Double,
+    Double, Double, Double, Double, Double, Double, Double, Double, Double,
+    Pointer<Double>, Int32);
+typedef _RevFaceD = int Function(Pointer<Void>, double, double, double, double,
+    double, double, double, double, double, double, double, double,
+    Pointer<Double>, int);
 typedef _RevHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
     Double, Double, Double, Double, Double, Double, Pointer<Double>, Int32);
 typedef _RevHitsD = int Function(Pointer<Void>, double, double, double, double,
@@ -332,20 +338,48 @@ class OcctShape {
   /// feature. Result is a NEW shape; this one stays owned by the caller.
   /// Null on failure — a radius the adjacent faces cannot hold fails loudly
   /// instead of quietly shrinking to fit.
-  OcctShape? filletEdges(List<int> edgeIds, List<double> radii) {
+  /// v13 — [radii2], when given, makes the fillet vary linearly along each
+  /// edge from [radii] at its start to [radii2] at its end. A zero entry means
+  /// that edge stays constant.
+  OcctShape? filletEdges(List<int> edgeIds, List<double> radii,
+      {List<double> radii2 = const []}) {
     if (edgeIds.isEmpty || edgeIds.length != radii.length) return null;
+    if (radii2.isNotEmpty && radii2.length != radii.length) return null;
     final n = edgeIds.length;
     final ids = calloc<Int32>(n);
     final rs = calloc<Double>(n);
+    final rs2 = radii2.isEmpty ? nullptr : calloc<Double>(n);
     try {
       for (var i = 0; i < n; i++) {
         ids[i] = edgeIds[i];
         rs[i] = radii[i];
+        if (rs2 != nullptr) rs2[i] = radii2[i];
       }
-      return _ffi._wrap(_ffi._filletEdges(_handle, ids, rs, n));
+      return _ffi._wrap(_ffi._filletEdges(_handle, ids, rs, rs2, n));
     } finally {
       calloc.free(ids);
       calloc.free(rs);
+      if (rs2 != nullptr) calloc.free(rs2);
+    }
+  }
+
+  /// v13 — crossing angles of the circular path against ONE face: the face of
+  /// this solid nearest ([fx], [fy], [fz]). What a revolve's "To <face>"
+  /// needs, as distinct from the first material the sweep meets.
+  List<double> revolveHitsFace(
+      double axPx, double axPy, double axPz,
+      double axDx, double axDy, double axDz,
+      double px, double py, double pz,
+      double fx, double fy, double fz,
+      {int maxHits = 32}) {
+    final buf = calloc<Double>(maxHits);
+    try {
+      final n = _ffi._revolveHitsFace(_handle, axPx, axPy, axPz, axDx, axDy,
+          axDz, px, py, pz, fx, fy, fz, buf, maxHits);
+      if (n <= 0) return const [];
+      return List<double>.generate(n, (i) => buf[i], growable: false);
+    } finally {
+      calloc.free(buf);
     }
   }
 
@@ -574,7 +608,8 @@ class OcctFfi {
       this._filletEdges,
       this._chamferEdges,
       this._rayHits,
-      this._revolveHits);
+      this._revolveHits,
+      this._revolveHitsFace);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -624,6 +659,7 @@ class OcctFfi {
   final _ChamferD _chamferEdges;
   final _RayHitsD _rayHits;
   final _RevHitsD _revolveHits; // v13
+  final _RevFaceD _revolveHitsFace; // v13
 
   static OcctFfi? _cached;
   static bool _probed = false;
@@ -695,6 +731,7 @@ class OcctFfi {
         lib.lookupFunction<_ChamferN, _ChamferD>('occt_chamfer_edges'),
         lib.lookupFunction<_RayHitsN, _RayHitsD>('occt_ray_hits'),
         lib.lookupFunction<_RevHitsN, _RevHitsD>('occt_revolve_hits'),
+        lib.lookupFunction<_RevFaceN, _RevFaceD>('occt_revolve_hits_face'),
       );
     } catch (_) {
       _cached = null;

@@ -25,6 +25,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
   /// One controller per edge SET. Grown on demand; never shrunk while the
   /// panel is open, so a controller keeps its cursor if a set is re-selected.
   final List<TextEditingController> _radii = [];
+
+  /// Optional END radius per set. Blank means that set stays constant.
+  final List<TextEditingController> _radii2 = [];
   final _d1 = TextEditingController();
   final _d2 = TextEditingController();
   final _angle = TextEditingController();
@@ -35,7 +38,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
 
   @override
   void dispose() {
-    for (final c in _radii) {
+    for (final c in [..._radii, ..._radii2]) {
       c.dispose();
     }
     _d1.dispose();
@@ -172,8 +175,13 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     while (_radii.length < s.exprRadii.length) {
       _radii.add(TextEditingController());
     }
+    while (_radii2.length < s.exprRadii.length) {
+      _radii2.add(TextEditingController());
+    }
     for (var i = 0; i < s.exprRadii.length; i++) {
       if (_radii[i].text != s.exprRadii[i]) _radii[i].text = s.exprRadii[i];
+      final e2 = i < s.exprRadii2.length ? s.exprRadii2[i] : '';
+      if (_radii2[i].text != e2) _radii2[i].text = e2;
     }
   }
 
@@ -186,7 +194,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     _syncRadii(s);
     final sets = app.edgeSetCount;
     return [
-      for (var i = 0; i < sets; i++)
+      for (var i = 0; i < sets; i++) ...[
         panelRow(
             sets == 1 ? 'Radius' : 'Radius ${i + 1}',
             Row(children: [
@@ -219,6 +227,15 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                     (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i)),
               ),
             ])),
+        // Inventor's variable radius: leave blank for a constant fillet, or
+        // give an end radius and it varies linearly along each edge of the set.
+        panelRow(
+            sets == 1 ? 'to (optional)' : 'to ${i + 1}',
+            panelValueField(
+                _radii2[i.clamp(0, _radii2.length - 1)],
+                'mm',
+                (v) => app.setEdgeFeature(exprRadius2: v, radiusSet: i))),
+      ],
       // Inventor's Select Mode. Enabled once a body is known, because
       // "all edges" is meaningless without one.
       panelRow(

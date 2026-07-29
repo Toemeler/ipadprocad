@@ -220,12 +220,13 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     // at which the sweep meets THAT face, not the first
                     // material it meets, so it stays hidden rather than
                     // quietly behaving like To Next.
+                    // M144 — all three work for a revolve too now:
+                    // occt_revolve_hits_face answers the picked-face question
+                    // that occt_revolve_hits could not.
                     const SizedBox(width: 6),
                     _extentButton(FeatureExtent.toNext),
-                    if (!s.isRevolve) ...[
-                      const SizedBox(width: 3),
-                      _extentButton(FeatureExtent.toFace),
-                    ],
+                    const SizedBox(width: 3),
+                    _extentButton(FeatureExtent.toFace),
                     const SizedBox(width: 3),
                     _extentButton(FeatureExtent.throughAll),
                   ])),
