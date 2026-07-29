@@ -22,7 +22,9 @@ class EdgeFeatureDialog extends StatefulWidget {
 }
 
 class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
-  final _radius = TextEditingController();
+  /// One controller per edge SET. Grown on demand; never shrunk while the
+  /// panel is open, so a controller keeps its cursor if a set is re-selected.
+  final List<TextEditingController> _radii = [];
   final _d1 = TextEditingController();
   final _d2 = TextEditingController();
   final _angle = TextEditingController();
@@ -33,7 +35,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
 
   @override
   void dispose() {
-    _radius.dispose();
+    for (final c in _radii) {
+      c.dispose();
+    }
     _d1.dispose();
     _d2.dispose();
     _angle.dispose();
@@ -49,7 +53,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     final id = '${s.kind}/${identityHashCode(s)}';
     if (_syncedFor == id) return;
     _syncedFor = id;
-    _radius.text = s.exprRadius;
+    _syncRadii(s);
     _d1.text = s.exprD1;
     _d2.text = s.exprD2;
     _angle.text = s.exprAngle;
@@ -164,12 +168,74 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     );
   }
 
-  List<Widget> _filletFields() => [
+  void _syncRadii(EdgeFeatureSession s) {
+    while (_radii.length < s.exprRadii.length) {
+      _radii.add(TextEditingController());
+    }
+    for (var i = 0; i < s.exprRadii.length; i++) {
+      if (_radii[i].text != s.exprRadii[i]) _radii[i].text = s.exprRadii[i];
+    }
+  }
+
+  /// One row per edge set — Inventor's "several edge sets in a single fillet
+  /// feature", each with its own radius. Tapping a row makes that set the one
+  /// new picks land in, so you build set 1, press +, then keep tapping edges.
+  List<Widget> _filletFields() {
+    final app = widget.app;
+    final s = sess;
+    _syncRadii(s);
+    final sets = app.edgeSetCount;
+    return [
+      for (var i = 0; i < sets; i++)
         panelRow(
-            'Radius',
-            panelValueField(_radius, 'mm',
-                (v) => widget.app.setEdgeFeature(exprRadius: v))),
-      ];
+            sets == 1 ? 'Radius' : 'Radius ${i + 1}',
+            Row(children: [
+              GestureDetector(
+                onTap: () => app.selectEdgeSet(i),
+                child: Container(
+                  width: 62,
+                  height: 26,
+                  alignment: Alignment.center,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    color: i == app.activeEdgeSet
+                        ? const Color(0xFF2E4A6B)
+                        : const Color(0xFF2A2E33),
+                    border: Border.all(
+                        color: i == app.activeEdgeSet
+                            ? T.blue
+                            : const Color(0xFF3A3F45)),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text('${app.edgesInSet(i)} edge'
+                      '${app.edgesInSet(i) == 1 ? '' : 's'}',
+                      style: ts(11.5, T.text)),
+                ),
+              ),
+              Expanded(
+                child: panelValueField(
+                    _radii[i.clamp(0, _radii.length - 1)],
+                    'mm',
+                    (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i)),
+              ),
+            ])),
+      panelRow(
+          '',
+          GestureDetector(
+            onTap: app.newEdgeSet,
+            child: Container(
+              height: 24,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A2E33),
+                border: Border.all(color: const Color(0xFF3A3F45)),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text('+ Add edge set', style: ts(11.5, T.dim)),
+            ),
+          )),
+    ];
+  }
 
   List<Widget> _chamferFields() {
     final s = sess;

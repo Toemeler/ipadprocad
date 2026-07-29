@@ -4,9 +4,49 @@
 // the open/cancel/edit lifecycle. NOT host-testable: the preview solid and
 // the commit, because both need a linked OCCT kernel — those paths are
 // asserted to fail honestly rather than to fabricate a solid.
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/part_model.dart';
+
+/// Records the radii the fillet path actually hands the kernel.
+class FilletRecorder implements PartKernel {
+  List<int>? lastIds;
+  List<double>? lastRadii;
+
+  @override
+  bool get available => true;
+  @override
+  String get info => 'fillet recorder';
+  @override
+  String get lastError => 'fillet recorder failure';
+
+  KernelSolid _stub() => KernelSolid(
+      OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+          Int32List.fromList(const [0]), Float64List(0)),
+      1.0,
+      null);
+
+  /// Three straight, filletable edges at x = 0, 10, 20.
+  @override
+  List<OcctEdgeInfo> edgesOf(KernelSolid s) => [
+        for (var i = 0; i < 3; i++)
+          OcctEdgeInfo(i + 1, 1, i * 10.0, 0, 0, 1, 0, 0, 5, 0, 2)
+      ];
+
+  @override
+  KernelSolid? filletEdges(
+      KernelSolid base, List<int> edgeIds, List<double> radii) {
+    lastIds = List.of(edgeIds);
+    lastRadii = List.of(radii);
+    return _stub();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -82,6 +122,125 @@ void main() {
 
     test('flip takes the complementary angle', () {
       expect(c(2, flip: true).kernelParams, (2.0, 0.0, 60.0));
+    });
+  });
+
+  // M141 — Inventor's "several edge sets in a single fillet feature": each set
+  // carries its own radius, and `radii` is parallel to `edges`.
+  group('fillet edge sets', () {
+    AppState armed() {
+      final app = AppState();
+      app.beginPickEdges();
+      return app;
+    }
+
+    test('a fresh selection is one set', () {
+      final app = armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0), display: 0);
+      expect(app.edgeSetCount, 1);
+      expect(app.edgesInSet(0), 1);
+    });
+
+    test('picks land in the ACTIVE set', () {
+      final app = armed();
+      app.edgeSession = EdgeFeatureSession('fillet');
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0), display: 0);
+      app.newEdgeSet();
+      app.toggleEdgePick(2, EdgeSel(1, 0, 0, 5, 1, 0), display: 1);
+      app.toggleEdgePick(3, EdgeSel(2, 0, 0, 5, 1, 0), display: 2);
+      expect(app.edgeSetCount, 2);
+      expect(app.edgesInSet(0), 1);
+      expect(app.edgesInSet(1), 2);
+    });
+
+    test('removing an edge keeps the set list in step', () {
+      final app = armed();
+      app.edgeSession = EdgeFeatureSession('fillet');
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0), display: 0);
+      app.newEdgeSet();
+      app.toggleEdgePick(2, EdgeSel(1, 0, 0, 5, 1, 0), display: 1);
+      app.toggleEdgePick(2, EdgeSel(1, 0, 0, 5, 1, 0), display: 1); // remove
+      expect(app.pickedEdges.length, 1);
+      expect(app.pickedEdgeSet.length, 1,
+          reason: 'radii are indexed through this list');
+      expect(app.edgesInSet(0), 1);
+    });
+
+    test('newEdgeSet grows the radius list so every set has one', () {
+      final app = armed();
+      final s = EdgeFeatureSession('fillet');
+      app.edgeSession = s;
+      expect(s.exprRadii.length, 1);
+      app.newEdgeSet();
+      expect(s.exprRadii.length, greaterThanOrEqualTo(2));
+    });
+
+    test('newEdgeSet does nothing on a chamfer', () {
+      // Inventor's chamfer has no edge sets; the panel offers no + row.
+      final app = armed();
+      app.edgeSession = EdgeFeatureSession('chamfer');
+      app.newEdgeSet();
+      expect(app.activeEdgeSet, 0);
+    });
+
+    test('setEdgeFeature writes the radius of the addressed set', () {
+      final app = armed();
+      final s = EdgeFeatureSession('fillet');
+      app.edgeSession = s;
+      app.newEdgeSet();
+      app.setEdgeFeature(exprRadius: '4 mm', radiusSet: 1);
+      expect(s.exprRadii[0], '2 mm');
+      expect(s.exprRadii[1], '4 mm');
+      expect(s.exprRadius, '2 mm', reason: 'exprRadius is set 1');
+    });
+
+    test('a bad radius names WHICH set, rather than silently reusing set 1',
+        () {
+      final app = armed();
+      final s = EdgeFeatureSession('fillet');
+      app.edgeSession = s;
+      app.newEdgeSet();
+      app.setEdgeFeature(exprRadius: 'nonsense', radiusSet: 1);
+      expect(parseValueExpr(s.exprRadii[1]), isNull);
+    });
+  });
+
+  group('per-set radii reach the kernel', () {
+    test('two sets produce two different radii, one per edge', () {
+      final k = FilletRecorder();
+      final app = AppState();
+      final base = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList(const [0]), Float64List(0)),
+          1.0,
+          null);
+      final s = EdgeFeatureSession('fillet');
+      app.edgeSession = s;
+      app.beginPickEdges();
+      // set 1: the edges at x = 0 and x = 10
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0), solid: base, display: 0);
+      app.toggleEdgePick(2, EdgeSel(10, 0, 0, 5, 1, 0),
+          solid: base, display: 1);
+      // set 2: the edge at x = 20, with its own radius
+      app.newEdgeSet();
+      app.toggleEdgePick(3, EdgeSel(20, 0, 0, 5, 1, 0),
+          solid: base, display: 2);
+      app.setEdgeFeature(exprRadius: '2 mm', radiusSet: 0);
+      app.setEdgeFeature(exprRadius: '4 mm', radiusSet: 1);
+
+      final f = FilletFeature(
+          name: 'Fillet1',
+          bodyName: 'Solid1',
+          edges: [for (final e in app.pickedEdges) e],
+          radii: [
+            for (var i = 0; i < app.pickedEdges.length; i++)
+              [2.0, 4.0][app.pickedEdgeSet[i]]
+          ]);
+      final p = PartModel('P');
+      expect(recomputeFeature(p, f, k, base: base), isTrue);
+      expect(k.lastIds, [1, 2, 3]);
+      expect(k.lastRadii, [2.0, 2.0, 4.0],
+          reason: 'each edge takes ITS set radius, in edge order');
     });
   });
 

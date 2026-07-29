@@ -539,8 +539,14 @@ class EdgeFeatureSession {
   final String kind; // 'fillet' | 'chamfer'
   final BodyModifyFeature? editing; // null = creating
 
-  // fillet
-  String exprRadius = '2 mm';
+  // fillet — Inventor's "edge sets": one radius each, several per feature.
+  // "All fillets and rounds created in a single operation become a single
+  // feature", and within that feature each set carries its own radius.
+  List<String> exprRadii = ['2 mm'];
+
+  /// Backwards-compatible view of the FIRST set's radius, still what a
+  /// single-set fillet means and what gets persisted as exprRadius.
+  String get exprRadius => exprRadii.isEmpty ? '2 mm' : exprRadii.first;
 
   // chamfer
   int mode = 0; // 0 equal distance, 1 two distances, 2 distance and angle
@@ -2569,7 +2575,15 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     final s = EdgeFeatureSession(kind, editing: edit);
     if (edit is FilletFeature) {
-      s.exprRadius = edit.exprRadius;
+      // One set per DISTINCT radius, preserving first-seen order, so
+      // reopening a multi-set fillet shows the sets it was built with.
+      final seen = <double>[];
+      for (final r in edit.radii) {
+        if (!seen.any((x) => (x - r).abs() < 1e-12)) seen.add(r);
+      }
+      s.exprRadii = seen.isEmpty
+          ? [edit.exprRadius]
+          : [for (final r in seen) '${_mmExpr(r)} mm'];
     } else if (edit is ChamferFeature) {
       s.mode = edit.mode;
       s.exprD1 = edit.exprD1;
@@ -2584,15 +2598,37 @@ class AppState extends ChangeNotifier {
     pickedEdges.clear();
     pickedEdgeIds.clear();
     pickedEdgeDisplay.clear();
+    pickedEdgeSet.clear();
+    activeEdgeSet = 0;
     pickedEdgeSolid = null;
-    if (edit != null) pickedEdges.addAll(edit.edges);
+    if (edit != null) {
+      pickedEdges.addAll(edit.edges);
+      // Put each edge back in the set its radius identifies.
+      if (edit is FilletFeature) {
+        for (final r in edit.radii) {
+          var k = s.exprRadii.indexWhere(
+              (e) => (parseValueExpr(e) ?? -1) == r);
+          if (k < 0) k = 0;
+          pickedEdgeSet.add(k);
+        }
+      } else {
+        pickedEdgeSet.addAll(List<int>.filled(edit.edges.length, 0));
+      }
+    }
     beginPickEdges();
     _updateEdgeFeaturePreview();
     notifyListeners();
   }
 
+  /// Renders a stored radius back into an editable expression. Whole numbers
+  /// lose the decimal point, because "2 mm" is what the user typed and
+  /// "2.00 mm" reading back would look like the value had changed.
+  static String _mmExpr(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : '$v';
+
   void setEdgeFeature(
       {String? exprRadius,
+      int? radiusSet,
       int? mode,
       String? exprD1,
       String? exprD2,
@@ -2601,7 +2637,13 @@ class AppState extends ChangeNotifier {
       bool? edgeChain}) {
     final s = edgeSession;
     if (s == null) return;
-    if (exprRadius != null) s.exprRadius = exprRadius;
+    if (exprRadius != null) {
+      final i = radiusSet ?? 0;
+      while (s.exprRadii.length <= i) {
+        s.exprRadii.add(s.exprRadii.isEmpty ? '2 mm' : s.exprRadii.last);
+      }
+      s.exprRadii[i] = exprRadius;
+    }
     if (mode != null) s.mode = mode;
     if (exprD1 != null) s.exprD1 = exprD1;
     if (exprD2 != null) s.exprD2 = exprD2;
@@ -2629,14 +2671,30 @@ class AppState extends ChangeNotifier {
         ? (s.editing?.bodyName ?? 'Solid1')
         : (_bodyNameOfSolid(pickedEdgeSolid!) ?? 'Solid1');
     if (s.isFillet) {
-      final r = parseValueExpr(s.exprRadius);
-      if (r == null || !(r > 0)) return (null, 'Radius must be > 0.');
+      // Every set must parse: a bad radius on set 2 has to be reported, not
+      // quietly replaced by set 1's value.
+      final rs = <double>[];
+      for (var i = 0; i < s.exprRadii.length; i++) {
+        final v = parseValueExpr(s.exprRadii[i]);
+        if (v == null || !(v > 0)) {
+          return (null, s.exprRadii.length == 1
+              ? 'Radius must be > 0.'
+              : 'Radius of set ${i + 1} must be > 0.');
+        }
+        rs.add(v);
+      }
+      if (rs.isEmpty) return (null, 'Radius must be > 0.');
       return (
         FilletFeature(
           name: s.editing?.name ?? p.nextFeatureName('Fillet'),
           bodyName: body,
           edges: [for (final e in pickedEdges) e],
-          radii: List<double>.filled(pickedEdges.length, r),
+          // radii is parallel to edges, so each edge takes ITS set's radius.
+          radii: [
+            for (var i = 0; i < pickedEdges.length; i++)
+              rs[(i < pickedEdgeSet.length ? pickedEdgeSet[i] : 0)
+                  .clamp(0, rs.length - 1)]
+          ],
           exprRadius: s.exprRadius,
         ),
         null
@@ -4361,6 +4419,43 @@ class AppState extends ChangeNotifier {
   /// re-deriving the mapping on every payload push.
   final List<int> pickedEdgeDisplay = [];
 
+  /// Which edge SET each picked edge belongs to, parallel to [pickedEdges].
+  /// Inventor lets one fillet feature carry several sets, each with its own
+  /// radius; new picks land in [activeEdgeSet].
+  final List<int> pickedEdgeSet = [];
+
+  /// The set new picks go into. Bumped by [newEdgeSet].
+  int activeEdgeSet = 0;
+
+  /// How many sets the current selection spans (at least one).
+  int get edgeSetCount {
+    var n = activeEdgeSet + 1;
+    for (final i in pickedEdgeSet) {
+      if (i + 1 > n) n = i + 1;
+    }
+    return n;
+  }
+
+  /// Start a new edge set, so the next taps get their own radius.
+  void newEdgeSet() {
+    final s = edgeSession;
+    if (s == null || !s.isFillet) return;
+    activeEdgeSet = edgeSetCount;
+    while (s.exprRadii.length <= activeEdgeSet) {
+      s.exprRadii.add(s.exprRadii.isEmpty ? '2 mm' : s.exprRadii.last);
+    }
+    notifyListeners();
+  }
+
+  void selectEdgeSet(int i) {
+    if (i < 0 || i >= edgeSetCount) return;
+    activeEdgeSet = i;
+    notifyListeners();
+  }
+
+  /// How many edges are in set [i].
+  int edgesInSet(int i) => pickedEdgeSet.where((x) => x == i).length;
+
   /// The solid the current edge set was picked from. Held by identity, like
   /// hoverFace, because a rebuild replaces the object.
   KernelSolid? pickedEdgeSolid;
@@ -4402,6 +4497,8 @@ class AppState extends ChangeNotifier {
     pickedEdges.clear();
     pickedEdgeIds.clear();
     pickedEdgeDisplay.clear();
+    pickedEdgeSet.clear();
+    activeEdgeSet = 0;
     pickedEdgeSolid = null;
     hoverEdge3d = null;
     notifyListeners();
@@ -4422,6 +4519,7 @@ class AppState extends ChangeNotifier {
       pickedEdges.clear();
       pickedEdgeIds.clear();
       pickedEdgeDisplay.clear();
+      pickedEdgeSet.clear();
     }
     if (solid != null) pickedEdgeSolid = solid;
     final i = pickedEdgeIds.indexOf(topoId);
@@ -4429,10 +4527,12 @@ class AppState extends ChangeNotifier {
       pickedEdgeIds.removeAt(i);
       pickedEdges.removeAt(i);
       if (i < pickedEdgeDisplay.length) pickedEdgeDisplay.removeAt(i);
+      if (i < pickedEdgeSet.length) pickedEdgeSet.removeAt(i);
     } else {
       pickedEdgeIds.add(topoId);
       pickedEdges.add(sel);
       pickedEdgeDisplay.add(display);
+      pickedEdgeSet.add(activeEdgeSet);
     }
     notifyListeners();
   }

@@ -16,6 +16,45 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M141 — Fillet-Kantensaetze: Radius JE SATZ, wie in Inventor.
+> 753/753 Tests, 0 Analyzer-Fehler.**
+>
+> **Was fehlte.** Das Modell trug Radius je Kante schon immer (`radii` ist
+> parallel zu `edges`), aber das Panel setzte EINEN Radius fuer alles. Damit
+> war Inventors Kernverhalten nicht erreichbar: „alle Verrundungen, die in
+> einem Vorgang entstehen, werden EIN Feature", und in diesem Feature traegt
+> jeder Kantensatz seinen eigenen Radius.
+>
+> **Wie es jetzt geht.** `pickedEdgeSet` liegt parallel zu `pickedEdges` und
+> haelt fest, in welchen Satz jede Kante gehoert; neue Picks landen in
+> `activeEdgeSet`. Das Panel zeigt eine Zeile pro Satz — links „N edges" als
+> Auswahlknopf, rechts das Radiusfeld — plus „+ Add edge set". Ablauf: Satz 1
+> tippen, „+", weiter tippen. Ein Tipp auf eine Satz-Zeile macht sie wieder
+> aktiv.
+>
+> **Fehler werden dem Satz zugeordnet.** Ein unbrauchbarer Radius in Satz 2
+> meldet „Radius of set 2 must be > 0." statt still Satz 1s Wert einzusetzen —
+> ein Feature mit einer Zahl, die das Modell nicht traegt, waere schlimmer als
+> eine Fehlermeldung.
+>
+> **Wiederoeffnen rekonstruiert die Saetze** aus den DISTINKTEN Radien des
+> gespeicherten Features (Reihenfolge des ersten Auftretens), sodass ein
+> mehrsaetziges Fillet so zurueckkommt, wie es gebaut wurde.
+>
+> **Beweis, nicht Behauptung:** ein aufzeichnender Fake-Kernel prueft, dass bei
+> zwei Saetzen (2 mm / 4 mm) und drei Kanten tatsaechlich
+> `radii == [2.0, 2.0, 4.0]` in Kantenreihenfolge beim Kernel ankommt — das
+> ist die Zusage, auf die `occt_fillet_edges` gebaut ist. Dazu 7 Tests fuer
+> die Satz-Buchhaltung (Entfernen haelt `pickedEdgeSet` synchron, `newEdgeSet`
+> waechst die Radiusliste mit, auf einem Chamfer tut es nichts).
+>
+> **NOCH OFFEN:** `allFillets`/`allRounds` (Inventors Auswahlmodi) brauchen
+> die KONVEXITAET einer Kante, um Verrundung von Abrundung zu unterscheiden;
+> `occt_shape_edge_info` liefert die nicht — waere ein Shim-Feld
+> (Winkel zwischen den Nachbarflaechen) und damit ein eigener Meilenstein.
+> Variabler Radius entlang EINER Kante fehlt ebenfalls. Revolve-Extents,
+> CPU-Painter-Akzent und die gesamte Swift-Seite unveraendert offen.
+
 > **M140 — Offene Punkte abgearbeitet, jetzt mit laufender Toolchain.
 > 745/745 Tests, 0 Analyzer-Fehler.**
 >
