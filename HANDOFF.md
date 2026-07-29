@@ -16,6 +16,46 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M124 — CI-Verifikation auf echtem OCCT 7.9.3: Shim gruen, Geometrie
+> analytisch korrekt, und die vier lokalen „Baseline"-Fehler waren
+> tatsaechlich reine 7.6-Artefakte.**
+>
+> Branch `session/m130-m145-kernel-features`, `occt-build` Lauf #30 —
+> BEIDE Jobs erfolgreich.
+>
+> **`occt-ios-static`:** der Shim uebersetzt gegen echtes OCCT 7.9.3 fuer
+> iOS arm64, und `defined _occt_* symbols in shim archive: 41` — das Gate
+> (>= 41) haelt. Alle zehn neuen Funktionen dieser Reihe sind damit auf der
+> Zielplattform bewiesen, nicht nur auf dem lokalen 7.6.3 mit gestubbtem
+> `BRepLib_ToolTriangulatedShape`.
+>
+> **`occt-host-smoke`: OCCT SMOKE: PASS.** Die Zahlen sind IDENTISCH mit dem
+> lokalen 7.6-Lauf: [20] 706.858347 (=225*pi) bei 4 Flaechen, [21] 12 Kanten
+> und 7892.699082, [22] 7840.000000, [23] Treffer bei 10 und 30, [24] 22
+> konvex / 2 konkav, [25] 19.4712 und 340.5288, [26] variabel 7924.1899
+> zwischen const2 7982.8319 und const6 7845.4867 (Mittel 7914.1593, also
+> nachweislich variiert statt gemittelt), [27] genau ein Flaechentreffer bei
+> 340.5288.
+>
+> **[28] lief hier zum ersten Mal ueberhaupt** — lokal skippt er, weil 7.6
+> nicht meshen kann. Ergebnis: `cylinder: 2 display edges, 3 topological`,
+> `map is a REMAP`. Damit ist die Fehlerklasse, um deren Willen
+> `occt_mesh_edge_ids` existiert, an echter Geometrie belegt: ein Zylinder hat
+> DREI topologische Kanten, aber nur ZWEI gezeichnete, ein Fillet auf dem
+> Anzeige-Index haette also wirklich die falsche Kante getroffen.
+>
+> **Die lokal getragene „Fehlerparitaet 4 = 4" ist aufgeloest:** [11], [12],
+> [15] und [16] scheitern unter 7.9.3 NICHT. Sie waren ausschliesslich Folge
+> des 7.6-Stubs fuer `ComputeNormals` — die Kontrollmessung gegen HEAD hatte
+> das richtig vermutet, jetzt ist es bewiesen. Unter 7.9.3: null Fehler.
+>
+> **`m1-core-build` Lauf #303, Teilergebnisse:** `Dart analyze + host tests`
+> erfolgreich (unabhaengige Bestaetigung der 780 Tests auf der CI-SDK),
+> `build-core-ios` erfolgreich. `M5 Flutter iOS build + unsigned IPA` laeuft —
+> das ist der EINZIGE Job, der die Swift-Seite (`edgeHighlightEntity`,
+> `rebuildEdgeAccents` aus M135) uebersetzt und damit die letzte ungeprueffte
+> Flaeche dieser Reihe.
+
 > **M123 — Merge M120-M122, eine falsche Behauptung korrigiert, und M122s
 > Dialog-Fix auf das Fillet-Panel uebertragen. 780/780, 0 Fehler.**
 >
