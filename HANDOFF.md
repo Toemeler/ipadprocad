@@ -16,6 +16,47 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **MERGE — `origin/main` (M101-M111) in die Sitzungsarbeit (M101-M107)
+> integriert. 0 Analyzer-Fehler, 739/739 Tests, Shim uebersetzt mit 39
+> Symbolen.**
+>
+> **Zwei unabhaengige M101-Reihen.** Diese Sitzung baute offline M101-M107
+> (Shim v12, Feature-Polymorphie, Extents, Kanten-Pick, Fillet/Chamfer,
+> Revolve). Auf `main` entstanden parallel M101-M111 (Preview/Hover-Fixes,
+> nativer Browser auf Liquid Glass, STEP-Export/Import). Gleiche Nummern,
+> voellig andere Inhalte. Umnummerierung steht aus — Vorschlag: diese Reihe
+> auf M112ff, weil `main` die veroeffentlichte ist.
+>
+> **Konflikte (7) und wie sie aufgeloest wurden:**
+> - `PartKernel`: upstreams ABSTRAKTES `importStepSolids` neben den vier
+>   konkreten dieser Sitzung; alle FUENF Fakes tragen jetzt beides.
+> - `ExtrudeFeature`: upstreams `imported`/`importPath` durch die
+>   M102-Umschreibung hindurchgerettet, inkl. Serialisierung.
+> - **Beinahe-Datenverlust:** der `if (f.imported)`-Waechter in
+>   `recomputeAllFeatures` haette den M102-Umbau nicht ueberlebt. Ohne ihn
+>   wirft der erste Rebuild nach einem STEP-Import die importierte Geometrie
+>   weg. Wiederhergestellt und typgeprueft (`f is ExtrudeFeature && ...`,
+>   denn `features` ist jetzt `List<PartFeature>`).
+> - `native_browser`/`_host`: auf `PartFeature` verbreitert und von
+>   `openExtrude` auf `editFeature` umgestellt — der native Browser
+>   bearbeitet damit auch Fillet, Chamfer und Revolve.
+> - Shim: 39 Symbole (v12 + upstreams `occt_split_solids`), CI-Gates in
+>   BEIDEN Workflows von 38 auf 39.
+>
+> **CI-BEFUND, wichtig:** `occt-build.yml` ist seit **M68 (27.07.)** nicht
+> mehr erfolgreich durchgelaufen — Lauf #28 (M109) wurde abgebrochen, #29
+> (M110) lief beim Nachsehen noch. Der Shim wurde also seit M68 von CI NICHT
+> mehr uebersetzt. `m1-core-build.yml` #283 meldete fuer M109 trotzdem
+> „success", weil dort ein GECACHTES OCCT verwendet wird und die
+> Shim-Quelle gar nicht neu gebaut wird. Genau durch diese Luecke ist M109s
+> kaputte Translation Unit nach `main` gelangt und musste in M110
+> zurueckgenommen werden. Der Symbol-Gate im iOS-Build faengt das nicht:
+> er zaehlt Symbole im gecachten Archiv.
+>
+> **Lokal nachgeholt:** der ZUSAMMENGEFUEHRTE Shim uebersetzt sauber gegen
+> echtes OCCT (7.6.3), inklusive upstreams `occt_split_solids`, und die
+> Smoke-Fehlerparitaet zu HEAD bleibt 4 = 4 (7.6-Normalen-Artefakt).
+
 > **!! NUMMERNKOLLISION M101-M107 !!** Diese Sitzung hat offline an
 > M101-M107 gearbeitet (OCCT-Shim v12: Revolve/Fillet/Chamfer/Kanten,
 > Feature-Polymorphie, Extents, Kanten-Pick, Dialoge), waehrend auf `main`
