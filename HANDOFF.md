@@ -16,6 +16,44 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M125 — Voller CI-Durchlauf gruen: IPA gebaut, Swift uebersetzt, 41
+> Symbole im Runner. Damit ist ALLES in M130-M145 maschinell geprueft.**
+>
+> `m1-core-build` Lauf #303 auf `session/m130-m145-kernel-features` — alle
+> VIER Jobs erfolgreich:
+> - **Dart analyze + host tests (fast):** unabhaengige Bestaetigung von 0
+>   Analyzer-Fehlern und 780 Tests auf der CI-SDK.
+> - **build-core-ios** und **M3 headless logic (iOS Simulator):** erfolgreich.
+> - **M5 Flutter iOS build + unsigned IPA:** erfolgreich, `Runner.app` 67.3 MB,
+>   IPA als Artefakt hochgeladen.
+>
+> **Alle Gates einzeln bestaetigt (nicht nur der gruene Haken):**
+> `LIQUID GLASS CHECK: PASS (iOS SDK 26)` ·
+> `M6 QIOS CHECK: PASS` · `M5 LINK CHECK: PASS` · `SLVS LINK CHECK: PASS` ·
+> `OCCT MARKER CHECK: PASS` ·
+> **`OCCT LINK CHECK: PASS (41 _occt_* symbols exported in Runner)`** ·
+> `REALITYKIT LINK CHECK: PASS` · `THUMB CHANNEL CHECK: PASS`.
+>
+> **Die Swift-Seite ist damit uebersetzt.** Sie war die letzte ungeprueffte
+> Flaeche dieser Reihe: `edgeHighlightEntity` in `PartScene.swift` und
+> `rebuildEdgeAccents` in `RealityPartView.swift` (M135) waren blind
+> geschrieben und nie kompiliert. Beweis ist nicht der gruene Job allein,
+> sondern `THUMB CHANNEL CHECK` — der greppt
+> `$APP/Frameworks/reality_view.framework/reality_view` nach seinem
+> Kanal-String, also MUSS das Framework, in dem diese beiden Dateien liegen,
+> uebersetzt und im Bundle sein. Swift-Diagnosen im ganzen Log: NULL.
+>
+> **Was jetzt maschinell bewiesen ist:** Shim uebersetzt fuer iOS arm64 gegen
+> OCCT 7.9.3 und exportiert 41 Symbole bis in das ausgelieferte Binary;
+> Geometrie analytisch korrekt (SMOKE PASS, [20]-[28]); 780 Dart-Tests; 0
+> Analyzer-Fehler; Swift uebersetzt; IPA paketiert.
+>
+> **Was maschinell NICHT beweisbar ist und offen bleibt:** ob der
+> Kanten-Akzent am Geraet SICHTBAR ist (2.2x Breite gegen Z-Fighting war eine
+> Ueberlegung, keine Beobachtung); ob 14 px die richtige Fingertoleranz sind;
+> ob das Fillet-Panel mit drei Kantensaetzen in 300 px passt. Das braucht
+> einen Geraetetest, kein weiteres Kompilat.
+
 > **M124 — CI-Verifikation auf echtem OCCT 7.9.3: Shim gruen, Geometrie
 > analytisch korrekt, und die vier lokalen „Baseline"-Fehler waren
 > tatsaechlich reine 7.6-Artefakte.**
