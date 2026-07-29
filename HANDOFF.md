@@ -16,6 +16,17 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M116 — Der Browser ist eine Karte, keine Wand.** Halbe Viewport-Hoehe,
+> oben links verankert (`FractionallySizedBox(heightFactor: 0.5)` in einem
+> `Align` innerhalb des `Positioned.fill`), damit die Ursprungs-Triade unten
+> links darunter sichtbar bleibt. Raender auf 12 pt links/oben/unten und 6 pt
+> rechts, damit der Baum seine Breite behaelt. Laeuft die Liste ueber, scrollt
+> sie — das kann die `UICollectionView` von sich aus.
+>
+> Das `Align` ist wichtig: `Positioned.fill` allein wuerde den ganzen Stack
+> belegen; ein `Align` trifft beim Hit-Test nur sein Kind, Tipps neben der
+> Karte gehen also weiter an den Viewport.
+
 > **M115 — KRITISCH: c697a81 hatte GAR KEIN Ribbon. Meine Schuld, ein
 > falscher Map-Name.**
 >

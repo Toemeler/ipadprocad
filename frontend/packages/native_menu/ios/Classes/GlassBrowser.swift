@@ -134,8 +134,10 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
 
     // -- list ----------------------------------------------------------------
 
-    /// Margin around the floating panel.
-    static let inset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+    /// Margin around the floating panel. M116 — a little more on the left,
+    /// top and bottom now that it is a card rather than a wall, and less on
+    /// the right so the tree keeps its width.
+    static let inset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 6)
 
     private func buildCollection() {
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
