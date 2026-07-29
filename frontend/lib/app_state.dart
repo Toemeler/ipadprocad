@@ -917,6 +917,11 @@ class AppState extends ChangeNotifier {
   }
 
   File _dxfFile(String name) => File('${_sketchDir.path}/$name.dxf');
+
+  /// M112 — the layer construction geometry is exported onto. "Defpoints" is
+  /// the long-standing AutoCAD convention for a layer that is visible on
+  /// screen but never plotted or machined.
+  static const String kDxfConstructionLayer = 'Defpoints';
   File _pngFile(String name) => File('${_sketchDir.path}/$name.png');
 
   Future<void> refreshSaved() async {
@@ -1089,7 +1094,54 @@ class AppState extends ChangeNotifier {
     if (_docsDir == null) return null;
     if (sketches.containsKey(name)) await saveSketch(name);
     final f = _dxfFile(name);
-    return f.existsSync() ? f.path : null;
+    if (!f.existsSync()) return null;
+
+    // M112 — EXPORT A COPY, not the storage file.
+    //
+    // Construction and centreline geometry is only construction because of a
+    // Dart-side style tag that rides in a SIDECAR; the DXF itself has no such
+    // flag, so handing over the storage file exports scaffolding as REAL
+    // geometry. Anyone manufacturing from it cuts the construction lines. That
+    // was the one thing blocking this from being production-ready.
+    //
+    // The fix is the standard convention: construction geometry goes onto
+    // "Defpoints", which every CAD package treats as non-plotting. The
+    // geometry is still there — you can see it, snap to it, and re-import it —
+    // it just cannot be mistaken for the part.
+    final model = await _loadSketchIn(_sketchDir, name);
+    try {
+      final gs = model.geometry;
+      final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
+      if (!needsSplit) return f.path; // nothing to protect: ship the file
+      final out = File('${_sketchDir.path}/$name.export.dxf');
+      final tmp = SketchModel('_export');
+      try {
+        tmp.layers
+          ..clear()
+          ..addAll(model.layers);
+        if (!tmp.layers.contains(kDxfConstructionLayer)) {
+          tmp.layers.add(kDxfConstructionLayer);
+        }
+        _rebuildEngine(tmp, [
+          for (final g in gs)
+            (g.isConstruction || g.isCenterline)
+                ? g.onLayer(kDxfConstructionLayer)
+                : g
+        ]);
+        if (!tmp.engine.saveDxf(out.path)) {
+          Log.w('export', 'export copy failed; falling back to storage file');
+          return f.path;
+        }
+      } finally {
+        tmp.dispose();
+      }
+      return out.path;
+    } catch (e) {
+      Log.w('export', 'export copy failed: $e');
+      return f.path;
+    } finally {
+      if (!sketches.containsKey(name)) model.dispose();
+    }
   }
 
   // (Removed the six first-launch design-dummy cards: a fresh install now
@@ -1958,7 +2010,51 @@ class AppState extends ChangeNotifier {
         cs.visible = stored ?? !consumed;
       }
       _loadedSketchVis.clear();
+      // M112 — imported bodies are re-read from their STEP file. Their B-Rep
+      // is deliberately NOT serialised (the file is the source of truth), so
+      // without this an imported body would come back empty and the part would
+      // silently lose geometry on reopen. A missing file is REPORTED, not
+      // swallowed: geometry vanishing without explanation is the worse failure.
+      //
+      // Grouped by file and read ONCE per file, then handed out in order — a
+      // STEP holding four solids became four features, and re-reading it four
+      // times would be both slow and a leak, since each read returns all four.
       if (partKernel.available) {
+        final byFile = <String, List<ExtrudeFeature>>{};
+        for (final f in p.features) {
+          // M102 — features are polymorphic; only an extrude can be an
+          // imported body, so the type test is the guard AND the promotion.
+          if (f is! ExtrudeFeature) continue;
+          if (!f.imported || f.solid != null) continue;
+          final rel = f.importPath;
+          if (rel == null) {
+            f.computeError = 'imported body has no source file';
+            continue;
+          }
+          (byFile[rel] ??= []).add(f);
+        }
+        for (final entry in byFile.entries) {
+          final abs = '${_sketchDir.path}/${entry.key}';
+          if (!File(abs).existsSync()) {
+            for (final f in entry.value) {
+              f.computeError = 'imported file missing';
+            }
+            Log.w('import', 'missing STEP: ${entry.key}');
+            continue;
+          }
+          final solids = partKernel.importStepSolids(abs);
+          for (var i = 0; i < entry.value.length; i++) {
+            if (i < solids.length) {
+              entry.value[i].solid = solids[i];
+            } else {
+              entry.value[i].computeError = 'solid no longer in the file';
+            }
+          }
+          // The file grew since the import: nothing claims those, so free them.
+          for (var i = entry.value.length; i < solids.length; i++) {
+            solids[i].dispose();
+          }
+        }
         recomputeAllFeatures(p, partKernel);
       _syncSolidProjections(p);
         _syncSolidProjections(p);
