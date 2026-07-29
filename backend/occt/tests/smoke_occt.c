@@ -1102,6 +1102,64 @@ int main(void)
         if (b0) occt_free_shape(b0);
     }
 
+    /* [28] v12 DISPLAY -> TOPOLOGICAL edge map. The one function in the v12/v13
+     * surface with no coverage until now, and the one whose absence caused a
+     * silent bug class: the mesh's display edge list SKIPS degenerate, seam and
+     * tangent-continuous edges, so display index i and TopExp::MapShapes index
+     * i are different numbers on anything with a cylinder in it. A fillet keyed
+     * on the display index would round the WRONG edge.
+     *
+     * A cylinder is the case that proves it: it has a seam the display list
+     * drops, so the map cannot be the identity.
+     *
+     * NOTE: this needs occt_mesh_create, which fails on OCCT 7.6 for reasons
+     * unrelated to this shim (see [11]/[12]). It therefore SKIPS LOUDLY rather
+     * than failing when meshing is unavailable, and is exercised for real only
+     * on the 7.9 CI build. */
+    {
+        occt_shape *cyl = occt_make_cylinder(0, 0, 0, 5.0, 20.0);
+        occt_mesh *m = cyl ? occt_mesh_create(cyl, 0.1, 0.5) : NULL;
+        if (m == NULL) {
+            printf("[28] SKIPPED (mesh_create unavailable on this OCCT) "
+                   "- runs on CI\n");
+        } else {
+            int nv = 0, nt = 0, nedges = 0, np = 0;
+            occt_mesh_counts(m, &nv, &nt, &nedges, &np);
+            const int ntopo = occt_shape_edge_count(cyl);
+            int *ids = (int *)malloc(sizeof(int) * (nedges > 0 ? nedges : 1));
+            check(occt_mesh_edge_ids(m, ids) == 1, "[28] edge_ids failed");
+            printf("[28] cylinder: %d display edges, %d topological\n", nedges,
+                   ntopo);
+            check(nedges > 0, "[28] a cylinder must draw some edges");
+            check(nedges < ntopo,
+                  "[28] the display list must DROP the seam, so it is shorter");
+            int ok = 1, distinct = 1;
+            for (int i = 0; i < nedges; ++i) {
+                if (ids[i] < 1 || ids[i] > ntopo) ok = 0;
+                for (int j = i + 1; j < nedges; ++j)
+                    if (ids[i] == ids[j]) distinct = 0;
+            }
+            check(ok, "[28] every mapped id must be a real topological index");
+            check(distinct, "[28] two display edges cannot share one id");
+            /* the point of the whole function: it is NOT the identity */
+            int identity = 1;
+            for (int i = 0; i < nedges; ++i)
+                if (ids[i] != i + 1) identity = 0;
+            printf("[28] map is %s\n", identity ? "the identity" : "a REMAP");
+            check(!identity,
+                  "[28] on a cylinder the map must differ from the identity");
+            /* and every mapped edge must actually be filletable */
+            for (int i = 0; i < nedges; ++i) {
+                double d[12] = {0};
+                if (occt_shape_edge_info(cyl, ids[i], d))
+                    check(d[7] > 0, "[28] a drawn edge must have length");
+            }
+            free(ids);
+            occt_free_mesh(m);
+        }
+        if (cyl) occt_free_shape(cyl);
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

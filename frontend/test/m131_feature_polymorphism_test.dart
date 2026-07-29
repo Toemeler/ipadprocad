@@ -89,8 +89,9 @@ void main() {
         edges: [EdgeSel(0, 0, 0, 10, 1, 0), EdgeSel(0.1, 0, 0, 10, 1, 0)],
         radii: [1, 2],
       );
-      final (ids, lost) = f.resolveEdges([_edge(7)]);
+      final (ids, src, lost) = f.resolveEdges([_edge(7)]);
       expect(ids, [7]);
+      expect(src, [0], reason: 'the SECOND pick is the one that was lost');
       expect(lost, 1);
     });
 
@@ -101,8 +102,9 @@ void main() {
         edges: [EdgeSel(0, 0, 0, 10, 1, 0), EdgeSel(999, 0, 0, 10, 1, 0)],
         radii: [1, 2],
       );
-      final (ids, lost) = f.resolveEdges([_edge(3)]);
+      final (ids, src, lost) = f.resolveEdges([_edge(3)]);
       expect(ids, [3], reason: 'Inventor keeps the fillet on what remains');
+      expect(src, [0], reason: 'and radii index through this, not position');
       expect(lost, 1);
     });
   });

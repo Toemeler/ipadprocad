@@ -4,13 +4,13 @@
 // runs without a device: the "camera" here is two closures, so every
 // tie-break can be set up exactly and asserted.
 import 'dart:typed_data';
-import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/part_pick.dart';
+import 'package:prototype/part_render.dart';
 
 /// A mesh carrying only edges — pickEdge never looks at triangles.
 ///
@@ -49,6 +49,34 @@ Offset _proj(Vec3 v) => Offset(v.x, v.y);
 double _depth(Vec3 v) => -v.z;
 
 void main() {
+  // The CPU painter's edge accent indexes DisplayEdge.of() output by the same
+  // number as OcctMeshData's display edge list. That is only true because
+  // DisplayEdge.of emits exactly one entry per display edge, on every branch.
+  // If a future branch ever `continue`s without adding, the accent would
+  // silently land on the wrong edge, so the invariant is pinned here.
+  group('DisplayEdge.of index invariant', () {
+    test('one entry per display edge, whatever the curve types', () {
+      final m = _edgeMesh([
+        [Vec3(0, 0, 0), Vec3(10, 0, 0)],
+        [Vec3(0, 5, 0), Vec3(10, 5, 0), Vec3(20, 5, 0)],
+        [Vec3(0, 9, 0), Vec3(10, 9, 0)],
+      ], kinds: [1, 2, 0], radii: [0, 3, 0]);
+      expect(DisplayEdge.of(m).length, m.edgeCount);
+      expect(m.edgeCount, 3);
+    });
+
+    test('holds with no analytic records at all (fake / legacy meshes)', () {
+      final m = OcctMeshData(
+          Float64List(0),
+          Float64List(0),
+          Int32List(0),
+          Int32List.fromList(const [0, 2, 4]),
+          Float64List.fromList(
+              const [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]));
+      expect(DisplayEdge.of(m).length, m.edgeCount);
+    });
+  });
+
   group('hit and miss', () {
     test('a tap on the edge hits it', () {
       final m = _edgeMesh([

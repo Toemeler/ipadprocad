@@ -16,6 +16,52 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M145 — Audit der eigenen Arbeit. Zwei echte Befunde behoben, drei
+> Invarianten festgenagelt. 780/780 Tests, 0 Analyzer-Fehler, 41 Symbole.**
+>
+> **BEFUND 1 (behoben): die Radien-Zuordnung war fragil.** `resolveEdges`
+> ANKERT die Fingerabdruecke neu und erzwingt ueber `taken`, dass jede lebende
+> Kante nur EINE Auswahl bedient. Die Radien-Zuordnung danach rief `bestMatch`
+> aber ein ZWEITES Mal auf, ohne dieses `taken` — waren zwei Picks auf
+> denselben Ueberlebenden gedriftet, konnten Radien und Kanten
+> auseinanderlaufen. `resolveEdges` liefert jetzt zusaetzlich den QUELLINDEX
+> jeder ueberlebenden Auswahl, und die Zuordnung ist ein schlichter Lookup —
+> kein zweiter Matching-Durchlauf, also keine Driftmoeglichkeit. Neuer Test:
+> gehen bei drei Kanten mit Radien [2,3,4] die mittlere verloren, muss beim
+> Kernel [2,4] ankommen — nicht [2,3] (positionsweise) und nicht [2,2] (Drift).
+>
+> **BEFUND 2 (behoben): `occt_mesh_edge_ids` hatte NULL Testabdeckung.** Genau
+> die Funktion, deren Fehlen die stille Fehlerklasse verursacht haette
+> (Anzeige-Index != topologischer Index, also Fillet auf der FALSCHEN Kante).
+> Neu Smoke [28] an einem Zylinder — dessen Naht laesst die Anzeigeliste
+> fallen, also KANN die Abbildung nicht die Identitaet sein: geprueft werden
+> Laenge, Wertebereich, Eindeutigkeit, und explizit dass es ein REMAP ist.
+> Ehrlich: der Test braucht `occt_mesh_create`, das unter 7.6 aus
+> shim-fremden Gruenden scheitert ([11]/[12]), also SKIPPT er dort LAUT und
+> laeuft erst auf der 7.9-CI wirklich.
+>
+> **Festgenagelt, weil stillschweigend tragend:**
+> - `DisplayEdge.of()` liefert GENAU einen Eintrag pro Anzeige-Kante, auf
+>   jedem Zweig. Der Kanten-Akzent des CPU-Painters indiziert darauf; wuerde
+>   ein spaeterer Zweig ohne `out.add` `continue`n, landete der Akzent still
+>   auf der falschen Kante. Jetzt getestet, auch fuer Meshes ohne analytische
+>   Records.
+> - Beide `_strokeRuns`-Aufrufe in `_paintSolidEdges` nehmen `edgeColor`, nicht
+>   den Parameter — der Akzent ist also wirklich sichtbar und nicht toter Code.
+> - 41 exportierte `occt_*`-Symbole (per `nm` gezaehlt) == 41 Deklarationen ==
+>   alle VIER CI-Gates. Vorher nur behauptet, jetzt gemessen.
+>
+> **Ebenfalls geprueft, ohne Befund:** kein Shim-Header wird transitiv
+> vorausgesetzt (alle 10 neu benutzten Typen explizit inkludiert — wichtig,
+> weil 7.9 andere Transitivitaeten hat); keine der eingefuehrten Hilfen ist
+> toter Code; keine TODO/FIXME-Reste; der doppelte
+> `_syncSolidProjections`-Aufruf ist nicht zurueckgekehrt.
+>
+> **Merge M113fix-M119** dabei mitgenommen. In `model_browser.dart` wurde
+> origin/mains M113-Fix genommen: er entfernt die doppelten
+> EOP-Deklarationen SAMT ihres veralteten Doc-Blocks, waehrend meine
+> fruehere Aufloesung den Kommentar verwaist zurueckgelassen hatte.
+
 > **M144 — Die letzten drei offenen Punkte in einem Zug: variabler
 > Fillet-Radius, Revolve „To <Flaeche>", Kanten-Akzent im CPU-Painter.
 > Shim 41 Symbole, 771/771 Tests, 0 Analyzer-Fehler.**

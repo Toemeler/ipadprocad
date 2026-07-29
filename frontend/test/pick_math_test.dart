@@ -6,7 +6,6 @@
 // silent behaviour change hides: each copy handled the degenerate zero-length
 // segment slightly differently.
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/pick_math.dart';

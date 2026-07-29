@@ -375,6 +375,32 @@ void main() {
           reason: '0 means that edge stays constant');
     });
 
+    test('a LOST edge keeps the surviving radii correctly paired', () {
+      // The alignment bug this guards: with edge 2 gone, the survivors are
+      // sources 0 and 2, so the radii must be [2, 4] — not [2, 3] (positional)
+      // and not [2, 2] (a second matching pass drifting).
+      final k = FilletRecorder();
+      final base = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList(const [0]), Float64List(0)),
+          1.0,
+          null);
+      final f = FilletFeature(
+          name: 'F',
+          bodyName: 'S',
+          edges: [
+            EdgeSel(0, 0, 0, 5, 1, 0), // -> live edge 1
+            EdgeSel(999, 0, 0, 5, 1, 0), // gone
+            EdgeSel(20, 0, 0, 5, 1, 0), // -> live edge 3
+          ],
+          radii: const [2.0, 3.0, 4.0],
+          radii2: const [0.0, 0.0, 8.0]);
+      expect(recomputeFeature(PartModel('P'), f, k, base: base), isTrue);
+      expect(k.lastIds, [1, 3]);
+      expect(k.lastRadii, [2.0, 4.0]);
+      expect(k.lastRadii2, [0.0, 8.0]);
+    });
+
     test('an all-constant feature sends NO end radii at all', () {
       final k = FilletRecorder();
       final base = KernelSolid(

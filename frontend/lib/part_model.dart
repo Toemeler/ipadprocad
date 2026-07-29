@@ -1487,11 +1487,22 @@ abstract class BodyModifyFeature extends PartFeature {
   /// A selection that no longer matches is DROPPED from the result and
   /// reported through [lostEdges] — Inventor's behaviour for a fillet whose
   /// edge set partly survives is to keep filleting the rest.
-  (List<int>, int) resolveEdges(List<OcctEdgeInfo> live) {
+  /// Returns the resolved topological ids, the INDEX INTO [edges] each one
+  /// came from, and how many selections were lost.
+  ///
+  /// The source indices matter: a fillet's radii are parallel to [edges], so
+  /// after selections are dropped the caller has to know which original entry
+  /// each surviving id belongs to. Re-deriving that by calling [bestMatch]
+  /// again would be both wasteful and WRONG — this pass reanchors the
+  /// fingerprints and enforces one-live-edge-per-selection through [taken],
+  /// neither of which a second independent pass reproduces.
+  (List<int>, List<int>, int) resolveEdges(List<OcctEdgeInfo> live) {
     final ids = <int>[];
+    final src = <int>[];
     var lost = 0;
     final taken = <int>{};
-    for (final sel in edges) {
+    for (var i = 0; i < edges.length; i++) {
+      final sel = edges[i];
       final m = sel.bestMatch(live);
       // One live edge can only serve one selection: without this, two picks
       // that both drifted toward the same survivor would silently collapse
@@ -1502,8 +1513,9 @@ abstract class BodyModifyFeature extends PartFeature {
       }
       sel.reanchor(m);
       ids.add(m.index);
+      src.add(i);
     }
-    return (ids, lost);
+    return (ids, src, lost);
   }
 }
 
@@ -3114,41 +3126,26 @@ bool _recomputeBodyModify(
         : kernel.lastError;
     return false;
   }
-  final (ids, lost) = f.resolveEdges(live);
+  final (ids, src, lost) = f.resolveEdges(live);
   if (ids.isEmpty) {
     f.computeError = 'none of the selected edges exist any more';
     return false;
   }
   KernelSolid? out;
   if (f is FilletFeature) {
-    // resolveEdges DROPS lost selections, so the radii must be re-aligned to
-    // the surviving ids by the same rule, not indexed by their old position.
-    final radii = <double>[];
-    var k = 0;
-    for (var i = 0; i < f.edges.length && k < ids.length; i++) {
-      if (f.edges[i].bestMatch(live)?.index == ids[k]) {
-        radii.add(i < f.radii.length ? f.radii[i] : f.radii.last);
-        k++;
-      }
-    }
-    while (radii.length < ids.length) {
-      radii.add(f.radii.isEmpty ? 2.0 : f.radii.last);
-    }
-    // The end radii ride along with the same alignment as the start radii;
-    // an all-zero list means every edge is constant and the shim skips it.
-    final radii2 = <double>[];
-    if (f.radii2.any((r) => r > 0)) {
-      var k2 = 0;
-      for (var i = 0; i < f.edges.length && k2 < ids.length; i++) {
-        if (f.edges[i].bestMatch(live)?.index == ids[k2]) {
-          radii2.add(i < f.radii2.length ? f.radii2[i] : 0.0);
-          k2++;
-        }
-      }
-      while (radii2.length < ids.length) {
-        radii2.add(0.0);
-      }
-    }
+    // Straight lookup through the source indices resolveEdges reported: no
+    // second matching pass, so the radii cannot drift away from the ids.
+    final radii = [
+      for (final i in src)
+        i < f.radii.length
+            ? f.radii[i]
+            : (f.radii.isEmpty ? 2.0 : f.radii.last)
+    ];
+    // An all-zero list means every edge is constant, and the shim then skips
+    // the variable-radius path entirely.
+    final radii2 = f.radii2.any((r) => r > 0)
+        ? [for (final i in src) i < f.radii2.length ? f.radii2[i] : 0.0]
+        : const <double>[];
     out = kernel.filletEdges(base, ids, radii, radii2: radii2);
   } else if (f is ChamferFeature) {
     final (d1, d2, ang) = f.kernelParams;
