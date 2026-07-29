@@ -33,7 +33,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   bool _collapsed = false;
 
   static const double _kWide = 264;
-  static const double _kNarrow = 62;
+  /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left
+  /// only ~34 pt of content and the 16 pt glyphs were clipped against the
+  /// cell's own leading margin. 78 gives the icon column real room while still
+  /// reading as "retracted".
+  static const double _kNarrow = 78;
 
   /// M119 — the chevron lives OUTSIDE the glass, in a strip beside it, and
   /// only shows when the pointer is near the panel. A handle permanently
@@ -68,11 +72,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // the card, never over it.
         width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
         child: Stack(children: [
+        // M120 — the card ends WHERE THE STRIP BEGINS. Sizing it by width let
+        // it run under the handle, and a Flutter GestureDetector on top of a
+        // platform view swallows the touch: tapping a folder's disclosure
+        // chevron hit the retract strip instead and collapsed the panel. With
+        // `right: _kHandle` the two cannot overlap by construction.
         Positioned(
           left: 0,
           top: 0,
           bottom: 0,
-          width: _collapsed ? _kNarrow : _kWide,
+          right: _kHandle,
         child: GlassBrowser(
           rows: buildBrowserRows(app,
               expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
@@ -132,6 +141,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
 
   void _onTap(String id) {
     final part = app.currentPart;
+    // M121 — tapping a FOLDER row toggles it, not just its little chevron.
+    // The chevron is a 20 pt target on a 264 pt row; every file browser on
+    // this platform lets you hit the row itself.
+    if (id == 'bodies' || id == 'origin') {
+      setState(() {
+        if (!_expanded.remove(id)) _expanded.add(id);
+      });
+      return;
+    }
+    if (id == 'root') return; // the document row is a label, not an action
     if (id.startsWith(kIdBody) && app.pickingBody) {
       app.pickBody(id.substring(kIdBody.length));
       return;

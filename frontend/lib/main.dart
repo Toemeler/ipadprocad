@@ -236,9 +236,14 @@ class PrototypeApp extends StatelessWidget {
                                 // breathing room above it and the origin triad
                                 // stays clear below.
                                 child: Align(
-                                  alignment: Alignment.centerLeft,
+                                  // M121 — a little taller and a little
+                                  // higher: there was dead space above the
+                                  // card, and the triad only needs the bottom
+                                  // corner. -0.35 puts it above centre without
+                                  // touching the ribbon.
+                                  alignment: const Alignment(-1, -0.35),
                                   child: FractionallySizedBox(
-                                    heightFactor: 0.75, // M119 — taller card
+                                    heightFactor: 0.82, // M121 — taller card
                                     alignment: Alignment.centerLeft,
                                     child: NativeModelBrowser(app: app),
                                   ),

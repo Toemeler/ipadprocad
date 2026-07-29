@@ -945,6 +945,70 @@ Token NIE in Dateien/.git/config schreiben.
 > heisst das, dass jede neue Aufrufstelle gegen die Deklarationen typprueft.
 > 38 Definitionen == 38 Deklarationen, Klammern balanciert. Erwartungswert
 > fuer den ersten CI-Lauf: Korrekturen an OCCT-Include-Namen.
+> **M121 — Panel-Durchgang: Groesse, abgeschnittene Icons, und der EOP-Zug
+> eine Ebene tiefer.**
+>
+> **EOP, die eigentliche Ursache im nativen Panel.** Einen Pan-Recognizer an
+> eine `UICollectionView` zu haengen reicht nicht: die Liste hat ihren EIGENEN
+> `panGestureRecognizer`, der wurde zuerst installiert, und der Pan einer
+> Scroll-View ist gierig — er beanspruchte die Beruehrung, die Marke bewegte
+> sich nicht. Exakt derselbe Fehler wie in der Flutter-Fassung, nur eine Ebene
+> tiefer. `collection.panGestureRecognizer.require(toFail: pan)` gibt die
+> Beruehrung ab, sobald der Zug auf der End-of-Part-Zeile beginnt. Das kostet
+> nirgends Scrollen: `gestureRecognizerShouldBegin` lehnt fuer jede andere
+> Zeile sofort ab, der Scroll-Pan ist im selben Event wieder frei. Waehrend des
+> Zuges ist Scrollen abgeschaltet, damit nichts unter dem Finger wegrutscht.
+>
+> **Eingezogen zu schmal.** 62 pt minus 28 pt linker Inset liessen ~34 pt
+> Inhalt, das 16-pt-Glyph lief gegen den Zellenrand. Jetzt 78 pt, und
+> eingezogene Zellen bekommen symmetrische 4-pt-Raender statt der 12 pt, die
+> fuer eine Textzeile gedacht waren.
+>
+> **Hoeher und weiter oben:** 82 % Hoehe, Anker `Alignment(-1, -0.35)` — der
+> tote Raum oben wird genutzt, die Triade behaelt ihre Ecke.
+>
+> **Weitere Befunde aus dem Durchgang, mitbehoben:** ein Tipp auf die
+> ORDNER-Zeile (Solid Bodies / Origin) klappt sie jetzt auf — vorher reagierte
+> nur das 20-pt-Chevron auf einer 264-pt-Zeile; die gerade GEOEFFNETE Skizze
+> ist im Baum hervorgehoben (der Baum beantwortet "wo bin ich"); der
+> Scroll-Indikator ist auf `.white` gestellt, weil der Standard schwarz auf
+> Glas ist; die Dokument-Zeile ganz oben ist eine Beschriftung und schluckt
+> ihren Tipp still, statt so zu tun, als waere sie ein Knopf.
+
+> **M121 — Eingezogen war zu schmal, und oben lag Platz brach.**
+>
+> **Breite.** Die Karte behaelt ihren 28-pt-Rand links, von 62 pt blieben also
+> nur ~34 pt Inhalt — und gegen den 12-pt-Innenrand der Zelle wurde das
+> 16-pt-Glyph abgeschnitten. Jetzt 78 pt, und die eingezogenen Zeilen bekommen
+> einen schlanken, SYMMETRISCHEN Innenrand (4/4 statt 12/4), damit die
+> Icon-Spalte mittig steht statt gegen die Kante zu druecken.
+>
+> **Hoehe und Lage.** 82 % statt 75 %, und die Karte sitzt bei `Alignment(-1,
+> -0.35)` ueber der Mitte: oben war ungenutzter Raum, waehrend unten nur die
+> Triade Platz braucht.
+
+> **M120 — Drei gemeldete Symptome, zwei Ursachen.**
+>
+> **(1) Der Einzieh-Griff lag AUF der Karte und fraß die Ordner-Klicks.** Die
+> Karte war per `width:` bemessen, der Griff-Streifen daneben per `right: 0` —
+> also lief die Karte UNTER dem Streifen weiter. Ein Flutter-`GestureDetector`
+> ueber einer Plattform-View schluckt die Beruehrung, und genau deshalb klappte
+> ein Tipp auf das Disclosure-Chevron von *Solid Bodies* oder *Origin* nicht
+> den Ordner auf, sondern zog das Panel ein. Die Karte endet jetzt per
+> `right: _kHandle` genau dort, wo der Streifen beginnt — ueberlappen ist damit
+> konstruktiv ausgeschlossen.
+>
+> **(2) Kein linker Rand.** Die Insets wurden EINMAL beim Init auf
+> `container.bounds` gerechnet — zu dem Zeitpunkt oft `zero` — und
+> `flexibleWidth/Height` SKALIERT diesen Rahmen anschliessend, statt den Rand zu
+> erhalten. Ergebnis: die Karte klebte an der iPad-Kante. Glas und
+> `UICollectionView` haengen jetzt an **Auto-Layout-Constraints** mit den
+> Inset-Konstanten; die halten bei jeder Groessenaenderung.
+>
+> **Lehre:** `frame` + `autoresizingMask` und ein Rand, der erhalten bleiben
+> soll, passen nicht zusammen — Autoresizing skaliert, es respektiert keine
+> Konstanten.
+
 > **M119 — Panel-Feinschliff und ein schnelleres CI.**
 >
 > **Griff AUSSERHALB der Karte.** Der Chevron sitzt jetzt in einem 24-pt-Streifen

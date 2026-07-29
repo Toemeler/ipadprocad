@@ -122,14 +122,30 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         let ev = UIVisualEffectView(effect: effect)
         // M108 — FLOATING: inset from the edges with rounded corners, so it
         // reads as a panel resting over the model rather than a wall glued to
-        // the side. The viewport now runs underneath it (see main.dart).
-        ev.frame = container.bounds.inset(by: GlassBrowserView.inset)
-        ev.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // the side. The viewport runs underneath it (see main.dart).
+        //
+        // M120 — AUTO LAYOUT, not frame + autoresizing. The frame was insetted
+        // once at init, when `container.bounds` is still whatever Flutter
+        // passed (often zero), and `flexibleWidth/Height` then SCALES that
+        // frame instead of preserving the margin — so the card ended up flush
+        // against the iPad's edge with no left padding at all. Constraints
+        // keep the inset whatever the panel is resized to.
+        ev.translatesAutoresizingMaskIntoConstraints = false
         ev.isUserInteractionEnabled = false
         ev.layer.cornerRadius = 18
         ev.layer.cornerCurve = .continuous
         ev.clipsToBounds = true
         container.addSubview(ev)
+        let i = GlassBrowserView.inset
+        NSLayoutConstraint.activate([
+            ev.leadingAnchor.constraint(
+                equalTo: container.leadingAnchor, constant: i.left),
+            ev.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor, constant: -i.right),
+            ev.topAnchor.constraint(equalTo: container.topAnchor, constant: i.top),
+            ev.bottomAnchor.constraint(
+                equalTo: container.bottomAnchor, constant: -i.bottom),
+        ])
     }
 
     // -- list ----------------------------------------------------------------
@@ -151,19 +167,32 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         config.trailingSwipeActionsConfigurationProvider = nil
         let layout = UICollectionViewCompositionalLayout.list(using: config)
 
-        collection = UICollectionView(
-            frame: container.bounds.inset(by: GlassBrowserView.inset),
-            collectionViewLayout: layout)
-        collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collection = UICollectionView(frame: .zero,
+                                      collectionViewLayout: layout)
+        // M120 — same reason as the glass: constraints, not autoresizing.
+        collection.translatesAutoresizingMaskIntoConstraints = false
         collection.backgroundColor = .clear
         // Match the glass corners so rows cannot spill past the panel edge.
         collection.layer.cornerRadius = 18
         collection.layer.cornerCurve = .continuous
         collection.clipsToBounds = true
         collection.contentInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+        // M121 — dark panel: the default scroll indicator is black on glass.
+        collection.indicatorStyle = .white
+        container.addSubview(collection)
+        let ci = GlassBrowserView.inset
+        NSLayoutConstraint.activate([
+            collection.leadingAnchor.constraint(
+                equalTo: container.leadingAnchor, constant: ci.left),
+            collection.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor, constant: -ci.right),
+            collection.topAnchor.constraint(
+                equalTo: container.topAnchor, constant: ci.top),
+            collection.bottomAnchor.constraint(
+                equalTo: container.bottomAnchor, constant: -ci.bottom),
+        ])
         collection.delegate = self
         collection.allowsSelection = true
-        container.addSubview(collection)
 
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
             [weak self] cell, _, id in
@@ -180,8 +209,15 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // of hugging the left edge where the text used to start.
             c.imageToTextPadding = r.label.isEmpty ? 0 : 6
             if r.label.isEmpty {
+                // M121 — retracted rows: a slim, symmetric margin so the glyph
+                // column is centred and never clipped against the panel edge.
+                // 12 pt of leading on a ~50 pt wide content area pushed the
+                // 16 pt symbol into the trailing edge.
                 c.directionalLayoutMargins = NSDirectionalEdgeInsets(
-                    top: 4, leading: 12, bottom: 4, trailing: 4)
+                    top: 5, leading: 4, bottom: 5, trailing: 4)
+                c.imageProperties.reservedLayoutSize =
+                    CGSize(width: 20, height: 20)
+                c.imageProperties.maximumSize = CGSize(width: 18, height: 18)
             }
             // Dark trait is pinned on the container, so .label is the light
             // text the rest of the app uses; dim rows drop to secondary rather
@@ -247,6 +283,19 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.delegate = self
         collection.addGestureRecognizer(pan)
+        // M121 — THE EOP DRAG, AGAIN, AND FINALLY THE RIGHT LAYER.
+        //
+        // Adding a pan to a collection view is not enough: the list has its own
+        // `panGestureRecognizer`, it was installed first, and a scroll view's
+        // pan is greedy — it claimed the touch and the marker never moved,
+        // exactly as before, just one layer further down. Making the scroll
+        // pan REQUIRE ours to fail hands the touch over when the drag starts on
+        // the End of Part row.
+        //
+        // This does not cost scrolling anywhere else: gestureRecognizerShouldBegin
+        // rejects immediately for any other row, so the scroll pan is released
+        // in the same event.
+        collection.panGestureRecognizer.require(toFail: pan)
     }
 
     private func apply(_ list: [BrowserRow]) {
@@ -313,6 +362,8 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             }
             eopStartY = pt.y
             eopStartIndex = ip.item
+            // Nothing should slide under the finger while the marker moves.
+            collection.isScrollEnabled = false
         case .changed:
             guard let y0 = eopStartY, let i0 = eopStartIndex else { return }
             // Rows are uniform height in a plain list; ask the layout rather
@@ -323,6 +374,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             let steps = Int(((pt.y - y0) / h).rounded())
             channel.invokeMethod("eopDrag", arguments: ["steps": steps])
         case .ended, .cancelled, .failed:
+            collection.isScrollEnabled = true
             if eopStartIndex != nil {
                 channel.invokeMethod("eopEnd", arguments: nil)
             }
