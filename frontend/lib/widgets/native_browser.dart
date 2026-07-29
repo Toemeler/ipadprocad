@@ -65,6 +65,9 @@ List<GlassRow> buildBrowserRows(
           symbol: n.sharedCopy ? 'link' : 'square.on.square',
           tint: 'blue',
           dim: !cs.visible || cs.rolledBack,
+          // M121 — the sketch you are currently INSIDE is highlighted, so the
+          // tree answers "where am I" without you having to remember.
+          selected: app.activeChild?.name == cs.model.name,
           menu: _sketchMenu(part, cs),
         ));
       }
@@ -181,6 +184,7 @@ List<GlassRow> buildBrowserRows(
             hasEye: true,
             eyeOn: consumed.visible,
             dim: !consumed.visible,
+            selected: app.activeChild?.name == consumed.model.name,
             menu: _sketchMenu(part, consumed),
           ));
         }
@@ -197,6 +201,8 @@ List<GlassRow> buildBrowserRows(
           hasEye: true,
           eyeOn: cs.visible,
           dim: !cs.visible || cs.rolledBack,
+          // M121 — the sketch you are currently inside is highlighted.
+          selected: app.activeChild?.name == cs.model.name,
           menu: _sketchMenu(part, cs),
         ));
       }

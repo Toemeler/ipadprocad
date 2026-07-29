@@ -177,6 +177,8 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         collection.layer.cornerCurve = .continuous
         collection.clipsToBounds = true
         collection.contentInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+        // M121 — dark panel: the default scroll indicator is black on glass.
+        collection.indicatorStyle = .white
         container.addSubview(collection)
         let ci = GlassBrowserView.inset
         NSLayoutConstraint.activate([
@@ -281,6 +283,19 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.delegate = self
         collection.addGestureRecognizer(pan)
+        // M121 — THE EOP DRAG, AGAIN, AND FINALLY THE RIGHT LAYER.
+        //
+        // Adding a pan to a collection view is not enough: the list has its own
+        // `panGestureRecognizer`, it was installed first, and a scroll view's
+        // pan is greedy — it claimed the touch and the marker never moved,
+        // exactly as before, just one layer further down. Making the scroll
+        // pan REQUIRE ours to fail hands the touch over when the drag starts on
+        // the End of Part row.
+        //
+        // This does not cost scrolling anywhere else: gestureRecognizerShouldBegin
+        // rejects immediately for any other row, so the scroll pan is released
+        // in the same event.
+        collection.panGestureRecognizer.require(toFail: pan)
     }
 
     private func apply(_ list: [BrowserRow]) {
@@ -347,6 +362,8 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             }
             eopStartY = pt.y
             eopStartIndex = ip.item
+            // Nothing should slide under the finger while the marker moves.
+            collection.isScrollEnabled = false
         case .changed:
             guard let y0 = eopStartY, let i0 = eopStartIndex else { return }
             // Rows are uniform height in a plain list; ask the layout rather
@@ -357,6 +374,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             let steps = Int(((pt.y - y0) / h).rounded())
             channel.invokeMethod("eopDrag", arguments: ["steps": steps])
         case .ended, .cancelled, .failed:
+            collection.isScrollEnabled = true
             if eopStartIndex != nil {
                 channel.invokeMethod("eopEnd", arguments: nil)
             }

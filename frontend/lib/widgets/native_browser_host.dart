@@ -141,6 +141,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
 
   void _onTap(String id) {
     final part = app.currentPart;
+    // M121 — tapping a FOLDER row toggles it, not just its little chevron.
+    // The chevron is a 20 pt target on a 264 pt row; every file browser on
+    // this platform lets you hit the row itself.
+    if (id == 'bodies' || id == 'origin') {
+      setState(() {
+        if (!_expanded.remove(id)) _expanded.add(id);
+      });
+      return;
+    }
+    if (id == 'root') return; // the document row is a label, not an action
     if (id.startsWith(kIdBody) && app.pickingBody) {
       app.pickBody(id.substring(kIdBody.length));
       return;

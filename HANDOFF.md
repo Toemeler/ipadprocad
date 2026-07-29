@@ -16,6 +16,36 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M121 — Panel-Durchgang: Groesse, abgeschnittene Icons, und der EOP-Zug
+> eine Ebene tiefer.**
+>
+> **EOP, die eigentliche Ursache im nativen Panel.** Einen Pan-Recognizer an
+> eine `UICollectionView` zu haengen reicht nicht: die Liste hat ihren EIGENEN
+> `panGestureRecognizer`, der wurde zuerst installiert, und der Pan einer
+> Scroll-View ist gierig — er beanspruchte die Beruehrung, die Marke bewegte
+> sich nicht. Exakt derselbe Fehler wie in der Flutter-Fassung, nur eine Ebene
+> tiefer. `collection.panGestureRecognizer.require(toFail: pan)` gibt die
+> Beruehrung ab, sobald der Zug auf der End-of-Part-Zeile beginnt. Das kostet
+> nirgends Scrollen: `gestureRecognizerShouldBegin` lehnt fuer jede andere
+> Zeile sofort ab, der Scroll-Pan ist im selben Event wieder frei. Waehrend des
+> Zuges ist Scrollen abgeschaltet, damit nichts unter dem Finger wegrutscht.
+>
+> **Eingezogen zu schmal.** 62 pt minus 28 pt linker Inset liessen ~34 pt
+> Inhalt, das 16-pt-Glyph lief gegen den Zellenrand. Jetzt 78 pt, und
+> eingezogene Zellen bekommen symmetrische 4-pt-Raender statt der 12 pt, die
+> fuer eine Textzeile gedacht waren.
+>
+> **Hoeher und weiter oben:** 82 % Hoehe, Anker `Alignment(-1, -0.35)` — der
+> tote Raum oben wird genutzt, die Triade behaelt ihre Ecke.
+>
+> **Weitere Befunde aus dem Durchgang, mitbehoben:** ein Tipp auf die
+> ORDNER-Zeile (Solid Bodies / Origin) klappt sie jetzt auf — vorher reagierte
+> nur das 20-pt-Chevron auf einer 264-pt-Zeile; die gerade GEOEFFNETE Skizze
+> ist im Baum hervorgehoben (der Baum beantwortet "wo bin ich"); der
+> Scroll-Indikator ist auf `.white` gestellt, weil der Standard schwarz auf
+> Glas ist; die Dokument-Zeile ganz oben ist eine Beschriftung und schluckt
+> ihren Tipp still, statt so zu tun, als waere sie ein Knopf.
+
 > **M121 — Eingezogen war zu schmal, und oben lag Platz brach.**
 >
 > **Breite.** Die Karte behaelt ihren 28-pt-Rand links, von 62 pt blieben also
