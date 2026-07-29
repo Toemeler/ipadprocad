@@ -16,11 +16,11 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **MERGE — `origin/main` (M101-M111) in die Sitzungsarbeit (M101-M107)
+> **MERGE — `origin/main` (M101-M111) in die Sitzungsarbeit (M130-M139)
 > integriert. 0 Analyzer-Fehler, 739/739 Tests, Shim uebersetzt mit 39
 > Symbolen.**
 >
-> **Zwei unabhaengige M101-Reihen.** Diese Sitzung baute offline M101-M107
+> **Zwei unabhaengige M101-Reihen.** Diese Sitzung baute offline M130-M139
 > (Shim v12, Feature-Polymorphie, Extents, Kanten-Pick, Fillet/Chamfer,
 > Revolve). Auf `main` entstanden parallel M101-M111 (Preview/Hover-Fixes,
 > nativer Browser auf Liquid Glass, STEP-Export/Import). Gleiche Nummern,
@@ -57,17 +57,22 @@ Token NIE in Dateien/.git/config schreiben.
 > echtes OCCT (7.6.3), inklusive upstreams `occt_split_solids`, und die
 > Smoke-Fehlerparitaet zu HEAD bleibt 4 = 4 (7.6-Normalen-Artefakt).
 
-> **!! NUMMERNKOLLISION M101-M107 !!** Diese Sitzung hat offline an
-> M101-M107 gearbeitet (OCCT-Shim v12: Revolve/Fillet/Chamfer/Kanten,
-> Feature-Polymorphie, Extents, Kanten-Pick, Dialoge), waehrend auf `main`
-> UNABHAENGIG andere M101-M111 entstanden sind (Preview/Hover, nativer
-> Browser, Liquid Glass, STEP-Import). Die Nummern ueberschneiden sich
-> vollstaendig, die Inhalte gar nicht. Unten stehen BEIDE Reihen: zuerst die
-> dieser Sitzung, dann ab „M111" die von `main`. Vor dem naechsten
-> Meilenstein sollte eine der beiden Reihen umnummeriert werden — Vorschlag:
-> diese Sitzung auf M112ff, da `main` die veroeffentlichte Reihe ist.
+> **PARALLELE REIHE M130-M139 (dieser Branch, noch nicht gemergt).**
+> Diese Sitzung baute zunaechst als M101-M107 und kollidierte damit voll mit
+> der auf `main` unabhaengig entstandenen Reihe M101-M113 (Preview/Hover,
+> nativer Browser, Liquid Glass, STEP, DXF). Gleiche Nummern, voellig andere
+> Inhalte. Umnummeriert auf **M130-M139**, mit Abstand statt auf die naechste
+> freie Nummer: `main` legte waehrend dieser Sitzung etwa einen Meilenstein
+> pro zehn Minuten nach, jede angrenzende Nummer waere beim naechsten Push
+> wieder kollidiert. Code-Kommentare, Testdateinamen und die Eintraege unten
+> tragen jetzt durchgaengig die neuen Nummern.
+>
+> Zuordnung: M130 Shim v12 · M131 Feature-Polymorphie · M132 Extents ·
+> M133 Pick-Schicht · M134 Dedup · M135 Kanten-Hervorhebung ·
+> M136 Fillet/Chamfer-Dialog · M137 Revolve · M138 Verifikation ·
+> M139 M137-Tests + Revolve-Extents entfernt.
 
-> **M107b — M106 nachgetestet (die Luecke aus dem letzten Meilenstein) und
+> **M139 — M137 nachgetestet (die Luecke aus dem letzten Meilenstein) und
 > dabei einen echten Bug gefunden. 739/739 Tests gruen.**
 >
 > **Der Bug, den erst der Test zeigte.** Die Achsen-Pruefung in
@@ -108,10 +113,10 @@ Token NIE in Dateien/.git/config schreiben.
 > **OFFEN:** Revolve-Extents richtig implementieren hiesse, den Winkel zu
 > finden, bei dem der rotierende Sweep zuerst auf Material trifft — das ist
 > echte Arbeit, kein Nachziehen. Ausserdem unveraendert ungeprueft: alles
-> Swift (kein Xcode), also die Kanten-Akzente aus M105a, das Aussehen der
+> Swift (kein Xcode), also die Kanten-Akzente aus M135, das Aussehen der
 > Panels, und OCCT 7.9.3 selbst.
 
-> **M107 — ECHTE Verifikation. Flutter-SDK und OCCT lokal installiert; alles
+> **M138 — ECHTE Verifikation. Flutter-SDK und OCCT lokal installiert; alles
 > von M101-M106 wurde zum ersten Mal wirklich uebersetzt und ausgefuehrt.
 > Ergebnis: 18 Analyzer-Fehler gefunden und behoben, 722/722 Tests gruen,
 > Shim kompiliert und rechnet analytisch korrekt.**
@@ -129,11 +134,11 @@ Token NIE in Dateien/.git/config schreiben.
 >   Folgefehler (zwei falsche Zuweisungen in `_projectHover`, eine in
 >   `viewport.dart`). Umbenannt in `hoverEdge3d` / `setHoverEdge3d`.
 > - **`edgeFingerprint` war verschwunden.** Beim Herausschneiden der lokalen
->   `segDistSq`/`PickBest`-Kopien in M104b hat mein Skript die dazwischen
+>   `segDistSq`/`PickBest`-Kopien in M134 hat mein Skript die dazwischen
 >   liegende Funktion mitgenommen. `part_pick.dart` rief sie weiter auf.
 > - **`ExtrudeSession` fehlte der Import** in `m103_extents_test.dart`.
 > - **10 Fehler in den ALTEN Tests** (`m56_part_test`, `m67_feature_cache_test`)
->   — genau die in M102 vorhergesagte Folge der Polymorphie: `features` ist
+>   — genau die in M131 vorhergesagte Folge der Polymorphie: `features` ist
 >   `List<PartFeature>`, `distanceA`/`taperDeg`/`direction`/`exprA` brauchen
 >   den konkreten Typ. Casts ergaenzt.
 >
@@ -165,7 +170,7 @@ Token NIE in Dateien/.git/config schreiben.
 > Regression: Fehlerparitaet 4 = 4.
 >
 > **Was weiterhin NICHT geprueft ist:** alles Swift (kein Xcode) — also die
-> Kanten-Akzent-Overlays aus M105a komplett; das AUSSEHEN der Panels; alles
+> Kanten-Akzent-Overlays aus M135 komplett; das AUSSEHEN der Panels; alles
 > Zeigerbezogene (ob 14 px die richtige Tippgroesse ist); und OCCT 7.9.3
 > selbst, denn lokal lief 7.6.3.
 >
@@ -174,7 +179,7 @@ Token NIE in Dateien/.git/config schreiben.
 > `withOpacity` deprecated). Keine davon ist neu genug, um sie hier still
 > mitzuaendern.
 
-> **M106 — Revolve-Dialog samt Achsen-Pick. Damit sind alle vier
+> **M137 — Revolve-Dialog samt Achsen-Pick. Damit sind alle vier
 > Feature-Typen aus M102 bedienbar.**
 >
 > **Vorher nachgesehen, wieder drei Sachen gespart.** (1) Der Ribbon-Knopf
@@ -234,7 +239,7 @@ Token NIE in Dateien/.git/config schreiben.
 > Winkel-Pfad. Ausserdem weiterhin: Ursprungsachsen (X/Y/Z) sind als
 > Revolve-Achse nicht waehlbar, nur Skizzenlinien.
 
-> **M105b — Fillet- und Chamfer-Dialog. Kernel, Feature-Modell, Kanten-Pick
+> **M136 — Fillet- und Chamfer-Dialog. Kernel, Feature-Modell, Kanten-Pick
 > und Hervorhebung lagen; das hier ist die Bedienoberflaeche.**
 >
 > **Vorher nachgesehen, drei Sachen gespart.** (1) Die Ribbon-Knoepfe fuer
@@ -298,15 +303,15 @@ Token NIE in Dateien/.git/config schreiben.
 > gesehen; dass der Dialog gut AUSSIEHT, ist unbelegt.
 >
 > **OFFEN:** Revolve-Dialog samt Achsen-Pick (M106) — das Modell, der Shim und
-> `RevolveFeature` liegen seit M101/M102 vollstaendig, es fehlt nur das Panel.
+> `RevolveFeature` liegen seit M130/M131 vollstaendig, es fehlt nur das Panel.
 > Ausserdem: Inventors „All Fillets / All Rounds"-Auswahlmodi und variabler
 > Radius sind im Modell vorgesehen (`allFillets`/`allRounds`, Radius je Kante)
 > aber im Panel nicht bedienbar — es setzt einen Radius fuer alle Kanten.
 
-> **M105a — Kanten-Hervorhebung in 3D: Hover + Auswahl sichtbar. Die
+> **M135 — Kanten-Hervorhebung in 3D: Hover + Auswahl sichtbar. Die
 > Fillet-/Chamfer-Dialoge koennen jetzt darauf aufsetzen.**
 >
-> **Der Plan aus M104b war falsch — Nachschauen hat ihn ersetzt.** Dort stand,
+> **Der Plan aus M134 war falsch — Nachschauen hat ihn ersetzt.** Dort stand,
 > das Basis-Kanten-Mesh muesse in zwei Meshes zerlegt werden. Muss es nicht:
 > `rebuildHighlight` macht fuer FLAECHEN laengst genau das Richtige, naemlich
 > eine SEPARATE Overlay-Entity aus einer Teilmenge bauen, gecached darauf was
@@ -372,7 +377,7 @@ Token NIE in Dateien/.git/config schreiben.
 > NICHT — auf Nicht-iOS und in Galerie-Thumbnails fehlt er also. Fuer
 > Thumbnails richtig so, fuer Desktop-Entwicklung ein blinder Fleck.
 
-> **M104b — Aufraeumen: vier Kopien derselben Mathematik zusammengelegt.
+> **M134 — Aufraeumen: vier Kopien derselben Mathematik zusammengelegt.
 > Grund: in M104 wurde Funktionalitaet nachgebaut, die es laengst gab.**
 >
 > **Was schon da war und uebersehen wurde.** Fuer SKIZZENKURVEN existiert die
@@ -439,7 +444,7 @@ Token NIE in Dateien/.git/config schreiben.
 > „alle Kanten ausser den akzentuierten" und „die akzentuierten" — neu gebaut
 > nur wenn sich die Akzent-MENGE aendert.
 
-> **M104 — Die Pick-Schicht: Kanten in 3D auswaehlen, und der Flaechen-Pick
+> **M133 — Die Pick-Schicht: Kanten in 3D auswaehlen, und der Flaechen-Pick
 > fuer „To". Damit ist M103 wirklich fertig und M105 nur noch Dialog.**
 >
 > **Kanten-Pick liegt in `part_pick.dart`, NICHT im Viewport.** Der Viewport
@@ -506,7 +511,7 @@ Token NIE in Dateien/.git/config schreiben.
 > das die halbe Bedienung. Ausserdem: die ausgewaehlten Kanten werden noch
 > NICHT hervorgehoben gezeichnet. Beides gehoert in M105 vor die Dialoge.
 
-> **M103 — Inventors Extents: To Next / To / Through All, in Extrude
+> **M132 — Inventors Extents: To Next / To / Through All, in Extrude
 > verdrahtet.** Das war die urspruengliche Frage.
 >
 > **Wo sie sitzen.** Rechts vom Wert, wie im Referenz-Panel. Das Feld SELBST
@@ -563,7 +568,7 @@ Token NIE in Dateien/.git/config schreiben.
 > „Select a face in 3D\" und bleibt leer. Ausserdem: Alternate/Minimum
 > Solution, und Inventors „Between\"-Extent gibt es gar nicht.
 
-> **M102 — `PartFeature`-Polymorphie, `EdgeSel` (topologische Benennung),
+> **M131 — `PartFeature`-Polymorphie, `EdgeSel` (topologische Benennung),
 > Revolve/Fillet/Chamfer im Modell. Die UI fehlt noch.**
 >
 > **Warum zuerst.** `part.features` war `List<ExtrudeFeature>`, und Timeline,
@@ -618,13 +623,13 @@ Token NIE in Dateien/.git/config schreiben.
 > (36/36), Aufloesbarkeit aller im Test benutzten Symbole, und die
 > Rotationsmathematik numerisch in Python. Alles Weitere ist CI-Sache.
 >
-> **OFFEN (M103-M105):** die Extents-Knoepfe (To Next / To / Through All) in
+> **OFFEN (M132-M136):** die Extents-Knoepfe (To Next / To / Through All) in
 > Extrude UND Revolve — Modell und `occt_ray_hits` liegen, die UI fehlt; der
 > Revolve-Dialog samt Achsen-Pick; Fillet-/Chamfer-Dialoge samt
 > 3D-KANTEN-Pick (heute pickt der Viewport nur Flaechen, `_pickSolidFace`);
 > `editFeature` oeffnet fuer alles ausser Extrude noch nichts.
 
-> **M101 — OCCT-Shim v12: Revolve, Kanten-Identitaet, Fillet/Chamfer,
+> **M130 — OCCT-Shim v12: Revolve, Kanten-Identitaet, Fillet/Chamfer,
 > Ray-Cast. 31 -> 38 Symbole.**
 >
 > Neu: `occt_revolve_profile` (Achse IN der Skizzenebene, Loecher werden wie
@@ -657,6 +662,33 @@ Token NIE in Dateien/.git/config schreiben.
 > heisst das, dass jede neue Aufrufstelle gegen die Deklarationen typprueft.
 > 38 Definitionen == 38 Deklarationen, Klammern balanciert. Erwartungswert
 > fuer den ersten CI-Lauf: Korrekturen an OCCT-Include-Namen.
+> **M113 — End of Part zaehlt jetzt ZEILEN. Damit ist das "springt ueber die
+> Skizze" an der Wurzel weg.**
+>
+> Vier Anlaeufe (M96, M99, M100, M103) haben versucht, das in der
+> Zeilen-Arithmetik des Browsers zu reparieren. Der Fehler lag im MODELL:
+> `eopAfter` zaehlte **Features**, eine Skizze hatte also gar keinen Slot, und
+> keine Umrechnung kann eine Position erzeugen, die es nicht gibt. Inventor
+> rollt Skizzen ebenfalls zurueck. Jetzt zaehlt `eopAfter`
+> **Zeitstrahl-Knoten**: Slot == Zeile, die Marke kann ueber einer Skizze
+> stehen, und die gesamte Umrechnung ist ersatzlos entfallen — in beiden
+> Browsern.
+>
+> `applyEndOfPart` laeuft ueber `partTimeline`: Features darunter →
+> `rolledBack`, Skizzen darunter → neues abgeleitetes `ChildSketch.rolledBack`
+> (nicht persistiert), das Payload und beide Painter wie unsichtbar behandeln.
+> Eine KONSUMIERTE Skizze hat keine eigene Zeile und folgt darum ihrem Feature.
+>
+> **Migration.** Alte Dokumente speichern unter `eop` eine FEATURE-Zahl. Die
+> wird beim Laden umgerechnet (Zeitstrahl ablaufen, bis so viele Features
+> passiert sind), geschrieben wird nur noch `eopNodes`. Im Test festgenagelt:
+> eine Datei mit `eop: 1` zeigt nach dem Laden exakt dieselbe Auswahl gebauter
+> Features wie vorher.
+>
+> **Lehre, dritte Wiederholung derselben Sorte:** wenn eine Koordinaten-
+> umrechnung viermal nicht stimmt, ist meist nicht die Umrechnung falsch,
+> sondern es gibt die Zielposition im Modell gar nicht.
+
 > **M111/M112 — STEP-Import als Koerper, ein Import-Knopf, und der
 > DXF-Export ist nicht mehr gefaehrlich.**
 >

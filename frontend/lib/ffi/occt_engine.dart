@@ -60,7 +60,7 @@ typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
 
-// shim v12 (M101): revolve, edge identity, fillet/chamfer, ray casting
+// shim v12 (M130): revolve, edge identity, fillet/chamfer, ray casting
 typedef _RevolveN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
     Int32, Double, Double, Double, Double, Double);
 typedef _RevolveD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
@@ -571,7 +571,7 @@ class OcctFfi {
   final _MeshDblOutD _meshEdgeCurves; // v4
   final _Shape1D _unify; // v4
   final _FreeD _freeMesh;
-  // shim v12 (M101)
+  // shim v12 (M130)
   final _RevolveD _revolveProfile;
   final _EdgeCountD _shapeEdgeCount;
   final _EdgeInfoD _shapeEdgeInfo;

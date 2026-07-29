@@ -69,7 +69,7 @@ Vec3 rotateAboutAxis(Vec3 v, Vec3 k, double a) {
 ///
 /// Picks the extreme corner per axis by the sign of [dir] — two dot products
 /// instead of walking all eight corners. Used by the origin-axis span (M83)
-/// and by Through All (M103).
+/// and by Through All (M132).
 (double, double) boxSpanAlong(Vec3 lo, Vec3 hi, Vec3 dir) {
   final a = Vec3(dir.x >= 0 ? lo.x : hi.x, dir.y >= 0 ? lo.y : hi.y,
       dir.z >= 0 ? lo.z : hi.z);
@@ -1008,7 +1008,7 @@ class ProfileSel {
 }
 
 // ---------------------------------------------------------------------------
-// M102 — feature polymorphism
+// M131 — feature polymorphism
 // ---------------------------------------------------------------------------
 
 /// Inventor's termination options, shared by Extrude and Revolve.
@@ -1137,7 +1137,7 @@ class EdgeSel {
 /// Everything the timeline, the browser, the End-of-Part marker and the
 /// boolean fold need from a feature, whatever kind it is.
 ///
-/// Before M102 the feature list was `List<ExtrudeFeature>` and every one of
+/// Before M131 the feature list was `List<ExtrudeFeature>` and every one of
 /// those subsystems reached straight into extrude-specific fields. Revolve,
 /// Fillet and Chamfer could not exist until this base did.
 abstract class PartFeature {
@@ -1239,7 +1239,7 @@ class ExtrudeFeature extends PartFeature {
   String exprA, exprB, exprTaper; // what the user typed (redisplayed on edit)
   bool iMate, matchShape;
 
-  /// M103 — Inventor's Extents. [distanceA] is only consulted for
+  /// M132 — Inventor's Extents. [distanceA] is only consulted for
   /// [FeatureExtent.distance]; the others resolve against the model.
   FeatureExtent extent;
   FaceSel? extentFace; // set iff extent == toFace
@@ -1324,7 +1324,7 @@ class ExtrudeFeature extends PartFeature {
       exprTaper: j['exprTaper'] as String? ?? '0.00 deg',
       iMate: j['imate'] as bool? ?? false,
       matchShape: j['match'] as bool? ?? true,
-      // Pre-M103 files have no 'extent' and were all plain distances, so the
+      // Pre-M132 files have no 'extent' and were all plain distances, so the
       // default reproduces them exactly.
       extent: featureExtentFrom(j['extent'] as String?),
       extentFace: j['extentFace'] == null
@@ -1687,6 +1687,11 @@ class ChildSketch {
   /// with today's behaviour unchanged.
   bool shared;
 
+  /// M113 — suppressed because it sits below the End of Part marker. Derived
+  /// from [PartModel.eopAfter] on every apply, never persisted — exactly like
+  /// [ExtrudeFeature.rolledBack].
+  bool rolledBack = false;
+
   /// M91 — creation order. The browser is a TIMELINE: a new sketch belongs at
   /// the bottom, under the extrusions that already exist, not in a sketches
   /// block above them. Persisted; documents from before M91 get sequence
@@ -1751,11 +1756,14 @@ class PartModel {
   /// rolled back — not computed into the body, not drawn, greyed in the
   /// browser — which is Inventor's EOP.
   ///
-  /// Counted in features rather than timeline rows on purpose: sketches are
-  /// not "built", so dragging the marker past one would be a no-op the user
-  /// could not see. It clamps to [features].length, so a fresh part and every
-  /// pre-M91 document start with the marker at the end, i.e. nothing rolled
-  /// back and behaviour unchanged.
+  /// M113 — counted in TIMELINE NODES, not features.
+  ///
+  /// It used to count features, which meant a sketch had no slot at all and
+  /// the marker could never stand above one. Four attempts were spent trying
+  /// to fix that in the browser's row arithmetic before the obvious answer:
+  /// the model had no position there to map to. Inventor rolls sketches back
+  /// too, so now every browser row is a slot, slot == row, and the whole
+  /// row-to-slot conversion is gone.
   int eopAfter = 1 << 30;
 
   /// Next value for [ChildSketch.seq] / [ExtrudeFeature.seq].
@@ -1813,11 +1821,11 @@ class PartModel {
     return 'Sketch$n';
   }
 
-  /// M102 — Inventor numbers each feature TYPE separately (Extrusion1,
+  /// M131 — Inventor numbers each feature TYPE separately (Extrusion1,
   /// Revolution1, Fillet1 can all coexist), so the name is derived from what
   /// already exists rather than from one shared counter. [featureN] is still
   /// written to the file and still drives the legacy Extrusion sequence, so
-  /// documents from before M102 keep the names they were saved with.
+  /// documents from before M131 keep the names they were saved with.
   String nextFeatureName([String label = 'Extrusion']) {
     if (label == 'Extrusion') return 'Extrusion${++featureN}';
     var n = 1;
@@ -1882,7 +1890,9 @@ class PartModel {
         // M91 — timeline + End of Part. `eopAfter` is only written when the
         // marker is NOT at the end, so an untouched part's file is unchanged.
         'seqNext': seqNext,
-        if (eopAfter < features.length) 'eop': eopAfter,
+        // M113 — 'eopNodes' counts timeline rows; the old 'eop' counted
+        // features and is only READ, never written again.
+        if (eopAfter < partTimeline(this).length) 'eopNodes': eopAfter,
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -1918,7 +1928,26 @@ class PartModel {
     }
     if (seqNext < n) seqNext = n;
     // End of Part: absent means "at the end", which is no rollback at all.
-    eopAfter = (j['eop'] as num?)?.toInt() ?? features.length;
+    final nodesN = partTimeline(this).length;
+    final nodes = (j['eopNodes'] as num?)?.toInt();
+    if (nodes != null) {
+      eopAfter = nodes;
+    } else {
+      // Pre-M113: the stored number counted FEATURES. Convert by walking the
+      // timeline until that many features have been passed, so a rolled-back
+      // part opens showing exactly what it showed before.
+      final feats = (j['eop'] as num?)?.toInt();
+      if (feats == null) {
+        eopAfter = nodesN;
+      } else {
+        var seen = 0, at = 0;
+        final tl = partTimeline(this);
+        for (; at < tl.length && seen < feats; at++) {
+          if (tl[at].isFeature) seen++;
+        }
+        eopAfter = at;
+      }
+    }
     applyEndOfPart(this);
   }
 
@@ -2283,7 +2312,7 @@ abstract class PartKernel {
   /// Writes the union of [solids] as STEP to [path].
   bool exportStep(List<KernelSolid> solids, String path);
 
-  // ---- M102: revolve + body modification -------------------------------
+  // ---- M131: revolve + body modification -------------------------------
   //
   // These are CONCRETE and fail honestly rather than abstract, deliberately.
   // Three test fakes implement PartKernel; making these abstract would break
@@ -2497,7 +2526,7 @@ class OcctPartKernel implements PartKernel {
   }
 
   /// Mesh a freshly produced shape and wrap it, taking ownership. Shared tail
-  /// of every M102 path; identical to [_boolean]'s ending minus the unify.
+  /// of every M131 path; identical to [_boolean]'s ending minus the unify.
   KernelSolid? _wrapOwned(OcctFfi ffi, OcctShape? shape) {
     if (shape == null) {
       _err = ffi.lastError();
@@ -3122,7 +3151,7 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     // M111 — an imported body is not computed FROM anything; it just is. Its
     // solid was read from the STEP file, so recompute leaves it untouched and
     // only does the chain bookkeeping around it.
-    // (f is ExtrudeFeature) is needed since M102: `features` is
+    // (f is ExtrudeFeature) is needed since M131: `features` is
     // List<PartFeature> now, and only an extrude can be an imported body.
     if (f is ExtrudeFeature && f.imported) {
       final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
@@ -3156,7 +3185,7 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     // entirely — there is no union to perform, the kernel returns the
     // already-modified solid.
     // `base` is handed to EVERY feature now, not just the body-modifying
-    // ones: M103's extents (To Next / To / Through All) resolve against the
+    // ones: M132's extents (To Next / To / Through All) resolve against the
     // body this feature builds into. A 'new' output has no predecessor, which
     // is precisely why Inventor greys those extents out on a base feature.
     final ok = recomputeFeature(part, f, kernel, base: prev?.solid);
@@ -3838,13 +3867,37 @@ List<PartFeature> partBuildOrder(PartModel part) =>
 /// Call after anything that changes the feature list or the marker. Returns
 /// true when a flag actually changed, so callers can skip a recompute.
 bool applyEndOfPart(PartModel part) {
-  final order = partBuildOrder(part);
-  final cut = part.eopAfter.clamp(0, order.length);
+  final nodes = partTimeline(part);
+  final cut = part.eopAfter.clamp(0, nodes.length);
   var changed = false;
-  for (var i = 0; i < order.length; i++) {
+  // Everything the marker has NOT reached yet is suppressed — features are not
+  // built, sketches are not drawn. A sketch nested under a rolled-back feature
+  // follows its feature, since the feature row is the one that carries it.
+  final rolled = <String>{};
+  for (var i = 0; i < nodes.length; i++) {
     final want = i >= cut;
-    if (order[i].rolledBack != want) {
-      order[i].rolledBack = want;
+    final n = nodes[i];
+    if (n.isFeature) {
+      if (n.feature!.rolledBack != want) {
+        n.feature!.rolledBack = want;
+        changed = true;
+      }
+      if (want) rolled.add(n.feature!.sketchName);
+    } else {
+      if (n.sketch!.rolledBack != want) {
+        n.sketch!.rolledBack = want;
+        changed = true;
+      }
+    }
+  }
+  // A consumed sketch has no row of its own; it is suppressed exactly when the
+  // feature that consumed it is.
+  for (final cs in part.childSketches) {
+    final f = firstConsumerOf(part, cs.model.name);
+    if (f == null || cs.shared) continue;
+    final want = f.rolledBack;
+    if (cs.rolledBack != want) {
+      cs.rolledBack = want;
       changed = true;
     }
   }
@@ -3857,4 +3910,4 @@ bool featureRolledBack(PartModel part, PartFeature f) => f.rolledBack;
 /// Whether the End of Part marker is anywhere but the end — i.e. the part is
 /// showing an earlier state of itself.
 bool partIsRolledBack(PartModel part) =>
-    part.eopAfter < partBuildOrder(part).length;
+    part.eopAfter < partTimeline(part).length;

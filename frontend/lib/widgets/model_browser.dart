@@ -461,7 +461,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
           app.setEndOfPart(0);
           break;
         case 'eopend':
-          app.setEndOfPart(partBuildOrder(part).length);
+          app.setEndOfPart(partTimeline(part).length);
           break;
         case 'eopDeleteBelow':
           _confirmDeleteBelowPart();
@@ -630,7 +630,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final part = app.currentPart;
     if (part == null) return;
     final eop = _shownEop(part);
-    final n = partBuildOrder(part).length;
+    final n = partTimeline(part).length;
     _showCtxItems(globalPos, [
       if (eop > 0)
         _ctxItem('Move to Top', () {
@@ -766,7 +766,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   }
 
   int _shownEop(PartModel p) =>
-      (_dragEop ?? p.eopAfter).clamp(0, partBuildOrder(p).length);
+      (_dragEop ?? p.eopAfter).clamp(0, partTimeline(p).length);
 
   /// Which slot the marker would land in for a pointer at [dy] — counted in
   /// FEATURES, the same unit [PartModel.eopAfter] uses, so sketch rows in
@@ -785,70 +785,18 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// Row height is fixed here (see [_row]), so the offset in rows is just the
   /// travelled distance over that height. Nothing to look up, nothing that can
   /// move while the finger is down.
-  /// Height of one browser row. Measured off the device screenshot (rows sit
-  /// 32 px apart), not guessed from the padding constants — the drag converts
-  /// travel into rows with it, so a wrong value means the marker moves at the
-  /// wrong rate.
+  /// M113 — the marker counts ROWS now, so a drag step is simply a row and the
+  /// whole slot-to-row conversion this used to need is gone. Four attempts
+  /// lived here; the fix was in the model, not the arithmetic.
   static const double _kRowH = 32;
   double? _eopDragStartDy;
   int? _eopDragStartSlot;
 
-  /// Timeline rows above feature `i`, i.e. how many browser rows the marker
-  /// has to travel to reach that feature's slot (M103).
-  ///
-  /// The marker counts in FEATURES, but the browser shows sketches between
-  /// them — so a drag measured purely in features made the marker leap over a
-  /// sketch row in one step and feel like it was snapping. Converting travel
-  /// through the real row layout keeps it under the finger.
-  List<int> _eopRowIndexPerSlot(PartModel p) {
-    // M104 — the MARKER ITSELF occupies a row, and it sits at the slot being
-    // dragged from. Every row below it is therefore pushed down by one, which
-    // the first version ignored — so the mapping was off by a row as soon as
-    // the marker was above the feature in question and it still leapt over
-    // sketches. Nested sketch rows under an expanded feature shift things the
-    // same way, so the marker's own row is inserted at the slot the drag
-    // started from.
-    final startSlot = (_eopDragStartSlot ?? _shownEop(p))
-        .clamp(0, partBuildOrder(p).length);
-    final out = <int>[];
-    var row = 0;
-    var slot = 0;
-    for (final n in partTimeline(p)) {
-      if (n.isFeature) {
-        if (slot == startSlot) row++; // the End of Part row lives here
-        out.add(row);
-        row++;
-        slot++;
-        // An expanded feature shows its consumed sketch beneath it.
-        if (_expandedFeatures.contains(n.feature!.name)) row++;
-      } else {
-        row++; // a top-level sketch: passed over, no slot of its own
-      }
-    }
-    if (slot == startSlot) row++;
-    out.add(row); // the slot after the last feature
-    return out;
-  }
-
   int _slotForDyPart(PartModel p, double dy) {
-    final n = partBuildOrder(p).length;
+    final n = partTimeline(p).length;
     final dy0 = _eopDragStartDy, s0 = _eopDragStartSlot;
     if (dy0 == null || s0 == null) return _shownEop(p);
-    final rows = _eopRowIndexPerSlot(p);
-    final start = rows[s0.clamp(0, n)];
-    final wantRow = start + ((dy - dy0) / _kRowH).round();
-    // Nearest slot to the row the finger is over — sketch rows in between
-    // simply have no slot, so the marker settles on the closer neighbour
-    // instead of jumping a whole feature.
-    var best = 0, bestD = 1 << 30;
-    for (var i = 0; i <= n; i++) {
-      final d = (rows[i] - wantRow).abs();
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    }
-    return best;
+    return (s0 + ((dy - dy0) / _kRowH).round()).clamp(0, n);
   }
 
   bool _eopEsc(KeyEvent e) {
@@ -906,7 +854,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         Log.i(
             'eop',
             'DOWN kind=${e.kind.name} dy=${e.position.dy.toStringAsFixed(1)} '
-                'slot=$_eopDragStartSlot of ${partBuildOrder(part).length}');
+                'slot=$_eopDragStartSlot of ${partTimeline(part).length}');
         setState(() => _dragEop = _eopDragStartSlot);
       },
       onPointerMove: (e) {
@@ -972,7 +920,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   List<List<NativeMenuItem>> _eopMenuGroups(PartModel part) {
     final eop = _shownEop(part);
-    final n = partBuildOrder(part).length;
+    final n = partTimeline(part).length;
     return [
       [
         if (eop > 0)
@@ -1285,20 +1233,21 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   // using it. partTimeline() owns both rules.
                   ...() {
                     final rows = <Widget>[];
-                    final order = partBuildOrder(part);
+                    // M113 — slot == row, so the marker simply goes at its
+                    // index and can sit above a sketch.
+                    final timeline = partTimeline(part);
                     final eop = _shownEop(part);
-                    var built = 0;
-                    for (final n in partTimeline(part)) {
+                    for (var ti = 0; ti < timeline.length; ti++) {
+                      final n = timeline[ti];
+                      if (ti == eop) rows.add(_eopRow(app, part));
                       if (n.isFeature) {
-                        if (built == eop) rows.add(_eopRow(app, part));
-                        built++;
                         rows.add(_featureRow(app, part, n.feature!,
-                            rolled: built > eop));
+                            rolled: n.feature!.rolledBack));
                       } else {
                         rows.add(_sketchRow(app, n.sketch!, indent: 8));
                       }
                     }
-                    if (eop >= order.length) rows.add(_eopRow(app, part));
+                    if (eop >= timeline.length) rows.add(_eopRow(app, part));
                     return rows;
                   }(),
                 ],

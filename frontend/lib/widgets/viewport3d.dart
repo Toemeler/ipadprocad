@@ -134,7 +134,7 @@ class _Viewport3DState extends State<Viewport3D>
 
   /// Nearest VISIBLE sketch curve under the cursor, or null. Mirrors exactly
   /// the curves reality_scene draws, so what highlights is what you see.
-  /// M104 — sketch curve under the pointer.
+  /// M133 — sketch curve under the pointer.
   ///
   /// Shares [segDistSq] and [PickBest] with the B-Rep edge picker in
   /// part_pick.dart. It used to carry a private distance function and a
@@ -152,6 +152,7 @@ class _Viewport3DState extends State<Viewport3D>
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
       if (!cs.visible && !showForSession) continue;
+      if (cs.rolledBack) continue; // M113 — below End of Part
       final frame = sketchFrameOf(cs);
       for (var gi = 0; gi < cs.model.geometry.length; gi++) {
         final g = cs.model.geometry[gi];
@@ -658,7 +659,7 @@ class _Viewport3DState extends State<Viewport3D>
         app.setHoverBody(name);
       }
     }
-    // M105 — prehighlight the edge under the pointer while an edge pick is
+    // M135 — prehighlight the edge under the pointer while an edge pick is
     // armed. Same shape as the body hover above: gated on the mode, and
     // setHoverEdge early-returns when nothing changed, so holding still costs
     // one comparison rather than a ribbon rebuild per frame.
@@ -854,7 +855,7 @@ class _Viewport3DState extends State<Viewport3D>
     return null;
   }
 
-  /// M104 — the B-Rep edge under the pointer, or null.
+  /// M133 — the B-Rep edge under the pointer, or null.
   ///
   /// The decision itself lives in part_pick.dart so it can be tested without
   /// a device; all this does is hand it the live meshes and the camera's two
@@ -980,7 +981,7 @@ class _Viewport3DState extends State<Viewport3D>
       }
       if (_selSketch.isNotEmpty) setState(_selSketch.clear);
     }
-    // M106 — 0. picking the AXIS of revolution. Reuses the sketch-curve
+    // M137 — 0. picking the AXIS of revolution. Reuses the sketch-curve
     // picker: an axis IS a sketch line, and _pickSketchCurve already returns
     // the sketchName#index key that identifies one.
     if (app.pickingRevolveAxis) {
@@ -995,7 +996,7 @@ class _Viewport3DState extends State<Viewport3D>
       }
       return;
     }
-    // M104 — 0a. picking the termination FACE for the "To" extent. Reuses
+    // M133 — 0a. picking the termination FACE for the "To" extent. Reuses
     // the planar face pick: a planar face is exactly the case
     // resolveExtrudeSpan can solve analytically.
     if (app.pickingExtentFace) {
@@ -1007,7 +1008,7 @@ class _Viewport3DState extends State<Viewport3D>
       }
       return;
     }
-    // M104 — 0b. picking EDGES for fillet/chamfer. Unlike the single-shot
+    // M133 — 0b. picking EDGES for fillet/chamfer. Unlike the single-shot
     // picks above this one STAYS armed: an edge set is built up over several
     // taps, and a miss must not throw away what is already selected.
     if (app.pickingEdges) {

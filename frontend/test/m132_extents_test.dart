@@ -1,4 +1,4 @@
-// M103 — Inventor's Extents (Distance / To Next / To / Through All).
+// M132 — Inventor's Extents (Distance / To Next / To / Through All).
 //
 // What runs on host: the extent DECISION logic and the analytic planar
 // termination maths. What cannot: anything reading a B-Rep — Through All

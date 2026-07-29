@@ -145,7 +145,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     const Spacer(),
                     Text('▾', style: ts(9, T.dim)),
                   ])),
-              // M106 — Revolve needs an axis before anything else can be
+              // M137 — Revolve needs an axis before anything else can be
               // computed, so it sits above the angle.
               if (s.isRevolve)
                 panelRow(
@@ -199,7 +199,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         child: Text('360°', style: ts(12, T.text)),
                       ),
                     )),
-              // M103 — Inventor's Extents sit right of the value, as in the
+              // M132 — Inventor's Extents sit right of the value, as in the
               // reference panel. The field itself IS the Distance option, so
               // it dims while one of the three is active, and tapping the
               // active one returns to Distance.
@@ -214,7 +214,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                             (v) => app.setExtrude(exprA: v)),
                       ),
                     ),
-                    // M107 — Extents are EXTRUDE-only for now. Inventor
+                    // M139 — Extents are EXTRUDE-only for now. Inventor
                     // offers them for a revolve too, but resolveExtrudeSpan
                     // only solves the linear case; a revolve would silently
                     // fall back to the angle. Offering a control that does

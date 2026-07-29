@@ -587,7 +587,7 @@ class ExtrudeSession {
   bool full = true;
 
   /// The feature being edited, or null when creating. Widened to
-  /// [PartFeature] in M106 so the same session can carry a revolve.
+  /// [PartFeature] in M137 so the same session can carry a revolve.
   PartFeature? editing;
   String? sketchName; // locked to ONE sketch by the first profile pick
   final List<ProfileSel> profiles = [];
@@ -598,7 +598,7 @@ class ExtrudeSession {
   // Inventor Output boolean: 'join' | 'cut' | 'intersect' | 'new'.
   String output = 'join';
 
-  /// M103 — Inventor's Extents. Distance uses [exprA]; the other three
+  /// M132 — Inventor's Extents. Distance uses [exprA]; the other three
   /// resolve against the body at recompute time.
   FeatureExtent extent = FeatureExtent.distance;
   FaceSel? extentFace; // set iff extent == toFace
@@ -2022,7 +2022,7 @@ class AppState extends ChangeNotifier {
       if (partKernel.available) {
         final byFile = <String, List<ExtrudeFeature>>{};
         for (final f in p.features) {
-          // M102 — features are polymorphic; only an extrude can be an
+          // M131 — features are polymorphic; only an extrude can be an
           // imported body, so the type test is the guard AND the promotion.
           if (f is! ExtrudeFeature) continue;
           if (!f.imported || f.solid != null) continue;
@@ -2372,11 +2372,11 @@ class AppState extends ChangeNotifier {
   void setEndOfPart(int after) {
     final p = currentPart;
     if (p == null) return;
-    final n = partBuildOrder(p).length;
+    final n = partTimeline(p).length; // M113 — rows, not features
     final v = after.clamp(0, n);
     if (v == p.eopAfter.clamp(0, n)) return;
     p.eopAfter = v;
-    Log.i('part', 'End of Part -> after $v of $n features');
+    Log.i('part', 'End of Part -> after $v of $n rows');
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
@@ -2397,7 +2397,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partBuildOrder(p).length;
+    p.eopAfter = partTimeline(p).length;
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -2532,7 +2532,7 @@ class AppState extends ChangeNotifier {
   /// Opens the Extrusion panel — for a NEW feature, or to [edit] an
   /// existing one. Inventor-style: with exactly one profile in the latest
   /// sketch it is pre-selected.
-  /// M102 — "edit this feature", whatever kind it is. The browser has one
+  /// M131 — "edit this feature", whatever kind it is. The browser has one
   /// double-tap and one context-menu entry; which dialog that opens is a
   /// property of the feature, not of the row.
   ///
@@ -2556,7 +2556,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ---- M105 — Fillet / Chamfer -----------------------------------------
+  // ---- M136 — Fillet / Chamfer -----------------------------------------
   EdgeFeatureSession? edgeSession;
 
   void openFillet([FilletFeature? edit]) => _openEdgeFeature('fillet', edit);
@@ -2744,7 +2744,7 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  /// M106 — Revolve. Shares the extrude session and panel; [kind] switches
+  /// M137 — Revolve. Shares the extrude session and panel; [kind] switches
   /// Distance for Angle, Taper for the axis, and adds Full.
   void openRevolve([RevolveFeature? edit]) {
     openExtrude();
@@ -3126,7 +3126,7 @@ class AppState extends ChangeNotifier {
       s.previewError = err;
       return;
     }
-    // The target body is resolved FIRST now: M103's extents resolve against
+    // The target body is resolved FIRST now: M132's extents resolve against
     // it, so the prism cannot be built without it. It is also what step 2
     // combines against, so this is one lookup, not two.
     final (base, bodyName) = _extrudeBooleanTarget(s);
@@ -3234,7 +3234,7 @@ class AppState extends ChangeNotifier {
         if (num != null && num > p.solidN) p.solidN = num;
       }
     }
-    // M103 — hand the boolean target in, or a To Next/Through All feature
+    // M132 — hand the boolean target in, or a To Next/Through All feature
     // would fail here on commit and only succeed in the fold that follows.
     final (commitBase, _) = _extrudeBooleanTarget(s);
     final ok = recomputeFeature(p, f, partKernel, base: commitBase);
@@ -3255,7 +3255,7 @@ class AppState extends ChangeNotifier {
       p.features.add(f);
       // A feature added while the marker is parked mid-tree belongs ABOVE it,
       // exactly like Inventor: the marker moves down to admit the new work.
-      p.eopAfter = partBuildOrder(p).length;
+      p.eopAfter = partTimeline(p).length;
       applyEndOfPart(p);
       if (firstConsumption) {
         // Inventor: creating the feature CONSUMES the sketch — it nests
@@ -3303,7 +3303,7 @@ class AppState extends ChangeNotifier {
     extrudeSession?.disposePreview();
     extrudeSession = null;
     _regionCache.clear();
-    // M104 — the dialog owns these arm-flags. Closing it while a pick is
+    // M133 — the dialog owns these arm-flags. Closing it while a pick is
     // armed would leave the viewport swallowing taps with no visible reason
     // and no row left to cancel from.
     pickingExtentFace = false;
@@ -4231,7 +4231,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partBuildOrder(p).length;
+    p.eopAfter = partTimeline(p).length;
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -4240,7 +4240,7 @@ class AppState extends ChangeNotifier {
     return victims.length;
   }
 
-  // ---- M104: picking a termination FACE for the "To" extent -------------
+  // ---- M133: picking a termination FACE for the "To" extent -------------
   //
   // Separate arm-flag from pickingBody on purpose. Both are "tap something in
   // 3D", but they consume different things and can never be active at once —
@@ -4278,7 +4278,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- M104: picking EDGES (fillet/chamfer, wired up in M105) ------------
+  // ---- M133: picking EDGES (fillet/chamfer, wired up in M136) ------------
   //
   // The selection lives on AppState rather than inside a fillet session for
   // the same reason hoverBody does: the viewport and the dialog must read one
@@ -7490,7 +7490,7 @@ class AppState extends ChangeNotifier {
         ..solid = solids[i]
         ..seq = p.nextSeq());
     }
-    p.eopAfter = partBuildOrder(p).length;
+    p.eopAfter = partTimeline(p).length;
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);

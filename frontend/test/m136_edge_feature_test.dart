@@ -1,4 +1,4 @@
-// M105b — the Fillet / Chamfer session (one session type for both commands).
+// M136 — the Fillet / Chamfer session (one session type for both commands).
 //
 // Host-testable: which feature the panel would produce, the validation, and
 // the open/cancel/edit lifecycle. NOT host-testable: the preview solid and

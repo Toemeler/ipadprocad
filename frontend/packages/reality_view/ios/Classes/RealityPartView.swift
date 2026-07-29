@@ -126,7 +126,7 @@ final class PartRenderer: NSObject {
     private var previewEntity: Entity?
     private var highlightEntity: ModelEntity?
 
-    /// M105 — accented B-Rep edges (hover + selection share one colour, the
+    /// M135 — accented B-Rep edges (hover + selection share one colour, the
     /// way applySketchAccents already treats them). One overlay entity per
     /// solid, keyed by solid id; the base outline is never touched.
     private var edgeAccentEntities: [String: ModelEntity] = [:]
@@ -472,7 +472,7 @@ final class PartRenderer: NSObject {
         for (id, e) in solidEdges where !ids.contains(id) {
             e.removeFromParent(); solidEdges[id] = nil; solidRev[id] = nil
         }
-        // M105 — the accent overlay hangs off root, not off the solid, so it
+        // M135 — the accent overlay hangs off root, not off the solid, so it
         // does NOT disappear with its solid. A rolled-back or deleted feature
         // would otherwise leave its highlighted edges floating in the scene.
         for (id, e) in edgeAccentEntities where !ids.contains(id) {
@@ -659,7 +659,7 @@ final class PartRenderer: NSObject {
 
     // Blue prehighlight of the hovered planar face: a submesh of just that
     // face's triangles, nudged a hair toward the camera to beat z-fighting.
-    /// M105 — overlay the accented edges of each solid.
+    /// M135 — overlay the accented edges of each solid.
     ///
     /// Dart sends DISPLAY edge indices, not topological ones: Swift indexes
     /// edgeStarts, and the display list already skips degenerate, seam and

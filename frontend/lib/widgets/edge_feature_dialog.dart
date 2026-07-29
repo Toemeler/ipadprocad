@@ -1,4 +1,4 @@
-// M105 — the Fillet / Chamfer property panel.
+// M136 — the Fillet / Chamfer property panel.
 //
 // ONE widget for both. Inventor presents them as two commands, but the panels
 // differ only in the numbers under the edge list — the edge picker, the

@@ -373,6 +373,8 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
     // other sketches — not a second copy of the sketch you are drawing. So the
     // rule is simply: whoever owns the live rendering owns it alone.
     if (editing) continue;
+    // M113 — a sketch below End of Part is not part of the model yet.
+    if (cs.rolledBack) continue;
 
     // DOF colouring needs the analysis, and app.analysis describes app.current
     // ONLY — its indices mean nothing for any other sketch, so DOF is applied
@@ -428,7 +430,7 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
 /// geometry list. Used to highlight and select individual curves in 3D.
 String sketchKey(String sketchName, int geoIndex) => '$sketchName#$geoIndex';
 
-/// M105 — accented B-Rep edges per solid: {solidId: [display index, ...]}.
+/// M135 — accented B-Rep edges per solid: {solidId: [display index, ...]}.
 ///
 /// Hover and selection are merged into ONE set with one colour, exactly as
 /// applySketchAccents already treats hovered and selected sketch curves. Two

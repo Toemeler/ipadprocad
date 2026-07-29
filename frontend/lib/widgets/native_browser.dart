@@ -106,13 +106,14 @@ List<GlassRow> buildBrowserRows(
     }
 
     // ---- the timeline: sketches and features in creation order ------------
-    final order = partBuildOrder(part);
-    final eop = (dragEop ?? part.eopAfter).clamp(0, order.length);
-    var built = 0;
-    for (final n in partTimeline(part)) {
+    // M113 — the marker counts ROWS now, so its position is simply an index
+    // into the timeline. No conversion, and it can stand above a sketch.
+    final timeline = partTimeline(part);
+    final eop = (dragEop ?? part.eopAfter).clamp(0, timeline.length);
+    for (var ti = 0; ti < timeline.length; ti++) {
+      final n = timeline[ti];
+      if (ti == eop) rows.add(_eopRow());
       if (n.isFeature) {
-        if (built == eop) rows.add(_eopRow());
-        built++;
         final f = n.feature!;
         final consumed = part.sketchByName(f.sketchName);
         final nests = consumed != null &&
@@ -155,12 +156,12 @@ List<GlassRow> buildBrowserRows(
           depth: 1,
           hasEye: true,
           eyeOn: cs.visible,
-          dim: !cs.visible,
+          dim: !cs.visible || cs.rolledBack,
           menu: _sketchMenu(part, cs),
         ));
       }
     }
-    if (eop >= order.length) rows.add(_eopRow());
+    if (eop >= timeline.length) rows.add(_eopRow());
     return rows;
   }
 

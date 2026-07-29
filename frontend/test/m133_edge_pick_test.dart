@@ -1,4 +1,4 @@
-// M104 — picking B-Rep edges in 3D.
+// M133 — picking B-Rep edges in 3D.
 //
 // The whole point of part_pick.dart living outside the widget is that this
 // runs without a device: the "camera" here is two closures, so every

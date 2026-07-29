@@ -80,7 +80,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     }
     if (id.startsWith(kIdFeature) && part != null) {
       final f = _feature(part, id.substring(kIdFeature.length));
-      // M102 — dispatches by feature kind, so the native browser edits
+      // M131 — dispatches by feature kind, so the native browser edits
       // fillets, chamfers and revolves too, not just extrusions.
       if (f != null) app.editFeature(f);
     }
@@ -114,7 +114,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           app.setEndOfPart(0);
           break;
         case 'eopend':
-          app.setEndOfPart(partBuildOrder(part).length);
+          app.setEndOfPart(partTimeline(part).length);
           break;
         case 'eopDeleteBelow':
           app.deleteBelowEndOfPart();
@@ -234,8 +234,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   void _onEopDrag(int steps) {
     final part = app.currentPart;
     if (part == null) return;
-    _eopStart ??= part.eopAfter.clamp(0, partBuildOrder(part).length);
-    final n = partBuildOrder(part).length;
+    // M113 — rows, not features: one drag step is one browser row, so the
+    // marker follows the finger and can land above a sketch.
+    final n = partTimeline(part).length;
+    _eopStart ??= part.eopAfter.clamp(0, n);
     setState(() => _dragEop = (_eopStart! + steps).clamp(0, n));
   }
 
@@ -246,7 +248,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (v != null) app.setEndOfPart(v);
   }
 
-  /// M102 — features are polymorphic now, so this returns the base type;
+  /// M131 — features are polymorphic now, so this returns the base type;
   /// callers that need extrude fields test for it.
   PartFeature? _feature(PartModel p, String name) {
     for (final f in p.features) {

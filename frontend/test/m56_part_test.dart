@@ -408,7 +408,7 @@ void main() {
       final f = part.features.single;
       expect(f.name, 'Extrusion1');
       expect(f.bodyName, 'Solid1');
-      // M102: features are PartFeature now; the extrude-specific fields need
+      // M131: features are PartFeature now; the extrude-specific fields need
       // the concrete type.
       expect((f as ExtrudeFeature).distanceA, 5);
       expect(f.solid, isNotNull);

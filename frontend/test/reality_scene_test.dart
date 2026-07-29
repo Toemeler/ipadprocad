@@ -243,7 +243,7 @@ void main() {
     });
   });
 
-  // M105 — accented B-Rep edges. DISPLAY indices travel, not topological
+  // M135 — accented B-Rep edges. DISPLAY indices travel, not topological
   // ones: the renderer indexes the mesh's edge list, and only Dart knows the
   // two spaces differ.
   group('edgeAccent', () {

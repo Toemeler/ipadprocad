@@ -1,4 +1,4 @@
-// Prototype — M104: picking B-Rep EDGES in the 3D viewport.
+// Prototype — M133: picking B-Rep EDGES in the 3D viewport.
 //
 // Kept OUT of viewport3d.dart on purpose. The viewport needs a live Cam3, a
 // Flutter tree and a device to exercise; this file needs neither, so the
