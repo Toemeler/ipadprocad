@@ -16,6 +16,24 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M117 — Import gehoert in das "+"-Menue der Galerie, nicht ins Ribbon.**
+>
+> Der Knopf aus M111 ist aus BEIDEN Ribbons entfernt. Stattdessen steht
+> **"Import STEP / DXF…"** als dritter Eintrag unter *New 2D Sketch* und
+> *New 3D Part* — denn genau das ist er: ein dritter Weg, an ein Dokument zu
+> kommen. Im Ribbon stand er zwischen Modellierwerkzeugen, im falschen Regal.
+> Eine STEP wird zu einem NEUEN PART (ein Koerper je Solid), eine DXF zu einer
+> neuen Skizze; benannt nach der Datei, mit Kollisionszaehler. So muss man
+> nicht erst ein leeres Dokument anlegen, nur um irgendwo hin zu importieren —
+> genau das erzwang der Ribbon-Knopf.
+>
+> Der ACAD-Knopf im Skizzen-Ribbon bleibt, hat aber wieder seine eigene
+> Aufgabe: DXF in die BEREITS OFFENE Skizze mergen. Das ist etwas anderes als
+> ein Dokument aus einer Datei anzulegen.
+>
+> **Browser vertikal zentriert** (`Alignment.centerLeft`): halbe Hoehe, mittig
+> an der linken Kante, Luft darueber und die Triade frei darunter.
+
 > **M116 — Der Browser ist eine Karte, keine Wand.** Halbe Viewport-Hoehe,
 > oben links verankert (`FractionallySizedBox(heightFactor: 0.5)` in einem
 > `Align` innerhalb des `Positioned.fill`), damit die Ursprungs-Triade unten

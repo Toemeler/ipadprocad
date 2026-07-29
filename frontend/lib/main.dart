@@ -228,11 +228,15 @@ class PrototypeApp extends StatelessWidget {
                             // does that for free).
                             if (GlassBrowser.isSupported)
                               Positioned.fill(
+                                // M117 — vertically CENTRED: the card sits in
+                                // the middle of the left edge, so there is
+                                // breathing room above it and the origin triad
+                                // stays clear below.
                                 child: Align(
-                                  alignment: Alignment.topLeft,
+                                  alignment: Alignment.centerLeft,
                                   child: FractionallySizedBox(
                                     heightFactor: 0.5,
-                                    alignment: Alignment.topLeft,
+                                    alignment: Alignment.centerLeft,
                                     child: NativeModelBrowser(app: app),
                                   ),
                                 ),
