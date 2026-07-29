@@ -300,6 +300,68 @@ void main() {
     });
   });
 
+  // M143 — Extents for a revolve, resolved through occt_revolve_hits.
+  group('extents', () {
+    test('Through All on a BASE feature is refused', () async {
+      // Same rule as extrude, and the same rule Inventor greys out: with
+      // nothing built there is no body to pass through. The rectangle here is
+      // the first feature, so there is no base solid.
+      final k = RecordingKernel();
+      final app = await partWithRect(k);
+      app.openRevolve();
+      final name = app.currentPart!.childSketches.single.model.name;
+      app.revolveAxisPicked(name, kAxisLine);
+      app.setExtrude(full: false, exprA: '90 deg',
+          extent: FeatureExtent.throughAll);
+      expect(await app.applyExtrude(), isFalse);
+      expect(app.currentPart!.features, isEmpty);
+    });
+
+    test('To Next without a body reports why', () async {
+      final app = await partWithRect(RecordingKernel());
+      app.openRevolve();
+      final name = app.currentPart!.childSketches.single.model.name;
+      app.revolveAxisPicked(name, kAxisLine);
+      app.setExtrude(full: false, extent: FeatureExtent.toNext);
+      expect(await app.applyExtrude(), isFalse);
+    });
+
+    test('To <face> is refused, not silently treated as To Next', () async {
+      final app = await partWithRect(RecordingKernel());
+      app.openRevolve();
+      final name = app.currentPart!.childSketches.single.model.name;
+      app.revolveAxisPicked(name, kAxisLine);
+      app.setExtrude(full: false, extent: FeatureExtent.toFace);
+      expect(await app.applyExtrude(), isFalse);
+    });
+
+    test('resolveRevolveSweep: a plain angle is unchanged', () {
+      final f = RevolveFeature(
+          name: 'R', bodyName: 'S', sketchName: 'Sketch1', profiles: const [],
+          full: false, angleA: 90);
+      final (sweep, off, err) =
+          resolveRevolveSweep(f, planeFrame('xy'), null, RecordingKernel());
+      expect(err, isNull);
+      expect(sweep, 90);
+      expect(off, 0);
+    });
+
+    test('resolveRevolveSweep: Through All ignores the typed angle', () {
+      final f = RevolveFeature(
+          name: 'R', bodyName: 'S', sketchName: 'Sketch1', profiles: const [],
+          full: false, angleA: 12, extent: FeatureExtent.throughAll);
+      final base = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList(const [0]), Float64List(0)),
+          1.0,
+          null);
+      final (sweep, _, err) =
+          resolveRevolveSweep(f, planeFrame('xy'), base, RecordingKernel());
+      expect(err, isNull);
+      expect(sweep, 360);
+    });
+  });
+
   group('commit', () {
     test('the committed feature is a RevolveFeature named Revolution1',
         () async {

@@ -90,6 +90,8 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepIntCurveSurface_Inter.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <Geom_Circle.hxx>
+#include <GeomAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
 #include <Geom_Surface.hxx>
@@ -1911,4 +1913,65 @@ extern "C" int occt_ray_hits(const occt_shape *shape, double ox, double oy,
     }
     return written;
     OCCT_CATCH("occt_ray_hits", -1)
+}
+
+extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
+                                 double ax_py, double ax_pz, double ax_dx,
+                                 double ax_dy, double ax_dz, double px,
+                                 double py, double pz, double *out,
+                                 int max_hits)
+{
+    OCCT_TRY("occt_revolve_hits")
+    if (!shape || !out || max_hits < 1) {
+        set_err("occt_revolve_hits", "null argument");
+        return -1;
+    }
+    const gp_Vec axis(ax_dx, ax_dy, ax_dz);
+    if (axis.Magnitude() < 1e-12) {
+        set_err("occt_revolve_hits", "axis direction is degenerate");
+        return -1;
+    }
+    const gp_Dir adir(axis);
+    const gp_Pnt apt(ax_px, ax_py, ax_pz);
+    const gp_Pnt p(px, py, pz);
+    /* foot of the perpendicular from p onto the axis = the circle centre */
+    const gp_Vec w(apt, p);
+    const gp_Pnt centre = apt.Translated(gp_Vec(adir) * w.Dot(gp_Vec(adir)));
+    const gp_Vec radial(centre, p);
+    const double r = radial.Magnitude();
+    if (r < 1e-12)
+        return 0; /* the point is ON the axis: it never moves */
+    /* Angle 0 is placed AT the point, so every hit is measured as a sweep
+     * from where the profile actually starts — the caller then takes the
+     * smallest positive one as "To Next" without any further bookkeeping. */
+    const gp_Ax2 frame(centre, adir, gp_Dir(radial));
+    Handle(Geom_Circle) circ = new Geom_Circle(frame, r);
+    GeomAdaptor_Curve gac(circ, 0.0, 2.0 * M_PI);
+    BRepIntCurveSurface_Inter inter;
+    inter.Init(shape->s, gac, 1.0e-7);
+    std::vector<double> ang;
+    for (; inter.More(); inter.Next()) {
+        double a = inter.W(); /* radians along the circle */
+        /* fold into (0, 2pi]: a crossing exactly at the start is where the
+         * profile already is, not somewhere it arrives at */
+        while (a <= 1.0e-9)
+            a += 2.0 * M_PI;
+        while (a > 2.0 * M_PI + 1.0e-9)
+            a -= 2.0 * M_PI;
+        ang.push_back(a * 180.0 / M_PI);
+    }
+    std::sort(ang.begin(), ang.end());
+    int written = 0;
+    double last = 0.0;
+    bool have = false;
+    for (size_t i = 0; i < ang.size() && written < max_hits; ++i) {
+        /* adjacent faces meeting on an edge report the same crossing twice */
+        if (have && std::fabs(ang[i] - last) <= 1.0e-6)
+            continue;
+        out[written++] = ang[i];
+        last = ang[i];
+        have = true;
+    }
+    return written;
+    OCCT_CATCH("occt_revolve_hits", -1)
 }

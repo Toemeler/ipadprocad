@@ -2339,6 +2339,11 @@ abstract class PartKernel {
           KernelSolid base, List<int> edgeIds, List<double> radii) =>
       null;
 
+  /// Angles in degrees at which the circular path of [p] about the axis
+  /// through [axP] along [axD] crosses [s]. Empty when it never does.
+  List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) =>
+      const [];
+
   /// Chamfer on [edgeIds] with Inventor method [mode] (0 equal distance,
   /// 1 two distances, 2 distance and angle). Returns a NEW solid.
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
@@ -2629,6 +2634,19 @@ class OcctPartKernel implements PartKernel {
   }
 
   @override
+  List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) {
+    final shape = s.shape;
+    if (shape == null) return const [];
+    try {
+      return shape.revolveHits(
+          axP.x, axP.y, axP.z, axD.x, axD.y, axD.z, p.x, p.y, p.z);
+    } catch (e) {
+      _err = '$e';
+      return const [];
+    }
+  }
+
+  @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
       double d1, double d2, double angleDeg) {
     final ffi = _ffi;
@@ -2788,7 +2806,7 @@ bool _recomputeFeature(
   f.computeError = null;
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base);
-  if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel);
+  if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base);
   f.computeError = 'unknown feature kind "${f.kind}"';
   return false;
 }
@@ -2863,6 +2881,59 @@ double? faceDistance(KernelSolid solid, PlaneFrame frame,
     if (best.isFinite) return best;
   }
   return nextFaceDistance(solid, frame, profiles, dir);
+}
+
+/// Turns a revolve's Extents into the (sweep, startOffset) pair in DEGREES,
+/// or an honest error.
+///
+/// The rotational twin of [resolveExtrudeSpan]. "To Next" cannot be a ray cast
+/// here: a revolved profile travels on a circle, so the question is the ANGLE
+/// at which it first meets material, which is what [PartKernel.revolveHits]
+/// answers. The smallest positive angle across the picked profile anchors
+/// wins, for the same reason the nearest hit wins for an extrude.
+(double, double, String?) resolveRevolveSweep(
+    RevolveFeature f, PlaneFrame frame, KernelSolid? base, PartKernel kernel) {
+  if (f.extent == FeatureExtent.distance) {
+    final sweep = f.sweepDeg;
+    return (sweep, f.startOffsetDeg,
+        sweep > 0 ? null : 'angle must be greater than 0');
+  }
+  if (base == null) {
+    return (
+      0,
+      0,
+      '${extentLabel(f.extent)} needs an existing body — '
+          'a base feature has nothing to terminate against'
+    );
+  }
+  if (f.extent == FeatureExtent.throughAll) {
+    // A full turn passes through everything there is to pass through, and
+    // needs no measurement at all.
+    return (360.0, 0.0, null);
+  }
+  // The axis lives in sketch coordinates; the body does not.
+  final axP = frame.toWorld(Offset(f.axPx, f.axPy));
+  final axD = frame.u * f.axDx + frame.v * f.axDy;
+  final flipped = f.direction == ExtrudeDirection.flipped;
+  var best = double.infinity;
+  for (final s in f.profiles) {
+    final p = frame.toWorld(Offset(s.ax, s.ay));
+    // Flipped sweeps the other way, so "the next face" is the nearest hit
+    // going backwards — i.e. the largest angle, read as 360 minus it.
+    for (final a in kernel.revolveHits(base, axP, axD, p)) {
+      final v = flipped ? 360.0 - a : a;
+      if (v > 1e-6 && v < best) best = v;
+    }
+  }
+  if (!best.isFinite) {
+    return (0, 0, 'the profile never meets the body as it revolves');
+  }
+  if (f.direction == ExtrudeDirection.symmetric ||
+      f.direction == ExtrudeDirection.asymmetric) {
+    final total = (2 * best).clamp(0.0, 360.0);
+    return (total, -total / 2, null);
+  }
+  return (best, flipped ? -best : 0.0, null);
 }
 
 /// Turns Inventor's Extents into the (height, startOffset) pair the kernel
@@ -2948,20 +3019,22 @@ bool _recomputeExtrude(PartModel part, ExtrudeFeature f, PartKernel kernel,
   return true;
 }
 
-bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel) {
+bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
+    KernelSolid? base) {
   final (groups, frame, err) =
       resolveProfiles(part, f.sketchName, f.profiles);
   if (groups == null || frame == null) {
     f.computeError = err ?? 'profile resolution failed';
     return false;
   }
-  final sweep = f.sweepDeg;
-  if (!(sweep > 0)) {
-    f.computeError = 'angle must be greater than 0';
-    return false;
-  }
   if (f.axDx == 0 && f.axDy == 0) {
     f.computeError = 'no axis of revolution selected';
+    return false;
+  }
+  final (sweep, startOffset, sweepErr) =
+      resolveRevolveSweep(f, frame, base, kernel);
+  if (sweepErr != null || !(sweep > 0)) {
+    f.computeError = sweepErr ?? 'angle must be greater than 0';
     return false;
   }
   // Inventor's Symmetric/Flipped/Asymmetric rotate WHERE the sweep starts.
@@ -2969,7 +3042,7 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel) {
   // offset rides in the placement transform — the same trick extrudeSpan uses
   // for the linear case, and the reason neither path ever mirrors a solid.
   final solid = kernel.revolve(groups, sweep, f.axPx, f.axPy, f.axDx, f.axDy,
-      frame.mat34Rotated(f.axPx, f.axPy, f.axDx, f.axDy, f.startOffsetDeg));
+      frame.mat34Rotated(f.axPx, f.axPy, f.axDx, f.axDy, startOffset));
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;

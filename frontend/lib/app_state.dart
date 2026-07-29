@@ -3097,11 +3097,13 @@ class AppState extends ChangeNotifier {
   /// Revolve twin of [_sessionFeature]. Angle A is the sweep unless Full is
   /// set; Angle B only matters for Asymmetric, exactly as Distance B does.
   (PartFeature?, String?) _revolveSessionFeature(ExtrudeSession s) {
-    // Belt and braces with the hidden buttons above: a file written by a
-    // later build (or a session restored with one set) must not compute a
-    // revolve as if the extent were a plain angle.
-    if (s.extent != FeatureExtent.distance) {
-      return (null, 'Revolve supports a typed angle only, for now.');
+    // M143 — To Next and Through All are resolved by resolveRevolveSweep now.
+    // "To <face>" is not: terminating a rotation on a PICKED face needs the
+    // angle at which the sweep reaches that face specifically, which
+    // occt_revolve_hits does not distinguish. Refused rather than silently
+    // treated as To Next.
+    if (s.extent == FeatureExtent.toFace) {
+      return (null, 'Revolve cannot terminate on a picked face yet.');
     }
     // axisPicked is the ONLY gate. Testing the direction instead let the
     // default (0, 1) through — a non-degenerate vector — so a revolve could

@@ -77,6 +77,10 @@ typedef _ChamferN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
     Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, Int32);
 typedef _ChamferD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
     Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, int);
+typedef _RevHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
+    Double, Double, Double, Double, Double, Double, Pointer<Double>, Int32);
+typedef _RevHitsD = int Function(Pointer<Void>, double, double, double, double,
+    double, double, double, double, double, Pointer<Double>, int);
 typedef _RayHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
     Double, Double, Double, Pointer<Double>, Int32);
 typedef _RayHitsD = int Function(Pointer<Void>, double, double, double, double,
@@ -380,6 +384,26 @@ class OcctShape {
     }
   }
 
+  /// v13 — sorted, de-duplicated ANGLES in degrees at which the circular path
+  /// of ([px], [py], [pz]) about the axis through ([axPx], [axPy], [axPz])
+  /// along ([axDx], [axDy], [axDz]) crosses a face of this solid, measured
+  /// from that point. Empty when it never crosses, or when the point lies on
+  /// the axis and therefore has no path.
+  List<double> revolveHits(double axPx, double axPy, double axPz, double axDx,
+      double axDy, double axDz, double px, double py, double pz,
+      {int maxHits = 32}) {
+    final buf = calloc<Double>(maxHits);
+    try {
+      final n = _ffi._revolveHits(
+          _handle, axPx, axPy, axPz, axDx, axDy, axDz, px, py, pz, buf,
+          maxHits);
+      if (n <= 0) return const [];
+      return List<double>.generate(n, (i) => buf[i], growable: false);
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
   /// v12 — sorted, de-duplicated distances along the unit ray
   /// (origin + t * dir) at which it crosses a face of this solid. Empty on a
   /// miss. This is what "To Next" measures: extrude from the sketch plane and
@@ -549,7 +573,8 @@ class OcctFfi {
       this._meshEdgeIds,
       this._filletEdges,
       this._chamferEdges,
-      this._rayHits);
+      this._rayHits,
+      this._revolveHits);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -598,6 +623,7 @@ class OcctFfi {
   final _FilletD _filletEdges;
   final _ChamferD _chamferEdges;
   final _RayHitsD _rayHits;
+  final _RevHitsD _revolveHits; // v13
 
   static OcctFfi? _cached;
   static bool _probed = false;
@@ -668,6 +694,7 @@ class OcctFfi {
         lib.lookupFunction<_FilletN, _FilletD>('occt_fillet_edges'),
         lib.lookupFunction<_ChamferN, _ChamferD>('occt_chamfer_edges'),
         lib.lookupFunction<_RayHitsN, _RayHitsD>('occt_ray_hits'),
+        lib.lookupFunction<_RevHitsN, _RevHitsD>('occt_revolve_hits'),
       );
     } catch (_) {
       _cached = null;

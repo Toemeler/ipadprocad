@@ -990,6 +990,37 @@ int main(void)
         if (block) occt_free_shape(block);
     }
 
+    /* [25] v13 REVOLVE HITS — what a revolve's "To Next" measures. A box
+     * x in [10,20], y in [-5,5] and a point at (15,0,0) circling the Z axis
+     * at radius 15: the path leaves through y = +5 at asin(5/15... ) — exactly
+     * where 15*cos = sqrt(225-25), i.e. atan2(5, sqrt(200)) = 19.4712 deg, and
+     * symmetrically at 360 - 19.4712 = 340.5288. Analytic, so a wrong angle
+     * origin or a radians/degrees slip cannot hide. */
+    {
+        occt_shape *b0 = occt_make_box(10, 10, 10);
+        const double mv[12] = {1, 0, 0, 10, 0, 1, 0, -5, 0, 0, 1, -5};
+        occt_shape *bx = b0 ? occt_transform(b0, mv) : NULL;
+        if (check(bx != NULL, "[25] box placement returned NULL")) {
+            double h[8] = {0};
+            const int n = occt_revolve_hits(bx, 0, 0, 0, 0, 0, 1, 15, 0, 0, h, 8);
+            printf("[25] revolve hits %d at %.4f, %.4f (want 2: 19.4712, "
+                   "340.5288)\n", n, n > 0 ? h[0] : -1.0, n > 1 ? h[1] : -1.0);
+            check(n == 2, "[25] the circular path must cross twice");
+            if (n == 2) {
+                check(fabs(h[0] - 19.471220634) < 1e-5, "[25] first angle wrong");
+                check(fabs(h[1] - 340.528779366) < 1e-5,
+                      "[25] second angle wrong");
+            }
+            /* a point ON the axis never moves */
+            check(occt_revolve_hits(bx, 0, 0, 0, 0, 0, 1, 0, 0, 0, h, 8) == 0,
+                  "[25] a point on the axis has no path");
+            check(occt_revolve_hits(bx, 0, 0, 0, 0, 0, 0, 15, 0, 0, h, 8) == -1,
+                  "[25] a degenerate axis must be an error");
+            occt_free_shape(bx);
+        }
+        if (b0) occt_free_shape(b0);
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

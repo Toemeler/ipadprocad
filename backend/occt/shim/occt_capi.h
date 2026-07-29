@@ -343,6 +343,23 @@ occt_shape *occt_chamfer_edges(const occt_shape *shape, const int *edge_ids,
 int occt_ray_hits(const occt_shape *shape, double ox, double oy, double oz,
                   double dx, double dy, double dz, double *out, int max_hits);
 
+/*
+ * v13 — the ANGLES at which a point's circular path around an axis crosses a
+ * face of `shape`: sorted, de-duplicated, in DEGREES in (0, 360), measured
+ * from the point itself. Returns how many were written (0 = never crosses,
+ * -1 = error).
+ *
+ * This is the rotational twin of occt_ray_hits, and what a revolve needs for
+ * "To Next": a revolved profile does not travel in a straight line, so no ray
+ * cast can say where it first meets material. The axis is the 3D line through
+ * (ax_px, ax_py, ax_pz) along (ax_dx, ax_dy, ax_dz); the moving point is
+ * (px, py, pz). A point ON the axis has no path and returns 0.
+ */
+int occt_revolve_hits(const occt_shape *shape, double ax_px, double ax_py,
+                      double ax_pz, double ax_dx, double ax_dy, double ax_dz,
+                      double px, double py, double pz, double *out,
+                      int max_hits);
+
 /* ---- Lifecycle --------------------------------------------------------- */
 
 /* Release a shape returned by any constructor above. NULL is ignored. */

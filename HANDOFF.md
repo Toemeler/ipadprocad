@@ -16,6 +16,58 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M143 — Revolve-Extents richtig: `occt_revolve_hits` (Shim 40 Symbole).
+> 764/764 Tests, 0 Analyzer-Fehler.**
+>
+> **Warum ein Ray-Cast hier nicht reicht.** In M139 wurden die Extents-Knoepfe
+> fuer Revolve wieder ENTFERNT, weil `resolveExtrudeSpan` nur den linearen
+> Fall loest und ein Revolve still auf den Winkel zurueckgefallen waere. Ein
+> revolviertes Profil reist aber auf einem KREIS — die Frage ist nicht „nach
+> welcher Strecke", sondern „nach welchem WINKEL" es zuerst auf Material
+> trifft. Kein Strahl kann das beantworten.
+>
+> **Neu im Shim:** `occt_revolve_hits(shape, achse, punkt, out, max)` gibt die
+> sortierten, entdoppelten WINKEL in Grad (0, 360), gemessen ab dem Punkt
+> selbst, an denen dessen Kreisbahn eine Flaeche schneidet. Moeglich, weil
+> `BRepIntCurveSurface_Inter::Init` neben `gp_Lin` auch einen
+> `GeomAdaptor_Curve` nimmt — also einen `Geom_Circle`. Der Winkelnullpunkt
+> liegt AUF dem Punkt (`gp_Ax2` mit der Radialrichtung als X-Achse), damit der
+> Aufrufer schlicht den kleinsten positiven Treffer als „To Next" nehmen kann.
+> Ein Punkt auf der Achse hat keine Bahn und liefert 0.
+>
+> **Smoke [25]** analytisch: Box x in [10,20], y in [-5,5], Punkt (15,0,0) um
+> die Z-Achse. Die Bahn verlaesst die Box, wo 15*cos = sqrt(200), also bei
+> atan2(5, sqrt(200)) = 19.4712 Grad und symmetrisch bei 340.5288.
+> Gemessen: genau diese Werte. Achse-Punkt und degenerierte Achse ebenfalls
+> geprueft. Fehlerparitaet zu HEAD weiterhin 4 = 4.
+>
+> **`resolveRevolveSweep`** ist das rotatorische Gegenstueck zu
+> `resolveExtrudeSpan`: kleinster positiver Winkel ueber alle Profil-Anker,
+> Flipped liest 360 minus dem Treffer, Symmetric/Asymmetric legen den
+> aufgeloesten Winkel beidseitig an. Through All ist einfach eine ganze
+> Umdrehung. Basis-Features werden abgelehnt wie beim Extrude.
+>
+> **„To <Flaeche>" bleibt bewusst extrude-only.** Eine Drehung auf einer
+> GEPICKTEN Flaeche zu beenden braucht den Winkel, bei dem der Sweep genau
+> DIESE Flaeche erreicht; `occt_revolve_hits` unterscheidet die Flaechen nicht.
+> Der Knopf ist fuer Revolve ausgeblendet UND das Modell weist es mit
+> Begruendung ab, statt es still wie To Next zu behandeln.
+>
+> **Wieder in die Falle getappt und wieder vom Compiler gefangen:**
+> `revolveHits` als konkrete Default-Methode auf `PartKernel` hilft den Fakes
+> nicht, weil sie `implements` benutzen — dasselbe wie in M131. Vier Fakes
+> ergaenzt.
+>
+> **Eigene falsche Testannahme:** „Through All ist eine ganze Umdrehung"
+> scheiterte, weil das Rechteck im Test das ERSTE Feature ist und es damit
+> keinen Koerper gibt, durch den man gehen koennte. Die Ablehnung ist richtig
+> (Inventor graut es aus); der Test erwartet sie jetzt.
+>
+> **NOCH OFFEN:** variabler Radius entlang EINER Kante; „To <Flaeche>" fuer
+> Revolve; CPU-Painter zeichnet den Kanten-Akzent nicht; die gesamte
+> Swift-Seite ungeprueft (kein Xcode) — das ist inzwischen die groesste
+> ungetestete Flaeche dieser Sitzung.
+
 > **M142 — Shim v13: Kanten-KONVEXITAET, und damit Inventors „All Fillets" /
 > „All Rounds". 759/759 Tests, 0 Analyzer-Fehler.**
 >

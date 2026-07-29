@@ -92,6 +92,9 @@ class FakeKernel implements PartKernel {
 
   @override
   List<KernelSolid> importStepSolids(String path) => const [];
+  @override
+  List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) =>
+      const [];
 }
 
 AppState makeApp() {
