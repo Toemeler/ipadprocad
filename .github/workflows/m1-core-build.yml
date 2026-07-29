@@ -80,22 +80,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # M119 — COMPILER CACHE. Most commits in this repo touch only Dart, yet
-      # every one of them recompiled the whole C++ side from scratch: that is
-      # the bulk of the ~20 minute wall time. ccache makes an unchanged
-      # translation unit a file copy. The key carries a hash of the C++ sources
-      # so a real backend change still gets a fresh-ish cache, and restore-keys
-      # let it start from the previous one instead of cold.
-      - name: Install ccache
-        run: brew list ccache >/dev/null 2>&1 || brew install ccache
-
-      - name: Cache ccache tree
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/ccache
-          key: ccache-core-ios-${{ hashFiles('backend/**/*.cpp', 'backend/**/*.h', 'backend/**/CMakeLists.txt') }}
-          restore-keys: |
-            ccache-core-ios-
 
       - name: Install Qt6 (host, for tools)
         id: qt_host_install
@@ -519,6 +503,22 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # M119 fix — ccache must exist in THIS job. The install step went into
+      # build-core-ios, but the C++ builds carrying the launcher flags live
+      # here, so the compiler line became literally `ccache <clang>` with no
+      # ccache on PATH: "make[2]: ccache: No such file or directory".
+      - name: Install ccache
+        run: brew list ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: Cache ccache tree
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-ipa-${{ hashFiles('backend/**/*.cpp', 'backend/**/*.h', 'backend/**/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-ipa-
+
 
       # Print the toolchain FIRST: this is the single line that tells us
       # whether the IPA can carry the iOS 26 appearance at all, and it makes a
