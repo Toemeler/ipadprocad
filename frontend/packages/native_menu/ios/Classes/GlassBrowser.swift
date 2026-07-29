@@ -207,8 +207,15 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // of hugging the left edge where the text used to start.
             c.imageToTextPadding = r.label.isEmpty ? 0 : 6
             if r.label.isEmpty {
+                // M121 — retracted rows: a slim, symmetric margin so the glyph
+                // column is centred and never clipped against the panel edge.
+                // 12 pt of leading on a ~50 pt wide content area pushed the
+                // 16 pt symbol into the trailing edge.
                 c.directionalLayoutMargins = NSDirectionalEdgeInsets(
-                    top: 4, leading: 12, bottom: 4, trailing: 4)
+                    top: 5, leading: 4, bottom: 5, trailing: 4)
+                c.imageProperties.reservedLayoutSize =
+                    CGSize(width: 20, height: 20)
+                c.imageProperties.maximumSize = CGSize(width: 18, height: 18)
             }
             // Dark trait is pinned on the container, so .label is the light
             // text the rest of the app uses; dim rows drop to secondary rather

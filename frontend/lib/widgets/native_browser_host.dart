@@ -33,7 +33,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   bool _collapsed = false;
 
   static const double _kWide = 264;
-  static const double _kNarrow = 62;
+  /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left
+  /// only ~34 pt of content and the 16 pt glyphs were clipped against the
+  /// cell's own leading margin. 78 gives the icon column real room while still
+  /// reading as "retracted".
+  static const double _kNarrow = 78;
 
   /// M119 — the chevron lives OUTSIDE the glass, in a strip beside it, and
   /// only shows when the pointer is near the panel. A handle permanently

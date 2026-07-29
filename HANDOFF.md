@@ -16,6 +16,18 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M121 — Eingezogen war zu schmal, und oben lag Platz brach.**
+>
+> **Breite.** Die Karte behaelt ihren 28-pt-Rand links, von 62 pt blieben also
+> nur ~34 pt Inhalt — und gegen den 12-pt-Innenrand der Zelle wurde das
+> 16-pt-Glyph abgeschnitten. Jetzt 78 pt, und die eingezogenen Zeilen bekommen
+> einen schlanken, SYMMETRISCHEN Innenrand (4/4 statt 12/4), damit die
+> Icon-Spalte mittig steht statt gegen die Kante zu druecken.
+>
+> **Hoehe und Lage.** 82 % statt 75 %, und die Karte sitzt bei `Alignment(-1,
+> -0.35)` ueber der Mitte: oben war ungenutzter Raum, waehrend unten nur die
+> Triade Platz braucht.
+
 > **M120 — Drei gemeldete Symptome, zwei Ursachen.**
 >
 > **(1) Der Einzieh-Griff lag AUF der Karte und fraß die Ordner-Klicks.** Die
