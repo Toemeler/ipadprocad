@@ -16,6 +16,41 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M111/M112 — STEP-Import als Koerper, ein Import-Knopf, und der
+> DXF-Export ist nicht mehr gefaehrlich.**
+>
+> **STEP-Import.** `occt_split_solids` (neu im Shim) + `importStepSolids`
+> zerlegen die Datei in SOLIDS; `AppState.importStepIntoPart` legt daraus je
+> einen Koerper an. Die Features tragen `imported = true`, und der
+> Feature-Recompute laesst sie in Ruhe: sie werden aus NICHTS berechnet, ein
+> Neuaufbau aus nicht existierenden Eingaben wuerde die eben importierte
+> Geometrie loeschen. Die STEP-Datei wandert nach `<part>_imports/` und wird
+> beim OEFFNEN des Parts neu gelesen (M112) — der B-Rep wird bewusst NICHT
+> serialisiert, die Datei ist die Quelle der Wahrheit. Pro Datei einmal
+> gelesen und der Reihe nach verteilt: eine STEP mit vier Solids wird zu vier
+> Features, und viermal zu lesen waere langsam und ein Leck, weil jeder Lesevorgang
+> alle vier liefert. Fehlt die Datei, sagt das Feature es (`computeError`)
+> statt still leer zu bleiben.
+>
+> **Ein Import-Eintrag** in BEIDEN Ribbons (Skizze und Part), nativer Picker,
+> Endung entscheidet: STEP → Koerper, DXF → Skizzengeometrie. Den Nutzer den
+> passenden Menuepunkt fuer die Datei suchen zu lassen, die er ohnehin gleich
+> auswaehlt, waere Zeremonie.
+>
+> **DXF-Export: der Produktionsblocker ist weg.** Bisher wurde die
+> STORAGE-Datei durchgereicht — und Konstruktions-/Mittellinien sind nur wegen
+> eines Dart-seitigen Stil-Tags im SIDECAR Konstruktion; im DXF selbst steht
+> davon nichts. Wer daraus fertigt, fraest die Hilfslinien mit. Jetzt wird eine
+> **Export-Kopie** geschrieben, in der Konstruktionsgeometrie auf dem Layer
+> **`Defpoints`** liegt — die seit AutoCAD ueberall verstandene Konvention fuer
+> "sichtbar, aber nie geplottet". Die Geometrie bleibt vorhanden (sichtbar,
+> fangbar, re-importierbar), sie kann nur nicht mehr mit dem Teil verwechselt
+> werden. Enthaelt eine Skizze gar keine Konstruktionsgeometrie, wird
+> unveraendert die Originaldatei verschickt.
+>
+> **Offen:** Splines/Zahnraeder gehen weiter als Polylinien raus (verlustig,
+> nicht falsch) — echte SPLINE-Entities waeren der naechste Schritt.
+
 > **M109 (KORRIGIERT) — STEP-Export gab es LAENGST. Mein Zusatz war ein
 > Duplikat und hat den Shim zerschossen.**
 >
