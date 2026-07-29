@@ -515,7 +515,7 @@ class _RibbonState extends State<Ribbon> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 62,
-                icon: IC['acad']!,
+                icon: IN['acad']!,
                 label: 'Import',
                 onTap: () => _pickImport(widget.app)),
           ]),

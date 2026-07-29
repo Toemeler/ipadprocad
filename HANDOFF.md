@@ -16,6 +16,33 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M115 — KRITISCH: c697a81 hatte GAR KEIN Ribbon. Meine Schuld, ein
+> falscher Map-Name.**
+>
+> Der Import-Knopf aus M111 stand als `IC['acad']!` im Quelltext — das Icon
+> liegt aber in der Map **`IN`**, nicht `IC`. Der Null-Check-Operator warf also
+> beim Bauen, Flutter ersetzte das GESAMTE Ribbon durch sein rotes
+> Error-Widget (das ist der rote Balken im Screenshot), und damit waren alle
+> Werkzeuge weg — inklusive des Import-Knopfes, den die Aenderung gerade
+> hinzufuegen wollte. Im Geraete-Log steht es woertlich:
+> `widget: build failed: Null check operator used on a null value`.
+>
+> **Warum die CI das nicht gefangen hat:** die Icon-Maps sind
+> `Map<String, String>`, ein fehlender Schluessel ist also ein Laufzeit-`null`
+> und kein Typfehler. `flutter analyze` kann das nicht sehen, und kein
+> Host-Test baute das Ribbon.
+>
+> **Behoben** (`IN['acad']`), und der ganze Ribbon-Quelltext wurde gegen alle
+> fuenf Maps auditiert — das war der einzige Treffer. Neu
+> `test/m115_ribbon_icons_test.dart`: liest `ribbon.dart` und prueft JEDEN
+> `IC/IN/CN/MO/MD['key']`-Zugriff gegen die Map, in der er nachschlaegt. Die
+> Maps sind einfache Top-Level-Konstanten, das kostet also nichts und faengt
+> die ganze Fehlerklasse, bevor sie ein Geraet erreicht.
+>
+> **Lehre:** ein `!` auf einem Map-Zugriff im Widget-Baum ist ein
+> App-Killer, kein lokaler Fehler — der Fehler nimmt den kompletten Teilbaum
+> mit. Fuer Icons lieber einen Fallback als `!`.
+
 > **M114 — Der Bogen-Slot hat endlich Konstruktionsgeometrie. Und zwar
 > LINIEN, nicht den Mittenbogen, an dem ich in M92 haengengeblieben bin.**
 >
