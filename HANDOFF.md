@@ -16,6 +16,27 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M114 — Der Bogen-Slot hat endlich Konstruktionsgeometrie. Und zwar
+> LINIEN, nicht den Mittenbogen, an dem ich in M92 haengengeblieben bin.**
+>
+> Damals hiess es hier "keine saubere Loesung": ein Bogen hat fuenf Parameter
+> (Mitte, Radius, zwei Winkel), und ihn mit `concentric` plus beiden
+> Endpunkten festzunageln sind SECHS Gleichungen vom Rang FUENF — genau die
+> ueberzaehlige Zeile, die laut den Notizen des linearen Slots die
+> Normalgleichungen singulaer macht, libslvs die Skizze fuer inkonsistent
+> erklaeren laesst und das Ziehen flackern liess. Weniger festnageln laesst ihn
+> ausbeulen.
+>
+> **Die Loesung war, die Form zu wechseln:** zwei Konstruktions-LINIEN vom
+> Sweep-Mittelpunkt zu den beiden Kappenmittelpunkten. Vier Parameter je Linie,
+> je zwei Koinzidenzen — voll bestimmt, kein ueberzaehliger Rang, die sechs
+> Freiheitsgrade des Slots bleiben unberuehrt. Praktisch sind sie sogar besser
+> als ein Mittenbogen: man bekommt den Sweep-Mittelpunkt und die beiden Radien
+> zum Bemassen, und genau danach greift man beim Bogen-Slot.
+>
+> (Punkt 0 eines Bogens ist sein Mittelpunkt, also sind beide Enden gewoehnliche
+> Punkt-Koinzidenzen — nichts Neues im Solver noetig.)
+
 > **M113 — End of Part zaehlt jetzt ZEILEN. Damit ist das "springt ueber die
 > Skizze" an der Wurzel weg.**
 >

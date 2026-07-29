@@ -44,6 +44,8 @@ int _equations(List<Geo> gs, List<Constraint> cs) {
 }
 
 void main() {
+  group('M114 arc slot', _arcSlotTests);
+
   group('polygon geometry', () {
     test('is n separate lines plus a construction circle', () {
       for (final n in [3, 5, 6, 8]) {
@@ -241,5 +243,64 @@ void main() {
     }
     // 7 chords of a circle of radius 20.
     expect(perimeter, closeTo(7 * 2 * 20 * math.sin(math.pi / 7), 1e-6));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M114 — the arc slot finally has construction geometry.
+void _arcSlotTests() {
+  test('emits four rails/caps plus two construction radii', () {
+    final gs = buildToolGeometry(Tool.slot3A, [
+      const Offset(0, 0),
+      const Offset(40, 0),
+      const Offset(0, 40),
+      const Offset(0, 34),
+    ]);
+    expect(gs, isNotNull);
+    expect(gs!, hasLength(6));
+    for (var i = 0; i < 4; i++) {
+      expect(gs[i].isConstruction, isFalse, reason: 'entity $i is real');
+    }
+    expect(gs[4].isConstruction, isTrue);
+    expect(gs[5].isConstruction, isTrue);
+    expect(gs[4].type, Geo.line, reason: 'lines, not an arc — see the comment');
+    expect(gs[5].type, Geo.line);
+  });
+
+  test('each radius starts at the shared rail centre', () {
+    final gs = buildToolGeometry(Tool.slot3A, [
+      const Offset(0, 0),
+      const Offset(40, 0),
+      const Offset(0, 40),
+      const Offset(0, 34),
+    ])!;
+    final centre = Offset(gs[0].data[0], gs[0].data[1]);
+    for (final r in [gs[4], gs[5]]) {
+      expect((Offset(r.data[0], r.data[1]) - centre).distance, lessThan(1e-9));
+    }
+  });
+
+  test('the four pins add no degrees of freedom', () {
+    final gs = buildToolGeometry(Tool.slot3A, [
+      const Offset(0, 0),
+      const Offset(40, 0),
+      const Offset(0, 40),
+      const Offset(0, 34),
+    ])!;
+    // Two lines = 8 parameters; four coincidents = 8 equations.
+    final pins = [
+      Constraint(CType.coincident, pts: [PRef(4, 0), PRef(0, 0)]),
+      Constraint(CType.coincident, pts: [PRef(4, 1), PRef(2, 0)]),
+      Constraint(CType.coincident, pts: [PRef(5, 0), PRef(0, 0)]),
+      Constraint(CType.coincident, pts: [PRef(5, 1), PRef(3, 0)]),
+    ];
+    expect(_equations(gs, pins), 8);
+  });
+
+  test('the LINEAR slot is unchanged — still five entities', () {
+    expect(
+        buildToolGeometry(Tool.slotCC,
+            [Offset.zero, const Offset(20, 0), const Offset(0, 5)])!,
+        hasLength(5));
   });
 }
