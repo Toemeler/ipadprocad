@@ -2061,6 +2061,10 @@ class AppState extends ChangeNotifier {
         Log.e('part', 'open "$name" failed', e, st);
       }
       parts[name] = p;
+      // M160 — the child sketches are attached above, AFTER loadJson ran, so
+      // only now is the timeline complete enough to place the End of Part
+      // marker and decide what it rolls back.
+      p.finishLoad();
       // Legacy sidecars (pre-M59) have no per-sketch 'vis': apply the
       // Inventor default — consumed sketches load hidden.
       for (final cs in p.childSketches) {

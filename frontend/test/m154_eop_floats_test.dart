@@ -166,6 +166,7 @@ void main() {
         ],
         // no 'eopNodes' — the marker was at the end when this was written
       });
+      p.finishLoad(); // M160
       expect(p.eopAfter, kEopAtEnd);
 
       // A sketch added after reopening is above the marker, not below it.
@@ -189,6 +190,7 @@ void main() {
         ],
         'eopNodes': 1,
       });
+      p.finishLoad(); // M160
       expect(p.eopAfter, 1);
       expect(p.features.first.rolledBack, isFalse);
       expect(p.features.last.rolledBack, isTrue);
@@ -207,6 +209,7 @@ void main() {
         ],
         'eop': 2, // old meaning: both features built == at the end
       });
+      p.finishLoad(); // M160 — openPart completes the load once sketches exist
       expect(p.eopAfter, kEopAtEnd);
       expect(p.features.any((f) => f.rolledBack), isFalse);
     });

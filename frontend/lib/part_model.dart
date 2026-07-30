@@ -2835,13 +2835,14 @@ class PartModel {
     }
     if (seqNext < n) seqNext = n;
     // End of Part: absent means "at the end", which is no rollback at all.
-    final nodesN = partTimeline(this).length;
     final nodes = (j['eopNodes'] as num?)?.toInt();
     if (nodes != null) {
-      // A stored value that already covers every row is "at the end": keep the
-      // SENTINEL, so it still floats once the part grows. Loading it as a row
-      // count parked the marker on open, and the next sketch landed below it.
-      eopAfter = nodes >= nodesN ? kEopAtEnd : nodes;
+      // Stored as written. The sentinel decision CANNOT be made here: the
+      // caller attaches the child sketches AFTER loadJson returns, so
+      // `partTimeline` is currently short by every unconsumed sketch row and a
+      // genuinely parked marker would look like "at the end" and silently
+      // un-park. [finishLoad] makes that call once the timeline is complete.
+      eopAfter = nodes;
     } else {
       // Pre-M113: the stored number counted FEATURES. Convert by walking the
       // timeline until that many features have been passed, so a rolled-back
@@ -2855,8 +2856,30 @@ class PartModel {
         for (; at < tl.length && seen < feats; at++) {
           if (tl[at].isFeature) seen++;
         }
-        eopAfter = at >= tl.length ? kEopAtEnd : at;
+        eopAfter = at;
       }
+    }
+    applyEndOfPart(this);
+  }
+
+  /// M160 — completes a load once the caller has attached the child sketches.
+  ///
+  /// [loadJson] cannot finish the job on its own: the sketch MODELS live in
+  /// their own files and are attached afterwards, so while it runs
+  /// `partTimeline` is short by every unconsumed sketch row. Two things
+  /// therefore have to wait for this call.
+  ///
+  /// First, "is the End of Part marker at the end?" — asked against the short
+  /// timeline, a marker genuinely parked above the last feature looks like it
+  /// covers everything, and converting it to [kEopAtEnd] silently throws the
+  /// user's rollback away. Second, [applyEndOfPart] itself, which had been
+  /// deciding `rolledBack` for a set of rows that did not yet include the
+  /// sketches.
+  ///
+  /// Idempotent, so calling it twice is harmless.
+  void finishLoad() {
+    if (eopAfter != kEopAtEnd && eopAfter >= partTimeline(this).length) {
+      eopAfter = kEopAtEnd; // covers every row: that IS the end
     }
     applyEndOfPart(this);
   }
