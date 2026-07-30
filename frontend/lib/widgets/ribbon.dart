@@ -182,15 +182,25 @@ class _RibbonState extends State<Ribbon> {
                 return;
               }
               // M151 — the Work Features > Plane list has been dummy entries
-              // since M56. Two of them are real now; the rest still fall
-              // through and do nothing, which is honest until they exist.
+              // since M56. Two of them are real.
               switch (it.icon) {
+                // M157 — the generic "Plane" is Inventor's most-used entry and
+                // fell through to nothing, as did a tap on the button BODY
+                // (onDefault was an empty closure). Both now start the offset
+                // flow, which is the plane you get in Inventor by picking one
+                // face — the overwhelmingly common case.
+                case 'plane':
                 case 'offset':
                   widget.app.startWorkPlane(WorkPlaneKind.offset);
                   break;
                 case 'midplane2':
                   widget.app.startWorkPlane(WorkPlaneKind.midplane);
                   break;
+                default:
+                  // Silence is the worst answer: the user cannot tell a broken
+                  // tool from an unbuilt one. Say which it is.
+                  widget.app.toast('${it.b}: not built yet — '
+                      'use Offset from Plane or Midplane.');
               }
             },
           ),
@@ -567,7 +577,10 @@ class _RibbonState extends State<Ribbon> {
                 label: 'Plane',
                 icon: WF['plane']!,
                 onFly: toggleFly,
-                onDefault: () {}),
+                // M157 — was an empty closure, so tapping the button did
+                // nothing at all and the tool looked broken.
+                onDefault: () =>
+                    widget.app.startWorkPlane(WorkPlaneKind.offset)),
             col([
               (WF['axis']!, 'Axis', null),
               (WF['point']!, 'Point', null),
