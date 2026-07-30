@@ -33,7 +33,11 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
         !f.rolledBack && // M91 — below End of Part
 
         f != sess?.editing &&
-        f.bodyName != sess?.previewReplacesBody) {
+        f.bodyName != sess?.previewReplacesBody &&
+        // M126 — a fillet/chamfer preview REPLACES its body; leaving the
+        // original in would draw the un-filleted edges straight through it.
+        f != app.edgeSession?.editing &&
+        f.bodyName != app.edgeSession?.previewReplacesBody) {
       out.add((f.name, f.solid!));
     }
   }
@@ -508,6 +512,12 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
   final preview = sess?.preview;
   if (preview != null) {
     scene['preview'] = solidPayload('__preview__', preview, material: kMatPreview);
+  } else if (app.edgeSession?.preview != null) {
+    // Normal steel, not kMatPreview: this preview stands in for the WHOLE
+    // body, and a translucent body is much harder to judge a fillet on than
+    // a solid one. The open panel is the signal that it is uncommitted.
+    scene['preview'] =
+        solidPayload('__preview__', app.edgeSession!.preview!);
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
@@ -583,6 +593,12 @@ String sceneSignature(AppState app, PartModel p) {
     ..write(sess?.preview == null ? 0 : identityHashCode(sess!.preview!.mesh))
     ..write(';prevrepl:')
     ..write(sess?.previewReplacesBody ?? '')
+    ..write(';eprev:')
+    ..write(app.edgeSession?.preview == null
+        ? 0
+        : identityHashCode(app.edgeSession!.preview!.mesh))
+    ..write(';eprevrepl:')
+    ..write(app.edgeSession?.previewReplacesBody ?? '')
     ..write(';pick:')
     ..write(app.pickPlane ? 1 : 0)
     ..write(';vis:');

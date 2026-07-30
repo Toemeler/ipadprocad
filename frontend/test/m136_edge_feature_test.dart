@@ -4,6 +4,7 @@
 // the open/cancel/edit lifecycle. NOT host-testable: the preview solid and
 // the commit, because both need a linked OCCT kernel — those paths are
 // asserted to fail honestly rather than to fabricate a solid.
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,9 @@ class FilletRecorder implements PartKernel {
       ];
 
   List<double>? lastRadii2;
+  int chamfers = 0;
+  int? lastMode;
+  double? lastD1, lastD2, lastAngle;
 
   @override
   KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
@@ -46,6 +50,18 @@ class FilletRecorder implements PartKernel {
     lastIds = List.of(edgeIds);
     lastRadii = List.of(radii);
     lastRadii2 = List.of(radii2);
+    return _stub();
+  }
+
+  @override
+  KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
+      double d1, double d2, double angleDeg) {
+    chamfers++;
+    lastIds = List.of(edgeIds);
+    lastMode = mode;
+    lastD1 = d1;
+    lastD2 = d2;
+    lastAngle = angleDeg;
     return _stub();
   }
 
@@ -427,6 +443,237 @@ void main() {
       app.setEdgeFeature(exprRadius2: '5 mm', radiusSet: 1);
       expect(s.exprRadii2[0], '');
       expect(s.exprRadii2[1], '5 mm');
+    });
+  });
+
+  // M126 — regressions found on DEVICE: the panel said "Select at least one
+  // edge" and kept OK greyed out however many edges you tapped, and no fillet
+  // preview ever appeared.
+  group('picking an edge refreshes the preview state', () {
+    KernelSolid stub() => KernelSolid(
+        OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+            Int32List.fromList(const [0]), Float64List(0)),
+        1.0,
+        null);
+
+    /// _updateEdgeFeaturePreview needs a CURRENT PART — without one it returns
+    /// early, which is why a bare AppState() cannot exercise this at all.
+    Future<AppState> armed() async {
+      final app = AppState()..partKernel = FilletRecorder();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m126_');
+      await app.createNamedPart('P');
+      app.edgeSession = EdgeFeatureSession('fillet');
+      app.beginPickEdges();
+      return app;
+    }
+
+    test('the stale "select an edge" error clears once one is picked',
+        () async {
+      // Root cause: _openEdgeFeature computed the preview ONCE with zero
+      // edges, and toggleEdgePick never recomputed it, so previewError stayed
+      // frozen and the footer's `ready` test could never become true.
+      final app = await armed();
+      final s = app.edgeSession!;
+      s.previewError = 'Select at least one edge.'; // as on open
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      expect(s.previewError, isNull,
+          reason: 'a picked edge must clear the stale error');
+      expect(app.pickedEdges.length, 1);
+    });
+
+    test('a preview is actually built, and names the body it replaces',
+        () async {
+      final app = await armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      final s = app.edgeSession!;
+      expect(s.preview, isNotNull, reason: 'no preview = nothing to draw');
+      expect(s.previewReplacesBody, isNotNull,
+          reason: 'the original body must be hidden or it shows through');
+    });
+
+    test('removing the last edge puts the error back and drops the preview',
+        () async {
+      final app = await armed();
+      final sel = EdgeSel(0, 0, 0, 5, 1, 0);
+      // ONE solid instance: passing a fresh stub would look like a different
+      // body to the switch rule.
+      final body = stub();
+      app.toggleEdgePick(1, sel, solid: body, display: 0);
+      expect(app.edgeSession!.preview, isNotNull);
+      app.toggleEdgePick(1, sel, solid: body, display: 0); // untap
+      expect(app.pickedEdges, isEmpty);
+      expect(app.edgeSession!.previewError, isNotNull);
+      expect(app.edgeSession!.preview, isNull);
+    });
+
+    test('the preview follows a radius change', () async {
+      final app = await armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      final first = app.edgeSession!.preview;
+      app.setEdgeFeature(exprRadius: '7 mm');
+      expect(app.edgeSession!.preview, isNotNull);
+      expect(identical(app.edgeSession!.preview, first), isFalse,
+          reason: 'a new radius must rebuild the preview, not reuse it');
+    });
+
+    test('a recompute replacing the body solid does NOT wipe the selection',
+        () async {
+      // The real scenario: a recompute hands back a NEW KernelSolid for the
+      // SAME named body. An identity test would read "different body" and
+      // silently throw away everything the user had picked, which is why the
+      // body NAME is recorded at pick time.
+      final app = await armed();
+      final p = app.currentPart!;
+      final f = ExtrudeFeature(
+          name: 'Extrusion1',
+          bodyName: 'Solid1',
+          sketchName: 'Sketch1',
+          profiles: const []);
+      f.solid = stub();
+      p.features.add(f);
+
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: f.solid, display: 0);
+      expect(app.pickedEdges.length, 1);
+      expect(app.pickedEdgeBodyName, 'Solid1');
+
+      // simulate the rebuild: same body, brand-new instance
+      f.solid = stub();
+      app.toggleEdgePick(2, EdgeSel(10, 0, 0, 5, 1, 0),
+          solid: f.solid, display: 1);
+      expect(app.pickedEdges.length, 2,
+          reason: 'a new instance of the SAME named body must not clear');
+    });
+
+    test('picking on a genuinely different body DOES start a new set',
+        () async {
+      final app = await armed();
+      final p = app.currentPart!;
+      ExtrudeFeature mk(String n, String body) {
+        final f = ExtrudeFeature(
+            name: n, bodyName: body, sketchName: 'Sketch1', profiles: const []);
+        f.solid = stub();
+        p.features.add(f);
+        return f;
+      }
+
+      final a = mk('Extrusion1', 'Solid1');
+      final b = mk('Extrusion2', 'Solid2');
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: a.solid, display: 0);
+      app.toggleEdgePick(2, EdgeSel(10, 0, 0, 5, 1, 0),
+          solid: b.solid, display: 1);
+      expect(app.pickedEdges.length, 1,
+          reason: 'a fillet operates on ONE body');
+      expect(app.pickedEdgeBodyName, 'Solid2');
+    });
+
+    test('multiple edges keep the panel enabled', () async {
+      final app = await armed();
+      final body = stub();
+      for (var i = 1; i <= 3; i++) {
+        app.toggleEdgePick(i, EdgeSel(i * 10.0, 0, 0, 5, 1, 0),
+            solid: body, display: i - 1);
+      }
+      expect(app.pickedEdges.length, 3);
+      expect(app.edgeSession!.previewError, isNull,
+          reason: 'this is exactly what stayed greyed out on device');
+    });
+  });
+
+  // The preview machinery is shared between fillet and chamfer
+  // (_edgeSessionFeature -> _recomputeBodyModify), but "shared" is a claim
+  // until it is exercised.
+  group('chamfer preview', () {
+    Future<AppState> armed() async {
+      final app = AppState()..partKernel = FilletRecorder();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m126c_');
+      await app.createNamedPart('P');
+      app.edgeSession = EdgeFeatureSession('chamfer');
+      app.beginPickEdges();
+      return app;
+    }
+
+    KernelSolid stub() => KernelSolid(
+        OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+            Int32List.fromList(const [0]), Float64List(0)),
+        1.0,
+        null);
+
+    test('picking an edge builds a chamfer preview and clears the error',
+        () async {
+      final app = await armed();
+      app.edgeSession!.previewError = 'Select at least one edge.';
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      final s = app.edgeSession!;
+      expect(s.previewError, isNull);
+      expect(s.preview, isNotNull);
+      expect(s.previewReplacesBody, isNotNull);
+      expect((app.partKernel as FilletRecorder).chamfers, greaterThan(0),
+          reason: 'the CHAMFER kernel path must be the one used');
+    });
+
+    test('the equal-distance method reaches the kernel', () async {
+      final app = await armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      app.setEdgeFeature(mode: 0, exprD1: '3 mm');
+      final k = app.partKernel as FilletRecorder;
+      expect(k.lastMode, 0);
+      expect(k.lastD1, 3.0);
+    });
+
+    test('changing the distance rebuilds the preview', () async {
+      final app = await armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      final first = app.edgeSession!.preview;
+      app.setEdgeFeature(exprD1: '4 mm');
+      expect(app.edgeSession!.preview, isNotNull);
+      expect(identical(app.edgeSession!.preview, first), isFalse);
+    });
+
+    test('two-distance mode and Flip both reach the kernel', () async {
+      final app = await armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      app.setEdgeFeature(mode: 1, exprD1: '2 mm', exprD2: '5 mm');
+      final k = app.partKernel as FilletRecorder;
+      expect(k.lastMode, 1);
+      expect(k.lastD1, 2.0);
+      expect(k.lastD2, 5.0);
+      app.setEdgeFeature(flip: true);
+      expect(k.lastD1, 5.0, reason: 'Flip swaps the two faces');
+      expect(k.lastD2, 2.0);
+    });
+
+    test('distance-and-angle mode sends the angle', () async {
+      final app = await armed();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0),
+          solid: stub(), display: 0);
+      app.setEdgeFeature(mode: 2, exprD1: '2 mm', exprAngle: '30 deg');
+      final k = app.partKernel as FilletRecorder;
+      expect(k.lastMode, 2);
+      expect(k.lastAngle, 30.0);
+      app.setEdgeFeature(flip: true);
+      expect(k.lastAngle, 60.0, reason: 'Flip takes the complement');
+    });
+
+    test('untapping the last edge drops the chamfer preview', () async {
+      final app = await armed();
+      final body = stub();
+      final sel = EdgeSel(0, 0, 0, 5, 1, 0);
+      app.toggleEdgePick(1, sel, solid: body, display: 0);
+      expect(app.edgeSession!.preview, isNotNull);
+      app.toggleEdgePick(1, sel, solid: body, display: 0);
+      expect(app.edgeSession!.preview, isNull);
+      expect(app.edgeSession!.previewError, isNotNull);
     });
   });
 

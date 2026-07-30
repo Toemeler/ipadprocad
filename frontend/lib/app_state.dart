@@ -567,11 +567,17 @@ class EdgeFeatureSession {
   KernelSolid? preview;
   String? previewError;
 
+  /// Body the preview REPLACES on screen. A fillet does not add material, it
+  /// modifies a body, so the original must be hidden while the preview is up
+  /// or the un-filleted edges show through it.
+  String? previewReplacesBody;
+
   bool get isFillet => kind == 'fillet';
 
   void disposePreview() {
     preview?.dispose();
     preview = null;
+    previewReplacesBody = null;
   }
 }
 
@@ -2618,6 +2624,7 @@ class AppState extends ChangeNotifier {
     pickedEdgeSet.clear();
     activeEdgeSet = 0;
     pickedEdgeSolid = null;
+    pickedEdgeBodyName = null;
     if (edit != null) {
       pickedEdges.addAll(edit.edges);
       // Put each edge back in the set its radius identifies.
@@ -2816,6 +2823,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     s.preview = f.solid;
+    s.previewReplacesBody = f.bodyName;
     f.solid = null; // ownership moved to the session
   }
 
@@ -4553,6 +4561,15 @@ class AppState extends ChangeNotifier {
   /// How many edges are in set [i].
   int edgesInSet(int i) => pickedEdgeSet.where((x) => x == i).length;
 
+  /// Body NAME the current edge set belongs to, captured at pick time.
+  ///
+  /// Recorded separately because [pickedEdgeSolid] is held by identity and a
+  /// recompute replaces the instance — and `_bodyNameOfSolid` cannot name the
+  /// old one afterwards either, since it matches by identity too. Keeping the
+  /// name is the only thing that survives, and it is what decides whether a
+  /// later pick is the SAME body or a different one.
+  String? pickedEdgeBodyName;
+
   /// The solid the current edge set was picked from. Held by identity, like
   /// hoverFace, because a rebuild replaces the object.
   KernelSolid? pickedEdgeSolid;
@@ -4597,6 +4614,7 @@ class AppState extends ChangeNotifier {
     pickedEdgeSet.clear();
     activeEdgeSet = 0;
     pickedEdgeSolid = null;
+    pickedEdgeBodyName = null;
     hoverEdge3d = null;
     notifyListeners();
   }
@@ -4610,15 +4628,28 @@ class AppState extends ChangeNotifier {
     // One body per feature: Inventor's fillet operates on a single solid, and
     // a set spanning two would have no meaningful base to modify. Switching
     // body starts a new set rather than silently mixing them.
-    if (solid != null &&
+    //
+    // Compared by BODY NAME, not by object identity: a recompute replaces the
+    // KernelSolid instance, and an identity test would then read "different
+    // body" and silently throw away everything the user had selected.
+    final newName = solid == null ? null : _bodyNameOfSolid(solid);
+    final sameBody = newName != null && newName == pickedEdgeBodyName;
+    final switching = solid != null &&
         pickedEdgeSolid != null &&
-        !identical(pickedEdgeSolid, solid)) {
+        !identical(pickedEdgeSolid, solid) &&
+        !sameBody;
+    if (switching) {
       pickedEdges.clear();
       pickedEdgeIds.clear();
       pickedEdgeDisplay.clear();
       pickedEdgeSet.clear();
+      pickedEdgeBodyName = null;
+      activeEdgeSet = 0; // the old sets are gone; do not keep pointing past them
     }
-    if (solid != null) pickedEdgeSolid = solid;
+    if (solid != null) {
+      pickedEdgeSolid = solid;
+      if (newName != null) pickedEdgeBodyName = newName;
+    }
     final i = pickedEdgeIds.indexOf(topoId);
     if (i >= 0) {
       pickedEdgeIds.removeAt(i);
@@ -4631,6 +4662,11 @@ class AppState extends ChangeNotifier {
       pickedEdgeDisplay.add(display);
       pickedEdgeSet.add(activeEdgeSet);
     }
+    // M126 — WITHOUT this the panel froze: _openEdgeFeature computes the
+    // preview once with zero edges, so previewError stayed at "Select at
+    // least one edge" no matter how many you then tapped. That kept OK greyed
+    // out and the warning on screen, and no preview was ever built.
+    _updateEdgeFeaturePreview();
     notifyListeners();
   }
 

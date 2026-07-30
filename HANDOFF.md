@@ -16,6 +16,51 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M126 — Geraetebefunde behoben: Fillet/Chamfer haben jetzt eine LIVE-
+> Vorschau, und der OK-Knopf bleibt nicht mehr grau. 793/793 Tests.**
+>
+> **Zwei Symptome, EINE Ursache.** `_openEdgeFeature` berechnet die Vorschau
+> genau EINMAL — beim Oeffnen, mit null Kanten — und setzte damit
+> `previewError = "Select at least one edge."`. `toggleEdgePick` rief
+> `_updateEdgeFeaturePreview()` NIE auf. Folge: das Kantenfeld zeigte brav
+> „3 Edges", waehrend die Fehlermeldung und der graue OK-Knopf am
+> eingefrorenen Zustand von vor dem ersten Tipp hingen — und weil die Vorschau
+> nie gerechnet wurde, gab es auch keine zu zeichnen. Ein Aufruf behebt beides.
+>
+> **Zweite, unabhaengige Ursache: die Vorschau wurde nie GEZEICHNET.**
+> `edgeSession` kam im ganzen Renderpfad nicht vor. Ergaenzt:
+> - `EdgeFeatureSession.previewReplacesBody` — ein Fillet fuegt kein Material
+>   hinzu, es MODIFIZIERT einen Koerper, also muss das Original waehrend der
+>   Vorschau verschwinden, sonst scheinen die unverrundeten Kanten hindurch.
+>   `visibleSolids` beruecksichtigt das jetzt fuer BEIDE Sessions.
+> - `buildScenePayload` gibt die Kanten-Vorschau aus, wenn keine
+>   Extrude-Vorschau ansteht — in NORMALEM Stahl, nicht `kMatPreview`: dieses
+>   Bild steht fuer den ganzen Koerper, und an einem durchscheinenden Koerper
+>   laesst sich eine Verrundung schlecht beurteilen. Das offene Panel ist das
+>   Signal, dass noch nichts committet ist.
+> - `sceneSignature` traegt `eprev`/`eprevrepl`, sonst wird das neue Mesh gar
+>   nicht gepusht.
+>
+> **Dritter Befund, beim Testen aufgefallen (noch nicht am Geraet gesehen):**
+> die Ein-Koerper-Regel in `toggleEdgePick` verglich Koerper ueber die
+> OBJEKTIDENTITAET. Ein Recompute ersetzt die `KernelSolid`-Instanz, also
+> haette der naechste Tipp „anderer Koerper" gelesen und die gesamte Auswahl
+> STILL verworfen. Erster Versuch, ueber `_bodyNameOfSolid` zu vergleichen,
+> half nicht — die Funktion matcht selbst per Identitaet und kann die ALTE
+> Instanz hinterher nicht mehr benennen. Jetzt wird der Koerpername BEIM
+> PICKEN festgehalten (`pickedEdgeBodyName`); nur er ueberlebt einen Rebuild.
+> Test deckt beide Richtungen ab: neue Instanz desselben benannten Koerpers
+> behaelt die Auswahl, ein echt anderer Koerper beginnt eine neue.
+>
+> **Chamfer ausdruecklich mitgeprueft**, weil „gemeinsame Maschinerie" bis zum
+> Beweis eine Behauptung ist: 6 Tests mit einem aufzeichnenden Kernel — die
+> CHAMFER-Kernelstrecke wird wirklich benutzt, Distanz aendern baut die
+> Vorschau neu, Modus 1 sendet d1/d2 und Flip tauscht sie, Modus 2 sendet den
+> Winkel und Flip nimmt den Komplementwinkel, letzte Kante abwaehlen loescht
+> die Vorschau wieder.
+>
+> **11 neue Tests** (5 Fillet-Vorschau/Regression, 6 Chamfer).
+
 > **M125 — Voller CI-Durchlauf gruen: IPA gebaut, Swift uebersetzt, 41
 > Symbole im Runner. Damit ist ALLES in M130-M145 maschinell geprueft.**
 >
