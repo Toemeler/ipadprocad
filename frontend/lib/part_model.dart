@@ -825,7 +825,101 @@ List<ProfileLoop> arrangementLoops(SketchModel s) {
 }
 
 List<ProfileLoop> profileLoops(SketchModel s) =>
-    Perf.span('sketch.profileLoops', () => _profileLoops(s));
+    Perf.span('sketch.profileLoops', () => dropDuplicateLoops(_profileLoops(s)));
+
+/// Wall thickness, in mm, below which the gap between two loops is not a
+/// feature but the same boundary counted twice. 20 um: thinner than anything
+/// that can be manufactured, meshed or even seen, and forty times narrower
+/// than the thinnest wall in the reported failure that must SURVIVE.
+const double kMinWallThickness = 0.02;
+
+/// M156 — removes a loop that merely REPEATS another one.
+///
+/// A sketch legitimately holds two coincident curves: Project Geometry brings
+/// the model edge in, and the user draws over it (constrained equal and
+/// concentric, so the solver keeps them on top of each other). The arrangement
+/// is then perfectly right to report two loops — but the region between them
+/// is a ring microns wide, and extruding it produces the zero-thickness shell
+/// that showed up on the device instead of a solid cylinder.
+///
+/// The two do not stay bit-identical: they are tessellated separately and the
+/// projection re-derives from the model on every rebuild, so the pair drifts
+/// apart by a fraction of the sag of their own polygons (measured on the
+/// device: areas 176.588 and 176.120 for the same Ø15 circle). Comparing for
+/// equality would never catch it; comparing the ENCLOSED AREA does, because a
+/// duplicate encloses the same area whatever its sampling.
+///
+/// Only a loop nested inside its twin is dropped, so a genuine thin ring drawn
+/// as two separate circles is untouched as long as it is thicker than
+/// [kDuplicateLoopArea] — and one thinner than that could not be meshed or
+/// manufactured anyway.
+List<ProfileLoop> dropDuplicateLoops(List<ProfileLoop> loops) {
+  if (loops.length < 2) return loops;
+  final drop = <int>{};
+  for (final inner in loops) {
+    if (drop.contains(inner.id)) continue;
+    for (final outer in loops) {
+      if (identical(inner, outer) || drop.contains(outer.id)) continue;
+      if (inner.area >= outer.area) continue; // only ever drop the inner twin
+      if (!_sameBoundary(inner, outer)) continue;
+      drop.add(inner.id);
+      break;
+    }
+  }
+  if (drop.isEmpty) return loops;
+  return [
+    for (final l in loops)
+      if (!drop.contains(l.id)) l
+  ];
+}
+
+/// Whether [inner] and [outer] are the same boundary sampled twice, rather
+/// than a genuine loop nested in another.
+///
+/// Deliberately NOT built on [_loopInside]: that votes with three sample
+/// points, which is exactly the test that cannot resolve two boundaries a few
+/// microns apart — a duplicate lands partly inside and partly outside its
+/// twin's polygon, so the vote is a coin toss. Everything here is a measured
+/// separation instead.
+bool _sameBoundary(ProfileLoop inner, ProfileLoop outer) {
+  // 1. Mean wall thickness: the area between the two loops, spread along the
+  //    perimeter that encloses it. This is the physical quantity that decides
+  //    whether the gap is a feature — it does not care about the sampling.
+  final perim = _perimeterOf(inner.pts);
+  if (perim <= 0) return false;
+  if ((outer.area - inner.area) / perim >= kMinWallThickness) return false;
+  // 2. Same place. Two equal circles side by side also enclose equal areas.
+  if ((outer.centroid - inner.centroid).distance >= kMinWallThickness) {
+    return false;
+  }
+  // 3. Same shape. Equal area and centre still admit a square and a circle;
+  //    their radial extents about the shared centre do not match. This also
+  //    catches a loop that coincides over most of its run and departs
+  //    somewhere — the maximum has to agree, not just the average.
+  final c = outer.centroid;
+  final (iMin, iMax) = _radialExtent(inner.pts, c);
+  final (oMin, oMax) = _radialExtent(outer.pts, c);
+  return (oMin - iMin).abs() < kMinWallThickness &&
+      (oMax - iMax).abs() < kMinWallThickness;
+}
+
+double _perimeterOf(List<Offset> p) {
+  var s = 0.0;
+  for (var i = 0; i < p.length; i++) {
+    s += (p[(i + 1) % p.length] - p[i]).distance;
+  }
+  return s;
+}
+
+(double, double) _radialExtent(List<Offset> p, Offset c) {
+  var lo = double.infinity, hi = 0.0;
+  for (final q in p) {
+    final d = (q - c).distance;
+    if (d < lo) lo = d;
+    if (d > hi) hi = d;
+  }
+  return (lo, hi);
+}
 
 List<ProfileLoop> _profileLoops(SketchModel s) {
   // The arrangement subsumes the endpoint-chaining finder below and adds
