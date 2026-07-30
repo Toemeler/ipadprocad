@@ -6429,7 +6429,11 @@ class AppState extends ChangeNotifier {
     switch (tool) {
       case Tool.cCoincident:
         // First pick is always a point. The second pick decides the flavour:
-        // another point -> point-on-point, a line -> point-on-line.
+        // another point -> point-on-point, an entity -> point-on-curve.
+        // M123: every carrier type is accepted (line, circle, arc, spline,
+        // ellipse, gear, polygon), matching what the solver can actually
+        // enforce — restricting this to lines made the tool disagree with both
+        // the automatic inference and the trim/split cut-bind.
         if (conPts.isEmpty) {
           if (pt == null) return;
           conPts.add(pt);
@@ -6438,7 +6442,7 @@ class AppState extends ChangeNotifier {
         if (pt != null) {
           _addConstraint(s, Constraint(CType.coincident, pts: [conPts[0], pt]));
           conPts.clear();
-        } else if (ent != null && s.geometry[ent].type == Geo.line) {
+        } else if (ent != null && ent != conPts[0].ent) {
           _addConstraint(
               s, Constraint(CType.coincident, pts: [conPts[0]], ents: [ent]));
           conPts.clear();
