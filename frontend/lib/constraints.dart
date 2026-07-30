@@ -768,6 +768,15 @@ double measureDim(List<Geo> gs, Constraint c) {
       return gs[c.ents[0]].data[2];
     case 'dia':
       return gs[c.ents[0]].data[2] * 2;
+    case 'gap':
+      // M124 — the RADIAL gap between two circles/arcs: |R2 - R1|. This is the
+      // annulus width, i.e. exactly the distance an Offset moves a circle.
+      // Inventor reaches the same measure by Alt-picking edge-to-edge; here it
+      // is what a plain two-circle pick falls back to when the centres
+      // coincide, because a centre-to-centre distance is 0 for concentrics and
+      // therefore useless as a driving dimension.
+      if (c.ents.length < 2) return 0;
+      return (gs[c.ents[1]].data[2] - gs[c.ents[0]].data[2]).abs();
     case 'ang':
       final t1 = _dir(gs[c.ents[0]]), t2 = _dir(gs[c.ents[1]]);
       var d = (t2 - t1).abs() % (2 * math.pi);

@@ -2529,6 +2529,34 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       label = (c.dimKind == 'rad' ? 'R' : '⌀') + '${v.toStringAsFixed(2)} mm';
       if (c.driven) label = '($label)';
       break;
+    case 'gap':
+      // M124 — radial gap between two concentric-ish circles. Drawn along the
+      // ray from the shared centre towards the label, from the inner circle to
+      // the outer one, so it reads as the annulus width it is.
+      if (c.ents.length < 2 || c.ents[0] >= gs.length || c.ents[1] >= gs.length) {
+        return;
+      }
+      final ga = gs[c.ents[0]], gb = gs[c.ents[1]];
+      final cen = map(ga.data[0], ga.data[1]);
+      var dir = t - cen;
+      if (dir.distance < 1e-6) dir = const Offset(1, 0);
+      dir = dir / dir.distance;
+      final rIn = (map(ga.data[0] + math.min(ga.data[2], gb.data[2]),
+                  ga.data[1]) -
+              cen)
+          .distance;
+      final rOut = (map(ga.data[0] + math.max(ga.data[2], gb.data[2]),
+                  ga.data[1]) -
+              cen)
+          .distance;
+      final pa = cen + dir * rIn, pb = cen + dir * rOut;
+      canvas.drawLine(pa, pb, p);
+      _arrow(canvas, pa, dir, p);
+      _arrow(canvas, pb, -dir, p);
+      label = '${v.toStringAsFixed(2)} mm';
+      if (c.driven) label = '($label)';
+      t = (pa + pb) / 2 + Offset(-dir.dy, dir.dx) * 10;
+      break;
     case 'pline':
       // pts = [point, line A, line B]: perpendicular distance to the line.
       // Render as a linear dimension between the point and its foot on the

@@ -5314,6 +5314,14 @@ class AppState extends ChangeNotifier {
       } else if (chain.offsets[i].type == Geo.arc &&
           s.geometry[src].type == Geo.arc) {
         cons.add(Constraint(CType.concentric, ents: [firstNew + i, src]));
+      } else if (chain.offsets[i].type == Geo.circle &&
+          s.geometry[src].type == Geo.circle) {
+        // M124 — a CIRCLE offset used to get nothing: no constraint tying it
+        // to its source and no distance dimension, so the copy was loose
+        // geometry that drifted on the first drag and could not be driven to
+        // a value. It now behaves like the rest of the run: concentric with
+        // its source, and the offset distance carried by a gap dimension.
+        cons.add(Constraint(CType.concentric, ents: [firstNew + i, src]));
       }
     }
 
@@ -5326,6 +5334,16 @@ class AppState extends ChangeNotifier {
     final lineSegs = [
       for (var i = 0; i < n; i++)
         if (chain.offsets[i].type == Geo.line) i
+    ];
+    // M124 — circles carry the same distance as a gap dimension. A circle
+    // offset has no "offset line" to hang a pline dimension on, which is why
+    // it used to end up undimensioned; the gap between source and copy is the
+    // offset distance, so it is the driver for a circle-only offset.
+    final circleSegs = [
+      for (var i = 0; i < n; i++)
+        if (chain.offsets[i].type == Geo.circle &&
+            s.geometry[chain.sources[i]].type == Geo.circle)
+          i
     ];
     String? driver;
     for (var k = 0; k < lineSegs.length; k++) {
@@ -5345,6 +5363,25 @@ class AppState extends ChangeNotifier {
       } else {
         dim.expr = driver; // follow the driver's value
         if (chain.closed && k == lineSegs.length - 1) dim.driven = true;
+      }
+      cons.add(dim);
+    }
+    for (final i in circleSegs) {
+      final src = chain.sources[i];
+      final dim = Constraint(CType.dimension,
+          dimKind: 'gap',
+          ents: [src, firstNew + i],
+          // NOT chain.offsetDist: that is the perpendicular run distance the
+          // LINE segments use and is 0 for a circle-only chain, which would
+          // drive the copy straight back onto its source. The gap a circle
+          // offset actually made is the radius difference.
+          value: (chain.offsets[i].data[2] - s.geometry[src].data[2]).abs(),
+          textPos: getPt(chain.offsets[i], 0) +
+              Offset(chain.offsets[i].data[2], 0));
+      if (driver == null) {
+        dim.paramName = driver = _newParamName(s);
+      } else {
+        dim.expr = driver; // follow the run's distance, like the lines do
       }
       cons.add(dim);
     }
@@ -5941,10 +5978,22 @@ class AppState extends ChangeNotifier {
       final e1 = conEnts[0], e2 = conEnts[1];
       final c1 = isCurve(e1), c2 = isCurve(e2);
       if (c1 && c2) {
-        // circle/arc + circle/arc -> center-to-center distance
-        final a = center(e1), b = center(e2);
-        d = Constraint(CType.dimension,
-            pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
+        // circle/arc + circle/arc. Inventor gives centre-to-centre here (and
+        // reaches edge-to-edge via Alt), but when the two centres COINCIDE
+        // that distance is identically 0 — it measures nothing and cannot
+        // drive anything. So a concentric pair falls back to the radial GAP,
+        // which is the measure that pair actually has: the annulus width, and
+        // the same number an Offset of that circle moved (M124).
+        final ca = refPt(s.geometry, center(e1));
+        final cb = refPt(s.geometry, center(e2));
+        if ((ca - cb).distance < 1e-6) {
+          d = Constraint(CType.dimension,
+              ents: List.of(conEnts), dimKind: 'gap', textPos: w);
+        } else {
+          final a = center(e1), b = center(e2);
+          d = Constraint(CType.dimension,
+              pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
+        }
       } else if (c1 || c2) {
         // circle/arc + line -> perpendicular distance center <-> line
         final ce = c1 ? e1 : e2, le = c1 ? e2 : e1;
