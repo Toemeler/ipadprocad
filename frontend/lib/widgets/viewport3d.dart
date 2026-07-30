@@ -27,6 +27,7 @@ import '../reality_scene.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
 import 'package:native_menu/native_menu.dart' show GlassBrowser;
+import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'ribbon_chrome.dart';
 
@@ -409,7 +410,9 @@ class _Viewport3DState extends State<Viewport3D>
             left: GlassBrowser.isSupported
                 ? NativeModelBrowser.occupiedWidth
                 : 0,
-            bottom: 0,
+            // M150 — the tab bar floats over the viewport now, so bottom: 0
+            // would put the triad behind it.
+            bottom: BottomTabBar.floatingHeight,
             child: IgnorePointer(
                 child: CustomPaint(
                     painter: _TriadPainter(p.camera),

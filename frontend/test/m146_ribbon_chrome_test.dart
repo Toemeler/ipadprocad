@@ -76,7 +76,9 @@ void main() {
       // If the browser is restyled, the ribbon must be restyled WITH it. These
       // are the two numbers that would otherwise drift apart unnoticed.
       expect(RibbonMetrics.radius, 18);
-      expect(RibbonMetrics.pad.left, 28);
+      // M150 — 28 gave up ~30 pt of ribbon at each end. The value matters less
+      // than the fact that all three panels use the SAME one.
+      expect(RibbonMetrics.pad.left, RibbonMetrics.side);
       expect(RibbonMetrics.pad.left, RibbonMetrics.pad.right,
           reason: 'the card is centred between the screen edges');
     });

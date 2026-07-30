@@ -46,6 +46,13 @@ class BottomTabBar extends StatelessWidget {
   /// Height of the native bar including its floating margin.
   static const double kNativeHeight = 52;
 
+  /// Vertical space the bar claims at the bottom of the content area, for
+  /// anything that floats above it (the model browser, the origin triad). Zero
+  /// off iOS, where the bar keeps its own row in the Column and the content
+  /// area already stops above it.
+  static double get floatingHeight =>
+      GlassTabBar.isSupported ? kNativeHeight : 0;
+
   @override
   Widget build(BuildContext context) {
     if (GlassTabBar.isSupported) {

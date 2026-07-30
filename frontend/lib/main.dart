@@ -271,7 +271,8 @@ class PrototypeApp extends StatelessWidget {
                                 child: RibbonMetrics.build(
                                   (_, top) => Padding(
                                     padding: EdgeInsets.only(
-                                        top: top, bottom: 18),
+                                        top: top,
+                                        bottom: BottomTabBar.floatingHeight + 8),
                                     child: Align(
                                       alignment: Alignment.topLeft,
                                       child: SizedBox(
@@ -294,9 +295,20 @@ class PrototypeApp extends StatelessWidget {
                             left: 0,
                             right: 0,
                             child: Ribbon(app: app)),
+                      // M150 — the tab bar floats too. It was the last thing
+                      // still taking a row of the Column, which left an opaque
+                      // strip across the bottom that the model visibly stopped
+                      // at. Now the viewport runs to the screen edge and the
+                      // bar rests on it, like the ribbon and the browser.
+                      if (GlassTabBar.isSupported)
+                        Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: BottomTabBar(app: app)),
                     ]),
                   ),
-                  BottomTabBar(app: app),
+                  if (!GlassTabBar.isSupported) BottomTabBar(app: app),
                 ]),
               ),
             );

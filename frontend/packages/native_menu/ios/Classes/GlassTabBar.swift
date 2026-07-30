@@ -46,9 +46,10 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     private let row = UIStackView()
     private let channel: FlutterMethodChannel
 
-    /// Margin around the floating bar. Mirrors the ribbon's 28 pt sides so the
-    /// three panels — ribbon, browser, tab bar — share one vertical rhythm.
-    static let inset = UIEdgeInsets(top: 0, left: 28, bottom: 8, right: 28)
+    /// Margin around the floating bar. Mirrors the ribbon's sides so the three
+    /// panels — ribbon, browser, tab bar — float on one shared edge (M150:
+    /// 28 -> 14).
+    static let inset = UIEdgeInsets(top: 0, left: 14, bottom: 8, right: 14)
     static let radius: CGFloat = 18
 
     init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger) {

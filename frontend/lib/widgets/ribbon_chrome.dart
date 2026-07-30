@@ -33,9 +33,12 @@ import '../theme.dart';
 /// device build did. They read [bottom] instead of assuming they own the top of
 /// the screen.
 class RibbonMetrics {
-  /// Padding around the floating card. Horizontal value is the model browser's
-  /// 28 pt, so the two panels share a left edge.
-  static const EdgeInsets pad = EdgeInsets.fromLTRB(28, 8, 28, 0);
+  /// Padding around the floating card. The horizontal value is shared with the
+  /// model browser and the tab bar so all three float on the same left edge —
+  /// M150 took it from 28 to 14, which on a 13" iPad was giving up ~30 pt of
+  /// ribbon width to margin at both ends for no benefit.
+  static const double side = 14;
+  static const EdgeInsets pad = EdgeInsets.fromLTRB(side, 8, side, 0);
 
   /// The browser's radius, deliberately.
   static const double radius = 18;
