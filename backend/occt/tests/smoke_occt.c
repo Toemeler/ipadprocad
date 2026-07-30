@@ -1219,6 +1219,116 @@ int main(void)
         if (box) occt_free_shape(box);
     }
 
+    /* [30] v15 SWEEP. A 10x10 square swept 40 mm along a STRAIGHT path is a
+     * prism: V = 100*40 = 4000, six faces. Comparing against the analytic
+     * prism is the strongest check available — if the section rotated, scaled
+     * or drifted, the volume moves. */
+    {
+        const double P[] = {0, 0, 0,  10, 0, 0,  10, 10, 0,  0, 10, 0};
+        const int lc[] = {4};
+        /* profile on the XY plane at the origin, path straight up +Z */
+        const double I[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        const double path[] = {0, 0, 0,  0, 0, 40};
+        occt_shape *sw = occt_sweep_profile(P, lc, 1, I, path, 2, 0, 0.0, 0.0);
+        if (check(sw != NULL, "[30] sweep returned NULL")) {
+            const double v = occt_shape_volume(sw);
+            int nf = 0;
+            occt_shape_counts(sw, &nf, NULL, NULL);
+            printf("[30] swept prism volume %.6f (want 4000), faces %d\n", v, nf);
+            check(near_rel(v, 4000.0, 1e-6), "[30] swept volume not analytic");
+            check(nf == 6, "[30] a swept square prism has 6 faces");
+            check(occt_shape_valid(sw), "[30] swept solid invalid");
+            occt_free_shape(sw);
+        }
+        /* an L-shaped path is longer than its straight span, so it must remove
+         * no material and produce MORE volume than the 40 mm run */
+        const double lpath[] = {0, 0, 0,  0, 0, 40,  30, 0, 40};
+        occt_shape *el = occt_sweep_profile(P, lc, 1, I, lpath, 3, 0, 0.0, 0.0);
+        if (check(el != NULL, "[30] L-path sweep returned NULL")) {
+            check(occt_shape_volume(el) > 4000.0,
+                  "[30] a longer path must sweep more material");
+            occt_free_shape(el);
+        }
+        check(occt_sweep_profile(P, lc, 1, I, path, 1, 0, 0.0, 0.0) == NULL,
+              "[30] a single-point path must fail");
+        check(occt_sweep_profile(P, lc, 1, I, path, 2, 0, 0.0, 15.0) == NULL,
+              "[30] twist is refused, not silently ignored");
+    }
+
+    /* [31] v15 LOFT. Two IDENTICAL 10x10 squares 25 mm apart, lofted ruled,
+     * is again a prism: V = 100*25 = 2500. A loft that mis-ordered or
+     * mis-placed a section cannot hit that number. */
+    {
+        const double S[] = {
+            0, 0, 0,  10, 0, 0,  10, 10, 0,  0, 10, 0,   /* section 1 */
+            0, 0, 0,  10, 0, 0,  10, 10, 0,  0, 10, 0,   /* section 2 */
+        };
+        const int lc[] = {4, 4};
+        const double mats[24] = {
+            1,0,0,0, 0,1,0,0, 0,0,1,0,      /* at z = 0  */
+            1,0,0,0, 0,1,0,0, 0,0,1,25,     /* at z = 25 */
+        };
+        occt_shape *lo = occt_loft_sections(S, lc, mats, 2, 1, 1, 0);
+        if (check(lo != NULL, "[31] loft returned NULL")) {
+            const double v = occt_shape_volume(lo);
+            printf("[31] lofted prism volume %.6f (want 2500)\n", v);
+            check(near_rel(v, 2500.0, 1e-6), "[31] lofted volume not analytic");
+            check(occt_shape_valid(lo), "[31] lofted solid invalid");
+            occt_free_shape(lo);
+        }
+        /* a 20x20 top section makes a frustum: V = h/3 * (A1 + A2 + sqrt(A1*A2))
+         * = 25/3 * (100 + 400 + 200) = 5833.333... */
+        const double S2[] = {
+            0, 0, 0,  10, 0, 0,  10, 10, 0,  0, 10, 0,
+            -5, -5, 0,  15, -5, 0,  15, 15, 0,  -5, 15, 0,
+        };
+        occt_shape *fr = occt_loft_sections(S2, lc, mats, 2, 1, 1, 0);
+        if (check(fr != NULL, "[31] frustum loft returned NULL")) {
+            const double want = 25.0 / 3.0 * (100.0 + 400.0 + 200.0);
+            const double v = occt_shape_volume(fr);
+            printf("[31] lofted frustum volume %.6f (analytic %.6f)\n", v, want);
+            check(near_rel(v, want, 1e-4), "[31] frustum volume not analytic");
+            occt_free_shape(fr);
+        }
+        check(occt_loft_sections(S, lc, mats, 1, 1, 1, 0) == NULL,
+              "[31] one section is not a loft");
+    }
+
+    /* [32] v15 COIL. A 2x2 square centred 20 mm off the Z axis, 5 turns rising
+     * 50 mm. The swept volume is the section area times the helix LENGTH:
+     * one turn is sqrt((2*pi*r)^2 + pitch^2), pitch = 50/5 = 10, so
+     * L = 5 * sqrt((2*pi*20)^2 + 100) = 628.71..., V = 4 * L.
+     * A coil that got the radius, the pitch or the turn count wrong lands
+     * nowhere near this. */
+    {
+        const double P[] = {19, -1, 0,  21, -1, 0,  21, 1, 0,  19, 1, 0};
+        const int lc[] = {4};
+        /* profile in the XZ plane so the square faces along the helix */
+        const double m[12] = {1,0,0,0, 0,0,-1,0, 0,1,0,0};
+        occt_shape *co = occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1,
+                                          5.0, 50.0, 0.0, 0, 0, 0);
+        if (check(co != NULL, "[32] coil returned NULL")) {
+            const double turn = sqrt(pow(2.0 * 3.14159265358979323846 * 20.0, 2)
+                                     + 100.0);
+            const double want = 4.0 * 5.0 * turn;
+            const double v = occt_shape_volume(co);
+            printf("[32] coil volume %.4f (helix-length estimate %.4f)\n", v,
+                   want);
+            /* 2% — a swept square on a curved path is not exactly area*length,
+             * the inner and outer faces differ. Tight enough that a wrong
+             * radius, pitch or turn count cannot pass. */
+            check(near_rel(v, want, 2e-2), "[32] coil volume far off");
+            check(occt_shape_valid(co), "[32] coil solid invalid");
+            occt_free_shape(co);
+        }
+        check(occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1, 0.0, 50, 0, 0,0,0)
+                  == NULL, "[32] zero revolutions must fail");
+        check(occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,0, 5, 50, 0, 0,0,0)
+                  == NULL, "[32] a degenerate axis must fail");
+        check(occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1, 5, 50, 0, 0,1,0)
+                  == NULL, "[32] unimplemented coil ends are refused");
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

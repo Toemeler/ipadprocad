@@ -77,6 +77,20 @@ typedef _ChamferN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
     Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, Int32);
 typedef _ChamferD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
     Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, int);
+typedef _SweepN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, Int32,
+    Pointer<Double>, Pointer<Double>, Int32, Int32, Double, Double);
+typedef _SweepD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, int,
+    Pointer<Double>, Pointer<Double>, int, int, double, double);
+typedef _LoftN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
+    Pointer<Double>, Int32, Int32, Int32, Int32);
+typedef _LoftD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
+    Pointer<Double>, int, int, int, int);
+typedef _CoilN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, Int32,
+    Pointer<Double>, Double, Double, Double, Double, Double, Double, Double,
+    Double, Double, Int32, Int32, Int32);
+typedef _CoilD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, int,
+    Pointer<Double>, double, double, double, double, double, double, double,
+    double, double, int, int, int);
 typedef _RevFaceN = Int32 Function(Pointer<Void>, Double, Double, Double,
     Double, Double, Double, Double, Double, Double, Double, Double, Double,
     Pointer<Double>, Int32);
@@ -609,7 +623,10 @@ class OcctFfi {
       this._chamferEdges,
       this._rayHits,
       this._revolveHits,
-      this._revolveHitsFace);
+      this._revolveHitsFace,
+      this._sweepProfile,
+      this._loftSections,
+      this._coilProfile);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -660,6 +677,9 @@ class OcctFfi {
   final _RayHitsD _rayHits;
   final _RevHitsD _revolveHits; // v13
   final _RevFaceD _revolveHitsFace; // v13
+  final _SweepD _sweepProfile; // v15
+  final _LoftD _loftSections; // v15
+  final _CoilD _coilProfile; // v15
 
   static OcctFfi? _cached;
   static bool _probed = false;
@@ -732,6 +752,9 @@ class OcctFfi {
         lib.lookupFunction<_RayHitsN, _RayHitsD>('occt_ray_hits'),
         lib.lookupFunction<_RevHitsN, _RevHitsD>('occt_revolve_hits'),
         lib.lookupFunction<_RevFaceN, _RevFaceD>('occt_revolve_hits_face'),
+        lib.lookupFunction<_SweepN, _SweepD>('occt_sweep_profile'),
+        lib.lookupFunction<_LoftN, _LoftD>('occt_loft_sections'),
+        lib.lookupFunction<_CoilN, _CoilD>('occt_coil_profile'),
       );
     } catch (_) {
       _cached = null;
@@ -837,6 +860,140 @@ class OcctFfi {
     } finally {
       calloc.free(xyb);
       calloc.free(counts);
+    }
+  }
+
+  /// v15 — Sweep a profile along a world-space path polyline. [loops] uses the
+  /// same (x, y, bulge) encoding as [extrudeProfileArcs]; [mat34] places the
+  /// profile's sketch frame. [orientation]: 0 follow path, 1 fixed, 2 follow
+  /// path and guide. [twistDeg] must be 0 — the shim refuses a non-zero twist
+  /// rather than silently producing an untwisted solid.
+  OcctShape? sweepProfile(List<List<double>> loops, List<double> mat34,
+      List<double> pathPts,
+      {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) {
+    if (loops.isEmpty || mat34.length != 12 || pathPts.length < 6) return null;
+    var total = 0;
+    for (final l in loops) {
+      if (l.length < 6 || l.length % 3 != 0) return null;
+      total += l.length;
+    }
+    final xyb = calloc<Double>(total);
+    final counts = calloc<Int32>(loops.length);
+    final m = calloc<Double>(12);
+    final pp = calloc<Double>(pathPts.length);
+    try {
+      var k = 0;
+      for (var i = 0; i < loops.length; i++) {
+        counts[i] = loops[i].length ~/ 3;
+        for (final v in loops[i]) {
+          xyb[k++] = v;
+        }
+      }
+      for (var i = 0; i < 12; i++) {
+        m[i] = mat34[i];
+      }
+      for (var i = 0; i < pathPts.length; i++) {
+        pp[i] = pathPts[i];
+      }
+      return _wrap(_sweepProfile(xyb, counts, loops.length, m, pp,
+          pathPts.length ~/ 3, orientation, taperDeg, twistDeg));
+    } finally {
+      calloc.free(xyb);
+      calloc.free(counts);
+      calloc.free(m);
+      calloc.free(pp);
+    }
+  }
+
+  /// v15 — Loft through [sections], one closed loop each, with [mats] holding
+  /// 12 doubles per section placing its sketch frame.
+  OcctShape? loftSections(List<List<double>> sections, List<List<double>> mats,
+      {bool solid = true, bool ruled = false, bool closed = false}) {
+    if (sections.length < 2 || mats.length != sections.length) return null;
+    var total = 0;
+    for (final sec in sections) {
+      if (sec.length < 6 || sec.length % 3 != 0) return null;
+      total += sec.length;
+    }
+    for (final m in mats) {
+      if (m.length != 12) return null;
+    }
+    final xyb = calloc<Double>(total);
+    final counts = calloc<Int32>(sections.length);
+    final mm = calloc<Double>(12 * sections.length);
+    try {
+      var k = 0;
+      for (var i = 0; i < sections.length; i++) {
+        counts[i] = sections[i].length ~/ 3;
+        for (final v in sections[i]) {
+          xyb[k++] = v;
+        }
+        for (var j = 0; j < 12; j++) {
+          mm[12 * i + j] = mats[i][j];
+        }
+      }
+      return _wrap(_loftSections(xyb, counts, mm, sections.length,
+          solid ? 1 : 0, ruled ? 1 : 0, closed ? 1 : 0));
+    } finally {
+      calloc.free(xyb);
+      calloc.free(counts);
+      calloc.free(mm);
+    }
+  }
+
+  /// v15 — Helical sweep. The axis is world-space; [revolutions] and [height]
+  /// are the resolved pair (the panel's other methods convert to this).
+  /// [closeStart]/[closeEnd] must be false — the shim refuses them.
+  OcctShape? coilProfile(List<List<double>> loops, List<double> mat34,
+      List<double> axP, List<double> axD,
+      {required double revolutions,
+      required double height,
+      double taperDeg = 0,
+      bool clockwise = false,
+      bool closeStart = false,
+      bool closeEnd = false}) {
+    if (loops.isEmpty || mat34.length != 12) return null;
+    if (axP.length != 3 || axD.length != 3) return null;
+    var total = 0;
+    for (final l in loops) {
+      if (l.length < 6 || l.length % 3 != 0) return null;
+      total += l.length;
+    }
+    final xyb = calloc<Double>(total);
+    final counts = calloc<Int32>(loops.length);
+    final m = calloc<Double>(12);
+    try {
+      var k = 0;
+      for (var i = 0; i < loops.length; i++) {
+        counts[i] = loops[i].length ~/ 3;
+        for (final v in loops[i]) {
+          xyb[k++] = v;
+        }
+      }
+      for (var i = 0; i < 12; i++) {
+        m[i] = mat34[i];
+      }
+      return _wrap(_coilProfile(
+          xyb,
+          counts,
+          loops.length,
+          m,
+          axP[0],
+          axP[1],
+          axP[2],
+          axD[0],
+          axD[1],
+          axD[2],
+          revolutions,
+          height,
+          taperDeg,
+          clockwise ? 1 : 0,
+          closeStart ? 1 : 0,
+          closeEnd ? 1 : 0));
+    } finally {
+      calloc.free(xyb);
+      calloc.free(counts);
+      calloc.free(m);
     }
   }
 

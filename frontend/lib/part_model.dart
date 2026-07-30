@@ -1135,6 +1135,53 @@ class EdgeSel {
   }
 }
 
+/// A picked SKETCH CURVE — a sweep path, or a loft rail.
+///
+/// Stored by geometry for the same reason [EdgeSel] is: a sketch index moves
+/// the instant anything is added to or deleted from the sketch, so persisting
+/// "curve 4" quietly re-points the sweep at a different line. The endpoints
+/// and length are what survive an edit.
+class CurveSel {
+  String sketchName;
+  int geoIndex; // a HINT, re-validated against the fingerprint below
+  double x0, y0, x1, y1; // endpoints in sketch coordinates
+  double length;
+
+  CurveSel(this.sketchName, this.geoIndex, this.x0, this.y0, this.x1, this.y1,
+      this.length);
+
+  Map<String, dynamic> toJson() => {
+        'sketch': sketchName,
+        'geo': geoIndex,
+        'p': [x0, y0, x1, y1],
+        'l': length,
+      };
+
+  static CurveSel? fromJson(Map<String, dynamic> j) {
+    final p = (j['p'] as List?)?.cast<num>();
+    if (p == null || p.length != 4) return null;
+    return CurveSel(
+        j['sketch'] as String? ?? '',
+        (j['geo'] as num?)?.toInt() ?? -1,
+        p[0].toDouble(),
+        p[1].toDouble(),
+        p[2].toDouble(),
+        p[3].toDouble(),
+        (j['l'] as num?)?.toDouble() ?? 0);
+  }
+
+  /// How far [pts] is from this fingerprint; infinite when it cannot be it.
+  /// Endpoint-based and direction-agnostic, since a curve redrawn the other
+  /// way round is still the same path.
+  double score(List<Offset> pts) {
+    if (pts.length < 2) return double.infinity;
+    final a = pts.first, b = pts.last;
+    final fwd = (a - Offset(x0, y0)).distance + (b - Offset(x1, y1)).distance;
+    final rev = (a - Offset(x1, y1)).distance + (b - Offset(x0, y0)).distance;
+    return fwd < rev ? fwd : rev;
+  }
+}
+
 /// Everything the timeline, the browser, the End-of-Part marker and the
 /// boolean fold need from a feature, whatever kind it is.
 ///
@@ -1177,6 +1224,15 @@ abstract class PartFeature {
 
   /// The sketch this feature consumes, or '' when it does not consume one.
   String get sketchName => '';
+
+  /// EVERY sketch this feature depends on.
+  ///
+  /// Extrude and revolve have one; a sweep also depends on the sketch its PATH
+  /// lives in, and a loft on one per section. The rebuild signature hashes all
+  /// of them — hashing only [sketchName] meant editing a loft's second section
+  /// or a sweep's path left the cached solid in place and nothing moved.
+  List<String> get sketchNames =>
+      sketchName.isEmpty ? const [] : [sketchName];
 
   /// True for features built FROM a sketch (extrude, revolve). False for
   /// features that MODIFY an existing body (fillet, chamfer) — those need an
@@ -1225,6 +1281,12 @@ abstract class PartFeature {
         return FilletFeature.fromJson(j);
       case 'chamfer':
         return ChamferFeature.fromJson(j);
+      case 'sweep':
+        return SweepFeature.fromJson(j);
+      case 'loft':
+        return LoftFeature.fromJson(j);
+      case 'coil':
+        return CoilFeature.fromJson(j);
       default:
         return null;
     }
@@ -1457,6 +1519,291 @@ class RevolveFeature extends PartFeature {
       extentFace: j['extentFace'] == null
           ? null
           : FaceSel.fromJson((j['extentFace'] as Map).cast<String, dynamic>()),
+      visible: j['visible'] as bool? ?? true,
+      output: j['output'] as String? ?? 'join',
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Inventor's Sweep: a profile driven along a path curve.
+class SweepFeature extends PartFeature {
+  @override
+  final String sketchName;
+  final List<ProfileSel> profiles;
+  CurveSel? path;
+
+  /// 0 Follow Path, 1 Fixed, 2 Follow Path and Guide — Inventor's three
+  /// Orientation buttons.
+  int orientation;
+  double taperDeg, twistDeg;
+  String exprTaper, exprTwist;
+
+  SweepFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sketchName,
+    required this.profiles,
+    this.path,
+    this.orientation = 0,
+    this.taperDeg = 0,
+    this.twistDeg = 0,
+    this.exprTaper = '0 deg',
+    this.exprTwist = '0 deg',
+    super.visible,
+    super.output,
+  });
+
+  @override
+  List<String> get sketchNames => [
+        if (sketchName.isNotEmpty) sketchName,
+        if (path != null && path!.sketchName.isNotEmpty) path!.sketchName,
+      ];
+
+  @override
+  String get kind => 'sweep';
+  @override
+  String get typeLabel => 'Sweep';
+
+  @override
+  String ownSig() => 'sw|$sketchName|$orientation,$taperDeg,$twistDeg|'
+      '${path == null ? "-" : "${path!.sketchName}:${path!.x0},${path!.y0},"
+          "${path!.x1},${path!.y1}"}|'
+      '${profiles.map((p) => '${p.ax}:${p.ay}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'sketch': sketchName,
+        'profiles': [for (final p in profiles) p.toJson()],
+        if (path != null) 'path': path!.toJson(),
+        'orient': orientation,
+        'taper': taperDeg,
+        'twist': twistDeg,
+        'exprTaper': exprTaper,
+        'exprTwist': exprTwist,
+      };
+
+  static SweepFeature fromJson(Map<String, dynamic> j) {
+    final f = SweepFeature(
+      name: j['name'] as String? ?? 'Sweep',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sketchName: j['sketch'] as String? ?? '',
+      profiles: [
+        for (final p in (j['profiles'] as List? ?? const []))
+          ProfileSel.fromJson((p as Map).cast<String, dynamic>())
+      ],
+      path: j['path'] == null
+          ? null
+          : CurveSel.fromJson((j['path'] as Map).cast<String, dynamic>()),
+      orientation: (j['orient'] as num?)?.toInt() ?? 0,
+      taperDeg: (j['taper'] as num?)?.toDouble() ?? 0,
+      twistDeg: (j['twist'] as num?)?.toDouble() ?? 0,
+      exprTaper: j['exprTaper'] as String? ?? '0 deg',
+      exprTwist: j['exprTwist'] as String? ?? '0 deg',
+      visible: j['visible'] as bool? ?? true,
+      output: j['output'] as String? ?? 'join',
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Inventor's Loft: a run through two or more sections.
+///
+/// Each section is a profile in ITS OWN sketch, so unlike extrude and revolve
+/// this feature is not tied to one sketch — [sectionSketches] runs parallel to
+/// [sections].
+class LoftFeature extends PartFeature {
+  final List<String> sectionSketches;
+  final List<ProfileSel> sections;
+  bool solidOutput, ruled, closedLoop, mergeTangent;
+
+  LoftFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sectionSketches,
+    required this.sections,
+    this.solidOutput = true,
+    this.ruled = false,
+    this.closedLoop = false,
+    this.mergeTangent = false,
+    super.visible,
+    super.output,
+  });
+
+  @override
+  String get kind => 'loft';
+  @override
+  String get typeLabel => 'Loft';
+
+  /// A loft spans several sketches, so there is no single one it depends on.
+  /// The signature below names them all instead.
+  @override
+  String get sketchName => '';
+
+  @override
+  List<String> get sketchNames =>
+      sectionSketches.where((n) => n.isNotEmpty).toSet().toList();
+
+  @override
+  String ownSig() => 'lo|${sectionSketches.join(",")}|'
+      '$solidOutput,$ruled,$closedLoop,$mergeTangent|'
+      '${sections.map((p) => '${p.ax}:${p.ay}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'sketches': sectionSketches,
+        'sections': [for (final p in sections) p.toJson()],
+        'solid': solidOutput,
+        'ruled': ruled,
+        'closed': closedLoop,
+        'mergeTangent': mergeTangent,
+      };
+
+  static LoftFeature fromJson(Map<String, dynamic> j) {
+    final secs = [
+      for (final p in (j['sections'] as List? ?? const []))
+        ProfileSel.fromJson((p as Map).cast<String, dynamic>())
+    ];
+    final sks = [
+      for (final n in (j['sketches'] as List? ?? const [])) n as String
+    ];
+    // Keep the two lists the same length: every downstream loop pairs them.
+    while (sks.length < secs.length) {
+      sks.add(sks.isEmpty ? '' : sks.last);
+    }
+    final f = LoftFeature(
+      name: j['name'] as String? ?? 'Loft',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sectionSketches: sks.sublist(0, secs.length),
+      sections: secs,
+      solidOutput: j['solid'] as bool? ?? true,
+      ruled: j['ruled'] as bool? ?? false,
+      closedLoop: j['closed'] as bool? ?? false,
+      mergeTangent: j['mergeTangent'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+      output: j['output'] as String? ?? 'join',
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Inventor's Coil: a profile driven along a helix about an axis.
+class CoilFeature extends PartFeature {
+  @override
+  final String sketchName;
+  final List<ProfileSel> profiles;
+
+  /// Axis in SKETCH coordinates, like [RevolveFeature] and for the same
+  /// reason: the line that defined it may be deleted or redrawn.
+  double axPx, axPy, axDx, axDy;
+
+  /// Inventor's Method: 0 Revolution and Height, 1 Pitch and Revolution,
+  /// 2 Pitch and Height, 3 Spiral. All four resolve to a revolutions/height
+  /// pair, which is what the kernel takes — see [resolved].
+  int method;
+  double revolutions, height, pitch, taperDeg;
+  String exprRevolutions, exprHeight, exprPitch, exprTaper;
+  bool clockwise, closeStart, closeEnd;
+
+  CoilFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sketchName,
+    required this.profiles,
+    this.axPx = 0,
+    this.axPy = 0,
+    this.axDx = 0,
+    this.axDy = 1,
+    this.method = 0,
+    this.revolutions = 5,
+    this.height = 8,
+    this.pitch = 2,
+    this.taperDeg = 0,
+    this.exprRevolutions = '5 ul',
+    this.exprHeight = '8 mm',
+    this.exprPitch = '2 mm',
+    this.exprTaper = '0.00 deg',
+    this.clockwise = false,
+    this.closeStart = false,
+    this.closeEnd = false,
+    super.visible,
+    super.output,
+  });
+
+  @override
+  String get kind => 'coil';
+  @override
+  String get typeLabel => 'Coil';
+
+  /// The (revolutions, height) pair the kernel actually needs.
+  ///
+  /// Inventor offers four ways to say the same helix; converting here means
+  /// the shim takes one form and the panel can offer all four without the
+  /// arithmetic being duplicated at the call site.
+  (double, double) get resolved => switch (method) {
+        1 => (revolutions, pitch * revolutions), // pitch + revolutions
+        2 => (pitch <= 0 ? 0 : height / pitch, height), // pitch + height
+        3 => (revolutions, 0.0), // spiral: flat, no rise
+        _ => (revolutions, height), // revolutions + height
+      };
+
+  @override
+  String ownSig() => 'co|$sketchName|$method,$revolutions,$height,$pitch,'
+      '$taperDeg,$clockwise,$closeStart,$closeEnd|'
+      '$axPx,$axPy,$axDx,$axDy|'
+      '${profiles.map((p) => '${p.ax}:${p.ay}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'sketch': sketchName,
+        'profiles': [for (final p in profiles) p.toJson()],
+        'ax': [axPx, axPy, axDx, axDy],
+        'method': method,
+        'rev': revolutions,
+        'h': height,
+        'pitch': pitch,
+        'taper': taperDeg,
+        'exprRev': exprRevolutions,
+        'exprH': exprHeight,
+        'exprPitch': exprPitch,
+        'exprTaper': exprTaper,
+        'cw': clockwise,
+        'cs': closeStart,
+        'ce': closeEnd,
+      };
+
+  static CoilFeature fromJson(Map<String, dynamic> j) {
+    final ax = (j['ax'] as List?)?.cast<num>();
+    final f = CoilFeature(
+      name: j['name'] as String? ?? 'Coil',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sketchName: j['sketch'] as String? ?? '',
+      profiles: [
+        for (final p in (j['profiles'] as List? ?? const []))
+          ProfileSel.fromJson((p as Map).cast<String, dynamic>())
+      ],
+      axPx: (ax != null && ax.length == 4) ? ax[0].toDouble() : 0,
+      axPy: (ax != null && ax.length == 4) ? ax[1].toDouble() : 0,
+      axDx: (ax != null && ax.length == 4) ? ax[2].toDouble() : 0,
+      axDy: (ax != null && ax.length == 4) ? ax[3].toDouble() : 1,
+      method: (j['method'] as num?)?.toInt() ?? 0,
+      revolutions: (j['rev'] as num?)?.toDouble() ?? 5,
+      height: (j['h'] as num?)?.toDouble() ?? 8,
+      pitch: (j['pitch'] as num?)?.toDouble() ?? 2,
+      taperDeg: (j['taper'] as num?)?.toDouble() ?? 0,
+      exprRevolutions: j['exprRev'] as String? ?? '5 ul',
+      exprHeight: j['exprH'] as String? ?? '8 mm',
+      exprPitch: j['exprPitch'] as String? ?? '2 mm',
+      exprTaper: j['exprTaper'] as String? ?? '0.00 deg',
+      clockwise: j['cw'] as bool? ?? false,
+      closeStart: j['cs'] as bool? ?? false,
+      closeEnd: j['ce'] as bool? ?? false,
       visible: j['visible'] as bool? ?? true,
       output: j['output'] as String? ?? 'join',
     );
@@ -2373,6 +2720,32 @@ abstract class PartKernel {
   /// by the caller; the result is a NEW solid. Null on failure (incl. empty).
   KernelSolid? intersectSolids(KernelSolid a, KernelSolid b);
 
+  // ---- M131: sweep / loft / coil ---------------------------------------
+  // Concrete and null-returning for the same reason as the M131 additions
+  // above: the test fakes use `implements`, and a fake that does not model
+  // sweeping should say so rather than break every unrelated test.
+
+  /// Sweeps [groups] along the world-space polyline [pathPts] (3 doubles per
+  /// point), placing the profile with [mat34].
+  KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
+          List<double> pathPts,
+          {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) =>
+      null;
+
+  /// Lofts through [sections] (one closed loop each) placed by [mats].
+  KernelSolid? loft(List<List<Offset>> sections, List<List<double>> mats,
+          {bool solid = true, bool ruled = false, bool closed = false}) =>
+      null;
+
+  /// Helical sweep of [groups] about the world axis [axP]/[axD].
+  KernelSolid? coil(List<List<List<Offset>>> groups, List<double> mat34,
+          Vec3 axP, Vec3 axD,
+          {required double revolutions,
+          required double height,
+          double taperDeg = 0,
+          bool clockwise = false}) =>
+      null;
+
   /// Writes the union of [solids] as STEP to [path].
   bool exportStep(List<KernelSolid> solids, String path);
 
@@ -2668,6 +3041,115 @@ class OcctPartKernel implements PartKernel {
   }
 
   @override
+  KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
+      List<double> pathPts,
+      {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    OcctShape? acc;
+    try {
+      for (final g in groups) {
+        final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
+        final part = ffi.sweepProfile(loops, mat34, pathPts,
+            orientation: orientation, taperDeg: taperDeg, twistDeg: twistDeg);
+        if (part == null) {
+          _err = ffi.lastError();
+          acc?.dispose();
+          return null;
+        }
+        if (acc == null) {
+          acc = part;
+        } else {
+          final fused = ffi.fuse(acc, part);
+          acc.dispose();
+          part.dispose();
+          if (fused == null) {
+            _err = ffi.lastError();
+            return null;
+          }
+          acc = fused;
+        }
+      }
+      if (acc == null) {
+        _err = 'nothing to sweep';
+        return null;
+      }
+      final out = _wrapOwned(ffi, acc);
+      if (out == null) acc.dispose();
+      return out;
+    } catch (e) {
+      _err = '$e';
+      acc?.dispose();
+      return null;
+    }
+  }
+
+  @override
+  KernelSolid? loft(List<List<Offset>> sections, List<List<double>> mats,
+      {bool solid = true, bool ruled = false, bool closed = false}) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    try {
+      final enc = [for (final sec in sections) encodeLoopSegs(arcFitLoop(sec))];
+      final shape = ffi.loftSections(enc, mats,
+          solid: solid, ruled: ruled, closed: closed);
+      if (shape == null) {
+        _err = ffi.lastError();
+        return null;
+      }
+      return _wrapOwned(ffi, shape);
+    } catch (e) {
+      _err = '$e';
+      return null;
+    }
+  }
+
+  @override
+  KernelSolid? coil(List<List<List<Offset>>> groups, List<double> mat34,
+      Vec3 axP, Vec3 axD,
+      {required double revolutions,
+      required double height,
+      double taperDeg = 0,
+      bool clockwise = false}) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    if (groups.isEmpty) {
+      _err = 'nothing to coil';
+      return null;
+    }
+    try {
+      // One profile only: a coil sweeps ONE section along its helix, and two
+      // profiles would need two helices that could not share a pitch.
+      final loops = [
+        for (final loop in groups.first) encodeLoopSegs(arcFitLoop(loop))
+      ];
+      final shape = ffi.coilProfile(
+          loops, mat34, [axP.x, axP.y, axP.z], [axD.x, axD.y, axD.z],
+          revolutions: revolutions,
+          height: height,
+          taperDeg: taperDeg,
+          clockwise: clockwise);
+      if (shape == null) {
+        _err = ffi.lastError();
+        return null;
+      }
+      return _wrapOwned(ffi, shape);
+    } catch (e) {
+      _err = '$e';
+      return null;
+    }
+  }
+
+  @override
   List<OcctEdgeInfo> edgesOf(KernelSolid s) {
     final shape = s.shape;
     if (shape == null) {
@@ -2890,6 +3372,9 @@ bool _recomputeFeature(
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base);
+  if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
+  if (f is LoftFeature) return _recomputeLoft(part, f, kernel);
+  if (f is CoilFeature) return _recomputeCoil(part, f, kernel);
   f.computeError = 'unknown feature kind "${f.kind}"';
   return false;
 }
@@ -3145,6 +3630,138 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
   return true;
 }
 
+/// World-space polyline of a [CurveSel], re-matched against its sketch.
+///
+/// The stored index is only a hint: it is checked against the fingerprint and,
+/// if it no longer fits, every curve in the sketch is scored so a path
+/// survives having geometry inserted before it.
+(List<double>?, String?) resolvePath(PartModel part, CurveSel sel) {
+  final cs = part.sketchByName(sel.sketchName);
+  if (cs == null) return (null, 'the path sketch no longer exists');
+  final frame = sketchFrameOf(cs);
+  final geo = cs.model.geometry;
+  List<Offset>? best;
+  var bestScore = double.infinity;
+  for (var i = 0; i < geo.length; i++) {
+    final pts = sketchCurve(geo[i]);
+    if (pts.length < 2) continue;
+    // The hinted index wins outright when it still fits, so an unchanged
+    // sketch costs one comparison rather than a full scan.
+    final sc = sel.score(pts) - (i == sel.geoIndex ? 1e-6 : 0);
+    if (sc < bestScore) {
+      bestScore = sc;
+      best = pts;
+      sel.geoIndex = i;
+    }
+  }
+  if (best == null) return (null, 'the path curve could not be found');
+  final tol = 0.25 * (sel.length.abs() + 1.0);
+  if (bestScore > tol) return (null, 'the path curve has changed too much');
+  sel.x0 = best.first.dx;
+  sel.y0 = best.first.dy;
+  sel.x1 = best.last.dx;
+  sel.y1 = best.last.dy;
+  final out = <double>[];
+  for (final p in best) {
+    final w = frame.toWorld(p);
+    out..add(w.x)..add(w.y)..add(w.z);
+  }
+  return (out, null);
+}
+
+bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
+  final (groups, frame, err) =
+      resolveProfiles(part, f.sketchName, f.profiles);
+  if (groups == null || frame == null) {
+    f.computeError = err ?? 'profile resolution failed';
+    return false;
+  }
+  final sel = f.path;
+  if (sel == null) {
+    f.computeError = 'no path selected';
+    return false;
+  }
+  final (pts, perr) = resolvePath(part, sel);
+  if (pts == null) {
+    f.computeError = perr ?? 'path resolution failed';
+    return false;
+  }
+  final solid = kernel.sweep(groups, frame.mat34(0), pts,
+      orientation: f.orientation,
+      taperDeg: f.taperDeg,
+      twistDeg: f.twistDeg);
+  if (solid == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = solid;
+  return true;
+}
+
+bool _recomputeLoft(PartModel part, LoftFeature f, PartKernel kernel) {
+  if (f.sections.length < 2) {
+    f.computeError = 'a loft needs at least 2 sections';
+    return false;
+  }
+  final wires = <List<Offset>>[];
+  final mats = <List<double>>[];
+  for (var i = 0; i < f.sections.length; i++) {
+    // Each section lives in its OWN sketch, so profiles are resolved one at a
+    // time rather than in a single pass like extrude does.
+    final (groups, frame, err) = resolveProfiles(
+        part, f.sectionSketches[i], [f.sections[i]]);
+    if (groups == null || frame == null) {
+      f.computeError = err ?? 'section ${i + 1} could not be resolved';
+      return false;
+    }
+    // Outer loop only: a lofted section with holes would need the holes
+    // lofted to matching holes in every other section, which the panel does
+    // not offer and OCCT will not infer.
+    wires.add(groups.first.first);
+    mats.add(frame.mat34(0));
+  }
+  final solid = kernel.loft(wires, mats,
+      solid: f.solidOutput, ruled: f.ruled, closed: f.closedLoop);
+  if (solid == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = solid;
+  return true;
+}
+
+bool _recomputeCoil(PartModel part, CoilFeature f, PartKernel kernel) {
+  final (groups, frame, err) =
+      resolveProfiles(part, f.sketchName, f.profiles);
+  if (groups == null || frame == null) {
+    f.computeError = err ?? 'profile resolution failed';
+    return false;
+  }
+  if (f.axDx == 0 && f.axDy == 0) {
+    f.computeError = 'no axis selected';
+    return false;
+  }
+  final (revs, h) = f.resolved;
+  if (!(revs > 0)) {
+    f.computeError = 'revolutions must be greater than 0';
+    return false;
+  }
+  // The axis is stored in sketch coordinates; the kernel works in world.
+  final axP = frame.toWorld(Offset(f.axPx, f.axPy));
+  final axD = frame.u * f.axDx + frame.v * f.axDy;
+  final solid = kernel.coil(groups, frame.mat34(0), axP, axD,
+      revolutions: revs,
+      height: h,
+      taperDeg: f.taperDeg,
+      clockwise: f.clockwise);
+  if (solid == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = solid;
+  return true;
+}
+
 bool _recomputeBodyModify(
     BodyModifyFeature f, PartKernel kernel, KernelSolid? base) {
   if (base == null) {
@@ -3215,12 +3832,19 @@ List<Offset> sketchCurve(Geo g) {
   return sampleEntity(g, arcSamples: 64);
 }
 
-/// Parses a dialog value: strips a unit suffix (mm / deg / °), then accepts
-/// plain numbers or the full M41 expression grammar (ExprParser — sin, pi,
-/// parentheses, ...). Null when it doesn't evaluate to a finite number.
+/// Parses a dialog value: strips a unit suffix (mm / deg / ° / ul), then
+/// accepts plain numbers or the full M41 expression grammar (ExprParser —
+/// sin, pi, parentheses, ...). Null when it doesn't evaluate to a finite
+/// number.
+///
+/// `ul` is Inventor's UNITLESS suffix, used for counts such as a coil's
+/// revolutions. Without it "5 ul" parsed as nothing and every coil method
+/// that reads revolutions silently refused to build.
 double? parseValueExpr(String raw) {
   var t = raw.trim();
-  t = t.replaceAll(RegExp(r'(mm|deg|°)\s*$', caseSensitive: false), '').trim();
+  t = t
+      .replaceAll(RegExp(r'(mm|deg|°|ul)\s*$', caseSensitive: false), '')
+      .trim();
   if (t.isEmpty) return null;
   final direct = double.tryParse(t.replaceAll(',', '.'));
   if (direct != null) return direct.isFinite ? direct : null;
@@ -3242,6 +3866,34 @@ double? parseValueExpr(String raw) {
 /// Everything that can change what [f] computes to: its own parameters, the
 /// profiles it picked, and the full state of the sketch it is built on
 /// (geometry, layers, end-of-sketch marker and the plane it sits on).
+/// Everything about one sketch that can change what a feature built from it
+/// looks like. Same content the main signature appends for the first sketch.
+String _sketchSig(PartModel part, String name) {
+  final cs = part.sketchByName(name);
+  if (cs == null) return 'MISSING:$name';
+  final b = StringBuffer()
+    ..write(name)
+    ..write(':')
+    ..write(cs.model.eosAfter)
+    ..write('/')
+    ..write(cs.model.hiddenLayers.join(','))
+    ..write('/');
+  for (final g in cs.model.geometry) {
+    b..write(g.type)..write(',')..write(g.spline)..write(',')..write(g.layer);
+    for (final d in g.data) {
+      b..write(' ')..write(d);
+    }
+    b.write(';');
+  }
+  final fr = sketchFrameOf(cs);
+  b
+    ..write('|')
+    ..write(fr.origin.x)..write(',')..write(fr.origin.y)..write(',')
+    ..write(fr.origin.z)..write(',')..write(fr.n.x)..write(',')
+    ..write(fr.n.y)..write(',')..write(fr.n.z);
+  return b.toString();
+}
+
 String featureInputSig(PartModel part, PartFeature f) {
   final b = StringBuffer()
     ..write(f.ownSig())
@@ -3255,9 +3907,18 @@ String featureInputSig(PartModel part, PartFeature f) {
   // A body-modifying feature has no sketch of its own; everything it depends
   // on arrives through the upstream chain key that recomputeAllFeatures
   // prepends, so there is nothing further to hash here.
-  final cs = part.sketchByName(f.sketchName);
-  if (cs == null) {
+  final names = f.sketchNames;
+  if (names.isEmpty) {
     b.write(f.modifiesBody ? 'BODY' : 'MISSING');
+    return b.toString();
+  }
+  // More than one for a sweep (profile + path) and a loft (one per section).
+  for (final n in names.skip(1)) {
+    b..write(_sketchSig(part, n))..write('|');
+  }
+  final cs = part.sketchByName(names.first);
+  if (cs == null) {
+    b.write('MISSING');
     return b.toString();
   }
   b

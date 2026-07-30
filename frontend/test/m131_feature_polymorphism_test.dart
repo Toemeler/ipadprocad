@@ -229,7 +229,10 @@ void main() {
     });
 
     test('an unknown kind is dropped, not guessed at', () {
-      expect(PartFeature.fromJson({'kind': 'loft', 'name': 'Loft1'}), isNull);
+      // 'loft' used to stand in for "unknown" here; it is a real feature as
+      // of M131b, so this needs a kind that genuinely does not exist.
+      expect(PartFeature.fromJson({'kind': 'emboss', 'name': 'Emboss1'}),
+          isNull);
     });
 
     test('a pre-M103 extrude has no extent and loads as a plain distance', () {

@@ -28,6 +28,8 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
   bool _inputOpen = true, _behaviorOpen = true, _outputOpen = true,
       _advancedOpen = true;
   late final TextEditingController _a, _b, _taper, _body;
+  // M131b — sweep / coil fields
+  late final TextEditingController _twist, _revs, _height, _pitch, _coilTaper;
 
   ExtrudeSession get sess => widget.app.extrudeSession!;
 
@@ -37,6 +39,11 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
     _a = TextEditingController(text: sess.exprA);
     _b = TextEditingController(text: sess.exprB);
     _taper = TextEditingController(text: sess.exprTaper);
+    _twist = TextEditingController(text: sess.exprTwist);
+    _revs = TextEditingController(text: sess.exprRevolutions);
+    _height = TextEditingController(text: sess.exprHeight);
+    _pitch = TextEditingController(text: sess.exprPitch);
+    _coilTaper = TextEditingController(text: sess.exprCoilTaper);
     _body = TextEditingController(text: sess.bodyName);
   }
 
@@ -45,6 +52,11 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
     _a.dispose();
     _b.dispose();
     _taper.dispose();
+    _twist.dispose();
+    _revs.dispose();
+    _height.dispose();
+    _pitch.dispose();
+    _coilTaper.dispose();
     _body.dispose();
     super.dispose();
   }
@@ -109,8 +121,15 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ??
-                        (s.isRevolve ? 'Revolution' : 'Extrusion'),
+                Text(
+                    s.editing?.name ??
+                        switch (s.kind) {
+                          'revolve' => 'Revolution',
+                          'sweep' => 'Sweep',
+                          'loft' => 'Loft',
+                          'coil' => 'Coil',
+                          _ => 'Extrusion',
+                        },
                     style: TextStyle(
                         fontSize: 12.5,
                         color: T.blue,
@@ -155,9 +174,115 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     const Spacer(),
                     Text('▾', style: ts(9, T.dim)),
                   ])),
+              // M131b — Sweep drives the profile along a picked path.
+              if (s.isSweep)
+                panelRow(
+                    'Path',
+                    GestureDetector(
+                      onTap: app.pickingSweepPath
+                          ? app.cancelPickSweepPath
+                          : app.beginPickSweepPath,
+                      child: _pickBox(
+                          app.pickingSweepPath
+                              ? 'Tap a curve in 3D…'
+                              : (s.path == null
+                                  ? 'Select Curve or Edge'
+                                  : 'Path selected'),
+                          armed: app.pickingSweepPath,
+                          filled: s.path != null)),
+                  ),
+              if (s.isSweep)
+                panelRow(
+                    'Orientation',
+                    Row(children: [
+                      _smallToggle('Follow Path', s.orientation == 0,
+                          () => app.setExtrude(orientation: 0)),
+                      const SizedBox(width: 3),
+                      _smallToggle('Fixed', s.orientation == 1,
+                          () => app.setExtrude(orientation: 1)),
+                      const SizedBox(width: 3),
+                      _smallToggle('Guide', s.orientation == 2,
+                          () => app.setExtrude(orientation: 2)),
+                    ])),
+              if (s.isSweep) ...[
+                panelRow(
+                    'Taper',
+                    panelValueField(_taper, 'deg',
+                        (v) => app.setExtrude(exprTaper: v))),
+                panelRow(
+                    'Twist',
+                    panelValueField(_twist, 'deg',
+                        (v) => app.setExtrude(exprTwist: v))),
+              ],
+              // M131b — Loft collects sections instead of one profile.
+              if (s.isLoft) ...[
+                panelRow(
+                    'Sections',
+                    GestureDetector(
+                      onTap: app.pickingLoftSections
+                          ? app.cancelPickLoftSections
+                          : app.beginPickLoftSections,
+                      child: _pickBox(
+                          s.loftSections.isEmpty
+                              ? (app.pickingLoftSections
+                                  ? 'Tap profiles in 3D…'
+                                  : 'Click to add')
+                              : '${s.loftSections.length} Sections'
+                                  '${app.pickingLoftSections ? " — tap to finish" : ""}',
+                          armed: app.pickingLoftSections,
+                          filled: s.loftSections.isNotEmpty)),
+                  ),
+                panelRow(
+                    'Transition',
+                    Row(children: [
+                      _smallToggle('Smooth', !s.loftRuled,
+                          () => app.setExtrude(loftRuled: false)),
+                      const SizedBox(width: 3),
+                      _smallToggle('Ruled', s.loftRuled,
+                          () => app.setExtrude(loftRuled: true)),
+                    ])),
+                _checkRow('Closed Loop', s.loftClosed, true,
+                    (v) => app.setExtrude(loftClosed: v)),
+                _checkRow('Merge Tangent Faces', s.loftMergeTangent, true,
+                    (v) => app.setExtrude(loftMergeTangent: v)),
+              ],
+              // M131b — Coil: axis plus one of four equivalent methods.
+              if (s.isCoil) ...[
+                panelRow(
+                    'Method',
+                    _methodDropdown(app, s)),
+                if (s.coilMethod != 2)
+                  panelRow(
+                      'Revolution',
+                      panelValueField(_revs, 'ul',
+                          (v) => app.setExtrude(exprRevolutions: v))),
+                if (s.coilMethod == 0 || s.coilMethod == 2)
+                  panelRow(
+                      'Height',
+                      panelValueField(_height, 'mm',
+                          (v) => app.setExtrude(exprHeight: v))),
+                if (s.coilMethod == 1 || s.coilMethod == 2)
+                  panelRow(
+                      'Pitch',
+                      panelValueField(_pitch, 'mm',
+                          (v) => app.setExtrude(exprPitch: v))),
+                panelRow(
+                    'Taper',
+                    panelValueField(_coilTaper, 'deg',
+                        (v) => app.setExtrude(exprCoilTaper: v))),
+                panelRow(
+                    'Rotation',
+                    Row(children: [
+                      _smallToggle('CCW', !s.coilClockwise,
+                          () => app.setExtrude(coilClockwise: false)),
+                      const SizedBox(width: 3),
+                      _smallToggle('CW', s.coilClockwise,
+                          () => app.setExtrude(coilClockwise: true)),
+                    ])),
+              ],
               // M137 — Revolve needs an axis before anything else can be
               // computed, so it sits above the angle.
-              if (s.isRevolve)
+              if (s.isRevolve || s.isCoil)
                 panelRow(
                     'Axis',
                     GestureDetector(
@@ -404,6 +529,78 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
   /// Inventor Output-boolean toggle: a compact icon button (like [_dirButton])
   /// with a tooltip. [enabled] false dims it and ignores taps — used for
   /// Cut/Intersect when there is no body to act on yet.
+  /// The bordered "click to pick something in 3D" field the panels use for
+  /// every geometry reference (path, sections, axis, termination face).
+  Widget _pickBox(String label, {bool armed = false, bool filled = false}) =>
+      Container(
+        height: 26,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF212429),
+          border: Border.all(
+              color: armed
+                  ? T.blue
+                  : (filled
+                      ? const Color(0xFF3A3F45)
+                      : const Color(0xFFA05A2C))),
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Text(label, style: ts(12, filled || armed ? T.text : T.dim)),
+      );
+
+  /// A small segmented toggle, for the option groups Inventor draws as a row
+  /// of icon buttons (Orientation, Transition, Rotation).
+  Widget _smallToggle(String label, bool active, VoidCallback onTap) =>
+      Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            height: 24,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color:
+                  active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+              border: Border.all(
+                  color: active ? T.blue : const Color(0xFF3A3F45)),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: Text(label,
+                style: ts(11, T.text), overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      );
+
+  /// Inventor's four Coil methods. They all describe the same helix, so which
+  /// two fields are shown below follows from this.
+  Widget _methodDropdown(AppState app, ExtrudeSession s) {
+    const names = [
+      'Revolution and Height',
+      'Pitch and Revolution',
+      'Pitch and Height',
+      'Spiral',
+    ];
+    return GestureDetector(
+      onTap: () => app.setExtrude(coilMethod: (s.coilMethod + 1) % 4),
+      child: Container(
+        height: 26,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF212429),
+          border: Border.all(color: const Color(0xFF3A3F45)),
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Row(children: [
+          Expanded(
+              child: Text(names[s.coilMethod.clamp(0, 3)],
+                  style: ts(12, T.text), overflow: TextOverflow.ellipsis)),
+          Icon(Icons.arrow_drop_down, size: 16, color: T.dim),
+        ]),
+      ),
+    );
+  }
+
   /// One Extents toggle. Inventor greys To Next / To / Through All out for a
   /// base feature, because with nothing built yet there is no face to
   /// terminate against — [AppState.extrudeHasBooleanTarget] is exactly that

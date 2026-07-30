@@ -592,9 +592,40 @@ class EdgeFeatureSession {
 /// The name is kept because it appears across main, ribbon, viewport3d and
 /// the tests; [kind] is what actually selects the behaviour.
 class ExtrudeSession {
-  /// 'extrude' | 'revolve'.
+  /// 'extrude' | 'revolve' | 'sweep' | 'loft' | 'coil'.
+  ///
+  /// One session for all five: they share profiles, the sketch lock,
+  /// direction, output, body, preview and the auto-pick. Only the numbers
+  /// under the geometry differ, which is what [kind] selects.
   String kind = 'extrude';
   bool get isRevolve => kind == 'revolve';
+  bool get isSweep => kind == 'sweep';
+  bool get isLoft => kind == 'loft';
+  bool get isCoil => kind == 'coil';
+
+  /// True when the panel drives one profile through a path or helix rather
+  /// than a straight or rotational extent.
+  bool get isSwept => isSweep || isCoil;
+
+  // ---- sweep only ----
+  CurveSel? path;
+  int orientation = 0;
+  String exprTaperSweep = '0 deg', exprTwist = '0 deg';
+
+  // ---- loft only ----
+  /// Sections in pick order, each with the sketch it came from.
+  final List<String> loftSketches = [];
+  final List<ProfileSel> loftSections = [];
+  bool loftRuled = false, loftClosed = false, loftMergeTangent = false;
+  bool loftSolid = true;
+
+  // ---- coil only ----
+  int coilMethod = 0;
+  String exprRevolutions = '5 ul',
+      exprHeight = '8 mm',
+      exprPitch = '2 mm',
+      exprCoilTaper = '0.00 deg';
+  bool coilClockwise = false, coilCloseStart = false, coilCloseEnd = false;
 
   // ---- revolve only ----
   /// Axis in SKETCH coordinates: a point plus a direction. Stored as geometry
@@ -2585,6 +2616,12 @@ class AppState extends ChangeNotifier {
       openChamfer(f);
     } else if (f is RevolveFeature) {
       openRevolve(f);
+    } else if (f is SweepFeature) {
+      openSweep(f);
+    } else if (f is LoftFeature) {
+      openLoft(f);
+    } else if (f is CoilFeature) {
+      openCoil(f);
     } else {
       // Revolve still has no panel; opening the extrude one instead would let
       // the user change a value that belongs to a different feature.
@@ -2903,6 +2940,159 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void openSweep([SweepFeature? edit]) => _openSketchFeature('sweep', edit);
+  void openLoft([LoftFeature? edit]) => _openSketchFeature('loft', edit);
+  void openCoil([CoilFeature? edit]) => _openSketchFeature('coil', edit);
+
+  /// Shared opener for the three M131b panels. Each seeds only what its own
+  /// kind needs; everything else is the extrude session's defaults.
+  void _openSketchFeature(String kind, PartFeature? edit) {
+    openExtrude();
+    final s = extrudeSession;
+    if (s == null) return;
+    s.kind = kind;
+    if (edit is SweepFeature) {
+      s.editing = edit;
+      s.sketchName = edit.sketchName;
+      s.bodyName = edit.bodyName;
+      s.output = edit.output;
+      s.path = edit.path;
+      s.orientation = edit.orientation;
+      s.exprTaperSweep = edit.exprTaper;
+      s.exprTwist = edit.exprTwist;
+      s.profiles
+        ..clear()
+        ..addAll(
+            [for (final x in edit.profiles) ProfileSel(x.ax, x.ay, x.area)]);
+    } else if (edit is LoftFeature) {
+      s.editing = edit;
+      s.bodyName = edit.bodyName;
+      s.output = edit.output;
+      s.loftSolid = edit.solidOutput;
+      s.loftRuled = edit.ruled;
+      s.loftClosed = edit.closedLoop;
+      s.loftMergeTangent = edit.mergeTangent;
+      s.loftSketches
+        ..clear()
+        ..addAll(edit.sectionSketches);
+      s.loftSections
+        ..clear()
+        ..addAll(
+            [for (final x in edit.sections) ProfileSel(x.ax, x.ay, x.area)]);
+    } else if (edit is CoilFeature) {
+      s.editing = edit;
+      s.sketchName = edit.sketchName;
+      s.bodyName = edit.bodyName;
+      s.output = edit.output;
+      s.axPx = edit.axPx;
+      s.axPy = edit.axPy;
+      s.axDx = edit.axDx;
+      s.axDy = edit.axDy;
+      s.axisPicked = true;
+      s.axisLabel = 'Axis';
+      s.coilMethod = edit.method;
+      s.exprRevolutions = edit.exprRevolutions;
+      s.exprHeight = edit.exprHeight;
+      s.exprPitch = edit.exprPitch;
+      s.exprCoilTaper = edit.exprTaper;
+      s.coilClockwise = edit.clockwise;
+      s.coilCloseStart = edit.closeStart;
+      s.coilCloseEnd = edit.closeEnd;
+      s.profiles
+        ..clear()
+        ..addAll(
+            [for (final x in edit.profiles) ProfileSel(x.ax, x.ay, x.area)]);
+    }
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  /// Armed while the panel waits for a sweep PATH curve.
+  bool pickingSweepPath = false;
+
+  void beginPickSweepPath() {
+    if (extrudeSession == null) return;
+    pickingSweepPath = true;
+    toast('Tap the curve to sweep along.');
+    notifyListeners();
+  }
+
+  void cancelPickSweepPath() {
+    if (!pickingSweepPath) return;
+    pickingSweepPath = false;
+    notifyListeners();
+  }
+
+  /// A sketch curve was tapped as the sweep path. Stored as a fingerprint, not
+  /// an index, so inserting geometry before it does not re-point the sweep.
+  void sweepPathPicked(String sketchName, int geoIndex) {
+    final s = extrudeSession;
+    final p = currentPart;
+    pickingSweepPath = false;
+    if (s == null || p == null) {
+      notifyListeners();
+      return;
+    }
+    final cs = p.sketchByName(sketchName);
+    if (cs == null || geoIndex < 0 || geoIndex >= cs.model.geometry.length) {
+      toast('That curve is no longer available.');
+      notifyListeners();
+      return;
+    }
+    final pts = sketchCurve(cs.model.geometry[geoIndex]);
+    if (pts.length < 2) {
+      toast('That curve has no length.');
+      notifyListeners();
+      return;
+    }
+    var len = 0.0;
+    for (var i = 0; i + 1 < pts.length; i++) {
+      len += (pts[i + 1] - pts[i]).distance;
+    }
+    s.path = CurveSel(sketchName, geoIndex, pts.first.dx, pts.first.dy,
+        pts.last.dx, pts.last.dy, len);
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
+  /// Armed while the panel collects LOFT sections.
+  bool pickingLoftSections = false;
+
+  void beginPickLoftSections() {
+    if (extrudeSession == null) return;
+    pickingLoftSections = true;
+    toast('Tap each section in order.');
+    notifyListeners();
+  }
+
+  void cancelPickLoftSections() {
+    if (!pickingLoftSections) return;
+    pickingLoftSections = false;
+    notifyListeners();
+  }
+
+  /// Adds (or removes) a loft section. Order is pick order, which is the order
+  /// the loft runs through them — so this is a list, not a set.
+  void toggleLoftSection(String sketchName, ProfileSel sel) {
+    final s = extrudeSession;
+    if (s == null || !s.isLoft) return;
+    for (var i = 0; i < s.loftSections.length; i++) {
+      final e = s.loftSections[i];
+      if (s.loftSketches[i] == sketchName &&
+          (Offset(e.ax, e.ay) - Offset(sel.ax, sel.ay)).distance < 1e-6) {
+        s.loftSections.removeAt(i);
+        s.loftSketches.removeAt(i);
+        _updateExtrudePreview();
+        notifyListeners();
+        return;
+      }
+    }
+    s.loftSections.add(sel);
+    s.loftSketches.add(sketchName);
+    _updateExtrudePreview();
+    notifyListeners();
+  }
+
   /// Armed while the panel is waiting for an axis line to be tapped in 3D.
   bool pickingRevolveAxis = false;
 
@@ -3118,7 +3308,19 @@ class AppState extends ChangeNotifier {
       bool? matchShape,
       String? output,
       FeatureExtent? extent,
-      bool? full}) {
+      bool? full,
+      int? orientation,
+      String? exprSweepTaper,
+      String? exprTwist,
+      bool? loftRuled,
+      bool? loftClosed,
+      bool? loftMergeTangent,
+      int? coilMethod,
+      String? exprRevolutions,
+      String? exprHeight,
+      String? exprPitch,
+      String? exprCoilTaper,
+      bool? coilClockwise}) {
     final s = extrudeSession;
     if (s == null) return;
     if (direction != null) s.direction = direction;
@@ -3129,6 +3331,18 @@ class AppState extends ChangeNotifier {
     if (iMate != null) s.iMate = iMate;
     if (matchShape != null) s.matchShape = matchShape;
     if (full != null) s.full = full;
+    if (orientation != null) s.orientation = orientation;
+    if (exprSweepTaper != null) s.exprTaperSweep = exprSweepTaper;
+    if (exprTwist != null) s.exprTwist = exprTwist;
+    if (loftRuled != null) s.loftRuled = loftRuled;
+    if (loftClosed != null) s.loftClosed = loftClosed;
+    if (loftMergeTangent != null) s.loftMergeTangent = loftMergeTangent;
+    if (coilMethod != null) s.coilMethod = coilMethod;
+    if (exprRevolutions != null) s.exprRevolutions = exprRevolutions;
+    if (exprHeight != null) s.exprHeight = exprHeight;
+    if (exprPitch != null) s.exprPitch = exprPitch;
+    if (exprCoilTaper != null) s.exprCoilTaper = exprCoilTaper;
+    if (coilClockwise != null) s.coilClockwise = coilClockwise;
     if (extent != null && extent != s.extent) {
       s.extent = extent;
       // Leaving "To" clears the face: keeping a stale termination face around
@@ -3153,6 +3367,106 @@ class AppState extends ChangeNotifier {
   }
 
   /// Parses the session values into a throwaway feature (also used for the
+  (PartFeature?, String?) _sweepSessionFeature(ExtrudeSession s) {
+    if (s.path == null) return (null, 'Select a path curve.');
+    final taper = parseValueExpr(s.exprTaperSweep) ?? 0;
+    final twist = parseValueExpr(s.exprTwist) ?? 0;
+    if (twist.abs() > 1e-9) {
+      // The kernel refuses a non-zero twist rather than producing an
+      // untwisted solid; say so here instead of failing at the shim.
+      return (null, 'Twist is not supported yet — leave it at 0.');
+    }
+    return (
+      SweepFeature(
+        name: s.editing?.name ?? '(preview)',
+        bodyName: s.bodyName,
+        sketchName: s.sketchName ?? '',
+        profiles: [for (final x in s.profiles) ProfileSel(x.ax, x.ay, x.area)],
+        path: s.path,
+        orientation: s.orientation,
+        taperDeg: taper,
+        twistDeg: twist,
+        exprTaper: s.exprTaperSweep,
+        exprTwist: s.exprTwist,
+        output: s.output,
+      ),
+      null
+    );
+  }
+
+  (PartFeature?, String?) _loftSessionFeature(ExtrudeSession s) {
+    if (s.loftSections.length < 2) {
+      return (null, 'Select at least two sections.');
+    }
+    return (
+      LoftFeature(
+        name: s.editing?.name ?? '(preview)',
+        bodyName: s.bodyName,
+        sectionSketches: List<String>.from(s.loftSketches),
+        sections: [
+          for (final x in s.loftSections) ProfileSel(x.ax, x.ay, x.area)
+        ],
+        solidOutput: s.loftSolid,
+        ruled: s.loftRuled,
+        closedLoop: s.loftClosed,
+        mergeTangent: s.loftMergeTangent,
+        output: s.output,
+      ),
+      null
+    );
+  }
+
+  (PartFeature?, String?) _coilSessionFeature(ExtrudeSession s) {
+    if (!s.axisPicked) return (null, 'Select an axis.');
+    final rev = parseValueExpr(s.exprRevolutions) ?? 0;
+    final h = parseValueExpr(s.exprHeight) ?? 0;
+    final pitch = parseValueExpr(s.exprPitch) ?? 0;
+    // Validate the two values the CHOSEN method actually uses, so an unused
+    // field left at nonsense does not block a perfectly good coil.
+    switch (s.coilMethod) {
+      case 1: // pitch and revolution
+        if (!(pitch > 0)) return (null, 'Pitch must be > 0.');
+        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        break;
+      case 2: // pitch and height
+        if (!(pitch > 0)) return (null, 'Pitch must be > 0.');
+        if (!(h > 0)) return (null, 'Height must be > 0.');
+        break;
+      case 3: // spiral
+        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        break;
+      default: // revolution and height
+        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        if (!(h > 0)) return (null, 'Height must be > 0.');
+    }
+    return (
+      CoilFeature(
+        name: s.editing?.name ?? '(preview)',
+        bodyName: s.bodyName,
+        sketchName: s.sketchName ?? '',
+        profiles: [for (final x in s.profiles) ProfileSel(x.ax, x.ay, x.area)],
+        axPx: s.axPx,
+        axPy: s.axPy,
+        axDx: s.axDx,
+        axDy: s.axDy,
+        method: s.coilMethod,
+        revolutions: rev,
+        height: h,
+        pitch: pitch,
+        taperDeg: parseValueExpr(s.exprCoilTaper) ?? 0,
+        exprRevolutions: s.exprRevolutions,
+        exprHeight: s.exprHeight,
+        exprPitch: s.exprPitch,
+        exprTaper: s.exprCoilTaper,
+        clockwise: s.coilClockwise,
+        closeStart: s.coilCloseStart,
+        closeEnd: s.coilCloseEnd,
+        output: s.output,
+      ),
+      null
+    );
+  }
+
   /// Revolve twin of [_sessionFeature]. Angle A is the sweep unless Full is
   /// set; Angle B only matters for Asymmetric, exactly as Distance B does.
   (PartFeature?, String?) _revolveSessionFeature(ExtrudeSession s) {
@@ -3213,6 +3527,9 @@ class AppState extends ChangeNotifier {
   /// preview). Returns null + a toastable reason when a value is invalid.
   (PartFeature?, String?) _sessionFeature(ExtrudeSession s) {
     if (s.isRevolve) return _revolveSessionFeature(s);
+    if (s.isSweep) return _sweepSessionFeature(s);
+    if (s.isLoft) return _loftSessionFeature(s);
+    if (s.isCoil) return _coilSessionFeature(s);
     final usesDistance = s.extent == FeatureExtent.distance;
     final a = parseValueExpr(s.exprA) ?? 0.0;
     // Only a plain Distance is driven by the typed value; To Next / To /
@@ -3356,11 +3673,11 @@ class AppState extends ChangeNotifier {
     }
     PartFeature f;
     final editing = s.editing;
-    if (s.isRevolve) {
-      // Revolve has no in-place mutation path, so an edit REPLACES the
-      // feature in the timeline (the same move applyEdgeFeature makes).
-      // Mutating in place would mean a second copy of every field assignment
-      // below, for no gain.
+    if (s.kind != 'extrude') {
+      // Only extrude mutates in place. Revolve, sweep, loft and coil REPLACE
+      // the feature in the timeline (the same move applyEdgeFeature makes) —
+      // mutating each in place would mean four more copies of every field
+      // assignment below, for no gain.
       f = parsed;
       if (editing != null) {
         f.name = editing.name;
@@ -3372,7 +3689,13 @@ class AppState extends ChangeNotifier {
           p.features[i] = f;
         }
       } else {
-        f.name = p.nextFeatureName('Revolution');
+        f.name = p.nextFeatureName(switch (s.kind) {
+          'revolve' => 'Revolution',
+          'sweep' => 'Sweep',
+          'loft' => 'Loft',
+          'coil' => 'Coil',
+          _ => 'Feature',
+        });
         if (f.bodyName.trim().isEmpty) {
           final lastBody =
               p.features.isEmpty ? null : p.features.last.bodyName;
@@ -3431,7 +3754,8 @@ class AppState extends ChangeNotifier {
         return false; // a NEW feature that cannot compute is not created
       }
     }
-    if (s.editing == null && !(s.isRevolve && p.features.contains(f))) {
+    if (s.editing == null &&
+        !(s.kind != 'extrude' && p.features.contains(f))) {
       final firstConsumption = firstConsumerOf(p, f.sketchName) == null;
       f.seq = p.nextSeq(); // M91 — bottom of the timeline
       p.appendFeature(f); // keeps End of Part past what was just created
@@ -3463,6 +3787,12 @@ class AppState extends ChangeNotifier {
     if (keepOpen) {
       extrudeSession = ExtrudeSession()
         ..kind = s.kind
+        ..orientation = s.orientation
+        ..coilMethod = s.coilMethod
+        ..exprRevolutions = s.exprRevolutions
+        ..exprHeight = s.exprHeight
+        ..exprPitch = s.exprPitch
+        ..coilClockwise = s.coilClockwise
         ..full = s.full
         ..axPx = s.axPx
         ..axPy = s.axPy
@@ -3490,6 +3820,9 @@ class AppState extends ChangeNotifier {
     // and no row left to cancel from.
     pickingExtentFace = false;
     pickingBody = false;
+    pickingSweepPath = false;
+    pickingLoftSections = false;
+    pickingRevolveAxis = false;
     hoverBody = null;
   }
 

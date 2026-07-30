@@ -487,9 +487,9 @@ class _RibbonState extends State<Ribbon> {
                 onTap: () => app.openRevolve(),
                 active: app.extrudeSession?.isRevolve == true),
             col([
-              (CR['sweep']!, 'Sweep', null),
-              (CR['loft']!, 'Loft', null),
-              (CR['coil']!, 'Coil', null),
+              (CR['sweep']!, 'Sweep', () => app.openSweep()),
+              (CR['loft']!, 'Loft', () => app.openLoft()),
+              (CR['coil']!, 'Coil', () => app.openCoil()),
             ]),
             col([
               (CR['emboss']!, 'Emboss', null),

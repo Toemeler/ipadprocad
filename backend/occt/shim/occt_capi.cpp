@@ -46,6 +46,8 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepLib.hxx>
+#include <BRepBuilderAPI_TransitionMode.hxx>
 #include <GProp_GProps.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -91,6 +93,17 @@
 #include <BRepIntCurveSurface_Inter.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <Geom_Circle.hxx>
+/* v15: sweep, loft, coil */
+#include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom2d_Line.hxx>
+#include <Law_Linear.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepGProp.hxx>
+#include <BRepLib.hxx>
+#include <BRepBuilderAPI_TransitionMode.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <GeomAdaptor_Curve.hxx>
@@ -159,13 +172,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v14 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v15 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 14; }
+extern "C" int occt_shim_version(void) { return 15; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -831,6 +844,46 @@ extern "C" int occt_bbox(const occt_shape *shape, double *out6)
     OCCT_CATCH("occt_bbox", 0)
 }
 
+/* mat34 (row-major 3x4) -> gp_Trsf, REFUSING anything that is not a rigid
+ * motion. Extracted from occt_transform in v15 so the sweep/loft/coil paths
+ * enforce the same rule rather than re-implementing (or forgetting) it.
+ *
+ * Rigidity is checked HERE and not left to gp_Trsf::SetValues, which accepts
+ * an orthogonal matrix TIMES A SCALE FACTOR — so a uniform scale would sail
+ * through and silently resize the solid. */
+static bool trsf_from_mat34(const double *mat34, gp_Trsf &t, const char *who)
+{
+    if (!mat34) {
+        set_err(who, "null matrix");
+        return false;
+    }
+    const double c[3][3] = {{mat34[0], mat34[1], mat34[2]},
+                            {mat34[4], mat34[5], mat34[6]},
+                            {mat34[8], mat34[9], mat34[10]}};
+    const double tol = 1e-9;
+    int ok = 1;
+    for (int i = 0; i < 3 && ok; ++i) {
+        for (int j = i; j < 3 && ok; ++j) {
+            const double d =
+                c[0][i] * c[0][j] + c[1][i] * c[1][j] + c[2][i] * c[2][j];
+            if (std::fabs(d - (i == j ? 1.0 : 0.0)) > tol)
+                ok = 0;
+        }
+    }
+    const double det = c[0][0] * (c[1][1] * c[2][2] - c[1][2] * c[2][1]) -
+                       c[0][1] * (c[1][0] * c[2][2] - c[1][2] * c[2][0]) +
+                       c[0][2] * (c[1][0] * c[2][1] - c[1][1] * c[2][0]);
+    if (!ok || std::fabs(det - 1.0) > tol) {
+        set_err(who,
+                "matrix is not a rigid motion (need an orthonormal rotation "
+                "with determinant +1; scale/shear/mirror are refused)");
+        return false;
+    }
+    t.SetValues(mat34[0], mat34[1], mat34[2], mat34[3], mat34[4], mat34[5],
+                mat34[6], mat34[7], mat34[8], mat34[9], mat34[10], mat34[11]);
+    return true;
+}
+
 extern "C" occt_shape *occt_transform(const occt_shape *shape,
                                       const double *mat34)
 {
@@ -840,40 +893,8 @@ extern "C" occt_shape *occt_transform(const occt_shape *shape,
         return nullptr;
     }
     gp_Trsf t;
-    /* Rigidity is enforced HERE, not left to gp_Trsf::SetValues: that
-     * accepts an orthogonal matrix TIMES A SCALE FACTOR, so a uniform
-     * scale would sail through and silently resize the solid. The header
-     * promises a pure rotation, so check orthonormality (columns unit and
-     * mutually perpendicular) and a right-handed determinant of +1. */
-    {
-        const double c[3][3] = {{mat34[0], mat34[1], mat34[2]},
-                                {mat34[4], mat34[5], mat34[6]},
-                                {mat34[8], mat34[9], mat34[10]}};
-        const double tol = 1e-9;
-        int ok = 1;
-        for (int i = 0; i < 3 && ok; ++i) {
-            for (int j = i; j < 3 && ok; ++j) {
-                const double d = c[0][i] * c[0][j] + c[1][i] * c[1][j] +
-                                 c[2][i] * c[2][j];
-                if (std::fabs(d - (i == j ? 1.0 : 0.0)) > tol)
-                    ok = 0;
-            }
-        }
-        const double det =
-            c[0][0] * (c[1][1] * c[2][2] - c[1][2] * c[2][1]) -
-            c[0][1] * (c[1][0] * c[2][2] - c[1][2] * c[2][0]) +
-            c[0][2] * (c[1][0] * c[2][1] - c[1][1] * c[2][0]);
-        if (!ok || std::fabs(det - 1.0) > tol) {
-            set_err("occt_transform",
-                    "matrix is not a rigid motion (need an orthonormal "
-                    "rotation with determinant +1; scale/shear/mirror "
-                    "are refused)");
-            return nullptr;
-        }
-    }
-    t.SetValues(mat34[0], mat34[1], mat34[2], mat34[3],
-                mat34[4], mat34[5], mat34[6], mat34[7],
-                mat34[8], mat34[9], mat34[10], mat34[11]);
+    if (!trsf_from_mat34(mat34, t, "occt_transform"))
+        return nullptr;
     BRepBuilderAPI_Transform tr(shape->s, t, Standard_True /* copy */);
     if (!tr.IsDone()) {
         set_err("occt_transform", "transform did not complete");
@@ -2065,4 +2086,340 @@ extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
     }
     return circle_hit_angles(shape->s, circ, out, max_hits);
     OCCT_CATCH("occt_revolve_hits", -1)
+}
+
+/* ---- v15: sweep, loft, coil ---------------------------------------------- */
+
+/* The placed OUTER wire of a profile, plus its hole wires. Shared by sweep,
+ * loft and coil, all of which need wires rather than the faces the extrude
+ * path builds. Returns false and sets the error on failure. */
+static bool placed_profile_wires(const double *xyb, const int *loop_counts,
+                                 int nloops, const double *mat34,
+                                 const char *who, TopoDS_Wire &outer,
+                                 std::vector<TopoDS_Wire> &holes)
+{
+    if (!xyb || !loop_counts || nloops < 1 || !mat34) {
+        set_err(who, "null profile arguments");
+        return false;
+    }
+    gp_Trsf t;
+    if (!trsf_from_mat34(mat34, t, who))
+        return false;
+    const double *p = xyb;
+    for (int l = 0; l < nloops; ++l) {
+        if (loop_counts[l] < 2) {
+            set_err(who, "every loop needs at least 2 vertices");
+            return false;
+        }
+        const double a = arc_loop_signed_area(p, loop_counts[l]);
+        if (std::fabs(a) < 1e-12) {
+            set_err(who, "a profile loop is degenerate");
+            return false;
+        }
+        bool ok = false;
+        TopoDS_Wire w = arc_loop_wire(p, loop_counts[l], a > 0.0, &ok);
+        if (!ok) {
+            set_err(who, "profile wire construction failed");
+            return false;
+        }
+        BRepBuilderAPI_Transform mv(w, t, Standard_True);
+        if (!mv.IsDone()) {
+            set_err(who, "placing the profile failed");
+            return false;
+        }
+        const TopoDS_Wire pw = TopoDS::Wire(mv.Shape());
+        if (l == 0)
+            outer = pw;
+        else
+            holes.push_back(pw);
+        p += 3 * loop_counts[l];
+    }
+    return true;
+}
+
+/* A spine wire through world-space points. Straight segments: the caller has
+ * already sampled the curve it picked, so interpolating again would only add
+ * error the user cannot see or control. */
+static bool spine_from_points(const double *pts, int n, const char *who,
+                              TopoDS_Wire &out)
+{
+    if (!pts || n < 2) {
+        set_err(who, "a path needs at least 2 points");
+        return false;
+    }
+    BRepBuilderAPI_MakePolygon poly;
+    gp_Pnt prev(pts[0], pts[1], pts[2]);
+    poly.Add(prev);
+    int used = 1;
+    for (int i = 1; i < n; ++i) {
+        const gp_Pnt q(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2]);
+        if (q.Distance(prev) < 1e-9)
+            continue; /* duplicate sample: an edge of zero length breaks sweeps */
+        poly.Add(q);
+        prev = q;
+        ++used;
+    }
+    if (used < 2 || !poly.IsDone()) {
+        set_err(who, "the path collapsed to a single point");
+        return false;
+    }
+    out = poly.Wire();
+    return true;
+}
+
+/* Runs a MakePipeShell that has already been given its mode and profile, and
+ * returns the solid. Shared by sweep and coil. */
+static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
+                               const std::vector<TopoDS_Wire> &holes,
+                               const TopoDS_Wire &spine, int orientation,
+                               double taper_deg, const char *who)
+{
+    (void)orientation;
+    mk.Build();
+    if (!mk.IsDone()) {
+        set_err(who, "the sweep failed (path too tight for the section?)");
+        return nullptr;
+    }
+    if (!mk.MakeSolid()) {
+        set_err(who, "the swept surface could not be closed into a solid");
+        return nullptr;
+    }
+    TopoDS_Shape body = mk.Shape();
+    if (!has_solid_material(body)) {
+        set_err(who, "the sweep produced no material");
+        return nullptr;
+    }
+    /* Holes are swept separately and cut, for the same reason the extrude and
+     * revolve paths do it: a multi-wire section is not reliable here. */
+    for (const TopoDS_Wire &h : holes) {
+        BRepOffsetAPI_MakePipeShell hm(spine);
+        hm.SetTransitionMode(BRepBuilderAPI_RightCorner);
+        hm.SetMode(Standard_True);
+        if (taper_deg != 0.0) {
+            const double k = std::tan(taper_deg * M_PI / 180.0);
+            Handle(Law_Linear) law = new Law_Linear();
+            law->Set(0.0, 1.0, 1.0, 1.0 + k);
+            hm.SetLaw(h, law, Standard_False, Standard_True);
+        } else {
+            hm.Add(h, Standard_False, Standard_True);
+        }
+        hm.Build();
+        if (!hm.IsDone() || !hm.MakeSolid()) {
+            set_err(who, "sweeping a hole failed");
+            return nullptr;
+        }
+        BRepAlgoAPI_Cut cut(body, hm.Shape());
+        if (!cut.IsDone() || !has_solid_material(cut.Shape())) {
+            set_err(who, "cutting a hole out of the sweep failed");
+            return nullptr;
+        }
+        body = cut.Shape();
+    }
+    ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
+                                     Standard_False);
+    uni.Build();
+    return wrap(uni.Shape(), who);
+}
+
+extern "C" occt_shape *occt_sweep_profile(const double *xyb,
+                                          const int *loop_counts, int nloops,
+                                          const double *mat34,
+                                          const double *path_pts, int npath,
+                                          int orientation, double taper_deg,
+                                          double twist_deg)
+{
+    OCCT_TRY("occt_sweep_profile")
+    if (std::fabs(twist_deg) > 1e-9) {
+        /* Refused, not ignored: a sweep that quietly did not twist is a wrong
+         * part, and the user has no way to see that from the result. */
+        set_err("occt_sweep_profile", "twist is not implemented yet");
+        return nullptr;
+    }
+    TopoDS_Wire outer, spine;
+    std::vector<TopoDS_Wire> holes;
+    if (!placed_profile_wires(xyb, loop_counts, nloops, mat34,
+                              "occt_sweep_profile", outer, holes))
+        return nullptr;
+    if (!spine_from_points(path_pts, npath, "occt_sweep_profile", spine))
+        return nullptr;
+
+    BRepOffsetAPI_MakePipeShell mk(spine);
+    /* A path with a SHARP corner (an L, the common case for a swept bar) fails
+     * outright in the default Transformed mode. RightCorner miters the section
+     * through the corner, which is both what OCCT can build and what a swept
+     * bar actually looks like. */
+    mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    /* 1 = Fixed keeps the section's own orientation; 0 and 2 both follow the
+     * path, 2 additionally correcting against the spine's frame. */
+    if (orientation == 1)
+        mk.SetMode(gp_Dir(0, 0, 1));
+    else
+        mk.SetMode(Standard_True); /* Frenet */
+    const Standard_Boolean correct =
+        orientation == 2 ? Standard_True : Standard_False;
+    if (taper_deg != 0.0) {
+        const double k = std::tan(taper_deg * M_PI / 180.0);
+        Handle(Law_Linear) law = new Law_Linear();
+        law->Set(0.0, 1.0, 1.0, 1.0 + k);
+        mk.SetLaw(outer, law, Standard_False, correct);
+    } else {
+        mk.Add(outer, Standard_False, correct);
+    }
+    return finish_pipe(mk, holes, spine, orientation, taper_deg,
+                       "occt_sweep_profile");
+    OCCT_CATCH("occt_sweep_profile", nullptr)
+}
+
+extern "C" occt_shape *occt_loft_sections(const double *xyb,
+                                          const int *loop_counts,
+                                          const double *mats, int nsections,
+                                          int solid, int ruled, int closed)
+{
+    OCCT_TRY("occt_loft_sections")
+    if (!xyb || !loop_counts || !mats || nsections < 2) {
+        set_err("occt_loft_sections", "a loft needs at least 2 sections");
+        return nullptr;
+    }
+    BRepOffsetAPI_ThruSections mk(solid != 0, ruled != 0, 1.0e-6);
+    const double *p = xyb;
+    for (int i = 0; i < nsections; ++i) {
+        if (loop_counts[i] < 2) {
+            set_err("occt_loft_sections", "a section needs at least 2 vertices");
+            return nullptr;
+        }
+        const double a = arc_loop_signed_area(p, loop_counts[i]);
+        if (std::fabs(a) < 1e-12) {
+            set_err("occt_loft_sections", "a section is degenerate");
+            return nullptr;
+        }
+        bool ok = false;
+        TopoDS_Wire w = arc_loop_wire(p, loop_counts[i], a > 0.0, &ok);
+        if (!ok) {
+            set_err("occt_loft_sections", "section wire construction failed");
+            return nullptr;
+        }
+        gp_Trsf t;
+        if (!trsf_from_mat34(mats + 12 * i, t, "occt_loft_sections"))
+            return nullptr;
+        BRepBuilderAPI_Transform mv(w, t, Standard_True);
+        if (!mv.IsDone()) {
+            set_err("occt_loft_sections", "placing a section failed");
+            return nullptr;
+        }
+        mk.AddWire(TopoDS::Wire(mv.Shape()));
+        p += 3 * loop_counts[i];
+    }
+    if (closed != 0) {
+        /* Closed Loop: repeat the first section so the run comes back round. */
+        const double a0 = arc_loop_signed_area(xyb, loop_counts[0]);
+        bool ok = false;
+        TopoDS_Wire w0 = arc_loop_wire(xyb, loop_counts[0], a0 > 0.0, &ok);
+        gp_Trsf t0;
+        if (ok && trsf_from_mat34(mats, t0, "occt_loft_sections")) {
+            BRepBuilderAPI_Transform mv0(w0, t0, Standard_True);
+            if (mv0.IsDone())
+                mk.AddWire(TopoDS::Wire(mv0.Shape()));
+        }
+    }
+    mk.CheckCompatibility(Standard_True);
+    mk.Build();
+    if (!mk.IsDone()) {
+        set_err("occt_loft_sections",
+                "the loft failed (are the sections compatible?)");
+        return nullptr;
+    }
+    if (solid != 0 && !has_solid_material(mk.Shape())) {
+        set_err("occt_loft_sections", "the loft produced no material");
+        return nullptr;
+    }
+    ShapeUpgrade_UnifySameDomain uni(mk.Shape(), Standard_True, Standard_True,
+                                     Standard_False);
+    uni.Build();
+    return wrap(uni.Shape(), "occt_loft_sections");
+    OCCT_CATCH("occt_loft_sections", nullptr)
+}
+
+extern "C" occt_shape *occt_coil_profile(const double *xyb,
+                                         const int *loop_counts, int nloops,
+                                         const double *mat34, double ax_px,
+                                         double ax_py, double ax_pz,
+                                         double ax_dx, double ax_dy,
+                                         double ax_dz, double revolutions,
+                                         double height, double taper_deg,
+                                         int clockwise, int close_start,
+                                         int close_end)
+{
+    OCCT_TRY("occt_coil_profile")
+    if (close_start != 0 || close_end != 0) {
+        set_err("occt_coil_profile", "coil ends are not implemented yet");
+        return nullptr;
+    }
+    if (!(revolutions > 0.0)) {
+        set_err("occt_coil_profile", "revolutions must be > 0");
+        return nullptr;
+    }
+    const gp_Vec axis(ax_dx, ax_dy, ax_dz);
+    if (axis.Magnitude() < 1e-12) {
+        set_err("occt_coil_profile", "axis direction is degenerate");
+        return nullptr;
+    }
+    TopoDS_Wire outer;
+    std::vector<TopoDS_Wire> holes;
+    if (!placed_profile_wires(xyb, loop_counts, nloops, mat34,
+                              "occt_coil_profile", outer, holes))
+        return nullptr;
+
+    /* Helix radius = distance from the axis to the section's centroid, so the
+     * coil passes through where the user drew the profile. */
+    GProp_GProps props;
+    BRepGProp::LinearProperties(outer, props);
+    const gp_Pnt c = props.CentreOfMass();
+    const gp_Dir adir(axis);
+    const gp_Pnt apt(ax_px, ax_py, ax_pz);
+    const gp_Vec w(apt, c);
+    const gp_Pnt foot = apt.Translated(gp_Vec(adir) * w.Dot(gp_Vec(adir)));
+    const double r = gp_Vec(foot, c).Magnitude();
+    if (r < 1e-9) {
+        set_err("occt_coil_profile", "the profile sits on the axis");
+        return nullptr;
+    }
+    /* Frame the cylinder so u = 0 passes through the section: the helix then
+     * starts AT the profile instead of some arbitrary meridian. */
+    const gp_Ax3 frame(foot, adir, gp_Dir(gp_Vec(foot, c)));
+    Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(frame, r);
+    const double turns = revolutions * 2.0 * M_PI;
+    /* A straight line in the cylinder's (u, v) space IS a helix: u winds
+     * around, v climbs the axis. Slope = total rise over total turn. */
+    const double slope = height / turns;
+    const gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0,
+                      clockwise != 0 ? -slope : slope);
+    Handle(Geom2d_Line) line2d = new Geom2d_Line(gp_Pnt2d(0.0, 0.0), d2);
+    /* Parameter length along the 2D line that spans `turns` in u. */
+    const double plen = turns / std::fabs(d2.X());
+    BRepBuilderAPI_MakeEdge he(line2d, cyl, 0.0, plen);
+    if (!he.IsDone()) {
+        set_err("occt_coil_profile", "helix construction failed");
+        return nullptr;
+    }
+    TopoDS_Edge hedge = he.Edge();
+    BRepLib::BuildCurve3d(hedge);
+    BRepBuilderAPI_MakeWire hw(hedge);
+    if (!hw.IsDone()) {
+        set_err("occt_coil_profile", "helix wire construction failed");
+        return nullptr;
+    }
+    const TopoDS_Wire spine = hw.Wire();
+
+    BRepOffsetAPI_MakePipeShell mk(spine);
+    mk.SetMode(Standard_True); /* a coil always follows its helix */
+    if (taper_deg != 0.0) {
+        const double k = std::tan(taper_deg * M_PI / 180.0);
+        Handle(Law_Linear) law = new Law_Linear();
+        law->Set(0.0, 1.0, 1.0, 1.0 + k);
+        mk.SetLaw(outer, law, Standard_False, Standard_True);
+    } else {
+        mk.Add(outer, Standard_False, Standard_True);
+    }
+    return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile");
+    OCCT_CATCH("occt_coil_profile", nullptr)
 }

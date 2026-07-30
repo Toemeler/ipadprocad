@@ -382,6 +382,85 @@ int occt_revolve_hits_face(const occt_shape *shape, double ax_px, double ax_py,
                            double fx, double fy, double fz, double *out,
                            int max_hits);
 
+/* ---- v15: sweep, loft, coil ---------------------------------------------- */
+
+/*
+ * v15 — Sweep a profile along a PATH (Inventor's Sweep).
+ *
+ * The profile is encoded exactly as occt_extrude_profile_arcs (x, y, bulge per
+ * vertex, loop 0 outer, the rest holes) in its own z=0 sketch frame, and
+ * `mat34` places that frame in the world. The path arrives as a world-space
+ * 3D polyline (`path_pts`, 3 doubles per point, `npath` points): the caller
+ * has already sampled whatever sketch curve the user picked, so the shim does
+ * not need to know about sketches.
+ *
+ * `orientation` follows Inventor's three buttons:
+ *   0 = Follow Path — the section stays perpendicular to the path (Frenet).
+ *   1 = Fixed       — the section keeps its original orientation.
+ *   2 = Follow Path and Guide — as 0, corrected against the path's own frame.
+ *
+ * `taper_deg` widens or narrows the section along the path (a linear scaling
+ * law); 0 keeps it constant. `twist_deg` is accepted but NOT implemented and
+ * a non-zero value is REFUSED rather than silently ignored — a swept solid
+ * that quietly failed to twist is a wrong part, not a cosmetic miss.
+ *
+ * NULL on failure.
+ */
+occt_shape *occt_sweep_profile(const double *xyb, const int *loop_counts,
+                               int nloops, const double *mat34,
+                               const double *path_pts, int npath,
+                               int orientation, double taper_deg,
+                               double twist_deg);
+
+/*
+ * v15 — Loft through a series of SECTIONS (Inventor's Loft).
+ *
+ * `xyb` holds every section's vertices back to back; `loop_counts[i]` is the
+ * vertex count of section i; `mats` holds 12 doubles per section placing that
+ * section's z=0 frame in the world. One closed loop per section — the common
+ * case, and what the panel offers.
+ *
+ * `solid` closes the ends (Inventor's Output: Solid rather than Surface).
+ * `ruled` makes straight transitions between sections instead of a smooth
+ * spline (Inventor's Transition tab). `closed` loops the last section back to
+ * the first (Closed Loop).
+ *
+ * NULL on failure — notably when two sections are not compatible, which OCCT
+ * detects and which is a real modelling error rather than something to paper
+ * over.
+ */
+occt_shape *occt_loft_sections(const double *xyb, const int *loop_counts,
+                               const double *mats, int nsections, int solid,
+                               int ruled, int closed);
+
+/*
+ * v15 — Coil / helical sweep (Inventor's Coil).
+ *
+ * Profile and `mat34` as for the sweep. The axis is the world-space line
+ * through (ax_p*) along (ax_d*); Inventor requires it NOT to pass through the
+ * profile, and the helix radius is the distance from the axis to the profile's
+ * centroid.
+ *
+ * `revolutions` and `height` give Inventor's "Revolution and Height" method;
+ * the panel's other methods (Pitch and Revolution, Pitch and Height, Spiral)
+ * are all expressible as a revolutions/height pair, so the conversion lives in
+ * Dart and the shim takes only the resolved pair.
+ *
+ * `taper_deg` tapers the coil (a linear scaling law along the helix).
+ * `clockwise` picks the handedness. `close_start` / `close_end` are accepted
+ * for signature stability but are NOT implemented and a non-zero value is
+ * REFUSED — a flat-ended coil where the user asked for a closed one is a
+ * different part.
+ *
+ * NULL on failure.
+ */
+occt_shape *occt_coil_profile(const double *xyb, const int *loop_counts,
+                              int nloops, const double *mat34, double ax_px,
+                              double ax_py, double ax_pz, double ax_dx,
+                              double ax_dy, double ax_dz, double revolutions,
+                              double height, double taper_deg, int clockwise,
+                              int close_start, int close_end);
+
 /* ---- Lifecycle --------------------------------------------------------- */
 
 /* Release a shape returned by any constructor above. NULL is ignored. */

@@ -102,6 +102,23 @@ class FakeKernel implements PartKernel {
   List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) =>
       const [];
   @override
+  KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
+          List<double> pathPts,
+          {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) =>
+      null;
+  @override
+  KernelSolid? loft(List<List<Offset>> sections, List<List<double>> mats,
+          {bool solid = true, bool ruled = false, bool closed = false}) =>
+      null;
+  @override
+  KernelSolid? coil(List<List<List<Offset>>> groups, List<double> mat34,
+          Vec3 axP, Vec3 axD,
+          {required double revolutions,
+          required double height,
+          double taperDeg = 0,
+          bool clockwise = false}) =>
+      null;
+  @override
   List<double> revolveHitsFace(
           KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p, Vec3 facePoint) =>
       const [];

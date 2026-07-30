@@ -16,6 +16,65 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M131b — Sweep, Loft und Coil vollstaendig: Shim v15 (44 Symbole), Modell,
+> Session, Panel, Picking. 853/853 Tests.**
+>
+> **Shim, analytisch geprueft — nicht per Augenmass:**
+> - `occt_sweep_profile` (MakePipeShell). Smoke [30]: ein 10x10-Quadrat 40 mm
+>   geradeaus gesweept ist ein Prisma, V = 4000.000000 exakt, 6 Flaechen. Ein
+>   L-Pfad muss MEHR Material ergeben. Scharfe Pfadecken scheiterten zunaechst
+>   komplett; `SetTransitionMode(RightCorner)` behebt das (und ist auch das,
+>   wie ein gesweepter Stab an einer Ecke wirklich aussieht).
+> - `occt_loft_sections` (ThruSections). Smoke [31]: zwei gleiche Quadrate 25 mm
+>   auseinander = 2500.000000 exakt; ein 10->20-Kegelstumpf =
+>   h/3*(A1+A2+sqrt(A1*A2)) = 5833.333333, gemessen 5833.333333.
+> - `occt_coil_profile`. Der Helix ist eine GERADE im (u,v)-Raum eines
+>   `Geom_CylindricalSurface` — u windet, v steigt. Smoke [32]: 5 Windungen,
+>   50 mm Hub, Radius 20, Querschnitt 4 mm^2 → Schaetzung ueber die
+>   Helixlaenge 2521.2193, gemessen 2521.2203. Uebereinstimmung auf 4e-7.
+>
+> **Ehrlich verweigert statt still ignoriert:** Twist beim Sweep und die
+> Coil-Enden (Close Start/End) sind NICHT implementiert; ein Wert ungleich
+> null wird abgelehnt. Ein Sweep, der still nicht verdreht, ist ein falsches
+> Teil, und man sieht es dem Ergebnis nicht an.
+>
+> **Ein Panel, fuenf Arten.** `ExtrudeSession.kind` traegt jetzt extrude,
+> revolve, sweep, loft, coil. Von den Feldern sind Profile, Sketch-Bindung,
+> Output, Koerper, Vorschau und Auto-Pick allen gemeinsam; nur die Zahlen
+> darunter unterscheiden sich. Drei eigene Panels waeren drei Kopien der
+> Kanten- und Vorschaubehandlung gewesen.
+>
+> **Coil-Methoden:** alle vier Inventor-Varianten (Revolution and Height,
+> Pitch and Revolution, Pitch and Height, Spiral) rechnen im MODELL auf ein
+> (Umdrehungen, Hoehe)-Paar um (`CoilFeature.resolved`), sodass der Shim eine
+> Form kennt und das Panel trotzdem alle vier anbietet.
+>
+> **`CurveSel` fuer den Sweep-Pfad:** wie `EdgeSel` per Geometrie gespeichert
+> (Endpunkte + Laenge), nicht per Index — ein Index verschiebt sich, sobald
+> etwas in der Skizze eingefuegt wird, und der Sweep zeigte dann still auf
+> eine andere Linie.
+>
+> **Cache-Fehler dabei gefunden und behoben:** `featureInputSig` hashte nur
+> EINE Skizze. Ein Sweep haengt aber auch an der Skizze seines PFADES und ein
+> Loft an einer je Sektion — deren Bearbeitung liess den gecachten Solid
+> stehen und nichts bewegte sich. Neu `PartFeature.sketchNames`, und die
+> Signatur hasht alle.
+>
+> **Und ein Parser-Fehler:** `parseValueExpr` entfernte `mm|deg|°`, aber nicht
+> `ul` — Inventors einheitenloses Suffix fuer Zaehlwerte. „5 ul" ergab damit
+> null, und jede Coil-Methode, die Umdrehungen liest, verweigerte still den
+> Dienst.
+>
+> **22 neue Tests** (was wirklich beim Kernel ankommt, alle vier
+> Coil-Umrechnungen, Pfad in WELT-Koordinaten, Sektionen in Pick-Reihenfolge,
+> Mehrfach-Skizzen-Abhaengigkeit, JSON-Roundtrip).
+>
+> **NOCH OFFEN:** die Arbeitselemente (Plane/Axis/Point/UCS). Der Ribbon
+> traegt Inventors vollstaendige 13er-Plane-Liste bereits als ATTRAPPEN
+> (`'plane'`-Flyout in ribbon.dart), es gibt aber kein Modell dafuer — kein
+> `WorkFeature`, keine Konstruktionsmethoden, und Arbeitsebenen sind nicht als
+> Skizzenebene waehlbar. Das ist ein eigener Meilenstein, nicht ein Anhaengsel.
+
 > **M130a — Ursache der wilden Highlight-Linien: falsches Drahtformat.
 > Merge M123/M124. 831/831 Tests.**
 >

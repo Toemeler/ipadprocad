@@ -981,6 +981,39 @@ class _Viewport3DState extends State<Viewport3D>
       }
       if (_selSketch.isNotEmpty) setState(_selSketch.clear);
     }
+    // M131b — 0. picking the sweep PATH. Same sketch-curve picker as the
+    // revolve axis; a path IS a sketch curve.
+    if (app.pickingSweepPath) {
+      final key = _pickSketchCurve(cam, px);
+      if (key != null) {
+        final i = key.lastIndexOf('#');
+        app.sweepPathPicked(i < 0 ? key : key.substring(0, i),
+            i < 0 ? -1 : (int.tryParse(key.substring(i + 1)) ?? -1));
+      } else {
+        app.cancelPickSweepPath();
+      }
+      return;
+    }
+    // M131b — 0. picking LOFT sections. Stays armed: a loft needs several,
+    // and a miss must not discard the ones already chosen.
+    if (app.pickingLoftSections) {
+      // Any sketch, unlike extrude which locks to one: a loft's whole point is
+      // running between profiles on DIFFERENT sketches.
+      for (final cs in p.childSketches) {
+        final frame = sketchFrameOf(cs);
+        final w = cam.rayOnPlane(px, frame.n);
+        if (w == null) continue;
+        final sp = Offset(w.dot(frame.u), w.dot(frame.v));
+        final r = regionAt(app.sessionRegions(cs), sp);
+        if (r != null) {
+          final ip = interiorPointOf(r.outer);
+          app.toggleLoftSection(
+              cs.model.name, ProfileSel(ip.dx, ip.dy, r.outer.area));
+          return;
+        }
+      }
+      return;
+    }
     // M137 — 0. picking the AXIS of revolution. Reuses the sketch-curve
     // picker: an axis IS a sketch line, and _pickSketchCurve already returns
     // the sketchName#index key that identifies one.
