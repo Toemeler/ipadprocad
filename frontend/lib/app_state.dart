@@ -3881,6 +3881,13 @@ class AppState extends ChangeNotifier {
           f.bodyName = (f.output != 'new' && lastBody != null)
               ? lastBody
               : p.nextSolidName();
+        } else {
+          // M155 — the revolve/sweep/loft/coil dialogs set the body name
+          // themselves (from peekSolidName, which does NOT consume). Without
+          // this the counter stayed behind its own document: a part with
+          // Solid1..Solid3 saved `solidN: 1`, and the next body after a
+          // re-open collided with an existing one.
+          p.claimBodyName(f.bodyName);
         }
       }
     } else if (editing is ExtrudeFeature && parsed is ExtrudeFeature) {
@@ -3913,9 +3920,7 @@ class AppState extends ChangeNotifier {
             ? lastBody
             : p.nextSolidName();
       } else {
-        final m = RegExp(r'^Solid(\d+)$').firstMatch(f.bodyName.trim());
-        final num = m == null ? null : int.tryParse(m.group(1)!);
-        if (num != null && num > p.solidN) p.solidN = num;
+        p.claimBodyName(f.bodyName); // M155 — one implementation, not two
       }
     }
     // M132 — hand the boolean target in, or a To Next/Through All feature

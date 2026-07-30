@@ -2584,7 +2584,29 @@ class PartModel {
     }
     return '$label$n';
   }
-  String nextSolidName() => 'Solid${++solidN}';
+  /// The next free body name, consuming it.
+  ///
+  /// M155 — goes through [peekSolidName] so it SKIPS names already in use.
+  /// `'Solid${++solidN}'` trusted the counter alone, and the counter drifts:
+  /// revolve/sweep/loft/coil set their body name from their own dialog and
+  /// never bumped it, so a part with Solid1..Solid3 was saved with
+  /// `solidN: 1`. Re-opening it and adding a body then handed out "Solid2" a
+  /// second time, and two features silently drove the same body — one of the
+  /// ways a part came back different after a close and re-open.
+  String nextSolidName() {
+    final name = peekSolidName();
+    claimBodyName(name);
+    return name;
+  }
+
+  /// Records that [name] is taken, so no counter ever hands it out again.
+  /// Call for every body name that is set from outside (a dialog, a loaded
+  /// document) rather than drawn from [nextSolidName].
+  void claimBodyName(String name) {
+    final m = RegExp(r'^Solid(\d+)$').firstMatch(name.trim());
+    final n = m == null ? null : int.tryParse(m.group(1)!);
+    if (n != null && n > solidN) solidN = n;
+  }
 
   /// M96 — the next free body name WITHOUT consuming it.
   ///
@@ -2664,6 +2686,19 @@ class PartModel {
     for (final f in (j['features'] as List? ?? const [])) {
       final pf = PartFeature.fromJson((f as Map).cast<String, dynamic>());
       if (pf != null) features.add(pf);
+    }
+    // M155 — REPAIR the counters from what the document actually CONTAINS.
+    // Every document written before this carries counters that drifted behind
+    // their own contents (a real file: bodies Solid1..Solid3 present, saved
+    // with `solidN: 1`, because revolve/coil set the body name from their own
+    // dialog and never bumped it). Trusting the stored number hands the same
+    // name out again on the next feature and two features silently drive one
+    // body. Deriving it from the features repairs those files on open.
+    for (final f in features) {
+      claimBodyName(f.bodyName);
+      final m = RegExp(r'^Extrusion(\d+)$').firstMatch(f.name);
+      final n = m == null ? null : int.tryParse(m.group(1)!);
+      if (n != null && n > featureN) featureN = n;
     }
     for (final w in (j['workPlanes'] as List? ?? const [])) {
       final wp = WorkPlane.fromJson((w as Map).cast<String, dynamic>());

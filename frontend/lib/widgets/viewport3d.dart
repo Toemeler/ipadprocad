@@ -1183,7 +1183,21 @@ class _Viewport3DState extends State<Viewport3D>
               remove: HardwareKeyboard.instance.isShiftPressed);
           return;
         }
-        if (sess.sketchName == cs.model.name) break; // locked, no fallback
+        // M155 — only a session the user has actually committed to one sketch
+        // is locked. `sess.sketchName` is ALWAYS set when the dialog opens
+        // (openExtrude defaults it to the newest sketch), and that sketch is
+        // first in `order`, so this used to break on the very first pass and
+        // no second sketch was ever reachable — tapping a profile in the other
+        // sketch did nothing. That is what blocked extruding from either of
+        // two sketches, and loft/sweep need at least two.
+        // `toggleSessionProfile` already enforces the real rule: an
+        // auto-picked profile yields to the user's pick, and only an explicit
+        // multi-profile selection refuses to cross sketches.
+        if (sess.sketchName == cs.model.name &&
+            !sess.autoPicked &&
+            sess.profiles.isNotEmpty) {
+          break; // genuinely locked to this sketch
+        }
       }
       return;
     }
