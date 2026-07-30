@@ -20,6 +20,7 @@ import 'package:native_menu/native_menu.dart';
 
 import 'widgets/native_browser_host.dart';
 import 'widgets/ribbon.dart';
+import 'widgets/ribbon_chrome.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
 import 'widgets/edge_feature_dialog.dart';
@@ -155,10 +156,24 @@ class PrototypeApp extends StatelessWidget {
                   // On the home gallery there is no ribbon — the "+" button in the
                   // gallery header is the only new-sketch affordance. The ribbon
                   // only belongs to an open sketch.
-                  if (!app.isHome)
+                  //
+                  // M146 — with the native glass surface the ribbon FLOATS over
+                  // the viewport instead of taking a row of the Column, for the
+                  // same reason the model browser does (M108): glass with an
+                  // opaque bar behind it has nothing to refract and looks like
+                  // painted grey. Both viewports run underneath it — the 2D
+                  // sketcher and the 3D part alike, because the overlay sits over
+                  // the whole content area rather than over one of them.
+                  //
+                  // Off iOS there is no glass, so the ribbon keeps its own row:
+                  // an opaque Flutter bar floating over the model would just hide
+                  // a strip of it, and every host test keeps the tree it knows.
+                  if (!app.isHome && !RibbonSurface.isGlass)
                     SizedBox(width: double.infinity, child: Ribbon(app: app)),
                   Expanded(
-                    child: app.isHome
+                    child: Stack(children: [
+                      Positioned.fill(
+                        child: app.isHome
                         ? HomeView(app: app)
                         // M108 — the browser FLOATS over the viewport instead
                         // of taking a column of its own, so the model runs
@@ -250,6 +265,18 @@ class PrototypeApp extends StatelessWidget {
                                 ),
                               ),
                           ]),
+                      ),
+                      // M146 — the ribbon floats over the content area, so
+                      // BOTH viewports run behind its glass: Viewport2D in a
+                      // sketch and Viewport3D in a part (the overlay covers
+                      // the area, not one particular child).
+                      if (!app.isHome && RibbonSurface.isGlass)
+                        Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Ribbon(app: app)),
+                    ]),
                   ),
                   BottomTabBar(app: app),
                 ]),

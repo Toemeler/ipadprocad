@@ -13,6 +13,7 @@ import '../log.dart';
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
+import 'ribbon_chrome.dart';
 
 Widget svg(String s, double size) =>
     SvgPicture.string(s, width: size, height: size);
@@ -397,22 +398,45 @@ class _RibbonState extends State<Ribbon> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
-    return Container(
-      decoration: const BoxDecoration(
-        color: T.panel,
-        border: Border(
-          top: BorderSide(color: T.ribbonTop, width: 2),
-          bottom: BorderSide(color: T.ribbonBottom, width: 2),
+    // M146 — the bar is now a Stack, not a bordered Container: the surface is
+    // a native Liquid Glass platform view and the two blue borders are lit
+    // edges drawn OVER it (see ribbon_chrome.dart). The content in between is
+    // untouched — same panels, same icons, same horizontal scroll.
+    final content = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      // The bar is only as wide as the screen and its panels routinely
+      // overflow, so the scroll must never be disabled by a shrink-wrapped
+      // parent. Explicit physics keeps the drag alive even when the content
+      // happens to fit, which is what makes the ribbon feel like a strip
+      // rather than a truncated row.
+      physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics()),
+      clipBehavior: Clip.hardEdge,
+      child: app.isHome
+          ? _homeRibbon(app)
+          : (app.currentPart != null && app.activeChild == null
+              ? _partRibbon(app)
+              : _sketchRibbon(app)),
+    );
+
+    return Stack(
+      children: [
+        // Background. Sized to the bar by the Stack's non-positioned child
+        // below, so the glass covers exactly the ribbon and nothing else.
+        const Positioned.fill(child: RibbonSurface()),
+        // Content defines the Stack's height (IntrinsicHeight inside).
+        // Padding leaves the 2 pt edges their room so nothing is drawn under
+        // them, exactly as the old borders did.
+        Padding(
+          padding: const EdgeInsets.symmetric(
+              vertical: RibbonEdgeLine.thickness),
+          child: content,
         ),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: app.isHome
-            ? _homeRibbon(app)
-            : (app.currentPart != null && app.activeChild == null
-                ? _partRibbon(app)
-                : _sketchRibbon(app)),
-      ),
+        const Positioned(
+            top: 0, left: 0, right: 0, child: RibbonEdgeLine(top: true)),
+        const Positioned(
+            bottom: 0, left: 0, right: 0, child: RibbonEdgeLine(top: false)),
+      ],
     );
   }
 
