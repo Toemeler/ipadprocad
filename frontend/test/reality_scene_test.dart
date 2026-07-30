@@ -280,6 +280,10 @@ void main() {
       final lines = (ea['lines'] as List).cast<List>();
       expect(lines.length, 1);
       expect(lines.first, [0, 1, 0, 1, 1, 0], reason: 'edge 1 verbatim');
+      expect(lines.first, isA<Float32List>(),
+          reason: 'the renderer reads these as 32-bit floats; sending float64 '
+              'reinterprets the bytes and draws enormous lines nowhere near '
+              'the part');
     });
 
     test('works even when the body is HIDDEN by a preview', () {
@@ -312,6 +316,25 @@ void main() {
               as List)
           .cast<List>();
       expect(lines.length, 1);
+    });
+
+    test('EVERY emitted line is Float32List, matching the wire format', () {
+      // The bug this guards cost a device round trip: Float32List is what
+      // Payload.floats binds to on the other side. A Float64List slice
+      // compiles, serialises, and then renders as garbage.
+      final s = triEdged();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 1, 1, 0), solid: s, display: 0);
+      app.toggleEdgePick(2, EdgeSel(0, 1, 0, 1, 1, 0), solid: s, display: 1);
+      app.setHoverEdge3d(s, 2);
+      final lines = ((buildScenePayload(app, p)['edgeAccent'] as Map)['lines']
+              as List)
+          .cast<Object>();
+      expect(lines.length, 3);
+      for (final l in lines) {
+        expect(l, isA<Float32List>());
+      }
     });
 
     test('an out-of-range display index is skipped, not crashed on', () {

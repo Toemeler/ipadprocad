@@ -16,6 +16,47 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M129 — Build-Bruch behoben UND die Ursache der wilden Highlight-Linien:
+> falsches Drahtformat. Merge M123/M124. 831/831 Tests.**
+>
+> **Der Build-Bruch (#307):** `Cannot convert value of type 'SIMD3<Float>' to
+> expected argument type 'Float'`, dreimal auf einer Zeile.
+> `Payload.floats(_:)` gibt `[SIMD3<Float>]` zurueck — die Punkte sind SCHON
+> gruppiert. Mein M127-Code hat sie ein zweites Mal gruppiert und dabei jeden
+> Punkt als Skalar behandelt. Ich hatte die Signatur des Helfers ANGENOMMEN
+> statt sie nachzulesen; genau der Fehler, den ich in dieser Sitzung schon
+> einmal gemacht habe.
+>
+> **Und die eigentliche Ursache der Linien „ueberall, nicht am Teil, manche
+> irrsinnig lang":** `Payload.floats` bindet den Puffer an `Float`, also 32
+> Bit. Mein Dart schickte `Float64List`-Ausschnitte, also 64 Bit. Dieselben
+> Bytes als 32-bit-Floats gelesen ergeben keine „leicht verschobenen" Punkte,
+> sondern beliebige Zahlen — riesige Koordinaten weit ausserhalb des Teils,
+> genau das gemeldete Bild. Jetzt wird `edgePoints32` geschnitten
+> (`Float32List.sublistView`), also dasselbe Format, das jede andere
+> Punkt-Nutzlast schon benutzt (`solidPayload` schickt `edgePoints32`).
+>
+> **Warum kein Test das gefangen hat und jetzt einer da ist:** die
+> Nutzlast-Tests prueften die WERTE (`[0,1,0,1,1,0]`), und die stimmten — ein
+> `Float64List` mit denselben Zahlen ist inhaltlich identisch und faellt erst
+> auf der anderen Seite der Grenze auf. Neu prueft ein Test explizit, dass
+> JEDE ausgegebene Linie ein `Float32List` ist.
+>
+> **Vor dem Push diesmal jeder Typ NACHGESEHEN statt angenommen:** `cam.dir`
+> und `outlineDir` sind `SIMD3<Float>`, `highlightEps` und `edgeRadius` sind
+> `Float`, `RibbonBuilder.mesh` nimmt `([[SIMD3<Float>]], halfWidth: Float,
+> viewDir: SIMD3<Float>)` — identisch zu den beiden bestehenden Aufrufstellen,
+> `Materials.unlitSoft` nimmt `UIColor`, `Colors.highlight` ist einer.
+>
+> **Nicht das Problem, geprueft:** der Anzeige-Index wird beim Verfeinern des
+> Meshes NICHT ungueltig. Refinement aendert die Tesselierungsdichte, nicht
+> die Anzahl gezeichneter Kanten, und `poly()` liest `edgeStarts` und Punkte
+> aus DEMSELBEN Mesh — Index und Puffer bleiben also konsistent.
+>
+> **Merge M123/M124 von `main`** (Punkt bindet an Kreis/Bogen/Spline/Polygon;
+> radiales Spaltmass zwischen zwei Kreisen; getriebener Kreis-Offset) —
+> konfliktfrei ausser HANDOFF.
+
 > **M128 — End of Part neu gebaut: die Invariante wird jetzt ERZWUNGEN statt
 > erinnert. 809/809 Tests, 17 davon neu und ausschliesslich fuer EOP.**
 >
@@ -1210,9 +1251,12 @@ Token NIE in Dateien/.git/config schreiben.
 > 38 Definitionen == 38 Deklarationen, Klammern balanciert. Erwartungswert
 > fuer den ersten CI-Lauf: Korrekturen an OCCT-Include-Namen.
 > ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de`)
+> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123/M124)
 >
 > **Alles gruen:** `dart-checks` 632 Tests + analyze sauber, `build-core-ios`,
-> `M3` und `m5-flutter-ipa` bestanden.
+> `M3` und `m5-flutter-ipa` bestanden. **M123 kam danach dazu: 645 Tests lokal
+> gruen (Flutter 3.32.0), analyze 51 Issues / 0 errors = exakt der Ausgangsstand.
+> M123 ist noch NICHT durch die CI und nicht committet.**
 >
 > **Was in dieser Sitzung entstand:** M82–M122. Grob: Galerie-Vorschau auf der
 > echten 3D-Engine, Ursprungsebenen rahmen das Teil, Share Sketch +
@@ -1223,6 +1267,14 @@ Token NIE in Dateien/.git/config schreiben.
 > Liquid Glass.
 >
 > **OFFEN — nach Wichtigkeit:**
+> 0a. **HUD-Eingabe waehrend des Offsets (Rest von M124).** Inventor zeigt ein
+>    schwebendes Abstandsfeld, in das man den Offsetwert TIPPT. Das Mass danach
+>    zu editieren geht jetzt; das Tippen VORHER nicht. `hud.dart` ist an
+>    `toolPoints`-Phasen gekoppelt (Erzeugungswerkzeuge), Offset laeuft ueber
+>    `modEntity` + Hover — also ein echter Umbau, kein neuer enum-Fall.
+> 0. **Geraete-Test von M123/M124 im 2D-Modus**: einen Punkt auf Kreis, Bogen,
+>    Spline und Polygonkante zeichnen und dann ZIEHEN — bleibt er auf dem
+>    Traeger? Am Host bewiesen, am Geraet nie gesehen.
 > 1. **Geraete-Test des Panels** (M118–M122): Einziehen, EOP-Zug, ob die
 >    Rollback-Wirkung jetzt stimmt, ob 78 pt eingezogen reichen, ob das Glas
 >    ueberhaupt bricht. Fast alles seit M107 ist nur CI-gruen, nicht gesehen.
@@ -1257,6 +1309,122 @@ Token NIE in Dateien/.git/config schreiben.
 >   der Fehler nimmt den ganzen Teilbaum mit, hier das komplette Ribbon.
 > * **Vor dem Erweitern das vorhandene C-API lesen** (M109): STEP-Export gab es
 >   laengst, mein Duplikat hat die Uebersetzungseinheit zerschossen.
+
+> **M124 — Bemassung zwischen zwei Kreisen; zwei Luecken, eine Ursache.**
+>
+> Gemeldet: „Kreis Ø20 zeichnen, offsetten, 2 mm eintippen und ein Mass
+> zwischen den beiden Kreisen bekommen" — und „zwei konzentrische Kreise
+> anklicken und wie in Inventor ein Mass zwischen den Durchmessern".
+>
+> **Was wirklich fehlte.** Zwei Kreise anklicken gab die MITTELPUNKT-Distanz.
+> Bei konzentrischen Kreisen ist die identisch 0: sie misst nichts und kann
+> nichts treiben. Und `_commitOffset` verdrahtete Linien (parallel + `pline`-
+> Mass) und Boegen (`concentric`), liess eine KREIS-Kopie aber voellig lose —
+> keine Bedingung, kein Mass. Die Kopie driftete beim ersten Ziehen, und es gab
+> keinen Wert, in den man 2 haette tippen koennen.
+>
+> **Inventor-Recherche.** Zwei Kreise = Mitte-zu-Mitte, Kante-zu-Kante gibt es
+> ueber **Alt** beim Picken. Kreis bekommt Durchmesser, Bogen Radius, Rechtsklick
+> tauscht. Offset (neuere Versionen) hat ein schwebendes Abstandsfeld. Dynamic
+> Input: Tippen SPERRT ein Feld und erzeugt daraus ein persistentes Mass, ein
+> nie beruehrtes Feld bekommt keins — das ist in `hud.dart` bereits sauber
+> umgesetzt, nur eben nicht fuer Offset.
+>
+> **Die Loesung: ein neues `dimKind: 'gap'`** = |R2 - R1|, die Ringbreite —
+> genau die Strecke, um die ein Offset einen Kreis versetzt. An allen fuenf
+> Stellen eingebaut: `measureDim`, `residualCount`, Residuum, Vorzeichen-Freeze
+> in `_prepare` (welcher Kreis der aeussere ist, wird EINMAL pro Solve
+> eingefroren — die abs() hat ihre Ecke genau in der Loesung, und ein Paar das
+> sich waehrend eines Zugs kreuzt wuerde sonst mitten im Solve die Rollen
+> tauschen), und das Zeichnen. Der slvs-Shim kennt es nicht, also faellt der
+> Sketch ueber die bestehende Allow-Liste auf den verifizierten Dart-LM-Pfad.
+>
+> * Konzentrisches Paar -> Gap-Mass. Versetzte Kreise weiter Mitte-zu-Mitte,
+>   wie Inventor.
+> * Kreis-Offset erzeugt `concentric` + ein Gap-Mass als **editierbaren
+>   Treiber**, wie die Linien ihren d0-Treiber haben.
+>
+> **Ein eigener Fehler, den erst der Test fand:** ich nahm zuerst
+> `chain.offsetDist` als Wert. Das ist die senkrechte Laufdistanz der LINIEN und
+> ist bei einer reinen Kreiskette 0 — das Mass zog die Kopie sofort auf ihre
+> Quelle zurueck (beide landeten bei r11.5). Der Wert kommt jetzt aus der
+> Radiendifferenz. Lehrreich, weil es still war: die Geometrie sah richtig aus,
+> bis der Solver lief.
+>
+> **Belegt:** Ø20 offset -> Gap 3.0 (Quelle r10, Kopie r13); Gap auf 2 -> Kopie
+> exakt r12; Quelle auf Ø30 -> Kopie folgt auf r17, weil das Gap eine BEZIEHUNG
+> ist und kein fester Radius. 653 Tests, analyze 51 Issues / 0 errors.
+
+> **M123 — Punkt-auf-Kurve entstand nur an LINIEN.**
+>
+> Gemeldet aus dem 2D-Modus: landet ein gezeichneter Punkt auf einer Linie,
+> entsteht die Bindung; landet er auf einem Kreis, einem Bogen oder einem
+> Spline, entsteht **nichts**. Der Punkt sah gebunden aus und rutschte beim
+> ersten Ziehen ab.
+>
+> **Ursache — eine Zeile.** `inferPointBindings` (constraints.dart) hatte
+> `if (gs[j].type != Geo.line) continue;`. Der Snap bietet den 'on'-Fang fuer
+> Kreis, Bogen, Spline, Ellipse, Zahnrad und Polylinie laengst an (snap.dart),
+> der Punkt lag also bereits EXAKT auf dem Traeger — nur gefragt hat nie jemand.
+> Neu ist `pointLandsOn(Geo, Offset)` fuer alle Traegertypen. Zwei Feinheiten,
+> beide getestet: ein Bogen bindet nur auf dem **gezeichneten** Sweep (nie auf
+> dem Gegenbogen, gleiche Pruefung wie der Snap — dafuer wurde `_angleOnArc` zu
+> `angleOnArc` oeffentlich), und definierende Punkte sind ausgenommen, weil ein
+> Treffer dort **Punkt-auf-Punkt** ist, die staerkere Bindung.
+>
+> **Wie weit der Solver schon war.** Kreis/Bogen konnten BEIDE Solverpfade
+> bereits (Dart-Residuum `|q-c| - r`, slvs `SLVS_C_PT_ON_CIRCLE` hinter dem
+> Shim-v4-Gate) — der Trim/Split-Cut-Bind erzeugt sie seit M38.1. Fuer
+> Polylinien-Traeger (Polygon, Spline, Ellipse, Zahnrad) gab es dagegen GAR
+> nichts: `residualCount` gab 0 zurueck, die Bindung waere gespeichert und
+> gezeichnet, aber **nie durchgesetzt** worden, und der slvs-Packer waere auf
+> `SH_PT_ON_LINE` mit einer Nicht-Linien-Entitaet durchgefallen.
+>
+> **Das neue Residuum.** Eine Polylinie hat keine geschlossene implizite
+> Gleichung wie ein Kreis. Die Kurve wird deshalb pro Durchgang EINMAL
+> abgetastet und auf ihre Tangente am naechsten Punkt reduziert
+> (`_OnCurve`-Rahmen, gleiche Freeze-Idee wie die Tangenten-Zweige). Das
+> Residuum ist danach O(1) und tastet nie ab. **Der teuerste Fehler dabei:**
+> `residualCount` laeuft IM Jacobi-Kern (`_residuals` ruft es pro Constraint pro
+> Auswertung) — dort die Kurve zu erzeugen kostete auf einem 60-Punkt-Spline das
+> ~100-fache. Es entscheidet jetzt nach der Stuetzpunktzahl, ohne abzutasten.
+>
+> **`_lm` laeuft in Durchgaengen.** Eine Tangente ist nicht die Kurve: bewegt
+> sich der Traeger weit, minimiert LM sauber gegen die Tangente und der Punkt
+> liegt trotzdem daneben (~d²/2R). Also: konvergieren → Rahmen auf die Kurve
+> zurueckwerfen → erneut konvergieren. Ohne Punkt-auf-Kurve-Constraint laeuft
+> genau ein Durchgang, alles andere bleibt unveraendert. Der erste Anlauf haengte
+> den Rueckwurf an den `lambda`-Ueberlauf und lief nie — die Schleife endet
+> normal, sobald der STALE Rahmen konvergiert ist.
+>
+> **Traeger folgt starr.** Jeder Stuetzpunkt haelt einen gleichen Anteil der
+> Normalen, damit eine reine VERSCHIEBUNG des Traegers exakt ist. Die echten
+> Basisgewichte numerisch zu messen war gebaut und wurde **verworfen**: ein
+> Kurven-Neuaufbau pro Stuetzpunkt pro Rahmen, auf einem 60-Punkt-Freihand-Spline
+> (M87) 28 ms pro Solve gegen 0.4 ms ohne Bindung. Eine VERFORMUNG faengt jetzt
+> der Rueckwurf ein (eigener Test: ein Stuetzpunkt wird gezogen, der gebundene
+> Punkt landet auf der verformten Kurve).
+>
+> **slvs.** Der Shim kennt keine Polylinien-Entitaet, also **Bail auf den
+> verifizierten Dart-LM-Pfad** (wie das Pattern-Constraint) statt einer falschen
+> Gleichung; der Packer wurde zusaetzlich abgesichert, damit ein Nicht-Linien-
+> Traeger dort nie als Linie landet.
+>
+> **Auch repariert:** das manuelle Coincident-Werkzeug nahm als zweiten Pick nur
+> Linien und widersprach damit der eigenen Automatik und dem Cut-Bind.
+>
+> **Zahlen (Host, Container-CPU — das Geraet ist schneller).** Zug-Solve mit
+> 6-Punkt-Spline: 671 us ohne, 969 us mit Bindung. Im 124-Parameter-Sketch
+> kostet die ALTE Punkt-auf-Linie-Bindung 37.7 ms gegen 5.0 ms fuer M123 — die
+> Kosten sind dort die Sketch-Groesse, nicht der Traeger.
+>
+> **Ehrliche Restschuld:** der Rahmen ist eine pro Durchgang erneuerte
+> Linearisierung, keine exakte NURBS-Projektion. Fuer eine echte Projektion
+> muesste der Kurvenparameter als zusaetzliche Unbekannte in den
+> Parametervektor — das beruehrt `_pack`/`_unpack`/`paramsOfPoint` und die
+> Rang-Analyse und war mir fuer diese Aenderung zu invasiv. Konvergiert ein
+> Solve seine Durchgaenge nicht, faellt er durch das normale Residuen-Gate und
+> wird verworfen, statt falsch gezeigt zu werden.
 
 > **M122 — End of Part wirkte nicht richtig, und der Extrude-Dialog lag hinter
 > dem Browser.**

@@ -449,14 +449,20 @@ Map<String, dynamic>? _edgeAccentPayload(AppState app) {
   final sel = app.pickedEdgeSolid;
   final hov = app.hoverEdge3d;
   if (sel == null && hov == null) return null;
-  final lines = <List<double>>[];
+  final lines = <Float32List>[];
 
-  List<double>? poly(KernelSolid s, int i) {
+  /// The edge's points as a FLOAT32 slice — the wire format every other point
+  /// payload uses (`edgePoints32`, read back by Payload.floats as 32-bit).
+  /// Sending the float64 buffer instead hands the renderer 64-bit doubles
+  /// reinterpreted as 32-bit floats, which is not "slightly off" but complete
+  /// nonsense: lines nowhere near the part, some of them enormous.
+  Float32List? poly(KernelSolid s, int i) {
     final m = s.mesh;
     if (i < 0 || i + 1 >= m.edgeStarts.length) return null;
     final a = m.edgeStarts[i], b = m.edgeStarts[i + 1];
-    if (b - a < 2 || b * 3 > m.edgePoints.length) return null;
-    return m.edgePoints.sublist(a * 3, b * 3);
+    final src = m.edgePoints32;
+    if (b - a < 2 || b * 3 > src.length) return null;
+    return Float32List.sublistView(src, a * 3, b * 3);
   }
 
   if (sel != null) {

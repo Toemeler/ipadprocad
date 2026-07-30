@@ -660,15 +660,13 @@ final class PartRenderer: NSObject {
         var lines = [[SIMD3<Float>]]()
         if let m = a as? [String: Any], let raw = m["lines"] as? [Any] {
             for l in raw {
-                guard let f = Payload.floats(l), f.count >= 6 else { continue }
-                var pts = [SIMD3<Float>]()
-                pts.reserveCapacity(f.count / 3)
-                var i = 0
-                while i + 2 < f.count {
-                    pts.append(SIMD3<Float>(f[i], f[i + 1], f[i + 2]))
-                    i += 3
+                // Payload.floats ALREADY groups the buffer into points; it
+                // returns [SIMD3<Float>], not [Float]. Re-grouping it treated
+                // each point as a scalar and did not compile.
+                guard let pts = Payload.floats(l), pts.count >= 2 else {
+                    continue
                 }
-                if pts.count >= 2 { lines.append(pts) }
+                lines.append(pts)
             }
         }
         // Cheap identity for the cache: total point count plus the first and
