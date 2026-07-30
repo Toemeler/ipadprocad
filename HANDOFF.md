@@ -16,6 +16,66 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M128 — End of Part neu gebaut: die Invariante wird jetzt ERZWUNGEN statt
+> erinnert. 809/809 Tests, 17 davon neu und ausschliesslich fuer EOP.**
+>
+> **Warum das siebenmal schiefging.** `eopAfter` (eine Zeilenposition) und
+> `rolledBack` (ein Flag je Knoten) sind ZWEI Darstellungen EINER Tatsache.
+> Dass sie uebereinstimmen, wurde per Konvention gepflegt: sechs Aufrufstellen
+> von `applyEndOfPart`, fuenf UI-Stellen die `setEndOfPart` rufen, und nichts,
+> das es durchsetzt. Jeder EOP-Bug in der Historie (M91, M100, M102, M113,
+> M121, M122) war dieselbe Form — die beiden liefen auseinander. Arithmetik zu
+> reparieren hat deshalb nie geholfen.
+>
+> **Die eigentliche Ursache, bisher unentdeckt: `recomputeAllFeatures` hat
+> `rolledBack` NIE beachtet.** Ein zurueckgerolltes Fillet wurde weiterhin
+> gerechnet, nahm weiterhin die Extrusion darunter als Basis und markierte sie
+> als `consumedByJoin` — womit BEIDE unsichtbar waren: eines unterdrueckt, das
+> andere „aufgegangen" in etwas, das nicht gezeichnet wird. Das ist M122s
+> verschwindender Koerper, und es ist auch das, was im Screenshot zu sehen war
+> (Fillet1 unter der Marke, Koerper trotzdem verrundet).
+>
+> **Drei Aenderungen, die die Fehlerklasse unmoeglich machen:**
+>
+> 1. **Der Fold LEITET die Flags selbst ab, als erstes, bedingungslos.**
+>    `recomputeAllFeatures` ruft `applyEndOfPart` an seinem Kopf. Der Fold ist
+>    der einzige Trichter, durch den jede Geometrie laeuft — damit ist ein
+>    veraltetes `rolledBack` nicht mehr darstellbar, statt bloss unerwuenscht.
+>    Kostet O(Zeilen) einmal pro Rebuild.
+> 2. **Ein unterdrucktes Feature ist wirklich abwesend:** wird nicht gerechnet,
+>    beruehrt die Kette nicht, und sein Solid wird FREIGEGEBEN. Damit kann
+>    keine veraltete Geometrie in die Szene sickern und kein Vorgaenger mehr
+>    faelschlich als verbraucht gelten.
+> 3. **`kEopAtEnd` als Sentinel statt einer Zahl.** Die Marke auf die letzte
+>    Zeile zu ziehen speicherte bisher DIE ZEILENZAHL. Danach war sie nicht
+>    mehr „am Ende": jedes neu erzeugte Feature landete UNTER ihr und kam
+>    unterdrueckt zur Welt — unsichtbar, ohne Hinweis warum. Das duerfte ein
+>    guter Teil des „really buggy"-Eindrucks gewesen sein.
+>
+> **Dazu `PartModel.appendFeature`:** Inventor baut, was man gerade gemacht hat
+> — bei Marke mitten in der Liste rueckt sie hinter das neue Feature. Die Regel
+> liegt jetzt im Modell (eine Stelle) statt an drei Anhaenge-Stellen, die sie
+> vergessen koennen.
+>
+> **Ausserdem:** die toten `rolled`-Menge in `applyEndOfPart` entfernt
+> (berechnet, nie gelesen — in einer fehleranfaelligen Funktion eine
+> Belastung).
+>
+> **Die 17 Tests pruefen INVARIANTEN, nicht Arithmetik:** die Flags folgen der
+> Marke auch wenn niemand appliziert hat; Loeschen laesst kein Flag zurueck;
+> ein Bereich ausserhalb wird geklammert statt geglaubt; ein unterdrucktes
+> Feature haelt kein Solid und verbraucht seinen Vorgaenger nicht; der Koerper
+> bleibt bei Marke mitten in der Liste sichtbar; Zurueckrollen stellt ihn
+> wieder her; „am Ende" ueberlebt das Anlegen eines Features; ein neu
+> erzeugtes Feature wird nie unterdrueckt geboren; und der Fillet-Fall aus dem
+> Screenshot explizit.
+>
+> **NICHT behoben, weil nur am Geraet beurteilbar:** wie sich das ZIEHEN
+> anfuehlt. Die Zeilenarithmetik ist seit M113 in beiden Browsern trivial
+> (`start + dy/32`, geklammert) und die Marke wird erst beim Loslassen
+> committet, es wird also nicht pro Schritt gespeichert. Ob es sich fluessig
+> anfuehlt, sagt nur ein Geraetetest.
+
 > **M127 — Zwei Geraetebefunde: Hover-Highlight in der Vorschau, und die
 > fehlenden Kanten am Anfang/Ende jedes Radius. 792/792, Shim v14.**
 >

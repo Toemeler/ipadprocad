@@ -2391,14 +2391,21 @@ class AppState extends ChangeNotifier {
   /// built. The part-level twin of [setEndOfSketch]: everything below is
   /// suppressed — not built into the body, not drawn, greyed in the browser —
   /// which is Inventor's rollback.
+  /// The ONE way the End of Part marker moves.
+  ///
+  /// Total and idempotent: out-of-range values clamp, a no-op returns early,
+  /// and dropping the marker on the last row stores [kEopAtEnd] rather than
+  /// that row's number — otherwise the marker silently stops being "at the
+  /// end" and every feature created afterwards comes out suppressed.
   void setEndOfPart(int after) {
     final p = currentPart;
     if (p == null) return;
     final n = partTimeline(p).length; // M113 — rows, not features
     final v = after.clamp(0, n);
     if (v == p.eopAfter.clamp(0, n)) return;
-    p.eopAfter = v;
-    Log.i('part', 'End of Part -> after $v of $n rows');
+    p.eopAfter = v >= n ? kEopAtEnd : v;
+    Log.i('part',
+        'End of Part -> after $v of $n rows${v >= n ? " (at end)" : ""}');
     applyEndOfPart(p);
     // M122 — RECOMPUTE. Rolling the marker only flipped `rolledBack`; the JOIN
     // chain was never rebuilt, so `consumedByJoin` stayed as it was. Suppress
@@ -2846,7 +2853,7 @@ class AppState extends ChangeNotifier {
       }
     } else {
       f.seq = p.nextSeq();
-      p.features.add(f);
+      p.appendFeature(f); // keeps End of Part past what was just created
     }
     s.disposePreview();
     edgeSession = null;
@@ -3427,7 +3434,7 @@ class AppState extends ChangeNotifier {
     if (s.editing == null && !(s.isRevolve && p.features.contains(f))) {
       final firstConsumption = firstConsumerOf(p, f.sketchName) == null;
       f.seq = p.nextSeq(); // M91 — bottom of the timeline
-      p.features.add(f);
+      p.appendFeature(f); // keeps End of Part past what was just created
       // A feature added while the marker is parked mid-tree belongs ABOVE it,
       // exactly like Inventor: the marker moves down to admit the new work.
       p.eopAfter = partTimeline(p).length;
@@ -7770,7 +7777,7 @@ class AppState extends ChangeNotifier {
     }
     for (var i = 0; i < solids.length; i++) {
       final body = p.nextSolidName();
-      p.features.add(ExtrudeFeature(
+      p.appendFeature(ExtrudeFeature(
         name: 'Import${p.features.length + 1}',
         bodyName: body,
         sketchName: '',

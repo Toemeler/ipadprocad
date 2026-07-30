@@ -1760,6 +1760,9 @@ PartFeature? firstConsumerOf(PartModel part, String sketchName) {
 /// origin-plane frame. EVERY consumer of a sketch's plane goes through this.
 PlaneFrame sketchFrameOf(ChildSketch cs) => cs.face ?? planeFrame(cs.plane);
 
+/// End of Part "after everything". Not a row count — see [PartModel.eopAfter].
+const int kEopAtEnd = 1 << 30;
+
 class PartModel {
   final String name;
   final List<ChildSketch> childSketches = [];
@@ -1790,7 +1793,42 @@ class PartModel {
   /// the model had no position there to map to. Inventor rolls sketches back
   /// too, so now every browser row is a slot, slot == row, and the whole
   /// row-to-slot conversion is gone.
-  int eopAfter = 1 << 30;
+  /// Rows the End of Part marker sits after.
+  ///
+  /// [kEopAtEnd] means "after everything", and is deliberately a sentinel
+  /// rather than the current row count: stored as a number, dragging the
+  /// marker to the bottom and then creating a feature would leave the marker
+  /// BEFORE the new feature and suppress it — so every feature made after ever
+  /// touching the marker came out invisible.
+  int eopAfter = kEopAtEnd;
+
+  /// True when nothing is suppressed.
+  bool get eopAtEnd => eopAfter >= partTimeline(this).length;
+
+  /// Appends [f] and keeps the End of Part marker sane.
+  ///
+  /// Inventor builds what you just made: with the marker mid-list, a new
+  /// feature goes in AT the marker and the marker moves past it. Appending
+  /// without this left the new feature below the marker, so it was created
+  /// suppressed — invisible, with no indication why. Use this rather than
+  /// `features.add` for anything the user just created.
+  void appendFeature(PartFeature f) {
+    final wasAtEnd = eopAtEnd;
+    features.add(f);
+    if (wasAtEnd) {
+      eopAfter = kEopAtEnd; // stays at the end
+      return;
+    }
+    final rows = partTimeline(this);
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].isFeature && identical(rows[i].feature, f)) {
+        eopAfter = i + 1;
+        return;
+      }
+    }
+    // Not in the timeline (should not happen); leave the marker alone rather
+    // than guess a position.
+  }
 
   /// Next value for [ChildSketch.seq] / [ExtrudeFeature.seq].
   int seqNext = 0;
@@ -3274,10 +3312,34 @@ String featureInputSig(PartModel part, PartFeature f) {
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var allOk = true;
+  // M128 — DERIVE the End of Part flags here, first, unconditionally.
+  //
+  // `eopAfter` (a row position) and `rolledBack` (a per-node flag) are two
+  // representations of one fact, and every End of Part bug in this file's
+  // history has been the two disagreeing: a feature added without re-applying,
+  // a marker moved without rebuilding the chain, a row order changed under a
+  // stale cut. Maintaining that by convention across six call sites did not
+  // work seven times running.
+  //
+  // The fold is the single funnel every piece of geometry passes through, so
+  // re-deriving the flags at its head makes "stale rolledBack" unrepresentable
+  // rather than merely discouraged. It is O(rows) and runs once per rebuild.
+  applyEndOfPart(part);
   final chainLast = <String, PartFeature>{}; // bodyName -> last in chain
   final upstream = <String, String>{}; // bodyName -> running chain key
   for (final f in part.features) {
     f.consumedByJoin = false;
+    // A suppressed feature does not exist for this build: it is not computed,
+    // it does not join the chain, and it holds no solid. Letting it compute was
+    // the actual cause of the vanishing/incorrect body — a rolled-back fillet
+    // still ran, still marked the extrusion below it as consumedByJoin, and so
+    // hid BOTH (one suppressed, one "consumed" by something not being drawn).
+    // Disposing here also means no stale geometry can leak into the scene.
+    if (f.rolledBack) {
+      f.disposeSolid();
+      f.computeError = null;
+      continue;
+    }
     // M111 — an imported body is not computed FROM anything; it just is. Its
     // solid was read from the STEP file, so recompute leaves it untouched and
     // only does the chain bookkeeping around it.
@@ -3999,7 +4061,6 @@ bool applyEndOfPart(PartModel part) {
   // Everything the marker has NOT reached yet is suppressed — features are not
   // built, sketches are not drawn. A sketch nested under a rolled-back feature
   // follows its feature, since the feature row is the one that carries it.
-  final rolled = <String>{};
   for (var i = 0; i < nodes.length; i++) {
     final want = i >= cut;
     final n = nodes[i];
@@ -4008,7 +4069,6 @@ bool applyEndOfPart(PartModel part) {
         n.feature!.rolledBack = want;
         changed = true;
       }
-      if (want) rolled.add(n.feature!.sketchName);
     } else {
       if (n.sketch!.rolledBack != want) {
         n.sketch!.rolledBack = want;
