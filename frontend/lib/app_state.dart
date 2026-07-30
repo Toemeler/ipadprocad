@@ -2487,6 +2487,35 @@ class AppState extends ChangeNotifier {
   /// than leaving an invisible top-level row.
   ///
   /// A no-op on a sketch nothing has consumed: there is nothing to free.
+  /// M152 — delete a child sketch from the browser's context menu.
+  ///
+  /// The sketch menu has had Edit / Hide / Share / Unshare since M107 and no
+  /// Delete, while layers, features and bodies all had one. Nothing prevented
+  /// it; the item was simply never added.
+  ///
+  /// A CONSUMED sketch is refused rather than cascaded: deleting it would take
+  /// the extrusion built on it with it, and silently destroying a feature the
+  /// user did not name is worse than making them delete that feature first.
+  /// The menu already hides the item in that case; this is the guard behind it.
+  bool deleteChildSketch(ChildSketch cs) {
+    final p = currentPart;
+    if (p == null) return false;
+    if (sketchIsConsumed(p, cs)) {
+      toast('${cs.model.name} is used by a feature — delete that first.');
+      return false;
+    }
+    // Leaving the sketch open in the 2D editor while its owner disappears is
+    // how you get an editor writing back into a part that no longer has it.
+    if (activeChild == cs.model) activeChild = null;
+    p.childSketches.remove(cs);
+    p.dirty = true;
+    Log.i('part', 'child sketch "${cs.model.name}" deleted from "${p.name}"');
+    _reanalyze();
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
   void shareSketch(ChildSketch cs) {
     final p = currentPart;
     if (p == null || cs.shared || !sketchIsConsumed(p, cs)) return;

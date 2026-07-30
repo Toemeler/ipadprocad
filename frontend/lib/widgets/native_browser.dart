@@ -345,6 +345,17 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
         const GlassMenuItem(
             id: 'skUnshare', title: 'Unshare', symbol: 'square.slash'),
     ],
+    [
+      // M152 — Delete. Offered only when the sketch is NOT consumed: deleting
+      // a sketch an extrusion is built on would take the feature with it, and
+      // Inventor makes you remove the feature first for the same reason.
+      if (!consumed)
+        const GlassMenuItem(
+            id: 'skDelete',
+            title: 'Delete',
+            symbol: 'trash',
+            destructive: true),
+    ],
   ];
 }
 

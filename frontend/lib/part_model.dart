@@ -1203,7 +1203,20 @@ class EdgeSel {
     if (kind != 0 && e.kind != 0 && kind != e.kind) return double.infinity;
     final dx = e.mx - mx, dy = e.my - my, dz = e.mz - mz;
     final d = math.sqrt(dx * dx + dy * dy + dz * dz);
-    return d + 0.05 * (e.length - length).abs();
+    var s = d + 0.05 * (e.length - length).abs();
+    // M152 — RADIUS. It was stored from the beginning and never read, which
+    // is how a chamfer picked on the inner rim of a boss came back after
+    // recompute sitting on the outer rim of the cylinder underneath it. Two
+    // concentric circles have midpoints only (R - r) apart, so position alone
+    // cannot tell them apart, and length is deliberately a weak term. Radius
+    // is the one thing that separates them, and it is weighted to say so.
+    //
+    // Not disqualifying, for the same reason length is not: a chamfer on a
+    // neighbouring edge legitimately shrinks the circle it belongs to, and a
+    // hard match would lose the edge on exactly the edits where keeping it
+    // matters most.
+    if (radius > 0 && e.radius > 0) s += 1.5 * (e.radius - radius).abs();
+    return s;
   }
 
   /// The live edge this selection now refers to, or null when it is gone.
@@ -1220,7 +1233,13 @@ class EdgeSel {
       }
     }
     if (best == null) return null;
-    final tol = 0.25 * (length.abs() + 1.0);
+    // M152 — the tolerance scales with the edge's SIZE, and for a circle that
+    // is its radius, not its circumference. A 30 mm boss rim is 188 mm long,
+    // which used to buy it a 47 mm search radius — wide enough to swallow
+    // most of the part. Radius gives ~8 mm, which is what "this edge may have
+    // shifted a little" actually means.
+    final scale = (kind == 2 || kind == 3) && radius > 0 ? radius : length.abs();
+    final tol = 0.25 * (scale + 1.0);
     return bestScore <= tol ? best : null;
   }
 

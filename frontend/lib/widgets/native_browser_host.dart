@@ -305,6 +305,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         case 'skUnshare':
           app.unshareSketch(cs);
           break;
+        case 'skDelete':
+          app.deleteChildSketch(cs);
+          break;
       }
       return;
     }
