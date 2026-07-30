@@ -4,16 +4,64 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import 'package:native_menu/native_menu.dart';
+
 import '../app_state.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 
+/// M149 — the tab model handed to UIKit. Pure, so it can be tested on the
+/// host: this is where "which document is current" and "what may be closed"
+/// are decided, and none of that should live in Swift.
+List<GlassTab> buildTabs(AppState app) => [
+      GlassTab(
+        id: kHomeTabId,
+        // The house speaks for itself — the word next to it was redundant.
+        symbol: app.isHome ? 'house.fill' : 'house',
+        selected: app.isHome,
+      ),
+      for (final t in app.openTabs)
+        GlassTab(
+          id: t,
+          label: t,
+          // Same glyph vocabulary as the model browser: a part is a cube, a
+          // sketch is stacked squares. Two panels naming the same thing two
+          // different ways is worse than either name.
+          symbol: app.parts.containsKey(t) ? 'cube' : 'square.on.square',
+          selected: !app.isHome && app.curTab == t,
+          closable: true,
+        ),
+    ];
+
+/// Identity of the Home tab on the wire. Not a document id, so it cannot
+/// collide with one.
+const String kHomeTabId = '\u0000home';
+
+/// The bar. Native UIKit on iOS (M149); the original Flutter row everywhere
+/// else, so the host tests and any desktop run keep working unchanged.
 class BottomTabBar extends StatelessWidget {
   final AppState app;
   const BottomTabBar({super.key, required this.app});
 
+  /// Height of the native bar including its floating margin.
+  static const double kNativeHeight = 52;
+
   @override
   Widget build(BuildContext context) {
+    if (GlassTabBar.isSupported) {
+      return SizedBox(
+        height: kNativeHeight,
+        child: GlassTabBar(
+          tabs: buildTabs(app),
+          onTap: (id) => id == kHomeTabId ? app.goHome() : app.openDocument(id),
+          onClose: app.closeTab,
+        ),
+      );
+    }
+    return _flutterBar();
+  }
+
+  Widget _flutterBar() {
     return Container(
       height: 30,
       decoration: const BoxDecoration(

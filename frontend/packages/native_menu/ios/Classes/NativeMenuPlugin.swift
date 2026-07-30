@@ -73,6 +73,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             registrar.register(
                 GlassBrowserFactory(messenger: registrar.messenger()),
                 withId: "prototype/glass_browser")
+            // M149 — the document tab bar, native.
+            registrar.register(
+                GlassTabBarFactory(messenger: registrar.messenger()),
+                withId: "prototype/glass_tabbar")
         }
     }
 
