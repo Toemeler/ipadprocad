@@ -2411,7 +2411,8 @@ class AppState extends ChangeNotifier {
     final sk = SketchModel(p.nextSketchName());
     // M91: stamped with the creation order so it lands at the BOTTOM of the
     // browser timeline, under the extrusions that already exist.
-    p.childSketches.add(ChildSketch(sk, key, null, true, false, p.nextSeq()));
+    p.appendChildSketch(ChildSketch(sk, key, null, true, false, p.nextSeq()));
+    _admitNewSketchRow(p);
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
@@ -2464,6 +2465,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Re-applies the End of Part marker after [PartModel.appendChildSketch]
+  /// moved it past a newly created sketch.
+  ///
+  /// Only does work when something WAS suppressed: with the marker already at
+  /// the end nothing is rolled back and nothing has to rebuild. When it was
+  /// parked mid-tree, admitting the new row un-suppresses the features it
+  /// moved past, so those have to be recomputed to exist again.
+  void _admitNewSketchRow(PartModel p) {
+    if (applyEndOfPart(p) && partKernel.available) {
+      recomputeAllFeatures(p, partKernel);
+    }
+  }
+
   /// Inventor's "Delete All Features Below EOP" — drops every suppressed
   /// feature in one step, then parks the marker at the end.
   int deleteBelowEndOfPart() {
@@ -2478,7 +2492,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partTimeline(p).length;
+    p.eopAfter = kEopAtEnd; // parks at the end AND keeps it there
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -2704,8 +2718,9 @@ class AppState extends ChangeNotifier {
         '-> pol=${f3(p.camera.pol)} az=${f3(p.camera.az)} '
         '(pol~0 = camera above/TOP, pol~3.14 = below/BOTTOM)');
     final sk = SketchModel(p.nextSketchName());
-    p.childSketches.add(ChildSketch(
+    p.appendChildSketch(ChildSketch(
         sk, 'face', frame, true, false, p.nextSeq(), ref)); // M91, M153
+    _admitNewSketchRow(p);
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
@@ -3922,10 +3937,12 @@ class AppState extends ChangeNotifier {
         !(s.kind != 'extrude' && p.features.contains(f))) {
       final firstConsumption = firstConsumerOf(p, f.sketchName) == null;
       f.seq = p.nextSeq(); // M91 — bottom of the timeline
-      p.appendFeature(f); // keeps End of Part past what was just created
       // A feature added while the marker is parked mid-tree belongs ABOVE it,
       // exactly like Inventor: the marker moves down to admit the new work.
-      p.eopAfter = partTimeline(p).length;
+      // `appendFeature` places it; writing the row count here afterwards UNDID
+      // that and pinned the marker to today's length, so the next sketch was
+      // appended below it and came out rolled back.
+      p.appendFeature(f); // keeps End of Part past what was just created
       applyEndOfPart(p);
       if (firstConsumption) {
         // Inventor: creating the feature CONSUMES the sketch — it nests
@@ -4910,7 +4927,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partTimeline(p).length;
+    p.eopAfter = kEopAtEnd; // parks at the end AND keeps it there
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -8339,7 +8356,8 @@ class AppState extends ChangeNotifier {
         ..solid = solids[i]
         ..seq = p.nextSeq());
     }
-    p.eopAfter = partTimeline(p).length;
+    // `appendFeature` already kept the marker past each import — do not pin it
+    // to the row count afterwards.
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);

@@ -2491,6 +2491,31 @@ class PartModel {
     // than guess a position.
   }
 
+  /// Appends [cs] and keeps the End of Part marker sane — the sketch twin of
+  /// [appendFeature].
+  ///
+  /// A sketch row was appended straight onto [childSketches], so with the
+  /// marker at the end (the sentinel, clamped to the row count) the new row
+  /// landed exactly ON the cut and was born rolled back: greyed in the
+  /// browser, not drawn in 3D — while its editor had just opened. That is the
+  /// "the sketch for the second extrusion is made below the EOP" report. Use
+  /// this rather than `childSketches.add` for anything the user just created.
+  void appendChildSketch(ChildSketch cs) {
+    final wasAtEnd = eopAtEnd;
+    childSketches.add(cs);
+    if (wasAtEnd) {
+      eopAfter = kEopAtEnd; // stays at the end
+      return;
+    }
+    final rows = partTimeline(this);
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].isFeature && identical(rows[i].sketch, cs)) {
+        eopAfter = i + 1;
+        return;
+      }
+    }
+  }
+
   /// Next value for [ChildSketch.seq] / [ExtrudeFeature.seq].
   int seqNext = 0;
 
@@ -2666,21 +2691,24 @@ class PartModel {
     final nodesN = partTimeline(this).length;
     final nodes = (j['eopNodes'] as num?)?.toInt();
     if (nodes != null) {
-      eopAfter = nodes;
+      // A stored value that already covers every row is "at the end": keep the
+      // SENTINEL, so it still floats once the part grows. Loading it as a row
+      // count parked the marker on open, and the next sketch landed below it.
+      eopAfter = nodes >= nodesN ? kEopAtEnd : nodes;
     } else {
       // Pre-M113: the stored number counted FEATURES. Convert by walking the
       // timeline until that many features have been passed, so a rolled-back
       // part opens showing exactly what it showed before.
       final feats = (j['eop'] as num?)?.toInt();
       if (feats == null) {
-        eopAfter = nodesN;
+        eopAfter = kEopAtEnd;
       } else {
         var seen = 0, at = 0;
         final tl = partTimeline(this);
         for (; at < tl.length && seen < feats; at++) {
           if (tl[at].isFeature) seen++;
         }
-        eopAfter = at;
+        eopAfter = at >= tl.length ? kEopAtEnd : at;
       }
     }
     applyEndOfPart(this);
