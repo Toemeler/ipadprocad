@@ -182,6 +182,17 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// away from the glyph column they are supposed to line up with.
     static let indentStep: CGFloat = 11
 
+    /// M148 — EXPLICIT row height.
+    ///
+    /// The content configuration has asked for 3 pt margins around an 11.5 pt
+    /// label since M108, and the rows still came out at UIKit's ~44 pt on the
+    /// device: a list section's group is `.estimated(44)` and the list cell
+    /// will not self-size below its own standard metric, so tightening the
+    /// margins alone did nothing measurable. A feature tree with fifteen
+    /// bodies in it wants to SHOW fifteen bodies, so the height is now stated
+    /// rather than negotiated.
+    static let rowHeight: CGFloat = 26
+
     /// A cell that draws the dotted ancestry rules behind its content.
     /// UIKit list cells have no notion of tree rules, so the guides are drawn
     /// per row: one dotted vertical per ancestor level, plus the elbow into
@@ -216,14 +227,25 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     }
 
     private func buildCollection() {
-        var config = UICollectionLayoutListConfiguration(appearance: .plain)
-        // M108 — a CAD tree wants density, not Settings-app spacing; the row
-        // metrics are tightened per-cell below (contentConfiguration margins).
-        // Let the glass through: no opaque list background of our own.
-        config.backgroundColor = .clear
-        config.showsSeparators = false
-        config.trailingSwipeActionsConfigurationProvider = nil
-        let layout = UICollectionViewCompositionalLayout.list(using: config)
+        // M148 — a plain section with an ABSOLUTE item height instead of
+        // `.list(using:)`. Nothing the list configuration provided is actually
+        // in use here: separators are off, swipe actions are nil, and the
+        // background is cleared so the glass shows through. What it did
+        // provide was a 44 pt estimated group height that no amount of margin
+        // tightening could get under. Indentation and accessories belong to
+        // UICollectionViewListCell, not to the section, so the cells are
+        // unaffected by the change.
+        let layout = UICollectionViewCompositionalLayout { _, _ in
+            let size = NSCollectionLayoutSize(
+                widthDimension: .fractionalWidth(1.0),
+                heightDimension: .absolute(GlassBrowserView.rowHeight))
+            let item = NSCollectionLayoutItem(layoutSize: size)
+            let group = NSCollectionLayoutGroup.vertical(
+                layoutSize: size, subitems: [item])
+            let section = NSCollectionLayoutSection(group: group)
+            section.interGroupSpacing = 0
+            return section
+        }
 
         collection = UICollectionView(frame: .zero,
                                       collectionViewLayout: layout)
@@ -261,7 +283,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // Pull the row in tight: the default list metrics are sized for
             // touch lists, and a feature tree needs to show a lot of rows.
             c.directionalLayoutMargins = NSDirectionalEdgeInsets(
-                top: 3, leading: 4, bottom: 3, trailing: 4)
+                top: 2, leading: 4, bottom: 2, trailing: 4)
             // M118 — with no label the row is icon-only (the retracted
             // panel); centring it keeps the column of glyphs straight instead
             // of hugging the left edge where the text used to start.

@@ -73,6 +73,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             registrar.register(
                 GlassBrowserFactory(messenger: registrar.messenger()),
                 withId: "prototype/glass_browser")
+            // M149 — the document tab bar, native.
+            registrar.register(
+                GlassTabBarFactory(messenger: registrar.messenger()),
+                withId: "prototype/glass_tabbar")
         }
     }
 
@@ -544,13 +548,19 @@ extension NativeMenuPlugin: UIPencilInteractionDelegate {
 final class GlassPanelView: NSObject, FlutterPlatformView {
     private let container = UIView()
 
-    init(frame: CGRect) {
+    init(frame: CGRect, cornerRadius: CGFloat) {
         super.init()
         container.frame = frame
         container.backgroundColor = .clear
         // The glass must never take touches: Flutter's rows sit above it and
         // own every gesture in this panel.
         container.isUserInteractionEnabled = false
+        // M146 — DARK TRAITS. UIGlassEffect adapts to the trait environment,
+        // and a Flutter platform view inherits the host's, which is light.
+        // Without this the same effect that reads as smoked glass in the model
+        // browser (GlassBrowserView sets it) comes out milky white. It was the
+        // single visible difference between the two panels on the device.
+        container.overrideUserInterfaceStyle = .dark
 
         let effect: UIVisualEffect
         if #available(iOS 26.0, *) {
@@ -566,6 +576,13 @@ final class GlassPanelView: NSObject, FlutterPlatformView {
         ev.frame = container.bounds
         ev.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         ev.isUserInteractionEnabled = false
+        // M146 — a floating card needs its own corners; a full-bleed surface
+        // must keep 0 so the existing model-browser fallback is untouched.
+        if cornerRadius > 0 {
+            ev.layer.cornerRadius = cornerRadius
+            ev.layer.cornerCurve = .continuous
+            ev.clipsToBounds = true
+        }
         container.addSubview(ev)
     }
 
@@ -576,7 +593,9 @@ final class GlassPanelView: NSObject, FlutterPlatformView {
 final class GlassPanelFactory: NSObject, FlutterPlatformViewFactory {
     func create(withFrame frame: CGRect, viewIdentifier viewId: Int64,
                 arguments args: Any?) -> FlutterPlatformView {
-        GlassPanelView(frame: frame)
+        let m = args as? [String: Any]
+        let r = (m?["cornerRadius"] as? NSNumber)?.doubleValue ?? 0
+        return GlassPanelView(frame: frame, cornerRadius: CGFloat(r))
     }
 
     func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {

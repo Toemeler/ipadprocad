@@ -13,6 +13,7 @@ import '../log.dart';
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
+import 'ribbon_chrome.dart';
 
 Widget svg(String s, double size) =>
     SvgPicture.string(s, width: size, height: size);
@@ -397,21 +398,37 @@ class _RibbonState extends State<Ribbon> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
-    return Container(
-      decoration: const BoxDecoration(
-        color: T.panel,
-        border: Border(
-          top: BorderSide(color: T.ribbonTop, width: 2),
-          bottom: BorderSide(color: T.ribbonBottom, width: 2),
+    // M146 — the bar is a FLOATING glass card, not a bordered strip: padded
+    // in from the edges with the model browser's own inset and corner radius,
+    // with the viewport running behind and around it. The two blue borders are
+    // gone; a lit edge on a floating card is a seam looking for a wall.
+    final content = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      // The bar is only as wide as the screen and its panels routinely
+      // overflow, so the scroll must never be disabled by a shrink-wrapped
+      // parent. Explicit physics keeps the drag alive even when the content
+      // happens to fit, which is what makes the ribbon feel like a strip
+      // rather than a truncated row.
+      physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics()),
+      clipBehavior: Clip.hardEdge,
+      child: app.isHome
+          ? _homeRibbon(app)
+          : (app.currentPart != null && app.activeChild == null
+              ? _partRibbon(app)
+              : _sketchRibbon(app)),
+    );
+
+    return RibbonMeasure(
+      child: Padding(
+        padding: RibbonMetrics.pad,
+        child: Stack(
+          children: [
+            // The glass, sized to the card by the content below it.
+            const Positioned.fill(child: RibbonSurface()),
+            content,
+          ],
         ),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: app.isHome
-            ? _homeRibbon(app)
-            : (app.currentPart != null && app.activeChild == null
-                ? _partRibbon(app)
-                : _sketchRibbon(app)),
       ),
     );
   }
