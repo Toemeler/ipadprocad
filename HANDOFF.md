@@ -16,7 +16,7 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123)
+> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123/M124)
 >
 > **Alles gruen:** `dart-checks` 632 Tests + analyze sauber, `build-core-ios`,
 > `M3` und `m5-flutter-ipa` bestanden. **M123 kam danach dazu: 645 Tests lokal
@@ -32,7 +32,12 @@ Token NIE in Dateien/.git/config schreiben.
 > Liquid Glass.
 >
 > **OFFEN — nach Wichtigkeit:**
-> 0. **Geraete-Test von M123 im 2D-Modus**: einen Punkt auf Kreis, Bogen,
+> 0a. **HUD-Eingabe waehrend des Offsets (Rest von M124).** Inventor zeigt ein
+>    schwebendes Abstandsfeld, in das man den Offsetwert TIPPT. Das Mass danach
+>    zu editieren geht jetzt; das Tippen VORHER nicht. `hud.dart` ist an
+>    `toolPoints`-Phasen gekoppelt (Erzeugungswerkzeuge), Offset laeuft ueber
+>    `modEntity` + Hover — also ein echter Umbau, kein neuer enum-Fall.
+> 0. **Geraete-Test von M123/M124 im 2D-Modus**: einen Punkt auf Kreis, Bogen,
 >    Spline und Polygonkante zeichnen und dann ZIEHEN — bleibt er auf dem
 >    Traeger? Am Host bewiesen, am Geraet nie gesehen.
 > 1. **Geraete-Test des Panels** (M118–M122): Einziehen, EOP-Zug, ob die
@@ -69,6 +74,51 @@ Token NIE in Dateien/.git/config schreiben.
 >   der Fehler nimmt den ganzen Teilbaum mit, hier das komplette Ribbon.
 > * **Vor dem Erweitern das vorhandene C-API lesen** (M109): STEP-Export gab es
 >   laengst, mein Duplikat hat die Uebersetzungseinheit zerschossen.
+
+> **M124 — Bemassung zwischen zwei Kreisen; zwei Luecken, eine Ursache.**
+>
+> Gemeldet: „Kreis Ø20 zeichnen, offsetten, 2 mm eintippen und ein Mass
+> zwischen den beiden Kreisen bekommen" — und „zwei konzentrische Kreise
+> anklicken und wie in Inventor ein Mass zwischen den Durchmessern".
+>
+> **Was wirklich fehlte.** Zwei Kreise anklicken gab die MITTELPUNKT-Distanz.
+> Bei konzentrischen Kreisen ist die identisch 0: sie misst nichts und kann
+> nichts treiben. Und `_commitOffset` verdrahtete Linien (parallel + `pline`-
+> Mass) und Boegen (`concentric`), liess eine KREIS-Kopie aber voellig lose —
+> keine Bedingung, kein Mass. Die Kopie driftete beim ersten Ziehen, und es gab
+> keinen Wert, in den man 2 haette tippen koennen.
+>
+> **Inventor-Recherche.** Zwei Kreise = Mitte-zu-Mitte, Kante-zu-Kante gibt es
+> ueber **Alt** beim Picken. Kreis bekommt Durchmesser, Bogen Radius, Rechtsklick
+> tauscht. Offset (neuere Versionen) hat ein schwebendes Abstandsfeld. Dynamic
+> Input: Tippen SPERRT ein Feld und erzeugt daraus ein persistentes Mass, ein
+> nie beruehrtes Feld bekommt keins — das ist in `hud.dart` bereits sauber
+> umgesetzt, nur eben nicht fuer Offset.
+>
+> **Die Loesung: ein neues `dimKind: 'gap'`** = |R2 - R1|, die Ringbreite —
+> genau die Strecke, um die ein Offset einen Kreis versetzt. An allen fuenf
+> Stellen eingebaut: `measureDim`, `residualCount`, Residuum, Vorzeichen-Freeze
+> in `_prepare` (welcher Kreis der aeussere ist, wird EINMAL pro Solve
+> eingefroren — die abs() hat ihre Ecke genau in der Loesung, und ein Paar das
+> sich waehrend eines Zugs kreuzt wuerde sonst mitten im Solve die Rollen
+> tauschen), und das Zeichnen. Der slvs-Shim kennt es nicht, also faellt der
+> Sketch ueber die bestehende Allow-Liste auf den verifizierten Dart-LM-Pfad.
+>
+> * Konzentrisches Paar -> Gap-Mass. Versetzte Kreise weiter Mitte-zu-Mitte,
+>   wie Inventor.
+> * Kreis-Offset erzeugt `concentric` + ein Gap-Mass als **editierbaren
+>   Treiber**, wie die Linien ihren d0-Treiber haben.
+>
+> **Ein eigener Fehler, den erst der Test fand:** ich nahm zuerst
+> `chain.offsetDist` als Wert. Das ist die senkrechte Laufdistanz der LINIEN und
+> ist bei einer reinen Kreiskette 0 — das Mass zog die Kopie sofort auf ihre
+> Quelle zurueck (beide landeten bei r11.5). Der Wert kommt jetzt aus der
+> Radiendifferenz. Lehrreich, weil es still war: die Geometrie sah richtig aus,
+> bis der Solver lief.
+>
+> **Belegt:** Ø20 offset -> Gap 3.0 (Quelle r10, Kopie r13); Gap auf 2 -> Kopie
+> exakt r12; Quelle auf Ø30 -> Kopie folgt auf r17, weil das Gap eine BEZIEHUNG
+> ist und kein fester Radius. 653 Tests, analyze 51 Issues / 0 errors.
 
 > **M123 — Punkt-auf-Kurve entstand nur an LINIEN.**
 >
