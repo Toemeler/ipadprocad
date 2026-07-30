@@ -1319,11 +1319,15 @@ class EdgeSel {
   OcctEdgeInfo? bestMatch(List<OcctEdgeInfo> edges) {
     OcctEdgeInfo? best;
     var bestScore = double.infinity;
+    var runnerUp = double.infinity;
     for (final e in edges) {
       final s = score(e);
       if (s < bestScore) {
+        runnerUp = bestScore;
         bestScore = s;
         best = e;
+      } else if (s < runnerUp) {
+        runnerUp = s;
       }
     }
     if (best == null) return null;
@@ -1334,7 +1338,21 @@ class EdgeSel {
     // shifted a little" actually means.
     final scale = (kind == 2 || kind == 3) && radius > 0 ? radius : length.abs();
     final tol = 0.25 * (scale + 1.0);
-    return bestScore <= tol ? best : null;
+    if (bestScore > tol) return null;
+    // M158 — AMBIGUITY. Two candidates whose scores sit within one tolerance
+    // of each other are a coin toss, and the coin decides which edge a chamfer
+    // lands on: this is how one picked on the inner rim of a boss came back on
+    // the outer rim of the cylinder underneath. Report the selection LOST
+    // instead of guessing. Losing a chamfer is recoverable and obvious;
+    // silently moving one is neither — the author of M152 said exactly that
+    // and then let the guess stand.
+    //
+    // Weighting radius more heavily cannot substitute for this. It changes
+    // WHICH candidate wins, never whether the winner was meaningfully better
+    // than the next one, and it is the second question that decides whether
+    // the answer can be trusted.
+    if (!runnerUp.isInfinite && runnerUp - bestScore < tol) return null;
+    return best;
   }
 
   /// Re-anchor onto the edge we just matched, so the fingerprint tracks the
