@@ -2044,7 +2044,15 @@ class AppState extends ChangeNotifier {
                 m['plane'] as String? ?? 'xy',
                 PlaneFrame.fromFrameJson(m['frame'] as List?),
                 true, // real visibility is applied below from 'vis'
-                m['shared'] as bool? ?? false));
+                m['shared'] as bool? ?? false,
+                (m['seq'] as num?)?.toInt() ?? 0,
+                // M153 — absent on pre-M153 documents, which then keep the
+                // old frozen behaviour rather than being re-anchored onto a
+                // face nobody chose.
+                m['faceRef'] is Map
+                    ? SketchFaceSel.fromJson(
+                        (m['faceRef'] as Map).cast<String, dynamic>())
+                    : null));
             _loadedSketchVis[model.name] =
                 m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
           }
@@ -2658,7 +2666,7 @@ class AppState extends ChangeNotifier {
   /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as
   /// [planePicked], but the sketch lives on the face's own frame — Inventor's
   /// sketch-on-face.
-  void facePicked(PlaneFrame frame) {
+  void facePicked(PlaneFrame frame, [SketchFaceSel? ref]) {
     final p = currentPart;
     if (p == null || !pickPlane) return;
     // M151 — see planePicked. A face and an origin plane are interchangeable
@@ -2696,8 +2704,8 @@ class AppState extends ChangeNotifier {
         '-> pol=${f3(p.camera.pol)} az=${f3(p.camera.az)} '
         '(pol~0 = camera above/TOP, pol~3.14 = below/BOTTOM)');
     final sk = SketchModel(p.nextSketchName());
-    p.childSketches.add(
-        ChildSketch(sk, 'face', frame, true, false, p.nextSeq())); // M91
+    p.childSketches.add(ChildSketch(
+        sk, 'face', frame, true, false, p.nextSeq(), ref)); // M91, M153
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;

@@ -2158,10 +2158,154 @@ class ChamferFeature extends BodyModifyFeature {
 // ---------------------------------------------------------------------------
 // part document
 // ---------------------------------------------------------------------------
+/// M153 — a live planar face, reduced to the three numbers that identify it.
+///
+/// Centroid and area come from the display mesh rather than the B-Rep, because
+/// the mesh is what we already have on the Dart side after every rebuild.
+class FaceRec {
+  final int id;
+  final Vec3 c; // centroid
+  final Vec3 n; // outward normal
+  final double area;
+  const FaceRec(this.id, this.c, this.n, this.area);
+}
+
+/// Planar faces of a mesh, with centroid and area accumulated per face id.
+///
+/// Triangle area weights the centroid, so a face tessellated into one big and
+/// twenty slivers still reports its true centre rather than being dragged
+/// toward the busy corner.
+List<FaceRec> planarFaceRecs(OcctMeshData m) {
+  if (m.triFaces.isEmpty || m.faceInfos.isEmpty) return const [];
+  final cx = <int, Vec3>{};
+  final ar = <int, double>{};
+  for (var t = 0; t + 2 < m.indices.length; t += 3) {
+    final f = m.triFaces[t ~/ 3];
+    if (f < 0 || 15 * f >= m.faceInfos.length) continue;
+    // Surface type 0 = plane (occt_capi.h, per-face record). Not the
+    // kFacePlane constant: it lives in part_render, which imports this file.
+    if (m.faceInfos[15 * f].round() != 0) continue;
+    final i0 = m.indices[t] * 3,
+        i1 = m.indices[t + 1] * 3,
+        i2 = m.indices[t + 2] * 3;
+    final a = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+    final b = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+    final c = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+    final tri = (b - a).cross(c - a).length / 2;
+    if (tri <= 0) continue;
+    final mid = (a + b + c) * (1 / 3);
+    cx[f] = (cx[f] ?? Vec3.zero) + mid * tri;
+    ar[f] = (ar[f] ?? 0) + tri;
+  }
+  final out = <FaceRec>[];
+  ar.forEach((f, area) {
+    if (area <= 0) return;
+    final n = Vec3(m.faceInfos[15 * f + 4], m.faceInfos[15 * f + 5],
+            m.faceInfos[15 * f + 6])
+        .normalized();
+    out.add(FaceRec(f, cx[f]! * (1 / area), n, area));
+  });
+  return out;
+}
+
+/// M153 — which face a sketch was drawn on, so it can be found again.
+///
+/// The twin of [EdgeSel] (and unrelated to [FaceSel], which records the
+/// to-face extent of an extrude), and it exists for the same reason: face indices are
+/// not stable across a rebuild, so a sketch that stored one would follow
+/// whatever face inherited the number. Until now a sketch-on-face stored only
+/// its baked frame (M58) and therefore did not follow the face AT ALL —
+/// change an extrusion's height and the face moved out from under the sketch.
+///
+/// The fingerprint is centroid + normal + area, chosen so that the one motion
+/// we MUST follow is free and everything else is penalised:
+///   * movement ALONG the normal is what "the extrusion got taller" looks
+///     like, so it is nearly free;
+///   * sideways drift is penalised, because that is a different face;
+///   * AREA separates coaxial faces — the top of a boss and the top of the
+///     cylinder under it share a normal and very nearly share a centroid axis,
+///     which is exactly the confusion that put a chamfer on the wrong rim in
+///     M152.
+class SketchFaceSel {
+  double cx, cy, cz;
+  double nx, ny, nz;
+  double area;
+
+  SketchFaceSel(this.cx, this.cy, this.cz, this.nx, this.ny, this.nz, this.area);
+
+  factory SketchFaceSel.of(FaceRec f) =>
+      SketchFaceSel(f.c.x, f.c.y, f.c.z, f.n.x, f.n.y, f.n.z, f.area);
+
+  Vec3 get c => Vec3(cx, cy, cz);
+  Vec3 get n => Vec3(nx, ny, nz);
+
+  Map<String, dynamic> toJson() =>
+      {'c': [cx, cy, cz], 'n': [nx, ny, nz], 'a': area};
+
+  static SketchFaceSel? fromJson(Map<String, dynamic> j) {
+    final c = (j['c'] as List?)?.cast<num>();
+    final n = (j['n'] as List?)?.cast<num>();
+    if (c == null || c.length != 3 || n == null || n.length != 3) return null;
+    return SketchFaceSel(c[0].toDouble(), c[1].toDouble(), c[2].toDouble(),
+        n[0].toDouble(), n[1].toDouble(), n[2].toDouble(),
+        (j['a'] as num?)?.toDouble() ?? 0);
+  }
+
+  /// Distance between this fingerprint and a live face. Lower is better.
+  double score(FaceRec f) {
+    // A face that turned to point elsewhere is not this face any more. Sign
+    // matters: the top and the bottom of a plate are parallel and opposite.
+    if (n.dot(f.n) < 0.999) return double.infinity;
+    final d = f.c - c;
+    final along = d.dot(f.n);
+    final inPlane = (d - f.n * along).length;
+    final scale = math.sqrt(math.max(area, 1e-9));
+    final rel = area > 0 && f.area > 0
+        ? (f.area - area).abs() / math.max(area, f.area)
+        : 0.0;
+    return inPlane + 2.0 * scale * rel + 0.05 * along.abs();
+  }
+
+  /// The live face this selection now refers to, or null when it is gone.
+  FaceRec? bestMatch(List<FaceRec> faces) {
+    FaceRec? best;
+    var bestScore = double.infinity;
+    for (final f in faces) {
+      final s = score(f);
+      if (s < bestScore) {
+        bestScore = s;
+        best = f;
+      }
+    }
+    if (best == null) return null;
+    // Tolerance scales with the face's own size — a 200 mm plate may drift
+    // further than a 2 mm pad before it stops being the same face.
+    final tol = 0.5 * (math.sqrt(math.max(area, 1e-9)) + 1.0);
+    return bestScore <= tol ? best : null;
+  }
+
+  /// How far the matched face has moved ALONG its normal since the last
+  /// anchor. This is the number the sketch's frame has to be shifted by, and
+  /// only this one: shifting in-plane would move the drawing across the face.
+  double alongTo(FaceRec f) => (f.c - c).dot(f.n);
+
+  void reanchor(FaceRec f) {
+    cx = f.c.x;
+    cy = f.c.y;
+    cz = f.c.z;
+    nx = f.n.x;
+    ny = f.n.y;
+    nz = f.n.z;
+    area = f.area;
+  }
+}
+
 class ChildSketch {
   final SketchModel model;
   final String plane; // 'xy' | 'yz' | 'xz' | 'face'
-  final PlaneFrame? face; // set iff plane == 'face' (sketch on a solid face)
+  /// Set iff plane == 'face'. MUTABLE since M153: the frame is re-anchored
+  /// onto the live face after every rebuild.
+  PlaneFrame? face;
 
   /// Inventor semantics: a sketch stays visible in the 3D scene until a
   /// feature consumes it; consumption turns visibility OFF, and the browser
@@ -2191,8 +2335,55 @@ class ChildSketch {
   /// numbers on load in their old list order, so they open looking exactly as
   /// they did.
   int seq;
+
+  /// M153 — WHICH face this sketch was drawn on, when it was drawn on one.
+  ///
+  /// [face] alone is the frame baked at pick time (M58) and does not survive
+  /// the face moving: change an extrusion's height and the sketch stayed at
+  /// the old height while its face walked off. This is the fingerprint that
+  /// finds the face again after a rebuild, so the frame can be shifted to
+  /// follow it. Null for origin-plane sketches, and null for sketches made
+  /// before this milestone — which simply keep the old frozen behaviour
+  /// instead of guessing.
+  SketchFaceSel? faceRef;
+
   ChildSketch(this.model, this.plane,
-      [this.face, this.visible = true, this.shared = false, this.seq = 0]);
+      [this.face, this.visible = true, this.shared = false, this.seq = 0,
+      this.faceRef]);
+}
+
+/// M153 — move every sketch-on-face back onto its face.
+///
+/// Called after each rebuild. For each sketch with a [ChildSketch.faceRef],
+/// find the live face it now refers to and shift the frame ALONG THE NORMAL by
+/// however far that face moved. Only along the normal: an in-plane shift would
+/// slide the drawing across the face, and the whole point is that the sketch
+/// keeps its 2D coordinates and simply arrives at the new height.
+///
+/// A face that cannot be found is left alone rather than guessed at. A sketch
+/// stuck at the old height is a visible, fixable problem; a sketch silently
+/// relocated onto a different face is the bug M152 just finished paying for.
+int reanchorFaceSketches(PartModel part) {
+  final live = <FaceRec>[];
+  for (final f in part.features) {
+    final sol = f.solid;
+    if (sol != null) live.addAll(planarFaceRecs(sol.mesh));
+  }
+  if (live.isEmpty) return 0;
+  var moved = 0;
+  for (final cs in part.childSketches) {
+    final ref = cs.faceRef;
+    final fr = cs.face;
+    if (ref == null || fr == null) continue;
+    final m = ref.bestMatch(live);
+    if (m == null) continue;
+    final d = ref.alongTo(m);
+    ref.reanchor(m);
+    if (d.abs() < 1e-9) continue;
+    cs.face = PlaneFrame(fr.key, fr.u, fr.v, fr.n, fr.origin + fr.n * d);
+    moved++;
+  }
+  return moved;
 }
 
 /// Every feature that uses [sketchName] (Inventor's Unshare is only offered
@@ -2416,6 +2607,8 @@ class PartModel {
               if (c.shared) 'shared': true,
               'seq': c.seq,
               if (c.face != null) 'frame': c.face!.frameJson(),
+              // M153 — which face, so the sketch can find it again.
+              if (c.faceRef != null) 'faceRef': c.faceRef!.toJson(),
             }
         ],
         'features': [for (final f in features) f.toJson()],
@@ -4196,6 +4389,10 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     f.builtSig = f.solid != null && f.computeError == null ? sig : null;
     upstream[f.bodyName] = sig;
   }
+  // M153 — the faces have just moved; the sketches drawn on them have to
+  // follow. Doing it here rather than at the call sites means it cannot be
+  // forgotten by one of the seven places that recompute.
+  reanchorFaceSketches(part);
   return allOk;
 }
 

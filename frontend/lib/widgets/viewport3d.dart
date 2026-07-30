@@ -990,6 +990,18 @@ class _Viewport3DState extends State<Viewport3D>
     return best;
   }
 
+  /// M153 — fingerprint of the face just picked, so the sketch placed on it
+  /// can find that face again after the model rebuilds. Null when the mesh
+  /// carries no v4 metadata (fakes, legacy meshes), which leaves the sketch
+  /// with the old frozen frame rather than a wrong one.
+  SketchFaceSel? _faceRefOf(KernelSolid s, int faceId) {
+    if (faceId < 0) return null;
+    for (final f in planarFaceRecs(s.mesh)) {
+      if (f.id == faceId) return SketchFaceSel.of(f);
+    }
+    return null;
+  }
+
   void _tap(Cam3 cam, Offset px) {
     final app = widget.app;
     final p = part!;
@@ -1130,7 +1142,7 @@ class _Viewport3DState extends State<Viewport3D>
           : double.infinity;
       final faceD = face?.$4 ?? double.infinity;
       if (face != null && faceD <= planeD + 1e-6) {
-        app.facePicked(face.$3);
+        app.facePicked(face.$3, _faceRefOf(face.$1, face.$2));
         return;
       }
       if (key != null && kPlaneKeys.contains(key)) {
@@ -1147,7 +1159,7 @@ class _Viewport3DState extends State<Viewport3D>
           return;
         }
       }
-      if (face != null) app.facePicked(face.$3);
+      if (face != null) app.facePicked(face.$3, _faceRefOf(face.$1, face.$2));
       return;
     }
     // 2. profile pick for the extrude dialog
