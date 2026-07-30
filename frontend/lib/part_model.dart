@@ -1151,6 +1151,20 @@ ExtrudeFeature? firstConsumerOf(PartModel part, String sketchName) {
 /// origin-plane frame. EVERY consumer of a sketch's plane goes through this.
 PlaneFrame sketchFrameOf(ChildSketch cs) => cs.face ?? planeFrame(cs.plane);
 
+/// M125 — [PartModel.eopAfter] when the End of Part marker sits at the BOTTOM
+/// of the timeline, i.e. the whole part is built.
+///
+/// It has to be a sentinel rather than "the current number of rows", because
+/// every consumer clamps it to the timeline length anyway and the timeline
+/// GROWS. Storing the length pins the marker to that row: the next sketch or
+/// feature is appended below it and comes out rolled back. That is exactly
+/// what happened after the first extrusion — `commitExtrude` wrote the length,
+/// so the sketch for the second extrusion landed under the marker.
+///
+/// Never persisted: [PartModel.toJson] only writes `eopNodes` when the marker
+/// is genuinely parked above the last row.
+const int kEopAtEnd = 1 << 30;
+
 class PartModel {
   final String name;
   final List<ChildSketch> childSketches = [];
@@ -1181,7 +1195,17 @@ class PartModel {
   /// the model had no position there to map to. Inventor rolls sketches back
   /// too, so now every browser row is a slot, slot == row, and the whole
   /// row-to-slot conversion is gone.
-  int eopAfter = 1 << 30;
+  ///
+  /// M125 — "at the end" is the SENTINEL [kEopAtEnd], never a row count.
+  /// Writing the current length parks the marker on a fixed row, so the very
+  /// next row created lands below it; that is how a second sketch ended up
+  /// under the marker right after the first extrusion. Use [endOfPartToEnd].
+  int eopAfter = kEopAtEnd;
+
+  /// Parks the End of Part marker at the bottom of the timeline and keeps it
+  /// there while the timeline grows — the state of a part nobody has rolled
+  /// back. See [kEopAtEnd].
+  void endOfPartToEnd() => eopAfter = kEopAtEnd;
 
   /// Next value for [ChildSketch.seq] / [ExtrudeFeature.seq].
   int seqNext = 0;
@@ -1335,21 +1359,23 @@ class PartModel {
     final nodesN = partTimeline(this).length;
     final nodes = (j['eopNodes'] as num?)?.toInt();
     if (nodes != null) {
-      eopAfter = nodes;
+      // M125 — a stored value that already covers every row is "at the end";
+      // keep it as the sentinel so it still floats once the part grows.
+      eopAfter = nodes >= nodesN ? kEopAtEnd : nodes;
     } else {
       // Pre-M113: the stored number counted FEATURES. Convert by walking the
       // timeline until that many features have been passed, so a rolled-back
       // part opens showing exactly what it showed before.
       final feats = (j['eop'] as num?)?.toInt();
       if (feats == null) {
-        eopAfter = nodesN;
+        eopAfter = kEopAtEnd;
       } else {
         var seen = 0, at = 0;
         final tl = partTimeline(this);
         for (; at < tl.length && seen < feats; at++) {
           if (tl[at].isFeature) seen++;
         }
-        eopAfter = at;
+        eopAfter = at >= tl.length ? kEopAtEnd : at;
       }
     }
     applyEndOfPart(this);

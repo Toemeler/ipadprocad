@@ -2277,6 +2277,7 @@ class AppState extends ChangeNotifier {
     // M91: stamped with the creation order so it lands at the BOTTOM of the
     // browser timeline, under the extrusions that already exist.
     p.childSketches.add(ChildSketch(sk, key, null, true, false, p.nextSeq()));
+    _admitNewTimelineRow(p);
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
@@ -2307,7 +2308,10 @@ class AppState extends ChangeNotifier {
     final n = partTimeline(p).length; // M113 — rows, not features
     final v = after.clamp(0, n);
     if (v == p.eopAfter.clamp(0, n)) return;
-    p.eopAfter = v;
+    // M125 — dragged all the way down is "at the end", not "on row n": the
+    // marker has to keep floating as the timeline grows, or the next sketch
+    // is created below it.
+    p.eopAfter = v >= n ? kEopAtEnd : v;
     Log.i('part', 'End of Part -> after $v of $n rows');
     applyEndOfPart(p);
     // M122 — RECOMPUTE. Rolling the marker only flipped `rolledBack`; the JOIN
@@ -2320,6 +2324,23 @@ class AppState extends ChangeNotifier {
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
+  }
+
+  /// M125 — a new timeline row (a new child sketch) is always work you want to
+  /// SEE, so the End of Part marker moves to the end to admit it, exactly as
+  /// [commitExtrude] does for a new feature. Without this a sketch created
+  /// while the marker is parked mid-tree is appended below it and is born
+  /// rolled back — greyed in the browser and not drawn — even though the
+  /// editor for it has just opened.
+  void _admitNewTimelineRow(PartModel p) {
+    // Asked AFTER the row was appended, so this is "was something actually
+    // suppressed", not "is the new row below the marker".
+    final wasParked = partIsRolledBack(p);
+    p.endOfPartToEnd();
+    if (!wasParked) return; // nothing was rolled back, nothing to rebuild
+    if (applyEndOfPart(p) && partKernel.available) {
+      recomputeAllFeatures(p, partKernel);
+    }
   }
 
   /// Inventor's "Delete All Features Below EOP" — drops every suppressed
@@ -2336,7 +2357,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partTimeline(p).length;
+    p.endOfPartToEnd();
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -2414,6 +2435,7 @@ class AppState extends ChangeNotifier {
     final sk = SketchModel(p.nextSketchName());
     p.childSketches.add(
         ChildSketch(sk, 'face', frame, true, false, p.nextSeq())); // M91
+    _admitNewTimelineRow(p);
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
@@ -2783,7 +2805,11 @@ class AppState extends ChangeNotifier {
       p.features.add(f);
       // A feature added while the marker is parked mid-tree belongs ABOVE it,
       // exactly like Inventor: the marker moves down to admit the new work.
-      p.eopAfter = partTimeline(p).length;
+      // M125 — to the END, not to "as many rows as there are right now". The
+      // latter pinned the marker on the row it happened to reach, so the NEXT
+      // sketch was appended below it and came out rolled back: the reported
+      // "the sketch for the second extrusion is made below the EOP".
+      p.endOfPartToEnd();
       applyEndOfPart(p);
       if (firstConsumption) {
         // Inventor: creating the feature CONSUMES the sketch — it nests
@@ -3729,7 +3755,7 @@ class AppState extends ChangeNotifier {
       f.disposeSolid();
       p.features.remove(f);
     }
-    p.eopAfter = partTimeline(p).length;
+    p.endOfPartToEnd();
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
     p.dirty = true;
@@ -6901,7 +6927,7 @@ class AppState extends ChangeNotifier {
         ..solid = solids[i]
         ..seq = p.nextSeq());
     }
-    p.eopAfter = partTimeline(p).length;
+    p.endOfPartToEnd();
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);

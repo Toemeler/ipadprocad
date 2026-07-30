@@ -16,7 +16,7 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123/M124)
+> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123/M124/M125)
 >
 > **Alles gruen:** `dart-checks` 632 Tests + analyze sauber, `build-core-ios`,
 > `M3` und `m5-flutter-ipa` bestanden. **M123 kam danach dazu: 645 Tests lokal
@@ -40,6 +40,10 @@ Token NIE in Dateien/.git/config schreiben.
 > 0. **Geraete-Test von M123/M124 im 2D-Modus**: einen Punkt auf Kreis, Bogen,
 >    Spline und Polygonkante zeichnen und dann ZIEHEN — bleibt er auf dem
 >    Traeger? Am Host bewiesen, am Geraet nie gesehen.
+> 0b. **Geraete-Test von M125**: zweite und dritte Extrusion in einem Teil —
+>    steht die neue Skizze ueber dem End-of-Part-Balken und wird sie in 3D
+>    gezeichnet? Am Host bewiesen (die Meldung ist woertlich reproduziert und
+>    faellt mit dem Fix weg), am Geraet nie gesehen.
 > 1. **Geraete-Test des Panels** (M118–M122): Einziehen, EOP-Zug, ob die
 >    Rollback-Wirkung jetzt stimmt, ob 78 pt eingezogen reichen, ob das Glas
 >    ueberhaupt bricht. Fast alles seit M107 ist nur CI-gruen, nicht gesehen.
@@ -74,6 +78,65 @@ Token NIE in Dateien/.git/config schreiben.
 >   der Fehler nimmt den ganzen Teilbaum mit, hier das komplette Ribbon.
 > * **Vor dem Erweitern das vorhandene C-API lesen** (M109): STEP-Export gab es
 >   laengst, mein Duplikat hat die Uebersetzungseinheit zerschossen.
+
+> **M125 — Die Skizze fuer die ZWEITE Extrusion entstand unter dem EOP.**
+>
+> Gemeldet: „Die erste Extrusion laeuft super. Aber bei der zweiten Extrusion
+> wird die Skizze unterhalb des EOP angelegt." Genau so ist es, und zwar
+> reproduzierbar ab der zweiten Runde.
+>
+> **Ursache — der richtige Ort, der falsche WERT.** `commitExtrude` parkte die
+> Marke mit `p.eopAfter = partTimeline(p).length`. Das ist die richtige
+> Position in genau dieser Millisekunde und der falsche Wert, denn der
+> Zeitstrahl WAECHST. Nach der ersten Extrusion ist das Teil eine Zeile lang
+> (Sketch1 ist konsumiert und nistet unter Extrusion1), die Marke stand also
+> auf 1 — und die naechste Skizze wurde als Zeile 1 angehaengt, lag damit auf
+> der Schnittkante und kam `rolledBack` zur Welt: im Browser unter dem
+> End-of-Part-Balken, ausgegraut, in 3D nicht gezeichnet. Der Editor dafuer
+> war zu diesem Zeitpunkt bereits offen.
+>
+> **Die Loesung: `kEopAtEnd`.** „Am Ende" ist jetzt ein SENTINEL (`1 << 30`),
+> nie eine Zeilenzahl. Das Feld hatte den Sentinel als Default laengst — er
+> ging nur bei der ersten Extrusion verloren und kam nie zurueck. Jeder
+> Konsument klemmt ohnehin auf die Zeilenzahl (`applyEndOfPart`, beide
+> Browser, der native Zug), es aendert sich also nichts ausser dass die Marke
+> mitwaechst. Persistiert wird weiterhin nur ein echtes Parken:
+> `toJson` schreibt `eopNodes` nur, wenn `eopAfter < Zeilenzahl`.
+>
+> Vier Stellen setzten die Zeilenzahl und heissen jetzt `endOfPartToEnd()`:
+> `commitExtrude`, `deleteBelowEndOfPart`, `deleteBody`, STEP-Import. Dazu
+> zwei Stellen, die dasselbe Muster hatten:
+> * **`loadJson`** gab einem Teil ohne gespeicherte Marke `eopAfter = nodesN`.
+>   Ein gespeichertes Teil hatte den Fehler also schon beim OEFFNEN, nicht
+>   erst nach der ersten Extrusion. Auch die pre-M113-Umrechnung normalisiert
+>   jetzt auf den Sentinel, wenn sie am Ende landet.
+> * **`setEndOfPart`** speicherte einen Zug bis ganz nach unten als „Zeile n"
+>   statt als „am Ende" — danach war der naechste Zustand wieder der kaputte.
+>
+> **Neu: `_admitNewTimelineRow`.** Steht die Marke ECHT mitten im Baum und man
+> beginnt eine neue Skizze, wird sie unten angehaengt und waere damit
+> unterdrueckt — man saesse im Editor einer Skizze, die niemand sieht. Die
+> Marke rueckt darum ans Ende und laesst die neue Arbeit zu, exakt wie es
+> `commitExtrude` fuer ein neues FEATURE schon seit M91 tut (dort steht der
+> Kommentar „the marker moves down to admit the new work"); die Skizzen-Pfade
+> hielten sich nur nicht daran. Beide Pfade (`planePicked` und die Skizze auf
+> einer Solid-Flaeche) rufen es jetzt.
+>
+> **Warum es die dritte Runde ueberlebte.** Der eigene Test dafuer war
+> zunaechst gruen: am ENDE einer vollstaendigen Runde setzt `commitExtrude`
+> die Zahl wieder passend. Sichtbar ist der Fehler nur ZWISCHEN den Runden —
+> also genau in dem Moment, in dem man in der neuen Skizze sitzt. Der Test
+> muss die offene Skizze pruefen, nicht den Zustand danach.
+>
+> **Belegt.** Gegen den unreparierten Stand laufen 5 der 8 neuen Tests rot,
+> der erste mit `Expected: empty / Actual: ['Sketch2']` — das ist woertlich
+> die Meldung. Mit dem Fix 661 Tests gruen, analyze 51 Issues / 0 errors =
+> exakt der Ausgangsstand. **Geraete-Test offen.**
+>
+> **Fehlermuster, passend zur Liste oben:** ein Zaehlerstand, der „gerade
+> jetzt" stimmt, ist kein Zustand, sondern ein Schnappschuss. Wenn eine Liste
+> waechst, muss „am Ende" als solches gespeichert werden, nicht als die Zahl,
+> die das Ende heute hat.
 
 > **M124 — Bemassung zwischen zwei Kreisen; zwei Luecken, eine Ursache.**
 >

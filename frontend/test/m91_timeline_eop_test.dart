@@ -27,7 +27,7 @@ ExtrudeFeature _feature(PartModel p, String name, String sketch) {
     profiles: const [],
   )..seq = p.nextSeq();
   p.features.add(f);
-  p.eopAfter = partTimeline(p).length;
+  p.endOfPartToEnd(); // M125 — to the end, not to today's row count
   applyEndOfPart(p);
   return f;
 }
@@ -139,7 +139,7 @@ void main() {
       final p = _three();
       p.eopAfter = 0;
       applyEndOfPart(p);
-      p.eopAfter = partTimeline(p).length;
+      p.endOfPartToEnd();
       applyEndOfPart(p);
       expect(p.features.any((f) => f.rolledBack), isFalse);
     });
@@ -149,7 +149,7 @@ void main() {
       p.eopAfter = 1;
       applyEndOfPart(p);
       _feature(p, 'Extrusion4', 'Sketch1'); // helper does what AppState does
-      expect(p.eopAfter, partTimeline(p).length);
+      expect(partIsRolledBack(p), isFalse, reason: 'the marker is at the end');
       expect(p.features.any((f) => f.rolledBack), isFalse);
     });
 
