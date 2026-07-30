@@ -434,6 +434,9 @@ int residualCount(List<Geo> gs, Constraint c) {
         case 'rad':
         case 'dia':
           return ent(0) ? 1 : 0;
+        case 'gap':
+          // M124 radial gap between two circles/arcs: one equation.
+          return ent(0) && ent(1) ? 1 : 0;
         case 'ang':
           return ent(0) && ent(1) ? 1 : 0;
         case 'pline':
@@ -552,6 +555,15 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
             final d1 = l1.$2 - l1.$1, d2 = l2.$2 - l2.$1;
             final cross = d1.dx * d2.dy - d1.dy * d2.dx;
             ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
+          }
+        } else if (c.dimKind == 'gap' && c.ents.length >= 2) {
+          // M124 — freeze WHICH circle is the outer one. Without this the
+          // |R2-R1| corner sits exactly at the solution, and a pair that
+          // crosses during a drag would swap roles mid-solve and jump.
+          final g1 = _circle(gs, off, x, c.ents[0]);
+          final g2 = _circle(gs, off, x, c.ents[1]);
+          if (g1 != null && g2 != null) {
+            ctx.sign[i] = (g2.$2 - g1.$2) < 0 ? -1.0 : 1.0;
           }
         } else if (c.dimKind == 'pline' && c.pts.length >= 3) {
           // keep the point on the side of the line it is on now — Inventor
@@ -948,6 +960,20 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       final cc = _circle(gs, off, x, c.ents[0]);
       final f = c.dimKind == 'rad' ? 1.0 : 2.0;
       r.add(cc == null ? 0 : f * cc.$2 - v);
+      break;
+    case 'gap':
+      // M124 — |R2 - R1| == v. The absolute value is resolved ONCE per solve
+      // into a frozen sign (_prepare), the same trick the distx/disty and
+      // pline dimensions use: an abs() has a corner exactly at the solution
+      // and would stall LM, and re-deciding which circle is the outer one per
+      // ITERATION would let the pair flip inside a single drag.
+      final g1 = _circle(gs, off, x, c.ents[0]);
+      final g2 = _circle(gs, off, x, c.ents[1]);
+      if (g1 == null || g2 == null) {
+        r.add(0);
+      } else {
+        r.add((ctx.sign[i] ?? 1.0) * (g2.$2 - g1.$2) - v);
+      }
       break;
     case 'ang':
       final l1 = _lineEnds(gs, off, x, c.ents[0])!;
