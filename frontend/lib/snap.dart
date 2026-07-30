@@ -157,7 +157,7 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
         final d = w - c;
         if (d.distance < 1e-9) break;
         final ang = math.atan2(d.dy, d.dx);
-        if (_angleOnArc(ang, g.data[3], g.data[4], g.data[5] != 0)) {
+        if (angleOnArc(ang, g.data[3], g.data[4], g.data[5] != 0)) {
           offerOn(c + d / d.distance * g.data[2]);
         }
         break;
@@ -188,7 +188,11 @@ Offset closestOnSegment(Offset p, Offset a, Offset b) {
   return a + ab * t;
 }
 
-bool _angleOnArc(double a, double a1, double a2, bool reversed) {
+/// True when angle [a] lies on the DRAWN sweep of an arc running from [a1] to
+/// [a2] ([reversed] = clockwise). Public because constraint inference needs the
+/// same test the on-curve SNAP uses: a point may only bind to the span of the
+/// arc that actually exists, never to the complementary arc (M123).
+bool angleOnArc(double a, double a1, double a2, bool reversed) {
   double norm(double x) {
     var v = x % (2 * math.pi);
     if (v < 0) v += 2 * math.pi;

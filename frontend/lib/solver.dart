@@ -20,6 +20,7 @@ import 'constraints.dart';
 import 'diag.dart';
 import 'log.dart';
 import 'perf.dart';
+import 'snap.dart';
 import 'ffi/qcad_engine.dart';
 import 'ffi/slvs_ffi.dart';
 
@@ -201,6 +202,108 @@ Offset _pointAt(List<Geo> gs, List<int> off, List<double> x, PRef p) {
   return (Offset(x[o], x[o + 1]), Offset(x[o + 2], x[o + 3]));
 }
 
+/// The same polyline with its vertices taken from PARAMETER space. Goes through
+/// withData, so the spline/ellipse/gear tag — and the trailing gear parameter
+/// block past the vertices — ride along; without them the curve would sample as
+/// a raw control polygon.
+Geo _polyAt(List<Geo> gs, List<int> off, List<double> x, int e) {
+  final g = gs[e];
+  final o = off[e];
+  final d = List<double>.from(g.data);
+  final n = d[1].toInt();
+  for (var i = 0; i < 2 * n && o + i < x.length; i++) {
+    d[2 + i] = x[o + i];
+  }
+  return g.withData(d);
+}
+
+/// Point chain of a polyline carrier: the CURVE for a spline/ellipse/gear, the
+/// vertices for a straight polyline. Same funnel the render, snap and hit-test
+/// use, so a constraint binds to the curve the user actually saw.
+List<Offset> _curveSamples(Geo g) =>
+    g.type == Geo.polyline ? sampleEntity(g) : const [];
+
+/// Closest point on a sampled chain, plus the chain's unit NORMAL there.
+(Offset, Offset)? _closestOnChain(List<Offset> pts, Offset q) {
+  var best = double.infinity;
+  Offset? at, dir;
+  for (var i = 0; i + 1 < pts.length; i++) {
+    final s = closestOnSegment(q, pts[i], pts[i + 1]);
+    final d = (q - s).distance;
+    if (d < best) {
+      final seg = pts[i + 1] - pts[i];
+      if (seg.distance < 1e-12) continue;
+      best = d;
+      at = s;
+      dir = seg / seg.distance;
+    }
+  }
+  if (at == null || dir == null) return null;
+  return (at, Offset(-dir.dy, dir.dx));
+}
+
+/// M123 — the frozen local frame of a point-on-CURVE constraint.
+///
+/// A polyline carrier has no closed-form implicit equation the way a circle
+/// does (|q-c| - r), and sampling the curve inside the residual would re-run
+/// the B-spline / involute generator for every column of every numeric-Jacobian
+/// step — precisely the per-frame cost M63/M67 removed. So the curve is sampled
+/// ONCE per solve and reduced to the local tangent line at the closest point,
+/// following the same freeze-per-solve idiom the tangency branches use.
+///
+/// The residual is then `n · (q - P(V))` with the curve point P linear in the
+/// carrier's own vertices V:
+///   * [p0]/[n]  closest point and unit normal at freeze time,
+///   * [w]       d(n·P)/d(vertex param) — how the curve point answers a vertex
+///               move, so a carrier that MOVES drags the bound point with it,
+///   * [x0]      the vertex params the weights belong to.
+///
+/// The carrier is modelled as following its vertices RIGIDLY, i.e. each vertex
+/// owns an equal share of the normal. That makes a rigid move of the carrier
+/// exact — the property that matters, since dragging a whole spline or polygon
+/// is the common case — and costs a single curve sample. Measuring the true
+/// per-vertex response numerically was tried and reverted: it needs a curve
+/// rebuild per vertex per freeze, which on a 60-vertex freehand spline (M87)
+/// cost 28 ms per solve against 0.4 ms without the bind.
+///
+/// A DEFORMATION of the carrier (dragging one control vertex) is therefore only
+/// approximated: the frame under-follows, and the [_lm] pass loop re-projects
+/// onto the real curve until the point lands on it. Cheap where it is hot,
+/// iterated where it is wrong.
+///
+/// The honest limit either way: this is a linearisation refreshed per pass, not
+/// an exact NURBS projection. A solve that cannot converge its passes leaves the
+/// point on the tangent, and [solveConstraints] then rejects the frame through
+/// the usual residual gate rather than showing it.
+class _OnCurve {
+  final Offset p0, n;
+  final int base;
+  final List<double> w, x0;
+  const _OnCurve(this.p0, this.n, this.base, this.w, this.x0);
+}
+
+/// Builds the frozen frame for point [q] on polyline carrier [e].
+_OnCurve? _freezeOnCurve(
+    List<Geo> gs, List<int> off, List<double> x, int e, Offset q) {
+  final g = gs[e];
+  if (g.type != Geo.polyline) return null;
+  final nv = g.data[1].toInt();
+  if (nv < 1) return null;
+  final base = off[e];
+  final hit = _closestOnChain(_curveSamples(_polyAt(gs, off, x, e)), q);
+  if (hit == null) return null;
+  final (p0, nrm) = hit;
+  // Equal shares, so the weights sum to the normal itself: translate every
+  // vertex by t and the modelled curve point translates by exactly t.
+  final w = List<double>.filled(2 * nv, 0.0);
+  for (var i = 0; i < nv; i++) {
+    w[2 * i] = nrm.dx / nv;
+    w[2 * i + 1] = nrm.dy / nv;
+  }
+  return _OnCurve(p0, nrm, base,
+      w, [for (var k = 0; k < 2 * nv; k++) x[base + k]]);
+}
+
 /// (center, radius) of a circle/arc entity in parameter space.
 (Offset, double)? _circle(List<Geo> gs, List<int> off, List<double> x, int e) {
   if (e < 0 || e >= gs.length) return null;
@@ -218,6 +321,9 @@ Offset _pointAt(List<Geo> gs, List<int> off, List<double> x, PRef p) {
 class _Ctx {
   final Map<int, double> sign = {};
   final Map<int, double> mode = {};
+
+  /// M123 — frozen local frame per point-on-CURVE constraint index.
+  final Map<int, _OnCurve> onCurve = {};
 }
 
 bool _active(Constraint c) => !c.driven;
@@ -238,6 +344,20 @@ int residualCount(List<Geo> gs, Constraint c) {
           (gs[c.ents[0]].type == Geo.circle ||
               gs[c.ents[0]].type == Geo.arc)) {
         return 1;
+      }
+      // M123 point-on-CURVE: one point pinned onto a polyline carrier — a
+      // polygon edge, a spline, an ellipse or a gear outline. One equation,
+      // exactly like point-on-line: the point keeps one degree of freedom,
+      // sliding ALONG the curve.
+      //
+      // Decided from the VERTEX COUNT, never by sampling: this runs once per
+      // constraint per residual evaluation, i.e. on every column of every
+      // numeric-Jacobian step, and generating the curve here cost ~100x the
+      // whole solve on a 60-vertex freehand spline. A carrier that yields no
+      // usable chain still contributes its one (zero) residual, so the count
+      // and the residual list cannot disagree.
+      if (pt(0) && ent(0) && gs[c.ents[0]].type == Geo.polyline) {
+        return gs[c.ents[0]].data[1] >= 2 ? 1 : 0;
       }
       return 0;
     case CType.fix:
@@ -342,6 +462,20 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
     final c = cs[i];
     if (residualCount(gs, c) == 0) continue;
     switch (c.type) {
+      case CType.coincident:
+        // M123 — point on a polyline CARRIER (polygon edge, spline, ellipse,
+        // gear). Sample the real curve once and keep its local tangent frame;
+        // the residual is then O(1) and the numeric Jacobian never re-runs the
+        // curve generator.
+        if (c.pts.length == 1 &&
+            c.ents.length == 1 &&
+            c.ents[0] < gs.length &&
+            gs[c.ents[0]].type == Geo.polyline) {
+          final fr = _freezeOnCurve(
+              gs, off, x, c.ents[0], _pointAt(gs, off, x, c.pts[0]));
+          if (fr != null) ctx.onCurve[i] = fr;
+        }
+        break;
       case CType.tangent:
       case CType.smooth:
         final c1 = _circle(gs, off, x, c.ents[0]);
@@ -473,6 +607,23 @@ List<double> _residuals(List<Geo> gs, List<int> off, List<double> x,
             // POINT has no side).
             final cc = _circle(gs, off, x, c.ents[0]);
             r.add(cc == null ? 0 : (q - cc.$1).distance - cc.$2);
+          } else if (tgt == Geo.polyline) {
+            // M123 point-on-CURVE against the frame frozen in _prepare:
+            //   n · (q - P(V)),  P(V) linear in the carrier's vertices.
+            // residualCount promised one equation, so one always goes out —
+            // a missing frame (degenerate carrier) contributes 0, never a
+            // silently dropped row.
+            final fr = ctx.onCurve[i];
+            if (fr == null) {
+              r.add(0);
+            } else {
+              var pn = fr.p0.dx * fr.n.dx + fr.p0.dy * fr.n.dy;
+              for (var k = 0; k < fr.w.length; k++) {
+                if (fr.w[k] == 0) continue;
+                pn += fr.w[k] * (x[fr.base + k] - fr.x0[k]);
+              }
+              r.add(q.dx * fr.n.dx + q.dy * fr.n.dy - pn);
+            }
           } else {
             // point-on-line: signed perpendicular distance to the edge == 0
             final l = _lineEnds(gs, off, x, c.ents[0]);
@@ -1094,6 +1245,22 @@ bool _trySolveWithSlvs(
         c.pts.isNotEmpty &&
         c.ents.isNotEmpty &&
         c.ents[0] < gs.length &&
+        gs[c.ents[0]].type == Geo.polyline) {
+      // M123 — point on a polyline CARRIER (polygon edge, spline, ellipse,
+      // gear). The shim has no such constraint, and a polyline is not an slvs
+      // entity at all, so packing it as SH_PT_ON_LINE would hand the shim a
+      // garbage entity id. Send the whole sketch to the verified Dart LM path
+      // instead, exactly like the pattern constraint does — the bind is never
+      // silently dropped.
+      if (Log.every('slvs-bail', 2000)) {
+        Log.d('slvs', 'bail: point-on-curve on a polyline is Dart-LM only');
+      }
+      return false;
+    }
+    if (c.type == CType.coincident &&
+        c.pts.isNotEmpty &&
+        c.ents.isNotEmpty &&
+        c.ents[0] < gs.length &&
         (gs[c.ents[0]].type == Geo.circle || gs[c.ents[0]].type == Geo.arc) &&
         ffi.version < 4) {
       // point-on-curve packs to SLVS_C_PT_ON_CIRCLE, shim v4+
@@ -1198,9 +1365,13 @@ bool _trySolveWithSlvs(
             if (tgt == Geo.circle || tgt == Geo.arc) {
               // shim v4: SLVS_C_PT_ON_CIRCLE (works for circles AND arcs)
               s.addCon(Sh.pointOnCircle, a: a, e1: eOf(c.ents[0]));
-            } else {
+            } else if (tgt == Geo.line) {
               s.addCon(Sh.pointOnLine, a: a, e1: eOf(c.ents[0]));
             }
+            // Anything else (a polyline carrier, M123) never reaches here —
+            // _trySolveWithSlvs bailed on it above. Guarded rather than
+            // defaulted: packing an unsupported carrier as a LINE would give
+            // the shim a wrong equation instead of no solution.
           }
         }
         break;
@@ -1449,6 +1620,18 @@ const _satisfied = 1e-6;
 /// never reach the renderer or a commit. Good frames sit at ~1e-12; a
 /// divergence is orders of magnitude larger, so this cleanly separates them.
 const _renderable = 1e-2;
+
+/// M123 — how many times one LM run may re-project its point-on-curve tangent
+/// frames onto the real curve. Each pass costs a handful of curve samples and
+/// normally two or three suffice (the perpendicular correction converges
+/// quadratically); the cap only exists so a point that can never reach its
+/// carrier terminates instead of alternating frame and step forever.
+const _maxReprojections = 12;
+
+/// LM iterations granted to each follow-up pass after a re-projection. The
+/// correction is a short perpendicular hop, so it needs far fewer steps than
+/// the first pass — and it keeps the worst case bounded.
+const _reprojectIterations = 12;
 
 /// Wraps every arc's start/end angle into (-2π, 2π] IN PLACE. Endpoints are
 /// invariant (angles enter only through cos/sin), so this never moves
@@ -1731,6 +1914,59 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
   return ok;
 }
 
+/// M123 — re-projects ONLY the point-on-curve frames onto the curve at the
+/// current parameters, leaving every other frozen decision alone.
+///
+/// The frame is a tangent-line linearisation, so a solve that moves the carrier
+/// far leaves the bound point on the tangent instead of on the curve (off by
+/// roughly d²/2R for a tangential slide d). Re-projecting inside the LM loop is
+/// the standard cure: each window is smooth, and the sequence converges to the
+/// real curve. This must NOT go through [_prepare] — the tangency branch there
+/// is deliberately frozen once per SOLVE (re-deriving it per frame is what let
+/// drags walk onto the other branch, M36/M37), and per-iteration would be
+/// strictly worse.
+///
+/// Only the closest point and its tangent are re-measured — ONE curve sample.
+/// The response weights are kept and re-normalised onto the new normal: they
+/// describe how the curve answers a vertex move, which barely changes over the
+/// short perpendicular hop a re-projection makes, and re-measuring them here
+/// would put a dozen curve rebuilds on a path that runs several times per solve.
+/// Returns true when something moved, i.e. the residuals must be recomputed.
+bool _refreezeCurves(List<Geo> gs, List<int> off, List<double> x,
+    List<Constraint> cs, _Ctx ctx) {
+  if (ctx.onCurve.isEmpty) return false;
+  var moved = false;
+  for (final i in ctx.onCurve.keys.toList()) {
+    final c = cs[i];
+    final old = ctx.onCurve[i]!;
+    final q = _pointAt(gs, off, x, c.pts[0]);
+    final hit =
+        _closestOnChain(_curveSamples(_polyAt(gs, off, x, c.ents[0])), q);
+    if (hit == null) continue;
+    final (p0, nrm) = hit;
+    // Re-normalise the kept weights onto the new normal, so a rigid carrier
+    // move stays exact (they must sum to the normal itself).
+    final w = List<double>.from(old.w);
+    for (var axis = 0; axis < 2; axis++) {
+      var sum = 0.0;
+      for (var k = axis; k < w.length; k += 2) {
+        sum += w[k];
+      }
+      final want = axis == 0 ? nrm.dx : nrm.dy;
+      if (sum.abs() > 1e-9) {
+        final f = want / sum;
+        for (var k = axis; k < w.length; k += 2) {
+          w[k] *= f;
+        }
+      }
+    }
+    ctx.onCurve[i] = _OnCurve(p0, nrm, old.base, w,
+        [for (var k = 0; k < w.length; k++) x[old.base + k]]);
+    moved = true;
+  }
+  return moved;
+}
+
 /// One Levenberg-Marquardt run; [frozen] points keep their parameters. Returns
 /// true only when the constraints are actually SATISFIED at the end — a false
 /// return means the caller must not keep this configuration.
@@ -1760,63 +1996,86 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
   if (r.isEmpty) return true;
   var lambda = 1e-3;
   var err = _norm(r);
-
-  for (var it = 0; it < iterations && err > 1e-9; it++) {
-    // numeric Jacobian
-    final m = r.length, n = free.length;
-    final j = List.generate(m, (_) => List<double>.filled(n, 0.0));
-    for (var k = 0; k < n; k++) {
-      final idx = free[k];
-      final h = 1e-6 * (1 + x[idx].abs());
-      final save = x[idx];
-      x[idx] = save + h;
-      final r2 = _residuals(gs, off, x, cs, ctx);
-      x[idx] = save;
-      for (var i = 0; i < m; i++) {
-        j[i][k] = (r2[i] - r[i]) / h;
+  // M123 — the inner LM loop minimises against the point-on-curve TANGENT
+  // frames, which is not the same as landing on the curve: a carrier that moved
+  // far leaves the bound point on the tangent, off the real curve by about
+  // d^2/2R for a tangential slide d. So the whole loop runs in PASSES: converge,
+  // re-project the frames onto the curve, converge again. The error a fresh
+  // frame reports is the TRUE one and may be larger than what was just
+  // minimised; the perpendicular correction converges quadratically, so two or
+  // three passes are the norm.
+  //
+  // A sketch with no point-on-curve constraint runs exactly one pass —
+  // _refreezeCurves returns false immediately — so nothing else changes.
+  var budget = iterations;
+  for (var pass = 0;; pass++) {
+    for (var it = 0; it < budget && err > 1e-9; it++) {
+      // numeric Jacobian
+      final m = r.length, n = free.length;
+      final j = List.generate(m, (_) => List<double>.filled(n, 0.0));
+      for (var k = 0; k < n; k++) {
+        final idx = free[k];
+        final h = 1e-6 * (1 + x[idx].abs());
+        final save = x[idx];
+        x[idx] = save + h;
+        final r2 = _residuals(gs, off, x, cs, ctx);
+        x[idx] = save;
+        for (var i = 0; i < m; i++) {
+          j[i][k] = (r2[i] - r[i]) / h;
+        }
       }
-    }
-    // normal equations (JtJ + lambda*I) dx = -Jt r
-    final jtj = List.generate(n, (_) => List<double>.filled(n, 0.0));
-    final jtr = List<double>.filled(n, 0.0);
-    for (var a = 0; a < n; a++) {
-      for (var b = a; b < n; b++) {
+      // normal equations (JtJ + lambda*I) dx = -Jt r
+      final jtj = List.generate(n, (_) => List<double>.filled(n, 0.0));
+      final jtr = List<double>.filled(n, 0.0);
+      for (var a = 0; a < n; a++) {
+        for (var b = a; b < n; b++) {
+          var s = 0.0;
+          for (var i = 0; i < m; i++) {
+            s += j[i][a] * j[i][b];
+          }
+          jtj[a][b] = s;
+          jtj[b][a] = s;
+        }
         var s = 0.0;
         for (var i = 0; i < m; i++) {
-          s += j[i][a] * j[i][b];
+          s += j[i][a] * r[i];
         }
-        jtj[a][b] = s;
-        jtj[b][a] = s;
+        jtr[a] = -s;
       }
-      var s = 0.0;
-      for (var i = 0; i < m; i++) {
-        s += j[i][a] * r[i];
+      for (var a = 0; a < n; a++) {
+        jtj[a][a] += lambda * (1 + jtj[a][a].abs());
       }
-      jtr[a] = -s;
-    }
-    for (var a = 0; a < n; a++) {
-      jtj[a][a] += lambda * (1 + jtj[a][a].abs());
-    }
-    final dx = _solveDense(jtj, jtr, n);
-    if (dx == null) break;
+      final dx = _solveDense(jtj, jtr, n);
+      if (dx == null) break;
 
-    final saved = List<double>.from(x);
-    for (var k = 0; k < n; k++) {
-      x[free[k]] += dx[k];
-    }
-    final r2 = _residuals(gs, off, x, cs, ctx);
-    final e2 = _norm(r2);
-    if (e2 < err) {
-      r = r2;
-      err = e2;
-      lambda = math.max(1e-9, lambda * 0.4);
-    } else {
-      for (var i = 0; i < total; i++) {
-        x[i] = saved[i];
+      final saved = List<double>.from(x);
+      for (var k = 0; k < n; k++) {
+        x[free[k]] += dx[k];
       }
-      lambda *= 6;
-      if (lambda > 1e9) break;
+      final r2 = _residuals(gs, off, x, cs, ctx);
+      final e2 = _norm(r2);
+      if (e2 < err) {
+        r = r2;
+        err = e2;
+        lambda = math.max(1e-9, lambda * 0.4);
+      } else {
+        for (var i = 0; i < total; i++) {
+          x[i] = saved[i];
+        }
+        lambda *= 6;
+        if (lambda > 1e9) break;
+      }
     }
+    // ---- end of one LM pass: re-project the curve frames and go again ----
+    if (pass >= _maxReprojections) break;
+    if (!_refreezeCurves(gs, off, x, cs, ctx)) break;
+    r = _residuals(gs, off, x, cs, ctx);
+    err = _norm(r);
+    if (err <= _satisfied) break;
+    // Let LM move again on the refreshed problem. Each follow-up pass gets a
+    // small budget of its own — the first already had the full [iterations].
+    lambda = 1e-3;
+    budget = _reprojectIterations;
   }
   _unpack(gs, off, x);
   final ok = err <= _satisfied;

@@ -320,15 +320,8 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
     }
     if (done) continue;
     for (var j = 0; j < limit; j++) {
-      if (gs[j].type != Geo.line) continue;
-      final a = getPt(gs[j], 0), b = getPt(gs[j], 1);
-      if ((q - a).distance < 1e-6 || (q - b).distance < 1e-6) continue;
-      final ab = b - a;
-      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-      if (len2 < 1e-18) continue;
-      final tPar = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
-      if (tPar <= 1e-6 || tPar >= 1 - 1e-6) continue; // interior only
-      if ((q - (a + ab * tPar)).distance < 1e-6) {
+      if (j == newIdx) continue;
+      if (pointLandsOn(gs[j], q)) {
         out.add(Constraint(CType.coincident,
             pts: [PRef(newIdx, p)], ents: [j]));
         break;
@@ -336,6 +329,74 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
     }
   }
   return out;
+}
+
+/// M123 — does [q] lie ON the carrier of [g], i.e. did the on-curve snap put it
+/// there? True for the INTERIOR of a straight edge, for the drawn sweep of a
+/// circle/arc, and for the curve of a spline / ellipse / gear / polygon.
+///
+/// Until M123 this test existed only for [Geo.line], so drawing onto a circle,
+/// an arc or a spline produced a point that merely LOOKED attached and slid off
+/// at the first drag. The snap engine has always offered the 'on' snap for every
+/// one of these types (snap.dart), so the point was already landing exactly on
+/// the carrier — only the inference was missing.
+///
+/// Endpoints are deliberately excluded: a landing on a defining point is a
+/// point-on-POINT coincidence, which is stronger and is inferred first by
+/// [inferPointBindings]. The tolerance is exact-arithmetic tight (1e-6 world
+/// units) on purpose — this asks "did the snap bind it", not "is it nearby".
+bool pointLandsOn(Geo g, Offset q, {double tol = 1e-6}) {
+  switch (g.type) {
+    case Geo.line:
+      final a = getPt(g, 0), b = getPt(g, 1);
+      if ((q - a).distance < tol || (q - b).distance < tol) return false;
+      final ab = b - a;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      if (len2 < 1e-18) return false;
+      final tPar = ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
+      if (tPar <= tol || tPar >= 1 - tol) return false; // interior only
+      return (q - (a + ab * tPar)).distance < tol;
+    case Geo.circle:
+      final c = Offset(g.data[0], g.data[1]);
+      final r = g.data[2];
+      if (r < 1e-9) return false;
+      return ((q - c).distance - r).abs() < tol;
+    case Geo.arc:
+      final c = Offset(g.data[0], g.data[1]);
+      final r = g.data[2];
+      if (r < 1e-9) return false;
+      if (((q - c).distance - r).abs() >= tol) return false;
+      final d = q - c;
+      if (d.distance < 1e-9) return false;
+      // Only the span that was actually drawn — never the complementary arc.
+      if (!angleOnArc(
+          math.atan2(d.dy, d.dx), g.data[3], g.data[4], g.data[5] != 0)) {
+        return false;
+      }
+      // The two arc ENDS are defining points (point-on-point wins there).
+      for (final a in [g.data[3], g.data[4]]) {
+        if ((q - (c + Offset(math.cos(a), math.sin(a)) * r)).distance < tol) {
+          return false;
+        }
+      }
+      return true;
+    case Geo.polyline:
+      // sampleEntity follows the CURVE for splines/ellipses/gears and the
+      // vertices for a straight polyline, so this one branch covers the
+      // polygon edge and the smooth curve with the same code the snap used.
+      final pts = sampleEntity(g);
+      if (pts.length < 2) return false;
+      for (var i = 0; i < ptCount(g); i++) {
+        if ((q - getPt(g, i)).distance < tol) return false; // defining vertex
+      }
+      for (var i = 0; i + 1 < pts.length; i++) {
+        if ((q - closestOnSegment(q, pts[i], pts[i + 1])).distance < tol) {
+          return true;
+        }
+      }
+      return false;
+  }
+  return false;
 }
 
 List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
