@@ -13,6 +13,7 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/ffi/qcad_engine.dart' show Geo;
 import 'package:prototype/part_model.dart';
 import 'package:prototype/reality_scene.dart';
@@ -243,84 +244,92 @@ void main() {
     });
   });
 
-  // M135 — accented B-Rep edges. DISPLAY indices travel, not topological
-  // ones: the renderer indexes the mesh's edge list, and only Dart knows the
-  // two spaces differ.
+  // M127 — accented edges travel as RAW WORLD POLYLINES, not as
+  // "display edge N of solid X". The old shape broke under a fillet preview:
+  // the previewed body is hidden, so the renderer had no geometry to hang the
+  // ribbon on and the hover prehighlight vanished.
   group('edgeAccent', () {
+    /// A solid whose mesh has three separate 2-point edges, so a display index
+    /// maps to a known polyline.
+    KernelSolid triEdged() => KernelSolid(
+        OcctMeshData(
+            Float64List(0),
+            Float64List(0),
+            Int32List(0),
+            Int32List.fromList(const [0, 2, 4, 6]),
+            Float64List.fromList(const [
+              0, 0, 0, 1, 0, 0, // edge 0
+              0, 1, 0, 1, 1, 0, // edge 1
+              0, 2, 0, 1, 2, 0, // edge 2
+            ])),
+        1.0,
+        null);
+
     test('absent entirely when nothing is picked or hovered', () {
-      final s = _cyl();
-      final p = _partWith([_feat('Extrusion1', s)]);
+      final p = _partWith([_feat('Extrusion1', _cyl())]);
       expect(buildScenePayload(AppState(), p).containsKey('edgeAccent'),
           isFalse);
     });
 
-    test('picked edges resolve to their solid id', () {
-      final s = _cyl();
+    test('a picked edge sends its own points, not an index', () {
+      final s = triEdged();
       final p = _partWith([_feat('Extrusion1', s)]);
       final app = AppState()..beginPickEdges();
-      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 2);
-      app.toggleEdgePick(12, EdgeSel(1, 0, 0, 5, 1, 0), solid: s, display: 7);
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 1, 1, 0), solid: s, display: 1);
       final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
-      expect(ea['Extrusion1'], [2, 7]);
+      final lines = (ea['lines'] as List).cast<List>();
+      expect(lines.length, 1);
+      expect(lines.first, [0, 1, 0, 1, 1, 0], reason: 'edge 1 verbatim');
     });
 
-    test('hover and selection merge into ONE set', () {
-      // applySketchAccents already treats hovered and selected curves the
-      // same way; a second colour would be a third highlight idiom.
-      final s = _cyl();
+    test('works even when the body is HIDDEN by a preview', () {
+      // The exact device bug: a fillet preview replaces the body, so the old
+      // per-solid accent had nothing to attach to.
+      final s = triEdged();
       final p = _partWith([_feat('Extrusion1', s)]);
       final app = AppState()..beginPickEdges();
-      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 2);
-      app.setHoverEdge3d(s, 5);
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 1, 1, 0), solid: s, display: 0);
+      app.edgeSession = EdgeFeatureSession('fillet')
+        ..previewReplacesBody = 'Solid1';
       final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
-      expect(ea['Extrusion1'], [2, 5]);
+      expect((ea['lines'] as List).length, 1,
+          reason: 'the accent must survive its body being replaced');
     });
 
-    test('a hovered edge already selected is not listed twice', () {
-      final s = _cyl();
+    test('hover and selection merge, without duplicating a shared edge', () {
+      final s = triEdged();
       final p = _partWith([_feat('Extrusion1', s)]);
       final app = AppState()..beginPickEdges();
-      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 4);
-      app.setHoverEdge3d(s, 4);
-      final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
-      expect(ea['Extrusion1'], [4]);
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 1, 1, 0), solid: s, display: 0);
+      app.setHoverEdge3d(s, 2);
+      var lines = ((buildScenePayload(app, p)['edgeAccent'] as Map)['lines']
+              as List)
+          .cast<List>();
+      expect(lines.length, 2);
+      // hovering the already-selected edge must not stack two ribbons
+      app.setHoverEdge3d(s, 0);
+      lines = ((buildScenePayload(app, p)['edgeAccent'] as Map)['lines']
+              as List)
+          .cast<List>();
+      expect(lines.length, 1);
+    });
+
+    test('an out-of-range display index is skipped, not crashed on', () {
+      final s = triEdged();
+      final p = _partWith([_feat('Extrusion1', s)]);
+      final app = AppState()..beginPickEdges();
+      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 1, 1, 0), solid: s, display: 99);
+      expect(buildScenePayload(app, p).containsKey('edgeAccent'), isFalse);
     });
 
     test('the LIGHT overlay path always carries the key, even when empty', () {
-      // A cleared accent has to travel or the last highlight stays on screen.
-      final s = _cyl();
-      final p = _partWith([_feat('Extrusion1', s)]);
+      final p = _partWith([_feat('Extrusion1', _cyl())]);
       final out = buildOverlaysPayload(AppState(), p);
       expect(out.containsKey('edgeAccent'), isTrue);
       expect(out['edgeAccent'], isEmpty);
     });
-
-    test('picking on a second body starts a new set, never mixes', () {
-      // A fillet operates on ONE solid; a set spanning two would have no
-      // meaningful base to modify.
-      final a = _cyl();
-      final b = _cyl(r: 4);
-      final p = _partWith(
-          [_feat('Extrusion1', a), _feat('Extrusion2', b, body: 'Solid2')]);
-      final app = AppState()..beginPickEdges();
-      app.toggleEdgePick(1, EdgeSel(0, 0, 0, 5, 1, 0), solid: a, display: 1);
-      app.toggleEdgePick(2, EdgeSel(0, 0, 0, 5, 1, 0), solid: b, display: 3);
-      final ea = buildScenePayload(app, p)['edgeAccent'] as Map;
-      expect(ea.containsKey('Extrusion1'), isFalse);
-      expect(ea['Extrusion2'], [3]);
-    });
-
-    test('cancelling the pick clears everything', () {
-      final s = _cyl();
-      final p = _partWith([_feat('Extrusion1', s)]);
-      final app = AppState()..beginPickEdges();
-      app.toggleEdgePick(11, EdgeSel(0, 0, 0, 5, 1, 0), solid: s, display: 2);
-      app.cancelPickEdges();
-      expect(app.pickedEdgeSolid, isNull);
-      expect(app.hoverEdge, isNull);
-      expect(buildScenePayload(app, p).containsKey('edgeAccent'), isFalse);
-    });
   });
+
 
   group('sceneSignature', () {
     test('changes when a solid re-tessellates (mesh identity flips)', () {

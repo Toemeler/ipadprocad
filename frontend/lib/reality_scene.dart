@@ -434,30 +434,45 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
 /// geometry list. Used to highlight and select individual curves in 3D.
 String sketchKey(String sketchName, int geoIndex) => '$sketchName#$geoIndex';
 
-/// M135 — accented B-Rep edges per solid: {solidId: [display index, ...]}.
+/// M127 — accented B-Rep edges, sent as RAW WORLD POLYLINES.
 ///
-/// Hover and selection are merged into ONE set with one colour, exactly as
-/// applySketchAccents already treats hovered and selected sketch curves. Two
-/// colours would be a third highlight idiom in the same viewport.
+/// Was "display edge N of solid X", which broke the moment a fillet preview
+/// went up: the previewed body is hidden, so it is no longer in the scene, so
+/// the renderer has no geometry to hang the ribbon on and the hover
+/// prehighlight silently vanished. Sending the points themselves makes the
+/// accent independent of whether its body is drawn — which is the whole point,
+/// since you pick edges on a body precisely while it is being replaced by a
+/// preview of what filleting them would do.
 ///
-/// DISPLAY indices travel, not topological ones: the renderer indexes the
-/// mesh's edge list, and only Dart needs to know the two spaces differ.
-Map<String, dynamic>? _edgeAccentPayload(AppState app, PartModel p) {
+/// Hover and selection merge into one set, as before.
+Map<String, dynamic>? _edgeAccentPayload(AppState app) {
   final sel = app.pickedEdgeSolid;
   final hov = app.hoverEdge3d;
   if (sel == null && hov == null) return null;
-  final out = <String, List<int>>{};
-  for (final (id, s) in visibleSolids(app, p)) {
-    final idx = <int>{};
-    if (sel != null && identical(s, sel)) {
-      for (final d in app.pickedEdgeDisplay) {
-        if (d >= 0) idx.add(d);
-      }
-    }
-    if (hov != null && identical(s, hov.$1) && hov.$2 >= 0) idx.add(hov.$2);
-    if (idx.isNotEmpty) out[id] = idx.toList()..sort();
+  final lines = <List<double>>[];
+
+  List<double>? poly(KernelSolid s, int i) {
+    final m = s.mesh;
+    if (i < 0 || i + 1 >= m.edgeStarts.length) return null;
+    final a = m.edgeStarts[i], b = m.edgeStarts[i + 1];
+    if (b - a < 2 || b * 3 > m.edgePoints.length) return null;
+    return m.edgePoints.sublist(a * 3, b * 3);
   }
-  return out.isEmpty ? null : out;
+
+  if (sel != null) {
+    for (final d in app.pickedEdgeDisplay) {
+      final l = poly(sel, d);
+      if (l != null) lines.add(l);
+    }
+  }
+  if (hov != null && hov.$2 >= 0) {
+    // Skip a hovered edge already in the set: one ribbon, not two stacked.
+    if (!(identical(hov.$1, sel) && app.pickedEdgeDisplay.contains(hov.$2))) {
+      final l = poly(hov.$1, hov.$2);
+      if (l != null) lines.add(l);
+    }
+  }
+  return lines.isEmpty ? null : {'lines': lines};
 }
 
 /// The blue prehighlight target ({solid id, face id}) or null.
@@ -521,7 +536,7 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
-  final ea = _edgeAccentPayload(app, p);
+  final ea = _edgeAccentPayload(app);
   if (ea != null) scene['edgeAccent'] = ea;
   if (hoverSketch != null) scene['hoverSketch'] = hoverSketch;
   scene['selSketch'] = (selSketch ?? const <String>{}).toList();
@@ -553,7 +568,8 @@ Map<String, dynamic> buildOverlaysPayload(AppState app, PartModel p,
   if (hl != null) out['highlight'] = hl;
   // Always present on the LIGHT path, even when empty: an accent that has
   // just been cleared has to travel, or the last highlight stays on screen.
-  out['edgeAccent'] = _edgeAccentPayload(app, p) ?? const <String, List<int>>{};
+  out['edgeAccent'] =
+      _edgeAccentPayload(app) ?? const <String, dynamic>{};
   if (hoverSketch != null) out['hoverSketch'] = hoverSketch;
   out['selSketch'] = (selSketch ?? const <String>{}).toList();
   return out;

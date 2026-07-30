@@ -159,13 +159,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v13 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v14 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 13; }
+extern "C" int occt_shim_version(void) { return 14; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1084,13 +1084,31 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
             continue;
         /* v9: drop tangent-continuous joins (see edge_is_smooth). cos(8 deg)
          * — a real model crease is far sharper, and the arc-chain joins this
-         * removes are well under one degree. */
+         * removes are well under one degree.
+         *
+         * v14: ONLY when the two faces are the SAME surface type. A fillet is
+         * tangent to its neighbours BY CONSTRUCTION, so the blanket rule threw
+         * away exactly the line where the round meets the flat — a filleted
+         * box rendered as one smooth blob with no outline at either end of the
+         * radius, which is not what any CAD package draws. An arc-chain join
+         * (the artifact this rule exists for) is cylinder-to-cylinder, so
+         * restricting it to same-type pairs keeps that cleanup intact while
+         * plane-to-cylinder and cylinder-to-torus boundaries come back.
+         *
+         * Known limit: a fillet running tangentially into ANOTHER fillet of
+         * the same surface type is still suppressed. Distinguishing that from
+         * an arc chain needs more than the surface type. */
         if (edgeFaces.Contains(edge)) {
             const TopTools_ListOfShape &fl2 = edgeFaces.FindFromKey(edge);
-            if (fl2.Extent() == 2 &&
-                edge_is_smooth(edge, TopoDS::Face(fl2.First()),
-                               TopoDS::Face(fl2.Last()), 0.990268))
-                continue;
+            if (fl2.Extent() == 2) {
+                const TopoDS_Face fa = TopoDS::Face(fl2.First());
+                const TopoDS_Face fb = TopoDS::Face(fl2.Last());
+                BRepAdaptor_Surface sa(fa, Standard_False);
+                BRepAdaptor_Surface sb(fb, Standard_False);
+                if (sa.GetType() == sb.GetType() &&
+                    edge_is_smooth(edge, fa, fb, 0.990268))
+                    continue;
+            }
         }
         BRepAdaptor_Curve curve(edge);
         /* v11: edges are discretised MUCH finer than the faces. An edge is a

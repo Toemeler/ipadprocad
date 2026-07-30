@@ -299,36 +299,6 @@ struct SolidGeom {
     /// normals really are outward, and that assumption has now been wrong
     /// twice on device. Toward the camera is correct no matter what convention
     /// the kernel used for normals or winding.
-    /// Overlay ribbon over just the DISPLAY edges in [ids].
-    ///
-    /// Same trick as faceHighlightEntity: draw the accented subset AGAIN on
-    /// top instead of rebuilding the base outline. The base edge mesh is one
-    /// merged ribbon over every edge (see edgeEntity) and splitting it per
-    /// edge would mean one entity and one material per edge — a gear reaches
-    /// 440 of them, which is exactly the cost M69/M70 removed.
-    ///
-    /// The accent is drawn WIDER than the base edge and nudged toward the
-    /// camera. Wider matters more than the nudge: the two ribbons are
-    /// coplanar by construction, so a depth nudge alone still leaves them
-    /// fighting, whereas a wider ribbon shows a fringe either side whatever
-    /// the depth test decides.
-    func edgeHighlightEntity(edges ids: Set<Int>, halfWidth w: Float,
-                             viewDir: SIMD3<Float>, lift: SIMD3<Float>,
-                             eps: Float = 0.03,
-                             color: UIColor = Colors.highlight) -> ModelEntity? {
-        guard !ids.isEmpty, edgeStarts.count >= 2 else { return nil }
-        var lines = [[SIMD3<Float>]]()
-        for e in 0..<(edgeStarts.count - 1) where ids.contains(e) {
-            let a = edgeStarts[e], b = edgeStarts[e + 1]
-            guard a >= 0, b <= edgePts.count, b - a >= 2 else { continue }
-            lines.append(edgePts[a..<b].map { $0 + lift * eps })
-        }
-        guard !lines.isEmpty,
-              let m = RibbonBuilder.mesh(lines, halfWidth: w, viewDir: viewDir)
-        else { return nil }
-        return ModelEntity(mesh: m, materials: [Materials.unlitSoft(color)])
-    }
-
     func faceHighlightEntity(face faceId: Int, eps: Float = 0.04,
                              lift: SIMD3<Float>) -> ModelEntity? {
         let face = Int32(faceId)

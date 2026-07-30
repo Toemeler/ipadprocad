@@ -1160,6 +1160,65 @@ int main(void)
         if (cyl) occt_free_shape(cyl);
     }
 
+    /* [29] v14 FILLET OUTLINES. A filleted cube must DRAW the line where the
+     * round meets each flat face. Those joins are tangent-continuous by
+     * construction, so the blanket smooth-edge suppression removed them and a
+     * filleted box rendered as one seamless blob (reported from the device).
+     *
+     * A 20-cube filleted on one vertical edge: the round adds two tangent
+     * boundaries (one onto each adjacent face). The unfilleted cube draws 12
+     * edges; the filleted one loses the rounded edge itself but gains those
+     * two, so it must draw MORE than 11 - and specifically the two
+     * plane/cylinder joins must be present.
+     *
+     * Skips loudly where meshing is unavailable (OCCT 7.6), like [28]. */
+    {
+        occt_shape *box = occt_make_box(20, 20, 20);
+        int vertical = -1;
+        const int ne0 = box ? occt_shape_edge_count(box) : 0;
+        for (int i = 1; i <= ne0; ++i) {
+            double d[12] = {0};
+            if (!occt_shape_edge_info(box, i, d)) continue;
+            if (d[0] == 1.0 && fabs(fabs(d[6]) - 1.0) < 1e-9) { vertical = i; break; }
+        }
+        occt_shape *fil = NULL;
+        if (vertical > 0) {
+            const int ids[] = {vertical};
+            const double r[] = {4.0};
+            fil = occt_fillet_edges(box, ids, r, NULL, 1);
+        }
+        occt_mesh *mb = box ? occt_mesh_create(box, 0.1, 0.5) : NULL;
+        occt_mesh *mf = fil ? occt_mesh_create(fil, 0.1, 0.5) : NULL;
+        if (mb == NULL || mf == NULL) {
+            printf("[29] SKIPPED (mesh_create unavailable on this OCCT)"
+                   " - runs on CI\n");
+        } else {
+            int a1 = 0, a2 = 0, nb = 0, a4 = 0;
+            occt_mesh_counts(mb, &a1, &a2, &nb, &a4);
+            int b1 = 0, b2 = 0, nf = 0, b4 = 0;
+            occt_mesh_counts(mf, &b1, &b2, &nf, &b4);
+            printf("[29] display edges: plain cube %d, filleted %d\n", nb, nf);
+            check(nb == 12, "[29] a plain cube draws 12 edges");
+            check(nf > 12, "[29] the fillet must ADD its two tangent joins");
+            /* and the joins must really be plane/cylinder pairs */
+            int planeCyl = 0;
+            const int nt = occt_shape_edge_count(fil);
+            for (int i = 1; i <= nt; ++i) {
+                double d[12] = {0};
+                if (!occt_shape_edge_info(fil, i, d)) continue;
+                /* a tangent join reads ~0 degrees between the faces */
+                if (d[9] == 2.0 && d[10] < 1.0 && d[7] > 0) planeCyl++;
+            }
+            printf("[29] tangent-continuous edges on the filleted solid: %d\n",
+                   planeCyl);
+            check(planeCyl >= 2, "[29] expected the two fillet tangent joins");
+            occt_free_mesh(mf);
+            occt_free_mesh(mb);
+        }
+        if (fil) occt_free_shape(fil);
+        if (box) occt_free_shape(box);
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

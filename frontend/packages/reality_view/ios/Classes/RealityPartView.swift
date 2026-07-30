@@ -126,14 +126,12 @@ final class PartRenderer: NSObject {
     private var previewEntity: Entity?
     private var highlightEntity: ModelEntity?
 
-    /// M135 — accented B-Rep edges (hover + selection share one colour, the
-    /// way applySketchAccents already treats them). One overlay entity per
-    /// solid, keyed by solid id; the base outline is never touched.
-    private var edgeAccentEntities: [String: ModelEntity] = [:]
-    /// What edgeAccentEntities was last built from, so hovering the same edge
-    /// does not regenerate a ribbon every frame (same guard as
-    /// builtHighlight).
-    private var builtEdgeAccent: [String: Set<Int>] = [:]
+    /// M127 — one overlay entity for every accented edge, built from raw
+    /// polylines so it does not depend on the owning body being drawn.
+    private var edgeAccentEntity: ModelEntity?
+    /// What it was last built from, so hovering along one edge does not
+    /// regenerate the ribbon every frame (same guard as builtHighlight).
+    private var builtEdgeAccentKey: String = ""
 
     // Latest camera (kept so a scene change re-applies the current view).
     private var cam = CameraParams()
@@ -282,14 +280,10 @@ final class PartRenderer: NSObject {
             }
         }
         rebuildSketchRibbons()
-        // The accent ribbons are camera-facing too, so they must be re-aimed
-        // with everything else. Clearing the cache forces the next overlay
-        // push to rebuild them at the new width and view direction.
-        for (_, e) in edgeAccentEntities { e.removeFromParent() }
-        edgeAccentEntities.removeAll()
-        let wanted = builtEdgeAccent
-        builtEdgeAccent.removeAll()
-        rebuildEdgeAccents(from: wanted.mapValues { Array($0) })
+        // The accent ribbon is camera-facing too, so it must be re-aimed with
+        // everything else. Dropping the key forces the next overlay push to
+        // rebuild it at the new width and view direction.
+        builtEdgeAccentKey = ""
         edgeBuildHalfH = cam.halfH
     }
 
@@ -472,14 +466,9 @@ final class PartRenderer: NSObject {
         for (id, e) in solidEdges where !ids.contains(id) {
             e.removeFromParent(); solidEdges[id] = nil; solidRev[id] = nil
         }
-        // M135 — the accent overlay hangs off root, not off the solid, so it
-        // does NOT disappear with its solid. A rolled-back or deleted feature
-        // would otherwise leave its highlighted edges floating in the scene.
-        for (id, e) in edgeAccentEntities where !ids.contains(id) {
-            e.removeFromParent()
-            edgeAccentEntities[id] = nil
-            builtEdgeAccent[id] = nil
-        }
+        // M127 — the accent no longer references solids at all (raw
+        // polylines), so there is nothing to clean up per solid here. It is
+        // cleared by the next overlay push carrying an empty set.
         for s in solids {
             guard let id = s["id"] as? String else { continue }
             let rev = (s["rev"] as? NSNumber)?.intValue ?? 0
@@ -659,43 +648,48 @@ final class PartRenderer: NSObject {
 
     // Blue prehighlight of the hovered planar face: a submesh of just that
     // face's triangles, nudged a hair toward the camera to beat z-fighting.
-    /// M135 — overlay the accented edges of each solid.
+    /// M127 — overlay the accented edges, built from RAW WORLD POLYLINES.
     ///
-    /// Dart sends DISPLAY edge indices, not topological ones: Swift indexes
-    /// edgeStarts, and the display list already skips degenerate, seam and
-    /// tangent-continuous edges. Keeping the topological mapping entirely on
-    /// the Dart side means only one place has to know the two differ.
+    /// Previously this looked each edge up as "display index N of solid X" via
+    /// solidCache. That broke as soon as a fillet preview appeared: the
+    /// previewed body is replaced on screen, so it is not in solidCache, so
+    /// there was nothing to hang the ribbon on and the hover prehighlight
+    /// disappeared exactly when it was needed most. Points travel now, so the
+    /// accent no longer cares whether its body is drawn.
     private func rebuildEdgeAccents(from a: Any?) {
-        var want: [String: Set<Int>] = [:]
-        if let m = a as? [String: Any] {
-            for (id, v) in m {
-                let idx = (v as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue }
-                if let idx = idx, !idx.isEmpty { want[id] = Set(idx) }
+        var lines = [[SIMD3<Float>]]()
+        if let m = a as? [String: Any], let raw = m["lines"] as? [Any] {
+            for l in raw {
+                guard let f = Payload.floats(l), f.count >= 6 else { continue }
+                var pts = [SIMD3<Float>]()
+                pts.reserveCapacity(f.count / 3)
+                var i = 0
+                while i + 2 < f.count {
+                    pts.append(SIMD3<Float>(f[i], f[i + 1], f[i + 2]))
+                    i += 3
+                }
+                if pts.count >= 2 { lines.append(pts) }
             }
         }
-        if want == builtEdgeAccent { return }
-        // Drop entities for solids that lost their accent entirely.
-        for (id, e) in edgeAccentEntities where want[id] == nil {
-            e.removeFromParent()
-            edgeAccentEntities[id] = nil
-        }
-        for (id, ids) in want {
-            if builtEdgeAccent[id] == ids, edgeAccentEntities[id] != nil { continue }
-            edgeAccentEntities[id]?.removeFromParent()
-            edgeAccentEntities[id] = nil
-            guard let geom = solidCache[id], let v = outlineDir else { continue }
-            guard let e = geom.edgeHighlightEntity(
-                edges: ids,
-                // clearly wider than the base outline, or the two coplanar
-                // ribbons just z-fight and the accent reads as speckle
-                halfWidth: edgeRadius * 2.2,
-                viewDir: v,
-                lift: cam.dir,
-                eps: highlightEps) else { continue }
-            edgeAccentEntities[id] = e
-            root.addChild(e)
-        }
-        builtEdgeAccent = want
+        // Cheap identity for the cache: total point count plus the first and
+        // last coordinate. Hovering along one edge holds all three steady, so
+        // the ribbon is not rebuilt every frame.
+        let sig = lines.reduce(0) { $0 &+ $1.count &* 131 }
+        let key = "\(sig)|\(lines.first?.first?.x ?? 0)|\(lines.last?.last?.z ?? 0)"
+        if key == builtEdgeAccentKey && edgeAccentEntity != nil { return }
+        edgeAccentEntity?.removeFromParent()
+        edgeAccentEntity = nil
+        builtEdgeAccentKey = key
+        guard !lines.isEmpty, let v = outlineDir else { return }
+        // Clearly wider than the base outline: the two ribbons are coplanar by
+        // construction, so a depth nudge alone still leaves them z-fighting.
+        let lifted = lines.map { $0.map { $0 + cam.dir * highlightEps } }
+        guard let mesh = RibbonBuilder.mesh(lifted, halfWidth: edgeRadius * 2.2,
+                                           viewDir: v) else { return }
+        let e = ModelEntity(mesh: mesh,
+                            materials: [Materials.unlitSoft(Colors.highlight)])
+        edgeAccentEntity = e
+        root.addChild(e)
     }
 
     private func rebuildHighlight(from h: [String: Any]?) {

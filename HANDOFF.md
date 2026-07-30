@@ -16,6 +16,57 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M127 — Zwei Geraetebefunde: Hover-Highlight in der Vorschau, und die
+> fehlenden Kanten am Anfang/Ende jedes Radius. 792/792, Shim v14.**
+>
+> **BEFUND 1: Fillet-Uebergaenge wurden gar nicht gezeichnet.** Die
+> v9-Unterdrueckung tangentenstetiger Kanten greift bei cos(8 deg) — und ein
+> Fillet ist seinen Nachbarflaechen BAUARTBEDINGT tangential. Genau die Linie,
+> wo der Radius auf die Flaeche laeuft, fiel damit unter dieselbe Regel wie ein
+> Bogenketten-Artefakt: der verrundete Wuerfel erschien als ein glatter Klumpen
+> ohne Umriss (Screenshot vom Geraet).
+>
+> Behoben: unterdrueckt wird nur noch, wenn BEIDE Nachbarflaechen denselben
+> Flaechentyp haben. Bogenketten sind Zylinder-zu-Zylinder, bleiben also
+> unterdrueckt; Ebene-zu-Zylinder und Zylinder-zu-Torus kommen zurueck.
+> Bekannte Grenze und dokumentiert: ein Fillet, das tangential in ein ANDERES
+> Fillet gleichen Typs laeuft, bleibt unterdrueckt — das vom Bogenketten-Fall
+> zu trennen braucht mehr als den Flaechentyp. Smoke [29] prueft es (skippt
+> unter 7.6 wie [28], laeuft auf CI).
+>
+> **BEFUND 2: das Hover-Highlight verschwand, sobald die Vorschau stand.** Und
+> zwar nicht durch einen Verdrahtungsfehler, sondern weil das DESIGN falsch
+> war. Der Akzent reiste als „Anzeige-Kante N von Solid X". Sobald die
+> Fillet-Vorschau den Koerper ERSETZT, ist dieser Koerper nicht mehr in der
+> Szene — der Renderer hat also keine Geometrie, an die er das Ribbon haengen
+> koennte, und `solidCache` kennt die Vorschau nicht (`rebuildPreview` baut ein
+> lokales `SolidGeom`). Das Highlight fiel genau dann aus, wenn man es braucht:
+> beim Weiterpicken auf einem Koerper, der gerade durch die Vorschau seiner
+> eigenen Verrundung ersetzt ist.
+>
+> Behoben, indem der Akzent jetzt als ROHE WELT-POLYLINIEN reist
+> (`{'lines': [[x,y,z,...], ...]}`). Damit ist er unabhaengig davon, ob sein
+> Koerper gezeichnet wird — und die ganze Anzeige-Index-Buchhaltung auf der
+> Swift-Seite entfaellt: eine Entity statt eines Dictionaries pro Solid, ein
+> Cache-Key statt einer Index-Menge, kein Aufraeumen bei entfernten Solids
+> (es gibt keinen Bezug mehr). `edgeHighlightEntity` in `PartScene.swift` ist
+> damit verwaist und entfernt.
+>
+> **Nebenbei gelernt:** Swift setzt in `rebuildPreview` fest
+> `Materials.preview()`. Die in M126 getroffene Dart-Wahl „normaler Stahl
+> statt kMatPreview" wurde also ohnehin ignoriert — die Vorschau ist
+> durchscheinend, egal was das Payload sagt. Nicht geaendert, aber notiert:
+> falls die Vorschau am Geraet schwer zu beurteilen ist, liegt der Schalter
+> dort, nicht in Dart.
+>
+> **Aufgefallen im Screenshot, NICHT gemeldet und nicht angefasst:** im Browser
+> steht `Fillet1` UNTERHALB von `End of Part`, waere also zurueckgerollt — der
+> Koerper ist im Bild aber verrundet. Entweder stimmt die EOP-Zeichnung nicht
+> oder ein zurueckgerolltes Fillet wirkt trotzdem. Sollte geprueft werden.
+>
+> **6 Tests** fuer die neue Payload-Form, darunter explizit „funktioniert auch
+> wenn der Koerper durch eine Vorschau VERSTECKT ist" — der gemeldete Fall.
+
 > **M126 — Geraetebefunde behoben: Fillet/Chamfer haben jetzt eine LIVE-
 > Vorschau, und der OK-Knopf bleibt nicht mehr grau. 793/793 Tests.**
 >
