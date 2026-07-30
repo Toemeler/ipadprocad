@@ -551,7 +551,11 @@ class _Viewport3DState extends State<Viewport3D>
     final target = budgetedLinDeflection(
         viewLinearDeflection(p.camera.halfH, size.height), _sceneTriangles());
     for (final s in _liveSolids()) {
-      if (meshNeedsRefine(s.meshLin, target)) return true;
+      // M159 — ask the same bounded question _refineNow will act on, or the
+      // debounce arms for a pass that then does nothing.
+      if (meshNeedsRefine(s.meshLin, steppedLinDeflection(s.meshLin, target))) {
+        return true;
+      }
     }
     return false;
   }
@@ -581,12 +585,16 @@ class _Viewport3DState extends State<Viewport3D>
     // step ratchets the scene up and nothing gives it back.
     final target = budgetedLinDeflection(
         viewLinearDeflection(p.camera.halfH, size.height), _sceneTriangles());
-    final ang = viewAngularDeflection(target);
     var changed = false;
     var remeshed = 0;
     final sw = Stopwatch()..start();
     for (final s in _liveSolids()) {
-      if (meshNeedsRefine(s.meshLin, target) && s.refine(target, ang)) {
+      // M159 — bound how much finer ONE pass may go. Without this a single
+      // solid can leap from 7 536 to 1 002 412 triangles in one call and the
+      // budget only learns about it afterwards, having paid ~10-56 s for it.
+      final step = steppedLinDeflection(s.meshLin, target);
+      final angStep = viewAngularDeflection(step);
+      if (meshNeedsRefine(s.meshLin, step) && s.refine(step, angStep)) {
         changed = true;
         remeshed++;
       }

@@ -2941,6 +2941,33 @@ double budgetedLinDeflection(double target, int sceneTris,
   return relaxed.isFinite ? relaxed : target;
 }
 
+/// Most a single refinement pass may tighten the deflection.
+///
+/// M159 — the budget is REACTIVE: [budgetedLinDeflection] reads the triangles
+/// already in the scene, so it can only stop a ratchet that has begun. It
+/// cannot stop one step from overshooting, and a coil overshoots by a factor
+/// of a hundred. Device log: a coil meshed at 7 536 triangles, the scene was
+/// far under budget so the full target was requested, and OCCT returned
+/// 1 002 412 triangles in ONE pass — 9 952 ms, and later 605 610 triangles in
+/// 56 183 ms. The budget then correctly refused to go further, but the cost
+/// was already paid and a million-triangle mesh was already on screen.
+///
+/// Triangle growth per pass is bounded instead. Halving the deflection costs
+/// at most ~4x the triangles for a surface, so each pass stays cheap and the
+/// existing budget check between passes stops the climb while the numbers are
+/// still small — several fast remeshes rather than one catastrophic one.
+const double kMaxRefineStep = 2.0;
+
+/// [target], but no finer than one [kMaxRefineStep] beyond [current].
+///
+/// Coarsening requests pass through untouched: this only ever limits how much
+/// FINER a single pass may ask for.
+double steppedLinDeflection(double current, double target) {
+  if (!(current > 0) || !current.isFinite) return target;
+  final floor = current / kMaxRefineStep;
+  return target < floor ? floor : target;
+}
+
 /// Whether a mesh built at [current] deflection should be re-tessellated for
 /// a [target] deflection. We only ever refine FINER (never coarsen): refining
 /// is monotone-safe with OCCT's incremental mesher, and a too-fine mesh is
