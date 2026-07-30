@@ -614,6 +614,13 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' ios/Runner/Info.plist
+          # M147 — fullscreen: no status bar, from the launch image onward.
+          # UIViewControllerBasedStatusBarAppearance must be false, or UIKit
+          # asks FlutterViewController instead and UIStatusBarHidden is ignored
+          # for the frames before Dart has run.
+          /usr/libexec/PlistBuddy -c 'Add :UIStatusBarHidden bool true' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :UIStatusBarHidden' ios/Runner/Info.plist
           # flutter create generates a template test referencing MyApp,
           # which doesn't exist in our app -> would fail flutter analyze
           rm -f test/widget_test.dart
