@@ -169,6 +169,107 @@ PlaneFrame faceFrame(Vec3 hit, Vec3 normal) {
 
 const kPlaneKeys = ['yz', 'xz', 'xy'];
 
+/// M151 — key carried by every user-created work plane's frame.
+///
+/// Deliberately NOT one of [kPlaneKeys]: a work plane behaves like a picked
+/// solid face rather than like an origin plane. A sketch placed on one stores
+/// the frame outright (the `face` slot of ChildSketch), so it keeps working
+/// when the plane later moves, and nothing that switches the three origin
+/// planes on and off can touch it.
+const String kWorkPlaneKey = 'work';
+
+/// Resolves a plane pick key — an origin key or a work plane's `wp:N` id — to
+/// its frame. Null when the key names nothing on this part.
+PlaneFrame? frameForPlaneKey(PartModel p, String key) {
+  if (kPlaneKeys.contains(key)) return planeFrame(key);
+  for (final w in p.workPlanes) {
+    if (w.id == key) return w.frame;
+  }
+  return null;
+}
+
+/// How a work plane was defined. Two kinds for now, both parametric only in
+/// the sense that the DEFINITION is recorded; the frame is baked at creation.
+enum WorkPlaneKind { offset, midplane }
+
+/// A plane offset from [base] along its own normal by [d] mm.
+///
+/// The u/v axes are inherited so a sketch on the offset plane has the same
+/// orientation as one on the base — an offset plane that silently rotated its
+/// sketch axes would be worse than useless.
+PlaneFrame offsetPlaneFrame(PlaneFrame base, double d) => PlaneFrame(
+    kWorkPlaneKey, base.u, base.v, base.n, base.origin + base.n * d);
+
+/// The plane halfway between [a] and [b], or null when they are not parallel.
+///
+/// Anti-parallel counts as parallel: two opposite faces of a block are the
+/// commonest midplane input there is, and their normals point away from each
+/// other. Non-parallel input returns null rather than guessing — an angled
+/// bisector is a different feature and pretending otherwise would put a plane
+/// somewhere the user did not ask for.
+PlaneFrame? midPlaneFrame(PlaneFrame a, PlaneFrame b, {double tol = 1e-6}) {
+  final d = a.n.dot(b.n);
+  if ((d.abs() - 1).abs() > tol) return null;
+  final n = a.n;
+  // Signed distances of both planes along the SHARED normal, so the midpoint
+  // is a real point on the resulting plane.
+  final mid = (a.origin.dot(n) + b.origin.dot(n)) / 2;
+  return PlaneFrame(kWorkPlaneKey, a.u, a.v, n, n * mid);
+}
+
+/// A user-created work plane. The frame is baked at creation; [def] is what
+/// the browser and the toast show, so the user can tell two planes apart.
+class WorkPlane {
+  final String name;
+  final int seq;
+  final WorkPlaneKind kind;
+  final String def;
+  final PlaneFrame frame;
+  bool visible;
+
+  WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
+      {this.visible = true});
+
+  /// Stable id used by hover and picking, e.g. `wp:3`.
+  String get id => 'wp:$seq';
+
+  static List<double> _v(Vec3 a) => [a.x, a.y, a.z];
+  static Vec3 _p(dynamic l) {
+    final a = (l as List).cast<num>();
+    return Vec3(a[0].toDouble(), a[1].toDouble(), a[2].toDouble());
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'seq': seq,
+        'kind': kind.name,
+        'def': def,
+        'visible': visible,
+        'o': _v(frame.origin),
+        'u': _v(frame.u),
+        'v': _v(frame.v),
+        'n': _v(frame.n),
+      };
+
+  static WorkPlane? fromJson(Map<String, dynamic> m) {
+    try {
+      return WorkPlane(
+        m['name'] as String? ?? 'Work Plane',
+        (m['seq'] as num?)?.toInt() ?? 0,
+        WorkPlaneKind.values.firstWhere((k) => k.name == m['kind'],
+            orElse: () => WorkPlaneKind.offset),
+        m['def'] as String? ?? '',
+        PlaneFrame(kWorkPlaneKey, _p(m['u']), _p(m['v']), _p(m['n']),
+            _p(m['o'])),
+        visible: m['visible'] as bool? ?? true,
+      );
+    } catch (_) {
+      // A corrupt entry must not take the whole part down with it.
+      return null;
+    }
+  }
+}
+
 PlaneFrame planeFrame(String key) {
   switch (key) {
     case 'yz':
@@ -2115,6 +2216,9 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
 
+  /// M151 — user-created work planes, in creation order.
+  final List<WorkPlane> workPlanes = [];
+
   /// Origin-item visibility (all invisible by default, like the mock).
   final Map<String, bool> vis = {
     'yz': false,
@@ -2296,6 +2400,10 @@ class PartModel {
             }
         ],
         'features': [for (final f in features) f.toJson()],
+        // M151 — written only when there are any, so an untouched part's file
+        // is byte-identical to what it was before work planes existed.
+        if (workPlanes.isNotEmpty)
+          'workPlanes': [for (final w in workPlanes) w.toJson()],
         'featureN': featureN,
         'solidN': solidN,
         // M91 — timeline + End of Part. `eopAfter` is only written when the
@@ -2319,6 +2427,10 @@ class PartModel {
     for (final f in (j['features'] as List? ?? const [])) {
       final pf = PartFeature.fromJson((f as Map).cast<String, dynamic>());
       if (pf != null) features.add(pf);
+    }
+    for (final w in (j['workPlanes'] as List? ?? const [])) {
+      final wp = WorkPlane.fromJson((w as Map).cast<String, dynamic>());
+      if (wp != null) workPlanes.add(wp);
     }
     // M91 — creation order. A pre-M91 document has no 'seq' anywhere; the
     // sketches are numbered first and the features after, which reproduces
@@ -4603,9 +4715,16 @@ String _contentSignature(PartModel p) {
 /// x in [0, 60]; a symmetric half-extent would draw a 120 mm plane for a 60 mm
 /// part. Projecting the world box onto the frame's own axes gives the plane
 /// the part's width and height, which is what was asked for.
-(double, double, double, double) originPlaneRect(PartModel p, String key) {
+(double, double, double, double) originPlaneRect(PartModel p, String key) =>
+    planeRectFor(p, planeFrame(key));
+
+/// M151 — the same padded rectangle for ANY frame, so a work plane is drawn
+/// and hit-tested by exactly the code the origin planes use. Keeping one
+/// function is the point: M83 fixed a bug where the drawn rectangle and the
+/// clickable one had drifted apart, and two plane kinds is two chances to do
+/// it again.
+(double, double, double, double) planeRectFor(PartModel p, PlaneFrame f) {
   final (lo, hi) = originExtentBounds(p);
-  final f = planeFrame(key);
   // The frame axes are signed unit world axes, so projecting the two box
   // corners and ordering the result is exact — no need to test all eight.
   double along(Vec3 axis, bool wantMax) {

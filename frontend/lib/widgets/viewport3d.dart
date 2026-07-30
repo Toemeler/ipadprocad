@@ -763,6 +763,25 @@ class _Viewport3DState extends State<Viewport3D>
         }
       }
     }
+    // M151 — work planes, same test with their own frame and rectangle. They
+    // are always pickable: unlike the origin planes they exist because the
+    // user asked for them, so hiding them behind a visibility rule would be
+    // surprising.
+    for (final w in p.workPlanes) {
+      if (!w.visible) continue;
+      final f = w.frame;
+      final wp = cam.rayOnPlane(px, f.n);
+      if (wp == null) continue;
+      final uu = (wp - f.origin).dot(f.u), vv = (wp - f.origin).dot(f.v);
+      final (uMin, uMax, vMin, vMax) = planeRectFor(p, f);
+      if (uu >= uMin && uu <= uMax && vv >= vMin && vv <= vMax) {
+        final d = cam.depth(wp);
+        if (d < bestD) {
+          bestD = d;
+          best = w.id;
+        }
+      }
+    }
     return best;
   }
 
@@ -770,8 +789,9 @@ class _Viewport3DState extends State<Viewport3D>
   /// the ray misses the plane's bounded extent. Lets hover/tap compare a
   /// plane against a solid face sitting in front of it.
   double? _planeDepthAt(Cam3 cam, Offset px, String key) {
-    if (!kPlaneKeys.contains(key)) return null;
-    final f = planeFrame(key);
+    final p = widget.app.currentPart;
+    final f = p == null ? null : frameForPlaneKey(p, key);
+    if (f == null) return null;
     final w = cam.rayOnPlane(px, f.n);
     if (w == null) return null;
     return cam.depth(w);
@@ -1117,6 +1137,16 @@ class _Viewport3DState extends State<Viewport3D>
         app.planePicked(key);
         return;
       }
+      // M151 — a work plane carries its own frame, so it goes down the
+      // sketch-on-face path: same code, and a sketch on it keeps its
+      // placement if the origin planes are later switched off.
+      if (key != null) {
+        final wf = frameForPlaneKey(p, key);
+        if (wf != null) {
+          app.facePicked(wf);
+          return;
+        }
+      }
       if (face != null) app.facePicked(face.$3);
       return;
     }
@@ -1223,6 +1253,35 @@ class _ScenePainter extends CustomPainter {
           highlightFace: hoverFace?.$2 ?? -1,
           accentSolid: accentSolid,
           accentEdges: accent);
+    }
+
+    // ---- work planes (M151) ----
+    // Drawn with the origin planes and by the same helpers: an occluded fill
+    // so the plane passes THROUGH the model rather than floating on it, and
+    // the same green-on-hover the origin planes use, so a work plane
+    // highlights identically to the thing it was defined from.
+    for (final w in part.workPlanes) {
+      if (!w.visible) continue;
+      final f = w.frame;
+      final (uMin, uMax, vMin, vMax) = planeRectFor(part, f);
+      final c0 = f.toWorld(Offset(uMin, vMin));
+      final c1 = f.toWorld(Offset(uMax, vMin));
+      final c2 = f.toWorld(Offset(uMax, vMax));
+      final c3 = f.toWorld(Offset(uMin, vMax));
+      final hot = hover == w.id;
+      drawOccludedQuadFill(canvas, cam, c0, c1, c2, c3,
+          (hot ? _green : _orange).withValues(alpha: hot ? 0.42 : 0.22),
+          occ: occ);
+      drawOccludedPolyline(
+          canvas,
+          cam,
+          [c0, c1, c2, c3, c0],
+          Paint()
+            ..color =
+                (hot ? _green : _orange).withValues(alpha: hot ? 0.95 : 0.65)
+            ..strokeWidth = hot ? 2.0 : 1.2
+            ..style = PaintingStyle.stroke,
+          occ: occ);
     }
 
     // ---- origin planes (fills first: everything else draws over them) ----

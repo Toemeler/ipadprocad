@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
 import '../log.dart';
+import '../part_model.dart' show WorkPlaneKind;
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -176,7 +177,21 @@ class _RibbonState extends State<Ribbon> {
             items: items,
             onPick: (it) {
               closeFly();
-              if (it.tool != null) _startTool(it.tool!);
+              if (it.tool != null) {
+                _startTool(it.tool!);
+                return;
+              }
+              // M151 — the Work Features > Plane list has been dummy entries
+              // since M56. Two of them are real now; the rest still fall
+              // through and do nothing, which is honest until they exist.
+              switch (it.icon) {
+                case 'offset':
+                  widget.app.startWorkPlane(WorkPlaneKind.offset);
+                  break;
+                case 'midplane2':
+                  widget.app.startWorkPlane(WorkPlaneKind.midplane);
+                  break;
+              }
             },
           ),
         ),

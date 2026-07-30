@@ -2388,6 +2388,12 @@ class AppState extends ChangeNotifier {
   void planePicked(String key) {
     final p = currentPart;
     if (p == null || !pickPlane) return;
+    // M151 — a work plane is being defined: the pick is an INPUT, not a
+    // request to start a sketch.
+    if (workPlaneArm != null) {
+      _workPlaneInput(planeFrame(key), key.toUpperCase());
+      return;
+    }
     pickPlane = false;
     if (_planesAutoShown) {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
@@ -2505,12 +2511,133 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- work planes (M151) -------------------------------------------------
+  /// Which work plane is being defined, or null when none is armed. The
+  /// viewport shows the origin planes and highlights faces while this is set,
+  /// because the pick targets are exactly the ones sketch placement already
+  /// knows how to hover.
+  WorkPlaneKind? workPlaneArm;
+
+  /// Offset distance in mm for the next offset plane. Signed on purpose —
+  /// entering a negative value is how you go the other way, which is one less
+  /// thing to build than a Flip button.
+  double workPlaneOffset = 10;
+
+  /// Inputs collected so far. Offset needs one, midplane two.
+  final List<PlaneFrame> _wpPicks = [];
+  final List<String> _wpNames = [];
+
+  /// Arm work plane creation. Cancels itself if the same kind is armed twice,
+  /// so the ribbon button toggles.
+  void startWorkPlane(WorkPlaneKind kind) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workPlaneArm == kind) return cancelWorkPlane();
+    workPlaneArm = kind;
+    _wpPicks.clear();
+    _wpNames.clear();
+    pickPlane = true;
+    // Offer the origin planes for the duration, exactly as the sketch flow
+    // does — without them an empty part has nothing to pick at all.
+    _planesAutoShown = !p.hasSolid;
+    if (_planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    }
+    toast(kind == WorkPlaneKind.offset
+        ? 'Select a plane or face to offset from.'
+        : 'Select the first of two parallel planes or faces.');
+    notifyListeners();
+  }
+
+  void cancelWorkPlane() {
+    if (workPlaneArm == null) return;
+    workPlaneArm = null;
+    pickPlane = false;
+    _wpPicks.clear();
+    _wpNames.clear();
+    final p = currentPart;
+    if (p != null && _planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
+    notifyListeners();
+  }
+
+  /// One pick arrived. Builds the plane as soon as it has enough of them.
+  void _workPlaneInput(PlaneFrame f, String label) {
+    final p = currentPart;
+    final kind = workPlaneArm;
+    if (p == null || kind == null) return;
+    _wpPicks.add(f);
+    _wpNames.add(label);
+
+    if (kind == WorkPlaneKind.offset) {
+      _commitWorkPlane(
+          p,
+          kind,
+          offsetPlaneFrame(f, workPlaneOffset),
+          'Offset ${workPlaneOffset.toStringAsFixed(2)} mm from $label');
+      return;
+    }
+
+    if (_wpPicks.length < 2) {
+      toast('Select the second parallel plane or face.');
+      notifyListeners();
+      return;
+    }
+    final mid = midPlaneFrame(_wpPicks[0], _wpPicks[1]);
+    if (mid == null) {
+      // Keep the flow ALIVE and drop only the bad second pick: making the user
+      // restart from the ribbon after one mis-tap is the kind of small cruelty
+      // that makes a tool feel hostile.
+      _wpPicks.removeLast();
+      _wpNames.removeLast();
+      toast('Those two are not parallel — pick a parallel plane or face.');
+      notifyListeners();
+      return;
+    }
+    _commitWorkPlane(
+        p, kind, mid, 'Midplane between ${_wpNames[0]} and ${_wpNames[1]}');
+  }
+
+  void _commitWorkPlane(
+      PartModel p, WorkPlaneKind kind, PlaneFrame frame, String def) {
+    final wp = WorkPlane(
+        'Work Plane${p.workPlanes.length + 1}', p.nextSeq(), kind, def, frame);
+    p.workPlanes.add(wp);
+    p.dirty = true;
+    workPlaneArm = null;
+    pickPlane = false;
+    _wpPicks.clear();
+    _wpNames.clear();
+    _planesAutoShown = false;
+    toast('${wp.name}: $def');
+    Log.i('part', 'work plane "${wp.name}" — $def');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void deleteWorkPlane(WorkPlane wp) {
+    final p = currentPart;
+    if (p == null) return;
+    p.workPlanes.remove(wp);
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as
   /// [planePicked], but the sketch lives on the face's own frame — Inventor's
   /// sketch-on-face.
   void facePicked(PlaneFrame frame) {
     final p = currentPart;
     if (p == null || !pickPlane) return;
+    // M151 — see planePicked. A face and an origin plane are interchangeable
+    // inputs here; both are just a PlaneFrame by the time they arrive.
+    if (workPlaneArm != null) {
+      _workPlaneInput(frame, 'face');
+      return;
+    }
     pickPlane = false;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
     // A plane can be faced from either side. Take the side NEARER the current
