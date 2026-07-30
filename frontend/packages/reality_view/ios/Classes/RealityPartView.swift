@@ -660,15 +660,12 @@ final class PartRenderer: NSObject {
         var lines = [[SIMD3<Float>]]()
         if let m = a as? [String: Any], let raw = m["lines"] as? [Any] {
             for l in raw {
-                guard let f = Payload.floats(l), f.count >= 6 else { continue }
-                var pts = [SIMD3<Float>]()
-                pts.reserveCapacity(f.count / 3)
-                var i = 0
-                while i + 2 < f.count {
-                    pts.append(SIMD3<Float>(f[i], f[i + 1], f[i + 2]))
-                    i += 3
-                }
-                if pts.count >= 2 { lines.append(pts) }
+                // Payload.floats already groups the flat Float32 triples into
+                // points (M74), so take them as they come. Re-grouping here is
+                // what broke the build: f[i] is a POINT, not a Float. The old
+                // `f.count >= 6` meant "at least two points" and still does.
+                guard let pts = Payload.floats(l), pts.count >= 2 else { continue }
+                lines.append(pts)
             }
         }
         // Cheap identity for the cache: total point count plus the first and
