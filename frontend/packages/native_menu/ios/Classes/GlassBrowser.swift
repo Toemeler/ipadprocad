@@ -68,6 +68,21 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     private let channel: FlutterMethodChannel
 
     private var rows: [BrowserRow] = []
+
+    /// M129 — is [r] the last child at its own depth? Read off the FLATTENED
+    /// row order: scanning forward, the first row that is not deeper ends this
+    /// row's sibling run. Derived here rather than shipped from Dart so the
+    /// payload and its decoder stay untouched — the flattened order already
+    /// carries the whole tree shape.
+    private func isLastChild(_ r: BrowserRow) -> Bool {
+        guard let i = rows.firstIndex(where: { $0.id == r.id }) else { return true }
+        var j = i + 1
+        while j < rows.count {
+            if rows[j].depth <= r.depth { return rows[j].depth < r.depth }
+            j += 1
+        }
+        return true
+    }
     private var byId: [String: BrowserRow] = [:]
 
     /// Live End of Part drag: the row the finger started on and how far it has
@@ -157,6 +172,49 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// room on the right for the retract chevron Flutter draws over the panel.
     static let inset = UIEdgeInsets(top: 12, left: 28, bottom: 12, right: 0)
 
+    // M129 — feature-tree palette, matched to the reference screenshots.
+    /// Warm amber of a filled container folder.
+    static let folderAmber = UIColor(red: 0.88, green: 0.76, blue: 0.44, alpha: 1)
+    /// The dotted tree rules. Faint on purpose: they are a reading aid, and at
+    /// full contrast a deep tree turns into a ladder that outshouts the labels.
+    static let treeRule = UIColor(white: 1.0, alpha: 0.26)
+    /// One indent step. Must match `indentationWidth` below or the dots drift
+    /// away from the glyph column they are supposed to line up with.
+    static let indentStep: CGFloat = 11
+
+    /// A cell that draws the dotted ancestry rules behind its content.
+    /// UIKit list cells have no notion of tree rules, so the guides are drawn
+    /// per row: one dotted vertical per ancestor level, plus the elbow into
+    /// this row's own glyph. Rows carry their depth already, which is all the
+    /// geometry this needs — no second tree model to keep in sync.
+    final class TreeRuleView: UIView {
+        var depth: Int = 0 { didSet { setNeedsDisplay() } }
+        var isLast: Bool = false { didSet { setNeedsDisplay() } }
+
+        override func draw(_ rect: CGRect) {
+            guard depth > 0, let ctx = UIGraphicsGetCurrentContext() else { return }
+            ctx.setStrokeColor(GlassBrowserView.treeRule.cgColor)
+            ctx.setLineWidth(1)
+            ctx.setLineDash(phase: 0, lengths: [1, 2])
+            let step = GlassBrowserView.indentStep
+            let mid = rect.height / 2
+            // One vertical rule per ANCESTOR level, full height of the row.
+            for level in 1..<depth {
+                let x = (CGFloat(level) * step) + 4.5
+                ctx.move(to: CGPoint(x: x, y: 0))
+                ctx.addLine(to: CGPoint(x: x, y: rect.height))
+            }
+            // This row's own rule stops at the elbow when it is the last child.
+            let x = (CGFloat(depth) * step) + 4.5
+            ctx.move(to: CGPoint(x: x, y: 0))
+            ctx.addLine(to: CGPoint(x: x, y: isLast ? mid : rect.height))
+            // Elbow out to the glyph.
+            ctx.move(to: CGPoint(x: x, y: mid))
+            ctx.addLine(to: CGPoint(x: x + step - 2, y: mid))
+            ctx.strokePath()
+        }
+    }
+
     private func buildCollection() {
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
         // M108 — a CAD tree wants density, not Settings-app spacing; the row
@@ -231,6 +289,10 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             switch r.tint {
             case "blue": c.imageProperties.tintColor = .systemBlue
             case "red": c.imageProperties.tintColor = .systemRed
+            // M129 — Inventor's container folders: a warm filled amber that
+            // reads as a FOLDER at 11 pt, where a grey outline just read as
+            // another feature glyph.
+            case "folder": c.imageProperties.tintColor = GlassBrowserView.folderAmber
             default: c.imageProperties.tintColor = r.dim ? .tertiaryLabel : .secondaryLabel
             }
             // Indentation is the tree: UIKit owns it, no manual padding.
@@ -242,16 +304,40 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             bg.backgroundColor = r.selected
                 ? UIColor.systemBlue.withAlphaComponent(0.28)
                 : .clear
+            // M129 — the dotted ancestry rules ride in the background view, so
+            // they sit BEHIND the selection tint and never fight the label.
+            // Reused across dequeues: a fresh view per bind would churn a layer
+            // on every scroll tick.
+            let rule = (bg.customView as? TreeRuleView) ?? TreeRuleView()
+            rule.backgroundColor = .clear
+            rule.isOpaque = false
+            rule.depth = r.depth
+            rule.isLast = self.isLastChild(r)
+            bg.customView = rule
             cell.backgroundConfiguration = bg
 
             var accessories: [UICellAccessory] = []
             if r.expandable {
-                accessories.append(.outlineDisclosure(
-                    options: .init(style: .cell),
-                    actionHandler: { [weak self] in
-                        self?.channel.invokeMethod(
-                            "expand", arguments: ["id": r.id, "on": !r.expanded])
-                    }))
+                // M129 — a boxed +/- at the LEADING edge, the way a feature
+                // tree has always drawn it, instead of UIKit's rotating
+                // chevron. outlineDisclosure also animates a rotation on every
+                // toggle, which reads as a list control rather than a tree.
+                let b = UIButton(type: .system)
+                b.setImage(UIImage(systemName: r.expanded
+                                   ? "minus.square" : "plus.square"),
+                           for: .normal)
+                b.setPreferredSymbolConfiguration(
+                    UIImage.SymbolConfiguration(pointSize: 10, weight: .regular),
+                    forImageIn: .normal)
+                b.frame = CGRect(x: 0, y: 0, width: 16, height: 16)
+                b.tintColor = .secondaryLabel
+                b.addAction(UIAction { [weak self] _ in
+                    self?.channel.invokeMethod(
+                        "expand", arguments: ["id": r.id, "on": !r.expanded])
+                }, for: .touchUpInside)
+                accessories.append(.customView(configuration: .init(
+                    customView: b, placement: .leading(displayed: .always),
+                    reservedLayoutWidth: .custom(16))))
             }
             if r.hasEye {
                 let b = UIButton(type: .system)

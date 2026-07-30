@@ -93,7 +93,10 @@ List<GlassRow> buildBrowserRows(
       rows.add(GlassRow(
         id: 'bodies',
         label: 'Solid Bodies(${bodies.length})',
-        symbol: 'folder',
+        // M129 — Inventor draws its container folders as FILLED amber, not a
+        // grey outline; the two are the only true folders in the tree.
+        symbol: 'folder.fill',
+        tint: 'folder',
         depth: 1,
         expandable: true,
         expanded: expanded.contains('bodies'),
@@ -120,7 +123,8 @@ List<GlassRow> buildBrowserRows(
     rows.add(GlassRow(
       id: 'origin',
       label: 'Origin',
-      symbol: 'folder',
+      symbol: 'folder.fill',
+      tint: 'folder',
       depth: 1,
       expandable: true,
       expanded: expanded.contains('origin'),

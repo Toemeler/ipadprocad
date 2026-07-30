@@ -16,8 +16,11 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **M129 — Build-Bruch behoben UND die Ursache der wilden Highlight-Linien:
-> falsches Drahtformat. Merge M123/M124. 831/831 Tests.**
+> **M130a — Ursache der wilden Highlight-Linien: falsches Drahtformat.
+> Merge M123/M124. 831/831 Tests.**
+>
+> (Umbenannt von M129: eine Parallel-Sitzung auf demselben Branch hat M129
+> fuer das Feature-Tree-Aussehen des nativen Browsers benutzt.)
 >
 > **Der Build-Bruch (#307):** `Cannot convert value of type 'SIMD3<Float>' to
 > expected argument type 'Float'`, dreimal auf einer Zeile.
@@ -1254,9 +1257,10 @@ Token NIE in Dateien/.git/config schreiben.
 > ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123/M124)
 >
 > **Alles gruen:** `dart-checks` 632 Tests + analyze sauber, `build-core-ios`,
-> `M3` und `m5-flutter-ipa` bestanden. **M123 kam danach dazu: 645 Tests lokal
-> gruen (Flutter 3.32.0), analyze 51 Issues / 0 errors = exakt der Ausgangsstand.
-> M123 ist noch NICHT durch die CI und nicht committet.**
+> `M3` und `m5-flutter-ipa` bestanden. **M123 kam danach dazu und ist auf `main`:
+> CI-Lauf #305 (`2b98820`) komplett gruen — 645 Tests, analyze 51 Issues /
+> 0 errors, also exakt der Ausgangsstand. In diesen Branch hereingemischt, hier
+> zusammen mit M124–M128 noch nicht erneut durch die CI.**
 >
 > **Was in dieser Sitzung entstand:** M82–M122. Grob: Galerie-Vorschau auf der
 > echten 3D-Engine, Ursprungsebenen rahmen das Teil, Share Sketch +
