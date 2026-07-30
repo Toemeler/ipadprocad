@@ -307,7 +307,14 @@ class NativeMenu {
 ///
 /// It takes no touches — put your own content above it in a [Stack].
 class GlassPanel extends StatelessWidget {
-  const GlassPanel({super.key});
+  /// Rounds the glass itself, in points. 0 = full-bleed surface, which is what
+  /// the model browser's fallback has always used. A FLOATING card asks for
+  /// its own radius (M146: the ribbon uses 18, the browser's value) — clipping
+  /// a platform view from the Flutter side does not work reliably, so the
+  /// corners have to be cut in UIKit.
+  final double cornerRadius;
+
+  const GlassPanel({super.key, this.cornerRadius = 0});
 
   /// Only iOS has the material; elsewhere the caller keeps its own colour.
   static bool get isSupported => !kIsWeb && Platform.isIOS;
@@ -315,10 +322,11 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!isSupported) return const SizedBox.shrink();
-    return const IgnorePointer(
+    return IgnorePointer(
       child: UiKitView(
         viewType: 'prototype/glass_panel',
-        creationParamsCodec: StandardMessageCodec(),
+        creationParams: <String, Object?>{'cornerRadius': cornerRadius},
+        creationParamsCodec: const StandardMessageCodec(),
       ),
     );
   }

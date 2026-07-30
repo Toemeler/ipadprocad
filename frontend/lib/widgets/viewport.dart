@@ -32,6 +32,7 @@ import 'package:native_menu/native_menu.dart';
 import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
+import 'ribbon_chrome.dart';
 import '../touch.dart';
 import 'pattern_dialog.dart';
 import 'parameters_dialog.dart';
@@ -1507,7 +1508,9 @@ class _Viewport2DState extends State<Viewport2D> {
                   // in the canvas while the dialog is open.
                   if (app.pattern != null)
                     Positioned(
-                        right: 12, top: 12, child: PatternDialog(app: app)),
+                        right: 12,
+                        top: 12 + RibbonMetrics.contentTop,
+                        child: PatternDialog(app: app)),
                   // M43: movable Parameters (fx) window
                   if (app.showParams)
                     Positioned(
@@ -1551,7 +1554,7 @@ class _Viewport2DState extends State<Viewport2D> {
                       (app.tool == Tool.fillet || app.tool == Tool.chamfer))
                     Positioned(
                         right: 12,
-                        top: 12,
+                        top: 12 + RibbonMetrics.contentTop,
                         child: FilletChamferDialog(app: app)),
                   // Inventor's status readout, bottom right of the graphics
                   // window: "N dimensions needed" while under-constrained,

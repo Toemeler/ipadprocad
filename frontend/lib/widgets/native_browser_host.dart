@@ -16,6 +16,13 @@ class NativeModelBrowser extends StatefulWidget {
   final AppState app;
   const NativeModelBrowser({super.key, required this.app});
 
+  /// Total width the panel claims at the left edge when EXPANDED, card plus
+  /// retract strip. M146 — the coordinate triad is placed to the right of
+  /// this. Expanded on purpose, even while the panel is retracted: a triad
+  /// that slid sideways every time the browser collapsed would be worse than
+  /// one standing a little clear of it.
+  static const double occupiedWidth = 264 + 24;
+
   @override
   State<NativeModelBrowser> createState() => _NativeModelBrowserState();
 }
@@ -51,6 +58,15 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   bool _hasHover = false;
 
   AppState get app => widget.app;
+
+  @override
+  void initState() {
+    super.initState();
+    // The triad is positioned against NativeModelBrowser.occupiedWidth, which
+    // cannot see these private metrics. Keep the two in step here rather than
+    // discovering the drift as a triad sitting on the panel.
+    assert(NativeModelBrowser.occupiedWidth == _kWide + _kHandle);
+  }
 
   @override
   Widget build(BuildContext context) {

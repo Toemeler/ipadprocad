@@ -398,10 +398,10 @@ class _RibbonState extends State<Ribbon> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
-    // M146 — the bar is now a Stack, not a bordered Container: the surface is
-    // a native Liquid Glass platform view and the two blue borders are lit
-    // edges drawn OVER it (see ribbon_chrome.dart). The content in between is
-    // untouched — same panels, same icons, same horizontal scroll.
+    // M146 — the bar is a FLOATING glass card, not a bordered strip: padded
+    // in from the edges with the model browser's own inset and corner radius,
+    // with the viewport running behind and around it. The two blue borders are
+    // gone; a lit edge on a floating card is a seam looking for a wall.
     final content = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       // The bar is only as wide as the screen and its panels routinely
@@ -419,24 +419,17 @@ class _RibbonState extends State<Ribbon> {
               : _sketchRibbon(app)),
     );
 
-    return Stack(
-      children: [
-        // Background. Sized to the bar by the Stack's non-positioned child
-        // below, so the glass covers exactly the ribbon and nothing else.
-        const Positioned.fill(child: RibbonSurface()),
-        // Content defines the Stack's height (IntrinsicHeight inside).
-        // Padding leaves the 2 pt edges their room so nothing is drawn under
-        // them, exactly as the old borders did.
-        Padding(
-          padding: const EdgeInsets.symmetric(
-              vertical: RibbonEdgeLine.thickness),
-          child: content,
+    return RibbonMeasure(
+      child: Padding(
+        padding: RibbonMetrics.pad,
+        child: Stack(
+          children: [
+            // The glass, sized to the card by the content below it.
+            const Positioned.fill(child: RibbonSurface()),
+            content,
+          ],
         ),
-        const Positioned(
-            top: 0, left: 0, right: 0, child: RibbonEdgeLine(top: true)),
-        const Positioned(
-            bottom: 0, left: 0, right: 0, child: RibbonEdgeLine(top: false)),
-      ],
+      ),
     );
   }
 

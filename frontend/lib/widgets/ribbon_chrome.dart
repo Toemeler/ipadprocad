@@ -1,164 +1,110 @@
 // Prototype — M146: the ribbon's SURFACE, separated from its content.
 //
-// Until now the ribbon was an opaque `T.panel` bar with two flat 2 pt borders,
-// sitting in the main Column so the viewport began below it. This file makes
-// the surface a real Apple Liquid Glass panel (the same `GlassPanel` platform
-// view M106 introduced for the model browser) and turns the two blue borders
-// into lit edges instead of hairlines.
+// The ribbon was an opaque `T.panel` strip with two flat blue borders, sitting
+// in the main Column so the viewport began below it. It is now a FLOATING
+// Liquid Glass card, built to exactly the model browser's recipe: same
+// `GlassPanel` platform view, same 18 pt continuous corners, same 28 pt side
+// inset, and — the part that actually mattered on the device — the same DARK
+// trait environment.
+//
+// The first device build came out milky white. `UIGlassEffect` adapts to its
+// trait collection, a Flutter platform view inherits the host's, and the host
+// is light; `GlassBrowserView` had always set `overrideUserInterfaceStyle =
+// .dark` and `GlassPanelView` never had. Two panels, one effect, one line of
+// difference. Fixed in the plugin, so the browser's own fallback gets it too.
+//
+// No tint is laid over the glass any more. The tint was there to keep the bar
+// reading as chrome, and it is exactly the wrong tool: it dulls the refraction
+// that is the only reason to pay for a platform view. The browser does not
+// tint, so neither does this.
 //
 // Only the SURFACE is native. Icons, labels, buttons, flyouts and the
-// horizontal scroll stay exactly the Flutter tree they were — that is the
-// whole point of doing this step first. The glass is a background with
-// `isUserInteractionEnabled = false` on the UIKit side and an `IgnorePointer`
-// on ours (M48: a platform view that takes touches swallows the panel's own
-// gestures), so scrolling and every button behave as before.
+// horizontal scroll stay the Flutter tree they were.
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../theme.dart';
 
-/// One of the two blue edges of the ribbon.
+/// Where the ribbon sits, and where everything else may therefore start.
 ///
-/// The mock drew these as flat `BorderSide`s. On glass a flat line reads as a
-/// sticker: the surface underneath moves and refracts, the line does not. So
-/// each edge now has
-///   * a horizontal ALPHA RAMP — full strength across the middle, fading out
-///     at both ends, so the line belongs to the panel rather than being cut
-///     off by the screen edge;
-///   * a bright 1 pt core with a dimmer 1 pt shoulder, which is what gives it
-///     depth at 2 pt total (the mock's width, unchanged);
-///   * a soft glow spilling AWAY from the ribbon, so the top edge lights the
-///     status bar and the bottom edge lights the model behind it.
+/// The ribbon floats over the content area, so the model browser, the ViewCube,
+/// the triad and the modeless dialogs all share a coordinate space with it and
+/// would otherwise be drawn UNDERNEATH it — which is precisely what the first
+/// device build did. They read [bottom] instead of assuming they own the top of
+/// the screen.
+class RibbonMetrics {
+  /// Padding around the floating card. Horizontal value is the model browser's
+  /// 28 pt, so the two panels share a left edge.
+  static const EdgeInsets pad = EdgeInsets.fromLTRB(28, 8, 28, 0);
+
+  /// The browser's radius, deliberately.
+  static const double radius = 18;
+
+  /// Bottom edge of the card in the content Stack's coordinates, including
+  /// [pad]. Zero until the ribbon has been laid out once, and zero forever on
+  /// the platforms where the ribbon keeps its own row in the Column — in both
+  /// cases "no inset" is the right answer.
+  static final ValueNotifier<double> bottom = ValueNotifier<double>(0);
+
+  /// Gap between the card and whatever floats below it.
+  static const double gap = 10;
+
+  /// Convenience: the first y a floating overlay may occupy.
+  static double get contentTop =>
+      bottom.value <= 0 ? 0 : bottom.value + gap;
+
+  /// Rebuilds [child] whenever the ribbon's height changes.
+  static Widget build(Widget Function(BuildContext, double top) b) =>
+      ValueListenableBuilder<double>(
+        valueListenable: bottom,
+        builder: (ctx, _, __) => b(ctx, contentTop),
+      );
+}
+
+/// Measures the ribbon card and publishes its bottom edge.
 ///
-/// Colours are still `T.ribbonTop` / `T.ribbonBottom` from the mock; nothing
-/// here invents a new blue.
-class RibbonEdgeLine extends StatelessWidget {
-  /// Top edge (bright, .85 alpha in the mock) or bottom edge (soft, .45).
-  final bool top;
+/// Post-frame and only on change: writing a ValueNotifier during layout would
+/// schedule a rebuild from inside one, and this project has already lost a day
+/// to a widget that rebuilt itself (M50).
+class RibbonMeasure extends StatefulWidget {
+  final Widget child;
+  const RibbonMeasure({super.key, required this.child});
 
-  const RibbonEdgeLine({super.key, required this.top});
+  @override
+  State<RibbonMeasure> createState() => _RibbonMeasureState();
+}
 
-  /// Total thickness, unchanged from the mock's `BorderSide(width: 2)`.
-  static const double thickness = 2;
+class _RibbonMeasureState extends State<RibbonMeasure> {
+  final _key = GlobalKey();
 
-  /// How far the glow reaches past the line, in logical pixels.
-  static const double glow = 7;
-
-  Color get core => top ? T.ribbonTop : T.ribbonBottom;
-
-  /// The specular highlight riding on the bright half of the line. Apple's
-  /// glass edges are lighter than their fill where the light hits; a pure
-  /// blue-on-blue line looks painted next to that.
-  Color get sheen => Color.lerp(core, Colors.white, top ? 0.45 : 0.30)!;
+  void _report(Duration _) {
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final h = box.size.height;
+    if ((RibbonMetrics.bottom.value - h).abs() > 0.5) {
+      RibbonMetrics.bottom.value = h;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Alpha ramp along the ribbon. Symmetric, and short enough that the middle
-    // 80 % is at full strength — this is an edge, not a vignette.
-    List<Color> ramp(Color c) => [
-          c.withValues(alpha: 0),
-          c.withValues(alpha: c.a * 0.55),
-          c,
-          c,
-          c.withValues(alpha: c.a * 0.55),
-          c.withValues(alpha: 0),
-        ];
-    const stops = [0.0, 0.06, 0.16, 0.84, 0.94, 1.0];
-
-    return IgnorePointer(
-      child: SizedBox(
-        height: thickness,
-        child: Stack(
-          fit: StackFit.expand,
-          clipBehavior: Clip.none,
-          children: [
-            // Glow, spilling away from the panel.
-            Positioned(
-              left: 0,
-              right: 0,
-              top: top ? -glow : null,
-              bottom: top ? null : -glow,
-              height: glow + thickness,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: top ? Alignment.bottomCenter : Alignment.topCenter,
-                    end: top ? Alignment.topCenter : Alignment.bottomCenter,
-                    colors: [
-                      core.withValues(alpha: core.a * 0.38),
-                      core.withValues(alpha: 0),
-                    ],
-                  ),
-                ),
-                child: const SizedBox.expand(),
-              ),
-            ),
-            // The 2 pt line itself: bright core against the panel, dimmer
-            // shoulder against the outside.
-            Column(
-              children: [
-                Expanded(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: ramp(top ? sheen : core),
-                        stops: stops,
-                      ),
-                    ),
-                    child: const SizedBox.expand(),
-                  ),
-                ),
-                Expanded(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: ramp(top ? core : sheen),
-                        stops: stops,
-                      ),
-                    ),
-                    child: const SizedBox.expand(),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+    WidgetsBinding.instance.addPostFrameCallback(_report);
+    return KeyedSubtree(key: _key, child: widget.child);
   }
 }
 
-/// The ribbon's background surface.
-///
-/// On iOS this is the real `UIGlassEffect` platform view, with a very slight
-/// tint so the ribbon still reads as the app's own chrome rather than a
-/// window into the model. Everywhere else (host tests, desktop, Android) it
-/// falls back to the mock's opaque `T.panel`, so nothing that ever worked
-/// stops working and the widget tests keep seeing the colour they expect.
+/// The ribbon's background surface: the same glass as the model browser.
 class RibbonSurface extends StatelessWidget {
   const RibbonSurface({super.key});
 
   /// True when the native glass is available. Callers use this to decide
-  /// whether the viewport should run BEHIND the ribbon: over an opaque bar
-  /// there is nothing to see, so on those platforms the old layout is kept.
+  /// whether the ribbon FLOATS over the viewport: over an opaque bar there is
+  /// nothing to see through, so those platforms keep the old Column layout.
   static bool get isGlass => GlassPanel.isSupported;
-
-  /// Tint laid over the glass. Low alpha on purpose — the whole reason for
-  /// the platform view is the system's refraction and specular edge, and a
-  /// heavy scrim throws exactly that away.
-  static const Color tint = Color(0x40292D33);
 
   @override
   Widget build(BuildContext context) {
     if (!isGlass) return const ColoredBox(color: T.panel);
-    return const IgnorePointer(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GlassPanel(),
-          ColoredBox(color: tint),
-        ],
-      ),
-    );
+    return const GlassPanel(cornerRadius: RibbonMetrics.radius);
   }
 }

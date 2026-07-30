@@ -26,6 +26,9 @@ import '../part_render.dart';
 import '../reality_scene.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
+import 'package:native_menu/native_menu.dart' show GlassBrowser;
+import 'native_browser_host.dart';
+import 'ribbon_chrome.dart';
 
 // M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
 // the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
@@ -390,15 +393,22 @@ class _Viewport3DState extends State<Viewport3D>
             ),
           ),
         ),
-        // ViewCube + Home (top-right)
-        Positioned(
-            top: 8,
+        // ViewCube + Home (top-right, BELOW the floating ribbon — M146: the
+        // ribbon shares this coordinate space now, and at top: 8 the cube was
+        // simply behind the glass).
+        RibbonMetrics.build((_, top) => Positioned(
+            top: top + 8,
             right: 10,
             child:
-                _ViewCube(camera: p.camera, onChanged: () => setState(() {}))),
-        // coordinate triad (bottom-left)
+                _ViewCube(camera: p.camera, onChanged: () => setState(() {})))),
+        // Coordinate triad. M146 — moved to the RIGHT of the model browser
+        // instead of under it: the browser card now reaches down into the
+        // bottom-left corner the triad used to have to itself. Off iOS there
+        // is no floating card, so it keeps the corner.
         Positioned(
-            left: 0,
+            left: GlassBrowser.isSupported
+                ? NativeModelBrowser.occupiedWidth
+                : 0,
             bottom: 0,
             child: IgnorePointer(
                 child: CustomPaint(

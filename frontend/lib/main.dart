@@ -245,22 +245,26 @@ class PrototypeApp extends StatelessWidget {
                             // scrolls when the tree outgrows it (UIKit's list
                             // does that for free).
                             if (GlassBrowser.isSupported)
+                              // M146 — the card is anchored to the RIBBON,
+                              // not to a fraction of the viewport. The ribbon
+                              // now floats in the same coordinate space, and
+                              // the first device build had the tree running
+                              // underneath it. Starting at the ribbon's bottom
+                              // edge also lets the card reach much further
+                              // down, into the corner the triad used to own
+                              // (the triad moved right, beside the panel).
                               Positioned.fill(
-                                // M117 — vertically CENTRED: the card sits in
-                                // the middle of the left edge, so there is
-                                // breathing room above it and the origin triad
-                                // stays clear below.
-                                child: Align(
-                                  // M121 — a little taller and a little
-                                  // higher: there was dead space above the
-                                  // card, and the triad only needs the bottom
-                                  // corner. -0.35 puts it above centre without
-                                  // touching the ribbon.
-                                  alignment: const Alignment(-1, -0.35),
-                                  child: FractionallySizedBox(
-                                    heightFactor: 0.82, // M121 — taller card
-                                    alignment: Alignment.centerLeft,
-                                    child: NativeModelBrowser(app: app),
+                                child: RibbonMetrics.build(
+                                  (_, top) => Padding(
+                                    padding: EdgeInsets.only(
+                                        top: top, bottom: 18),
+                                    child: Align(
+                                      alignment: Alignment.topLeft,
+                                      child: SizedBox(
+                                        height: double.infinity,
+                                        child: NativeModelBrowser(app: app),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
