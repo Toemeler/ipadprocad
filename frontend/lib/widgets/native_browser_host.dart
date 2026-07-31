@@ -175,6 +175,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       app.enterEdit(id.substring(kIdLayer.length));
       return;
     }
+    // M169 — tapping a work plane SELECTS it, the way Inventor does: the
+    // plane highlights in 3D and its offset field opens, so the value is
+    // immediately editable without hunting for a menu.
+    if (id.startsWith(kIdWorkPlane)) {
+      final w = _workPlane(part, id);
+      if (w != null) {
+        app.selectWorkPlane(w);
+        if (w.offsetEditable) app.workPlaneOffsetEditing = true;
+      }
+      return;
+    }
     if (id.startsWith(kIdSketch) || id.startsWith(kIdNested)) {
       final n = id.startsWith(kIdNested)
           ? id.substring(kIdNested.length)
@@ -201,6 +212,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     } else if (id.startsWith(kIdFeature) && part != null) {
       final f = _feature(part, id.substring(kIdFeature.length));
       if (f != null) app.toggleFeatureVisible(f);
+    } else if (id.startsWith(kIdWorkPlane)) {
+      final w = _workPlane(part, id);
+      if (w != null) app.toggleWorkPlaneVisible(w);
     } else if (id.startsWith(kIdSketch) || id.startsWith(kIdNested)) {
       final n = id.startsWith(kIdNested)
           ? id.substring(kIdNested.length)
@@ -208,6 +222,15 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final cs = part?.sketchByName(n);
       if (cs != null) app.toggleSketchVisible(cs);
     }
+  }
+
+  WorkPlane? _workPlane(PartModel? part, String rowId) {
+    final seq = int.tryParse(rowId.substring(kIdWorkPlane.length));
+    if (part == null || seq == null) return null;
+    for (final w in part.workPlanes) {
+      if (w.seq == seq) return w;
+    }
+    return null;
   }
 
   Future<void> _onMenu(String id, String item) async {
@@ -282,6 +305,23 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'ftDelete':
           await app.deleteFeature(f);
+          break;
+      }
+      return;
+    }
+    if (id.startsWith(kIdWorkPlane)) {
+      final w = _workPlane(part, id);
+      if (w == null) return;
+      switch (item) {
+        case 'wpOffset':
+          app.selectWorkPlane(w);
+          app.workPlaneOffsetEditing = true;
+          break;
+        case 'wpVis':
+          app.toggleWorkPlaneVisible(w);
+          break;
+        case 'wpDelete':
+          app.deleteWorkPlane(w);
           break;
       }
       return;

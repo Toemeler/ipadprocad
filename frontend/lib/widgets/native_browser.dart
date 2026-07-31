@@ -159,29 +159,42 @@ List<GlassRow> buildBrowserRows(
     // ---- the timeline: sketches and features in creation order ------------
     // M113 — the marker counts ROWS now, so its position is simply an index
     // into the timeline. No conversion, and it can stand above a sketch.
-    // M165 — user work planes, above the timeline. Inventor lists them in the
-    // browser with the rest of the model; here they sit as their own short
-    // block rather than as timeline nodes, because `partTimeline` is what the
-    // End of Part marker indexes into and adding a third node kind to it
-    // would move the marker under every existing document (M113's whole
-    // point was that the marker counts ROWS). A plane is not rolled back by
-    // EOP either, so it does not belong in that count.
-    for (final w in part.workPlanes) {
-      rows.add(GlassRow(
-        id: '$kIdWorkPlane${w.seq}',
-        label: w.name,
-        symbol: 'squareshape.dashed.squareshape',
-        tint: 'blue',
-        depth: 1,
-        hasEye: true,
-        eyeOn: w.visible,
-        dim: !w.visible,
-      ));
+    // M169 — user work planes sit at their CREATION position, like everything
+    // else the user made: a plane created after three extrusions belongs under
+    // them. M165 put them in a block above the timeline, which read as an
+    // "Origin"-style folder and is not where Inventor shows them.
+    //
+    // They are still not partTimeline NODES, deliberately: that list is what
+    // the End of Part marker indexes into, and adding a third node kind would
+    // shift the marker in every existing document — M113's whole point is that
+    // it counts ROWS. A work plane is not rolled back by EOP either. So they
+    // are interleaved by `seq` while the marker keeps counting only the
+    // timeline's own rows.
+    final planes = [...part.workPlanes]..sort((a, b) => a.seq.compareTo(b.seq));
+    var nextPlane = 0;
+    void planesBefore(int seq) {
+      while (nextPlane < planes.length && planes[nextPlane].seq < seq) {
+        final w = planes[nextPlane++];
+        rows.add(GlassRow(
+          id: '$kIdWorkPlane${w.seq}',
+          label: w.name,
+          symbol: 'squareshape.dashed.squareshape',
+          tint: 'blue',
+          depth: 1,
+          hasEye: true,
+          eyeOn: w.visible,
+          dim: !w.visible,
+          selected: app.selectedWorkPlane?.seq == w.seq,
+          menu: _workPlaneMenu(app, w),
+        ));
+      }
     }
+
     final timeline = partTimeline(part);
     final eop = (dragEop ?? part.eopAfter).clamp(0, timeline.length);
     for (var ti = 0; ti < timeline.length; ti++) {
       final n = timeline[ti];
+      planesBefore(n.isFeature ? n.feature!.seq : n.sketch!.seq);
       if (ti == eop) rows.add(_eopRow());
       if (n.isFeature) {
         final f = n.feature!;
@@ -234,6 +247,9 @@ List<GlassRow> buildBrowserRows(
         ));
       }
     }
+    // Planes made after the last timeline row still belong in the list, and
+    // ABOVE End of Part — a work plane is never rolled back.
+    planesBefore(1 << 30);
     if (eop >= timeline.length) rows.add(_eopRow());
     return rows;
   }
@@ -343,6 +359,28 @@ List<List<GlassMenuItem>> _featureMenu(PartFeature f) => [
       [
         const GlassMenuItem(
             id: 'ftDelete',
+            title: 'Delete',
+            symbol: 'trash',
+            destructive: true),
+      ],
+    ];
+
+/// M169 — Inventor's work-plane context menu. Only the entries that DO
+/// something appear: "Edit Offset" is meaningless on a midplane, which has no
+/// base to measure from, so it is omitted rather than shown dead (M157).
+List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
+      [
+        if (w.offsetEditable)
+          const GlassMenuItem(
+              id: 'wpOffset', title: 'Edit Offset', symbol: 'ruler'),
+        GlassMenuItem(
+            id: 'wpVis',
+            title: w.visible ? 'Hide' : 'Show',
+            symbol: w.visible ? 'eye.slash' : 'eye'),
+      ],
+      [
+        const GlassMenuItem(
+            id: 'wpDelete',
             title: 'Delete',
             symbol: 'trash',
             destructive: true),

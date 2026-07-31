@@ -2680,6 +2680,89 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
+  // ---- M169 work-plane selection, drag and exact entry ---------------------
+
+  /// The work plane the user has tapped. Inventor selects on click and shows
+  /// its drag arrows; a second tap elsewhere clears it.
+  WorkPlane? selectedWorkPlane;
+
+  /// Open value editor for [selectedWorkPlane]'s offset, mirroring Inventor's
+  /// dynamic-dimension field: it appears WITH the drag, carries the live
+  /// value, and typing an exact number wins over where the finger stopped.
+  bool workPlaneOffsetEditing = false;
+
+  /// The offset the current drag started from, so a cancel restores it and
+  /// the drag is always measured from a fixed base rather than accumulating.
+  double? _wpDragFrom;
+
+  void selectWorkPlane(WorkPlane? w) {
+    if (identical(selectedWorkPlane, w)) return;
+    selectedWorkPlane = w;
+    workPlaneOffsetEditing = false;
+    _wpDragFrom = null;
+    notifyListeners();
+  }
+
+  /// A drag has begun on [w]. Records where it started from.
+  void beginWorkPlaneDrag(WorkPlane w) {
+    if (!w.offsetEditable) {
+      // A plane with no recorded base (a midplane, or one saved before M162)
+      // has nothing to measure from — say so instead of moving nothing.
+      toast('${w.name}: this plane has no offset to drag.');
+      return;
+    }
+    selectedWorkPlane = w;
+    _wpDragFrom = w.offset ?? 0;
+    workPlaneOffsetEditing = true; // the field appears WITH the drag
+    notifyListeners();
+  }
+
+  /// Live drag: [deltaMm] is the pointer travel projected onto the plane
+  /// NORMAL, in model mm. Applied against the value the drag started from.
+  void updateWorkPlaneDrag(double deltaMm) {
+    final w = selectedWorkPlane, from = _wpDragFrom;
+    if (w == null || from == null || !deltaMm.isFinite) return;
+    if (!w.setOffset(from + deltaMm)) return;
+    final p = currentPart;
+    if (p != null) p.dirty = true;
+    notifyListeners(); // the scene signature carries the position (M165)
+  }
+
+  /// The drag ended. The field stays open so an exact value can be typed —
+  /// which is the whole point of Inventor's dynamic input: the drag gets you
+  /// close, the number makes it right.
+  void endWorkPlaneDrag() {
+    final w = selectedWorkPlane;
+    _wpDragFrom = null;
+    if (w == null) return;
+    Log.i('part', 'work plane "${w.name}" dragged -> ${w.def}');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// Commits a typed offset. Returns false when the text is not a number, so
+  /// the field can stay open rather than silently discarding what was typed.
+  bool commitWorkPlaneOffset(String text) {
+    final w = selectedWorkPlane;
+    if (w == null) return false;
+    final v = parseValueExpr(text); // the same grammar every dialog uses
+    if (v == null || !v.isFinite) return false;
+    if (!setWorkPlaneOffset(w, v)) return false;
+    workPlaneOffsetEditing = false;
+    notifyListeners();
+    return true;
+  }
+
+  /// Esc: put the plane back where the drag started and close the field.
+  void cancelWorkPlaneOffset() {
+    final w = selectedWorkPlane;
+    final from = _wpDragFrom;
+    if (w != null && from != null) w.setOffset(from);
+    _wpDragFrom = null;
+    workPlaneOffsetEditing = false;
+    notifyListeners();
+  }
+
   void _clearSliceCache() {
     for (final s in _sliceCache.values) {
       s.dispose();
@@ -2806,6 +2889,15 @@ class AppState extends ChangeNotifier {
     if (curTab != null) savePart(curTab!);
     notifyListeners();
     return true;
+  }
+
+  /// Browser eye on a work plane — Inventor's per-plane Visibility.
+  void toggleWorkPlaneVisible(WorkPlane wp) {
+    wp.visible = !wp.visible;
+    final p = currentPart;
+    if (p != null) p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
   }
 
   void deleteWorkPlane(WorkPlane wp) {

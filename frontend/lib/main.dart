@@ -25,6 +25,7 @@ import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
+import 'widgets/work_plane_offset_field.dart';
 
 void main() {
   // Logger FIRST — works synchronously, before any binding exists.
@@ -248,6 +249,12 @@ class PrototypeApp extends StatelessWidget {
                                             ExtrudeDialog(app: app),
                                           if (app.edgeSession != null)
                                             EdgeFeatureDialog(app: app),
+                                          // M169 — the work plane's dynamic
+                                          // offset input. Anchored over the
+                                          // viewport, never modal: the plane
+                                          // it edits must stay visible while
+                                          // the number changes.
+                                          WorkPlaneOffsetField(app: app),
                                         ])
                                       : Viewport2D(app: app),
                                 ),

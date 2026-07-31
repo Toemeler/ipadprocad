@@ -95,7 +95,14 @@ class _Viewport3DState extends State<Viewport3D>
     return false;
   }
 
-  String? _hover; // 'yz'|'xz'|'xy'|'x'|'y'|'z'|'cp'
+  String? _hover; // 'yz'|'xz'|'xy'|'x'|'y'|'z'|'cp'|'wp:N'
+
+  /// M169 — the work plane under an active drag, where it was grabbed, and
+  /// whether the finger has travelled far enough to be a drag rather than a
+  /// tap. The threshold is what lets one gesture be both.
+  WorkPlane? _wpDrag;
+  Offset _wpDown = Offset.zero;
+  bool _wpMoved = false;
   int? _hoverRegion; // outer-loop id of the hovered profile region
   // M59 Phase 2: face prehighlight while picking a sketch plane —
   // (solid, v4 face id) of the planar face under the cursor.
@@ -288,6 +295,22 @@ class _Viewport3DState extends State<Viewport3D>
           child: Listener(
             onPointerDown: (e) {
               _dragKind = e.kind;
+              // M169 — grab a WORK PLANE and drag it along its own normal,
+              // the way Inventor lets you slide one off its base. Only when
+              // nothing else is armed: a plane pick, an extrude profile pick
+              // or an edge pick all mean the tap belongs to that command.
+              if (!app.pickPlane &&
+                  app.extrudeSession == null &&
+                  app.edgeSession == null &&
+                  !app.pickingEdges) {
+                final w = _workPlaneAt(cam, e.localPosition, p);
+                if (w != null) {
+                  _wpDrag = w;
+                  _wpDown = e.localPosition;
+                  _wpMoved = false;
+                  app.selectWorkPlane(w);
+                }
+              }
               if (e.kind == PointerDeviceKind.mouse &&
                   e.buttons == kMiddleMouseButton) {
                 _mmb = true;
@@ -296,6 +319,30 @@ class _Viewport3DState extends State<Viewport3D>
               }
             },
             onPointerMove: (e) {
+              final wd = _wpDrag;
+              if (wd != null) {
+                // Screen travel projected onto the plane's own normal. The
+                // normal's SCREEN length per world mm is the scale, so the
+                // plane tracks the finger exactly however the view is turned;
+                // an ortho camera makes that a constant, not an approximation.
+                final o = cam.project(wd.frame.origin);
+                final n2 = cam.project(wd.frame.origin + wd.frame.n) - o;
+                final len2 = n2.dx * n2.dx + n2.dy * n2.dy;
+                // Edge-on: the normal has no screen direction to drag along,
+                // so a drag cannot express a distance. Do nothing rather than
+                // send the plane flying on a rounding error.
+                if (len2 > 4.0) {
+                  final d = e.localPosition - _wpDown;
+                  if (!_wpMoved && d.distance > 3) {
+                    _wpMoved = true;
+                    app.beginWorkPlaneDrag(wd);
+                  }
+                  if (_wpMoved) {
+                    app.updateWorkPlaneDrag((d.dx * n2.dx + d.dy * n2.dy) / len2);
+                  }
+                }
+                return; // the drag owns this pointer
+              }
               if (_mmb) {
                 final d = e.localPosition - _mmbLast;
                 _mmbLast = e.localPosition;
@@ -310,8 +357,27 @@ class _Viewport3DState extends State<Viewport3D>
                 });
               }
             },
-            onPointerUp: (_) => _mmb = false,
-            onPointerCancel: (_) => _mmb = false,
+            onPointerUp: (_) {
+              _mmb = false;
+              if (_wpDrag != null) {
+                if (_wpMoved) {
+                  app.endWorkPlaneDrag();
+                } else {
+                  // A TAP, not a drag: select and open the field, so the value
+                  // is editable without hunting for a menu.
+                  final w = _wpDrag!;
+                  if (w.offsetEditable) app.workPlaneOffsetEditing = true;
+                }
+                _wpDrag = null;
+                _wpMoved = false;
+              }
+            },
+            onPointerCancel: (_) {
+              _mmb = false;
+              if (_wpMoved) app.cancelWorkPlaneOffset();
+              _wpDrag = null;
+              _wpMoved = false;
+            },
             // Trackpad gestures arrive as PointerPanZoom, never as extra
             // pointers, so they are handled here rather than through the scale
             // recognizer: two fingers orbit, two fingers + shift pan, pinch
@@ -815,6 +881,17 @@ class _Viewport3DState extends State<Viewport3D>
       }
     }
     return best;
+  }
+
+  /// M169 — the work plane under [px], or null. Reuses the same hit test the
+  /// hover and the picker use, so what lights up is what you grab.
+  WorkPlane? _workPlaneAt(Cam3 cam, Offset px, PartModel p) {
+    final hit = _hitOrigin(cam, px, p);
+    if (hit == null || !hit.startsWith('wp:')) return null;
+    for (final w in p.workPlanes) {
+      if (w.id == hit) return w;
+    }
+    return null;
   }
 
   /// View depth of origin plane [key] directly under the pointer, or null if
