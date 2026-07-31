@@ -4652,7 +4652,53 @@ String featureInputSig(PartModel part, PartFeature f) {
 /// of the previous feature in its body. So a change anywhere upstream changes
 /// every downstream key automatically, and a stale fold can never be reused.
 /// Pass [force] after loading or undoing, where the kernel handles are new.
+/// Rebuilds every feature, and keeps rebuilding until the sketches drawn on
+/// solid faces have stopped moving.
+///
+/// M166 — one pass is not enough, and that is why a sketch on a face did not
+/// follow when its face moved. The order inside a single pass is necessarily:
+/// build the features (which needs the sketches), THEN re-anchor the sketches
+/// onto the faces that just moved (which needs the solids). A sketch that
+/// moves in step two therefore moves AFTER every feature built from it — so
+/// the extrusion standing on it stayed where the old face was, and nothing
+/// scheduled another rebuild. On the device: Extrusion2 edited from 5 mm to
+/// 20 mm, its top face moved from y=10 to y=25, and the extrusion on the
+/// sketch that sits on that face never left y=10.
+///
+/// So it iterates. A pass that moves a sketch is followed by another pass,
+/// forced so a stale build signature cannot skip the feature that has to
+/// change. Two passes settle the ordinary case (move faces, rebuild what
+/// stands on them); the cap exists only so a pathological cycle — a sketch
+/// whose feature moves the very face it is anchored to — terminates with a
+/// complaint instead of hanging the app.
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
+    {bool force = false}) {
+  var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
+  for (var pass = 1; pass <= _kMaxFaceSettlePasses; pass++) {
+    final moved = reanchorFaceSketches(part);
+    if (moved == 0) return ok;
+    Log.i(
+        'part',
+        'face-anchored sketches moved ($moved) — rebuilding, pass $pass of '
+            '$_kMaxFaceSettlePasses');
+    ok = _recomputeAllFeaturesOnce(part, kernel, force: true);
+  }
+  // Still moving after the cap: report it rather than loop. The geometry is
+  // whatever the last pass produced, which is the honest answer.
+  if (reanchorFaceSketches(part) != 0) {
+    Log.w(
+        'part',
+        'face-anchored sketches STILL moving after $_kMaxFaceSettlePasses '
+            'passes — a sketch is probably anchored to a face its own feature '
+            'moves; leaving the last result in place');
+  }
+  return ok;
+}
+
+/// How many times a rebuild may chase a moving face before giving up.
+const int _kMaxFaceSettlePasses = 3;
+
+bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var allOk = true;
   // M128 — DERIVE the End of Part flags here, first, unconditionally.
@@ -4747,10 +4793,9 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     f.builtSig = f.solid != null && f.computeError == null ? sig : null;
     upstream[f.bodyName] = sig;
   }
-  // M153 — the faces have just moved; the sketches drawn on them have to
-  // follow. Doing it here rather than at the call sites means it cannot be
-  // forgotten by one of the seven places that recompute.
-  reanchorFaceSketches(part);
+  // M153 put reanchorFaceSketches here so no call site could forget it. M166
+  // moved it OUT to the loop above: re-anchoring after the features are built
+  // is one pass too late for anything standing on the sketch that moved.
   return allOk;
 }
 
