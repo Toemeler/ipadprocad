@@ -152,6 +152,8 @@ void main() {
     });
   });
 
+  _inputTests();
+
   group('M169 — visibility', () {
     test('the eye toggles and persists on the part', () {
       final w = _plane();
@@ -160,6 +162,67 @@ void main() {
       app.toggleWorkPlaneVisible(w);
       expect(w.visible, isFalse);
       expect(app.currentPart!.dirty, isTrue);
+    });
+  });
+}
+
+// --- M170: the three input devices ----------------------------------------
+// Touch, Apple Pencil and the Magic Keyboard are not one input with three
+// names. The tap/drag threshold, the gesture arena and the keyboard each
+// behave differently, and the work-plane flow has to be right on all three.
+void _inputTests() {
+  group('M170 — keyboard nudge', () {
+    test('the arrows move the plane by a fine step', () {
+      final w = _plane(offset: 10);
+      final app = _appWith(w);
+      app.selectWorkPlane(w);
+      app.nudgeWorkPlaneOffset(1);
+      expect(w.offset, closeTo(10.1, 1e-9));
+      app.nudgeWorkPlaneOffset(-1);
+      expect(w.offset, closeTo(10.0, 1e-9));
+    });
+
+    test('shift takes the coarse step', () {
+      final w = _plane(offset: 10);
+      final app = _appWith(w);
+      app.selectWorkPlane(w);
+      app.nudgeWorkPlaneOffset(1, coarse: true);
+      expect(w.offset, closeTo(11.0, 1e-9));
+    });
+
+    test('the geometry moves with it, not just the number', () {
+      final w = _plane(offset: 10);
+      final app = _appWith(w);
+      app.selectWorkPlane(w);
+      app.nudgeWorkPlaneOffset(5, coarse: true);
+      expect(w.frame.origin.z, closeTo(15, 1e-9));
+    });
+
+    test('nudging without a selection does nothing', () {
+      final w = _plane(offset: 10);
+      final app = _appWith(w);
+      app.nudgeWorkPlaneOffset(1);
+      expect(w.offset, 10);
+    });
+
+    test('a midplane cannot be nudged either', () {
+      final w = WorkPlane('Work Plane2', 2, WorkPlaneKind.midplane,
+          'Midplane', planeFrame('xy'));
+      final app = _appWith(w);
+      app.selectWorkPlane(w);
+      app.nudgeWorkPlaneOffset(1);
+      expect(w.offset, isNull, reason: 'nothing to measure from');
+    });
+
+    test('a nudge is absolute, so it composes with a drag', () {
+      // Drag close, then fine-tune with the keyboard — the flow the field
+      // exists for.
+      final w = _plane(offset: 10);
+      final app = _appWith(w);
+      app.beginWorkPlaneDrag(w);
+      app.updateWorkPlaneDrag(4.93);
+      app.nudgeWorkPlaneOffset(1, coarse: true);
+      expect(w.offset, closeTo(15.93, 1e-9));
     });
   });
 }

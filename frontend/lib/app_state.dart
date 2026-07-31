@@ -2753,6 +2753,21 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// M170 — arrow-key nudge, for the Magic Keyboard. Inventor nudges a
+  /// dragged value with the arrows; on a keyboard that is how you get an exact
+  /// number without letting go of what you are looking at. Shift takes the
+  /// coarse step, exactly as it does everywhere else in this app.
+  void nudgeWorkPlaneOffset(int steps, {bool coarse = false}) {
+    final w = selectedWorkPlane;
+    if (w == null || !w.offsetEditable) return;
+    final v = (w.offset ?? 0) + steps * (coarse ? 1.0 : 0.1);
+    if (!w.setOffset(v)) return;
+    final p = currentPart;
+    if (p != null) p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   /// Esc: put the plane back where the drag started and close the field.
   void cancelWorkPlaneOffset() {
     final w = selectedWorkPlane;

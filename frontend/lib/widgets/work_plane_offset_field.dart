@@ -86,14 +86,43 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
               SizedBox(
                 width: 92,
                 child: Shortcuts(
+                  // M170 — Magic Keyboard. Esc cancels, Enter commits (via
+                  // onSubmitted), and the arrows nudge the value the way
+                  // Inventor does — shift for the coarse step, the same
+                  // convention as everywhere else here. The arrows are bound
+                  // ON the field because that is where focus is: the field
+                  // autofocuses the moment a drag begins, so the keyboard is
+                  // live without a second click.
                   shortcuts: const {
-                    SingleActivator(LogicalKeyboardKey.escape):
-                        _CancelIntent(),
+                    SingleActivator(LogicalKeyboardKey.escape): _CancelIntent(),
+                    SingleActivator(LogicalKeyboardKey.arrowUp):
+                        _NudgeIntent(1, false),
+                    SingleActivator(LogicalKeyboardKey.arrowDown):
+                        _NudgeIntent(-1, false),
+                    SingleActivator(LogicalKeyboardKey.arrowUp, shift: true):
+                        _NudgeIntent(1, true),
+                    SingleActivator(LogicalKeyboardKey.arrowDown, shift: true):
+                        _NudgeIntent(-1, true),
                   },
                   child: Actions(
                     actions: {
                       _CancelIntent: CallbackAction<_CancelIntent>(
                           onInvoke: (_) => app.cancelWorkPlaneOffset()),
+                      _NudgeIntent: CallbackAction<_NudgeIntent>(
+                          onInvoke: (i) {
+                        app.nudgeWorkPlaneOffset(i.steps, coarse: i.coarse);
+                        // The field is showing the OLD number until it
+                        // re-syncs, and it will not re-sync while it has
+                        // focus — so push the new value in directly.
+                        final v = app.selectedWorkPlane?.offset;
+                        if (v != null) {
+                          _shown = v;
+                          _c.text = v.toStringAsFixed(2);
+                          _c.selection = TextSelection.collapsed(
+                              offset: _c.text.length);
+                        }
+                        return null;
+                      }),
                     },
                     child: TextField(
                       controller: _c,
@@ -146,4 +175,10 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
 
 class _CancelIntent extends Intent {
   const _CancelIntent();
+}
+
+class _NudgeIntent extends Intent {
+  final int steps;
+  final bool coarse;
+  const _NudgeIntent(this.steps, this.coarse);
 }

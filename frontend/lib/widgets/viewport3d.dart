@@ -103,6 +103,17 @@ class _Viewport3DState extends State<Viewport3D>
   WorkPlane? _wpDrag;
   Offset _wpDown = Offset.zero;
   bool _wpMoved = false;
+
+  /// How far a pointer must travel before it is a DRAG and not a tap, per
+  /// input kind. Touch needs the most room (a resting finger wobbles), a
+  /// stylus the least (it is precise, and waiting reads as lag).
+  double get _dragSlop => switch (_dragKind) {
+        PointerDeviceKind.touch => 9.0,
+        PointerDeviceKind.stylus ||
+        PointerDeviceKind.invertedStylus =>
+          2.0,
+        _ => 3.0,
+      };
   int? _hoverRegion; // outer-loop id of the hovered profile region
   // M59 Phase 2: face prehighlight while picking a sketch plane —
   // (solid, v4 face id) of the planar face under the cursor.
@@ -333,7 +344,11 @@ class _Viewport3DState extends State<Viewport3D>
                 // send the plane flying on a rounding error.
                 if (len2 > 4.0) {
                   final d = e.localPosition - _wpDown;
-                  if (!_wpMoved && d.distance > 3) {
+                  // M170 — the tap/drag threshold belongs to the INPUT, not to
+                  // the widget. A finger wobbles several pixels just resting
+                  // on the glass, so 3 px turned taps into drags; a Pencil is
+                  // steady enough that 3 px felt like lag before it moved.
+                  if (!_wpMoved && d.distance > _dragSlop) {
                     _wpMoved = true;
                     app.beginWorkPlaneDrag(wd);
                   }
@@ -415,9 +430,17 @@ class _Viewport3DState extends State<Viewport3D>
               }
             },
             child: MouseRegion(
-              cursor: _hover != null || _hoverRegion != null
-                  ? SystemMouseCursors.click
-                  : MouseCursor.defer,
+              // M170 — trackpad and mouse users get told what a thing DOES
+              // before they commit to it. A work plane is draggable along one
+              // axis, so it takes the resize cursor rather than the pointing
+              // hand every other pickable thing gets; on a Magic Keyboard that
+              // is the only affordance there is, since there is no hover
+              // pressure or haptic to feel.
+              cursor: _hover != null && _hover!.startsWith('wp:')
+                  ? SystemMouseCursors.resizeUpDown
+                  : (_hover != null || _hoverRegion != null
+                      ? SystemMouseCursors.click
+                      : MouseCursor.defer),
               onHover: (e) => _updateHover(cam, e.localPosition),
               onExit: (_) => setState(() {
                 _hover = null;
@@ -426,7 +449,13 @@ class _Viewport3DState extends State<Viewport3D>
               }),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTapUp: (d) => _tap(cam, d.localPosition),
+                // M170 — a tap consumed by a work plane is handled in the
+                // Listener (select + open the field); running the general pick
+                // as well would fight it.
+                onTapUp: (d) {
+                  if (_wpDrag != null) return;
+                  _tap(cam, d.localPosition);
+                },
                 onScaleStart: (d) {
                   _scaleStartH = p.camera.halfH;
                   _mmbLast = d.localFocalPoint;
@@ -444,10 +473,19 @@ class _Viewport3DState extends State<Viewport3D>
                     p.camera.ox -= mv.dx * wpp;
                     p.camera.oy += mv.dy * wpp;
                   } else if (!_mmb &&
+                      _wpDrag == null &&
                       _dragKind == PointerDeviceKind.touch) {
                     // One finger orbits ON TOUCH only. A single trackpad or
                     // mouse drag is reserved for picking and must not move the
                     // view; orbiting there is the two-finger gesture.
+                    //
+                    // M170 — and NOT while a work plane is being dragged. The
+                    // drag lives in the raw Listener above, which never enters
+                    // the gesture arena, so without this a finger dragging a
+                    // plane orbited the camera at the same time. Pencil and
+                    // trackpad were unaffected (neither one-finger orbits),
+                    // which is exactly the kind of touch-only fault that only
+                    // shows up on the device.
                     _orbit(p, d.localFocalPoint - _mmbLast);
                   }
                   _mmbLast = d.localFocalPoint;
