@@ -673,6 +673,15 @@ class _Viewport3DState extends State<Viewport3D>
     return n;
   }
 
+  /// M172 — publish the viewport height so a DIALOG can convert screen pixels
+  /// to model units without owning a BuildContext. Every scrubbable field has
+  /// to agree on that scale or the same gesture means two different things.
+  void _publishViewportHeight(double h) {
+    if (h > 0 && widget.app.viewportHeightPx != h) {
+      widget.app.viewportHeightPx = h;
+    }
+  }
+
   bool _anyCoarse(Size size) {
     final p = part;
     if (p == null) return false;
@@ -698,6 +707,7 @@ class _Viewport3DState extends State<Viewport3D>
     // looked at during sketching and its camera is not moving, so there is
     // nothing to gain; refinement resumes on the next camera change after the
     // sketch is finished.
+    _publishViewportHeight(size.height);
     if (widget.app.activeChild != null) return;
     if (!_anyCoarse(size)) return;
     _refineTimer?.cancel();

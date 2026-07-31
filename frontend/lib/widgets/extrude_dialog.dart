@@ -208,11 +208,11 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                 panelRow(
                     'Taper',
                     panelValueField(_taper, 'deg',
-                        (v) => app.setExtrude(exprTaper: v))),
+                        (v) => app.setExtrude(exprTaper: v), app: app)),
                 panelRow(
                     'Twist',
                     panelValueField(_twist, 'deg',
-                        (v) => app.setExtrude(exprTwist: v))),
+                        (v) => app.setExtrude(exprTwist: v), app: app)),
               ],
               // M131b — Loft collects sections instead of one profile.
               if (s.isLoft) ...[
@@ -255,21 +255,21 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                   panelRow(
                       'Revolution',
                       panelValueField(_revs, 'ul',
-                          (v) => app.setExtrude(exprRevolutions: v))),
+                          (v) => app.setExtrude(exprRevolutions: v), app: app)),
                 if (s.coilMethod == 0 || s.coilMethod == 2)
                   panelRow(
                       'Height',
                       panelValueField(_height, 'mm',
-                          (v) => app.setExtrude(exprHeight: v))),
+                          (v) => app.setExtrude(exprHeight: v), app: app)),
                 if (s.coilMethod == 1 || s.coilMethod == 2)
                   panelRow(
                       'Pitch',
                       panelValueField(_pitch, 'mm',
-                          (v) => app.setExtrude(exprPitch: v))),
+                          (v) => app.setExtrude(exprPitch: v), app: app)),
                 panelRow(
                     'Taper',
                     panelValueField(_coilTaper, 'deg',
-                        (v) => app.setExtrude(exprCoilTaper: v))),
+                        (v) => app.setExtrude(exprCoilTaper: v), app: app)),
                 panelRow(
                     'Rotation',
                     Row(children: [
@@ -346,7 +346,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         s.extent != FeatureExtent.distance ||
                             (s.isRevolve && s.full),
                         panelValueField(_a, s.isRevolve ? 'deg' : 'mm',
-                            (v) => app.setExtrude(exprA: v)),
+                            (v) => app.setExtrude(exprA: v), app: app),
                       ),
                     ),
                     // M143 — Extents now work for a revolve too, via
@@ -371,7 +371,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                 panelRow(
                     s.isRevolve ? 'Angle B' : 'Distance B',
                     panelValueField(_b, s.isRevolve ? 'deg' : 'mm',
-                        (v) => app.setExtrude(exprB: v))),
+                        (v) => app.setExtrude(exprB: v), app: app)),
               if (s.extent == FeatureExtent.toFace)
                 panelRow(
                     'Terminate on',
@@ -471,7 +471,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                     'Taper A',
                     panelValueField(
                         _taper, 'deg', (v) => app.setExtrude(exprTaper: v),
-                        trailingIcon: Icons.edit_outlined)),
+                        trailingIcon: Icons.edit_outlined, app: app)),
               _checkRow('iMate', s.iMate, true,
                   (v) => app.setExtrude(iMate: v)),
               _checkRow('Match Shape', s.matchShape, false, (_) {}),

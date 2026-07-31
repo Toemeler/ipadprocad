@@ -237,7 +237,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 child: panelValueField(
                     _radii[i.clamp(0, _radii.length - 1)],
                     'mm',
-                    (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i)),
+                    (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i), app: app),
               ),
             ])),
         // Inventor's variable radius: leave blank for a constant fillet, or
@@ -247,7 +247,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
             panelValueField(
                 _radii2[i.clamp(0, _radii2.length - 1)],
                 'mm',
-                (v) => app.setEdgeFeature(exprRadius2: v, radiusSet: i))),
+                (v) => app.setEdgeFeature(exprRadius2: v, radiusSet: i), app: app)),
       ],
       // Inventor's Select Mode. Enabled once a body is known, because
       // "all edges" is meaningless without one.
@@ -293,17 +293,17 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
       panelRow(
           s.mode == 0 ? 'Distance' : 'Distance 1',
           panelValueField(
-              _d1, 'mm', (v) => widget.app.setEdgeFeature(exprD1: v))),
+              _d1, 'mm', (v) => widget.app.setEdgeFeature(exprD1: v), app: widget.app)),
       if (s.mode == 1)
         panelRow(
             'Distance 2',
             panelValueField(
-                _d2, 'mm', (v) => widget.app.setEdgeFeature(exprD2: v))),
+                _d2, 'mm', (v) => widget.app.setEdgeFeature(exprD2: v), app: widget.app)),
       if (s.mode == 2)
         panelRow(
             'Angle',
             panelValueField(
-                _angle, 'deg', (v) => widget.app.setEdgeFeature(exprAngle: v))),
+                _angle, 'deg', (v) => widget.app.setEdgeFeature(exprAngle: v), app: widget.app)),
       // Flip only means anything when the two sides differ.
       if (s.mode != 0)
         panelRow(

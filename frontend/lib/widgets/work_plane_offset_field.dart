@@ -12,6 +12,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../part_model.dart' show parseValueExpr;
+import 'scrub_field.dart';
 import '../theme.dart';
 
 class WorkPlaneOffsetField extends StatefulWidget {
@@ -85,7 +87,16 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
               const SizedBox(width: 10),
               SizedBox(
                 width: 92,
-                child: Shortcuts(
+                // M172 — this one is draggable too, so the plane can be
+                // scrubbed from the field as well as in the viewport.
+                child: ScrubField(
+                  app: app,
+                  controller: _c,
+                  onCommit: (t) {
+                    final v = parseValueExpr(t);
+                    if (v != null) app.updateWorkPlaneDragAbsolute(v);
+                  },
+                  child: Shortcuts(
                   // M170 — Magic Keyboard. Esc cancels, Enter commits (via
                   // onSubmitted), and the arrows nudge the value the way
                   // Inventor does — shift for the coarse step, the same
@@ -140,6 +151,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
                             EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       ),
                       onSubmitted: (_) => _commit(),
+                      ),
                     ),
                   ),
                 ),

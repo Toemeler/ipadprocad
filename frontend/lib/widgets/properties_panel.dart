@@ -8,7 +8,9 @@
 // panel changes appearance.
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../theme.dart';
+import 'scrub_field.dart';
 
 Widget panelSection(String title, bool open, VoidCallback onToggle,
         List<Widget> children) =>
@@ -74,10 +76,15 @@ Widget panelPickField(
   );
 }
 
+/// M172 — [app] makes the field DRAGGABLE. Optional so a caller that has no
+/// AppState to hand still gets a plain field rather than failing to compile;
+/// every real caller passes it, and a field that silently refuses to scrub is
+/// the one bug this signature is shaped to prevent — it is one argument, in
+/// one place, for every value in every feature dialog.
 Widget panelValueField(TextEditingController c, String suffix,
     ValueChanged<String> onChanged,
-    {IconData? trailingIcon}) {
-  return Row(children: [
+    {IconData? trailingIcon, AppState? app}) {
+  final row = Row(children: [
     Expanded(
       child: Container(
         height: 26,
@@ -114,6 +121,14 @@ Widget panelValueField(TextEditingController c, String suffix,
     Icon(trailingIcon ?? Icons.swap_vert,
         size: 15, color: T.dim),
   ]);
+  if (app == null) return row;
+  return ScrubField(
+    app: app,
+    controller: c,
+    suffix: suffix,
+    onCommit: onChanged,
+    child: row,
+  );
 }
 
 /// Greys a subtree out without removing it — the value stays readable, it

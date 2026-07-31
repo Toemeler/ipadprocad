@@ -32,6 +32,7 @@ import 'package:native_menu/native_menu.dart';
 import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
+import 'scrub_field.dart';
 import 'ribbon_chrome.dart';
 import '../touch.dart';
 import 'pattern_dialog.dart';
@@ -841,7 +842,13 @@ class _Viewport2DState extends State<Viewport2D> {
           ),
           padding: const EdgeInsets.symmetric(horizontal: 6),
           alignment: Alignment.center,
-          child: TextField(
+          // M172 — drag the box left or right to scrub the dimension in
+          // detents sized by the current zoom. Tap still opens the pad.
+          child: ScrubField(
+            app: widget.app,
+            controller: _dimCtrl,
+            onCommit: (_) => setState(() {}),
+            child: TextField(
             controller: _dimCtrl,
             focusNode: _dimFocus,
             autofocus: true,
@@ -871,6 +878,7 @@ class _Viewport2DState extends State<Viewport2D> {
               suffixStyle: const TextStyle(fontSize: 11, color: T.dim),
             ),
             onSubmitted: (_) => _submitInline(),
+            ),
           ),
         ),
       ),

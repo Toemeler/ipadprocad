@@ -2680,6 +2680,31 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
+  /// M172 — model units per SCREEN PIXEL in whatever view is in front.
+  ///
+  /// One number, because every scrubbable field has to agree: a dimension box
+  /// in the sketch and an extrude depth in a dialog must move in the same
+  /// steps, or the same gesture means two different things depending on which
+  /// field you grabbed.
+  ///
+  /// In a sketch that is the 2D zoom. In a part it is the orthographic
+  /// camera's half-height over the viewport half-height — the same conversion
+  /// the 3D pan uses — so the step follows what is actually on screen.
+  double get viewUnitsPerPixel {
+    if (activeChild != null || currentPart == null) {
+      return zoom > 0 && zoom.isFinite ? 1.0 / zoom : 0.05;
+    }
+    final h = currentPart!.camera.halfH;
+    final px = viewportHeightPx;
+    if (!h.isFinite || h <= 0 || px <= 0) return 0.05;
+    return (2 * h) / px;
+  }
+
+  /// Viewport height in logical pixels, published by the 3D view so a dialog
+  /// can convert without owning a BuildContext. Falls back to a sane default
+  /// before the first frame.
+  double viewportHeightPx = 800;
+
   // ---- M169 work-plane selection, drag and exact entry ---------------------
 
   /// The work plane the user has tapped. Inventor selects on click and shows
@@ -2751,6 +2776,18 @@ class AppState extends ChangeNotifier {
     workPlaneOffsetEditing = false;
     notifyListeners();
     return true;
+  }
+
+  /// M172 — a scrub set the offset directly (the field was dragged rather than
+  /// the plane). Absolute, unlike [updateWorkPlaneDrag], which is measured
+  /// from where a viewport drag began.
+  void updateWorkPlaneDragAbsolute(double mm) {
+    final w = selectedWorkPlane;
+    if (w == null || !mm.isFinite) return;
+    if (!w.setOffset(mm)) return;
+    final p = currentPart;
+    if (p != null) p.dirty = true;
+    notifyListeners();
   }
 
   /// M170 — arrow-key nudge, for the Magic Keyboard. Inventor nudges a
