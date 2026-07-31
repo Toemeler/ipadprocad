@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../inserts.dart';
 import '../theme.dart';
+import 'scrub_field.dart';
 
 /// Font families offered in the dropdown. Roboto is Flutter's default and is
 /// always present; the others are common iOS system faces.
@@ -36,6 +37,10 @@ class TextEditorWindow extends StatefulWidget {
 class _TextEditorWindowState extends State<TextEditorWindow> {
   late final TextEditingController _tpl;
   late final FocusNode _tplF;
+  /// M180 — a real controller, not one built in build(): a scrub writes into
+  /// it across many frames, and a fresh controller every rebuild would lose
+  /// the value between detents.
+  late final TextEditingController _hCtrl;
   late double _height;
   late String _font;
 
@@ -45,6 +50,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
     final t = widget.app.editingText!;
     _tpl = TextEditingController(text: t.template);
     _height = t.height;
+    _hCtrl = TextEditingController(text: _heightText());
     _font = kTextFonts.contains(t.font) ? t.font : 'Roboto';
     _tplF = FocusNode();
     _tplF.addListener(() {
@@ -75,9 +81,13 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
   void dispose() {
     if (widget.app.textRefSink != null) widget.app.textRefSink = null;
     _tpl.dispose();
+    _hCtrl.dispose();
     _tplF.dispose();
     super.dispose();
   }
+
+  String _heightText() =>
+      _height.toStringAsFixed(_height == _height.roundToDouble() ? 0 : 1);
 
   void _apply() {
     final app = widget.app;
@@ -194,22 +204,31 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                   const Text('Size',
                       style: TextStyle(color: T.dim, fontSize: 11)),
                   const SizedBox(width: 6),
-                  SizedBox(
-                    width: 54,
-                    child: TextField(
-                      controller: TextEditingController(
-                          text: _height.toStringAsFixed(
-                              _height == _height.roundToDouble() ? 0 : 1)),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      stylusHandwritingEnabled: kValueHandwriting, // M179
-                      style: const TextStyle(fontSize: 12, color: T.text),
-                      decoration: const InputDecoration(
-                          isDense: true, suffixText: 'mm'),
-                      onChanged: (v) {
-                        final h = double.tryParse(v.replaceAll(',', '.'));
-                        if (h != null) _height = h.clamp(1.0, 500.0);
-                      },
+                  // M180 — the text height drags like every other length.
+                  ScrubField(
+                    app: app,
+                    controller: _hCtrl,
+                    min: 1,
+                    max: 500,
+                    onCommit: (v) {
+                      final h = double.tryParse(v.replaceAll(',', '.'));
+                      if (h != null) setState(() => _height = h.clamp(1.0, 500.0));
+                    },
+                    child: SizedBox(
+                      width: 54,
+                      child: TextField(
+                        controller: _hCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        stylusHandwritingEnabled: kValueHandwriting, // M179
+                        style: const TextStyle(fontSize: 12, color: T.text),
+                        decoration: const InputDecoration(
+                            isDense: true, suffixText: 'mm'),
+                        onChanged: (v) {
+                          final h = double.tryParse(v.replaceAll(',', '.'));
+                          if (h != null) _height = h.clamp(1.0, 500.0);
+                        },
+                      ),
                     ),
                   ),
                 ]),

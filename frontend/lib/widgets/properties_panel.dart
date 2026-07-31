@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
 
@@ -130,6 +131,11 @@ Widget panelValueField(TextEditingController c, String suffix,
     app: app,
     controller: c,
     suffix: suffix,
+    // M180 — the unit the caller already passes is the answer to "what does
+    // this number measure", so no dialog has to say it twice: 'deg' steps in
+    // degrees, 'ul' (a coil's turns) in tenths, everything else in the
+    // zoom's own millimetres.
+    kind: scrubKindForUnit(suffix),
     onCommit: onChanged,
     child: row,
   );

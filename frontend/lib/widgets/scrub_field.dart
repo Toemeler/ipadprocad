@@ -7,6 +7,14 @@
 //
 // Wrapping rather than replacing every TextField is deliberate — the dialogs
 // already style their own fields, and a wrapper cannot get that styling wrong.
+//
+// M180 — EVERY number field in the app is wrapped in one of these now. That is
+// the point: "can I drag this one?" must never be a question the user has to
+// ask, and the answer was previously no for the pattern counts, the gear
+// parameters, the 2D fillet radius, the text height, the Parameters window and
+// the insert prompts. A field's detent follows what it MEASURES ([kind]), so a
+// tooth count steps by one and a pressure angle by a degree, while lengths go
+// on following the zoom.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -26,7 +34,21 @@ class ScrubField extends StatefulWidget {
 
   /// Unit suffix to preserve, e.g. 'mm'. A scrub rewrites the number and must
   /// not silently strip the unit the user (or the dialog) put there.
+  ///
+  /// Only when the unit is part of the TEXT. A field that renders it as
+  /// decoration (`suffixText:`) holds a bare number and must keep holding one,
+  /// or its own parse stops recognising what the scrub wrote.
   final String? suffix;
+
+  /// M180 — what the number measures, which decides the detent. Defaults to a
+  /// length because that is what most of them are.
+  final ScrubKind kind;
+
+  /// Range the scrub may not leave. A pattern of zero occurrences and a gear
+  /// with minus four teeth are not values the drag should be able to reach —
+  /// the dialogs clamp their own input, but a field showing "-4" while the
+  /// model holds 4 is a lie about what is going on.
+  final double? min, max;
 
   const ScrubField({
     super.key,
@@ -35,6 +57,9 @@ class ScrubField extends StatefulWidget {
     required this.child,
     this.onCommit,
     this.suffix,
+    this.kind = ScrubKind.length,
+    this.min,
+    this.max,
   });
 
   @override
@@ -66,8 +91,9 @@ class _ScrubFieldState extends State<ScrubField> {
   void _begin() {
     _start = _current();
     if (_start == null) return; // an expression: leave it alone
-    _upp = widget.app.viewUnitsPerPixel;
-    _step = scrubStep(_upp);
+    final view = widget.app.viewUnitsPerPixel;
+    _step = scrubStepFor(widget.kind, view);
+    _upp = scrubUnitsPerPixel(widget.kind, view);
     _dx = 0;
     _live = false;
     // M179 — everything this drag applies is real and takes effect at once;
@@ -81,7 +107,9 @@ class _ScrubFieldState extends State<ScrubField> {
     final start = _start;
     if (start == null) return;
     _dx = dx;
-    final v = scrubbedValue(start, _dx, _step, _upp);
+    var v = scrubbedValue(start, _dx, _step, _upp);
+    if (widget.min != null && v < widget.min!) v = widget.min!;
+    if (widget.max != null && v > widget.max!) v = widget.max!;
     final text = v.toStringAsFixed(scrubDecimals(_step)) +
         (widget.suffix == null ? '' : ' ${widget.suffix}');
     if (text == widget.controller.text) return;

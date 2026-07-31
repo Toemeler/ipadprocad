@@ -13,7 +13,9 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../constraints.dart';
 import '../params.dart';
+import '../scrub.dart';
 import '../theme.dart';
+import 'scrub_field.dart';
 
 class ParametersDialog extends StatefulWidget {
   final AppState app;
@@ -144,6 +146,12 @@ class _ParamRow extends StatefulWidget {
   final String equation; // raw expr, or the formatted value
   final String value;
   final bool readOnly; // driven dims: measure-only
+
+  /// M180 — what the Equation cell's number measures, when it IS a number. A
+  /// cell holding a formula is never scrubbed (ScrubField declines anything it
+  /// cannot read as one), which is exactly right: dragging "d0 + 5" would
+  /// destroy it.
+  final ScrubKind kind;
   final bool Function(String) commitName;
   final bool Function(String) commitEquation;
   final bool Function(String) validEquation;
@@ -157,6 +165,7 @@ class _ParamRow extends StatefulWidget {
       required this.commitName,
       required this.commitEquation,
       required this.validEquation,
+      this.kind = ScrubKind.length,
       this.readOnly = false,
       this.trailing});
 
@@ -270,23 +279,35 @@ class _ParamRowState extends State<_ParamRow> {
         ),
         const SizedBox(width: 6),
         Expanded(
-          child: cell(widget.readOnly
-              ? const Padding(
+          child: widget.readOnly
+              ? cell(const Padding(
                   padding: EdgeInsets.only(left: 4),
                   child: Text('(reference)',
-                      style: TextStyle(fontSize: 11, color: T.dim)))
-              : TextField(
+                      style: TextStyle(fontSize: 11, color: T.dim))))
+              // M180 — the Equation cell drags too, when it holds a plain
+              // number. Applied per detent like everywhere else, so the sketch
+              // follows the drag instead of waiting for Enter.
+              : ScrubField(
+                  app: widget.app,
                   controller: _eq,
-                  focusNode: _eqF,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  onChanged: (_) => setState(() {}),
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: eqValid ? T.text : const Color(0xFFE05A5A)),
-                  decoration: deco(),
-                  onSubmitted: (_) => _commitEq(),
-                )),
+                  kind: widget.kind,
+                  onCommit: (t) {
+                    widget.commitEquation(t);
+                    setState(() {});
+                  },
+                  child: cell(TextField(
+                    controller: _eq,
+                    focusNode: _eqF,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    onChanged: (_) => setState(() {}),
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: eqValid ? T.text : const Color(0xFFE05A5A)),
+                    decoration: deco(),
+                    onSubmitted: (_) => _commitEq(),
+                  )),
+                ),
         ),
         const SizedBox(width: 6),
         SizedBox(
@@ -318,6 +339,7 @@ class _DimRow extends StatelessWidget {
       equation: dim.expr ?? v.toStringAsFixed(_angle(dim) ? 1 : 2),
       value: '${v.toStringAsFixed(_angle(dim) ? 1 : 2)}$unit',
       readOnly: dim.driven,
+      kind: _angle(dim) ? ScrubKind.angle : ScrubKind.length,
       commitName: (t) => app.renameDimParam(dim, t),
       commitEquation: (t) => app.setDimensionText(dim, t),
       validEquation: (t) => app.dimTextValid(dim, t),

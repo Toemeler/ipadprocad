@@ -11,6 +11,74 @@ import 'dart:math' as math;
 /// notch on both a finger and a Pencil.
 const double kPxPerStep = 14.0;
 
+/// M180 — what a field's number MEASURES, which is what decides its detent.
+///
+/// The zoom-derived step below is right for a LENGTH and only for a length: it
+/// asks "what is a pixel worth in the model", which is a question an angle, a
+/// tooth count or a profile shift does not have. Scrubbing the pattern count
+/// by whatever 14 px of a zoomed-out view happens to be worth would step it in
+/// tens; scrubbing a pressure angle that way would step it in millimetres of
+/// nothing. So the fields that are not lengths carry a fixed ladder instead.
+enum ScrubKind {
+  /// Millimetres in the drawing: dimensions, offsets, radii, depths, spacings.
+  length,
+
+  /// Degrees. A degree is a degree at any magnification.
+  angle,
+
+  /// A whole number of things: teeth, occurrences, planets.
+  count,
+
+  /// A small dimensionless number — a profile shift, a number of turns. Not a
+  /// length the zoom can scale, and too fine to step in whole units.
+  ratio,
+}
+
+/// The fixed detents for the kinds the zoom cannot speak for.
+///
+/// 1° because that is the unit drawings are dimensioned in; 1 because half a
+/// tooth does not exist; 0.1 because a profile shift lives between -0.5 and
+/// +0.5 and a whole unit would cross the entire useful range in one notch.
+const double kAngleScrubStep = 1.0;
+const double kCountScrubStep = 1.0;
+const double kRatioScrubStep = 0.1;
+
+/// The detent [kind] steps in, given a view where one pixel spans
+/// [unitsPerPixel] model units (which only [ScrubKind.length] consults).
+double scrubStepFor(ScrubKind kind, double unitsPerPixel) => switch (kind) {
+      ScrubKind.length => scrubStep(unitsPerPixel),
+      ScrubKind.angle => kAngleScrubStep,
+      ScrubKind.count => kCountScrubStep,
+      ScrubKind.ratio => kRatioScrubStep,
+    };
+
+/// The [ScrubKind] a field's UNIT implies.
+///
+/// Every value field in the app already says what its number is in, to print
+/// it beside the box — so no dialog has to answer the same question twice.
+ScrubKind scrubKindForUnit(String? unit) {
+  switch ((unit ?? '').trim().toLowerCase()) {
+    case 'deg':
+    case '°':
+      return ScrubKind.angle;
+    case 'ul': // "unitless": a coil's turns
+      return ScrubKind.ratio;
+    default:
+      return ScrubKind.length;
+  }
+}
+
+/// The units-per-pixel a FIXED step has to be fed to [scrubbedValue] as, so
+/// one detent costs the same [kPxPerStep] of travel as a length's does.
+///
+/// Deriving it rather than special-casing the arithmetic keeps ONE function
+/// deciding where a scrub lands — the one with the grid-snapping in it, which
+/// is the part that makes a drag feel like detents instead of a smear.
+double scrubUnitsPerPixel(ScrubKind kind, double unitsPerPixel) =>
+    kind == ScrubKind.length
+        ? unitsPerPixel
+        : scrubStepFor(kind, unitsPerPixel) / kPxPerStep;
+
 /// The 1-2-5 ladder, the same series every ruler and axis in engineering uses.
 /// A step is always something a person would say out loud — 0.5 mm, 2 mm,
 /// 1 cm — never 0.37 mm, however the zoom happens to fall.

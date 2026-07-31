@@ -18,8 +18,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
 import '../ffi/qcad_engine.dart';
+import '../scrub.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
+import 'scrub_field.dart';
 
 const _fieldBg = Color(0xFF212429);
 const _fieldBorder = Color(0xFF3A3F45);
@@ -190,6 +192,8 @@ class _PatternDialogState extends State<PatternDialog> {
           ctrl: cCtrl,
           enabled: enabled,
           integer: true,
+          min: 1,
+          max: 64,
           onValue: (v) {
             final n = v.toInt().clamp(1, 64);
             if (which == 1) {
@@ -255,6 +259,8 @@ class _PatternDialogState extends State<PatternDialog> {
             icon: PD['countC']!,
             ctrl: _cc,
             integer: true,
+            min: 2,
+            max: 128,
             onValue: (v) {
               ps.countC = v.toInt().clamp(2, 128);
               app.patNotify();
@@ -267,6 +273,8 @@ class _PatternDialogState extends State<PatternDialog> {
             icon: PD['angle']!,
             ctrl: _ac,
             suffix: 'deg',
+            min: -360,
+            max: 360,
             onValue: (v) {
               ps.angleC = v.clamp(-360.0, 360.0);
               app.patNotify();
@@ -487,8 +495,10 @@ class _PatternDialogState extends State<PatternDialog> {
     bool enabled = true,
     bool integer = false,
     String? suffix,
+    double? min,
+    double? max,
   }) {
-    return Row(children: [
+    final row = Row(children: [
       svgi(icon, 15),
       const SizedBox(width: 6),
       Expanded(
@@ -534,6 +544,27 @@ class _PatternDialogState extends State<PatternDialog> {
         ),
       ),
     ]);
+    // M180 — draggable, like every other number in the app. A disabled field
+    // is not: it is greyed because the pattern does not use it, and a value
+    // that moves under the finger while the model ignores it is worse than
+    // one that does not move.
+    if (!enabled) return row;
+    return ScrubField(
+      app: widget.app,
+      controller: ctrl,
+      // The unit here is DECORATION (suffixText), so the text is a bare
+      // number and must stay one — the onChanged above parses it raw.
+      kind: integer
+          ? ScrubKind.count
+          : scrubKindForUnit(suffix ?? ''),
+      min: min,
+      max: max,
+      onCommit: (t) {
+        final v = double.tryParse(t.replaceAll(',', '.'));
+        if (v != null) onValue(v);
+      },
+      child: row,
+    );
   }
 }
 
@@ -803,7 +834,7 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
 
   Widget _filletBody(AppState app) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _num(PD['spacing']!, _r, (v) {
+      _num(PD['spacing']!, _r, min: 0.1, (v) {
         fs.radius = v;
         app.filletNotify();
       }, suffix: 'mm'),
@@ -834,20 +865,20 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         modeBtn(2, PD['chamAng']!, 'Distance and angle'),
       ]),
       const SizedBox(height: 8),
-      _num(PD['spacing']!, _d1, (v) {
+      _num(PD['spacing']!, _d1, min: 0.1, (v) {
         fs.d1 = v;
         app.filletNotify();
       }, suffix: 'mm'),
       if (fs.mode == 1) ...[
         const SizedBox(height: 6),
-        _num(PD['spacing']!, _d2, (v) {
+        _num(PD['spacing']!, _d2, min: 0.1, (v) {
           fs.d2 = v;
           app.filletNotify();
         }, suffix: 'mm'),
       ],
       if (fs.mode == 2) ...[
         const SizedBox(height: 6),
-        _num(PD['angle']!, _ang, (v) {
+        _num(PD['angle']!, _ang, min: 1, max: 89, (v) {
           fs.angle = v;
           app.filletNotify();
         }, suffix: 'deg'),
@@ -859,8 +890,9 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
   }
 
   Widget _num(String icon, TextEditingController ctrl,
-      void Function(double) onValue, {String? suffix}) {
-    return Row(children: [
+      void Function(double) onValue,
+      {String? suffix, double? min, double? max}) {
+    final row = Row(children: [
       svgi(icon, 15),
       const SizedBox(width: 6),
       Expanded(
@@ -900,5 +932,19 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         ),
       ),
     ]);
+    // M180 — the 2D fillet radius and the chamfer distances drag too. The unit
+    // is decoration here, so the text stays a bare number for the parse above.
+    return ScrubField(
+      app: widget.app,
+      controller: ctrl,
+      kind: scrubKindForUnit(suffix),
+      min: min,
+      max: max,
+      onCommit: (t) {
+        final v = double.tryParse(t.replaceAll(',', '.'));
+        if (v != null && v > 0) onValue(v);
+      },
+      child: row,
+    );
   }
 }

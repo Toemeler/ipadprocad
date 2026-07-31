@@ -13,7 +13,9 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../gear.dart';
+import '../scrub.dart';
 import '../theme.dart';
+import 'scrub_field.dart';
 
 const _fieldBg = Color(0xFF212429);
 const _fieldBorder = Color(0xFF3A3F45);
@@ -168,17 +170,21 @@ class _GearDialogState extends State<GearDialog> {
                     style: _ts(10.5, T.dim), textAlign: TextAlign.left),
                 const SizedBox(height: 8),
                 // ---- fields ----
-                _field('Module (mm)', _module),
-                if (!planetary) _field('Teeth', _teeth),
-                _field('Corner radius (mm)', _corner),
+                _field('Module (mm)', _module, min: 0.1),
+                if (!planetary)
+                  _field('Teeth', _teeth,
+                      kind: ScrubKind.count, min: 3, max: 400),
+                _field('Corner radius (mm)', _corner, min: 0),
                 if (planetary) ...[
-                  _field('Sun teeth', _sun),
-                  _field('Planet teeth', _planet),
-                  _field('Planets', _count),
+                  _field('Sun teeth', _sun, kind: ScrubKind.count, min: 3, max: 400),
+                  _field('Planet teeth', _planet,
+                      kind: ScrubKind.count, min: 3, max: 400),
+                  _field('Planets', _count, kind: ScrubKind.count, min: 1, max: 12),
                 ],
-                _field('Pressure angle (°)', _angle),
-                _field('Profile shift', _shift),
-                if (!planetary) _field('Bore Ø (mm)', _bore),
+                _field('Pressure angle (°)', _angle,
+                    kind: ScrubKind.angle, min: 5, max: 45),
+                _field('Profile shift', _shift, kind: ScrubKind.ratio),
+                if (!planetary) _field('Bore Ø (mm)', _bore, min: 0),
                 const SizedBox(height: 6),
                 _filletToggle(g),
                 const SizedBox(height: 12),
@@ -256,8 +262,16 @@ class _GearDialogState extends State<GearDialog> {
     );
   }
 
-  Widget _field(String label, TextEditingController c, {VoidCallback? on}) {
-    return Padding(
+  /// M180 — every one of these drags. [kind] is what the number measures: a
+  /// tooth count steps by one whole tooth, the pressure angle by a degree, the
+  /// profile shift by a tenth, and the millimetre fields by whatever the zoom
+  /// says a notch is worth, like every other length in the app.
+  Widget _field(String label, TextEditingController c,
+      {VoidCallback? on,
+      ScrubKind kind = ScrubKind.length,
+      double? min,
+      double? max}) {
+    final row = Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(children: [
         SizedBox(
@@ -293,6 +307,15 @@ class _GearDialogState extends State<GearDialog> {
           ),
         ),
       ]),
+    );
+    return ScrubField(
+      app: widget.app,
+      controller: c,
+      kind: kind,
+      min: min,
+      max: max,
+      onCommit: (_) => (on ?? _sync)(),
+      child: row,
     );
   }
 

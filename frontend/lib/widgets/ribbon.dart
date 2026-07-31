@@ -11,10 +11,12 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../app_state.dart';
 import '../log.dart';
 import '../part_model.dart' show WorkPlaneKind;
+import '../scrub.dart';
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
 import 'ribbon_chrome.dart';
+import 'scrub_field.dart';
 
 Widget svg(String s, double size) =>
     SvgPicture.string(s, width: size, height: size);
@@ -304,7 +306,8 @@ class _RibbonState extends State<Ribbon> {
     }
     switch (t) {
       case Tool.polygon:
-        final v = await _numDialog('Polygon', [('Sides', '6')]);
+        final v = await _numDialog('Polygon', [('Sides', '6')],
+            kind: ScrubKind.count, min: 3, max: 64);
         if (v == null) return;
         app.toolParams = {'sides': v[0]};
         break;
@@ -327,7 +330,8 @@ class _RibbonState extends State<Ribbon> {
   }
 
   Future<List<double>?> _numDialog(
-      String title, List<(String, String)> fields) async {
+      String title, List<(String, String)> fields,
+      {ScrubKind kind = ScrubKind.length, double? min, double? max}) async {
     final ctrls = [for (final f in fields) TextEditingController(text: f.$2)];
     final ok = await showDialog<bool>(
       context: context,
@@ -336,17 +340,27 @@ class _RibbonState extends State<Ribbon> {
         title: Text(title, style: ts(14, Colors.white, w: FontWeight.w600)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           for (var i = 0; i < fields.length; i++)
-            TextField(
+            // M180 — draggable, like every other number in the app. There is
+            // nothing to preview behind a modal, so the drag only moves the
+            // number; the dialog reads it on OK.
+            ScrubField(
+              app: widget.app,
               controller: ctrls[i],
-              autofocus: i == 0,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              stylusHandwritingEnabled: kValueHandwriting, // M179
-              style: ts(13, T.text),
-              decoration: InputDecoration(
-                  labelText: fields[i].$1,
-                  labelStyle: ts(12, T.dim)),
-              onSubmitted: (_) => Navigator.pop(ctx, true),
+              kind: kind,
+              min: min,
+              max: max,
+              child: TextField(
+                controller: ctrls[i],
+                autofocus: i == 0,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                stylusHandwritingEnabled: kValueHandwriting, // M179
+                style: ts(13, T.text),
+                decoration: InputDecoration(
+                    labelText: fields[i].$1,
+                    labelStyle: ts(12, T.dim)),
+                onSubmitted: (_) => Navigator.pop(ctx, true),
+              ),
             ),
         ]),
         actions: [
@@ -389,20 +403,26 @@ class _RibbonState extends State<Ribbon> {
                   labelStyle: ts(12, T.dim))),
           Row(children: [
             Expanded(
-                child: TextField(
+                child: ScrubField(
+                    app: widget.app,
                     controller: x0,
-                    stylusHandwritingEnabled: kValueHandwriting, // M179
-                    style: ts(13, T.text),
-                    decoration: InputDecoration(
-                        labelText: 'x min', labelStyle: ts(12, T.dim)))),
+                    child: TextField(
+                        controller: x0,
+                        stylusHandwritingEnabled: kValueHandwriting, // M179
+                        style: ts(13, T.text),
+                        decoration: InputDecoration(
+                            labelText: 'x min', labelStyle: ts(12, T.dim))))),
             const SizedBox(width: 10),
             Expanded(
-                child: TextField(
+                child: ScrubField(
+                    app: widget.app,
                     controller: x1,
-                    stylusHandwritingEnabled: kValueHandwriting, // M179
-                    style: ts(13, T.text),
-                    decoration: InputDecoration(
-                        labelText: 'x max', labelStyle: ts(12, T.dim)))),
+                    child: TextField(
+                        controller: x1,
+                        stylusHandwritingEnabled: kValueHandwriting, // M179
+                        style: ts(13, T.text),
+                        decoration: InputDecoration(
+                            labelText: 'x max', labelStyle: ts(12, T.dim))))),
           ]),
         ]),
         actions: [
