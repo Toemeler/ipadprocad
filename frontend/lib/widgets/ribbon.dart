@@ -844,6 +844,22 @@ class _RibbonState extends State<Ribbon> {
           ]),
         ),
         ],
+        // M168 — VIEW panel, last before Exit: Inventor's Slice Graphics.
+        // Shown only when there is actually a solid to cut through, which is
+        // the same rule Inventor uses to grey it out. Not shown rather than
+        // disabled, per M157: a visible button that does nothing reads as
+        // broken, and this ribbon has had nine of those.
+        if (app.canSliceGraphics)
+          _panel(
+            label: 'View',
+            arrow: false,
+            child: _BigWide(
+                width: 74,
+                icon: WF['plane']!,
+                label: 'Slice\nGraphics',
+                active: app.sliceGraphics,
+                onTap: app.toggleSliceGraphics),
+          ),
         // Exit panel (only in layer edit mode), pinned to the right in spirit;
         // in a scrolling ribbon it follows Modify like #panel-exit.on does.
         if (app.inEditMode || app.activeChild != null)

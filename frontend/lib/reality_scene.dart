@@ -38,7 +38,12 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
         // original in would draw the un-filleted edges straight through it.
         f != app.edgeSession?.editing &&
         f.bodyName != app.edgeSession?.previewReplacesBody) {
-      out.add((f.name, f.solid!));
+      // M168 — Slice Graphics substitutes the CUT solid for the whole one, so
+      // every consumer (payload, signature, triangle budget, thumbnails) sees
+      // one consistent scene. Null means "not slicing" or "the cut failed",
+      // and then the solid is shown whole — a failed slice must never make the
+      // part vanish.
+      out.add((f.name, app.slicedSolid(f.name, f.solid!) ?? f.solid!));
     }
   }
   return out;
@@ -655,6 +660,7 @@ String sceneSignature(AppState app, PartModel p) {
   // same lesson: anything that changes the picture and is not here means no
   // rebuild is sent and the change "does not work". A plane's position is
   // part of that, not just its existence — re-offsetting one moves it.
+  sb..write(';slice:')..write(app.sliceGraphics ? '1' : '0');
   sb.write(';wp:');
   for (final w in p.workPlanes) {
     sb

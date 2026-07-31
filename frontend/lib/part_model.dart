@@ -5152,6 +5152,47 @@ bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
 }
 
 
+/// M168 — Inventor's **Slice Graphics**: the solid with everything between the
+/// viewer and the sketch plane cut away, so you can see and draw inside the
+/// part.
+///
+/// A real boolean, not a render trick: a half-space box is built on the near
+/// side of [frame] and subtracted with the kernel's own cut. That matters
+/// because the section faces have to be REAL faces — a hatch has to follow
+/// actual face boundaries, and a clipped render has none to follow.
+///
+/// The box reaches [reach] mm back from the plane and is sized from the part's
+/// own extent, so it always swallows whatever is in front however large the
+/// model is. Returns null when there is nothing to cut or the kernel refuses,
+/// and the caller then shows the solid whole — a failed slice must not make
+/// the part vanish.
+KernelSolid? sliceSolidAt(
+    PartKernel kernel, PartModel part, KernelSolid solid, PlaneFrame frame) {
+  if (!kernel.available) return null;
+  final (lo, hi) = originExtentBounds(part);
+  // Half-diagonal of the part's box, plus a margin: any square of this size
+  // centred on the plane covers the whole model in the plane's own axes.
+  final r = (hi - lo).length + 10.0;
+  if (!r.isFinite || r <= 0) return null;
+  // A square profile in the plane's (u,v), extruded BACKWARDS along its
+  // normal — the near side, which is what Inventor removes.
+  final profile = [
+    [
+      [
+        Offset(-r, -r),
+        Offset(r, -r),
+        Offset(r, r),
+        Offset(-r, r),
+      ]
+    ]
+  ];
+  final tool = kernel.extrude(profile, r, 0, frame.mat34(0));
+  if (tool == null) return null;
+  final cut = kernel.cutSolids(solid, tool);
+  tool.dispose();
+  return cut;
+}
+
 /// M163 — the model edge a projection currently refers to.
 ///
 /// `Geo.projSeg` holds a raw INDEX into the part's visible-solid edge list,

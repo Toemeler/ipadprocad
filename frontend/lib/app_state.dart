@@ -2634,6 +2634,67 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M168 Slice Graphics ------------------------------------------------
+
+  /// Inventor's Slice Graphics (F7): inside a sketch, cut away everything
+  /// between the viewer and the sketch plane. A DISPLAY state — nothing enters
+  /// the timeline, and it clears when the sketch closes.
+  bool sliceGraphics = false;
+
+  final Map<String, KernelSolid> _sliceCache = {};
+  String _sliceKey = '';
+
+  /// Whether the command is offered at all. Inventor greys it out with no
+  /// solid to cut; here it is not shown, per M157 — a button that is visible
+  /// must do something, because silence reads as broken.
+  bool get canSliceGraphics {
+    final p = currentPart;
+    return p != null && activeChild != null && p.hasSolid;
+  }
+
+  void toggleSliceGraphics() {
+    if (!canSliceGraphics) return;
+    sliceGraphics = !sliceGraphics;
+    if (!sliceGraphics) _clearSliceCache();
+    Log.i('slice', 'Slice Graphics ${sliceGraphics ? "ON" : "OFF"}');
+    notifyListeners();
+  }
+
+  void _clearSliceCache() {
+    for (final s in _sliceCache.values) {
+      s.dispose();
+    }
+    _sliceCache.clear();
+    _sliceKey = '';
+  }
+
+  /// The sliced stand-in for [solid], or null to draw it whole.
+  ///
+  /// Cached against the sketch frame and the identity of every mesh in the
+  /// scene: the cut is a full boolean and must not run per frame. A null
+  /// result (no kernel, or the cut failed) deliberately means "show it whole"
+  /// — a failed slice must never make the part disappear.
+  KernelSolid? slicedSolid(String id, KernelSolid solid) {
+    if (!sliceGraphics) return null;
+    final p = currentPart;
+    final cs = activeChild == null ? null : p?.sketchByName(activeChild!.name);
+    if (p == null || cs == null) return null;
+    final fr = sketchFrameOf(cs);
+    final key = '${fr.origin.x},${fr.origin.y},${fr.origin.z},'
+        '${fr.n.x},${fr.n.y},${fr.n.z}';
+    if (key != _sliceKey) {
+      _clearSliceCache();
+      _sliceKey = key;
+    }
+    final hit = _sliceCache['$id:${identityHashCode(solid.mesh)}'];
+    if (hit != null) return hit;
+    final cut = sliceSolidAt(partKernel, p, solid, fr);
+    if (cut == null) return null;
+    _sliceCache['$id:${identityHashCode(solid.mesh)}'] = cut;
+    Log.i('slice', 'sliced $id at the sketch plane');
+    return cut;
+  }
+
   void cancelWorkPlane() {
     if (workPlaneArm == null) return;
     workPlaneArm = null;
@@ -2791,6 +2852,12 @@ class AppState extends ChangeNotifier {
   /// Finish Sketch: back to the 3D part; the sketch stays in the part and
   /// every feature is recomputed against its new state.
   void finishPartSketch() {
+    // M168 — Slice Graphics is a SKETCH display state (Inventor clears it
+    // when the sketch closes). Leaving it on would cut the part view too.
+    if (sliceGraphics) {
+      sliceGraphics = false;
+      _clearSliceCache();
+    }
     final p = currentPart;
     finishEdit(save: false);
     activeChild = null;
