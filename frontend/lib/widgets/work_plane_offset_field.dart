@@ -148,6 +148,9 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
                       style: TextStyle(color: T.text, fontSize: 14),
                       textAlign: TextAlign.right,
                       keyboardType: kValueKeyboard,
+                      // M179 — the Pencil scrubs this field; it does not
+                      // write on it.
+                      stylusHandwritingEnabled: kValueHandwriting,
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: const InputDecoration(

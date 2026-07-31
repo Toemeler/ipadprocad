@@ -89,3 +89,22 @@ TextStyle ts(double size, Color color,
 /// keyboard.
 const TextInputType kValueKeyboard =
     TextInputType.numberWithOptions(signed: true, decimal: true);
+
+/// M179 — Scribble OFF on every number field.
+///
+/// iPadOS turns a text field into a handwriting target for the Pencil, and it
+/// claims the stroke before any gesture in the Flutter tree sees it. On a
+/// number field that costs more than it gives: the field it steals from is the
+/// SCRUB (M172), where dragging the Pencil left and right across the number is
+/// the fastest way to size anything, and what it offers instead is
+/// handwriting-recognising "12" — two characters, on the numeric pad that is
+/// already open, one tap away.
+///
+/// So: numbers are scrubbed or tapped, never written. Text fields — sketch and
+/// part names, the Parameters window's equations — keep Scribble, because
+/// writing a word by hand really is faster than the on-screen keyboard.
+///
+/// Pass as `stylusHandwritingEnabled:` next to [kValueKeyboard]; the two travel
+/// together, and a value field that sets one and not the other is the bug this
+/// pairing exists to make obvious.
+const bool kValueHandwriting = false;

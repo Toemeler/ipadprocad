@@ -455,6 +455,11 @@ class SketchModel {
     return _undoStack.last;
   }
 
+  /// M179 — the state the journal is SITTING on, without stepping anywhere.
+  /// A live gesture suppresses checkpoints, so during one this is the sketch
+  /// as it was before the gesture began.
+  UndoSnap? get pinnedSnap => _undoStack.isEmpty ? null : _undoStack.last;
+
   /// Moves one step forward and returns the state to restore, or null.
   UndoSnap? redoStep() {
     if (!canRedo) return null;
@@ -2110,6 +2115,36 @@ class AppState extends ChangeNotifier {
   /// _rebuildEngine so undo never journals itself.
   bool _restoringHistory = false;
 
+  // ==== LIVE EDITS (M179) ================================================
+  // A scrub (M172) applies a REAL value on every detent, so the sketch solves
+  // and the preview rebuilds while the finger is still down — that is the
+  // whole point, and it is what Inventor does. Two things must not happen per
+  // detent, though:
+  //
+  //   * a journal entry. One drag across a dimension would otherwise bury the
+  //     undo stack under forty steps of the same edit, and Ctrl+Z would walk
+  //     back through them one notch at a time.
+  //   * a toast. "Value cannot be satisfied" is worth saying once, on release;
+  //     said thirty times while dragging past an unreachable range it is a
+  //     strobe.
+  //
+  // Both are suppressed BETWEEN [beginLiveEdit] and [endLiveEdit], and the
+  // release then re-commits the final value with everything back on — so the
+  // gesture costs exactly one undo step and says whatever it has to say once.
+  int _liveEdits = 0;
+
+  /// True between [beginLiveEdit] and [endLiveEdit].
+  bool get liveEditing => _liveEdits > 0;
+
+  void beginLiveEdit() => _liveEdits++;
+
+  /// Counted rather than boolean: a widget torn down mid-drag calls this from
+  /// dispose, and an unbalanced call must not leave the journal switched off
+  /// for the rest of the session — hence the floor at zero.
+  void endLiveEdit() {
+    if (_liveEdits > 0) _liveEdits--;
+  }
+
   bool get canUndo => current?.canUndo ?? false;
   bool get canRedo => current?.canRedo ?? false;
 
@@ -2119,6 +2154,16 @@ class AppState extends ChangeNotifier {
 
   /// Ctrl+Shift+Z (and Ctrl+Y). Steps forward again.
   void redo() => _applyHistory((s) => s.redoStep(), 'redo');
+
+  /// M179 — puts the sketch back to the last COMMITTED state without spending
+  /// a journal step. Esc out of a value that a live scrub has already applied:
+  /// the drag drove the geometry (and may have had to CREATE the dimension it
+  /// was driving), and none of it was journalled, so the entry the journal is
+  /// still sitting on is exactly "before the drag". Restoring it is therefore
+  /// both the old value and the old geometry, exactly — which re-typing the
+  /// old number could only approximate, since a re-solve may settle elsewhere.
+  void revertToLastCheckpoint() =>
+      _applyHistory((s) => s.pinnedSnap, 'revert');
 
   void _applyHistory(UndoSnap? Function(SketchModel) step, String what) {
     final s = current;
@@ -2654,6 +2699,13 @@ class AppState extends ChangeNotifier {
   }
 
   void toast(String m) {
+    // M179 — a scrub applies a value per detent, so a value the constraints
+    // cannot reach would say so per detent. Dragging past the limit is normal;
+    // the release re-commits with messages back on and says it once.
+    if (liveEditing) {
+      Log.i('ui', 'notice (held back during live edit): $m');
+      return;
+    }
     message = m;
     Log.i('ui', 'notice: $m');
     notifyListeners();
@@ -5859,8 +5911,10 @@ class AppState extends ChangeNotifier {
     // rebuild (the C-API is add-only), so this one call records the whole
     // app's edits — draw, drag, trim, fillet, patterns, dimensions,
     // constraints, layer rename/delete/move. Suppressed while RESTORING a
-    // snapshot, or undo would journal itself.
-    if (!_restoringHistory) s.checkpoint();
+    // snapshot, or undo would journal itself — and (M179) while a scrub is
+    // still under the finger, so the whole drag lands as ONE step when it is
+    // released rather than one per detent.
+    if (!_restoringHistory && !liveEditing) s.checkpoint();
     Log.i('engine',
         'rebuild done, geometry=${s.geometry.length}, dof=${analysis?.dof}');
   }

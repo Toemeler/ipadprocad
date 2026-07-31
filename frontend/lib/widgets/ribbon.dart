@@ -341,6 +341,7 @@ class _RibbonState extends State<Ribbon> {
               autofocus: i == 0,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              stylusHandwritingEnabled: kValueHandwriting, // M179
               style: ts(13, T.text),
               decoration: InputDecoration(
                   labelText: fields[i].$1,
@@ -390,6 +391,7 @@ class _RibbonState extends State<Ribbon> {
             Expanded(
                 child: TextField(
                     controller: x0,
+                    stylusHandwritingEnabled: kValueHandwriting, // M179
                     style: ts(13, T.text),
                     decoration: InputDecoration(
                         labelText: 'x min', labelStyle: ts(12, T.dim)))),
@@ -397,6 +399,7 @@ class _RibbonState extends State<Ribbon> {
             Expanded(
                 child: TextField(
                     controller: x1,
+                    stylusHandwritingEnabled: kValueHandwriting, // M179
                     style: ts(13, T.text),
                     decoration: InputDecoration(
                         labelText: 'x max', labelStyle: ts(12, T.dim)))),

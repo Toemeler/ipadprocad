@@ -48,6 +48,9 @@ class _ScrubFieldState extends State<ScrubField> {
   double _dx = 0;
   bool _live = false;
 
+  /// True while this field holds AppState's live-edit bracket open.
+  bool _bracketed = false;
+
   /// The number currently in the field, or null when it is an expression we
   /// must not clobber. Scrubbing "d0 + 5" would destroy it, so we decline.
   double? _current() {
@@ -67,6 +70,11 @@ class _ScrubFieldState extends State<ScrubField> {
     _step = scrubStep(_upp);
     _dx = 0;
     _live = false;
+    // M179 — everything this drag applies is real and takes effect at once;
+    // it simply is not HISTORY yet, and must not talk. See AppState's live
+    // edits: the release below turns both back on for the final value.
+    _bracketed = true;
+    widget.app.beginLiveEdit();
   }
 
   void _update(double dx) {
@@ -89,9 +97,30 @@ class _ScrubFieldState extends State<ScrubField> {
   }
 
   void _end() {
-    if (_live) widget.onCommit?.call(widget.controller.text);
+    final live = _live;
     _start = null;
     _live = false;
+    // Journalling and messages come back FIRST, so the final commit below is
+    // the one that lands in history and the one allowed to complain. It
+    // re-applies the value already showing, so the sketch does not move — it
+    // only becomes an undoable step.
+    _unbracket();
+    if (live) widget.onCommit?.call(widget.controller.text);
+  }
+
+  /// Idempotent, and called from dispose as well: a field torn down mid-drag
+  /// (the dialog closes, the dimension is deleted) would otherwise leave the
+  /// journal switched off for the rest of the session.
+  void _unbracket() {
+    if (!_bracketed) return;
+    _bracketed = false;
+    widget.app.endLiveEdit();
+  }
+
+  @override
+  void dispose() {
+    _unbracket();
+    super.dispose();
   }
 
   @override

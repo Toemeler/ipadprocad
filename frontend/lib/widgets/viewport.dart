@@ -90,6 +90,9 @@ class _Viewport2DState extends State<Viewport2D> {
   void dispose() {
     _lpTimer?.cancel();
     _toolCtx?.remove();
+    // A viewport torn down with the dimension box still open must not leave
+    // the journal switched off for the rest of the session (M179).
+    _endInlineEdit();
     NativeMenu.setPencilHandler(null);
     _focus.dispose();
     _dimCtrl.dispose();
@@ -711,6 +714,34 @@ class _Viewport2DState extends State<Viewport2D> {
   Constraint? _inlineDim;
   bool _inlineIsNew = false;
 
+  // M179 — ONE dimension edit is ONE undo step, however the number got there.
+  //
+  // The box drives the sketch live now: every detent of a scrub really solves,
+  // so the geometry follows the finger instead of jumping on Enter. That would
+  // otherwise cost a journal entry per detent, and Esc would have nothing to go
+  // back to — so the whole time the box is open, AppState's live-edit bracket
+  // holds checkpoints and messages back (the drag's own bracket nests inside
+  // it, which is why that counter counts). Committing lifts the bracket and
+  // applies once; Esc lifts it and restores the entry the journal never moved
+  // off, which is the sketch exactly as the box found it.
+  bool _inlineBracket = false;
+
+  /// True once something in this editing session actually reached the sketch —
+  /// the only case where Esc has anything to put back.
+  bool _inlineLive = false;
+
+  void _beginInlineEdit() {
+    if (_inlineBracket) return;
+    _inlineBracket = true;
+    widget.app.beginLiveEdit();
+  }
+
+  void _endInlineEdit() {
+    if (!_inlineBracket) return;
+    _inlineBracket = false;
+    widget.app.endLiveEdit();
+  }
+
   /// M42: the dimension label under the mouse — highlighted whenever it is
   /// actionable: while the expression box is open (click inserts the
   /// parameter name, Inventor-style) and in plain layer-edit mode (tap opens
@@ -736,9 +767,11 @@ class _Viewport2DState extends State<Viewport2D> {
   final FocusNode _dimFocus = FocusNode();
 
   void _openInlineEditor(Constraint d, {required bool isNew}) {
+    _beginInlineEdit();
     setState(() {
       _inlineDim = d;
       _inlineIsNew = isNew;
+      _inlineLive = false;
       // M41: the box shows the RAW expression when the dimension is driven
       // by one (Inventor: value collapses on screen, equation reappears on
       // edit); a plain-value dimension shows its number.
@@ -767,6 +800,10 @@ class _Viewport2DState extends State<Viewport2D> {
       return;
     }
     setState(() => _inlineDim = null);
+    // Journalling and messages back on BEFORE the commit: this is the call
+    // that has to land in history as the one step for the whole edit, and the
+    // one allowed to say why a value was refused.
+    _endInlineEdit();
     if (_inlineIsNew) {
       if (valid) {
         app.confirmDimensionText(raw);
@@ -801,9 +838,47 @@ class _Viewport2DState extends State<Viewport2D> {
   void _cancelInline() {
     final d = _inlineDim;
     if (d == null) return;
-    setState(() => _inlineDim = null);
-    if (_inlineIsNew) widget.app.cancelDimension();
+    final live = _inlineLive;
+    setState(() {
+      _inlineDim = null;
+      _inlineLive = false;
+    });
+    _endInlineEdit();
+    if (live) {
+      // M179 — a scrub already drove the sketch, and for a dimension being
+      // placed it had to CREATE it first. Nothing since the box opened was
+      // journalled, so the entry the journal is still sitting on is the sketch
+      // as it was: restoring it takes the value, the geometry and the
+      // dimension itself back in one move.
+      widget.app.revertToLastCheckpoint();
+    } else if (_inlineIsNew) {
+      widget.app.cancelDimension();
+    }
     _focus.requestFocus();
+  }
+
+  /// M179 — a detent of a scrub, applied to the SKETCH rather than only to the
+  /// number in the box. This is the whole point of dragging a dimension: the
+  /// geometry moves under the finger, so the value is chosen by looking at the
+  /// drawing instead of at the box.
+  void _scrubDim(String text) {
+    final app = widget.app;
+    final d = _inlineDim;
+    setState(() {}); // the box repaints with the new number either way
+    if (d == null || !app.dimTextValid(d, text)) return;
+    if (_inlineIsNew) {
+      // Placing a dimension and dragging it to size is ONE gesture, so the
+      // dimension has to become real for the sketch to have anything to drive.
+      // confirmDimensionText creates it with its MEASURED value first — which
+      // moves nothing — and applies the dragged value on top. Esc still takes
+      // the whole gesture back, dimension included; see _cancelInline.
+      app.confirmDimensionText(text);
+      _inlineIsNew = false;
+      _inlineLive = true;
+      return;
+    }
+    app.setDimensionText(d, text);
+    _inlineLive = true;
   }
 
   Widget _inlineEditor(Size size) {
@@ -847,7 +922,7 @@ class _Viewport2DState extends State<Viewport2D> {
           child: ScrubField(
             app: widget.app,
             controller: _dimCtrl,
-            onCommit: (_) => setState(() {}),
+            onCommit: _scrubDim,
             child: TextField(
             controller: _dimCtrl,
             focusNode: _dimFocus,
@@ -859,6 +934,9 @@ class _Viewport2DState extends State<Viewport2D> {
             // through the Parameters window, which keeps its text keyboard for
             // exactly that reason.
             keyboardType: kValueKeyboard,
+            // M179 — no Scribble here. Dragging the Pencil across a dimension
+            // is how it is sized; handwriting would take that stroke.
+            stylusHandwritingEnabled: kValueHandwriting,
             autocorrect: false,
             enableSuggestions: false,
             // Inventor colours invalid syntax red while you type

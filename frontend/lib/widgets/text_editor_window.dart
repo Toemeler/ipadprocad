@@ -202,6 +202,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                               _height == _height.roundToDouble() ? 0 : 1)),
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true),
+                      stylusHandwritingEnabled: kValueHandwriting, // M179
                       style: const TextStyle(fontSize: 12, color: T.text),
                       decoration: const InputDecoration(
                           isDense: true, suffixText: 'mm'),

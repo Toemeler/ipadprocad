@@ -271,6 +271,7 @@ class _GearDialogState extends State<GearDialog> {
               onChanged: (_) => (on ?? _sync)(),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true, signed: true),
+              stylusHandwritingEnabled: kValueHandwriting, // M179
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]'))
               ],

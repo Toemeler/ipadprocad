@@ -500,6 +500,7 @@ class _PatternDialogState extends State<PatternDialog> {
             style: ts(12.5, enabled ? T.text : _disabledText),
             keyboardType:
                 TextInputType.numberWithOptions(decimal: !integer),
+            stylusHandwritingEnabled: kValueHandwriting, // M179
             inputFormatters: [
               FilteringTextInputFormatter.allow(
                   RegExp(integer ? r'[0-9]' : r'[0-9.,\-]')),
@@ -870,6 +871,7 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
             style: ts(12.5, T.text),
             keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
+            stylusHandwritingEnabled: kValueHandwriting, // M179
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
             ],

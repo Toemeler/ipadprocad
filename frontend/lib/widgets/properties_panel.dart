@@ -103,6 +103,10 @@ Widget panelValueField(TextEditingController c, String suffix,
               // and chamfer dialogs, so it is the highest-leverage place to
               // put it.
               keyboardType: kValueKeyboard,
+              // M179 — and no Scribble on it. The Pencil's job on a number is
+              // to SCRUB it (the ScrubField below); handwriting recognition
+              // would claim that stroke before the gesture ever saw it.
+              stylusHandwritingEnabled: kValueHandwriting,
               autocorrect: false,
               enableSuggestions: false,
               style: ts(12.5, T.text),
