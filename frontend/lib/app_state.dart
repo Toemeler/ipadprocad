@@ -2627,11 +2627,15 @@ class AppState extends ChangeNotifier {
     _wpNames.add(label);
 
     if (kind == WorkPlaneKind.offset) {
+      // M162 — remember WHAT it was offset from and by how much, so the
+      // distance stays editable instead of being baked into the frame.
       _commitWorkPlane(
           p,
           kind,
           offsetPlaneFrame(f, workPlaneOffset),
-          'Offset ${workPlaneOffset.toStringAsFixed(2)} mm from $label');
+          'Offset ${workPlaneOffset.toStringAsFixed(2)} mm from $label',
+          base: f,
+          offset: workPlaneOffset);
       return;
     }
 
@@ -2656,9 +2660,11 @@ class AppState extends ChangeNotifier {
   }
 
   void _commitWorkPlane(
-      PartModel p, WorkPlaneKind kind, PlaneFrame frame, String def) {
+      PartModel p, WorkPlaneKind kind, PlaneFrame frame, String def,
+      {PlaneFrame? base, double? offset}) {
     final wp = WorkPlane(
-        'Work Plane${p.workPlanes.length + 1}', p.nextSeq(), kind, def, frame);
+        'Work Plane${p.workPlanes.length + 1}', p.nextSeq(), kind, def, frame,
+        base: base, offset: offset);
     p.workPlanes.add(wp);
     p.dirty = true;
     workPlaneArm = null;
@@ -2670,6 +2676,25 @@ class AppState extends ChangeNotifier {
     Log.i('part', 'work plane "${wp.name}" — $def');
     if (curTab != null) savePart(curTab!);
     notifyListeners();
+  }
+
+  /// M162 — Inventor's "Edit Work Plane": change the offset distance of an
+  /// existing plane and move it, instead of deleting and re-picking.
+  ///
+  /// Also the only way the distance can be anything but 10 mm at all:
+  /// [workPlaneOffset] is what a new plane is built with, and until this
+  /// existed nothing ever assigned it, so every offset plane in every saved
+  /// document sits exactly 10 mm from its base.
+  bool setWorkPlaneOffset(WorkPlane wp, double d) {
+    final p = currentPart;
+    if (p == null || !wp.offsetEditable) return false;
+    if (!wp.setOffset(d)) return false;
+    workPlaneOffset = d; // the next new plane starts from what you last used
+    p.dirty = true;
+    Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+    return true;
   }
 
   void deleteWorkPlane(WorkPlane wp) {

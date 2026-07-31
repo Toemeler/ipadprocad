@@ -223,12 +223,48 @@ class WorkPlane {
   final String name;
   final int seq;
   final WorkPlaneKind kind;
-  final String def;
-  final PlaneFrame frame;
+  String def;
+  PlaneFrame frame;
   bool visible;
 
+  /// M162 — the plane this one was offset FROM, and by how much.
+  ///
+  /// Kept so an offset plane can be RE-OFFSET after the fact, the way every
+  /// other number in the document can be edited. Without them the distance was
+  /// baked into [frame] at creation and gone: `workPlaneOffset` was never
+  /// assigned from anywhere either, so every offset plane in every document is
+  /// exactly 10 mm (visible in a real file as "Offset 10.00 mm from face").
+  ///
+  /// Null on a midplane, and on any offset plane written before M162 — those
+  /// keep the frame they were saved with rather than being recomputed from a
+  /// base nobody recorded.
+  PlaneFrame? base;
+  double? offset;
+
   WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
-      {this.visible = true});
+      {this.visible = true, this.base, this.offset});
+
+  /// Whether [setOffset] can move this plane.
+  bool get offsetEditable => kind == WorkPlaneKind.offset && base != null;
+
+  /// Re-offsets the plane from its recorded base. Returns false when this
+  /// plane has no base to measure from.
+  bool setOffset(double d, {String? baseLabel}) {
+    final b = base;
+    if (kind != WorkPlaneKind.offset || b == null || !d.isFinite) return false;
+    offset = d;
+    frame = offsetPlaneFrame(b, d);
+    def = 'Offset ${d.toStringAsFixed(2)} mm from ${baseLabel ?? _defSource()}';
+    return true;
+  }
+
+  /// The trailing "from X" of the current [def], so re-offsetting keeps
+  /// naming the same source without the caller having to remember it.
+  String _defSource() {
+    const marker = ' from ';
+    final i = def.lastIndexOf(marker);
+    return i < 0 ? 'plane' : def.substring(i + marker.length);
+  }
 
   /// Stable id used by hover and picking, e.g. `wp:3`.
   String get id => 'wp:$seq';
@@ -249,6 +285,15 @@ class WorkPlane {
         'u': _v(frame.u),
         'v': _v(frame.v),
         'n': _v(frame.n),
+        // M162 — only written when there IS one, so a midplane's file is
+        // unchanged and an old document stays byte-identical until edited.
+        if (base != null) ...{
+          'bo': _v(base!.origin),
+          'bu': _v(base!.u),
+          'bv': _v(base!.v),
+          'bn': _v(base!.n),
+          'd': offset,
+        },
       };
 
   static WorkPlane? fromJson(Map<String, dynamic> m) {
@@ -262,6 +307,13 @@ class WorkPlane {
         PlaneFrame(kWorkPlaneKey, _p(m['u']), _p(m['v']), _p(m['n']),
             _p(m['o'])),
         visible: m['visible'] as bool? ?? true,
+        // M162 — absent on a midplane and on anything written before M162;
+        // those keep the frame they were saved with and are not re-offsettable.
+        base: m['bo'] == null
+            ? null
+            : PlaneFrame(kWorkPlaneKey, _p(m['bu']), _p(m['bv']), _p(m['bn']),
+                _p(m['bo'])),
+        offset: (m['d'] as num?)?.toDouble(),
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.
