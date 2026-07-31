@@ -5180,6 +5180,16 @@ class AppState extends ChangeNotifier {
   void toggleEdgePick(int topoId, EdgeSel sel,
       {KernelSolid? solid, int display = -1}) {
     if (!pickingEdges) return;
+    // M164 — WHICH edge was tapped. Without this the log jumped straight from
+    // "Select edges" to "chamfer created ... edges=2" with nothing in between,
+    // so a chamfer on the wrong edge could not be told from a wrong PICK.
+    Log.i(
+        'edge',
+        'pick edge $topoId  r=${sel.radius.toStringAsFixed(4)} '
+            'l=${sel.length.toStringAsFixed(3)} k=${sel.kind} '
+            'm=(${sel.mx.toStringAsFixed(3)},${sel.my.toStringAsFixed(3)},'
+            '${sel.mz.toStringAsFixed(3)}) '
+            'body=${solid == null ? "?" : _bodyNameOfSolid(solid)}');
     // One body per feature: Inventor's fillet operates on a single solid, and
     // a set spanning two would have no meaningful base to modify. Switching
     // body starts a new set rather than silently mixing them.

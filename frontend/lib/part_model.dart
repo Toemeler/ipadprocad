@@ -876,8 +876,28 @@ List<ProfileLoop> arrangementLoops(SketchModel s) {
   return loops;
 }
 
-List<ProfileLoop> profileLoops(SketchModel s) =>
-    Perf.span('sketch.profileLoops', () => dropDuplicateLoops(_profileLoops(s)));
+List<ProfileLoop> profileLoops(SketchModel s) {
+  final all = Perf.span('sketch.profileLoops', () => _profileLoops(s));
+  final kept = dropDuplicateLoops(all);
+  // M164 — a sketch quietly gaining a loop is how the zero-thickness ring
+  // appeared (M156/M163), and it was only ever visible because EXTRUDE
+  // happened to log its loops. Say it at the source, and say when a duplicate
+  // was dropped. Throttled: this runs on every hit-test and paint.
+  // Throttled on BOTH branches: this is a hot path (every hit-test, every
+  // paint), and a persistently-dropped duplicate would otherwise log on every
+  // single call. A dropped duplicate is worth hearing about sooner, not more
+  // often.
+  if (Log.every('loops.${s.name}', kept.length != all.length ? 500 : 5000)) {
+    Log.i(
+        'loops',
+        '"${s.name}": ${kept.length} loop(s)'
+            '${kept.length != all.length
+                ? "  (${all.length - kept.length} DUPLICATE dropped)" : ""}'
+            '${kept.isEmpty ? "" : "  areas=[${kept.map((l) =>
+                l.area.toStringAsFixed(2)).join(", ")}]"}');
+  }
+  return kept;
+}
 
 /// Wall thickness, in mm, below which the gap between two loops is not a
 /// feature but the same boundary counted twice. 20 um: thinner than anything
@@ -2135,16 +2155,43 @@ abstract class BodyModifyFeature extends PartFeature {
     for (var i = 0; i < edges.length; i++) {
       final sel = edges[i];
       final m = sel.bestMatch(live);
+      // M164 — say what each stored selection resolved to. A chamfer landing
+      // on the wrong edge, or silently vanishing, is invisible in the log
+      // without this: only "edges=2" was ever printed, which says nothing
+      // about WHICH two. The `want` line is the fingerprint as picked, `got`
+      // is the live edge it matched.
+      final want = 'r=${sel.radius.toStringAsFixed(4)} '
+          'l=${sel.length.toStringAsFixed(3)} k=${sel.kind} '
+          'm=(${sel.mx.toStringAsFixed(3)},${sel.my.toStringAsFixed(3)},'
+          '${sel.mz.toStringAsFixed(3)})';
       // One live edge can only serve one selection: without this, two picks
       // that both drifted toward the same survivor would silently collapse
       // into a double-radius fillet on one edge.
       if (m == null || !taken.add(m.index)) {
+        Log.w(
+            'edge',
+            'sel[$i] LOST — $want; '
+                '${m == null ? "no confident match among ${live.length} live "
+                    "edges (gone, or two candidates too alike to choose)" 
+                    : "edge ${m.index} already taken by an earlier selection"}');
         lost++;
         continue;
       }
+      final moved = (m.mx - sel.mx).abs() +
+          (m.my - sel.my).abs() +
+          (m.mz - sel.mz).abs();
+      Log.i(
+          'edge',
+          'sel[$i] -> edge ${m.index}  $want  got r=${m.radius.toStringAsFixed(4)} '
+              'l=${m.length.toStringAsFixed(3)} k=${m.kind}'
+              '${moved > 1e-9 ? "  MOVED by ${moved.toStringAsFixed(4)} mm" : ""}');
       sel.reanchor(m);
       ids.add(m.index);
       src.add(i);
+    }
+    if (lost > 0) {
+      Log.w('edge',
+          '${edges.length - lost}/${edges.length} selections resolved, $lost lost');
     }
     return (ids, src, lost);
   }
@@ -2930,10 +2977,30 @@ class PartModel {
   ///
   /// Idempotent, so calling it twice is harmless.
   void finishLoad() {
-    if (eopAfter != kEopAtEnd && eopAfter >= partTimeline(this).length) {
+    final rows = partTimeline(this);
+    if (eopAfter != kEopAtEnd && eopAfter >= rows.length) {
       eopAfter = kEopAtEnd; // covers every row: that IS the end
     }
     applyEndOfPart(this);
+    // M164 — the loaded document, stated. Every "the part was different after
+    // I closed and opened it" bug so far has been visible right here: a
+    // counter behind its own contents (M155), a marker in the wrong place
+    // (M160). Printing it means the next one is one line, not a bisect.
+    Log.block('part', 'loaded "$name"', [
+      'sketches=${childSketches.length}  features=${features.length}  '
+          'workPlanes=${workPlanes.length}',
+      'counters: featureN=$featureN solidN=$solidN seqNext=$seqNext',
+      'bodies: ${{for (final f in features) f.bodyName}.join(", ")}',
+      'eopAfter=${eopAfter == kEopAtEnd ? "AT END" : eopAfter} '
+          'of ${rows.length} rows'
+          '${partIsRolledBack(this) ? "  (ROLLED BACK)" : ""}',
+      for (final n in rows)
+        '  row ${rows.indexOf(n)}: ${n.isFeature ? "feature" : "sketch "} '
+            '${n.name}'
+            '${n.isFeature ? " (${n.feature!.kind})" : ""}'
+            '${(n.isFeature ? n.feature!.rolledBack : n.sketch!.rolledBack)
+                ? "  [rolled back]" : ""}',
+    ]);
   }
 
   void dispose() {
@@ -3963,8 +4030,22 @@ class OcctPartKernel implements PartKernel {
 /// A body-modifying feature (fillet, chamfer) REQUIRES it — that is its
 /// input, not something to combine with afterwards.
 bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
-        {KernelSolid? base}) =>
-    Perf.span('kernel.feature', () => _recomputeFeature(part, f, kernel, base));
+    {KernelSolid? base}) {
+  final ok = Perf.span(
+      'kernel.feature', () => _recomputeFeature(part, f, kernel, base));
+  // M164 — every feature rebuild, named, with its outcome. A part that comes
+  // back different after a reopen is a SEQUENCE of these going wrong, and
+  // until now the log showed only the ones that happened to toast.
+  final tris = f.solid?.mesh.indices.length;
+  Log.i(
+      'feature',
+      '${ok ? "ok  " : "FAIL"} ${f.name} (${f.kind}) body=${f.bodyName} '
+          'op=${f.output}'
+          '${base == null ? "" : " base=present"}'
+          '${tris == null ? " solid=null" : " tris=${tris ~/ 3}"}'
+          '${f.computeError == null ? "" : "  err=${f.computeError}"}');
+  return ok;
+}
 
 bool _recomputeFeature(
     PartModel part, PartFeature f, PartKernel kernel, KernelSolid? base) {
@@ -5080,6 +5161,11 @@ PartEdge? resolveProjectionSource(Geo g, List<PartEdge> edges) {
   // the list shifted, index 5 came to mean a circle 0.24 mm smaller, and the
   // projection silently became that circle.
   if (best != null && bestScore <= _kProjExact && !identical(best, atIndex)) {
+    Log.i(
+        'project',
+        'seg ${g.projSeg} RENUMBERED -> ${best.index} '
+            '(stored index now scores ${atScore.toStringAsFixed(4)}, '
+            'exact match found elsewhere)');
     return best;
   }
 
@@ -5092,13 +5178,36 @@ PartEdge? resolveProjectionSource(Geo g, List<PartEdge> edges) {
   // Except when it is DISQUALIFIED (infinite score): an edge that projects to
   // a different kind of curve is not the same edge changed, it is another
   // edge, and following the number onto it is the bug in miniature.
-  if (atIndex != null && atScore.isFinite) return atIndex;
+  if (atIndex != null && atScore.isFinite) {
+    Log.i(
+        'project',
+        'seg ${g.projSeg} source CHANGED by ${atScore.toStringAsFixed(4)} '
+            '(no better match among ${edges.length} edges — following it)');
+    return atIndex;
+  }
 
   // The number is gone. Fall back to the closest plausible edge, and refuse to
   // guess between near-equals (M158): moving a projection to the wrong edge is
   // the failure this whole function exists to end, and freezing is visible.
-  if (best == null || bestScore > _projTol(g)) return null;
-  if (!runnerUp.isInfinite && runnerUp - bestScore < _projTol(g)) return null;
+  final tol = _projTol(g);
+  if (best == null || bestScore > tol) {
+    Log.w(
+        'project',
+        'seg ${g.projSeg} ORPHANED — best of ${edges.length} edges scores '
+            '${bestScore.isFinite ? bestScore.toStringAsFixed(4) : "inf"} '
+            '> tol ${tol.toStringAsFixed(4)}; freezing');
+    return null;
+  }
+  if (!runnerUp.isInfinite && runnerUp - bestScore < tol) {
+    Log.w(
+        'project',
+        'seg ${g.projSeg} AMBIGUOUS — best ${bestScore.toStringAsFixed(4)} vs '
+            'runner-up ${runnerUp.toStringAsFixed(4)} within tol '
+            '${tol.toStringAsFixed(4)}; freezing rather than guessing');
+    return null;
+  }
+  Log.i('project',
+      'seg ${g.projSeg} -> ${best.index} (score ${bestScore.toStringAsFixed(4)})');
   return best;
 }
 
