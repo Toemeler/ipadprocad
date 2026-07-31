@@ -845,8 +845,13 @@ class _Viewport2DState extends State<Viewport2D> {
             controller: _dimCtrl,
             focusNode: _dimFocus,
             autofocus: true,
-            // M41: full expressions — letters, operators, parens, units
-            keyboardType: TextInputType.text,
+            // M41 accepts full expressions, but a dimension is a NUMBER
+            // almost every time it is typed, and on touch or Pencil a full
+            // QWERTY buries the geometry being dimensioned. M171 — the numeric
+            // pad. An expression still goes in from a hardware keyboard, or
+            // through the Parameters window, which keeps its text keyboard for
+            // exactly that reason.
+            keyboardType: kValueKeyboard,
             autocorrect: false,
             enableSuggestions: false,
             // Inventor colours invalid syntax red while you type

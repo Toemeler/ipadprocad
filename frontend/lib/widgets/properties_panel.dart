@@ -91,6 +91,13 @@ Widget panelValueField(TextEditingController c, String suffix,
           Expanded(
             child: TextField(
               controller: c,
+              // M171 — the compact numeric pad on touch and Pencil. This one
+              // field backs every value in the extrude, revolve, coil, fillet
+              // and chamfer dialogs, so it is the highest-leverage place to
+              // put it.
+              keyboardType: kValueKeyboard,
+              autocorrect: false,
+              enableSuggestions: false,
               style: ts(12.5, T.text),
               decoration: const InputDecoration(
                   isDense: true,

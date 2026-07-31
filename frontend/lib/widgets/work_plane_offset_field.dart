@@ -130,8 +130,9 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
                       autofocus: true,
                       style: TextStyle(color: T.text, fontSize: 14),
                       textAlign: TextAlign.right,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(signed: true),
+                      keyboardType: kValueKeyboard,
+                      autocorrect: false,
+                      enableSuggestions: false,
                       decoration: const InputDecoration(
                         isDense: true,
                         border: OutlineInputBorder(),

@@ -74,3 +74,18 @@ class T {
 TextStyle ts(double size, Color color,
         {FontWeight w = FontWeight.normal, double height = 1.1}) =>
     TextStyle(fontSize: size, color: color, fontWeight: w, height: height);
+
+/// M171 — the keyboard a VALUE field asks for.
+///
+/// With a Magic Keyboard attached iOS shows no software keyboard at all, so
+/// this only ever matters for touch and Pencil — and there, a full QWERTY for
+/// typing "12" is the wrong tool: it costs a third of the screen and buries
+/// the geometry you are dimensioning. This is the compact numeric pad, signed
+/// (an offset can be negative) and with a decimal separator.
+///
+/// Deliberately NOT used for the Parameters window's Equation cells: those are
+/// expression-first — names, functions, references to other parameters — and a
+/// numeric pad has no letters. Numbers get the pad, formulas keep the
+/// keyboard.
+const TextInputType kValueKeyboard =
+    TextInputType.numberWithOptions(signed: true, decimal: true);
