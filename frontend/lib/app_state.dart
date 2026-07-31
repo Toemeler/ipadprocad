@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:native_menu/native_menu.dart' show NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
@@ -963,6 +964,8 @@ class AppState extends ChangeNotifier {
     // layout, and recall which documents were opened from outside the app.
     Log.step('state', 'migrateLegacyDocuments', () => migrateLegacyDocuments());
     Log.step('state', 'loadRemembered', () => _loadRemembered());
+    await Log.stepAsync(
+        'state', 'reacquireExternals', () => reacquireExternals());
     await Log.stepAsync('state', 'refreshSaved', () => refreshSaved());
     notifyListeners();
     Log.i('state', 'AppState.init done (backendReal=$backendReal)');
@@ -1044,6 +1047,48 @@ class AppState extends ChangeNotifier {
   static const String _kRememberedFile = 'externals.json';
 
   File get _rememberedPath => File('${_cacheRoot.path}/$_kRememberedFile');
+
+  /// Test-only: recall the remembered externals, as [init] does on launch.
+  @visibleForTesting
+  void loadRememberedForTest() => _loadRemembered();
+
+  /// Re-opens the door to every remembered external document.
+  ///
+  /// A path is not a durable handle to a file outside the app's container:
+  /// the sandbox grant dies with the process, and the user is free to move or
+  /// rename the file in Files between launches. Resolving the bookmark
+  /// re-acquires access AND says where the file is now, so a document the user
+  /// tidied into another folder is still the same document rather than a dead
+  /// gallery row.
+  ///
+  /// A document that cannot be resolved is LEFT ALONE, not forgotten: iCloud
+  /// may simply not have it downloaded yet, and dropping the entry would lose
+  /// the user's link to their own file permanently.
+  Future<void> reacquireExternals() async {
+    if (_remembered.isEmpty) return;
+    var moved = 0;
+    for (var i = 0; i < _remembered.length; i++) {
+      final ref = _remembered[i];
+      final bm = ref.bookmark;
+      if (bm == null) continue;
+      final got = await NativeMenu.resolveDocument(bm);
+      final now = got?['path'];
+      if (now == null) {
+        Log.w('doc', 'could not re-open "${ref.name}" (${ref.path})');
+        continue;
+      }
+      final fresh = got?['bookmark'];
+      if (now != ref.path || fresh != null) {
+        _remembered[i] = DocRef(ref.name, ref.kind, now, ref.source,
+            ref.lastOpened, fresh ?? ref.bookmark);
+        if (now != ref.path) {
+          moved++;
+          Log.i('doc', '"${ref.name}" moved: ${ref.path} -> $now');
+        }
+      }
+    }
+    if (moved > 0) _saveRemembered();
+  }
 
   void _loadRemembered() {
     _remembered
@@ -1740,9 +1785,10 @@ class AppState extends ChangeNotifier {
   /// ONE verb. The button says "Open" because from where the user stands
   /// there is one action; which of the four things happens follows from the
   /// file, not from a menu they have to get right first.
-  Future<String?> openPath(String path) async {
+  Future<String?> openPath(String path, {String? bookmark}) async {
     if (_docsDir == null) return null;
-    final action = openActionFor(path, _docsDir!.path);
+    final action =
+        openActionFor(path, _docsDir!.path, volatileDirs: _volatileDirs);
     Log.i('doc', 'open "$path" -> ${action.name}');
     switch (action) {
       case OpenAction.unsupported:
@@ -1750,13 +1796,15 @@ class AppState extends ChangeNotifier {
         return null;
       case OpenAction.import:
         return importAsNewDocument(path);
+      case OpenAction.adopt:
+        return adoptDocument(path);
       case OpenAction.openExternal:
         if (readDocHeader(path) == null) {
           toast('That file is not a Prototype document (or is damaged).');
           return null;
         }
         final ref = DocRef(docNameOf(path)!, isPartPath(path) ? 'part' : 'sketch',
-            path, DocSource.external, DateTime.now());
+            path, DocSource.external, DateTime.now(), bookmark);
         _remembered.removeWhere((e) => e.path == path);
         _remembered.insert(0, ref);
         _saveRemembered();
@@ -1775,6 +1823,54 @@ class AppState extends ChangeNotifier {
         await openDocument(label);
         return label;
     }
+  }
+
+  /// Folders whose contents the system may empty at any time.
+  ///
+  /// The iOS file picker hands a picked file over as a COPY in tmp rather than
+  /// opening the original in place, so without this the app would remember a
+  /// path that is about to disappear and save the user's edits into it.
+  List<String> get _volatileDirs =>
+      _volatileDirsOverride ??
+      [
+        // Dart's systemTemp is NSTemporaryDirectory() on iOS, which is exactly
+        // where the ordinary file picker leaves its copies.
+        Directory.systemTemp.path,
+        '${_docsDir!.path}/.cache',
+      ];
+
+  List<String>? _volatileDirsOverride;
+
+  /// Test-only. The host suite keeps its scratch folders under systemTemp, so
+  /// without this every "opened from elsewhere" fixture would look like a
+  /// picker copy.
+  @visibleForTesting
+  set volatileDirsForTest(List<String>? dirs) => _volatileDirsOverride = dirs;
+
+  /// Takes a copy handed over by the system into the app folder and opens it
+  /// there. Returns the name it landed under.
+  Future<String?> adoptDocument(String path) async {
+    if (readDocHeader(path) == null) {
+      toast('That file is not a Prototype document (or is damaged).');
+      return null;
+    }
+    final ext = isPartPath(path) ? kPartExt : kSketchExt;
+    final base = docNameOf(path)!;
+    var name = base;
+    for (var i = 2; docNameExists(name); i++) {
+      name = '$base $i';
+    }
+    try {
+      File(path).copySync('${_docsDir!.path}/$name.$ext');
+    } catch (e, st) {
+      Log.e('doc', 'could not take "$path" into the app folder', e, st);
+      toast('Could not open that document.');
+      return null;
+    }
+    Log.i('doc', 'adopted "$path" as "$name"');
+    await refreshSaved();
+    await openDocument(name);
+    return name;
   }
 
   /// The gallery name the document at [path] is listed under.

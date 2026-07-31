@@ -46,6 +46,42 @@ void main() {
       expect(openActionFor('$_app/flange.step', _app), OpenAction.import);
     });
 
+    test('a copy from a volatile folder is ADOPTED, not remembered', () {
+      // The iOS file picker imports by copying into tmp. Remembering that path
+      // would list a document that is about to vanish and save edits into it.
+      const tmp = '/private/var/tmp';
+      expect(
+          openActionFor('$tmp/Bracket.ptp', _app, volatileDirs: const [tmp]),
+          OpenAction.adopt);
+      expect(
+          openActionFor('$tmp/deep/Bracket.ptp', _app,
+              volatileDirs: const [tmp]),
+          OpenAction.adopt,
+          reason: 'the picker nests its copies');
+    });
+
+    test('a folder merely starting with a volatile name is still external', () {
+      expect(
+          openActionFor('/private/var/tmpfiles/Bracket.ptp', _app,
+              volatileDirs: const ['/private/var/tmp']),
+          OpenAction.openExternal);
+    });
+
+    test('the app cache counts as volatile', () {
+      expect(
+          openActionFor('$_app/.cache/docs/Bracket.ptp', _app,
+              volatileDirs: ['$_app/.cache']),
+          OpenAction.adopt,
+          reason: 'a staged working copy is not the document');
+    });
+
+    test('a STEP from a volatile folder still imports', () {
+      expect(
+          openActionFor('/private/var/tmp/flange.step', _app,
+              volatileDirs: const ['/private/var/tmp']),
+          OpenAction.import);
+    });
+
     test('anything else is unsupported', () {
       expect(openActionFor('/somewhere/notes.txt', _app), OpenAction.unsupported);
       expect(openActionFor('/somewhere/Bracket', _app), OpenAction.unsupported);
@@ -202,6 +238,34 @@ void main() {
       expect(got.map((d) => d.name), ['Ok']);
     });
 
+    test('a bookmark survives the round trip', () {
+      // A path is not a durable handle to a file outside the container; the
+      // bookmark is what finds it again next launch.
+      final raw = encodeRemembered([
+        DocRef('Adapter', 'part', '/icloud/Adapter.ptp', DocSource.external,
+            null, 'Ym9va21hcms=')
+      ]);
+      expect(decodeRemembered(raw).single.bookmark, 'Ym9va21hcms=');
+    });
+
+    test('an entry with no bookmark decodes without one', () {
+      final raw = encodeRemembered([
+        DocRef('Adapter', 'part', '/icloud/Adapter.ptp', DocSource.external)
+      ]);
+      expect(raw, isNot(contains('bm')));
+      expect(decodeRemembered(raw).single.bookmark, isNull);
+    });
+
+    test('movedTo keeps the bookmark and changes only the path', () {
+      final r = DocRef('Adapter', 'part', '/icloud/Adapter.ptp',
+          DocSource.external, DateTime.utc(2026), 'bm');
+      final m = r.movedTo('/icloud/Parts/Adapter.ptp');
+      expect(m.path, '/icloud/Parts/Adapter.ptp');
+      expect(m.bookmark, 'bm');
+      expect(m.name, 'Adapter');
+      expect(m.lastOpened, r.lastOpened);
+    });
+
     test('withOpenedAt only moves the timestamp', () {
       final r =
           DocRef('Adapter', 'part', '/icloud/Adapter.ptp', DocSource.external);
@@ -211,6 +275,7 @@ void main() {
       expect(u.kind, r.kind);
       expect(u.path, r.path);
       expect(u.source, r.source);
+      expect(u.bookmark, r.bookmark);
       expect(u.lastOpened, t);
     });
   });

@@ -39,7 +39,16 @@ class DocRef {
   /// something merely discovered in the folder and never opened.
   final DateTime? lastOpened;
 
-  const DocRef(this.name, this.kind, this.path, this.source, [this.lastOpened]);
+  /// Security-scoped bookmark, for an external document only.
+  ///
+  /// A path alone is not a durable handle to a file outside the app's own
+  /// container: the sandbox grant expires with the process, and the user can
+  /// move or rename the file between launches. The bookmark survives both, and
+  /// resolving it is what re-opens the door on the next launch.
+  final String? bookmark;
+
+  const DocRef(this.name, this.kind, this.path, this.source,
+      [this.lastOpened, this.bookmark]);
 
   bool get isPart => kind == 'part';
 
@@ -49,6 +58,7 @@ class DocRef {
         'path': path,
         'src': source.name,
         if (lastOpened != null) 'at': lastOpened!.toIso8601String(),
+        if (bookmark != null) 'bm': bookmark,
       };
 
   static DocRef? fromJson(Map<String, dynamic> j) {
@@ -61,10 +71,17 @@ class DocRef {
       path,
       j['src'] == 'external' ? DocSource.external : DocSource.internal,
       DateTime.tryParse(j['at'] as String? ?? ''),
+      j['bm'] as String?,
     );
   }
 
-  DocRef withOpenedAt(DateTime t) => DocRef(name, kind, path, source, t);
+  DocRef withOpenedAt(DateTime t) =>
+      DocRef(name, kind, path, source, t, bookmark);
+
+  /// The same document, found again at [newPath] — what resolving a bookmark
+  /// returns after the user has moved or renamed the file.
+  DocRef movedTo(String newPath) =>
+      DocRef(name, kind, newPath, source, lastOpened, bookmark);
 }
 
 /// What Open should do with the file the user picked.
@@ -74,6 +91,10 @@ enum OpenAction {
 
   /// One of ours, already inside the app folder: just open it.
   openInternal,
+
+  /// One of ours, but handed over as a COPY in a folder the system may empty.
+  /// Take it into the app folder and open it there.
+  adopt,
 
   /// Not one of ours: convert it into a NEW internal document.
   import,
@@ -87,13 +108,24 @@ enum OpenAction {
 /// [appDir] must be the app's documents directory. The comparison is on the
 /// PARENT folder, not a prefix: a file in a sub-folder of the app directory is
 /// still external, because saving back into it must not silently relocate it.
-OpenAction openActionFor(String path, String appDir) {
+///
+/// [volatileDirs] are locations whose contents the system may delete at any
+/// time — tmp, the caches, a picker's inbox. A document handed over from one
+/// of those is a COPY, not the user's file: remembering its path would list a
+/// document that is about to vanish, and Save would write into a file nobody
+/// will ever see again. Those are adopted into the app folder instead. This
+/// matters in practice because the standard iOS file picker imports by
+/// copying into tmp rather than opening in place.
+OpenAction openActionFor(String path, String appDir,
+    {Iterable<String> volatileDirs = const []}) {
   final lower = path.toLowerCase();
   final ours = docNameOf(path) != null;
   if (ours) {
-    return _parentOf(path) == _stripSlash(appDir)
-        ? OpenAction.openInternal
-        : OpenAction.openExternal;
+    if (_parentOf(path) == _stripSlash(appDir)) return OpenAction.openInternal;
+    for (final v in volatileDirs) {
+      if (v.isNotEmpty && _isUnder(path, v)) return OpenAction.adopt;
+    }
+    return OpenAction.openExternal;
   }
   if (lower.endsWith('.dxf') ||
       lower.endsWith('.step') ||
@@ -101,6 +133,13 @@ OpenAction openActionFor(String path, String appDir) {
     return OpenAction.import;
   }
   return OpenAction.unsupported;
+}
+
+/// True when [path] is inside [dir] at any depth. Compares whole segments, so
+/// "/var/tmpfoo/x" is not under "/var/tmp".
+bool _isUnder(String path, String dir) {
+  final d = _stripSlash(dir);
+  return d.isNotEmpty && path.startsWith('$d/');
 }
 
 String _stripSlash(String p) =>

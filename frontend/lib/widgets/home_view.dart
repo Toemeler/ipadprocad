@@ -279,19 +279,24 @@ class _HomeViewState extends State<HomeView> {
   /// [AppState.openPath] owns that decision; this only picks the file.
   Future<void> _importDocument() async {
     final app = widget.app;
+    const kinds = [kPartExt, kSketchExt, 'step', 'stp', 'dxf'];
     try {
-      final res = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: const [
-            kPartExt,
-            kSketchExt,
-            'step',
-            'stp',
-            'dxf',
-          ]);
-      final path = res?.files.single.path;
+      // The NATIVE picker first, in open-in-place mode. The ordinary file
+      // picker imports a COPY into tmp, which would make "save back to where
+      // I opened it from" impossible — see DocumentOpen.swift. Where the
+      // native side is unavailable (desktop, host tests, an older iOS) the
+      // copy still opens: openPath adopts it into the app folder rather than
+      // remembering a path that is about to vanish.
+      final picked = await NativeMenu.openInPlace(
+          extensions: kinds, anchor: _globalRect(_plusKey));
+      var path = picked?['path'];
+      if (path == null && !NativeMenu.isSupported) {
+        final res = await FilePicker.platform
+            .pickFiles(type: FileType.custom, allowedExtensions: kinds);
+        path = res?.files.single.path;
+      }
       if (path == null || !mounted) return;
-      final name = await app.openPath(path);
+      final name = await app.openPath(path, bookmark: picked?['bookmark']);
       if (name != null) Log.i('doc', 'opened "$name" from $path');
     } catch (e) {
       Log.w('import', 'open failed: $e');

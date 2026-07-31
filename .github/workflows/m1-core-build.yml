@@ -621,6 +621,35 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :UIStatusBarHidden bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :UIStatusBarHidden' ios/Runner/Info.plist
+          # M177 — a part is one file (.ptp) and a sketch is one file (.pts).
+          # Declaring the types is what makes iOS show them in Open, give them
+          # our icon in Files, and let one be AirDropped to the app. Without
+          # the declaration UTType(filenameExtension:) only yields a dynamic
+          # identifier, which the open-in-place picker will not match on.
+          P=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :UTExportedTypeDeclarations array' $P
+          i=0
+          for spec in "part:ptp:Prototype Part" "sketch:pts:Prototype Sketch"; do
+            kind=${spec%%:*}; rest=${spec#*:}; ext=${rest%%:*}; desc=${rest#*:}
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i dict" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeIdentifier string com.prototype.$kind" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeDescription string $desc" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeConformsTo array" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeConformsTo:0 string public.data" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeTagSpecification dict" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeTagSpecification:public.filename-extension array" $P
+            /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeTagSpecification:public.filename-extension:0 string $ext" $P
+            i=$((i+1))
+          done
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes array' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0 dict' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:CFBundleTypeName string Prototype Document' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:CFBundleTypeRole string Editor' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSHandlerRank string Owner' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSItemContentTypes array' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string com.prototype.part' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSItemContentTypes:1 string com.prototype.sketch' $P
+          /usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations' $P
           # flutter create generates a template test referencing MyApp,
           # which doesn't exist in our app -> would fail flutter analyze
           rm -f test/widget_test.dart

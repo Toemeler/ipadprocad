@@ -199,6 +199,33 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             present(vc, anchor: NativeMenuPlugin.parseRect(args["anchor"]))
             result(true)
 
+        // M177 — Open, in place. See DocumentOpen.swift for why this cannot
+        // be the ordinary file picker: that one hands over a COPY in tmp, so
+        // saving a document you opened from Files would never reach the file.
+        case "openInPlace":
+            guard #available(iOS 14.0, *) else {
+                result(nil)
+                return
+            }
+            documentOpener().present(
+                extensions: args["extensions"] as? [String] ?? [],
+                anchor: NativeMenuPlugin.parseRect(args["anchor"]),
+                result: result)
+
+        case "resolveBookmark":
+            guard #available(iOS 14.0, *),
+                  let bm = args["bookmark"] as? String else {
+                result(nil)
+                return
+            }
+            result(documentOpener().resolve(bookmark: bm))
+
+        case "releaseDocument":
+            if #available(iOS 14.0, *), let path = args["path"] as? String {
+                documentOpener().release(path: path)
+            }
+            result(true)
+
         case "export":
             guard let path = args["path"] as? String,
                   FileManager.default.fileExists(atPath: path) else {
@@ -215,6 +242,20 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - Open in place (M177)
+
+    private var opener: AnyObject?
+
+    @available(iOS 14.0, *)
+    private func documentOpener() -> DocumentOpener {
+        if let existing = opener as? DocumentOpener { return existing }
+        let made = DocumentOpener { [weak self] vc, anchor in
+            self?.present(vc, anchor: anchor) ?? false
+        }
+        opener = made
+        return made
     }
 
     // MARK: - Interaction lifecycle

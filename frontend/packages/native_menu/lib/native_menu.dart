@@ -296,6 +296,55 @@ class NativeMenu {
     _scopes.clear();
     _handlers.clear();
   }
+
+  // ---- M177: opening a document in place ----
+
+  /// Presents the system picker in OPEN mode and returns
+  /// `{'path': ..., 'bookmark': ...}` for the file the user chose, or null if
+  /// they cancelled (or we are not on iOS).
+  ///
+  /// Deliberately NOT the ordinary file picker: that one imports a COPY into
+  /// tmp, so a document opened from Files could never be saved back to. The
+  /// bookmark is the durable handle — hold on to it and pass it to [resolve]
+  /// on the next launch.
+  static Future<Map<String, String>?> openInPlace({
+    required List<String> extensions,
+    Rect? anchor,
+  }) async {
+    if (!isSupported) return null;
+    final res = await _invoke<Map<Object?, Object?>>('openInPlace', {
+      'extensions': extensions,
+      if (anchor != null) 'anchor': NativeMenuTarget._rect(anchor),
+    });
+    return _stringMap(res);
+  }
+
+  /// Re-acquires access to a document remembered from an earlier launch.
+  ///
+  /// Returns its CURRENT path — which can differ from the stored one, because
+  /// the user is free to move or rename the file between launches — and a
+  /// refreshed bookmark when the old one had gone stale. Null when the file
+  /// can no longer be reached at all.
+  static Future<Map<String, String>?> resolveDocument(String bookmark) async {
+    if (!isSupported) return null;
+    return _stringMap(await _invoke<Map<Object?, Object?>>(
+        'resolveBookmark', {'bookmark': bookmark}));
+  }
+
+  /// Ends access to an externally-opened document.
+  static Future<void> releaseDocument(String path) async {
+    if (!isSupported) return;
+    await _invoke<bool>('releaseDocument', {'path': path});
+  }
+
+  static Map<String, String>? _stringMap(Map<Object?, Object?>? raw) {
+    if (raw == null) return null;
+    final out = <String, String>{};
+    raw.forEach((k, v) {
+      if (k is String && v is String) out[k] = v;
+    });
+    return out.containsKey('path') ? out : null;
+  }
 }
 
 /// M106 — a REAL Apple Liquid Glass surface (`UIGlassEffect`, iOS 26), for use
