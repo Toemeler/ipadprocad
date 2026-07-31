@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../part_model.dart' show parseValueExpr;
+import 'ribbon_chrome.dart';
 import 'scrub_field.dart';
 import '../theme.dart';
 
@@ -64,8 +65,13 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
     final w = app.selectedWorkPlane;
     if (w == null || !app.workPlaneOffsetEditing) return const SizedBox.shrink();
     _syncFromModel();
-    return Positioned(
-      top: 14,
+    // M178 — anchored to the RIBBON, not to the top of the Stack. The ribbon
+    // floats over this same coordinate space (M146), so `top: 14` put the
+    // field UNDERNEATH the glass: on the device it showed up as a smear of
+    // blurred shapes inside the ribbon, which is precisely what the ViewCube
+    // did before M146 moved it down here too.
+    return RibbonMetrics.build((_, top) => Positioned(
+      top: top + 14,
       left: 0,
       right: 0,
       child: Center(
@@ -166,7 +172,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   Widget _btn(String label, VoidCallback onTap, {bool primary = false}) =>

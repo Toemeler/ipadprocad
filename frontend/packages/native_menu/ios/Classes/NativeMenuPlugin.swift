@@ -65,6 +65,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger())
         let instance = NativeMenuPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
+        // M178 — iPadOS floats its keyboard shortcuts bar over the bottom of
+        // the screen the moment any field takes focus, on top of the app's own
+        // tab bar. Suppressed once, for every text field in the app.
+        KeyboardBar.install()
         // M106 — real Apple Liquid Glass surface for the model browser.
         if #available(iOS 15.0, *) {
             registrar.register(GlassPanelFactory(),
@@ -351,7 +355,8 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         return window?.rootViewController
     }
 
-    private static func flutterHostView() -> UIView? {
+    /// Not private: KeyboardBar.swift sweeps the same hierarchy.
+    static func flutterHostView() -> UIView? {
         guard let root = keyRootViewController() else { return nil }
         if let flutter = findFlutterViewController(root) { return flutter.view }
         return root.view

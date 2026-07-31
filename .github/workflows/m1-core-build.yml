@@ -902,6 +902,23 @@ jobs:
           else
             echo "THUMB CHANNEL CHECK: FAIL (thumb channel missing — previews would silently stay on the CPU painter)"; exit 1
           fi
+          # M178: iPadOS floats its keyboard shortcuts bar across the bottom of
+          # the screen whenever a field takes focus, ON TOP of the app's own tab
+          # bar. KeyboardBar.swift empties the assistant item of the engine's
+          # text input view — the only way to hide it — and finds that view by
+          # NAME. The name is a Swift string literal and nothing else in this pod
+          # mentions it, so a hit proves the suppressor really shipped. Dart
+          # cannot test any of this; without the gate the bar comes back
+          # silently, on the device only, with a green build.
+          # Same two-binary scan as the thumb check, for the same reason.
+          NMFW="$APP/Frameworks/native_menu.framework/native_menu"
+          KBDBAR="$( { strings -a "$APP/Runner"; [ -f "$NMFW" ] && strings -a "$NMFW"; } \
+            | grep -c "FlutterTextInputView" || true)"
+          if [ "${KBDBAR:-0}" -gt 0 ]; then
+            echo "KEYBOARD BAR CHECK: PASS (shortcuts-bar suppressor present in bundle)"
+          else
+            echo "KEYBOARD BAR CHECK: FAIL (suppressor missing — iPadOS would cover the tab bar)"; exit 1
+          fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
