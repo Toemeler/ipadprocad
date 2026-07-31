@@ -5001,18 +5001,18 @@ bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
     final g = gs[i];
     if (g.proj != Geo.projSolid) continue;
     edges ??= partEdges(part, fr);
-    PartEdge? src;
-    for (final e in edges) {
-      if (e.index == g.projSeg) {
-        src = e;
-        break;
-      }
-    }
+    final src = resolveProjectionSource(g, edges);
     if (src == null ||
         (src.kind == ProjKind.polyline && src.pts.length < 2)) {
       gs[i] = g.withProj(Geo.projBroken, -1); // orphaned: freeze in place
       any = true;
       continue;
+    }
+    if (src.index != g.projSeg) {
+      // M163 — the source is the same edge, the kernel just renumbered it.
+      // Follow it, and record the new number so the next rebuild starts from
+      // the cheap path again.
+      gs[i] = g.withProj(Geo.projSolid, src.index);
     }
     final fresh = geoForPartEdge(src, g.layer);
     if (fresh.type != g.type ||
@@ -5023,6 +5023,115 @@ bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
     }
   }
   return any;
+}
+
+
+/// M163 — the model edge a projection currently refers to.
+///
+/// `Geo.projSeg` holds a raw INDEX into the part's visible-solid edge list,
+/// and that list is rebuilt from `part.features` and each solid's edge order
+/// on every recompute. Adding a chamfer renumbers it. The projection then kept
+/// pointing at "edge 5" and silently became a DIFFERENT edge — this is the
+/// classic topological-naming failure that [EdgeSel] already exists to solve
+/// for fillet and chamfer selections, and projections never got it.
+///
+/// Measured on the device (build 0f9814d): a sketch held a projected rim of
+/// r=2.71 and a circle drawn over it. After a chamfer, `projSeg: 5` resolved
+/// to a different edge, the projection shrank to r~2.47, and the sketch that
+/// had ONE loop now had two nested 0.24 mm apart — so the extrusion built from
+/// it came out as a paper-thin ring. That is the nest of shells in the report.
+///
+/// No new persisted field is needed: the sketch entity IS the fingerprint of
+/// the last good projection. The stored index is tried first (it is right
+/// whenever nothing upstream changed, and costs one comparison), and only when
+/// that edge no longer LOOKS like the projection do we search for the one that
+/// does.
+///
+/// Returns null when nothing matches well enough, which freezes the projection
+/// as `projBroken` — the honest outcome, and the one Inventor gives when a
+/// reference's parent is gone.
+PartEdge? resolveProjectionSource(Geo g, List<PartEdge> edges) {
+  PartEdge? atIndex;
+  for (final e in edges) {
+    if (e.index == g.projSeg) {
+      atIndex = e;
+      break;
+    }
+  }
+  final atScore = atIndex == null ? double.infinity : _projScore(atIndex, g);
+  // Nothing upstream moved: the cheap, overwhelmingly common case.
+  if (atScore <= _kProjExact) return atIndex;
+
+  PartEdge? best;
+  var bestScore = double.infinity, runnerUp = double.infinity;
+  for (final e in edges) {
+    final sc = _projScore(e, g);
+    if (sc < bestScore) {
+      runnerUp = bestScore;
+      bestScore = sc;
+      best = e;
+    } else if (sc < runnerUp) {
+      runnerUp = sc;
+    }
+  }
+
+  // A RENUMBER: some other edge is exactly the curve we projected, while the
+  // stored number no longer is. This is the reported failure — after a chamfer
+  // the list shifted, index 5 came to mean a circle 0.24 mm smaller, and the
+  // projection silently became that circle.
+  if (best != null && bestScore <= _kProjExact && !identical(best, atIndex)) {
+    return best;
+  }
+
+  // The stored index still exists and nothing matches better: the source
+  // legitimately CHANGED, and following it is exactly what a projection is
+  // for. A projection whose source doubles in length must still track it, and
+  // only a better-matching rival is evidence that the number stopped meaning
+  // the same edge — so no tolerance is applied here.
+  //
+  // Except when it is DISQUALIFIED (infinite score): an edge that projects to
+  // a different kind of curve is not the same edge changed, it is another
+  // edge, and following the number onto it is the bug in miniature.
+  if (atIndex != null && atScore.isFinite) return atIndex;
+
+  // The number is gone. Fall back to the closest plausible edge, and refuse to
+  // guess between near-equals (M158): moving a projection to the wrong edge is
+  // the failure this whole function exists to end, and freezing is visible.
+  if (best == null || bestScore > _projTol(g)) return null;
+  if (!runnerUp.isInfinite && runnerUp - bestScore < _projTol(g)) return null;
+  return best;
+}
+
+/// Below this, a candidate and the stored projection are the same curve.
+const double _kProjExact = 1e-9;
+
+/// How far [e] is from being the edge [g] was projected from. Infinite when it
+/// could not be: an edge that projects to a different KIND of curve is not the
+/// same edge seen differently, it is another edge.
+double _projScore(PartEdge e, Geo g) {
+  final fresh = geoForPartEdge(e, g.layer);
+  if (fresh.type != g.type || fresh.spline != g.spline) return double.infinity;
+  final a = fresh.data, b = g.data;
+  if (a.length != b.length) return double.infinity;
+  var sum = 0.0;
+  for (var i = 0; i < a.length; i++) {
+    final d = a[i] - b[i];
+    sum += d * d;
+  }
+  final s = math.sqrt(sum);
+  return s.isFinite ? s : double.infinity;
+}
+
+/// Tolerance for [_projScore], scaled to the projection's own size the way
+/// [EdgeSel.bestMatch] scales to its edge: a 200 mm edge may legitimately
+/// shift further than a 2 mm one.
+double _projTol(Geo g) {
+  var scale = 0.0;
+  for (final v in g.data) {
+    final a = v.abs();
+    if (a.isFinite && a > scale) scale = a;
+  }
+  return 0.25 * (scale + 1.0);
 }
 
 bool _sameData(List<double> a, List<double> b) {

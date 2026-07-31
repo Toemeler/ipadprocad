@@ -122,14 +122,17 @@ void main() {
     });
 
     test('an ORPHAN freezes in place instead of disappearing', () {
+      // M163 — the source is identified by its GEOMETRY now, so an orphan has
+      // to be one: the old fixture used index 99 while the part still held an
+      // edge identical to the projection, which is a renumber, not an orphan.
       final gs = <Geo>[
         geoForProjectedEdge(
-            const [Offset(0, 0), Offset(10, 0)], 99, 'Layer 1')
+            const [Offset(0, 40), Offset(10, 40)], 99, 'Layer 1')
       ];
       expect(syncSolidProjections(gs, _part(), _xy()), isTrue);
       expect(gs.length, 1, reason: 'Inventor keeps the curve');
       expect(gs.single.proj, Geo.projBroken);
-      expect(gs.single.data, [0.0, 0.0, 10.0, 0.0],
+      expect(gs.single.data, [0.0, 40.0, 10.0, 40.0],
           reason: 'frozen exactly where it was');
     });
 
