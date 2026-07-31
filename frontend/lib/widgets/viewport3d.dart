@@ -1302,6 +1302,17 @@ class _Viewport3DState extends State<Viewport3D>
         app.facePicked(face.$3, _faceRefOf(face.$1, face.$2));
         return;
       }
+      // M173 — say which surface won and why. "I still cannot sketch on a
+      // work plane" has now survived two fixes that both looked right by
+      // inspection (M151 built the path, M167 taught planePicked the key), so
+      // the next report should arrive with the decision already in the log
+      // rather than costing another round of reading code.
+      Log.i(
+          'pick',
+          'sketch plane: hit=${key ?? "none"} planeD='
+              '${planeD.isFinite ? planeD.toStringAsFixed(3) : "inf"} '
+              'faceD=${faceD.isFinite ? faceD.toStringAsFixed(3) : "inf"} '
+              '-> ${face != null && faceD <= planeD + 1e-6 ? "FACE" : (key == null ? "nothing" : (kPlaneKeys.contains(key) ? "origin plane" : "work plane"))}');
       if (key != null && kPlaneKeys.contains(key)) {
         app.planePicked(key);
         return;
@@ -1312,9 +1323,12 @@ class _Viewport3DState extends State<Viewport3D>
       if (key != null) {
         final wf = frameForPlaneKey(p, key);
         if (wf != null) {
+          Log.i('pick', 'starting a sketch on work plane $key');
           app.facePicked(wf);
           return;
         }
+        Log.w('pick', 'hit "$key" but no frame resolved for it — falling '
+            'through to the face behind it');
       }
       if (face != null) app.facePicked(face.$3, _faceRefOf(face.$1, face.$2));
       return;
