@@ -3183,32 +3183,91 @@ class AppState extends ChangeNotifier {
     }
     _planesAutoShown = false;
     // Origin planes get their canonical camera. A work plane does NOT get one
-    // here: the sketch camera is derived from the sketch plane once the editor
-    // opens (M80), and the face-pick path's own orientation code is inline
-    // rather than reusable — copying it would be a second convention to keep
-    // in step. Snapping the 3D camera to a work plane is worth doing properly
-    // alongside the drag, not by duplication now.
-    if (wp == null) p.camera.orientToPlane(key);
+    // opens (M80).
+    if (wp != null) {
+      startSketchOnWorkPlane(wp, alreadyArmed: true);
+      return;
+    }
+    p.camera.orientToPlane(key);
     final sk = SketchModel(p.nextSketchName());
     // M91: stamped with the creation order so it lands at the BOTTOM of the
     // browser timeline, under the extrusions that already exist.
-    //
+    p.appendChildSketch(ChildSketch(sk, key, null, true, false, p.nextSeq()));
+    _admitNewSketchRow(p);
+    p.dirty = true;
+    activeChild = sk;
+    sketchZoomNeedsFit = true;
+    _reanalyze();
+    Log.i('part', 'child sketch "${sk.name}" on $key of "${p.name}"');
+    startNewLayer(); // enters edit + notifies, like createNamedSketch
+  }
+
+  /// M181 — the ONE way a sketch is created on a work plane.
+  ///
+  /// "I still can't make a sketch on a placed work plane" has now been
+  /// reported four times, and every fix so far went into the 3D tap: M151
+  /// built the path, M167 taught [planePicked] the `wp:N` key, M173 added a
+  /// log line saying which surface won. The tap is the fragile part — it has
+  /// to beat a solid face and, on an empty part, the three origin planes the
+  /// command itself just switched on — and it was also the ONLY way in. The
+  /// browser's work-plane menu offered Edit Offset, Hide and Delete, and no
+  /// way to sketch on the thing, which is the first entry in Inventor's.
+  ///
+  /// So this exists as a plain command taking the plane as an argument: no
+  /// ray, no depth race, nothing to miss. The tap now routes through it too,
+  /// which also ends a smaller mess — the tap stored the sketch as a FACE
+  /// sketch and this path stored it as a work-plane sketch, two encodings of
+  /// one thing.
+  void startSketchOnWorkPlane(WorkPlane w, {bool alreadyArmed = false}) {
+    final p = currentPart;
+    if (p == null) return;
+    if (!alreadyArmed) {
+      // Reached from the browser rather than mid-pick: whatever else was
+      // armed is not what the user meant any more.
+      if (workPlaneArm != null) cancelWorkPlane();
+      cancelPlanePick();
+    }
+    pickPlane = false;
+    if (_planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
+    // Face the plane from the side the camera is already on, exactly as a
+    // sketch on a solid face does — the model must not flip around behind you
+    // when the editor opens.
+    orientToSurface(p, w.frame.n);
+    final sk = SketchModel(p.nextSketchName());
     // M167 — a sketch on a work plane carries that plane's FRAME, the same way
     // a sketch on a solid face carries the face's. `sketchFrameOf` prefers the
     // stored frame over `planeFrame(plane)`, so this needs no new plane kind
     // and it serialises with the frame it already writes. No faceRef, so the
     // M153/M166 face-following pass correctly leaves it alone: a work plane
     // moves because the USER moves it, not because a solid did.
-    p.appendChildSketch(ChildSketch(sk, wp == null ? key : kWorkPlaneKey,
-        wp?.frame, true, false, p.nextSeq()));
+    p.appendChildSketch(
+        ChildSketch(sk, kWorkPlaneKey, w.frame, true, false, p.nextSeq()));
     _admitNewSketchRow(p);
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
     _reanalyze();
     Log.i('part',
-        'child sketch "${sk.name}" on ${wp?.name ?? key} of "${p.name}"');
+        'child sketch "${sk.name}" on ${w.name} (${w.id}) of "${p.name}"');
     startNewLayer(); // enters edit + notifies, like createNamedSketch
+  }
+
+  /// Turns the part camera to look at a surface with normal [n] from the side
+  /// it is already on.
+  ///
+  /// A plane can be faced from either side. Taking the nearer one is what
+  /// stops the model flipping around behind you when a sketch opens — the old
+  /// face-pick code always used -n on the belief that a visible face satisfies
+  /// n·dir < 0; the device measurement (mesh3d convention log) showed the
+  /// opposite — the camera sits at +dir and a face you can see has n·dir > 0 —
+  /// so -n put the camera INSIDE the solid, looking at the face from behind.
+  void orientToSurface(PartModel p, Vec3 n) {
+    final camBefore = p.camera.dir;
+    final dot = n.dot(camBefore);
+    p.camera.orientToDir(dot >= 0 ? n : n * -1);
   }
 
   /// Browser eye on a (consumed) child sketch — Inventor's per-sketch
@@ -3799,17 +3858,13 @@ class AppState extends ChangeNotifier {
     }
     pickPlane = false;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
-    // A plane can be faced from either side. Take the side NEARER the current
-    // view, so the model never flips around behind you when a sketch starts.
-    // The old code always used -n on the belief that a visible face satisfies
-    // n·dir < 0; the device measurement (mesh3d convention log) showed the
-    // opposite — the camera sits at +dir and a face you can see has n·dir > 0 —
-    // so -n put the camera INSIDE the solid, looking at the face from behind.
     final fn = frame.n;
     final camBefore = p.camera.dir;
     final dot = fn.dot(camBefore);
     final chosen = dot >= 0 ? fn : fn * -1;
-    p.camera.orientToDir(chosen);
+    // M181 — shared with the work-plane path; see orientToSurface for why the
+    // side is chosen this way.
+    orientToSurface(p, fn);
     // DIAGNOSTIC: clicking the TOP face is reported to land on the BOTTOM
     // view, which the arithmetic here cannot produce — both signs of fn give
     // the top view when the camera is above. So record what actually happens:

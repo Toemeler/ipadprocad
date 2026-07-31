@@ -1004,9 +1004,13 @@ class _Viewport3DState extends State<Viewport3D>
   /// hover and the picker use, so what lights up is what you grab.
   WorkPlane? _workPlaneAt(Cam3 cam, Offset px, PartModel p) {
     final hit = _hitOrigin(cam, px, p);
-    if (hit == null || !hit.startsWith('wp:')) return null;
+    return hit == null ? null : _workPlaneById(p, hit);
+  }
+
+  /// The work plane a pick key names, or null when it names something else.
+  static WorkPlane? _workPlaneById(PartModel p, String key) {
     for (final w in p.workPlanes) {
-      if (w.id == hit) return w;
+      if (w.id == key) return w;
     }
     return null;
   }
@@ -1363,11 +1367,22 @@ class _Viewport3DState extends State<Viewport3D>
       final face = _pickSolidFace(cam, px);
       // whichever surface is NEARER under the pointer wins — a solid face in
       // front of an origin plane must be the one you sketch on (Inventor).
+      // Depth is w·(-dir) and the camera sits at +dir, so NEARER is SMALLER.
       final planeD = key != null
           ? (_planeDepthAt(cam, px, key) ?? double.infinity)
           : double.infinity;
       final faceD = face?.$4 ?? double.infinity;
-      if (face != null && faceD <= planeD + 1e-6) {
+      // M181 — a plane the USER placed does not lose a tie with a face. The
+      // renderer already lifts every plane a hair toward the camera so that a
+      // coplanar face "can never win the depth test against it" — its words —
+      // and a pick that then hands the tap to the face behind is exactly the
+      // what-you-see-is-not-what-you-get this has been reported as. The bias
+      // is the same sub-pixel idea, expressed in model units: the face has to
+      // be VISIBLY in front, not in front by a rounding error.
+      final planeBias = key != null && !kPlaneKeys.contains(key)
+          ? -3 * app.viewUnitsPerPixel
+          : 1e-6;
+      if (face != null && faceD <= planeD + planeBias) {
         app.facePicked(face.$3, _faceRefOf(face.$1, face.$2));
         return;
       }
@@ -1381,22 +1396,23 @@ class _Viewport3DState extends State<Viewport3D>
           'sketch plane: hit=${key ?? "none"} planeD='
               '${planeD.isFinite ? planeD.toStringAsFixed(3) : "inf"} '
               'faceD=${faceD.isFinite ? faceD.toStringAsFixed(3) : "inf"} '
-              '-> ${face != null && faceD <= planeD + 1e-6 ? "FACE" : (key == null ? "nothing" : (kPlaneKeys.contains(key) ? "origin plane" : "work plane"))}');
+              '-> ${face != null && faceD <= planeD + planeBias ? "FACE" : (key == null ? "nothing" : (kPlaneKeys.contains(key) ? "origin plane" : "work plane"))}');
       if (key != null && kPlaneKeys.contains(key)) {
         app.planePicked(key);
         return;
       }
-      // M151 — a work plane carries its own frame, so it goes down the
-      // sketch-on-face path: same code, and a sketch on it keeps its
-      // placement if the origin planes are later switched off.
+      // M181 — one command, given the plane by name. It used to go down the
+      // sketch-on-FACE path with a bare frame, which stored the result as a
+      // face sketch: a second encoding of the same thing, and the reason the
+      // two routes could not be reasoned about together.
       if (key != null) {
-        final wf = frameForPlaneKey(p, key);
-        if (wf != null) {
+        final wp = _workPlaneById(p, key);
+        if (wp != null) {
           Log.i('pick', 'starting a sketch on work plane $key');
-          app.facePicked(wf);
+          app.startSketchOnWorkPlane(wp, alreadyArmed: true);
           return;
         }
-        Log.w('pick', 'hit "$key" but no frame resolved for it — falling '
+        Log.w('pick', 'hit "$key" but no work plane matched it — falling '
             'through to the face behind it');
       }
       if (face != null) app.facePicked(face.$3, _faceRefOf(face.$1, face.$2));

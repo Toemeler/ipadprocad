@@ -370,6 +370,13 @@ List<List<GlassMenuItem>> _featureMenu(PartFeature f) => [
 /// base to measure from, so it is omitted rather than shown dead (M157).
 List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
       [
+        // M181 — FIRST, as in Inventor. This is the route that cannot miss:
+        // "Start 2D Sketch" then a tap in the viewport has to beat a solid
+        // face and the origin planes the command itself switched on, and
+        // failing that race is what "I still can't sketch on a work plane"
+        // has been every time. Naming the plane leaves nothing to hit.
+        const GlassMenuItem(
+            id: 'wpSketch', title: 'Create Sketch', symbol: 'square.on.square'),
         if (w.offsetEditable)
           const GlassMenuItem(
               id: 'wpOffset', title: 'Edit Offset', symbol: 'ruler'),

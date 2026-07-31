@@ -313,6 +313,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final w = _workPlane(part, id);
       if (w == null) return;
       switch (item) {
+        case 'wpSketch': // M181
+          app.startSketchOnWorkPlane(w);
+          break;
         case 'wpOffset':
           app.selectWorkPlane(w);
           app.workPlaneOffsetEditing = true;
