@@ -16,6 +16,75 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Kopf `7ab7ee5`, M154–M161)
+>
+> **Alles aus einem einzigen Geraete-Bericht** (Build `684d35e`, Log +
+> Screenshot + vier `.part.json`). **956 Host-Tests gruen**, `flutter analyze`
+> 50 Issues / 0 errors = Ausgangsstand, lokal mit Flutter 3.32.0. Der Lauf auf
+> `285a176` (M154–M160) ist in ALLEN VIER Jobs gruen, IPA inklusive —
+> Schritt fuer Schritt im Log geprueft, nicht am Haken.
+>
+> **Sechs der acht sind durch Tests festgenagelt, die OHNE den Fix rot laufen.**
+> Zwei nicht, und beide sagen es im eigenen Commit: M157 (Knopf-Verdrahtung)
+> und M161 (die Refine-Schleife liegt im `State` des Viewports, den die
+> Host-Suite nicht fahren kann).
+>
+> * **M154** EOP wurde auf eine ZEILENZAHL geparkt statt auf den Sentinel — die
+>   Skizze der zweiten Extrusion entstand unter der Marke.
+> * **M155** `nextSolidName()` gab nach dem Neuladen einen SCHON VERGEBENEN
+>   Koerpernamen aus (Datei: Solid1..Solid3, gespeichert `solidN: 1`); und die
+>   zweite Skizze war nie anwaehlbar, weil der Viewport im ersten Durchgang
+>   `break`te. Das war der Loft/Sweep-Blocker.
+> * **M156** Projektion + darueber gezeichneter Kreis = zwei Schleifen, deren
+>   Zwischenraum 10 um breit ist. Genau der Ring im Screenshot.
+> * **M157** Der Plane-Knopf war `onDefault: () {}`.
+> * **M158** Der Chamfer wurde bei Gleichstand per Muenzwurf gesetzt UND das
+>   Ergebnis via `reanchor` festgeschrieben — ein Fehlgriff war permanent.
+> * **M159** Ein Remesh-Schritt ging 7 536 -> 1 002 412 Dreiecke, bis 56 s.
+> * **M160** **Regression, die ich selbst in M154 eingebaut hatte.**
+> * **M161** Die Vorschau wurde verfeinert und danach weggeworfen.
+>
+> **OFFEN — nach Wichtigkeit:**
+> 1. **Geraete-Test von M154–M161.** NICHTS davon war je auf Hardware. M158
+>    aendert, WANN ein Chamfer faellt, M156 aendert, welche Profile angeboten
+>    werden — beides braucht Augen an echten Teilen.
+> 2. **Work Planes: der Offset ist nicht eingebbar.** `workPlaneOffset = 10`
+>    wird NIRGENDS zugewiesen — jede Offset-Ebene ist exakt 10 mm (belegt in
+>    `Part4.part.json`: `"Offset 10.00 mm from face"`). Das ist der naechste
+>    konkrete Schritt und kleiner als er klingt.
+> 3. **Work Planes: 9 von 12 Methoden fehlen** (Drei Punkte, Parallel durch
+>    Punkt, Winkel um Kante, Tangential, Normal zu Achse/Kurve, Zwei koplanare
+>    Kanten, Torus-Mittelebene). Inventors generische Plane ist ausserdem
+>    KONTEXTSENSITIV und kennt das Ziehen fuer den Offset.
+> 4. **Der echte Anker einer Kreiskante ist ihr MITTELPUNKT**, nicht der
+>    Bogenmittelpunkt, der mit dem Radius wandert. `OcctEdgeInfo` fuehrt ihn
+>    nicht; herleiten braucht die Kreisebene -> **Shim v16**, also C++ und ein
+>    eigener Meilenstein. Das ist die Wurzel unter dem wandernden Chamfer;
+>    M158 macht ihn nur ehrlich statt richtig.
+> 5. **Vorhersagende Tessellierung.** M159 begrenzt die KOSTEN der Entdeckung,
+>    sagt die Dreieckszahl nicht voraus. Der Wachstumsexponent ist pro
+>    Flaechentyp verschieden (~1/sqrt(d) Zylinder, ~1/d^2 Helix) und laesst
+>    sich pro Solid aus aufeinanderfolgenden Durchgaengen MESSEN.
+>
+> **Fehlermuster dieser Sitzung — das lohnt sich zu lesen:**
+> * **Dreimal war der richtige Code schon da und wurde still ueberschrieben.**
+>   `commitExtrude` rief `appendFeature(f)` (parkt die Marke korrekt) und
+>   ueberschrieb das Ergebnis in der NAECHSTEN Zeile. `toggleSessionProfile`
+>   hatte die richtige Regel fuer den Skizzenwechsel — ein `break` im Viewport
+>   sorgte dafuer, dass sie nie erreicht wurde. Beim Suchen nach einem Fehler
+>   also erst pruefen, ob die Loesung schon existiert und nur verliert.
+> * **Ein Zaehlerstand, der „gerade jetzt" stimmt, ist kein Zustand.** Waechst
+>   die Liste, muss „am Ende" ALS SOLCHES gespeichert werden (M154), und ein
+>   Namenszaehler muss vergebene Namen UEBERSPRINGEN statt hochzuzaehlen (M155).
+> * **Reihenfolge beim Laden.** `openPart` haengt die Skizzen NACH `loadJson`
+>   an. Alles, was in `loadJson` den Zeitstrahl befragt, sieht ihn unvollstaendig
+>   (M160). Neue Entscheidungen gehoeren in `finishLoad`.
+> * **Ranking ist nicht Akzeptanz.** M152 gewichtete den Radius schwerer, damit
+>   der RICHTIGE Kandidat gewinnt; die Frage, ob der Gewinner UNTERSCHEIDBAR
+>   war, stellte niemand (M158). Ein Muenzwurf gehoert verworfen, nicht benutzt.
+> * **Ein reaktives Budget kann einen Schritt nicht bremsen**, nur die Folge
+>   danach (M159). Und was gleich weggeworfen wird, verfeinert man nicht (M161).
+
 > **M131b — Sweep, Loft und Coil vollstaendig: Shim v15 (44 Symbole), Modell,
 > Session, Panel, Picking. 853/853 Tests.**
 >
