@@ -5152,6 +5152,50 @@ bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
 }
 
 
+/// M168 — the SECTION triangles of [sliced]: the faces that lie IN [frame],
+/// returned in the sketch's own (u,v) so the 2D painter can hatch them.
+///
+/// The cut is made AT the sketch plane, so the newly exposed faces are exactly
+/// coplanar with the sketch — which is what makes the hatch a 2D job. Inventor
+/// draws it the same way: the section is flat on the sketch, not a texture
+/// wrapped on a 3D surface.
+///
+/// Only triangles whose three vertices sit within [tol] of the plane AND whose
+/// winding normal is parallel to it are section faces; everything else is the
+/// remaining body and must not be hatched.
+List<List<Offset>> sectionTrianglesAt(OcctMeshData m, PlaneFrame frame,
+    {double tol = 1e-4}) {
+  final out = <List<Offset>>[];
+  final n = frame.n, o = frame.origin;
+  for (var t = 0; t + 2 < m.indices.length; t += 3) {
+    final i0 = m.indices[t] * 3, i1 = m.indices[t + 1] * 3,
+        i2 = m.indices[t + 2] * 3;
+    if (i0 + 2 >= m.positions.length ||
+        i1 + 2 >= m.positions.length ||
+        i2 + 2 >= m.positions.length) {
+      continue;
+    }
+    final a = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+    final b = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+    final c = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+    if ((a - o).dot(n).abs() > tol ||
+        (b - o).dot(n).abs() > tol ||
+        (c - o).dot(n).abs() > tol) {
+      continue;
+    }
+    // A sliver triangle contributes nothing and can carry a meaningless
+    // normal, so drop it rather than let it decide the plane test.
+    final cross = (b - a).cross(c - a);
+    if (cross.length < 1e-12) continue;
+    out.add([
+      frame.toSketch(a),
+      frame.toSketch(b),
+      frame.toSketch(c),
+    ]);
+  }
+  return out;
+}
+
 /// M168 — Inventor's **Slice Graphics**: the solid with everything between the
 /// viewer and the sketch plane cut away, so you can see and draw inside the
 /// part.

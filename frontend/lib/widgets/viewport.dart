@@ -1642,6 +1642,52 @@ class _ViewportPainter extends CustomPainter {
         size.width / 2 + (x - app.pan.dx) * app.zoom,
         size.height / 2 - (y - app.pan.dy) * app.zoom);
 
+    // ---- M168 Slice Graphics: hatch the section faces ----------------------
+    // The cut is made AT this sketch plane, so the exposed faces are exactly
+    // coplanar with the sketch — which is why the hatch belongs here, in 2D,
+    // and not as a material on a 3D surface. Inventor draws it the same way:
+    // the section reads as flat on the sketch.
+    if (inPartSketch && app.sliceGraphics) {
+      final tris = app.sectionTriangles();
+      if (tris.isNotEmpty) {
+        final path = Path();
+        for (final t in tris) {
+          path.moveTo(map(t[0].dx, t[0].dy).dx, map(t[0].dx, t[0].dy).dy);
+          for (var i = 1; i < t.length; i++) {
+            final q = map(t[i].dx, t[i].dy);
+            path.lineTo(q.dx, q.dy);
+          }
+          path.close();
+        }
+        canvas.save();
+        canvas.clipPath(path);
+        // A light wash so the cut material reads as solid, then the 45-degree
+        // section lines over it. Spacing is in SCREEN space on purpose: a
+        // hatch is an annotation, so it stays legible at any zoom instead of
+        // collapsing into a smear when you zoom out.
+        canvas.drawRect(
+            Offset.zero & size, Paint()..color = T.rawGrey.withAlpha(77));
+        final pen = Paint()
+          ..color = T.rawGrey.withAlpha(217)
+          ..strokeWidth = 1.0;
+        const step = 7.0;
+        // y = x + c at 45 degrees; c runs far enough to cross the whole view.
+        for (var c = -size.height; c < size.width; c += step) {
+          canvas.drawLine(
+              Offset(c, 0), Offset(c + size.height, size.height), pen);
+        }
+        canvas.restore();
+        // The section OUTLINE, drawn crisply on top — the boundary is what
+        // makes a section read as a cut rather than as shading.
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.4
+              ..color = T.rawGrey);
+      }
+    }
+
     // ---- edit-mode reference overlay (grey axes + grey CP, pure display) ----
     if (app.inEditMode) {
       final grey = Paint()

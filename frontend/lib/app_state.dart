@@ -2660,6 +2660,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// M168 — the section faces of every sliced body, in the open sketch's
+  /// (u,v), for the 2D painter to hatch. Empty when not slicing.
+  List<List<Offset>> sectionTriangles() {
+    final p = currentPart;
+    final cs = activeChild == null ? null : p?.sketchByName(activeChild!.name);
+    if (!sliceGraphics || p == null || cs == null) return const [];
+    final fr = sketchFrameOf(cs);
+    final out = <List<Offset>>[];
+    for (final f in p.features) {
+      final whole = f.solid;
+      if (whole == null || !f.visible || f.consumedByJoin || f.rolledBack) {
+        continue;
+      }
+      final cut = slicedSolid(f.name, whole);
+      if (cut == null) continue; // not sliced: nothing was exposed
+      out.addAll(sectionTrianglesAt(cut.mesh, fr));
+    }
+    return out;
+  }
+
   void _clearSliceCache() {
     for (final s in _sliceCache.values) {
       s.dispose();

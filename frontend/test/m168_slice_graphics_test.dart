@@ -8,9 +8,12 @@
 // have to be REAL faces — a hatch follows actual face boundaries, and a
 // clipped render has none to follow.
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/part_model.dart';
 import 'package:prototype/reality_scene.dart';
 
 import 'm56_part_test.dart' show FakeKernel, addRectLines;
@@ -100,6 +103,8 @@ void main() {
     });
   });
 
+  _sectionTests();
+
   group('M168 — a failed slice never hides the part', () {
     test('with no kernel the solid is drawn WHOLE', () async {
       final app = await _partWithSolidAndOpenSketch();
@@ -123,6 +128,84 @@ void main() {
       final app = await _partWithSolidAndOpenSketch();
       final f = app.currentPart!.features.first;
       expect(app.slicedSolid(f.name, f.solid!), isNull);
+    });
+  });
+}
+
+// --- the HATCH ------------------------------------------------------------
+// The cut is made AT the sketch plane, so the exposed faces are exactly
+// coplanar with the sketch. That is what makes the hatch a 2D job: it is
+// drawn flat on the sketch by the Dart painter, not as a material wrapped on
+// a 3D surface — which is also how Inventor draws it, and it means the
+// hatching needs no native renderer work at all.
+void _sectionTests() {
+  OcctMeshData _mesh(List<double> pos, List<int> idx) => OcctMeshData(
+        Float64List.fromList(pos),
+        Float64List.fromList(List<double>.filled(pos.length, 0)),
+        Int32List.fromList(idx),
+        Int32List(0),
+        Float64List(0),
+      );
+
+  final xy = planeFrame('xy'); // z = 0, normal +z
+
+  group('M168 — which faces get hatched', () {
+    test('a triangle IN the plane is a section face', () {
+      final m = _mesh([0, 0, 0, 10, 0, 0, 0, 10, 0], [0, 1, 2]);
+      final tris = sectionTrianglesAt(m, xy);
+      expect(tris.length, 1);
+      expect(tris.single.length, 3);
+      // ... returned in the sketch's own (u,v), ready to draw
+      expect(tris.single[1].dx, closeTo(10, 1e-9));
+      expect(tris.single[2].dy, closeTo(10, 1e-9));
+    });
+
+    test('a triangle OFF the plane is the remaining body, not a section', () {
+      final m = _mesh([0, 0, 5, 10, 0, 5, 0, 10, 5], [0, 1, 2]);
+      expect(sectionTrianglesAt(m, xy), isEmpty,
+          reason: 'hatching the whole body would be nonsense');
+    });
+
+    test('a triangle only PARTLY in the plane is not one either', () {
+      final m = _mesh([0, 0, 0, 10, 0, 0, 0, 10, 5], [0, 1, 2]);
+      expect(sectionTrianglesAt(m, xy), isEmpty);
+    });
+
+    test('a sliver with no area is dropped', () {
+      // Collinear points: no meaningful normal, and nothing to fill.
+      final m = _mesh([0, 0, 0, 5, 0, 0, 10, 0, 0], [0, 1, 2]);
+      expect(sectionTrianglesAt(m, xy), isEmpty);
+    });
+
+    test('a mixed mesh yields only the cut face', () {
+      final m = _mesh([
+        0, 0, 0, 10, 0, 0, 0, 10, 0, // in plane
+        0, 0, 5, 10, 0, 5, 0, 10, 5, // above it
+      ], [
+        0, 1, 2, 3, 4, 5,
+      ]);
+      expect(sectionTrianglesAt(m, xy).length, 1);
+    });
+
+    test('it works on an offset plane too, not just through the origin', () {
+      final fr = offsetPlaneFrame(xy, 7);
+      final m = _mesh([0, 0, 7, 10, 0, 7, 0, 10, 7], [0, 1, 2]);
+      final tris = sectionTrianglesAt(m, fr);
+      expect(tris.length, 1);
+      expect(tris.single[0].dx, closeTo(0, 1e-9),
+          reason: 'measured from the plane origin, so the hatch lands on it');
+    });
+
+    test('a truncated index list cannot crash the painter', () {
+      final m = _mesh([0, 0, 0, 10, 0, 0], [0, 1, 9]);
+      expect(sectionTrianglesAt(m, xy), isEmpty);
+    });
+  });
+
+  group('M168 — the painter is only asked when it should be', () {
+    test('no section triangles while slicing is off', () async {
+      final app = await _partWithSolidAndOpenSketch();
+      expect(app.sectionTriangles(), isEmpty);
     });
   });
 }
