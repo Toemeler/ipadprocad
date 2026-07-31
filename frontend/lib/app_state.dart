@@ -2400,10 +2400,25 @@ class AppState extends ChangeNotifier {
   void planePicked(String key) {
     final p = currentPart;
     if (p == null || !pickPlane) return;
+    // M167 — the pick may be a USER WORK PLANE. `_hitOrigin` has offered them
+    // since M151 and reports them as `wp:<seq>`, but everything downstream
+    // here assumed one of the three origin keys: `planeFrame(key)` does not
+    // know 'wp:1', so tapping a work plane did nothing at all — neither to
+    // start a sketch on it nor to offset from it.
+    WorkPlane? wp;
+    if (key.startsWith('wp:')) { // WorkPlane.id
+      for (final w in p.workPlanes) {
+        if (w.id == key) {
+          wp = w;
+          break;
+        }
+      }
+    }
+    if (key.startsWith('wp:') && wp == null) return; // stale row
     // M151 — a work plane is being defined: the pick is an INPUT, not a
     // request to start a sketch.
     if (workPlaneArm != null) {
-      _workPlaneInput(planeFrame(key), key.toUpperCase());
+      _workPlaneInput(wp?.frame ?? planeFrame(key), wp?.name ?? key.toUpperCase());
       return;
     }
     pickPlane = false;
@@ -2411,17 +2426,32 @@ class AppState extends ChangeNotifier {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
     }
     _planesAutoShown = false;
-    p.camera.orientToPlane(key);
+    // Origin planes get their canonical camera. A work plane does NOT get one
+    // here: the sketch camera is derived from the sketch plane once the editor
+    // opens (M80), and the face-pick path's own orientation code is inline
+    // rather than reusable — copying it would be a second convention to keep
+    // in step. Snapping the 3D camera to a work plane is worth doing properly
+    // alongside the drag, not by duplication now.
+    if (wp == null) p.camera.orientToPlane(key);
     final sk = SketchModel(p.nextSketchName());
     // M91: stamped with the creation order so it lands at the BOTTOM of the
     // browser timeline, under the extrusions that already exist.
-    p.appendChildSketch(ChildSketch(sk, key, null, true, false, p.nextSeq()));
+    //
+    // M167 — a sketch on a work plane carries that plane's FRAME, the same way
+    // a sketch on a solid face carries the face's. `sketchFrameOf` prefers the
+    // stored frame over `planeFrame(plane)`, so this needs no new plane kind
+    // and it serialises with the frame it already writes. No faceRef, so the
+    // M153/M166 face-following pass correctly leaves it alone: a work plane
+    // moves because the USER moves it, not because a solid did.
+    p.appendChildSketch(ChildSketch(sk, wp == null ? key : kWorkPlaneKey,
+        wp?.frame, true, false, p.nextSeq()));
     _admitNewSketchRow(p);
     p.dirty = true;
     activeChild = sk;
     sketchZoomNeedsFit = true;
     _reanalyze();
-    Log.i('part', 'child sketch "${sk.name}" on $key of "${p.name}"');
+    Log.i('part',
+        'child sketch "${sk.name}" on ${wp?.name ?? key} of "${p.name}"');
     startNewLayer(); // enters edit + notifies, like createNamedSketch
   }
 
