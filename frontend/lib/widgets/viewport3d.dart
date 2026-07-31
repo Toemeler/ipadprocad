@@ -101,6 +101,9 @@ class _Viewport3DState extends State<Viewport3D>
   /// whether the finger has travelled far enough to be a drag rather than a
   /// tap. The threshold is what lets one gesture be both.
   WorkPlane? _wpDrag;
+
+  /// M174 — the plane or face a NEW work plane is being dragged off.
+  PlaneFrame? _wpNewBase;
   Offset _wpDown = Offset.zero;
   bool _wpMoved = false;
 
@@ -306,6 +309,20 @@ class _Viewport3DState extends State<Viewport3D>
           child: Listener(
             onPointerDown: (e) {
               _dragKind = e.kind;
+              // M174 — the Plane command is armed: pointer down on a plane or
+              // a face starts DRAGGING a new one off it. Nothing is created
+              // until you let go, so a mis-grab costs nothing, and the offset
+              // is set by the gesture instead of defaulting to 10 mm.
+              if (app.workPlaneArm == WorkPlaneKind.offset) {
+                final (base, label) = _planeOrFaceAt(cam, e.localPosition, p);
+                if (base != null) {
+                  _wpNewBase = base;
+                  _wpDown = e.localPosition;
+                  _wpMoved = false;
+                  app.beginWorkPlaneCreate(base, label);
+                  return;
+                }
+              }
               // M169 — grab a WORK PLANE and drag it along its own normal,
               // the way Inventor lets you slide one off its base. Only when
               // nothing else is armed: a plane pick, an extrude profile pick
@@ -330,6 +347,24 @@ class _Viewport3DState extends State<Viewport3D>
               }
             },
             onPointerMove: (e) {
+              // M174 — a new plane being dragged off its base. Same projection
+              // as M169: pointer travel onto the base normal, scaled by the
+              // normal's screen length per world mm.
+              final nb = _wpNewBase;
+              if (nb != null) {
+                final o = cam.project(nb.origin);
+                final n2 = cam.project(nb.origin + nb.n) - o;
+                final len2 = n2.dx * n2.dx + n2.dy * n2.dy;
+                if (len2 > 4.0) {
+                  final d = e.localPosition - _wpDown;
+                  if (!_wpMoved && d.distance > _dragSlop) _wpMoved = true;
+                  if (_wpMoved) {
+                    app.updateWorkPlaneCreate(
+                        (d.dx * n2.dx + d.dy * n2.dy) / len2);
+                  }
+                }
+                return;
+              }
               final wd = _wpDrag;
               if (wd != null) {
                 // Screen travel projected onto the plane's own normal. The
@@ -374,6 +409,12 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerUp: (_) {
               _mmb = false;
+              if (_wpNewBase != null) {
+                _wpNewBase = null;
+                _wpMoved = false;
+                app.commitWorkPlaneCreate();
+                return;
+              }
               if (_wpDrag != null) {
                 if (_wpMoved) {
                   app.endWorkPlaneDrag();
@@ -389,6 +430,12 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerCancel: (_) {
               _mmb = false;
+              if (_wpNewBase != null) {
+                _wpNewBase = null;
+                _wpMoved = false;
+                app.cancelWorkPlaneCreate();
+                return;
+              }
               if (_wpMoved) app.cancelWorkPlaneOffset();
               _wpDrag = null;
               _wpMoved = false;
@@ -929,6 +976,26 @@ class _Viewport3DState extends State<Viewport3D>
       }
     }
     return best;
+  }
+
+  /// M174 — the plane or FACE under [px] to build a new work plane from, with
+  /// a label for its definition line. A face wins over a plane behind it, the
+  /// same rule the sketch-plane pick uses, so what you grab is what you see.
+  (PlaneFrame?, String) _planeOrFaceAt(Cam3 cam, Offset px, PartModel p) {
+    final key = _hitOrigin(cam, px, p, planesOnly: true);
+    final face = _pickSolidFace(cam, px);
+    final planeD =
+        key != null ? (_planeDepthAt(cam, px, key) ?? double.infinity) : double.infinity;
+    final faceD = face?.$4 ?? double.infinity;
+    if (face != null && faceD <= planeD + 1e-6) return (face.$3, 'face');
+    if (key != null) {
+      final f = frameForPlaneKey(p, key);
+      if (f != null) {
+        return (f, kPlaneKeys.contains(key) ? key.toUpperCase() : key);
+      }
+    }
+    if (face != null) return (face.$3, 'face');
+    return (null, '');
   }
 
   /// M169 — the work plane under [px], or null. Reuses the same hit test the

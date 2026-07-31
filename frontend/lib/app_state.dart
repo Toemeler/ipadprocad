@@ -2850,6 +2850,74 @@ class AppState extends ChangeNotifier {
     return cut;
   }
 
+  // ---- M174 drag-to-create a work plane -----------------------------------
+
+  /// The plane a NEW work plane is being dragged off, while it is being
+  /// dragged. Non-null means a live preview is on screen and nothing has been
+  /// committed yet.
+  PlaneFrame? wpCreateBase;
+  String wpCreateLabel = '';
+  double wpCreateOffset = 0;
+
+  /// The preview frame, or null when nothing is being created.
+  PlaneFrame? get wpCreatePreview => wpCreateBase == null
+      ? null
+      : offsetPlaneFrame(wpCreateBase!, wpCreateOffset);
+
+  /// Pointer went down on [base] with the Plane command armed. Nothing is
+  /// created yet — Inventor shows the plane following your finger and only
+  /// commits when you let go, so a mis-grab costs nothing.
+  void beginWorkPlaneCreate(PlaneFrame base, String label) {
+    if (workPlaneArm != WorkPlaneKind.offset) return;
+    wpCreateBase = base;
+    wpCreateLabel = label;
+    wpCreateOffset = 0;
+    notifyListeners();
+  }
+
+  /// Live drag, in model mm along the base normal.
+  void updateWorkPlaneCreate(double mm) {
+    if (wpCreateBase == null || !mm.isFinite) return;
+    wpCreateOffset = mm;
+    notifyListeners();
+  }
+
+  /// Let go: the plane stays where it was dragged to, and the offset field
+  /// opens on it immediately — the value is the thing you almost always want
+  /// to correct next, so it should not need a second gesture to reach.
+  ///
+  /// A drag that never moved commits nothing: that is a mis-tap, and creating
+  /// a zero-offset plane on top of its own base is never what was meant.
+  void commitWorkPlaneCreate() {
+    final base = wpCreateBase;
+    final d = wpCreateOffset;
+    wpCreateBase = null;
+    if (base == null) return;
+    if (d.abs() < 1e-6) {
+      cancelWorkPlane();
+      toast('Drag away from the plane to set the offset.');
+      return;
+    }
+    final p = currentPart;
+    if (p == null) return;
+    _commitWorkPlane(p, WorkPlaneKind.offset, offsetPlaneFrame(base, d),
+        'Offset ${d.toStringAsFixed(2)} mm from $wpCreateLabel',
+        base: base, offset: d);
+    final made = p.workPlanes.isEmpty ? null : p.workPlanes.last;
+    if (made != null) {
+      selectedWorkPlane = made;
+      workPlaneOffsetEditing = true; // straight into editing the value
+      workPlaneOffset = d; // the next new plane starts from what you just used
+    }
+    notifyListeners();
+  }
+
+  void cancelWorkPlaneCreate() {
+    if (wpCreateBase == null) return;
+    wpCreateBase = null;
+    notifyListeners();
+  }
+
   void cancelWorkPlane() {
     if (workPlaneArm == null) return;
     workPlaneArm = null;

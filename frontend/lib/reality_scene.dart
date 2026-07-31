@@ -318,6 +318,26 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
       'hot': hover == w.id,
     });
   }
+  // M174 — the plane being dragged into existence. Rides the same list so the
+  // native side draws it with no new code, and is dropped the instant the
+  // drag ends: it is a preview, not a document object.
+  final prev = app.wpCreatePreview;
+  if (prev != null) {
+    final (uMin, uMax, vMin, vMax) = planeRectFor(p, prev);
+    out.add({
+      'key': 'wp:preview',
+      'frame': _frame9(prev),
+      'origin': [prev.origin.x, prev.origin.y, prev.origin.z],
+      'uMin': uMin,
+      'uMax': uMax,
+      'vMin': vMin,
+      'vMax': vMax,
+      'ext': [uMin.abs(), uMax.abs(), vMin.abs(), vMax.abs()]
+          .reduce((a, b) => a > b ? a : b),
+      'visible': true,
+      'hot': true, // a preview reads as the thing under your finger
+    });
+  }
   return out;
 }
 
@@ -661,6 +681,13 @@ String sceneSignature(AppState app, PartModel p) {
   // rebuild is sent and the change "does not work". A plane's position is
   // part of that, not just its existence — re-offsetting one moves it.
   sb..write(';slice:')..write(app.sliceGraphics ? '1' : '0');
+  // The preview MOVES every frame of the drag, so its offset is part of the
+  // signature or the plane would appear frozen while the finger moves.
+  sb
+    ..write(';wpnew:')
+    ..write(app.wpCreateBase == null
+        ? '-'
+        : app.wpCreateOffset.toStringAsFixed(4));
   sb.write(';wp:');
   for (final w in p.workPlanes) {
     sb
