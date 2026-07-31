@@ -289,6 +289,30 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
       'hot': hover == key,
     });
   }
+  // M165 — user work planes ride the SAME list. They were built, named and
+  // saved (Part4.part.json has two) but never reached the renderer: this
+  // payload only ever carried the three origin planes, so on the device a
+  // work plane was invisible the moment it was created. Emitting them here
+  // rather than as a new array means the native side draws them with the code
+  // it already has, and they are sized by `planeRectFor` — the very function
+  // the origin planes use (M151 kept it shared on purpose), so a work plane
+  // frames the model exactly as they do instead of being a fixed square.
+  for (final w in p.workPlanes) {
+    final (uMin, uMax, vMin, vMax) = planeRectFor(p, w.frame);
+    out.add({
+      'key': w.id,
+      'frame': _frame9(w.frame),
+      'origin': [w.frame.origin.x, w.frame.origin.y, w.frame.origin.z],
+      'uMin': uMin,
+      'uMax': uMax,
+      'vMin': vMin,
+      'vMax': vMax,
+      'ext': [uMin.abs(), uMax.abs(), vMin.abs(), vMax.abs()]
+          .reduce((a, b) => a > b ? a : b),
+      'visible': w.visible,
+      'hot': hover == w.id,
+    });
+  }
   return out;
 }
 
@@ -626,6 +650,22 @@ String sceneSignature(AppState app, PartModel p) {
     ..write(';vis:');
   for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
     sb.write(p.vis[k] == true ? '1' : '0');
+  }
+  // M165 — work planes must be IN the signature. M95 and M122 were both the
+  // same lesson: anything that changes the picture and is not here means no
+  // rebuild is sent and the change "does not work". A plane's position is
+  // part of that, not just its existence — re-offsetting one moves it.
+  sb.write(';wp:');
+  for (final w in p.workPlanes) {
+    sb
+      ..write(w.id)
+      ..write(w.visible ? '+' : '-')
+      ..write(w.frame.origin.x.toStringAsFixed(4))
+      ..write(',')
+      ..write(w.frame.origin.y.toStringAsFixed(4))
+      ..write(',')
+      ..write(w.frame.origin.z.toStringAsFixed(4))
+      ..write(';');
   }
   // M95 — WHICH sketch is open belongs in the signature. Since M93 the sketch
   // being edited is deliberately left out of the payload (Viewport2D draws it

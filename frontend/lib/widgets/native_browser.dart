@@ -21,6 +21,10 @@ const String kIdLayer = 'ly:';
 const String kIdSketch = 'sk:';
 const String kIdNested = 'skn:';
 const String kIdFeature = 'ft:';
+
+/// M165 — a user work plane row. They were created and saved but appeared
+/// NOWHERE in the browser, so the only evidence a plane existed was the toast.
+const String kIdWorkPlane = 'wp:';
 const String kIdBody = 'bd:';
 const String kIdOrigin = 'or:';
 const String kIdEos = '__eos__';
@@ -155,6 +159,25 @@ List<GlassRow> buildBrowserRows(
     // ---- the timeline: sketches and features in creation order ------------
     // M113 — the marker counts ROWS now, so its position is simply an index
     // into the timeline. No conversion, and it can stand above a sketch.
+    // M165 — user work planes, above the timeline. Inventor lists them in the
+    // browser with the rest of the model; here they sit as their own short
+    // block rather than as timeline nodes, because `partTimeline` is what the
+    // End of Part marker indexes into and adding a third node kind to it
+    // would move the marker under every existing document (M113's whole
+    // point was that the marker counts ROWS). A plane is not rolled back by
+    // EOP either, so it does not belong in that count.
+    for (final w in part.workPlanes) {
+      rows.add(GlassRow(
+        id: '$kIdWorkPlane${w.seq}',
+        label: w.name,
+        symbol: 'squareshape.dashed.squareshape',
+        tint: 'blue',
+        depth: 1,
+        hasEye: true,
+        eyeOn: w.visible,
+        dim: !w.visible,
+      ));
+    }
     final timeline = partTimeline(part);
     final eop = (dragEop ?? part.eopAfter).clamp(0, timeline.length);
     for (var ti = 0; ti < timeline.length; ti++) {
