@@ -482,6 +482,30 @@ class _Viewport3DState extends State<Viewport3D>
     if (prev != null) yield prev;
   }
 
+  /// The solids worth spending kernel time on — [_liveSolids] WITHOUT the
+  /// extrude/revolve/coil preview.
+  ///
+  /// M161 — a preview is transient by construction: it exists while a dialog
+  /// is open and is discarded the moment OK is pressed, when the committed
+  /// feature is meshed from scratch. Refining it therefore buys a picture that
+  /// is about to be thrown away, and then pays for the same tessellation
+  /// again. The device log shows exactly that, and what it costs on a coil:
+  ///
+  ///   23:57:39  remesh n=1 lin=1.80e-2 tris=1002412 in 9952ms   <- preview
+  ///   23:57:40  coil created Coil1; mesh Coil1: tris=7536       <- discarded
+  ///   23:57:50  remesh n=1 lin=1.80e-2 tris=1002412 in 9959ms   <- again
+  ///
+  /// Twenty seconds for one coil, half of it for a mesh nobody kept. The
+  /// preview still shows at its own (coarse) mesh and still COUNTS towards the
+  /// triangle budget through [_liveSolids] — it is on screen and its cost is
+  /// real — it is simply never the thing we refine.
+  Iterable<KernelSolid> _refinableSolids() sync* {
+    final prev = widget.app.extrudeSession?.preview;
+    for (final s in _liveSolids()) {
+      if (!identical(s, prev)) yield s;
+    }
+  }
+
   /// True when any live solid is coarser than this viewport's screen-space
   /// target — i.e. a re-mesh would make a curve visibly smoother.
   // ---- sketch-entry camera animation (M88) --------------------------------
@@ -550,7 +574,7 @@ class _Viewport3DState extends State<Viewport3D>
     if (p == null) return false;
     final target = budgetedLinDeflection(
         viewLinearDeflection(p.camera.halfH, size.height), _sceneTriangles());
-    for (final s in _liveSolids()) {
+    for (final s in _refinableSolids()) {
       // M159 — ask the same bounded question _refineNow will act on, or the
       // debounce arms for a pass that then does nothing.
       if (meshNeedsRefine(s.meshLin, steppedLinDeflection(s.meshLin, target))) {
@@ -588,7 +612,7 @@ class _Viewport3DState extends State<Viewport3D>
     var changed = false;
     var remeshed = 0;
     final sw = Stopwatch()..start();
-    for (final s in _liveSolids()) {
+    for (final s in _refinableSolids()) {
       // M159 — bound how much finer ONE pass may go. Without this a single
       // solid can leap from 7 536 to 1 002 412 triangles in one call and the
       // budget only learns about it afterwards, having paid ~10-56 s for it.
