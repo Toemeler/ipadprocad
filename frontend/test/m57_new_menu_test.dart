@@ -34,15 +34,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('new-document menu contract', () {
-    test('three items: New 2D Sketch, New 3D Part, then Import', () {
+    test('three items: New 2D Sketch, New 3D Part, then Open', () {
       final items = newDocMenuItems();
-      // M117 — Import joined the two create actions, because opening a file IS
+      // M117 — Open joined the two create actions, because opening a file IS
       // a third way to get a document. It comes LAST: the two you reach for
       // most often stay at the top.
+      //
+      // M177 — one verb. It is not "Import STEP / DXF" any more, because it
+      // also opens the app's own documents from anywhere on the iPad; which
+      // of those happens follows from the file the user picks.
       expect(items.map((i) => i.id).toList(), ['2d', '3d', 'import'],
           reason: 'ids must match the showMenu fallback values');
       expect(items.map((i) => i.title).toList(),
-          ['New 2D Sketch', 'New 3D Part', 'Import STEP / DXF…']);
+          ['New 2D Sketch', 'New 3D Part', 'Open…']);
       // Neither entry is destructive (no red styling on a create action).
       expect(items.every((i) => !i.destructive), isTrue);
       // Every item carries an SF Symbol name for the native glyph.

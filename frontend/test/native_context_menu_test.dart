@@ -14,11 +14,15 @@
 //
 // Off iOS every NativeMenu entry point must be a silent no-op — the suite runs
 // on Linux/macOS and must never see a MissingPluginException.
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/doc_file.dart';
+import 'package:prototype/doc_store.dart';
 import 'package:prototype/widgets/home_view.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -26,24 +30,37 @@ Directory _scratch() => Directory.systemTemp.createTempSync('ipc_ctxmenu');
 
 AppState _app(Directory docs) => AppState()..docsDirForTest = docs;
 
-Directory _sketchDir(Directory docs) {
-  final d = Directory('${docs.path}/sketches');
-  d.createSync(recursive: true);
-  return d;
-}
-
-/// Writes a placeholder for EVERY sidecar so the tests notice a suffix that
-/// delete/rename/duplicate forgot to carry along.
+/// Writes a sketch document carrying a placeholder for EVERY sidecar, so the
+/// tests notice anything delete / rename / duplicate forgot to carry along.
+///
+/// M177 — a sketch is one .pts file now, and everything that belongs to it is
+/// an entry inside that file. That is exactly what makes these operations
+/// hard to get wrong: there is nothing beside the document to leave behind.
 void _fakeSketch(Directory docs, String name) {
-  final d = _sketchDir(docs);
-  for (final suffix in AppState.sketchFileSuffixes) {
-    File('${d.path}/$name$suffix').writeAsStringSync('placeholder');
-  }
+  writeDoc(
+      '${docs.path}/$name.$kSketchExt',
+      DocFile('sketch', {
+        for (final suffix in AppState.sketchFileSuffixes)
+          (suffix == '.png' ? kPreviewEntry : '$kSketchBase$suffix'):
+              Uint8List.fromList(utf8.encode('placeholder')),
+      }));
 }
 
-List<String> _files(Directory docs) =>
-    _sketchDir(docs).listSync().map((e) => e.uri.pathSegments.last).toList()
-      ..sort();
+/// The documents in the app folder.
+List<String> _files(Directory docs) => [
+      for (final e in docs.listSync())
+        if (e is File) e.uri.pathSegments.last
+    ]..sort();
+
+/// Every entry inside document [name]'s file.
+Set<String> _entriesOf(Directory docs, String name, {String ext = kSketchExt}) =>
+    readDoc('${docs.path}/$name.$ext')?.entries.keys.toSet() ?? {};
+
+/// The entry names _fakeSketch writes.
+Set<String> get _allEntries => {
+      for (final suffix in AppState.sketchFileSuffixes)
+        suffix == '.png' ? kPreviewEntry : '$kSketchBase$suffix'
+    };
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -141,10 +158,8 @@ void main() {
       await app.deleteSketch('Flange');
 
       expect(app.saved.map((s) => s.name), ['Keeper']);
-      for (final f in _files(docs)) {
-        expect(f, startsWith('Keeper'), reason: '$f survived the delete');
-      }
-      expect(_files(docs), hasLength(AppState.sketchFileSuffixes.length));
+      expect(_files(docs), ['Keeper.$kSketchExt'],
+          reason: 'the whole document goes, and only that document');
     });
 
     test('an OPEN sketch is closed first so autosave cannot resurrect it',
@@ -160,10 +175,10 @@ void main() {
       expect(app.openTabs, isNot(contains('Live')));
       expect(app.curTab, isNull);
       expect(app.isHome, isTrue);
-      expect(File('${_sketchDir(docs).path}/Live.dxf').existsSync(), isFalse);
+      expect(_files(docs), isEmpty);
       // The killer regression: any later autosave must not write it back.
       await app.saveSketch('Live');
-      expect(File('${_sketchDir(docs).path}/Live.dxf').existsSync(), isFalse);
+      expect(_files(docs), isEmpty);
     });
   });
 
@@ -177,12 +192,10 @@ void main() {
       expect(await app.renameSketch('Old', 'New'), isTrue);
 
       expect(app.saved.map((s) => s.name), ['New']);
-      for (final suffix in AppState.sketchFileSuffixes) {
-        expect(File('${_sketchDir(docs).path}/New$suffix').existsSync(), isTrue,
-            reason: '$suffix did not follow the rename');
-        expect(File('${_sketchDir(docs).path}/Old$suffix').existsSync(), isFalse,
-            reason: '$suffix left behind under the old name');
-      }
+      expect(_files(docs), ['New.$kSketchExt'],
+          reason: 'nothing may be left behind under the old name');
+      expect(_entriesOf(docs, 'New'), _allEntries,
+          reason: 'the rename must not lose anything inside the document');
     });
 
     test('refuses collisions and names that could escape the directory',
@@ -198,7 +211,7 @@ void main() {
       expect(await app.renameSketch('A', '../escape'), isFalse, reason: 'path');
       expect(await app.renameSketch('A', '.hidden'), isFalse, reason: 'dotfile');
       // Nothing moved.
-      expect(File('${_sketchDir(docs).path}/A.dxf').existsSync(), isTrue);
+      expect(_files(docs), ['A.$kSketchExt', 'B.$kSketchExt']);
       expect(app.saved.map((s) => s.name), containsAll(['A', 'B']));
 
       expect(app.validateSketchName('Bracket v2'), isNull);
@@ -229,12 +242,10 @@ void main() {
 
       expect(await app.duplicateSketch('Plate'), 'Plate copy');
 
-      for (final suffix in AppState.sketchFileSuffixes) {
-        expect(File('${_sketchDir(docs).path}/Plate$suffix').existsSync(), isTrue);
-        expect(File('${_sketchDir(docs).path}/Plate copy$suffix').existsSync(),
-            isTrue,
-            reason: '$suffix was not duplicated');
-      }
+      expect(_entriesOf(docs, 'Plate'), _allEntries,
+          reason: 'the original is untouched');
+      expect(_entriesOf(docs, 'Plate copy'), _allEntries,
+          reason: 'the copy carries everything the original had');
       expect(app.saved.map((s) => s.name), containsAll(['Plate', 'Plate copy']));
     });
 

@@ -1188,11 +1188,11 @@ class _Viewport2DState extends State<Viewport2D> {
             final ctrl = HardwareKeyboard.instance.isControlPressed ||
                 HardwareKeyboard.instance.isMetaPressed;
             if (ctrl && k == LogicalKeyboardKey.keyS) {
-              final tab = app.curTab;
-              if (tab != null) {
-                app.saveSketch(tab).then(
-                    (ok) => app.toast(ok ? 'Saved "$tab"' : 'Save failed'));
-              }
+              // M177 — saveCurrentDocument, not saveSketch: this fired in
+              // parts too, where saveSketch could only ever fail. It also
+              // writes an externally-opened document back to the file it came
+              // from, and says which it was.
+              app.saveCurrentDocument();
               return KeyEventResult.handled;
             }
             // Undo / Redo (M39): Ctrl+Z steps back, Ctrl+Shift+Z (or Ctrl+Y)

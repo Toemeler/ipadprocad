@@ -17,6 +17,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/doc_file.dart';
+import 'package:prototype/doc_store.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/part_render.dart';
@@ -434,11 +436,9 @@ void main() {
 
       // saved sidecar carries the per-sketch 'vis' flag
       await app.savePart('Part1');
-      final file = _partFile(app, 'Part1');
-      expect(file.existsSync(), isTrue, reason: 'part sidecar written');
-      final decoded =
-          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-      final sketches = _sketchList(decoded);
+      expect(app.pathOfDocument('Part1'), isNotNull,
+          reason: 'part document written');
+      final sketches = _sketchList(_partMeta(app, 'Part1'));
       expect(sketches.single['vis'], isTrue,
           reason: 'toggled-on sketch persists as visible');
     });
@@ -468,12 +468,11 @@ void main() {
       final name = part.name;
       // hand-write a sidecar WITHOUT the per-sketch 'vis' key (pre-M59)
       await app.savePart(name);
-      final file = _partFile(app, name);
-      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final json = _partMeta(app, name);
       for (final s in (json['sketches'] as List)) {
         (s as Map).remove('vis');
       }
-      file.writeAsStringSync(jsonEncode(json));
+      _writePartMeta(app, name, json);
 
       // reopen in a fresh app sharing the docs dir; consumed sketch loads hidden
       final app2 = makeApp()..docsDirForTest = app.docsDirForTest;
@@ -486,11 +485,21 @@ void main() {
 }
 
 // ---- sidecar helpers (schema-tolerant) ------------------------------------
-// Part sidecar lives in the per-part sketch dir as "<name>.part.json".
-File _partFile(AppState app, String name) {
-  // mirror AppState._partJson: <docs>/sketches/<name>.part.json
-  final dir = Directory('${app.docsDirForTest!.path}/sketches');
-  return File('${dir.path}/$name.part.json');
+// M177 — the part's model JSON is the "meta.json" entry inside its .ptp.
+Map<String, dynamic> _partMeta(AppState app, String name) =>
+    readDocMeta(app.pathOfDocument(name)!)!;
+
+/// Rewrites the model JSON inside the document, leaving everything else in it
+/// alone — which is what hand-editing a sidecar used to mean.
+void _writePartMeta(AppState app, String name, Map<String, dynamic> json) {
+  final path = app.pathOfDocument(name)!;
+  final doc = readDoc(path)!;
+  writeDoc(
+      path,
+      DocFile(doc.kind, {
+        ...doc.entries,
+        kMetaEntry: Uint8List.fromList(utf8.encode(jsonEncode(json))),
+      }));
 }
 
 List<Map<String, dynamic>> _sketchList(Map<String, dynamic> json) => [

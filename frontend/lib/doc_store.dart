@@ -129,6 +129,11 @@ const String kMetaEntry = 'meta.json';
 /// The gallery thumbnail, when the document has one.
 const String kPreviewEntry = 'preview.png';
 
+/// The base name a standalone sketch's DXF and sidecars carry INSIDE its
+/// document. Constant on purpose: what a document is called is its file name,
+/// so renaming one must not have to rewrite anything inside it.
+const String kSketchBase = 'sketch';
+
 /// Packs everything under [dir] into a document.
 ///
 /// Entry names are POSIX-relative to [dir], so `sketches/Sketch1.dxf` stays

@@ -20,6 +20,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/doc_store.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/part_model.dart';
 
@@ -145,8 +146,20 @@ Future<AppState> partWithSolid(String name) async {
   return app;
 }
 
+/// M177 — the preview lives INSIDE the document now, as its `preview.png`
+/// entry. Read straight out of the file: that is the only copy that travels
+/// with the part when it is moved or sent.
+bool hasPreview(AppState app, String name) {
+  final path = app.pathOfDocument(name);
+  if (path == null) return false;
+  final b = readDocEntry(path, kPreviewEntry);
+  return b != null && b.isNotEmpty;
+}
+
+/// The staged working copy of the preview, which is what savePart writes
+/// before packing.
 File pngOf(AppState app, String name) =>
-    File('${app.docsDirForTest!.path}/sketches/$name.png');
+    File('${app.stageDirForTest(name).path}/$kPreviewEntry');
 
 SavedSketchInfo? savedInfo(AppState app, String name) {
   for (final s in app.saved) {
@@ -161,24 +174,26 @@ void main() {
   group('part thumbnail', () {
     test('extruded part gets a png and the card shows it', () async {
       final app = await partWithSolid('Bracket');
-      final png = pngOf(app, 'Bracket');
-      expect(png.existsSync(), isTrue,
-          reason: 'savePart renders the 3D scene to <name>.png');
-      expect(png.lengthSync(), greaterThan(0));
+      expect(hasPreview(app, 'Bracket'), isTrue,
+          reason: 'savePart renders the 3D scene into the document');
+      expect(pngOf(app, 'Bracket').lengthSync(), greaterThan(0));
 
       final info = savedInfo(app, 'Bracket');
       expect(info, isNotNull);
       expect(info!.kind, 'part');
       expect(info.preview, isNotNull,
           reason: 'refreshSaved must surface the part png, not null');
-      expect(info.preview!.path, png.path);
+      expect(info.preview!.existsSync(), isTrue);
+      expect(info.preview!.lengthSync(),
+          readDocEntry(app.pathOfDocument('Bracket')!, kPreviewEntry)!.length,
+          reason: 'the card shows the picture that is IN the document');
     });
 
     test('a part with no solid has no png and falls back to the cube', () async {
       final app = makeApp();
       app.partKernel = FakeKernel();
       await app.createNamedPart('Empty');
-      expect(pngOf(app, 'Empty').existsSync(), isFalse);
+      expect(hasPreview(app, 'Empty'), isFalse);
       final info = savedInfo(app, 'Empty');
       expect(info, isNotNull);
       expect(info!.kind, 'part');
@@ -187,38 +202,44 @@ void main() {
 
     test('deleting a feature drops the stale png on next save', () async {
       final app = await partWithSolid('P');
-      expect(pngOf(app, 'P').existsSync(), isTrue);
+      expect(hasPreview(app, 'P'), isTrue);
       // remove the only feature, then persist again
       app.currentPart!.features.clear();
       await app.savePart('P');
-      expect(pngOf(app, 'P').existsSync(), isFalse,
+      expect(hasPreview(app, 'P'), isFalse,
           reason: 'no solid -> the previous thumbnail must be cleared');
+      expect(savedInfo(app, 'P')?.preview, isNull,
+          reason: 'and the stale card thumbnail goes with it');
     });
   });
 
   group('png follows the part through file ops', () {
     test('delete removes the png', () async {
       final app = await partWithSolid('P');
-      expect(pngOf(app, 'P').existsSync(), isTrue);
+      final path = app.pathOfDocument('P')!;
+      expect(hasPreview(app, 'P'), isTrue);
       await app.deleteDocument('P');
-      expect(pngOf(app, 'P').existsSync(), isFalse);
+      expect(File(path).existsSync(), isFalse,
+          reason: 'one file: deleting the document deletes the thumbnail too');
+      expect(savedInfo(app, 'P'), isNull);
     });
 
     test('rename moves the png with the part', () async {
       final app = await partWithSolid('Old');
-      expect(pngOf(app, 'Old').existsSync(), isTrue);
+      expect(hasPreview(app, 'Old'), isTrue);
       await app.renameDocument('Old', 'New');
-      expect(pngOf(app, 'Old').existsSync(), isFalse);
-      expect(pngOf(app, 'New').existsSync(), isTrue);
-      expect(savedInfo(app, 'New')?.preview?.path, pngOf(app, 'New').path);
+      expect(app.pathOfDocument('Old'), isNull);
+      expect(hasPreview(app, 'New'), isTrue);
+      expect(savedInfo(app, 'New')?.preview?.existsSync(), isTrue,
+          reason: 'the renamed card must not show a phantom thumbnail');
     });
 
     test('duplicate copies the png', () async {
       final app = await partWithSolid('P');
       final copy = await app.duplicateDocument('P');
       expect(copy, isNotNull);
-      expect(pngOf(app, 'P').existsSync(), isTrue);
-      expect(pngOf(app, copy!).existsSync(), isTrue,
+      expect(hasPreview(app, 'P'), isTrue);
+      expect(hasPreview(app, copy!), isTrue,
           reason: 'the duplicate carries its own thumbnail');
     });
   });
@@ -229,7 +250,7 @@ void main() {
       pngOf(app, 'P').deleteSync(); // simulate a stale/absent thumbnail
       expect(pngOf(app, 'P').existsSync(), isFalse);
       await app.flushCurrentDocument();
-      expect(pngOf(app, 'P').existsSync(), isTrue,
+      expect(hasPreview(app, 'P'), isTrue,
           reason: 'flush persists the open part unconditionally');
     });
 
@@ -240,7 +261,7 @@ void main() {
       // goHome fires flush without awaiting; drain the microtask/IO queue.
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(app.curTab, isNull, reason: 'we left the document');
-      expect(pngOf(app, 'P').existsSync(), isTrue,
+      expect(hasPreview(app, 'P'), isTrue,
           reason: 'leaving a part for the gallery refreshes its card');
     });
 
@@ -250,15 +271,14 @@ void main() {
       await app.createNamedSketch('S');
       addRectLines(app.current!, 0, 0, 30, 20, layer: app.editingLayer!);
       await app.saveSketch('S');
-      final png = File('${app.docsDirForTest!.path}/sketches/S.png');
-      expect(png.existsSync(), isTrue);
+      expect(hasPreview(app, 'S'), isTrue);
 
       // Leave edit mode: now finishEdit(save:true) would early-return and NOT
       // rewrite the thumbnail — flush must still do it.
       app.finishEdit(save: false);
-      png.deleteSync();
+      pngOf(app, 'S').deleteSync();
       await app.flushCurrentDocument();
-      expect(png.existsSync(), isTrue);
+      expect(hasPreview(app, 'S'), isTrue);
     });
 
     test('is a harmless no-op with no document open', () async {

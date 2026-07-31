@@ -12,6 +12,9 @@ import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'constraints.dart';
 import 'diag.dart';
+import 'doc_file.dart';
+import 'doc_ref.dart';
+import 'doc_store.dart';
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'freehand.dart';
@@ -956,55 +959,534 @@ class AppState extends ChangeNotifier {
     // linked OCCT shim, verified against the smoke_occt.c numbers. On host
     // (symbols not linked) this reports SKIP, never a fake PASS.
     Log.i('smoke', Log.step('state', 'occt smoke', () => occtSmokeLine()));
+    // M177 — before anything lists documents: convert the pre-single-file
+    // layout, and recall which documents were opened from outside the app.
+    Log.step('state', 'migrateLegacyDocuments', () => migrateLegacyDocuments());
+    Log.step('state', 'loadRemembered', () => _loadRemembered());
     await Log.stepAsync('state', 'refreshSaved', () => refreshSaved());
     notifyListeners();
     Log.i('state', 'AppState.init done (backendReal=$backendReal)');
   }
 
-  Directory get _sketchDir {
-    final d = Directory('${_docsDir!.path}/sketches');
+  // ---- M177: where documents live ----
+  //
+  // A document is ONE FILE in the app folder (or wherever the user opened it
+  // from). Everything it contains is unpacked into a private staging folder
+  // under .cache, which the existing readers and writers work against exactly
+  // as they always have. The staging folder holds nothing that is not in the
+  // document: it can be deleted at any moment and is rebuilt on next open.
+
+  /// Everything the app writes that is NOT a document. Dot-prefixed so the
+  /// gallery's folder scan never sees it and Files hides it.
+  Directory get _cacheRoot {
+    final d = Directory('${_docsDir!.path}/.cache');
     if (!d.existsSync()) d.createSync(recursive: true);
     return d;
   }
 
-  File _dxfFile(String name) => File('${_sketchDir.path}/$name.dxf');
+  /// The unpacked working copy of document [name].
+  Directory _stage(String name) {
+    final d = Directory('${_cacheRoot.path}/docs/$name');
+    if (!d.existsSync()) d.createSync(recursive: true);
+    return d;
+  }
+
+  /// Where the gallery's thumbnails are extracted to.
+  ///
+  /// The preview lives INSIDE the document, but the gallery hands a `File` to
+  /// `Image.file`, so one is pulled out here. Keyed by path, not name, so an
+  /// external "Bracket" cannot show an internal "Bracket"'s picture.
+  File _thumbFile(DocRef ref) {
+    final d = Directory('${_cacheRoot.path}/thumbs');
+    if (!d.existsSync()) d.createSync(recursive: true);
+    final key = ref.path.hashCode.toUnsigned(32).toRadixString(16);
+    return File('${d.path}/${ref.name}_$key.png');
+  }
+
+  /// The documents the gallery knows about, by name.
+  final Map<String, DocRef> library = {};
+
+  /// The document [name] refers to — from the library, or by looking in the
+  /// app folder when the library has not been built yet.
+  ///
+  /// The second half matters: [openSketch], [savePart] and the name checks can
+  /// all run before the first [refreshSaved], and a document that is plainly
+  /// sitting in the folder must not be invisible to them just because nothing
+  /// has listed it yet.
+  DocRef? _findDoc(String name) {
+    final known = library[name];
+    if (known != null) return known;
+    if (_docsDir == null) return null;
+    for (final ext in const [kPartExt, kSketchExt]) {
+      final path = '${_docsDir!.path}/$name.$ext';
+      if (File(path).existsSync()) {
+        final ref = DocRef(
+            name, ext == kPartExt ? 'part' : 'sketch', path, DocSource.internal);
+        library[name] = ref;
+        return ref;
+      }
+    }
+    return null;
+  }
+
+  /// The file document [name] is stored in, or null when it has never been
+  /// saved. This IS the document — one file, wherever the user keeps it.
+  String? pathOfDocument(String name) => _findDoc(name)?.path;
+
+  /// Test-only: the unpacked working copy of [name], for asserting on what a
+  /// document contains without unpacking it by hand.
+  @visibleForTesting
+  Directory stageDirForTest(String name) => _stage(name);
+
+  /// Remembered EXTERNAL documents, in the order they were last opened.
+  final List<DocRef> _remembered = [];
+
+  static const String _kRememberedFile = 'externals.json';
+
+  File get _rememberedPath => File('${_cacheRoot.path}/$_kRememberedFile');
+
+  void _loadRemembered() {
+    _remembered
+      ..clear()
+      ..addAll(decodeRemembered(
+          _rememberedPath.existsSync() ? _rememberedPath.readAsStringSync() : null));
+  }
+
+  void _saveRemembered() {
+    try {
+      _rememberedPath.writeAsStringSync(encodeRemembered(_remembered));
+    } catch (e) {
+      Log.w('doc', 'could not remember external documents: $e');
+    }
+  }
+
+  /// The file a document is stored in. Internal by default; an external
+  /// document keeps the path it was opened from, which is the whole point.
+  String docPath(String name, {bool part = false}) {
+    final known = _findDoc(name);
+    if (known != null) return saveTargetFor(known, _docsDir!.path);
+    return '${_docsDir!.path}/$name.${part ? kPartExt : kSketchExt}';
+  }
+
+  File _dxfFile(String name) => File('${_stage(name).path}/sketch.dxf');
 
   /// M112 — the layer construction geometry is exported onto. "Defpoints" is
   /// the long-standing AutoCAD convention for a layer that is visible on
   /// screen but never plotted or machined.
   static const String kDxfConstructionLayer = 'Defpoints';
-  File _pngFile(String name) => File('${_sketchDir.path}/$name.png');
+  File _pngFile(String name) => File('${_stage(name).path}/$kPreviewEntry');
+
+  /// Makes sure [name]'s staging folder holds the document's contents.
+  ///
+  /// Cheap when the stage is already warm: the document is unpacked once per
+  /// session, not once per read.
+  final Set<String> _staged = {};
+
+  void _ensureStaged(String name) {
+    if (_staged.contains(name)) return;
+    final ref = _findDoc(name);
+    if (ref != null) {
+      final doc = readDoc(ref.path);
+      if (doc != null) {
+        unpackDoc(doc, Directory('${_cacheRoot.path}/docs/$name'));
+      }
+    }
+    _staged.add(name);
+  }
+
+  /// Packs [name]'s staging folder into its document file.
+  bool _commitStage(String name, String kind) {
+    final ref = _findDoc(name) ??
+        DocRef(name, kind, docPath(name, part: kind == 'part'),
+            DocSource.internal);
+    final target = saveTargetFor(ref, _docsDir!.path);
+    final ok = writeDoc(target, packDir(_stage(name), kind));
+    if (!ok) {
+      Log.e('doc', 'could not write "$name" to $target', null, null);
+      return false;
+    }
+    library[name] = DocRef(name, kind, target, ref.source, DateTime.now());
+    _staged.add(name);
+    // The thumbnail cache is keyed by path, so it goes stale on every save.
+    try {
+      final t = _thumbFile(library[name]!);
+      final png = _pngFile(name);
+      if (png.existsSync()) {
+        png.copySync(t.path);
+      } else if (t.existsSync()) {
+        t.deleteSync();
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  // ---- M177: document files. One file per document makes delete, rename and
+  // duplicate three one-line filesystem operations instead of a walk over a
+  // list of sidecar suffixes that a new sidecar could silently fall out of.
+
+  /// Removes [name]'s document file, thumbnail and staging folder.
+  void _deleteDocFile(String name) {
+    final ref = _findDoc(name);
+    try {
+      if (ref != null) {
+        final f = File(ref.path);
+        if (f.existsSync()) f.deleteSync();
+        final t = _thumbFile(ref);
+        if (t.existsSync()) t.deleteSync();
+        _remembered.removeWhere((e) => e.path == ref.path);
+        _saveRemembered();
+      }
+    } catch (e) {
+      Log.w('doc', 'delete "$name" failed: $e');
+    }
+    library.remove(name);
+    _dropStage(name);
+  }
+
+  /// Moves [from]'s document file to [to]. An external document is renamed
+  /// WHERE IT LIVES — moving it into the app folder behind the user's back
+  /// would be the same betrayal as saving an internal copy.
+  bool _renameDocFile(String from, String to) {
+    final ref = _findDoc(from);
+    if (ref == null) return false;
+    final ext = ref.isPart ? kPartExt : kSketchExt;
+    final dir = ref.source == DocSource.external
+        ? (ref.path.contains('/')
+            ? ref.path.substring(0, ref.path.lastIndexOf('/'))
+            : '.')
+        : _docsDir!.path;
+    final target = '$dir/$to.$ext';
+    try {
+      final src = File(ref.path);
+      if (!src.existsSync()) return false;
+      src.renameSync(target);
+      final t = _thumbFile(ref);
+      if (t.existsSync()) t.deleteSync();
+    } catch (e) {
+      Log.w('doc', 'rename "$from" failed: $e');
+      return false;
+    }
+    final moved = DocRef(to, ref.kind, target, ref.source, DateTime.now());
+    library.remove(from);
+    library[to] = moved;
+    if (ref.source == DocSource.external) {
+      _remembered.removeWhere((e) => e.path == ref.path);
+      _remembered.insert(0, moved);
+      _saveRemembered();
+    }
+    _dropStage(from);
+    return true;
+  }
+
+  /// Copies [name]'s document to [copy] inside the app folder. A duplicate is
+  /// always internal: it is a new document of the user's own, not a second
+  /// claim on someone else's file.
+  bool _duplicateDocFile(String name, String copy) {
+    final ref = _findDoc(name);
+    if (ref == null) return false;
+    final ext = ref.isPart ? kPartExt : kSketchExt;
+    final target = '${_docsDir!.path}/$copy.$ext';
+    try {
+      final src = File(ref.path);
+      if (!src.existsSync()) return false;
+      src.copySync(target);
+    } catch (e) {
+      Log.w('doc', 'duplicate "$name" failed: $e');
+      return false;
+    }
+    library[copy] = DocRef(copy, ref.kind, target, DocSource.internal);
+    return true;
+  }
+
+  // ---- M177: migrating the pre-single-file layout ----
+  //
+  // Before M177 a sketch was a .dxf plus eleven sidecars in `sketches/`, and a
+  // part was a `<name>.part.json` beside a `parts/<name>/` tree. Those are
+  // documents people have made; the migration's only job is to not lose one.
+  //
+  // The ordering is the whole design: every legacy document is read, packed
+  // and WRITTEN, each new file is re-read to prove it parses, and only then is
+  // the old layout set aside — by RENAMING the folder, never deleting it. If
+  // anything at all fails, the old folder stays exactly where it is and the
+  // migration is simply attempted again next launch.
+
+  /// Legacy sketch/part storage, pre-M177.
+  Directory get _legacyDir => Directory('${_docsDir!.path}/sketches');
+
+  /// Where the legacy folder is parked once every document is out of it.
+  Directory get _legacyBackupDir =>
+      Directory('${_docsDir!.path}/.cache/pre-m177-backup');
+
+  /// Converts the pre-M177 layout into .ptp / .pts documents.
+  ///
+  /// Returns the number of documents migrated. Safe to call on every launch:
+  /// with no legacy folder it does nothing.
+  int migrateLegacyDocuments() {
+    final legacy = _legacyDir;
+    if (!legacy.existsSync()) return 0;
+    List<FileSystemEntity> listing;
+    try {
+      listing = legacy.listSync();
+    } catch (e) {
+      Log.e('migrate', 'could not read the legacy folder', e, null);
+      return 0;
+    }
+
+    final parts = <String>[];
+    final sketchNames = <String>[];
+    for (final e in listing.whereType<File>()) {
+      final f = e.uri.pathSegments.last;
+      if (f.endsWith('.part.json')) {
+        parts.add(f.substring(0, f.length - '.part.json'.length));
+      } else if (f.endsWith('.dxf') && !f.endsWith('.export.dxf')) {
+        sketchNames.add(f.substring(0, f.length - '.dxf'.length));
+      }
+    }
+    // A name that is both is a part: the part.json is the document, the dxf
+    // beside it would be an export left over from a share.
+    sketchNames.removeWhere(parts.contains);
+    if (parts.isEmpty && sketchNames.isEmpty) {
+      _parkLegacyFolder();
+      return 0;
+    }
+
+    Log.i('migrate',
+        'pre-M177 layout: ${parts.length} part(s), ${sketchNames.length} sketch(es)');
+    var done = 0;
+    var failed = 0;
+    for (final name in [...parts, ...sketchNames]) {
+      final isPart = parts.contains(name);
+      final target =
+          '${_docsDir!.path}/$name.${isPart ? kPartExt : kSketchExt}';
+      if (File(target).existsSync()) {
+        // Already migrated on an earlier launch that could not park the
+        // folder. Not an error, and NOT something to overwrite.
+        done++;
+        continue;
+      }
+      try {
+        final stage = Directory('${_cacheRoot.path}/migrate/$name');
+        if (stage.existsSync()) stage.deleteSync(recursive: true);
+        stage.createSync(recursive: true);
+        if (isPart) {
+          _stageLegacyPart(legacy, name, stage);
+        } else {
+          _stageLegacySketch(legacy, name, stage);
+        }
+        if (!writeDoc(target, packDir(stage, isPart ? 'part' : 'sketch'))) {
+          throw StateError('write failed');
+        }
+        // Prove it before anything old is touched.
+        if (readDocHeader(target)?.entry(
+                isPart ? kMetaEntry : '$kSketchBase.dxf') ==
+            null) {
+          throw StateError('the written document does not read back');
+        }
+        stage.deleteSync(recursive: true);
+        done++;
+        Log.i('migrate', 'migrated ${isPart ? "part" : "sketch"} "$name"');
+      } catch (e, st) {
+        failed++;
+        Log.e('migrate', 'could not migrate "$name"', e, st);
+        try {
+          final half = File(target);
+          if (half.existsSync()) half.deleteSync();
+        } catch (_) {}
+      }
+    }
+    if (failed == 0) {
+      _parkLegacyFolder();
+    } else {
+      Log.w('migrate',
+          '$failed document(s) did not migrate — the old folder is untouched '
+              'and the migration runs again on the next launch');
+    }
+    return done;
+  }
+
+  /// Moves the legacy folder out of the gallery's way. RENAMED, never deleted:
+  /// if the migration got something subtly wrong, the originals are still
+  /// there to go back to.
+  void _parkLegacyFolder() {
+    try {
+      final backup = _legacyBackupDir;
+      if (backup.existsSync()) backup.deleteSync(recursive: true);
+      backup.parent.createSync(recursive: true);
+      _legacyDir.renameSync(backup.path);
+      Log.i('migrate', 'pre-M177 folder kept at ${backup.path}');
+    } catch (e) {
+      Log.w('migrate', 'could not park the legacy folder: $e');
+    }
+  }
+
+  void _stageLegacySketch(Directory legacy, String name, Directory stage) {
+    for (final suffix in sketchFileSuffixes) {
+      final src = File('${legacy.path}/$name$suffix');
+      if (!src.existsSync()) continue;
+      // The preview was <name>.png; inside a document it is preview.png.
+      final dst = suffix == '.png'
+          ? '${stage.path}/$kPreviewEntry'
+          : '${stage.path}/$kSketchBase$suffix';
+      src.copySync(dst);
+    }
+    _stageLegacyImages(legacy, File('${stage.path}/$kSketchBase.images.json'),
+        stage);
+  }
+
+  void _stageLegacyPart(Directory legacy, String name, Directory stage) {
+    File('${legacy.path}/$name.part.json').copySync('${stage.path}/$kMetaEntry');
+    final png = File('${legacy.path}/$name.png');
+    if (png.existsSync()) png.copySync('${stage.path}/$kPreviewEntry');
+
+    final childDir = Directory('${legacy.path}/parts/$name/sketches');
+    if (childDir.existsSync()) {
+      final dst = Directory('${stage.path}/sketches')
+        ..createSync(recursive: true);
+      for (final f in childDir.listSync().whereType<File>()) {
+        f.copySync('${dst.path}/${f.uri.pathSegments.last}');
+        _stageLegacyImages(legacy, f, stage);
+      }
+    }
+    // Imported STEP files lived in "<part>_imports/" beside the sketches;
+    // _resolveImport also matches on base name, so moving them into the
+    // document's own imports/ keeps every stored path working.
+    final imports = Directory('${legacy.path}/${name}_imports');
+    if (imports.existsSync()) {
+      final dst = Directory('${stage.path}/imports')
+        ..createSync(recursive: true);
+      for (final f in imports.listSync().whereType<File>()) {
+        f.copySync('${dst.path}/${f.uri.pathSegments.last}');
+      }
+    }
+  }
+
+  /// Copies the image files an images.json sidecar refers to into the document.
+  ///
+  /// Images used to sit loose in the shared folder, so a document was never
+  /// self-contained. Without this a migrated sketch would open with its
+  /// pictures missing.
+  void _stageLegacyImages(Directory legacy, File sidecar, Directory stage) {
+    if (!sidecar.existsSync()) return;
+    try {
+      for (final img in decodeImages(sidecar.readAsStringSync())) {
+        final src = File('${legacy.path}/${img.file}');
+        if (!src.existsSync()) continue;
+        final dst = Directory('${stage.path}/images')
+          ..createSync(recursive: true);
+        src.copySync('${dst.path}/${img.file}');
+      }
+    } catch (e) {
+      Log.w('migrate', 'image migration failed: $e');
+    }
+  }
+
+  /// Drops [name]'s staging folder (after a delete or rename).
+  void _dropStage(String name) {
+    _staged.remove(name);
+    try {
+      final d = Directory('${_cacheRoot.path}/docs/$name');
+      if (d.existsSync()) d.deleteSync(recursive: true);
+    } catch (_) {}
+  }
 
   Future<void> refreshSaved() async {
     final list = <SavedSketchInfo>[];
-    if (_docsDir != null && _sketchDir.existsSync()) {
-      for (final f in _sketchDir.listSync().whereType<File>()) {
-        if (!f.path.endsWith('.dxf')) continue;
-        final name = f.uri.pathSegments.last.replaceAll('.dxf', '');
-        final png = _pngFile(name);
-        list.add(SavedSketchInfo(
-            name, f.lastModifiedSync(), png.existsSync() ? png : null));
+    library.clear();
+    if (_docsDir != null) {
+      final names = <String>[];
+      try {
+        for (final e in _docsDir!.listSync()) {
+          final n = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
+          if (e is File) names.add(n);
+        }
+      } catch (e) {
+        Log.w('doc', 'app folder scan failed: $e');
       }
-      // 3D parts live next to the sketches as <name>.part.json; their
-      // thumbnail (once a solid has been extruded) is <name>.png in the same
-      // directory, written by _writePartPreview — same lookup as a sketch.
-      for (final f in _sketchDir.listSync().whereType<File>()) {
-        if (!f.path.endsWith('.part.json')) continue;
-        final name = f.uri.pathSegments.last.replaceAll('.part.json', '');
-        final png = _pngFile(name);
+      final refs = mergedLibrary(
+        scanAppFolder(names, _docsDir!.path),
+        _remembered,
+        stillExists: (p) {
+          try {
+            return File(p).existsSync();
+          } catch (_) {
+            // Unreachable is NOT gone: an iOS security-scoped path can be
+            // temporarily out of reach and must keep its place in the gallery.
+            return true;
+          }
+        },
+      );
+      for (final r in refs) {
+        // Two documents can carry the same name (one internal, one opened from
+        // elsewhere). The gallery is keyed by name, so the internal one wins
+        // and the external keeps a disambiguated label.
+        var label = r.name;
+        if (library.containsKey(label)) {
+          if (r.source == DocSource.internal) {
+            library[label] = r;
+            continue;
+          }
+          label = '${r.name} (${_folderLabel(r.path)})';
+          if (library.containsKey(label)) continue;
+        }
+        library[label] = DocRef(label, r.kind, r.path, r.source, r.lastOpened);
+      }
+      for (final entry in library.entries) {
+        final r = entry.value;
+        DateTime modified;
+        try {
+          modified = File(r.path).lastModifiedSync();
+        } catch (_) {
+          modified = r.lastOpened ?? DateTime.fromMillisecondsSinceEpoch(0);
+        }
         list.add(SavedSketchInfo(
-            name, f.lastModifiedSync(), png.existsSync() ? png : null, 'part'));
+            entry.key, modified, _thumbFor(r), r.isPart ? 'part' : 'sketch'));
       }
     }
     list.sort((a, b) => b.modified.compareTo(a.modified));
     saved = list;
   }
 
+  /// The folder an external document sits in, for disambiguating two
+  /// documents that share a name.
+  static String _folderLabel(String path) {
+    final parts = path.split('/')..removeLast();
+    return parts.isEmpty ? 'elsewhere' : parts.last;
+  }
+
+  /// The gallery thumbnail for [ref], extracted from the document when the
+  /// cached copy is missing or older than the document itself.
+  File? _thumbFor(DocRef ref) {
+    final t = _thumbFile(ref);
+    try {
+      final src = File(ref.path);
+      if (!src.existsSync()) return t.existsSync() ? t : null;
+      if (t.existsSync() &&
+          !t.lastModifiedSync().isBefore(src.lastModifiedSync())) {
+        return t;
+      }
+      // Header + one blob: listing a gallery of parts never reads a payload.
+      final bytes = readDocEntry(ref.path, kPreviewEntry);
+      if (bytes == null || bytes.isEmpty) {
+        if (t.existsSync()) t.deleteSync();
+        return null;
+      }
+      t.writeAsBytesSync(bytes);
+      return t;
+    } catch (e) {
+      Log.w('doc', 'thumbnail for "${ref.name}" failed: $e');
+      return t.existsSync() ? t : null;
+    }
+  }
+
   // ---- sketch-level file management (gallery context menu) ----
 
-  /// EVERY file that belongs to one sketch. Delete/rename/duplicate all walk
-  /// this single list, so a sidecar can never be half-handled — mirror any new
-  /// sidecar written by [saveSketch] here or a rename will silently drop it.
+  /// EVERY file that belongs to one sketch, relative to its staging folder.
+  ///
+  /// M177 — kept because [_writeLegacySketchStage] still has to recognise the
+  /// old on-disk layout during migration, and because the names inside a
+  /// document are exactly these. The base is the constant "sketch": what a
+  /// document is CALLED is the file name, so nothing inside it has to change
+  /// when it is renamed.
   static const List<String> sketchFileSuffixes = [
     '.dxf',
     '.png',
@@ -1020,7 +1502,7 @@ class AppState extends ChangeNotifier {
   ];
 
   bool sketchNameExists(String name) =>
-      sketches.containsKey(name) || _dxfFile(name).existsSync();
+      sketches.containsKey(name) || _findDoc(name)?.isPart == false;
 
   /// Null when [raw] is a usable sketch name, otherwise the reason. Names are
   /// used verbatim as file names, so anything that could escape the sketch
@@ -1046,14 +1528,7 @@ class AppState extends ChangeNotifier {
       if (curTab == null) editingLayer = null;
       _reanalyze();
     }
-    for (final suffix in sketchFileSuffixes) {
-      final f = File('${_sketchDir.path}/$name$suffix');
-      try {
-        if (f.existsSync()) f.deleteSync();
-      } catch (e) {
-        Log.w('state', 'delete $name$suffix failed: $e');
-      }
-    }
+    _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
   }
@@ -1083,17 +1558,7 @@ class AppState extends ChangeNotifier {
       if (wasCurrent) curTab = null;
     }
 
-    var moved = false;
-    for (final suffix in sketchFileSuffixes) {
-      final src = File('${_sketchDir.path}/$from$suffix');
-      if (!src.existsSync()) continue;
-      try {
-        src.renameSync('${_sketchDir.path}/$target$suffix');
-        moved = true;
-      } catch (e) {
-        Log.w('state', 'rename $from$suffix failed: $e');
-      }
-    }
+    final moved = _renameDocFile(from, target);
 
     if (moved && tabIndex >= 0) {
       await openSketch(target); // reloads from the renamed files
@@ -1114,26 +1579,15 @@ class AppState extends ChangeNotifier {
   Future<String?> duplicateSketch(String name) async {
     if (_docsDir == null) return null;
     if (sketches.containsKey(name)) await saveSketch(name);
-    if (!_dxfFile(name).existsSync()) return null;
+    if (_findDoc(name) == null) return null;
 
     var copy = '$name copy';
     var n = 2;
-    while (sketchNameExists(copy)) {
+    while (docNameExists(copy)) {
       copy = '$name copy $n';
       n++;
     }
-    var copied = false;
-    for (final suffix in sketchFileSuffixes) {
-      final src = File('${_sketchDir.path}/$name$suffix');
-      if (!src.existsSync()) continue;
-      try {
-        src.copySync('${_sketchDir.path}/$copy$suffix');
-        copied = true;
-      } catch (e) {
-        Log.w('state', 'duplicate $name$suffix failed: $e');
-      }
-    }
-    if (!copied) return null;
+    if (!_duplicateDocFile(name, copy)) return null;
     await refreshSaved();
     notifyListeners();
     return copy;
@@ -1144,8 +1598,16 @@ class AppState extends ChangeNotifier {
   Future<String?> sketchExportPath(String name) async {
     if (_docsDir == null) return null;
     if (sketches.containsKey(name)) await saveSketch(name);
+    _ensureStaged(name);
     final f = _dxfFile(name);
     if (!f.existsSync()) return null;
+
+    // M177 — the DXF inside a document is called "sketch.dxf", because what a
+    // document is CALLED is its file name. The share sheet has to hand over
+    // "<name>.dxf", so the export is always a copy under a proper name.
+    final exportDir = Directory('${_cacheRoot.path}/export');
+    if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+    final named = File('${exportDir.path}/$name.dxf');
 
     // M112 — EXPORT A COPY, not the storage file.
     //
@@ -1159,12 +1621,15 @@ class AppState extends ChangeNotifier {
     // "Defpoints", which every CAD package treats as non-plotting. The
     // geometry is still there — you can see it, snap to it, and re-import it —
     // it just cannot be mistaken for the part.
-    final model = await _loadSketchIn(_sketchDir, name);
+    final model = await _loadSketchIn(_stage(name), name, base: kSketchBase);
     try {
       final gs = model.geometry;
       final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
-      if (!needsSplit) return f.path; // nothing to protect: ship the file
-      final out = File('${_sketchDir.path}/$name.export.dxf');
+      if (!needsSplit) {
+        f.copySync(named.path); // nothing to protect: ship it under its name
+        return named.path;
+      }
+      final out = named;
       final tmp = SketchModel('_export');
       try {
         tmp.layers
@@ -1181,7 +1646,8 @@ class AppState extends ChangeNotifier {
         ]);
         if (!tmp.engine.saveDxf(out.path)) {
           Log.w('export', 'export copy failed; falling back to storage file');
-          return f.path;
+          f.copySync(named.path);
+          return named.path;
         }
       } finally {
         tmp.dispose();
@@ -1189,7 +1655,12 @@ class AppState extends ChangeNotifier {
       return out.path;
     } catch (e) {
       Log.w('export', 'export copy failed: $e');
-      return f.path;
+      try {
+        f.copySync(named.path);
+        return named.path;
+      } catch (_) {
+        return null;
+      }
     } finally {
       if (!sketches.containsKey(name)) model.dispose();
     }
@@ -1235,21 +1706,151 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Saves the open document and says WHERE it went.
+  ///
+  /// M177 — this is what Ctrl+S calls. It used to call [saveSketch]
+  /// unconditionally, which meant Ctrl+S in a PART saved nothing at all and
+  /// still said "Save failed" rather than what had happened. And a document
+  /// opened from outside the app is written back to the file it came from:
+  /// the whole promise of Open is that Save lands where you opened from.
+  Future<void> saveCurrentDocument() async {
+    final name = curTab;
+    if (name == null) return;
+    final ref = _findDoc(name);
+    final ok = parts.containsKey(name)
+        ? await savePart(name)
+        : sketches.containsKey(name)
+            ? await saveSketch(name)
+            : false;
+    if (!ok) {
+      toast('Could not save "$name".');
+      return;
+    }
+    final saved = library[name] ?? ref;
+    toast(saved != null && saved.source == DocSource.external
+        ? 'Saved to ${_folderLabel(saved.path)}'
+        : 'Saved "$name"');
+  }
+
+  // ---- M177: Open ----
+
+  /// Opens whatever the user picked: one of ours from anywhere, or a STEP or
+  /// DXF to convert. Returns the gallery name it ended up under.
+  ///
+  /// ONE verb. The button says "Open" because from where the user stands
+  /// there is one action; which of the four things happens follows from the
+  /// file, not from a menu they have to get right first.
+  Future<String?> openPath(String path) async {
+    if (_docsDir == null) return null;
+    final action = openActionFor(path, _docsDir!.path);
+    Log.i('doc', 'open "$path" -> ${action.name}');
+    switch (action) {
+      case OpenAction.unsupported:
+        toast('Prototype cannot open that kind of file.');
+        return null;
+      case OpenAction.import:
+        return importAsNewDocument(path);
+      case OpenAction.openExternal:
+        if (readDocHeader(path) == null) {
+          toast('That file is not a Prototype document (or is damaged).');
+          return null;
+        }
+        final ref = DocRef(docNameOf(path)!, isPartPath(path) ? 'part' : 'sketch',
+            path, DocSource.external, DateTime.now());
+        _remembered.removeWhere((e) => e.path == path);
+        _remembered.insert(0, ref);
+        _saveRemembered();
+        continue open;
+      open:
+      case OpenAction.openInternal:
+        await refreshSaved();
+        final label = _labelForPath(path);
+        if (label == null) {
+          toast('Could not open that document.');
+          return null;
+        }
+        // The file on disk may have changed since it was last staged — it is
+        // the user's own file in their own folder, after all.
+        _dropStage(label);
+        await openDocument(label);
+        return label;
+    }
+  }
+
+  /// The gallery name the document at [path] is listed under.
+  String? _labelForPath(String path) {
+    for (final e in library.entries) {
+      if (e.value.path == path) return e.key;
+    }
+    return null;
+  }
+
+  /// Converts a STEP or DXF into a NEW document in the app folder.
+  ///
+  /// The original is never touched and never referenced: a foreign file is a
+  /// source, not a document, and the app folder is where the user's documents
+  /// belong. Returns the new document's name.
+  Future<String?> importAsNewDocument(String path) async {
+    var base = path.split('/').last;
+    final dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.substring(0, dot);
+    var name = base.isEmpty ? 'Imported' : base;
+    for (var i = 2; docNameExists(name); i++) {
+      name = '$base $i';
+    }
+    final lower = path.toLowerCase();
+    try {
+      if (lower.endsWith('.step') || lower.endsWith('.stp')) {
+        if (!await createNamedPart(name)) return null;
+        await importStepIntoPart(path);
+        await savePart(name);
+      } else if (lower.endsWith('.dxf')) {
+        if (!await createNamedSketch(name)) return null;
+        importDxf(path);
+        await saveSketch(name);
+      } else {
+        toast('Prototype cannot open that kind of file.');
+        return null;
+      }
+    } catch (e, st) {
+      Log.e('import', 'import of "$path" failed', e, st);
+      toast('Could not import that file.');
+      return null;
+    }
+    Log.i('doc', 'imported "$path" as "$name"');
+    return name;
+  }
+
+  /// Forgets an external document — the file itself is left alone.
+  Future<void> forgetExternal(String name) async {
+    final ref = _findDoc(name);
+    if (ref == null || ref.source != DocSource.external) return;
+    _remembered.removeWhere((e) => e.path == ref.path);
+    _saveRemembered();
+    _dropStage(name);
+    await refreshSaved();
+    notifyListeners();
+  }
+
+  /// True when [name] is listed from outside the app folder.
+  bool isExternal(String name) => _findDoc(name)?.source == DocSource.external;
+
   Future<void> openSketch(String name) async {
     if (!sketches.containsKey(name)) {
       final s = SketchModel(name);
+      _ensureStaged(name);
       // load from disk if present
       final f = _dxfFile(name);
       if (f.existsSync()) {
         s.engine.loadDxf(f.path);
         s.refresh();
-        final cf = File('${_sketchDir.path}/$name.cons.json');
+        final cf = File('${_stage(name).path}/$kSketchBase.cons.json');
         if (cf.existsSync()) {
           s.constraints.addAll(decodeConstraints(cf.readAsStringSync()));
           ensureParamNames(s); // M41: pre-M41 sidecars load nameless
         }
         try {
-          final pf = File('${_sketchDir.path}/$name.params.json');
+          final pf = File('${_stage(name).path}/$kSketchBase.params.json');
           if (pf.existsSync()) {
             s.userParams.addAll(decodeUserParams(pf.readAsStringSync()));
           }
@@ -1257,10 +1858,10 @@ class AppState extends ChangeNotifier {
           Log.w('state', 'user-param sidecar read failed: $e');
         }
         try {
-          final tf = File('${_sketchDir.path}/$name.texts.json');
+          final tf = File('${_stage(name).path}/$kSketchBase.texts.json');
           if (tf.existsSync())
             s.texts.addAll(decodeTexts(tf.readAsStringSync()));
-          final imf = File('${_sketchDir.path}/$name.images.json');
+          final imf = File('${_stage(name).path}/$kSketchBase.images.json');
           if (imf.existsSync()) {
             s.images.addAll(decodeImages(imf.readAsStringSync()));
           }
@@ -1271,7 +1872,7 @@ class AppState extends ChangeNotifier {
         // back from refresh() as a plain polyline. Re-tag by index (entities
         // load in save order, same as the constraint sidecar assumes).
         try {
-          final sf = File('${_sketchDir.path}/$name.splines.json');
+          final sf = File('${_stage(name).path}/$kSketchBase.splines.json');
           if (sf.existsSync()) {
             final j = jsonDecode(sf.readAsStringSync()) as Map<String, dynamic>;
             j.forEach((k, v) {
@@ -1293,7 +1894,7 @@ class AppState extends ChangeNotifier {
         // editable form (centre, handle + parameter block) stored in the gear
         // sidecar, so the reloaded gear drags and edits like a live gear.
         try {
-          final gf = File('${_sketchDir.path}/$name.gears.json');
+          final gf = File('${_stage(name).path}/$kSketchBase.gears.json');
           if (gf.existsSync()) {
             final j = jsonDecode(gf.readAsStringSync()) as Map<String, dynamic>;
             j.forEach((k, v) {
@@ -1315,7 +1916,7 @@ class AppState extends ChangeNotifier {
           Log.w('state', 'gear sidecar read failed: $e');
         }
         try {
-          final stf = File('${_sketchDir.path}/$name.styles.json');
+          final stf = File('${_stage(name).path}/$kSketchBase.styles.json');
           if (stf.existsSync()) {
             final j =
                 jsonDecode(stf.readAsStringSync()) as Map<String, dynamic>;
@@ -1330,7 +1931,7 @@ class AppState extends ChangeNotifier {
           Log.w('state', 'style sidecar read failed: $e');
         }
         try {
-          final pf = File('${_sketchDir.path}/$name.proj.json');
+          final pf = File('${_stage(name).path}/$kSketchBase.proj.json');
           if (pf.existsSync()) {
             final j = jsonDecode(pf.readAsStringSync()) as Map<String, dynamic>;
             j.forEach((k, v) {
@@ -1357,7 +1958,7 @@ class AppState extends ChangeNotifier {
         final hidden = <String>{}, locked = <String>{};
         var eos = -1; // -1: pre-M51 sidecar -> marker at the end
         try {
-          final lf = File('${_sketchDir.path}/$name.layers.json');
+          final lf = File('${_stage(name).path}/$kSketchBase.layers.json');
           if (lf.existsSync()) {
             final j = jsonDecode(lf.readAsStringSync()) as Map<String, dynamic>;
             ordered = [
@@ -1972,22 +2573,41 @@ class AppState extends ChangeNotifier {
   // M56 — 3D PART DOCUMENTS: persistence, child-sketch flow, Extrude
   // =========================================================================
 
-  Directory _partDir(String name) {
-    final d = Directory('${_sketchDir.path}/parts/$name');
-    if (!d.existsSync()) d.createSync(recursive: true);
-    return d;
-  }
-
   Directory _partSketchDir(String name) {
-    final d = Directory('${_partDir(name).path}/sketches');
+    final d = Directory('${_stage(name).path}/sketches');
     if (!d.existsSync()) d.createSync(recursive: true);
     return d;
   }
 
-  File _partJson(String name) => File('${_sketchDir.path}/$name.part.json');
+  /// Where a part's imported STEP files are stashed inside its document.
+  Directory _partImportDir(String name) {
+    final d = Directory('${_stage(name).path}/imports');
+    if (!d.existsSync()) d.createSync(recursive: true);
+    return d;
+  }
+
+  File _partJson(String name) => File('${_stage(name).path}/$kMetaEntry');
+
+  /// Absolute path of an imported STEP inside part [name]'s document, or null.
+  ///
+  /// Pre-M177 documents recorded the path as "<part>_imports/<file>" against
+  /// the shared sketch folder; migration moves those files into the document's
+  /// own imports/ folder, so both spellings are resolved by BASE NAME as well.
+  /// A stored path is a reference to geometry the user imported — failing to
+  /// find it costs them a body, so it is worth looking twice.
+  String? _resolveImport(String name, String rel) {
+    final stage = _stage(name).path;
+    for (final cand in [
+      '$stage/$rel',
+      '$stage/imports/${rel.split('/').last}',
+    ]) {
+      if (File(cand).existsSync()) return cand;
+    }
+    return null;
+  }
 
   bool isPartName(String name) =>
-      parts.containsKey(name) || _partJson(name).existsSync();
+      parts.containsKey(name) || _findDoc(name)?.isPart == true;
 
   bool partNameExists(String name) => isPartName(name);
 
@@ -2030,6 +2650,7 @@ class AppState extends ChangeNotifier {
   Future<void> openPart(String name) async {
     if (!parts.containsKey(name)) {
       final p = PartModel(name);
+      _ensureStaged(name);
       try {
         final f = _partJson(name);
         if (f.existsSync()) {
@@ -2097,8 +2718,8 @@ class AppState extends ChangeNotifier {
           (byFile[rel] ??= []).add(f);
         }
         for (final entry in byFile.entries) {
-          final abs = '${_sketchDir.path}/${entry.key}';
-          if (!File(abs).existsSync()) {
+          final abs = _resolveImport(name, entry.key);
+          if (abs == null) {
             for (final f in entry.value) {
               f.computeError = 'imported file missing';
             }
@@ -2141,6 +2762,7 @@ class AppState extends ChangeNotifier {
   Future<bool> savePart(String name) async {
     final p = parts[name];
     if (p == null || _docsDir == null) return false;
+    _ensureStaged(name);
     try {
       _partJson(name).writeAsStringSync(jsonEncode(p.toJson()));
       // copy: the loop awaits, and a plane pick during that window would
@@ -2148,15 +2770,36 @@ class AppState extends ChangeNotifier {
       for (final c in List<ChildSketch>.of(p.childSketches)) {
         await _saveSketchIn(_partSketchDir(name), c.model);
       }
+      // M177 — a deleted child sketch used to leave its files behind in the
+      // part folder, which was invisible clutter. Inside a single-file
+      // document it would be dead weight carried in every copy and every
+      // AirDrop, so the staging folder is pruned to what the part still has.
+      _pruneChildSketches(name, p);
       p.dirty = false;
     } catch (e, st) {
       Log.e('part', 'save "$name" failed', e, st);
       return false;
     }
     await _writePartPreview(name, p);
+    if (!_commitStage(name, 'part')) return false;
     await refreshSaved();
     notifyListeners();
     return true;
+  }
+
+  /// Deletes staged sketch files belonging to child sketches [p] no longer has.
+  void _pruneChildSketches(String name, PartModel p) {
+    try {
+      final keep = {for (final c in p.childSketches) c.model.name};
+      for (final f in _partSketchDir(name).listSync().whereType<File>()) {
+        final file = f.uri.pathSegments.last;
+        final dot = file.indexOf('.');
+        if (dot <= 0) continue;
+        if (!keep.contains(file.substring(0, dot))) f.deleteSync();
+      }
+    } catch (e) {
+      Log.w('part', 'pruning "$name" failed: $e');
+    }
   }
 
   /// Renders the part's solids to <name>.png (380x240) for the gallery card
@@ -2238,16 +2881,7 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     parts.remove(name)?.dispose();
-    try {
-      final j = _partJson(name);
-      if (j.existsSync()) j.deleteSync();
-      final png = _pngFile(name);
-      if (png.existsSync()) png.deleteSync();
-      final d = Directory('${_sketchDir.path}/parts/$name');
-      if (d.existsSync()) d.deleteSync(recursive: true);
-    } catch (e) {
-      Log.w('part', 'delete "$name" failed: $e');
-    }
+    _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
   }
@@ -2270,19 +2904,7 @@ class AppState extends ChangeNotifier {
         curTab = null;
       }
     }
-    try {
-      final j = _partJson(from);
-      if (j.existsSync()) j.renameSync(_partJson(target).path);
-      final png = _pngFile(from);
-      if (png.existsSync()) png.renameSync(_pngFile(target).path);
-      final d = Directory('${_sketchDir.path}/parts/$from');
-      if (d.existsSync()) {
-        d.renameSync('${_sketchDir.path}/parts/$target');
-      }
-    } catch (e) {
-      Log.w('part', 'rename "$from" failed: $e');
-      return false;
-    }
+    if (!_renameDocFile(from, target)) return false;
     if (wasOpen) {
       await openPart(target);
       openTabs.remove(target);
@@ -2297,36 +2919,20 @@ class AppState extends ChangeNotifier {
   Future<String?> duplicatePart(String name) async {
     if (_docsDir == null) return null;
     if (parts.containsKey(name)) await savePart(name);
-    if (!_partJson(name).existsSync()) return null;
+    if (_findDoc(name) == null) return null;
     var copy = '$name copy';
     var n = 2;
     while (docNameExists(copy)) {
       copy = '$name copy $n';
       n++;
     }
-    try {
-      _partJson(name).copySync(_partJson(copy).path);
-      final png = _pngFile(name);
-      if (png.existsSync()) png.copySync(_pngFile(copy).path);
-      final src = Directory('${_sketchDir.path}/parts/$name');
-      if (src.existsSync()) {
-        for (final f in src.listSync(recursive: true).whereType<File>()) {
-          final rel = f.path.substring(src.path.length);
-          final dst = File('${_sketchDir.path}/parts/$copy$rel');
-          dst.parent.createSync(recursive: true);
-          f.copySync(dst.path);
-        }
-      }
-    } catch (e) {
-      Log.w('part', 'duplicate "$name" failed: $e');
-      return null;
-    }
+    if (!_duplicateDocFile(name, copy)) return null;
     await refreshSaved();
     notifyListeners();
     return copy;
   }
 
-  /// Writes the part's solids as STEP next to the sketches and returns the
+  /// Writes the part's solids as STEP into the export cache and returns the
   /// path (for the share sheet / Files export). Null without a kernel or
   /// without any computed solid — reported honestly, never faked.
   Future<String?> partExportStep(String name) async {
@@ -2348,7 +2954,9 @@ class AppState extends ChangeNotifier {
       toast('Nothing to export yet — extrude a profile first.');
       return null;
     }
-    final path = '${_sketchDir.path}/$name.step';
+    final exportDir = Directory('${_cacheRoot.path}/export');
+    if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+    final path = '${exportDir.path}/$name.step';
     if (!partKernel.exportStep(solids, path)) {
       toast('STEP export failed: ${partKernel.lastError}');
       return null;
@@ -4491,9 +5099,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<SketchModel> _loadSketchIn(Directory dir, String name) async {
+  /// Loads a sketch from [dir]. [name] is what the model is CALLED; [base] is
+  /// the file base it is stored under, which differs for a standalone sketch
+  /// document (see [kSketchBase]).
+  Future<SketchModel> _loadSketchIn(Directory dir, String name,
+      {String? base}) async {
     final s = SketchModel(name);
-    final base = '${dir.path}/$name';
+    base = '${dir.path}/${base ?? name}';
     final f = File('$base.dxf');
     if (f.existsSync()) {
       s.engine.loadDxf(f.path);
@@ -8634,7 +9246,9 @@ class AppState extends ChangeNotifier {
     final ext = srcPath.contains('.') ? srcPath.split('.').last : 'img';
     final name = 'img_${DateTime.now().millisecondsSinceEpoch}.$ext';
     try {
-      File(srcPath).copySync('${_sketchDir.path}/$name');
+      final dir = Directory('${_stage(curTab!).path}/images');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      File(srcPath).copySync('${dir.path}/$name');
     } catch (e) {
       Log.w('insert', 'image copy failed: $e');
       toast('Could not import the image.');
@@ -8651,7 +9265,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// Absolute path of an inserted image's file.
-  String imagePath(SketchImage i) => '${_sketchDir.path}/${i.file}';
+  /// Absolute path of an inserted image's file inside the open document.
+  ///
+  /// M177 — images used to be shared across every sketch in one folder, which
+  /// meant a document was not self-contained: send it to someone and the
+  /// pictures stayed behind. They now live inside the document. The bare-name
+  /// fallback resolves pre-M177 sketches, whose images migration copied in.
+  String imagePath(SketchImage i) {
+    final name = curTab;
+    if (name == null) return i.file;
+    final stage = _stage(name).path;
+    final inDoc = '$stage/images/${i.file}';
+    if (File(inDoc).existsSync()) return inDoc;
+    return '$stage/${i.file}';
+  }
 
   void moveImage(SketchImage i, Offset center, {bool commit = false}) {
     i.x = center.dx;
@@ -8688,7 +9315,7 @@ class AppState extends ChangeNotifier {
   /// step through the normal solve/rebuild pipeline.
   /// M111 — imports a STEP file into the current part: one BODY per solid.
   ///
-  /// The file is copied into the part folder and the features remember it,
+  /// The file is copied INTO the part document and the features remember it,
   /// because the imported B-Rep is not serialised — re-reading the STEP on
   /// open is simpler and lossless, and it keeps the document a description of
   /// where geometry came from rather than a second copy of it.
@@ -8706,12 +9333,11 @@ class AppState extends ChangeNotifier {
     // Keep the source next to the part so it can be re-read on open.
     String? rel;
     try {
-      final dir = Directory('${_sketchDir.path}/${curTab}_imports');
-      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final dir = _partImportDir(curTab!);
       final base = path.split('/').last;
       final dst = File('${dir.path}/$base');
       File(path).copySync(dst.path);
-      rel = '${curTab}_imports/$base';
+      rel = 'imports/$base';
     } catch (e) {
       Log.w('import', 'could not stash the STEP file: $e');
     }
@@ -9601,15 +10227,16 @@ class AppState extends ChangeNotifier {
   Future<bool> saveSketch(String name) async {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
+    _ensureStaged(name);
     final ok = s.engine.saveDxf(_dxfFile(name).path);
     try {
-      File('${_sketchDir.path}/$name.cons.json')
+      File('${_stage(name).path}/$kSketchBase.cons.json')
           .writeAsStringSync(encodeConstraints(s.constraints));
-      File('${_sketchDir.path}/$name.params.json')
+      File('${_stage(name).path}/$kSketchBase.params.json')
           .writeAsStringSync(encodeUserParams(s.userParams));
-      File('${_sketchDir.path}/$name.texts.json')
+      File('${_stage(name).path}/$kSketchBase.texts.json')
           .writeAsStringSync(encodeTexts(s.texts));
-      File('${_sketchDir.path}/$name.images.json')
+      File('${_stage(name).path}/$kSketchBase.images.json')
           .writeAsStringSync(encodeImages(s.images));
     } catch (e) {
       Log.w('state', 'constraint sidecar write failed: $e');
@@ -9623,7 +10250,7 @@ class AppState extends ChangeNotifier {
           spl['$i'] = s.geometry[i].spline;
         }
       }
-      final sf = File('${_sketchDir.path}/$name.splines.json');
+      final sf = File('${_stage(name).path}/$kSketchBase.splines.json');
       if (spl.isEmpty) {
         if (sf.existsSync()) sf.deleteSync();
       } else {
@@ -9640,7 +10267,7 @@ class AppState extends ChangeNotifier {
         final gp = gearParams(g);
         if (gp != null) grs['$i'] = {'d': g.data, 'p': gp.toJson()};
       }
-      final gf = File('${_sketchDir.path}/$name.gears.json');
+      final gf = File('${_stage(name).path}/$kSketchBase.gears.json');
       if (grs.isEmpty) {
         if (gf.existsSync()) gf.deleteSync();
       } else {
@@ -9653,7 +10280,7 @@ class AppState extends ChangeNotifier {
           sty['$i'] = s.geometry[i].style;
         }
       }
-      final stf = File('${_sketchDir.path}/$name.styles.json');
+      final stf = File('${_stage(name).path}/$kSketchBase.styles.json');
       if (sty.isEmpty) {
         if (stf.existsSync()) stf.deleteSync();
       } else {
@@ -9669,7 +10296,7 @@ class AppState extends ChangeNotifier {
           prj['$i'] = g.projSeg >= 0 ? [g.proj, g.projSeg] : g.proj;
         }
       }
-      final pf = File('${_sketchDir.path}/$name.proj.json');
+      final pf = File('${_stage(name).path}/$kSketchBase.proj.json');
       if (prj.isEmpty) {
         if (pf.existsSync()) pf.deleteSync();
       } else {
@@ -9694,7 +10321,7 @@ class AppState extends ChangeNotifier {
       for (var i = 0; i < s.layers.length && i < s.eosAfter; i++) {
         if (persistLayers.contains(s.layers[i])) eosPersist++;
       }
-      File('${_sketchDir.path}/$name.layers.json')
+      File('${_stage(name).path}/$kSketchBase.layers.json')
           .writeAsStringSync(jsonEncode({
         'version': 3,
         'layers': persistLayers,
@@ -9706,6 +10333,7 @@ class AppState extends ChangeNotifier {
       Log.w('state', 'layer sidecar write failed: $e');
     }
     await _writePreview(name, s);
+    if (!_commitStage(name, 'sketch')) return false;
     s.dirty = false;
     await refreshSaved();
     notifyListeners();

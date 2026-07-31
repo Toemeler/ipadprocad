@@ -21,6 +21,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../doc_file.dart';
 import '../log.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
@@ -66,11 +67,16 @@ List<NativeMenuItem> newDocMenuItems() => const [
       NativeMenuItem(
           id: '2d', title: 'New 2D Sketch', symbol: 'square.on.square'),
       NativeMenuItem(id: '3d', title: 'New 3D Part', symbol: 'cube'),
-      // M117 — Import belongs HERE, next to the two ways of starting a
+      // M117 — Open belongs HERE, next to the two ways of starting a
       // document, because that is what it is: a third way to get one. In the
       // ribbon it was a tool among modelling tools, which is the wrong shelf.
+      //
+      // M177 — and it is called "Open", not "Import STEP / DXF", because one
+      // verb covers all of it: a Prototype document from anywhere on the iPad
+      // opens in place, a STEP or DXF is converted. Which one happens follows
+      // from the file, not from a menu the user has to get right first.
       NativeMenuItem(
-          id: 'import', title: 'Import STEP / DXF…', symbol: 'square.and.arrow.down'),
+          id: 'import', title: 'Open…', symbol: 'folder'),
     ];
 
 class HomeView extends StatefulWidget {
@@ -245,7 +251,7 @@ class _HomeViewState extends State<HomeView> {
             child: Row(children: [
               SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
               const SizedBox(width: 10),
-              Text('Import STEP / DXF…', style: ts(12.5, T.text)),
+              Text('Open…', style: ts(12.5, T.text)),
             ]),
           ),
         ],
@@ -261,41 +267,35 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
-  /// M117 — import from the gallery. A STEP becomes a NEW PART (one body per
-  /// solid); a DXF becomes a new sketch. Importing from here means you never
-  /// have to create an empty document first just to have somewhere to put the
-  /// file — which is what the ribbon button forced.
+  /// M177 — Open. One picker, four outcomes, decided by the file:
+  ///
+  ///   a .ptp/.pts from elsewhere  -> opened IN PLACE and remembered, so it is
+  ///                                  in the gallery from now on and Ctrl+S
+  ///                                  writes back to where it actually lives
+  ///   a .ptp/.pts already in the app folder -> just opened
+  ///   a STEP or DXF               -> converted into a new document here
+  ///   anything else               -> said so plainly
+  ///
+  /// [AppState.openPath] owns that decision; this only picks the file.
   Future<void> _importDocument() async {
     final app = widget.app;
     try {
       final res = await FilePicker.platform.pickFiles(
           type: FileType.custom,
-          allowedExtensions: ['step', 'stp', 'STEP', 'STP', 'dxf', 'DXF']);
+          allowedExtensions: const [
+            kPartExt,
+            kSketchExt,
+            'step',
+            'stp',
+            'dxf',
+          ]);
       final path = res?.files.single.path;
       if (path == null || !mounted) return;
-      // Name the document after the file, with a collision counter.
-      var base = path.split('/').last;
-      final dot = base.lastIndexOf('.');
-      if (dot > 0) base = base.substring(0, dot);
-      var name = base;
-      for (var i = 2; app.docNameExists(name); i++) {
-        name = '$base $i';
-      }
-      final lower = path.toLowerCase();
-      if (lower.endsWith('.step') || lower.endsWith('.stp')) {
-        await app.createNamedPart(name);
-        if (!mounted) return;
-        await app.importStepIntoPart(path);
-      } else if (lower.endsWith('.dxf')) {
-        await app.createNamedSketch(name);
-        if (!mounted) return;
-        app.importDxf(path);
-      } else {
-        app.toast('Unsupported file type.');
-      }
+      final name = await app.openPath(path);
+      if (name != null) Log.i('doc', 'opened "$name" from $path');
     } catch (e) {
-      Log.w('import', 'gallery import failed: $e');
-      app.toast('Could not import that file.');
+      Log.w('import', 'open failed: $e');
+      app.toast('Could not open that file.');
     }
   }
 

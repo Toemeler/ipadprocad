@@ -9,11 +9,15 @@
 //   * deleteLayer above the marker keeps the marker on the same layers
 //   * the sidecar round-trips the marker (and pre-M53 files load at the end)
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/doc_file.dart';
+import 'package:prototype/doc_store.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 
 AppState makeApp({String name = 't'}) {
@@ -176,10 +180,19 @@ void main() {
     expect(s2.eosAfter, 1, reason: 'marker survives the round-trip');
     expect(app2.layerRolledBack('Layer 2'), isTrue);
 
-    // strip the key -> a pre-M53 file: the marker must land at the END
-    final lf = File('${dir.path}/sketches/S.layers.json');
-    final txt = lf.readAsStringSync().replaceAll(RegExp(r',"eos":\d+'), '');
-    lf.writeAsStringSync(txt);
+    // strip the key -> a pre-M53 file: the marker must land at the END.
+    // M177 — the sidecar lives INSIDE the .pts document, so it is edited
+    // there; app3 unpacks the document again from cold.
+    final docPath = app2.pathOfDocument('S')!;
+    final doc = readDoc(docPath)!;
+    const entry = '$kSketchBase.layers.json';
+    final txt = utf8
+        .decode(doc.entries[entry]!)
+        .replaceAll(RegExp(r',"eos":\d+'), '');
+    writeDoc(
+        docPath,
+        DocFile(doc.kind,
+            {...doc.entries, entry: Uint8List.fromList(utf8.encode(txt))}));
     final app3 = AppState()..docsDirForTest = dir;
     await app3.openSketch('S');
     expect(app3.current!.eosAfter, app3.current!.layers.length);
