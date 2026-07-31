@@ -104,14 +104,27 @@ class Cam3 {
     return s * wx + u * wy;
   }
 
-  /// Intersection of the pixel ray with the plane n·X = 0, or null when
-  /// looking edge-on.
-  Vec3? rayOnPlane(Offset p, Vec3 n) {
+  /// Intersection of the pixel ray with the plane through [at] with normal
+  /// [n], or null when looking edge-on.
+  ///
+  /// M175 — [at] used to be implicit and always the WORLD ORIGIN (the plane
+  /// n·X = 0). That is right for the three origin planes and wrong for every
+  /// other frame in the app: a work plane offset 10 mm from XY, and a sketch
+  /// on a solid face, are both planes that do NOT pass through the origin, and
+  /// they were being hit-tested against a parallel plane through it instead.
+  ///
+  /// Looking straight down a frame's normal the error vanishes — the ray runs
+  /// along the offset, so the hit point's u/v are unchanged — which is why
+  /// this survived: the app orients the camera to the face before you draw on
+  /// it. Off-axis it drifts, and for a work plane it also returns the DEPTH of
+  /// the wrong plane, so the face behind won the "which surface did you tap"
+  /// comparison and the work plane could never be sketched on.
+  Vec3? rayOnPlane(Offset p, Vec3 n, [Vec3 at = Vec3.zero]) {
     final o = unprojectOnCamPlane(p);
     final rd = _fwd(dir);
     final denom = n.dot(rd);
     if (denom.abs() < 1e-9) return null;
-    final t = -n.dot(o) / denom;
+    final t = n.dot(at - o) / denom;
     return o + rd * t;
   }
 }

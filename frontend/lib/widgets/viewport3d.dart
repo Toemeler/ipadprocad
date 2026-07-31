@@ -813,9 +813,9 @@ class _Viewport3DState extends State<Viewport3D>
       final cs = p.sketchByName(sess.sketchName!);
       if (cs != null) {
         final frame = sketchFrameOf(cs);
-        final w = cam.rayOnPlane(px, frame.n);
+        final w = cam.rayOnPlane(px, frame.n, frame.origin);
         if (w != null) {
-          final sp = Offset(w.dot(frame.u), w.dot(frame.v));
+          final sp = frame.toSketch(w); // M175 — origin-aware, like the sketch
           final r = regionAt(app.sessionRegions(cs), sp);
           region = r?.outer.id;
         }
@@ -942,9 +942,10 @@ class _Viewport3DState extends State<Viewport3D>
         continue;
       }
       final f = planeFrame(key);
-      final w = cam.rayOnPlane(px, f.n);
+      final w = cam.rayOnPlane(px, f.n, f.origin);
       if (w == null) continue;
-      final uu = w.dot(f.u), vv = w.dot(f.v);
+      final sp0 = f.toSketch(w);
+      final uu = sp0.dx, vv = sp0.dy;
       // M83: the picked rectangle is the DRAWN rectangle. Both come from
       // originPlaneRect, so a plane is never clickable off its own edge.
       final (uMin, uMax, vMin, vMax) = originPlaneRect(p, key);
@@ -963,9 +964,10 @@ class _Viewport3DState extends State<Viewport3D>
     for (final w in p.workPlanes) {
       if (!w.visible) continue;
       final f = w.frame;
-      final wp = cam.rayOnPlane(px, f.n);
+      final wp = cam.rayOnPlane(px, f.n, f.origin);
       if (wp == null) continue;
-      final uu = (wp - f.origin).dot(f.u), vv = (wp - f.origin).dot(f.v);
+      final sp0 = f.toSketch(wp);
+      final uu = sp0.dx, vv = sp0.dy;
       final (uMin, uMax, vMin, vMax) = planeRectFor(p, f);
       if (uu >= uMin && uu <= uMax && vv >= vMin && vv <= vMax) {
         final d = cam.depth(wp);
@@ -1016,7 +1018,7 @@ class _Viewport3DState extends State<Viewport3D>
     final p = widget.app.currentPart;
     final f = p == null ? null : frameForPlaneKey(p, key);
     if (f == null) return null;
-    final w = cam.rayOnPlane(px, f.n);
+    final w = cam.rayOnPlane(px, f.n, f.origin);
     if (w == null) return null;
     return cam.depth(w);
   }
@@ -1270,9 +1272,9 @@ class _Viewport3DState extends State<Viewport3D>
       // running between profiles on DIFFERENT sketches.
       for (final cs in p.childSketches) {
         final frame = sketchFrameOf(cs);
-        final w = cam.rayOnPlane(px, frame.n);
+        final w = cam.rayOnPlane(px, frame.n, frame.origin);
         if (w == null) continue;
-        final sp = Offset(w.dot(frame.u), w.dot(frame.v));
+        final sp = frame.toSketch(w); // M175 — origin-aware, like the sketch
         final r = regionAt(app.sessionRegions(cs), sp);
         if (r != null) {
           final ip = interiorPointOf(r.outer);
@@ -1412,9 +1414,9 @@ class _Viewport3DState extends State<Viewport3D>
       ];
       for (final cs in order) {
         final frame = sketchFrameOf(cs);
-        final w = cam.rayOnPlane(px, frame.n);
+        final w = cam.rayOnPlane(px, frame.n, frame.origin);
         if (w == null) continue;
-        final sp = Offset(w.dot(frame.u), w.dot(frame.v));
+        final sp = frame.toSketch(w); // M175 — origin-aware, like the sketch
         final r = regionAt(app.sessionRegions(cs), sp);
         if (r != null) {
           app.toggleSessionProfile(cs.model.name, r,
