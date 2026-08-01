@@ -211,7 +211,12 @@ List<GlassRow> buildBrowserRows(
           eyeOn: f.visible,
           dim: !f.visible || f.rolledBack,
           expandable: nests,
-          expanded: expanded.contains(f.name),
+          // M182 — the expansion key MUST be the row id ('ft:Name'): the host
+          // stores exactly what onExpand handed it. It used to look up the
+          // bare name here, so the set held 'ft:Extrusion1' while the row
+          // asked for 'Extrusion1' — the chevron never expanded and the
+          // consumed sketch could not be revealed.
+          expanded: expanded.contains('$kIdFeature${f.name}'),
           menu: _featureMenu(f),
         ));
         if (nests && expanded.contains(f.name)) {

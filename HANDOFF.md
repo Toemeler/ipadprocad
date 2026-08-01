@@ -16,7 +16,57 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Kopf `7ab7ee5`, M154–M161)
+> **M182 — „A system that cannot break": der Part-Recompute ist jetzt ein
+> Sicherheitsnetz.** Basis: Geräte-Bericht auf Kopf `29c203a` (Log +
+> Session-Verlauf): Fillet1 auf vier Zylinderkanten brach die zweite Extrusion,
+> Revolution1/2 fielen mit „no closed profile in Sketch5/6", Chamfer1 verlor
+> sein Base, und ein unsichtbar geschalteter Extrusionskörper zerstörte Solid1.
+> Vier Wurzelursachen (alle aus dem Log belegt, Details in `M182_ANALYSIS.md`):
+> (1) **Sichtbarkeit war Geometrie** — der Fold rückte nur mit
+> `if (f.visible)` vor, ein verstecktes Feature verschwand aus dem Körper und
+> liess den nächsten Modify ohne Base. (2) **Ein Fehler erzeugte ein Phantom** —
+> nach Chamfer1-Fail materialisierte Extrusion4 als freistehender „cut" ohne
+> base. (3) **Projektionen folgten dem kaputten Körper** — SyncSolidProjections
+> schrieb die verrutschten Segmente in Sketch5/6, die geschlossenen Profile
+> öffneten sich, die Revolutions fielen. (4) **Der kaputte Zustand wurde
+> persistiert** — mutierender Recompute + Save nach jeder Aktion; und Löschen
+> (Body/Feature/Sketch/unterhalb EOP) war irreversibel.
+>
+> **Was drin ist (alles in `M182_ANALYSIS.md` + `m182_cannot_break_test.dart`):**
+> * **F1** Sichtbarkeit ist Display, nie Geometrie: der Fold läuft durch jedes
+>   Feature, `visible` steuert nur das Zeichnen.
+> * **F2** Nicht-destruktiver Recompute: ein Fehlschlag behält das letzte gute
+>   Solid („kept-last-good" im Log).
+> * **F3** Keine Phantome: scheitert ein Feature, werden alle späteren
+>   Features DESSELBEN Körpers mit „feature X on this body failed" markiert
+>   statt mit null-Base zu rechnen; ein nicht-'new'-Feature ohne erreichbares
+>   Base meldet „no solid before this feature".
+> * **F4** Atomarer Durchgang: Face-Settle und Projektions-Sync laufen nur
+>   nach erfolgreichem Recompute.
+> * **F5** Projektions-Closure-Guard (`freezeProjectionUpdatesThatBreakLoops`,
+>   pur und host-getestet): ein Update, das eine geschlossene Schleife eines
+>   verbrauchten Sketches öffnen würde, wird verweigert — die bewegten Segmente
+>   frieren als `projBroken` auf ihrer alten Kurve. Dazu `_projTol` von 25 % auf
+>   5 % (kein Sprung auf eine fremde Kante derselben Art).
+> * **F6** Nativer Browser: der Expander-Key ist jetzt die Zeilen-ID
+>   (`ft:Name` statt `Name`) — Extrusionen/Revolutionen lassen sich endlich
+>   aufklappen und zeigen ihre Skizze.
+> * **F7** Part-Undo für destruktive Operationen (Feature/Body/Sketch/Below-EOP
+>   löschen): Snapshot-Journal pro Part (PartModel-JSON + alle Kind-Sketchen als
+>   UndoSnaps), Ctrl/Cmd+Z / Ctrl+Shift+Z / Ctrl+Y im 3D-Viewport,
+>   Bestätigungsdialog für das native „Delete all features below EOP".
+> * **F8** Ehrliches Logging (Feature-Löschungen, Restores, kept-last-good).
+>
+> **Verifikationsstand — ehrlich:** geschrieben auf Branch
+> `m182-cannot-break` (Basis `session/m130-m145-kernel-features`, Kopf
+> `29c203a`), **8 neue Host-Tests** (`m182_cannot_break_test.dart`), aber
+> NICHT lokal ausgeführt — keine Flutter/Dart-Toolchain in der Session. Gate:
+> die drei per workflow_dispatch angestossenen Workflows (m1-core-build mit
+> dart-checks/m3/m5-IPA, occt-build, slvs-build) + Geräte-Test. Der
+> Geräte-Bericht dieser Sitzung ist die Regression-Fixture: die Kaskade darf
+> sich nicht reproduzieren lassen.
+>
+> > ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Kopf `7ab7ee5`, M154–M161)
 >
 > **Alles aus einem einzigen Geraete-Bericht** (Build `684d35e`, Log +
 > Screenshot + vier `.part.json`). **956 Host-Tests gruen**, `flutter analyze`

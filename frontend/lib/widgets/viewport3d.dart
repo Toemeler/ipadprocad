@@ -86,7 +86,26 @@ class _Viewport3DState extends State<Viewport3D>
   }
 
   bool _onKey(KeyEvent e) {
-    if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape) {
+    if (e is! KeyDownEvent) return false;
+    // M182 — part-level Undo/Redo: Ctrl+Z / Cmd+Z steps back through the
+    // destructive-operation journal (delete feature/body/sketch/below EOP),
+    // Ctrl+Shift+Z / Cmd+Shift+Z (or Ctrl+Y) steps forward again.
+    final ctrl = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    final k = e.logicalKey;
+    if (ctrl && k == LogicalKeyboardKey.keyZ) {
+      if (HardwareKeyboard.instance.isShiftPressed) {
+        widget.app.redoPart();
+      } else {
+        widget.app.undoPart();
+      }
+      return true;
+    }
+    if (ctrl && k == LogicalKeyboardKey.keyY) {
+      widget.app.redoPart();
+      return true;
+    }
+    if (k == LogicalKeyboardKey.escape) {
       if (widget.app.pickPlane || widget.app.extrudeSession != null) {
         widget.app.escape3D();
         return true;

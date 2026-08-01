@@ -427,6 +427,42 @@ class SketchModel {
         eosAfter,
       );
 
+  /// M182 — public capture of the current committed state, used by the
+  /// PART-level journal (a part snapshot stores every child sketch as one of
+  /// these). Same deep-copy semantics as [_takeSnap].
+  UndoSnap captureSnap() => _takeSnap();
+
+  /// M182 — restores this sketch from [snap]: geometry, constraints,
+  /// parameters, texts, images, layers, eye/lock and End of Sketch. EXACT,
+  /// like the 2D undo restore — no replay, no solve. The caller pushes the
+  /// geometry into the engine afterwards (AppState owns that), and should
+  /// [resetHistory] so the restored state becomes the new undo baseline.
+  void applySnap(UndoSnap snap) {
+    constraints
+      ..clear()
+      ..addAll(decodeConstraints(snap.cons));
+    userParams
+      ..clear()
+      ..addAll(decodeUserParams(snap.uparams));
+    texts
+      ..clear()
+      ..addAll(decodeTexts(snap.texts));
+    images
+      ..clear()
+      ..addAll(decodeImages(snap.images));
+    layers
+      ..clear()
+      ..addAll(snap.layers);
+    hiddenLayers
+      ..clear()
+      ..addAll(snap.hidden);
+    lockedLayers
+      ..clear()
+      ..addAll(snap.locked);
+    eosAfter = snap.eos.clamp(0, layers.length);
+    geometry = [for (final g in snap.geometry) g.withData(List<double>.of(g.data))];
+  }
+
   /// Records the CURRENT state as a journal entry. Called from the single
   /// mutation choke point (_rebuildEngine) plus the few state changes that
   /// bypass it (layer eye/lock, adding an empty layer). Identical consecutive
@@ -520,6 +556,21 @@ class UndoSnap {
     }
     return true;
   }
+}
+
+/// M182 — one entry of the PART-level undo journal: everything that makes a
+/// part document, captured BEFORE a destructive operation (delete feature /
+/// delete body / delete below EOP / delete sketch) so the operation can be
+/// undone exactly. The part's own JSON (features, work planes, counters, End
+/// of Part, camera, origin visibility) plus one [UndoSnap] per child sketch —
+/// the SAME deep-copy codec the 2D journal uses, so restore is exact and
+/// needs no replay.
+class PartSnap {
+  final Map<String, dynamic> partJson;
+  final List<String> sketchNames;
+  final List<UndoSnap> sketchSnaps;
+
+  PartSnap(this.partJson, this.sketchNames, this.sketchSnaps);
 }
 
 class SavedSketchInfo {
@@ -2887,11 +2938,10 @@ class AppState extends ChangeNotifier {
             solids[i].dispose();
           }
         }
-        recomputeAllFeatures(p, partKernel);
-        // was called twice here (a stray duplicated line with broken
-        // indentation); the second pass re-projected every solid edge for
-        // nothing on every part open that contains an imported body.
-        _syncSolidProjections(p);
+        // M182 — only sync projections when the recompute SUCCEEDED: a failed
+        // pass leaves last-good geometry in place, and re-deriving projections
+        // from a half-broken body is how closed profiles opened.
+        if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
       }
       Log.i(
           'part',
@@ -3337,10 +3387,13 @@ class AppState extends ChangeNotifier {
       toast('Nothing below End of Part.');
       return 0;
     }
+    _partCheckpoint(p); // M182 — deleting below EOP must be undoable
     for (final f in victims) {
       f.disposeSolid();
       p.features.remove(f);
     }
+    Log.i('part',
+        '"${p.name}": deleted ${victims.length} feature(s) below End of Part');
     p.eopAfter = kEopAtEnd; // parks at the end AND keeps it there
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
@@ -3375,6 +3428,7 @@ class AppState extends ChangeNotifier {
       toast('${cs.model.name} is used by a feature — delete that first.');
       return false;
     }
+    _partCheckpoint(p); // M182 — deleting a sketch must be undoable
     // Leaving the sketch open in the 2D editor while its owner disappears is
     // how you get an editor writing back into a part that no longer has it.
     if (activeChild == cs.model) activeChild = null;
@@ -4244,8 +4298,8 @@ class AppState extends ChangeNotifier {
     edgeSession = null;
     cancelPickEdges();
     if (partKernel.available) {
-      recomputeAllFeatures(p, partKernel);
-      _syncSolidProjections(p);
+      // M182 — projections only after a SUCCESSFUL recompute (see openPart).
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
     }
     p.dirty = true;
     Log.i('part',
@@ -5126,8 +5180,10 @@ class AppState extends ChangeNotifier {
       }
     }
     if (partKernel.available) {
-      recomputeAllFeatures(p, partKernel); // fold Inventor join chains
-      _syncSolidProjections(p);
+      // M182 — projections only after a SUCCESSFUL recompute (see openPart).
+      if (recomputeAllFeatures(p, partKernel)) {
+        _syncSolidProjections(p); // fold Inventor join chains
+      }
     }
     p.dirty = true;
     s.disposePreview();
@@ -5226,6 +5282,160 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  // ---- M182: PART-level undo for destructive operations ----------------
+  //
+  // The 2D sketches have had an undo journal since M39; the PART had none, so
+  // deleting a body/feature/sketch/"everything below EOP" was permanent — and
+  // when a broken recompute made the user delete the broken pieces, the data
+  // was gone for good. The part journal is deliberately small: it snapshots
+  // only the DESTRUCTIVE operations (which can lose data), not every edit.
+  final List<PartSnap> _partUndo = [];
+  final List<PartSnap> _partRedo = [];
+
+  bool get canUndoPart => _partUndo.isNotEmpty;
+  bool get canRedoPart => _partRedo.isNotEmpty;
+
+  PartSnap _takePartSnap(PartModel p) => PartSnap(
+        p.toJson(),
+        [for (final cs in p.childSketches) cs.model.name],
+        [for (final cs in p.childSketches) cs.model.captureSnap()],
+      );
+
+  /// Records the current part state before a destructive operation. Call
+  /// BEFORE mutating. Identical consecutive states are collapsed.
+  void _partCheckpoint(PartModel p) {
+    final s = _takePartSnap(p);
+    if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, s)) return;
+    _partUndo.add(s);
+    _partRedo.clear(); // a new edit forks history
+  }
+
+  bool _samePartSnap(PartSnap a, PartSnap b) {
+    if (a.sketchNames.length != b.sketchNames.length) return false;
+    for (var i = 0; i < a.sketchNames.length; i++) {
+      if (a.sketchNames[i] != b.sketchNames[i]) return false;
+    }
+    return const DeepCollectionEquality()
+        .equals(a.partJson, b.partJson);
+  }
+
+  /// Ctrl+Z in a part: restores the last pre-destructive state.
+  Future<void> undoPart() async {
+    final p = currentPart;
+    if (p == null || _partUndo.isEmpty) {
+      toast('Nothing to undo.');
+      return;
+    }
+    _partRedo.add(_partUndo.removeLast());
+    await _restorePartSnap(p, _partRedo.last);
+    toast('Undo');
+  }
+
+  /// Ctrl+Shift+Z in a part: re-applies the last undone destructive op.
+  Future<void> redoPart() async {
+    final p = currentPart;
+    if (p == null || _partRedo.isEmpty) {
+      toast('Nothing to redo.');
+      return;
+    }
+    final s = _partRedo.removeLast();
+    _partUndo.add(s);
+    await _restorePartSnap(p, s);
+    toast('Redo');
+  }
+
+  /// Rebuilds [p] from a snapshot: features, counters, End of Part, work
+  /// planes, camera, origin visibility and every child sketch (geometry +
+  /// constraints + sidecars, exactly). Then recomputes and saves.
+  Future<void> _restorePartSnap(PartModel p, PartSnap snap) async {
+    // 0. In-flight 3D sessions hold references into the model that is about
+    //    to be replaced wholesale — cancel them first, exactly like the 2D
+    //    undo cancels every in-flight pick before restoring.
+    cancelExtrude();
+    edgeSession?.disposePreview();
+    edgeSession = null;
+    cancelPickEdges();
+    cancelPickBody();
+    cancelPickExtentFace();
+    cancelPlanePick();
+    pickingSweepPath = false;
+    pickingLoftSections = false;
+    pickingRevolveAxis = false;
+    hoverBody = null;
+    // 1. Rebuild the child sketches to match the snapshot. Keep the ones that
+    //    survive, recreate the deleted ones — with their plane/frame/faceRef
+    //    metadata, exactly like the open path (partJson['sketches']).
+    final meta = <String, Map>{};
+    for (final e in (snap.partJson['sketches'] as List? ?? const [])) {
+      final m = e as Map;
+      meta[m['name'] as String] = m;
+    }
+    final byName = {for (final cs in p.childSketches) cs.model.name: cs};
+    final want = <ChildSketch>[];
+    for (var i = 0; i < snap.sketchNames.length; i++) {
+      final name = snap.sketchNames[i];
+      final snap2 = snap.sketchSnaps[i];
+      final m = meta[name] ?? const {};
+      final cs = byName[name] ??
+          ChildSketch(
+              SketchModel(name),
+              m['plane'] as String? ?? 'xy',
+              PlaneFrame.fromFrameJson(m['frame'] as List?),
+              true, // real visibility is applied below from the JSON
+              m['shared'] as bool? ?? false,
+              (m['seq'] as num?)?.toInt() ?? 0,
+              m['faceRef'] is Map
+                  ? SketchFaceSel.fromJson(
+                      (m['faceRef'] as Map).cast<String, dynamic>())
+                  : null);
+      cs.model.applySnap(snap2);
+      want.add(cs);
+      byName[name] = cs;
+    }
+    p.childSketches
+      ..clear()
+      ..addAll(want);
+    // 2. The part-level state (features, counters, EOP, planes, camera).
+    //    loadJson ADDS to the lists, so the current contents must go first.
+    for (final f in p.features) {
+      f.disposeSolid();
+    }
+    p.features.clear();
+    p.workPlanes.clear();
+    p.loadJson(snap.partJson);
+    // 2b. Restore per-sketch visibility the way the open path does: stored
+    //     value, else the consumed default (a consumed sketch starts hidden).
+    for (final cs in p.childSketches) {
+      final m = meta[cs.model.name];
+      if (m != null && m.containsKey('vis')) {
+        cs.visible = m['vis'] as bool? ?? true;
+      } else {
+        cs.visible = !(firstConsumerOf(p, cs.model.name) != null);
+      }
+    }
+    // 3. Push every restored sketch's geometry into its engine and reset the
+    //    sketch's own journal so the restored state is its new baseline.
+    for (final cs in p.childSketches) {
+      _rebuildEngine(cs.model, cs.model.geometry);
+      cs.model.resetHistory();
+    }
+    if (activeChild != null &&
+        !p.childSketches.any((cs) => cs.model == activeChild)) {
+      activeChild = null;
+    }
+    p.dirty = true;
+    if (curTab != null) {
+      if (partKernel.available) {
+        if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+      }
+      savePart(curTab!);
+    }
+    Log.i('part',
+        'undo/redo restored "${p.name}": sketches=${p.childSketches.length} '
+            'features=${p.features.length}');
+    notifyListeners();
+  }
+
   void toggleFeatureVisible(PartFeature f) {
     f.visible = !f.visible;
     currentPart?.dirty = true;
@@ -5250,10 +5460,17 @@ class AppState extends ChangeNotifier {
   Future<void> deleteFeature(PartFeature f) async {
     final p = currentPart;
     if (p == null) return;
+    _partCheckpoint(p); // M182 — deleting a feature must be undoable
     f.disposeSolid();
     p.features.remove(f);
+    Log.i('part', 'feature "${f.name}" deleted from "${p.name}"');
     p.dirty = true;
-    if (curTab != null) await savePart(curTab!);
+    if (curTab != null) {
+      if (partKernel.available) {
+        if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+      }
+      await savePart(curTab!);
+    }
     notifyListeners();
   }
 
@@ -6103,10 +6320,13 @@ class AppState extends ChangeNotifier {
     if (p == null) return 0;
     final victims = [for (final f in p.features) if (f.bodyName == bodyName) f];
     if (victims.isEmpty) return 0;
+    _partCheckpoint(p); // M182 — deleting a body must be undoable
     for (final f in victims) {
       f.disposeSolid();
       p.features.remove(f);
     }
+    Log.i('part',
+        'body "$bodyName" deleted from "${p.name}" (${victims.length} features)');
     p.eopAfter = kEopAtEnd; // parks at the end AND keeps it there
     applyEndOfPart(p);
     recomputeAllFeatures(p, partKernel);
@@ -7333,9 +7553,24 @@ class AppState extends ChangeNotifier {
 
   void _syncSolidProjectionsInner(PartModel p) {
     for (final cs in p.childSketches) {
-      final gs = List<Geo>.of(cs.model.geometry);
+      var gs = List<Geo>.of(cs.model.geometry);
       if (!gs.any((g) => g.proj == Geo.projSolid)) continue;
+      // M182 — a sketch a feature builds on must keep its closed loops. The
+      // device session ended in "no closed profile in Sketch5/6" because
+      // projection updates followed a body whose fold had broken. The guard
+      // (a pure function in part_model.dart, so it is host-testable) refuses
+      // an update that would drop a loop and freezes the moved segments.
+      final consumed = firstConsumerOf(p, cs.model.name) != null;
+      final orig = List<Geo>.of(gs);
       if (!syncSolidProjections(gs, p, sketchFrameOf(cs))) continue;
+      if (consumed) {
+        gs = freezeProjectionUpdatesThatBreakLoops(
+            orig,
+            gs,
+            cs.model.layers,
+            cs.model.hiddenLayers,
+            cs.model.eosAfter);
+      }
       // M88 — the engine holds the REAL geometry; the tag list alone is not
       // enough. syncProjections() gets away with mutating in place only
       // because it runs INSIDE solveConstraints, whose result is then pushed

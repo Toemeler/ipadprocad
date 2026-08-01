@@ -244,7 +244,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           app.setEndOfPart(partTimeline(part).length);
           break;
         case 'eopDeleteBelow':
-          app.deleteBelowEndOfPart();
+          // M182 — this permanently removes every feature below the marker;
+          // the Flutter fallback has always confirmed, the native menu did
+          // not. Ask first, like every other destructive row here.
+          _confirmDeleteBelowPart();
           break;
       }
       return;
@@ -405,5 +408,23 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       if (f.name == name) return f;
     }
     return null;
+  }
+
+  /// M182 — the native EOP menu used to delete everything below the marker
+  /// without asking; the Flutter fallback has always confirmed. Same dialog,
+  /// same wording.
+  Future<void> _confirmDeleteBelowPart() async {
+    final part = app.currentPart;
+    if (part == null) return;
+    final count = part.features.where((f) => f.rolledBack).length;
+    if (count == 0) return;
+    final ok = await confirmAction(
+      context,
+      title: 'Delete all features below EOP?',
+      message: '$count feature${count == 1 ? '' : 's'} '
+          '${count == 1 ? 'is' : 'are'} removed from the part.',
+      confirmLabel: 'Delete',
+    );
+    if (ok) app.deleteBelowEndOfPart();
   }
 }

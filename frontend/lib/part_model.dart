@@ -630,13 +630,29 @@ bool pointInPolygon(Offset p, List<Offset> poly) {
   return inside;
 }
 
+/// The slice of a sketch the profile finders read. Passed instead of the whole
+/// [SketchModel] so the SAME code can count loops on an arbitrary candidate
+/// geometry list — the M182 projection guard needs exactly that (does this
+/// update open a loop a feature builds on?) without mutating the live sketch.
+class ProfileInput {
+  final List<Geo> geometry;
+  final List<String> layers;
+  final Set<String> hidden;
+  final int eosAfter;
+
+  ProfileInput(this.geometry, this.layers, this.hidden, this.eosAfter);
+
+  factory ProfileInput.of(SketchModel s) =>
+      ProfileInput(s.geometry, s.layers, s.hiddenLayers, s.eosAfter);
+}
+
 /// True when profile geometry [g] participates in profiles: drawn on a live,
 /// visible layer, not construction/centerline format (Inventor's rule).
-bool _profileGeo(SketchModel s, Geo g) {
+bool _profileGeo(ProfileInput in, Geo g) {
   if (g.isConstruction || g.isCenterline) return false;
-  if (s.hiddenLayers.contains(g.layer)) return false;
-  final li = s.layers.indexOf(g.layer);
-  if (li >= 0 && li >= s.eosAfter) return false; // below End of Sketch
+  if (in.hidden.contains(g.layer)) return false;
+  final li = in.layers.indexOf(g.layer);
+  if (li >= 0 && li >= in.eosAfter) return false; // below End of Sketch
   return true;
 }
 
@@ -731,14 +747,25 @@ List<Offset> dedupeClosedLoop(List<Offset> p, [double tol = 1e-7]) {
 /// Disjoint closed shapes come out exactly as before (a circle inside a
 /// rectangle still gives the two loops), so nesting in [regionsFrom] is
 /// unchanged for them.
-List<ProfileLoop> arrangementLoops(SketchModel s) {
+///
+/// Public entry point: the arrangement of [s]'s closed loops. Kept on
+/// [SketchModel] for the profile tests and any external caller; the M182
+/// profile-input variant below is what the recompute paths use so they can run
+/// the same finder over a candidate geometry list without a live sketch.
+List<ProfileLoop> arrangementLoops(SketchModel s) =>
+    _arrangementLoops(ProfileInput.of(s));
+
+/// The same arrangement over a [ProfileInput] (any geometry list + the
+/// sketch's layer/visibility rules), so the projection guard can count loops
+/// on a CANDIDATE geometry without touching the live sketch.
+List<ProfileLoop> _arrangementLoops(ProfileInput in) {
   const tol = 1e-6;
 
   // ---- 1. every profile curve as straight segments -------------------------
   final segA = <Offset>[], segB = <Offset>[], segE = <int>[];
-  for (var i = 0; i < s.geometry.length; i++) {
-    final g = s.geometry[i];
-    if (!_profileGeo(s, g)) continue;
+  for (var i = 0; i < in.geometry.length; i++) {
+    final g = in.geometry[i];
+    if (!_profileGeo(in, g)) continue;
     final (pts, closed) = _profileChain(g);
     if (pts.length < 2) continue;
     for (var k = 0; k + 1 < pts.length; k++) {
@@ -877,7 +904,8 @@ List<ProfileLoop> arrangementLoops(SketchModel s) {
 }
 
 List<ProfileLoop> profileLoops(SketchModel s) {
-  final all = Perf.span('sketch.profileLoops', () => _profileLoops(s));
+  final all = Perf.span(
+      'sketch.profileLoops', () => _profileLoops(ProfileInput.of(s)));
   final kept = dropDuplicateLoops(all);
   // M164 — a sketch quietly gaining a loop is how the zero-thickness ring
   // appeared (M156/M163), and it was only ever visible because EXTRUDE
@@ -897,6 +925,55 @@ List<ProfileLoop> profileLoops(SketchModel s) {
                 l.area.toStringAsFixed(2)).join(", ")}]"}');
   }
   return kept;
+}
+
+/// How many closed loops [in] yields — the cheap shape of the profile
+/// question. M182 — the projection guard uses this to refuse an update that
+/// would open a loop a feature builds on: it runs the same arrangement code as
+/// [profileLoops] but over an arbitrary candidate geometry list, silently.
+int profileLoopCount(ProfileInput in) => _profileLoops(in).length;
+
+/// M182 — the projection CLOSURE GUARD.
+///
+/// A projection sync re-derives `projSolid` segments from the current model.
+/// If the body changed a lot (or the fold broke), a segment inside a closed
+/// profile can move enough to OPEN the loop — which is how the device session
+/// ended in "no closed profile in Sketch5/6" and the whole second solid died.
+/// This refuses such an update for a sketch a feature builds on: when the
+/// candidate list [gs] drops a closed loop that [orig] had, every segment that
+/// moved is frozen in place (tagged [Geo.projBroken], keeping its old curve —
+/// Inventor's "converted to fixed curves" for a reference whose parent is
+/// gone) instead of being pushed. Returns the list to push (possibly frozen).
+List<Geo> freezeProjectionUpdatesThatBreakLoops(List<Geo> orig, List<Geo> gs,
+    List<String> layers, Set<String> hidden, int eosAfter) {
+  final before =
+      profileLoopCount(ProfileInput(orig, layers, hidden, eosAfter));
+  if (before == 0) return gs; // nothing a feature depends on: allow
+  final after = profileLoopCount(ProfileInput(gs, layers, hidden, eosAfter));
+  if (after >= before) return gs; // nothing closed was lost: allow
+  Log.w(
+      'project',
+      'projection sync would drop a closed loop a feature builds on '
+          '($before -> $after) — freezing the moved segments instead of '
+          'pushing broken geometry');
+  for (var i = 0; i < gs.length; i++) {
+    if (i < orig.length && !_projectionGeoEquals(gs[i], orig[i])) {
+      gs[i] = orig[i].withProj(Geo.projBroken, -1);
+    }
+  }
+  return gs;
+}
+
+/// Whether two entities are the same curve for the projection guard — same
+/// kind, same spline style, same data. (The guard must know which segments a
+/// projection sync actually moved before it freezes them.)
+bool _projectionGeoEquals(Geo a, Geo b) {
+  if (a.type != b.type || a.spline != b.spline) return false;
+  if (a.data.length != b.data.length) return false;
+  for (var i = 0; i < a.data.length; i++) {
+    if ((a.data[i] - b.data[i]).abs() > 1e-9) return false;
+  }
+  return true;
 }
 
 /// Wall thickness, in mm, below which the gap between two loops is not a
@@ -993,11 +1070,11 @@ double _perimeterOf(List<Offset> p) {
   return (lo, hi);
 }
 
-List<ProfileLoop> _profileLoops(SketchModel s) {
+List<ProfileLoop> _profileLoops(ProfileInput in) {
   // The arrangement subsumes the endpoint-chaining finder below and adds
   // crossings; the old path stays as a fallback so a bail-out can never leave
   // the sketch with no profile at all.
-  final arranged = arrangementLoops(s);
+  final arranged = _arrangementLoops(in);
   if (arranged.isNotEmpty) return arranged;
   const tol = 1e-6;
   final loops = <ProfileLoop>[];
@@ -1015,9 +1092,9 @@ List<ProfileLoop> _profileLoops(SketchModel s) {
 
   // 1. split entities into standalone closed loops and open chains
   final chains = <(List<Offset>, int)>[]; // (points, entity index)
-  for (var i = 0; i < s.geometry.length; i++) {
-    final g = s.geometry[i];
-    if (!_profileGeo(s, g)) continue;
+  for (var i = 0; i < in.geometry.length; i++) {
+    final g = in.geometry[i];
+    if (!_profileGeo(in, g)) continue;
     final (pts, closed) = _profileChain(g);
     if (pts.length < 2) continue;
     if (closed) {
@@ -4036,6 +4113,9 @@ bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   // M164 — every feature rebuild, named, with its outcome. A part that comes
   // back different after a reopen is a SEQUENCE of these going wrong, and
   // until now the log showed only the ones that happened to toast.
+  // M182 — a FAIL that still carries a solid is KEEPING LAST-GOOD GEOMETRY
+  // (the recompute is non-destructive now); say so, so a device log can never
+  // be misread as "this feature built a fresh solid".
   final tris = f.solid?.mesh.indices.length;
   Log.i(
       'feature',
@@ -4043,14 +4123,30 @@ bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
           'op=${f.output}'
           '${base == null ? "" : " base=present"}'
           '${tris == null ? " solid=null" : " tris=${tris ~/ 3}"}'
+          '${ok ? "" : (tris == null ? "" : " kept-last-good")}'
           '${f.computeError == null ? "" : "  err=${f.computeError}"}');
   return ok;
 }
 
 bool _recomputeFeature(
     PartModel part, PartFeature f, PartKernel kernel, KernelSolid? base) {
-  f.disposeSolid();
   f.computeError = null;
+  // M182 — NON-DESTRUCTIVE on failure. The old code called f.disposeSolid()
+  // here, so a failing recompute destroyed the last good solid BEFORE the new
+  // one was known to work; the fold then rebuilt from a broken base and the
+  // damage was persisted by the next save. Now the old solid stays alive
+  // until a new one exists, and a failure leaves it untouched — the part
+  // keeps displaying the last good geometry (the same principle as the 2D
+  // solver's "never render diverged geometry").
+  final old = f.solid;
+  final ok = _dispatchRecompute(part, f, kernel, base);
+  if (!ok) return false;
+  if (old != null && !identical(old, f.solid)) old.dispose();
+  return true;
+}
+
+bool _dispatchRecompute(
+    PartModel part, PartFeature f, PartKernel kernel, KernelSolid? base) {
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base);
@@ -4674,6 +4770,17 @@ String featureInputSig(PartModel part, PartFeature f) {
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
+  if (!ok) {
+    // M182 — a failed feature pass must not chase face anchors or rewrite
+    // sketch projections. The part is showing last-good geometry; re-deriving
+    // projections from a half-broken body is exactly how closed profiles
+    // opened in the device session. The next successful pass re-syncs them.
+    Log.w(
+        'part',
+        'recompute failed — keeping the last good geometry; projections and '
+        'face anchors stay frozen until a recompute succeeds');
+    return false;
+  }
   for (var pass = 1; pass <= _kMaxFaceSettlePasses; pass++) {
     final moved = reanchorFaceSketches(part);
     if (moved == 0) return ok;
@@ -4682,6 +4789,7 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
         'face-anchored sketches moved ($moved) — rebuilding, pass $pass of '
             '$_kMaxFaceSettlePasses');
     ok = _recomputeAllFeaturesOnce(part, kernel, force: true);
+    if (!ok) return false;
   }
   // Still moving after the cap: report it rather than loop. The geometry is
   // whatever the last pass produced, which is the honest answer.
@@ -4716,14 +4824,22 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
   applyEndOfPart(part);
   final chainLast = <String, PartFeature>{}; // bodyName -> last in chain
   final upstream = <String, String>{}; // bodyName -> running chain key
+  // M182 — a body whose chain broke must not build phantoms downstream. Once a
+  // feature on [bodyName] fails, every later feature on that body is marked
+  // failed and NOT computed, so a null base can never silently materialise as
+  // a standalone prism (that is what turned Extrusion4 into a floating "cut"
+  // and let sketch projections chase a broken body in the device session).
+  final brokenBody = <String, String>{}; // bodyName -> name of the failing feature
   for (final f in part.features) {
     f.consumedByJoin = false;
     // A suppressed feature does not exist for this build: it is not computed,
-    // it does not join the chain, and it holds no solid. Letting it compute was
-    // the actual cause of the vanishing/incorrect body — a rolled-back fillet
-    // still ran, still marked the extrusion below it as consumedByJoin, and so
-    // hid BOTH (one suppressed, one "consumed" by something not being drawn).
-    // Disposing here also means no stale geometry can leak into the scene.
+    // it does not join the chain, and it holds no solid. Letting it compute
+    // was the actual cause of the vanishing/incorrect body — a rolled-back
+    // fillet still ran, still marked the extrusion below it as consumedByJoin,
+    // and so hid BOTH (one suppressed, one "consumed" by something not being
+    // drawn). Disposing here also means no stale geometry can leak into the
+    // scene (which filters rolledBack anyway — the M128 contract "it holds no
+    // solid" is deliberately kept).
     if (f.rolledBack) {
       f.disposeSolid();
       f.computeError = null;
@@ -4737,7 +4853,18 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     if (f is ExtrudeFeature && f.imported) {
       final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
       if (prevI != null && prevI.solid != null) prevI.consumedByJoin = true;
-      if (f.visible && f.solid != null) chainLast[f.bodyName] = f;
+      if (f.solid != null) chainLast[f.bodyName] = f;
+      continue;
+    }
+    // M182 — downstream of a failure on the same body: never compute, never
+    // join the chain. The old solid (if any) is kept so the scene can keep
+    // showing last-good geometry; the error names the culprit.
+    final broke = brokenBody[f.bodyName];
+    if (broke != null) {
+      f.computeError =
+          'feature "$broke" on this body failed — nothing further can be built';
+      f.builtSig = null;
+      allOk = false;
       continue;
     }
     final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
@@ -4753,13 +4880,30 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
           ? chainLast[f.bodyName]
           : null;
       if (prev != null && prev.solid != null) prev.consumedByJoin = true;
-      if (f.visible) chainLast[f.bodyName] = f;
+      // M182 — unconditional: VISIBILITY IS A DISPLAY PROPERTY. Advancing the
+      // fold chain on `f.visible` was how hiding one extrusion removed its
+      // volume from the body (or left the next modify feature with no base at
+      // all). The fold always runs through every feature; `visible` only
+      // decides what the viewport draws.
+      chainLast[f.bodyName] = f;
       upstream[f.bodyName] = sig;
       continue;
     }
     final prev = (f.modifiesBody || f.output != 'new')
         ? chainLast[f.bodyName]
         : null;
+    // M182 — honest null base. A non-'new' feature whose body HAS earlier
+    // features but no reachable solid must not materialise as a standalone
+    // phantom: it either inherits a broken chain or sits on rolled-back
+    // predecessors. Fail it loudly instead.
+    if (prev == null && f.output != 'new' && _bodyHasEarlierFeature(part, f)) {
+      f.computeError =
+          'the body has no solid before this feature — an earlier feature '
+          'failed, is missing, or was rolled back';
+      brokenBody[f.bodyName] = f.name;
+      allOk = false;
+      continue;
+    }
     // Fillet and chamfer MODIFY the accumulated body, so it is their input,
     // not a second operand. Handing it to recomputeFeature (rather than
     // combining afterwards) is what keeps them out of the boolean path
@@ -4773,6 +4917,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     if (!ok) {
       allOk = false;
       chainLast.remove(f.bodyName); // a broken chain stops accumulating
+      brokenBody[f.bodyName] = f.name;
       continue;
     }
     if (f.modifiesBody) {
@@ -4786,10 +4931,12 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
       } else {
         // honest failure: keep both standalone solids visible
         f.computeError ??= kernel.lastError;
+        brokenBody[f.bodyName] = f.name;
         allOk = false;
+        continue;
       }
     }
-    if (f.visible) chainLast[f.bodyName] = f;
+    chainLast[f.bodyName] = f;
     f.builtSig = f.solid != null && f.computeError == null ? sig : null;
     upstream[f.bodyName] = sig;
   }
@@ -4797,6 +4944,17 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
   // moved it OUT to the loop above: re-anchoring after the features are built
   // is one pass too late for anything standing on the sketch that moved.
   return allOk;
+}
+
+/// Whether any feature strictly before [f] in build order belongs to the same
+/// body — i.e. whether a null base for [f] means a BROKEN chain rather than a
+/// genuine first feature of the body.
+bool _bodyHasEarlierFeature(PartModel part, PartFeature f) {
+  for (final g in part.features) {
+    if (identical(g, f)) return false;
+    if (g.bodyName == f.bodyName) return true;
+  }
+  return false;
 }
 
 /// The solid that currently STANDS IN for [bodyName] in the folded scene: the
@@ -5364,13 +5522,19 @@ double _projScore(PartEdge e, Geo g) {
 /// Tolerance for [_projScore], scaled to the projection's own size the way
 /// [EdgeSel.bestMatch] scales to its edge: a 200 mm edge may legitimately
 /// shift further than a 2 mm one.
+///
+/// M182 — was 0.25 * (scale + 1): on a 100 mm edge that is a 25 mm bucket,
+/// wide enough for a projected segment to fall onto a DIFFERENT edge of the
+/// same kind (the device session showed segments of a closed profile jumping
+/// to unrelated edges after a body change). 5 % keeps the "same edge moved a
+/// little" case working (renumbering drift) without swallowing look-alikes.
 double _projTol(Geo g) {
   var scale = 0.0;
   for (final v in g.data) {
     final a = v.abs();
     if (a.isFinite && a > scale) scale = a;
   }
-  return 0.25 * (scale + 1.0);
+  return 0.05 * (scale + 1.0);
 }
 
 bool _sameData(List<double> a, List<double> b) {
