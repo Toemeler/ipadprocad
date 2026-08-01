@@ -219,7 +219,7 @@ List<GlassRow> buildBrowserRows(
           expanded: expanded.contains('$kIdFeature${f.name}'),
           menu: _featureMenu(f),
         ));
-        if (nests && expanded.contains(f.name)) {
+        if (nests && expanded.contains('$kIdFeature${f.name}')) {
           rows.add(GlassRow(
             id: '$kIdNested${consumed.model.name}',
             label: consumed.model.name,

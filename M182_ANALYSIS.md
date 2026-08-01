@@ -88,7 +88,7 @@ revolutions to reveal their sketches". (The Flutter fallback browser is correct.
 | # | Fix | File(s) |
 |---|-----|---------|
 | F1 | **Visibility decoupled from computation.** The fold chain advances through every feature regardless of `visible`; visibility only gates drawing. Hiding can no longer alter or break geometry. | `part_model.dart` |
-| F2 | **Non-destructive recompute.** `_recomputeFeature` keeps the last good solid on failure (disposes only on success, and only the replaced solid). | `part_model.dart` |
+| F2 | **Honest, contained failure.** A failing recompute leaves the feature SICK (no solid + error), per the repo's long-standing contract (m56 "deleting the profile marks the feature sick, honestly"). The containment — not the stale geometry — is what keeps the part usable: the failure can no longer cascade. | `part_model.dart` |
 | F3 | **No phantoms, honest failures.** When a feature on a body fails, every later feature on that same body is marked failed ("an earlier feature on this body failed") instead of being computed with a null base. A non-`new` feature whose chain is broken fails with a clear error. | `part_model.dart` |
 | F4 | **Atomic pass.** `recomputeAllFeatures` only runs the face-anchor settle when the feature pass succeeded; `_syncSolidProjections` is only called after a successful pass. A failed recompute changes nothing that is persisted. | `part_model.dart`, `app_state.dart` |
 | F5 | **Projection closure guard.** Before a projection sync is committed into a sketch that a feature consumes, the sketch's closed-loop count is verified; an update that would open a loop is refused and the moved segments are frozen (`projBroken`), never pushed. Plus a tighter `_projTol` so a segment cannot jump onto a *different* edge. | `app_state.dart`, `part_model.dart` |
@@ -114,8 +114,8 @@ repo's rules demand. The device log is the regression fixture: the exact failure
 cascade of this session must not be reproducible after the fixes.
 
 Files touched:
-- `frontend/lib/part_model.dart` — F1, F2, F3, F4 (fold decoupling, non-destructive
-  recompute, downstream poisoning, honest null base, settle gating), F5 (tighter
+- `frontend/lib/part_model.dart` — F1, F2, F3, F4 (fold decoupling, honest sick
+  failure, downstream poisoning, honest null base, settle gating), F5 (tighter
   `_projTol` + `ProfileInput`/`profileLoopCount` + `freezeProjectionUpdatesThatBreakLoops`).
 - `frontend/lib/app_state.dart` — F4 (projection sync gated on recompute success),
   F5 (guard applied in `_syncSolidProjectionsInner`), F7 (part-level undo journal:

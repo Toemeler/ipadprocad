@@ -188,7 +188,7 @@ void main() {
   });
 
   group('M182 — a failed feature poisons its body, never spawns a phantom', () {
-    test('downstream features fail loudly and keep no fresh solid', () async {
+    test('downstream features fail loudly and never spawn a phantom', () async {
       final app = await appWith(3);
       final p = app.currentPart!;
       expect(p.features.every((f) => f.solid != null), isTrue,
@@ -198,19 +198,24 @@ void main() {
       // so its profile can no longer resolve. (The device analogue: Chamfer1
       // failing and Extrusion4 materialising as a standalone cut.)
       final mid = p.features[1];
-      _breakProfile(p.sketchByName(mid.sketchName)!);
+      _breakProfile(p.sketchByName(mid.sketchName)!.model);
 
       final ok = recomputeAllFeatures(p, app.partKernel, force: true);
       expect(ok, isFalse, reason: 'the pass must report the failure');
       expect(mid.computeError, isNotNull,
           reason: 'the broken feature itself is sick');
+      expect(mid.solid, isNull, reason: 'a sick feature holds no solid');
       final top = p.features[2];
       expect(top.computeError, isNotNull,
           reason: 'downstream must NOT be silently recomputed as a phantom');
       expect(top.computeError, contains(mid.name),
           reason: 'the error must name the culprit');
-      expect(top.solid, isNotNull,
-          reason: 'last-good geometry stays for the scene (kept, not rebuilt)');
+      expect(top.solid, isNull,
+          reason: 'the poisoned chain holds no stale or invented solid');
+      // The FIRST feature (upstream of the failure) is untouched and still
+      // carries its body — a failure only poisons what comes after it.
+      expect(p.features[0].solid, isNotNull);
+      expect(p.features[0].computeError, isNull);
     });
 
     test('a body-modify feature on a broken chain never materialises', () async {
@@ -218,7 +223,7 @@ void main() {
       final p = app.currentPart!;
       // The base extrusion goes sick FIRST (the device analogue: Chamfer1
       // losing its base when the fold above it broke).
-      _breakProfile(p.sketchByName(p.features[0].sketchName)!);
+      _breakProfile(p.sketchByName(p.features[0].sketchName)!.model);
       final fil = ChamferFeature(
           name: 'Chamfer1',
           bodyName: 'Solid1',
@@ -243,7 +248,7 @@ void main() {
       // The imported body's STEP file is gone: the feature holds no solid and
       // there is nothing to build on. The 'no solid before' path must fire.
       final base = p.features[0];
-      base.imported = true;
+      (base as ExtrudeFeature).imported = true;
       base.disposeSolid();
       final fil = ChamferFeature(
           name: 'Chamfer1',

@@ -35,8 +35,11 @@ Token NIE in Dateien/.git/config schreiben.
 > **Was drin ist (alles in `M182_ANALYSIS.md` + `m182_cannot_break_test.dart`):**
 > * **F1** Sichtbarkeit ist Display, nie Geometrie: der Fold läuft durch jedes
 >   Feature, `visible` steuert nur das Zeichnen.
-> * **F2** Nicht-destruktiver Recompute: ein Fehlschlag behält das letzte gute
->   Solid („kept-last-good" im Log).
+> * **F2** Ehrlicher, eingedämmter Fehlschlag: ein fehlgeschlagener Recompute
+>   lässt das Feature SICK zurück (kein Solid + Fehlertext; bestehender
+>   m56-Vertrag „deleting the profile marks the feature sick, honestly") —
+>   der Schutz liegt in der Eindämmung (keine Kaskade, kein Phantom, kein
+>   Persistieren des kaputten Zustands), nicht in stehengebliebener Geometrie.
 > * **F3** Keine Phantome: scheitert ein Feature, werden alle späteren
 >   Features DESSELBEN Körpers mit „feature X on this body failed" markiert
 >   statt mit null-Base zu rechnen; ein nicht-'new'-Feature ohne erreichbares
@@ -55,7 +58,7 @@ Token NIE in Dateien/.git/config schreiben.
 >   löschen): Snapshot-Journal pro Part (PartModel-JSON + alle Kind-Sketchen als
 >   UndoSnaps), Ctrl/Cmd+Z / Ctrl+Shift+Z / Ctrl+Y im 3D-Viewport,
 >   Bestätigungsdialog für das native „Delete all features below EOP".
-> * **F8** Ehrliches Logging (Feature-Löschungen, Restores, kept-last-good).
+> * **F8** Ehrliches Logging (Feature-Löschungen, Restores, Sick-Zustände).
 >
 > **Verifikationsstand — ehrlich:** geschrieben auf Branch
 > `m182-cannot-break` (Basis `session/m130-m145-kernel-features`, Kopf

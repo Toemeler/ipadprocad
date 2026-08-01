@@ -5315,8 +5315,11 @@ class AppState extends ChangeNotifier {
     for (var i = 0; i < a.sketchNames.length; i++) {
       if (a.sketchNames[i] != b.sketchNames[i]) return false;
     }
-    return const DeepCollectionEquality()
-        .equals(a.partJson, b.partJson);
+    // The part JSON is the same map shape the file uses (numbers, strings,
+    // bools, lists, maps) — a canonical string comparison is exact and needs
+    // no extra dependency. Keys are written in a fixed order by toJson, so
+    // jsonEncode is deterministic here.
+    return jsonEncode(a.partJson) == jsonEncode(b.partJson);
   }
 
   /// Ctrl+Z in a part: restores the last pre-destructive state.
