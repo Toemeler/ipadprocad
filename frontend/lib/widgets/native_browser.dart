@@ -201,8 +201,13 @@ List<GlassRow> buildBrowserRows(
         final consumed = part.sketchByName(f.sketchName);
         final nests = consumed != null &&
             identical(firstConsumerOf(part, f.sketchName), f);
+        // M182 — the row's OWN id, not the bare feature name. onExpand stores
+        // the id it was given ('ft:Extrusion1') and this asked for the name
+        // ('Extrusion1'), so the set never matched and no extrusion, revolve,
+        // sweep or coil could ever be opened to reveal the sketch under it.
+        final rowId = '$kIdFeature${f.name}';
         rows.add(GlassRow(
-          id: '$kIdFeature${f.name}',
+          id: rowId,
           label: f.name,
           symbol: f.computeError != null ? 'exclamationmark.triangle' : 'cube',
           tint: f.computeError != null ? 'red' : null,
@@ -211,10 +216,10 @@ List<GlassRow> buildBrowserRows(
           eyeOn: f.visible,
           dim: !f.visible || f.rolledBack,
           expandable: nests,
-          expanded: expanded.contains(f.name),
+          expanded: expanded.contains(rowId),
           menu: _featureMenu(f),
         ));
-        if (nests && expanded.contains(f.name)) {
+        if (nests && expanded.contains(rowId)) {
           rows.add(GlassRow(
             id: '$kIdNested${consumed.model.name}',
             label: consumed.model.name,

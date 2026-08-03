@@ -154,7 +154,15 @@ void main() {
     f.taperDeg = 3;
     expect(featureInputSig(part, f), isNot(a));
     f.taperDeg = 0;
+
+    // M182 — visibility is NOT an input that matters, and pinning it here was
+    // the contract that let a display choice reach the kernel. An eye decides
+    // what the scene DRAWS; the solid it draws must be the same either way, so
+    // the signature must not move and the cached solid must stay valid.
     f.visible = false;
-    expect(featureInputSig(part, f), isNot(a));
+    expect(featureInputSig(part, f), a,
+        reason: 'hiding a feature may not invalidate its geometry');
+    f.visible = true;
+    expect(featureInputSig(part, f), a);
   });
 }

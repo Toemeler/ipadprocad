@@ -7336,6 +7336,29 @@ class AppState extends ChangeNotifier {
       final gs = List<Geo>.of(cs.model.geometry);
       if (!gs.any((g) => g.proj == Geo.projSolid)) continue;
       if (!syncSolidProjections(gs, p, sketchFrameOf(cs))) continue;
+      // M182 — a re-projection may not DESTROY the sketch.
+      //
+      // Following a projected edge is a guess (see resolveProjectionSource:
+      // an index is not a topological name, and no geometric rule tells a
+      // source that grew from a number that came to mean another edge). A
+      // wrong guess used to land silently: on the device two segments of a
+      // revolve profile jumped ~100 mm, the sketch went from a closed loop to
+      // none, and the revolve failed with "no closed profile" — taking the
+      // whole body and everything built on it.
+      //
+      // This is the check the guessing cannot defeat. A sketch that HAD a
+      // closed profile must still have one afterwards; if the update takes
+      // the last of them away, it is refused wholesale and the sketch keeps
+      // the geometry that worked. Frozen projections are visible and fixable.
+      // Silently emptied ones are not.
+      if (projectionUpdateWouldEmptyProfile(cs.model, gs)) {
+        Log.w(
+            'project',
+            '"${cs.model.name}": re-projection would leave NO closed profile '
+                '(had ${profileLoops(cs.model).length}) — refused, keeping the '
+                'geometry that builds');
+        continue;
+      }
       // M88 — the engine holds the REAL geometry; the tag list alone is not
       // enough. syncProjections() gets away with mutating in place only
       // because it runs INSIDE solveConstraints, whose result is then pushed
@@ -7346,6 +7369,7 @@ class AppState extends ChangeNotifier {
       cs.model.dirty = true;
     }
   }
+
 
   // ---- sketch patterns (M35, Inventor's Pattern panel) ----
   /// The open pattern dialog's state, or null when no pattern tool is active.

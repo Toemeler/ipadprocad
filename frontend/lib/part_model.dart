@@ -1517,6 +1517,27 @@ abstract class PartFeature {
   bool consumedByJoin = false;
   bool rolledBack = false;
 
+  /// M182 — the feature UPSTREAM of this one whose failure stopped it, or null
+  /// when this feature was reached normally.
+  ///
+  /// A body is a CHAIN: every feature after the first operates on the solid
+  /// the ones before it produced. When one of them fails there is no such
+  /// solid, and the code used to simply drop the accumulator and carry on —
+  /// so the next feature ran with no base and QUIETLY MEANT SOMETHING ELSE. A
+  /// cut with nothing to cut from does not remove material, it materialises as
+  /// a positive lump; a join with nothing to join to becomes a second body.
+  /// One failed revolve turned the rest of a part into rubble that way, and
+  /// nothing in the model said which feature had actually gone wrong.
+  ///
+  /// So a broken chain now POISONS the rest of its body: everything after the
+  /// failure is left uncomputed and says what it is waiting for. Fix the one
+  /// feature and the rest come back on their own, because nothing downstream
+  /// was ever silently rewritten.
+  String? blockedBy;
+
+  /// True when this feature did not run because something upstream failed.
+  bool get isBlocked => blockedBy != null;
+
   /// Input signature [solid] was last built from; null = must rebuild.
   String? builtSig;
 
@@ -4583,9 +4604,12 @@ String featureInputSig(PartModel part, PartFeature f) {
     ..write(f.output)
     ..write(',')
     ..write(f.bodyName)
-    ..write(',')
-    ..write(f.visible)
     ..write('|');
+  // M182 — `visible` is deliberately NOT here. It is what the scene DRAWS,
+  // never what the kernel builds, so a feature's geometry may not depend on
+  // it; leaving it in the signature invalidated a perfectly good solid every
+  // time an eye was tapped, which is how a display choice got the chance to
+  // change a model in the first place.
   // A body-modifying feature has no sketch of its own; everything it depends
   // on arrives through the upstream chain key that recomputeAllFeatures
   // prepends, so there is nothing further to hash here.
@@ -4716,8 +4740,13 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
   applyEndOfPart(part);
   final chainLast = <String, PartFeature>{}; // bodyName -> last in chain
   final upstream = <String, String>{}; // bodyName -> running chain key
+  // M182 — bodyName -> the feature whose failure broke that body's chain.
+  // See PartFeature.blockedBy: a broken chain must stop the body, not quietly
+  // change what every feature after it means.
+  final broken = <String, String>{};
   for (final f in part.features) {
     f.consumedByJoin = false;
+    f.blockedBy = null;
     // A suppressed feature does not exist for this build: it is not computed,
     // it does not join the chain, and it holds no solid. Letting it compute was
     // the actual cause of the vanishing/incorrect body — a rolled-back fillet
@@ -4729,6 +4758,24 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
       f.computeError = null;
       continue;
     }
+    // M182 — the chain this feature stands on is broken. A feature that starts
+    // a NEW body is not standing on it and clears the flag; everything else
+    // stops here, holding no geometry and naming what it is waiting for.
+    if (f.output == 'new' && !f.modifiesBody) {
+      broken.remove(f.bodyName);
+    } else {
+      final culprit = broken[f.bodyName];
+      if (culprit != null) {
+        f.disposeSolid();
+        f.blockedBy = culprit;
+        f.computeError = 'waiting for $culprit';
+        f.builtSig = null;
+        allOk = false;
+        Log.i('feature',
+            'HELD ${f.name} (${f.kind}) body=${f.bodyName} — $culprit failed');
+        continue;
+      }
+    }
     // M111 — an imported body is not computed FROM anything; it just is. Its
     // solid was read from the STEP file, so recompute leaves it untouched and
     // only does the chain bookkeeping around it.
@@ -4737,7 +4784,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     if (f is ExtrudeFeature && f.imported) {
       final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
       if (prevI != null && prevI.solid != null) prevI.consumedByJoin = true;
-      if (f.visible && f.solid != null) chainLast[f.bodyName] = f;
+      if (f.solid != null) chainLast[f.bodyName] = f;
       continue;
     }
     final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
@@ -4753,7 +4800,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
           ? chainLast[f.bodyName]
           : null;
       if (prev != null && prev.solid != null) prev.consumedByJoin = true;
-      if (f.visible) chainLast[f.bodyName] = f;
+      chainLast[f.bodyName] = f;
       upstream[f.bodyName] = sig;
       continue;
     }
@@ -4772,7 +4819,10 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     final ok = recomputeFeature(part, f, kernel, base: prev?.solid);
     if (!ok) {
       allOk = false;
-      chainLast.remove(f.bodyName); // a broken chain stops accumulating
+      // A broken chain stops accumulating AND stops the body: see blockedBy.
+      chainLast.remove(f.bodyName);
+      broken[f.bodyName] = f.name;
+      f.builtSig = null;
       continue;
     }
     if (f.modifiesBody) {
@@ -4784,12 +4834,20 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
         f.solid = combined;
         prev.consumedByJoin = true;
       } else {
-        // honest failure: keep both standalone solids visible
+        // M182 — the boolean itself failed. This used to keep both standalone
+        // solids and carry on, which shows a picture the feature never asked
+        // for AND lets the next feature operate on the un-combined lump. The
+        // failure is reported and the body stops here instead.
         f.computeError ??= kernel.lastError;
         allOk = false;
+        broken[f.bodyName] = f.name;
+        chainLast.remove(f.bodyName);
+        f.builtSig = null;
+        upstream[f.bodyName] = sig;
+        continue;
       }
     }
-    if (f.visible) chainLast[f.bodyName] = f;
+    chainLast[f.bodyName] = f;
     f.builtSig = f.solid != null && f.computeError == null ? sig : null;
     upstream[f.bodyName] = sig;
   }
@@ -5120,6 +5178,30 @@ Geo geoForPartEdge(PartEdge e, String layer) {
 /// An orphan — the source edge no longer exists — becomes [Geo.projBroken]
 /// and freezes where it is, exactly as Inventor converts a reference whose
 /// parent feature is gone into fixed sketch curves, keeping its constraints.
+/// M182 — true when [candidate] would take away the last closed profile a
+/// sketch that currently HAS one.
+///
+/// Following a projected edge is a GUESS: an index is not a topological name,
+/// and no geometric rule separates "the source grew" from "the number came to
+/// mean another edge" (see resolveProjectionSource). This is the check the
+/// guessing cannot defeat, and it is deliberately about the OUTCOME rather
+/// than the guess: whatever any individual segment decided, a sketch that
+/// built a profile before must still build one, because everything downstream
+/// — every extrude, revolve, sweep and loft — is standing on it.
+///
+/// A sketch with no profile to begin with is not made worse by anything, so it
+/// never blocks.
+bool projectionUpdateWouldEmptyProfile(SketchModel s, List<Geo> candidate) {
+  if (profileLoops(s).isEmpty) return false;
+  final before = s.geometry;
+  try {
+    s.geometry = candidate;
+    return profileLoops(s).isEmpty;
+  } finally {
+    s.geometry = before;
+  }
+}
+
 bool syncSolidProjections(List<Geo> gs, PartModel part, PlaneFrame fr) {
   var any = false;
   List<PartEdge>? edges;
@@ -5305,6 +5387,19 @@ PartEdge? resolveProjectionSource(Geo g, List<PartEdge> edges) {
   // only a better-matching rival is evidence that the number stopped meaning
   // the same edge — so no tolerance is applied here.
   //
+  // M182 tried to bound this after a device part came back with segments
+  // logged as "source CHANGED by 143.35 — following it", which is not an edge
+  // that changed but the stored NUMBER pointing at a different edge. Every
+  // bound that rejects that case also rejects a line that doubles, which the
+  // suite pins as a case that must still work: the two are indistinguishable
+  // by geometry alone, and telling them apart needs a topological name, which
+  // projections still do not carry (EdgeSel does it for fillet and chamfer).
+  //
+  // So the guard moved to where the DAMAGE is instead — see
+  // [syncSolidProjections]: a resolution that destroys the sketch's closed
+  // profile is refused wholesale, whatever the individual guesses were. That
+  // holds however wrong this heuristic is, which is the point.
+  //
   // Except when it is DISQUALIFIED (infinite score): an edge that projects to
   // a different kind of curve is not the same edge changed, it is another
   // edge, and following the number onto it is the bug in miniature.
@@ -5316,10 +5411,10 @@ PartEdge? resolveProjectionSource(Geo g, List<PartEdge> edges) {
     return atIndex;
   }
 
+  final tol = _projTol(g);
   // The number is gone. Fall back to the closest plausible edge, and refuse to
   // guess between near-equals (M158): moving a projection to the wrong edge is
   // the failure this whole function exists to end, and freezing is visible.
-  final tol = _projTol(g);
   if (best == null || bestScore > tol) {
     Log.w(
         'project',
