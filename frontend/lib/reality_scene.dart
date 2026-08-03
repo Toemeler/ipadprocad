@@ -246,8 +246,52 @@ String meshSelfReport(String id, OcctMeshData m) {
       '[$inv]';
 }
 
+/// Things that are wrong with a mesh and cost nothing to notice.
+///
+/// The expensive watertightness pass stays behind [meshDiagnostics], but these
+/// are single comparisons on counts that are already to hand, and each one is
+/// a shape the user will see as broken. Catching them here turns "the fillet
+/// looks wrong" into a logged line at the moment it was built.
+List<String> meshAnomalies(OcctMeshData m) {
+  final out = <String>[];
+  final nTri = m.indices.length ~/ 3;
+  final nV = m.positions.length ~/ 3;
+  if (nV == 0 || nTri == 0) {
+    out.add('EMPTY (tris=$nTri verts=$nV) — the solid exists but tessellated '
+        'to nothing, so it is invisible');
+    return out;
+  }
+  if (m.normals.length != m.positions.length) {
+    out.add('normals ${m.normals.length} != positions ${m.positions.length} '
+        '— shading will be wrong or the draw will be dropped');
+  }
+  for (var i = 0; i < m.positions.length; i++) {
+    if (!m.positions[i].isFinite) {
+      out.add('NON-FINITE vertex at component $i — Skia drops the whole draw, '
+          'which is what "the body vanished" looks like');
+      break;
+    }
+  }
+  // Deliberately NOT flagged: a high triangle-per-face count.
+  //
+  // The device log that prompted this work showed 63 101 triangles across 21
+  // faces, which looked like the signature of a self-intersecting blend. It
+  // is not, on its own — the same solid had been meshed at 20 822 triangles a
+  // moment earlier and the only thing that changed was the deflection getting
+  // finer. A single tightly-curved face can legitimately carry thousands of
+  // triangles. A threshold here would fire on ordinary zooming, and a warning
+  // that cries wolf is worse for debugging than no warning, because it
+  // teaches the reader to skim past this whole tag. The counts are already
+  // logged by meshBrief on every mesh, which is where that judgement belongs.
+  return out;
+}
+
 /// Emits a report once per distinct mesh object. Cheap by default; the full
 /// convention/watertightness analysis only runs with [meshDiagnostics] on.
+///
+/// Anomalies are reported at WARN whatever the flag says: they are cheap to
+/// detect and each one is a shape the user is about to call broken, so the
+/// log must carry them without anybody having known to turn a flag on first.
 void logMeshConvention(String id, OcctMeshData m) {
   if (!_conventionLogged.add(identityHashCode(m))) return;
   // Bounded: every re-tessellation makes a NEW mesh object, so this set would
@@ -255,6 +299,15 @@ void logMeshConvention(String id, OcctMeshData m) {
   if (_conventionLogged.length > 256) _conventionLogged.clear();
   Log.i('mesh3d',
       meshDiagnostics ? meshSelfReport(id, m) : meshBrief(id, m));
+  final bad = meshAnomalies(m);
+  for (final a in bad) {
+    Log.w('mesh3d', '$id: $a');
+  }
+  // One anomaly is worth the expensive report even when the flag is off —
+  // this is the one mesh anyone will want the full analysis of.
+  if (bad.isNotEmpty && !meshDiagnostics) {
+    Log.w('mesh3d', 'full analysis: ${meshSelfReport(id, m)}');
+  }
 }
 
 /// Current mesh revision per visible solid. The widget keeps the last set it

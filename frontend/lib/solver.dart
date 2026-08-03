@@ -1699,6 +1699,38 @@ double constraintResidualNorm(List<Geo> gs, List<Constraint> cs) {
   return r.isEmpty ? 0 : _norm(r);
 }
 
+/// The residual norm of EACH constraint separately, in constraint order.
+///
+/// [constraintResidualNorm] answers "did the solve hold?" — a single number
+/// that says a sketch is broken without saying WHERE. When a solve fails, the
+/// only question that matters is which constraint it could not satisfy, and
+/// that is this: walk the residual vector in the same order [_residuals]
+/// builds it and take the norm of each constraint's own slice.
+///
+/// Driven/reference dimensions contribute no residuals and report 0, exactly
+/// as they contribute nothing to the solve.
+List<double> constraintResidualsPer(List<Geo> gs, List<Constraint> cs) {
+  final out = List<double>.filled(cs.length, 0);
+  if (gs.isEmpty || cs.isEmpty) return out;
+  final off = _offsets(gs);
+  final x = _pack(gs);
+  final ctx = _Ctx();
+  _prepare(gs, off, x, cs, ctx);
+  final r = _residuals(gs, off, x, cs, ctx);
+  var k = 0;
+  for (var i = 0; i < cs.length; i++) {
+    final n = residualCount(gs, cs[i]);
+    if (n == 0) continue;
+    var s = 0.0;
+    for (var j = 0; j < n && k + j < r.length; j++) {
+      s += r[k + j] * r[k + j];
+    }
+    out[i] = math.sqrt(s);
+    k += n;
+  }
+  return out;
+}
+
 /// True when [gs] contains a DEGENERATE entity that Skia would drop silently
 /// (blanking it) or draw as garbage: a zero-length line, a zero-sweep or
 /// non-positive-radius arc, a non-positive-radius circle. This is the last line

@@ -974,6 +974,12 @@ class AppState extends ChangeNotifier {
   /// Test-only: the active docs directory, for asserting on written files.
   @visibleForTesting
   Directory? get docsDirForTest => _docsDir;
+
+  /// Where documents (and therefore logs and bug bundles) live. Null until
+  /// [init] has resolved it. Public because the bug reporter has to write
+  /// next to the logs, and reaching for the test-only accessor to do that
+  /// would be a lie about who the API is for.
+  Directory? get docsDir => _docsDir;
   List<SavedSketchInfo> saved = [];
   String backendInfo = '';
   bool backendReal = false;
@@ -8388,6 +8394,17 @@ class AppState extends ChangeNotifier {
     final ok = solveConstraints(gs, s.constraints);
     if (!ok) {
       Log.w('solve', 'solveAndRebuild: unsatisfied — sketch left unchanged');
+      // The one line above is what this used to be, and on its own it is
+      // unactionable: it says a sketch is broken without saying where. Name
+      // the constraints that are not held, the entities they point at, and
+      // dump the sketch so the failing solve can be replayed off-device.
+      Log.block(
+          'solve',
+          'why "${s.name}" is unsatisfiable',
+          solveFailureDump(
+              gs, s.constraints, constraintResidualsPer(gs, s.constraints)));
+      Log.block('solve', 'sketch "${s.name}" as attempted',
+          sketchDump(gs, s.constraints));
       return false;
     }
     _rebuildEngine(s, gs);

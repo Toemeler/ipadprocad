@@ -78,6 +78,70 @@ String gripStr(Grip g, List<Geo> gs) {
       'isPointRef=${pc >= 0 && g.idx < pc}';
 }
 
+/// Why a solve failed, named down to the individual constraint.
+///
+/// A failing solve used to log one line — "unsatisfied — sketch left
+/// unchanged" — which says a sketch is broken without saying where, and left
+/// every 2D report needing a round trip to ask which constraint. [resid] comes
+/// from `constraintResidualsPer`, parallel to [cs].
+///
+/// Worst first, because a contradictory system usually has ONE constraint
+/// carrying almost all of the error and a tail of innocent ones absorbing the
+/// rest. Anything under [tol] is holding and is not listed.
+List<String> solveFailureDump(
+  List<Geo> gs,
+  List<Constraint> cs,
+  List<double> resid, {
+  double tol = 1e-6,
+  int maxNamed = 12,
+}) {
+  final idx = <int>[
+    for (var i = 0; i < cs.length && i < resid.length; i++)
+      if (resid[i] > tol) i
+  ]..sort((a, b) => resid[b].compareTo(resid[a]));
+
+  final out = <String>[
+    'UNSATISFIED: ${idx.length} of ${cs.length} constraints are not held '
+        '(tol=${_n(tol)})',
+  ];
+  if (idx.isEmpty) {
+    // Every constraint holds, so the rejection came from the OTHER gate:
+    // degenerate geometry. Say so rather than printing an empty list, which
+    // reads like "nothing is wrong" next to a failure.
+    out.add('  ...but every constraint is within tolerance — the solve was '
+        'rejected for DEGENERATE GEOMETRY, not for a violated constraint. '
+        'Look for the zero-length line / zero-radius arc below.');
+  }
+  for (final i in idx.take(maxNamed)) {
+    out.add('  worst[${idx.indexOf(i)}] resid=${_n(resid[i])}  '
+        '${conStr(i, cs[i])}');
+    // The entities a violated constraint actually names, so the reader does
+    // not have to cross-reference indices by hand.
+    for (final p in cs[i].pts) {
+      if (p.ent >= 0 && p.ent < gs.length) {
+        out.add('      ${ptRefStr(p)} -> ${geoStr(p.ent, gs[p.ent])}');
+      }
+    }
+    for (final e in cs[i].ents) {
+      if (e >= 0 && e < gs.length) out.add('      ${geoStr(e, gs[e])}');
+    }
+  }
+  if (idx.length > maxNamed) {
+    out.add('  ...and ${idx.length - maxNamed} more');
+  }
+  final degenerate = <String>[
+    for (var i = 0; i < gs.length; i++)
+      if (!geoFinite(gs[i])) geoStr(i, gs[i])
+  ];
+  if (degenerate.isNotEmpty) {
+    out.add('NON-FINITE entities (${degenerate.length}):');
+    for (final d in degenerate) {
+      out.add('  $d');
+    }
+  }
+  return out;
+}
+
 /// Largest absolute coordinate — a cheap "did the sketch explode" probe.
 double maxAbs(List<Geo> gs) {
   var m = 0.0;

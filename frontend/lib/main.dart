@@ -12,6 +12,7 @@ import 'perf.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
+import 'widgets/bug_button.dart';
 import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
@@ -322,6 +323,11 @@ class PrototypeApp extends StatelessWidget {
           },
         ),
           PerfOverlay(app: app),
+          // TEMPORARY (prototype phase): capture a bug the moment it is on
+          // screen. Sits outside the AnimatedBuilder so it survives every
+          // view — home, sketch and part — and above everything so it is
+          // reachable even when a panel is covering the canvas.
+          BugButton(app: app),
         ]),
       ),
     );
