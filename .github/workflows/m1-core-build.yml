@@ -960,6 +960,13 @@ jobs:
           for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-analyze ci-m5-build ci-m5-verify; do
             cp "$l.log" ci-logs-m5/ 2>/dev/null || true
           done
+          # The test log was the one omission that mattered: M5 runs the suite
+          # on macOS where dart-checks runs it on ubuntu, so it is the only
+          # place a platform-specific test failure is visible — and when one
+          # happened there was nothing to read. Gzipped, because a green run
+          # is megabytes of per-test chatter.
+          gzip -9 -c ci-m5-dart-tests.log \
+            > ci-logs-m5/ci-m5-dart-tests.log.gz 2>/dev/null || true
           git config user.email "ci@prototype.local"
           git config user.name "Prototype CI"
           git add -f ci-logs-m5
