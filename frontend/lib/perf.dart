@@ -97,6 +97,10 @@ class Perf {
 
   static bool get ready => _file != null && !_broken;
 
+  /// Where the perf log is, so a bug bundle can carry it. Empty when perf
+  /// logging never came up.
+  static String get path => _file?.path ?? '';
+
   static void init() {
     try {
       String? docs;

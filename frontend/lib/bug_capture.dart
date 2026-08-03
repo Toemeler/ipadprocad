@@ -19,6 +19,7 @@ import 'bug_report.dart';
 import 'ffi/occt_engine.dart';
 import 'log.dart';
 import 'part_model.dart';
+import 'perf.dart';
 import 'reality_scene.dart';
 
 /// Runs [f], returning its value, or a placeholder string on any failure.
@@ -164,6 +165,10 @@ File? captureBugReport(AppState app, String description) {
       sketchJson: sketchJson,
       logText: logText,
       prevLogText: prevText,
+      // Frame and remesh timings. The 10.7-second remesh in the device log
+      // was a perf line, not a log line, so a bundle without this can miss
+      // the whole character of a "it froze" report.
+      perfText: Perf.path.isEmpty ? null : _readIfExists(Perf.path),
     );
 
     // Added here rather than in buildBundle because it needs the scene layer,

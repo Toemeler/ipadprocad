@@ -12,6 +12,7 @@
 // linked OCCT kernel a feature stores its parameters but reports
 // "no 3D kernel" instead of faking a solid. Tests inject a [PartKernel]
 // fake to exercise the state machinery on host.
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -3709,7 +3710,29 @@ KernelSolid? combineSolids(
 /// The real kernel over the linked OCCT shim. [available] is false on host
 /// (symbols not linked) — callers report that honestly.
 class OcctPartKernel implements PartKernel {
-  String _err = '';
+  String _errValue = '';
+
+  /// M185 — assigning an error LOGS it.
+  ///
+  /// Every refusal in this class already records WHY here, and until now that
+  /// string only reached the log if a feature happened to surface it as its
+  /// computeError. A boolean that failed inside the fold, a sweep that could
+  /// not build its path, a STEP import that read nothing — all of those set
+  /// this field and then said nothing anywhere a report could see. There were
+  /// forty-seven such sites and no realistic chance of every future one
+  /// remembering to log; routing the assignment itself is the only version of
+  /// this that stays true as the kernel grows.
+  ///
+  /// The shim's own message is appended when it has one, because the Dart-side
+  /// sentence says which operation gave up and the OCCT sentence says why.
+  set _err(String v) {
+    _errValue = v;
+    if (v.isEmpty) return;
+    final native = _ffi?.lastError() ?? '';
+    Log.w('kernel', native.isEmpty || v.contains(native) ? v : '$v | $native');
+  }
+
+  String get _err => _errValue;
 
   OcctFfi? get _ffi => OcctFfi.instance();
 
@@ -3841,9 +3864,16 @@ class OcctPartKernel implements PartKernel {
       _err = '$what needs kernel-backed solids';
       return null;
     }
+    // M185 — the operands, so a failed boolean can be reasoned about. A bare
+    // OCCT message names neither which of the three ran nor what it was
+    // given, and "cut failed" with no volumes is the same dead end as "the
+    // fillet broke": the interesting cases are a tool that misses the base
+    // entirely, or one of the two arriving empty.
+    final operands = '$what(a: vol=${a.volume.toStringAsFixed(4)}, '
+        'b: vol=${b.volume.toStringAsFixed(4)})';
     final raw = op(ffi, sa, sb);
     if (raw == null) {
-      _err = ffi.lastError();
+      _err = '$operands failed';
       return null;
     }
     final result = ffi.unify(raw) ?? raw;
@@ -3852,9 +3882,19 @@ class OcctPartKernel implements PartKernel {
         linDeflection: kCoarseLinDeflection,
         angDeflection: kCoarseAngDeflection);
     if (mesh == null) {
-      _err = ffi.lastError();
+      _err = '$operands built a solid that could not be tessellated';
       result.dispose();
       return null;
+    }
+    // A boolean whose result is empty or unchanged is not an error to OCCT
+    // but is almost always the user's bug: a cut that removed nothing, or one
+    // that removed everything. Only worth a line when it actually happens.
+    final v = result.volume;
+    if (v <= 1e-9) {
+      Log.w('kernel', '$operands produced an EMPTY solid (vol=$v)');
+    } else if (what == 'cut' && (v - a.volume).abs() < 1e-9) {
+      Log.w('kernel',
+          '$operands removed NOTHING — the tool and the base do not overlap');
     }
     return KernelSolid(mesh, result.volume, result,
         meshLin: kCoarseLinDeflection,
@@ -4268,6 +4308,21 @@ bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
           '${base == null ? "" : " base=present"}'
           '${tris == null ? " solid=null" : " tris=${tris ~/ 3}"}'
           '${f.computeError == null ? "" : "  err=${f.computeError}"}');
+  // M185 — on FAILURE, what it was built FROM.
+  //
+  // The line above says a feature did not build; it never said with which
+  // numbers. Reading a report then meant asking for the part file just to
+  // learn the height of the extrusion that failed. The parameters come from
+  // the feature's own toJson, so this cannot fall behind as kinds are added,
+  // and it is failure-only because the same dump on every successful rebuild
+  // would be tens of lines per recompute of a healthy part.
+  if (!ok) {
+    try {
+      Log.w('feature', '${f.name} was built from: ${jsonEncode(f.toJson())}');
+    } catch (e) {
+      Log.w('feature', '${f.name} parameters are not serialisable: $e');
+    }
+  }
   return ok;
 }
 

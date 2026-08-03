@@ -10069,6 +10069,32 @@ class AppState extends ChangeNotifier {
       }
       final placed = [for (final g in geos) g.onLayer(layer)];
       Log.i('layer', 'commit ${placed.length} entities onto "$layer"');
+      // M185 — inspect what a tool actually produced, at the ONE point every
+      // 2D tool passes through.
+      //
+      // trim, extend, offset, mirror, the pattern builders and every draw
+      // tool are pure geometry functions with no logging of their own, and
+      // adding it to each would still miss the next one. What matters is not
+      // which function ran but whether what it made is drawable: a NaN from a
+      // degenerate offset or a zero-length line from a trim at a tangent is
+      // dropped silently by Skia, and "my line disappeared" is then a bug
+      // with no trace anywhere. Checked here, it always has one.
+      for (var i = 0; i < placed.length; i++) {
+        final g = placed[i];
+        if (!geoFinite(g)) {
+          Log.e(
+              'layer',
+              'tool $tool produced NON-FINITE geometry — Skia will drop it '
+                  'and it will look like nothing happened: ${geoStr(i, g)}');
+        }
+      }
+      if (hasDegenerateGeometry(placed)) {
+        Log.w(
+            'layer',
+            'tool $tool produced DEGENERATE geometry (zero-length line, '
+                'zero-radius/zero-sweep arc) — it will not draw: '
+                '${placed.asMap().entries.map((e) => geoStr(e.key, e.value)).join('; ')}');
+      }
       final gs = List<Geo>.from(s.geometry)..addAll(placed);
       final firstNew = s.geometry.length;
       final consAtCommitStart = s.constraints.length;
