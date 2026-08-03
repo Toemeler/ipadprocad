@@ -87,9 +87,57 @@ void main() {
       expect(File('${out.path}/report.md').readAsStringSync(),
           startsWith('# hello'));
       expect(File('${out.path}/tiny.txt').readAsStringSync(), 'x');
+      // The umlaut member is checked by NAME BYTES below rather than by
+      // reading it back out: whether a given unzip build lands it under the
+      // right name depends on the flag we set, and asserting the flag is the
+      // precise claim. Reading it back only tested the local unzip's guess —
+      // which is exactly how the missing flag survived to CI.
       expect(
-          File('${out.path}/sketches/Skizze-Übergröße.json').readAsStringSync(),
-          '{"a":1}');
+          Directory(out.path)
+              .listSync(recursive: true)
+              .whereType<File>()
+              .length,
+          3,
+          reason: 'all three members extracted, whatever they got called');
+    });
+
+    test('non-ASCII names carry the UTF-8 flag, so they are not decoded as '
+        'CP437', () {
+      // The CI failure that produced this test: a sketch named
+      // "Skizze-Übergröße" extracted under a mangled name, because bit 11 of
+      // the general purpose flag was never set and GNU unzip is entitled to
+      // assume CP437 without it. Asserted on the bytes, so no unzip build's
+      // guesswork can hide a regression.
+      final z = ZipWriter(stamp: DateTime(2026, 8, 3));
+      z.addText('sketches/Skizze-Übergröße.json', '{"a":1}');
+      final b = z.finish();
+
+      // Local file header: flags are the 2 bytes at offset 6.
+      final localFlags = b[6] | (b[7] << 8);
+      expect(localFlags & 0x0800, 0x0800,
+          reason: 'local header must declare the name as UTF-8');
+
+      // And the same in the central directory, which is what most readers
+      // actually consult. Find its signature, then flags sit at +8.
+      var cd = -1;
+      for (var i = 0; i + 3 < b.length; i++) {
+        if (b[i] == 0x50 && b[i + 1] == 0x4b && b[i + 2] == 0x01 &&
+            b[i + 3] == 0x02) {
+          cd = i;
+          break;
+        }
+      }
+      expect(cd, greaterThan(0), reason: 'central directory header present');
+      final cdFlags = b[cd + 8] | (b[cd + 9] << 8);
+      expect(cdFlags & 0x0800, 0x0800,
+          reason: 'central directory must declare it too');
+
+      // And the name really is UTF-8 on the wire, not some other encoding.
+      expect(
+          String.fromCharCodes(b).contains('Skizze'), isTrue,
+          reason: 'the ASCII prefix survives regardless of encoding');
+      expect(b, containsAllInOrder(utf8.encode('Übergröße')),
+          reason: 'the umlauts are stored as UTF-8 bytes');
     });
 
     test('CRC-32 matches the known value for "123456789"', () {

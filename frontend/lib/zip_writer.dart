@@ -45,6 +45,17 @@ class _Entry {
   final int crc, compressed, uncompressed, method, offset;
 }
 
+/// General purpose bit 11, the "language encoding flag" (EFS) from APPNOTE
+/// 6.3.0: this entry's name is UTF-8.
+///
+/// Not optional. Without it a reader is entitled to decode names as CP437,
+/// and GNU unzip does exactly that — a sketch called "Skizze-Übergröße" came
+/// out under a mangled name and the file simply was not where the bundle said
+/// it was. It cost a CI failure to find because the container that wrote the
+/// test happened to have an unzip that guessed UTF-8, and the runner's did
+/// not. Names here are always UTF-8, so the flag is always set.
+const int _kUtf8NameFlag = 0x0800;
+
 /// Builds a ZIP archive in memory.
 ///
 /// Usage: [addFile] for each member, then [finish] for the bytes.
@@ -101,7 +112,7 @@ class ZipWriter {
     _out
       ..add(_u32(0x04034b50)) // local file header
       ..add(_u16(20)) // version needed
-      ..add(_u16(0)) // flags
+      ..add(_u16(_kUtf8NameFlag))
       ..add(_u16(method))
       ..add(_u16(_dosTime))
       ..add(_u16(_dosDate))
@@ -129,7 +140,7 @@ class ZipWriter {
         ..add(_u32(0x02014b50)) // central directory header
         ..add(_u16(20)) // version made by
         ..add(_u16(20)) // version needed
-        ..add(_u16(0)) // flags
+        ..add(_u16(_kUtf8NameFlag))
         ..add(_u16(e.method))
         ..add(_u16(_dosTime))
         ..add(_u16(_dosDate))
