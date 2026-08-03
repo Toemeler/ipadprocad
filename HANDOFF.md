@@ -16,6 +16,47 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M184 — Bug-Button, Bundle und Logging, das die Frage schon beantwortet.**
+> Ziel: EIN Zip, das alles sagt, ohne dass der Melder etwas dazuschreiben muss.
+>
+> * **Der Button** (`widgets/bug_button.dart`, TEMPORÄR — `BugButton.enabled`
+>   ist der eine Schalter). Schwebt über allem, ist ZIEHBAR (ein Reporter, der
+>   den Bug verdeckt, ist nutzlos), Tap öffnet ein Textfeld, danach steht der
+>   Pfad zum Kopieren da. Leerer Text ist erlaubt: der State-Dump ist die
+>   wertvolle Hälfte und der ist so oder so vollständig.
+> * **Das Bundle** — `bug_report.dart` rein und host-testbar, `bug_capture.dart`
+>   für AppState/FFI/Disk. Inhalt: `report.md` (Triage ZUERST: SICK / SILENT /
+>   NOT FINITE / BODY GONE), `state.txt` (jedes Feature mit Parametern via
+>   eigenem toJson, Solid oder Fehler, JEDER Edge-Fingerprint samt `tol`, jede
+>   Skizze mit Geometrie und Constraints), `part.json`, `sketches/`,
+>   `mesh.txt` (voller Watertight-Report, `meshDiagnostics` erzwungen),
+>   `log.txt`, `log_prev.txt`, `env.txt`.
+> * **Zip ohne Paket** (`zip_writer.dart`): `ZLibCodec(raw: true)` ist genau der
+>   DEFLATE-Stream, den Methode 8 will, der Rest sind vierzig Byte Header. Ein
+>   Reporter, der von einem geglückten `pub get` abhängt, fehlt genau dann,
+>   wenn der Build in Schwierigkeiten ist. Der Test entpackt mit dem echten
+>   `unzip`, nicht mit dem Writer, der die Bytes erzeugt hat.
+> * **2D:** ein gescheiterter Solve nannte nur die Skizze — unbrauchbar. Jetzt
+>   `constraintResidualsPer` + `solveFailureDump`: WELCHE Constraints nicht
+>   halten, schlechteste zuerst, mit den Entities, auf die sie zeigen. Halten
+>   alle, sagt der Dump ausdrücklich DEGENERATE GEOMETRY, statt eine leere
+>   Liste zu zeigen, die neben einem Fehlschlag wie „alles in Ordnung" aussieht.
+> * **3D:** `meshAnomalies` meldet leere Tessellation, Normals/Positions-
+>   Mismatch und nicht-endliche Vertices als WARN — plus den teuren
+>   Self-Report, ohne dass jemand vorher ein Flag kennen musste.
+>
+> **Bewusst NICHT gemeldet:** hohe Dreiecke-pro-Fläche. Das sah nach der
+> Signatur eines selbstschneidenden Blends aus (63 101 Dreiecke auf 21
+> Flächen), ist es aber nicht: dasselbe Solid hatte kurz davor 20 822, und
+> geändert hat sich nur die Deflection. Eine Warnung, die bei normalem Zoomen
+> feuert, ist schlechter als keine — sie bringt dem Leser bei, das Tag zu
+> überspringen.
+>
+> `m184_bug_report_test.dart` (21). analyze 0 errors, **1255 grün**.
+>
+> **Offen:** kein Share-Sheet (Pfad wird angezeigt/kopiert, Datei über Files
+> holen), kein Screenshot im Bundle.
+
 > **M183 — Fillet und Chamfer, die nicht kaputtgehen.** Basis: Geräte-Log auf
 > Kopf `0ad6cc3` plus der Nutzerbericht „2 mm Fillet auf 2 mm Wand → Fehler,
 > 1.999 geht". Drei belegte Wurzelursachen, alle auf dem Weg zwischen „Nutzer
