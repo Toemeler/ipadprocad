@@ -29,8 +29,13 @@ on:
       - '.github/workflows/occt-build.yml'
   workflow_dispatch:
 
+# contents: write so the smoke log can be COMMITTED to a debug branch, the way
+# m1-core-build.yml already does for M3/M5. The artifact alone is not enough:
+# artifacts are served from blob storage, which a restricted network cannot
+# reach, and the project rule is to read the log rather than trust the green
+# checkmark. A committed log is readable with git alone.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: occt-${{ github.ref }}
@@ -126,6 +131,22 @@ jobs:
           grep -q "OCCT SMOKE: PASS" smoke.log \
             || { echo "OCCT HOST: FAIL (PASS marker missing)"; exit 1; }
           echo "OCCT HOST + SHIM: PASS"
+
+      - name: Commit OCCT smoke log
+        if: always()
+        run: |
+          mkdir -p ci-logs-occt
+          cp backend/occt/smoke.log ci-logs-occt/ 2>/dev/null || true
+          cp backend/occt/cfg-shim-host.log ci-logs-occt/ 2>/dev/null || true
+          # The OCCT build log is tens of MB; the tail is what a failure needs.
+          tail -200 backend/occt/build-shim-host.log \
+            > ci-logs-occt/build-shim-host.tail.log 2>/dev/null || true
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
+          git add -f ci-logs-occt
+          git commit -m "CI(OCCT): host smoke log from run ${{ github.run_id }}" \
+            || exit 0
+          git push origin HEAD:ci-debug-logs-occt --force
 
       - name: Upload smoke log
         if: always()
