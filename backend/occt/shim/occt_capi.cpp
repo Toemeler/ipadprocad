@@ -90,6 +90,11 @@
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
+/* v16 — the blend retry ladder needs the alternative circle representations
+ * and the per-contour failure status. */
+#include <ChFi3d_FilletShape.hxx>
+#include <ChFiDS_ErrorStatus.hxx>
+#include <vector>
 #include <BRepIntCurveSurface_Inter.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <Geom_Circle.hxx>
@@ -172,13 +177,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v15 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v16 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 15; }
+extern "C" int occt_shim_version(void) { return 16; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1792,22 +1797,389 @@ extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)
     OCCT_CATCH("occt_mesh_edge_ids", 0)
 }
 
-extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
-                                         const int *edge_ids,
-                                         const double *radii,
-                                         const double *radii2, int n)
+/* ---- v16: a fillet and chamfer that cannot hand back a broken solid ------ */
+
+/* Volume of a shape, or -1 when it has none. Used only as a CATASTROPHE
+ * guard: a blend nudges a solid, it never doubles or annihilates it. */
+static double solid_volume(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return -1.0;
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(s, props);
+    const double v = props.Mass();
+    return (v > 0.0 && std::isfinite(v)) ? v : -1.0;
+}
+
+/* Would we hand this shape to the rest of the app?
+ *
+ * IsDone() is necessary and NOT sufficient. BRepFilletAPI reports success and
+ * still returns solids that fail BRepCheck_Analyzer — a long-standing OCCT
+ * behaviour (self-intersecting wires, invalid pcurves on the blend faces).
+ * Downstream that surfaces as a mesher that grinds for ten seconds and emits
+ * sixty thousand triangles for a twenty-face solid, which is exactly the
+ * "the fillet looks broken" report this function exists to stop.
+ *
+ * `base_vol` is the volume before the blend, or -1 to skip the volume gate. */
+static bool blend_result_ok(const TopoDS_Shape &out, double base_vol)
+{
+    if (!has_solid_material(out))
+        return false;
+    const double v = solid_volume(out);
+    if (base_vol > 0.0) {
+        /* A blend trims or pads the corners of a body. Ten percent of the
+         * original volume left, or triple it, means the builder produced
+         * something that is not a blend of this body at all. The bounds are
+         * deliberately loose: they catch catastrophes, not design choices. */
+        if (!(v > 0.0) || v < 0.1 * base_vol || v > 3.0 * base_vol)
+            return false;
+    } else if (!(v > 0.0)) {
+        return false;
+    }
+    return BRepCheck_Analyzer(out).IsValid() == Standard_True;
+}
+
+/* The relative sizes a blend is retried at.
+ *
+ * OCCT cannot build a blend that lands EXACTLY on a tangency — a 2 mm fillet
+ * on a 2 mm wall, or the 5 mm fillet on a 10 mm cube of OCCT issue #172, open
+ * since 2010. The arc consumes the whole face, the walking algorithm has no
+ * linear segment left to walk, and Build() reports failure. One part in a
+ * thousand smaller and the same fillet builds without complaint.
+ *
+ * Refusing is the wrong answer: a full quarter-round is an ordinary, buildable
+ * piece of design intent that every other CAD system produces. So retry a
+ * hair under the asked-for size. The ladder tops out at one part in a
+ * thousand — 2 micrometres on a 2 mm fillet, which is below the tolerance of
+ * any process that could make the part and far below anything the display can
+ * resolve, but still a thousand times OCCT's own Precision::Confusion. The
+ * caller is TOLD which rung was used; nothing here is hidden. */
+static const double kBlendScales[] = {1.0, 1.0 - 1.0e-6, 1.0 - 1.0e-5,
+                                      1.0 - 1.0e-4, 1.0 - 1.0e-3};
+static const int kBlendScaleCount = 5;
+
+/* Hard ceiling on builds per call, so a pathological body cannot wedge the
+ * app in a retry storm. Each build is O(100 ms) on a phone-class core, and
+ * only a FAILING blend ever gets past the first rung — the common case is one
+ * build. Sized so the salvage path below completes for the edge counts a
+ * person actually picks by hand: probing four edges singly, then rebuilding
+ * the survivors, fits inside it with room to spare. */
+static const int kBlendBuildBudget = 64;
+
+/* One fillet build at a given size and surface representation. Returns the
+ * result shape (null when the attempt failed) and never throws. */
+static TopoDS_Shape try_fillet_build(const TopoDS_Shape &base,
+                                     const TopTools_IndexedMapOfShape &emap,
+                                     const std::vector<int> &use,
+                                     const int *edge_ids, const double *radii,
+                                     const double *radii2, double scale,
+                                     ChFi3d_FilletShape fshape, double base_vol)
+{
+    try {
+        BRepFilletAPI_MakeFillet mk(base, fshape);
+        int added = 0;
+        for (size_t k = 0; k < use.size(); ++k) {
+            const int i = use[k];
+            const TopoDS_Edge e = TopoDS::Edge(emap.FindKey(edge_ids[i]));
+            if (BRep_Tool::Degenerated(e))
+                continue;
+            const double r1 = radii[i] * scale;
+            if (radii2 && radii2[i] > 0.0 &&
+                std::fabs(radii2[i] - radii[i]) > 1.0e-12)
+                mk.Add(r1, radii2[i] * scale, e);
+            else
+                mk.Add(r1, e);
+            ++added;
+        }
+        if (added == 0)
+            return TopoDS_Shape();
+        mk.Build();
+        if (!mk.IsDone())
+            return TopoDS_Shape();
+        const TopoDS_Shape out = mk.Shape();
+        if (!blend_result_ok(out, base_vol))
+            return TopoDS_Shape();
+        return out;
+    } catch (const Standard_Failure &) {
+        /* BRepFilletAPI throws out of Build() on some inputs rather than
+         * reporting NotDone. Swallowing it here is what makes the ladder
+         * able to carry on to the next rung. */
+        return TopoDS_Shape();
+    } catch (...) {
+        return TopoDS_Shape();
+    }
+}
+
+/* One chamfer build at a given size. Mirrors try_fillet_build. */
+static TopoDS_Shape try_chamfer_build(
+    const TopoDS_Shape &base, const TopTools_IndexedMapOfShape &emap,
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces,
+    const std::vector<int> &use, const int *edge_ids, const int *modes,
+    const double *d1, const double *d2, const double *angle_deg, double scale,
+    double base_vol)
+{
+    try {
+        BRepFilletAPI_MakeChamfer mk(base);
+        int added = 0;
+        for (size_t k = 0; k < use.size(); ++k) {
+            const int i = use[k];
+            const TopoDS_Edge e = TopoDS::Edge(emap.FindKey(edge_ids[i]));
+            if (BRep_Tool::Degenerated(e))
+                continue;
+            const TopoDS_Face ref = edge_ref_face(edgeFaces, e);
+            if (ref.IsNull())
+                continue;
+            switch (modes[i]) {
+            case 1:
+                mk.Add(d1[i] * scale, d2[i] * scale, e, ref);
+                break;
+            case 2:
+                /* The ANGLE is design intent and is never scaled; only the
+                 * distance moves, which is what keeps the chamfer's face at
+                 * the angle the user asked for. */
+                mk.AddDA(d1[i] * scale, angle_deg[i] * M_PI / 180.0, e, ref);
+                break;
+            default:
+                mk.Add(d1[i] * scale, e);
+                break;
+            }
+            ++added;
+        }
+        if (added == 0)
+            return TopoDS_Shape();
+        mk.Build();
+        if (!mk.IsDone())
+            return TopoDS_Shape();
+        const TopoDS_Shape out = mk.Shape();
+        if (!blend_result_ok(out, base_vol))
+            return TopoDS_Shape();
+        return out;
+    } catch (const Standard_Failure &) {
+        return TopoDS_Shape();
+    } catch (...) {
+        return TopoDS_Shape();
+    }
+}
+
+/* Everything a blend attempt needs to know, so the search strategy below can
+ * be written once for fillets and chamfers. */
+struct blend_ctx
+{
+    bool fillet;
+    const TopoDS_Shape *base;
+    const TopTools_IndexedMapOfShape *emap;
+    const TopTools_IndexedDataMapOfShapeListOfShape *edgeFaces;
+    const int *edge_ids;
+    const double *radii, *radii2; /* fillet */
+    const int *modes;             /* chamfer */
+    const double *d1, *d2, *angle_deg;
+    double base_vol;
+    int builds; /* consumed budget, mutated as we go */
+};
+
+/* Build `use` at `scale`.
+ *
+ * ChFi3d_Rational only. The other two circle representations are available
+ * and were tried here first, on the theory that a different approximation
+ * path might succeed where the default fails — but that is a guess, and it
+ * doubles the cost of every rung of the ladder below, which is what the
+ * salvage path spends its budget on. The size ladder is the mechanism with
+ * evidence behind it; this one is not, so it is not here. */
+static TopoDS_Shape blend_at(blend_ctx &c, const std::vector<int> &use,
+                             double scale)
+{
+    if (c.builds >= kBlendBuildBudget)
+        return TopoDS_Shape();
+    ++c.builds;
+    if (c.fillet)
+        return try_fillet_build(*c.base, *c.emap, use, c.edge_ids, c.radii,
+                                c.radii2, scale, ChFi3d_Rational, c.base_vol);
+    return try_chamfer_build(*c.base, *c.emap, *c.edgeFaces, use, c.edge_ids,
+                             c.modes, c.d1, c.d2, c.angle_deg, scale,
+                             c.base_vol);
+}
+
+/* Walk the size ladder for one edge set. Reports the rung that worked. */
+static TopoDS_Shape blend_ladder(blend_ctx &c, const std::vector<int> &use,
+                                 double *out_scale)
+{
+    for (int si = 0; si < kBlendScaleCount; ++si) {
+        const TopoDS_Shape s = blend_at(c, use, kBlendScales[si]);
+        if (!s.IsNull()) {
+            if (out_scale)
+                *out_scale = kBlendScales[si];
+            return s;
+        }
+    }
+    return TopoDS_Shape();
+}
+
+/* The whole strategy, shared by fillet and chamfer.
+ *
+ * A blend feature carries a SET of edges, and one impossible edge used to
+ * kill the whole feature — the body lost every round in the set, not just the
+ * one that could not be built. Inventor keeps the rest, and so do we:
+ *
+ *   1. the whole set, walking the size ladder;
+ *   2. if that fails, probe each edge ALONE, which names the edges that are
+ *      individually impossible;
+ *   3. build the survivors together;
+ *   4. if the survivors still interact badly, shed them one at a time until
+ *      what remains builds.
+ *
+ * Every probe runs against the ORIGINAL shape, so the caller's edge indices
+ * stay valid throughout — no topological remapping, and no chance of a blend
+ * landing on an edge the user never picked.
+ *
+ * `keep` lists the caller-space indices worth trying. `dropped` is indexed by
+ * caller-space index and is set to 1 for every edge that did not make it into
+ * the returned shape; entries not in `keep` must already be marked by the
+ * caller. */
+static TopoDS_Shape blend_edges_subset(blend_ctx &c,
+                                       const std::vector<int> &keep,
+                                       std::vector<char> &dropped,
+                                       double *out_scale)
+{
+    TopoDS_Shape s = blend_ladder(c, keep, out_scale);
+    if (!s.IsNull())
+        return s;
+    if (keep.size() < 2)
+        return TopoDS_Shape();
+
+    /* 2 — who can stand on their own? */
+    std::vector<int> viable;
+    for (size_t k = 0; k < keep.size(); ++k) {
+        const std::vector<int> one(1, keep[k]);
+        double sc = 1.0;
+        if (!blend_ladder(c, one, &sc).IsNull())
+            viable.push_back(keep[k]);
+        else
+            dropped[keep[k]] = 1;
+    }
+    if (viable.empty())
+        return TopoDS_Shape();
+
+    /* 3 — the survivors together. */
+    if (viable.size() < keep.size()) {
+        s = blend_ladder(c, viable, out_scale);
+        if (!s.IsNull())
+            return s;
+    }
+
+    /* 4 — each edge works alone but they interact. Build the set up greedily:
+     * start from nothing and keep an edge only if the set still builds with it
+     * added. That is O(n) builds and what comes out provably builds together,
+     * where dropping candidates one at a time only ever tests sets of size
+     * n-1 and gives up if no single removal is enough. */
+    std::vector<int> acc;
+    TopoDS_Shape best;
+    for (size_t k = 0; k < viable.size(); ++k) {
+        std::vector<int> trial = acc;
+        trial.push_back(viable[k]);
+        double sc = 1.0;
+        const TopoDS_Shape t = blend_ladder(c, trial, &sc);
+        if (!t.IsNull()) {
+            acc.swap(trial);
+            best = t;
+            if (out_scale)
+                *out_scale = sc;
+        }
+        if (c.builds >= kBlendBuildBudget)
+            break;
+    }
+    /* Whatever did not make it into the accepted set is out, including any
+     * the build budget cut short. */
+    for (size_t k = 0; k < viable.size(); ++k) {
+        bool in = false;
+        for (size_t j = 0; j < acc.size(); ++j)
+            if (acc[j] == viable[k])
+                in = true;
+        if (!in)
+            dropped[viable[k]] = 1;
+    }
+    return best;
+}
+
+/* Turn what BRepFilletAPI knows about its own failure into something a person
+ * can act on. The old message guessed "radius too large?" at every failure. */
+static void fillet_failure_reason(const TopoDS_Shape &base,
+                                  const TopTools_IndexedMapOfShape &emap,
+                                  const std::vector<int> &use,
+                                  const int *edge_ids, const double *radii,
+                                  const double *radii2, char *buf, size_t cap)
+{
+    std::snprintf(buf, cap, "no radius in this size range builds on these edges");
+    try {
+        BRepFilletAPI_MakeFillet mk(base, ChFi3d_Rational);
+        for (size_t k = 0; k < use.size(); ++k) {
+            const int i = use[k];
+            const TopoDS_Edge e = TopoDS::Edge(emap.FindKey(edge_ids[i]));
+            if (BRep_Tool::Degenerated(e))
+                continue;
+            if (radii2 && radii2[i] > 0.0 &&
+                std::fabs(radii2[i] - radii[i]) > 1.0e-12)
+                mk.Add(radii[i], radii2[i], e);
+            else
+                mk.Add(radii[i], e);
+        }
+        mk.Build();
+        if (mk.IsDone())
+            return;
+        if (mk.NbFaultyContours() > 0) {
+            const int ic = mk.FaultyContour(1);
+            const char *why = "the blend could not be run along the edge";
+            switch (mk.StripeStatus(ic)) {
+            case ChFiDS_StartsolFailure:
+                why = "no starting section fits — the radius is too large for "
+                      "the faces meeting at this edge";
+                break;
+            case ChFiDS_TwistedSurface:
+                why = "the blend surface twists on itself at this radius";
+                break;
+            case ChFiDS_WalkingFailure:
+                why = "the blend runs off the end of the faces it follows";
+                break;
+            default:
+                break;
+            }
+            std::snprintf(buf, cap, "edge set %d: %s", ic, why);
+            return;
+        }
+        if (mk.NbFaultyVertices() > 0) {
+            std::snprintf(buf, cap,
+                          "%d corner(s) where the rounds meet cannot be closed "
+                          "at this radius",
+                          mk.NbFaultyVertices());
+            return;
+        }
+    } catch (...) {
+        /* keep the generic message */
+    }
+}
+
+extern "C" occt_shape *occt_fillet_edges_ex(const occt_shape *shape,
+                                            const int *edge_ids,
+                                            const double *radii,
+                                            const double *radii2, int n,
+                                            int *out_dropped, double *out_scale)
 {
     OCCT_TRY("occt_fillet_edges")
+    if (out_scale)
+        *out_scale = 1.0;
+    if (out_dropped)
+        for (int i = 0; i < n; ++i)
+            out_dropped[i] = 0;
     if (!shape || !edge_ids || !radii || n < 1) {
         set_err("occt_fillet_edges", "null or empty edge set");
         return nullptr;
     }
-    TopTools_IndexedMapOfShape m;
-    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
-    BRepFilletAPI_MakeFillet mk(shape->s);
-    int added = 0;
+    TopTools_IndexedMapOfShape emap;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, emap);
+    /* Validate and filter BEFORE any build, so a bad index is a clear error
+     * rather than a mystery failure forty builds later. */
+    std::vector<int> keep;
     for (int i = 0; i < n; ++i) {
-        if (edge_ids[i] < 1 || edge_ids[i] > m.Extent()) {
+        if (edge_ids[i] < 1 || edge_ids[i] > emap.Extent()) {
             set_err("occt_fillet_edges", "edge index out of range");
             return nullptr;
         }
@@ -1815,60 +2187,83 @@ extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
             set_err("occt_fillet_edges", "radius must be > 0");
             return nullptr;
         }
-        const TopoDS_Edge e = TopoDS::Edge(m.FindKey(edge_ids[i]));
-        if (BRep_Tool::Degenerated(e))
+        if (BRep_Tool::Degenerated(TopoDS::Edge(emap.FindKey(edge_ids[i]))))
             continue;
-        /* v13: a positive second radius makes the fillet vary linearly from
-         * one end of the edge to the other (Inventor's variable radius with
-         * two control points). Absent or zero means constant. */
-        if (radii2 && radii2[i] > 0.0 &&
-            std::fabs(radii2[i] - radii[i]) > 1.0e-12) {
-            mk.Add(radii[i], radii2[i], e);
-        } else {
-            mk.Add(radii[i], e);
-        }
-        ++added;
+        keep.push_back(i);
     }
-    if (added == 0) {
+    if (keep.empty()) {
         set_err("occt_fillet_edges", "no filletable edge in the set");
         return nullptr;
     }
-    mk.Build();
-    if (!mk.IsDone()) {
-        /* Overwhelmingly this is "radius too large for the adjacent faces".
-         * Report it as a clean failure: a fillet that silently shrank itself
-         * to fit would be a dimension the model does not actually hold. */
-        set_err("occt_fillet_edges",
-                "fillet failed (radius too large for the adjacent faces?)");
+
+    blend_ctx c;
+    c.fillet = true;
+    c.base = &shape->s;
+    c.emap = &emap;
+    c.edgeFaces = nullptr;
+    c.edge_ids = edge_ids;
+    c.radii = radii;
+    c.radii2 = radii2;
+    c.modes = nullptr;
+    c.d1 = c.d2 = c.angle_deg = nullptr;
+    c.base_vol = solid_volume(shape->s);
+    c.builds = 0;
+
+    /* Everything not in `keep` is already out (degenerate edges); the search
+     * whittles the rest down from there, in the caller's index space. */
+    std::vector<char> sub(n, 1);
+    for (size_t k = 0; k < keep.size(); ++k)
+        sub[keep[k]] = 0;
+    double scale = 1.0;
+    const TopoDS_Shape out = blend_edges_subset(c, keep, sub, &scale);
+    if (out.IsNull()) {
+        char why[320];
+        fillet_failure_reason(shape->s, emap, keep, edge_ids, radii, radii2,
+                              why, sizeof(why));
+        set_err("occt_fillet_edges", why);
         return nullptr;
     }
-    if (!has_solid_material(mk.Shape())) {
-        set_err("occt_fillet_edges", "fillet consumed the solid");
-        return nullptr;
-    }
-    return wrap(mk.Shape(), "occt_fillet_edges");
+    if (out_scale)
+        *out_scale = scale;
+    if (out_dropped)
+        for (int i = 0; i < n; ++i)
+            out_dropped[i] = sub[i] ? 1 : 0;
+    return wrap(out, "occt_fillet_edges");
     OCCT_CATCH("occt_fillet_edges", nullptr)
 }
 
-extern "C" occt_shape *occt_chamfer_edges(const occt_shape *shape,
-                                          const int *edge_ids, const int *modes,
-                                          const double *d1, const double *d2,
-                                          const double *angle_deg, int n)
+extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
+                                         const int *edge_ids,
+                                         const double *radii,
+                                         const double *radii2, int n)
+{
+    return occt_fillet_edges_ex(shape, edge_ids, radii, radii2, n, nullptr,
+                                nullptr);
+}
+
+extern "C" occt_shape *occt_chamfer_edges_ex(
+    const occt_shape *shape, const int *edge_ids, const int *modes,
+    const double *d1, const double *d2, const double *angle_deg, int n,
+    int *out_dropped, double *out_scale)
 {
     OCCT_TRY("occt_chamfer_edges")
+    if (out_scale)
+        *out_scale = 1.0;
+    if (out_dropped)
+        for (int i = 0; i < n; ++i)
+            out_dropped[i] = 0;
     if (!shape || !edge_ids || !modes || !d1 || n < 1) {
         set_err("occt_chamfer_edges", "null or empty edge set");
         return nullptr;
     }
-    TopTools_IndexedMapOfShape m;
-    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
+    TopTools_IndexedMapOfShape emap;
+    TopExp::MapShapes(shape->s, TopAbs_EDGE, emap);
     TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
     TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
                                   edgeFaces);
-    BRepFilletAPI_MakeChamfer mk(shape->s);
-    int added = 0;
+    std::vector<int> keep;
     for (int i = 0; i < n; ++i) {
-        if (edge_ids[i] < 1 || edge_ids[i] > m.Extent()) {
+        if (edge_ids[i] < 1 || edge_ids[i] > emap.Extent()) {
             set_err("occt_chamfer_edges", "edge index out of range");
             return nullptr;
         }
@@ -1876,55 +2271,73 @@ extern "C" occt_shape *occt_chamfer_edges(const occt_shape *shape,
             set_err("occt_chamfer_edges", "distance must be > 0");
             return nullptr;
         }
-        const TopoDS_Edge e = TopoDS::Edge(m.FindKey(edge_ids[i]));
+        if (modes[i] == 1 && (!d2 || !(d2[i] > 0.0))) {
+            set_err("occt_chamfer_edges",
+                    "two-distance chamfer needs a positive second distance");
+            return nullptr;
+        }
+        if (modes[i] == 2 &&
+            (!angle_deg || !(angle_deg[i] > 0.0) || angle_deg[i] >= 90.0)) {
+            set_err("occt_chamfer_edges",
+                    "chamfer angle must be in (0, 90) deg");
+            return nullptr;
+        }
+        const TopoDS_Edge e = TopoDS::Edge(emap.FindKey(edge_ids[i]));
         if (BRep_Tool::Degenerated(e))
             continue;
-        const TopoDS_Face ref = edge_ref_face(edgeFaces, e);
-        if (ref.IsNull()) {
+        if (edge_ref_face(edgeFaces, e).IsNull()) {
             set_err("occt_chamfer_edges",
                     "edge has no adjacent face to measure from");
             return nullptr;
         }
-        switch (modes[i]) {
-        case 1: /* two distances */
-            if (!d2 || !(d2[i] > 0.0)) {
-                set_err("occt_chamfer_edges",
-                        "two-distance chamfer needs a positive second distance");
-                return nullptr;
-            }
-            mk.Add(d1[i], d2[i], e, ref);
-            break;
-        case 2: /* distance and angle */
-            if (!angle_deg || !(angle_deg[i] > 0.0) ||
-                angle_deg[i] >= 90.0) {
-                set_err("occt_chamfer_edges",
-                        "chamfer angle must be in (0, 90) deg");
-                return nullptr;
-            }
-            mk.AddDA(d1[i], angle_deg[i] * M_PI / 180.0, e, ref);
-            break;
-        default: /* 0 — equal distance on both faces */
-            mk.Add(d1[i], e);
-            break;
-        }
-        ++added;
+        keep.push_back(i);
     }
-    if (added == 0) {
+    if (keep.empty()) {
         set_err("occt_chamfer_edges", "no chamferable edge in the set");
         return nullptr;
     }
-    mk.Build();
-    if (!mk.IsDone()) {
+
+    blend_ctx c;
+    c.fillet = false;
+    c.base = &shape->s;
+    c.emap = &emap;
+    c.edgeFaces = &edgeFaces;
+    c.edge_ids = edge_ids;
+    c.radii = c.radii2 = nullptr;
+    c.modes = modes;
+    c.d1 = d1;
+    c.d2 = d2;
+    c.angle_deg = angle_deg;
+    c.base_vol = solid_volume(shape->s);
+    c.builds = 0;
+
+    std::vector<char> sub(n, 1);
+    for (size_t k = 0; k < keep.size(); ++k)
+        sub[keep[k]] = 0;
+    double scale = 1.0;
+    const TopoDS_Shape out = blend_edges_subset(c, keep, sub, &scale);
+    if (out.IsNull()) {
         set_err("occt_chamfer_edges",
-                "chamfer failed (distance too large for the adjacent faces?)");
+                "no distance in this size range builds on these edges "
+                "(too large for the faces meeting at the edge?)");
         return nullptr;
     }
-    if (!has_solid_material(mk.Shape())) {
-        set_err("occt_chamfer_edges", "chamfer consumed the solid");
-        return nullptr;
-    }
-    return wrap(mk.Shape(), "occt_chamfer_edges");
+    if (out_scale)
+        *out_scale = scale;
+    if (out_dropped)
+        for (int i = 0; i < n; ++i)
+            out_dropped[i] = sub[i] ? 1 : 0;
+    return wrap(out, "occt_chamfer_edges");
     OCCT_CATCH("occt_chamfer_edges", nullptr)
+}
+
+extern "C" occt_shape *occt_chamfer_edges(const occt_shape *shape,
+                                          const int *edge_ids, const int *modes,
+                                          const double *d1, const double *d2,
+                                          const double *angle_deg, int n)
+{
+    return occt_chamfer_edges_ex(shape, edge_ids, modes, d1, d2, angle_deg, n,
+                                 nullptr, nullptr);
 }
 
 extern "C" int occt_ray_hits(const occt_shape *shape, double ox, double oy,

@@ -87,11 +87,11 @@ class CylKernel implements PartKernel {
   List<OcctEdgeInfo> edgesOf(KernelSolid s) => const [];
   @override
   KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
-          List<double> radii, {List<double> radii2 = const []}) =>
+          List<double> radii, {List<double> radii2 = const [], BlendReport? report}) =>
       null;
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-          double d1, double d2, double angleDeg) =>
+          double d1, double d2, double angleDeg, {BlendReport? report}) =>
       null;
 
   @override

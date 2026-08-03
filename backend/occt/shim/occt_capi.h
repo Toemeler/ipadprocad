@@ -336,6 +336,35 @@ occt_shape *occt_chamfer_edges(const occt_shape *shape, const int *edge_ids,
                                int n);
 
 /*
+ * v16 — the same two operations, with the two things the plain forms cannot
+ * say. Both are what the plain forms now call internally, so the guarantees
+ * below hold for every caller; only the REPORTING is extra here.
+ *
+ * Guarantees:
+ *  - the returned shape has been through BRepCheck_Analyzer. BRepFilletAPI
+ *    reports IsDone() and still hands back solids with invalid faces; those
+ *    are refused rather than passed on to the mesher.
+ *  - a size that lands exactly on a tangency (a 2 mm fillet on a 2 mm wall)
+ *    is retried a hair smaller instead of failing. OCCT has never been able
+ *    to build those; see the note on the retry ladder in the .c file.
+ *  - one impossible edge no longer kills the whole set. The edges that CAN
+ *    be blended are, and the rest are reported.
+ *
+ * out_dropped (optional): n ints, 1 where that input edge got no blend.
+ * out_scale   (optional): the relative size actually built — 1.0 when the
+ *             asked-for size worked, a hair under when a tangency retry was
+ *             needed. Never below 0.999.
+ */
+occt_shape *occt_fillet_edges_ex(const occt_shape *shape, const int *edge_ids,
+                                 const double *radii, const double *radii2,
+                                 int n, int *out_dropped, double *out_scale);
+
+occt_shape *occt_chamfer_edges_ex(const occt_shape *shape, const int *edge_ids,
+                                  const int *modes, const double *d1,
+                                  const double *d2, const double *angle_deg,
+                                  int n, int *out_dropped, double *out_scale);
+
+/*
  * v12 — Cast a ray and report where it enters/leaves the solid: the sorted,
  * de-duplicated distances from the origin along the UNIT direction at which
  * the ray crosses a face of `shape`. Writes at most `max_hits` values into

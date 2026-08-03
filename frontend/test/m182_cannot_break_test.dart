@@ -83,7 +83,7 @@ class RecordingKernel extends FakeKernel {
 
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-      double d1, double d2, double angleDeg) {
+      double d1, double d2, double angleDeg, {BlendReport? report}) {
     chamfers++;
     lastModifyBase = base;
     return _stubFor(base);

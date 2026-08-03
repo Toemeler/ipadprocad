@@ -932,6 +932,99 @@ int main(void)
                       "[22] angle >= 90 deg must fail");
             }
 
+            /* [21c] v16 — THE FILLET THAT LANDS EXACTLY ON A TANGENCY.
+             *
+             * Round all four vertical edges of the 20-cube at r=10. Each face
+             * is 20 wide and two neighbouring rounds eat 10 each, so they meet
+             * at a tangent point with no flat left between them and the answer
+             * is a plain cylinder. OCCT has never been able to build that —
+             * open since 2010, GitHub issue #172 — and it is the same failure
+             * as a 2 mm fillet on a 2 mm wall, which is what a user hit on the
+             * device: 1.999 built, 2.0 did not.
+             *
+             * v16 retries a hair under and reports how far under it went. */
+            {
+                int vert[4];
+                int nv = 0;
+                for (int i = 1; i <= occt_shape_edge_count(box) && nv < 4; ++i) {
+                    double info[12] = {0};
+                    if (!occt_shape_edge_info(box, i, info))
+                        continue;
+                    if (info[0] != 1.0)
+                        continue;
+                    if (fabs(fabs(info[6]) - 1.0) > 1e-9)
+                        continue; /* tangent along Z */
+                    vert[nv++] = i;
+                }
+                check(nv == 4, "[21c] a cube has four vertical edges");
+                if (nv == 4) {
+                    const double r[4] = {10.0, 10.0, 10.0, 10.0};
+                    int dropped[4] = {0};
+                    double scale = 0.0;
+                    occt_shape *cyl = occt_fillet_edges_ex(box, vert, r, NULL,
+                                                           4, dropped, &scale);
+                    printf("[21c] full-quarter-round fillet -> %s "
+                           "(scale %.9f)\n",
+                           cyl ? "built" : "NULL", scale);
+                    if (check(cyl != NULL,
+                              "[21c] a fillet meeting its neighbour tangentially"
+                              " must still build")) {
+                        /* A cylinder r=10 h=20: pi*100*20 = 6283.185307. The
+                         * retry shaves at most one part in a thousand off the
+                         * radius, so allow 0.5 % and check it is not something
+                         * else entirely. */
+                        const double v = occt_shape_volume(cyl);
+                        printf("[21c] volume %.6f (cylinder 6283.185307)\n", v);
+                        check(near_rel(v, 6283.185307, 5e-3),
+                              "[21c] the result must be the cylinder");
+                        check(occt_shape_valid(cyl), "[21c] result invalid");
+                        check(dropped[0] == 0 && dropped[1] == 0 &&
+                                  dropped[2] == 0 && dropped[3] == 0,
+                              "[21c] no edge should have been skipped");
+                        check(scale > 0.99 && scale <= 1.0,
+                              "[21c] the retry must stay within one part in a "
+                              "thousand of the asked-for radius");
+                        occt_free_shape(cyl);
+                    }
+                }
+            }
+
+            /* [21d] v16 — ONE IMPOSSIBLE EDGE NO LONGER KILLS THE SET.
+             * r=25 cannot sit on a 20 mm face at any size in the retry range;
+             * r=5 on its neighbour is fine. Inventor keeps the round it can
+             * build and says which it could not, and so do we. */
+            {
+                int vert[2];
+                int nv = 0;
+                for (int i = 1; i <= occt_shape_edge_count(box) && nv < 2; ++i) {
+                    double info[12] = {0};
+                    if (!occt_shape_edge_info(box, i, info))
+                        continue;
+                    if (info[0] != 1.0 || fabs(fabs(info[6]) - 1.0) > 1e-9)
+                        continue;
+                    vert[nv++] = i;
+                }
+                if (nv == 2) {
+                    const double mixed[2] = {5.0, 25.0};
+                    int dropped[2] = {0};
+                    double scale = 0.0;
+                    occt_shape *p = occt_fillet_edges_ex(box, vert, mixed, NULL,
+                                                         2, dropped, &scale);
+                    printf("[21d] mixed set -> %s (dropped %d,%d)\n",
+                           p ? "built" : "NULL", dropped[0], dropped[1]);
+                    if (check(p != NULL,
+                              "[21d] one impossible radius must not lose the "
+                              "whole feature")) {
+                        check(dropped[0] == 0,
+                              "[21d] the buildable round must survive");
+                        check(dropped[1] == 1,
+                              "[21d] the impossible one must be reported");
+                        check(occt_shape_valid(p), "[21d] partial result invalid");
+                        occt_free_shape(p);
+                    }
+                }
+            }
+
             /* [23] RAY HITS — what "To Next" measures. A ray up the middle of
              * the cube from 10 below it crosses the bottom cap at 10 and the
              * top cap at 30, and reports each crossing ONCE. */

@@ -69,14 +69,34 @@ typedef _EdgeCountN = Int32 Function(Pointer<Void>);
 typedef _EdgeCountD = int Function(Pointer<Void>);
 typedef _EdgeInfoN = Int32 Function(Pointer<Void>, Int32, Pointer<Double>);
 typedef _EdgeInfoD = int Function(Pointer<Void>, int, Pointer<Double>);
-typedef _FilletN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
-    Pointer<Double>, Pointer<Double>, Int32);
-typedef _FilletD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
-    Pointer<Double>, Pointer<Double>, int);
-typedef _ChamferN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
-    Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, Int32);
-typedef _ChamferD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
-    Pointer<Int32>, Pointer<Double>, Pointer<Double>, Pointer<Double>, int);
+// v16 — occt_fillet_edges / occt_chamfer_edges still exist in the shim and
+// still carry every guarantee, but Dart binds the _ex forms exclusively: they
+// are the same call and they also say which edges were skipped and what size
+// was actually built, and there is no reason to ask for less.
+typedef _FilletExN = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Double>, Pointer<Double>, Int32, Pointer<Int32>, Pointer<Double>);
+typedef _FilletExD = Pointer<Void> Function(Pointer<Void>, Pointer<Int32>,
+    Pointer<Double>, Pointer<Double>, int, Pointer<Int32>, Pointer<Double>);
+typedef _ChamferExN = Pointer<Void> Function(
+    Pointer<Void>,
+    Pointer<Int32>,
+    Pointer<Int32>,
+    Pointer<Double>,
+    Pointer<Double>,
+    Pointer<Double>,
+    Int32,
+    Pointer<Int32>,
+    Pointer<Double>);
+typedef _ChamferExD = Pointer<Void> Function(
+    Pointer<Void>,
+    Pointer<Int32>,
+    Pointer<Int32>,
+    Pointer<Double>,
+    Pointer<Double>,
+    Pointer<Double>,
+    int,
+    Pointer<Int32>,
+    Pointer<Double>);
 typedef _SweepN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, Int32,
     Pointer<Double>, Pointer<Double>, Int32, Int32, Double, Double);
 typedef _SweepD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, int,
@@ -197,6 +217,52 @@ class OcctEdgeInfo {
 
   @override
   String toString() => 'edge#$index(k$kind len${length.toStringAsFixed(3)})';
+}
+
+/// v16 — what a fillet or chamfer actually did, as opposed to what it was
+/// asked for.
+///
+/// Two things can differ, and both used to be invisible. An edge the kernel
+/// could not blend no longer takes the whole feature down with it, so the
+/// caller has to be told which ones were skipped. And a size landing exactly
+/// on a tangency (the 2 mm fillet on a 2 mm wall that OCCT has never been able
+/// to build) is retried a hair smaller rather than refused, so the caller has
+/// to be told that too. Neither is allowed to be silent.
+class BlendReport {
+  /// Indices into the edge list passed in, for edges that got no blend.
+  final List<int> dropped = [];
+
+  /// Relative size actually built: 1.0 when the asked-for size worked.
+  double sizeScale = 1.0;
+
+  /// True when the kernel had to step off the asked-for size to build at all.
+  bool get resized => sizeScale < 1.0 - 1e-12;
+
+  void _read(Pointer<Int32> drop, Pointer<Double> scale, int n) {
+    dropped.clear();
+    for (var i = 0; i < n; i++) {
+      if (drop[i] != 0) dropped.add(i);
+    }
+    final s = scale[0];
+    sizeScale = (s > 0 && s.isFinite) ? s : 1.0;
+  }
+
+  /// A line for the log, or null when the blend was built exactly as asked.
+  String? note(int total, String sizeLabel) {
+    final parts = <String>[];
+    if (dropped.isNotEmpty) {
+      parts.add('${dropped.length} of $total edge(s) could not be blended '
+          'at $sizeLabel and were skipped');
+    }
+    if (resized) {
+      // Report the deviation, not the ratio: "0.002 mm under" is actionable,
+      // "scale 0.999" is not.
+      final ppm = ((1.0 - sizeScale) * 1e6).round();
+      parts.add('built $ppm ppm under $sizeLabel — OCCT cannot close a blend '
+          'that lands exactly on a tangency');
+    }
+    return parts.isEmpty ? null : parts.join('; ');
+  }
 }
 
 class OcctMeshData {
@@ -356,24 +422,31 @@ class OcctShape {
   /// edge from [radii] at its start to [radii2] at its end. A zero entry means
   /// that edge stays constant.
   OcctShape? filletEdges(List<int> edgeIds, List<double> radii,
-      {List<double> radii2 = const []}) {
+      {List<double> radii2 = const [], BlendReport? report}) {
     if (edgeIds.isEmpty || edgeIds.length != radii.length) return null;
     if (radii2.isNotEmpty && radii2.length != radii.length) return null;
     final n = edgeIds.length;
     final ids = calloc<Int32>(n);
     final rs = calloc<Double>(n);
     final rs2 = radii2.isEmpty ? nullptr : calloc<Double>(n);
+    final drop = calloc<Int32>(n);
+    final scale = calloc<Double>(1);
     try {
       for (var i = 0; i < n; i++) {
         ids[i] = edgeIds[i];
         rs[i] = radii[i];
         if (rs2 != nullptr) rs2[i] = radii2[i];
       }
-      return _ffi._wrap(_ffi._filletEdges(_handle, ids, rs, rs2, n));
+      final out =
+          _ffi._wrap(_ffi._filletEdgesEx(_handle, ids, rs, rs2, n, drop, scale));
+      report?._read(drop, scale, n);
+      return out;
     } finally {
       calloc.free(ids);
       calloc.free(rs);
       if (rs2 != nullptr) calloc.free(rs2);
+      calloc.free(drop);
+      calloc.free(scale);
     }
   }
 
@@ -403,7 +476,9 @@ class OcctShape {
   /// which must be in (0, 90)). [d2] / [angleDeg] may be empty when no edge
   /// uses that mode. Result is a NEW shape; null on failure.
   OcctShape? chamferEdges(List<int> edgeIds, List<int> modes, List<double> d1,
-      {List<double> d2 = const [], List<double> angleDeg = const []}) {
+      {List<double> d2 = const [],
+      List<double> angleDeg = const [],
+      BlendReport? report}) {
     final n = edgeIds.length;
     if (n == 0 || modes.length != n || d1.length != n) return null;
     if (d2.isNotEmpty && d2.length != n) return null;
@@ -413,6 +488,8 @@ class OcctShape {
     final p1 = calloc<Double>(n);
     final p2 = d2.isEmpty ? nullptr : calloc<Double>(n);
     final pa = angleDeg.isEmpty ? nullptr : calloc<Double>(n);
+    final drop = calloc<Int32>(n);
+    final scale = calloc<Double>(1);
     try {
       for (var i = 0; i < n; i++) {
         ids[i] = edgeIds[i];
@@ -421,14 +498,18 @@ class OcctShape {
         if (p2 != nullptr) p2[i] = d2[i];
         if (pa != nullptr) pa[i] = angleDeg[i];
       }
-      return _ffi._wrap(
-          _ffi._chamferEdges(_handle, ids, md, p1, p2, pa, n));
+      final out = _ffi._wrap(
+          _ffi._chamferEdgesEx(_handle, ids, md, p1, p2, pa, n, drop, scale));
+      report?._read(drop, scale, n);
+      return out;
     } finally {
       calloc.free(ids);
       calloc.free(md);
       calloc.free(p1);
       if (p2 != nullptr) calloc.free(p2);
       if (pa != nullptr) calloc.free(pa);
+      calloc.free(drop);
+      calloc.free(scale);
     }
   }
 
@@ -619,8 +700,8 @@ class OcctFfi {
       this._shapeEdgeCount,
       this._shapeEdgeInfo,
       this._meshEdgeIds,
-      this._filletEdges,
-      this._chamferEdges,
+      this._filletEdgesEx,
+      this._chamferEdgesEx,
       this._rayHits,
       this._revolveHits,
       this._revolveHitsFace,
@@ -672,8 +753,8 @@ class OcctFfi {
   final _EdgeCountD _shapeEdgeCount;
   final _EdgeInfoD _shapeEdgeInfo;
   final _MeshIntOutD _meshEdgeIds;
-  final _FilletD _filletEdges;
-  final _ChamferD _chamferEdges;
+  final _FilletExD _filletEdgesEx;
+  final _ChamferExD _chamferEdgesEx;
   final _RayHitsD _rayHits;
   final _RevHitsD _revolveHits; // v13
   final _RevFaceD _revolveHitsFace; // v13
@@ -747,8 +828,8 @@ class OcctFfi {
         lib.lookupFunction<_EdgeCountN, _EdgeCountD>('occt_shape_edge_count'),
         lib.lookupFunction<_EdgeInfoN, _EdgeInfoD>('occt_shape_edge_info'),
         lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_edge_ids'),
-        lib.lookupFunction<_FilletN, _FilletD>('occt_fillet_edges'),
-        lib.lookupFunction<_ChamferN, _ChamferD>('occt_chamfer_edges'),
+        lib.lookupFunction<_FilletExN, _FilletExD>('occt_fillet_edges_ex'),
+        lib.lookupFunction<_ChamferExN, _ChamferExD>('occt_chamfer_edges_ex'),
         lib.lookupFunction<_RayHitsN, _RayHitsD>('occt_ray_hits'),
         lib.lookupFunction<_RevHitsN, _RevHitsD>('occt_revolve_hits'),
         lib.lookupFunction<_RevFaceN, _RevFaceD>('occt_revolve_hits_face'),

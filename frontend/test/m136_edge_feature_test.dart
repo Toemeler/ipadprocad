@@ -46,7 +46,7 @@ class FilletRecorder implements PartKernel {
 
   @override
   KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
-      List<double> radii, {List<double> radii2 = const []}) {
+      List<double> radii, {List<double> radii2 = const [], BlendReport? report}) {
     lastIds = List.of(edgeIds);
     lastRadii = List.of(radii);
     lastRadii2 = List.of(radii2);
@@ -55,7 +55,7 @@ class FilletRecorder implements PartKernel {
 
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-      double d1, double d2, double angleDeg) {
+      double d1, double d2, double angleDeg, {BlendReport? report}) {
     chamfers++;
     lastIds = List.of(edgeIds);
     lastMode = mode;

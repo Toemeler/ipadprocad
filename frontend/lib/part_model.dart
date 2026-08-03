@@ -1441,36 +1441,62 @@ class EdgeSel {
   /// length of its own neighbours, so a hard length match would lose the edge
   /// on exactly the edits where keeping it matters most. A TYPE change is
   /// disqualifying: a line that became an arc is not the same edge any more.
-  double score(OcctEdgeInfo e) {
+  double score(OcctEdgeInfo e, {double ox = 0, double oy = 0, double oz = 0}) {
     if (!e.filletable) return double.infinity;
     if (kind != 0 && e.kind != 0 && kind != e.kind) return double.infinity;
-    final dx = e.mx - mx, dy = e.my - my, dz = e.mz - mz;
+    final dx = e.mx - mx - ox, dy = e.my - my - oy, dz = e.mz - mz - oz;
     final d = math.sqrt(dx * dx + dy * dy + dz * dz);
-    var s = d + 0.05 * (e.length - length).abs();
+    var s = d;
     // M152 — RADIUS. It was stored from the beginning and never read, which
     // is how a chamfer picked on the inner rim of a boss came back after
     // recompute sitting on the outer rim of the cylinder underneath it. Two
     // concentric circles have midpoints only (R - r) apart, so position alone
-    // cannot tell them apart, and length is deliberately a weak term. Radius
-    // is the one thing that separates them, and it is weighted to say so.
+    // cannot tell them apart. Radius is the one thing that separates them.
     //
-    // Not disqualifying, for the same reason length is not: a chamfer on a
-    // neighbouring edge legitimately shrinks the circle it belongs to, and a
-    // hard match would lose the edge on exactly the edits where keeping it
-    // matters most.
-    if (radius > 0 && e.radius > 0) s += 1.5 * (e.radius - radius).abs();
+    // Not disqualifying: a chamfer on a neighbouring edge legitimately shrinks
+    // the circle it belongs to, and a hard match would lose the edge on
+    // exactly the edits where keeping it matters most.
+    final curved = radius > 1e-9 && e.radius > 1e-9;
+    if (curved) s += 1.5 * (e.radius - radius).abs();
+    // M183 — SIZE vs EXTENT, charged once each.
+    //
+    // Length used to be a flat 0.05 nudge, so a 29 % length change cost a
+    // quarter of the tolerance and a fillet stored against a 17.96 mm edge
+    // re-matched onto a 12.80 mm one — same radius, same midpoint — and the
+    // body silently changed shape.
+    //
+    // Raising the weight alone would be wrong, because on a circle radius and
+    // circumference are the SAME fact and charging both bills a shrinking rim
+    // twice, at 2*pi amplification. What length adds over radius on a curved
+    // edge is how much of the circle this edge actually spans: same radius,
+    // two thirds the length, means an arc where a full turn used to be, which
+    // is a different edge however well the midpoint agrees. So compare the
+    // swept angle, converted back to millimetres so it is commensurate with
+    // everything else. On a line there is no radius and length IS the size.
+    final dLen = curved
+        ? ((e.length / e.radius) - (length / radius)).abs() * radius
+        : (e.length - length).abs();
+    s += 0.5 * dLen;
     return s;
   }
 
   /// The live edge this selection now refers to, or null when it is gone.
   /// [tol] is in model units and scales with the edge: a 200 mm edge may
   /// legitimately shift further than a 2 mm one.
-  OcctEdgeInfo? bestMatch(List<OcctEdgeInfo> edges) {
+  /// How far this selection is allowed to have moved. Scales with the edge's
+  /// own SIZE, and for a circle that is its radius, not its circumference.
+  double get tol {
+    final scale = (kind == 2 || kind == 3) && radius > 0 ? radius : length.abs();
+    return 0.25 * (scale + 1.0);
+  }
+
+  OcctEdgeInfo? bestMatch(List<OcctEdgeInfo> edges,
+      {double ox = 0, double oy = 0, double oz = 0}) {
     OcctEdgeInfo? best;
     var bestScore = double.infinity;
     var runnerUp = double.infinity;
     for (final e in edges) {
-      final s = score(e);
+      final s = score(e, ox: ox, oy: oy, oz: oz);
       if (s < bestScore) {
         runnerUp = bestScore;
         bestScore = s;
@@ -1485,8 +1511,7 @@ class EdgeSel {
     // which used to buy it a 47 mm search radius — wide enough to swallow
     // most of the part. Radius gives ~8 mm, which is what "this edge may have
     // shifted a little" actually means.
-    final scale = (kind == 2 || kind == 3) && radius > 0 ? radius : length.abs();
-    final tol = 0.25 * (scale + 1.0);
+    final tol = this.tol;
     if (bestScore > tol) return null;
     // M158 — AMBIGUITY. Two candidates whose scores sit within one tolerance
     // of each other are a coin toss, and the coin decides which edge a chamfer
@@ -2225,13 +2250,45 @@ abstract class BodyModifyFeature extends PartFeature {
   /// fingerprints and enforces one-live-edge-per-selection through [taken],
   /// neither of which a second independent pass reproduces.
   (List<int>, List<int>, int) resolveEdges(List<OcctEdgeInfo> live) {
+    // Phase 1 — every selection against the model where it last saw itself.
+    // An edge nothing upstream disturbed resolves here.
+    final hit = List<OcctEdgeInfo?>.filled(edges.length, null);
+    final taken = <int>{};
+    for (var i = 0; i < edges.length; i++) {
+      final m = edges[i].bestMatch(live);
+      if (m != null && taken.add(m.index)) hit[i] = m;
+    }
+
+    // Phase 2 — M183. Whatever is left may not be GONE; the body it sits on
+    // may simply have moved. Making a wall 2 mm taller translates every edge
+    // above it by 2 mm, which is further than a fingerprint is allowed to
+    // drift, so on the device a chamfer with both its edges on a raised boss
+    // reported "none of the selected edges exist any more" and the feature
+    // died — for an edit that did not remove either edge.
+    //
+    // The fix is to let a selection be re-found at a DISPLACEMENT, but only
+    // one the feature can justify from its own evidence. See [_offsetPool].
+    final missing = <int>[
+      for (var i = 0; i < edges.length; i++)
+        if (hit[i] == null) i
+    ];
+    if (missing.isNotEmpty) {
+      for (final o in _offsetPool(live, hit, missing)) {
+        for (final i in missing) {
+          if (hit[i] != null) continue;
+          final m = edges[i].bestMatch(live, ox: o.$1, oy: o.$2, oz: o.$3);
+          if (m != null && taken.add(m.index)) hit[i] = m;
+        }
+      }
+    }
+
+    // Phase 3 — report and re-anchor.
     final ids = <int>[];
     final src = <int>[];
     var lost = 0;
-    final taken = <int>{};
     for (var i = 0; i < edges.length; i++) {
       final sel = edges[i];
-      final m = sel.bestMatch(live);
+      final m = hit[i];
       // M164 — say what each stored selection resolved to. A chamfer landing
       // on the wrong edge, or silently vanishing, is invisible in the log
       // without this: only "edges=2" was ever printed, which says nothing
@@ -2241,16 +2298,11 @@ abstract class BodyModifyFeature extends PartFeature {
           'l=${sel.length.toStringAsFixed(3)} k=${sel.kind} '
           'm=(${sel.mx.toStringAsFixed(3)},${sel.my.toStringAsFixed(3)},'
           '${sel.mz.toStringAsFixed(3)})';
-      // One live edge can only serve one selection: without this, two picks
-      // that both drifted toward the same survivor would silently collapse
-      // into a double-radius fillet on one edge.
-      if (m == null || !taken.add(m.index)) {
+      if (m == null) {
         Log.w(
             'edge',
-            'sel[$i] LOST — $want; '
-                '${m == null ? "no confident match among ${live.length} live "
-                    "edges (gone, or two candidates too alike to choose)" 
-                    : "edge ${m.index} already taken by an earlier selection"}');
+            'sel[$i] LOST — $want; no confident match among ${live.length} '
+                'live edges (gone, or two candidates too alike to choose)');
         lost++;
         continue;
       }
@@ -2271,6 +2323,84 @@ abstract class BodyModifyFeature extends PartFeature {
           '${edges.length - lost}/${edges.length} selections resolved, $lost lost');
     }
     return (ids, src, lost);
+  }
+
+  /// Displacements this feature is entitled to re-find its lost edges at.
+  ///
+  /// A free offset would explain anything: pick any live edge, subtract, and
+  /// the selection "matches" perfectly. That is precisely the silent walk M158
+  /// exists to prevent, so an offset is only usable when the feature can
+  /// CORROBORATE it, and there are exactly two ways it can:
+  ///
+  ///  - a sibling selection resolved at that displacement on its own. The
+  ///    edges of one fillet usually sit on the same lump of material, so a
+  ///    sibling that demonstrably travelled 2 mm is real evidence about where
+  ///    this one went. Siblings are tried independently, so a feature spanning
+  ///    a part that moved and a part that did not still resolves both halves.
+  ///
+  ///  - with nothing resolved at all, a displacement that independently
+  ///    explains TWO different lost selections. One selection agreeing with
+  ///    itself is not evidence; two selections agreeing is.
+  ///
+  /// Offsets are returned nearest-first, so the smallest displacement that
+  /// accounts for the model wins. The zero offset is never included — phase 1
+  /// already tried it.
+  List<(double, double, double)> _offsetPool(List<OcctEdgeInfo> live,
+      List<OcctEdgeInfo?> hit, List<int> missing) {
+    final pool = <(double, double, double)>[];
+    void add(double x, double y, double z) {
+      if (x.abs() + y.abs() + z.abs() < 1e-9) return;
+      for (final p in pool) {
+        if ((p.$1 - x).abs() + (p.$2 - y).abs() + (p.$3 - z).abs() < 1e-6) {
+          return;
+        }
+      }
+      pool.add((x, y, z));
+    }
+
+    for (var i = 0; i < edges.length; i++) {
+      final m = hit[i];
+      if (m != null) add(m.mx - edges[i].mx, m.my - edges[i].my,
+          m.mz - edges[i].mz);
+    }
+
+    if (pool.isEmpty && missing.length >= 2) {
+      // Nothing resolved, so the whole feature moved together or not at all.
+      // Every (lost selection, plausible live edge) pairing proposes the
+      // displacement that would explain it; a proposal that also explains a
+      // DIFFERENT lost selection is the one to trust.
+      final proposals = <(double, double, double)>[];
+      for (final i in missing) {
+        final sel = edges[i];
+        for (final e in live) {
+          if (!sel.score(e,
+                  ox: e.mx - sel.mx, oy: e.my - sel.my, oz: e.mz - sel.mz)
+              .isFinite) {
+            continue; // type or length says this can never be that edge
+          }
+          proposals.add((e.mx - sel.mx, e.my - sel.my, e.mz - sel.mz));
+          if (proposals.length >= 256) break;
+        }
+        if (proposals.length >= 256) break;
+      }
+      for (final p in proposals) {
+        if (p.$1.abs() + p.$2.abs() + p.$3.abs() < 1e-9) continue;
+        var support = 0;
+        for (final j in missing) {
+          if (edges[j].bestMatch(live, ox: p.$1, oy: p.$2, oz: p.$3) != null) {
+            support++;
+          }
+        }
+        if (support >= 2) add(p.$1, p.$2, p.$3);
+      }
+    }
+
+    pool.sort((a, b) {
+      double n((double, double, double) v) =>
+          v.$1 * v.$1 + v.$2 * v.$2 + v.$3 * v.$3;
+      return n(a).compareTo(n(b));
+    });
+    return pool;
   }
 }
 
@@ -3516,8 +3646,13 @@ abstract class PartKernel {
 
   /// Constant-radius fillet on [edgeIds] (1-based topological indices) with
   /// one radius each. Returns a NEW solid; [base] stays owned by the caller.
+  ///
+  /// [report], when given, receives what the kernel actually did: the edges it
+  /// had to skip, and whether it had to step a hair off the asked-for radius
+  /// to build at all. See [BlendReport].
   KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
-          List<double> radii, {List<double> radii2 = const []}) =>
+          List<double> radii,
+          {List<double> radii2 = const [], BlendReport? report}) =>
       null;
 
   /// Angles in degrees at which the circular path of [p] about the axis
@@ -3532,8 +3667,9 @@ abstract class PartKernel {
 
   /// Chamfer on [edgeIds] with Inventor method [mode] (0 equal distance,
   /// 1 two distances, 2 distance and angle). Returns a NEW solid.
+  /// [report] carries the same after-the-fact truth as on [filletEdges].
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-          double d1, double d2, double angleDeg) =>
+          double d1, double d2, double angleDeg, {BlendReport? report}) =>
       null;
 
   /// M111 — reads a STEP file as one [KernelSolid] per SOLID, so an imported
@@ -3911,7 +4047,8 @@ class OcctPartKernel implements PartKernel {
 
   @override
   KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
-      List<double> radii, {List<double> radii2 = const []}) {
+      List<double> radii,
+      {List<double> radii2 = const [], BlendReport? report}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -3925,8 +4062,8 @@ class OcctPartKernel implements PartKernel {
     // No unify here, unlike the boolean path: OCCT's filleting algorithm
     // already emits clean topology, and running ShapeUpgrade over a fresh
     // fillet is a well-known way to lose the very faces it just built.
-    return _wrapOwned(
-        ffi, shape.filletEdges(edgeIds, radii, radii2: radii2));
+    return _wrapOwned(ffi,
+        shape.filletEdges(edgeIds, radii, radii2: radii2, report: report));
   }
 
   @override
@@ -3958,7 +4095,7 @@ class OcctPartKernel implements PartKernel {
 
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-      double d1, double d2, double angleDeg) {
+      double d1, double d2, double angleDeg, {BlendReport? report}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -3978,6 +4115,7 @@ class OcctPartKernel implements PartKernel {
           List<double>.filled(n, d1),
           d2: mode == 1 ? List<double>.filled(n, d2) : const [],
           angleDeg: mode == 2 ? List<double>.filled(n, angleDeg) : const [],
+          report: report,
         ));
   }
 
@@ -4552,6 +4690,8 @@ bool _recomputeBodyModify(
     return false;
   }
   KernelSolid? out;
+  final report = BlendReport();
+  var sizeLabel = '';
   if (f is FilletFeature) {
     // Straight lookup through the source indices resolveEdges reported: no
     // second matching pass, so the radii cannot drift away from the ids.
@@ -4566,10 +4706,13 @@ bool _recomputeBodyModify(
     final radii2 = f.radii2.any((r) => r > 0)
         ? [for (final i in src) i < f.radii2.length ? f.radii2[i] : 0.0]
         : const <double>[];
-    out = kernel.filletEdges(base, ids, radii, radii2: radii2);
+    sizeLabel = 'r=${radii.isEmpty ? "?" : radii.first} mm';
+    out = kernel.filletEdges(base, ids, radii,
+        radii2: radii2, report: report);
   } else if (f is ChamferFeature) {
     final (d1, d2, ang) = f.kernelParams;
-    out = kernel.chamferEdges(base, ids, f.mode, d1, d2, ang);
+    sizeLabel = 'd=$d1 mm';
+    out = kernel.chamferEdges(base, ids, f.mode, d1, d2, ang, report: report);
   }
   if (out == null) {
     f.computeError = kernel.lastError;
@@ -4582,6 +4725,12 @@ bool _recomputeBodyModify(
     Log.i('feature',
         '${f.name}: $lost of ${f.edges.length} picked edges no longer exist');
   }
+  // M183 — and neither is a blend the kernel had to adjust to build. Skipped
+  // edges and a nudged size are both departures from what was asked for, and
+  // a CAD system that makes those quietly is one you cannot trust a dimension
+  // from.
+  final note = report.note(ids.length, sizeLabel);
+  if (note != null) Log.i('feature', '${f.name}: $note');
   return true;
 }
 

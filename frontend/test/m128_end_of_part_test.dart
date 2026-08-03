@@ -52,7 +52,7 @@ class StubKernel implements PartKernel {
   KernelSolid? intersectSolids(KernelSolid a, KernelSolid b) => _mk(5);
   @override
   KernelSolid? filletEdges(KernelSolid base, List<int> e, List<double> r,
-          {List<double> radii2 = const []}) =>
+          {List<double> radii2 = const [], BlendReport? report}) =>
       _mk(6);
   @override
   List<OcctEdgeInfo> edgesOf(KernelSolid s) =>

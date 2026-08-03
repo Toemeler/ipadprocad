@@ -16,6 +16,56 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M183 — Fillet und Chamfer, die nicht kaputtgehen.** Basis: Geräte-Log auf
+> Kopf `0ad6cc3` plus der Nutzerbericht „2 mm Fillet auf 2 mm Wand → Fehler,
+> 1.999 geht". Drei belegte Wurzelursachen, alle auf dem Weg zwischen „Nutzer
+> hat diese Kante gepickt" und „Kernel rundet sie":
+>
+> * **F1 — Ein verschobener Körper galt als gelöscht.** Extrusion1 von 5 auf
+>   7 mm erhöht → der Boss darüber wandert 2 mm, beide Chamfer-Kanten mit ihm.
+>   2 mm ist mehr als die 0.66 mm, die ein 1.64-mm-Rim driften darf, also
+>   meldete das Log `sel[0] LOST`, `sel[1] LOST` und das Feature starb mit
+>   „none of the selected edges exist any more" — bei einem Edit, das keine
+>   der beiden Kanten entfernt hat. `resolveEdges` löst jetzt in zwei Phasen:
+>   erst wie bisher, dann darf eine verlorene Auswahl an einer VERSCHIEBUNG
+>   wiedergefunden werden — aber nur an einer, die das Feature aus eigener
+>   Evidenz belegen kann (ein Geschwister hat sie eigenständig aufgelöst, oder
+>   sie erklärt unabhängig zwei verlorene Auswahlen). Eine frei erfundene
+>   Verschiebung erklärt jede Kante und wäre genau das Weglaufen, gegen das
+>   M158 geschrieben wurde.
+> * **F2 — Eine deutlich andere Kante wurde akzeptiert.** Log: `sel[0] ->
+>   edge 8 ... l=17.964 ... got l=12.802`. Länge war ein 0.05-Gewicht, also
+>   kostete ein 29-%-Sprung ein Viertel der Toleranz. Jetzt 0.5 — aber auf
+>   einem Kreis sind Radius und Umfang DIESELBE Tatsache, doppelt berechnet
+>   würde ein schrumpfender Rim mit 2π bestraft. Also: Radius misst die Grösse,
+>   der überstrichene WINKEL misst die Ausdehnung. Gleicher Radius, zwei
+>   Drittel der Länge heisst Bogen statt Vollkreis, und das ist eine andere
+>   Kante.
+> * **F3 — OCCT kann keinen Blend bauen, der exakt auf einer Tangente landet.**
+>   Offen seit 2010 (GitHub-Issue #172). Genau der Nutzerbefund: 2.0 scheitert,
+>   1.999 geht. Der Shim (v16) versucht jetzt eine Leiter: exakt, dann 1e-6,
+>   1e-5, 1e-4, 1e-3 relativ darunter. Auf 2 mm sind das höchstens 2 µm — unter
+>   jeder Fertigungstoleranz, tausendfach über `Precision::Confusion` — und der
+>   Aufrufer ERFÄHRT, welche Sprosse benutzt wurde (`BlendReport`, in ppm).
+>
+> Dazu zwei Dinge, die der Shim vorher gar nicht konnte: das Ergebnis geht
+> durch `BRepCheck_Analyzer` (`IsDone()` ist NICHT hinreichend — daher der
+> Mesher, der 10.7 s mahlte und 63 k Dreiecke für 21 Faces ausspuckte), und
+> eine unmögliche Kante killt nicht mehr das ganze Set: erst alle zusammen,
+> dann jede einzeln geprüft, dann die Überlebenden greedy aufgebaut. Fehler
+> werden aus `StripeStatus`/`NbFaultyContours` benannt statt pauschal „radius
+> too large?" zu raten.
+>
+> Tests: `m183_blend_robustness_test.dart` (20 host tests) pinnt F1/F2 und den
+> Report; `smoke_occt.c` [21c]/[21d] pinnen F3 und das Teil-Ergebnis im Kernel
+> (nur dort läuft C++ überhaupt). analyze 0 errors, **1234 grün**.
+>
+> **Offen:** Der Report läuft ins Log, nicht in den Browser — eine Sprosse
+> unter Nennmass oder eine übersprungene Kante sollte am Feature sichtbar
+> sein. Und mit nur ZWEI gepickten Kanten, von denen eine gelöscht wird und
+> der Körper sich gleichzeitig verschiebt, fehlt die Korroboration: beide
+> gehen verloren. Drei Kanten reichen.
+
 > **M182 — „A system that cannot break": der Part-Recompute ist jetzt ein
 > Sicherheitsnetz.** Basis: Geräte-Bericht auf Kopf `29c203a` (Log +
 > Session-Verlauf): Fillet1 auf vier Zylinderkanten brach die zweite Extrusion,
