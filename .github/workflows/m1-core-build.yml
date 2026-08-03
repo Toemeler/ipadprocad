@@ -70,23 +70,13 @@ jobs:
         run: |
           mkdir -p ci-logs-dart
           cp ci-dart-analyze.log ci-logs-dart/ 2>/dev/null || true
-          # Only the failing tail is wanted; a full green run is ~2 MB of
-          # per-test chatter and committing that on every build is noise.
-          tail -400 ci-dart-tests.log > ci-logs-dart/ci-dart-tests.tail.log \
+          # The whole log, gzipped. Two attempts at extracting "just the
+          # failure" both missed it — the tail caught 400 lines of passing
+          # tests and the marker grep matched nothing — and each miss cost a
+          # CI round trip. A megabyte on a debug branch is cheaper than a
+          # third guess about how the reporter formats a failure.
+          gzip -9 -c ci-dart-tests.log > ci-logs-dart/ci-dart-tests.log.gz \
             2>/dev/null || true
-          # ...and the FAILURES themselves, which the tail misses whenever the
-          # failing test is not the last one to run. 40 lines of context each,
-          # because an expectation is useless without the value that broke it.
-          grep -nE '^.{0,3}(❌|✗)|::error::|^\s+Expected:|^\s+Actual:' \
-            ci-dart-tests.log > ci-logs-dart/ci-dart-failures.log 2>/dev/null \
-            || true
-          for n in $(grep -nE '^.{0,3}(❌|✗)' ci-dart-tests.log \
-                     | cut -d: -f1 | head -20); do
-            echo "===== context around line $n =====" \
-              >> ci-logs-dart/ci-dart-failures.log
-            sed -n "$((n>6?n-6:1)),$((n+34))p" ci-dart-tests.log \
-              >> ci-logs-dart/ci-dart-failures.log
-          done
           git config user.email "ci@prototype.local"
           git config user.name "Prototype CI"
           git add -f ci-logs-dart
