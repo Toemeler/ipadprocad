@@ -29,6 +29,24 @@ import 'package:prototype/reality_scene.dart';
 import 'package:prototype/solver.dart';
 import 'package:prototype/zip_writer.dart';
 
+/// Runs unzip WITHOUT letting Dart decode its output.
+///
+/// Process.run decodes stdout/stderr with the system encoding by default, and
+/// unzip echoes the names it extracts — including the umlauts this suite
+/// deliberately tests with. On the macOS runner those bytes do not decode
+/// under the assumed encoding and the call throws
+/// "FormatException: Unexpected extension byte" before any assertion runs, so
+/// the test failed for a reason that had nothing to do with the archive. Raw
+/// bytes in, lenient decode only for the failure message.
+Future<({int exitCode, String stderr})> _unzip(String zip, String into) async {
+  final r = await Process.run('unzip', ['-o', zip, '-d', into],
+      stdoutEncoding: null, stderrEncoding: null);
+  return (
+    exitCode: r.exitCode,
+    stderr: utf8.decode((r.stderr as List<int>), allowMalformed: true),
+  );
+}
+
 Geo _line(double x0, double y0, double x1, double y1) =>
     Geo(Geo.line, [x0, y0, x1, y1]);
 
@@ -81,7 +99,7 @@ void main() {
           reason: 'local file header magic');
 
       final out = Directory('${dir.path}/x')..createSync();
-      final r = await Process.run('unzip', ['-o', f.path, '-d', out.path]);
+      final r = await _unzip(f.path, out.path);
       expect(r.exitCode, 0, reason: 'unzip said: ${r.stderr}');
 
       expect(File('${out.path}/report.md').readAsStringSync(),
@@ -484,7 +502,7 @@ void m186() {
           binaries: {'screenshot.png': png});
       expect(f, isNotNull);
       final out = Directory('${dir.path}/x')..createSync();
-      final r = await Process.run('unzip', ['-o', f!.path, '-d', out.path]);
+      final r = await _unzip(f!.path, out.path);
       expect(r.exitCode, 0, reason: '${r.stderr}');
       expect(File('${out.path}/screenshot.png').readAsBytesSync(), png);
     });
