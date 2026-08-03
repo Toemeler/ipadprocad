@@ -2369,22 +2369,31 @@ abstract class BodyModifyFeature extends PartFeature {
       // Every (lost selection, plausible live edge) pairing proposes the
       // displacement that would explain it; a proposal that also explains a
       // DIFFERENT lost selection is the one to trust.
+      // Distinct proposals only: many pairings land on the same displacement,
+      // and scoring one costs a full match pass per lost selection.
       final proposals = <(double, double, double)>[];
       for (final i in missing) {
         final sel = edges[i];
         for (final e in live) {
-          if (!sel.score(e,
-                  ox: e.mx - sel.mx, oy: e.my - sel.my, oz: e.mz - sel.mz)
-              .isFinite) {
+          final ox = e.mx - sel.mx, oy = e.my - sel.my, oz = e.mz - sel.mz;
+          if (ox.abs() + oy.abs() + oz.abs() < 1e-9) continue;
+          if (!sel.score(e, ox: ox, oy: oy, oz: oz).isFinite) {
             continue; // type or length says this can never be that edge
           }
-          proposals.add((e.mx - sel.mx, e.my - sel.my, e.mz - sel.mz));
-          if (proposals.length >= 256) break;
+          var seen = false;
+          for (final q in proposals) {
+            if ((q.$1 - ox).abs() + (q.$2 - oy).abs() + (q.$3 - oz).abs() <
+                1e-6) {
+              seen = true;
+              break;
+            }
+          }
+          if (!seen) proposals.add((ox, oy, oz));
+          if (proposals.length >= 64) break;
         }
-        if (proposals.length >= 256) break;
+        if (proposals.length >= 64) break;
       }
       for (final p in proposals) {
-        if (p.$1.abs() + p.$2.abs() + p.$3.abs() < 1e-9) continue;
         var support = 0;
         for (final j in missing) {
           if (edges[j].bestMatch(live, ox: p.$1, oy: p.$2, oz: p.$3) != null) {
