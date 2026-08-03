@@ -12,6 +12,8 @@ import 'perf.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
+import 'bug_capture.dart';
+import 'gesture_trace.dart';
 import 'widgets/bug_button.dart';
 import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
@@ -154,7 +156,30 @@ class PrototypeApp extends StatelessWidget {
         // Apple status bar (time etc.) must not overlap the ribbon.
         // The perf readout sits above everything and ignores pointers, so it
         // can never interfere with the canvas it is measuring.
-        body: Stack(children: [
+        // M186 — two diagnostic wrappers, outermost first.
+        //
+        // Listener sees the RAW pointer stream before the gesture arena
+        // resolves it, which is the only place a "my tap did the wrong thing"
+        // report can be answered from. It never handles anything, so it
+        // cannot change behaviour.
+        //
+        // RepaintBoundary gives the bug button something to photograph. NOTE
+        // that on iOS the 3D body is a RealityKit PLATFORM VIEW and is
+        // composited by the OS outside Flutter's layer tree, so it will NOT
+        // appear in the capture — 2D sketches come out complete, a 3D capture
+        // shows the chrome and overlays over empty viewport. The bundle says
+        // so next to the image, because a blank 3D area must never be read as
+        // "the body was missing".
+        body: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: GestureTrace.record,
+          onPointerMove: GestureTrace.record,
+          onPointerUp: GestureTrace.record,
+          onPointerCancel: GestureTrace.record,
+          onPointerSignal: GestureTrace.record,
+          child: RepaintBoundary(
+          key: screenshotKey,
+          child: Stack(children: [
           AnimatedBuilder(
           animation: app,
           builder: (context, _) {
@@ -329,6 +354,8 @@ class PrototypeApp extends StatelessWidget {
           // reachable even when a panel is covering the canvas.
           BugButton(app: app),
         ]),
+          ),
+        ),
       ),
     );
   }

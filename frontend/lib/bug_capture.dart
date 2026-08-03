@@ -12,8 +12,14 @@
 // rather than aborting it.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart';
+import 'package:flutter/widgets.dart';
 
 import 'app_state.dart';
+import 'gesture_trace.dart';
 import 'constraints.dart';
 import 'bug_report.dart';
 import 'ffi/occt_engine.dart';
@@ -21,6 +27,51 @@ import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'reality_scene.dart';
+
+/// Anchors the widget subtree the screenshot is taken from. Attached to a
+/// RepaintBoundary wrapping the whole app body in main.dart.
+final GlobalKey screenshotKey = GlobalKey(debugLabel: 'bug-screenshot');
+
+/// PNG of whatever Flutter has rendered, or null.
+///
+/// On iOS the 3D body is a RealityKit PLATFORM VIEW: the OS composites it
+/// outside Flutter's layer tree, so it is absent from this image however the
+/// capture is done. 2D sketches are a CustomPainter and come out complete.
+/// The bundle says which, next to the file, so an empty-looking viewport is
+/// never mistaken for a missing body.
+/// [timeout] exists because toImage can simply never complete: it hands the
+/// work to the rasterizer and waits, and where there is no rasterizer to
+/// answer — a headless test, and by extension a backgrounded or
+/// surface-less app — the future stays pending forever. Writing this without
+/// a bound meant the bug button could hang the app while reporting a hang,
+/// which is the worst possible failure for this particular feature. Found by
+/// the widget test below, which hung for ten minutes.
+Future<Uint8List?> captureScreenshot({
+  double pixelRatio = 1.5,
+  Duration timeout = const Duration(seconds: 4),
+}) async {
+  try {
+    final ctx = screenshotKey.currentContext;
+    if (ctx == null) return null;
+    final ro = ctx.findRenderObject();
+    if (ro is! RenderRepaintBoundary) return null;
+    final data = await () async {
+      final ui.Image img = await ro.toImage(pixelRatio: pixelRatio);
+      final d = await img.toByteData(format: ui.ImageByteFormat.png);
+      img.dispose();
+      return d;
+    }()
+        .timeout(timeout, onTimeout: () {
+      Log.w('bug', 'screenshot timed out after ${timeout.inSeconds}s — '
+          'no rasterizer answered; the rest of the bundle is unaffected');
+      return null;
+    });
+    return data?.buffer.asUint8List();
+  } catch (e, st) {
+    Log.w('bug', 'screenshot failed: $e\n$st');
+    return null;
+  }
+}
 
 /// Runs [f], returning its value, or a placeholder string on any failure.
 String _try(String what, String Function() f) {
@@ -99,7 +150,7 @@ String captureMeshReports(PartModel? p) {
 /// written. Never throws.
 ///
 /// [description] is what the user typed. Everything else is gathered here.
-File? captureBugReport(AppState app, String description) {
+Future<File?> captureBugReport(AppState app, String description) async {
   final when = DateTime.now();
   try {
     // Get the log on disk BEFORE reading it, or the bundle ships a log that
@@ -151,6 +202,11 @@ File? captureBugReport(AppState app, String description) {
       }
     }
 
+    // Before anything else that could change the screen. The dialog has
+    // already closed by this point, so this is the state being complained
+    // about, not the reporting UI.
+    final png = await captureScreenshot();
+
     final logPath = Log.path;
     final logText = _readIfExists(logPath);
     final prevText = _readIfExists(
@@ -169,6 +225,10 @@ File? captureBugReport(AppState app, String description) {
       // was a perf line, not a log line, so a bundle without this can miss
       // the whole character of a "it froze" report.
       perfText: Perf.path.isEmpty ? null : _readIfExists(Perf.path),
+      gestureText: GestureTrace.dump().join('\n'),
+      realityText: RealityPush.dump().join('\n'),
+      hasScreenshot: png != null,
+      screenshotOmits3D: Platform.isIOS,
     );
 
     // Added here rather than in buildBundle because it needs the scene layer,
@@ -176,7 +236,9 @@ File? captureBugReport(AppState app, String description) {
     files['mesh.txt'] = captureMeshReports(part);
 
     final dir = Directory('${_docsRoot(app)}/bugreports');
-    final out = writeBundle(dir, bundleStem(when), files, when: when);
+    final out = writeBundle(dir, bundleStem(when), files,
+        when: when,
+        binaries: png == null ? const {} : {'screenshot.png': png});
     if (out == null) {
       Log.e('bug', 'bundle could not be written to ${dir.path}');
     } else {

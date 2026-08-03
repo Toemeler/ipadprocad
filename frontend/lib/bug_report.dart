@@ -252,6 +252,10 @@ Map<String, String> buildBundle({
   String? logText,
   String? prevLogText,
   String? perfText,
+  String? gestureText,
+  String? realityText,
+  bool hasScreenshot = false,
+  bool screenshotOmits3D = false,
 }) {
   final files = <String, String>{};
 
@@ -301,6 +305,26 @@ Map<String, String> buildBundle({
     files['perf.txt'] = perfText;
     contents.add('`perf.txt` — frame and remesh timings');
   }
+  if (gestureText != null) {
+    files['gestures.txt'] = gestureText;
+    contents.add('`gestures.txt` — the RAW pointer stream leading into the '
+        'report, before the gesture arena resolved it. Read this when the '
+        'complaint is that a tap or drag did the wrong thing');
+  }
+  if (realityText != null) {
+    files['reality.txt'] = realityText;
+    contents.add('`reality.txt` — what Dart last handed the native renderer. '
+        'The 3D body is drawn by RealityKit behind a platform view, so this '
+        'is the last thing visible from this side of that boundary');
+  }
+  if (hasScreenshot) {
+    contents.add('`screenshot.png` — what was on screen.'
+        '${screenshotOmits3D ? ' NOTE: the 3D body is a platform view and is '
+            'composited outside Flutter, so the shaded model is NOT in this '
+            'image — the viewport area will look empty even when the body is '
+            'present. Chrome, overlays and 2D sketches ARE captured. Use '
+            'reality.txt and mesh.txt for the body.' : ''}');
+  }
 
   files['env.txt'] =
       env.entries.map((e) => '${e.key}: ${e.value}').join('\n');
@@ -320,7 +344,7 @@ Map<String, String> buildBundle({
 /// it could not be written — a failing bug reporter must never take the app
 /// down with it.
 File? writeBundle(Directory dir, String stem, Map<String, String> files,
-    {DateTime? when}) {
+    {DateTime? when, Map<String, List<int>> binaries = const {}}) {
   try {
     final z = ZipWriter(stamp: when);
     // report.md first so it is what an unzip lands on.
@@ -330,6 +354,9 @@ File? writeBundle(Directory dir, String stem, Map<String, String> files,
     ];
     for (final name in ordered) {
       z.addText(name, files[name]!);
+    }
+    for (final e in binaries.entries) {
+      z.addFile(e.key, e.value);
     }
     if (!dir.existsSync()) dir.createSync(recursive: true);
     final out = File('${dir.path}/$stem.zip');

@@ -310,6 +310,60 @@ void logMeshConvention(String id, OcctMeshData m) {
   }
 }
 
+/// M186 — what actually crossed into the native renderer, and when.
+///
+/// On iOS the 3D body is drawn by RealityKit behind a platform view. Nothing
+/// on the Dart side can see the result, and a screenshot cannot contain it
+/// either, so "the model is there but the screen is wrong" had no evidence on
+/// either side of the boundary. This is the Dart side of it: the exact solids,
+/// revisions and camera last handed over. If this says a body was pushed with
+/// 4 148 triangles and the screen is empty, the fault is past this line; if
+/// the body was never pushed, it is before it.
+class RealityPush {
+  RealityPush._();
+
+  static DateTime? lastSceneAt;
+  static DateTime? lastCameraAt;
+  static int sceneCount = 0;
+  static int cameraCount = 0;
+  static String lastSceneSig = '(no scene has ever been pushed)';
+  static List<String> lastSolids = const [];
+  static String lastCamera = '(none)';
+
+  static void recordScene(String sig, List<String> solids) {
+    lastSceneAt = DateTime.now();
+    lastSceneSig = sig;
+    lastSolids = List.unmodifiable(solids);
+    sceneCount++;
+    Log.i('reality',
+        'setScene #$sceneCount: ${solids.length} solid(s) — ${solids.join(', ')}');
+  }
+
+  static void recordCamera(String cam) {
+    lastCameraAt = DateTime.now();
+    lastCamera = cam;
+    cameraCount++;
+  }
+
+  static List<String> dump() => [
+        'RealityKit is a PLATFORM VIEW: it composites outside Flutter, so it',
+        'never appears in a screenshot and Dart cannot read back what it drew.',
+        'This is what Dart HANDED IT — the last word before the boundary.',
+        '',
+        'scene pushes: $sceneCount, last at '
+            '${lastSceneAt?.toIso8601String() ?? 'never'}',
+        'camera pushes: $cameraCount, last at '
+            '${lastCameraAt?.toIso8601String() ?? 'never'}',
+        'last scene signature: $lastSceneSig',
+        'last camera: $lastCamera',
+        'solids in the last scene (${lastSolids.length}):',
+        for (final s in lastSolids) '  $s',
+        if (lastSolids.isEmpty)
+          '  (none — if the viewport looks empty, it IS empty by this point,'
+              ' and the fault is upstream of the renderer)',
+      ];
+}
+
 /// Current mesh revision per visible solid. The widget keeps the last set it
 /// pushed and hands it back as `knownRevs`, so unchanged solids travel as a
 /// two-field stub instead of megabytes of geometry.

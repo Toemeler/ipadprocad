@@ -15,7 +15,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/gesture_trace.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/bug_report.dart';
 import 'package:prototype/constraints.dart';
@@ -59,6 +61,7 @@ OcctMeshData _mesh(List<double> pos, List<int> idx, {int faces = 1}) =>
     );
 
 void main() {
+  m186();
   group('M184 — the ZIP is a real ZIP', () {
     test('a written archive unzips, with every member intact', () async {
       final dir = Directory.systemTemp.createTempSync('m184zip');
@@ -302,6 +305,140 @@ void main() {
     test('an ordinary mesh is not accused', () {
       expect(meshAnomalies(_mesh([0, 0, 0, 1, 0, 0, 0, 1, 0], [0, 1, 2])),
           isEmpty);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M186 — the three things the M185 audit named as still uncovered.
+// ---------------------------------------------------------------------------
+
+void _pointer(int id, Offset at, {String phase = 'down'}) {
+  final e = switch (phase) {
+    'up' => PointerUpEvent(pointer: id, position: at),
+    'move' => PointerMoveEvent(pointer: id, position: at),
+    'cancel' => PointerCancelEvent(pointer: id, position: at),
+    _ => PointerDownEvent(pointer: id, position: at),
+  };
+  GestureTrace.record(e);
+}
+
+void m186() {
+  group('M186 — the raw pointer stream', () {
+    setUp(GestureTrace.clear);
+
+    test('a down/move/up sequence is recorded in order, with positions', () {
+      _pointer(1, const Offset(10, 20));
+      _pointer(1, const Offset(11, 21), phase: 'move');
+      _pointer(1, const Offset(12, 22), phase: 'up');
+      final d = GestureTrace.dump();
+      expect(d.length, greaterThanOrEqualTo(2));
+      expect(d.first, contains('DOWN'));
+      expect(d.first, contains('at(10.0,20.0)'));
+      expect(d.last, contains('UP'));
+    });
+
+    test('a second contact is distinguishable — the two-finger case', () {
+      // "It panned instead of drawing" is usually two contacts where the user
+      // believed there was one, and that is only visible per pointer id.
+      _pointer(1, const Offset(0, 0));
+      _pointer(2, const Offset(50, 50));
+      final d = GestureTrace.dump().join('\n');
+      expect(d, contains('p1'));
+      expect(d, contains('p2'));
+    });
+
+    test('moves are thinned so a flick cannot evict the history', () {
+      _pointer(1, const Offset(0, 0));
+      for (var i = 0; i < 400; i++) {
+        _pointer(1, Offset(i.toDouble(), 0), phase: 'move');
+      }
+      // 400 moves inside one 25 ms window collapse to about one.
+      expect(GestureTrace.dump().length, lessThan(10));
+      expect(GestureTrace.dump().first, contains('DOWN'),
+          reason: 'the DOWN that started it must survive');
+    });
+
+    test('the buffer is bounded', () {
+      for (var i = 0; i < GestureTrace.capacity + 200; i++) {
+        _pointer(i, const Offset(1, 1));
+      }
+      expect(GestureTrace.dump().length, GestureTrace.capacity);
+    });
+
+    test('it can be switched off', () {
+      GestureTrace.enabled = false;
+      addTearDown(() => GestureTrace.enabled = true);
+      _pointer(1, const Offset(1, 1));
+      expect(GestureTrace.dump(), isEmpty);
+    });
+  });
+
+  group('M186 — the native renderer boundary', () {
+    test('with nothing pushed it says so, and says where the fault is not',
+        () {
+      final d = RealityPush.dump().join('\n');
+      expect(d, contains('PLATFORM VIEW'));
+      expect(d, contains('never'));
+    });
+
+    test('a recorded scene reports its solids and their triangle counts', () {
+      RealityPush.recordScene('sig-1', ['Solid1: tris=4148 verts=4164 rev=7']);
+      final d = RealityPush.dump().join('\n');
+      expect(d, contains('sig-1'));
+      expect(d, contains('tris=4148'));
+      expect(d, contains('solids in the last scene (1)'));
+    });
+  });
+
+  group('M186 — the bundle carries all three', () {
+    test('gestures, reality and the screenshot caveat are described', () {
+      final files = buildBundle(
+        description: 'x',
+        when: DateTime(2026, 8, 3),
+        env: const {},
+        part: null,
+        gestureText: '0ms DOWN p1',
+        realityText: 'scene pushes: 3',
+        hasScreenshot: true,
+        screenshotOmits3D: true,
+      );
+      expect(files.keys, containsAll(['gestures.txt', 'reality.txt']));
+      final md = files['report.md']!;
+      expect(md, contains('gestures.txt'));
+      expect(md, contains('reality.txt'));
+      // The caveat is the whole point: a blank viewport in the image must
+      // never be read as a missing body.
+      expect(md, contains('screenshot.png'));
+      expect(md, contains('NOT in this image'));
+    });
+
+    test('without the caveat when the platform composites normally', () {
+      final md = buildBundle(
+        description: 'x',
+        when: DateTime(2026, 8, 3),
+        env: const {},
+        part: null,
+        hasScreenshot: true,
+        screenshotOmits3D: false,
+      )['report.md']!;
+      expect(md, contains('screenshot.png'));
+      expect(md, isNot(contains('NOT in this image')));
+    });
+
+    test('a binary member survives the round trip through the zip', () async {
+      final dir = Directory.systemTemp.createTempSync('m186bin');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      // Bytes that are not valid UTF-8, so a text-only path would corrupt them.
+      final png = <int>[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF,
+        0xFE, 0x00, 0x01];
+      final f = writeBundle(dir, 'b', {'report.md': '# x'},
+          binaries: {'screenshot.png': png});
+      expect(f, isNotNull);
+      final out = Directory('${dir.path}/x')..createSync();
+      final r = await Process.run('unzip', ['-o', f!.path, '-d', out.path]);
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+      expect(File('${out.path}/screenshot.png').readAsBytesSync(), png);
     });
   });
 }

@@ -16,6 +16,37 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M186 — die drei Lücken aus dem M185-Audit geschlossen.**
+>
+> * **Screenshot.** `RepaintBoundary` um den ganzen Body, PNG ins Bundle.
+>   **Wichtig:** auf iOS ist der 3D-Körper eine RealityKit-PLATFORM-VIEW, vom
+>   OS ausserhalb von Flutters Layer-Tree komponiert — er ist im Bild NICHT
+>   drin, egal wie man aufnimmt. 2D-Skizzen (CustomPainter) sind vollständig
+>   drauf. `report.md` schreibt das ausdrücklich dazu, damit ein leerer
+>   Viewport im Bild nie als „Körper fehlt" gelesen wird.
+> * **Roher Pointer-Stream** (`gesture_trace.dart`). Ringpuffer, 800 Events,
+>   `Listener` ganz aussen, also VOR der Gesture-Arena. Moves werden pro
+>   Pointer auf ~25 ms ausgedünnt, damit ein Flick nicht die Vorgeschichte
+>   verdrängt. Nicht ins Log (120 Hz pro Kontakt), nur ins Bundle.
+> * **Native Grenze** (`RealityPush` in `reality_scene.dart`). Was Dart
+>   zuletzt hinübergereicht hat: Szenen-Signatur, Solids mit Tri/Vert/Revision,
+>   Kamera, Zähler und Zeitstempel. Sagt genau, auf welcher Seite der Grenze
+>   der Fehler liegt: steht dort ein Körper mit 4 148 Dreiecken und der Schirm
+>   ist leer, liegt es hinter der Linie — steht nichts da, davor.
+>
+> **Der Fund dabei:** der erste Screenshot-Widget-Test hing zehn Minuten.
+> `toImage` gibt die Arbeit an den Rasterizer und wartet; headless (und damit
+> auch: App im Hintergrund, keine Surface) antwortet niemand und der Future
+> bleibt für immer pending. Ohne Deadline hätte der Bug-Button die App
+> aufgehängt — beim Melden eines Aufhängers. `captureScreenshot` hat jetzt
+> ein Timeout, der Rest des Bundles ist davon unberührt.
+>
+> `m184_bug_report_test.dart` (31, inkl. M186-Gruppen) +
+> `m186_screenshot_test.dart` (2). analyze 0 errors, **1267 grün**.
+>
+> **Offen:** kein Share-Sheet; die native Seite loggt weiterhin nur, was Dart
+> ihr gibt, nicht was RealityKit daraus macht.
+
 > **M184 — Bug-Button, Bundle und Logging, das die Frage schon beantwortet.**
 > Ziel: EIN Zip, das alles sagt, ohne dass der Melder etwas dazuschreiben muss.
 >

@@ -90,11 +90,12 @@ class _BugButtonState extends State<BugButton> {
     if (text == null) return; // cancelled
     if (!mounted) return;
     setState(() => _busy = true);
-    // Capture is synchronous file work; yield one frame first so the spinner
-    // actually paints rather than appearing after the freeze it is meant to
-    // cover.
-    await Future<void>.delayed(const Duration(milliseconds: 16));
-    final file = captureBugReport(widget.app, text);
+    // Let the spinner paint before the capture begins, and let the dialog
+    // finish dismissing — the screenshot is taken inside captureBugReport and
+    // must show the state being COMPLAINED about, not the reporting UI on top
+    // of it.
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    final file = await captureBugReport(widget.app, text);
     if (!mounted) return;
     setState(() => _busy = false);
     await showDialog<void>(

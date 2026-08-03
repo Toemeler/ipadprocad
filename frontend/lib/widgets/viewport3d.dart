@@ -237,13 +237,21 @@ class _Viewport3DState extends State<Viewport3D>
     // One source of truth is the whole reason the cursor cannot drift away
     // from the model: PartCamera.forSketch reproduces exactly the projection
     // Viewport2D.map() uses (pinned by a test in m79_perf_test.dart).
-    c.setCamera(cameraPayload(_effectiveCamera(app, p, size), size));
+    final cam = _effectiveCamera(app, p, size);
+    c.setCamera(cameraPayload(cam, size));
+    RealityPush.recordCamera('${cam.runtimeType} on ${size.width.toInt()}x'
+        '${size.height.toInt()}');
     final sig = sceneSignature(app, p);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
+      final pushed = <String>[];
       for (final (id, s) in visibleSolids(app, p)) {
         logMeshConvention(id, s.mesh);
+        pushed.add('$id: tris=${s.mesh.indices.length ~/ 3} '
+            'verts=${s.mesh.positions.length ~/ 3} '
+            'rev=${identityHashCode(s.mesh)}');
       }
+      RealityPush.recordScene(sig, pushed);
       c.setScene(Perf.span('3d.payload', () => buildScenePayload(app, p,
           hover: _hover,
           hoverFace: _hoverFace,
