@@ -65,6 +65,22 @@ jobs:
           # Flutter-Versionen.
           flutter test 2>&1 | tee ../ci-dart-tests.log
 
+      - name: Commit dart-check logs
+        if: always()
+        run: |
+          mkdir -p ci-logs-dart
+          cp ci-dart-analyze.log ci-logs-dart/ 2>/dev/null || true
+          # Only the failing tail is wanted; a full green run is ~2 MB of
+          # per-test chatter and committing that on every build is noise.
+          tail -400 ci-dart-tests.log > ci-logs-dart/ci-dart-tests.tail.log \
+            2>/dev/null || true
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
+          git add -f ci-logs-dart
+          git commit -m "CI(dart): analyze+test logs from run ${{ github.run_id }}" \
+            || exit 0
+          git push origin HEAD:ci-debug-logs-dart --force
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
