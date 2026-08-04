@@ -71,8 +71,12 @@ Token NIE in Dateien/.git/config schreiben.
 > DOF-Verletzung** — `construction_rank_test` (eqs == rank, dof == 4) und der
 > Rang-Test aus M197 waren im selben Lauf gruen, was die Gleichungsbilanz oben
 > bestaetigt. Wo eine Zahl nur „der Fillet ist gelandet" hiess, zaehlt sie
-> jetzt die Seams am Bogen bzw. die Nicht-Konstruktions-Entities. Kein
-> Flutter-SDK in dieser Sitzung — gruen ist, was CI sagt.
+> jetzt die Seams am Bogen bzw. die Nicht-Konstruktions-Entities.
+>
+> **Stand: CI gruen** (Lauf `30959180608`) — **1364 Tests**, davon 8 aus M197
+> und die 17 aus M196, analyze 50 Issues / 0 Errors = Ausgangsstand.
+> Geraete-Test offen: alle vier Meldungen der Sitzung vom 2026-08-05 sind
+> damit beantwortet, keine davon am Geraet nachgeprueft.
 
 > **M196 — drei von vier Geraete-Meldungen (Sitzung 2026-08-05, Build
 > `a2d3107`).**
