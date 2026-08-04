@@ -1,0 +1,4 @@
+[1/4] Building C object CMakeFiles/occt_smoke.dir/tests/smoke_occt.c.o
+[2/4] Building CXX object CMakeFiles/occt_capi.dir/shim/occt_capi.cpp.o
+[3/4] Linking CXX static library libocct_capi.a
+[4/4] Linking CXX executable occt_smoke
