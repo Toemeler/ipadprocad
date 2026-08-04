@@ -16,12 +16,15 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Ende dieser Sitzung, Kopf `93dd3de` + M123/M124)
+> ## ⇢ STAND FUER DIE NAECHSTE SITZUNG (Kopf `189b921` + M125)
 >
 > **Alles gruen:** `dart-checks` 632 Tests + analyze sauber, `build-core-ios`,
-> `M3` und `m5-flutter-ipa` bestanden. **M123 kam danach dazu: 645 Tests lokal
-> gruen (Flutter 3.32.0), analyze 51 Issues / 0 errors = exakt der Ausgangsstand.
-> M123 ist noch NICHT durch die CI und nicht committet.**
+> `M3` und `m5-flutter-ipa` bestanden (Stand M122). **M123/M124 kamen danach
+> dazu, M125 jetzt: 666 Tests lokal gruen (Flutter stable, Dart 3.12.2 — dieselbe
+> Version wie der Geraete-Build), analyze 51 Issues / 0 errors = exakt der
+> Ausgangsstand.** Der Zweig ist `claude/workflow-build-fixes-2nr1bf`; die
+> Workflows triggern auf `main`/PR, dieser Zweig ist also noch nicht durch die
+> CI gelaufen.
 >
 > **Was in dieser Sitzung entstand:** M82–M122. Grob: Galerie-Vorschau auf der
 > echten 3D-Engine, Ursprungsebenen rahmen das Teil, Share Sketch +
@@ -37,9 +40,17 @@ Token NIE in Dateien/.git/config schreiben.
 >    zu editieren geht jetzt; das Tippen VORHER nicht. `hud.dart` ist an
 >    `toolPoints`-Phasen gekoppelt (Erzeugungswerkzeuge), Offset laeuft ueber
 >    `modEntity` + Hover — also ein echter Umbau, kein neuer enum-Fall.
-> 0. **Geraete-Test von M123/M124 im 2D-Modus**: einen Punkt auf Kreis, Bogen,
->    Spline und Polygonkante zeichnen und dann ZIEHEN — bleibt er auf dem
+> 0. **Geraete-Test von M123/M124/M125 im 2D-Modus**: einen Punkt auf Kreis,
+>    Bogen, Spline und Polygonkante zeichnen und dann ZIEHEN — bleibt er auf dem
 >    Traeger? Am Host bewiesen, am Geraet nie gesehen.
+> 0b. **M125 am Geraet, drei Handgriffe**: (a) Kreis mit zwei Tangenten trimmen
+>    — bleibt der richtige Bogen stehen? (b) Linie zeichnen, DANN einen Kreis
+>    durch ihren Endpunkt — kommt der Punkt-auf-Kreis? (c) irgendetwas trimmen
+>    — steht das Original als gestrichelte Konstruktionslinie da, und treibt ein
+>    Mass darauf das sichtbare Stueck noch? Zu (c) gehoert die offene
+>    Produktfrage, ob ein Trim, der NICHTS schneidet, wirklich einen
+>    Konstruktions-Ghost stehenlassen soll (aktuell ja, mit Toast) oder ob das
+>    der eine Fall ist, in dem loeschen richtiger waere.
 > 1. **Geraete-Test des Panels** (M118–M122): Einziehen, EOP-Zug, ob die
 >    Rollback-Wirkung jetzt stimmt, ob 78 pt eingezogen reichen, ob das Glas
 >    ueberhaupt bricht. Fast alles seit M107 ist nur CI-gruen, nicht gesehen.
@@ -74,6 +85,78 @@ Token NIE in Dateien/.git/config schreiben.
 >   der Fehler nimmt den ganzen Teilbaum mit, hier das komplette Ribbon.
 > * **Vor dem Erweitern das vorhandene C-API lesen** (M109): STEP-Export gab es
 >   laengst, mein Duplikat hat die Uebersetzungseinheit zerschossen.
+
+> **M125 — drei Geraete-Meldungen vom 2026-08-04, alle aus derselben Sitzung.**
+>
+> Die drei Berichte (`bug20260804T112452`, `T112835`, `T112936`) lagen mit Log,
+> Sketch-JSON und Gesten bei. Alle drei sind mit den Zahlen AUS DEM LOG belegt,
+> nicht nachgedacht — das war diesmal der ganze Unterschied.
+>
+> **(1) „Trimme eine Seite des Kreises mit 2 Linien dran → der GANZE Kreis war
+> weg."** Der Log zeigt den Trim auf `e2` (Kreis r8.2223) und danach
+> `arc data=[…, 4.9872242902, 4.9872410503]` — ein Bogen von **1.7e-5 rad**.
+> Also keine Loeschung, ein Null-Bogen. Beide Linien sind TANGENTEN und enden
+> auf dem Rand. Nachgerechnet mit den echten Zahlen:
+> * Linie 1: die Wurzeln liegen bei `t = 1.0000009` und `1.0000053` — beide
+>   ausserhalb des festen `[-1e-9, 1+1e-9]`-Fensters in `_segCircle`, also
+>   **verworfen**. Der Beruehrpunkt sitzt 9.1e-5 Weltmass HINTER dem
+>   Linienende, obwohl der Endpunkt radial nur 2.6e-10 danebenliegt: an einer
+>   Tangente wird ein radialer Fehler eps zu einer Verschiebung von
+>   ~sqrt(2·r·eps) ENTLANG der Linie. Ein Parameter-Epsilon kann das nie
+>   treffen.
+> * Linie 2: dieselbe Tangente, aber die Wurzeln fielen knapp ins Fenster —
+>   **zwei** Schnittpunkte 1e-4 auseinander. Getrimmt wurde die Spanne dazwischen.
+>
+> Beides in `_segCircle` behoben. Die Diskriminante IST `4aa(r²-dPerp²)`; alles
+> innerhalb `2·r·1e-6` ist eine Tangente und liefert **genau einen** Punkt. Die
+> Segmentgrenze wird nicht mehr parametrisch, sondern **radial** geprueft:
+> Wurzel auf [0,1] klemmen und fragen „liegt der Punkt noch auf dem Rand". Dazu
+> `_distinct` (Doppelpunkte naeher als 1e-6 sind EIN Punkt) und ein
+> laengenskaliertes Endfenster in `_segSeg`.
+>
+> **(2) „Endpunkt landete auf einem Kreis, kein Punkt-auf-Kreis — beim
+> Startpunkt hat es geklappt."** Der Log entscheidet: die Linie wurde
+> ZUERST gezeichnet (Startpunkt auf Kreis 0 → Bindung entstand), der zweite
+> Kreis DANACH, mit seinem Rand-Klick exakt auf dem Linienende. Die Inferenz
+> fragte immer nur „landet ein Punkt des NEUEN Objekts auf etwas Aelterem" —
+> die Bindung hing damit an der Zeichenreihenfolge. `inferPointBindings` bindet
+> jetzt auch rueckwaerts (bestehender Punkt auf die neue Kurve); die
+> Rueckwaerts-Bindung geht durch dasselbe Overconstrain-Tor wie eine manuelle
+> Bedingung (`isReverseBind`), weil sie als einzige inferierte Relation eine
+> bereits voll bestimmte Skizze treffen kann.
+>
+> **(3) „Beim Trimmen soll die Originallinie immer als Konstruktionslinie
+> stehenbleiben, damit Masse/Bedingungen nicht zerstoert werden."** Umgesetzt
+> wie gefordert: der Traeger bleibt an SEINEM Index liegen, nur umgestylt —
+> also wird **kein einziges Constraint umgehaengt** (`remapAfterReplace` laeuft
+> auf diesem Pfad gar nicht mehr) und keines faellt weg. Die Stuecke haengen
+> per Punkt-auf-Punkt (geerbter Endpunkt) bzw. Punkt-auf-Kurve (Schnittpunkt)
+> am Traeger, runde Stuecke zusaetzlich per `equal`; die Mitte wird bewusst
+> NICHT gepaart, weil concentric+equal beide Endbindungen impliziert und genau
+> diese redundante Zeile den Solver „inkonsistent" sagen laesst (dieselbe Falle
+> wie beim Slot-parallel, M114).
+>
+> **Folge, die man kennen muss:** ein Schnittpunkt ist jetzt durch
+> Traeger ∩ Schneider VOLL bestimmt. Das alte explizite Punkt-auf-Punkt
+> gestapelter Schnittecken (der M-Fix aus der 07-17-Sitzung) ist dadurch
+> redundant und wird vom Tor abgelehnt — richtig so, aber `_bindCutPoints`
+> musste lernen, danach auf die Kurvenbindung ZURUECKZUFALLEN, sonst blieb das
+> Schnittende lose. Die beiden Meldungen haben ihren Kontrakt getauscht: nicht
+> mehr „ein Punkt-auf-Punkt existiert", sondern „beide Enden sind gepinnt und
+> kommen nach einem Stoss wieder auf einen Punkt zusammen".
+>
+> Ausserdem bevorzugt `_pickEntity` bei Gleichstand normale Geometrie: das
+> Stueck liegt exakt auf dem Ghost, und der Ghost hat den kleineren Index —
+> ohne das haette jeder Tap auf die sichtbare Linie den gestrichelten Traeger
+> darunter erwischt.
+>
+> **Nicht gemacht, bewusst:** eine Bindung, die beim ZIEHEN eines Punktes auf
+> eine Kurve entsteht. Der Log zeigt, dass die Meldung (2) vom Zeichnen kam;
+> Inventor inferiert beim Ziehen bestehender Geometrie ebenfalls nicht.
+>
+> 666 Tests gruen (13 neu in `m125_trim_and_binds_test.dart`, 9 alte
+> Trim-Erwartungen auf den neuen Kontrakt gezogen), analyze 51 Issues /
+> 0 errors = Ausgangsstand.
 
 > **M124 — Bemassung zwischen zwei Kreisen; zwei Luecken, eine Ursache.**
 >

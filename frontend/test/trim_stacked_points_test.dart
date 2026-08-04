@@ -55,13 +55,20 @@ void main() {
     final afterFirst = refsAt(s.geometry, const Offset(100, 50));
     expect(afterFirst.length, 1,
         reason: 'first trim leaves ONE endpoint at the crossing');
-    final onCurve = s.constraints.where((c) =>
-        c.type == CType.coincident &&
-        c.pts.length == 1 &&
-        c.ents.length == 1 &&
-        c.pts[0] == afterFirst[0]);
-    expect(onCurve.length, 1,
+    final onCurve = s.constraints
+        .where((c) =>
+            c.type == CType.coincident &&
+            c.pts.length == 1 &&
+            c.ents.length == 1 &&
+            c.pts[0] == afterFirst[0])
+        .toList();
+    // M125 — the trimmed rectangle stays as a construction carrier, so the cut
+    // endpoint carries a second bind onto it; the cutter is the normal one.
+    expect(onCurve.where((c) => !s.geometry[c.ents[0]].isConstruction).length,
+        1,
         reason: 'first cut endpoint is bound point-on-curve onto the cutter');
+    expect(onCurve.where((c) => s.geometry[c.ents[0]].isConstruction).length, 1,
+        reason: 'and onto the kept construction carrier (M125)');
 
     // Trim 2: rect1's right edge, the span INSIDE rect2 — the surviving
     // piece's new endpoint lands EXACTLY on the endpoint trim 1 created.
@@ -73,14 +80,21 @@ void main() {
     expect(stacked.length, 2,
         reason: 'second trim stacks its endpoint on the first one');
 
-    // THE regression: the stacked pair shares a point-ON-POINT coincidence…
-    final pp = s.constraints.where((c) =>
-        c.type == CType.coincident &&
-        c.pts.length == 2 &&
-        c.pts.toSet().containsAll(stacked.toSet()));
-    expect(pp.length, 1,
-        reason: 'stacked cut endpoints must be bound point-on-point '
-            '(constraints: ${s.constraints.map((c) => c.toJson())})');
+    // THE regression, in its M125 form: each stacked endpoint must be PINNED —
+    // by its own construction carrier and by the entity it was cut against.
+    // Two points pinned to the same intersection cannot slide apart, which is
+    // what the device session was missing; an extra point-on-point on top of
+    // that would be the redundant row the over-constraint gate refuses.
+    for (final r in stacked) {
+      final binds = s.constraints.where((c) =>
+          c.type == CType.coincident &&
+          c.pts.length == 1 &&
+          c.ents.length == 1 &&
+          c.pts[0] == r);
+      expect(binds.length, 2,
+          reason: 'cut endpoint $r pinned by carrier AND cutter '
+              '(constraints: ${s.constraints.map((c) => c.toJson())})');
+    }
 
     // …and the subsumed point-on-curve of either onto the other's entity is
     // GONE (it would make the pair redundant and re-break the gate).
@@ -93,17 +107,20 @@ void main() {
     expect(subsumed, isEmpty,
         reason: 'the on-curve bind is upgraded, not stacked');
 
-    // Behavioural check: dragging one of the stacked points keeps them glued.
-    final mover = stacked[0];
+    // Behavioural check: shove both apart, solve, and they land back on the
+    // same point — the corner cannot come unstuck.
     final probe = List<Geo>.from(gs);
-    probe[mover.ent] =
-        setPt(probe[mover.ent], mover.pt, const Offset(95, 45));
-    final ok = solveConstraints(probe, s.constraints,
-        dragged: {(mover.ent, mover.pt)});
-    expect(ok, isTrue);
+    probe[stacked[0].ent] =
+        setPt(probe[stacked[0].ent], stacked[0].pt, const Offset(95, 45));
+    probe[stacked[1].ent] =
+        setPt(probe[stacked[1].ent], stacked[1].pt, const Offset(106, 57));
+    expect(solveConstraints(probe, s.constraints), isTrue);
     final a = getPt(probe[stacked[0].ent], stacked[0].pt);
     final b = getPt(probe[stacked[1].ent], stacked[1].pt);
+    // (Where the corner ends up is free — the carriers still have degrees of
+    // freedom and the shove moves them. What must hold is that the two cut
+    // endpoints are one point again.)
     expect((a - b).distance, lessThan(1e-6),
-        reason: 'stacked trim endpoints move as one point');
+        reason: 'stacked trim endpoints stay one point');
   });
 }
