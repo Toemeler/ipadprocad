@@ -47,6 +47,50 @@ Future<({int exitCode, String stderr})> _unzip(String zip, String into) async {
   );
 }
 
+/// Minimal ZIP reader: walks the central directory and inflates each member.
+///
+/// Exists so the archive can be verified without an external tool having an
+/// opinion about filename encodings. Mirrors only what ZipWriter emits —
+/// stored and deflated entries, no zip64, no encryption.
+Map<String, List<int>> _readZip(Uint8List b) {
+  int u16(int o) => b[o] | (b[o + 1] << 8);
+  int u32(int o) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
+
+  // End of central directory: last 22 bytes when there is no comment.
+  final eocd = b.length - 22;
+  expect(u32(eocd), 0x06054b50, reason: 'EOCD signature');
+  final count = u16(eocd + 10);
+  var p = u32(eocd + 16);
+
+  final out = <String, List<int>>{};
+  for (var i = 0; i < count; i++) {
+    expect(u32(p), 0x02014b50, reason: 'central directory signature');
+    final method = u16(p + 10);
+    final compSize = u32(p + 20);
+    final rawSize = u32(p + 24);
+    final nameLen = u16(p + 28);
+    final extraLen = u16(p + 30);
+    final commentLen = u16(p + 32);
+    final localOff = u32(p + 42);
+    final name = utf8.decode(b.sublist(p + 46, p + 46 + nameLen));
+
+    // Local header: payload starts after its own name+extra fields.
+    expect(u32(localOff), 0x04034b50, reason: 'local header signature');
+    final lNameLen = u16(localOff + 26);
+    final lExtraLen = u16(localOff + 28);
+    final dataAt = localOff + 30 + lNameLen + lExtraLen;
+    final raw = b.sublist(dataAt, dataAt + compSize);
+
+    final data =
+        method == 0 ? raw : ZLibCodec(raw: true).decode(raw);
+    expect(data.length, rawSize, reason: 'uncompressed size for $name');
+    expect(Crc32.compute(data), u32(p + 16), reason: 'CRC for $name');
+    out[name] = data;
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
 Geo _line(double x0, double y0, double x1, double y1) =>
     Geo(Geo.line, [x0, y0, x1, y1]);
 
@@ -81,42 +125,46 @@ OcctMeshData _mesh(List<double> pos, List<int> idx, {int faces = 1}) =>
 void main() {
   m186();
   group('M184 — the ZIP is a real ZIP', () {
-    test('a written archive unzips, with every member intact', () async {
+    test('a written archive unzips with the real unzip', () async {
+      // ASCII names only. The point of shelling out is "a third-party tool
+      // accepts our container"; non-ASCII names test that tool's Unicode
+      // support instead, and macOS ships an unzip from 2009 that fails it.
+      // The umlaut case is covered below by reading our own bytes back.
       final dir = Directory.systemTemp.createTempSync('m184zip');
       addTearDown(() => dir.deleteSync(recursive: true));
 
       final z = ZipWriter(stamp: DateTime(2026, 8, 3, 9, 30, 0));
-      // A compressible member, a tiny one that will store instead, and one
-      // with non-ASCII so the UTF-8 path is exercised.
-      z.addText('report.md', '# hello\n${'compress me ' * 500}');
-      z.addText('tiny.txt', 'x');
-      z.addText('sketches/Skizze-Übergröße.json', '{"a":1}');
+      z.addText('report.md', '# hello\n${'compress me ' * 500}'); // deflated
+      z.addText('tiny.txt', 'x'); // too small to compress: stored
+      z.addText('sketches/Sketch1.json', '{"a":1}');
       final bytes = z.finish();
       final f = File('${dir.path}/b.zip')..writeAsBytesSync(bytes);
 
-      // Signature and terminator, before trusting any external tool.
       expect(bytes.sublist(0, 4), [0x50, 0x4b, 0x03, 0x04],
           reason: 'local file header magic');
 
       final out = Directory('${dir.path}/x')..createSync();
       final r = await _unzip(f.path, out.path);
       expect(r.exitCode, 0, reason: 'unzip said: ${r.stderr}');
-
       expect(File('${out.path}/report.md').readAsStringSync(),
           startsWith('# hello'));
       expect(File('${out.path}/tiny.txt').readAsStringSync(), 'x');
-      // The umlaut member is checked by NAME BYTES below rather than by
-      // reading it back out: whether a given unzip build lands it under the
-      // right name depends on the flag we set, and asserting the flag is the
-      // precise claim. Reading it back only tested the local unzip's guess —
-      // which is exactly how the missing flag survived to CI.
-      expect(
-          Directory(out.path)
-              .listSync(recursive: true)
-              .whereType<File>()
-              .length,
-          3,
-          reason: 'all three members extracted, whatever they got called');
+      expect(File('${out.path}/sketches/Sketch1.json').readAsStringSync(),
+          '{"a":1}');
+    });
+
+    test('a UTF-8 member reads back byte-for-byte, parsed from our own bytes',
+        () {
+      // Reading the archive ourselves rather than asking a tool: this asserts
+      // the CONTAINER is right, which is the claim, instead of asserting what
+      // some particular unzip build makes of it.
+      final z = ZipWriter(stamp: DateTime(2026, 8, 3));
+      const name = 'sketches/Skizze-Übergröße.json';
+      const body = '{"name":"Skizze-Übergröße","a":1}';
+      z.addText(name, body);
+      final members = _readZip(z.finish());
+      expect(members.keys, [name]);
+      expect(utf8.decode(members[name]!), body);
     });
 
     test('non-ASCII names carry the UTF-8 flag, so they are not decoded as '
@@ -171,6 +219,48 @@ void main() {
       final bytes = ZipWriter().finish();
       expect(bytes.length, 22);
       expect(bytes.sublist(0, 4), [0x50, 0x4b, 0x05, 0x06]);
+    });
+  });
+
+  group('M184 — member names survive any unzip', () {
+    test('German and Swiss letters transliterate, not flatten', () {
+      // "_bergr__e" would be unreadable; the reader has to be able to tell
+      // which sketch a file belongs to at a glance.
+      expect(portableMemberName('Skizze-Übergröße', {}),
+          'Skizze-Uebergroesse');
+      expect(portableMemberName('Zahnrad_ä', {}), 'Zahnrad_ae');
+    });
+
+    test('anything else becomes an underscore, and never empty', () {
+      expect(portableMemberName('a/b c:d', {}), 'a_b_c_d');
+      expect(portableMemberName('日本語', {}), '___');
+      expect(portableMemberName('', {}), 'unnamed');
+    });
+
+    test('two names that collapse together stay distinct', () {
+      // Without this, "Skizze ä" and "Skizze/ä" would both become one file
+      // and one of the two sketches would be silently missing.
+      final used = <String>{};
+      expect(portableMemberName('Skizze:1', used), 'Skizze_1');
+      expect(portableMemberName('Skizze 1', used), 'Skizze_1~2');
+      expect(portableMemberName('Skizze/1', used), 'Skizze_1~3');
+    });
+
+    test('an ordinary ASCII name is left exactly alone', () {
+      expect(portableMemberName('Sketch1', {}), 'Sketch1');
+    });
+
+    test('the bundle records what it renamed, so nothing is lost', () {
+      final files = buildBundle(
+        description: 'x',
+        when: DateTime(2026, 8, 3),
+        env: const {},
+        part: null,
+        sketchJson: {'Skizze-Übergröße': '{}'},
+      );
+      expect(files.keys, contains('sketches/Skizze-Uebergroesse.json'));
+      expect(files['report.md'], contains('Skizze-Übergröße'),
+          reason: 'the real name must still appear in the report');
     });
   });
 

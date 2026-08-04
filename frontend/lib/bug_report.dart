@@ -75,6 +75,42 @@ List<String> triage(PartModel? p) {
   return out;
 }
 
+/// A file name every unzip on earth can write.
+///
+/// ASCII letters, digits, dot, dash and underscore only; anything else
+/// becomes '_'. Common German and Swiss letters are transliterated rather
+/// than flattened, so "Übergröße" reads as "Uebergroesse" instead of
+/// "_bergr__e" — a reader should still recognise which sketch it is.
+/// [used] keeps the result unique when two names collapse together.
+String portableMemberName(String name, Set<String> used) {
+  const map = {
+    'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
+    'ß': 'ss', 'é': 'e', 'è': 'e', 'ê': 'e', 'à': 'a', 'â': 'a', 'ç': 'c',
+    'î': 'i', 'ï': 'i', 'ô': 'o', 'û': 'u', 'ù': 'u',
+  };
+  final b = StringBuffer();
+  for (final ch in name.split('')) {
+    final t = map[ch];
+    if (t != null) {
+      b.write(t);
+    } else if (RegExp(r'[A-Za-z0-9._-]').hasMatch(ch)) {
+      b.write(ch);
+    } else {
+      b.write('_');
+    }
+  }
+  var out = b.toString();
+  if (out.isEmpty) out = 'unnamed';
+  if (!used.add(out)) {
+    var n = 2;
+    while (!used.add('$out~$n')) {
+      n++;
+    }
+    out = '$out~$n';
+  }
+  return out;
+}
+
 String _yn(bool b) => b ? 'yes' : 'no';
 
 /// Everything about one solid that distinguishes "fine" from "wrong shape".
@@ -264,11 +300,25 @@ Map<String, String> buildBundle({
     files['part.json'] = partJson;
     contents.add('`part.json` — the document itself; load this to reproduce');
   }
+  // Member names are forced to a portable ASCII subset. macOS still ships
+  // Info-ZIP UnZip 6.00 from 2009, which mangles a UTF-8 name even when the
+  // language-encoding flag says it is UTF-8, and then fails to write the file
+  // at all ("write error (disk full?) ... is probably truncated"). A sketch
+  // called "Skizze-Übergröße" is entirely ordinary here, and a bundle whose
+  // whole job is to survive being emailed to someone must not depend on which
+  // decade their unzip is from. Nothing is lost: the real name is the "name"
+  // field inside each document, and every dump in state.txt uses it.
+  final used = <String>{};
+  final renamed = <String>[];
   for (final e in sketchJson.entries) {
-    files['sketches/${e.key}.json'] = e.value;
+    final safe = portableMemberName(e.key, used);
+    files['sketches/$safe.json'] = e.value;
+    if (safe != e.key) renamed.add('$safe.json = "${e.key}"');
   }
   if (sketchJson.isNotEmpty) {
-    contents.add('`sketches/` — ${sketchJson.length} child sketch document(s)');
+    contents.add('`sketches/` — ${sketchJson.length} child sketch document(s)'
+        '${renamed.isEmpty ? '' : '; names transliterated for portability — '
+            '${renamed.join(', ')}'}');
   }
 
   if (part != null) {
