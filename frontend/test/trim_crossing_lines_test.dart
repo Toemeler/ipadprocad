@@ -63,15 +63,26 @@ void main() {
         var at = refsAt(s.geometry, x);
         expect(at.length, 1,
             reason: 'one endpoint at the crossing after trim 1');
-        final onCurve = s.constraints.where((c) =>
-            c.type == CType.coincident &&
-            c.pts.length == 1 &&
-            c.ents.length == 1 &&
-            c.pts[0] == at[0]);
-        expect(onCurve.length, 1,
+        final onCurve = s.constraints
+            .where((c) =>
+                c.type == CType.coincident &&
+                c.pts.length == 1 &&
+                c.ents.length == 1 &&
+                c.pts[0] == at[0])
+            .toList();
+        // M187 — the trimmed line stays as a construction CARRIER, so the cut
+        // endpoint is bound twice: onto the crossing line (the cutter) and
+        // onto the carrier it was cut out of. Exactly one of them is the
+        // cutter, i.e. the one that is not construction.
+        final ontoCutter = onCurve
+            .where((c) => !s.geometry[c.ents[0]].isConstruction)
+            .toList();
+        expect(ontoCutter.length, 1,
             reason: 'single trim: new endpoint bound point-on-CURVE onto the '
                 'crossing line (constraints: '
                 '${s.constraints.map((c) => c.toJson())})');
+        expect(onCurve.length - ontoCutter.length, 1,
+            reason: 'and once onto the kept construction carrier (M187)');
 
         // Trim 2
         app.toolClick(second);
@@ -80,13 +91,23 @@ void main() {
         at = refsAt(gs, x);
         expect(at.length, 2,
             reason: 'both trimmed endpoints stack at the crossing');
-        final pp = s.constraints.where((c) =>
-            c.type == CType.coincident &&
-            c.pts.length == 2 &&
-            c.pts.toSet().containsAll(at.toSet()));
-        expect(pp.length, 1,
-            reason: 'stacked endpoints bound point-ON-POINT (constraints: '
-                '${s.constraints.map((c) => c.toJson())})');
+        // M187 — each cut endpoint is pinned by TWO curve binds (its own
+        // construction carrier and the line it was cut against), so it sits on
+        // the crossing by construction. A point-on-point on top of that is the
+        // redundant row the gate exists to refuse; what the device session
+        // needed was for the two points not to slide apart, and being pinned
+        // to the same intersection is a stronger guarantee than gluing two
+        // otherwise free points together.
+        for (final r in at) {
+          final binds = s.constraints.where((c) =>
+              c.type == CType.coincident &&
+              c.pts.length == 1 &&
+              c.ents.length == 1 &&
+              c.pts[0] == r);
+          expect(binds.length, 2,
+              reason: 'cut endpoint $r pinned by carrier AND cutter '
+                  '(constraints: ${s.constraints.map((c) => c.toJson())})');
+        }
         final subsumed = s.constraints.where((c) =>
             c.type == CType.coincident &&
             c.pts.length == 1 &&
@@ -96,17 +117,19 @@ void main() {
         expect(subsumed, isEmpty,
             reason: 'on-curve bind upgraded, not stacked');
 
-        // and they drag as one point
-        final mover = at[0];
+        // and they come back to ONE point: shove both off the crossing, solve,
+        // and the constraint system pulls them onto it again, together.
         final probe = List<Geo>.from(gs);
-        probe[mover.ent] =
-            setPt(probe[mover.ent], mover.pt, const Offset(45, 55));
-        expect(
-            solveConstraints(probe, s.constraints,
-                dragged: {(mover.ent, mover.pt)}),
-            isTrue);
+        probe[at[0].ent] =
+            setPt(probe[at[0].ent], at[0].pt, const Offset(45, 55));
+        probe[at[1].ent] =
+            setPt(probe[at[1].ent], at[1].pt, const Offset(62, 41));
+        expect(solveConstraints(probe, s.constraints), isTrue);
         final pa = getPt(probe[at[0].ent], at[0].pt);
         final pb = getPt(probe[at[1].ent], at[1].pt);
+        // (Where the crossing ENDS UP is free — the carriers themselves still
+        // have degrees of freedom, and the shove moves them. What must hold is
+        // that the two cut endpoints are one point again.)
         expect((pa - pb).distance, lessThan(1e-6));
       });
     }

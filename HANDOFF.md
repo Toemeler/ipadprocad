@@ -16,6 +16,81 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M187 — die ersten drei Meldungen, die durch den M184-Bug-Knopf kamen.**
+>
+> Drei Bundles aus derselben Geraete-Sitzung (Build `ef22833`):
+> `bug20260804T112452`, `T112835`, `T112936`. Alle drei sind aus dem LOG
+> hergeleitet, nicht aus dem Code erraten — genau das, wofuer M184/M185/M186
+> gebaut wurden, und es hat beim ersten Einsatz funktioniert: in allen drei
+> Faellen stand die Ursache in `log.txt` und im Sketch-JSON.
+>
+> **(1) „Trimme eine Seite des Kreises mit 2 Linien dran → der GANZE Kreis war
+> weg."** Der Log zeigt den Trim auf `e2` (Kreis r8.2223) und danach
+> `arc data=[…, 4.9872242902, 4.9872410503]` — ein Bogen von **1.7e-5 rad**.
+> Also keine Loeschung, ein Null-Bogen. Beide Linien sind TANGENTEN und enden
+> auf dem Rand. Mit den echten Zahlen nachgerechnet:
+> * Linie 1: Wurzeln bei `t = 1.0000009` und `1.0000053` — beide ausserhalb des
+>   festen `[-1e-9, 1+1e-9]`-Fensters in `_segCircle`, also **verworfen**. Der
+>   Beruehrpunkt sitzt 9.1e-5 Weltmass HINTER dem Linienende, obwohl der
+>   Endpunkt radial nur 2.6e-10 danebenliegt: an einer Tangente wird ein
+>   radialer Fehler eps zu einer Verschiebung von ~sqrt(2·r·eps) ENTLANG der
+>   Linie. Ein Parameter-Epsilon kann das nie treffen.
+> * Linie 2: dieselbe Tangente, aber die Wurzeln fielen knapp ins Fenster —
+>   **zwei** Schnittpunkte 1e-4 auseinander. Getrimmt wurde die Spanne dazwischen.
+>
+> Beides in `_segCircle`: die Diskriminante IST `4aa(r²-dPerp²)`; alles
+> innerhalb `2·r·1e-6` ist eine Tangente und liefert **genau einen** Punkt. Die
+> Segmentgrenze wird nicht mehr parametrisch, sondern **radial** geprueft
+> (Wurzel auf [0,1] klemmen, fragen „liegt der Punkt noch auf dem Rand"). Dazu
+> `_distinct` (Punkte naeher als 1e-6 sind EIN Punkt) und ein laengenskaliertes
+> Endfenster in `_segSeg`.
+>
+> **(2) „Endpunkt landete auf einem Kreis, kein Punkt-auf-Kreis — beim
+> Startpunkt hat es geklappt."** Der Log entscheidet: die Linie wurde ZUERST
+> gezeichnet (Startpunkt auf Kreis 0 → Bindung entstand), der zweite Kreis
+> DANACH, mit seinem Rand-Klick exakt auf dem Linienende. Die Inferenz fragte
+> immer nur „landet ein Punkt des NEUEN Objekts auf etwas Aelterem" — die
+> Bindung hing damit an der Zeichenreihenfolge. `inferPointBindings` bindet
+> jetzt auch rueckwaerts (bestehender Punkt auf die neue Kurve); diese
+> Rueckwaerts-Bindung geht durch dasselbe Overconstrain-Tor wie eine manuelle
+> Bedingung (`isReverseBind`), weil sie als einzige inferierte Relation eine
+> bereits voll bestimmte Skizze treffen kann.
+>
+> **(3) „Beim Trimmen soll die Originallinie immer als Konstruktionslinie
+> stehenbleiben, damit Masse/Bedingungen nicht zerstoert werden."** Umgesetzt
+> wie gefordert: der Traeger bleibt an SEINEM Index liegen, nur umgestylt —
+> also wird **kein einziges Constraint umgehaengt** (`remapAfterReplace` laeuft
+> auf diesem Pfad gar nicht mehr) und keines faellt weg. Die Stuecke haengen
+> per Punkt-auf-Punkt (geerbter Endpunkt) bzw. Punkt-auf-Kurve (Schnittpunkt)
+> am Traeger, runde Stuecke zusaetzlich per `equal`; die MITTE wird bewusst
+> nicht gepaart, weil concentric+equal beide Endbindungen impliziert und genau
+> diese redundante Zeile den Solver „inkonsistent" sagen laesst (dieselbe Falle
+> wie beim Slot-parallel, M114).
+>
+> **Folge, die man kennen muss:** ein Schnittpunkt ist jetzt durch
+> Traeger ∩ Schneider VOLL bestimmt. Das alte explizite Punkt-auf-Punkt
+> gestapelter Schnittecken (der Fix aus der 07-17-Sitzung) ist dadurch redundant
+> und wird vom Tor abgelehnt — richtig so, aber `_bindCutPoints` musste lernen,
+> danach auf die Kurvenbindung ZURUECKZUFALLEN, sonst blieb das Schnittende
+> lose. Die beiden Regressionstests haben ihren Kontrakt getauscht: nicht mehr
+> „ein Punkt-auf-Punkt existiert", sondern „beide Enden sind gepinnt und kommen
+> nach einem Stoss wieder auf EINEN Punkt zusammen". Ausserdem bevorzugt
+> `_pickEntity` bei Gleichstand normale Geometrie — das Stueck liegt exakt auf
+> dem Ghost, und der Ghost hat den kleineren Index.
+>
+> **Nicht gemacht, bewusst:** eine Bindung, die beim ZIEHEN eines Punktes auf
+> eine Kurve entsteht. Der Log zeigt, dass Meldung (2) vom Zeichnen kam;
+> Inventor inferiert beim Ziehen bestehender Geometrie ebenfalls nicht.
+>
+> **Offene Produktfrage aus (3):** ein Trim, der NICHTS schneidet, laesst jetzt
+> einen Konstruktions-Ghost stehen (mit Toast) statt die Geometrie zu loeschen.
+> Das folgt dem „immer" der Meldung, ist aber der eine Fall, in dem Loeschen
+> richtiger sein koennte — am Geraet entscheiden.
+>
+> 1287 Tests gruen (13 neu in `m187_trim_and_binds_test.dart`, 9 alte
+> Trim-Erwartungen auf den neuen Kontrakt gezogen), analyze 50 Issues /
+> 0 errors = Ausgangsstand dieses Branches.
+
 > **M186 — die drei Lücken aus dem M185-Audit geschlossen.**
 >
 > * **Screenshot.** `RepaintBoundary` um den ganzen Body, PNG ins Bundle.

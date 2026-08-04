@@ -5991,6 +5991,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Is [c] the point-on-CURVE bind that a point-on-POINT between (e,p) and
+  /// (j,pj) would make redundant — either participant pinned onto the other
+  /// participant's entity?
+  static bool _subsumedBy(Constraint c, int e, int p, int j, int pj) {
+    if (c.type != CType.coincident ||
+        c.pts.length != 1 ||
+        c.ents.length != 1) {
+      return false;
+    }
+    final r = c.pts[0];
+    final onto = c.ents[0];
+    return (r.ent == e && r.pt == p && onto == j) ||
+        (r.ent == j && r.pt == pj && onto == e);
+  }
+
   /// Binds the NEW endpoints a trim/split created (every piece endpoint that
   /// was not an endpoint of the original carrier [old]) the way Inventor does:
   /// point-on-point when it meets an existing point (a split's twin piece, a
@@ -5998,8 +6013,10 @@ class AppState extends ChangeNotifier {
   /// interior it lies on (the cutter). Candidates run through the same
   /// over-constraint gate as manual constraints and are appended to [cons];
   /// the caller's atomic solve then verifies everything together.
-  void _bindCutPoints(
-      List<Geo> gs, Geo old, int piecesStart, List<Constraint> cons) {
+  /// [avoid] is the kept trim carrier (M187), which must never be mistaken for
+  /// the cutter.
+  void _bindCutPoints(List<Geo> gs, Geo old, int piecesStart,
+      List<Constraint> cons, {int avoid = -1}) {
     const tol = 1e-6;
     final oldEnds = <Offset>[];
     if (old.type == Geo.line) {
@@ -6045,31 +6062,39 @@ class AppState extends ChangeNotifier {
           if (j == e) continue;
           for (var pj = 0; pj < ptCount(gs[j]); pj++) {
             if ((getPt(gs[j], pj) - q).distance < tol) {
-              cand =
+              final pp =
                   Constraint(CType.coincident, pts: [PRef(j, pj), PRef(e, p)]);
               // The point-on-point SUBSUMES any point-on-curve bind of either
               // participant onto the other participant's entity (one equation
               // of it, making the pair redundant → the gate would reject the
-              // stronger bind). Replace, don't stack: remove the subsumed
-              // on-curve binds first.
-              cons.removeWhere((c) {
-                if (c.type != CType.coincident ||
-                    c.pts.length != 1 ||
-                    c.ents.length != 1) {
-                  return false;
-                }
-                final r = c.pts[0];
-                final onto = c.ents[0];
-                final subsumed = (r.ent == e && r.pt == p && onto == j) ||
-                    (r.ent == j && r.pt == pj && onto == e);
-                if (subsumed) {
-                  Log.i(
-                      'modify',
-                      'cut-bind upgrades ${conStr(-1, c)} -> point-on-point '
-                          '(stacked endpoints)');
-                }
-                return subsumed;
-              });
+              // stronger bind). Replace, don't stack: the trial list is `cons`
+              // WITHOUT those binds, and it is only adopted if the pair then
+              // fits — otherwise the removal never happened.
+              final subsumed =
+                  cons.where((c) => _subsumedBy(c, e, p, j, pj)).toList();
+              final trial =
+                  cons.where((c) => !_subsumedBy(c, e, p, j, pj)).toList();
+              if (wouldOverconstrain(gs, trial, pp)) {
+                // M187 — with the carrier kept, a cut point is already pinned
+                // by carrier ∩ cutter, so the stacking pair is genuinely
+                // redundant. Keep the curve binds and move on; the two points
+                // stay glued THROUGH the geometry they are both pinned to.
+                Log.i(
+                    'modify',
+                    'cut-bind ${conStr(-1, pp)} not needed — the cut point is '
+                        'already pinned by its carrier and cutter');
+                break;
+              }
+              for (final c in subsumed) {
+                Log.i(
+                    'modify',
+                    'cut-bind upgrades ${conStr(-1, c)} -> point-on-point '
+                        '(stacked endpoints)');
+              }
+              cons
+                ..clear()
+                ..addAll(trial);
+              cand = pp;
               break;
             }
           }
@@ -6078,6 +6103,11 @@ class AppState extends ChangeNotifier {
         if (cand == null) {
           for (var j = 0; j < gs.length; j++) {
             if (j == e || j >= piecesStart) continue; // never onto a sibling
+            // The kept CARRIER (M187) lies under every cut point by
+            // definition; binding there instead of onto the cutter would let
+            // the cut slide along the carrier. The carrier gets its own bind
+            // from _bindPiecesToCarrier, which runs first.
+            if (j == avoid) continue;
             final t = gs[j];
             if (t.type == Geo.line) {
               final a = getPt(t, 0), b = getPt(t, 1);
@@ -6105,6 +6135,98 @@ class AppState extends ChangeNotifier {
           Log.i('modify',
               'cut-bind ${conStr(-1, cand)} (Inventor trim/split coincidence)');
           tryAdd(cand);
+        }
+      }
+    }
+  }
+
+  /// M187 — Trim that KEEPS the carrier. [old] stays where it was (index [i],
+  /// same geometry, restyled to construction) and [pieces] are appended as
+  /// normal geometry tied back onto it.
+  ///
+  /// Nothing is removed, so nothing is remapped: every dimension and every
+  /// constraint on the trimmed entity keeps pointing at exactly the geometry it
+  /// was placed on. That is the whole point — a cut used to take the sketch's
+  /// intent with it, and what the user sees now is the same as in Inventor when
+  /// you convert to construction before cutting: the drive stays, the visible
+  /// profile is the trimmed one.
+  void _trimKeepingCarrier(SketchModel s, int i, Geo old, List<Geo> pieces) {
+    final gs = List<Geo>.from(s.geometry);
+    gs[i] = old.withStyle(Geo.styleConstruction);
+    final piecesStart = gs.length;
+    gs.addAll(pieces);
+    final cons = List<Constraint>.from(s.constraints);
+    _bindPiecesToCarrier(gs, i, piecesStart, cons);
+    _bindCutPoints(gs, old, piecesStart, cons, avoid: i);
+    // Atomic, exactly like the removing path: verify before adopting.
+    if (!solveConstraints(gs, cons)) {
+      Log.w('modify', 'trim e$i REJECTED — result cannot be satisfied');
+      toast('This trim would break the sketch constraints.');
+      return;
+    }
+    Log.i(
+        'modify',
+        'trim e$i: carrier kept as construction, ${pieces.length} piece(s), '
+            'constraints ${s.constraints.length} -> ${cons.length}');
+    s.constraints
+      ..clear()
+      ..addAll(cons);
+    _rebuildEngine(s, gs);
+    selection.clear();
+    if (pieces.isEmpty) {
+      toast('Trimmed away — the original stays as construction geometry.');
+    }
+  }
+
+  /// Ties the pieces a kept-carrier trim produced back onto that carrier, so
+  /// dragging or dimensioning the carrier still drives what is visible.
+  ///
+  /// Per PIECE POINT, strongest first: point-on-point where the piece inherited
+  /// one of the carrier's own points, otherwise point-on-curve where it sits on
+  /// the carrier's curve. Round pieces additionally get an EQUAL radius — two
+  /// point binds alone leave an arc free to bulge off its parent circle. The
+  /// carrier's CENTER is deliberately not matched: concentric plus equal would
+  /// already imply both endpoint binds, and that redundant row is what makes
+  /// the solver call a sketch inconsistent (same trap as the slot's parallel).
+  void _bindPiecesToCarrier(
+      List<Geo> gs, int carrier, int piecesStart, List<Constraint> cons) {
+    const tol = 1e-6;
+    final ghost = gs[carrier];
+    bool round(Geo g) => g.type == Geo.circle || g.type == Geo.arc;
+    // point 0 of a circle/arc is its CENTER, not a point on the curve
+    int firstOnCurvePt(Geo g) => round(g) ? 1 : 0;
+
+    void tryAdd(Constraint c) {
+      if (wouldOverconstrain(gs, cons, c)) {
+        Log.i('modify',
+            'carrier-bind ${conStr(-1, c)} DROPPED (would over-constrain)');
+        return;
+      }
+      Log.i('modify', 'carrier-bind ${conStr(-1, c)} (M187 trim carrier)');
+      cons.add(c);
+    }
+
+    for (var e = piecesStart; e < gs.length; e++) {
+      final g = gs[e];
+      if (round(g) && round(ghost)) {
+        tryAdd(Constraint(CType.equal, ents: [carrier, e]));
+      }
+      for (var p = firstOnCurvePt(g); p < ptCount(g); p++) {
+        final q = getPt(g, p);
+        var pinned = false;
+        for (var cp = firstOnCurvePt(ghost);
+            cp < ptCount(ghost) && !pinned;
+            cp++) {
+          if ((getPt(ghost, cp) - q).distance < tol) {
+            tryAdd(Constraint(CType.coincident,
+                pts: [PRef(carrier, cp), PRef(e, p)]));
+            pinned = true;
+          }
+        }
+        if (pinned) continue;
+        if (pointLandsOn(ghost, q)) {
+          tryAdd(Constraint(CType.coincident,
+              pts: [PRef(e, p)], ents: [carrier]));
         }
       }
     }
@@ -7305,11 +7427,21 @@ class AppState extends ChangeNotifier {
   int? _pickEntity(SketchModel s, Offset w) {
     var best = -1;
     var bd = 10 / zoom;
+    // A TIE goes to normal geometry. After a kept-carrier trim (M187) every
+    // piece lies exactly on top of its construction carrier, and the carrier
+    // has the lower index — without this, every tap on the visible line would
+    // land on the dashed ghost underneath it.
+    const tie = 1e-6;
     for (var i = 0; i < s.geometry.length; i++) {
       if (!geoEditable(s.geometry[i])) continue; // other layers are read-only
       final d = distToEntity(s.geometry[i], w);
-      if (d < bd) {
-        bd = d;
+      final wins = d < bd - tie ||
+          (d < bd + tie &&
+              best >= 0 &&
+              s.geometry[best].isConstruction &&
+              !s.geometry[i].isConstruction);
+      if (wins) {
+        bd = math.min(bd, d);
         best = i;
       }
     }
@@ -7987,10 +8119,23 @@ class AppState extends ChangeNotifier {
         final i = _pickEntity(s, w);
         if (i == null) return;
         final old = s.geometry[i];
+        final pieces = trimEntity(s.geometry, i, w).where(_notDegenerate);
+        // M187 — the CARRIER SURVIVES as construction geometry. Trimming used
+        // to delete the entity the constraints and dimensions hung on, so a
+        // cut silently destroyed the sketch's intent; keeping the original as
+        // Inventor's construction format keeps every one of them anchored on
+        // unchanged geometry, and the pieces are tied back onto it. An entity
+        // that IS already construction has nothing to preserve it for — it is
+        // trimmed the old way, which is also what keeps repeated trims from
+        // stacking ghost on ghost.
+        if (old.style != Geo.styleConstruction) {
+          _trimKeepingCarrier(s, i, old, pieces.toList());
+          return;
+        }
         final gs = List<Geo>.from(s.geometry)..removeAt(i);
         gs.setAll(0, remapProjectionsAfterRemove(gs, i));
         final piecesStart = gs.length;
-        gs.addAll(trimEntity(s.geometry, i, w).where(_notDegenerate));
+        gs.addAll(pieces);
         // M36: keep every constraint/dimension the trim leaves standing —
         // point refs follow their surviving piece, entity refs land on the
         // nearest piece of the (unchanged) carrier. Only what was actually
@@ -10308,7 +10453,20 @@ class AppState extends ChangeNotifier {
         }
       } else if (autoConstrain) {
         for (var i = firstNew; i < gs.length; i++) {
-          s.constraints.addAll(inferConstraints(gs, i));
+          for (final c in inferConstraints(gs, i)) {
+            // A REVERSE bind (an existing point landing on the new curve) is
+            // the one inferred relation that can hit an already fully
+            // constrained sketch, so it takes the same gate a manual
+            // constraint would — Inventor refuses those, it does not stack
+            // them. Everything else keeps the historical ungated path.
+            if (isReverseBind(c, i) &&
+                wouldOverconstrain(gs, s.constraints, c)) {
+              Log.i('tool',
+                  'auto ${conStr(-1, c)} DROPPED (would over-constrain)');
+              continue;
+            }
+            s.constraints.add(c);
+          }
         }
       }
       // Deterministic shapes still get POINT bindings to what was already

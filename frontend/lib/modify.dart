@@ -610,13 +610,27 @@ bool _ccwInTraversal(Geo g, int enterPt) {
 // ---------------------------------------------------------------------------
 // intersections (analytic: segments + circles/arcs)
 // ---------------------------------------------------------------------------
+/// How far off a curve a point may sit and still count as ON it (world units).
+/// The solver leaves residuals around 1e-9..1e-8, and a snap lands within
+/// machine precision, so this is "the model says they touch" — not "close by".
+/// It is the same order as the 1e-6 the constraint inference and the cut-point
+/// binder use, deliberately: what binds must also intersect.
+const double _touch = 1e-6;
+
+/// A parameter window worth [_touch] world units at each end of a segment of
+/// length [len]. A FIXED parameter epsilon (the old 1e-9) is wrong twice over:
+/// too tight on a long segment, and far too tight wherever a curve is grazed —
+/// see [_segCircle].
+double _endSlack(double len) => len < _eps ? 1.0 : _touch / len;
+
 List<Offset> _segSeg(Offset p1, Offset p2, Offset p3, Offset p4) {
   final r = p2 - p1, s = p4 - p3;
   final den = r.dx * s.dy - r.dy * s.dx;
   if (den.abs() < _eps) return const [];
   final t = ((p3 - p1).dx * s.dy - (p3 - p1).dy * s.dx) / den;
   final u = ((p3 - p1).dx * r.dy - (p3 - p1).dy * r.dx) / den;
-  if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return const [];
+  final st = _endSlack(r.distance), su = _endSlack(s.distance);
+  if (t < -st || t > 1 + st || u < -su || u > 1 + su) return const [];
   return [p1 + r * t];
 }
 
@@ -626,14 +640,42 @@ List<Offset> _segCircle(Offset a, Offset b, Offset c, double r) {
   if (aa < _eps) return const [];
   final bb = 2 * (f.dx * d.dx + f.dy * d.dy);
   final cc = f.dx * f.dx + f.dy * f.dy - r * r;
-  var disc = bb * bb - 4 * aa * cc;
+  final disc = bb * bb - 4 * aa * cc;
+
+  // The discriminant is 4*aa*(r^2 - dPerp^2), so `gap` below is how far the
+  // infinite line's closest approach misses the rim, squared-ish: a radial
+  // error of eps shows up here as ~2*r*eps. Anything inside that band is a
+  // TANGENCY, and a tangency is ONE touch point.
+  //
+  // Both halves of this matter for Trim (M187, device report: a circle with two
+  // tangent lines on it lost its whole rim instead of one span):
+  //   * disc < 0 by a hair is a touch, not a miss;
+  //   * disc > 0 by a hair yields two roots a few 1e-5 apart, and those two
+  //     near-duplicate crossings made the trim keep a zero-sweep arc — the
+  //     circle vanished.
+  final gap = disc / (4 * aa);
+  if (gap.abs() <= 2 * r * _touch + _touch * _touch) {
+    return _onRim(a, d, c, r, -bb / (2 * aa));
+  }
   if (disc < 0) return const [];
-  disc = math.sqrt(disc);
+  final root = math.sqrt(disc);
   final out = <Offset>[];
-  for (final t in [(-bb - disc) / (2 * aa), (-bb + disc) / (2 * aa)]) {
-    if (t >= -1e-9 && t <= 1 + 1e-9) out.add(a + d * t);
+  for (final t in [(-bb - root) / (2 * aa), (-bb + root) / (2 * aa)]) {
+    out.addAll(_onRim(a, d, c, r, t));
   }
   return out;
+}
+
+/// The crossing of the INFINITE line a + d*[t] with the circle, kept only if
+/// the SEGMENT really reaches it. The test is RADIAL, not parametric: near a
+/// tangency a radial error of 1e-10 moves the root ~1e-4 world units ALONG the
+/// line (measured on the device sketch: 9e-5), so a line that ENDS on the rim
+/// has its touch point measurably past t=1 while sitting exactly on the rim.
+/// Clamping onto the segment and asking "is this point still on the circle"
+/// keeps that touch and still rejects a crossing the segment does not reach.
+List<Offset> _onRim(Offset a, Offset d, Offset c, double r, double t) {
+  final p = a + d * t.clamp(0.0, 1.0);
+  return ((p - c).distance - r).abs() <= _touch ? [p] : const [];
 }
 
 List<Offset> _circleCircle(Offset c1, double r1, Offset c2, double r2) {
@@ -672,13 +714,25 @@ bool _onArcRange(Geo arc, Offset p) {
   return rel <= sweep + 1e-6;
 }
 
+/// Drops crossings that are the SAME crossing twice: a tangency that survived
+/// as two roots, and the shared vertex of two neighbouring sampled segments.
+/// Two intersections closer together than [_touch] are one intersection —
+/// leaving both in makes Trim keep the zero-length span between them.
+List<Offset> _distinct(List<Offset> pts) {
+  final out = <Offset>[];
+  for (final p in pts) {
+    if (out.every((q) => (q - p).distance > _touch)) out.add(p);
+  }
+  return out;
+}
+
 List<Offset> intersections(Geo a, Geo b) {
   if (_isRound(a) && _isRound(b)) {
     var pts = _circleCircle(Offset(a.data[0], a.data[1]), a.data[2],
         Offset(b.data[0], b.data[1]), b.data[2]);
     if (a.type == Geo.arc) pts = pts.where((p) => _onArcRange(a, p)).toList();
     if (b.type == Geo.arc) pts = pts.where((p) => _onArcRange(b, p)).toList();
-    return pts;
+    return _distinct(pts);
   }
   if (_isRound(a)) return intersections(b, a);
   final out = <Offset>[];
@@ -696,7 +750,7 @@ List<Offset> intersections(Geo a, Geo b) {
       }
     }
   }
-  return out;
+  return _distinct(out);
 }
 
 List<Offset> intersectionsWithOthers(List<Geo> geos, int i) {

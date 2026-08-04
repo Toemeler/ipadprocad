@@ -329,8 +329,49 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
       }
     }
   }
+  // M187 — the OTHER direction. Everything above asks "does a point of the new
+  // entity land on something that was already there". Inventor also binds the
+  // mirror image: drawing a circle whose RIM passes through an existing line
+  // endpoint constrains that endpoint onto the circle. Without this, inference
+  // depended on drawing order — the device report was exactly that, a line
+  // whose start point had bound to a circle drawn BEFORE it while its end point
+  // stayed loose on a circle drawn AFTER it ("on the start point it worked").
+  //
+  // Only the CURVE of the new entity binds this way; a landing on one of its
+  // defining points is a point-on-POINT coincidence, which the loop above
+  // already inferred from the new entity's side (pointLandsOn excludes the
+  // carrier's own defining points, so the two passes cannot both fire).
+  final carrier = g.type == Geo.polyline ? sampleEntity(g) : null;
+  for (var j = 0; j < limit; j++) {
+    if (j == newIdx) continue;
+    for (var pj = 0; pj < ptCount(gs[j]); pj++) {
+      final q = getPt(gs[j], pj);
+      if (!pointLandsOn(g, q, curve: carrier)) continue;
+      // Not if that point is already tied to the new entity from the other
+      // side (its own point sits on the same spot).
+      final already = out.any((c) =>
+          c.type == CType.coincident &&
+          c.pts.any((r) => r.ent == j && r.pt == pj));
+      if (!already) {
+        out.add(Constraint(CType.coincident,
+            pts: [PRef(j, pj)], ents: [newIdx]));
+      }
+    }
+  }
   return out;
 }
+
+/// True when [c] is one of the REVERSE bindings [inferPointBindings] adds for
+/// the entity just drawn — an ALREADY EXISTING point pinned onto the new
+/// entity's curve. The commit path runs exactly these through the
+/// over-constraint gate: the new entity carries the equation, so a sketch that
+/// is already fully constrained must not swallow it silently.
+bool isReverseBind(Constraint c, int newIdx) =>
+    c.type == CType.coincident &&
+    c.pts.length == 1 &&
+    c.ents.length == 1 &&
+    c.ents.first == newIdx &&
+    c.pts.first.ent != newIdx;
 
 /// M123 — does [q] lie ON the carrier of [g], i.e. did the on-curve snap put it
 /// there? True for the INTERIOR of a straight edge, for the drawn sweep of a
@@ -346,7 +387,7 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
 /// point-on-POINT coincidence, which is stronger and is inferred first by
 /// [inferPointBindings]. The tolerance is exact-arithmetic tight (1e-6 world
 /// units) on purpose — this asks "did the snap bind it", not "is it nearby".
-bool pointLandsOn(Geo g, Offset q, {double tol = 1e-6}) {
+bool pointLandsOn(Geo g, Offset q, {double tol = 1e-6, List<Offset>? curve}) {
   switch (g.type) {
     case Geo.line:
       final a = getPt(g, 0), b = getPt(g, 1);
@@ -385,7 +426,10 @@ bool pointLandsOn(Geo g, Offset q, {double tol = 1e-6}) {
       // sampleEntity follows the CURVE for splines/ellipses/gears and the
       // vertices for a straight polyline, so this one branch covers the
       // polygon edge and the smooth curve with the same code the snap used.
-      final pts = sampleEntity(g);
+      // [curve] lets a caller that asks about MANY points (the reverse pass
+      // below, which runs per hover frame) sample the carrier once instead of
+      // regenerating a gear's involute per candidate point.
+      final pts = curve ?? sampleEntity(g);
       if (pts.length < 2) return false;
       for (var i = 0; i < ptCount(g); i++) {
         if ((q - getPt(g, i)).distance < tol) return false; // defining vertex
