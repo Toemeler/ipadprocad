@@ -74,20 +74,20 @@ Builds mit Datum und Commit-Zeile, und aeltere lassen sich direkt installieren.
 Der Name muss **exakt** so lauten, falls Abschnitt 3 (Push) dazukommt: die CI
 baut ihn in die Notification-URL ein. Ohne Push ist der Name frei.
 
-1. **Erhalte Text aus Eingabe** (Shortcut-Eingabe; bei Start ohne Eingabe
-   nachfragen: aus). Das ist die IPA-URL, die die Notification mitschickt.
-2. **Wenn** Text *hat keinen Wert*:
-   * **Inhalt von URL abrufen** → `https://github.com/Toemeler/ipadprocad/releases/latest/download/latest.json`
-   * **Wörterbuchwert abrufen** → Schluessel `ipaURL`
-   * Ergebnis in **Variable setzen** `IPA`
-   **Sonst:** Text in **Variable setzen** `IPA`
-   (So laeuft derselbe Shortcut per Notification *und* als Icon auf dem
-   Home-Screen ohne Eingabe.)
-3. **VPN**: hier deinen bestehenden VPN-Shortcut aufrufen (**Shortcut ausführen**)
-   oder direkt **VPN einschalten**. Muss VOR dem Deep Link stehen: ohne Tunnel
-   scheitert SideStore erst beim Signieren, also nach dem Download.
-4. **Warten** 2 Sekunden (der Tunnel braucht einen Moment).
-5. **URL öffnen** → `sidestore://install?url=` mit angehaengter Variable `IPA`.
+Fuenf Aktionen, und derselbe Shortcut bedient beide Wege — Kontrollzentrum wie
+Notification. Er nimmt **keine Eingabe** entgegen, sondern schlaegt den
+neuesten Build immer selbst nach (Begruendung in Abschnitt 3):
+
+1. **Inhalt von URL abrufen** → `https://github.com/Toemeler/ipadprocad/releases/latest/download/latest.json`
+2. **Wörterbuchwert abrufen** → Schluessel `ipaURL` aus dem Ergebnis von (1)
+3. **Shortcut ausführen** → dein bestehender VPN-Shortcut (oder direkt **VPN
+   einschalten**). Muss VOR dem Deep Link stehen: ohne Tunnel scheitert
+   SideStore erst beim Signieren, also nach dem Download — es sieht aus wie ein
+   Download-Problem und ist keins.
+4. **Warten** → 2 Sekunden (der Tunnel braucht einen Moment).
+5. **URL öffnen** → `sidestore://install?url=` mit angehaengtem Ergebnis von (2).
+
+Beim ersten Lauf fragt iOS einmal nach Zugriff auf `github.com`.
 
 **Wohin damit — in dieser Reihenfolge:**
 
@@ -113,25 +113,39 @@ Shortcut danach selbst aus. Kostet nichts und keinen CI-Code.
 Wenn der Tipp direkt in den Shortcut fuehren soll, setzt du eins der beiden
 Secrets; dann macht `ci/notify_build.sh` den Rest:
 
-**Pushover** (5 $ einmalig, zuverlaessiger, weil die App die URL unveraendert
-ans System reicht — auch eigene Schemata wie `shortcuts://`):
-Repo → Settings → Secrets → Actions:
+**ntfy — empfohlen, kostenlos, kein Konto.** Der Tipp auf die Notification
+startet den Shortcut wirklich: ntfys iOS-Client reicht die `click`-URL in
+`AppDelegate.swift` unbesehen an `UIApplication.shared.open` weiter, also
+funktioniert auch `shortcuts://`.
 
-    PUSHOVER_TOKEN   Application-Token
-    PUSHOVER_USER    User-Key
+1. ntfy-App aus dem App Store installieren.
+2. Topic-Namen wuerfeln — er ist gleichzeitig das Passwort, denn jeder, der
+   ihn kennt, kann in dieses Topic schreiben. Also nicht „ipadprocad", sondern
+   z. B. `ipadprocad-9f3c1a77b204`.
+3. In der App: **+** → Topic abonnieren → diesen Namen.
+4. Repo → Settings → Secrets and variables → Actions → **New repository
+   secret** → Name `NTFY_TOPIC`, Wert derselbe Name. (Optional `NTFY_URL` fuer
+   eine eigene Instanz.)
 
-**ntfy** (kostenlos): Secret `NTFY_TOPIC` auf einen geratenen Topic-Namen
-setzen (der Topic ist oeffentlich — der Name ist das Passwort), ntfy-App
-installieren und denselben Topic abonnieren. Optional `NTFY_URL` fuer eine
-eigene Instanz.
+**Pushover** (5 $ einmalig) geht auch — Secrets `PUSHOVER_TOKEN` und
+`PUSHOVER_USER` —, kostet aber einen Tipp mehr: die Notification oeffnet erst
+die Pushover-App, in der die URL als Link steht.
 
 Ohne beides bleibt der Schritt ein No-op, der Build bleibt gruen, und der
-Home-Screen-Shortcut holt den Build genauso.
+Kontrollzentrum-Shortcut holt den Build genauso.
 
 Die Notification zeigt „Build N ready" plus die Commit-Zeile; ihr Link ist
 **nicht** die IPA und nicht `sidestore://`, sondern
-`shortcuts://run-shortcut?name=Install%20ipadprocad&input=text&text=<IPA-URL>` —
-sonst landet man in SideStore, bevor der VPN steht.
+`shortcuts://run-shortcut?name=Install%20ipadprocad` — sonst landet man in
+SideStore, bevor der VPN steht.
+
+**Warum die IPA-URL NICHT mitgeschickt wird:** ein ntfy-Topic ist oeffentlich
+beschreibbar, und der Client prueft die Klick-URL nicht. Wuerde die
+Notification die Download-URL tragen und der Shortcut sie als Eingabe nehmen,
+koennte ein Fremder mit geratenem Topic-Namen eine beliebige IPA in den
+Install-Weg schieben. Der Shortcut fragt deshalb selbst bei GitHub nach; eine
+gefaelschte Notification kann dann hoechstens den echten neuesten Build
+anbieten.
 
 ## Was beim Installieren passiert
 

@@ -12,11 +12,19 @@
 # The notification's URL is not the IPA and not the sidestore:// link — it is
 # the SHORTCUT:
 #
-#   shortcuts://run-shortcut?name=<SHORTCUT_NAME>&input=text&text=<ipa url>
+#   shortcuts://run-shortcut?name=<SHORTCUT_NAME>
 #
 # so that one tap can flip the VPN on first and only then hand the URL to
 # SideStore. Tapping a bare sidestore:// link skips that and lands in SideStore
 # with the tunnel down, which fails at signing. See AUTOINSTALL.md.
+#
+# NO `input=text&text=<ipa url>`, deliberately. An ntfy topic is public to
+# anyone who knows its name, and ntfy's iOS client hands the click URL straight
+# to UIApplication.open (AppDelegate.swift) without inspecting it — so a
+# notification that carried the download URL would be a stranger's lever to
+# feed an arbitrary IPA into the install shortcut. The shortcut resolves
+# latest.json itself instead; then a spoofed notification can at worst make the
+# iPad offer the genuine newest build.
 
 set -uo pipefail
 
@@ -24,6 +32,8 @@ IPA_URL="${1:-}"
 BUILD="${2:-?}"
 SUBJECT="${3:-}"
 
+# The URL is not sent anywhere (see above) — it is the proof that a release
+# actually got published. Nothing to announce without one.
 [ -n "$IPA_URL" ] || { echo "notify: no IPA URL, skipping"; exit 0; }
 
 SHORTCUT_NAME="${SHORTCUT_NAME:-Install ipadprocad}"
@@ -32,7 +42,7 @@ SHORTCUT_NAME="${SHORTCUT_NAME:-Install ipadprocad}"
 # exactly the escaping we need, including the spaces in the shortcut name).
 enc() { printf '%s' "$1" | jq -sRr @uri; }
 
-RUN_URL="shortcuts://run-shortcut?name=$(enc "$SHORTCUT_NAME")&input=text&text=$(enc "$IPA_URL")"
+RUN_URL="shortcuts://run-shortcut?name=$(enc "$SHORTCUT_NAME")"
 TITLE="Build ${BUILD} ready"
 
 sent=0
