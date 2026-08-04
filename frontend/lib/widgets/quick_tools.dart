@@ -46,6 +46,7 @@ class QuickToolId {
   static const rect = 'rect';
   static const dimension = 'dimension';
   static const trim = 'trim';
+  static const delete = 'delete';
 }
 
 /// True when Enter/OK would do something: a variable-length tool (spline) with
@@ -88,8 +89,11 @@ const _modifyRing = {Tool.split, Tool.trim, Tool.extendT};
 ///  * The four everyday drawing tools plus Trim only inside a layer's edit
 ///    mode, which is the only place a tool can be armed at all (selectTool
 ///    refuses outside it).
+///  * Delete (M193) only with a deletable selection, and LAST, so its arrival
+///    moves nothing above it. It is the one button that has no meaning at all
+///    without a selection, which is why it appears rather than greys out.
 ///
-/// Within a tier the buttons never move: they grey out instead of vanishing,
+/// Otherwise the buttons never move: they grey out instead of vanishing,
 /// because a target that shifts under the thumb cannot be hit without looking.
 List<GlassToolItem> buildQuickTools(AppState app) {
   if (app.isHome) return const [];
@@ -163,6 +167,21 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       selected: _modifyRing.contains(app.tool),
     ),
   ]);
+  // M193 — Delete APPEARS with a selection instead of sitting there dark: it
+  // is the one button that is meaningless without one. It goes LAST, so
+  // nothing above it moves when it arrives and no button is ever hit by
+  // accident because the bar grew under the thumb.
+  if (app.canDeleteSelection) {
+    items.addAll([
+      const GlassToolItem.separator('sep3'),
+      const GlassToolItem(
+        id: QuickToolId.delete,
+        symbol: 'trash',
+        label: 'Delete',
+        destructive: true,
+      ),
+    ]);
+  }
   return items;
 }
 
@@ -227,6 +246,9 @@ void runQuickTool(AppState app, String id) {
       // Inside the family this is the right-click role (M49): Split -> Trim ->
       // Extend. Outside it, it enters Trim.
       if (!app.cycleModifyTool()) app.selectTool(Tool.trim);
+      break;
+    case QuickToolId.delete:
+      app.deleteSelection();
       break;
   }
 }
@@ -315,6 +337,7 @@ class QuickToolsBar extends StatelessWidget {
       QuickToolId.rect: Icons.crop_square,
       QuickToolId.dimension: Icons.straighten,
       QuickToolId.trim: Icons.content_cut,
+      QuickToolId.delete: Icons.delete_outline,
     };
     return Semantics(
       label: i.label,

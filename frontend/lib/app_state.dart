@@ -2606,6 +2606,70 @@ class AppState extends ChangeNotifier {
     return victims.length;
   }
 
+  /// M193 — delete the selected geometry.
+  ///
+  /// Until now the only way a sketch could lose an entity was [deleteLayer]:
+  /// there was no per-entity delete anywhere — not on a key, not in a menu,
+  /// not on a button. Drawing a wrong line meant undoing back past everything
+  /// after it, or throwing the layer away.
+  ///
+  /// Scope, like every other edit: only geometry on the layer being edited
+  /// ([geoEditable]) can go. Outside edit mode nothing is deletable at all —
+  /// the layer IS the editing scope (M17), and a delete that reached across
+  /// layers would be the one operation that ignored it.
+  ///
+  /// Removal runs HIGHEST INDEX FIRST so each removal leaves the lower indices
+  /// — and every constraint that refers to them — valid; [remapAfterRemove]
+  /// drops the constraints and dimensions that pointed AT the deleted entity.
+  /// Exactly the arithmetic [deleteLayer] uses, for exactly the same reason.
+  /// One [_rebuildEngine] at the end makes the whole thing one undo step.
+  ///
+  /// Returns the number of entities removed.
+  int deleteSelection() {
+    final s = current;
+    if (s == null) return 0;
+    if (!inEditMode) {
+      toast('Enter a layer to edit: double-tap it in the model browser.');
+      return 0;
+    }
+    final victims = <int>[
+      for (final i in selection)
+        if (i >= 0 && i < s.geometry.length && geoEditable(s.geometry[i])) i
+    ]..sort((a, b) => b.compareTo(a));
+    if (victims.isEmpty) {
+      toast('Select geometry first, then delete it.');
+      return 0;
+    }
+    final gs = List<Geo>.from(s.geometry);
+    var cons = List<Constraint>.from(s.constraints);
+    for (final i in victims) {
+      gs.removeAt(i);
+      cons = remapAfterRemove(cons, i);
+      gs.setAll(0, remapProjectionsAfterRemove(gs, i));
+    }
+    s.constraints
+      ..clear()
+      ..addAll(cons);
+    // Nothing may keep pointing into the geometry that is about to shift: the
+    // selection is index-based, and so is the live snap marker.
+    selection.clear();
+    snap = null;
+    Log.i('edit', 'delete ${victims.length} selected entities');
+    _rebuildEngine(s, gs);
+    if (curTab != null) saveSketch(curTab!);
+    notifyListeners();
+    return victims.length;
+  }
+
+  /// True when [deleteSelection] would actually remove something — what the
+  /// Delete button and the quick menu ask before offering themselves.
+  bool get canDeleteSelection {
+    final s = current;
+    if (s == null || !inEditMode) return false;
+    return selection.any(
+        (i) => i >= 0 && i < s.geometry.length && geoEditable(s.geometry[i]));
+  }
+
   /// Move the currently selected geometry onto [target]. This is how a sketch
   /// whose geometry is stranded on the wrong layer (e.g. everything on the
   /// default "0") gets sorted out: select it, then move it. Does nothing if

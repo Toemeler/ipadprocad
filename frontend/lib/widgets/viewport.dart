@@ -975,9 +975,14 @@ class _Viewport2DState extends State<Viewport2D> {
   /// The right-click role for Pencil and finger (600 ms, still). Inside the
   /// Split/Trim/Extend family it hops to the next member exactly like
   /// Inventor's right-click (M49); otherwise it opens the quick menu — which
-  /// is also the ONLY way a touch-only user reaches Enter (OK) and Esc
-  /// (Cancel) inside a running tool.
-  void _fireLongPress(Offset local, Size size) {
+  /// since M192 is no longer the only way to Enter (OK) and Esc (Cancel): the
+  /// quick-tool bar on the right edge carries both permanently.
+  ///
+  /// M193 — with no tool running, a long press on an entity SELECTS it first,
+  /// so the menu's Delete acts on the thing under the finger. Long-pressing a
+  /// line and being offered a delete for whatever happened to be selected
+  /// somewhere else would be worse than offering nothing.
+  void _fireLongPress(Offset local, Size size, PointerDeviceKind kind) {
     if (!mounted) return;
     _lpTimer = null;
     _lpDown = null;
@@ -992,6 +997,13 @@ class _Viewport2DState extends State<Viewport2D> {
     _mft.nonTouchActivity();
     HapticFeedback.selectionClick();
     if (app.cycleModifyTool()) return;
+    // M193 — with no tool armed, the press picks what is under it so the
+    // menu's Delete has something to act on. An EXISTING selection is left
+    // alone: a long press inside a box-selected group must not collapse it to
+    // the one entity under the finger.
+    if (app.tool == Tool.none && app.inEditMode && app.selection.isEmpty) {
+      app.selectAt(_toWorld(local, size), touchSlop(kind, 10) / app.zoom);
+    }
     final box = context.findRenderObject();
     if (box is! RenderBox) return;
     _showQuickMenu(box.localToGlobal(local));
@@ -1054,6 +1066,16 @@ class _Viewport2DState extends State<Viewport2D> {
         _qmItem('Cancel (Esc)', () {
           app.cancelTool();
         }),
+      // M193 — delete what is selected. On a touch-only device this and the
+      // bar's trash button are the only ways to remove one entity; before
+      // them the smallest thing a sketch could lose was a whole layer.
+      if (app.canDeleteSelection)
+        _qmItem(
+            app.selection.length > 1
+                ? 'Delete ${app.selection.length} objects'
+                : 'Delete',
+            () => app.deleteSelection(),
+            destructive: true),
       if (app.inEditMode) ...[
         _qmItem('Line (L)', () => app.selectTool(Tool.line)),
         _qmItem('Circle (C)', () => app.selectTool(Tool.circleCenter)),
@@ -1099,7 +1121,7 @@ class _Viewport2DState extends State<Viewport2D> {
     Overlay.of(context).insert(_toolCtx!);
   }
 
-  Widget _qmItem(String label, VoidCallback onTap) {
+  Widget _qmItem(String label, VoidCallback onTap, {bool destructive = false}) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -1109,7 +1131,10 @@ class _Viewport2DState extends State<Viewport2D> {
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Text(label, style: ts(12.5, T.mbText)),
+        // UIKit draws destructive rows red and we never colour anything else
+        // ourselves — same tone the native menus get from the system.
+        child: Text(label,
+            style: ts(12.5, destructive ? const Color(0xFFE5544B) : T.mbText)),
       ),
     );
   }
@@ -1254,6 +1279,17 @@ class _Viewport2DState extends State<Viewport2D> {
               event.logicalKey == LogicalKeyboardKey.escape) {
             app.cancelTool();
             return KeyEventResult.handled;
+          }
+          // M193 — Delete / Backspace remove the selection. Below the HUD and
+          // freehand blocks on purpose: while a value is being typed,
+          // Backspace edits the number and never touches geometry.
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.delete ||
+                  event.logicalKey == LogicalKeyboardKey.backspace)) {
+            if (app.canDeleteSelection) {
+              app.deleteSelection();
+              return KeyEventResult.handled;
+            }
           }
           if (event is KeyDownEvent &&
               (event.logicalKey == LogicalKeyboardKey.enter ||
@@ -1443,7 +1479,7 @@ class _Viewport2DState extends State<Viewport2D> {
               _lpFired = false;
               _lpTimer?.cancel();
               _lpTimer = Timer(const Duration(milliseconds: 600),
-                  () => _fireLongPress(e.localPosition, size));
+                  () => _fireLongPress(e.localPosition, size, e.kind));
             }
           },
           onPointerMove: (e) {

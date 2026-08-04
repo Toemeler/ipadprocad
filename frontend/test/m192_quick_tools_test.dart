@@ -6,7 +6,6 @@
 // nothing is the exact failure this file exists to prevent.
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_menu/native_menu.dart';
 import 'package:prototype/app_state.dart';
@@ -214,6 +213,7 @@ void main() {
             QuickToolId.rect,
             QuickToolId.dimension,
             QuickToolId.trim,
+            QuickToolId.delete,
           ],
           contains(i.id),
           reason: 'runQuickTool has no case for "${i.id}"');

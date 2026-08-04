@@ -16,6 +16,42 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M193 — einzelne Objekte loeschen.**
+>
+> **Das Problem.** Das Kleinste, was eine Skizze verlieren konnte, war ein
+> ganzer LAYER (`deleteLayer`). Ein Loeschen pro Objekt gab es nirgends — nicht
+> auf einer Taste, nicht im Menue, nicht auf einem Knopf. Eine falsche Linie
+> hiess: alles danach mit zurueckdrehen.
+>
+> **Drei Wege, ein Befehl.** `deleteSelection()` haengt an (1) dem Papierkorb
+> in der M192-Leiste, der mit einer Auswahl ERSCHEINT — als LETZTER Eintrag,
+> damit nichts darueber unter dem Daumen wegrutscht; er ist der einzige Knopf,
+> der ohne Auswahl gar keine Bedeutung hat, also graut er nicht aus, er ist
+> weg; (2) dem Long-Press, der jetzt VORHER auswaehlt, was unter dem Finger
+> liegt (eine bestehende Auswahl bleibt unangetastet — sonst kollabierte ein
+> Rahmen-Select auf das eine Objekt unter dem Finger) und im Menue rot
+> „Delete" anbietet; (3) Entf/Backspace, bewusst UNTER dem HUD-Block, damit
+> Backspace waehrend einer Werteingabe weiter die Zahl korrigiert statt
+> Geometrie zu loeschen.
+>
+> **Die Falle ist die Index-Arithmetik.** Geometrie wird ueber INDIZES
+> adressiert, und Constraints, Bemassungen und Projektions-Tags halten genau
+> diese Indizes. Geloescht wird darum **hoechster Index zuerst** — sonst
+> verschieben sich die Indizes unter den noch nicht abgearbeiteten Opfern —,
+> `remapAfterRemove` wirft weg, was AUF das geloeschte Objekt zeigte, und
+> `remapProjectionsAfterRemove` zieht die Projektions-Tags nach. Dieselbe
+> Arithmetik wie `deleteLayer`, aus demselben Grund. Ein `_rebuildEngine` am
+> Ende macht alles zu EINEM Undo-Schritt, auch wenn zehn Objekte fallen.
+>
+> **Reichweite.** Nur `geoEditable`: der Layer im Editiermodus. Ausserhalb des
+> Editiermodus ist gar nichts loeschbar — der Layer IST der Bearbeitungsbereich
+> (M17), und ein Loeschen ueber Layergrenzen hinweg waere die eine Operation,
+> die das ignoriert.
+>
+> **Ehrlicher Stand:** 9 neue Tests (`m193_delete_selection_test.dart`)
+> geschrieben; kein Flutter-SDK in dieser Sitzung, `flutter test`/`analyze`
+> sind NICHT gelaufen. Gruen ist, was CI sagt. Geraete-Test offen.
+
 > **M192 — die Schnellwerkzeuge bekommen eine Flaeche.**
 >
 > **Das Problem.** Das Quick-Menue aus M53 haelt die zwei Befehle, ohne die
@@ -62,10 +98,14 @@ Token NIE in Dateien/.git/config schreiben.
 > besitzt die Pixel (`GlassToolBar.swift`). Dieselbe Grenze wie Tab-Leiste und
 > Browser, aus demselben Grund.
 >
-> **Ehrlicher Stand:** 16 neue Tests (`m192_quick_tools_test.dart`) sind
-> geschrieben, aber in dieser Sitzung stand KEIN Flutter-SDK zur Verfuegung —
-> `flutter test` und `flutter analyze` sind NICHT gelaufen. Gruen ist erst,
-> was CI sagt. Geraete-Test offen.
+> **Stand:** CI-Lauf `30938913544`, Job „Dart analyze + host tests": **1323
+> Tests gruen** (16 neu, `m192_quick_tools_test.dart`), analyze 0 Errors. Beide
+> Schritte laufen unter `set -o pipefail`, der gruene Haken ist also
+> aussagekraeftig. Analyze meldete 51 statt 50 Issues — ein
+> `unnecessary_import` im neuen Test, in M193 entfernt. Das Sitzungs-Image
+> selbst hat kein Flutter-SDK, hier lief nichts. **Swift ist damit NICHT
+> geprueft**: `GlassToolBar.swift` kompiliert erst im iOS-Job. Geraete-Test
+> offen.
 
 > **M191 — der Trim behaelt nur die WEGGESCHNITTENE Spanne, und getippte Masse
 > entstehen wirklich.** Drei Meldungen zu Build `83dc216`.
