@@ -16,64 +16,32 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
-> **M195 — der Bug-Report geht von selbst weg.**
+> **M195 — automatischer Versand der Bug-Bundles: gebaut, dann ZURUECKGENOMMEN.**
 >
-> **Vorher.** Der Knopf schrieb eine ZIP nach `Files > On My iPad > prototype >
-> bugreports`, und dort lag sie, bis jemand daran dachte, sie zu verschicken.
-> Ein Bericht, den man von Hand tragen muss, wird getragen, wenn es gerade
-> passt — also nie in dem Moment, in dem der Fehler passiert ist.
+> Der Upload (GitHub Contents API direkt, plus ein Relay-Modus auf eine selbst
+> betriebene https-URL) war fertig und mit 31 Tests belegt. Er ist wieder
+> RAUS — vollstaendig, nicht nur abgeschaltet.
 >
-> **Wohin.** In ein GitHub-Repository, per **Contents API**: ein
-> authentifizierter PUT pro Bundle, kein Server, kein Dienst, keine Anmeldung.
-> Dieses Ziel aus einem bestimmten Grund — ein Repository ist der einzige Ort,
-> auf den man auch einen ASSISTENTEN zeigen kann („schau dir die Bug-Reports
-> an"), und der die Bundles dann selbst liest. Ein Postfach oder ein
-> Chat-Webhook kann das nicht.
+> **Der Grund ist keine Implementierungsfrage, sondern eine harte Tatsache:**
+> in ein GitHub-Repo schreibt niemand anonym. Anonyme Gists sind seit 2018
+> weg, API, Push und Releases authentifizieren alle. Ein Repo-Token auf dem
+> iPad war nicht gewollt (zu Recht: eine Klartextdatei auf einem Tablet), ein
+> Relay verschiebt das Geheimnis nur auf einen Host, den es hier nicht gibt.
 >
-> **In diesem Repo ist nichts konfiguriert.** Ziel und Token stehen in
-> `bugupload.json` im Dokumente-Ordner des GERAETS — ueber die Files-App
-> erreichbar, nie in git. Keine Datei = kein Upload, und die App verhaelt sich
-> exakt wie vorher; das ist der Default fuer jeden, der das Repo klont.
+> **Stand ist wieder der von M194:** der Bericht wird lokal geschrieben
+> (`Files > On My iPad > prototype > bugreports`) und von Hand verschickt.
 >
-> **Oeffentlich vs. privat.** `Toemeler/ipadprocad` ist OEFFENTLICH. Ein Bundle
-> darin ist weltweit lesbar und enthaelt das ganze Log, das offene Modell und
-> einen Screenshot. Empfohlen ist ein separates PRIVATES Bug-Repo: dann sind
-> die Bundles nicht oeffentlich, und der Token laesst sich auf genau dieses
-> eine Repo mit `Contents: RW` begrenzen — geht das iPad verloren, kommt
-> niemand damit an den Quellcode. Die Entscheidung faellt beim Schreiben der
-> Config, nicht im Code. Anleitung: `BUGREPORTS.md`.
->
-> **Zwei Wege.** *Relay* (bevorzugt): die App PUTet die ROHE ZIP an eine
-> https-URL, die man selbst betreibt — irgendein Host, dieses Ende ist ein
-> simpler PUT —, der GitHub-Token liegt DORT als serverseitiges Secret, auf dem
-> Tablet liegt nur ein Upload-Key, mit dem man hoechstens Dateien anhaengen
-> kann. *Direkt*: die App spricht selbst mit der Contents API und traegt den
-> Repo-Token. Ein direkter Token, der auf ein eigenes, sonst LEERES Bug-Repo
-> begrenzt ist, hat ungefaehr denselben Schadensradius wie der Relay-Key; er
-> darf nur nie auf den Quellcode zeigen.
->
-> **Der Token** ist ein echtes Zugangsdatum auf einem Tablet. Zwei Regeln
-> halten ihn fest: er wird **nie geloggt** (`BugUploadConfig.toString()`
-> schwaerzt ihn — das Bundle traegt das ganze Log, ein verirrtes `$cfg` wuerde
-> ihn also in genau die ZIP schreiben, die gleich hochgeladen wird; dafuer gibt
-> es einen Test), und der Bundle-Bauer liest das Dokumente-Verzeichnis nicht,
-> kann die Config-Datei also nicht mit einsammeln.
->
-> **Fehlschlag ist der Normalfall.** Ein iPad ist die halbe Zeit offline. Ein
-> nicht gesendetes Bundle BLEIBT und wird beim naechsten Bericht und beim
-> naechsten App-Start erneut versucht (`flushBugUploads`); ein gesendetes
-> bekommt eine `.sent`-Marke daneben, statt geloescht zu werden — die lokale
-> Kopie ist die einzige, die man auf dem Geraet oeffnen kann. 409/422 zaehlen
-> als zugestellt (der Name ist ein Zeitstempel, das ist dasselbe Bundle
-> zweimal), 5xx wird wiederholt, 401/403/404 bricht den Durchlauf ab: ist der
-> Token fuer eines falsch, ist er es fuer alle, und zwanzig 401er sind zwanzig
-> Chancen auf ein Rate-Limit. Ueber 25 MB wird gar nicht erst hochgeladen.
->
-> **Stand:** CI-Lauf `30955085986`: **1363 Tests gruen** (1339 + 24), analyze
-> meldete 51 statt 50 — eine `invalid_return_type_for_catch_error`-Warnung aus
-> meinem `main.dart`-Hook, inzwischen behoben (Block-Body statt Arrow: ein
-> Arrow gibt `void` zurueck, der onError-Handler braucht `FutureOr<Null>`). Die
-> 7 Relay-Tests kamen erst danach dazu und sind noch ungeprueft.
+> **Falls es doch einmal automatisch werden soll**, sind das die realistischen
+> Wege — hier notiert, damit die Sackgasse nicht ein zweites Mal gebaut wird:
+> (1) ein Git-Client, der seinen Zugang selbst im Keychain haelt (Working Copy
+> + Shortcuts-Aktion), unsere App schreibt nur die Datei; (2) anonymer Upload
+> zu einem oeffentlichen Host, die URL wird weitergereicht — kein Geheimnis
+> irgendwo, dafuer ist das Bundle per Link lesbar; (3) gar kein Versand,
+> sondern ein Ein-Tipp-Share-Sheet nach jedem Bericht. Was NICHT geht:
+> anonymer Upload plus geplanter Action, die ihn einsammelt — der Host gibt
+> eine ZUFAELLIGE URL zurueck, die nur das iPad kennt, und einen
+> deterministischen anonymen Kanal gibt es aus demselben Grund nicht wie
+> anonyme Schreibzugriffe.
 
 > **M194 — der Bug-Report-Knopf in die Leiste.**
 >
