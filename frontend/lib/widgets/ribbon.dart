@@ -298,6 +298,30 @@ class _RibbonState extends State<Ribbon> {
 
   Future<void> _startTool(Tool t) async {
     final app = widget.app;
+    // M196 — a ribbon button TOGGLES. Tapping the tool that is already armed
+    // puts it away, exactly as Esc would ("it should be deselected and not
+    // used anymore. like canceling"). Before this, the second tap re-armed the
+    // same tool and threw away any picks already made, which looks identical
+    // to nothing happening — so the only way out of a tool with a finger was
+    // the long press.
+    //
+    // FIRST, before the parameter dialogs below: cancelling a polygon must not
+    // ask how many sides it should have on the way out.
+    //
+    // Exact tool only. Tapping a DIFFERENT variant from the same flyout
+    // (Rectangle -> centre Rectangle) is a switch, not a cancel.
+    if (app.tool == t) {
+      // Esc's own semantics, twice: the first drops any pending picks (or
+      // closes a modeless Pattern/Fillet/Gear window) and DELIBERATELY leaves
+      // the command armed for the next chain (M53); the second puts it away.
+      // A button press means "off", so it does both — but the second only
+      // while the tool is still up, because a cancelTool() with no tool armed
+      // clears the SELECTION, and putting a tool away must not cost the user
+      // what they had selected.
+      app.cancelTool();
+      if (app.tool == t) app.cancelTool();
+      return;
+    }
     // Nothing may be drawn outside a layer's edit mode — bail BEFORE any
     // parameter dialog, so the user isn't asked for a radius and then refused.
     if (!app.inEditMode) {

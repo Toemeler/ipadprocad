@@ -293,7 +293,7 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
     case Tool.point:
       if (p.isEmpty) return null;
       // sketch point: rendered/exported as a tiny circle marker
-      return [_circle(p[0], 0.35)];
+      return [_circle(p[0], kSketchPointRadius)];
     default:
       return null; // modify tools have their own click pipeline
   }
@@ -482,6 +482,9 @@ List<Geo> _rectDiagonals(List<Offset> c) => [
       _line(c[0], c[2]).withStyle(Geo.styleConstruction),
       _line(c[1], c[3]).withStyle(Geo.styleConstruction),
     ];
+
+/// Radius of the tiny circle that stands in for a sketch point.
+const double kSketchPointRadius = 0.35;
 
 List<Geo>? _linearSlot(Offset c1, Offset c2, double r) {
   final u = c2 - c1;

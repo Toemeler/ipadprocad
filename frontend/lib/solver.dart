@@ -1770,6 +1770,76 @@ bool hasDegenerateGeometry(List<Geo> gs) {
 }
 
 
+/// Signed angular sweep of an arc: positive counter-clockwise, negative
+/// clockwise, in (−2π, 2π). This — not the raw `reversed` flag — is what a
+/// human means by "the shape of that arc".
+double arcSweep(Geo g) {
+  if (g.type != Geo.arc || g.data.length < 5) return 0;
+  double norm2pi(double x) {
+    var v = x % (2 * math.pi);
+    if (v < 0) v += 2 * math.pi;
+    return v;
+  }
+
+  final rev = g.data.length > 5 && g.data[5] != 0;
+  return rev ? -norm2pi(g.data[3] - g.data[4]) : norm2pi(g.data[4] - g.data[3]);
+}
+
+/// Arcs that ROUND A CORNER: tangent to two or more straight lines. This is
+/// exactly the 2D fillet/chamfer family (M36).
+Set<int> cornerFilletArcs(List<Geo> gs, List<Constraint> cs) {
+  final tangentLines = <int, int>{};
+  for (final c in cs) {
+    if (c.type != CType.tangent || c.ents.length < 2) continue;
+    for (var k = 0; k < 2; k++) {
+      final arc = c.ents[k], other = c.ents[1 - k];
+      if (arc < 0 || arc >= gs.length || other < 0 || other >= gs.length) {
+        continue;
+      }
+      if (gs[arc].type == Geo.arc && gs[other].type == Geo.line) {
+        tangentLines[arc] = (tangentLines[arc] ?? 0) + 1;
+      }
+    }
+  }
+  return {
+    for (final e in tangentLines.entries)
+      if (e.value >= 2) e.key
+  };
+}
+
+/// M196 — corner fillets whose sweep crossed the HALF TURN during one solve.
+///
+/// The device report: a drag on a filleted rectangle produced "a shape which
+/// should not be possible" — two R5 corners had become 270° lobes hanging off
+/// the outline. The solver was not confused; it logged `verify ok
+/// residual=2.51e-15`. Every coincidence, every tangency and both radius
+/// dimensions held exactly. The configuration was simply the OTHER solution:
+/// with the tangent point moved to the far side of the circle, the same
+/// constraints describe an arc that goes the long way round.
+///
+/// That is the M188 lesson in a new place. A tangency has two branches, and a
+/// drag walks continuously from one to the other through a degenerate pose; no
+/// residual can see it, because both branches are exact. The only thing that
+/// separates them is CONTINUITY — the arc you had a frame ago.
+///
+/// So this compares, and it is deliberately conservative: only an arc that was
+/// a minor arc BEFORE and is a major arc AFTER counts as flipped. An arc that
+/// is already major stays workable (some corners genuinely are), and no
+/// absolute rule is imposed on shapes this does not understand.
+List<int> flippedCornerFillets(
+    List<Geo> before, List<Geo> after, List<Constraint> cs) {
+  if (before.length != after.length) return const [];
+  const eps = 1e-6;
+  final out = <int>[];
+  for (final i in cornerFilletArcs(after, cs)) {
+    if (i >= before.length || before[i].type != Geo.arc) continue;
+    final s0 = arcSweep(before[i]).abs();
+    final s1 = arcSweep(after[i]).abs();
+    if (s0 < math.pi - eps && s1 > math.pi + eps) out.add(i);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // projected geometry (M32 — Inventor's Project Geometry)
 // ---------------------------------------------------------------------------
@@ -1948,6 +2018,28 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
     Log.e('solve', 'NON-FINITE result via $path — REJECTED, keeping last good');
     Log.block('solve', 'input', sketchDump(snapshot, cs));
     Log.block('solve', 'rejected output', sketchDump(gs, cs));
+    for (var i = 0; i < gs.length; i++) {
+      gs[i] = snapshot[i];
+    }
+    return false;
+  }
+  // M196 — a finite, fully-satisfied result can still be the WRONG SOLUTION.
+  // A corner fillet that turned into a 270° lobe holds every constraint it has
+  // (the device log said residual=2.5e-15 while the shape was absurd), so
+  // neither the residual below nor the finiteness check above can see it. Only
+  // the previous frame can: an arc that rounded a corner a moment ago and now
+  // goes the long way round has been walked onto the other branch of its
+  // tangency. Refuse it and keep the last good geometry, exactly as for a
+  // non-finite result — a drag that stops at the boundary is what "safe"
+  // means here, and it is the only thing that stops the shape turning itself
+  // inside out under the finger.
+  final flipped = flippedCornerFillets(snapshot, gs, cs);
+  if (flipped.isNotEmpty) {
+    Log.w(
+        'solve',
+        'BRANCH FLIP via $path on arc(s) ${flipped.join(",")} — '
+        'corner fillet went the long way round; REJECTED, keeping last good');
+    Log.block('solve', 'rejected branch flip', sketchDump(gs, cs));
     for (var i = 0; i < gs.length; i++) {
       gs[i] = snapshot[i];
     }

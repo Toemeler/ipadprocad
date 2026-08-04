@@ -16,6 +16,71 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M196 — drei von vier Geraete-Meldungen (Sitzung 2026-08-05, Build
+> `a2d3107`).**
+>
+> **(1) „Ein Mittelpunkt-Rechteck sollte einen Punkt in der Mitte haben."**
+> M92 gab diesen Rechtecken zwei Konstruktions-Diagonalen, damit die Mitte
+> sichtbar und fangbar ist. Fangbar war sie (Mittelpunkt-Snap auf jeder
+> Diagonale) — gezeichnet war dort nichts. Der Punkt wird jetzt gemalt, und
+> zwar **abgeleitet, nicht gespeichert**. Der Grund ist wichtig: eine echte
+> Entity waere ein Kreis (die Skizzen-Punkte dieses Projekts SIND kleine
+> Kreise, das Backend hat keinen Punkt-Typ), ein Kreisradius ist ein freier
+> Parameter, und damit haette jedes Mittelpunkt-Rechteck dauerhaft einen
+> Freiheitsgrad zu viel — der fehlende Punkt waere gegen eine Skizze getauscht,
+> die nie „vollbestimmt" werden kann. Die Erkennung ist geometrisch: zwei
+> KONSTRUKTIONS-Linien, die sich einen Mittelpunkt teilen und nicht parallel
+> sind, sind die Diagonalen eines Rechtecks (in jedem Parallelogramm halbieren
+> sich die Diagonalen). Kein Tag, also gilt es auch fuer alles schon
+> Gespeicherte, und ein Zug kann den Punkt nicht zuruecklassen.
+>
+> **(2) Ein Ribbon-Knopf schaltet UM.** Nochmal auf das aktive Werkzeug tippen
+> legt es weg. Vorher armierte der zweite Tipp dasselbe Werkzeug erneut und
+> warf dabei die schon gesetzten Punkte weg — das sieht aus, als passiere
+> nichts. Umgesetzt als zwei `cancelTool()` (erst die Picks, dann das
+> Werkzeug), das zweite NUR solange das Werkzeug noch steht: `cancelTool()`
+> ohne Werkzeug loescht die AUSWAHL, und ein Werkzeug wegzulegen darf nicht die
+> Selektion kosten. Nur das exakt gleiche Werkzeug schaltet ab — eine andere
+> Variante aus demselben Flyout ist ein Wechsel.
+>
+> **(3) „Eine Form, die es nicht geben duerfte."** Ein Zug auf einem
+> verrundeten Rechteck machte aus zwei R5-Ecken 270°-Keulen. **Der Solver war
+> nicht verwirrt:** im Bundle steht `verify ok residual=2.51e-15` — jede
+> Koinzidenz, jede Tangente und beide Radienmasse hielten exakt. Es war die
+> ANDERE Loesung: liegt der Beruehrpunkt auf der Gegenseite des Kreises,
+> beschreiben dieselben Gleichungen den langen Weg herum. Das ist die
+> M188-Lehre an neuer Stelle — ein Residuum kann Zweige nicht unterscheiden,
+> weil beide exakt sind. Trennen kann sie nur die STETIGKEIT.
+> `flippedCornerFillets` vergleicht deshalb mit dem Zustand VOR dem Solve: war
+> ein Bogen, der tangential in einer Ecke sitzt (>= 2 Tangenten auf Linien),
+> eben noch kleiner als ein Halbkreis und ist jetzt groesser, wird das Ergebnis
+> verworfen wie ein nicht-endliches — die Geometrie bleibt auf dem letzten
+> guten Stand, der Zug bleibt an der Grenze stehen. Bewusst nur diese
+> Richtung: ein bereits grosser Bogen bleibt bearbeitbar, und die Reparatur
+> (gross -> klein) wird nie blockiert. **Das repariert die kaputte Datei aus
+> dem Bundle nicht**, es verhindert nur, dass so etwas neu entsteht.
+>
+> **NICHT behoben — die vierte Meldung** („wenn ich einen Radius auf einem
+> Mittelpunkt-Rechteck mache, laufen die Konstruktionslinien nicht mehr in die
+> Ecken, und die Ecken sollten als Konstruktion stehenbleiben wie beim
+> Trimmen"). Diagnose steht, aus `bug20260805T003600`: die Diagonalen haengen
+> per Koinzidenz an den ECKPUNKTEN der Rechteckseiten (`d0.p0` auf
+> `line0.p0`), und `filletInventor` kuerzt genau diese Endpunkte — die
+> Diagonale wandert also mit und endet am Verrundungsanfang statt in der Ecke
+> (im Bundle: `[4] line data=[-29.2119, 16.9019, ...]` statt `-34.2119`).
+> Der Entwurf, der beide Haelften der Meldung auf einmal loest: die
+> weggeschnittenen Ecken als KONSTRUKTIONS-Stummel behalten (genau wie M187/
+> M191 es fuer Trim tun), dann existiert die virtuelle Ecke wieder als echter
+> Punkt — und die Diagonale wird auf DIESEN Punkt umgehaengt statt auf das
+> gekuerzte Linienende. Nicht gebaut, weil die Constraint-Buchhaltung von
+> `filletInventor` genau die Stelle ist, an der dieses Projekt schon zweimal
+> (M37, M188) an Redundanz haengengeblieben ist; das gehoert sauber gemacht,
+> nicht schnell.
+>
+> **Ehrlicher Stand:** 17 neue Tests (`m196_device_session_test.dart`), gebaut
+> auf den Zahlen der Bundles. Kein Flutter-SDK in dieser Sitzung — gruen ist,
+> was CI sagt.
+
 > **M195 — automatischer Versand der Bug-Bundles: gebaut, dann ZURUECKGENOMMEN.**
 >
 > Der Upload (GitHub Contents API direkt, plus ein Relay-Modus auf eine selbst

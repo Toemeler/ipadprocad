@@ -2126,6 +2126,32 @@ class _ViewportPainter extends CustomPainter {
           }
         }
       }
+      // M196 — the CENTRE POINT of a centre-start rectangle.
+      //
+      // "A midpoint rect should have a point in the middle." M92 gave those
+      // rectangles their two construction diagonals so the centre would be
+      // visible and snappable — and it is snappable, on either diagonal's
+      // midpoint snap — but there was nothing DRAWN there, so the one place
+      // the whole tool is named after was the one place with no marker.
+      //
+      // DERIVED, not stored. A real entity would be a circle, a circle's
+      // radius is a free parameter, and every centre rectangle would then be
+      // permanently one degree of freedom short of fully constrained —
+      // trading a missing dot for a sketch that can never go green. The
+      // crossing is the centre by construction, so drawing it costs nothing
+      // and cannot drift: a drag moves it because the diagonals moved.
+      //
+      // Two construction lines that share a midpoint AND actually cross are a
+      // rectangle's diagonals (in any parallelogram both diagonals bisect each
+      // other). That is cheap to test and needs no tag, so it also works for
+      // every sketch already saved.
+      // geoEditable already implies inEditMode, which is the same gate the
+      // diagonals themselves are drawn under: no diagonals, no centre dot.
+      for (final c in centreMarks(gs,
+          visible: (i) => app.geoVisible(gs[i]) && app.geoEditable(gs[i]))) {
+        final p = map(c.dx, c.dy);
+        canvas.drawCircle(p, 2.5, Paint()..color = const Color(0xFFB9C0C7));
+      }
       // Degrees-of-freedom glyphs: arrows on every point that can still move
       // (they vanish one by one as constraints are added).
       final an = app.analysis;
@@ -2906,6 +2932,48 @@ void _arrow(Canvas c, Offset tip, Offset dir, Paint p) {
     ..lineTo(tip.dx + dir.dx * 8 - n.dx * 2.6, tip.dy + dir.dy * 8 - n.dy * 2.6)
     ..close();
   c.drawPath(path, Paint()..color = p.color);
+}
+
+/// M196 — centres of the centre-start rectangles, in world coordinates.
+///
+/// A rectangle's two diagonals bisect each other, so a pair of CONSTRUCTION
+/// lines that share a midpoint and are not parallel is exactly that pair. The
+/// test is geometric rather than tagged, so it holds for sketches saved before
+/// this existed, and it keeps holding while the shape is dragged.
+///
+/// Public for the test: this is the whole rule, and "a dot appeared in the
+/// middle of the wrong thing" is the failure worth pinning.
+List<Offset> centreMarks(List<Geo> gs, {required bool Function(int) visible}) {
+  final lines = <int>[
+    for (var i = 0; i < gs.length; i++)
+      if (gs[i].type == Geo.line &&
+          gs[i].isConstruction &&
+          geoFinite(gs[i]) &&
+          visible(i))
+        i
+  ];
+  final out = <Offset>[];
+  for (var a = 0; a < lines.length; a++) {
+    final ga = gs[lines[a]];
+    final ma = Offset((ga.data[0] + ga.data[2]) / 2,
+        (ga.data[1] + ga.data[3]) / 2);
+    final da = Offset(ga.data[2] - ga.data[0], ga.data[3] - ga.data[1]);
+    if (da.distance < 1e-9) continue;
+    for (var b = a + 1; b < lines.length; b++) {
+      final gb = gs[lines[b]];
+      final mb = Offset((gb.data[0] + gb.data[2]) / 2,
+          (gb.data[1] + gb.data[3]) / 2);
+      if ((ma - mb).distance > 1e-6) continue;
+      final db = Offset(gb.data[2] - gb.data[0], gb.data[3] - gb.data[1]);
+      if (db.distance < 1e-9) continue;
+      // Parallel lines through the same midpoint lie on top of each other —
+      // that is one line drawn twice, not a pair of diagonals.
+      final cross = (da.dx * db.dy - da.dy * db.dx).abs();
+      if (cross < 1e-9 * da.distance * db.distance) continue;
+      out.add(ma);
+    }
+  }
+  return out;
 }
 
 void _dashedLine(Canvas c, Offset a, Offset b, Paint p,
