@@ -16,6 +16,52 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M191 — der Trim behaelt nur die WEGGESCHNITTENE Spanne, und getippte Masse
+> entstehen wirklich.** Drei Meldungen zu Build `83dc216`.
+>
+> **(1) „es sollte nur eine Konstruktionslinie fuer den Teil geben, der
+> tatsaechlich weggeschnitten wurde."** M187 hatte das ganze getrimmte OBJEKT
+> als Konstruktionsgeometrie behalten — also lag unter jedem sichtbaren Stueck
+> eine gestrichelte Vollkopie (im Bundle doppelt zu sehen:
+> `line [23.98,19.50 -0.99,19.50]` zweimal). Jetzt bleibt genau die Spanne, die
+> der Schnitt entfernt hat: `trimCutAway` ist das exakte Komplement von
+> `trimEntity` — beide kommen aus derselben Klammerarithmetik, weil getrennt
+> gerechnet genau das auseinanderlaeuft. Behaltene Spanne + weggeschnittene
+> Spanne deckt das Original einmal, ohne Ueberlappung.
+>
+> **(2) „der zweite Kreis laesst sich nicht ziehen … die Linien sind alle
+> weiss."** Dieselbe Ursache: die Bindungen, die jedes sichtbare Stueck auf
+> seine Traegerkopie hefteten, zogen die Skizze auf `dof=0 freePoints={}` —
+> daher auch die Vollbestimmt-Farbe. Mit der Kopie faellt der ganze
+> Traeger-Apparat weg (`_trimKeepingCarrier`, `_bindPiecesToCarrier`, 107
+> Zeilen), die Stuecke laufen wieder ueber `remapAfterReplace` und behalten
+> ihre Freiheiten. Was die weggeschnittene Spanne bringt: eine Bemassung, die
+> vorher mit dem Schnitt starb, findet jetzt Geometrie — im Test messen die
+> beiden Enden weiter die vollen 40 mm, eines auf dem Stueck, eines auf dem
+> Geist.
+>
+> **Die eine Feinheit dabei:** der Geist braucht EINE Gleichung, um auf seiner
+> Herkunft zu bleiben — `equal` beim Radius, ein Punkt-auf-Linie beim geraden
+> Stueck. `concentric` bzw. `collinear` waeren zwei Gleichungen fuer denselben
+> einen Freiheitsgrad, und das Overconstrain-Tor lehnt sie zu Recht ab.
+> Gemessen ohne diese Bindung: nach einem Zug lagen die Geist-Boegen 2.5 und
+> 3.7 Einheiten neben den Mittelpunkten ihrer Partner, Radius bis 3.6 daneben.
+> Mit ihr: 3e-14.
+>
+> **(3) Getippte Masse entstanden nicht.** `_hudBuildDims` verlangte fuer die
+> Rechtecke `placedCount == 4`; die mittenbasierten Rechtecke committen aber
+> SECHS Objekte (vier Seiten + zwei Konstruktionsdiagonalen), also lief der
+> Zweig nie — die Groesse stimmte (die Locks formen die Geometrie), das Mass
+> fehlte. Jetzt `>= 4`, `rect3PC` mit dazu, und die Beschriftung sitzt 8 mm
+> NEBEN der gemessenen Seite, nach AUSSEN vom Formmittelpunkt weg (blind nach
+> unten/rechts versetzt landet sie beim mittenbasierten Rechteck im Inneren).
+>
+> 1307 Tests gruen (7 neu in `m191_trim_leftover_and_hud_dims_test.dart`; die
+> Trim-Kontrakte aus M36/M187/M188 und die zwei Bind-Regressionen auf das neue
+> Modell gezogen — sie pruefen jetzt wieder die sichtbare Geometrie, weil jeder
+> Schnittpunkt einen gestrichelten Zwilling hat), analyze 50 Issues / 0 errors.
+> Das getippte Mass geht durch denselben `hudInput`/`hudTab`-Pfad wie am Geraet.
+
 > **M190 — jeder gruene Build wird ein Release, und das iPad meldet sich.**
 >
 > Bisher endete M5 mit einem Artefakt, dessen Download einen GitHub-Login

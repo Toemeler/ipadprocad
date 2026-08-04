@@ -64,18 +64,18 @@ AppState beltSketch() {
 }
 
 /// Trims the INNER flank of each circle, which is what turns the belt into a
-/// closed outline — the device session's two trims. Returns carrier -> piece.
+/// closed outline — the device session's two trims.
 ///
-/// A kept carrier keeps its index and the piece is appended, so the mapping is
-/// positional: circle 1's arc lands at 4, circle 0's at 5.
+/// Each trim removes its entity and appends (kept span, cut-away span), so
+/// afterwards the list is: the two lines, then kept/ghost for circle 1, then
+/// kept/ghost for circle 0. Returns kept -> its construction leftover.
 Map<int, int> trimBothCircles(AppState app) {
   final s = app.current!;
   app.selectTool(Tool.trim);
   app.toolClick(const Offset(3.69, 0.805)); // circle 1, facing circle 0
-  final a1 = s.geometry.length - 1;
   app.toolClick(const Offset(8.4957, 0.0)); // circle 0, facing circle 1
-  final a0 = s.geometry.length - 1;
-  return {1: a1, 0: a0};
+  expect(s.geometry, hasLength(6));
+  return {2: 3, 4: 5};
 }
 
 void main() {
@@ -85,31 +85,42 @@ void main() {
       final s = app.current!;
       final arcs = trimBothCircles(app);
 
-      expect(s.geometry, hasLength(6), reason: '2 carriers + 2 lines + 2 arcs');
-      for (final carrier in [0, 1]) {
-        expect(s.geometry[carrier].isConstruction, isTrue);
-        final a = arcs[carrier]!;
-        expect(s.geometry[a].type, Geo.arc,
-            reason: 'carrier $carrier left an arc');
-        // THE regression: centre and radius, not just radius. The device
-        // bundle had the centre 1.53 away, mirrored across the chord.
-        expect((getPt(s.geometry[a], 0) - getPt(s.geometry[carrier], 0)).distance,
+      expect(s.geometry, hasLength(6),
+          reason: '2 lines + kept/cut-away for each circle');
+      // No circle is left under the shape (M191): each is now a kept arc plus
+      // the construction span the cut took away.
+      expect(s.geometry.where((g) => g.type == Geo.circle), isEmpty);
+      arcs.forEach((kept, ghost) {
+        expect(s.geometry[kept].isConstruction, isFalse);
+        expect(s.geometry[ghost].isConstruction, isTrue);
+        // THE M188 regression, in its M191 place: centre AND radius, not just
+        // radius. The device bundle had the centre 1.53 away, mirrored across
+        // the chord, because the binding pinned it only discretely.
+        expect(
+            (getPt(s.geometry[ghost], 0) - getPt(s.geometry[kept], 0)).distance,
             lessThan(1e-6),
-            reason: 'arc $a is CONCENTRIC with carrier $carrier '
-                '(device bug: centre flipped to the mirror solution)');
-        expect(s.geometry[a].data[2],
-            closeTo(s.geometry[carrier].data[2], 1e-6));
-        final hasConcentric = s.constraints.any((c) =>
-            c.type == CType.concentric &&
-            c.ents.contains(carrier) &&
-            c.ents.contains(a));
-        final hasEqual = s.constraints.any((c) =>
-            c.type == CType.equal &&
-            c.ents.contains(carrier) &&
-            c.ents.contains(a));
-        expect(hasConcentric && hasEqual, isTrue,
-            reason: 'both relations are actually recorded');
-      }
+            reason: 'the cut-away span shares the kept arc\'s centre');
+        expect(s.geometry[ghost].data[2],
+            closeTo(s.geometry[kept].data[2], 1e-6));
+        expect(
+            s.constraints.any((c) =>
+                c.type == CType.equal &&
+                c.ents.contains(kept) &&
+                c.ents.contains(ghost)),
+            isTrue,
+            reason: 'tied by an equal radius, one equation');
+      });
+      // and the sketch is still MOVABLE — the device found it pinned to dof=0,
+      // "the second circle cannot be dragged ... it should since it has no
+      // dimensions".
+      // (arc 4 is the left one, whose centre is the grounded origin; arc 2 is
+      // the one the report is about — "the second circle cannot be dragged")
+      final probe = List<Geo>.from(s.geometry);
+      probe[2] = setPt(probe[2], 0, const Offset(16, 3));
+      expect(solveConstraints(probe, s.constraints, dragged: {(2, 0)}), isTrue);
+      expect((getPt(probe[2], 0) - getPt(s.geometry[2], 0)).distance,
+          greaterThan(0.5),
+          reason: 'the second arc centre actually moved');
     });
 
     test('the trimmed sketch really is satisfied, not 3.6e-6 off', () {
@@ -128,43 +139,39 @@ void main() {
       final app = beltSketch();
       final s = app.current!;
       final arcs = trimBothCircles(app);
-      final r0 = s.geometry[0].data[2];
 
-      // the device drag: circle 1's centre to (14.12,-2.76), after which the
-      // device sketch read `circle data=[-0.0000, -0.0000, 0.0000]`.
+      // the device drag: the right-hand circle's centre to (14.12,-2.76),
+      // after which the device sketch read `circle data=[0, 0, 0.0000]`.
       final probe = List<Geo>.from(s.geometry);
-      probe[1] = setPt(probe[1], 0, const Offset(14.122, -2.755));
-      expect(solveConstraints(probe, s.constraints, dragged: {(1, 0)}), isTrue);
+      probe[2] = setPt(probe[2], 0, const Offset(14.122, -2.755));
+      expect(solveConstraints(probe, s.constraints, dragged: {(2, 0)}), isTrue);
 
       // The belt carries no radius dimension, so the radii MAY breathe — what
       // must not happen is the degenerate solution the slack direction opened.
-      expect(probe[0].data[2], greaterThan(r0 * 0.5),
-          reason: 'circle 0 kept its size (device: it went to r=0)');
-      expect(probe[0].data[2], lessThan(r0 * 2));
-      expect(probe[1].data[2], greaterThan(1.0));
-      for (final carrier in [0, 1]) {
-        final a = arcs[carrier]!;
-        expect((getPt(probe[a], 0) - getPt(probe[carrier], 0)).distance,
-            lessThan(1e-6),
-            reason: 'arc $a stayed on carrier $carrier through the drag');
-        expect(probe[a].data[2], closeTo(probe[carrier].data[2], 1e-6));
+      for (final kept in arcs.keys) {
+        expect(probe[kept].data[2], greaterThan(1.0),
+            reason: 'arc $kept did not collapse (device: r went to 0)');
       }
+      arcs.forEach((kept, ghost) {
+        expect((getPt(probe[ghost], 0) - getPt(probe[kept], 0)).distance,
+            lessThan(1e-5),
+            reason: 'the cut-away span stayed on arc $kept through the drag');
+        expect(probe[ghost].data[2], closeTo(probe[kept].data[2], 1e-5));
+      });
     });
 
-    test('the arcs stay tangent to the lines through their carriers', () {
+    test('the kept arcs stay tangent to the lines', () {
       final app = beltSketch();
       final s = app.current!;
       final arcs = trimBothCircles(app);
       final probe = List<Geo>.from(s.geometry);
-      probe[1] = setPt(probe[1], 0, const Offset(16.0, 3.0));
-      expect(solveConstraints(probe, s.constraints, dragged: {(1, 0)}), isTrue);
-      // A line tangent to the carrier is tangent to the arc, because they are
-      // the same circle. Measure it: the centre's distance to each line equals
-      // the radius.
-      for (final carrier in [0, 1]) {
-        final a = arcs[carrier]!;
+      probe[2] = setPt(probe[2], 0, const Offset(16.0, 3.0));
+      expect(solveConstraints(probe, s.constraints, dragged: {(2, 0)}), isTrue);
+      // The tangencies moved onto the kept arcs with the remap, so the belt
+      // still holds: each centre's distance to each line equals its radius.
+      for (final a in arcs.keys) {
         final c = getPt(probe[a], 0);
-        for (final line in [2, 3]) {
+        for (final line in [0, 1]) {
           final p = getPt(probe[line], 0), q = getPt(probe[line], 1);
           final d = q - p;
           final len = d.distance;

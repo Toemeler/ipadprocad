@@ -811,9 +811,21 @@ Geo _subArcRaw(Geo g, double u0, double u1) {
 /// Returns the replacement entities (empty list = delete whole entity, like
 /// Inventor when nothing intersects).
 List<Geo> trimEntity(List<Geo> geos, int i, Offset click) =>
-    _sameLayerAll(geos[i], _trimEntityRaw(geos, i, click));
+    _sameLayerAll(geos[i], _trimEntityRaw(geos, i, click).$1);
 
-List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
+/// The span a trim CUTS AWAY — the exact complement of [trimEntity] within the
+/// original entity, so kept + cut-away covers it once and overlaps nowhere.
+///
+/// M191: the sketch keeps this as construction geometry, which is what makes a
+/// trim non-destructive (its dimensions and constraints still have geometry to
+/// hang on) without leaving a second copy of the entity under the visible one.
+List<Geo> trimCutAway(List<Geo> geos, int i, Offset click) =>
+    _sameLayerAll(geos[i], _trimEntityRaw(geos, i, click).$2);
+
+/// (kept, cut away). Both come out of the same bracket arithmetic on purpose —
+/// computing them apart is how they drift out of being complements.
+(List<Geo>, List<Geo>) _trimEntityRaw(
+    List<Geo> geos, int i, Offset click) {
   final g = geos[i];
   final xs = intersectionsWithOthers(geos, i);
   switch (g.type) {
@@ -832,15 +844,26 @@ List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
           hasHi = true;
         }
       }
-      if (!hasLo && !hasHi) return const []; // nothing crosses: delete
+      // nothing crosses: the whole line goes (and all of it is the cut away)
+      if (!hasLo && !hasHi) return (const [], [g]);
       final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
       Offset at(double t) => a + (b - a) * t;
-      return [
-        if (hasLo) Geo(Geo.line, [a.dx, a.dy, at(lo).dx, at(lo).dy]),
-        if (hasHi) Geo(Geo.line, [at(hi).dx, at(hi).dy, b.dx, b.dy]),
-      ];
+      return (
+        [
+          if (hasLo) Geo(Geo.line, [a.dx, a.dy, at(lo).dx, at(lo).dy]),
+          if (hasHi) Geo(Geo.line, [at(hi).dx, at(hi).dy, b.dx, b.dy]),
+        ],
+        [
+          Geo(Geo.line, [
+            at(hasLo ? lo : 0).dx,
+            at(hasLo ? lo : 0).dy,
+            at(hasHi ? hi : 1).dx,
+            at(hasHi ? hi : 1).dy,
+          ])
+        ],
+      );
     case Geo.circle:
-      if (xs.length < 2) return const [];
+      if (xs.length < 2) return (const [], [g]);
       final c = Offset(g.data[0], g.data[1]);
       double ang(Offset p) => math.atan2(p.dy - c.dy, p.dx - c.dx);
       double norm(double x) {
@@ -864,8 +887,11 @@ List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
           break;
         }
       }
-      // keep the complement arc hi -> lo (CCW)
-      return [Geo(Geo.arc, [c.dx, c.dy, g.data[2], hi, lo, 0.0])];
+      // keep the complement arc hi -> lo (CCW); the clicked span lo -> hi goes
+      return (
+        [Geo(Geo.arc, [c.dx, c.dy, g.data[2], hi, lo, 0.0])],
+        [Geo(Geo.arc, [c.dx, c.dy, g.data[2], lo, hi, 0.0])],
+      );
     case Geo.arc:
       final sweep = _sweepOf(g);
       final uc = _arcParam(g, click);
@@ -886,11 +912,14 @@ List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
           hasHi = true;
         }
       }
-      if (!hasLo && !hasHi) return const [];
-      return [
-        if (hasLo) _subArc(g, 0, lo),
-        if (hasHi) _subArc(g, hi, sweep),
-      ];
+      if (!hasLo && !hasHi) return (const [], [g]);
+      return (
+        [
+          if (hasLo) _subArc(g, 0, lo),
+          if (hasHi) _subArc(g, hi, sweep),
+        ],
+        [_subArc(g, hasLo ? lo : 0, hasHi ? hi : sweep)],
+      );
     case Geo.polyline:
       // treat the clicked SEGMENT like a line trim; other segments survive
       final n = g.data[1].toInt();
@@ -915,7 +944,10 @@ List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
         pts[(bestSeg + 1) % n].dx,
         pts[(bestSeg + 1) % n].dy
       ]);
-      final replaced = trimEntity([...geos]..[i] = segGeo, i, click);
+      // the clicked segment is trimmed like a line; its cut-away span is the
+      // polyline's cut-away span (the other segments are untouched)
+      final (replaced, segCut) =
+          _trimEntityRaw([...geos]..[i] = segGeo, i, click);
       // stitch: polyline minus that segment (split into open chains) + trims
       final chains = <List<Offset>>[];
       if (closed) {
@@ -931,20 +963,23 @@ List<Geo> _trimEntityRaw(List<Geo> geos, int i, Offset click) {
           if (rest.length > 1) chains.add(rest);
         }
       }
-      return [
-        for (final ch in chains)
-          if (ch.length == 2)
-            Geo(Geo.line, [ch[0].dx, ch[0].dy, ch[1].dx, ch[1].dy])
-          else if (ch.length > 2)
-            Geo(Geo.polyline, [
-              0.0,
-              ch.length.toDouble(),
-              for (final q in ch) ...[q.dx, q.dy]
-            ]),
-        ...replaced,
-      ];
+      return (
+        [
+          for (final ch in chains)
+            if (ch.length == 2)
+              Geo(Geo.line, [ch[0].dx, ch[0].dy, ch[1].dx, ch[1].dy])
+            else if (ch.length > 2)
+              Geo(Geo.polyline, [
+                0.0,
+                ch.length.toDouble(),
+                for (final q in ch) ...[q.dx, q.dy]
+              ]),
+          ...replaced,
+        ],
+        segCut,
+      );
   }
-  return [g];
+  return ([g], const []);
 }
 
 /// Extends the clicked END of entity [i] to the nearest intersection of its

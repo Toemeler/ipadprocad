@@ -6015,9 +6015,71 @@ class AppState extends ChangeNotifier {
   /// the caller's atomic solve then verifies everything together.
   /// [avoid] is the kept trim carrier (M187), which must never be mistaken for
   /// the cutter.
-  void _bindCutPoints(List<Geo> gs, Geo old, int piecesStart,
-      List<Constraint> cons, {int avoid = -1}) {
+  /// M191 — a construction leftover has to stay ON the geometry it was cut
+  /// from, or a drag pulls it off and the dashed ghost stops describing what
+  /// was removed (measured before this: after one drag the leftover arcs sat
+  /// 2.5 and 3.7 units off their partners' centres, radius out by up to 3.6).
+  ///
+  /// One equation each, deliberately. The ends are already glued by
+  /// [_bindCutPoints], so what is missing is exactly one degree of freedom:
+  /// the arc's bulge, or the line's swing. `concentric` (2 equations) or
+  /// `collinear` (2) would buy that same single degree of freedom and the
+  /// over-constraint gate refuses them — rightly, they carry a redundant row.
+  /// An `equal` radius and a point-on-line do it in one.
+  void _tieLeftovers(
+      List<Geo> gs, int keptStart, int cutStart, List<Constraint> cons) {
     const tol = 1e-6;
+    bool round(Geo g) => g.type == Geo.circle || g.type == Geo.arc;
+
+    void tryAdd(Constraint c) {
+      if (wouldOverconstrain(gs, cons, c)) {
+        Log.i('modify',
+            'leftover-tie ${conStr(-1, c)} DROPPED (would over-constrain)');
+        return;
+      }
+      Log.i('modify', 'leftover-tie ${conStr(-1, c)} (M191 cut-away span)');
+      cons.add(c);
+    }
+
+    for (var e = cutStart; e < gs.length; e++) {
+      final ghost = gs[e];
+      // the piece it was cut from — same type, among what the trim kept
+      var partner = -1;
+      for (var k = keptStart; k < cutStart && partner < 0; k++) {
+        if (gs[k].type == ghost.type) partner = k;
+      }
+      if (partner < 0) continue; // nothing was kept: the ghost IS the entity
+      if (round(ghost)) {
+        tryAdd(Constraint(CType.equal, ents: [partner, e]));
+      } else if (ghost.type == Geo.line) {
+        // The end NOT sitting on the cut is the one free to swing; pinning it
+        // to the kept line's carrier is collinearity in one equation, and
+        // leaves the ghost's LENGTH free, which is what its own inherited
+        // dimension drives.
+        for (final p in const [0, 1]) {
+          final q = getPt(ghost, p);
+          final atCut = [
+            for (var k = keptStart; k < cutStart; k++)
+              for (var pk = 0; pk < ptCount(gs[k]); pk++)
+                if ((getPt(gs[k], pk) - q).distance < tol) 1
+          ].isNotEmpty;
+          if (!atCut) {
+            tryAdd(Constraint(CType.coincident,
+                pts: [PRef(e, p)], ents: [partner]));
+          }
+        }
+      }
+    }
+  }
+
+  void _bindCutPoints(List<Geo> gs, Geo old, int piecesStart,
+      List<Constraint> cons, {int ignoreFrom = -1}) {
+    const tol = 1e-6;
+    // Entities from [ignoreFrom] on do not exist for this pass — neither as
+    // pieces to bind nor as partners to bind to (M191: the construction
+    // leftovers, which a kept piece's cut point would otherwise grab instead
+    // of the cutter, since they meet exactly there).
+    final end = ignoreFrom < 0 ? gs.length : ignoreFrom;
     final oldEnds = <Offset>[];
     if (old.type == Geo.line) {
       oldEnds.addAll([getPt(old, 0), getPt(old, 1)]);
@@ -6034,7 +6096,7 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    for (var e = piecesStart; e < gs.length; e++) {
+    for (var e = piecesStart; e < end; e++) {
       final g = gs[e];
       final endIdx = g.type == Geo.line
           ? const [0, 1]
@@ -6058,7 +6120,7 @@ class AppState extends ChangeNotifier {
         if (bound) continue;
         // 1) meets an existing point exactly (split twin, crossing endpoint)
         Constraint? cand;
-        for (var j = 0; j < gs.length && cand == null; j++) {
+        for (var j = 0; j < end && cand == null; j++) {
           if (j == e) continue;
           for (var pj = 0; pj < ptCount(gs[j]); pj++) {
             if ((getPt(gs[j], pj) - q).distance < tol) {
@@ -6101,13 +6163,8 @@ class AppState extends ChangeNotifier {
         }
         // 2) lies on the interior of another entity: the cutter
         if (cand == null) {
-          for (var j = 0; j < gs.length; j++) {
+          for (var j = 0; j < end; j++) {
             if (j == e || j >= piecesStart) continue; // never onto a sibling
-            // The kept CARRIER (M187) lies under every cut point by
-            // definition; binding there instead of onto the cutter would let
-            // the cut slide along the carrier. The carrier gets its own bind
-            // from _bindPiecesToCarrier, which runs first.
-            if (j == avoid) continue;
             final t = gs[j];
             if (t.type == Geo.line) {
               final a = getPt(t, 0), b = getPt(t, 1);
@@ -6135,113 +6192,6 @@ class AppState extends ChangeNotifier {
           Log.i('modify',
               'cut-bind ${conStr(-1, cand)} (Inventor trim/split coincidence)');
           tryAdd(cand);
-        }
-      }
-    }
-  }
-
-  /// M187 — Trim that KEEPS the carrier. [old] stays where it was (index [i],
-  /// same geometry, restyled to construction) and [pieces] are appended as
-  /// normal geometry tied back onto it.
-  ///
-  /// Nothing is removed, so nothing is remapped: every dimension and every
-  /// constraint on the trimmed entity keeps pointing at exactly the geometry it
-  /// was placed on. That is the whole point — a cut used to take the sketch's
-  /// intent with it, and what the user sees now is the same as in Inventor when
-  /// you convert to construction before cutting: the drive stays, the visible
-  /// profile is the trimmed one.
-  void _trimKeepingCarrier(SketchModel s, int i, Geo old, List<Geo> pieces) {
-    final gs = List<Geo>.from(s.geometry);
-    gs[i] = old.withStyle(Geo.styleConstruction);
-    final piecesStart = gs.length;
-    gs.addAll(pieces);
-    final cons = List<Constraint>.from(s.constraints);
-    _bindPiecesToCarrier(gs, i, piecesStart, cons);
-    _bindCutPoints(gs, old, piecesStart, cons, avoid: i);
-    // Atomic, exactly like the removing path: verify before adopting.
-    if (!solveConstraints(gs, cons)) {
-      Log.w('modify', 'trim e$i REJECTED — result cannot be satisfied');
-      toast('This trim would break the sketch constraints.');
-      return;
-    }
-    Log.i(
-        'modify',
-        'trim e$i: carrier kept as construction, ${pieces.length} piece(s), '
-            'constraints ${s.constraints.length} -> ${cons.length}');
-    s.constraints
-      ..clear()
-      ..addAll(cons);
-    _rebuildEngine(s, gs);
-    selection.clear();
-    if (pieces.isEmpty) {
-      toast('Trimmed away — the original stays as construction geometry.');
-    }
-  }
-
-  /// Ties the pieces a kept-carrier trim produced back onto that carrier, so
-  /// dragging or dimensioning the carrier still drives what is visible.
-  ///
-  /// A ROUND piece gets CONCENTRIC + EQUAL, which is the whole of "this arc is
-  /// that circle": three equations that leave only the two sweep angles free,
-  /// for the cut binds to pin. Everything the carrier carries — its tangencies,
-  /// its diameter — then applies to the arc through the shared centre and
-  /// radius, which is exactly what the user asked for ("the new curve and the
-  /// construction circle should keep an equal constraint").
-  ///
-  /// M188: the first cut at this (equal + both endpoints ON the rim) was
-  /// UNSOUND. It pins the centre only DISCRETELY — mirroring it across the
-  /// chord satisfies every one of those equations — so the device session found
-  /// the mirror: `arc data=[-1.5312, -0.0920, 8.4957 …]` on a carrier centred at
-  /// the origin. The slack direction that made the flip reachable also let a
-  /// drag walk the carrier's radius to ZERO (`circle data=[0, 0, 0.0000]`), and
-  /// the sketch then carried a permanent 3.6e-6 residual. Two discrete
-  /// solutions are not a constraint.
-  ///
-  /// Per PIECE POINT, strongest first: point-on-point where the piece inherited
-  /// one of the carrier's own points, otherwise point-on-curve where it sits on
-  /// the carrier's curve. For a round piece those are already implied by
-  /// concentric+equal, so the gate drops them — that is the redundant row, and
-  /// dropping it is correct; the sweep ends are pinned by the cut binds.
-  void _bindPiecesToCarrier(
-      List<Geo> gs, int carrier, int piecesStart, List<Constraint> cons) {
-    const tol = 1e-6;
-    final ghost = gs[carrier];
-    bool round(Geo g) => g.type == Geo.circle || g.type == Geo.arc;
-    // point 0 of a circle/arc is its CENTER, not a point on the curve
-    int firstOnCurvePt(Geo g) => round(g) ? 1 : 0;
-
-    void tryAdd(Constraint c) {
-      if (wouldOverconstrain(gs, cons, c)) {
-        Log.i('modify',
-            'carrier-bind ${conStr(-1, c)} DROPPED (would over-constrain)');
-        return;
-      }
-      Log.i('modify', 'carrier-bind ${conStr(-1, c)} (M187 trim carrier)');
-      cons.add(c);
-    }
-
-    for (var e = piecesStart; e < gs.length; e++) {
-      final g = gs[e];
-      if (round(g) && round(ghost)) {
-        tryAdd(Constraint(CType.concentric, ents: [carrier, e]));
-        tryAdd(Constraint(CType.equal, ents: [carrier, e]));
-      }
-      for (var p = firstOnCurvePt(g); p < ptCount(g); p++) {
-        final q = getPt(g, p);
-        var pinned = false;
-        for (var cp = firstOnCurvePt(ghost);
-            cp < ptCount(ghost) && !pinned;
-            cp++) {
-          if ((getPt(ghost, cp) - q).distance < tol) {
-            tryAdd(Constraint(CType.coincident,
-                pts: [PRef(carrier, cp), PRef(e, p)]));
-            pinned = true;
-          }
-        }
-        if (pinned) continue;
-        if (pointLandsOn(ghost, q)) {
-          tryAdd(Constraint(CType.coincident,
-              pts: [PRef(e, p)], ents: [carrier]));
         }
       }
     }
@@ -8134,27 +8084,31 @@ class AppState extends ChangeNotifier {
         final i = _pickEntity(s, w);
         if (i == null) return;
         final old = s.geometry[i];
-        final pieces = trimEntity(s.geometry, i, w).where(_notDegenerate);
-        // M187 — the CARRIER SURVIVES as construction geometry. Trimming used
-        // to delete the entity the constraints and dimensions hung on, so a
-        // cut silently destroyed the sketch's intent; keeping the original as
-        // Inventor's construction format keeps every one of them anchored on
-        // unchanged geometry, and the pieces are tied back onto it. An entity
-        // that IS already construction has nothing to preserve it for — it is
-        // trimmed the old way, which is also what keeps repeated trims from
-        // stacking ghost on ghost.
-        if (old.style != Geo.styleConstruction) {
-          _trimKeepingCarrier(s, i, old, pieces.toList());
-          return;
-        }
         final gs = List<Geo>.from(s.geometry)..removeAt(i);
         gs.setAll(0, remapProjectionsAfterRemove(gs, i));
         final piecesStart = gs.length;
-        gs.addAll(pieces);
+        gs.addAll(trimEntity(s.geometry, i, w).where(_notDegenerate));
+        // M191 — what the cut takes away stays, as CONSTRUCTION geometry, so a
+        // trim does not destroy the dimensions and constraints that were on it
+        // (the M187 request). Only the cut-away SPAN, not a copy of the whole
+        // entity: M187 kept the entity itself and the device session found
+        // exactly what that means — "there are construction lines under the
+        // real shape but there should only be construction line for the part
+        // that was actually cut away", plus a sketch pinned to dof=0 by the
+        // binds that held the visible pieces onto that copy. Kept span and
+        // cut-away span are complements, so nothing is doubled and the pieces
+        // keep the freedom they had.
+        final cutStart = gs.length;
+        if (old.style != Geo.styleConstruction) {
+          gs.addAll(trimCutAway(s.geometry, i, w)
+              .where(_notDegenerate)
+              .map((g) => g.withStyle(Geo.styleConstruction)));
+        }
         // M36: keep every constraint/dimension the trim leaves standing —
         // point refs follow their surviving piece, entity refs land on the
-        // nearest piece of the (unchanged) carrier. Only what was actually
-        // cut away loses its constraints, exactly like Inventor.
+        // nearest piece of the (unchanged) carrier. With the cut-away span in
+        // the list as well, a dimension on the removed part now finds geometry
+        // to land on instead of being dropped.
         final remapped =
             remapAfterReplace(s.constraints, i, old, gs, piecesStart);
         // Inventor: the NEW endpoints a cut creates are constrained where they
@@ -8162,7 +8116,17 @@ class AppState extends ChangeNotifier {
         // they meet. Without this the trimmed pieces are loose and drag apart,
         // which is exactly what the device session showed (trims only ever
         // REMOVED constraints, 55 -> 49).
-        _bindCutPoints(gs, old, piecesStart, remapped);
+        //
+        // Two passes: the kept pieces bind to the geometry that was already
+        // there (the construction leftovers are invisible to that pass, or a
+        // cut point would bind to its own leftover instead of to the cutter),
+        // then the leftovers bind to what they now touch — which is the kept
+        // piece they were cut from, so the ghost follows the shape.
+        _bindCutPoints(gs, old, piecesStart, remapped, ignoreFrom: cutStart);
+        if (cutStart < gs.length) {
+          _bindCutPoints(gs, old, cutStart, remapped);
+          _tieLeftovers(gs, piecesStart, cutStart, remapped);
+        }
         // Atomic: verify on the remapped copies BEFORE adopting them. A trim
         // whose surviving constraints cannot be satisfied (a remap edge case)
         // must not scramble the sketch — it is refused instead.
@@ -10589,27 +10553,55 @@ class AppState extends ChangeNotifier {
             value: v.abs(),
             textPos: text);
 
+    // M191 — where a person would put it: just OUTSIDE the shape, beside the
+    // side it measures. Offsetting blindly (down for width, right for height)
+    // drops the label inside a centred rectangle, and the four sides of the
+    // rect tools do not all run the same way round.
+    Offset beside(int e, Iterable<int> shape, [double gap = 8]) {
+      var cx = 0.0, cy = 0.0, n = 0;
+      for (final k in shape) {
+        for (final p in [getPt(gs[k], 0), getPt(gs[k], 1)]) {
+          cx += p.dx;
+          cy += p.dy;
+          n++;
+        }
+      }
+      final m = mid(e);
+      if (n == 0) return m;
+      final away = m - Offset(cx / n, cy / n);
+      final len = away.distance;
+      return len < 1e-9 ? m : m + away / len * gap;
+    }
+
     switch (tool) {
       case Tool.rectTwoPoint:
       case Tool.rect2PC:
-        if (placedCount == 4) {
+        // The centre-start rectangles add two construction diagonals, so this
+        // commits 6 entities, not 4 — and requiring exactly 4 meant a typed
+        // width and height sized the geometry and then vanished without a
+        // dimension, which is what the device session reported. The four SIDES
+        // are the first four either way.
+        if (placedCount >= 4) {
+          final sides = [for (var k = 0; k < 4; k++) firstNew + k];
           if (W != null) {
-            out.add(distOn(
-                firstNew, W, 'distx', mid(firstNew) + const Offset(0, -8)));
+            out.add(distOn(firstNew, W, 'distx', beside(firstNew, sides)));
           }
           if (H != null) {
-            out.add(distOn(firstNew + 1, H, 'disty',
-                mid(firstNew + 1) + const Offset(8, 0)));
+            out.add(
+                distOn(firstNew + 1, H, 'disty', beside(firstNew + 1, sides)));
           }
         }
         break;
       case Tool.rect3P:
-        if (placedCount == 4) {
+      case Tool.rect3PC:
+        if (placedCount >= 4) {
+          final sides = [for (var k = 0; k < 4; k++) firstNew + k];
           if (L != null) {
-            out.add(distOn(firstNew, L, 'dist', mid(firstNew)));
+            out.add(distOn(firstNew, L, 'dist', beside(firstNew, sides)));
           }
           if (W != null) {
-            out.add(distOn(firstNew + 1, W, 'dist', mid(firstNew + 1)));
+            out.add(
+                distOn(firstNew + 1, W, 'dist', beside(firstNew + 1, sides)));
           }
         }
         break;

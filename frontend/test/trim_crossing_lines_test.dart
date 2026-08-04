@@ -21,10 +21,15 @@ AppState makeApp() {
   return app;
 }
 
+/// Point refs of the VISIBLE geometry at [q]. M191 leaves the span a trim cut
+/// away in the sketch as construction geometry, glued to the piece it came
+/// from, so every cut point now has a dashed twin sitting on it — which is not
+/// what these tests are about.
 List<PRef> refsAt(List<Geo> gs, Offset q, [double tol = 1e-6]) => [
       for (var e = 0; e < gs.length; e++)
-        for (var p = 0; p < ptCount(gs[e]); p++)
-          if ((getPt(gs[e], p) - q).distance < tol) PRef(e, p)
+        if (!gs[e].isConstruction)
+          for (var p = 0; p < ptCount(gs[e]); p++)
+            if ((getPt(gs[e], p) - q).distance < tol) PRef(e, p)
     ];
 
 void main() {
@@ -70,19 +75,12 @@ void main() {
                 c.ents.length == 1 &&
                 c.pts[0] == at[0])
             .toList();
-        // M187 — the trimmed line stays as a construction CARRIER, so the cut
-        // endpoint is bound twice: onto the crossing line (the cutter) and
-        // onto the carrier it was cut out of. Exactly one of them is the
-        // cutter, i.e. the one that is not construction.
-        final ontoCutter = onCurve
-            .where((c) => !s.geometry[c.ents[0]].isConstruction)
-            .toList();
-        expect(ontoCutter.length, 1,
+        expect(onCurve.length, 1,
             reason: 'single trim: new endpoint bound point-on-CURVE onto the '
                 'crossing line (constraints: '
                 '${s.constraints.map((c) => c.toJson())})');
-        expect(onCurve.length - ontoCutter.length, 1,
-            reason: 'and once onto the kept construction carrier (M187)');
+        expect(s.geometry[onCurve.first.ents[0]].isConstruction, isFalse,
+            reason: 'onto the cutter, not onto the cut-away span');
 
         // Trim 2
         app.toolClick(second);
@@ -91,23 +89,13 @@ void main() {
         at = refsAt(gs, x);
         expect(at.length, 2,
             reason: 'both trimmed endpoints stack at the crossing');
-        // M187 — each cut endpoint is pinned by TWO curve binds (its own
-        // construction carrier and the line it was cut against), so it sits on
-        // the crossing by construction. A point-on-point on top of that is the
-        // redundant row the gate exists to refuse; what the device session
-        // needed was for the two points not to slide apart, and being pinned
-        // to the same intersection is a stronger guarantee than gluing two
-        // otherwise free points together.
-        for (final r in at) {
-          final binds = s.constraints.where((c) =>
-              c.type == CType.coincident &&
-              c.pts.length == 1 &&
-              c.ents.length == 1 &&
-              c.pts[0] == r);
-          expect(binds.length, 2,
-              reason: 'cut endpoint $r pinned by carrier AND cutter '
-                  '(constraints: ${s.constraints.map((c) => c.toJson())})');
-        }
+        final pp = s.constraints.where((c) =>
+            c.type == CType.coincident &&
+            c.pts.length == 2 &&
+            c.pts.toSet().containsAll(at.toSet()));
+        expect(pp.length, 1,
+            reason: 'stacked endpoints bound point-ON-POINT (constraints: '
+                '${s.constraints.map((c) => c.toJson())})');
         final subsumed = s.constraints.where((c) =>
             c.type == CType.coincident &&
             c.pts.length == 1 &&
@@ -127,7 +115,7 @@ void main() {
         expect(solveConstraints(probe, s.constraints), isTrue);
         final pa = getPt(probe[at[0].ent], at[0].pt);
         final pb = getPt(probe[at[1].ent], at[1].pt);
-        // (Where the crossing ENDS UP is free — the carriers themselves still
+        // (Where the crossing ENDS UP is free — the lines themselves still
         // have degrees of freedom, and the shove moves them. What must hold is
         // that the two cut endpoints are one point again.)
         expect((pa - pb).distance, lessThan(1e-6));

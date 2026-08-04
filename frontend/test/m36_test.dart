@@ -392,19 +392,19 @@ void main() {
           s.constraints.where((c) => c.type == CType.dimension).toList();
       expect(dims, hasLength(1));
       expect(dims[0].value, 10);
-      // M187 — the dimension keeps the geometry it was placed on: the circle
-      // survives the cut as the construction CARRIER. What matters is that it
-      // still DRIVES what is visible, so re-drive it and watch the arc follow.
-      expect(s.geometry[dims[0].ents[0]].type, Geo.circle);
-      expect(s.geometry[dims[0].ents[0]].isConstruction, isTrue);
-      final arc = s.geometry.indexWhere((g) => g.type == Geo.arc);
-      expect(arc, isNot(-1), reason: 'the trimmed circle left an arc');
+      // M191 — the circle became two arcs (kept + the cut-away span as
+      // construction), and the radius dimension moved onto one of them. What
+      // matters is that it still DRIVES: re-drive it and watch BOTH follow,
+      // because an equal radius ties the cut-away span to what was kept.
+      expect(s.geometry[dims[0].ents[0]].type, Geo.arc);
+      final arc = s.geometry.indexWhere((g) => g.type == Geo.arc && !g.isConstruction);
+      expect(arc, isNot(-1), reason: 'the trimmed circle left a visible arc');
       expect(s.geometry[arc].data[2], closeTo(10, 1e-6));
       dims[0].value = 12;
       final probe = List<Geo>.from(s.geometry);
       expect(solveConstraints(probe, s.constraints), isTrue);
       expect(probe[arc].data[2], closeTo(12, 1e-6),
-          reason: 'the radius dim on the carrier still drives the arc');
+          reason: 'the radius dim still drives the visible arc');
     });
 
     test('tangent(line, circle) survives the circle becoming an arc', () {
@@ -419,17 +419,16 @@ void main() {
       app.toolClick(const Offset(-10, 10)); // cut the circle's left half
       expect(count(s, CType.tangent), 1);
       final c = s.constraints.firstWhere((c) => c.type == CType.tangent);
-      // M187 — the tangency stays on the carrier the circle became, and the
-      // arc the cut left behind rides on that same rim (equal radius).
-      expect(s.geometry[c.ents[1]].isConstruction, isTrue);
-      final arc = s.geometry.indexWhere((g) => g.type == Geo.arc);
-      expect(arc, isNot(-1));
-      expect(s.geometry[arc].data[2],
-          closeTo(s.geometry[c.ents[1]].data[2], 1e-6));
+      // M191 — the tangency followed the circle onto the arc that replaced it,
+      // and the cut-away span rides the same rim (equal radius).
+      expect(s.geometry[c.ents[1]].type, Geo.arc);
+      final arcs =
+          s.geometry.where((g) => g.type == Geo.arc).toList();
+      expect(arcs, hasLength(2));
+      expect(arcs[0].data[2], closeTo(arcs[1].data[2], 1e-6));
     });
 
-    test('M187: the carrier keeps BOTH seam coincidents, the cut binds anew',
-        () {
+    test('M191: both seam coincidents survive, the cut binds anew', () {
       final app = makeApp();
       final s = app.current!;
       s.engine.addLine(-20, 0, 20, 0);
@@ -444,32 +443,35 @@ void main() {
           pts: [const PRef(0, 0), const PRef(3, 0)]));
       app.selectTool(Tool.trim);
       app.toolClick(const Offset(-10, 0)); // trims AWAY the left span
-      // M187 — this is the device report the carrier rule came from: the left
+      // M187/M191 — this is the device report the rule came from: the left
       // seam's point (-20,0) used to be deleted with the span, taking its
-      // coincident with it. The carrier still holds BOTH seam points, so both
-      // coincidents stand. The NEW endpoint the cut made at (0,0) binds onto
-      // the cutter (Inventor's trim coincidence) and onto the carrier.
-      final seams = s.constraints
-          .where((c) =>
-              c.type == CType.coincident &&
-              c.pts.length == 2 &&
-              c.pts.any((r) => r.ent == 2 || r.ent == 3))
-          .toList();
-      expect(seams, hasLength(2), reason: 'neither seam was destroyed');
-      final seamX = [
-        for (final c in seams) refPt(s.geometry, c.pts[0]).dx
-      ]..sort();
-      expect(seamX[0], closeTo(-20, 1e-6));
-      expect(seamX[1], closeTo(20, 1e-6));
+      // coincident with it. The cut-away span still carries that point, so
+      // both coincidents stand. The NEW endpoint the cut made at (0,0) binds
+      // onto the cutter (Inventor's trim coincidence).
+      // By POSITION, not by index: the trim renumbers everything. One seam is
+      // at (20,0) on the kept span, the other at (-20,0) — which only still
+      // exists because the cut-away span kept it.
+      bool seamAt(Constraint c, double x) =>
+          c.type == CType.coincident &&
+          c.pts.length == 2 &&
+          c.pts.any((r) =>
+              (refPt(s.geometry, r) - Offset(x, 0)).distance < 1e-6);
+      expect(s.constraints.where((c) => seamAt(c, 20)), hasLength(1),
+          reason: 'the right seam stands');
+      expect(s.constraints.where((c) => seamAt(c, -20)), hasLength(1),
+          reason: 'the left seam was NOT destroyed with the cut span');
+      // The cut point at (0,0) is bound onto the cutter. (The other
+      // point-on-curve in the sketch is M191's leftover tie, which holds the
+      // cut-away span's far end on the line it came from.)
       final onCutter = s.constraints.where((c) =>
           c.type == CType.coincident &&
           c.pts.length == 1 &&
           c.ents.length == 1 &&
-          !s.geometry[c.ents[0]].isConstruction);
+          refPt(s.geometry, c.pts[0]).distance < 1e-6);
       expect(onCutter, hasLength(1));
-      final q = refPt(s.geometry, onCutter.first.pts[0]);
-      expect(q.dx, closeTo(0, 1e-6));
-      expect(q.dy, closeTo(0, 1e-6));
+      expect(s.geometry[onCutter.first.ents[0]].data,
+          [0.0, -20.0, 0.0, 20.0],
+          reason: 'onto the cutter');
       // ...and it really holds under a solve
       expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     });
@@ -493,7 +495,8 @@ void main() {
       expect(count(s, CType.fix), 1, reason: 'point fix follows its point');
     });
 
-    test('M187: an entity-level fix rides along on the kept carrier', () {
+    test('an entity-level fix is dropped: its shape is no longer one entity',
+        () {
       final app = makeApp();
       final s = app.current!;
       s.engine.addLine(-20, 0, 20, 0);
@@ -503,11 +506,12 @@ void main() {
           ents: [0], anchors: const [-20, 0, 20, 0]));
       app.selectTool(Tool.trim);
       app.toolClick(const Offset(-10, 0));
-      // The pinned shape still exists — as construction geometry — so the fix
-      // keeps pinning it instead of being thrown away with the cut span.
-      expect(count(s, CType.fix), 1);
-      final c = s.constraints.firstWhere((c) => c.type == CType.fix);
-      expect(s.geometry[c.ents[0]].isConstruction, isTrue);
+      // An entity fix pins a WHOLE line to four anchor numbers. After the cut
+      // neither span is that line, and pinning either one to the old anchors
+      // would move it, so the constraint goes — the M36 rule, unchanged by the
+      // M191 cut-away span (which preserves POINT references, not this).
+      expect(count(s, CType.fix), 0,
+          reason: 'the pinned shape no longer exists as one entity');
     });
 
     test('length dimension across the cut spans the two pieces', () {

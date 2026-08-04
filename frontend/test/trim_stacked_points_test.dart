@@ -27,10 +27,15 @@ AppState makeApp() {
 }
 
 /// All point refs of [gs] lying within [tol] of [q].
+/// Point refs of the VISIBLE geometry at [q]. M191 leaves the span a trim cut
+/// away in the sketch as construction geometry, glued to the piece it came
+/// from, so every cut point now has a dashed twin sitting on it — which is not
+/// what these tests are about.
 List<PRef> refsAt(List<Geo> gs, Offset q, [double tol = 1e-6]) => [
       for (var e = 0; e < gs.length; e++)
-        for (var p = 0; p < ptCount(gs[e]); p++)
-          if ((getPt(gs[e], p) - q).distance < tol) PRef(e, p)
+        if (!gs[e].isConstruction)
+          for (var p = 0; p < ptCount(gs[e]); p++)
+            if ((getPt(gs[e], p) - q).distance < tol) PRef(e, p)
     ];
 
 void main() {
@@ -62,13 +67,10 @@ void main() {
             c.ents.length == 1 &&
             c.pts[0] == afterFirst[0])
         .toList();
-    // M187 — the trimmed rectangle stays as a construction carrier, so the cut
-    // endpoint carries a second bind onto it; the cutter is the normal one.
-    expect(onCurve.where((c) => !s.geometry[c.ents[0]].isConstruction).length,
-        1,
+    expect(onCurve.length, 1,
         reason: 'first cut endpoint is bound point-on-curve onto the cutter');
-    expect(onCurve.where((c) => s.geometry[c.ents[0]].isConstruction).length, 1,
-        reason: 'and onto the kept construction carrier (M187)');
+    expect(s.geometry[onCurve.first.ents[0]].isConstruction, isFalse,
+        reason: 'onto the cutter, not onto the cut-away span');
 
     // Trim 2: rect1's right edge, the span INSIDE rect2 — the surviving
     // piece's new endpoint lands EXACTLY on the endpoint trim 1 created.
@@ -80,21 +82,14 @@ void main() {
     expect(stacked.length, 2,
         reason: 'second trim stacks its endpoint on the first one');
 
-    // THE regression, in its M187 form: each stacked endpoint must be PINNED —
-    // by its own construction carrier and by the entity it was cut against.
-    // Two points pinned to the same intersection cannot slide apart, which is
-    // what the device session was missing; an extra point-on-point on top of
-    // that would be the redundant row the over-constraint gate refuses.
-    for (final r in stacked) {
-      final binds = s.constraints.where((c) =>
-          c.type == CType.coincident &&
-          c.pts.length == 1 &&
-          c.ents.length == 1 &&
-          c.pts[0] == r);
-      expect(binds.length, 2,
-          reason: 'cut endpoint $r pinned by carrier AND cutter '
-              '(constraints: ${s.constraints.map((c) => c.toJson())})');
-    }
+    // THE regression: the stacked pair shares a point-ON-POINT coincidence…
+    final pp = s.constraints.where((c) =>
+        c.type == CType.coincident &&
+        c.pts.length == 2 &&
+        c.pts.toSet().containsAll(stacked.toSet()));
+    expect(pp.length, 1,
+        reason: 'stacked cut endpoints must be bound point-on-point '
+            '(constraints: ${s.constraints.map((c) => c.toJson())})');
 
     // …and the subsumed point-on-curve of either onto the other's entity is
     // GONE (it would make the pair redundant and re-break the gate).
@@ -117,7 +112,7 @@ void main() {
     expect(solveConstraints(probe, s.constraints), isTrue);
     final a = getPt(probe[stacked[0].ent], stacked[0].pt);
     final b = getPt(probe[stacked[1].ent], stacked[1].pt);
-    // (Where the corner ends up is free — the carriers still have degrees of
+    // (Where the corner ends up is free — the rectangles still have degrees of
     // freedom and the shove moves them. What must hold is that the two cut
     // endpoints are one point again.)
     expect((a - b).distance, lessThan(1e-6),

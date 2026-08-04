@@ -176,8 +176,8 @@ void main() {
     });
   });
 
-  group('M187/3 — Trim keeps the carrier as construction geometry', () {
-    test('the trimmed line survives as construction, the piece is normal', () {
+  group('M191/3 — Trim keeps the CUT-AWAY span as construction geometry', () {
+    test('the cut-away span is construction, the kept piece is normal', () {
       final app = makeApp();
       final s = app.current!;
       s.engine.addLine(-20, 0, 20, 0);
@@ -185,17 +185,26 @@ void main() {
       s.refresh();
       app.selectTool(Tool.trim);
       app.toolClick(const Offset(-10, 0)); // cut the left span away
-      expect(s.geometry, hasLength(3));
-      expect(s.geometry[0].isConstruction, isTrue,
-          reason: 'the carrier stays, as construction');
-      expect(s.geometry[0].data, [-20.0, 0.0, 20.0, 0.0],
-          reason: 'unchanged geometry: that is what the dimensions hang on');
-      expect(s.geometry[2].isConstruction, isFalse);
-      expect(getPt(s.geometry[2], 0).dx, closeTo(0, 1e-6));
-      expect(getPt(s.geometry[2], 1).dx, closeTo(20, 1e-6));
+      expect(s.geometry, hasLength(3), reason: 'cutter + kept piece + leftover');
+      final kept = s.geometry[1], ghost = s.geometry[2];
+      expect(kept.isConstruction, isFalse);
+      expect(getPt(kept, 0).dx, closeTo(0, 1e-6));
+      expect(getPt(kept, 1).dx, closeTo(20, 1e-6));
+      // M191 — ONLY the removed span, not a copy of the whole line. The device
+      // session saw the copy: "there are construction lines under the real
+      // shape but there should only be construction line for the part that was
+      // actually cut away".
+      expect(ghost.isConstruction, isTrue);
+      expect(getPt(ghost, 0).dx, closeTo(-20, 1e-6));
+      expect(getPt(ghost, 1).dx, closeTo(0, 1e-6));
+      // nothing lies under the visible piece
+      for (final g in s.geometry.where((g) => g.isConstruction)) {
+        expect((getPt(g, 0) - getPt(g, 1)).distance, closeTo(20, 1e-6),
+            reason: 'the leftover is the 20-long removed span, not the 40 line');
+      }
     });
 
-    test('a dimension on the carrier still drives the visible piece', () {
+    test('a dimension across the cut survives and still drives', () {
       final app = makeApp();
       final s = app.current!;
       s.engine.addLine(0, 0, 40, 0);
@@ -209,18 +218,21 @@ void main() {
       app.toolClick(const Offset(30, 0)); // cut the right span away
       final dim = s.constraints.firstWhere((c) => c.type == CType.dimension);
       expect(dim.value, 40, reason: 'the dimension was not destroyed');
-      // drive it: the carrier gets longer, and the piece follows the cut
+      // It measured the whole line, and it still does: one end rides the kept
+      // piece, the other the construction leftover. That is what keeping the
+      // cut-away span is FOR.
+      final a = refPt(s.geometry, dim.pts[0]), b = refPt(s.geometry, dim.pts[1]);
+      expect((a - b).distance, closeTo(40, 1e-6));
       dim.value = 60;
       final probe = List<Geo>.from(s.geometry);
       expect(solveConstraints(probe, s.constraints), isTrue);
-      expect(
-          (getPt(probe[0], 0) - getPt(probe[0], 1)).distance, closeTo(60, 1e-6));
-      final piece = probe.length - 1;
-      expect((getPt(probe[piece], 0) - getPt(probe[0], 0)).distance,
-          lessThan(1e-6),
-          reason: 'the piece still starts where the carrier does');
-      expect(getPt(probe[piece], 1).dx, closeTo(20, 1e-6),
-          reason: 'and still ends on the cutter');
+      expect((refPt(probe, dim.pts[0]) - refPt(probe, dim.pts[1])).distance,
+          closeTo(60, 1e-6),
+          reason: 'driving it still moves the geometry');
+      // and the two spans still meet in one place: [0] cutter, [1] kept,
+      // [2] the cut-away leftover
+      expect((getPt(probe[1], 1) - getPt(probe[2], 0)).distance,
+          lessThan(1e-6));
     });
 
     test('trimming CONSTRUCTION geometry does not stack a second ghost', () {
@@ -245,19 +257,27 @@ void main() {
       s.refresh();
       app.selectTool(Tool.trim);
       app.toolClick(const Offset(0, -10)); // cut the lower half
-      final carrier = s.geometry[0];
-      expect(carrier.type, Geo.circle);
-      expect(carrier.isConstruction, isTrue);
-      final arc = s.geometry.lastWhere((g) => g.type == Geo.arc);
-      expect(arc.isConstruction, isFalse);
+      // a circle becomes TWO arcs: the kept upper half and the cut-away lower
+      // half as construction. No circle is left underneath them.
+      expect(s.geometry.where((g) => g.type == Geo.circle), isEmpty);
+      final arcs = s.geometry.where((g) => g.type == Geo.arc).toList();
+      expect(arcs, hasLength(2));
+      final arc = arcs.firstWhere((g) => !g.isConstruction);
+      final ghost = arcs.firstWhere((g) => g.isConstruction);
       expect(arc.data[2], closeTo(10, 1e-6));
-      // the arc rides on the carrier: grow the carrier, the arc grows with it
+      expect(ghost.data[2], closeTo(10, 1e-6));
+      // The two halves stay ONE circle: push the kept arc out and the ghost
+      // follows it, rather than drifting off as an unrelated dashed arc.
       final probe = List<Geo>.from(s.geometry);
-      probe[0] = probe[0].withData([0, 0, 14]);
-      expect(solveConstraints(probe, s.constraints, dragged: const {}), isTrue);
-      final ai = probe.indexWhere((g) => g.type == Geo.arc);
-      expect(probe[ai].data[2], closeTo(probe[0].data[2], 1e-6),
-          reason: 'equal radius ties the arc to its carrier');
+      final ki = probe.indexWhere((g) => g.type == Geo.arc && !g.isConstruction);
+      final gi = probe.indexWhere((g) => g.type == Geo.arc && g.isConstruction);
+      probe[ki] = probe[ki].withData([...probe[ki].data]..[2] = 14);
+      expect(solveConstraints(probe, s.constraints), isTrue);
+      expect(probe[gi].data[2], closeTo(probe[ki].data[2], 1e-6),
+          reason: 'equal radius ties the cut-away span to what was kept');
+      expect((getPt(probe[gi], 0) - getPt(probe[ki], 0)).distance,
+          lessThan(1e-5),
+          reason: 'and they share a centre');
     });
 
     test('the trim still refuses to be picked out of another layer', () {
