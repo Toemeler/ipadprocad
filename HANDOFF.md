@@ -16,6 +16,39 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M189 — App-Icon.**
+>
+> Artwork vom Nutzer geliefert (isometrischer Wuerfel, orange `#FF592D`, „P" mit
+> quadratischer Punze, gestrichelte Rueckkanten), gewuenscht auf cremeweissem
+> Grund. Gewaehlt: **`#FAF6EC`**, Glyphenhoehe **65 %** der Kachel.
+>
+> **Die eine Stelle, an der man sich hier vertut:** zentriert wird auf den
+> **soliden** Bildrand (279,244)-(746,800), NICHT auf den Alpha-Rand
+> (260,142)-(749,935). Der Unterschied ist der weiche Schatten; auf den
+> Alpha-Rand zentriert sitzt das Motiv sichtbar zu hoch. Beide Zahlen stehen im
+> Generator, damit das beim naechsten Artwork nicht neu erraten wird.
+>
+> **Warum der Satz nicht im iOS-Baum liegt:** den gibt es nicht. `flutter
+> create` erzeugt `ios/` in JEDEM CI-Lauf neu — und schreibt dabei Flutters
+> blaues Standard-Icon. Der Satz liegt also in `frontend/branding/` und der
+> Workflow kopiert ihn unmittelbar nach dem Scaffolding darueber. Davor steht
+> ein `test -f`: ohne das waere ein verschobener Pfad ein GRUENER Build mit
+> Platzhalter-Icon — genau die Sorte Fehler, die ein Haken verdeckt.
+>
+> **Alle 15 Groessen sind opakes RGB.** Ein Alphakanal ist bei Apple fuer das
+> 1024er-Marketing-Icon ein Ablehnungsgrund und rendert am Geraet schwarz; der
+> cremefarbene Grund wird deshalb hier einkomponiert und nicht der Plattform
+> ueberlassen.
+>
+> Quelle (`app_icon_source.png`, 1024 RGBA) und Generator (`make_app_icon.py`,
+> braucht Pillow, laeuft NICHT in der CI) liegen daneben — der Satz ist
+> reproduzierbar, statt aus dem groessten PNG rueckgerechnet werden zu muessen.
+>
+> 1300 Tests gruen (4 neu in `m189_app_icon_test.dart` — Contents.json gegen die
+> tatsaechlichen IHDR-Groessen, Alphakanal-Verbot, Vollstaendigkeit des
+> iPad-Satzes), analyze 50 Issues / 0 errors. **Am Geraet noch nicht gesehen:**
+> ob das Icon auf dem Home-Screen so wirkt wie in der Vorschau.
+
 > **M188 — fuenf Meldungen zu Build `d6df102`, zwei Ursachen. Die erste war
 > meine eigene aus M187.**
 >

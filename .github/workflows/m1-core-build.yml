@@ -628,6 +628,16 @@ jobs:
           {
           flutter --version
           flutter create --platforms=ios --org com.prototype --project-name prototype .
+          # M189 — the app icon. `flutter create` has just written Flutter's
+          # default blue icon into the scaffolded Runner; replace the whole
+          # appiconset with ours (branding/, outside the generated tree because
+          # the generated tree does not survive a build). Fail loudly: a silent
+          # miss here ships the placeholder icon, which is exactly the kind of
+          # thing a green checkmark hides.
+          test -f branding/AppIcon.appiconset/Icon-App-1024x1024@1x.png
+          rm -rf ios/Runner/Assets.xcassets/AppIcon.appiconset
+          cp -R branding/AppIcon.appiconset ios/Runner/Assets.xcassets/
+          ls ios/Runner/Assets.xcassets/AppIcon.appiconset | wc -l
           # Expose the app's Documents dir (incl. logs/prototype_log.txt)
           # in the iPad Files app for on-device crash debugging.
           /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
