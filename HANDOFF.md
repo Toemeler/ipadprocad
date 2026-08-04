@@ -16,6 +16,54 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M195 — der Bug-Report geht von selbst weg.**
+>
+> **Vorher.** Der Knopf schrieb eine ZIP nach `Files > On My iPad > prototype >
+> bugreports`, und dort lag sie, bis jemand daran dachte, sie zu verschicken.
+> Ein Bericht, den man von Hand tragen muss, wird getragen, wenn es gerade
+> passt — also nie in dem Moment, in dem der Fehler passiert ist.
+>
+> **Wohin.** In ein GitHub-Repository, per **Contents API**: ein
+> authentifizierter PUT pro Bundle, kein Server, kein Dienst, keine Anmeldung.
+> Dieses Ziel aus einem bestimmten Grund — ein Repository ist der einzige Ort,
+> auf den man auch einen ASSISTENTEN zeigen kann („schau dir die Bug-Reports
+> an"), und der die Bundles dann selbst liest. Ein Postfach oder ein
+> Chat-Webhook kann das nicht.
+>
+> **In diesem Repo ist nichts konfiguriert.** Ziel und Token stehen in
+> `bugupload.json` im Dokumente-Ordner des GERAETS — ueber die Files-App
+> erreichbar, nie in git. Keine Datei = kein Upload, und die App verhaelt sich
+> exakt wie vorher; das ist der Default fuer jeden, der das Repo klont.
+>
+> **Oeffentlich vs. privat.** `Toemeler/ipadprocad` ist OEFFENTLICH. Ein Bundle
+> darin ist weltweit lesbar und enthaelt das ganze Log, das offene Modell und
+> einen Screenshot. Empfohlen ist ein separates PRIVATES Bug-Repo: dann sind
+> die Bundles nicht oeffentlich, und der Token laesst sich auf genau dieses
+> eine Repo mit `Contents: RW` begrenzen — geht das iPad verloren, kommt
+> niemand damit an den Quellcode. Die Entscheidung faellt beim Schreiben der
+> Config, nicht im Code. Anleitung: `BUGREPORTS.md`.
+>
+> **Der Token** ist ein echtes Zugangsdatum auf einem Tablet. Zwei Regeln
+> halten ihn fest: er wird **nie geloggt** (`BugUploadConfig.toString()`
+> schwaerzt ihn — das Bundle traegt das ganze Log, ein verirrtes `$cfg` wuerde
+> ihn also in genau die ZIP schreiben, die gleich hochgeladen wird; dafuer gibt
+> es einen Test), und der Bundle-Bauer liest das Dokumente-Verzeichnis nicht,
+> kann die Config-Datei also nicht mit einsammeln.
+>
+> **Fehlschlag ist der Normalfall.** Ein iPad ist die halbe Zeit offline. Ein
+> nicht gesendetes Bundle BLEIBT und wird beim naechsten Bericht und beim
+> naechsten App-Start erneut versucht (`flushBugUploads`); ein gesendetes
+> bekommt eine `.sent`-Marke daneben, statt geloescht zu werden — die lokale
+> Kopie ist die einzige, die man auf dem Geraet oeffnen kann. 409/422 zaehlen
+> als zugestellt (der Name ist ein Zeitstempel, das ist dasselbe Bundle
+> zweimal), 5xx wird wiederholt, 401/403/404 bricht den Durchlauf ab: ist der
+> Token fuer eines falsch, ist er es fuer alle, und zwanzig 401er sind zwanzig
+> Chancen auf ein Rate-Limit. Ueber 25 MB wird gar nicht erst hochgeladen.
+>
+> **Ehrlicher Stand:** 24 neue Tests (`m195_bug_upload_test.dart`, der
+> HTTP-Aufruf ist injiziert). Kein Flutter-SDK in dieser Sitzung — gruen ist,
+> was CI sagt.
+
 > **M194 — der Bug-Report-Knopf in die Leiste.**
 >
 > Er war ein roter Kreis, der ueber der Zeichenflaeche schwebte, ziehbar, weil
@@ -43,8 +91,11 @@ Token NIE in Dateien/.git/config schreiben.
 > `BugReport.enabled = false` nimmt den Knopf mit, ohne den Rest der Leiste
 > anzufassen.
 >
-> **Ehrlicher Stand:** 7 neue Tests (`m194_bug_button_in_bar_test.dart`); kein
-> Flutter-SDK in dieser Sitzung, `flutter test`/`analyze` NICHT gelaufen.
+> **Stand:** CI-Lauf `30940445242` gruen — **1339 Tests** (Basis 1307 + 16
+> M192 + 9 M193 + 7 M194, alle 32 einzeln im Log geprueft), analyze 50 Issues /
+> 0 Errors = Ausgangsstand. Der iOS-Job desselben Laufs ist ebenfalls
+> durchgelaufen: **`GlassToolBar.swift` ist damit erstmals wirklich
+> kompiliert**, die IPA gebaut und veroeffentlicht. Geraete-Test offen.
 
 > **M193 — einzelne Objekte loeschen.**
 >

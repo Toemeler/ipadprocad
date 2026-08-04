@@ -22,6 +22,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../bug_capture.dart';
+import '../bug_upload.dart';
 import '../log.dart';
 import '../theme.dart';
 
@@ -50,10 +51,21 @@ class BugReport {
     if (!context.mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 120));
     final file = await captureBugReport(app, text);
+    // M195 — off the device by itself, if a destination is configured. The
+    // new bundle goes through the same QUEUE as everything still waiting, so
+    // one report made back on wifi drains the ones made on a plane.
+    var send = BugSendResult.noConfig;
+    if (file != null) {
+      final cfg = BugUploadConfig.load(bugDocsRoot(app));
+      send = await sendBundle(file, cfg);
+      if (send == BugSendResult.sent) {
+        await flushBugUploads(bugReportsDir(app), cfg);
+      }
+    }
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (_) => _ResultDialog(path: file?.path),
+      builder: (_) => _ResultDialog(path: file?.path, send: send),
     );
   }
 }
@@ -133,9 +145,45 @@ class _BugDialogState extends State<_BugDialog> {
 }
 
 class _ResultDialog extends StatelessWidget {
-  const _ResultDialog({required this.path});
+  const _ResultDialog({required this.path, this.send = BugSendResult.noConfig});
 
   final String? path;
+
+  /// M195 — what the upload did, so the dialog can promise delivery only when
+  /// delivery actually happened. "Saved" and "sent" are different claims and
+  /// the difference is the whole reason the queue exists.
+  final BugSendResult send;
+
+  String get _title {
+    if (path == null) return 'Report FAILED';
+    return send == BugSendResult.sent ? 'Report sent' : 'Report saved';
+  }
+
+  String get _body {
+    if (path == null) {
+      return 'The bundle could not be written. The log still has the '
+          'description, so the session is not lost — see the "bug" lines in '
+          'prototype_log.txt.';
+    }
+    const local = 'Files app > On My iPad > prototype > bugreports';
+    switch (send) {
+      case BugSendResult.sent:
+        return 'Uploaded, and the copy stays on the iPad:\n$local';
+      case BugSendResult.noConfig:
+        return '$local\nSend the .zip — it contains everything needed; no '
+            'explanation has to travel with it.';
+      case BugSendResult.offline:
+        return 'No network — the report is QUEUED and goes out with the next '
+            'one, or at the next launch. It is safe on the iPad meanwhile:\n'
+            '$local';
+      case BugSendResult.rejected:
+        return 'The upload was refused — check the token and repo in '
+            '${BugUploadConfig.fileName} (expired? wrong repo? missing '
+            'Contents permission?). The report itself is safe:\n$local';
+      case BugSendResult.tooBig:
+        return 'Too large to upload; it stays on the iPad:\n$local';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -145,24 +193,14 @@ class _ResultDialog extends StatelessWidget {
     }
     return AlertDialog(
       backgroundColor: T.panel,
-      title: Text(ok ? 'Report saved' : 'Report FAILED',
-          style: ts(16, Colors.white)),
+      title: Text(_title, style: ts(16, Colors.white)),
       content: SizedBox(
         width: 460,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              ok
-                  ? 'Files app > On My iPad > prototype > bugreports\n'
-                      'Send the .zip — it contains everything needed; no '
-                      'explanation has to travel with it.'
-                  : 'The bundle could not be written. The log still has the '
-                      'description, so the session is not lost — see the '
-                      '"bug" lines in prototype_log.txt.',
-              style: ts(12, Colors.white70),
-            ),
+            Text(_body, style: ts(12, Colors.white70)),
             if (ok) ...[
               const SizedBox(height: 10),
               SelectableText(path!, style: ts(11, Colors.white54)),

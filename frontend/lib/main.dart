@@ -13,6 +13,7 @@ import 'perf.dart';
 import 'app_state.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
+import 'bug_upload.dart';
 import 'gesture_trace.dart';
 import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
@@ -89,8 +90,22 @@ void main() {
     Log.i('main', '>> AppState.init (async, not awaited)');
     app
         .init()
-        .then((_) => Log.i('main', '<< AppState.init OK'))
-        .catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
+        .then((_) {
+      Log.i('main', '<< AppState.init OK');
+      // M195 — drain the bug-report queue. AFTER init, because that is what
+      // resolves the documents directory the bundles and the config live in;
+      // fire-and-forget, because a report from last week must never delay a
+      // frame of this session. No config file = instant no-op.
+      flushBugUploads(
+        bugReportsDir(app),
+        BugUploadConfig.load(bugDocsRoot(app)),
+      ).then(
+        (n) {
+          if (n > 0) Log.i('bug', 'queued bug reports uploaded: $n');
+        },
+        onError: (Object e) => Log.w('bug', 'queue flush failed: $e'),
+      );
+    }).catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
     // The log must survive the app being backgrounded or killed by iOS: flush
     // on every lifecycle change, otherwise the last (most interesting) lines
     // sit in the buffer forever. The same observer persists the open document

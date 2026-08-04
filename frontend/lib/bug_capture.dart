@@ -235,7 +235,7 @@ Future<File?> captureBugReport(AppState app, String description) async {
     // which the pure builder deliberately does not import.
     files['mesh.txt'] = captureMeshReports(part);
 
-    final dir = Directory('${_docsRoot(app)}/bugreports');
+    final dir = bugReportsDir(app);
     final out = writeBundle(dir, bundleStem(when), files,
         when: when,
         binaries: png == null ? const {} : {'screenshot.png': png});
@@ -251,6 +251,15 @@ Future<File?> captureBugReport(AppState app, String description) async {
     return null;
   }
 }
+
+/// M195 — where the bundles live, and where `bugupload.json` is looked for.
+/// Public so the uploader can find both without duplicating the derivation
+/// below (which is subtle: it has to work even when the platform channel that
+/// supplies the documents directory never came up).
+Directory bugDocsRoot(AppState app) => Directory(_docsRoot(app));
+
+Directory bugReportsDir(AppState app) =>
+    Directory('${_docsRoot(app)}/bugreports');
 
 String _docsRoot(AppState app) {
   final d = app.docsDir;
