@@ -27,6 +27,13 @@ Token NIE in Dateien/.git/config schreiben.
 > Extra-Branch. Danach `ci/notify_build.sh` (Pushover oder ntfy, ohne Secrets
 > ein No-op). Geraeteseite: `AUTOINSTALL.md`.
 >
+> **Der Weg ist der selbst ausgeloeste Shortcut**, nicht die Automation: ein
+> Shortcut im Kontrollzentrum schlaegt bei jedem Auslosen `latest.json` nach,
+> hebt den VPN und ruft den Deep Link. Er braucht keinen Dienst und kein
+> Secret. Push ist nur noch das Signal „es liegt was bereit" und ausdruecklich
+> optional; eine Mail-Automation als Ausloeser ist raus (vom Nutzer
+> abgelehnt).
+>
 > **Die Bundle-Version ist jetzt die Run-Nummer** (`--build-name=0.1.<run>
 > --build-number=<run>`), und zwar in BEIDEN `flutter build ios`-Aufrufen. Nur
 > im zweiten reicht nicht: der `--config-only`-Lauf schreibt die

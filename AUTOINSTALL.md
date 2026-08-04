@@ -1,17 +1,22 @@
 # AUTOINSTALL — vom gruenen Build aufs iPad
 
-Ziel: nach jedem gruenen M5 liegt der Build als GitHub-Release bereit, das iPad
-meldet sich, und **zwei Tipser** spaeter laeuft er.
+Ziel: nach jedem gruenen M5 liegt der Build als Release bereit, und **ein
+Shortcut** holt ihn — selbst ausgeloest, wann es passt.
 
-    CI (M5 gruen) --> Release + source.json/latest.json --> Push aufs iPad
-                                                              |
-                                          [Tipp 1] Notification
-                                                              v
-                                       Shortcut: VPN an, sidestore://install
-                                                              |
-                                              [Tipp 2] "Install" in SideStore
-                                                              v
-                                       Download, Signatur, Installation (~40 s)
+    CI (M5 gruen) --> Release: IPA + source.json + latest.json
+                                          |
+      [Tipp 1] Shortcut ausloesen (Kontrollzentrum / Home-Screen / Widget)
+                                          v
+      Shortcut: neuesten Build nachschlagen, VPN an, sidestore://install
+                                          |
+                          [Tipp 2] "Install" in SideStore
+                                          v
+                      Download, Signatur, Installation (~40 s)
+
+Der Shortcut braucht **keinen** Dienst, kein Secret, keine Mail und keine
+Automation: er fragt bei jedem Auslosen `latest.json` ab und installiert, was
+gerade neuestes Release ist. Push (Abschnitt 3) ist optional obendrauf — nur
+das Signal „es liegt was Neues bereit", damit man nicht ins Leere tippt.
 
 ## Warum zwei Tipser und nicht null
 
@@ -64,9 +69,10 @@ SideStore → Sources → **+** → obige `source.json`-URL. Braucht man fuer de
 Zwei-Tipp-Weg nicht, aber sie ist der Rueckweg: dort stehen die letzten 10
 Builds mit Datum und Commit-Zeile, und aeltere lassen sich direkt installieren.
 
-### 2. Shortcut „Install ipadprocad"
+### 2. Shortcut „Install ipadprocad" — der eigentliche Weg
 
-Der Name muss **exakt** so lauten — die CI baut ihn in die Notification-URL ein.
+Der Name muss **exakt** so lauten, falls Abschnitt 3 (Push) dazukommt: die CI
+baut ihn in die Notification-URL ein. Ohne Push ist der Name frei.
 
 1. **Erhalte Text aus Eingabe** (Shortcut-Eingabe; bei Start ohne Eingabe
    nachfragen: aus). Das ist die IPA-URL, die die Notification mitschickt.
@@ -83,10 +89,29 @@ Der Name muss **exakt** so lauten — die CI baut ihn in die Notification-URL ei
 4. **Warten** 2 Sekunden (der Tunnel braucht einen Moment).
 5. **URL öffnen** → `sidestore://install?url=` mit angehaengter Variable `IPA`.
 
-Dann: Shortcut zum Home-Screen hinzufuegen oder als Control-Center-Steuerung —
-das ist der Weg ohne Push (Tipp auf das Icon = Tipp 1).
+**Wohin damit — in dieser Reihenfolge:**
 
-### 3. Push einrichten (optional, aber das ist der „instant"-Teil)
+* **Kontrollzentrum** (iPadOS 18+: Kontrollzentrum → **+** → Steuerung
+  hinzufuegen → Shortcuts → „Install ipadprocad"). Ein Wisch von oben rechts,
+  ein Tipp — auch **waehrend die CAD-App offen ist**, ohne sie zu verlassen.
+  Das ist der kuerzeste Weg.
+* **Lock-Screen-Widget** — Tipp direkt vom gesperrten Bildschirm.
+* **Home-Screen** (Shortcut teilen → „Zum Home-Bildschirm").
+
+Alle drei brauchen weder Push noch Secrets noch Netzdienst ausser GitHub.
+
+### 3. Push einrichten (optional — nur das „es liegt was bereit"-Signal)
+
+Ohne das musst du raten, wann der Build fertig ist. Drei Moeglichkeiten, von
+billig nach zuverlaessig:
+
+**GitHub-Mobile-App** (kostenlos, nichts zu bauen): App installieren →
+Settings → Notifications → Actions einschalten. Meldet fertige Workflow-Laeufe.
+Der Tipp fuehrt in die GitHub-App, nicht in den Shortcut — du loest den
+Shortcut danach selbst aus. Kostet nichts und keinen CI-Code.
+
+Wenn der Tipp direkt in den Shortcut fuehren soll, setzt du eins der beiden
+Secrets; dann macht `ci/notify_build.sh` den Rest:
 
 **Pushover** (5 $ einmalig, zuverlaessiger, weil die App die URL unveraendert
 ans System reicht — auch eigene Schemata wie `shortcuts://`):
