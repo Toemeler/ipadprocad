@@ -103,7 +103,12 @@ void main() {
         (n) {
           if (n > 0) Log.i('bug', 'queued bug reports uploaded: $n');
         },
-        onError: (Object e) => Log.w('bug', 'queue flush failed: $e'),
+        // Block body, not an arrow: an arrow returns Log.w's `void`, which is
+        // not assignable to the FutureOr<Null> an onError handler must give
+        // back (analyzer: invalid_return_type_for_catch_error).
+        onError: (Object e) {
+          Log.w('bug', 'queue flush failed: $e');
+        },
       );
     }).catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
     // The log must survive the app being backgrounded or killed by iOS: flush

@@ -43,6 +43,15 @@ Token NIE in Dateien/.git/config schreiben.
 > niemand damit an den Quellcode. Die Entscheidung faellt beim Schreiben der
 > Config, nicht im Code. Anleitung: `BUGREPORTS.md`.
 >
+> **Zwei Wege.** *Relay* (bevorzugt): die App PUTet die ROHE ZIP an eine
+> https-URL, die man selbst betreibt — irgendein Host, dieses Ende ist ein
+> simpler PUT —, der GitHub-Token liegt DORT als serverseitiges Secret, auf dem
+> Tablet liegt nur ein Upload-Key, mit dem man hoechstens Dateien anhaengen
+> kann. *Direkt*: die App spricht selbst mit der Contents API und traegt den
+> Repo-Token. Ein direkter Token, der auf ein eigenes, sonst LEERES Bug-Repo
+> begrenzt ist, hat ungefaehr denselben Schadensradius wie der Relay-Key; er
+> darf nur nie auf den Quellcode zeigen.
+>
 > **Der Token** ist ein echtes Zugangsdatum auf einem Tablet. Zwei Regeln
 > halten ihn fest: er wird **nie geloggt** (`BugUploadConfig.toString()`
 > schwaerzt ihn — das Bundle traegt das ganze Log, ein verirrtes `$cfg` wuerde
@@ -60,9 +69,11 @@ Token NIE in Dateien/.git/config schreiben.
 > Token fuer eines falsch, ist er es fuer alle, und zwanzig 401er sind zwanzig
 > Chancen auf ein Rate-Limit. Ueber 25 MB wird gar nicht erst hochgeladen.
 >
-> **Ehrlicher Stand:** 24 neue Tests (`m195_bug_upload_test.dart`, der
-> HTTP-Aufruf ist injiziert). Kein Flutter-SDK in dieser Sitzung — gruen ist,
-> was CI sagt.
+> **Stand:** CI-Lauf `30955085986`: **1363 Tests gruen** (1339 + 24), analyze
+> meldete 51 statt 50 — eine `invalid_return_type_for_catch_error`-Warnung aus
+> meinem `main.dart`-Hook, inzwischen behoben (Block-Body statt Arrow: ein
+> Arrow gibt `void` zurueck, der onError-Handler braucht `FutureOr<Null>`). Die
+> 7 Relay-Tests kamen erst danach dazu und sind noch ungeprueft.
 
 > **M194 — der Bug-Report-Knopf in die Leiste.**
 >

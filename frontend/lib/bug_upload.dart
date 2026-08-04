@@ -17,29 +17,43 @@
 //
 // NOTHING IS CONFIGURED IN THIS REPOSITORY
 // ----------------------------------------
-// The destination and its token live in `bugupload.json` in the app's
-// documents folder — on the DEVICE, reachable through the Files app, never in
-// git. No file, no upload: the app then behaves exactly as it did before, and
-// that is the default for anyone who builds this. It also means the choice of
-// destination is made when the file is written, not here — this repository is
-// PUBLIC, so a bundle pushed to it is world-readable; a private repository
-// holding only bug reports is the safer target and the one to prefer. Either
-// way it is one line of config, not a code change.
+// The destination lives in `bugupload.json` in the app's documents folder — on
+// the DEVICE, reachable through the Files app, never in git. No file, no
+// upload: the app then behaves exactly as it did before, and that is the
+// default for anyone who builds this.
+//
+// TWO WAYS TO GET THERE, AND THE DIFFERENCE IS THE CREDENTIAL
+// -----------------------------------------------------------
+// RELAY (preferred). The iPad PUTs the raw zip at an https URL you control —
+// ANY host will do, since this end is a plain PUT: a serverless function
+// (Deno Deploy, Val.town, Vercel, Netlify, Lambda), or a box you already run.
+// The GitHub token lives THERE, as a server-side secret. What the tablet holds
+// is an upload key, and the worst anyone can do with a stolen one is APPEND
+// files to the bug repository. It cannot read a repository, cannot touch
+// source, cannot be replayed anywhere else, and it is rotated by editing one
+// environment variable. The handler is about twenty lines; BUGREPORTS.md has
+// it.
+//
+//   { "url": "https://bugs.you.workers.dev", "key": "any-long-random-string" }
+//
+// DIRECT. The iPad talks to the GitHub Contents API itself, holding a
+// fine-grained PAT (one repo, Contents: RW, with an expiry). Fewer moving
+// parts, but a real repository-write credential sits on a tablet — which is
+// exactly the trade the relay exists to avoid. Kept because for a throwaway
+// private repo it is a reasonable choice, not because it is the safe one.
 //
 //   {
 //     "repo":   "Owner/name",
 //     "branch": "reports",        // optional, default: the repo's default
 //     "dir":    "bugreports",     // optional, path inside the repo
-//     "token":  "github_pat_..."  // fine-grained, ONE repo, Contents: RW
+//     "token":  "github_pat_..."
 //   }
 //
-// THE TOKEN
-// ---------
-// It is a real credential sitting on a tablet, so it is scoped as narrowly as
-// GitHub allows: one repository, contents only, with an expiry. Two rules hold
-// it in: it is never logged (see [BugUploadConfig.toString], which redacts —
-// so even an accidental interpolation cannot leak it), and the bundle builder
-// never reads the documents directory, so it cannot be swept into the very
+// EITHER WAY THE SECRET NEVER LEAKS THROUGH US
+// --------------------------------------------
+// It is never logged (see [BugUploadConfig.toString], which redacts — so even
+// an accidental interpolation cannot leak it), and the bundle builder never
+// reads the documents directory, so the config cannot be swept into the very
 // zip that is about to be published.
 //
 // FAILURE IS NORMAL
@@ -53,10 +67,26 @@ import 'dart:io';
 
 import 'log.dart';
 
+/// How a bundle travels.
+enum BugUploadMode {
+  /// Straight at your own endpoint, which holds the GitHub credential. The
+  /// device carries an append-only upload key, or nothing at all.
+  relay,
+
+  /// Straight at GitHub, with a repository token on the device.
+  github,
+}
+
 /// Where bundles are sent. Parsed from `bugupload.json`; absent or malformed
 /// means "no uploading", which is a supported state and not an error.
 class BugUploadConfig {
-  /// `Owner/name`.
+  final BugUploadMode mode;
+
+  /// Relay only: the endpoint. The file name is appended as the last path
+  /// segment, so the relay never has to parse anything.
+  final String url;
+
+  /// `Owner/name`. GitHub mode only.
   final String repo;
 
   /// Null = whatever the repository's default branch is.
@@ -65,15 +95,26 @@ class BugUploadConfig {
   /// Folder inside the repository.
   final String dir;
 
-  /// Fine-grained PAT with Contents: read and write on [repo] alone.
+  /// The device-side secret: an upload key for [BugUploadMode.relay], a
+  /// fine-grained PAT for [BugUploadMode.github]. May be empty in relay mode
+  /// (an unguessable Worker URL is itself the secret, if you prefer that).
   final String token;
 
   const BugUploadConfig({
-    required this.repo,
     required this.token,
+    this.mode = BugUploadMode.github,
+    this.url = '',
+    this.repo = '',
     this.branch,
     this.dir = 'bugreports',
   });
+
+  /// A relay destination.
+  const BugUploadConfig.relay({required this.url, this.token = ''})
+      : mode = BugUploadMode.relay,
+        repo = '',
+        branch = null,
+        dir = 'bugreports';
 
   /// Name of the file that holds this, in the app's documents folder.
   static const String fileName = 'bugupload.json';
@@ -87,7 +128,21 @@ class BugUploadConfig {
       final j = jsonDecode(source);
       if (j is! Map) return null;
       final repo = (j['repo'] as String?)?.trim() ?? '';
-      final token = (j['token'] as String?)?.trim() ?? '';
+      final token = ((j['key'] ?? j['token']) as String?)?.trim() ?? '';
+
+      // A url means the relay: no repo, no token, nothing here that can read
+      // anything. Checked FIRST so a config carrying both is the safe one.
+      final url = (j['url'] as String?)?.trim() ?? '';
+      if (url.isNotEmpty) {
+        final u = Uri.tryParse(url);
+        // https only. A bundle holds the whole log and a screenshot of the
+        // screen; sending that over plain http on café wifi is not a thing to
+        // leave to a typo in a config file.
+        if (u == null || u.scheme != 'https' || (u.host).isEmpty) return null;
+        return BugUploadConfig.relay(
+            url: url.replaceAll(RegExp(r'/+$'), ''), token: token);
+      }
+
       if (token.isEmpty) return null;
       // Exactly one slash, and something on both sides of it.
       final parts = repo.split('/');
@@ -123,9 +178,18 @@ class BugUploadConfig {
   /// exactly where a stray '$cfg' would put the token — in a file that is
   /// about to be uploaded to a repository that may be public.
   @override
-  String toString() =>
-      'BugUploadConfig(repo: $repo, branch: ${branch ?? "(default)"}, '
-      'dir: $dir, token: <redacted>)';
+  String toString() => mode == BugUploadMode.relay
+      ? 'BugUploadConfig(relay: ${Uri.tryParse(url)?.host ?? "?"}, '
+          'key: <redacted>)'
+      : 'BugUploadConfig(repo: $repo, branch: ${branch ?? "(default)"}, '
+          'dir: $dir, token: <redacted>)';
+
+  /// What the log and the dialog may say about the destination. The relay's
+  /// full URL is itself a secret when it is the unguessable kind, so only the
+  /// host goes in.
+  String get describe => mode == BugUploadMode.relay
+      ? (Uri.tryParse(url)?.host ?? 'relay')
+      : repo;
 }
 
 /// Outcome of one attempt. [retry] says whether trying again later could ever
@@ -149,10 +213,27 @@ extension BugSendOutcome on BugSendResult {
 const int kMaxBundleBytes = 25 * 1024 * 1024;
 
 /// The endpoint one bundle is PUT to.
-Uri bundleUri(BugUploadConfig cfg, String fileName) => Uri.https(
-      'api.github.com',
-      '/repos/${cfg.repo}/contents/${cfg.dir}/$fileName',
-    );
+Uri bundleUri(BugUploadConfig cfg, String fileName) =>
+    cfg.mode == BugUploadMode.relay
+        ? Uri.parse('${cfg.url}/$fileName')
+        : Uri.https(
+            'api.github.com',
+            '/repos/${cfg.repo}/contents/${cfg.dir}/$fileName',
+          );
+
+/// The bytes that go on the wire.
+///
+/// The relay gets the zip ITSELF — no base64, no envelope, so the thing on the
+/// other end can be thirty lines long and the tablet does not spend battery
+/// inflating a 2 MB file by a third.
+List<int> bundlePayload(
+  BugUploadConfig cfg,
+  String fileName,
+  List<int> bytes,
+) =>
+    cfg.mode == BugUploadMode.relay
+        ? bytes
+        : utf8.encode(jsonEncode(bundleBody(cfg, fileName, bytes)));
 
 /// The JSON body GitHub expects. [bytes] goes in base64 — the Contents API
 /// takes the file inline, which is why this needs no multipart handling.
@@ -167,15 +248,26 @@ Map<String, Object?> bundleBody(
       if (cfg.branch != null) 'branch': cfg.branch,
     };
 
-Map<String, String> bundleHeaders(BugUploadConfig cfg) => {
-      'Authorization': 'Bearer ${cfg.token}',
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'ipadprocad-bugreporter',
-      'Content-Type': 'application/json',
-    };
+Map<String, String> bundleHeaders(BugUploadConfig cfg) =>
+    cfg.mode == BugUploadMode.relay
+        ? {
+            // A header, not a query parameter: URLs end up in server logs and
+            // browser history, and an upload key in a log file is one more
+            // place it can be read from.
+            if (cfg.token.isNotEmpty) 'X-Upload-Key': cfg.token,
+            'Content-Type': 'application/zip',
+            'User-Agent': 'ipadprocad-bugreporter',
+          }
+        : {
+            'Authorization': 'Bearer ${cfg.token}',
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'ipadprocad-bugreporter',
+            'Content-Type': 'application/json',
+          };
 
-/// Classifies GitHub's answer.
+/// Classifies the answer, from GitHub or from a relay that forwards its status
+/// (the Worker in BUGREPORTS.md does, which is why one table covers both).
 ///
 /// 409/422 mean the path is already taken. Bundle names carry a timestamp to
 /// the second, so in practice that is the SAME bundle sent twice — counting it
@@ -190,16 +282,16 @@ BugSendResult resultForStatus(int status) {
 /// Does the PUT. Injectable so the tests can exercise every branch above
 /// without a network — the one thing a host test cannot have.
 typedef BundlePutter = Future<int> Function(
-    Uri url, Map<String, String> headers, String body);
+    Uri url, Map<String, String> headers, List<int> body);
 
 Future<int> _httpPut(
-    Uri url, Map<String, String> headers, String body) async {
+    Uri url, Map<String, String> headers, List<int> body) async {
   final client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 20);
   try {
     final req = await client.putUrl(url);
     headers.forEach(req.headers.set);
-    req.add(utf8.encode(body));
+    req.add(body);
     final res = await req.close();
     await res.drain<void>();
     return res.statusCode;
@@ -250,11 +342,11 @@ Future<BugSendResult> sendBundle(
     final status = await (put ?? _httpPut)(
       bundleUri(cfg, name),
       bundleHeaders(cfg),
-      jsonEncode(bundleBody(cfg, name, bytes)),
+      bundlePayload(cfg, name, bytes),
     );
     final result = resultForStatus(status);
-    // Repo and branch, never the token — see BugUploadConfig.toString.
-    Log.i('bug', 'upload $name -> ${cfg.repo} [$status] ${result.name}');
+    // The destination, never the secret — see BugUploadConfig.toString.
+    Log.i('bug', 'upload $name -> ${cfg.describe} [$status] ${result.name}');
     if (result == BugSendResult.sent) {
       try {
         sentMarker(bundle).writeAsStringSync(

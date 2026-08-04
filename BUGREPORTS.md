@@ -16,6 +16,20 @@ anyone who clones this.
 
 ---
 
+## Two ways, and the difference is where the credential lives
+
+| | Device holds | If the iPad is lost |
+|---|---|---|
+| **Relay** (below) | An upload key for **your** endpoint | Someone can append files to your bug repo. Rotate = edit one env var |
+| **Direct** | A GitHub token | Someone can write to whatever the token is scoped to. Rotate = revoke on GitHub |
+
+The relay is the safer of the two, but it needs somewhere to run. If you scope
+a direct token to a **dedicated, otherwise-empty private repo**, the two end up
+about equally bad — the token can then only append to the same bug repo the
+relay key could. What a direct token must *never* be scoped to is your source.
+
+---
+
 ## Choose the destination FIRST
 
 `Toemeler/ipadprocad` is **public**. A bundle pushed there is world-readable,
@@ -33,6 +47,63 @@ reports — e.g. `Toemeler/ipadprocad-bugs`. Then:
 If you would rather keep everything in one place, point the config at
 `Toemeler/ipadprocad` with `"branch": "bugreports"` — just do it knowing the
 bundles are then public.
+
+## Option A — relay (the token never touches the iPad)
+
+The app PUTs the raw zip to `<your url>/<bundle>.zip`. Anything that can serve
+an https PUT works — Deno Deploy, Val.town, Vercel, Netlify, Lambda, or a
+machine you already run. There is nothing Cloudflare-specific about it; the
+handler below is plain JS and is ~20 lines wherever it goes.
+
+```js
+// PUT /<name>.zip   header: X-Upload-Key
+// env: UPLOAD_KEY (yours), GH_TOKEN (repo token), REPO ("Owner/name")
+export default async function handler(req, env) {
+  if (req.method !== "PUT") return new Response("PUT only", { status: 405 });
+  if (req.headers.get("X-Upload-Key") !== env.UPLOAD_KEY)
+    return new Response("nope", { status: 401 });
+
+  const name = new URL(req.url).pathname.split("/").pop();
+  if (!/^[A-Za-z0-9._-]+\.zip$/.test(name))       // never trust a path
+    return new Response("bad name", { status: 400 });
+
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  let bin = "";                                   // chunked: 2 MB in one
+  for (let i = 0; i < bytes.length; i += 8192)    // fromCharCode blows the
+    bin += String.fromCharCode(...bytes.subarray(i, i + 8192)); // stack
+  const r = await fetch(
+    `https://api.github.com/repos/${env.REPO}/contents/bugreports/${name}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${env.GH_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "ipadprocad-bug-relay",
+      },
+      body: JSON.stringify({ message: `bug report ${name}`, content: btoa(bin) }),
+    });
+  return new Response(await r.text(), { status: r.status }); // status passes
+}                                                            // through, so the
+                                                             // app's retry
+                                                             // logic still works
+```
+
+Then on the iPad, in `bugupload.json`:
+
+```json
+{
+  "url": "https://bugs.example.dev",
+  "key": "any-long-random-string"
+}
+```
+
+`key` is optional — if your endpoint is at an unguessable path, the URL can be
+the secret on its own. **https is required**; a plain-http url is refused,
+because a bundle is your whole log plus a screenshot of your screen.
+
+The rest of this file is **Option B**: talking to GitHub directly, with a token
+on the device.
+
+---
 
 ## 1. Make a token
 

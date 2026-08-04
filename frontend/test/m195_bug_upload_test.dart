@@ -99,6 +99,92 @@ void main() {
     });
   });
 
+  group('relay mode', () {
+    // The point of the relay is that the GitHub credential is NOT on the
+    // tablet: the device holds an append-only upload key for an endpoint you
+    // own, and the worst a stolen one can do is add files to a bug repo.
+    test('a url selects the relay, and no repo token is needed', () {
+      final c = BugUploadConfig.parse(jsonEncode({
+        'url': 'https://bugs.example.workers.dev',
+        'key': 'long-random-string',
+      }))!;
+      expect(c.mode, BugUploadMode.relay);
+      expect(c.repo, isEmpty);
+      expect(c.token, 'long-random-string');
+    });
+
+    test('a url wins over a repo/token pair in the same file', () {
+      // If a config carries both, the SAFE one has to win — the other way
+      // round, a leftover token would keep being used silently.
+      final c = BugUploadConfig.parse(jsonEncode({
+        'url': 'https://bugs.example.workers.dev',
+        'repo': 'Owner/name',
+        'token': _token,
+      }))!;
+      expect(c.mode, BugUploadMode.relay);
+      expect(c.token, isNot(_token));
+    });
+
+    test('the key is optional — an unguessable URL can be the secret', () {
+      final c = BugUploadConfig
+          .parse(jsonEncode({'url': 'https://bugs.example.workers.dev/x9f2'}))!;
+      expect(c.token, isEmpty);
+      expect(bundleHeaders(c).containsKey('X-Upload-Key'), isFalse,
+          reason: 'an empty key header would be a header saying "no key"');
+    });
+
+    test('plain http is refused outright', () {
+      // A bundle is the whole log plus a screenshot of the screen. That does
+      // not go over café wifi in the clear because of a typo in a config file.
+      expect(BugUploadConfig.parse(jsonEncode({'url': 'http://bugs.example'})),
+          isNull);
+      expect(BugUploadConfig.parse(jsonEncode({'url': 'not a url'})), isNull);
+    });
+
+    test('the file name is the last path segment, and the zip is the body',
+        () async {
+      final c = BugUploadConfig.parse(jsonEncode({
+        'url': 'https://bugs.example.workers.dev/',
+        'key': 'k',
+      }))!;
+      expect(bundleUri(c, 'bug1.zip').toString(),
+          'https://bugs.example.workers.dev/bug1.zip',
+          reason: 'the trailing slash must not double up');
+      // Raw bytes: no base64, no envelope. A thirty-line relay can handle it
+      // and the tablet does not inflate a 2 MB file by a third.
+      expect(bundlePayload(c, 'bug1.zip', const [1, 2, 3]), const [1, 2, 3]);
+      expect(bundleHeaders(c)['X-Upload-Key'], 'k');
+      expect(bundleHeaders(c)['Content-Type'], 'application/zip');
+    });
+
+    test('the key never reaches the log, and neither does the full URL', () {
+      final c = BugUploadConfig.parse(jsonEncode({
+        'url': 'https://bugs.example.workers.dev/secret-path',
+        'key': 'long-random-string',
+      }))!;
+      expect(c.toString(), isNot(contains('long-random-string')));
+      expect(c.toString(), isNot(contains('secret-path')),
+          reason: 'an unguessable URL is itself a secret');
+      expect(c.describe, 'bugs.example.workers.dev');
+    });
+
+    test('it sends through the same queue and marking as GitHub mode',
+        () async {
+      final d = tempDir();
+      final z = writeZip(d, 'bug1.zip');
+      final c = BugUploadConfig.parse(
+          jsonEncode({'url': 'https://bugs.example.workers.dev'}))!;
+      List<int>? body;
+      final r = await sendBundle(z, c, put: (_, __, b) async {
+        body = b;
+        return 201;
+      });
+      expect(r, BugSendResult.sent);
+      expect(body, hasLength(32), reason: 'the zip itself, unwrapped');
+      expect(sentMarker(z).existsSync(), isTrue);
+    });
+  });
+
   group('request', () {
     test('the URL is the Contents API path for the bundle', () {
       final u = bundleUri(cfg(), 'bug20260804T112835.zip');
