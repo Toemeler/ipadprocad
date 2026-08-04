@@ -16,6 +16,46 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M190 — jeder gruene Build wird ein Release, und das iPad meldet sich.**
+>
+> Bisher endete M5 mit einem Artefakt, dessen Download einen GitHub-Login
+> braucht — SideStore hat keinen. Neu: `ci/publish_release.sh` legt nach jedem
+> gruenen M5 das Release `build-<Run-Nummer>` an, mit der IPA, einer
+> `source.json` (SideStore-Source, die letzten 10 Builds) und einer
+> `latest.json` fuer den Shortcut. Einstieg ueber GitHubs
+> `/releases/latest/download/<asset>`-Redirect, also feste URLs ohne
+> Extra-Branch. Danach `ci/notify_build.sh` (Pushover oder ntfy, ohne Secrets
+> ein No-op). Geraeteseite: `AUTOINSTALL.md`.
+>
+> **Die Bundle-Version ist jetzt die Run-Nummer** (`--build-name=0.1.<run>
+> --build-number=<run>`), und zwar in BEIDEN `flutter build ios`-Aufrufen. Nur
+> im zweiten reicht nicht: der `--config-only`-Lauf schreibt die
+> `Generated.xcconfig`, der Release-Lauf schreibt sie mit anderer Version neu,
+> und der Pod-Schritt war umsonst. Vorher trug jede IPA `0.1.0 (1)` aus der
+> pubspec — man sah am Geraet nicht, welcher Build laeuft.
+>
+> **Was NICHT geht, im SideStore-Quelltext nachgesehen statt in der Doku
+> geglaubt:** ein Install ohne Tipp. `sidestore://install?url=…` geht ueber
+> `URLHandler.swift` und `MyAppsViewController.importApp` immer in
+> `InstallAppDialog.present` — ein Alert mit Install/Cancel; der Weg ueber eine
+> `.ipa`-Datei muendet im selben Dialog. Die einzigen App-Intents sind
+> `RefreshAllAppsIntent` (+ Widget), also kein Install im Hintergrund, und ein
+> Auto-Update aus einer Source existiert nirgends (`autoUpdate`,
+> `automaticallyUpdate`, `installUpdates`: null Treffer). Null Tipser gaebe es
+> nur mit SideStore-Fork, TestFlight (99 $/Jahr) oder AltServer auf einem
+> Dauerlaeufer im WLAN. Gewaehlt wurde bewusst der Zwei-Tipp-Weg.
+>
+> Der Notification-Link zeigt auf `shortcuts://run-shortcut?name=Install%20…`
+> und nicht auf `sidestore://`, damit der Shortcut den VPN einschalten kann,
+> BEVOR SideStore uebernimmt — ohne Tunnel scheitert SideStore erst beim
+> Signieren, also nach dem Download.
+>
+> **Am Geraet noch nicht gesehen:** die ganze Geraeteseite. Verifiziert sind
+> nur die CI-Haelfte (Trockenlauf mit gestubbtem `gh`: Manifeste, Reihenfolge
+> neueste-zuerst, Kappung bei 10, Fallback bei kaputter Vorgaenger-Source) und
+> das Schema gegen SideStores CodingKeys. Ob Shortcut, Push und Deep Link in
+> dieser Kette wirklich durchlaufen, zeigt erst der erste Build danach.
+
 > **M189 — App-Icon.**
 >
 > Artwork vom Nutzer geliefert (isometrischer Wuerfel, orange `#FF592D`, „P" mit

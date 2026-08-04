@@ -687,7 +687,13 @@ jobs:
           # (Target-level pbxproj settings override xcconfig, so patch pbxproj.)
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/Runner.xcodeproj/project.pbxproj
           # Generate the CocoaPods setup without compiling, then pin platform.
+          # --build-name/--build-number: siehe den Release-Schritt unten. Die
+          # beiden `flutter build ios`-Aufrufe MUESSEN die gleiche Version
+          # tragen, sonst schreibt der zweite die Generated.xcconfig neu und
+          # der Pod-Schritt war umsonst.
           flutter build ios --config-only --release --no-codesign \
+            --build-name=0.1.${{ github.run_number }} \
+            --build-number=${{ github.run_number }} \
             --dart-define=GIT_SHA=${GITHUB_SHA::7}
           if [ -f ios/Podfile ]; then
             sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
@@ -844,7 +850,13 @@ jobs:
         run: |
           # pipefail MUSS ausserhalb des { }|tee stehen (M3-Lektion).
           set -o pipefail
+          # Die Build-Nummer IST die Run-Nummer (Build 361 heisst am Geraet
+          # 0.1.361). Ohne das traegt jede IPA `0.1.0 (1)` aus der pubspec und
+          # man sieht am iPad nicht, welcher Build laeuft — und SideStore haelt
+          # zwei verschiedene Builds fuer dieselbe Version.
           flutter build ios --release --no-codesign \
+            --build-name=0.1.${{ github.run_number }} \
+            --build-number=${{ github.run_number }} \
             --dart-define=GIT_SHA=${GITHUB_SHA::7} 2>&1 | tee ../ci-m5-build.log
 
       - name: Verify core is linked (M5 LINK CHECK) & package IPA
@@ -962,6 +974,38 @@ jobs:
           name: prototype-unsigned-ipa
           path: prototype-unsigned.ipa
           if-no-files-found: error
+
+      # M190 — der Artefakt-Download braucht einen Login, SideStore hat keinen.
+      # Erst ein Release macht die IPA unter einer festen, anonym erreichbaren
+      # URL installierbar. Laeuft nach JEDEM gruenen M5 (auch workflow_dispatch
+      # auf einem Feature-Branch — genau da entstehen die Builds, die aufs
+      # Geraet sollen); uebersprungen nur bei Fork-PRs, wo der Token nur lesen
+      # darf und `gh release create` zwangslaeufig 403 gaebe.
+      - name: Publish release (iPad install target)
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ci/publish_release.sh prototype-unsigned.ipa
+
+      # Der Anstoss fuers iPad. Ohne gesetzte Secrets ein No-op — der Build
+      # bleibt gruen, das Release liegt trotzdem da und der Home-Screen-Shortcut
+      # holt es. Siehe AUTOINSTALL.md.
+      - name: Notify iPad
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          bash ci/notify_build.sh \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/build-${GITHUB_RUN_NUMBER}/ipadprocad-${GITHUB_RUN_NUMBER}.ipa" \
+            "${GITHUB_RUN_NUMBER}" \
+            "$(git log -1 --pretty=%s)"
 
       - name: Commit M5 debug logs
         if: always()
