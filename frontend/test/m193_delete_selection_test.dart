@@ -12,6 +12,8 @@
 // measuring the wrong line — a corruption nobody notices until it is saved.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+// kDefaultLayer lives with the engine bindings, not in app_state.
+import 'package:prototype/ffi/qcad_engine.dart' show kDefaultLayer;
 import 'package:prototype/widgets/quick_tools.dart';
 
 AppState makeApp({String name = 't'}) {
@@ -123,16 +125,25 @@ void main() {
     expect(app.current!.geometry.length, 4);
   });
 
-  test('the Delete button appears with a selection, and appears LAST', () {
+  test('the Delete button appears with a selection, below every tool', () {
     final app = withRect();
-    expect([for (final i in buildQuickTools(app)) i.id],
-        isNot(contains(QuickToolId.delete)));
+    final ids0 = [
+      for (final i in buildQuickTools(app))
+        if (!i.separator) i.id
+    ];
+    expect(ids0, isNot(contains(QuickToolId.delete)));
 
     app.selection.add(0);
-    final ids = [for (final i in buildQuickTools(app)) i.id];
+    final ids = [
+      for (final i in buildQuickTools(app))
+        if (!i.separator) i.id
+    ];
     expect(ids, contains(QuickToolId.delete));
-    expect(ids.last, QuickToolId.delete,
-        reason: 'arriving last means nothing above it moves under the thumb');
+    expect(ids.indexOf(QuickToolId.delete),
+        greaterThan(ids.indexOf(QuickToolId.trim)),
+        reason: 'below the tools: no tool is ever swapped for a delete');
+    expect(ids.last, QuickToolId.bug,
+        reason: 'the bug reporter stays pinned to the foot of the bar');
 
     final del =
         buildQuickTools(app).firstWhere((i) => i.id == QuickToolId.delete);

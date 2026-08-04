@@ -11,9 +11,12 @@
 // it — into one file, with no round trip to ask "which feature?" or "can you
 // send the part too?".
 //
-// It DRAGS, because a bug reporter that covers the bug is useless. The default
-// corner is chosen to clear the tab bar, and the position is remembered for
-// the session.
+// M194 — it used to be a red circle FLOATING over the canvas, draggable
+// because a bug reporter that covers the bug is useless. It is now the last
+// button of the quick-tool bar (M192), which is chrome and therefore covers
+// nothing: the reason to drag it went away, and one less thing floats over the
+// model. What is left here is the flow — the two dialogs and the capture
+// between them — with no widget of its own.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -22,82 +25,32 @@ import '../bug_capture.dart';
 import '../log.dart';
 import '../theme.dart';
 
-class BugButton extends StatefulWidget {
-  const BugButton({super.key, required this.app});
-
-  final AppState app;
-
-  /// The single switch. Flip to false to remove the affordance entirely.
+/// The report-it-now affordance, as a flow rather than a widget.
+class BugReport {
+  /// The single switch. Flip to false to remove the affordance entirely —
+  /// the bar drops its button with it.
   static bool enabled = true;
 
-  @override
-  State<BugButton> createState() => _BugButtonState();
-}
-
-class _BugButtonState extends State<BugButton> {
-  // Remembered for the session so it stays where it was dragged.
-  static Offset? _pos;
-  static const double _size = 44;
-
-  bool _busy = false;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!BugButton.enabled) return const SizedBox.shrink();
-    final screen = MediaQuery.of(context).size;
-    final p = _pos ??
-        Offset(screen.width - _size - 14, screen.height - _size - 96);
-
-    return Positioned(
-      left: p.dx.clamp(0.0, (screen.width - _size).clamp(0.0, double.infinity)),
-      top: p.dy.clamp(0.0, (screen.height - _size).clamp(0.0, double.infinity)),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanUpdate: (d) => setState(() => _pos = (_pos ?? p) + d.delta),
-        onTap: _busy ? null : _open,
-        child: Semantics(
-          label: 'Report a bug',
-          button: true,
-          child: Container(
-            width: _size,
-            height: _size,
-            decoration: BoxDecoration(
-              color: _busy ? T.sep : const Color(0xFFB4232A),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white24),
-              boxShadow: const [
-                BoxShadow(color: Colors.black54, blurRadius: 6, spreadRadius: 1)
-              ],
-            ),
-            child: _busy
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.bug_report, color: Colors.white, size: 24),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _open() async {
+  /// Describe it, capture it, say where it landed.
+  ///
+  /// No progress indicator on purpose. The screenshot inside
+  /// [captureBugReport] must show the state being COMPLAINED about, and the
+  /// surest way to keep the reporting UI out of it is to have none on screen
+  /// while it is taken — hence the delay, which lets the dialog finish
+  /// dismissing before the frame is grabbed. The two dialogs bracket the wait,
+  /// so the user is never left wondering whether the tap registered.
+  static Future<void> open(BuildContext context, AppState app) async {
+    if (!enabled) return;
     final text = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const _BugDialog(),
     );
     if (text == null) return; // cancelled
-    if (!mounted) return;
-    setState(() => _busy = true);
-    // Let the spinner paint before the capture begins, and let the dialog
-    // finish dismissing — the screenshot is taken inside captureBugReport and
-    // must show the state being COMPLAINED about, not the reporting UI on top
-    // of it.
+    if (!context.mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 120));
-    final file = await captureBugReport(widget.app, text);
-    if (!mounted) return;
-    setState(() => _busy = false);
+    final file = await captureBugReport(app, text);
+    if (!context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (_) => _ResultDialog(path: file?.path),

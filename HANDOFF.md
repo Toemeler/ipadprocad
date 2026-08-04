@@ -16,6 +16,36 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M194 — der Bug-Report-Knopf in die Leiste.**
+>
+> Er war ein roter Kreis, der ueber der Zeichenflaeche schwebte, ziehbar, weil
+> ein Fehlermelder, der den Fehler verdeckt, nutzlos ist. In der M192-Leiste
+> verdeckt er nichts — sie ist Chrom, kein Werkzeug —, also entfaellt das
+> Ziehen und ein Element weniger schwebt ueber dem Modell.
+>
+> **Platz:** ganz unten, durch eine Trennlinie abgesetzt. Er ist der eine
+> Knopf, der beim Greifen nach einem Werkzeug niemals getroffen werden darf,
+> und der Fuss der Leiste ist von jedem Werkzeug am weitesten weg. Rot bleibt
+> er: er ist die Kruecke der Prototyp-Phase und soll temporaer aussehen.
+>
+> **In JEDER Ansicht**, auch auf der Home-Galerie, wo die Leiste sonst leer
+> waere — ein Fehler in der Galerie ist auch ein Fehler, und der alte Kreis war
+> dort erreichbar. Beim Schreiben der Tests fiel auf, dass genau das erst NICHT
+> stimmte: `buildQuickTools` verlaesst sich zweimal ueber ein fruehes `return`
+> (Home, ausserhalb des Editiermodus), und an einem davon fiel der Knopf still
+> heraus. Deshalb prueft der Test alle vier Kontexte einzeln.
+>
+> **Code:** das Widget `BugButton` faellt weg, `BugReport.open(context, app)`
+> bleibt — dieselben zwei Dialoge, dieselbe 120-ms-Pause vor dem Screenshot
+> (die Melde-UI darf nicht auf dem Bild landen, das ist der ganze Grund fuer
+> die Pause). **Kein Spinner mehr**: er wuerde genau in den Screenshot geraten,
+> und die zwei Dialoge klammern die Wartezeit ohnehin ein.
+> `BugReport.enabled = false` nimmt den Knopf mit, ohne den Rest der Leiste
+> anzufassen.
+>
+> **Ehrlicher Stand:** 7 neue Tests (`m194_bug_button_in_bar_test.dart`); kein
+> Flutter-SDK in dieser Sitzung, `flutter test`/`analyze` NICHT gelaufen.
+
 > **M193 — einzelne Objekte loeschen.**
 >
 > **Das Problem.** Das Kleinste, was eine Skizze verlieren konnte, war ein
@@ -48,9 +78,13 @@ Token NIE in Dateien/.git/config schreiben.
 > (M17), und ein Loeschen ueber Layergrenzen hinweg waere die eine Operation,
 > die das ignoriert.
 >
-> **Ehrlicher Stand:** 9 neue Tests (`m193_delete_selection_test.dart`)
-> geschrieben; kein Flutter-SDK in dieser Sitzung, `flutter test`/`analyze`
-> sind NICHT gelaufen. Gruen ist, was CI sagt. Geraete-Test offen.
+> **Ehrlicher Stand:** 9 Tests (`m193_delete_selection_test.dart`). **Der
+> erste Push war ROT** — `kDefaultLayer` liegt in `ffi/qcad_engine.dart`, nicht
+> in `app_state.dart`; `flutter analyze` brach mit `undefined_identifier` ab
+> und der Test-Schritt lief dadurch nie (CI-Lauf `30939902554`, Log auf
+> `ci-debug-logs-dart`). Import nachgezogen, Ergebnis steht aus. Ohne
+> Flutter-SDK im Sitzungs-Image faengt genau das niemand vor dem Push ab.
+> Geraete-Test offen.
 
 > **M192 — die Schnellwerkzeuge bekommen eine Flaeche.**
 >

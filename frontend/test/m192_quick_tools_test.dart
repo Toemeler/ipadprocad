@@ -33,14 +33,23 @@ AppState editingApp() {
 List<String> idsOf(AppState app) =>
     [for (final i in buildQuickTools(app)) i.id];
 
+/// Ids of the real buttons, without the hairline rules between the groups.
+List<String> buttonIdsOf(AppState app) => [
+      for (final i in buildQuickTools(app))
+        if (!i.separator) i.id
+    ];
+
 GlassToolItem item(AppState app, String id) =>
     buildQuickTools(app).firstWhere((i) => i.id == id);
 
 void main() {
-  test('the home gallery has no bar — there is no document to act on', () {
+  test('the home gallery carries the bug reporter and nothing else', () {
+    // M194 — no document, so no command has anything to act on; the bug
+    // reporter stays, because a bug in the gallery is still a bug (it is what
+    // the old floating red circle was reachable for there).
     final app = makeApp();
     expect(app.isHome, isTrue);
-    expect(buildQuickTools(app), isEmpty);
+    expect(idsOf(app), [QuickToolId.bug]);
   });
 
   test('OK and Cancel lead the bar wherever the sketcher is live', () {
@@ -94,13 +103,15 @@ void main() {
         reason: 'Esc drops the selection, so the button must too');
   });
 
-  test('Cancel is the only destructive button, and nothing else is', () {
+  test('only Cancel and the bug reporter are red', () {
+    // Red is a promise: this either aborts something or files a report. A
+    // drawing tool that borrowed the colour would make both meaningless.
     final app = editingApp();
     final red = [
       for (final i in buildQuickTools(app))
         if (i.destructive) i.id
     ];
-    expect(red, [QuickToolId.cancel]);
+    expect(red, [QuickToolId.cancel, QuickToolId.bug]);
   });
 
   test('tapping Cancel really cancels the running tool', () {
@@ -193,7 +204,8 @@ void main() {
     expect(item(app, QuickToolId.redo).enabled, isFalse);
     // No sketch tool can be running here, so OK and Cancel would be dark
     // forever. A button that can never light up does not belong on the bar.
-    expect(idsOf(app), [QuickToolId.undo, QuickToolId.redo]);
+    expect(buttonIdsOf(app),
+        [QuickToolId.undo, QuickToolId.redo, QuickToolId.bug]);
   });
 
   test('every id the bar emits is dispatched — no dead buttons', () {
@@ -214,6 +226,7 @@ void main() {
             QuickToolId.dimension,
             QuickToolId.trim,
             QuickToolId.delete,
+            QuickToolId.bug,
           ],
           contains(i.id),
           reason: 'runQuickTool has no case for "${i.id}"');

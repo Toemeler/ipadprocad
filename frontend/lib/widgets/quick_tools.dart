@@ -31,6 +31,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../tools.dart';
 import 'bottom_tabbar.dart';
+import 'bug_button.dart';
 import 'ribbon_chrome.dart';
 
 /// Ids on the wire. They come back from UIKit verbatim and are dispatched by
@@ -47,6 +48,7 @@ class QuickToolId {
   static const dimension = 'dimension';
   static const trim = 'trim';
   static const delete = 'delete';
+  static const bug = 'bug';
 }
 
 /// True when Enter/OK would do something: a variable-length tool (spline) with
@@ -78,7 +80,8 @@ const _modifyRing = {Tool.split, Tool.trim, Tool.extendT};
 ///
 /// Three tiers, and each one earns its place:
 ///
-///  * Nothing on the home gallery — there is no document to act on.
+///  * On the home gallery only the bug reporter — there is no document for
+///    any command to act on.
 ///  * Undo and Redo everywhere else, because a wrong move is possible
 ///    everywhere else.
 ///  * OK and Cancel wherever the SKETCHER is live (a sketch tab, or a child
@@ -89,14 +92,16 @@ const _modifyRing = {Tool.split, Tool.trim, Tool.extendT};
 ///  * The four everyday drawing tools plus Trim only inside a layer's edit
 ///    mode, which is the only place a tool can be armed at all (selectTool
 ///    refuses outside it).
-///  * Delete (M193) only with a deletable selection, and LAST, so its arrival
-///    moves nothing above it. It is the one button that has no meaning at all
-///    without a selection, which is why it appears rather than greys out.
+///  * Delete (M193) only with a deletable selection, below the tools. It is
+///    the one button that has no meaning at all without a selection, which is
+///    why it appears rather than greys out.
+///  * The bug reporter (M194) last of all, always, separated from everything
+///    above it.
 ///
 /// Otherwise the buttons never move: they grey out instead of vanishing,
 /// because a target that shifts under the thumb cannot be hit without looking.
 List<GlassToolItem> buildQuickTools(AppState app) {
-  if (app.isHome) return const [];
+  if (app.isHome) return _withBugReport(const []);
   final items = <GlassToolItem>[];
   if (app.current != null) {
     items.addAll([
@@ -130,7 +135,7 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       enabled: quickCanRedo(app),
     ),
   ]);
-  if (!app.inEditMode) return items;
+  if (!app.inEditMode) return _withBugReport(items);
   items.addAll([
     const GlassToolItem.separator('sep2'),
     GlassToolItem(
@@ -168,9 +173,11 @@ List<GlassToolItem> buildQuickTools(AppState app) {
     ),
   ]);
   // M193 — Delete APPEARS with a selection instead of sitting there dark: it
-  // is the one button that is meaningless without one. It goes LAST, so
-  // nothing above it moves when it arrives and no button is ever hit by
-  // accident because the bar grew under the thumb.
+  // is the one button that is meaningless without one. It goes BELOW the
+  // tools, so no tool is ever replaced by Delete at the slot the finger was
+  // already heading for. (The bar is centred vertically, so it does shift by
+  // half a button when this arrives — that moves every target by the same 23
+  // pt, which is a different thing from swapping what is under one of them.)
   if (app.canDeleteSelection) {
     items.addAll([
       const GlassToolItem.separator('sep3'),
@@ -182,7 +189,35 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       ),
     ]);
   }
-  return items;
+  return _withBugReport(items);
+}
+
+/// M194 — the bug reporter, pinned to the FOOT of the bar.
+///
+/// It used to be a red circle floating over the canvas. It belongs here
+/// instead: it is chrome, not a tool. Last and separated on purpose — it is
+/// the one button that must never be hit while reaching for a tool, and the
+/// foot of the bar is the furthest any of them gets from it. Red, because it
+/// is the prototype-phase affordance and should keep looking temporary.
+///
+/// It survives on the home gallery, where the bar has nothing else: a bug in
+/// the gallery is still a bug, and the old floating button could be pressed
+/// there too.
+List<GlassToolItem> _withBugReport(List<GlassToolItem> items) {
+  if (!BugReport.enabled) return items;
+  return [
+    ...items,
+    if (items.isNotEmpty) const GlassToolItem.separator('sepBug'),
+    const GlassToolItem(
+      id: QuickToolId.bug,
+      // SF Symbols 4 (iOS 16). Older systems get the classic ant rather than
+      // an empty button.
+      symbol: 'ladybug.fill',
+      fallback: 'ant.fill',
+      label: 'Report a bug',
+      destructive: true,
+    ),
+  ];
 }
 
 /// Undo/Redo mean the SKETCH journal inside a sketch and the PART journal in a
@@ -196,7 +231,11 @@ bool quickCanRedo(AppState app) =>
 
 /// What a tap means. Kept out of the widget so the host suite can press every
 /// button without a platform view.
-void runQuickTool(AppState app, String id) {
+///
+/// [context] is only needed by the buttons that open a dialog (the bug
+/// reporter); everything else is pure state and works without one, which is
+/// what lets the tests press them all.
+void runQuickTool(AppState app, String id, {BuildContext? context}) {
   switch (id) {
     case QuickToolId.ok:
       // Same precedence as Enter in the viewport: the freehand window owns it
@@ -250,6 +289,9 @@ void runQuickTool(AppState app, String id) {
     case QuickToolId.delete:
       app.deleteSelection();
       break;
+    case QuickToolId.bug:
+      if (context != null) BugReport.open(context, app);
+      break;
   }
 }
 
@@ -288,15 +330,15 @@ class QuickToolsBar extends StatelessWidget {
           child: GlassToolBar.isSupported
               ? GlassToolBar(
                   items: items,
-                  onTap: (id) => runQuickTool(app, id),
+                  onTap: (id) => runQuickTool(app, id, context: context),
                 )
-              : _flutterBar(items),
+              : _flutterBar(context, items),
         ),
       ),
     );
   }
 
-  Widget _flutterBar(List<GlassToolItem> items) {
+  Widget _flutterBar(BuildContext context, List<GlassToolItem> items) {
     return Container(
       width: GlassToolBar.width,
       padding: const EdgeInsets.symmetric(vertical: GlassToolBar.padding),
@@ -318,13 +360,13 @@ class QuickToolsBar extends StatelessWidget {
                 ),
               )
             else
-              _flutterButton(i),
+              _flutterButton(context, i),
         ],
       ),
     );
   }
 
-  Widget _flutterButton(GlassToolItem i) {
+  Widget _flutterButton(BuildContext context, GlassToolItem i) {
     // Off iOS there are no SF Symbols; the fallback bar is chrome for the host
     // suite and desktop runs, so Material glyphs are the honest choice.
     const glyphs = <String, IconData>{
@@ -338,13 +380,16 @@ class QuickToolsBar extends StatelessWidget {
       QuickToolId.dimension: Icons.straighten,
       QuickToolId.trim: Icons.content_cut,
       QuickToolId.delete: Icons.delete_outline,
+      QuickToolId.bug: Icons.bug_report,
     };
     return Semantics(
       label: i.label,
       button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: i.enabled ? () => runQuickTool(app, i.id) : null,
+        onTap: i.enabled
+            ? () => runQuickTool(app, i.id, context: context)
+            : null,
         child: Container(
           width: GlassToolBar.buttonSize,
           height: GlassToolBar.buttonSize,

@@ -14,7 +14,6 @@ import 'app_state.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
 import 'gesture_trace.dart';
-import 'widgets/bug_button.dart';
 import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
@@ -357,11 +356,10 @@ class PrototypeApp extends StatelessWidget {
           },
         ),
           PerfOverlay(app: app),
-          // TEMPORARY (prototype phase): capture a bug the moment it is on
-          // screen. Sits outside the AnimatedBuilder so it survives every
-          // view — home, sketch and part — and above everything so it is
-          // reachable even when a panel is covering the canvas.
-          BugButton(app: app),
+          // M194 — the bug reporter used to float here as a draggable red
+          // circle. It is the last button of the quick-tool bar now (which
+          // renders on the home gallery too, so it is still reachable from
+          // every view) and nothing of it floats over the canvas any more.
         ]),
           ),
         ),
