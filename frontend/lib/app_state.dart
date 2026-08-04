@@ -6181,13 +6181,27 @@ class AppState extends ChangeNotifier {
   /// Ties the pieces a kept-carrier trim produced back onto that carrier, so
   /// dragging or dimensioning the carrier still drives what is visible.
   ///
+  /// A ROUND piece gets CONCENTRIC + EQUAL, which is the whole of "this arc is
+  /// that circle": three equations that leave only the two sweep angles free,
+  /// for the cut binds to pin. Everything the carrier carries — its tangencies,
+  /// its diameter — then applies to the arc through the shared centre and
+  /// radius, which is exactly what the user asked for ("the new curve and the
+  /// construction circle should keep an equal constraint").
+  ///
+  /// M188: the first cut at this (equal + both endpoints ON the rim) was
+  /// UNSOUND. It pins the centre only DISCRETELY — mirroring it across the
+  /// chord satisfies every one of those equations — so the device session found
+  /// the mirror: `arc data=[-1.5312, -0.0920, 8.4957 …]` on a carrier centred at
+  /// the origin. The slack direction that made the flip reachable also let a
+  /// drag walk the carrier's radius to ZERO (`circle data=[0, 0, 0.0000]`), and
+  /// the sketch then carried a permanent 3.6e-6 residual. Two discrete
+  /// solutions are not a constraint.
+  ///
   /// Per PIECE POINT, strongest first: point-on-point where the piece inherited
   /// one of the carrier's own points, otherwise point-on-curve where it sits on
-  /// the carrier's curve. Round pieces additionally get an EQUAL radius — two
-  /// point binds alone leave an arc free to bulge off its parent circle. The
-  /// carrier's CENTER is deliberately not matched: concentric plus equal would
-  /// already imply both endpoint binds, and that redundant row is what makes
-  /// the solver call a sketch inconsistent (same trap as the slot's parallel).
+  /// the carrier's curve. For a round piece those are already implied by
+  /// concentric+equal, so the gate drops them — that is the redundant row, and
+  /// dropping it is correct; the sweep ends are pinned by the cut binds.
   void _bindPiecesToCarrier(
       List<Geo> gs, int carrier, int piecesStart, List<Constraint> cons) {
     const tol = 1e-6;
@@ -6209,6 +6223,7 @@ class AppState extends ChangeNotifier {
     for (var e = piecesStart; e < gs.length; e++) {
       final g = gs[e];
       if (round(g) && round(ghost)) {
+        tryAdd(Constraint(CType.concentric, ents: [carrier, e]));
         tryAdd(Constraint(CType.equal, ents: [carrier, e]));
       }
       for (var p = firstOnCurvePt(g); p < ptCount(g); p++) {
@@ -10186,6 +10201,11 @@ class AppState extends ChangeNotifier {
             'modify',
             '${tool.name} at e$e1/e$e2 REJECTED — result cannot be satisfied; '
                 'rolling back');
+        // M188 — the device reports ("couldn't make a radius on the second
+        // corner") could not be diagnosed from the log: a rejection said only
+        // THAT the solve failed. The refused set is what tells you why — here
+        // it showed both fillet arcs glued to the same endpoint.
+        Log.block('modify', '${tool.name} refused this', sketchDump(gs, cons));
         toast(tool == Tool.fillet
             ? 'That fillet would break the sketch — pick a valid corner or a '
                 'smaller radius.'

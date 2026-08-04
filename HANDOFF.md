@@ -16,6 +16,62 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M188 — fuenf Meldungen zu Build `d6df102`, zwei Ursachen. Die erste war
+> meine eigene aus M187.**
+>
+> **(1) Die M187-Bindung eines RUNDEN Stuecks war unsound.** Ich hatte
+> `equal` + „beide Endpunkte liegen auf dem Rand" gewaehlt und im Kommentar
+> ausdruecklich begruendet, warum NICHT `concentric` — die redundante Zeile.
+> Der Rangzaehler stimmte, die Geometrie nicht: drei Gleichungen, die den
+> Mittelpunkt nur **diskret** festlegen. Der an der Sehne gespiegelte
+> Mittelpunkt erfuellt jede davon. Das Geraet fand ihn:
+> `arc data=[-1.5312, -0.0920, 8.4957 …]` auf einem Traeger im Ursprung.
+>
+> Dieselbe Schlupfrichtung machte den Rest: ein Zug am zweiten Kreis lief den
+> Traegerradius auf **null** (`circle data=[0, 0, 0.0000]`, „i moved the second
+> circle and the first circle collapsed"), danach trug die Skizze dauerhaft
+> 3.6e-6 Residuum (`satisfied=false` in JEDEM Solve des Logs), und jede spaetere
+> Operation startete aus einer entarteten Lage.
+>
+> **Lehre, teuer bezahlt:** *zwei diskrete Loesungen sind keine Bedingung.* Ich
+> hatte nur DOF gezaehlt. Ein Rangargument sagt nichts darueber, ob die zweite
+> Wurzel erreichbar ist — und der LM findet sie. Jetzt `concentric` + `equal`.
+> Die befuerchtete Redundanz an den Endpunkten faellt sauber durchs Tor, genau
+> wie sie soll.
+>
+> **(2) `filletInventor` trimmt das falsche Linienende** — ein aelterer,
+> eigenstaendiger Fehler, den erst der zweite Radius sichtbar macht. Der Code
+> bewegte den Endpunkt, der dem TANGENTENPUNKT naeher liegt; der Kommentar
+> darueber sagt seit jeher, was richtig waere („the endpoint inside the corner
+> moves"). Solange die Kante lang ist, ist das dasselbe. Nach dem ersten Radius
+> nicht mehr: eine von 15 auf 9.01 verkuerzte Kante hat ihren zweiten
+> Tangentenpunkt **4.01 vom falschen** und **5.0 vom richtigen** Ende entfernt.
+> Also zog der zweite Radius das Ende, das der erste schon an seinen Bogen
+> geklebt hatte — beide Boegen hingen am selben Punkt, die Kante fiel auf Laenge
+> 0 zusammen, der Solve scheiterte, die Operation wurde zurueckgerollt
+> („somehow I couldn't make a radius on the second corner of the rect",
+> „the horizontal line of the rect was lost when making a radius"). Die alte
+> Ecken-Koinzidenz blieb aus demselben Grund stehen: der Aufrufer sucht sie
+> ueber genau diese Punktindizes. Gewaehlt wird jetzt ueber die Projektion auf
+> den Tangentenpunkt der ANDEREN Auswahl — das ist die Eckseite, unabhaengig
+> von den Laengen der beiden Stuecke.
+>
+> **(3) „when dragging the rect around it behaved really buggy"** war kein
+> dritter Fehler. Der Zug loest die GANZE Skizze, und in derselben Skizze lag
+> der entartete Guertel aus (1): das Log zeigt `err=6.77e+0 satisfied=false`,
+> Rueckfall auf `lm-relaxed`, `maxAbs` springt 27→33→35. Auf einer gesunden
+> Skizze bleibt das Rechteck beim Ziehen exakt rechteckig (H/V-Abweichung 0.0,
+> Residuum ~1e-10) — als Test festgehalten. **Am Geraet nachpruefen**, das ist
+> die eine der fuenf Meldungen, die nur indirekt belegt ist.
+>
+> **Neu im Log:** eine abgelehnte Fillet/Chamfer-Operation schreibt jetzt den
+> Satz, den sie nicht loesen konnte (`sketchDump`). Ohne den war aus dem
+> Geraete-Log nur ablesbar DASS der Solve aufgab; mit ihm sieht man in einer
+> Zeile, dass beide Boegen am selben Endpunkt hingen.
+>
+> 1296 Tests gruen (9 neu in `m188_trim_carrier_soundness_test.dart`, die
+> Geraete-Skizze auf die Ziffer nachgebaut), analyze 50 Issues / 0 errors.
+
 > **M187 — die ersten drei Meldungen, die durch den M184-Bug-Knopf kamen.**
 >
 > Drei Bundles aus derselben Geraete-Sitzung (Build `ef22833`):

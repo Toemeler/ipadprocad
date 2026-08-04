@@ -842,12 +842,38 @@ FilletResult? filletInventor(
 
   // trims: lines to the tangent point (the endpoint inside the corner
   // moves); arcs to the tangent ANGLE on the corner side; circles stay.
-  (Geo, int?) trim(Geo g, Offset tp, Offset hint) {
+  //
+  // [toward] is the tangent point on the OTHER pick, i.e. the direction the
+  // corner lies in. M188: the line branch used to move whichever endpoint was
+  // NEARER the tangent point, which is only the corner endpoint while the
+  // tangent point sits in the far half of the line. Fillet a rectangle corner
+  // and the adjacent one and it is not: a 15-long edge shortened to 9.01 by the
+  // first fillet has its second tangent point 4.01 from the WRONG end and 5.0
+  // from the right one, so the second fillet moved the end the first fillet had
+  // already glued to its arc. Both arcs then hung off the same point, the line
+  // was squeezed to zero length, and the solve failed — "couldn't make a radius
+  // on the second corner" / "the horizontal line of the rect was lost". The
+  // stale corner coincidence survived too, because the caller looks it up by
+  // exactly these point indices.
+  (Geo, int?) trim(Geo g, Offset tp, Offset toward) {
     switch (g.type) {
       case Geo.line:
         final a = Offset(g.data[0], g.data[1]),
             b = Offset(g.data[2], g.data[3]);
-        return (a - tp).distance <= (b - tp).distance
+        final d = b - a;
+        final len = d.distance;
+        // Which END is on the corner side of the tangent point? Measured along
+        // the line, so the length of either piece never enters into it.
+        final along = len < 1e-12
+            ? 0.0
+            : ((toward - tp).dx * d.dx + (toward - tp).dy * d.dy) / len;
+        final corner = along.abs() > 1e-9
+            ? (along > 0 ? 1 : 0)
+            // Degenerate: the other tangent point is square off this line, so
+            // there is no corner side to speak of. Keep the old nearest-end
+            // rule rather than guessing.
+            : ((a - tp).distance <= (b - tp).distance ? 0 : 1);
+        return corner == 0
             ? (g.withData([tp.dx, tp.dy, b.dx, b.dy]), 0)
             : (g.withData([a.dx, a.dy, tp.dx, tp.dy]), 1);
       case Geo.arc:
@@ -869,8 +895,10 @@ FilletResult? filletInventor(
     }
   }
 
-  final (r1g, p1) = trim(g1, t1, h1);
-  final (r2g, p2) = trim(g2, t2, h2);
+  // each pick is trimmed TOWARD the other's tangent point — that is where the
+  // corner is, and which end of it disappears into the fillet
+  final (r1g, p1) = trim(g1, t1, t2);
+  final (r2g, p2) = trim(g2, t2, t1);
   final made = [_arcT(arc).onLayer(g1.layer)];
   return FilletResult(made, {i1: r1g, i2: r2g}, [(i1, p1), (i2, p2)]);
 }
