@@ -164,7 +164,8 @@ void main() {
       app.filletNotify();
       app.toolClick(const Offset(10, 0));
       app.toolClick(const Offset(0, 10));
-      expect(s.geometry, hasLength(3));
+      // M197 — arc + the two construction stubs that keep the cut-away corner.
+      expect(s.geometry, hasLength(5));
       final arc = s.geometry[2];
       expect(arc.type, Geo.arc);
       expect(arc.data[2], closeTo(5, 1e-6));
@@ -175,7 +176,16 @@ void main() {
           closeTo(5, 1e-6));
       expect(Offset(s.geometry[1].data[0], s.geometry[1].data[1]).dy,
           closeTo(5, 1e-6));
-      expect(count(s, CType.coincident), 2);
+      // The two SEAMS. Counted on the arc rather than over the whole sketch,
+      // because M197's stubs are held by coincidences of their own.
+      expect(
+          s.constraints
+              .where((c) =>
+                  c.type == CType.coincident &&
+                  c.pts.length == 2 &&
+                  c.pts.any((r) => r.ent == 2))
+              .length,
+          2);
       expect(count(s, CType.tangent), 2);
       final dims =
           s.constraints.where((c) => c.type == CType.dimension).toList();
@@ -199,7 +209,7 @@ void main() {
       app.toolClick(const Offset(10, 0));
       app.toolClick(const Offset(20, 0));
       app.toolClick(const Offset(30, 10));
-      expect(s.geometry, hasLength(5));
+      expect(s.geometry, hasLength(9)); // 3 lines + 2 arcs + 4 stubs (M197)
       // no equal-chain: each fillet is dimensioned itself, a radius label per
       // fillet like the chamfer's setback labels
       expect(count(s, CType.equal), 0);
@@ -212,7 +222,8 @@ void main() {
       }
       // editing one radius drives ONLY that fillet
       app.setDimensionValue(rads.first, 7);
-      final r1 = s.geometry[3].data[2], r2 = s.geometry[4].data[2];
+      // The arcs are 3 and 6 — each fillet adds its arc then two stubs (M197).
+      final r1 = s.geometry[3].data[2], r2 = s.geometry[6].data[2];
       expect({r1, r2}.map((v) => (v * 10).round()).toSet(), {70, 40},
           reason: 'one fillet 7, the other still 4');
     });
@@ -282,12 +293,20 @@ void main() {
       app.filletNotify();
       app.toolClick(const Offset(10, 0));
       app.toolClick(const Offset(0, 10));
-      expect(s.geometry, hasLength(3));
+      expect(s.geometry, hasLength(5)); // + 2 corner stubs (M197)
       final ch = s.geometry[2];
       expect(ch.type, Geo.line);
       expect(Offset(ch.data[0], ch.data[1]), const Offset(5, 0));
       expect(Offset(ch.data[2], ch.data[3]), const Offset(0, 5));
-      expect(count(s, CType.coincident), 2);
+      expect(
+          s.constraints
+              .where((c) =>
+                  c.type == CType.coincident &&
+                  c.pts.length == 2 &&
+                  c.pts.any((r) => r.ent == 2))
+              .length,
+          2,
+          reason: 'the two seams (M197: the stubs carry their own)');
       // Inventor dimensions the chamfer's SETBACKS (the x/y legs), never the
       // diagonal — a 5×5 chamfer reads "5 / 5", not "7.07".
       final dims =

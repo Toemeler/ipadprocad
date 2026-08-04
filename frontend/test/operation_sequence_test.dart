@@ -68,7 +68,8 @@ void main() {
     app.filletSess = FilletSession(Tool.chamfer, d1: 5, d2: 5);
     app.toolClick(const Offset(104, 40)); // on e0 near corner (0,0)
     app.toolClick(const Offset(100, 44)); // on e3 near corner (0,0)
-    expect(s.geometry, hasLength(11), reason: 'chamfer line added');
+    // M197 — chamfer line + the two construction stubs that keep the corner.
+    expect(s.geometry, hasLength(13), reason: 'chamfer line added');
     // whole sketch satisfied, nothing degenerate
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expect(hasDegenerateGeometry(s.geometry), isFalse);
@@ -78,7 +79,7 @@ void main() {
     // chamfer corner 2
     app.toolClick(const Offset(156, 40));
     app.toolClick(const Offset(160, 44));
-    expect(s.geometry, hasLength(12));
+    expect(s.geometry, hasLength(16)); // + 2 stubs per chamfer (M197)
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after chamfer 2');
 
@@ -109,8 +110,9 @@ void main() {
     app.filletSess = FilletSession(Tool.fillet, radius: 6);
     app.toolClick(const Offset(156, 80));
     app.toolClick(const Offset(160, 76));
-    expect(s.geometry, hasLength(10));
-    expect(s.geometry.last.type, Geo.arc);
+    expect(s.geometry, hasLength(12)); // + 2 corner stubs (M197)
+    expect(s.geometry[9].type, Geo.arc,
+        reason: 'the fillet arc; what follows it is construction');
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after fillet');
   });
@@ -127,7 +129,7 @@ void main() {
     app.filletSess = FilletSession(Tool.fillet, radius: 500);
     app.toolClick(const Offset(118, 50));
     app.toolClick(const Offset(120, 48));
-    expect(s.geometry, hasLength(5));
+    expect(s.geometry, hasLength(7)); // + 2 corner stubs (M197)
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
   });
 
@@ -169,7 +171,7 @@ void main() {
     app.toolClick(const Offset(160, 76));
     app.toolClick(const Offset(104, 40));
     app.toolClick(const Offset(100, 44));
-    expect(s.geometry, hasLength(6));
+    expect(s.geometry, hasLength(10)); // 4 sides + 2 arcs + 4 stubs (M197)
     final rads = s.constraints
         .where((c) => c.type == CType.dimension && c.dimKind == 'rad')
         .toList();
@@ -179,7 +181,9 @@ void main() {
     final dimOfE4 = rads.firstWhere((d) => d.ents.contains(4));
     app.setDimensionValue(dimOfE4, 7);
     expect(s.geometry[4].data[2], closeTo(7, 1e-4));
-    expect(s.geometry[5].data[2], closeTo(5, 1e-4));
+    // The second fillet's arc, now at 7: entity 4 is the first arc, 5 and 6
+    // are its corner stubs (M197).
+    expect(s.geometry[7].data[2], closeTo(5, 1e-4));
   });
 
   test('trim keeps the whole sketch satisfied or refuses', () {

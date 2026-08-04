@@ -61,8 +61,18 @@ Token NIE in Dateien/.git/config schreiben.
 > auf den neuen Kontrakt gezogen (ein Fillet fuegt jetzt Bogen + zwei Stummel
 > hinzu); wo die Zahl nur „der Fillet ist gelandet" bedeutete, zaehlen sie
 > jetzt die NICHT-Konstruktions-Entities, was gegen kuenftige Scaffolding-
-> Aenderungen robust ist. Kein Flutter-SDK in dieser Sitzung — gruen ist, was
-> CI sagt.
+> Aenderungen robust ist.
+>
+> **Der erste Push war ROT — 7 Faelle in zwei weiteren Dateien**
+> (`m36_test`, `operation_sequence_test`), die mein `grep` nach `Tool.fillet`
+> nicht gefunden hatte. Alle sieben waren Zaehl- oder INDEX-Erwartungen:
+> `s.geometry.last` ist jetzt ein Stummel statt des Bogens, und der zweite
+> Fillet-Bogen liegt bei Index 7 statt 5. **Keine einzige Rang- oder
+> DOF-Verletzung** — `construction_rank_test` (eqs == rank, dof == 4) und der
+> Rang-Test aus M197 waren im selben Lauf gruen, was die Gleichungsbilanz oben
+> bestaetigt. Wo eine Zahl nur „der Fillet ist gelandet" hiess, zaehlt sie
+> jetzt die Seams am Bogen bzw. die Nicht-Konstruktions-Entities. Kein
+> Flutter-SDK in dieser Sitzung — gruen ist, was CI sagt.
 
 > **M196 — drei von vier Geraete-Meldungen (Sitzung 2026-08-05, Build
 > `a2d3107`).**
