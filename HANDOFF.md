@@ -16,6 +16,57 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M192 — die Schnellwerkzeuge bekommen eine Flaeche.**
+>
+> **Das Problem.** Das Quick-Menue aus M53 haelt die zwei Befehle, ohne die
+> kein laufendes Werkzeug auskommt: OK (Enter) und Abbrechen (Esc). Am Mac
+> sind das Tasten. Auf dem iPad waren sie NUR ueber einen 600-ms-Long-Press
+> oder die Pencil-Pro-Quetschung erreichbar — eine unauffindbare Geste vor dem
+> einen Knopf, den jede halb gezeichnete Linie braucht. Undo/Redo lagen genauso
+> versteckt (Zwei-/Drei-Finger-Tipp, Procreate-Sprache, ebenfalls M53).
+>
+> **Die Loesung.** Eine **vertikale Liquid-Glass-Leiste am rechten Rand**,
+> dauerhaft sichtbar, **nur Icons** (Labels wuerden sie fuer Woerter doppelt so
+> breit machen, die ein CAD-Nutzer kein zweites Mal liest). UIKit, derselbe
+> `UIGlassEffect` wie Ribbon/Browser/Tab-Leiste, derselbe dunkle
+> Trait-Override — ohne den kommt Glas in Flutters hellem Trait milchig heraus
+> (M146). Knopfgroesse 44 pt, Apples HIG-Untergrenze, genau der Punkt der
+> Uebung.
+>
+> **Inhalt, drei Stufen.** Undo/Redo ueberall — ein Fehlgriff ist ueberall
+> moeglich. OK und Abbrechen (rot) ueberall dort, wo der SKETCHER lebt (Skizzen-
+> Tab oder Kindskizze ueber einem Teil), ob im Editiermodus oder nicht; im Teil
+> OHNE offene Skizze bleiben sie weg, statt dauerhaft dunkel dazustehen — ein
+> Knopf, der nie leuchten kann, luegt ueber die Leiste. Innerhalb einer Stufe
+> wandert nichts: die Knoepfe graut es aus, sie verschwinden nicht, denn ein
+> Ziel, das unter dem Daumen wegrutscht, trifft man nicht ohne hinzusehen. Im
+> Layer-Editiermodus zusaetzlich Linie, Kreis, Rechteck, Bemassung und
+> Trimmen; Trimmen steigt in die Modify-Familie ein und schaltet drinnen
+> Split -> Trim -> Extend weiter (die Rechtsklick-Rolle aus M49). OK ist
+> bewusst NUR fuer Werkzeuge mit variabler Punktzahl (Splines) und das
+> Freihand-Fenster aktiv — Werkzeuge mit fester Punktzahl committen sich
+> selbst, und ein OK, das nichts tut, ist schlimmer als ein dunkles.
+> Undo/Redo folgen dem Journal, das gerade gilt: Skizze in der Skizze, Teil im
+> Teil.
+>
+> **Platz.** Vertikal zentriert zwischen Ribbon und Tab-Leiste — oben rechts
+> sitzt der ViewCube, unten rechts die Constraint-Anzeige, beide waren zuerst
+> da. Die zwei modeless Fenster (Pattern, Fillet/Chamfer) weichen um die
+> Leistenbreite nach links aus.
+>
+> **Nichts wurde entfernt**: Long-Press, Quetschung und alle Tasten laufen
+> unveraendert weiter. Die Leiste ist dieselbe Befehlsmenge mit einer Flaeche.
+>
+> **Aufteilung.** `buildQuickTools` / `runQuickTool` sind PUR (Dart, host-
+> testbar): welcher Knopf existiert, welcher lebt, was ein Tipp aufruft. UIKit
+> besitzt die Pixel (`GlassToolBar.swift`). Dieselbe Grenze wie Tab-Leiste und
+> Browser, aus demselben Grund.
+>
+> **Ehrlicher Stand:** 16 neue Tests (`m192_quick_tools_test.dart`) sind
+> geschrieben, aber in dieser Sitzung stand KEIN Flutter-SDK zur Verfuegung —
+> `flutter test` und `flutter analyze` sind NICHT gelaufen. Gruen ist erst,
+> was CI sagt. Geraete-Test offen.
+
 > **M191 — der Trim behaelt nur die WEGGESCHNITTENE Spanne, und getippte Masse
 > entstehen wirklich.** Drei Meldungen zu Build `83dc216`.
 >

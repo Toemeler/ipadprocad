@@ -13,6 +13,7 @@ import 'package:flutter/widgets.dart';
 
 export 'glass_browser.dart';
 export 'glass_tabbar.dart';
+export 'glass_toolbar.dart';
 import 'package:flutter/services.dart';
 
 /// One row in a native menu.

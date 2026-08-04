@@ -81,6 +81,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             registrar.register(
                 GlassTabBarFactory(messenger: registrar.messenger()),
                 withId: "prototype/glass_tabbar")
+            // M192 — the vertical quick-tool bar on the right edge.
+            registrar.register(
+                GlassToolBarFactory(messenger: registrar.messenger()),
+                withId: "prototype/glass_toolbar")
         }
     }
 

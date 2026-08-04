@@ -36,6 +36,7 @@ import 'scrub_field.dart';
 import 'ribbon_chrome.dart';
 import '../touch.dart';
 import 'pattern_dialog.dart';
+import 'quick_tools.dart';
 import 'parameters_dialog.dart';
 import 'freehand_dialog.dart';
 import 'gear_dialog.dart';
@@ -1597,9 +1598,12 @@ class _Viewport2DState extends State<Viewport2D> {
                   // Pattern dialogs (M35) float MODELESS over the viewport,
                   // top-right like Inventor parks them — picks keep landing
                   // in the canvas while the dialog is open.
+                  //
+                  // M192 — clear of the quick-tool bar, which owns the right
+                  // edge now. A tall dialog reached down into it.
                   if (app.pattern != null)
                     Positioned(
-                        right: 12,
+                        right: 12 + QuickToolsBar.occupiedWidth,
                         top: 12 + RibbonMetrics.contentTop,
                         child: PatternDialog(app: app)),
                   // M43: movable Parameters (fx) window
@@ -1644,7 +1648,7 @@ class _Viewport2DState extends State<Viewport2D> {
                   if (app.filletSess != null &&
                       (app.tool == Tool.fillet || app.tool == Tool.chamfer))
                     Positioned(
-                        right: 12,
+                        right: 12 + QuickToolsBar.occupiedWidth,
                         top: 12 + RibbonMetrics.contentTop,
                         child: FilletChamferDialog(app: app)),
                   // Inventor's status readout, bottom right of the graphics

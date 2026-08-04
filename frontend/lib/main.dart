@@ -22,6 +22,7 @@ import 'widgets/model_browser.dart';
 import 'package:native_menu/native_menu.dart';
 
 import 'widgets/native_browser_host.dart';
+import 'widgets/quick_tools.dart';
 import 'widgets/ribbon.dart';
 import 'widgets/ribbon_chrome.dart';
 import 'widgets/viewport.dart';
@@ -339,6 +340,14 @@ class PrototypeApp extends StatelessWidget {
                             left: 0,
                             right: 0,
                             child: BottomTabBar(app: app)),
+                      // M192 — the quick tools (OK, Cancel, Undo, Redo and the
+                      // four everyday sketch tools) on the right edge, always
+                      // visible. Until now the only way to reach OK and Cancel
+                      // with a finger or a Pencil was a 600 ms long press.
+                      // Last in the Stack: it must sit ABOVE the viewport it
+                      // floats over, and it is the smallest of the three
+                      // floating panels, so it covers least.
+                      QuickToolsBar(app: app),
                     ]),
                   ),
                   if (!GlassTabBar.isSupported) BottomTabBar(app: app),
