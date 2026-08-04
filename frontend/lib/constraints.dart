@@ -114,6 +114,24 @@ class Constraint {
       this.dimKind = '', this.textPos, this.driven = false,
       this.anchors = const [], this.tanBranch, this.paramName, this.expr});
 
+  /// Same constraint, different point references.
+  ///
+  /// Every other field rides along. A re-anchored DIMENSION that lost its
+  /// value, its parameter name, its expression, its label position or its
+  /// driven flag would be a silent data loss dressed up as a constraint edit —
+  /// the same lesson [Geo.withData] carries for geometry.
+  Constraint withPts(List<PRef> p) => Constraint(type,
+      pts: p,
+      ents: ents,
+      value: value,
+      dimKind: dimKind,
+      textPos: textPos,
+      driven: driven,
+      anchors: anchors,
+      tanBranch: tanBranch,
+      paramName: paramName,
+      expr: expr);
+
   Map<String, dynamic> toJson() => {
         't': type.index,
         'p': [for (final p in pts) p.toJson()],

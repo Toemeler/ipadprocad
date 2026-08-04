@@ -16,6 +16,54 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M197 — die vierte Meldung: der Radius frisst die Ecke.**
+>
+> „Wenn ich einen Radius auf einem Mittelpunkt-Rechteck mache, laufen die
+> Konstruktionslinien nicht mehr in die Ecken, und die Ecken sollten als
+> Konstruktion stehenbleiben wie beim Trimmen."
+>
+> **Eine Ursache, zwei Saetze.** Die Diagonalen eines Mittelpunkt-Rechtecks
+> haengen per Koinzidenz an den ECKPUNKTEN der Seiten (M92). Der Fillet zieht
+> genau diese Punkte auf die Tangentenpunkte zurueck — also wandert die
+> Diagonale mit und endet am Verrundungsanfang. Im Bundle
+> `bug20260805T003600`: `[4] line data=[-29.2119, 16.9019, ...]`, die Ecke
+> liegt bei `-34.2119`.
+>
+> **Die Loesung ist die von M191, an neuer Stelle:** was weggeschnitten wird,
+> bleibt als KONSTRUKTION stehen — hier zwei Stummel, einer pro getrimmter
+> Kante. Damit ist die virtuelle Ecke wieder ein echter PUNKT (das gemeinsame
+> ferne Ende der beiden Stummel), alles was vorher auf den Eckpunkt zeigte —
+> Diagonalen wie Masse — wird per `Constraint.withPts` darauf umgehaengt, und
+> die Ecke ist sichtbar noch da.
+>
+> **Die Buchhaltung, weil genau sie hier zweimal teuer war (M37, M188):** vier
+> Gleichungen pro Stummel auf vier Parameter, die Freiheitsgrade bleiben also
+> gleich. Nahes Ende koinzident mit dem gekuerzten Linienende (2), fernes Ende
+> AUF derselben Linie (1 — Punkt-auf-Kurve; zusammen mit dem nahen Ende ist das
+> Kollinearitaet, aber OHNE die abhaengige Zeile, die ein `collinear` mitbraechte
+> — `collinear` zaehlt 2 Gleichungen, und eine davon ist bereits erfuellt),
+> beide fernen Enden koinzident (2). Das legt die Ecke exakt auf den
+> Schnittpunkt der beiden Traeger. Jede dieser Zeilen laeuft trotzdem durch
+> `wouldOverconstrain`, und der Fillet als Ganzes bleibt atomar: geht der Solve
+> nicht auf, wird alles zurueckgerollt.
+>
+> **Nur bei einer ECHTEN Ecke.** Beide Picks muessen Linien sein, beide
+> getrimmt, und ihre bewegten Endpunkte muessen vorher aufeinander gelegen
+> haben. Zwei Linien, die nur bis zum Schnittpunkt verlaengert wurden, haben
+> keine Ecke zu bewahren; zwei PARALLELE haben gar keinen Schnittpunkt, und ein
+> dort erzwungenes gemeinsames fernes Ende waere unloesbar und wuerde den
+> ganzen Fillet mitreissen. Konstruktionsgeometrie wird uebersprungen, aus
+> demselben Grund wie beim Trim.
+>
+> **Ehrlicher Stand:** 8 neue Tests (`m197_fillet_keeps_the_corner_test.dart`).
+> Der tragende ist der RANG-Test — `eqs - rank == 0` und `dof == 4` vor wie
+> nach dem Fillet. Sechs bestehende Fillet-Erwartungen in vier Dateien wurden
+> auf den neuen Kontrakt gezogen (ein Fillet fuegt jetzt Bogen + zwei Stummel
+> hinzu); wo die Zahl nur „der Fillet ist gelandet" bedeutete, zaehlen sie
+> jetzt die NICHT-Konstruktions-Entities, was gegen kuenftige Scaffolding-
+> Aenderungen robust ist. Kein Flutter-SDK in dieser Sitzung — gruen ist, was
+> CI sagt.
+
 > **M196 — drei von vier Geraete-Meldungen (Sitzung 2026-08-05, Build
 > `a2d3107`).**
 >
@@ -77,9 +125,10 @@ Token NIE in Dateien/.git/config schreiben.
 > (M37, M188) an Redundanz haengengeblieben ist; das gehoert sauber gemacht,
 > nicht schnell.
 >
-> **Ehrlicher Stand:** 17 neue Tests (`m196_device_session_test.dart`), gebaut
-> auf den Zahlen der Bundles. Kein Flutter-SDK in dieser Sitzung — gruen ist,
-> was CI sagt.
+> **Stand:** CI gruen zu `ab62145` — **1356 Tests** (17 neu,
+> `m196_device_session_test.dart`, gebaut auf den Zahlen der Bundles), analyze
+> 50 Issues / 0 Errors = Ausgangsstand. Die vierte Meldung ist in **M197**
+> behoben.
 
 > **M195 — automatischer Versand der Bug-Bundles: gebaut, dann ZURUECKGENOMMEN.**
 >

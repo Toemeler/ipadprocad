@@ -10173,6 +10173,114 @@ class AppState extends ChangeNotifier {
                 (isRef(c.pts[0], e2, p2s) && isRef(c.pts[1], e1, p1s))));
       }
 
+      // M197 — the CUT-AWAY CORNER stays, as construction geometry.
+      //
+      // Device report: "when i make a radius on a midpoint rect the
+      // construction lines dont go into the corners anymore and the corners
+      // should stay there as construction lines like with trimming". Two
+      // things in one sentence, and one cause behind both.
+      //
+      // A centre rectangle's diagonals are held by coincidences on the corner
+      // POINTS of its sides (M92). The fillet moves exactly those points back
+      // to the tangent points, so the diagonals walked inward with them and
+      // stopped meeting at the centre of anything — in the bundle, diagonal 0
+      // started at -29.2119 where the corner is at -34.2119.
+      //
+      // Keeping the removed spans (M191 does this for trim) fixes both halves
+      // at once: the virtual corner becomes a real point again — the far end
+      // the two stubs share — so there is something for the diagonals to hang
+      // on, and the corner is visibly still there.
+      //
+      // Four equations per stub for four parameters, so the sketch's degrees
+      // of freedom are untouched: the near end is coincident with the line's
+      // trimmed endpoint (2), the far end is ON that line (1 — a point-on-
+      // curve, which together with the near end IS collinearity but without
+      // the dependent row a `collinear` would add), and the two far ends are
+      // coincident with each other (2), which puts the corner exactly where
+      // the two carriers cross. Every one of them still goes through the
+      // over-constrain gate, because being right on paper is not the same as
+      // being independent of what the sketch already carries.
+      // Only for a REAL corner: both picks are lines that were trimmed, and
+      // their moved endpoints sat on top of each other before the fillet. Two
+      // lines that merely got extended to meet have no corner to keep, and two
+      // PARALLEL lines have no crossing at all — pinning a shared far end onto
+      // both carriers would then be unsatisfiable and would take the whole
+      // fillet down with it.
+      final stubs = <int, int>{}; // seam index -> stub entity
+      final sharedCorner = p1s != null &&
+          p2s != null &&
+          s.geometry[e1].type == Geo.line &&
+          s.geometry[e2].type == Geo.line &&
+          s.geometry[e1].style != Geo.styleConstruction &&
+          s.geometry[e2].style != Geo.styleConstruction &&
+          (getPt(s.geometry[e1], p1s) - getPt(s.geometry[e2], p2s)).distance <
+              1e-6;
+      if (sharedCorner) {
+        for (var k = 0; k < 2; k++) {
+          final (ent, pt) = res.seams[k];
+          final oldG = s.geometry[ent];
+          final corner = getPt(oldG, pt!); // where the corner WAS
+          final tip = getPt(gs[ent], pt); // where the line ends now
+          if ((corner - tip).distance < 1e-9) continue;
+          stubs[k] = gs.length;
+          gs.add(Geo(Geo.line, [tip.dx, tip.dy, corner.dx, corner.dy],
+                  layer: oldG.layer)
+              .withStyle(Geo.styleConstruction));
+        }
+        // Both or neither: one stub alone leaves the corner point held by a
+        // single carrier, free to slide along it.
+        if (stubs.length != 2) {
+          gs.removeRange(newIdx + res.adds.length, gs.length);
+          stubs.clear();
+        }
+      }
+
+      void tryAdd(Constraint c, String why) {
+        if (wouldOverconstrain(gs, cons, c)) {
+          Log.i('modify', 'corner-stub ${conStr(-1, c)} DROPPED ($why would '
+              'over-constrain)');
+          return;
+        }
+        cons.add(c);
+      }
+
+      // Everything that still points AT the old corner follows it onto the
+      // stub — the diagonals, and any dimension that measured from there.
+      // Done before the seam constraints below are added, so it can only ever
+      // rewrite what the sketch already had.
+      for (var k = 0; k < 2; k++) {
+        final stub = stubs[k];
+        if (stub == null) continue;
+        final (ent, pt) = res.seams[k];
+        for (var ci = 0; ci < cons.length; ci++) {
+          final c = cons[ci];
+          if (!c.pts.any((p) => p.ent == ent && p.pt == pt)) continue;
+          cons[ci] = c.withPts([
+            for (final p in c.pts)
+              if (p.ent == ent && p.pt == pt) PRef(stub, 1) else p
+          ]);
+          Log.i('modify',
+              'corner-stub: ${conStr(ci, c)} re-anchored to the corner (e$stub.p1)');
+        }
+      }
+
+      for (final entry in stubs.entries) {
+        final stub = entry.value;
+        final (ent, pt) = res.seams[entry.key];
+        tryAdd(
+            Constraint(CType.coincident,
+                pts: [PRef(stub, 0), PRef(ent, pt!)]),
+            'stub start on the trimmed end');
+        tryAdd(Constraint(CType.coincident, pts: [PRef(stub, 1)], ents: [ent]),
+            'stub far end on its carrier');
+      }
+      if (stubs.length == 2) {
+        tryAdd(
+            Constraint(CType.coincident,
+                pts: [PRef(stubs[0]!, 1), PRef(stubs[1]!, 1)]),
+            'the corner itself');
+      }
+
       // seams: glue the new arc/line to the trimmed ends + tangency (fillet)
       for (var k = 0; k < 2; k++) {
         final (ent, pt) = res.seams[k];

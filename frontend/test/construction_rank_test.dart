@@ -81,7 +81,11 @@ void main() {
     // rect(4) + fillet arc: the fillet consumes exactly the freedom it adds
     // (5 arc params vs corner-coincidence removal −2, seams +4, tangents +2,
     // radius dim +1)
-    expect(app.current!.geometry, hasLength(5));
+    // M197 — plus the two CONSTRUCTION stubs that keep the cut-away corner.
+    // They are exactly determined (8 parameters, 8 independent equations), so
+    // the DOF below is unchanged and the system stays redundancy-free — which
+    // is the whole reason this test is the one that has to agree.
+    expect(app.current!.geometry, hasLength(7));
     expectClean(app.current!, dof: 4, reason: '(rect + fillet)');
   });
 
@@ -95,7 +99,7 @@ void main() {
     app.filletSess = FilletSession(Tool.chamfer, d1: 5, d2: 5);
     app.toolClick(const Offset(128, 60));
     app.toolClick(const Offset(130, 58));
-    expect(app.current!.geometry, hasLength(5));
+    expect(app.current!.geometry, hasLength(7)); // + 2 corner stubs (M197)
     expectClean(app.current!, dof: 4, reason: '(rect + chamfer equal)');
   });
 

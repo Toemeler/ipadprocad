@@ -140,7 +140,7 @@ void main() {
     app.toolClick(const Offset(28, 20));
     app.toolClick(const Offset(30, 18));
     app.tool = Tool.none;
-    expect(s.geometry, hasLength(5));
+    expect(s.geometry, hasLength(7)); // 4 sides + arc + 2 corner stubs (M197)
     // drag the rectangle's free corner opposite the fillet
     final c = getPt(s.geometry[3], 0);
     dragAlong(app, Grip(3, 0, c, 'end'),

@@ -238,11 +238,12 @@ void main() {
       app.selectTool(Tool.fillet);
       app.toolClick(const Offset(14.76, 11.33)); // left edge
       app.toolClick(const Offset(16.53, 13.88)); // top edge
-      expect(s.geometry.length, before + 5, reason: 'first fillet landed');
+      // M197 — a fillet is arc + two construction corner stubs.
+      expect(s.geometry.length, before + 7, reason: 'first fillet landed');
 
       app.toolClick(const Offset(27.73, 13.88)); // top edge
       app.toolClick(const Offset(29.76, 12.49)); // right edge
-      expect(s.geometry.length, before + 6,
+      expect(s.geometry.length, before + 10,
           reason: 'the SECOND corner fillets too (device: rejected)');
       expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     });
@@ -268,14 +269,14 @@ void main() {
       app.selectTool(Tool.fillet);
       app.toolClick(const Offset(14.76, 11.33)); // left
       app.toolClick(const Offset(16.53, 13.88)); // top
-      expect(s.geometry, hasLength(5));
+      expect(s.geometry, hasLength(7)); // + 2 corner stubs (M197)
       final topAfterFirst = s.geometry[0];
       expect(getPt(topAfterFirst, 0).dx, closeTo(20.26, 1e-6),
           reason: 'the first fillet ate 5 off the LEFT end of the top edge');
 
       app.toolClick(const Offset(27.73, 13.88)); // top
       app.toolClick(const Offset(29.76, 12.49)); // right
-      expect(s.geometry, hasLength(6),
+      expect(s.geometry, hasLength(10),
           reason: 'the second corner is not refused');
       // The top edge is now 9.01 - 5 = 4.01 long. Before the fix the tangent
       // point at 5.0 from the right end was NEARER the left end (4.01), so the
@@ -304,7 +305,10 @@ void main() {
         app.toolClick(pick[0]);
         app.toolClick(pick[1]);
       }
-      expect(s.geometry, hasLength(8), reason: '4 sides + 4 fillet arcs');
+      // M197 — the shape itself is unchanged; what a fillet adds beyond its
+      // arc is CONSTRUCTION, so count what is real rather than everything.
+      expect(s.geometry.where((g) => !g.isConstruction), hasLength(8),
+          reason: '4 sides + 4 fillet arcs');
       // the exact rounded rectangle: sides inset by the radius, arcs at the
       // corners, and the rectangle still spans 10..50 x 10..40
       final xs = <double>[], ys = <double>[];

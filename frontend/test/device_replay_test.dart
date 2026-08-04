@@ -108,8 +108,11 @@ void main() {
     app.toolClick(const Offset(0, 164.77));
     app.toolClick(const Offset(351.12, 23.88));
     app.toolClick(const Offset(330.26, 0));
-    // rect(4) + slot incl. its M40 construction axis(5) + 3 fillet arcs
-    expect(s.geometry, hasLength(12),
+    // rect(4) + slot(4) + 3 fillet arcs = 11 real entities. Counted without
+    // the construction geometry on purpose: the slot's M40 axis and, since
+    // M197, the stubs a fillet leaves in the cut-away corner are scaffolding,
+    // and this test is about the three fillets landing.
+    expect(s.geometry.where((g) => !g.isConstruction), hasLength(11),
         reason: 'all three fillets succeed, incl. the once-rejected corner');
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
     // every fillet carries its own radius dimension
