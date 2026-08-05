@@ -38,9 +38,10 @@ const String kIdEop = '__eop__';
 /// the folders in a part. "when the Modell browser is retracted i still want
 /// to see all icons from it ... in 2d but also in 3d": so the collapse now
 /// takes the tree it would have drawn and strips what there is no room for —
-/// the labels, the indentation, the eye. Every id, glyph, tint, dim state,
-/// selection and menu survives, so the narrow panel does everything the wide
-/// one does and expanding again cannot show something different.
+/// the labels, the indentation, the eye, and (M204) the disclosure box, which
+/// no longer fits beside a glyph on the 56 pt card. Every id, glyph, tint, dim
+/// state, selection and menu survives, so the narrow panel does everything the
+/// wide one does and expanding again cannot show something different.
 List<GlassRow> buildBrowserRows(
   AppState app, {
   required Set<String> expanded,

@@ -1992,8 +1992,12 @@ List<Constraint> _withProjectionPins(List<Geo> gs, List<Constraint> cs) {
 }
 
 /// Solves [gs] in place under [cs]. Returns true iff the result actually holds
-/// the driving constraints (residual within [_renderable]) AND is free of
-/// non-finite or degenerate geometry — i.e. iff it is safe to SHOW or COMMIT.
+/// the driving constraints (residual within [_renderable]), is finite, and did
+/// not COLLAPSE anything that was intact when the solve started ([newlyDegenerate])
+/// — i.e. iff it is safe to SHOW or COMMIT. M203: the last test is deliberately
+/// about what this solve changed, not about the sketch's absolute state; a
+/// document that already contains a collapsed entity must stay workable, or
+/// nothing the user does inside it can ever repair it.
 /// A false return means the caller is looking at a failed/diverged solve and
 /// must fall back to its last-good state (the drag keeps the committed sketch;
 /// a commit rolls the operation back). On non-finite/throw the pre-solve
