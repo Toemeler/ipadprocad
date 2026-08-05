@@ -31,54 +31,31 @@ const String kIdEos = '__eos__';
 const String kIdEop = '__eop__';
 
 /// Builds the whole tree for the current document.
+///
+/// M200 — RETRACTED is a view of the same tree, not a different one. It used
+/// to be a separate code path that drew only the part timeline, which meant
+/// the panel went blank inside a sketch (there is no part there) and dropped
+/// the folders in a part. "when the Modell browser is retracted i still want
+/// to see all icons from it ... in 2d but also in 3d": so the collapse now
+/// takes the tree it would have drawn and strips what there is no room for —
+/// the labels, the indentation, the eye. Every id, glyph, tint, dim state,
+/// selection and menu survives, so the narrow panel does everything the wide
+/// one does and expanding again cannot show something different.
 List<GlassRow> buildBrowserRows(
   AppState app, {
   required Set<String> expanded,
   int? dragEop,
   bool collapsed = false,
 }) {
-  // M118 — COLLAPSED: the timeline only, as icons. Sketches, features and the
-  // End of Part marker are the spine of the document; the folders (Solid
-  // Bodies, Origin) and the labels are what you open the panel FOR, so they
-  // are what a collapse removes. Every row keeps its id, so a tap still does
-  // the same thing at either width.
-  if (collapsed) {
-    final part = app.activeChild == null ? app.currentPart : null;
-    if (part == null) return _collapsedSketchRows(app);
-    final rows = <GlassRow>[];
-    final timeline = partTimeline(part);
-    final eop = (dragEop ?? part.eopAfter).clamp(0, timeline.length);
-    for (var ti = 0; ti < timeline.length; ti++) {
-      final n = timeline[ti];
-      if (ti == eop) rows.add(_eopRow(compact: true));
-      if (n.isFeature) {
-        final f = n.feature!;
-        rows.add(GlassRow(
-          id: '$kIdFeature${f.name}',
-          label: '',
-          symbol: f.computeError != null ? 'exclamationmark.triangle' : 'cube',
-          tint: f.computeError != null ? 'red' : null,
-          dim: !f.visible || f.rolledBack,
-          menu: _featureMenu(f),
-        ));
-      } else {
-        final cs = n.sketch!;
-        rows.add(GlassRow(
-          id: '$kIdSketch${cs.model.name}',
-          label: '',
-          symbol: n.sharedCopy ? 'link' : 'square.on.square',
-          tint: 'blue',
-          dim: !cs.visible || cs.rolledBack,
-          // M121 — the sketch you are currently INSIDE is highlighted, so the
-          // tree answers "where am I" without you having to remember.
-          selected: app.activeChild?.name == cs.model.name,
-          menu: _sketchMenu(part, cs),
-        ));
-      }
-    }
-    if (eop >= timeline.length) rows.add(_eopRow(compact: true));
-    return rows;
-  }
+  final rows = _buildRows(app, expanded: expanded, dragEop: dragEop);
+  return collapsed ? [for (final r in rows) r.compact()] : rows;
+}
+
+List<GlassRow> _buildRows(
+  AppState app, {
+  required Set<String> expanded,
+  int? dragEop,
+}) {
   final rows = <GlassRow>[];
   final part = app.activeChild == null ? app.currentPart : null;
   final s = app.current;
@@ -282,51 +259,14 @@ List<GlassRow> buildBrowserRows(
   return rows;
 }
 
-/// M199 — the retracted browser INSIDE a sketch.
-///
-/// "when the Modell browser is retracted i still want to see all icons from it
-/// so layer and end of sketch". It used to return nothing at all: the collapse
-/// path only knew how to draw a PART timeline, and inside a sketch there is no
-/// part — so retracting the panel while sketching, which is most of the time,
-/// left a blank strip.
-///
-/// The layer stack IS the sketch's timeline, so it collapses the same way the
-/// part timeline does: one glyph per row, the End of Sketch marker in its
-/// place, every id unchanged so a tap does the same thing at either width.
-List<GlassRow> _collapsedSketchRows(AppState app) {
-  final s = app.current;
-  if (s == null) return const [];
-  final rows = <GlassRow>[];
-  final eos = s.eosAfter.clamp(0, s.layers.length);
-  for (var i = 0; i < s.layers.length; i++) {
-    if (i == eos) rows.add(_eosRow(compact: true));
-    final layer = s.layers[i];
-    final on = !s.hiddenLayers.contains(layer);
-    rows.add(GlassRow(
-      id: '$kIdLayer$layer',
-      label: '',
-      symbol: 'square.3.layers.3d',
-      // No eye at 78 pt wide — the compact part rows drop theirs for the same
-      // reason. A hidden layer still reads as hidden, because it is dimmed.
-      dim: !on || i >= eos,
-      // Which layer you are editing is the one thing you cannot recover by
-      // looking at the canvas, so it survives the collapse.
-      selected: layer == app.editingLayer,
-      menu: _layerMenu(),
-    ));
-  }
-  if (s.eosAfter >= s.layers.length) rows.add(_eosRow(compact: true));
-  return rows;
-}
-
-GlassRow _eopRow({bool compact = false}) => GlassRow(
+GlassRow _eopRow() => const GlassRow(
       id: kIdEop,
-      label: compact ? '' : 'End of Part',
+      label: 'End of Part',
       symbol: 'xmark.circle.fill',
       tint: 'red',
-      depth: compact ? 0 : 1,
+      depth: 1,
       isEop: true,
-      menu: const [
+      menu: [
         [
           GlassMenuItem(
               id: 'eoptop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
@@ -343,13 +283,13 @@ GlassRow _eopRow({bool compact = false}) => GlassRow(
       ],
     );
 
-GlassRow _eosRow({bool compact = false}) => GlassRow(
+GlassRow _eosRow() => const GlassRow(
       id: kIdEos,
-      label: compact ? '' : 'End of Sketch',
+      label: 'End of Sketch',
       symbol: 'xmark.circle.fill',
       tint: 'red',
-      depth: compact ? 0 : 1,
-      menu: const [
+      depth: 1,
+      menu: [
         [
           GlassMenuItem(
               id: 'eostop', title: 'Move to Top', symbol: 'arrow.up.to.line'),

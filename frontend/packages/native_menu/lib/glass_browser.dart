@@ -58,6 +58,28 @@ class GlassRow {
     this.menu = const [],
   });
 
+  /// M200 — the same row, retracted: no label, no indentation, no eye.
+  ///
+  /// Collapsing is a VIEW of the tree, not a different tree. Keeping the id,
+  /// the glyph, the tint, the dim state, the selection and the menu means a
+  /// retracted panel does everything the wide one does, minus the words there
+  /// is no room for.
+  GlassRow compact() => GlassRow(
+        id: id,
+        label: '',
+        depth: 0,
+        symbol: symbol,
+        hasEye: false,
+        eyeOn: eyeOn,
+        dim: dim,
+        expandable: expandable,
+        expanded: expanded,
+        selected: selected,
+        isEop: isEop,
+        tint: tint,
+        menu: menu,
+      );
+
   Map<String, Object?> toMap() => {
         'id': id,
         'label': label,

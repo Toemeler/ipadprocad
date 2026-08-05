@@ -13,6 +13,7 @@
 // The numbers below are the ones from that bundle.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/constraints.dart' show getPt;
 import 'package:prototype/diag.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/tools.dart';

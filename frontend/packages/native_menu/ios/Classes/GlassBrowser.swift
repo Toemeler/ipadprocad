@@ -69,20 +69,6 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
 
     private var rows: [BrowserRow] = []
 
-    /// M129 — is [r] the last child at its own depth? Read off the FLATTENED
-    /// row order: scanning forward, the first row that is not deeper ends this
-    /// row's sibling run. Derived here rather than shipped from Dart so the
-    /// payload and its decoder stay untouched — the flattened order already
-    /// carries the whole tree shape.
-    private func isLastChild(_ r: BrowserRow) -> Bool {
-        guard let i = rows.firstIndex(where: { $0.id == r.id }) else { return true }
-        var j = i + 1
-        while j < rows.count {
-            if rows[j].depth <= r.depth { return rows[j].depth < r.depth }
-            j += 1
-        }
-        return true
-    }
     private var byId: [String: BrowserRow] = [:]
 
     /// Live End of Part drag: the row the finger started on and how far it has
@@ -188,11 +174,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     // M129 — feature-tree palette, matched to the reference screenshots.
     /// Warm amber of a filled container folder.
     static let folderAmber = UIColor(red: 0.88, green: 0.76, blue: 0.44, alpha: 1)
-    /// The dotted tree rules. Faint on purpose: they are a reading aid, and at
-    /// full contrast a deep tree turns into a ladder that outshouts the labels.
-    static let treeRule = UIColor(white: 1.0, alpha: 0.26)
-    /// One indent step. Must match `indentationWidth` below or the dots drift
-    /// away from the glyph column they are supposed to line up with.
+    /// One indent step, used by the cell's `indentationWidth`.
     static let indentStep: CGFloat = 11
 
     /// M148 — EXPLICIT row height.
@@ -211,33 +193,25 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// per row: one dotted vertical per ancestor level, plus the elbow into
     /// this row's own glyph. Rows carry their depth already, which is all the
     /// geometry this needs — no second tree model to keep in sync.
-    final class TreeRuleView: UIView {
-        var depth: Int = 0 { didSet { setNeedsDisplay() } }
-        var isLast: Bool = false { didSet { setNeedsDisplay() } }
-
-        override func draw(_ rect: CGRect) {
-            guard depth > 0, let ctx = UIGraphicsGetCurrentContext() else { return }
-            ctx.setStrokeColor(GlassBrowserView.treeRule.cgColor)
-            ctx.setLineWidth(1)
-            ctx.setLineDash(phase: 0, lengths: [1, 2])
-            let step = GlassBrowserView.indentStep
-            let mid = rect.height / 2
-            // One vertical rule per ANCESTOR level, full height of the row.
-            for level in 1..<depth {
-                let x = (CGFloat(level) * step) + 4.5
-                ctx.move(to: CGPoint(x: x, y: 0))
-                ctx.addLine(to: CGPoint(x: x, y: rect.height))
-            }
-            // This row's own rule stops at the elbow when it is the last child.
-            let x = (CGFloat(depth) * step) + 4.5
-            ctx.move(to: CGPoint(x: x, y: 0))
-            ctx.addLine(to: CGPoint(x: x, y: isLast ? mid : rect.height))
-            // Elbow out to the glyph.
-            ctx.move(to: CGPoint(x: x, y: mid))
-            ctx.addLine(to: CGPoint(x: x + step - 2, y: mid))
-            ctx.strokePath()
-        }
-    }
+    // M200 — the dotted ancestry rules are GONE.
+    //
+    // "the point line in the Modell browser is buggy. it goes over the layer 1
+    // currently", with a photo that shows exactly that: a dotted vertical line
+    // running through the labels, its elbow poking out to the right of each
+    // one as a stray "- -".
+    //
+    // They were drawn into the background configuration's custom view (M129),
+    // whose coordinate space is not the cell's leading edge — so `depth * 11 +
+    // 4.5` landed in the middle of the text instead of in the margin. Since
+    // the panel is a platform view it is ABSENT from every bug-report
+    // screenshot, which is why this survived so long and why a corrected
+    // placement cannot be verified from here either.
+    //
+    // So the decoration goes rather than being guessed at again. The tree is
+    // two or three levels deep and UIKit already indents it; the rules were
+    // never carrying the hierarchy, only decorating it. If they come back they
+    // belong in a view whose geometry is known — drawn in contentView
+    // coordinates — and checked on the device.
 
     private func buildCollection() {
         // M148 — a plain section with an ABSOLUTE item height instead of
@@ -332,23 +306,13 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             }
             // Indentation is the tree: UIKit owns it, no manual padding.
             cell.indentationLevel = r.depth
-            cell.indentationWidth = 11
+            cell.indentationWidth = GlassBrowserView.indentStep
             cell.contentConfiguration = c
 
             var bg = UIBackgroundConfiguration.listPlainCell()
             bg.backgroundColor = r.selected
                 ? UIColor.systemBlue.withAlphaComponent(0.28)
                 : .clear
-            // M129 — the dotted ancestry rules ride in the background view, so
-            // they sit BEHIND the selection tint and never fight the label.
-            // Reused across dequeues: a fresh view per bind would churn a layer
-            // on every scroll tick.
-            let rule = (bg.customView as? TreeRuleView) ?? TreeRuleView()
-            rule.backgroundColor = .clear
-            rule.isOpaque = false
-            rule.depth = r.depth
-            rule.isLast = self.isLastChild(r)
-            bg.customView = rule
             cell.backgroundConfiguration = bg
 
             var accessories: [UICellAccessory] = []

@@ -1,18 +1,24 @@
-// M199 — the retracted model browser, inside a sketch.
+// M199/M200 — the retracted model browser.
 //
 //   "when the Modell browser is retracted i still want to see all icons from
 //    it so layer and end of sketch and i dont want to see a Liquid Glass
 //    background anymore when retracted jut transparent"
+//   "...in 2d but also in 3d when i retract and expand Modell browser again"
 //
-// The first half was not a styling wish, it was a blank panel. The collapse
-// path only knew how to draw a PART timeline, and inside a sketch there is no
-// part (buildBrowserRows deliberately returns null for `part` while a child
-// sketch is open), so it returned `const []`. Retracting the browser while
-// sketching — which is most of the time — showed nothing whatsoever.
+// The first half was not a styling wish, it was a blank panel. Collapsing was
+// a SEPARATE code path that drew only a part timeline: inside a sketch there
+// is no part, so it returned `const []` and retracting while sketching showed
+// nothing at all (bug20260805T112226 is exactly that state). In a part it
+// dropped the folders instead.
 //
-// bug20260805T112226 is exactly that state: Part4, one child sketch open, one
-// layer, End of Sketch at the end.
+// So collapsing is now a VIEW of the same tree — the rows it would have drawn,
+// with the labels, the indentation and the eye taken off. That is one rule for
+// 2D and 3D, and it makes the property below testable: the narrow panel and
+// the wide one must list the same ids in the same order, or expanding again
+// shows you a different document than the one you retracted.
 import 'package:flutter_test/flutter_test.dart';
+// GlassRow is the plugin's type; native_browser only builds them.
+import 'package:native_menu/native_menu.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
@@ -37,7 +43,10 @@ AppState insideSketch({int layers = 1, int? eosAfter}) {
 }
 
 List<GlassRow> collapsed(AppState app) =>
-    buildBrowserRows(app, expanded: const {}, collapsed: true);
+    buildBrowserRows(app, expanded: const {'bodies'}, collapsed: true);
+
+List<GlassRow> wide(AppState app) =>
+    buildBrowserRows(app, expanded: const {'bodies'});
 
 void main() {
   test('THE REPORT: retracted inside a sketch is no longer empty', () {
@@ -61,10 +70,8 @@ void main() {
   });
 
   test('the marker sits where it sits, not always at the end', () {
-    // Two layers with the marker after the first: the retracted panel has to
-    // show the same order the wide one does, or it is a different document.
     final rows = collapsed(insideSketch(layers: 2, eosAfter: 1));
-    final ids = rows.map((r) => r.id).toList();
+    final ids = rows.map((r) => r.id).where((id) => id != 'root').toList();
     expect(ids, [
       '${kIdLayer}Layer 1',
       kIdEos,
@@ -72,14 +79,24 @@ void main() {
     ]);
   });
 
-  test('every id survives the collapse, so a tap does the same thing', () {
-    final app = insideSketch(layers: 2, eosAfter: 2);
-    final wide = buildBrowserRows(app, expanded: const {})
-        .map((r) => r.id)
-        .where((id) => id.startsWith(kIdLayer) || id == kIdEos)
-        .toList();
-    final narrow = collapsed(app).map((r) => r.id).toList();
-    expect(narrow, wide);
+  test('THE CONTRACT: retracted lists the same ids, in the same order', () {
+    // 2D and 3D both, because it is now one rule rather than two paths.
+    for (final app in [
+      insideSketch(layers: 2, eosAfter: 1),
+      insideSketch()..activeChild = null, // the part, i.e. 3D
+    ]) {
+      expect(collapsed(app).map((r) => r.id).toList(),
+          wide(app).map((r) => r.id).toList());
+    }
+  });
+
+  test('3D keeps its folders when retracted — "all icons from it"', () {
+    final app = insideSketch()..activeChild = null;
+    final ids = collapsed(app).map((r) => r.id);
+    expect(ids, contains('root'));
+    expect(ids, contains('origin'),
+        reason: 'the Origin folder used to be dropped by the collapse');
+    expect(ids, contains(kIdEop));
   });
 
   test('the layer being edited stays marked when the labels go', () {
@@ -114,14 +131,11 @@ void main() {
     }
   });
 
-  test('a part timeline still collapses the way it did', () {
-    // The part path is untouched; this is the guard that says so.
-    final app = insideSketch();
-    app.activeChild = null; // back out to the part
-    final rows = collapsed(app);
-    expect(rows.map((r) => r.id), contains(kIdEop));
-    for (final r in rows) {
-      expect(r.label, isEmpty);
+  test('nothing is indented and nothing carries an eye at 78 pt', () {
+    final app = insideSketch()..activeChild = null;
+    for (final r in collapsed(app)) {
+      expect(r.depth, 0, reason: '${r.id} — the glyph column must stay straight');
+      expect(r.hasEye, isFalse, reason: r.id);
     }
   });
 
