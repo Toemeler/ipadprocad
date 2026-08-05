@@ -29,6 +29,7 @@ import '../menus.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../perf.dart';
+import '../pick_math.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../snap.dart';
@@ -41,6 +42,7 @@ import 'bottom_tabbar.dart';
 import 'dialog_dock.dart';
 import 'pattern_dialog.dart';
 import 'quick_tools.dart';
+import 'viewport_window.dart';
 import 'parameters_dialog.dart';
 import 'freehand_dialog.dart';
 import 'gear_dialog.dart';
@@ -157,6 +159,19 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
   Constraint? _downDimHit;
   DateTime _clickTime = DateTime.now();
 
+  /// True while the press that is in flight started on a floating window.
+  bool _downOnWindow = false;
+
+  /// M209 — does [local] (viewport coords) land on a floating window?
+  ///
+  /// Asked at pointer DOWN as well as at the click, because a press that
+  /// becomes a drag on a window's slider must not also start drawing.
+  bool _onWindow(Offset local) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return false;
+    return ViewportWindow.hits(box.localToGlobal(local));
+  }
+
   /// The dimension whose PAINTED label contains [local] (screen coords) —
   /// +8px for the mouse/Pencil, +16px for fingers, topmost (last drawn) wins.
   Constraint? _dimAtScreen(Offset local, {double inflate = 8}) {
@@ -170,21 +185,13 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
   void _handleClick(Offset local, Size size,
       {Constraint? downDim, PointerDeviceKind kind = PointerDeviceKind.mouse}) {
     final app = widget.app;
-    // The Gear dialog floats INSIDE the same Stack that this Listener wraps, so
-    // the Listener sees pointer-ups over it too. Without this guard, tapping a
-    // dialog field would fall through to the Gear tool and place a gear. Ignore
-    // any click whose position is inside the dialog's rectangle. (`local` and
-    // the dialog's Positioned left/top share this Stack's coordinate space.)
-    if (app.gear != null) {
-      final gp = _windowPos(_gearPos, size, _gearSize);
-      final gl = gp.dx;
-      final gt = gp.dy;
-      final box = _gearDialogKey.currentContext?.findRenderObject();
-      final dsize = box is RenderBox ? box.size : const Size(300, 560);
-      if (Rect.fromLTWH(gl, gt, dsize.width, dsize.height).contains(local)) {
-        return;
-      }
-    }
+    // M209 — every modeless window floats INSIDE the same Stack this Listener
+    // wraps, so the Listener sees pointer-ups over them too. A tap on the
+    // Freehand window's Finish button committed the curve AND placed the first
+    // point of the next one; before that, M61 met the same thing on the Gear
+    // dialog and guarded that ONE rectangle by hand. The windows say where
+    // they are now — see [ViewportWindow].
+    if (_onWindow(local)) return;
     // M43/M45: while a Parameters equation cell OR the text editor's template
     // field is focused, tapping a dimension label inserts its parameter name
     // there (the text window wraps it in quotes) instead of doing anything
@@ -437,6 +444,12 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
 
   void _scaleStart(ScaleStartDetails d, Size size) {
     final app = widget.app;
+    // M209 — the press began on a floating window; it is that window's drag
+    // (a slider, a title bar), not a gesture on the canvas.
+    if (_downOnWindow) {
+      _gesture = 'none';
+      return;
+    }
     _scaleStartZoom = app.zoom;
     // M51: the kind of the SINGLE pointer driving this gesture. Fingers get
     // wider grab radii and, on empty canvas, pan instead of box-selecting.
@@ -1602,6 +1615,16 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             // since lifted.
             _forgetLost(_live.down(e.pointer, e.device, e.kind));
             _armLiveWatchdog();
+            // M209 — a press that lands on a floating window belongs to that
+            // window. Recorded here rather than tested again at up, because a
+            // window that MOVES under the finger (its own title-bar drag) must
+            // not turn the release into a canvas click.
+            _downOnWindow = _onWindow(e.localPosition);
+            if (_downOnWindow) {
+              _clickDown = null;
+              _cancelLp();
+              return;
+            }
             // M53 palm rejection: a touch arriving while the Pencil is DOWN
             // is the heel of the hand, not input. It is counted (the M52
             // contract above) but never clicks, never taps, and the scale
@@ -1718,6 +1741,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           onPointerCancel: (e) {
             _live.remove(e.pointer);
             _disarmLiveWatchdogIfIdle();
+            _downOnWindow = false;
             _rejectedTouches.remove(e.pointer);
             if (e.kind == PointerDeviceKind.touch) _mft.cancel(e.pointer);
             _cancelLp();
@@ -1726,6 +1750,10 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           onPointerUp: (e) {
             _live.remove(e.pointer);
             _disarmLiveWatchdogIfIdle();
+            if (_downOnWindow) {
+              _downOnWindow = false;
+              return; // M209: the window had it
+            }
             final wasRejected = _rejectedTouches.remove(e.pointer);
             _cancelLp();
             // M86 — THE PHANTOM SPLINE POINT. A finger and a no-hover Pencil
@@ -1843,27 +1871,31 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                     Positioned(
                         right: 12 + QuickToolsBar.occupiedWidth,
                         top: 12 + RibbonMetrics.contentTop,
-                        child: PatternDialog(app: app)),
+                        child: ViewportWindow(child: PatternDialog(app: app))),
                   // M43: movable Parameters (fx) window
                   if (app.showParams)
                     Positioned(
                       left: _windowPos(_paramsPos, size, _paramsSize).dx,
                       top: _windowPos(_paramsPos, size, _paramsSize).dy,
-                      child: ParametersDialog(
-                          app: app,
-                          onDrag: (d) => setState(() =>
-                              _paramsPos = _windowPos(_paramsPos, size, _paramsSize) + d)),
+                      child: ViewportWindow(
+                        child: ParametersDialog(
+                            app: app,
+                            onDrag: (d) => setState(() => _paramsPos =
+                                _windowPos(_paramsPos, size, _paramsSize) + d)),
+                      ),
                     ),
                   // M61: movable Gear window
                   if (app.gear != null)
                     Positioned(
                       left: _windowPos(_gearPos, size, _gearSize).dx,
                       top: _windowPos(_gearPos, size, _gearSize).dy,
-                      child: GearDialog(
-                          key: _gearDialogKey,
-                          app: app,
-                          onDrag: (d) => setState(() =>
-                              _gearPos = _windowPos(_gearPos, size, _gearSize) + d)),
+                      child: ViewportWindow(
+                        child: GearDialog(
+                            key: _gearDialogKey,
+                            app: app,
+                            onDrag: (d) => setState(() => _gearPos =
+                                _windowPos(_gearPos, size, _gearSize) + d)),
+                      ),
                     ),
                   // M87: movable Freehand fit window — opens where the stroke
                   // ended, so the curve is not hidden behind its own dialog.
@@ -1875,19 +1907,23 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                       left: _freehandPos.dx.clamp(
                           0.0, DialogDock.left(size, 268)),
                       top: _freehandPos.dy.clamp(0.0, size.height - 60),
-                      child: FreehandDialog(
-                          app: app,
-                          onDrag: (d) => setState(() => _freehandPos += d)),
+                      child: ViewportWindow(
+                        child: FreehandDialog(
+                            app: app,
+                            onDrag: (d) => setState(() => _freehandPos += d)),
+                      ),
                     ),
                   // M45: movable parametric-text editor window
                   if (app.editingText != null)
                     Positioned(
                       left: _windowPos(_textWinPos, size, _textWinSize).dx,
                       top: _windowPos(_textWinPos, size, _textWinSize).dy,
-                      child: TextEditorWindow(
-                          app: app,
-                          onDrag: (d) => setState(() =>
-                              _textWinPos = _windowPos(_textWinPos, size, _textWinSize) + d)),
+                      child: ViewportWindow(
+                        child: TextEditorWindow(
+                            app: app,
+                            onDrag: (d) => setState(() => _textWinPos =
+                                _windowPos(_textWinPos, size, _textWinSize) + d)),
+                      ),
                     ),
                   // 2D Fillet / Chamfer value window (M36), same parking spot
                   if (app.filletSess != null &&
@@ -1895,7 +1931,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                     Positioned(
                         right: 12 + QuickToolsBar.occupiedWidth,
                         top: 12 + RibbonMetrics.contentTop,
-                        child: FilletChamferDialog(app: app)),
+                        child: ViewportWindow(child: FilletChamferDialog(app: app))),
                   // M207 — the Polygon side count, in the same idiom and the
                   // same spot. It used to be a modal AlertDialog answered
                   // before the tool armed; now the tool is live and the number
@@ -1905,7 +1941,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                     Positioned(
                         right: 12 + QuickToolsBar.occupiedWidth,
                         top: 12 + RibbonMetrics.contentTop,
-                        child: PolygonDialog(app: app)),
+                        child: ViewportWindow(child: PolygonDialog(app: app))),
                   // Inventor's status readout, bottom right of the graphics
                   // window: "N dimensions needed" while under-constrained,
                   // "Fully Constrained" at DOF 0.
@@ -3071,7 +3107,12 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       final l2a = getPt(gs[c.ents[1]], 0), l2b = getPt(gs[c.ents[1]], 1);
       final ix = _lineIntersect(l1a, l1b, l2a, l2b);
       if (ix != null) {
-        _angleArc(canvas, map, ix, t, v, p);
+        // The legs are the lines' FAR ends from the crossing — the halves that
+        // actually exist. angleArcSpan tries both directions of each anyway,
+        // so a leg pointing the wrong way costs nothing.
+        final la = (l1a - ix).distance >= (l1b - ix).distance ? l1a : l1b;
+        final lb = (l2a - ix).distance >= (l2b - ix).distance ? l2a : l2b;
+        t = _angleArc(canvas, map, ix, la, lb, t, v, p);
       }
       label = '${v.toStringAsFixed(1)}\u00b0';
       if (c.driven) label = '($label)';
@@ -3098,6 +3139,15 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
         // dashed ray extensions out to the arc radius
         _dashedLine(canvas, sv, sv + (sa2 - sv) / (sa2 - sv).distance * rr, p);
         _dashedLine(canvas, sv, sv + (sb2 - sv) / (sb2 - sv).distance * rr, p);
+        // M209 — arrowheads, tangent to the arc. This one always swept
+        // between the real rays; it was only ever missing its arrows.
+        final dir3 = sweep >= 0 ? 1.0 : -1.0;
+        for (final (bearing, sign) in [(a0, dir3), (a0 + sweep, -dir3)]) {
+          final u = Offset(math.cos(bearing), math.sin(bearing));
+          _arrow(canvas, sv + u * rr, -Offset(-u.dy, u.dx) * sign, p);
+        }
+        t = sv +
+            Offset(math.cos(a0 + sweep / 2), math.sin(a0 + sweep / 2)) * rr;
       }
       label = '${v.toStringAsFixed(1)}\u00b0';
       if (c.driven) label = '($label)';
@@ -3113,7 +3163,9 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       final qb1 = refPt(gs, c.pts[2]), qb2 = refPt(gs, c.pts[3]);
       final ix4 = _lineIntersect(qa1, qa2, qb1, qb2);
       if (ix4 != null) {
-        _angleArc(canvas, map, ix4, t, v, p);
+        final la4 = (qa1 - ix4).distance >= (qa2 - ix4).distance ? qa1 : qa2;
+        final lb4 = (qb1 - ix4).distance >= (qb2 - ix4).distance ? qb1 : qb2;
+        t = _angleArc(canvas, map, ix4, la4, lb4, t, v, p);
       }
       label = '${v.toStringAsFixed(1)}\u00b0';
       if (c.driven) label = '($label)';
@@ -3165,17 +3217,57 @@ Offset? _lineIntersect(Offset a1, Offset a2, Offset b1, Offset b2) {
   return a1 + d1 * t;
 }
 
-/// Angle-dimension arc: centered on the vertex [vtxWorld], radius chosen so
-/// the arc passes near the label position [t] (screen), sweeping [deg].
-void _angleArc(Canvas canvas, Offset Function(double, double) map,
-    Offset vtxWorld, Offset t, double deg, Paint p) {
+/// M209 — an angle dimension, drawn the way Inventor draws one.
+///
+/// Centred on the vertex [vtxWorld], swept BETWEEN THE TWO LEGS (see
+/// [angleArcSpan]) rather than about the label, with an arrowhead at each end
+/// and a dashed extension out to the arc wherever a leg stops short of it.
+/// The label only sets the radius and picks which of the four angles at the
+/// crossing is meant.
+///
+/// [legA]/[legB] are any second point on each leg, in world coordinates; only
+/// their direction from the vertex is used. Returns the point ON the arc where
+/// the label belongs, so the number sits on its own arc instead of wherever it
+/// was last dropped.
+Offset _angleArc(Canvas canvas, Offset Function(double, double) map,
+    Offset vtxWorld, Offset legA, Offset legB, Offset t, double deg, Paint p) {
   final sv = map(vtxWorld.dx, vtxWorld.dy);
   final rr = (t - sv).distance;
-  if (rr < 1e-6) return;
-  final mid = math.atan2((t - sv).dy, (t - sv).dx);
-  final half = deg * math.pi / 360; // deg/2 in radians
+  if (rr < 1e-6) return t;
+  final sa = map(legA.dx, legA.dy), sb = map(legB.dx, legB.dy);
+  final da = sa - sv, db = sb - sv;
+  if (da.distance < 1e-6 || db.distance < 1e-6) return t;
+
+  final (start, sweep) = angleArcSpan(
+      math.atan2(da.dy, da.dx),
+      math.atan2(db.dy, db.dx),
+      math.atan2((t - sv).dy, (t - sv).dx),
+      deg);
   canvas.drawArc(
-      Rect.fromCircle(center: sv, radius: rr), mid - half, 2 * half, false, p);
+      Rect.fromCircle(center: sv, radius: rr), start, sweep, false, p);
+
+  // Extension lines: a leg that ends before the arc gets a dashed run out to
+  // it, which is what ties the arc to the geometry it measures.
+  for (final (bearing, legLen) in [
+    (start, da.distance),
+    (start + sweep, db.distance),
+  ]) {
+    if (legLen >= rr - 0.5) continue;
+    final u = Offset(math.cos(bearing), math.sin(bearing));
+    _dashedLine(canvas, sv + u * legLen, sv + u * rr, p);
+  }
+
+  // Arrowheads, tangent to the arc and pointing along the sweep — the "no
+  // arrows" half of the report.
+  final dir = sweep >= 0 ? 1.0 : -1.0;
+  for (final (bearing, sign) in [(start, dir), (start + sweep, -dir)]) {
+    final u = Offset(math.cos(bearing), math.sin(bearing));
+    final tangent = Offset(-u.dy, u.dx) * sign;
+    _arrow(canvas, sv + u * rr, -tangent, p);
+  }
+
+  final midB = start + sweep / 2;
+  return sv + Offset(math.cos(midB), math.sin(midB)) * rr;
 }
 
 void _arrow(Canvas c, Offset tip, Offset dir, Paint p) {

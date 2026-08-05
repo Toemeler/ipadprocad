@@ -53,6 +53,11 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
       case Geo.circle:
         final c = Offset(g.data[0], g.data[1]);
         final r = g.data[2];
+        // M209 — a sketch point IS its centre; it has no quadrants.
+        if (g.isSketchPoint) {
+          offer(c, 'point', 1.15);
+          break;
+        }
         offer(c, 'center', 1.05);
         for (final q in _quadrants(c, r)) {
           offer(q, 'quadrant', 1.1);
@@ -133,6 +138,10 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
   for (final g in geos) {
     switch (g.type) {
       case Geo.circle:
+        if (g.isSketchPoint) {
+          refs.add(Offset(g.data[0], g.data[1])); // M209: the point itself
+          break;
+        }
         refs.addAll(_quadrants(Offset(g.data[0], g.data[1]), g.data[2]));
         break;
       case Geo.arc:
@@ -183,6 +192,9 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
             Offset(g.data[2], g.data[3])));
         break;
       case Geo.circle:
+        // M209 — a point has no curve to land ON. Snapping to its rim put
+        // things 0.35 mm off the point they were aiming at.
+        if (g.isSketchPoint) break;
         final c = Offset(g.data[0], g.data[1]);
         final d = w - c;
         if (d.distance > 1e-9) offerOn(c + d / d.distance * g.data[2]);
@@ -291,6 +303,9 @@ List<Grip> gripsOf(List<Geo> geos) {
       case Geo.circle:
         final c = Offset(g.data[0], g.data[1]);
         out.add(Grip(e, 0, c, 'center'));
+        // M209 — a sketch POINT has no radius to grab. Its carrier circle
+        // does, and offering those four made it draggable into a ring.
+        if (g.isSketchPoint) break;
         var i = 1;
         for (final q in _quadrants(c, g.data[2])) {
           out.add(Grip(e, i++, q, 'radius'));
@@ -441,6 +456,9 @@ List<Offset> sampleEntity(Geo g, {int arcSamples = 32}) {
       return [Offset(g.data[0], g.data[1]), Offset(g.data[2], g.data[3])];
     case Geo.circle:
       final c = Offset(g.data[0], g.data[1]);
+      // M209 — a sketch point samples to itself: it is not a closed curve, so
+      // it must never be read as a tiny profile loop by extrude or by trim.
+      if (g.isSketchPoint) return [c];
       return [
         for (var i = 0; i <= arcSamples; i++)
           c +
@@ -480,6 +498,10 @@ List<Offset> sampleEntity(Geo g, {int arcSamples = 32}) {
 
 double distToEntity(Geo g, Offset p) {
   final pts = sampleEntity(g);
+  // M209 — a sketch POINT samples to ONE point, and a segment loop over one
+  // sample runs zero times: it would report infinity and the point would be
+  // unselectable, undeletable and invisible to a box select.
+  if (pts.length == 1) return (p - pts.first).distance;
   var best = double.infinity;
   for (var i = 0; i + 1 < pts.length; i++) {
     final d = (p - closestOnSegment(p, pts[i], pts[i + 1])).distance;

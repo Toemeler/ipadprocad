@@ -313,8 +313,16 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
           ?.adds;
     case Tool.point:
       if (p.isEmpty) return null;
-      // sketch point: rendered/exported as a tiny circle marker
-      return [_circle(p[0], kSketchPointRadius)];
+      // M209 — a sketch POINT. The carrier is still a circle (the core has no
+      // point type) but it is TAGGED, which is what makes it draw as a marker
+      // instead of a ring, expose only its centre, and keep its rim out of
+      // snapping, constraining and dimensioning. Before the tag it really was
+      // a circle in every way that mattered — "the point tool is placing a
+      // circle not a point".
+      return [
+        Geo(Geo.circle, [p[0].dx, p[0].dy, kSketchPointRadius],
+            spline: Geo.pointTag)
+      ];
     default:
       return null; // modify tools have their own click pipeline
   }
@@ -504,7 +512,9 @@ List<Geo> _rectDiagonals(List<Offset> c) => [
       _line(c[1], c[3]).withStyle(Geo.styleConstruction),
     ];
 
-/// Radius of the tiny circle that stands in for a sketch point.
+/// Radius of the circle that CARRIES a sketch point. Never drawn at this size
+/// — the marker is screen-space (see paintGeo) — but the solver and the DXF
+/// need a finite, harmless number here.
 const double kSketchPointRadius = 0.35;
 
 List<Geo>? _linearSlot(Offset c1, Offset c2, double r) {

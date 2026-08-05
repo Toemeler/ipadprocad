@@ -49,6 +49,20 @@ class Geo {
   // .gears.json sidecar keyed by entity index, exactly like the spline tag.
   static const gearTag = 4;
 
+  /// M209 — a SKETCH POINT.
+  ///
+  /// "The point tool is placing a circle not a point." It was: the tool built
+  /// a real circle of radius [kSketchPointRadius], because the QCAD core has
+  /// no point entity and this list is its type set. At any working zoom that
+  /// is a visible ring with a radius, four quadrant grips, a rim things snap
+  /// onto and a radius you can dimension — everything a point is not.
+  ///
+  /// Same mechanism as the ellipse and the gear: the CARRIER stays a circle,
+  /// so the document, the solver and the DXF round-trip need no new type,
+  /// and this tag says "this is one point". It draws as a screen-space marker,
+  /// offers only its centre, and its rim is not geometry — see [isSketchPoint].
+  static const pointTag = 5;
+
   final int type;
   final List<double> data;
 
@@ -113,6 +127,10 @@ class Geo {
   /// onto layer 0 (and reverts a spline to a straight control polygon), and
   /// since the solver rewrites every entity on every solve, one missed site
   /// would strip the whole sketch of its layers/curves at the first drag.
+  /// True for a sketch POINT: a circle carrier tagged [pointTag]. Its radius
+  /// is a drawing detail, never a dimension, and its rim is not a curve.
+  bool get isSketchPoint => type == circle && spline == pointTag;
+
   Geo withData(List<double> d) => Geo(type, d,
       layer: layer, spline: spline, style: style, proj: proj, projSeg: projSeg);
 

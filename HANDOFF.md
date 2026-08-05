@@ -16,6 +16,61 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M209 — drei Meldungen zu Build `96c3761`. Die Pick-Reihenfolge von Bogen
+> und Langloch ist bereits erledigt und steht hier nicht.**
+>
+> **1. „The point tool is placing a circle not a point."** Es war einer. Der
+> QCAD-Kern kennt nur Linie/Kreis/Bogen/Polylinie, also baute das Werkzeug
+> einen Kreis mit Radius 0,35 mm — bei jedem Arbeits-Zoom ein sichtbarer Ring
+> mit vier Quadranten-Griffen, einem Rand, auf den Dinge snappen, und einem
+> Durchmesser, den man bemassen kann. Der TRAEGER bleibt ein Kreis (nichts
+> anderes ueberlebt den Round-Trip), aber er traegt jetzt ein Tag
+> (`Geo.pointTag`, dieselbe Mechanik wie Ellipse und Zahnrad), und alles, was
+> ihn wie einen Kreis behandelt hat, fragt das Tag: gezeichnet wird ein
+> SCHIRM-Marker (X, zoomunabhaengig), es gibt genau EINEN Griff, der Rand ist
+> keine Kurve mehr (kein Snap, kein `pointLandsOn`, keine Quadranten-Referenz),
+> `sampleEntity` liefert einen einzigen Punkt, und ein Durchmesser-Mass wird
+> abgelehnt. **Die Falle dabei:** `sampleEntity` mit EINEM Punkt laesst die
+> Segment-Schleife in `distToEntity` null Mal laufen — der Punkt waere
+> unselektierbar und unloeschbar geworden; und das Tag musste in die
+> Engine-Refresh-Erhaltung, die bis dahin nur Polylinien kannte, sonst ist es
+> nach dem ersten Rebuild wieder ein Ring.
+>
+> **2. „On the freehand spline when i click finish it sets a last spline
+> point."** Die modelosen Fenster schweben INNERHALB des Stacks, den der rohe
+> Pointer-Listener des Viewports umschliesst, und Flutter stellt einen Pointer
+> jedem Ziel auf seinem Hit-Pfad zu. Der Listener sah das Up ueber „Finish"
+> also genauso wie der Knopf — und mit scharfem Werkzeug ist ein Up ein
+> Tool-Klick. M61 hatte genau das schon einmal (Gear-Dialog) und es so
+> geloest, wie man etwas einmal loest: ein handgerechnetes Rechteck fuer
+> diesen einen Dialog. Sechs Fenster spaeter war es immer noch der einzige
+> geschuetzte. Jetzt sagen die Fenster, wo sie sind ([ViewportWindow]) — beim
+> DOWN geprueft, nicht erst beim Klick, damit ein Druck, der zum Ziehen wird
+> (ein Slider), auch nicht zeichnet.
+>
+> **3. „Angle dimensions ... look very weird ... its possible to move the
+> dimension so its not clear that the chosen angle is meant, also no arrows."**
+> Der Bogen war um die Richtung des LABELS zentriert und ueberstrich von dort
+> den gemessenen Wert: ein Bogen der richtigen GROESSE an beliebiger Peilung.
+> Zieht man den Text um den Scheitel, dreht der Bogen mit, und das Bild sagt
+> nicht mehr, welcher der vier Winkel gemeint ist. Inventor zeichnet ihn
+> ZWISCHEN DEN SCHENKELN; der Text waehlt nur den Radius und die Seite.
+> `angleArcSpan` (in `pick_math.dart`, rein und getestet) probiert alle vier
+> Schenkel-Richtungspaare: der gemessene Wert entscheidet zuerst, unter den
+> passenden gewinnt das Paar, in dem das Label liegt. Dazu Pfeilspitzen an
+> beiden Bogenenden (tangential) und gestrichelte Hilfslinien dort, wo ein
+> Schenkel vor dem Bogen endet. Der 3-Punkt-Winkel (`ang3`) hat immer schon
+> zwischen den echten Strahlen ueberstrichen — ihm fehlten nur die Pfeile.
+>
+> **Ehrlicher Stand:** 19 neue Tests (`m209_point_and_windows` 10,
+> `m209_angle_dimension` 9). Zusammen mit dem parallel entstandenen M208
+> (Slots) Suite **1540 gruen** (von 1498), analyze 50 Issues / 0 Errors =
+> Ausgangsstand. Die beiden Meilensteine liefen getrennt und trugen beide die
+> Nummer 208; dieser hier ist auf M209 gezogen, weil M208 zuerst auf main war. **Am Geraet nicht nachgeprueft.** Der Punkt ist
+> die Aenderung mit der groessten Reichweite: er beruehrt Snap, Griffe,
+> Auswahl, Constraint-Inferenz, Bemassung und Persistenz. Alte Skizzen behalten
+> ihre alten Punkt-Kreise (kein Tag, keine Migration) — sie bleiben Kreise, bis
+> sie neu gesetzt werden.
 > **M208 — vier Meldungen zu Build `96c3761`, alle vier ueber Slots. DREI
 > davon sind EIN Fehler, und der steckt in einer Schutzmassnahme aus M196.**
 >

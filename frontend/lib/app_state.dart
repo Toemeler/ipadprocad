@@ -376,6 +376,12 @@ class SketchModel {
         next[i] = prev[i];
         continue;
       }
+      // M209 — the POINT tag rides on a CIRCLE carrier (the core has no point
+      // type), so the polyline-only rule below drops it on the first refresh
+      // and the point turns straight back into the ring it stands in for.
+      if (prev[i].spline == Geo.pointTag && next[i].type == Geo.circle) {
+        next[i] = next[i].asSpline(Geo.pointTag);
+      }
       if (prev[i].spline != Geo.straight && next[i].type == Geo.polyline) {
         next[i] = next[i].asSpline(prev[i].spline);
       }
@@ -9260,7 +9266,11 @@ class AppState extends ChangeNotifier {
       }
     } else if (conEnts.length == 1) {
       final g = s.geometry[conEnts[0]];
-      if (g.type == Geo.circle) {
+      if (g.isSketchPoint) {
+        // M209 — a sketch point has no diameter. Its carrier circle does, and
+        // dimensioning that would drive a number nobody can see.
+        d = null;
+      } else if (g.type == Geo.circle) {
         d = Constraint(CType.dimension,
             ents: List.of(conEnts), dimKind: 'dia', textPos: w);
       } else if (g.type == Geo.arc) {
@@ -11447,6 +11457,23 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       }
       break;
     case Geo.circle:
+      // M209 — a sketch POINT draws as a marker, not as its carrier circle:
+      // a small X in SCREEN space, so it stays the same size at every zoom.
+      // Inventor's sketch point is exactly this, and it is the whole of "the
+      // point tool is placing a circle not a point" — the carrier's radius
+      // was never meant to be visible.
+      if (g.isSketchPoint) {
+        final c = map(g.data[0], g.data[1]);
+        const a = 3.5;
+        final mp = Paint()
+          ..color = p.color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1.2, p.strokeWidth)
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(c + const Offset(-a, -a), c + const Offset(a, a), mp);
+        canvas.drawLine(c + const Offset(-a, a), c + const Offset(a, -a), mp);
+        break;
+      }
       if (cDash) {
         final c = map(g.data[0], g.data[1]);
         final r = g.data[2] * scale;

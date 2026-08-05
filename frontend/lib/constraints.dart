@@ -417,6 +417,10 @@ bool pointLandsOn(Geo g, Offset q, {double tol = 1e-6, List<Offset>? curve}) {
       if (tPar <= tol || tPar >= 1 - tol) return false; // interior only
       return (q - (a + ab * tPar)).distance < tol;
     case Geo.circle:
+      // M209 — a sketch POINT has no curve for anything to land on. Without
+      // this, drawing over one bound the new geometry to its carrier's RIM,
+      // 0.35 mm from the point everyone could see.
+      if (g.isSketchPoint) return false;
       final c = Offset(g.data[0], g.data[1]);
       final r = g.data[2];
       if (r < 1e-9) return false;
