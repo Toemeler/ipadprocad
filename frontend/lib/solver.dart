@@ -2119,8 +2119,19 @@ List<Constraint> _withProjectionPins(List<Geo> gs, List<Constraint> cs) {
 /// snapshot is restored and false is returned.
 bool solveConstraints(List<Geo> gs, List<Constraint> cs,
     {Set<(int, int)> dragged = const {}, int iterations = 80}) {
-  final ok = _solveConstraintsInner(gs, cs,
-      dragged: dragged, iterations: iterations);
+  // Gauges, not just a duration: solve cost is driven by the SIZE of the
+  // system, and a p95 of 12 ms means something different for 8 constraints
+  // than for 300. Recorded on every solve so the report can be read without
+  // guessing what was on screen at the time.
+  Perf.gauge('solve.entities', gs.length);
+  Perf.gauge('solve.constraints', cs.length);
+  Perf.gauge('solve.dragged', dragged.length);
+  Perf.count('solve.iterationsRequested', iterations);
+  final ok = Perf.span(
+      'solve.total',
+      () => _solveConstraintsInner(gs, cs,
+          dragged: dragged, iterations: iterations));
+  Perf.count(ok ? 'solve.ok' : 'solve.unsatisfied');
   // ...and sync AGAIN afterwards: the pins hold each projection at its
   // source's PRE-solve position, so when the solve itself moves the source
   // (a dimension edit on the source layer) the projection would lag one

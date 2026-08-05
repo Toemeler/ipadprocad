@@ -333,7 +333,16 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
   bool _bodyStarted = false; // deferred begin: true once the drag actually ran
 
   /// Applies object snapping to a world point and publishes the marker.
-  Offset _snapped(Offset w, {Offset? exclude, double px = _snapPx}) {
+  ///
+  /// On the drag path this runs per pointer-move event, i.e. at the touch
+  /// sampling rate (up to 120 Hz on ProMotion), and it walks the whole visible
+  /// geometry list twice — once to filter, once inside [computeSnap]. That
+  /// makes it a per-frame cost that does not appear in `2d.paint` at all,
+  /// which is exactly the kind of blind spot M75 was about.
+  Offset _snapped(Offset w, {Offset? exclude, double px = _snapPx}) =>
+      Perf.span('2d.snap', () => _snappedInner(w, exclude: exclude, px: px));
+
+  Offset _snappedInner(Offset w, {Offset? exclude, double px = _snapPx}) {
     final app = widget.app;
     final s = app.current;
     if (s == null) return w;
@@ -1963,9 +1972,27 @@ class _ViewportPainter extends CustomPainter {
       this.imgCache = const {},
       this.selImage});
 
+  /// Per-phase timing for [_paint]. ONE instance for the whole app, on
+  /// purpose: a painter is rebuilt on every frame, so a per-instance field
+  /// would allocate a Stopwatch and a name cache 120 times a second, and the
+  /// measuring apparatus would become part of what is being measured.
+  ///
+  /// Safe as shared state because `_paint` is not re-entrant and Flutter runs
+  /// it on the UI thread only. [PerfPhases.mark] ignores a call outside a
+  /// begin/end pair, so even a stray path cannot corrupt another frame.
+  static final PerfPhases _ph = PerfPhases('2d.paint');
+
   @override
-  void paint(Canvas canvas, Size size) =>
-      Perf.span('2d.paint', () => _paint(canvas, size));
+  void paint(Canvas canvas, Size size) => Perf.span('2d.paint', () {
+        _ph.begin();
+        try {
+          _paint(canvas, size);
+        } finally {
+          // `2d.paint.z` catches everything after the last mark. If it ever
+          // grows, a phase was added to _paint without a mark to close it.
+          _ph.end();
+        }
+      });
 
   void _paint(Canvas canvas, Size size) {
     // M80 — when a sketch is open inside a part, the LIVE RealityKit scene is
@@ -1992,6 +2019,7 @@ class _ViewportPainter extends CustomPainter {
         size.width / 2 + (x - app.pan.dx) * app.zoom,
         size.height / 2 - (y - app.pan.dy) * app.zoom);
 
+    _ph.mark('bg');
     // ---- M168 Slice Graphics: hatch the section faces ----------------------
     // The cut is made AT this sketch plane, so the exposed faces are exactly
     // coplanar with the sketch — which is why the hatch belongs here, in 2D,
@@ -2038,6 +2066,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('slice');
     // ---- edit-mode reference overlay (grey axes + grey CP, pure display) ----
     if (app.inEditMode) {
       final grey = Paint()
@@ -2049,6 +2078,7 @@ class _ViewportPainter extends CustomPainter {
       canvas.drawCircle(o, 3.2, Paint()..color = T.rawGrey);
     }
 
+    _ph.mark('editRef');
     // ---- real entities from the QCAD document ----
     if (s != null) {
       final p = Paint()
@@ -2092,6 +2122,7 @@ class _ViewportPainter extends CustomPainter {
       bool segFull(int i, int seg) =>
           hasAnalysis && app.analysis!.carrierFixed(i, seg);
 
+      _ph.mark('ent.dofColour');
       // ---- pre-select / pick halo, painted UNDER the geometry so the DOF
       // colour above it stays readable. Inventor highlights whatever the next
       // click would grab, and keeps a tool's picks lit until it finishes.
@@ -2158,6 +2189,7 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      _ph.mark('ent.halo');
       // ---- Project tool: the 3D model edges you can pick (M76) ----------
       // Drawn only while the tool is active, so the sketch stays clean
       // otherwise. Inventor shows projectable edges the same way: faint until
@@ -2200,6 +2232,7 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      _ph.mark('ent.projectEdges');
       // M44: inserted images are an underlay — painted BELOW all geometry.
       for (final img in s.images) {
         final u = imgCache[img.file];
@@ -2259,6 +2292,7 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      _ph.mark('ent.images');
       for (var i = 0; i < gs.length; i++) {
         final reference = app.inEditMode && !app.geoEditable(gs[i]);
         final paint = app.selection.contains(i)
@@ -2452,6 +2486,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('entities');
     // ---- gear tool ghost: the whole gear (or planetary set) at the cursor,
     // exactly what a tap would commit ----
     if (app.tool == Tool.gear &&
@@ -2506,6 +2541,7 @@ class _ViewportPainter extends CustomPainter {
       canvas.drawCircle(map(c.dx, c.dy), 3, Paint()..color = T.blue);
     }
 
+    _ph.mark('gearGhost');
     // ---- M87: raw freehand ink, while the pointer is still down ----
     // Thin and dimmer than committed geometry: this is ink, not yet a spline.
     // Once the pointer lifts, `freehand.drawing` goes false and the ordinary
@@ -2528,6 +2564,7 @@ class _ViewportPainter extends CustomPainter {
       canvas.drawPath(path, ink);
     }
 
+    _ph.mark('freehand');
     // ---- in-progress tool preview (blue, like the accent) ----
     if (app.tool != Tool.none &&
         (app.toolPoints.isNotEmpty || app.hoverWorld != null)) {
@@ -2586,6 +2623,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('toolPreview');
     // ---- constraint glyphs + dimensions (M7) ----
     // Guarded: a painter exception aborts the whole frame, which would look
     // exactly like "the app draws nothing".
@@ -2724,6 +2762,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('constraints');
     // ---- modify-tool ghost preview (dashed look via lighter blue) ----
     if (app.hoverWorld != null && s != null) {
       final ghost = app.modifyGhost(s, app.hoverWorld!);
@@ -2738,6 +2777,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('modifyGhost');
     // ---- pattern preview (M35): the pending copies, light blue ----
     if (app.pattern != null && s != null) {
       final ghost = app.patternPreview();
@@ -2753,6 +2793,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('pattern');
     // ---- snap marker + alignment guides (Inventor green) ----
     final sn = app.snap;
     if (sn != null && (app.tool != Tool.none || app.dragGrip != null)) {
@@ -2807,6 +2848,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('snap');
     // ---- box select rectangle (window = solid blue, crossing = dashed
     // green — exactly Inventor's two modes) ----
     if (app.boxStart != null && app.boxEnd != null) {
@@ -2832,6 +2874,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('boxSelect');
     // ---- cursor constraint hints (Inventor shows the symbol on the cursor
     // for every constraint it is about to apply automatically) ----
     if (s != null && app.hoverWorld != null) {
@@ -2861,6 +2904,7 @@ class _ViewportPainter extends CustomPainter {
     // overlay, in the number the user cannot act on. One status line is
     // enough, and it is the one phrased as an instruction.
 
+    _ph.mark('cursorHints');
     // ---- transient notice (over-constrained warnings) ----
     if (app.message != null) {
       final tp = TextPainter(
@@ -2888,6 +2932,7 @@ class _ViewportPainter extends CustomPainter {
       tp.paint(canvas, box.topLeft + const Offset(12, 6));
     }
 
+    _ph.mark('notice');
     // ---- projected center point (YELLOW, on top, interactive) ----
     if (app.inEditMode) {
       final o = map(0, 0);

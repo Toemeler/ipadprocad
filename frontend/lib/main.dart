@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 
 import 'log.dart';
 import 'perf.dart';
+import 'ffi/perf_hook.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
@@ -34,6 +35,16 @@ void main() {
   // Logger FIRST — works synchronously, before any binding exists.
   Log.init();
   Perf.init();
+  // The FFI modules time through injected hooks so they keep their "only
+  // dart:ffi" invariant (see ffi/perf_hook.dart). Install the real recorder
+  // before anything can call the kernel — an unwired hook silently records
+  // nothing, which would look exactly like a kernel that costs nothing.
+  installFfiPerfHooks(span: Perf.span, count: Perf.count);
+  // Time to first frame: the one launch number a user actually feels. Measured
+  // from the top of main() to the first frame the engine reports as rasterised,
+  // which is the same event MetricKit's MXAppLaunchMetric ends on — so the two
+  // can be compared instead of argued about.
+  Perf.markLaunchStart();
   runZonedGuarded(() {
     Log.step('main', 'WidgetsFlutterBinding.ensureInitialized', () {
       WidgetsFlutterBinding.ensureInitialized();

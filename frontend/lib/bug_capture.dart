@@ -235,6 +235,25 @@ Future<File?> captureBugReport(AppState app, String description) async {
     // which the pure builder deliberately does not import.
     files['mesh.txt'] = captureMeshReports(part);
 
+    // The perf data a MACHINE can read. `perfText` above is the rolling text
+    // log, which is what a person reads; this is one structured snapshot of
+    // the same counters at the moment of capture, which is what gets diffed
+    // against perf/baseline.json. A slowdown report is only actionable if the
+    // numbers can be compared to a known-good run without re-typing them.
+    Perf.report();
+    files['perf_snapshot.json'] =
+        const JsonEncoder.withIndent('  ').convert(Perf.jsonSnapshot());
+    // The PREVIOUS perf session too. A "it got slow after a while" report is
+    // about a trend, and the trend is exactly what rotation threw out of the
+    // current file.
+    if (Perf.path.isNotEmpty) {
+      final prevPerf = _readIfExists(Perf.path
+          .replaceFirst('performance_logs.txt', 'performance_logs_prev.txt'));
+      if (prevPerf != null && prevPerf.isNotEmpty) {
+        files['performance_logs_prev.txt'] = prevPerf;
+      }
+    }
+
     final dir = Directory('${_docsRoot(app)}/bugreports');
     final out = writeBundle(dir, bundleStem(when), files,
         when: when,

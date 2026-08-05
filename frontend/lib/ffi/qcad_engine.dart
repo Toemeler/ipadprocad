@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'package:ffi/ffi.dart';
 
 import '../log.dart';
+import 'perf_hook.dart';
 
 /// Geometry snapshot of one entity, mirroring qcad_entity_geometry().
 /// The layer RDocument::init() always creates. Geometry that was never assigned
@@ -313,7 +314,8 @@ class _FfiEngine implements Engine {
       for (var i = 0; i < xy.length; i++) {
         buf[i] = xy[i];
       }
-      return b.addPolyline(_doc, buf, n, closed ? 1 : 0) != 0;
+      return ffiSpan('ffi.qcad.addPolyline',
+          () => b.addPolyline(_doc, buf, n, closed ? 1 : 0) != 0);
     } finally {
       malloc.free(buf);
     }
@@ -330,47 +332,58 @@ class _FfiEngine implements Engine {
   }
 
   @override
-  List<Geo> allGeometry() {
-    final total = b.entityIds(_doc, nullptr, 0);
-    if (total <= 0) return const [];
-    final ids = malloc<Int64>(total);
-    final typeOut = malloc<Int32>(1);
-    const layerCap = 256;
-    final layerBuf = malloc<Uint8>(layerCap).cast<Utf8>();
-    try {
-      b.entityIds(_doc, ids, total);
-      final out = <Geo>[];
-      for (var i = 0; i < total; i++) {
-        final need = b.entityGeometry(_doc, ids[i], typeOut, nullptr, 0);
-        if (need <= 0) continue;
-        // The layer comes from the DOCUMENT, so it survives a DXF round-trip.
-        var layer = kDefaultLayer;
-        if (b.entityLayer(_doc, ids[i], layerBuf, layerCap) != 0) {
-          layer = layerBuf.toDartString();
-        }
-        final data = malloc<Double>(need);
+  /// Reads the WHOLE document back out of the C++ side.
+  ///
+  /// Worth measuring rather than assuming, because the cost is not one FFI
+  /// crossing but roughly `1 + 3n`: two calls to size and fill the id array,
+  /// then per entity a sizing `entityGeometry`, an `entityLayer`, a filling
+  /// `entityGeometry`, one malloc/free pair and one `List<double>.generate`.
+  /// `app_state.dart:369` copies the result again. The span says what the
+  /// round trip costs; the counter says how many entities paid for it, and
+  /// the two together are what tells you whether this belongs behind a cache.
+  List<Geo> allGeometry() => ffiSpan('ffi.qcad.allGeometry', () {
+        final total = b.entityIds(_doc, nullptr, 0);
+        if (total <= 0) return const <Geo>[];
+        ffiCount('ffi.qcad.allGeometry.entities', total);
+        final ids = malloc<Int64>(total);
+        final typeOut = malloc<Int32>(1);
+        const layerCap = 256;
+        final layerBuf = malloc<Uint8>(layerCap).cast<Utf8>();
         try {
-          b.entityGeometry(_doc, ids[i], typeOut, data, need);
-          out.add(Geo(typeOut.value,
-              List<double>.generate(need, (j) => data[j]),
-              layer: layer));
+          b.entityIds(_doc, ids, total);
+          final out = <Geo>[];
+          for (var i = 0; i < total; i++) {
+            final need = b.entityGeometry(_doc, ids[i], typeOut, nullptr, 0);
+            if (need <= 0) continue;
+            // The layer comes from the DOCUMENT, so it survives a DXF round-trip.
+            var layer = kDefaultLayer;
+            if (b.entityLayer(_doc, ids[i], layerBuf, layerCap) != 0) {
+              layer = layerBuf.toDartString();
+            }
+            final data = malloc<Double>(need);
+            try {
+              b.entityGeometry(_doc, ids[i], typeOut, data, need);
+              out.add(Geo(typeOut.value,
+                  List<double>.generate(need, (j) => data[j]),
+                  layer: layer));
+            } finally {
+              malloc.free(data);
+            }
+          }
+          return out;
         } finally {
-          malloc.free(data);
+          malloc.free(ids);
+          malloc.free(typeOut);
+          malloc.free(layerBuf);
         }
-      }
-      return out;
-    } finally {
-      malloc.free(ids);
-      malloc.free(typeOut);
-      malloc.free(layerBuf);
-    }
-  }
+      });
 
   @override
   bool saveDxf(String path) {
     final p = path.toNativeUtf8();
     try {
-      return b.saveDxf(_doc, p, nullptr) != 0;
+      return ffiSpan(
+          'ffi.qcad.saveDxf', () => b.saveDxf(_doc, p, nullptr) != 0);
     } finally {
       malloc.free(p);
     }
@@ -380,7 +393,7 @@ class _FfiEngine implements Engine {
   bool loadDxf(String path) {
     final p = path.toNativeUtf8();
     try {
-      return b.loadDxf(_doc, p) != 0;
+      return ffiSpan('ffi.qcad.loadDxf', () => b.loadDxf(_doc, p) != 0);
     } finally {
       malloc.free(p);
     }

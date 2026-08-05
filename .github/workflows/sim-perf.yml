@@ -1,0 +1,406 @@
+name: Simulator app + perf capture
+
+# Lane B from PERF_PLAN.md: rent a Mac for twenty minutes, get files back.
+#
+# What this produces:
+#   * Runner.app for the iOS Simulator, zipped as an artifact
+#   * the app's own performance_logs.txt / performance_snapshot.json, pulled
+#     back out of the simulator's data container after a real launch
+#   * the launch console log
+#
+# WHAT THIS IS NOT, stated up front so no number from here is ever quoted as
+# an iPad number:
+#
+#   Flutter refuses --profile and --release for the simulator ("release/profile
+#   builds are only supported for physical devices"): the simulator engine is
+#   JIT/debug only. So the DART side of this build is unoptimised and its frame
+#   times are meaningless — typically several times slower than the device.
+#
+#   The NATIVE side is not. qcad-core, libslvs and OCCT are all compiled
+#   -DCMAKE_BUILD_TYPE=Release here, exactly as for the device. That makes the
+#   `ffi.occt.*` / `ffi.slvs.*` / `ffi.qcad.*` spans and every COUNTER
+#   (call counts, entity counts, cache hit rates, solves per frame) genuinely
+#   informative, because those measure release-compiled C++ and structural
+#   behaviour rather than Dart execution speed.
+#
+#   Read this job for: which kernel op costs what relative to the others, how
+#   many times something is called, whether a cache works, whether a regression
+#   appeared. Do NOT read it for: fps, frame.build, frame.raster, jank.
+#
+# ARCHITECTURE — x86_64, not arm64. The Qt-for-iOS package ships universal
+# archives whose only simulator slice is x86_64 (see the probe step in
+# m1-core-build.yml's m3 job: arm64 -> platform 2 = device, x86_64 ->
+# platform 7 = simulator). There is no arm64-simulator Qt, so the whole stack
+# has to be x86_64 and runs under Rosetta on the arm64 runner. That is also
+# why this cannot share the m5 OCCT cache: different sysroot, different slice.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hold_seconds:
+        description: 'Seconds to let the app run before pulling the perf log'
+        required: false
+        default: '25'
+  push:
+    branches: [ 'claude/perf-**' ]
+    paths-ignore: [ '**.md' ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sim-app:
+    name: Build + run the app in the iOS Simulator
+    # macos-14 deliberately: this is the runner the m3 simulator job is proven
+    # on with Qt 6.7 + the x86_64 simulator slice. The image is in deprecation
+    # (fully unsupported 2026-11-02) — when it goes, try macos-15 here FIRST
+    # and expect the Qt configure step to be the thing that breaks, exactly as
+    # m5's runner note predicts.
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain report
+        run: |
+          sw_vers
+          xcodebuild -version
+          echo "simulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+
+      - name: Install ccache
+        run: brew list ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: Cache ccache tree
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-sim-${{ hashFiles('backend/**/*.cpp', 'backend/**/*.h', 'backend/**/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-sim-
+
+      - name: Install Qt6 (host, for tools)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'desktop'
+          dir: '${{ github.workspace }}/qt-host'
+          cache: true
+
+      - name: Capture host Qt path
+        id: qt_host
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Qt6 (iOS)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'ios'
+          dir: '${{ github.workspace }}/qt-ios'
+          cache: true
+
+      - name: Capture iOS Qt path
+        id: qt_ios
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      # ---- native stack, all for iphonesimulator/x86_64 --------------------
+
+      - name: Build qcad core + C-API (simulator, x86_64)
+        working-directory: backend/qcad-core
+        run: |
+          set -o pipefail
+          {
+          # Same recipe as m3-ios-sim-logic, which is the proven one. Qt's
+          # prebuilt resource objects carry minos 14.0, so the deployment
+          # target cannot go below that.
+          cmake -B build-sim -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_QT6=ON \
+            -DQCAD_CAPI_SMOKE=ON
+          cmake --build build-sim -j -- -k 0
+          libtool -static -o release/libprototype-sim.a \
+            release/libqcadcapi.a \
+            release/libqcadcore.a \
+            release/libqcadentity.a \
+            release/libqcadoperations.a \
+            plugins/libqcaddxf.a \
+            release/libdxflib.a
+          lipo -info release/libprototype-sim.a
+          } 2>&1 | tee ../../ci-sim-core.log
+
+      - name: Build libslvs (simulator, x86_64)
+        working-directory: backend/slvs
+        run: |
+          set -o pipefail
+          cmake -S . -B build-sim \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sim -j
+          test -f build-sim/libslvs.a || { echo "MISSING build-sim/libslvs.a"; exit 1; }
+          lipo -info build-sim/libslvs.a
+
+      # OCCT for the simulator is its OWN cache: different sysroot and a
+      # different architecture slice than the device tree in m5, so the two can
+      # never be shared. Cold build is the expensive one (~40-60 min); after
+      # that this restores in seconds. Bump -r1 when the flags change.
+      - name: Cache OpenCASCADE simulator install tree
+        id: occt-sim-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-sim
+          key: occt-sim-x86_64-V7_9_3-r1
+
+      - name: Build OpenCASCADE (simulator, x86_64, cache miss only)
+        if: steps.occt-sim-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -o pipefail
+          git -C "$GITHUB_WORKSPACE" submodule update --init --depth 1 \
+            -- backend/occt/upstream \
+            || git -C "$GITHUB_WORKSPACE" submodule update --init \
+                 -- backend/occt/upstream
+          git -C upstream log --oneline -1
+          cmake -S upstream -B build-occt-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-sim" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_LIBRARY_TYPE=Static \
+            -DBUILD_MODULE_FoundationClasses=ON \
+            -DBUILD_MODULE_ModelingData=ON \
+            -DBUILD_MODULE_ModelingAlgorithms=ON \
+            -DBUILD_MODULE_DataExchange=ON \
+            -DBUILD_MODULE_ApplicationFramework=OFF \
+            -DBUILD_MODULE_Visualization=OFF \
+            -DBUILD_MODULE_Draw=OFF \
+            -DBUILD_MODULE_DETools=OFF \
+            -DBUILD_DOC_Overview=OFF \
+            -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_XLIB=OFF \
+            -DUSE_FREEIMAGE=OFF -DUSE_OPENVR=OFF -DUSE_FFMPEG=OFF \
+            -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF \
+            2>&1 | tail -25
+          cmake --build build-occt-sim -j 2>&1 | tail -25
+          cmake --install build-occt-sim > /dev/null
+
+      - name: Build OCCT C shim (simulator, x86_64)
+        working-directory: backend/occt
+        run: |
+          set -o pipefail
+          ls "$GITHUB_WORKSPACE/backend/occt/install-sim/lib/cmake/opencascade/"
+          # MODE_PACKAGE=BOTH — iOS cross-compiles re-root find_package into the
+          # SDK sysroot, so without it the prefix path is invisible (the same
+          # lesson m5 records for the device tree).
+          cmake -S . -B build-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-sim"
+          cmake --build build-sim -j
+          test -f build-sim/libocct_capi.a || { echo "MISSING build-sim/libocct_capi.a"; exit 1; }
+          lipo -info build-sim/libocct_capi.a
+
+      # ---- Flutter -----------------------------------------------------------
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Scaffold iOS project + pub get
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          flutter --version
+          flutter create --platforms=ios --org com.prototype --project-name prototype .
+          # File sharing, so the perf log lands somewhere we can read it back
+          # out of the data container.
+          /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
+          rm -f test/widget_test.dart
+          flutter pub get
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/Runner.xcodeproj/project.pbxproj
+          flutter build ios --config-only --simulator --debug \
+            --build-name=0.1.${{ github.run_number }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7}
+          if [ -f ios/Podfile ]; then
+            sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+            sed -i '' "s/^platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+          fi
+          } 2>&1 | tee ../ci-sim-scaffold.log
+
+      - name: Inject FFI link flags (simulator xcconfig)
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          QTIOS="${{ steps.qt_ios.outputs.path }}"
+          CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
+          BUILD="$GITHUB_WORKSPACE/backend/qcad-core/build-sim"
+          SLVS="$GITHUB_WORKSPACE/backend/slvs/build-sim"
+          OCCT="$GITHUB_WORKSPACE/backend/occt"
+          OCCTLIBS="$(ls "$OCCT/install-sim/lib"/libTK*.a | tr '\n' ' ')"
+          echo "OCCT archives on the link line: $(echo "$OCCTLIBS" | wc -w)"
+          # Same trick as m5: ask ninja for the smoke executable's exact link
+          # line, because it is the only place the finalizer-GENERATED Qml
+          # type-registration objects appear.
+          LINKCMD="$(mktemp)"
+          ninja -C "$BUILD" -t commands | grep -E -- "-o [^ ]*qcad_capi_smoke( |$)" | tail -1 > "$LINKCMD"
+          [ -s "$LINKCMD" ] || { echo "smoke link command not found via ninja -t commands"; exit 1; }
+          QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
+          echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens)"
+          printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
+          cat > ios/Flutter/ffi.xcconfig <<XC
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype-sim.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-sim/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          IPHONEOS_DEPLOYMENT_TARGET = 14.0
+          ARCHS = x86_64
+          VALID_ARCHS = x86_64
+          ONLY_ACTIVE_ARCH = NO
+          EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
+          XC
+          sed -i '' 's/^          //' ios/Flutter/ffi.xcconfig
+          for f in ios/Flutter/Debug.xcconfig ios/Flutter/Release.xcconfig ios/Flutter/Profile.xcconfig; do
+            [ -f "$f" ] && printf '\n#include "ffi.xcconfig"\n' >> "$f" && echo "patched $f"
+          done
+          cat ios/Flutter/ffi.xcconfig
+          } 2>&1 | tee ../ci-sim-xcconfig.log
+
+      - name: Analyze Dart
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../ci-sim-analyze.log
+
+      - name: Host tests
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee ../ci-sim-tests.log
+
+      - name: Build app for the simulator
+        timeout-minutes: 45
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # --debug is not a choice. Flutter rejects --profile/--release for
+          # the simulator; see the header of this file.
+          flutter build ios --simulator --debug \
+            --build-name=0.1.${{ github.run_number }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7} 2>&1 | tee ../ci-sim-appbuild.log
+          APP="build/ios/iphonesimulator/Runner.app"
+          [ -d "$APP" ] || { echo "SIM BUILD: FAIL (Runner.app missing)"; exit 1; }
+          lipo -info "$APP/Runner" || true
+          # Same linkage proof m5 uses: the C-API version literal survives
+          # stripping, so finding it means the core really is in the binary.
+          HITS="$(strings "$APP/Runner" | grep -c "Prototype C-API" || true)"
+          [ "${HITS:-0}" -gt 0 ] || { echo "SIM LINK CHECK: FAIL (qcad core not linked)"; exit 1; }
+          echo "SIM LINK CHECK: PASS ($HITS marker hits)"
+
+      - name: Boot simulator, launch the app, pull the perf log
+        timeout-minutes: 30
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          APP="build/ios/iphonesimulator/Runner.app"
+          BID="com.prototype.prototype"
+          HOLD="${{ github.event.inputs.hold_seconds || '25' }}"
+          # x86_64 app on an arm64 runner.
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          UDID=""
+          for name in "iPad Pro (12.9-inch) (6th generation)" "iPad Pro (11-inch) (4th generation)" "iPad (10th generation)" "iPhone 15"; do
+            if UDID="$(xcrun simctl create perf-sim "$name" 2>/dev/null)"; then
+              echo "created sim '$name' -> $UDID"; break
+            fi
+            UDID=""
+          done
+          [ -n "$UDID" ] || { echo "could not create a simulator"; xcrun simctl list devicetypes; exit 1; }
+          xcrun simctl boot "$UDID"
+          for i in $(seq 1 24); do
+            xcrun simctl list devices | grep "$UDID" | grep -q 'Booted' && { echo "sim booted (~$((i*5))s)"; break; }
+            sleep 5
+          done
+          xcrun simctl install "$UDID" "$APP"
+          echo "== launch =="
+          set +e
+          xcrun simctl launch --console-pty --terminate-running-process "$UDID" "$BID" > ../ci-sim-console.log 2>&1 &
+          LAUNCH_PID=$!
+          # Let it actually run: Perf flushes every 5 s, so anything under that
+          # would pull an empty file and look like the app records nothing.
+          sleep "$HOLD"
+          kill "$LAUNCH_PID" 2>/dev/null
+          set -e
+          echo "== app Documents container =="
+          DATA="$(xcrun simctl get_app_container "$UDID" "$BID" data)"
+          echo "container: $DATA"
+          ls -la "$DATA/Documents" || true
+          mkdir -p "$GITHUB_WORKSPACE/perf-out"
+          cp -R "$DATA/Documents/logs" "$GITHUB_WORKSPACE/perf-out/" 2>/dev/null || \
+            echo "NOTE: no logs/ directory — the app did not reach Log.init()"
+          cp ../ci-sim-console.log "$GITHUB_WORKSPACE/perf-out/" 2>/dev/null || true
+          xcrun simctl shutdown "$UDID" || true
+          xcrun simctl delete "$UDID" || true
+          echo "== what we got back =="
+          find "$GITHUB_WORKSPACE/perf-out" -type f -exec ls -la {} \;
+          echo "== performance_logs.txt (tail) =="
+          tail -80 "$GITHUB_WORKSPACE/perf-out/logs/performance_logs.txt" 2>/dev/null || \
+            echo "(no performance log — see the note above)"
+          } 2>&1 | tee ../ci-sim-run.log
+
+      - name: Zip the simulator app
+        if: always()
+        working-directory: frontend
+        run: |
+          if [ -d build/ios/iphonesimulator/Runner.app ]; then
+            ditto -c -k --sequesterRsrc --keepParent \
+              build/ios/iphonesimulator/Runner.app \
+              "$GITHUB_WORKSPACE/Runner-sim-${{ github.run_number }}.app.zip"
+            ls -la "$GITHUB_WORKSPACE/Runner-sim-${{ github.run_number }}.app.zip"
+          fi
+
+      - name: Upload the simulator app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: simulator-app
+          path: Runner-sim-*.app.zip
+          if-no-files-found: warn
+
+      - name: Upload the perf capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: perf-capture
+          path: |
+            perf-out/**
+            ci-sim-*.log
+          if-no-files-found: warn

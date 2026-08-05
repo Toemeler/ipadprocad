@@ -2225,7 +2225,10 @@ class AppState extends ChangeNotifier {
   void revertToLastCheckpoint() =>
       _applyHistory((s) => s.pinnedSnap, 'revert');
 
-  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) {
+  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) =>
+      Perf.span('history.$what', () => _applyHistoryInner(step, what));
+
+  void _applyHistoryInner(UndoSnap? Function(SketchModel) step, String what) {
     final s = current;
     if (s == null) return;
     if (dragGrip != null) return; // never rip the state out from under a drag
@@ -3042,6 +3045,19 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> savePart(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      return await _savePartInner(name);
+    } finally {
+      // A Stopwatch rather than Perf.span: this is async, and span measures a
+      // synchronous body — wrapping a Future would time how long it took to
+      // CREATE the future, which is nearly zero and would read as "saving is
+      // free". Same reason as saveSketch below.
+      Perf.record('io.savePart', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<bool> _savePartInner(String name) async {
     final p = parts[name];
     if (p == null || _docsDir == null) return false;
     _ensureStaged(name);
@@ -5720,8 +5736,23 @@ class AppState extends ChangeNotifier {
   Constraint? pendingDim;
 
   /// Geometry with an in-progress grip drag applied (painter reads this).
+  /// The geometry to draw THIS frame — which, during a grip drag, is the
+  /// result of a live 25-iteration constraint solve.
+  ///
+  /// Measure it, because of where it runs. This is called from
+  /// `CustomPainter.paint` (the comment below says so) and from six other
+  /// sites including the snap path, so a single pointer-move can pay for the
+  /// solve more than once. `2d.displayGeometry.solves` counts the calls that
+  /// actually solved; divide by frames to see how many solves one frame bought.
+  /// The early return is left uncounted on purpose — a non-drag frame does no
+  /// work here and should not dilute the average.
   List<Geo> displayGeometry(SketchModel s) {
     if (dragGrip == null || dragPos == null) return s.geometry;
+    Perf.count('2d.displayGeometry.solves');
+    return Perf.span('2d.displayGeometry', () => _displayGeometryInner(s));
+  }
+
+  List<Geo> _displayGeometryInner(SketchModel s) {
     // NB: this runs INSIDE CustomPainter.paint. A throw here aborts the whole
     // paint, so every entity after it stays unpainted and the sketch looks like
     // it vanished. Likewise NaN/Inf: Skia drops those paths silently. Neither
@@ -7551,7 +7582,16 @@ class AppState extends ChangeNotifier {
             i
       };
 
-  int? _pickEntity(SketchModel s, Offset w) {
+  /// Nearest pickable entity to [w], or null.
+  ///
+  /// Linear over the whole sketch, called from ~12 sites on the tap and drag
+  /// paths (several of them more than once per event). The span answers
+  /// whether that linearity is affordable at the sketch sizes we actually
+  /// have, before anyone reaches for a spatial index.
+  int? _pickEntity(SketchModel s, Offset w) =>
+      Perf.span('2d.pickEntity', () => _pickEntityInner(s, w));
+
+  int? _pickEntityInner(SketchModel s, Offset w) {
     var best = -1;
     var bd = 10 / zoom;
     // A TIE goes to normal geometry. After a kept-carrier trim (M187) every
@@ -11238,6 +11278,15 @@ class AppState extends ChangeNotifier {
 
   // ---- save / load / preview ----
   Future<bool> saveSketch(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      return await _saveSketchInner(name);
+    } finally {
+      Perf.record('io.saveSketch', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<bool> _saveSketchInner(String name) async {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
     _ensureStaged(name);
