@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../menus.dart';
 import '../log.dart';
 import '../part_model.dart';
 import 'model_browser.dart';
@@ -195,6 +196,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // handler did nothing". One line per event settles that next time, and it
     // is one line per deliberate tap, not per frame.
     Log.i('browser', 'tap $id (collapsed=$_collapsed)');
+    // M205 — the tree is a UIKit view, so its tap comes back over a method
+    // channel rather than as a pointer the Flutter barriers can see. A tap in
+    // here while a ribbon flyout is open is still a click somewhere else.
+    OpenMenus.closeAll();
     final part = app.currentPart;
     // M121 — tapping a FOLDER row toggles it, not just its little chevron.
     // The chevron is a 20 pt target on a 264 pt row; every file browser on

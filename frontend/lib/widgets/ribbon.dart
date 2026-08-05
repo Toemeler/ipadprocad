@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
 import '../log.dart';
+import '../menus.dart';
 import '../part_model.dart' show WorkPlaneKind;
 import '../scrub.dart';
 import '../svg_icons.dart';
@@ -147,10 +148,23 @@ class _RibbonState extends State<Ribbon> {
   String? _flyId;
 
   void closeFly() {
+    OpenMenus.unregister(closeFly);
     _fly?.remove();
     _fly = null;
     _flyId = null;
   }
+
+  /// M205 — the barrier behind every flyout. A raw pointer DOWN, not a tap:
+  /// onTap has to win the gesture arena, so a trackpad click that jitters or a
+  /// press that becomes a drag left the menu standing. Clicking anywhere else
+  /// is a cancel, whatever the arena eventually decides that click was.
+  Widget _barrier() => Positioned.fill(
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => closeFly(),
+          child: const SizedBox.expand(),
+        ),
+      );
 
   @override
   void dispose() {
@@ -169,9 +183,7 @@ class _RibbonState extends State<Ribbon> {
     final items = flyouts[id]!;
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
-        Positioned.fill(
-            child: GestureDetector(
-                behavior: HitTestBehavior.translucent, onTap: closeFly)),
+        _barrier(),
         Positioned(
           left: pos.dx,
           top: pos.dy + box.size.height + 1,
@@ -210,6 +222,7 @@ class _RibbonState extends State<Ribbon> {
       ]),
     );
     Overlay.of(context).insert(_fly!);
+    OpenMenus.register(closeFly);
     setState(() => _flyId = id);
   }
 
@@ -226,9 +239,7 @@ class _RibbonState extends State<Ribbon> {
     final pos = box.localToGlobal(Offset.zero);
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
-        Positioned.fill(
-            child: GestureDetector(
-                behavior: HitTestBehavior.translucent, onTap: closeFly)),
+        _barrier(),
         Positioned(
           left: pos.dx,
           // Downward, like every other ribbon flyout: the menu hangs BELOW the
@@ -248,6 +259,7 @@ class _RibbonState extends State<Ribbon> {
       ]),
     );
     Overlay.of(context).insert(_fly!);
+    OpenMenus.register(closeFly);
     setState(() => _flyId = id);
   }
 
@@ -1074,6 +1086,99 @@ class _HoverState extends State<_Hover> {
   }
 }
 
+/// M205 — the flyout opener, as a button you can SEE and HIT.
+///
+/// "The arrow to expand the list on rectangle or circle for example is really
+/// small and difficult to hit with pencil or touch. Fix this and try to show
+/// it more. Not just a tiny arrow, maybe a swift button or something i can
+/// actually see is a button."
+///
+/// What it replaced was a 7.5-pixel ▼ glyph, dim grey on dark grey, inside an
+/// invisible 40x14 box. Two separate faults in one control: nothing on screen
+/// said "button", and 14 points of height is a third of Apple's floor for a
+/// touch target — with a Pencil that is a coin toss, and a miss lands on the
+/// button BODY, which starts the default tool instead of opening the list.
+///
+/// So it is a chip now: filled, outlined, rounded, with a real triangle in it,
+/// and it reacts on press the way a UIKit control does. The chrome makes it
+/// readable as a control; [tapHeight] is what makes it hittable — the visible
+/// pill stays ribbon-sized while the TAP TARGET is padded out around it, so
+/// the finger gets its slack without the ribbon growing to match.
+///
+/// On a split button that is 46 x 26 against the old 40 x 14: more than double
+/// the area, and every point of it is now something the eye can aim at.
+///
+/// WHY THE SMALL ROWS DID NOT ALSO GET WIDER. Fillet, Text and their kind
+/// carry the same opener in a 14-point column, and widening THAT costs ribbon
+/// WIDTH — 16 points per column, six columns, 96 points. The sketch ribbon is
+/// already 1681 points wide against a screen that is barely more than that, so
+/// those 96 points come off the right-hand end, and the right-hand end is
+/// Finish Sketch. They get the chrome — the pill, the drawn arrow, the press
+/// state — and the full 26-point height of their row, at exactly their old
+/// width. The thing the report actually named, the split buttons under
+/// Rectangle and Circle, gets all of it.
+class _DropChip extends StatefulWidget {
+  final double width;
+  final VoidCallback? onTap;
+
+  /// Height of the touch target. The pill inside is [chipHeight]; the rest is
+  /// transparent padding that still takes the hit. 26 because that is what a
+  /// [_SmallRow] is tall, and the two chips must not be different sizes.
+  static const double tapHeight = 26;
+
+  /// A narrow chip cannot hold an 18-point glyph, and it has no vertical
+  /// neighbour to keep clear of, so it uses its full row height instead.
+  bool get _narrow => width < 24;
+  double get chipHeight => _narrow ? 24 : 20;
+  double get iconSize => _narrow ? 14 : 18;
+
+  const _DropChip({required this.width, this.onTap});
+
+  @override
+  State<_DropChip> createState() => _DropChipState();
+}
+
+class _DropChipState extends State<_DropChip> {
+  bool _hover = false;
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final lit = _down || _hover;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: SizedBox(
+          width: widget.width,
+          height: _DropChip.tapHeight,
+          child: Center(
+            child: Container(
+              width: widget.width,
+              height: widget.chipHeight,
+              decoration: BoxDecoration(
+                color: _down ? T.hover8 : (lit ? T.hover7 : T.hover6),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                    color: lit ? const Color(0x40FFFFFF) : T.border10),
+              ),
+              child: Center(
+                child: Icon(Icons.arrow_drop_down,
+                    size: widget.iconSize, color: lit ? T.text : T.dim),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A big Create-panel button that REMEMBERS its last flyout variant (M85).
 ///
 /// Thin wrapper over [_Big]: it resolves the face through [_faceFor] and wires
@@ -1143,20 +1248,16 @@ class _Big extends StatelessWidget {
               svg(icon, 34),
               const SizedBox(height: 3),
               Text(label, style: ts(11.5, T.text)),
-              if (showDd) ...[
-                const SizedBox(height: 1),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
+              if (showDd)
+                // No SizedBox gap: the chip carries its own transparent
+                // padding, and stacking a gap on top of it only pushes the
+                // ribbon taller for nothing.
+                _DropChip(
+                  width: 46,
                   onTap: id != null && onFly != null
                       ? () => onFly!(id!, ctx)
                       : null,
-                  child: SizedBox(
-                    width: 40,
-                    height: 14,
-                    child: Center(child: Text('▼', style: ts(7.5, T.dim))),
-                  ),
                 ),
-              ],
             ]),
           ),
         ),
@@ -1201,6 +1302,12 @@ class _BigWide extends StatelessWidget {
   }
 }
 
+/// Width of the flyout chip in a [_SmallRow] (Fillet, Text, ...) — and of the
+/// blank that keeps rows without one in line. UNCHANGED from the bare glyph it
+/// replaced, on purpose: this column's width is ribbon width, and the ribbon
+/// has none to give (see [_DropChip]).
+const double _smallDropWidth = 14;
+
 class _SmallRow extends StatelessWidget {
   final String icon;
   final String label;
@@ -1237,20 +1344,14 @@ class _SmallRow extends StatelessWidget {
           ),
         ),
         Builder(builder: (ctx) {
-          if (flyId == null) {
-            return const SizedBox(
-                width: 14,
-                child: Opacity(opacity: 0, child: Text('▼'))); // visibility:hidden
-          }
-          return SizedBox(
-            width: 14,
-            height: 26,
-            child: _Hover(
-              hoverBg: T.hover8,
-              hoverBorder: false,
-              onTap: () => onFly!(flyId!, ctx),
-              child: Center(child: Text('▼', style: ts(7.5, T.dim))),
-            ),
+          // M205: same chip as the big split buttons — the 14-px column that
+          // used to hold a 7.5-px glyph was the hardest target in the app. The
+          // placeholder keeps the SAME width so rows without a flyout still
+          // line up with the ones that have one.
+          if (flyId == null) return const SizedBox(width: _smallDropWidth);
+          return _DropChip(
+            width: _smallDropWidth,
+            onTap: () => onFly!(flyId!, ctx),
           );
         }),
       ]),

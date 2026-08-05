@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../menus.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 
@@ -60,8 +61,17 @@ class BottomTabBar extends StatelessWidget {
         height: kNativeHeight,
         child: GlassTabBar(
           tabs: buildTabs(app),
-          onTap: (id) => id == kHomeTabId ? app.goHome() : app.openDocument(id),
-          onClose: app.closeTab,
+          // M205 — a native bar's tap arrives over a method channel, past
+          // any Flutter barrier a menu put up. Switching documents while a
+          // ribbon flyout is open still counts as clicking elsewhere.
+          onTap: (id) {
+            OpenMenus.closeAll();
+            id == kHomeTabId ? app.goHome() : app.openDocument(id);
+          },
+          onClose: (id) {
+            OpenMenus.closeAll();
+            app.closeTab(id);
+          },
         ),
       );
     }

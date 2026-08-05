@@ -49,8 +49,10 @@ Future<void> openOverflow(WidgetTester t, String panel) async {
   await t.pumpAndSettle();
 }
 
-/// The panel-title arrows only — `_SmallRow` also renders a ▼ (and a hidden
-/// one at opacity 0), so the font size is what tells them apart.
+/// The panel-title arrows. Since M205 they are the ONLY ▼ glyphs left in the
+/// ribbon — the split buttons' and the small rows' openers are drawn chips
+/// with a real icon — but the font-size probe stays, because it is what tells
+/// a title's arrow from anything a later panel might add.
 final panelArrows = find.byWidgetPredicate(
     (w) => w is Text && w.data == '▼' && w.style?.fontSize == 8);
 

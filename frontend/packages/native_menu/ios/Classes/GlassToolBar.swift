@@ -193,7 +193,11 @@ final class GlassToolBarView: NSObject, FlutterPlatformView {
             ? UIColor.systemBlue.withAlphaComponent(0.30)
             : .clear
 
-        let b = UIButton(configuration: c)
+        // M205 — GlassButton, not UIButton: this bar is the one the report
+        // named ("the debug button"), and its presses were being highlighted
+        // and then cancelled. GlassButton counts a cancelled press that never
+        // moved and ended inside the button as the click it was.
+        let b = GlassButton(configuration: c)
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isEnabled = i.enabled
         b.accessibilityLabel = i.label.isEmpty ? i.id : i.label
@@ -213,11 +217,11 @@ final class GlassToolBarView: NSObject, FlutterPlatformView {
         }
         let id = i.id
         let destructive = i.destructive
-        b.addAction(UIAction { [weak self] _ in
+        b.onTap = { [weak self] in
             UIImpactFeedbackGenerator(style: destructive ? .rigid : .light)
                 .impactOccurred()
             self?.channel.invokeMethod("tap", arguments: ["id": id])
-        }, for: .touchUpInside)
+        }
         return b
     }
 }

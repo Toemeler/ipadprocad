@@ -11,6 +11,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'native_touches.dart';
+
 /// One row of the tree.
 class GlassRow {
   /// Stable identity — also what comes back on tap/menu/eye.
@@ -233,6 +235,9 @@ class _GlassBrowserState extends State<GlassBrowser> {
       viewType: 'prototype/glass_browser',
       onPlatformViewCreated: _onCreated,
       creationParamsCodec: const StandardMessageCodec(),
+      // M205 — the bar owns its touches outright, so a press can never be
+      // handed to UIKit as a highlight and taken back as a cancel.
+      gestureRecognizers: eagerNativeTouches(),
     );
   }
 }

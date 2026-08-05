@@ -327,7 +327,11 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 // tree has always drawn it, instead of UIKit's rotating
                 // chevron. outlineDisclosure also animates a rotation on every
                 // toggle, which reads as a list control rather than a tree.
-                let b = UIButton(type: .system)
+                // M205 — GlassButton: a 16-pt target inside a scrolling
+                // tree is the hardest press in the app, and a cancelled one
+                // used to be lost outright. The recovery ignores anything the
+                // finger dragged, so scrolling the tree still just scrolls.
+                let b = GlassButton(frame: .zero)
                 b.setImage(UIImage(systemName: r.expanded
                                    ? "minus.square" : "plus.square"),
                            for: .normal)
@@ -336,25 +340,25 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                     forImageIn: .normal)
                 b.frame = CGRect(x: 0, y: 0, width: 16, height: 16)
                 b.tintColor = .secondaryLabel
-                b.addAction(UIAction { [weak self] _ in
+                b.onTap = { [weak self] in
                     self?.channel.invokeMethod(
                         "expand", arguments: ["id": r.id, "on": !r.expanded])
-                }, for: .touchUpInside)
+                }
                 accessories.append(.customView(configuration: .init(
                     customView: b, placement: .leading(displayed: .always),
                     reservedLayoutWidth: .custom(16))))
             }
             if r.hasEye {
-                let b = UIButton(type: .system)
+                let b = GlassButton(frame: .zero)
                 b.setImage(UIImage(systemName: r.eyeOn ? "eye" : "eye.slash"),
                            for: .normal)
                 b.setPreferredSymbolConfiguration(
                     UIImage.SymbolConfiguration(pointSize: 11), forImageIn: .normal)
                 b.frame = CGRect(x: 0, y: 0, width: 22, height: 22)
                 b.tintColor = r.eyeOn ? .secondaryLabel : .tertiaryLabel
-                b.addAction(UIAction { [weak self] _ in
+                b.onTap = { [weak self] in
                     self?.channel.invokeMethod("eye", arguments: ["id": r.id])
-                }, for: .touchUpInside)
+                }
                 accessories.append(.customView(configuration: .init(
                     customView: b, placement: .trailing(displayed: .always))))
             }

@@ -28,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../menus.dart';
 import '../theme.dart';
 import '../tools.dart';
 import 'bottom_tabbar.dart';
@@ -236,6 +237,12 @@ bool quickCanRedo(AppState app) =>
 /// reporter); everything else is pure state and works without one, which is
 /// what lets the tests press them all.
 void runQuickTool(AppState app, String id, {BuildContext? context}) {
+  // M205 — this bar is a UIKit platform view, so a press on it never reaches
+  // the Flutter barrier a ribbon flyout puts up behind itself: the tap arrives
+  // here, over a method channel, with no pointer event left to dismiss
+  // anything with. Clicking a tool while a menu is open is still "clicking
+  // somewhere else", so the menu goes.
+  OpenMenus.closeAll();
   switch (id) {
     case QuickToolId.ok:
       // Same precedence as Enter in the viewport: the freehand window owns it

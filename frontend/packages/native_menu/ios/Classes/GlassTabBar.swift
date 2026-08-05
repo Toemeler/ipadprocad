@@ -181,11 +181,13 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
             ? UIColor.systemBlue.withAlphaComponent(0.30)
             : .clear
 
-        let b = UIButton(configuration: c)
-        b.addAction(UIAction { [weak self] _ in
+        // M205 — GlassButton recovers a press that the scroll view or the
+        // engine cancelled without it ever having moved. See GlassButton.swift.
+        let b = GlassButton(configuration: c)
+        b.onTap = { [weak self] in
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             self?.channel.invokeMethod("tap", arguments: ["id": t.id])
-        }, for: .touchUpInside)
+        }
         // Pointer effects on iPadOS: a tab that does not respond to a trackpad
         // hover is the giveaway that a control is not really native.
         b.isPointerInteractionEnabled = true
@@ -200,12 +202,12 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
             top: 4, leading: 2, bottom: 4, trailing: 8)
         xc.baseForegroundColor = t.selected ? .secondaryLabel : .tertiaryLabel
 
-        let x = UIButton(configuration: xc)
+        let x = GlassButton(configuration: xc)
         x.isPointerInteractionEnabled = true
-        x.addAction(UIAction { [weak self] _ in
+        x.onTap = { [weak self] in
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             self?.channel.invokeMethod("close", arguments: ["id": t.id])
-        }, for: .touchUpInside)
+        }
 
         // The capsule belongs to the PAIR, so the close button sits inside the
         // selected tint rather than floating next to it.

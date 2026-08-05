@@ -17,6 +17,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../menus.dart';
 import '../log.dart';
 import '../part_model.dart';
 import '../svg_icons.dart';
@@ -512,6 +513,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
   }
 
   void _closeCtx() {
+    OpenMenus.unregister(_closeCtx);
     _ctx?.remove();
     _ctx = null;
   }
@@ -621,6 +623,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       ]),
     );
     Overlay.of(context).insert(_ctx!);
+    OpenMenus.register(_closeCtx);
   }
 
   /// M91 — desktop/fallback End of Part menu. Same items as the native one.
@@ -729,6 +732,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       ]),
     );
     Overlay.of(context).insert(_ctx!);
+    OpenMenus.register(_closeCtx);
   }
 
   Future<void> _confirmDeleteBelow() async {

@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'native_touches.dart';
+
 /// One button — or, with [separator], one hairline rule.
 class GlassToolItem {
   /// Stable identity; comes back on tap.
@@ -150,6 +152,9 @@ class _GlassToolBarState extends State<GlassToolBar> {
         viewType: 'prototype/glass_toolbar',
         onPlatformViewCreated: _onCreated,
         creationParamsCodec: const StandardMessageCodec(),
+        // M205 — the bar owns its touches outright, so a press can never be
+        // handed to UIKit as a highlight and taken back as a cancel.
+        gestureRecognizers: eagerNativeTouches(),
       ),
     );
   }

@@ -80,6 +80,16 @@ class GestureTrace {
     _push(b.toString());
   }
 
+  /// Writes a line of our OWN into the stream, in place, between the hardware
+  /// events it explains. The one thing the raw trace cannot show is a decision
+  /// the app made ABOUT the stream — "these two contacts were dropped as lost"
+  /// (M205) is invisible otherwise, and it is exactly the line the next report
+  /// of a jumping viewport needs.
+  static void note(String s) {
+    if (!enabled) return;
+    _push('${_clock.elapsedMilliseconds.toString().padLeft(7)}ms  NOTE   $s');
+  }
+
   /// How many contacts are down right now, by pointer id. A report that says
   /// "it panned instead of drawing" is usually two contacts where the user
   /// believed there was one.

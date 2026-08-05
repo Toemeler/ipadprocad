@@ -11,6 +11,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'native_touches.dart';
+
 /// One entry of the bar.
 class GlassTab {
   /// Stable identity — comes back on tap and close.
@@ -112,6 +114,9 @@ class _GlassTabBarState extends State<GlassTabBar> {
       viewType: 'prototype/glass_tabbar',
       onPlatformViewCreated: _onCreated,
       creationParamsCodec: const StandardMessageCodec(),
+      // M205 — the bar owns its touches outright, so a press can never be
+      // handed to UIKit as a highlight and taken back as a cancel.
+      gestureRecognizers: eagerNativeTouches(),
     );
   }
 }

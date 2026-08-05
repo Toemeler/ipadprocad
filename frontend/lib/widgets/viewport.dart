@@ -23,7 +23,9 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../gear.dart';
 import '../diag.dart';
+import '../gesture_trace.dart';
 import '../log.dart';
+import '../menus.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../perf.dart';
@@ -91,7 +93,8 @@ class _Viewport2DState extends State<Viewport2D> {
   @override
   void dispose() {
     _lpTimer?.cancel();
-    _toolCtx?.remove();
+    _liveWatchdog?.cancel();
+    _closeQuickMenu();
     // A viewport torn down with the dimension box still open must not leave
     // the journal switched off for the rest of the session (M179).
     _endInlineEdit();
@@ -111,7 +114,17 @@ class _Viewport2DState extends State<Viewport2D> {
 
   // ---- snapping + gestures (M6) ----
   static const _snapPx = 12.0, _gripPx = 12.0;
-  int _pointers = 0;
+
+  /// M205 — every contact that is down, and the eviction rule for the ones
+  /// that never came back up (see [LivePointers]). This replaced a bare
+  /// counter: a single lost pointer-up used to leave the tally at 1 forever,
+  /// which made every later tap look like a second finger and turned the whole
+  /// viewport into a pan/zoom surface that could not draw, pick or drag.
+  final LivePointers _live = LivePointers();
+
+  /// Watchdog for [_live]: without it a lost contact is only noticed when the
+  /// NEXT one goes down — i.e. the user's next gesture is the one it eats.
+  Timer? _liveWatchdog;
   Offset? _clickDown;
 
   /// M51 — device kind of the pointer that armed [_clickDown]; picks and
@@ -119,16 +132,10 @@ class _Viewport2DState extends State<Viewport2D> {
   /// Pencil and the mouse.
   PointerDeviceKind _downKind = PointerDeviceKind.mouse;
 
-  /// M51 — every live pointer's kind. Feeds palm rejection (touches are
-  /// rejected while a stylus is down) and lets _scaleStart know whether the
-  /// single dragging pointer is a finger.
-  final Map<int, PointerDeviceKind> _kinds = {};
-
   /// Touch pointers rejected as palm contact (arrived while the Pencil was
   /// down). They never count as clicks, taps or gesture fingers.
   final Set<int> _rejectedTouches = {};
-  bool get _stylusDown => _kinds.values.any((k) =>
-      k == PointerDeviceKind.stylus || k == PointerDeviceKind.invertedStylus);
+  bool get _stylusDown => _live.stylusDown;
 
   /// M51 — Procreate taps: two fingers = undo, three = redo.
   final MultiFingerTap _mft = MultiFingerTap();
@@ -399,7 +406,7 @@ class _Viewport2DState extends State<Viewport2D> {
     _scaleStartZoom = app.zoom;
     // M51: the kind of the SINGLE pointer driving this gesture. Fingers get
     // wider grab radii and, on empty canvas, pan instead of box-selecting.
-    final soleKind = _kinds.length == 1 ? _kinds.values.first : null;
+    final soleKind = _live.soleKind;
     final finger = soleKind == PointerDeviceKind.touch;
     _gestureFinger = finger;
     if (d.pointerCount >= 2) {
@@ -1046,7 +1053,46 @@ class _Viewport2DState extends State<Viewport2D> {
     }
   }
 
+  // ---- M205: lost contacts ----
+
+  /// Clears everything keyed by a pointer id for contacts [LivePointers] just
+  /// dropped as lost. A stale id left in [_rejectedTouches] would reject a
+  /// finger that is not there, and one left in [_mft] would poison every
+  /// two-finger undo tap for the rest of the session.
+  void _forgetLost(List<int> lost) {
+    if (lost.isEmpty) return;
+    for (final p in lost) {
+      _rejectedTouches.remove(p);
+      _mft.cancel(p);
+      if (p == _clickPtr) {
+        _clickPtr = null;
+        _clickDown = null;
+      }
+    }
+    GestureTrace.note('lost ${lost.length} contact(s): $lost');
+    Log.i('viewport', 'M205: dropped lost contacts $lost');
+  }
+
+  /// Runs only while something is down, so an idle app keeps no timer.
+  void _armLiveWatchdog() {
+    _liveWatchdog ??= Timer.periodic(
+        const Duration(milliseconds: 500), (_) => _sweepLostContacts());
+  }
+
+  void _disarmLiveWatchdogIfIdle() {
+    if (_live.isEmpty) {
+      _liveWatchdog?.cancel();
+      _liveWatchdog = null;
+    }
+  }
+
+  void _sweepLostContacts() {
+    _forgetLost(_live.pruneStale());
+    _disarmLiveWatchdogIfIdle();
+  }
+
   void _closeQuickMenu() {
+    OpenMenus.unregister(_closeQuickMenu);
     _toolCtx?.remove();
     _toolCtx = null;
   }
@@ -1120,6 +1166,7 @@ class _Viewport2DState extends State<Viewport2D> {
       ]),
     );
     Overlay.of(context).insert(_toolCtx!);
+    OpenMenus.register(_closeQuickMenu);
   }
 
   Widget _qmItem(String label, VoidCallback onTap, {bool destructive = false}) {
@@ -1401,13 +1448,18 @@ class _Viewport2DState extends State<Viewport2D> {
           // drawing impossible. The Listener sees pointers regardless of the
           // arena.
           onPointerDown: (e) {
-            // Count FIRST, and count every pointer: onPointerUp decrements
-            // unconditionally, so an early return here would leave the tally
-            // one short and make the next real finger look like the first —
-            // i.e. a pan/zoom that starts drawing instead. (The clamp in
-            // onPointerUp hides the sign but not the drift.)
-            _pointers++;
-            _kinds[e.pointer] = e.kind;
+            // Register FIRST, and register every pointer: the up/cancel paths
+            // remove unconditionally, so an early return here would leave the
+            // set one short and make the next real finger look like the first
+            // — i.e. a pan/zoom that starts drawing instead.
+            //
+            // M205: registering also EVICTS contacts that iOS lost (a down
+            // with no up, see [LivePointers]). Anything evicted has to be
+            // forgotten by the bookkeeping that hangs off a pointer id too,
+            // or a stale palm id would keep rejecting a finger that has long
+            // since lifted.
+            _forgetLost(_live.down(e.pointer, e.device, e.kind));
+            _armLiveWatchdog();
             // M53 palm rejection: a touch arriving while the Pencil is DOWN
             // is the heel of the hand, not input. It is counted (the M52
             // contract above) but never clicks, never taps, and the scale
@@ -1442,7 +1494,7 @@ class _Viewport2DState extends State<Viewport2D> {
                 app.setHover(_snapped(_toWorld(e.localPosition, size)));
               }
             }
-            if (_pointers > 1) {
+            if (_live.count > 1) {
               _clickDown = null; // second finger: pan/zoom, never a click
               _cancelLp();
               // M87: a second finger means pan/zoom, so the freehand stroke
@@ -1484,6 +1536,10 @@ class _Viewport2DState extends State<Viewport2D> {
             }
           },
           onPointerMove: (e) {
+            // M205 — a moving contact is by definition alive: this refreshes
+            // it, and RE-ADOPTS it if the watchdog evicted it in error. That
+            // is what makes the silence rule safe to be wrong about.
+            _live.touch(e.pointer, e.device, e.kind);
             final rejected = _rejectedTouches.contains(e.pointer);
             // M87 — freehand ink. A rejected touch (palm) must never draw.
             if (!rejected && app.freehand?.drawing == true) {
@@ -1515,16 +1571,16 @@ class _Viewport2DState extends State<Viewport2D> {
             }
           },
           onPointerCancel: (e) {
-            _pointers = (_pointers - 1).clamp(0, 10);
-            _kinds.remove(e.pointer);
+            _live.remove(e.pointer);
+            _disarmLiveWatchdogIfIdle();
             _rejectedTouches.remove(e.pointer);
             if (e.kind == PointerDeviceKind.touch) _mft.cancel(e.pointer);
             _cancelLp();
             _clickDown = null;
           },
           onPointerUp: (e) {
-            _pointers = (_pointers - 1).clamp(0, 10);
-            _kinds.remove(e.pointer);
+            _live.remove(e.pointer);
+            _disarmLiveWatchdogIfIdle();
             final wasRejected = _rejectedTouches.remove(e.pointer);
             _cancelLp();
             // M86 — THE PHANTOM SPLINE POINT. A finger and a no-hover Pencil

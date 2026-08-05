@@ -16,6 +16,93 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M205 — fuenf Meldungen der Sitzung vom 2026-08-05, Build `19fcae4`.
+> Vier davon sind Eingabe, und drei von denen haben EINE Ursache.**
+>
+> **1. Der Zeiger, der nie hochkam.** „I couldn't place anything and the
+> viewport is jumping around anytime i click anywhere", „i cant drag around any
+> point. it seems stuck somehow and buggy", und dann, drei Minuten spaeter,
+> „in a new sketch the movement was again working idk what happend".
+> `bug20260805T141441/gestures.txt` sagt es woertlich:
+>
+> ```
+> 51623ms  DOWN   p38 mouse at(181.2,171.3)
+> 52476ms  DOWN   p39 mouse at(609.4,296.8)
+> ...  45 Sekunden Benutzung, keiner der beiden je wieder gehoert  ...
+> 97390ms  CANCEL p39 touch at(0.0,0.0)
+> 97390ms  CANCEL p38 touch at(0.0,0.0)
+> ```
+>
+> Zwei Kontakte gingen runter und kamen nie hoch. Der Viewport zaehlte Zeiger
+> in einem blanken `int` und behandelt „mehr als einer" als Pan/Zoom — ab
+> 51,6 s war also JEDER Tipp der dritte Finger: kein Picken, kein Ziehen, kein
+> Platzieren, und eine Ansicht, die sich bei jeder Beruehrung bewegt. Befreit
+> wurde das Paar erst von der CANCEL-Welle, die die Platform-View schickt, wenn
+> sie eine Geste uebernimmt — deshalb ging es „von selbst" wieder: das
+> Bug-Melden selbst hat es entstoert.
+>
+> Ersatz ist `LivePointers` (`lib/touch.dart`), mit zwei Regeln. **Ein Geraet,
+> ein Kontakt**: die Pointer-Id ist pro Druck, die DEVICE-Id ist das physische
+> Ding, und das kann nicht zweimal gleichzeitig gedrueckt sein — ein neues
+> Down auf einem gehaltenen Geraet BEWEIST, dass das gehaltene weg ist. Das
+> ist keine Heuristik. **Stille ist Tod**: ein lebender Kontakt meldet jeden
+> Frame eine Bewegung, auch wenn er sich nicht bewegt (p36, p77, p84 in
+> derselben Spur sind bewegungslose Druecke mit einem Move pro Vsync); wer 2 s
+> schweigt, ist verloren. Die zweite Regel ist eine Ermessensfrage, also ist
+> sie nicht sicher gemacht, sondern UNGEFAEHRLICH: ein Move fuer einen
+> verworfenen Zeiger NIMMT IHN WIEDER AUF. Falsch zu liegen kostet ein Event;
+> dem Zaehler zu glauben kostet die App. Ein Watchdog (500 ms, laeuft nur
+> solange etwas unten ist) raeumt auch ohne naechste Beruehrung auf, und jede
+> Raeumung schreibt eine Zeile in die Gesten-Spur — die naechste Meldung eines
+> springenden Viewports muss das sehen koennen.
+>
+> **2. Der native Klick, der nicht zaehlt.** „The buttons seem to get bigger
+> when i click but somehow it doesnt count as a click" — das ist UIKit, exakt
+> beschrieben. Ein Control leuchtet bei `touchesBegan` und feuert bei
+> `touchesEnded`; was dazwischen aufleuchtet und dann still verlischt, hat
+> `touchesCancelled` bekommen. Eine `UiKitView` haelt jede Beruehrung zurueck,
+> bis die FLUTTER-Seite entschieden hat, ob sie die Geste will; nimmt dort
+> irgendwer sie zuerst, bekommt UIKit statt der Beruehrung ein Cancel.
+> **Zwei unabhaengige Sicherungen**, weil „a double proof fix" genau das heisst:
+> die Platform-Views der Leisten beanspruchen ihre Geste jetzt SOFORT
+> (`eagerNativeTouches`, `native_touches.dart`) — die Arena ist entschieden,
+> bevor ein Konkurrent ueberhaupt eintreten kann; und `GlassButton`
+> (`GlassButton.swift`) zaehlt einen abgebrochenen Druck trotzdem als Klick,
+> wenn er sich nie bewegt hat, innerhalb des Knopfes endete und keine
+> Scroll-View darueber gerade zieht. Ein Druck feuert hoechstens einmal.
+>
+> **3. „When a context menu is open and i click anywhere else this should
+> count as a cancel."** Die Sperre hinter den Ribbon-Flyouts war ein
+> `GestureDetector.onTap` — und ein Tap muss die Gesten-Arena GEWINNEN. Ein
+> Trackpad-Klick, der zwei Pixel zittert, ein Pencil, der rollt, ein Druck, der
+> zum Ziehen wird: alles legitim kein Tap, und das Menue blieb stehen. Sperren
+> hoeren jetzt auf das rohe Pointer-DOWN. Dazu ein Register (`lib/menus.dart`)
+> fuer den Klick, den keine Flutter-Sperre sehen KANN: die Schnellwerkzeug-
+> Leiste, die Tab-Leiste und der Modell-Browser sind UIKit, ihr Tipp kommt ueber
+> einen Method-Channel zurueck, ohne Pointer-Event zum Schliessen.
+>
+> **4. „The arrow to expand the list on rectangle or circle is really small and
+> difficult to hit ... maybe a swift button or something i can actually see is
+> a button."** Es war ein 7,5-Pixel-▼ in einer unsichtbaren 40x14-Box. Jetzt
+> ein gezeichneter Chip: Fuellung, Rand, Radius, echtes Dreieck, Press-Zustand
+> — 46x26 als Ziel, mehr als das Doppelte der Flaeche. **Die kleinen Zeilen
+> (Fillet, Text) sind absichtlich NICHT breiter geworden**: diese Spalte ist
+> Ribbon-BREITE, 16 pt mal sechs Spalten, und das Ribbon ist mit 1681 pt schon
+> breiter als der Schirm — die 96 pt kaemen rechts ab, und rechts steht Finish
+> Sketch. Sie bekommen die Optik und die volle Zeilenhoehe, bei exakt ihrer
+> alten Breite.
+>
+> **Ehrlicher Stand:** 19 neue Tests (`m205_lost_contacts_test.dart`,
+> `m205_flyout_button_test.dart`), Suite **1442 gruen**, analyze 50 Issues /
+> 0 Errors = Ausgangsstand. Der Ribbon-Inhalt ist auf 1681 pt gemessen —
+> unveraendert zum Stand davor, das ist getestet und nicht geschaetzt.
+> **Am Geraet nicht nachgeprueft**, und die Swift-Seite ist auf diesem Host
+> ueberhaupt nicht kompiliert worden: `GlassButton` und die Eager-Geste
+> brauchen einen echten iOS-Build, bevor irgendjemand sie „gruen" nennt. Die
+> fuenfte Meldung („clicks on native swift elements ... i also had this problem
+> in other apps") ist mit 2. beantwortet, soweit sie von uns aus beantwortbar
+> ist.
+
 > **M197 — die vierte Meldung: der Radius frisst die Ecke.**
 >
 > „Wenn ich einen Radius auf einem Mittelpunkt-Rechteck mache, laufen die
