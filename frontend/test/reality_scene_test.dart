@@ -74,11 +74,30 @@ void main() {
         _feat('Extrusion5', null), // failed compute (no solid)
       ]);
       final app = AppState();
-      app.extrudeSession = ExtrudeSession()..editing = p.features[3];
+      // M210 — the edited feature is hidden because its PREVIEW stands in for
+      // it. With no preview there is nothing to stand in, and hiding it would
+      // simply delete the part from the screen (bug20260805T230356).
+      app.extrudeSession = ExtrudeSession()
+        ..editing = p.features[3]
+        ..preview = _cyl();
 
       final got = visibleSolids(app, p);
       expect(got.map((e) => e.$1).toList(), ['Extrusion1']);
       expect(identical(got.single.$2, vis), isTrue);
+    });
+
+    test('M210 — an edited feature with NO preview stays on screen', () {
+      final vis = _cyl();
+      final editing = _cyl();
+      final p = _partWith([
+        _feat('Extrusion1', vis),
+        _feat('Extrusion4', editing),
+      ]);
+      final app = AppState();
+      app.extrudeSession = ExtrudeSession()..editing = p.features[1];
+      expect(visibleSolids(app, p).map((e) => e.$1).toList(),
+          ['Extrusion1', 'Extrusion4'],
+          reason: 'a failed or not-yet-built preview must not blank the part');
     });
   });
 

@@ -61,9 +61,15 @@ bool quickCanConfirm(AppState app) {
   final f = app.freehand;
   if (f != null) return !f.drawing;
   final meta = toolMeta[app.tool];
-  return meta != null &&
+  if (meta != null &&
       meta.fixed == null &&
-      app.toolPoints.length >= meta.minVar;
+      app.toolPoints.length >= meta.minVar) {
+    return true;
+  }
+  // M210 — the 3D panels have an OK too, and the bar is where a tablet reaches
+  // for Enter. Paired with the Cancel below: a lone Cancel would be the only
+  // half of the pair that ever lit.
+  return app.extrudeSession != null || app.edgeSession != null;
 }
 
 /// True when Esc would do something: a command is running, ink is waiting, or
@@ -71,7 +77,24 @@ bool quickCanConfirm(AppState app) {
 bool quickCanCancel(AppState app) =>
     app.tool != Tool.none ||
     app.freehand != null ||
-    app.selection.isNotEmpty;
+    app.selection.isNotEmpty ||
+    // M210 — the 3D side has commands too. "When a tool is in use the cancel
+    // button in the toolbar should be there": an Extrude panel, a fillet
+    // panel, an armed edge/plane/face/body pick and a work-plane drag are all
+    // a tool in use, and every one of them had a dark Cancel next to it while
+    // Esc — which a tablet does not have — worked fine.
+    quickCancels3D(app);
+
+/// True when there is a 3D command for Cancel to back out of. Mirrors exactly
+/// what [AppState.escape3D] would act on, so the button is lit if and only if
+/// pressing it does something.
+bool quickCancels3D(AppState app) =>
+    app.extrudeSession != null ||
+    app.edgeSession != null ||
+    app.pickingEdges ||
+    app.pickingExtentFace ||
+    app.pickingBody ||
+    app.pickPlane;
 
 /// The modify family (M49): one button that ENTERS Trim and, once inside,
 /// steps Split -> Trim -> Extend exactly like Inventor's right-click.
@@ -104,7 +127,11 @@ const _modifyRing = {Tool.split, Tool.trim, Tool.extendT};
 List<GlassToolItem> buildQuickTools(AppState app) {
   if (app.isHome) return _withBugReport(const []);
   final items = <GlassToolItem>[];
-  if (app.current != null) {
+  // M210 — ...and in a PART with a command running. The rule below (omit the
+  // pair where nothing could ever light them) was right about an idle part and
+  // wrong about one with the Extrude panel open: there the two most wanted
+  // buttons in the app were simply absent.
+  if (app.current != null || quickCancels3D(app)) {
     items.addAll([
       GlassToolItem(
         id: QuickToolId.ok,
@@ -249,6 +276,12 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
       // while it is up, otherwise it commits the variable-length tool.
       if (app.freehand != null) {
         app.freehandCommit();
+      } else if (app.tool != Tool.none) {
+        app.finishVariableTool();
+      } else if (app.edgeSession != null) {
+        app.applyEdgeFeature(); // M210 — the fillet/chamfer panel's OK
+      } else if (app.extrudeSession != null) {
+        app.applyExtrude(); // M210 — the Extrusion panel's OK
       } else {
         app.finishVariableTool();
       }
@@ -258,8 +291,13 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
       // leaves the tool armed for the next stroke.
       if (app.freehand != null) {
         app.freehandCancel();
-      } else {
+      } else if (app.tool != Tool.none) {
         app.cancelTool();
+      } else {
+        // M210 — and in a part, Cancel is Esc. escape3D already knows the
+        // order (a pick backs out of the pick, not out of the panel it
+        // belongs to), so this is the same key by another name.
+        app.escape3D();
       }
       break;
     case QuickToolId.undo:

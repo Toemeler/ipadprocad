@@ -534,7 +534,10 @@ class _RibbonState extends State<Ribbon> {
                 icon: CR['extrude']!,
                 label: 'Extrude',
                 onTap: () => app.openExtrude(),
-                active: app.extrudeSession != null),
+                // M210 — the highlight names THIS command, not "some panel is
+                // open": it toggles now, and a button that lights for a
+                // revolve would toggle the wrong thing off.
+                active: app.extrudeSession?.kind == 'extrude'),
             _BigWide(
                 width: 58,
                 icon: CR['revolve']!,

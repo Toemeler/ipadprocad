@@ -16,6 +16,70 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M210 — fuenf Meldungen zu Build `1a0bb61`, alle im PART. Drei sind
+> behoben, zwei ausdruecklich NICHT — siehe unten.**
+>
+> **1. „When i select extrude the solid is invisible suddenly."** Beim
+> Bearbeiten eines Features wird DIESES Feature ausgeblendet, und bei einem
+> Boolean der ganze Koerper, in den hinein gejoint/geschnitten wird — weil die
+> VORSCHAU das kombinierte Ergebnis zeigt und beides zu zeichnen die Form
+> verdoppelt. Richtig, solange es eine Vorschau GIBT. Aus dem Log:
+>
+> ```
+> feature: FAIL Extrusion5 ... err=the termination face is not reachable
+> reality: setScene #98: 0 solid(s) —
+> ```
+>
+> Die Flaechenreferenz des „bis Flaeche"-Extents hat das Wieder-Oeffnen nicht
+> ueberlebt, die Vorschau war null — und der Koerper, fuer den sie einstehen
+> sollte, blieb trotzdem versteckt. Es wurde gar nichts mehr gezeichnet. Die
+> Regel stand drei Zeilen tiefer schon da (Slice Graphics: „a failed slice must
+> never make the part vanish"), sie war nur nicht auf die zwei Vorschauen
+> angewandt. **Nichts zum Einstehen heisst nichts zum Verstecken.**
+>
+> **2. „The cross and the cancel button in the dialog dont work."**
+> `cancelExtrude()` hat als einzige der Cancel-Methoden nicht
+> `notifyListeners()` gerufen. Esc funktionierte, weil `escape3D` selbst
+> benachrichtigt; die beiden Knoepfe im Panel aenderten den Zustand und liessen
+> das Panel stehen.
+>
+> **3. „When a tool is in use the cancel button in the toolbar should be
+> there."** Das OK/Cancel-Paar der Schnellwerkzeug-Leiste erschien nur, wenn
+> eine SKIZZE offen ist („ein Knopf, der nie leuchten kann, luegt ueber die
+> Leiste" — richtig fuer ein leeres Part, falsch fuer eines mit offenem
+> Extrude-Panel). Jetzt auch bei laufendem 3D-Befehl, und Cancel ist dort Esc
+> (`escape3D`, das die Reihenfolge schon kennt: ein Pick steigt aus dem Pick
+> aus, nicht aus dem Panel).
+>
+> **4. „When a tool is selected like extrude, when i click again on the tool it
+> should be deselected."** Die Part-Ribbon-Knoepfe oeffneten nur. Jetzt
+> schalten sie um — derselbe Befehl zweimal schliesst ihn. Ein ANDERER Befehl
+> wechselt (Extrude → Revolve), und ein „Feature bearbeiten" aus dem Browser
+> ist nie ein Umschalten. Der Extrude-Knopf leuchtet dazu nur noch fuer
+> `kind == 'extrude'`, sonst haette er beim Revolve das Falsche ausgeschaltet.
+>
+> **NICHT behoben, mit Begruendung:**
+>
+> * **„I cant select the inner circle to also extrude somehow."** Die
+>   Regionen-Zerlegung ist nachweislich richtig: zwei verschachtelte Kreise
+>   ergeben ZWEI waehlbare Regionen (Ring und Scheibe), `regionAt` liefert an
+>   (0,0) die Scheibe, und `resolveProfiles` macht daraus zwei Gruppen, die
+>   OCCT verschmilzt. Der Fehler liegt also im Weg vom Tipp zur Region — und
+>   den habe ich nicht eingegrenzt. Das Log zeigt, dass der Benutzer zu dem
+>   Zeitpunkt in Sketch7 (2D-Overlay ueber dem Part) war; dort faengt
+>   Viewport2D die Tipps ab und weiss nichts von Profil-Picks. Das ist eine
+>   VERMUTUNG, kein Befund, und deshalb ist hier nichts geaendert.
+> * **„When i slice graphics there are triangles visible ... different parts
+>   should have different schraffur, like in iso norm."** Zwei Dinge: ein
+>   Render-Fehler in der Schnittdarstellung und eine echte neue Funktion
+>   (ISO-Schraffuren pro Koerper). Beides braucht mehr als eine gezielte
+>   Korrektur.
+>
+> **Ehrlicher Stand:** 10 neue Tests (`m210_part_commands` 9, plus einer in
+> `reality_scene_test` fuer die neue Sichtbarkeitsregel; ein bestehender dort
+> wurde auf den neuen Kontrakt gezogen). Suite **1550 gruen**, analyze 50
+> Issues / 0 Errors = Ausgangsstand. **Am Geraet nicht nachgeprueft.**
+
 > **M209 — drei Meldungen zu Build `96c3761`. Die Pick-Reihenfolge von Bogen
 > und Langloch ist bereits erledigt und steht hier nicht.**
 >

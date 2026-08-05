@@ -4128,6 +4128,7 @@ class AppState extends ChangeNotifier {
   void openChamfer([ChamferFeature? edit]) => _openEdgeFeature('chamfer', edit);
 
   void _openEdgeFeature(String kind, BodyModifyFeature? edit) {
+    if (_toggles3DOff(kind, edit)) return; // M210
     if (currentPart == null) return;
     cancelExtrude();
     final s = EdgeFeatureSession(kind, editing: edit);
@@ -4402,7 +4403,8 @@ class AppState extends ChangeNotifier {
   /// M137 — Revolve. Shares the extrude session and panel; [kind] switches
   /// Distance for Angle, Taper for the axis, and adds Full.
   void openRevolve([RevolveFeature? edit]) {
-    openExtrude();
+    if (_toggles3DOff('revolve', edit)) return; // M210
+    _openExtrudeCore();
     final s = extrudeSession;
     if (s == null) return;
     s.kind = 'revolve';
@@ -4439,7 +4441,8 @@ class AppState extends ChangeNotifier {
   /// Shared opener for the three M131b panels. Each seeds only what its own
   /// kind needs; everything else is the extrude session's defaults.
   void _openSketchFeature(String kind, PartFeature? edit) {
-    openExtrude();
+    if (_toggles3DOff(kind, edit)) return; // M210
+    _openExtrudeCore();
     final s = extrudeSession;
     if (s == null) return;
     s.kind = kind;
@@ -4700,7 +4703,40 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// M210 — pressing the button of the command that is ALREADY open closes it.
+  ///
+  /// "Same as in 2D: when a tool is selected like extrude, when i click again
+  /// on the tool it should be deselected." The sketch tools have always
+  /// toggled; the part ribbon's buttons only ever opened, so the highlight
+  /// said "armed" and there was no way to disarm from the same place.
+  ///
+  /// Opening a command to EDIT an existing feature is never a toggle (the
+  /// browser sends that, not the button), and switching from one command to
+  /// another is not either — only the same kind, twice.
+  bool _toggles3DOff(String kind, Object? edit) {
+    if (edit != null) return false;
+    final ex = extrudeSession;
+    if (ex != null && ex.editing == null && ex.kind == kind) {
+      cancelExtrude();
+      return true;
+    }
+    final eg = edgeSession;
+    if (eg != null && eg.editing == null && eg.kind == kind) {
+      cancelEdgeFeature();
+      return true;
+    }
+    return false;
+  }
+
   void openExtrude([ExtrudeFeature? edit]) {
+    if (_toggles3DOff('extrude', edit)) return;
+    _openExtrudeCore(edit);
+  }
+
+  /// The opener without the toggle, for the panels that BUILD on the extrude
+  /// session (revolve, sweep, loft, coil): they run their own toggle first and
+  /// must not be closed by this one on the way in.
+  void _openExtrudeCore([ExtrudeFeature? edit]) {
     final p = currentPart;
     if (p == null) return;
     if (p.childSketches.isEmpty) {
@@ -5325,6 +5361,12 @@ class AppState extends ChangeNotifier {
     pickingLoftSections = false;
     pickingRevolveAxis = false;
     hoverBody = null;
+    // M210 — and SAY SO. Every sibling cancel notifies; this one did not, so
+    // the only caller that repainted was Esc (escape3D notifies for it). The
+    // panel's own ✕ and Cancel changed the state and left the panel on
+    // screen, which is exactly "the cross and the cancel button in the dialog
+    // dont work".
+    notifyListeners();
   }
 
   /// Esc in the 3D viewport: session first, then an armed plane pick.
@@ -5344,8 +5386,7 @@ class AppState extends ChangeNotifier {
     } else if (pickingBody) {
       cancelPickBody();
     } else if (extrudeSession != null) {
-      cancelExtrude();
-      notifyListeners();
+      cancelExtrude(); // notifies for itself now (M210)
     } else if (pickPlane) {
       cancelPlanePick();
     }
