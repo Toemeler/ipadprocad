@@ -90,6 +90,11 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     private var eopStartY: CGFloat?
     private var eopStartIndex: Int?
 
+    /// M199 — the glass slab itself, kept so it can be taken away. Retracted,
+    /// the panel is a column of icons over the model and a frosted plate
+    /// behind them is just something else covering the drawing.
+    private var glassView: UIVisualEffectView?
+
     init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
             name: "prototype/glass_browser/\(viewId)", binaryMessenger: messenger)
@@ -110,6 +115,10 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             case "setRows":
                 let list = (call.arguments as? [[String: Any]]) ?? []
                 self.apply(list.compactMap(BrowserRow.init))
+                result(nil)
+            case "setGlass":
+                let on = (call.arguments as? NSNumber)?.boolValue ?? true
+                self.glassView?.isHidden = !on
                 result(nil)
             default:
                 result(FlutterMethodNotImplemented)
@@ -151,6 +160,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         ev.layer.cornerCurve = .continuous
         ev.clipsToBounds = true
         container.addSubview(ev)
+        glassView = ev
         let i = GlassBrowserView.inset
         NSLayoutConstraint.activate([
             ev.leadingAnchor.constraint(

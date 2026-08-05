@@ -111,6 +111,11 @@ class GlassBrowser extends StatefulWidget {
   final void Function(int steps) onEopDrag;
   final VoidCallback onEopEnd;
 
+  /// M199 — draw the glass slab behind the rows. False leaves the panel
+  /// TRANSPARENT: retracted, it is a column of icons over the model, and a
+  /// frosted plate behind them is one more thing covering the drawing.
+  final bool glass;
+
   const GlassBrowser({
     super.key,
     required this.rows,
@@ -120,6 +125,7 @@ class GlassBrowser extends StatefulWidget {
     required this.onMenu,
     required this.onEopDrag,
     required this.onEopEnd,
+    this.glass = true,
   });
 
   static bool get isSupported => !kIsWeb && Platform.isIOS;
@@ -131,6 +137,7 @@ class GlassBrowser extends StatefulWidget {
 class _GlassBrowserState extends State<GlassBrowser> {
   MethodChannel? _ch;
   String? _lastPushed;
+  bool? _lastGlass;
 
   void _onCreated(int id) {
     final ch = MethodChannel('prototype/glass_browser/$id');
@@ -160,6 +167,7 @@ class _GlassBrowserState extends State<GlassBrowser> {
       return null;
     });
     _push(force: true);
+    _pushGlass(force: true);
   }
 
   /// Pushes only when the model actually changed — this runs on every rebuild
@@ -175,10 +183,19 @@ class _GlassBrowserState extends State<GlassBrowser> {
     ch.invokeMethod('setRows', payload).catchError((_) {});
   }
 
+  void _pushGlass({bool force = false}) {
+    final ch = _ch;
+    if (ch == null) return;
+    if (!force && _lastGlass == widget.glass) return;
+    _lastGlass = widget.glass;
+    ch.invokeMethod('setGlass', widget.glass).catchError((_) {});
+  }
+
   @override
   void didUpdateWidget(covariant GlassBrowser old) {
     super.didUpdateWidget(old);
     _push();
+    _pushGlass();
   }
 
   @override

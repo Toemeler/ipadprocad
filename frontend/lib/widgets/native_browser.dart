@@ -44,7 +44,7 @@ List<GlassRow> buildBrowserRows(
   // the same thing at either width.
   if (collapsed) {
     final part = app.activeChild == null ? app.currentPart : null;
-    if (part == null) return const [];
+    if (part == null) return _collapsedSketchRows(app);
     final rows = <GlassRow>[];
     final timeline = partTimeline(part);
     final eop = (dragEop ?? part.eopAfter).clamp(0, timeline.length);
@@ -282,6 +282,43 @@ List<GlassRow> buildBrowserRows(
   return rows;
 }
 
+/// M199 — the retracted browser INSIDE a sketch.
+///
+/// "when the Modell browser is retracted i still want to see all icons from it
+/// so layer and end of sketch". It used to return nothing at all: the collapse
+/// path only knew how to draw a PART timeline, and inside a sketch there is no
+/// part — so retracting the panel while sketching, which is most of the time,
+/// left a blank strip.
+///
+/// The layer stack IS the sketch's timeline, so it collapses the same way the
+/// part timeline does: one glyph per row, the End of Sketch marker in its
+/// place, every id unchanged so a tap does the same thing at either width.
+List<GlassRow> _collapsedSketchRows(AppState app) {
+  final s = app.current;
+  if (s == null) return const [];
+  final rows = <GlassRow>[];
+  final eos = s.eosAfter.clamp(0, s.layers.length);
+  for (var i = 0; i < s.layers.length; i++) {
+    if (i == eos) rows.add(_eosRow(compact: true));
+    final layer = s.layers[i];
+    final on = !s.hiddenLayers.contains(layer);
+    rows.add(GlassRow(
+      id: '$kIdLayer$layer',
+      label: '',
+      symbol: 'square.3.layers.3d',
+      // No eye at 78 pt wide — the compact part rows drop theirs for the same
+      // reason. A hidden layer still reads as hidden, because it is dimmed.
+      dim: !on || i >= eos,
+      // Which layer you are editing is the one thing you cannot recover by
+      // looking at the canvas, so it survives the collapse.
+      selected: layer == app.editingLayer,
+      menu: _layerMenu(),
+    ));
+  }
+  if (s.eosAfter >= s.layers.length) rows.add(_eosRow(compact: true));
+  return rows;
+}
+
 GlassRow _eopRow({bool compact = false}) => GlassRow(
       id: kIdEop,
       label: compact ? '' : 'End of Part',
@@ -306,13 +343,13 @@ GlassRow _eopRow({bool compact = false}) => GlassRow(
       ],
     );
 
-GlassRow _eosRow() => const GlassRow(
+GlassRow _eosRow({bool compact = false}) => GlassRow(
       id: kIdEos,
-      label: 'End of Sketch',
+      label: compact ? '' : 'End of Sketch',
       symbol: 'xmark.circle.fill',
       tint: 'red',
-      depth: 1,
-      menu: [
+      depth: compact ? 0 : 1,
+      menu: const [
         [
           GlassMenuItem(
               id: 'eostop', title: 'Move to Top', symbol: 'arrow.up.to.line'),

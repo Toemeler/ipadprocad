@@ -99,6 +99,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           bottom: 0,
           right: _kHandle,
         child: GlassBrowser(
+          // M199 — retracted, the panel is icons over the model and nothing
+          // else: the glass goes with the labels.
+          glass: !_collapsed,
           rows: buildBrowserRows(app,
               expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
           onTap: _onTap,
