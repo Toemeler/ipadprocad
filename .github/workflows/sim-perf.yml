@@ -392,11 +392,35 @@ jobs:
           APP="build/ios/iphonesimulator/Runner.app"
           [ -d "$APP" ] || { echo "SIM BUILD: FAIL (Runner.app missing)"; exit 1; }
           lipo -info "$APP/Runner" || true
-          # Same linkage proof m5 uses: the C-API version literal survives
-          # stripping, so finding it means the core really is in the binary.
-          HITS="$(strings "$APP/Runner" | grep -c "Prototype C-API" || true)"
-          if [ "${HITS:-0}" -gt 0 ]; then
-            echo "SIM LINK CHECK: PASS ($HITS marker hits)"
+          # LINKAGE PROOF — by SYMBOL, not by string literal.
+          #
+          # m5 greps the binary for the "Prototype C-API" literal and that
+          # works for its release/device build. It does NOT work here, and run
+          # 5 proved why by elimination: the archives are all x86_64, the
+          # marker IS inside libprototype-sim.a, the member objects carry
+          # platform 7 / sdk 26.5, ld emitted no "ignoring file" warning, and
+          # Xcode resolved OTHER_LDFLAGS with all three -force_load flags and
+          # every OCCT archive intact. The link was never the problem — the
+          # assertion was. macOS `strings` does not scan a whole Mach-O by
+          # default, and a debug simulator binary lays its sections out
+          # differently from the release device binary m5 checks.
+          #
+          # `nm` asks the question we actually mean: are the C-API entry points
+          # in this binary? The exported_symbols_list keeps _qcad_*/_slvs_*/
+          # _occt_* in the export trie precisely so Dart's
+          # DynamicLibrary.process() can dlsym them, so their absence here
+          # would be the real failure — and unlike a string, a symbol cannot
+          # be present for a decorative reason.
+          QCAD_N="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _qcad_' || true)"
+          OCCT_N="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _occt_' || true)"
+          SLVS_N="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _slvs_' || true)"
+          echo "exported symbols: qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N"
+          # Belt and braces: -a makes strings scan the entire file, which is
+          # what the m5-style check should have said all along.
+          HITS="$(strings -a "$APP/Runner" | grep -c "Prototype C-API" || true)"
+          echo "marker hits (strings -a): $HITS"
+          if [ "${QCAD_N:-0}" -gt 0 ] && [ "${OCCT_N:-0}" -gt 0 ] && [ "${SLVS_N:-0}" -gt 0 ]; then
+            echo "SIM LINK CHECK: PASS (qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N exported)"
             exit 0
           fi
           # ---- the check failed: DIAGNOSE, do not just die -----------------
