@@ -181,6 +181,11 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       // commit) — never one polyline (M34).
       if (p.length < 2) return null;
       final a = p[0], b = p[1];
+      // M203 — a box with no width or no height is not a rectangle, it is two
+      // pairs of stacked lines, two of them zero-length. The device session
+      // made one from a 20 ms tap bounce and it poisoned the sketch. Refusing
+      // here also stops the PREVIEW from showing a shape the commit rejects.
+      if ((b.dx - a.dx).abs() < 1e-9 || (b.dy - a.dy).abs() < 1e-9) return null;
       return _rectLines([a, Offset(b.dx, a.dy), b, Offset(a.dx, b.dy)]);
     case Tool.rect3P:
       // corner A, corner B (first edge), extent C
@@ -189,6 +194,7 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
     case Tool.rect2PC:
       if (p.length < 2) return null;
       final d = p[1] - p[0];
+      if (d.dx.abs() < 1e-9 || d.dy.abs() < 1e-9) return null; // M203
       final c2p = [
         p[0] - d,
         p[0] + Offset(d.dx, -d.dy),

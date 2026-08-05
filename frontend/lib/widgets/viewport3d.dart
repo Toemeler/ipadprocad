@@ -599,7 +599,8 @@ class _Viewport3DState extends State<Viewport3D>
           Positioned(
             left: 0,
             right: 0,
-            bottom: 44,
+            // M203 — above the floating tab bar, not behind it.
+            bottom: 44 + BottomTabBar.floatingHeight,
             child: Center(
               child: Container(
                 padding:

@@ -10449,12 +10449,30 @@ class AppState extends ChangeNotifier {
                   'and it will look like nothing happened: ${geoStr(i, g)}');
         }
       }
+      // M203 — and REFUSE it, rather than logging and committing anyway.
+      //
+      // The device session shows what "committing as drawn" costs. Two
+      // rectangle clicks 20 ms apart at the same y (a tap bounce, not a
+      // drawn shape) produced a rectangle with two ZERO-LENGTH sides; the
+      // log even says "construction auto-constraints unsatisfied ...
+      // committing as drawn WITHOUT them". From that moment the sketch was
+      // poisoned: every later drag reported "frame solve unsatisfied" and
+      // every new constraint came back "cannot be satisfied", because both
+      // gates ask whether the WHOLE sketch is degenerate.
+      //
+      // Nothing is lost by refusing: the geometry could not be drawn, picked
+      // or solved anyway. The tool stays armed, so the next click just works.
       if (hasDegenerateGeometry(placed)) {
         Log.w(
             'layer',
             'tool $tool produced DEGENERATE geometry (zero-length line, '
-                'zero-radius/zero-sweep arc) — it will not draw: '
+                'zero-radius/zero-sweep arc) — REFUSED: '
                 '${placed.asMap().entries.map((e) => geoStr(e.key, e.value)).join('; ')}');
+        toast('That shape has no size — draw it again.');
+        toolPoints.clear();
+        _hudResetAll();
+        notifyListeners();
+        return;
       }
       final gs = List<Geo>.from(s.geometry)..addAll(placed);
       final firstNew = s.geometry.length;
@@ -10741,6 +10759,15 @@ class AppState extends ChangeNotifier {
       } else {
         _rebuildEngine(s, gs);
       }
+    } else {
+      // M203 — a tool that built NOTHING now says so. The rect builders refuse
+      // a zero-width or zero-height box here (a 20 ms tap bounce makes one),
+      // and a silent return through this branch is indistinguishable in a
+      // report from a click that never arrived.
+      Log.i(
+          'layer',
+          'tool $tool built no geometry from ${toolPoints.length} point(s) — '
+              'nothing committed, tool stays armed');
     }
     _hudResetAll(); // per-shape HUD state does not carry into the next shape
     // CAD-style chaining for plain lines: next line starts at the endpoint

@@ -64,6 +64,12 @@ class GlassRow {
   /// the glyph, the tint, the dim state, the selection and the menu means a
   /// retracted panel does everything the wide one does, minus the words there
   /// is no room for.
+  ///
+  /// M204 — the +/- box goes too. The retracted card is 56 pt wide now, which
+  /// is 34 pt of content: a 16 pt disclosure box AND a 16 pt glyph do not both
+  /// fit, and squeezing them meant the thing you actually aim at was clipped.
+  /// Nothing is lost — tapping a folder row toggles it (the host has done that
+  /// since M121), so the box was the smaller of two targets for the same act.
   GlassRow compact() => GlassRow(
         id: id,
         label: '',
@@ -72,7 +78,7 @@ class GlassRow {
         hasEye: false,
         eyeOn: eyeOn,
         dim: dim,
-        expandable: expandable,
+        expandable: false,
         expanded: expanded,
         selected: selected,
         isEop: isEop,

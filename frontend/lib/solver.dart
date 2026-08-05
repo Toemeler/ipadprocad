@@ -1764,36 +1764,71 @@ List<double> constraintResidualsPer(List<Geo> gs, List<Constraint> cs) {
 /// of defence so a numeric mishap can never masquerade as "geometry vanished"
 /// or "geometry drawn across everything". The real fix for any given case is
 /// upstream (don't produce it); this only stops it from reaching the screen.
-bool hasDegenerateGeometry(List<Geo> gs) {
+bool hasDegenerateGeometry(List<Geo> gs) => gs.any(isDegenerateGeo);
+
+/// M203 — the same test, for ONE entity.
+///
+/// Split out because "is the whole sketch degenerate" turned out to be the
+/// wrong question. See [newlyDegenerate].
+bool isDegenerateGeo(Geo g) {
   double norm2pi(double x) {
     var v = x % (2 * math.pi);
     if (v < 0) v += 2 * math.pi;
     return v;
   }
 
-  for (final g in gs) {
-    switch (g.type) {
-      case Geo.line:
-        final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
-        if (dx * dx + dy * dy < 1e-12) return true;
-        break;
-      case Geo.circle:
-        if (!(g.data[2] > 1e-9)) return true;
-        break;
-      case Geo.arc:
-        if (!(g.data[2] > 1e-9)) return true;
-        final rev = g.data.length > 5 && g.data[5] != 0;
-        final sweep =
-            rev ? norm2pi(g.data[3] - g.data[4]) : norm2pi(g.data[4] - g.data[3]);
-        // a true full circle is stored as a circle, so a ~0 or ~2π sweep on an
-        // arc means the solve collapsed it
-        if (sweep < 1e-6 || sweep > 2 * math.pi - 1e-6) return true;
-        break;
-      case Geo.polyline:
-        break; // a collapsed segment is caught when it is used as a line
-    }
+  switch (g.type) {
+    case Geo.line:
+      final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
+      if (dx * dx + dy * dy < 1e-12) return true;
+      break;
+    case Geo.circle:
+      if (!(g.data[2] > 1e-9)) return true;
+      break;
+    case Geo.arc:
+      if (!(g.data[2] > 1e-9)) return true;
+      final rev = g.data.length > 5 && g.data[5] != 0;
+      final sweep =
+          rev ? norm2pi(g.data[3] - g.data[4]) : norm2pi(g.data[4] - g.data[3]);
+      // a true full circle is stored as a circle, so a ~0 or ~2π sweep on an
+      // arc means the solve collapsed it
+      if (sweep < 1e-6 || sweep > 2 * math.pi - 1e-6) return true;
+      break;
+    case Geo.polyline:
+      break; // a collapsed segment is caught when it is used as a line
   }
   return false;
+}
+
+/// M203 — entities the SOLVE made degenerate: fine before, collapsed now.
+///
+/// "i cant drag around any point. it seems stuck somehow and buggy." The
+/// device sketch held a rectangle with two ZERO-LENGTH sides, made by a 20 ms
+/// tap bounce. Every drag frame after that logged "frame solve unsatisfied —
+/// holding last good geometry" with a residual of 3.66e-9: the constraints
+/// were satisfied to nine decimals and the solve was refused anyway, because
+/// the gate asked whether the WHOLE sketch contained a degenerate entity. The
+/// same gate rejected every new constraint as "cannot be satisfied".
+///
+/// So one bad shape froze the document, and nothing the user could do inside
+/// it would thaw it — every repair is itself a solve.
+///
+/// The question is not "is anything degenerate" but "did this solve BREAK
+/// something", which is the same continuity rule the branch-flip guard uses:
+/// compare with the state the solve started from. M203 also stops such a shape
+/// from being committed in the first place; this is what makes the sketches
+/// that already contain one workable again.
+List<int> newlyDegenerate(List<Geo> before, List<Geo> after) {
+  final out = <int>[];
+  for (var i = 0; i < after.length; i++) {
+    if (!isDegenerateGeo(after[i])) continue;
+    // Beyond the snapshot (an entity that was ADDED), or already broken before
+    // the solve started: either way this solve is not what broke it.
+    if (i >= before.length) continue;
+    if (isDegenerateGeo(before[i])) continue;
+    out.add(i);
+  }
+  return out;
 }
 
 
@@ -2081,7 +2116,14 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
   // decides whether to keep it. The geometry is left at the solver's best
   // effort so a caller that wants best-effort can still use it.
   final resid = constraintResidualNorm(gs, cs);
-  final ok = resid <= _renderable && !hasDegenerateGeometry(gs);
+  // M203 — only degeneracy this solve CAUSED counts. A sketch that already
+  // contains a collapsed entity must stay draggable and constrainable, or one
+  // bad shape freezes the document for good.
+  final broke = newlyDegenerate(snapshot, gs);
+  final ok = resid <= _renderable && broke.isEmpty;
+  if (broke.isNotEmpty && chatty) {
+    Log.d('solve', 'collapsed by this solve: ${broke.join(",")}');
+  }
   if (chatty) {
     Log.d(
         'solve',

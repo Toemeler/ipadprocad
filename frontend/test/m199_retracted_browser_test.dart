@@ -60,7 +60,7 @@ void main() {
     expect(rows.map((r) => r.id), contains(kIdEos));
   });
 
-  test('icons only — no labels at 78 pt wide', () {
+  test('icons only — no labels at 56 pt wide', () {
     final rows = collapsed(insideSketch(layers: 3));
     for (final r in rows) {
       expect(r.label, isEmpty, reason: r.id);
@@ -133,7 +133,7 @@ void main() {
     }
   });
 
-  test('nothing is indented and nothing carries an eye at 78 pt', () {
+  test('nothing is indented and nothing carries an eye at 56 pt', () {
     final app = insideSketch()..activeChild = null;
     for (final r in collapsed(app)) {
       expect(r.depth, 0, reason: '${r.id} — the glyph column must stay straight');

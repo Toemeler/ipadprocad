@@ -275,17 +275,6 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // panel); centring it keeps the column of glyphs straight instead
             // of hugging the left edge where the text used to start.
             c.imageToTextPadding = r.label.isEmpty ? 0 : 6
-            if r.label.isEmpty {
-                // M121 — retracted rows: a slim, symmetric margin so the glyph
-                // column is centred and never clipped against the panel edge.
-                // 12 pt of leading on a ~50 pt wide content area pushed the
-                // 16 pt symbol into the trailing edge.
-                c.directionalLayoutMargins = NSDirectionalEdgeInsets(
-                    top: 5, leading: 4, bottom: 5, trailing: 4)
-                c.imageProperties.reservedLayoutSize =
-                    CGSize(width: 20, height: 20)
-                c.imageProperties.maximumSize = CGSize(width: 18, height: 18)
-            }
             // Dark trait is pinned on the container, so .label is the light
             // text the rest of the app uses; dim rows drop to secondary rather
             // than tertiary, which was too faint to read on glass.
@@ -295,6 +284,23 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)
             c.imageProperties.reservedLayoutSize = CGSize(width: 16, height: 16)
             c.imageProperties.maximumSize = CGSize(width: 16, height: 16)
+            // M204 — the retracted metrics come AFTER the shared ones.
+            //
+            // M121 wrote them first and the two unconditional lines above then
+            // overwrote reservedLayoutSize and maximumSize, so the retracted
+            // sizing has never once taken effect. Same values it always meant
+            // to set, in the order that makes them stick.
+            if r.label.isEmpty {
+                // Retracted rows: a slim, symmetric margin so the glyph column
+                // is centred and never clipped against the panel edge. 12 pt of
+                // leading on a ~34 pt wide content area pushed the 16 pt symbol
+                // into the trailing edge.
+                c.directionalLayoutMargins = NSDirectionalEdgeInsets(
+                    top: 5, leading: 4, bottom: 5, trailing: 4)
+                c.imageProperties.reservedLayoutSize =
+                    CGSize(width: 20, height: 20)
+                c.imageProperties.maximumSize = CGSize(width: 18, height: 18)
+            }
             switch r.tint {
             case "blue": c.imageProperties.tintColor = .systemBlue
             case "red": c.imageProperties.tintColor = .systemRed

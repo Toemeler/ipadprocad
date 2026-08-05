@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../log.dart';
 import '../part_model.dart';
 import 'model_browser.dart';
 import 'native_browser.dart';
@@ -44,7 +45,14 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// only ~34 pt of content and the 16 pt glyphs were clipped against the
   /// cell's own leading margin. 78 gives the icon column real room while still
   /// reading as "retracted".
-  static const double _kNarrow = 78;
+  ///
+  /// M204 — 78 -> 56. "the expand arrow is too much to the right." Since M199
+  /// took the glass away there is nothing behind the retracted panel: what is
+  /// left is a 16 pt glyph column, and 78 pt of it was 40 pt of empty air with
+  /// the chevron parked out past all of it. 14 of card inset + 16 of glyph
+  /// leaves the strip sitting just clear of the icons, which is where the eye
+  /// looks for it. The wide panel is untouched.
+  static const double _kNarrow = 56;
 
   /// M119 — the chevron lives OUTSIDE the glass, in a strip beside it, and
   /// only shows when the pointer is near the panel. A handle permanently
@@ -82,7 +90,26 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         child: AnimatedContainer(
         // M118 — retracts to the timeline icons. Animated so the panel reads
         // as one object sliding, not two states swapping.
-        duration: const Duration(milliseconds: 220),
+        //
+        // M204 — THE SLIDE IS GONE. "when its retracted i cant use the icons",
+        // and bug20260805T131020 has not one browser event in it: the panel
+        // draws, the icons are there, and no touch reaches Dart.
+        //
+        // The card is a UiKitView. Resizing one is not a layout change on the
+        // Dart side — RenderUiKitView hands the new size to the platform view
+        // controller and AWAITS the native resize, and the widget keeps
+        // reporting the old geometry until that returns. Animating the width
+        // fires that round trip on every frame of a 220 ms curve, so a dozen
+        // resizes are in flight at once and the last one to land wins, which
+        // need not be the last one sent. Flutter still paints the view's
+        // texture at the widget's size, so a stale native frame is invisible:
+        // you see icons where the touch interceptor no longer is, and the taps
+        // go nowhere.
+        //
+        // One state change, one resize, no race. The cost is that the panel
+        // snaps rather than slides — a fair trade for a panel you can press.
+        // (The chevron still rotates; that is Flutter's own layer.)
+        duration: Duration.zero,
         curve: Curves.easeOutCubic,
         // The strip is part of the widget's width so the handle sits BESIDE
         // the card, never over it.
@@ -107,6 +134,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           onTap: _onTap,
           onEye: _onEye,
           onExpand: (id, on) => setState(() {
+            Log.i('browser', 'expand $id on=$on');
             if (on) {
               _expanded.add(id);
             } else {
@@ -159,6 +187,14 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   // -- events ---------------------------------------------------------------
 
   void _onTap(String id) {
+    // M204 — every native browser event is logged from here on.
+    //
+    // "when its retracted i cant use the icons" could not be answered from the
+    // report: nothing in this panel wrote a line, so an empty log was equally
+    // consistent with "the touch never arrived" and with "it arrived and the
+    // handler did nothing". One line per event settles that next time, and it
+    // is one line per deliberate tap, not per frame.
+    Log.i('browser', 'tap $id (collapsed=$_collapsed)');
     final part = app.currentPart;
     // M121 — tapping a FOLDER row toggles it, not just its little chevron.
     // The chevron is a 20 pt target on a 264 pt row; every file browser on
@@ -205,6 +241,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   }
 
   void _onEye(String id) {
+    Log.i('browser', 'eye $id');
     final part = app.currentPart;
     if (id.startsWith(kIdLayer)) {
       app.toggleLayerVisible(id.substring(kIdLayer.length));
@@ -237,6 +274,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   }
 
   Future<void> _onMenu(String id, String item) async {
+    Log.i('browser', 'menu $id -> $item');
     final part = app.currentPart;
     if (id == kIdEop && part != null) {
       switch (item) {

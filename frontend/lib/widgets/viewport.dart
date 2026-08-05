@@ -35,6 +35,7 @@ import '../theme.dart';
 import 'scrub_field.dart';
 import 'ribbon_chrome.dart';
 import '../touch.dart';
+import 'bottom_tabbar.dart';
 import 'pattern_dialog.dart';
 import 'quick_tools.dart';
 import 'parameters_dialog.dart';
@@ -2646,8 +2647,15 @@ class _ViewportPainter extends CustomPainter {
               style: const TextStyle(fontSize: 12, color: Color(0xFFF2D6A2))),
           textDirection: TextDirection.ltr)
         ..layout(maxWidth: size.width - 60);
-      final box = Rect.fromLTWH((size.width - tp.width) / 2 - 12,
-          size.height - tp.height - 44, tp.width + 24, tp.height + 12);
+      // M203 — clear of the floating tab bar. At a flat 44 the notice sat
+      // UNDER it: "the error was under the bottom bar and I couldn't see and
+      // read it". The bar's height is not a constant here — it is zero off
+      // iOS, where nothing floats — so it is asked for rather than guessed.
+      final box = Rect.fromLTWH(
+          (size.width - tp.width) / 2 - 12,
+          size.height - tp.height - 44 - BottomTabBar.floatingHeight,
+          tp.width + 24,
+          tp.height + 12);
       canvas.drawRRect(RRect.fromRectAndRadius(box, const Radius.circular(4)),
           Paint()..color = const Color(0xE6402F1F));
       canvas.drawRRect(
