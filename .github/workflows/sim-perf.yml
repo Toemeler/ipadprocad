@@ -231,9 +231,16 @@ jobs:
       # different architecture slice than the device tree in m5, so the two can
       # never be shared. Cold build is the expensive one (~40-60 min); after
       # that this restores in seconds. Bump -r1 when the flags change.
-      - name: Cache OpenCASCADE simulator install tree
+      # RESTORE and SAVE are split on purpose. `actions/cache` declares
+      # `post-if: success()`, so it only writes the cache when the whole job
+      # succeeds — and this job has failed at the link check every time. The
+      # result was that the ~35-minute OCCT build ran on EVERY attempt and
+      # nothing was ever stored, which made each diagnostic round cost forty
+      # minutes instead of five. An explicit save with `if: always()` keeps the
+      # expensive tree even when a later step fails.
+      - name: Restore OpenCASCADE simulator install tree
         id: occt-sim-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: backend/occt/install-sim
           key: occt-sim-x86_64-V7_9_3-r1
@@ -272,6 +279,14 @@ jobs:
             2>&1 | tail -25
           cmake --build build-occt-sim -j 2>&1 | tail -25
           cmake --install build-occt-sim > /dev/null
+
+      # Immediately after the build, before anything else can fail.
+      - name: Save OpenCASCADE simulator install tree
+        if: always() && steps.occt-sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: backend/occt/install-sim
+          key: occt-sim-x86_64-V7_9_3-r1
 
       - name: Build OCCT C shim (simulator, x86_64)
         working-directory: backend/occt
@@ -433,6 +448,26 @@ jobs:
           # reached the log. Everything below exists to put it there, because a
           # second guess costs another 40-minute round trip.
           echo "SIM LINK CHECK: FAIL (qcad core not linked) — diagnostics follow"
+          # THE DISCRIMINATOR, added after run 6. `nm -gU` lists only EXPORTED
+          # symbols; `nm -a` lists every symbol including local ones. That
+          # difference separates the two remaining explanations, which need
+          # opposite fixes:
+          #   local symbols present, exported absent -> the archives ARE being
+          #     linked and -exported_symbols_list is what is dropping them.
+          #   nothing at all                          -> -force_load never ran;
+          #     the flags reach `xcodebuild -showBuildSettings` but not the
+          #     actual link, i.e. something overrides OTHER_LDFLAGS at target
+          #     level (the trap m5 documents for IPHONEOS_DEPLOYMENT_TARGET).
+          echo "== 0. ALL symbols (nm -a), not just exported =="
+          echo "  total symbols:  $(nm -a "$APP/Runner" 2>/dev/null | wc -l)"
+          echo "  any occt_:      $(nm -a "$APP/Runner" 2>/dev/null | grep -c occt_ || true)"
+          echo "  any qcad_:      $(nm -a "$APP/Runner" 2>/dev/null | grep -c qcad_ || true)"
+          echo "  any OCCT C++:   $(nm -a "$APP/Runner" 2>/dev/null | grep -c 'BRepBuilderAPI\|TopoDS\|Standard_' || true)"
+          echo "== 0b. is our include still in Debug.xcconfig at build time? =="
+          cat ios/Flutter/Debug.xcconfig || true
+          echo "== 0c. does the TARGET override OTHER_LDFLAGS in the pbxproj? =="
+          grep -n "OTHER_LDFLAGS" ios/Runner.xcodeproj/project.pbxproj || \
+            echo "(no target-level OTHER_LDFLAGS — the xcconfig should win)"
           echo "== 1. do the archives exist, and for which architecture? =="
           for a in "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" \
                    "$GITHUB_WORKSPACE/backend/slvs/build-sim/libslvs.a" \
