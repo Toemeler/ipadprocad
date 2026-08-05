@@ -3375,7 +3375,7 @@ class AppState extends ChangeNotifier {
     // Face the plane from the side the camera is already on, exactly as a
     // sketch on a solid face does — the model must not flip around behind you
     // when the editor opens.
-    orientToSurface(p, w.frame.n);
+    orientToSurface(p, w.frame);
     final sk = SketchModel(p.nextSketchName());
     // M167 — a sketch on a work plane carries that plane's FRAME, the same way
     // a sketch on a solid face carries the face's. `sketchFrameOf` prefers the
@@ -3395,8 +3395,8 @@ class AppState extends ChangeNotifier {
     startNewLayer(); // enters edit + notifies, like createNamedSketch
   }
 
-  /// Turns the part camera to look at a surface with normal [n] from the side
-  /// it is already on.
+  /// Turns the part camera to look at [fr] from the side it is already on,
+  /// with [fr]'s own u axis on screen x.
   ///
   /// A plane can be faced from either side. Taking the nearer one is what
   /// stops the model flipping around behind you when a sketch opens — the old
@@ -3404,10 +3404,14 @@ class AppState extends ChangeNotifier {
   /// n·dir < 0; the device measurement (mesh3d convention log) showed the
   /// opposite — the camera sits at +dir and a face you can see has n·dir > 0 —
   /// so -n put the camera INSIDE the solid, looking at the face from behind.
-  void orientToSurface(PartModel p, Vec3 n) {
-    final camBefore = p.camera.dir;
-    final dot = n.dot(camBefore);
-    p.camera.orientToDir(dot >= 0 ? n : n * -1);
+  ///
+  /// M211 — the FRAME, not just its normal: see [PartCamera.orientToFrame].
+  /// Aiming down the normal alone left the roll wherever the orbit had it, and
+  /// the sketch camera does not have that freedom, so the model spun as the
+  /// sketch opened.
+  void orientToSurface(PartModel p, PlaneFrame fr) {
+    final dot = fr.n.dot(p.camera.dir);
+    p.camera.orientToFrame(fr, flip: dot < 0);
   }
 
   /// Browser eye on a (consumed) child sketch — Inventor's per-sketch
@@ -4007,22 +4011,24 @@ class AppState extends ChangeNotifier {
     final dot = fn.dot(camBefore);
     final chosen = dot >= 0 ? fn : fn * -1;
     // M181 — shared with the work-plane path; see orientToSurface for why the
-    // side is chosen this way.
-    orientToSurface(p, fn);
-    // DIAGNOSTIC: clicking the TOP face is reported to land on the BOTTOM
-    // view, which the arithmetic here cannot produce — both signs of fn give
-    // the top view when the camera is above. So record what actually happens:
-    // the face normal, the view direction it was compared against, the side
-    // chosen, and the camera angles that came out. If pol is ~0 (camera above)
-    // yet the screen shows the bottom, something AFTER this call is moving the
-    // camera; if pol is ~pi, the fault is right here.
+    // side is chosen this way. M211 — the whole frame goes in, so the roll
+    // lands on the frame's u and the swing into the sketch is a pure zoom.
+    orientToSurface(p, frame);
+    // The earlier diagnostic (clicking the TOP face reported as landing on the
+    // BOTTOM view) is answered: the SIDE was never wrong — pol comes out on
+    // the side the camera was already on — but the ROLL was, by as much as
+    // half a turn, and a view rolled 180° reads as the other side of the face.
+    // The line stays, with the roll now in it, because it is the only record
+    // of what the camera did at the moment a face was picked.
     String f3(double v) => v.toStringAsFixed(2);
     Log.i(
         'part',
         'face view: n=(${f3(fn.x)},${f3(fn.y)},${f3(fn.z)}) '
+        'u=(${f3(frame.u.x)},${f3(frame.u.y)},${f3(frame.u.z)}) '
         'camDir=(${f3(camBefore.x)},${f3(camBefore.y)},${f3(camBefore.z)}) '
         'dot=${f3(dot)} chose=(${f3(chosen.x)},${f3(chosen.y)},${f3(chosen.z)}) '
         '-> pol=${f3(p.camera.pol)} az=${f3(p.camera.az)} '
+        'roll=${f3(p.camera.roll)} '
         '(pol~0 = camera above/TOP, pol~3.14 = below/BOTTOM)');
     final sk = SketchModel(p.nextSketchName());
     p.appendChildSketch(ChildSketch(
@@ -4067,7 +4073,17 @@ class AppState extends ChangeNotifier {
     final cs = p?.sketchByName(name);
     if (p == null || cs == null) return;
     cancelExtrude();
-    p.camera.orientToPlane(cs.plane);
+    // M211 — a sketch on a FACE or a work plane has no origin-plane key, and
+    // `orientToPlane` answers every key it does not know with the XY target.
+    // Reopening one from the browser therefore aimed the part camera at the
+    // front view: the sketch itself looked right (the viewport swings to
+    // `forSketch` regardless), but the swing started from an unrelated
+    // orientation and Finish Sketch dropped you back into it.
+    if (cs.face != null) {
+      p.camera.orientToFrame(sketchFrameOf(cs));
+    } else {
+      p.camera.orientToPlane(cs.plane);
+    }
     activeChild = cs.model;
     sketchZoomNeedsFit = true;
     editingLayer = null;
@@ -7667,13 +7683,30 @@ class AppState extends ChangeNotifier {
     final cs = _activeChildSketch();
     if (part == null || cs == null) return const [];
     final fr = sketchFrameOf(cs);
+    // M211 — the AXES belong in the key, not just the origin. Every sketch on
+    // a face carries key 'face', and a face's origin is the plane's closest
+    // point to the world origin, so the two faces of a plate at z=0 — one
+    // n=+Z, one n=-Z — agreed on both. Switching between them reused the first
+    // one's flattened edges, which are the second one's mirrored.
     final k = StringBuffer()
       ..write(fr.key)
       ..write(fr.origin.x)
       ..write(',')
       ..write(fr.origin.y)
       ..write(',')
-      ..write(fr.origin.z);
+      ..write(fr.origin.z)
+      ..write('/')
+      ..write(fr.u.x)
+      ..write(',')
+      ..write(fr.u.y)
+      ..write(',')
+      ..write(fr.u.z)
+      ..write('/')
+      ..write(fr.n.x)
+      ..write(',')
+      ..write(fr.n.y)
+      ..write(',')
+      ..write(fr.n.z);
     for (final f in part.features) {
       k
         ..write(';')

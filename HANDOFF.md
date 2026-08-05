@@ -16,6 +16,83 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M211 — eine Meldung zu Build `1a0bb61`, zwei Fehler, eine Frage: von
+> welcher SEITE der Ebene schauen wir?**
+>
+> „i cant project the shape of the slot on the right. its on the wrong side.
+> there is no geometry. also the sketch shows the wrong side of the selected
+> face" (`bug20260805T230205`, zweimal hochgeladen, identische Bundles).
+>
+> Die Skizze lag auf der UNTERSEITE des Teils. Aus `state.txt`:
+>
+> ```
+> --- Sketch4  plane=face  visible=yes
+>     face frame: origin=(-0.0000,-0.0000,-0.0000) n=(-0.0000,-1.0000,-0.0000)
+> ```
+>
+> **1. Der projizierte Bogen lag spiegelverkehrt.** Ein Bogen ist ein Paar
+> Winkel PLUS eine Richtung, und die Richtung steckt im 3D-Parameter `t`, der
+> gegen den Uhrzeigersinn um die EIGENE Achse der Kante laeuft. Projiziert man
+> ihn auf eine Ebene, die diese Achse von hinten sieht, dreht sich der Umlauf
+> um: `t` wachsend laeuft in Skizzenkoordinaten jetzt IM Uhrzeigersinn. Sowohl
+> `ProjKind.arc` als auch `Geo.arc` heissen aber „gegen den Uhrzeigersinn von
+> a0 nach a1" — dieselben zwei Endpunkte in derselben Reihenfolge gelesen
+> ergaben also das KOMPLEMENT, den anderen Bogen desselben Kreises.
+>
+> Der Beweis steht im Log. Der Tipp auf die Langloch-Kappe findet nichts:
+>
+> ```
+> click: toolClick tool=Tool.project sketch=Sketch4 w=(18.07,6.84) picks=0
+> ui: notice: Tap geometry on another layer, or the X/Y axis.
+> ```
+>
+> Die echte Kappe geht durch (23.20, 0); die gezeichnete ging durch (8.99, 0).
+> Und was der Benutzer als naechstes tut, sagt es selbst: ein Kreis um
+> (16.10, 0.00) mit dem Rand auf **(8.99, 0.00)** — er hat auf das gezielt, was
+> da stand. Der Fix vertauscht die Endpunkte, wenn die projizierten konjugierten
+> Halbmesser negativ orientiert sind (`ax × by < 0`). Gleiche zwei Punkte,
+> andere Lesart, und das ist der Bogen, der wirklich da ist. Vollkreis und
+> Ellipse bleiben unberuehrt.
+>
+> **2. Die Ansicht drehte sich beim Oeffnen der Skizze.** `orientToDir` nimmt
+> eine RICHTUNG entgegen, kann die Kamera also nur ausrichten und sagt nichts
+> ueber den Roll — der bleibt, wo der Orbit ihn gelassen hat. Die Skizzenkamera
+> hat diese Freiheit nicht: `PartCamera.forSketch` legt Bildschirm-x auf das
+> `u` des Frames. Aus dem Log, im Moment des Flaechen-Picks:
+>
+> ```
+> part: face view: n=(-0.00,-1.00,-0.00) camDir=(-0.42,-0.76,-0.50) dot=0.76
+>       chose=(-0.00,-1.00,-0.00) -> pol=3.14 az=-3.14
+> ```
+>
+> Die SEITE war nie falsch (`pol` landet auf der Seite, auf der die Kamera schon
+> war). Der ROLL war es: Rechtsvektor der Teil-Kamera ≈ (-0.77, 0, 0.64) gegen
+> `u = (1, 0, 0)` des Frames — fast eine halbe Drehung, die der M88-Schwenk
+> dann ausgefuehrt hat. Das Modell stand verdreht da, und das Langloch, das
+> rechts gepickt wurde, lag links. Neu: `PartCamera.orientToFrame` richtet auf
+> den FRAME aus statt auf die Normale, `orientToSurface` bekommt den Frame
+> statt `frame.n`, und der Einstieg in die Skizze ist ein reiner Zoom.
+>
+> Dabei mitgenommen, gleiche Fehlerklasse, beides ohne eigene Meldung:
+>
+> * `openChildSketch` rief fuer eine Flaechen-/Arbeitsebenen-Skizze
+>   `orientToPlane('face')`, und das beantwortet jeden unbekannten Schluessel
+>   mit dem XY-Ziel. Aus dem Browser geoeffnet zielte die Teil-Kamera also auf
+>   die Vorderansicht; sichtbar wurde das erst bei „Finish Sketch".
+> * Der Cache-Schluessel von `projectableEdges()` enthielt `fr.key` und
+>   `fr.origin`, aber nicht die ACHSEN. Jede Flaechenskizze hat den Schluessel
+>   `face`, und der Ursprung einer Flaeche ist der ebenennaechste Punkt zum
+>   Weltursprung — die zwei Seiten einer Platte bei z=0 stimmen also in beidem
+>   ueberein. Der Wechsel zwischen ihnen benutzte die abgeflachten Kanten der
+>   ersten weiter, und die sind fuer die zweite gespiegelt.
+>
+> **Ehrlicher Stand:** 9 neue Tests (`m211_projected_arc_side_test`). Suite
+> **1559 gruen**, analyze 50 Issues / 0 Errors = Ausgangsstand. **Am Geraet
+> nicht nachgeprueft.**
+>
+> Weiterhin offen (aus M210, unveraendert): der Pick des inneren Kreises als
+> Profil, und Slice-Graphics-Dreiecke + ISO-Schraffur pro Koerper.
+
 > **M210 — fuenf Meldungen zu Build `1a0bb61`, alle im PART. Drei sind
 > behoben, zwei ausdruecklich NICHT — siehe unten.**
 >

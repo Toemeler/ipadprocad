@@ -545,6 +545,34 @@ class PartCamera {
     halfH = 27;
   }
 
+  /// Faces [fr] with [fr]'s own u on screen x — the same orientation
+  /// [forSketch] will use. [flip] looks from the far side instead.
+  ///
+  /// M211 — [orientToDir] takes a DIRECTION, so it can only aim the camera; it
+  /// has nothing to say about the roll and leaves it wherever the derived
+  /// basis for the current azimuth happens to put it. That is fine for a view
+  /// command, and wrong for picking a sketch plane, because the sketch camera
+  /// is not free: [forSketch] pins screen x to the frame's u. The two then
+  /// disagree by whatever the orbit left behind, and the swing into the sketch
+  /// spins the model by that angle.
+  ///
+  /// On the device (bug20260805T230205) it was half a turn. The user picked
+  /// the bottom face, n=(-0.0,-1.0,-0.0), from an orbit at az≈-2.44. At a pole
+  /// [orientToDir] keeps that azimuth and rolls to match it, giving a right
+  /// vector of ≈(-0.77, 0, 0.64); the frame's u is (1, 0, 0). The sketch
+  /// opened with the part turned around — "the sketch shows the wrong side of
+  /// the selected face" — and the slot the user had picked on the right was
+  /// now on the left.
+  ///
+  /// Orienting to the FRAME instead of to the normal makes entering a sketch a
+  /// pure zoom, which is what M88's swing was for.
+  void orientToFrame(PlaneFrame fr, {bool flip = false}) {
+    setBasis(flip ? fr.n * -1 : fr.n, fr.u);
+    ox = 0;
+    oy = 0;
+    halfH = 27;
+  }
+
   void orientToPlane(String key) {
     final (a, p) = planeCameraTarget(key);
     az = a;
@@ -5355,12 +5383,42 @@ PartEdge? analyticProjectedEdge(
         ax.dy * math.cos(t0) + by.dy * math.sin(t0));
     final s1 = c + Offset(ax.dx * math.cos(t1) + by.dx * math.sin(t1),
         ax.dy * math.cos(t1) + by.dy * math.sin(t1));
+    final e0 = math.atan2(s0.dy - c.dy, s0.dx - c.dx);
+    final e1 = math.atan2(s1.dy - c.dy, s1.dx - c.dx);
+    // M211 — WHICH WAY ROUND. An arc is a pair of angles plus a DIRECTION, and
+    // both [ProjKind.arc] and Geo.arc mean "counter-clockwise from a0 to a1".
+    // The endpoints alone do not carry that: they name two points on a circle,
+    // and the two arcs between them are both valid readings.
+    //
+    // The 3D parameter t runs counter-clockwise about the edge's OWN axis.
+    // Whether it still does after projection depends on which side of that
+    // axis the sketch plane looks from, which is exactly the sign of the
+    // projected conjugate pair's determinant: positive and the sweep survives,
+    // negative and the projection MIRRORS it, so t increasing walks clockwise
+    // in sketch coordinates. Reading a0 -> a1 counter-clockwise then traces
+    // the COMPLEMENT — the other arc of the same circle.
+    //
+    // "i cant project the shape of the slot on the right. its on the wrong
+    // side. there is no geometry." (bug20260805T230205). The sketch was on the
+    // part's BOTTOM face, n=(0,-1,0), which views the slot's cap arcs from
+    // behind their axis. Tapping the cap at sketch (18.07, 6.84) found
+    // nothing — `log.txt`: "Tap geometry on another layer, or the X/Y axis." —
+    // because the cap the picker was carrying ran from +90° counter-clockwise
+    // to -90°, through (8.99, 0), the mirror image of the real one through
+    // (23.20, 0). Note what the user did next: a circle centred (16.10, 0.00)
+    // with its rim at (8.99, 0.00). They snapped to the wrong half, because
+    // the wrong half is what was drawn.
+    //
+    // Swapping the endpoints when the projection mirrors keeps the same two
+    // points and picks the other reading, which is the arc that is really
+    // there. A full circle is unaffected, and so is an ellipse.
+    final mirrored = ax.dx * by.dy - ax.dy * by.dx < 0;
     return PartEdge(index, const [],
         kind: ProjKind.arc,
         defs: [c],
         radius: r,
-        a0: math.atan2(s0.dy - c.dy, s0.dx - c.dx),
-        a1: math.atan2(s1.dy - c.dy, s1.dx - c.dx));
+        a0: mirrored ? e1 : e0,
+        a1: mirrored ? e0 : e1);
   }
   // A partial ellipse has no grip form in this sketch model, so it stays a
   // polyline rather than being silently closed into a full ellipse.
