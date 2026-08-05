@@ -362,9 +362,32 @@ jobs:
           [ -s "$LINKCMD" ] || { echo "smoke link command not found via ninja -t commands"; exit 1; }
           QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
           echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens)"
+          # NO exported_symbols_list on the simulator build. Single-variable
+          # experiment, and the reasoning is narrow enough to be worth stating.
+          #
+          # Runs 4-8: ld runs for Runner (its warnings are in the log), emits
+          # no "ignoring file", the resolved OTHER_LDFLAGS carries all three
+          # -force_load, and the output still has 70 symbols and zero
+          # occt_/qcad_. Of everything we pass, -exported_symbols_list is the
+          # ONLY flag that can remove code that was already loaded: it hides
+          # every symbol not listed, and hidden + unreferenced is exactly what
+          # dead-stripping collects. Nothing in the app references these
+          # symbols statically — Dart resolves them at RUNTIME via
+          # DynamicLibrary.process() + dlsym — so being an export root is the
+          # only thing keeping them alive. If that list is not doing its job
+          # here, force_load loads the members and the linker drops them again,
+          # which fits every observation we have.
+          #
+          # Dropping it costs nothing on this lane: without a list ld exports
+          # all global symbols, so dlsym still finds them (a larger binary is
+          # irrelevant for a CI simulator build). If the symbols appear, that
+          # was the cause; if they do not, the cause is upstream of the link
+          # and the arm64 fallback is next.
           printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
+          echo "symbols file (written but NOT passed to ld on this lane):"
+          cat ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype-sim.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-sim/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype-sim.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-sim/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++
           IPHONEOS_DEPLOYMENT_TARGET = 14.0
           ARCHS = x86_64
           VALID_ARCHS = x86_64
@@ -495,8 +518,11 @@ jobs:
           echo "== 3b. THE REAL LINK COMMAND (xcodebuild, unfiltered) =="
           xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
             -configuration Debug -sdk iphonesimulator -arch x86_64 \
-            build 2>&1 | grep -A30 -E '^\s+Ld ' | head -60 \
-            || echo "(no Ld line captured — xcodebuild itself failed, see above)"
+            build 2>&1 | tee /tmp/xcb.log | grep -A30 -E '^\s+Ld ' | head -60 \
+            || echo "(no Ld line matched)"
+          echo "-- last 25 lines of the direct xcodebuild, so a failure of the"
+          echo "-- DIAGNOSTIC is never mistaken for a finding about the build --"
+          tail -25 /tmp/xcb.log 2>/dev/null || true
           echo "== 4. what did the linker actually say? =="
           grep -iE "ignoring file|ld: warning|was built for newer|不兼容|incompatible" \
             ../ci-sim-appbuild.log | head -40 || echo "(no linker warnings captured)"
