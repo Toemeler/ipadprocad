@@ -198,11 +198,14 @@ class FreehandSession {
   int points = kFreehandDefaultPoints;
   double smoothing = 0.35;
 
-  /// Close the curve when the two ends land near each other.
-  bool snapClosed = true;
-
-  /// Pull the two ENDPOINTS onto existing sketch points.
-  bool snapToPoints = true;
+  /// M207 — both of these were dialog toggles that defaulted to on, and the
+  /// device asked for them to stop being toggles: "close if ends meet should
+  /// be standard and snap ends to points also, and not be a toggle in the
+  /// dialog." They are what a freehand stroke means — ends that meet close the
+  /// curve, ends that land on a point belong to it — so they are constants,
+  /// and the fit window is two rows shorter.
+  static const bool snapClosed = true;
+  static const bool snapToPoints = true;
 
   FreehandSession();
 }
@@ -5714,7 +5717,37 @@ class AppState extends ChangeNotifier {
     // may ever escape this method.
     try {
       final grip = dragGrip!;
-      final gs = List<Geo>.from(s.geometry);
+      // M207 — WARM START: continue from the LAST SOLVED FRAME, not from the
+      // committed geometry.
+      //
+      // "The dragging around of those 2 slots is really jumping and buggy."
+      //
+      // Every frame used to copy `s.geometry`, move the grip to the cursor and
+      // solve from there. For one free line that is the same answer either
+      // way. For two slots it is not: they carry tangents, an equal and a
+      // point-on-curve (the auto-constraints, which are wanted — the user was
+      // explicit about that), and a system like that has SEVERAL solutions for
+      // any given cursor position. Restarting from the same fixed
+      // configuration each frame lets the solver pick a different one as the
+      // cursor moves a pixel, and the sketch flips between them. That is the
+      // jumping, and it is why it only ever showed up once two shapes were
+      // constrained to each other.
+      //
+      // Continuing from the previous frame makes each step a SMALL one from a
+      // point already on the manifold, so the solver stays on the branch it is
+      // already on — which is the branch the user is watching. The final
+      // settle in endGripDrag still runs 80 iterations from scratch, so
+      // nothing accumulates into the commit.
+      //
+      // Not for a BODY drag. That one translates the entity by
+      // (cursor - the point the finger grabbed), an ABSOLUTE anchor fixed when
+      // the drag began — apply it to a frame that already carries the previous
+      // translation and the entity moves twice as far each frame. A body drag
+      // also wishes on every point at once, which is the well-conditioned case
+      // this is not about.
+      final prev = grip.isBody ? null : _lastGoodDragGeo;
+      final gs = List<Geo>.from(
+          prev != null && prev.length == s.geometry.length ? prev : s.geometry);
       if (grip.entity < 0 || grip.entity >= gs.length) {
         Log.e(
             'drag',
@@ -5768,7 +5801,11 @@ class AppState extends ChangeNotifier {
       // back whatever the constraints require.
       final rigid = _centreRigidGroup(s, gs, grip);
       if (rigid != null) {
-        final delta = dragPos! - grip.pos;
+        // Measured against where the grip was ON THIS FRAME'S starting
+        // geometry, not against where it was when the drag began: with the
+        // warm start above those differ, and using the whole-gesture delta
+        // would translate the rigid group again on every frame.
+        final delta = dragPos! - getPt(before, grip.idx);
         final wishes = <(int, int)>{};
         for (final e in rigid) {
           if (e != grip.entity) gs[e] = translateGeo(gs[e], delta);
@@ -6895,9 +6932,10 @@ class AppState extends ChangeNotifier {
       f.raw,
       points: f.points,
       smoothing: f.smoothing,
-      snapClosed: f.snapClosed,
-      snapToPoints: f.snapToPoints,
-      snapTargets: f.snapToPoints ? freehandSnapTargets() : const [],
+      snapClosed: FreehandSession.snapClosed,
+      snapToPoints: FreehandSession.snapToPoints,
+      snapTargets:
+          FreehandSession.snapToPoints ? freehandSnapTargets() : const [],
       snapTol: freehandSnapTol,
     );
     toolPoints
@@ -7256,6 +7294,15 @@ class AppState extends ChangeNotifier {
   /// The dialog mutates the session and calls this: remembers the values,
   /// mirrors them into [toolParams] (the preview reads those), restarts the
   /// equal-chain when a value changed, repaints.
+  /// M207 — the modeless Polygon window changed the side count. Same shape as
+  /// [filletNotify]: fold it into toolParams (which the preview and the commit
+  /// both read) and repaint, so the rubber band shows the new polygon before
+  /// the next pick rather than after it.
+  void polygonSidesNotify(double sides) {
+    toolParams = {...toolParams, 'sides': sides};
+    notifyListeners();
+  }
+
   void filletNotify() {
     final f = filletSess;
     if (f == null) return;

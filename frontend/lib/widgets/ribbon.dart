@@ -12,10 +12,10 @@ import '../app_state.dart';
 import '../log.dart';
 import '../menus.dart';
 import '../part_model.dart' show WorkPlaneKind;
-import '../scrub.dart';
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
+import 'pattern_dialog.dart';
 import 'ribbon_chrome.dart';
 import 'scrub_field.dart';
 
@@ -342,10 +342,18 @@ class _RibbonState extends State<Ribbon> {
     }
     switch (t) {
       case Tool.polygon:
-        final v = await _numDialog('Polygon', [('Sides', '6')],
-            kind: ScrubKind.count, min: 3, max: 64);
-        if (v == null) return;
-        app.toolParams = {'sides': v[0]};
+        // M207 — no blocking prompt any more. The side count rides along in
+        // the modeless Polygon window, exactly like the 2D Fillet radius: the
+        // tool arms at once, and the value applies to the next polygon placed.
+        // The old AlertDialog put a modal barrier under the number pad, which
+        // is what "the small number input field doesn't work, it just closes
+        // directly" was.
+        app.toolParams = {
+          'sides': (app.toolParams['sides'] ??
+                  PolygonDialog.defaultSides.toDouble())
+              .clamp(PolygonDialog.minSides.toDouble(),
+                  PolygonDialog.maxSides.toDouble()),
+        };
         break;
       case Tool.fillet:
       case Tool.chamfer:
@@ -363,62 +371,6 @@ class _RibbonState extends State<Ribbon> {
         app.toolParams = {};
     }
     app.selectTool(t);
-  }
-
-  Future<List<double>?> _numDialog(
-      String title, List<(String, String)> fields,
-      {ScrubKind kind = ScrubKind.length, double? min, double? max}) async {
-    final ctrls = [for (final f in fields) TextEditingController(text: f.$2)];
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: T.fly,
-        title: Text(title, style: ts(14, Colors.white, w: FontWeight.w600)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          for (var i = 0; i < fields.length; i++)
-            // M180 — draggable, like every other number in the app. There is
-            // nothing to preview behind a modal, so the drag only moves the
-            // number; the dialog reads it on OK.
-            ScrubField(
-              app: widget.app,
-              controller: ctrls[i],
-              kind: kind,
-              min: min,
-              max: max,
-              // M206 — the pad's OK accepts the prompt, the same as Enter on
-              // a hardware keyboard (onSubmitted below).
-              onDone: () => Navigator.pop(ctx, true),
-              child: TextField(
-                controller: ctrls[i],
-                autofocus: i == 0,
-                keyboardType: kValueKeyboard, // M206: the app's own pad
-                stylusHandwritingEnabled: kValueHandwriting, // M179
-                style: ts(13, T.text),
-                decoration: InputDecoration(
-                    labelText: fields[i].$1,
-                    labelStyle: ts(12, T.dim)),
-                onSubmitted: (_) => Navigator.pop(ctx, true),
-              ),
-            ),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Cancel', style: ts(12.5, T.dim))),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text('OK', style: ts(12.5, T.blue))),
-        ],
-      ),
-    );
-    if (ok != true) return null;
-    final out = <double>[];
-    for (final c in ctrls) {
-      final v = double.tryParse(c.text.replaceAll(',', '.'));
-      if (v == null) return null;
-      out.add(v);
-    }
-    return out;
   }
 
   Future<(String, double, double)?> _equationDialog() async {

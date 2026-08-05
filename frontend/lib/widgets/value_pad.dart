@@ -273,14 +273,27 @@ class _PadKeyCapState extends State<_PadKeyCap> {
 /// Positions a [ValuePad] under (or, with no room, over) the field it edits,
 /// with its tail pointing at the field's centre — which is the whole of the
 /// second report: "the arrow of it should be right under the number field".
+///
+/// M207 — it FOLLOWS the field, through a [LayerLink]. The rectangle was
+/// captured once when the pad went up, which is wrong for anything that moves
+/// afterwards: a window dragged by its title bar, a row that grows, a route
+/// still animating in. A link tracks the target when the layers are composited,
+/// so there is no rebuild per frame and nothing to keep in step by hand.
 class ValuePadOverlay extends StatelessWidget {
-  /// The field's rectangle in GLOBAL coordinates.
+  /// Ties the pad to the field's own layer.
+  final LayerLink link;
+
+  /// The field's rectangle in GLOBAL coordinates, as of this build. Only the
+  /// two DECISIONS are taken from it — above or below, and how far to shift
+  /// back from a screen edge. The position itself comes from [link], so a
+  /// slightly stale rectangle costs at most a flip that rights itself.
   final Rect anchor;
   final ValueChanged<PadKey> onKey;
   final bool signed;
 
   const ValuePadOverlay(
       {super.key,
+      required this.link,
       required this.anchor,
       required this.onKey,
       this.signed = true});
@@ -308,19 +321,29 @@ class ValuePadOverlay extends StatelessWidget {
     // Tail x, relative to the pad's own left edge.
     final tailX = (anchor.center.dx - origin.dx)
         .clamp(14.0, ValuePad.width - 14.0);
+    // How far [place] had to shift the pad away from centred-on-the-field to
+    // keep it on screen. The link centres it; this puts the shift back.
+    final shiftX = origin.dx - (anchor.center.dx - ValuePad.width / 2);
     final pad = ValuePad(onKey: onKey, signed: signed);
     final arrow = CustomPaint(
       size: const Size(ValuePad.width, ValuePad.tail),
       painter: _TailPainter(x: tailX, up: below),
     );
     return Positioned(
-      left: origin.dx,
-      top: origin.dy,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (below) arrow,
-        pad,
-        if (!below) arrow,
-      ]),
+      left: 0,
+      top: 0,
+      child: CompositedTransformFollower(
+        link: link,
+        showWhenUnlinked: false,
+        targetAnchor: below ? Alignment.bottomCenter : Alignment.topCenter,
+        followerAnchor: below ? Alignment.topCenter : Alignment.bottomCenter,
+        offset: Offset(shiftX, below ? margin : -margin),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (below) arrow,
+          pad,
+          if (!below) arrow,
+        ]),
+      ),
     );
   }
 }

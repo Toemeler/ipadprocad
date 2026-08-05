@@ -812,15 +812,14 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
             border: Border(bottom: BorderSide(color: T.panelSep)),
             borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
           ),
+          // M207 — no ✕ ("on the radius input field the cross at top left
+          // isn't needed. remove it"). It was a third way to say Cancel, next
+          // to Esc and the quick-tool bar's own Cancel button, on a window
+          // whose whole job is to hold one number.
           child: Row(children: [
             Expanded(
                 child: Text(isFillet ? '2D Fillet' : '2D Chamfer',
                     style: ts(13.5, T.text, w: FontWeight.w600))),
-            _IconTap(
-              tooltip: 'Done',
-              onTap: app.cancelTool,
-              child: const Icon(Icons.close, size: 17, color: T.dim),
-            ),
           ]),
         ),
         Padding(
@@ -889,60 +888,200 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
   }
 
   Widget _num(String icon, TextEditingController ctrl,
-      void Function(double) onValue,
-      {String? suffix, double? min, double? max}) {
-    final row = Row(children: [
-      svgi(icon, 15),
-      const SizedBox(width: 6),
-      Expanded(
-        child: SizedBox(
-          height: 28,
-          child: TextField(
-            controller: ctrl,
-            style: ts(12.5, T.text),
-            keyboardType: kValueKeyboard, // M206: the app's own pad
-            stylusHandwritingEnabled: kValueHandwriting, // M179
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-            ],
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              suffixText: suffix,
-              suffixStyle: ts(11, T.dim),
-              filled: true,
-              fillColor: _fieldBg,
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(3),
-                borderSide: const BorderSide(color: _fieldBorder),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(3),
-                borderSide: const BorderSide(color: T.blue, width: 1.4),
-              ),
+          void Function(double) onValue,
+          {String? suffix, double? min, double? max}) =>
+      toolNumberRow(
+        app: widget.app,
+        icon: icon,
+        ctrl: ctrl,
+        onValue: onValue,
+        suffix: suffix,
+        min: min,
+        max: max,
+      );
+}
+
+/// M207 — ONE number row for the modeless tool windows.
+///
+/// The 2D Fillet's radius is the row the device asked every other tool value
+/// to look like ("this polygon input field ... should be similar to the radius
+/// input field"), so it stopped being a private method of that one dialog.
+/// Icon, field, unit, the scrub and the number pad all come from here, and a
+/// second spelling of any of them cannot drift in behind the first.
+Widget toolNumberRow({
+  required AppState app,
+  required String icon,
+  required TextEditingController ctrl,
+  required void Function(double) onValue,
+  String? suffix,
+  double? min,
+  double? max,
+  /// Whole numbers only — a polygon has no 5.5 sides.
+  bool integer = false,
+}) {
+  final row = Row(children: [
+    svgi(icon, 15),
+    const SizedBox(width: 6),
+    Expanded(
+      child: SizedBox(
+        height: 28,
+        child: TextField(
+          controller: ctrl,
+          style: ts(12.5, T.text),
+          keyboardType: kValueKeyboard, // M206: the app's own pad
+          stylusHandwritingEnabled: kValueHandwriting, // M179
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(
+                RegExp(integer ? r'[0-9]' : r'[0-9.,]')),
+          ],
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            suffixText: suffix,
+            suffixStyle: ts(11, T.dim),
+            filled: true,
+            fillColor: _fieldBg,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(3),
+              borderSide: const BorderSide(color: _fieldBorder),
             ),
-            onChanged: (t) {
-              final v = double.tryParse(t.replaceAll(',', '.'));
-              if (v != null && v > 0) onValue(v);
-            },
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(3),
+              borderSide: const BorderSide(color: T.blue, width: 1.4),
+            ),
           ),
+          onChanged: (t) {
+            final v = double.tryParse(t.replaceAll(',', '.'));
+            if (v != null && v > 0) onValue(v);
+          },
         ),
       ),
-    ]);
-    // M180 — the 2D fillet radius and the chamfer distances drag too. The unit
-    // is decoration here, so the text stays a bare number for the parse above.
-    return ScrubField(
-      app: widget.app,
-      controller: ctrl,
-      kind: scrubKindForUnit(suffix),
-      min: min,
-      max: max,
-      onCommit: (t) {
-        final v = double.tryParse(t.replaceAll(',', '.'));
-        if (v != null && v > 0) onValue(v);
-      },
-      child: row,
+    ),
+  ]);
+  // M180 — the value drags too. The unit is decoration here, so the text stays
+  // a bare number for the parse above.
+  return ScrubField(
+    app: app,
+    controller: ctrl,
+    kind: integer ? ScrubKind.count : scrubKindForUnit(suffix),
+    min: min,
+    max: max,
+    onCommit: (t) {
+      final v = double.tryParse(t.replaceAll(',', '.'));
+      if (v != null && v > 0) onValue(v);
+    },
+    child: row,
+  );
+}
+
+
+/// M207 — the polygon's side count, as a modeless window.
+///
+/// "This polygon input field needs to be redone; it should be similar to the
+/// radius input field."
+///
+/// It was an AlertDialog: modal, blocking, with the tool not armed until it
+/// was answered. Two things followed from that. The number pad opened over a
+/// modal barrier and behaved like it — "the small number input field doesn't
+/// work, it just closes directly when i want to input something" — and the
+/// count could not be changed once the dialog was gone, so drawing a hexagon
+/// and then a pentagon meant re-picking the tool.
+///
+/// This is the 2D Fillet window's shape instead: the tool is armed
+/// immediately, the window rides along beside it, and the value applies to the
+/// NEXT polygon placed. Same chrome, same number row, same scrub, same pad.
+class PolygonDialog extends StatefulWidget {
+  final AppState app;
+  const PolygonDialog({super.key, required this.app});
+
+  /// Sides a fresh polygon starts with, and what the field shows when the tool
+  /// is armed without a value of its own.
+  static const int defaultSides = 6;
+  static const int minSides = 3;
+  static const int maxSides = 64;
+
+  @override
+  State<PolygonDialog> createState() => _PolygonDialogState();
+}
+
+class _PolygonDialogState extends State<PolygonDialog> {
+  late final TextEditingController _sides;
+
+  @override
+  void initState() {
+    super.initState();
+    _sides = TextEditingController(text: '${_current()}');
+  }
+
+  int _current() {
+    final v = widget.app.toolParams['sides'];
+    return (v ?? PolygonDialog.defaultSides.toDouble())
+        .round()
+        .clamp(PolygonDialog.minSides, PolygonDialog.maxSides);
+  }
+
+  @override
+  void dispose() {
+    _sides.dispose();
+    super.dispose();
+  }
+
+  void _apply(double v) {
+    final n = v
+        .round()
+        .clamp(PolygonDialog.minSides, PolygonDialog.maxSides)
+        .toDouble();
+    // A new map, not a mutation: toolParams is read by the preview and by the
+    // commit, and both must see the same value at the same time.
+    widget.app.polygonSidesNotify(n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 250,
+      decoration: BoxDecoration(
+        color: T.panel,
+        border: Border.all(color: T.sep),
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 6)),
+        ],
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          decoration: const BoxDecoration(
+            color: T.fly,
+            border: Border(bottom: BorderSide(color: T.panelSep)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
+          ),
+          child: Row(children: [
+            Expanded(
+                child: Text('Polygon',
+                    style: ts(13.5, T.text, w: FontWeight.w600))),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            toolNumberRow(
+              app: widget.app,
+              icon: PD['countC']!,
+              ctrl: _sides,
+              onValue: _apply,
+              min: PolygonDialog.minSides.toDouble(),
+              max: PolygonDialog.maxSides.toDouble(),
+              integer: true,
+            ),
+            const SizedBox(height: 8),
+            Text('Sides. Pick the centre, then a corner.',
+                style: ts(10.5, T.dim)),
+          ]),
+        ),
+      ]),
     );
   }
 }

@@ -178,6 +178,9 @@ class _ScrubFieldState extends State<ScrubField> {
   OverlayEntry? _padEntry;
   bool _padWanted = false;
 
+  /// Ties the pad's layer to this field's, so it follows without a rebuild.
+  final LayerLink _padLink = LayerLink();
+
   /// True when this field's value may be negative. A pattern count and a tooth
   /// count may not; an offset, a taper and a profile shift may. [ScrubField.min]
   /// already carries that fact for the scrub, so the pad reads it from there
@@ -197,14 +200,23 @@ class _ScrubFieldState extends State<ScrubField> {
       if (box is! RenderBox || !box.hasSize) return;
       final overlay = Overlay.maybeOf(context);
       if (overlay == null) return;
-      final anchor = box.localToGlobal(Offset.zero) & box.size;
-      _padEntry = OverlayEntry(
-        builder: (_) => ValuePadOverlay(
-          anchor: anchor,
+      _padEntry = OverlayEntry(builder: (_) {
+        // M207 — the rectangle is read at BUILD time (it decides above vs
+        // below and the shift off a screen edge), while the POSITION comes
+        // from the layer link, which tracks the field without any rebuilding.
+        // Captured once and positioned by hand, the pad sat wherever the field
+        // happened to be on the frame it went up — which for a window that is
+        // still animating, or one the user then drags, is not where the field
+        // is at all.
+        final b = context.findRenderObject();
+        if (b is! RenderBox || !b.hasSize) return const SizedBox.shrink();
+        return ValuePadOverlay(
+          link: _padLink,
+          anchor: b.localToGlobal(Offset.zero) & b.size,
           signed: _signed,
           onKey: _onPadKey,
-        ),
-      );
+        );
+      });
       overlay.insert(_padEntry!);
       // Clicking anywhere else takes it down, including on the native chrome
       // that no Flutter barrier can see (M205).
@@ -275,7 +287,10 @@ class _ScrubFieldState extends State<ScrubField> {
           canRequestFocus: false,
           skipTraversal: true,
           onFocusChange: (has) => has ? _showPad() : _hidePad(),
-          child: widget.child,
+          child: CompositedTransformTarget(
+            link: _padLink,
+            child: widget.child,
+          ),
         ),
       ),
     );

@@ -1533,8 +1533,38 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             }
           },
           onPointerHover: (e) {
+            // M207 — THE PENCIL THAT LEFT THE GLASS.
+            //
+            // "When i hover and the hover is interrupted because the distance
+            // from pencil to screen is too far, the preview should stay
+            // exactly like it was for this moment until the hover with pencil
+            // is back. Right now the preview goes somewhere in the top left
+            // corner for a moment, which results in a weird long line over the
+            // screen."
+            //
+            // The corner is the tell. A hover reported at the window ORIGIN is
+            // not a place the Pencil was — it is what arrives as the pointer
+            // is torn down, the same synthetic (0,0) that the cancel storm in
+            // M205 carried. Fed to _toWorld it is the viewport's top-left
+            // corner, and the rubber band snaps a line the whole width of the
+            // screen for one frame.
+            //
+            // Global, not local: the viewport's own local (0,0) could in
+            // principle be hovered, but the window's is under the ribbon and
+            // never can be. Dropping the event entirely is exactly what was
+            // asked for — the preview simply keeps the last real position
+            // until the tip comes back.
+            if (e.position == Offset.zero) {
+              GestureTrace.note('hover at the origin dropped (pointer gone)');
+              return;
+            }
             app.lastPointerWorld = _toWorld(e.localPosition, size); // M45
-            if (app.tool != Tool.none) {
+            // M207 — a FINISHED freehand stroke is not a rubber band. Once the
+            // fit window is up the curve is decided; only its sliders may
+            // change it. Hover kept feeding hoverWorld, and the preview draws
+            // toolPoints PLUS the hover point, so the spline "still goes on"
+            // under the Pencil after it was finished.
+            if (app.tool != Tool.none && app.freehand == null) {
               final w = _toWorld(e.localPosition, size);
               app.setHover(_snapped(w));
             }
@@ -1601,8 +1631,9 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                 e.kind == PointerDeviceKind.invertedStylus) {
               _lastStylusLocal = e.localPosition;
               // no-hover Pencils: the snap marker appears the instant the
-              // tip touches, not only after the first move
-              if (app.tool != Tool.none) {
+              // tip touches, not only after the first move. M207: not while a
+              // finished freehand stroke is waiting on its fit window.
+              if (app.tool != Tool.none && app.freehand == null) {
                 app.setHover(_snapped(_toWorld(e.localPosition, size)));
               }
             }
@@ -1673,7 +1704,9 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
               // track it live (hover-capable Pencils get this via
               // onPointerHover already, exactly like the mouse).
               app.lastPointerWorld = _toWorld(e.localPosition, size);
-              if (app.tool != Tool.none && _toolCtx == null) {
+              if (app.tool != Tool.none &&
+                  _toolCtx == null &&
+                  app.freehand == null) {
                 app.setHover(_snapped(_toWorld(e.localPosition, size)));
               }
             }
@@ -1863,6 +1896,16 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                         right: 12 + QuickToolsBar.occupiedWidth,
                         top: 12 + RibbonMetrics.contentTop,
                         child: FilletChamferDialog(app: app)),
+                  // M207 — the Polygon side count, in the same idiom and the
+                  // same spot. It used to be a modal AlertDialog answered
+                  // before the tool armed; now the tool is live and the number
+                  // applies to the next polygon, exactly like the fillet
+                  // radius applies to the next corner.
+                  if (app.tool == Tool.polygon)
+                    Positioned(
+                        right: 12 + QuickToolsBar.occupiedWidth,
+                        top: 12 + RibbonMetrics.contentTop,
+                        child: PolygonDialog(app: app)),
                   // Inventor's status readout, bottom right of the graphics
                   // window: "N dimensions needed" while under-constrained,
                   // "Fully Constrained" at DOF 0.
@@ -2493,7 +2536,11 @@ class _ViewportPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
       final pts = app.toolPoints;
-      final rawHov = app.hoverWorld;
+      // M207 — a finished freehand stroke has no rubber band. The fit window
+      // owns the curve from here; hover must not append a point to it. Belt
+      // and braces with the guard in onPointerHover, because this is the line
+      // that actually DRAWS the tail that "still goes on".
+      final rawHov = app.freehand != null ? null : app.hoverWorld;
       // HUD / Dynamic Input: fold the locked/typed values into the hover point
       // so the preview shows EXACTLY what the commit will produce.
       final hov = rawHov == null ? null : app.hudApply(rawHov);

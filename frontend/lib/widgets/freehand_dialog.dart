@@ -89,17 +89,14 @@ class _FreehandDialogState extends State<FreehandDialog> {
                 readout: '${(f.smoothing * 100).round()}%',
                 onChanged: (v) => _edit(() => f.smoothing = v),
               ),
-              const SizedBox(height: 4),
-              _check(
-                label: 'Close if ends meet',
-                value: f.snapClosed,
-                onChanged: (v) => _edit(() => f.snapClosed = v),
-              ),
-              _check(
-                label: 'Snap ends to points',
-                value: f.snapToPoints,
-                onChanged: (v) => _edit(() => f.snapToPoints = v),
-              ),
+              // M207 — "close if ends meet should be standard and snap ends
+              // to points also, and not be a toggle in the dialog." Both were
+              // already ON by default; what they cost was two rows of dialog
+              // and a decision nobody was going to make differently. A stroke
+              // whose ends meet is a closed curve, and ends that land on
+              // existing points are meant to be there. They are constants on
+              // the session now (see FreehandSession) — off is reachable by
+              // deleting the constraint afterwards, like any other.
               const SizedBox(height: 10),
               Row(children: [
                 Text('${widget.app.toolPoints.length} fit points',
@@ -154,34 +151,6 @@ class _FreehandDialogState extends State<FreehandDialog> {
         ]),
       );
 
-  Widget _check({
-    required String label,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) =>
-      GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => onChanged(!value),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(children: [
-            Container(
-              width: 15,
-              height: 15,
-              decoration: BoxDecoration(
-                color: value ? T.blue : Colors.transparent,
-                border: Border.all(color: value ? T.blue : T.dim, width: 1.2),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: value
-                  ? const Icon(Icons.check, size: 12, color: Colors.white)
-                  : null,
-            ),
-            const SizedBox(width: 8),
-            Text(label, style: ts(11.5, T.text)),
-          ]),
-        ),
-      );
 }
 
 class _IconBtn extends StatelessWidget {

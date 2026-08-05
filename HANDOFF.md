@@ -16,6 +16,82 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M207 — vier Meldungen zu Build `081a39d`. Eine ist ein Solver-Verhalten,
+> drei sind Bedienung.**
+>
+> **1. Der Zug, der springt.** „The dragging around of those 2 slots is really
+> jumping and buggy." Die beiden Slots sind aneinander auto-constraint — und
+> **das ist gewollt, das war nicht der Fehler** (ausdrueckliche Ansage: „the
+> slots were automatically constrained. this was good. just the dragging around
+> was buggy"). Der Fehler steckt darin, WIE ein Drag-Frame gerechnet wurde:
+> jeder Frame kopierte die COMMITTETE Geometrie, setzte den Griff auf den
+> Cursor und loeste von dort. Bei einer freien Linie ist das dieselbe Antwort.
+> Bei einem gekoppelten System nicht: zu einer Cursorposition gehoeren MEHRERE
+> Loesungen, und wer jeden Frame von derselben festen Konfiguration neu
+> startet, laesst den Solver bei einem Pixel Bewegung auf einen anderen Ast
+> springen. Genau das sieht man als Zucken — und genau deshalb trat es erst
+> auf, als zwei Formen aneinander haengen.
+>
+> Der Frame startet jetzt beim ZULETZT GELOESTEN Frame (`_lastGoodDragGeo`, das
+> es schon gab, bisher nur als Fallback). Damit ist jeder Schritt ein kleiner
+> Schritt von einem Punkt, der bereits auf der Mannigfaltigkeit liegt, und der
+> Zug bleibt auf dem Ast, den der Benutzer anschaut. **Nicht** fuer den
+> Body-Drag: der verschiebt um (Cursor − Griffpunkt), einen ABSOLUTEN Anker,
+> und wuerde sich pro Frame verdoppeln — die drei m47-Tests haben genau das
+> sofort gemeldet. Der Test dazu ist scharf: ohne den Warmstart springt ein
+> Punkt 43 mm bei 1,7 mm Cursorweg, mit ihm keiner mehr als 25.
+>
+> **2. Der Pencil, der ausser Reichweite geraet.** „When i hover and the hover
+> is interrupted ... the preview should stay exactly like it was ... right now
+> the preview goes somewhere in the top left corner for a moment, which results
+> in a weird long line over the screen." Die Ecke ist der Beweis: ein Hover auf
+> dem FENSTER-URSPRUNG ist keine Stelle, auf die gezeigt wurde, sondern das
+> synthetische (0,0), das beim Abbau des Zeigers kommt — dieselbe Signatur wie
+> die Cancel-Welle aus M205. Durch `_toWorld` ist das die linke obere Ecke des
+> Viewports, und das Gummiband zieht einen Frame lang quer ueber den Schirm.
+> Solche Events werden verworfen; die Vorschau haelt ihre letzte echte Position,
+> bis die Spitze zurueck ist.
+>
+> **3. Die fertige Freihandkurve.** „Even when the spline is finished and the
+> freehand spline dialog comes, on hover with pencil it still goes on." Die
+> Vorschau zeichnet `toolPoints` PLUS den Hover-Punkt; nach dem Strich ist das
+> Werkzeug noch `splineFree`, also hing die fertige Kurve weiter am Stift.
+> Solange das Fit-Fenster steht, gehoert die Kurve ihm allein. Dazu, wie
+> gewuenscht: „close if ends meet" und „snap ends to points" sind keine Schalter
+> mehr, sondern Konstanten — beide standen ohnehin auf an, und das Fenster ist
+> zwei Zeilen kuerzer.
+>
+> **4. Das Polygonfeld.** „In the polygon input field the small number input
+> field doesnt work. it just closes directly ... this polygon input field needs
+> to be redone, it should be similar to the radius input field. also on the
+> radius input field the cross at top left isnt needed." Erster und zweiter
+> Satz haben dieselbe Antwort: die Seitenzahl lag in einem `AlertDialog` —
+> modal, mit einer Barriere unter allem, was die App darueber legt, und
+> blockierend, das Werkzeug war bis zur Antwort nicht scharf. Der 2D-Fillet-
+> Radius hat nie so funktioniert. Das Polygon bekommt dasselbe modelose
+> Fenster, dieselbe Zahlenzeile (jetzt EINE, `toolNumberRow`, statt zwei
+> Schreibweisen), denselben Scrub, dasselbe Pad; das ✕ ist bei beiden weg.
+>
+> **Nachtrag zum Pad (M206):** sein Anker wurde einmal beim Einblenden
+> abgelesen. Fuer ein Fenster, das noch einblendet oder das man verschiebt, ist
+> das die falsche Stelle. Jetzt haengt es an einem `LayerLink` — die Position
+> kommt beim Compositing, ohne einen einzigen Rebuild pro Frame (der erste
+> Versuch mit `markNeedsBuild` je Frame liess `pumpAndSettle` nie zur Ruhe
+> kommen, was auf dem Geraet eine Dauerlast gewesen waere).
+>
+> **5. Der Triad.** „When the model browser retracts, the triad should also go
+> to the left." M146 hatte ihn absichtlich auf die AUSGEKLAPPTE Breite genagelt;
+> das Geraet widerspricht, und es hat recht: einzuklappen ist eine Handlung, um
+> die Ecke zurueckzubekommen.
+>
+> **Ehrlicher Stand:** 16 neue Tests in drei Dateien
+> (`m207_drag_continuity` 5, `m207_hover_and_freehand` 6,
+> `m207_polygon_window` 5). Suite **1498 gruen** (von 1482), analyze 50 Issues
+> / 0 Errors = Ausgangsstand. **Am Geraet nicht nachgeprueft.** Der
+> Warmstart ist die eine Aenderung mit Reichweite ueber die Meldung hinaus — er
+> betrifft JEDEN Griff-Drag; die bestehenden Drag-Suiten (T-1, M47, M94, M182)
+> laufen gruen, aber das ist Host, nicht Hand.
+
 > **M206 — fuenf weitere Meldungen derselben Sitzung. Eine ist ein echter
 > Defekt mit zwei Ursachen, vier sind Oberflaeche.**
 >

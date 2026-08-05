@@ -581,20 +581,37 @@ class _Viewport3DState extends State<Viewport3D>
             child:
                 _ViewCube(camera: p.camera, onChanged: () => setState(() {})))),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
-        // instead of under it: the browser card now reaches down into the
+        // instead of under it: the browser card reaches down into the
         // bottom-left corner the triad used to have to itself. Off iOS there
         // is no floating card, so it keeps the corner.
-        Positioned(
-            left: GlassBrowser.isSupported
-                ? NativeModelBrowser.occupiedWidth
-                : 0,
-            // M150 — the tab bar floats over the viewport now, so bottom: 0
-            // would put the triad behind it.
-            bottom: BottomTabBar.floatingHeight,
+        //
+        // M207 — and it FOLLOWS the panel now. It used to be pinned to the
+        // expanded width whatever the panel was doing; retracting the browser
+        // is a deliberate act to get that corner back, and the triad stayed
+        // out in the open where the card no longer was.
+        if (GlassBrowser.isSupported)
+          ValueListenableBuilder<double>(
+            valueListenable: NativeModelBrowser.occupied,
+            builder: (_, w, child) => Positioned(
+              left: w,
+              // M150 — the tab bar floats over the viewport now, so bottom: 0
+              // would put the triad behind it.
+              bottom: BottomTabBar.floatingHeight,
+              child: child!,
+            ),
             child: IgnorePointer(
                 child: CustomPaint(
                     painter: _TriadPainter(p.camera),
-                    size: const Size(118, 118)))),
+                    size: const Size(118, 118))),
+          )
+        else
+          Positioned(
+              left: 0,
+              bottom: BottomTabBar.floatingHeight,
+              child: IgnorePointer(
+                  child: CustomPaint(
+                      painter: _TriadPainter(p.camera),
+                      size: const Size(118, 118)))),
         if (app.message != null)
           Positioned(
             left: 0,

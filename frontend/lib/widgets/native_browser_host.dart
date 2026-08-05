@@ -19,11 +19,24 @@ class NativeModelBrowser extends StatefulWidget {
   const NativeModelBrowser({super.key, required this.app});
 
   /// Total width the panel claims at the left edge when EXPANDED, card plus
-  /// retract strip. M146 — the coordinate triad is placed to the right of
-  /// this. Expanded on purpose, even while the panel is retracted: a triad
-  /// that slid sideways every time the browser collapsed would be worse than
-  /// one standing a little clear of it.
+  /// retract strip.
   static const double occupiedWidth = 264 + 24;
+
+  /// M207 — what the panel claims RIGHT NOW, which is what the coordinate
+  /// triad follows.
+  ///
+  /// M146 pinned the triad to the expanded width on purpose, reasoning that
+  /// "a triad that slid sideways every time the browser collapsed would be
+  /// worse than one standing a little clear of it". The device disagrees:
+  /// "when the model browser retracts, the triad should also go to the left."
+  /// Retracting the browser is a deliberate act to get the corner back, and a
+  /// triad hovering in open space 288 points from the edge reads as a thing
+  /// that was left behind rather than one that is standing clear.
+  ///
+  /// A notifier rather than app state: this is pure chrome geometry, the same
+  /// shape as [RibbonMetrics.bottom], and it must not end up in a document.
+  static final ValueNotifier<double> occupied =
+      ValueNotifier<double>(occupiedWidth);
 
   @override
   State<NativeModelBrowser> createState() => _NativeModelBrowserState();
@@ -75,6 +88,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // cannot see these private metrics. Keep the two in step here rather than
     // discovering the drift as a triad sitting on the panel.
     assert(NativeModelBrowser.occupiedWidth == _kWide + _kHandle);
+  }
+
+  /// M207 — tell the triad how much room the panel is taking. Deferred: this
+  /// runs from build and from setState, and a notifier fired mid-build would
+  /// rebuild a listener that has already been laid out this frame.
+  void _publishWidth() {
+    final w = (_collapsed ? _kNarrow : _kWide) + _kHandle;
+    if (NativeModelBrowser.occupied.value == w) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NativeModelBrowser.occupied.value = w;
+    });
   }
 
   @override
@@ -162,11 +186,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
             opacity: (!_hasHover || _near) ? 1 : 0,
             child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _collapsed = !_collapsed),
+            onTap: () => setState(() {
+              _collapsed = !_collapsed;
+              _publishWidth();
+            }),
             onHorizontalDragEnd: (d) {
               final v = d.primaryVelocity ?? 0;
               if (v.abs() < 50) return;
-              setState(() => _collapsed = v < 0);
+              setState(() {
+                _collapsed = v < 0;
+                _publishWidth();
+              });
             },
             child: Center(
               child: AnimatedRotation(
