@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'part_model.dart';
+import 'perf.dart';
 
 // Steel, same family as partCubeIcon — the committed-solid look.
 const Color kSolidBase = Color(0xFF8C939A);
@@ -164,7 +165,15 @@ Vec3 solidLight(Cam3 cam) =>
 /// Projects the front-facing triangles of [m]: backface-culled against the
 /// camera, flat-shaded against [solidLight], depth = triangle centroid along
 /// the view ray (painter's algorithm sorts far-to-near on it).
-List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
+/// CPU projection of every triangle through the camera.
+///
+/// Cost scales with the TRIANGLE COUNT, not the screen, so it grows with the
+/// model rather than with what is visible — 34 000 triangles is 34 000
+/// iterations whether one of them is on screen or all of them.
+List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) =>
+    Perf.span('render.projectTris', () => _projectSolidTrianglesInner(m, cam));
+
+List<ProjectedTri> _projectSolidTrianglesInner(OcctMeshData m, Cam3 cam) {
   final light = solidLight(cam);
   final out = <ProjectedTri>[];
   for (var t = 0; t < m.indices.length; t += 3) {
@@ -186,7 +195,10 @@ List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
 
 /// Projects the B-Rep edge polylines of [m] as screen segments. The depth
 /// carries the 0.35 viewer bias so an edge draws over the faces it borders.
-List<ProjectedEdge> projectSolidEdges(OcctMeshData m, Cam3 cam) {
+List<ProjectedEdge> projectSolidEdges(OcctMeshData m, Cam3 cam) =>
+    Perf.span('render.projectEdges', () => _projectSolidEdgesInner(m, cam));
+
+List<ProjectedEdge> _projectSolidEdgesInner(OcctMeshData m, Cam3 cam) {
   final out = <ProjectedEdge>[];
   for (var e = 0; e + 1 < m.edgeStarts.length; e++) {
     for (var k = m.edgeStarts[e]; k + 1 < m.edgeStarts[e + 1]; k++) {
@@ -260,6 +272,11 @@ class SceneSolid {
 /// Projects [solid] with per-vertex Gouraud shades. Backfacing triangles are
 /// included (front = false) so silhouette detection can see both sides.
 SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
+        {bool preview = false}) =>
+    Perf.span('render.buildSceneSolid',
+        () => _buildSceneSolidInner(solid, cam, preview: preview));
+
+SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
     {bool preview = false}) {
   final m = solid.mesh;
   final light = solidLight(cam);
@@ -539,6 +556,11 @@ List<(Vec3, Vec3)> cylinderSilhouettes(List<double> rec, Cam3 cam) {
 /// shared edges between a front- and a back-facing triangle of the SAME
 /// face. Fine adaptive tessellation keeps this visually smooth.
 List<(Offset, Offset, double)> meshSilhouetteSegments(
+        OcctMeshData m, SceneSolid scene, int faceId) =>
+    Perf.span('render.silhouette',
+        () => _meshSilhouetteSegmentsInner(m, scene, faceId));
+
+List<(Offset, Offset, double)> _meshSilhouetteSegmentsInner(
     OcctMeshData m, SceneSolid scene, int faceId) {
   // pass 1: remember the FIRST triangle using each undirected vertex pair
   final byEdge = <int, (int, bool)>{}; // packed pair -> (tri, front)

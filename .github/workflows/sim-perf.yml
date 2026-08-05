@@ -481,6 +481,22 @@ jobs:
           echo "== 3. platform of a member object (expect platform 7 = iOS Simulator) =="
           otool -l "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" 2>/dev/null \
             | grep -A4 -i 'LC_BUILD_VERSION' | head -20 || true
+          # STEP 1 of the parked-lane plan: get the REAL link command.
+          #
+          # `flutter build -v` does not emit it — run 6 proved that, the only
+          # force_load occurrences in the whole log were our own echoes. So ask
+          # xcodebuild directly. The objects are already compiled by the build
+          # above, so this relinks and little else; `-quiet` is deliberately
+          # NOT passed, and the Ld line is what the whole lane now hinges on:
+          # if it carries -force_load, the archives are being offered and
+          # something later discards them; if it does not, the setting never
+          # reaches the link and the fix is to write the flags somewhere
+          # xcodebuild cannot lose them (Pods-Runner.debug.xcconfig, pbxproj).
+          echo "== 3b. THE REAL LINK COMMAND (xcodebuild, unfiltered) =="
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Debug -sdk iphonesimulator -arch x86_64 \
+            build 2>&1 | grep -A30 -E '^\s+Ld ' | head -60 \
+            || echo "(no Ld line captured — xcodebuild itself failed, see above)"
           echo "== 4. what did the linker actually say? =="
           grep -iE "ignoring file|ld: warning|was built for newer|不兼容|incompatible" \
             ../ci-sim-appbuild.log | head -40 || echo "(no linker warnings captured)"

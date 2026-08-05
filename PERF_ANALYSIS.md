@@ -205,19 +205,27 @@ Trefferquote), `modify.dart` (trim, trimCutAway, extend, offset), das
 Dokument-LADEN (`io.openPart`, `io.openSketch`) und die restlichen
 QCAD-Einstiege (`addLine`, `addCircle`, `addArc`).
 
+**Zusaetzlich geschlossen in M209d:** die CPU-Projektion in
+`part_render.dart` (`render.projectTris`, `render.projectEdges`,
+`render.buildSceneSolid`, `render.silhouette` — Kosten skalieren mit der
+DREIECKSZAHL, nicht mit dem Bildschirm, also mit dem Modell statt mit dem
+Sichtbaren), 2D-Fillet/Fase (`tools.filletChamfer2d`) und die beiden
+uebrigen native_menu-Kanaele (`toolbar.*`, `tabbar.*` mit derselben
+Signatur-Trefferquote wie der Browser).
+
 **Weiterhin dunkel** — ehrlich benannt, damit niemand die Abdeckung fuer
 vollstaendig haelt:
 
 * **Die zwoelf Blatt-Widgets des Ribbons** (`_Big`, `_SmallRow`, `_ConGrid`,
   `_OverRow`, `_FlyMenu`, …). Gemessen sind der Ribbon-Bau als Ganzes und die
   drei Varianten; die Blaetter nicht. Bei ihnen waere ohnehin die ANZAHL die
-  Aussage, nicht die Dauer — derselbe Gedanke wie bei `menu.ribbon.builds`.
-* **`tools.dart`** — Pattern und Fillet-2D haben keine eigenen Spans
-  (`modify.dart` ist jetzt abgedeckt).
-* **`part_render.dart`** und die Dialoge (`extrude_dialog`,
-  `pattern_dialog`, `gear_dialog`, …).
-* **Die uebrigen `native_menu`-Kanaele** — `glass_toolbar` und `glass_tabbar`
-  haben dieselbe Push-Struktur wie `glass_browser`, sind aber nicht gemessen.
+  Aussage, nicht die Dauer — und die faellt schon mit
+  `menu.ribbon.builds` an, weil ein Blatt nicht ohne seinen Ribbon baut.
+  Eigene Zaehler lohnen erst, wenn diese Zahl auffaellig ist.
+* **Die Dialoge** (`extrude_dialog`, `pattern_dialog`, `gear_dialog`, …). Sie
+  stehen still auf dem Schirm, waehrend der Benutzer tippt — ein Dialog, der
+  pro Frame neu baut, waere ein Fund, aber ein unwahrscheinlicher.
+* **Pattern** in `tools.dart` (Fillet-2D ist jetzt gemessen).
 * **Undo/Redo-SPEICHER.** Die Dauer ist gemessen (`history.undo/redo`), die
   Groesse des Journals nicht.
 

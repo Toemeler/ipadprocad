@@ -12,6 +12,7 @@ import 'dart:ui';
 
 import 'app_state.dart' show Tool, arcFrom3Points;
 import 'ffi/qcad_engine.dart';
+import 'perf.dart';
 import 'pick_math.dart';
 
 /// Per-tool metadata: how many picks commit the tool. `fixed` == null means
@@ -661,6 +662,13 @@ int? nearestLineIdx(List<Geo> geos, Offset p, {int? exclude}) {
 /// are shortened back to the tangent points. Returns the geometry to add and
 /// the replacements for the picked lines (by entity index).
 (List<Geo>, Map<int, Geo>)? filletChamferFull(
+        List<Geo> geos, Offset h1, Offset h2,
+        {required double radius, required bool chamfer}) =>
+    Perf.span('tools.filletChamfer2d',
+        () => _filletChamferFullInner(geos, h1, h2,
+            radius: radius, chamfer: chamfer));
+
+(List<Geo>, Map<int, Geo>)? _filletChamferFullInner(
     List<Geo> geos, Offset h1, Offset h2,
     {required double radius, required bool chamfer}) {
   final r = chamfer
