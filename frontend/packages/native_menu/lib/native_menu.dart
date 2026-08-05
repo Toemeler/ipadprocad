@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
 
 export 'glass_browser.dart';
+export 'perf_hook.dart';
 export 'glass_tabbar.dart';
 export 'glass_toolbar.dart';
 export 'native_touches.dart';

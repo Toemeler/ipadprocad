@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'ffi/perf_hook.dart';
+import 'package:reality_view/perf_hook.dart';
 
 import 'app_state.dart';
 import 'theme.dart';
@@ -40,6 +41,10 @@ void main() {
   // before anything can call the kernel — an unwired hook silently records
   // nothing, which would look exactly like a kernel that costs nothing.
   installFfiPerfHooks(span: Perf.span, count: Perf.count);
+  // Same seam for the RealityKit plugin: it is a separate package and the
+  // dependency runs app -> plugin, so it cannot import perf.dart either.
+  installRealityViewPerfHooks(record: Perf.record, count: Perf.count);
+  installNativeMenuPerfHooks(record: Perf.record, count: Perf.count);
   // Time to first frame: the one launch number a user actually feels. Measured
   // from the top of main() to the first frame the engine reports as rasterised,
   // which is the same event MetricKit's MXAppLaunchMetric ends on — so the two

@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'native_touches.dart';
+import 'perf_hook.dart';
 
 /// One row of the tree.
 class GlassRow {
@@ -206,10 +207,28 @@ class _GlassBrowserState extends State<GlassBrowser> {
   void _push({bool force = false}) {
     final ch = _ch;
     if (ch == null) return;
+    // MEASURED, not changed. The gate below is what stops a snapshot reload
+    // per frame — but building the thing it compares is NOT free and happens
+    // whether or not the gate then fires: one `toMap()` per row, then
+    // `toString()` over the whole list. That cost scales with the model and is
+    // paid on every rebuild of the surrounding app.
+    //
+    // `browser.sig` is the duration of computing the signature.
+    // `browser.rows.hit` / `.miss` is whether it changed anything: a high hit
+    // rate means the app is rebuilding this widget constantly and paying for a
+    // comparison that almost never differs. That ratio is the number that says
+    // whether the gate belongs earlier (at the model) instead of here.
+    final sw = Stopwatch()..start();
     final payload = [for (final r in widget.rows) r.toMap()];
     final sig = payload.toString();
-    if (!force && sig == _lastPushed) return;
+    sw.stop();
+    nmRecord('browser.sig', sw.elapsedMicroseconds / 1000.0);
+    nmCount('browser.sig.rows', widget.rows.length);
+    final unchanged = sig == _lastPushed;
+    nmCount('browser.rows.${unchanged ? 'hit' : 'miss'}', 1);
+    if (!force && unchanged) return;
     _lastPushed = sig;
+    nmCount('browser.setRows.calls', 1);
     ch.invokeMethod('setRows', payload).catchError((_) {});
   }
 
