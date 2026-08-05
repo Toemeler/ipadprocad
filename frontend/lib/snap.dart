@@ -113,8 +113,42 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
   offer(Offset.zero, 'origin');
   if (best != null) return best;
 
-  // H/V alignment guides (dotted lines in Inventor) against ref and origin
+  // H/V alignment guides (dotted lines in Inventor) against ref and origin —
+  // and, since M201, against every circle's QUADRANT points.
+  //
+  // "the rect i draw should also snap to tangent of the circle while i draw.
+  // the second side did not snap to that". A rectangle side is tangent to a
+  // circle exactly when it sits at x = cx ± r or y = cy ± r, which is the
+  // vertical/horizontal line through a quadrant point — so tangency is not a
+  // new kind of snap at all, it is the alignment guide that was already here,
+  // pointed at the four points that were already snap targets.
+  //
+  // The device sketch proves the asymmetry it caused: the left side landed on
+  // -9.7239 (the quadrant, by luck of being an endpoint snap) while the right
+  // one sat at 10.0391 instead of 9.7239.
+  //
+  // Ref and origin stay FIRST, so nothing that used to align stops aligning:
+  // the loop below takes the first match per axis.
   final refs = [if (ref != null) ref, Offset.zero];
+  for (final g in geos) {
+    switch (g.type) {
+      case Geo.circle:
+        refs.addAll(_quadrants(Offset(g.data[0], g.data[1]), g.data[2]));
+        break;
+      case Geo.arc:
+        // Only the quadrants the arc actually reaches: a tangent line to the
+        // missing part of a circle is a line tangent to nothing.
+        final c = Offset(g.data[0], g.data[1]);
+        for (final q in _quadrants(c, g.data[2])) {
+          if (_angleOnArc(g, math.atan2(q.dy - c.dy, q.dx - c.dx))) {
+            refs.add(q);
+          }
+        }
+        break;
+      default:
+        break;
+    }
+  }
   double x = w.dx, y = w.dy;
   final ax = <Offset>[], ay = <Offset>[];
   for (final q in refs) {
@@ -171,6 +205,23 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
     }
   }
   return on;
+}
+
+/// True when [ang] lies within the arc's swept span.
+bool _angleOnArc(Geo g, double ang) {
+  var a1 = g.data[3], a2 = g.data[4];
+  if (g.data.length > 5 && g.data[5] != 0) {
+    final t = a1;
+    a1 = a2;
+    a2 = t;
+  }
+  double norm(double a) {
+    var v = (a - a1) % (2 * math.pi);
+    if (v < 0) v += 2 * math.pi;
+    return v;
+  }
+
+  return norm(ang) <= norm(a2) + 1e-9;
 }
 
 List<Offset> _quadrants(Offset c, double r) => [

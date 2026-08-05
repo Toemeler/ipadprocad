@@ -2764,6 +2764,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       t = (pa + pb) / 2 + Offset(-dir.dy, dir.dx) * 10;
       break;
     case 'pline':
+    case 'plinetan':
       // pts = [point, line A, line B]: perpendicular distance to the line.
       // Render as a linear dimension between the point and its foot on the
       // (extended) line; witness the extension with a dashed overshoot when
@@ -2771,7 +2772,30 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       if (c.pts.length < 3 || c.pts.any((q) => q.ent >= gs.length)) {
         return;
       }
-      final pw = refPt(gs, c.pts[0]);
+      // M202 — the TANGENT variant measures from the rim, so it must be drawn
+      // from the rim: the arrow lands on the nearest point of the circle, not
+      // in the middle of it. Everything after this is shared with 'pline',
+      // because from here on it IS the same dimension.
+      var pw = refPt(gs, c.pts[0]);
+      if (c.dimKind == 'plinetan' &&
+          c.ents.isNotEmpty &&
+          c.ents[0] >= 0 &&
+          c.ents[0] < gs.length) {
+        final cg = gs[c.ents[0]];
+        final rr = cg.data[2];
+        final la0 = refPt(gs, c.pts[1]);
+        final lb0 = refPt(gs, c.pts[2]);
+        final dd = lb0 - la0;
+        final l2 = dd.dx * dd.dx + dd.dy * dd.dy;
+        if (l2 > 1e-18 && rr > 1e-9) {
+          final t0 = ((pw - la0).dx * dd.dx + (pw - la0).dy * dd.dy) / l2;
+          final foot0 = la0 + dd * t0;
+          final toLine = foot0 - pw;
+          if (toLine.distance > 1e-9) {
+            pw = pw + toLine / toLine.distance * rr; // the tangent point
+          }
+        }
+      }
       final aw = refPt(gs, c.pts[1]);
       final bw = refPt(gs, c.pts[2]);
       final dl = bw - aw;

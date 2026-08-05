@@ -853,6 +853,23 @@ double measureDim(List<Geo> gs, Constraint c) {
       final len = d.distance;
       if (len < 1e-12) return (p - a).distance;
       return ((p - a).dx * d.dy - (p - a).dy * d.dx).abs() / len;
+    case 'plinetan':
+      // M202 — the same perpendicular distance, measured to the RIM instead of
+      // the centre: Inventor's tangent dimension. ents[0] carries the radius.
+      if (c.pts.length < 3 || c.ents.isEmpty) return 0;
+      if (c.ents[0] < 0 || c.ents[0] >= gs.length) return 0;
+      final tp = refPt(gs, c.pts[0]);
+      final ta = refPt(gs, c.pts[1]);
+      final tb = refPt(gs, c.pts[2]);
+      final td = tb - ta;
+      final tlen = td.distance;
+      final toCentre = tlen < 1e-12
+          ? (tp - ta).distance
+          : ((tp - ta).dx * td.dy - (tp - ta).dy * td.dx).abs() / tlen;
+      // The near side, which is what "the nearest point on the curve" means.
+      // Negative would say the line cuts the circle; the measure is then the
+      // depth of the cut and reads more honestly as 0.
+      return math.max(0.0, toCentre - gs[c.ents[0]].data[2]);
     case 'ang3':
       // pts = [ray end A, VERTEX, ray end B] — Inventor's 3-point angle.
       if (c.pts.length < 3) return 0;

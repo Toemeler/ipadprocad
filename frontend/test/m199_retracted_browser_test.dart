@@ -20,7 +20,6 @@ import 'package:flutter_test/flutter_test.dart';
 // GlassRow is the plugin's type; native_browser only builds them.
 import 'package:native_menu/native_menu.dart';
 import 'package:prototype/app_state.dart';
-import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/widgets/native_browser.dart';
 
@@ -124,10 +123,13 @@ void main() {
 
   test('the context menus come along', () {
     // A retracted row is still a right-click target; losing the menus would
-    // make the narrow panel a picture of a browser.
-    final rows = collapsed(insideSketch());
-    for (final r in rows) {
-      expect(r.menu, isNotEmpty, reason: r.id);
+    // make the narrow panel a picture of a browser. Compared against the wide
+    // panel row for row, because that is the actual rule — compact() keeps
+    // what the row had, and the document row never had a menu to keep.
+    final app = insideSketch();
+    final w = {for (final r in wide(app)) r.id: r.menu.length};
+    for (final r in collapsed(app)) {
+      expect(r.menu.length, w[r.id], reason: r.id);
     }
   });
 
@@ -139,8 +141,11 @@ void main() {
     }
   });
 
-  test('no document, no rows', () {
+  test('with no document open, narrow and wide still agree', () {
+    // The browser is not rendered on the home gallery at all, so what matters
+    // here is only that the two widths cannot disagree.
     final app = AppState();
-    expect(collapsed(app), isEmpty);
+    expect(collapsed(app).map((r) => r.id).toList(),
+        wide(app).map((r) => r.id).toList());
   });
 }

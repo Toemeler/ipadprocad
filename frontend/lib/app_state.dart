@@ -8839,7 +8839,16 @@ class AppState extends ChangeNotifier {
     // A point pick ALWAYS wins over an entity pick when both are under the
     // cursor: Inventor highlights the vertex marker over the edge. Line
     // length is still one click on the BODY (away from the endpoints).
-    final preferPoint = pt != null;
+    // M202 — ...with one exception: a click on a circle's RIM picks the
+    // CIRCLE, not its centre point. The centre marker and the edge are two
+    // different targets in Inventor, and preferring the point here would make
+    // the tangent dimension unreachable — the point tolerance is 10/zoom, so
+    // on a small circle at a low zoom the centre swallows the whole rim.
+    final preferPoint = pt != null &&
+        !(pt.pt == 0 &&
+            pt.ent >= 0 &&
+            pt.ent < s.geometry.length &&
+            _isRimClick(s.geometry[pt.ent], w));
 
     if (preferPoint && !conPts.contains(pt)) {
       // ...but a line's OWN endpoint does not extend {that line} into a
@@ -8899,17 +8908,20 @@ class AppState extends ChangeNotifier {
           }
         }
       } else if (nP == 0 && nE == 0 && conEdges.isEmpty) {
-        conEnts.add(ent); //                   first pick: line/circle/arc
+        conEnts.add(ent);
+        conEntClicks.add(w); //                   first pick: line/circle/arc
         return;
       } else if (nP == 0 && nE == 1 && conEdges.isEmpty) {
         // second entity: any line/circle/arc pairing is dimensionable
         conEnts.add(ent);
+        conEntClicks.add(w);
         return;
       } else if (nP == 1 &&
           nE == 0 &&
           conEdges.isEmpty &&
           (isLine(ent) || isCurve(ent))) {
-        conEnts.add(ent); //                   point + line/curve
+        conEnts.add(ent);
+        conEntClicks.add(w); //                   point + line/curve
         return;
       } else if (nE == 0 &&
           conEdges.length == 1 &&
@@ -8918,6 +8930,7 @@ class AppState extends ChangeNotifier {
         // ...the mirrored order: edge first (as conPts pair), then a
         // line/curve entity — same combinations as above
         conEnts.add(ent);
+        conEntClicks.add(w);
         return;
       }
       // silently fall through to placement — matches Inventor, where a click
@@ -8929,6 +8942,31 @@ class AppState extends ChangeNotifier {
       return; // nothing picked yet, click hit empty space
     }
     _placeDimension(s, w);
+  }
+
+  /// M202 — was the curve picked on its RIM rather than near its centre?
+  ///
+  /// Inventor's rule since 2020: select the line, then hover the CIRCLE'S EDGE
+  /// near the tangent point and the glyph changes to a tangent dimension. The
+  /// pick position is the whole signal, so it is recorded per entity pick
+  /// ([conEntClicks], index-parallel with [conEnts]) and read back here.
+  ///
+  /// "Rim" is the nearer half: closer to the circumference than to the centre.
+  /// Anything else — including a missing click record, so an older session or
+  /// a programmatic pick cannot change meaning — stays the centre distance
+  /// this app has always produced.
+  bool _pickedTheRim(SketchModel s, int ent, int which) {
+    if (which >= conEntClicks.length) return false;
+    return _isRimClick(s.geometry[ent], conEntClicks[which]);
+  }
+
+  /// True when [w] is nearer this curve's RIM than its centre.
+  bool _isRimClick(Geo g, Offset w) {
+    if (g.type != Geo.circle && g.type != Geo.arc) return false;
+    final r = g.data[2];
+    if (!(r > 1e-9)) return false;
+    final d = (w - Offset(g.data[0], g.data[1])).distance;
+    return (d - r).abs() < d;
   }
 
   /// The two vertex refs of the polyline segment of [ent] nearest to [w].
@@ -9013,9 +9051,10 @@ class AppState extends ChangeNotifier {
           g.spline == Geo.ellipseTag;
     }
 
-    // A curve participates in distance dimensions through its CENTER point
-    // (Inventor's default; tangent-edge variants are a possible later
-    // refinement). getPt(circle/arc, 0) is the center.
+    // A curve participates in distance dimensions through its CENTER point —
+    // Inventor's default. M202 adds the tangent-edge variant next to it; which
+    // one you get is decided by [_pickedTheRim]. getPt(circle/arc, 0) is the
+    // center.
     PRef center(int e) => PRef(e, 0);
 
     Constraint? d;
@@ -9083,11 +9122,17 @@ class AppState extends ChangeNotifier {
               pts: [a, b], dimKind: _distKind(s, a, b, w), textPos: w);
         }
       } else if (c1 || c2) {
-        // circle/arc + line -> perpendicular distance center <-> line
+        // circle/arc + line. M202 — WHERE you clicked the curve decides,
+        // which is Inventor's own rule (2020+): click the centre and you get
+        // the centre distance, click the EDGE near the tangent point and you
+        // get the distance to the rim. "when i make a dimension from a line to
+        // a circle, also a dimension from the line to the nearest point on the
+        // curve of the circle should be possible. like in inventor."
         final ce = c1 ? e1 : e2, le = c1 ? e2 : e1;
         d = Constraint(CType.dimension,
             pts: [center(ce), PRef(le, 0), PRef(le, 1)],
-            dimKind: 'pline',
+            ents: [ce],
+            dimKind: _pickedTheRim(s, ce, c1 ? 0 : 1) ? 'plinetan' : 'pline',
             textPos: w);
       } else if (_linesParallel(s, e1, e2)) {
         // two (near-)parallel lines -> linear distance, like Inventor. The

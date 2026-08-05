@@ -442,6 +442,9 @@ int residualCount(List<Geo> gs, Constraint c) {
         case 'pline':
         case 'ang3':
           return pt(0) && pt(1) && pt(2) ? 1 : 0;
+        case 'plinetan':
+          // M202 — needs the radius as well as the three points.
+          return pt(0) && pt(1) && pt(2) && ent(0) ? 1 : 0;
         case 'ang4':
           return pt(0) && pt(1) && pt(2) && pt(3) ? 1 : 0;
       }
@@ -565,7 +568,8 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
           if (g1 != null && g2 != null) {
             ctx.sign[i] = (g2.$2 - g1.$2) < 0 ? -1.0 : 1.0;
           }
-        } else if (c.dimKind == 'pline' && c.pts.length >= 3) {
+        } else if ((c.dimKind == 'pline' || c.dimKind == 'plinetan') &&
+            c.pts.length >= 3) {
           // keep the point on the side of the line it is on now — Inventor
           // never mirrors geometry through the line to satisfy a distance
           final p = _pointAt(gs, off, x, c.pts[0]);
@@ -1005,6 +1009,29 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       }
       final cross2 = ((p - la).dx * dl.dy - (p - la).dy * dl.dx) / len;
       r.add(cross2 - (ctx.sign[i] ?? 1.0) * v);
+      break;
+    case 'plinetan':
+      // M202 — Inventor's tangent dimension: the gap between the line and the
+      // NEAREST point of the circle, i.e. the centre distance less the radius.
+      // Same frozen sign as 'pline', for the same reason: a distance must not
+      // be satisfied by mirroring the circle through the line.
+      if (c.ents.isEmpty || c.ents[0] >= gs.length) {
+        r.add(0);
+        break;
+      }
+      final tp = _pointAt(gs, off, x, c.pts[0]);
+      final ta = _pointAt(gs, off, x, c.pts[1]);
+      final tb = _pointAt(gs, off, x, c.pts[2]);
+      final rad = x[off[c.ents[0]] + 2];
+      final tdl = tb - ta;
+      final tlen = tdl.distance;
+      if (tlen < 1e-12) {
+        r.add((tp - ta).distance - rad - v);
+        break;
+      }
+      final tcross = ((tp - ta).dx * tdl.dy - (tp - ta).dy * tdl.dx) / tlen;
+      final sgn = ctx.sign[i] ?? 1.0;
+      r.add(sgn * tcross - rad - v);
       break;
     case 'ang3':
       final pa = _pointAt(gs, off, x, c.pts[0]);
