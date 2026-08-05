@@ -53,7 +53,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # FAST FEEDBACK, and not optional. The heavy job below can spend 150 minutes
+  # in a cold OCCT build BEFORE it ever reaches `flutter analyze`. Without this
+  # gate a Dart typo costs two and a half hours to find out about — the same
+  # mistake m1-core-build.yml records having made at twenty minutes, only worse.
+  # Cheap ubuntu runner, no iOS scaffolding needed: analyze/test only want
+  # `pub get`, and the in-repo plugin pods are path dependencies with a pure
+  # Dart interface that resolves on Linux.
+  dart-checks:
+    name: Dart analyze + host tests (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Analyze Dart
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 \
+            | tee ../ci-perf-analyze.log
+
+      - name: Host tests
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # Covers the new perf machinery: ring buffer, PerfPhases, the
+          # separated counter table, jsonSnapshot key stability.
+          flutter test 2>&1 | tee ../ci-perf-tests.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-checks-logs
+          path: ci-perf-*.log
+          if-no-files-found: ignore
+
   sim-app:
+    needs: dart-checks
     name: Build + run the app in the iOS Simulator
     # macos-14 deliberately: this is the runner the m3 simulator job is proven
     # on with Qt 6.7 + the x86_64 simulator slice. The image is in deprecation
