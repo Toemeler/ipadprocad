@@ -94,18 +94,48 @@ void main() {
     expect(measureDim(s.geometry, dimOf(app)!), closeTo(20, 1e-6));
   });
 
-  test('it DRIVES: setting it to 10 moves the circle, radius untouched', () {
+  test('it DRIVES: pin the line and the radius, and the circle moves', () {
+    // A real sketch has its circle dimensioned. Ground the line as well and
+    // the only freedom left is where the circle sits, so the answer is exact:
+    // 10 of clearance plus 5 of radius puts the centre 15 above the line.
+    final app = lineAndCircle();
+    final s = app.current!;
+    s.constraints.add(Constraint(CType.fix,
+        ents: [0], anchors: [-40, 0, 40, 0]));
+    s.constraints.add(Constraint(CType.dimension,
+        ents: [1], dimKind: 'rad', value: 5));
+    dimension(app, const Offset(0, 25));
+    final d = dimOf(app)!;
+    app.setDimensionValue(d, 10);
+    expect(measureDim(s.geometry, d), closeTo(10, 1e-3));
+    expect(s.geometry[1].data[2], closeTo(5, 1e-3),
+        reason: 'the radius is dimensioned, so it holds');
+    expect(s.geometry[1].data[1], closeTo(15, 1e-2),
+        reason: 'the circle moved, which is the only freedom left');
+    expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
+  });
+
+  test('with NOTHING pinned, the radius may absorb the change — by design',
+      () {
+    // Found by this test failing on the first run: driving the tangent
+    // distance on a free circle took r from 5 to 6.79.
+    //
+    // That is not a defect in the dimension. The measure is centre distance
+    // MINUS radius, so the radius is genuinely one of its unknowns, and least
+    // squares spends the change on whatever is loose — the same thing Inventor
+    // does with an unconstrained circle. It is worth pinning rather than
+    // hiding: the cure is a radius dimension, not a different equation.
+    //
+    // (M198 is the opposite case and stays refused: there the geometry was
+    // impossible, and growth was the solver escaping a corner that could not
+    // hold the fillet.)
     final app = lineAndCircle();
     final s = app.current!;
     dimension(app, const Offset(0, 25));
     final d = dimOf(app)!;
     app.setDimensionValue(d, 10);
-    // WHICH of the two moves is the solver's business — nothing is fixed here,
-    // so it is free to close the gap from either side. What the dimension
-    // promises is the measure.
-    expect(measureDim(s.geometry, d), closeTo(10, 1e-3));
-    expect(s.geometry[1].data[2], closeTo(5, 1e-6),
-        reason: 'a distance dimension must not resize the circle');
+    expect(measureDim(s.geometry, d), closeTo(10, 1e-3),
+        reason: 'the dimension holds, whichever unknown paid for it');
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
   });
 
