@@ -2805,6 +2805,17 @@ class AppState extends ChangeNotifier {
   /// position keeps its last VALID position instead of snapping back to where
   /// the drag started (Inventor's behaviour).
   List<Geo>? _lastGoodDragGeo;
+
+  /// The sketch as it stood when the current drag began — the state the user
+  /// was looking at when they put their finger down.
+  ///
+  /// M208: "the drag broke it" is measured against this snapshot, by
+  /// [collapsedSince].
+  /// A frame is compared with the frame before it, which is right for a branch
+  /// flip (a jump) and blind to a slot cap sliding to zero radius over a
+  /// hundred frames, because no single step of that is a break. Against the
+  /// start of the gesture it is one.
+  List<Geo>? _dragStartGeo;
   Offset? boxStart, boxEnd; // world coords while box-selecting
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
@@ -5839,6 +5850,24 @@ class AppState extends ChangeNotifier {
         }
         return _lastGoodDragGeo ?? s.geometry;
       }
+      // M208 — and it must not have destroyed anything since the finger went
+      // down. The check inside the solve only sees one step; a slot cap that
+      // shrinks a little on each of a hundred frames never trips it, and by
+      // the end the slot is a line. Measured against the start of the gesture
+      // it is caught on the frame that crosses the floor, and the drag stops
+      // there instead of continuing into the collapse.
+      final killed = _dragStartGeo == null
+          ? const <int>[]
+          : collapsedSince(_dragStartGeo!, gs);
+      if (killed.isNotEmpty) {
+        if (Log.every('drag-collapse', 200)) {
+          Log.d(
+              'drag',
+              'frame would collapse ${killed.join(",")} — '
+                  'holding last good geometry');
+        }
+        return _lastGoodDragGeo ?? s.geometry;
+      }
       _lastGoodDragGeo = gs;
       return gs;
     } catch (err, st) {
@@ -5954,6 +5983,7 @@ class AppState extends ChangeNotifier {
     dragGrip = g;
     dragPos = g.pos;
     _lastGoodDragGeo = null;
+    _dragStartGeo = s0 == null ? null : List<Geo>.from(s0.geometry);
     notifyListeners();
   }
 
@@ -6001,6 +6031,7 @@ class AppState extends ChangeNotifier {
     dragGrip = Grip.body(entity, atWorld);
     dragPos = atWorld;
     _lastGoodDragGeo = null;
+    _dragStartGeo = List<Geo>.from(s0.geometry);
     notifyListeners();
   }
 
@@ -6074,8 +6105,27 @@ class AppState extends ChangeNotifier {
         // solve (80 iterations, nothing dragged) pulls the frame onto the
         // constraint manifold to machine precision; angle normalization keeps
         // arc parameters canonical without moving any endpoint.
-        final gs = List<Geo>.from(displayGeometry(s));
-        solveConstraints(gs, s.constraints);
+        //
+        // M208 — and the settle is CHECKED. It used to be run for its side
+        // effect and its answer thrown away, so a settle that collapsed the
+        // shape was committed anyway: that is how a slot reached the document
+        // as a line with two zero-radius caps, after every drag frame in the
+        // log had correctly refused the same configuration. What is shown is
+        // what gets committed; if the settle cannot improve on the last shown
+        // frame, the last shown frame is what the user was looking at and is
+        // sound, so it is committed unrefined.
+        final shown = List<Geo>.from(displayGeometry(s));
+        final gs = List<Geo>.from(shown);
+        final start = _dragStartGeo;
+        final settled = solveConstraints(gs, s.constraints) &&
+            (start == null || collapsedSince(start, gs).isEmpty);
+        if (!settled) {
+          Log.w('drag',
+              'END: settle rejected — committing the last shown frame');
+          gs
+            ..clear()
+            ..addAll(shown);
+        }
         normalizeArcAngles(gs);
         _rebuildEngine(s, gs);
       } catch (err, st) {
@@ -6087,6 +6137,7 @@ class AppState extends ChangeNotifier {
     dragGrip = null;
     dragPos = null;
     _lastGoodDragGeo = null;
+    _dragStartGeo = null;
     Log.flush();
     snap = null;
     notifyListeners();

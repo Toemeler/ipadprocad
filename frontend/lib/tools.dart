@@ -142,8 +142,18 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
             .asSpline(Geo.ellipseTag)
       ];
     case Tool.arcThreePoint:
+      // M208 — START, END, then the point the arc passes THROUGH, which is
+      // Inventor's order: "start then end then middle".
+      //
+      // The picks used to be start, middle, end. Both make the same arc, but
+      // only one can be previewed: with the middle fixed second, the rubber
+      // band's far end is still unknown, so the shape on screen swings around
+      // as the cursor moves and the user is aiming at a curve that is not
+      // where the arc will be. With both ENDS down first they stay put and
+      // only the bulge follows the finger — "so i have an exact preview while
+      // drawing".
       if (p.length < 3) return null;
-      final arc = arcFrom3Points(p[0], p[1], p[2]);
+      final arc = arcFrom3Points(p[0], p[2], p[1]);
       return arc == null ? null : [_arcT(arc)];
     case Tool.arcTangent:
       // first pick near an existing entity endpoint (tangent taken from it),
@@ -242,9 +252,14 @@ List<Geo>? buildToolGeometry(Tool t, List<Offset> p,
       final r = _distToSegment(p[2], c1, c2);
       return _linearSlot(c1, c2, r);
     case Tool.slot3A:
-      // three points on the centre arc, then width point
+      // M208 — the centre arc's START, its END, then the point it passes
+      // THROUGH, then the width. Same reordering as arcThreePoint above, and
+      // the report that asked for it was about this tool: the device session's
+      // last three picks were (-76.62, 31.76), (26.28, -45.37), (-3.05, 32.09)
+      // — the second one aimed at where the slot should END and landed as the
+      // point it bulges through, which is why the slot came out 91 mm across.
       if (p.length < 4) return null;
-      final arc = arcFrom3Points(p[0], p[1], p[2]);
+      final arc = arcFrom3Points(p[0], p[2], p[1]);
       if (arc == null) return null;
       final r = ((p[3] - arc.$1).distance - arc.$2).abs();
       return _arcSlot(arc, r);

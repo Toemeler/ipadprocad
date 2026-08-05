@@ -63,8 +63,8 @@ void main() {
     final app = makeApp();
     app.tool = Tool.slot3A;
     app.toolClick(const Offset(80, 40));
-    app.toolClick(const Offset(100, 60));
     app.toolClick(const Offset(120, 40));
+    app.toolClick(const Offset(100, 60));
     app.toolClick(const Offset(100, 66));
     expectClean(app.current!, dof: 6, reason: '(arc slot)');
   });

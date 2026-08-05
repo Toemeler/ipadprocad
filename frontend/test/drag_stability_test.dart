@@ -217,8 +217,8 @@ void main() {
     final s = app.current!;
     app.tool = Tool.slot3A;
     app.toolClick(const Offset(-20, 0));
-    app.toolClick(const Offset(0, 20));
     app.toolClick(const Offset(20, 0));
+    app.toolClick(const Offset(0, 20));
     app.toolClick(const Offset(0, 26));
     app.tool = Tool.none;
     final capA = s.geometry[2];

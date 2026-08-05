@@ -16,6 +16,98 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M208 — vier Meldungen zu Build `96c3761`, alle vier ueber Slots. DREI
+> davon sind EIN Fehler, und der steckt in einer Schutzmassnahme aus M196.**
+>
+> **1. Die Kappe, die als Verrundung galt.** Ein Slot-Kappenbogen ist tangent
+> zu BEIDEN Schienen, und `cornerFilletArcs` zaehlte nur, zu wie vielen Linien
+> ein Bogen tangent ist — also war jede Slot-Kappe eine „corner fillet" und
+> ging an die Verzweigungs-Sperre. Eine Kappe ist aber eine HALBE DREHUNG, per
+> Konstruktion, und die Sperre fragt „vorher unter π, nachher ueber π", mit
+> einer Toleranz von 1e-6 rad. Aus den Bundles selbst nachgerechnet liegen die
+> Kappen bei **π ± 7,3e-6** — die Toleranz war eine Groessenordnung feiner als
+> der Abstand, den die echte Form von der Grenze hat. Also entschied die letzte
+> Stelle des Solvers, ob ein Frame ein „Umklappen" ist. Das Log sagt, was es
+> gekostet hat:
+>
+> ```
+> 565 BRANCH FLIP ... REJECTED, keeping last good   (60 Frames angenommen)
+> lm: err=9.81e-10 satisfied=true
+> WARN solve: BRANCH FLIP via lm on arc(s) 3 ... REJECTED
+> INFO constraint: REJECTED concentric/ ents=7,3 — cannot be satisfied
+> ```
+>
+> Damit sind zwei Meldungen erklaert. „I couldnt properly drag the point
+> around. it jumps around or doesnt move at all" — 90 % der Frames wurden
+> verworfen, ein verworfener Frame bewegt sich nicht, und der eine angenommene
+> nach einer Serie davon kommt auf einmal. Und „it says this constraint is not
+> possible but it should definitely be possible (concentric of the 2 slot
+> circles)" — die Concentric WAR geloest, auf 9,8e-10 genau, und wurde von
+> einer Sperre weggeworfen, die auf diese Form gar nicht zutreffen kann: ein
+> Bogen tangent zu zwei PARALLELEN Linien hat seinen Mittelpunkt auf deren
+> Mittellinie und die Beruehrpunkte diametral gegenueber. Beide „Zweige" sind
+> dieselbe halbe Drehung. Es gibt nichts umzuklappen.
+>
+> Zwei Aenderungen, beide klein: `cornerFilletArcs` verlangt jetzt, dass sich
+> zwei der tangenten Linien tatsaechlich in einem WINKEL treffen (`> 0,57°`) —
+> das ist der ganze Unterschied zwischen einer Verrundung und einer Slot-Kappe
+> —, und die Sperre braucht ein deutliches Vorher/Nachher (`kHalfTurnSlack`,
+> 0,05 rad ≈ 2,9°) statt 1e-6. M196 bleibt scharf: dort ging eine 90°-Ecke auf
+> 270°, eine Vierteldrehung weit jenseits des Bandes.
+>
+> **2. Der Slot, der eine Linie wurde.** „A slot shouldnt be able to become a
+> line like this." Der committete Zustand im Bundle:
+>
+> ```
+> [0] line data=[-15.0305, 3.1698, 11.9094, -5.0201]
+> [1] line data=[11.9094, -5.0201, -15.0305, 3.1698]   DIESELBE Linie
+> [2] arc  data=[-15.0305, 3.1698, 0.0000, ...]        Radius null
+> ```
+>
+> Zwei Luecken, und die Diagnose stand die ganze Zeit im Log (`collapsed by
+> this solve: 2,3`). Erstens vergleicht `newlyDegenerate` mit dem Frame DAVOR —
+> mit dem M207-Warmstart heisst das: sobald eine Kappe einmal bei Radius null
+> stand, verglich jeder spaetere Frame gegen eine bereits kollabierte
+> Konfiguration, fand nichts neu kaputt und sagte ja. Der Zusammenbruch war
+> klebrig. Zweitens lief der Settle-Solve in `endGripDrag` nur wegen seiner
+> Nebenwirkung, sein Rueckgabewert wurde weggeworfen — genau so kam die Form
+> ins Dokument, nachdem jeder einzelne Drag-Frame sie korrekt abgelehnt hatte.
+>
+> Neu ist `collapsedSince(start, now)`: gemessen gegen die Skizze, die der
+> Benutzer beim Aufsetzen des Fingers vor sich hatte, nicht gegen den letzten
+> Frame. Die Schranke ist RELATIV und gilt pro Geste (1e-3 der Ausgangsgroesse)
+> — sie verbietet nie eine Groesse, nur das Zerstoeren einer Form in einem Zug.
+> M203 bleibt gewahrt, und zwar aus demselben Grund: dieser Schnappschuss IST
+> die committete Skizze, also wird etwas, das schon vorher kollabiert war,
+> nicht dem Drag angelastet und das Dokument bleibt bearbeitbar. Der Settle
+> wird jetzt geprueft; faellt er durch, wird der zuletzt GEZEIGTE Frame
+> committet — was man gesehen hat, ist was man bekommt.
+>
+> **3. Erst Anfang, dann Ende, zuletzt die Mitte.** „also slots should behave
+> like in inventor. so set the start then the end point and at last the
+> midpoint so i have an exact preview while drawing. the same with a 3 point
+> arc. start then end then middle." Betrifft die beiden Drei-Punkt-Werkzeuge:
+> `arcThreePoint` und den Drei-Punkt-Bogen-Slot `slot3A`. Beide lasen bisher
+> Anfang, MITTE, Ende. Dieselbe Kurve, aber nur eine der beiden Reihenfolgen
+> laesst sich zeichnen: steht die Mitte als zweites fest, ist das ferne Ende
+> noch offen, die Form auf dem Schirm schwenkt beim Ziehen umher, und man zielt
+> auf eine Kurve, die nicht dort liegt, wo der Bogen landen wird. Die letzten
+> drei Picks der Sitzung zeigen es: `(-76.62, 31.76)`, `(26.28, -45.37)`,
+> `(-3.05, 32.09)` — der zweite Klick zielte auf das ENDE des Slots und wurde
+> als Durchgangspunkt gelesen, weshalb der Slot 91 mm breit herauskam.
+>
+> **Ehrlicher Stand:** 23 neue Tests in `m208_slots_test.dart`, Suite **1521
+> gruen** (von 1498), analyze 50 Issues / 0 Errors = Ausgangsstand. Jede der
+> drei Aenderungen wurde EINZELN zurueckgedreht, um zu pruefen, dass die Tests
+> sie auch wirklich halten (Flip-Sperre 3 Tests, Kollaps 1, Reihenfolge 3); der
+> Kollaps-Test faellt ohne den Fix mit Kappenradius 0,000001 — der Slot IST
+> dann die Linie aus der Meldung. Die Zahlen in den Tests stammen aus den
+> Bundles, nicht aus der Vorstellung. **Am Geraet nicht nachgeprueft.**
+> Reichweite ueber Slots hinaus: `collapsedSince` gilt fuer JEDEN Griff-Drag
+> (die bestehenden Drag-Suiten T-1, M47, M94, M182, M207 laufen gruen), und die
+> geaenderte Pick-Reihenfolge ist eine Bedienungsaenderung — wer den
+> Drei-Punkt-Bogen gewohnt ist, klickt ihn ab jetzt anders.
+
 > **M207 — vier Meldungen zu Build `081a39d`. Eine ist ein Solver-Verhalten,
 > drei sind Bedienung.**
 >

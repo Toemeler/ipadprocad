@@ -252,8 +252,8 @@ void _arcSlotTests() {
   test('emits four rails/caps plus two construction radii', () {
     final gs = buildToolGeometry(Tool.slot3A, [
       const Offset(0, 0),
-      const Offset(40, 0),
       const Offset(0, 40),
+      const Offset(40, 0),
       const Offset(0, 34),
     ]);
     expect(gs, isNotNull);
@@ -270,8 +270,8 @@ void _arcSlotTests() {
   test('each radius starts at the shared rail centre', () {
     final gs = buildToolGeometry(Tool.slot3A, [
       const Offset(0, 0),
-      const Offset(40, 0),
       const Offset(0, 40),
+      const Offset(40, 0),
       const Offset(0, 34),
     ])!;
     final centre = Offset(gs[0].data[0], gs[0].data[1]);
@@ -283,8 +283,8 @@ void _arcSlotTests() {
   test('the four pins add no degrees of freedom', () {
     final gs = buildToolGeometry(Tool.slot3A, [
       const Offset(0, 0),
-      const Offset(40, 0),
       const Offset(0, 40),
+      const Offset(40, 0),
       const Offset(0, 34),
     ])!;
     // Two lines = 8 parameters; four coincidents = 8 equations.

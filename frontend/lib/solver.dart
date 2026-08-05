@@ -1831,6 +1831,64 @@ List<int> newlyDegenerate(List<Geo> before, List<Geo> after) {
   return out;
 }
 
+/// The single number a COLLAPSE destroys: a line's length, an arc's or a
+/// circle's radius. null for shapes with no such measure — a spline does not
+/// collapse, it just gets smaller.
+double? collapsibleSize(Geo g) {
+  switch (g.type) {
+    case Geo.line:
+      if (g.data.length < 4) return null;
+      final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
+      return math.sqrt(dx * dx + dy * dy);
+    case Geo.arc:
+    case Geo.circle:
+      return g.data.length < 3 ? null : g.data[2].abs();
+    default:
+      return null;
+  }
+}
+
+/// A gesture may not shrink an entity below this fraction of the size it had
+/// when the gesture STARTED. Three orders of magnitude: no edit anyone means
+/// crosses it, and a slot cap that has lost 99.9% of its radius is a line on
+/// any screen at any zoom.
+const double kGestureShrinkFloor = 1e-3;
+
+/// M208 — entities THIS GESTURE destroyed: sound when the drag began, gone
+/// now. "A slot shouldn't be able to become a line like this."
+///
+/// [newlyDegenerate] asks the same question of ONE solve, and that is what let
+/// the slot through. A drag frame warm-starts from the previous frame, so once
+/// a cap had reached radius zero every later frame compared against a
+/// configuration that was already collapsed, found nothing newly broken, and
+/// said yes — the shape stayed a line for the rest of the drag and the commit
+/// wrote it to the document. Judging against the state the gesture started
+/// from closes that: the collapse is measured against the sketch the user was
+/// looking at when they put their finger down.
+///
+/// It keeps M203's promise for the same reason. That snapshot IS the committed
+/// sketch, so an entity that was already collapsed before the drag began is
+/// not blamed on the drag, and a document containing one stays editable.
+///
+/// The floor is relative and per-gesture ([kGestureShrinkFloor]), never
+/// absolute: this refuses to destroy a shape in one drag, it never forbids a
+/// size. Dragging something small is fine; dragging it to nothing is not.
+List<int> collapsedSince(List<Geo> start, List<Geo> now) {
+  final out = <int>[];
+  for (var i = 0; i < now.length && i < start.length; i++) {
+    if (start[i].type != now[i].type) continue; // not the same entity anymore
+    if (isDegenerateGeo(start[i])) continue; // already broken; not this drag
+    if (isDegenerateGeo(now[i])) {
+      out.add(i);
+      continue;
+    }
+    final s0 = collapsibleSize(start[i]), s1 = collapsibleSize(now[i]);
+    if (s0 == null || s1 == null || !(s0 > 0)) continue;
+    if (s1 < s0 * kGestureShrinkFloor) out.add(i);
+  }
+  return out;
+}
+
 
 /// Signed angular sweep of an arc: positive counter-clockwise, negative
 /// clockwise, in (−2π, 2π). This — not the raw `reversed` flag — is what a
@@ -1847,10 +1905,31 @@ double arcSweep(Geo g) {
   return rev ? -norm2pi(g.data[3] - g.data[4]) : norm2pi(g.data[4] - g.data[3]);
 }
 
-/// Arcs that ROUND A CORNER: tangent to two or more straight lines. This is
-/// exactly the 2D fillet/chamfer family (M36).
+/// Two directions counted as PARALLEL: |sin| below this. 1e-2 is about 0.57°,
+/// tight enough that a real corner never reads as parallel and loose enough
+/// that a slot's rails still do while a drag frame is a few digits off exact.
+const double _kParallelSin = 1e-2;
+
+/// Arcs that ROUND A CORNER: tangent to two or more straight lines that
+/// actually MEET at an angle. This is exactly the 2D fillet/chamfer family
+/// (M36).
+///
+/// M208 — the "meet at an angle" half is not decoration, it is the whole
+/// difference between a fillet and a SLOT CAP. A slot's cap is tangent to both
+/// rails too, so counting tangent lines alone called every slot cap a corner
+/// fillet and handed it to [flippedCornerFillets], which then rejected 565 of
+/// 625 drag frames on the device ("it jumps around or doesnt move at all") and
+/// refused a concentric the solver had already satisfied to 9.8e-10 ("it says
+/// this constraint is not possible").
+///
+/// The rails of a slot are PARALLEL — implied by both caps being tangent to
+/// both of them — and an arc tangent to two parallel lines has its centre on
+/// their midline with the two tangent points diametrically opposite. Its sweep
+/// is a half turn whichever way it is drawn, so there is no second branch to
+/// walk onto and nothing for the guard to decide. Only lines that meet at a
+/// corner give the tangency the two solutions (π − θ and π + θ) M196 is about.
 Set<int> cornerFilletArcs(List<Geo> gs, List<Constraint> cs) {
-  final tangentLines = <int, int>{};
+  final tangentLines = <int, Set<int>>{};
   for (final c in cs) {
     if (c.type != CType.tangent || c.ents.length < 2) continue;
     for (var k = 0; k < 2; k++) {
@@ -1859,14 +1938,36 @@ Set<int> cornerFilletArcs(List<Geo> gs, List<Constraint> cs) {
         continue;
       }
       if (gs[arc].type == Geo.arc && gs[other].type == Geo.line) {
-        tangentLines[arc] = (tangentLines[arc] ?? 0) + 1;
+        tangentLines.putIfAbsent(arc, () => <int>{}).add(other);
       }
     }
   }
   return {
     for (final e in tangentLines.entries)
-      if (e.value >= 2) e.key
+      if (_meetAtAnAngle(gs, e.value)) e.key
   };
+}
+
+/// Do at least two of these lines cross at a real angle (rather than all
+/// running the same way, as a slot's two rails do)?
+bool _meetAtAnAngle(List<Geo> gs, Set<int> lines) {
+  if (lines.length < 2) return false;
+  final dirs = <(double, double)>[];
+  for (final i in lines) {
+    final g = gs[i];
+    if (g.data.length < 4) continue;
+    final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
+    final len = math.sqrt(dx * dx + dy * dy);
+    if (!(len > 1e-12)) continue; // collapsed line: no direction to compare
+    dirs.add((dx / len, dy / len));
+  }
+  for (var i = 0; i < dirs.length; i++) {
+    for (var j = i + 1; j < dirs.length; j++) {
+      final cross = dirs[i].$1 * dirs[j].$2 - dirs[i].$2 * dirs[j].$1;
+      if (cross.abs() > _kParallelSin) return true;
+    }
+  }
+  return false;
 }
 
 /// M196 — corner fillets whose sweep crossed the HALF TURN during one solve.
@@ -1888,16 +1989,30 @@ Set<int> cornerFilletArcs(List<Geo> gs, List<Constraint> cs) {
 /// a minor arc BEFORE and is a major arc AFTER counts as flipped. An arc that
 /// is already major stays workable (some corners genuinely are), and no
 /// absolute rule is imposed on shapes this does not understand.
+///
+/// M208 — and it must be CLEARLY minor before and CLEARLY major after. The
+/// original margin was 1e-6 rad, which is fine for the 90° → 270° jump this
+/// was written for and useless for an arc that lives ON the half turn: there,
+/// the last digit of the solve decides whether the frame is a flip, so the
+/// same drag was accepted and rejected at random. [kHalfTurnSlack] is the
+/// width of the band in which "minor" and "major" stop being different shapes.
+///
+/// How far from a half turn an arc's sweep must be before calling it "minor"
+/// or "major" means anything: ~2.9°. The flip this guards against is a quarter
+/// turn or more, so nothing real is lost by ignoring the band.
+const double kHalfTurnSlack = 0.05;
+
 List<int> flippedCornerFillets(
     List<Geo> before, List<Geo> after, List<Constraint> cs) {
   if (before.length != after.length) return const [];
-  const eps = 1e-6;
   final out = <int>[];
   for (final i in cornerFilletArcs(after, cs)) {
     if (i >= before.length || before[i].type != Geo.arc) continue;
     final s0 = arcSweep(before[i]).abs();
     final s1 = arcSweep(after[i]).abs();
-    if (s0 < math.pi - eps && s1 > math.pi + eps) out.add(i);
+    if (s0 < math.pi - kHalfTurnSlack && s1 > math.pi + kHalfTurnSlack) {
+      out.add(i);
+    }
   }
   return out;
 }

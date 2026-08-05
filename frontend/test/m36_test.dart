@@ -85,8 +85,8 @@ void main() {
       final s = app.current!;
       app.tool = Tool.slot3A;
       app.toolClick(const Offset(80, 40));
-      app.toolClick(const Offset(100, 60));
       app.toolClick(const Offset(120, 40));
+      app.toolClick(const Offset(100, 60));
       app.toolClick(const Offset(100, 66)); // width -> r = 6
       // M114 — four rails/caps plus the two CONSTRUCTION radii.
       expect(s.geometry, hasLength(6));
