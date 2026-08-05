@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../app_state.dart';
 import '../part_model.dart';
 import '../theme.dart';
+import 'dialog_dock.dart';
 import 'properties_panel.dart';
 
 class ExtrudeDialog extends StatefulWidget {
@@ -68,12 +69,14 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
     // Live bodies available as a Join target (empty for the base feature).
     final bodies = app.currentPart?.bodyNames ?? const <String>[];
     final sketchLabel = s.sketchName ?? 'Sketch1';
-    // Park it against the right edge, centred, the first time we know how big
-    // the viewport is.
+    // Park it against the right edge of the CONTENT area, centred, the first
+    // time we know how big the viewport is. M206: `width - w - 18` put it
+    // under the quick-tool bar, which owns the right edge and is a platform
+    // view — so on the Flutter screenshot that corner looks empty and the
+    // overlap was invisible for four milestones.
     const w = 300.0, h = 560.0;
     final size = MediaQuery.sizeOf(context);
-    final pos = _pos ??
-        Offset(size.width - w - 18, ((size.height - h) / 2).clamp(12.0, 400.0));
+    final pos = _pos ?? DialogDock.spot(size, const Size(w, h));
     return Positioned(
       left: pos.dx,
       top: pos.dy,

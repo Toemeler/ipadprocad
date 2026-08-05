@@ -24,6 +24,7 @@ import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/gear.dart';
 import 'package:prototype/inserts.dart';
 import 'package:prototype/scrub.dart';
+import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/gear_dialog.dart';
 import 'package:prototype/widgets/parameters_dialog.dart';
 import 'package:prototype/widgets/pattern_dialog.dart';
@@ -52,13 +53,20 @@ Future<void> _pump(WidgetTester t, Widget w) async {
   while (t.takeException() != null) {}
 }
 
-/// Every numeric keyboard — plain, signed, decimal — shares one index.
+/// A VALUE field, by the keyboard it asks for.
+///
+/// M206 changed what that is. It used to be one of the numeric keyboards —
+/// plain, signed, decimal, all sharing one index. It is now
+/// [kValueKeyboard] == TextInputType.none, because the app draws its own pad
+/// and asks the system for nothing (see value_pad.dart). The M180 contract
+/// below is unchanged; only the probe for "this is a number field" moved.
 bool _isNumeric(TextField f) {
   // Explicitly nullable local: whether TextField declares this one nullable
   // has changed across Flutter versions, and CI does not run the SDK this was
   // written against.
   final TextInputType? k = f.keyboardType;
-  return k?.index == TextInputType.number.index;
+  return k?.index == kValueKeyboard.index ||
+      k?.index == TextInputType.number.index;
 }
 
 /// Fails naming the field when a numeric TextField has no ScrubField over it.

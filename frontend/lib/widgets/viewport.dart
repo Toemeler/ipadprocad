@@ -38,6 +38,7 @@ import 'scrub_field.dart';
 import 'ribbon_chrome.dart';
 import '../touch.dart';
 import 'bottom_tabbar.dart';
+import 'dialog_dock.dart';
 import 'pattern_dialog.dart';
 import 'quick_tools.dart';
 import 'parameters_dialog.dart';
@@ -69,7 +70,7 @@ class Viewport2D extends StatefulWidget {
   State<Viewport2D> createState() => _Viewport2DState();
 }
 
-class _Viewport2DState extends State<Viewport2D> {
+class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
   bool _projCpSelected = false; // mock: click toggles yellow <-> blue
   double _panZoomStartZoom = 1;
   final FocusNode _focus = FocusNode();
@@ -77,6 +78,7 @@ class _Viewport2DState extends State<Viewport2D> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // M206: see didChangeAppLifecycleState
     // M53 — Apple Pencil hardware gestures (UIPencilInteraction, forwarded
     // by the native_menu plugin). Both respect the user's system setting:
     // the plugin only reports a double-tap when iOS says the app may act.
@@ -92,6 +94,7 @@ class _Viewport2DState extends State<Viewport2D> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _lpTimer?.cancel();
     _liveWatchdog?.cancel();
     _closeQuickMenu();
@@ -173,8 +176,9 @@ class _Viewport2DState extends State<Viewport2D> {
     // any click whose position is inside the dialog's rectangle. (`local` and
     // the dialog's Positioned left/top share this Stack's coordinate space.)
     if (app.gear != null) {
-      final gl = _gearPos.dx.clamp(0.0, size.width - 120);
-      final gt = _gearPos.dy.clamp(0.0, size.height - 60);
+      final gp = _windowPos(_gearPos, size, _gearSize);
+      final gl = gp.dx;
+      final gt = gp.dy;
       final box = _gearDialogKey.currentContext?.findRenderObject();
       final dsize = box is RenderBox ? box.size : const Size(300, 560);
       if (Rect.fromLTWH(gl, gt, dsize.width, dsize.height).contains(local)) {
@@ -288,7 +292,37 @@ class _Viewport2DState extends State<Viewport2D> {
   // tap (no movement past the slop) stays a classic click-click pick.
   Offset? _toolDownLocal;
   Offset? _toolDragW;
+
+  /// Screen position of the last drag update — the release point, in the same
+  /// space as [_toolDownLocal]. The world pair is not interchangeable with it:
+  /// the threshold below is a THUMB-and-tip distance and has to be measured in
+  /// pixels, or it would mean different things at different zooms.
+  Offset? _toolDragLocal;
   bool _toolDragPlaced = false;
+
+  /// M206 — how far a press must travel before it becomes a DRAWING DRAG.
+  ///
+  /// It was a flat 8 px, and that is inside the wobble of an ordinary Pencil
+  /// tap. In `bug20260805T142912` eleven taps crossed it, and every one of
+  /// them placed TWO points at the same spot: the update that crossed the
+  /// threshold placed the anchor, and the release — which the recognizer
+  /// dispatches from the SAME pointer event, 0.07 ms later — placed the drag
+  /// point on top of it.
+  ///
+  ///     14:26:59.050361  toolClick tool=Tool.arcThreePoint w=(-8.71,20.00) picks=0
+  ///     14:26:59.050432  toolClick tool=Tool.arcThreePoint w=(-8.71,20.00) picks=1
+  ///     14:26:59.712185  toolClick tool=Tool.arcThreePoint w=( 1.48,20.00) picks=2
+  ///     layer: tool Tool.arcThreePoint built no geometry from 3 point(s)
+  ///
+  /// Two of the three points are the same point, so the arc is degenerate and
+  /// nothing is ever committed — "i can't finish drawing the arc properly".
+  /// A circle gets a rim on its own centre and comes out with no radius.
+  ///
+  /// Measured against the traces in that bundle: taps wobble up to ~8 px,
+  /// deliberate strokes run 25 to 70. 18 px separates them with room on both
+  /// sides, and a finger gets the usual 1.8x.
+  double get _toolDragPx =>
+      touchSlop(_gestureFinger ? PointerDeviceKind.touch : _downKind, 18);
   int?
       _clickPtr; // the pointer that armed _clickDown (a palm up must not fire it)
   Offset? _lastStylusLocal; // fallback anchor for the Pencil-squeeze menu
@@ -590,9 +624,10 @@ class _Viewport2DState extends State<Viewport2D> {
         break;
       case 'tooldrag': // M53: Pencil press-drag-release drawing
         final lp = d.localFocalPoint;
+        _toolDragLocal = lp;
         if (!_toolDragPlaced &&
             _toolDownLocal != null &&
-            (lp - _toolDownLocal!).distance > 8) {
+            (lp - _toolDownLocal!).distance > _toolDragPx) {
           // the FIRST point lands where the tip touched DOWN, snapped —
           // dragging away must not smear the anchor
           app.toolClick(_snapped(_toWorld(_toolDownLocal!, size),
@@ -757,15 +792,38 @@ class _Viewport2DState extends State<Viewport2D> {
   /// the value editor).
   Constraint? _hoverDimLabel;
 
-  /// M43: position of the movable Parameters window (viewport coords).
-  Offset _paramsPos = const Offset(60, 60);
-  Offset _gearPos = const Offset(60, 60);
+  // M206 — the movable windows park on the RIGHT, beside the quick-tool bar,
+  // the way the Extrude panel and the Pattern dialog already do. They used to
+  // open at a hard-coded Offset(60, 60) / (90, 90), which is the top-left
+  // corner — i.e. underneath the model browser: "the gear dialog should spawn
+  // at the right like the extrude panel and all other dialogs. now it spawns
+  // under the Modell browser."
+  //
+  // Null means "not moved yet": the spot depends on the viewport size, which
+  // is only known in build, and a window the user HAS dragged must stay where
+  // they put it. See [DialogDock].
+  static const Size _paramsSize = Size(420, 460);
+  static const Size _gearSize = Size(300, 560);
+  static const Size _textWinSize = Size(360, 320);
+  Offset? _paramsPos;
+  Offset? _gearPos;
   // M87 — where the freehand fit window sits (set to the end of the stroke).
   Offset _freehandPos = const Offset(120, 120);
   final GlobalKey _gearDialogKey = GlobalKey();
 
   /// M45: position of the movable text editor window.
-  Offset _textWinPos = const Offset(90, 90);
+  Offset? _textWinPos;
+
+  /// Where a movable window sits: where the user dragged it, or its parking
+  /// spot if they never have. Clamped so it can never be dragged (or docked)
+  /// so far that its own title bar leaves the viewport.
+  Offset _windowPos(Offset? moved, Size viewport, Size dialog) {
+    final p = moved ?? DialogDock.spot(viewport, dialog);
+    return Offset(
+      p.dx.clamp(0.0, (viewport.width - 120).clamp(0.0, double.infinity)),
+      p.dy.clamp(0.0, (viewport.height - 60).clamp(0.0, double.infinity)),
+    );
+  }
   // M44: insert-content interaction state
   final Map<String, ui.Image?> _imgCache = {}; // null = loading/broken
   SketchImage? _selImage; // selected image (shows resize/delete grips)
@@ -932,6 +990,12 @@ class _Viewport2DState extends State<Viewport2D> {
             app: widget.app,
             controller: _dimCtrl,
             onCommit: _scrubDim,
+            // M206 — with no software keyboard there is no Return key on
+            // touch, so the pad's OK has to be the same exit onSubmitted is
+            // below. Without this the only way to close the box with a finger
+            // would be to tap the canvas, which also places whatever the
+            // armed tool places.
+            onDone: _submitInline,
             child: TextField(
             controller: _dimCtrl,
             focusNode: _dimFocus,
@@ -1001,6 +1065,7 @@ class _Viewport2DState extends State<Viewport2D> {
     _gesture = 'none';
     _boxStartW = null;
     _toolDownLocal = null;
+    _toolDragLocal = null;
     _toolDragPlaced = false;
     _mft.nonTouchActivity();
     HapticFeedback.selectionClick();
@@ -1050,6 +1115,41 @@ class _Viewport2DState extends State<Viewport2D> {
     }
     if (app.inEditMode && app.lastDrawTool != Tool.none) {
       app.selectTool(app.lastDrawTool);
+    }
+  }
+
+  /// M206 — leaving and coming back is a hard reset for input, and until now
+  /// it was the ONLY one.
+  ///
+  /// `bug20260805T142912` is 91 seconds of a viewport that answered nothing:
+  /// Pencil taps, two-finger taps, not one `toolClick` in the log. What ended
+  /// it is in the log too, and it is not something the user did to the sketch:
+  ///
+  ///     14:29:17  lifecycle: paused
+  ///     14:29:53  lifecycle: resumed
+  ///     14:29:54  click: toolClick tool=Tool.arcThreePoint ... picks=0
+  ///
+  /// One second after coming back, drawing worked again. Backgrounding cancels
+  /// every pointer, which is what cleared the contact the app still believed
+  /// was down. M205's watchdog now cuts that from 91 seconds to about two, but
+  /// a resume is the one moment where staleness is CERTAIN rather than
+  /// inferred — nothing that was touching the glass before the app went away
+  /// is touching it now — so it clears the set outright instead of waiting for
+  /// the timer to work it out.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.paused) {
+      if (_live.isEmpty) return;
+      _live.clear();
+      _rejectedTouches.clear();
+      _clickDown = null;
+      _clickPtr = null;
+      _cancelLp();
+      _disarmLiveWatchdogIfIdle();
+      GestureTrace.note('lifecycle $state: contacts cleared');
+      Log.i('viewport', 'M206: lifecycle $state — live contacts cleared');
     }
   }
 
@@ -1191,7 +1291,18 @@ class _Viewport2DState extends State<Viewport2D> {
     final app = widget.app;
     switch (_gesture) {
       case 'tooldrag': // M53: release places the second point
-        if (_toolDragPlaced && _toolDragW != null) {
+        // M206 — and only if the drag actually WENT somewhere. The update that
+        // arms this gesture can be the one carried by the pointer-up itself,
+        // in which case the anchor and the release are the same point, and
+        // placing both is how a three-point arc ended up with two identical
+        // points and built nothing at all. Releasing on the anchor leaves the
+        // tool holding its first point, which is the click-click flow the user
+        // gets from a plain tap anyway — nothing is lost, and the next tap
+        // places the second point where they meant it.
+        final travelled = _toolDownLocal != null &&
+            _toolDragLocal != null &&
+            (_toolDragLocal! - _toolDownLocal!).distance > _toolDragPx;
+        if (_toolDragPlaced && _toolDragW != null && travelled) {
           app.toolClick(_snapped(_toolDragW!,
               px: _gestureFinger
                   ? touchSlop(PointerDeviceKind.touch, _snapPx)
@@ -1200,6 +1311,7 @@ class _Viewport2DState extends State<Viewport2D> {
         }
         _toolDownLocal = null;
         _toolDragW = null;
+        _toolDragLocal = null;
         _toolDragPlaced = false;
         break;
       case 'grip':
@@ -1702,27 +1814,33 @@ class _Viewport2DState extends State<Viewport2D> {
                   // M43: movable Parameters (fx) window
                   if (app.showParams)
                     Positioned(
-                      left: _paramsPos.dx.clamp(0.0, size.width - 120),
-                      top: _paramsPos.dy.clamp(0.0, size.height - 60),
+                      left: _windowPos(_paramsPos, size, _paramsSize).dx,
+                      top: _windowPos(_paramsPos, size, _paramsSize).dy,
                       child: ParametersDialog(
                           app: app,
-                          onDrag: (d) => setState(() => _paramsPos += d)),
+                          onDrag: (d) => setState(() =>
+                              _paramsPos = _windowPos(_paramsPos, size, _paramsSize) + d)),
                     ),
                   // M61: movable Gear window
                   if (app.gear != null)
                     Positioned(
-                      left: _gearPos.dx.clamp(0.0, size.width - 120),
-                      top: _gearPos.dy.clamp(0.0, size.height - 60),
+                      left: _windowPos(_gearPos, size, _gearSize).dx,
+                      top: _windowPos(_gearPos, size, _gearSize).dy,
                       child: GearDialog(
                           key: _gearDialogKey,
                           app: app,
-                          onDrag: (d) => setState(() => _gearPos += d)),
+                          onDrag: (d) => setState(() =>
+                              _gearPos = _windowPos(_gearPos, size, _gearSize) + d)),
                     ),
                   // M87: movable Freehand fit window — opens where the stroke
                   // ended, so the curve is not hidden behind its own dialog.
                   if (app.freehand != null && app.freehand!.drawing == false)
                     Positioned(
-                      left: _freehandPos.dx.clamp(0.0, size.width - 268),
+                      // M206 — it opens where the STROKE ended (M87), which
+                      // is the point of it, but the right edge belongs to the
+                      // quick-tool bar: clamped in, never under.
+                      left: _freehandPos.dx.clamp(
+                          0.0, DialogDock.left(size, 268)),
                       top: _freehandPos.dy.clamp(0.0, size.height - 60),
                       child: FreehandDialog(
                           app: app,
@@ -1731,11 +1849,12 @@ class _Viewport2DState extends State<Viewport2D> {
                   // M45: movable parametric-text editor window
                   if (app.editingText != null)
                     Positioned(
-                      left: _textWinPos.dx.clamp(0.0, size.width - 120),
-                      top: _textWinPos.dy.clamp(0.0, size.height - 60),
+                      left: _windowPos(_textWinPos, size, _textWinSize).dx,
+                      top: _windowPos(_textWinPos, size, _textWinSize).dy,
                       child: TextEditorWindow(
                           app: app,
-                          onDrag: (d) => setState(() => _textWinPos += d)),
+                          onDrag: (d) => setState(() =>
+                              _textWinPos = _windowPos(_textWinPos, size, _textWinSize) + d)),
                     ),
                   // 2D Fillet / Chamfer value window (M36), same parking spot
                   if (app.filletSess != null &&

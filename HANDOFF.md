@@ -16,6 +16,96 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M206 — fuenf weitere Meldungen derselben Sitzung. Eine ist ein echter
+> Defekt mit zwei Ursachen, vier sind Oberflaeche.**
+>
+> **1. Ein Tipp, zwei Punkte.** „When I draw a circle and end the hover, when I
+> go back into hover the preview won't work and I can't finish drawing the arc
+> properly." Der Hover ist eine Fehlspur; das Log sagt es elf Mal:
+>
+> ```
+> 14:26:59.050361  toolClick tool=Tool.arcThreePoint w=(-8.71,20.00) picks=0
+> 14:26:59.050432  toolClick tool=Tool.arcThreePoint w=(-8.71,20.00) picks=1
+> 14:26:59.712185  toolClick tool=Tool.arcThreePoint w=( 1.48,20.00) picks=2
+> layer: tool Tool.arcThreePoint built no geometry from 3 point(s)
+> ```
+>
+> Zwei Platzierungen 71 MIKROSEKUNDEN auseinander, auf demselben Punkt. Das ist
+> EIN Pencil-Tipp: das Press-Drag-Draw aus M53 scharf ab 8 px Weg, ein
+> gewoehnlicher Tipp wackelt ungefaehr so weit, und das Update, das die
+> Schwelle reisst, und das Release danach werden aus DEMSELBEN Pointer-Event
+> zugestellt. Anker gesetzt, „Zieh"-Punkt obendrauf. Ein Drei-Punkt-Bogen mit
+> zwei identischen Punkten baut nichts, ein Kreis bekommt seinen Rand auf den
+> eigenen Mittelpunkt. Die Schwelle ist jetzt kind-abhaengig (18 px, Finger
+> 1.8x — gemessen an den Spuren im Bundle: Tipps wackeln bis ~8 px, echte
+> Striche laufen 25 bis 70), und das Release setzt den zweiten Punkt nur, wenn
+> es AUCH so weit vom Anker entfernt endet. Sonst faellt die Geste in den
+> Klick-Klick-Ablauf zurueck, der ohnehin der Normalfall ist.
+>
+> **2. Und 91 Sekunden, in denen der Viewport gar nichts beantwortet hat.**
+> Dieselbe Meldung, zweite Haelfte: nach `14:27:41` kein einziger `toolClick`
+> mehr im Log, bei laufenden Pencil- und Zwei-Finger-Tipps in der Gestenspur.
+> Was es beendet hat, steht auch im Log, und es ist nichts, was der Benutzer an
+> der Skizze getan haette:
+>
+> ```
+> 14:29:17  lifecycle: paused
+> 14:29:53  lifecycle: resumed
+> 14:29:54  click: toolClick tool=Tool.arcThreePoint ... picks=0
+> ```
+>
+> Eine Sekunde nach der Rueckkehr ging es wieder. Das ist die Signatur des
+> M205-Falls: ein Kontakt, den die App noch fuer gedrueckt haelt, macht jeden
+> Tipp zum „zweiten Finger" — und damit stirbt BEIDES, der Klick-Pfad
+> (`_live.count > 1`) und der Zeichen-Pfad (`soleKind == null`), waehrend die
+> native Chrome weiterarbeitet. Der M205-Watchdog kuerzt das von 91 Sekunden
+> auf gut zwei; der Resume raeumt jetzt zusaetzlich hart auf, weil das der eine
+> Moment ist, in dem Veraltung nicht geschlossen, sondern GEWUSST ist.
+>
+> **3./4. Wo ein Dialog aufgeht.** „The gear dialog should spawn at the right
+> like the extrude panel ... now it spawns under the Modell browser" und „other
+> Dialogs spawn under the fast toolbar on the right but they should spawn a bit
+> more to the left right next to the toolbar." Zusammen ist das die ganze
+> Regel, und sie stand nirgends: Pattern und Fillet waren gegen die
+> Schnellwerkzeug-Leiste eingerueckt (M192), Extrude und Edge rechneten
+> `width - w - 18` und lagen darunter, Gear/Parameters/Freehand/Text oeffneten
+> auf `Offset(60, 60)` — also unter dem Modell-Browser. Alle fragen jetzt
+> `DialogDock`. **Warum das so lange durchging:** die Leiste ist eine
+> Platform-View, im Flutter-Screenshot ist diese Ecke LEER — ein Dialog
+> darunter sieht auf jedem angehaengten Bild richtig platziert aus.
+>
+> **5. Die Zahlentastatur.** „A really small number input field is used instead
+> of the whole keyboard ... but in every dimension input field the whole
+> keyboard comes ... can you change this so this small number input field is
+> used everywhere", und „the arrow of it should be right under the number
+> field." Der Unterschied war ein Flag: iOS bildet einen SIGNED Number-Type auf
+> `UIKeyboardTypeNumbersAndPunctuation` ab — die volle Tastatur — und
+> `kValueKeyboard` bat um signed, weil ein Offset negativ sein darf. M171 hat
+> also genau das bestellt, was M171 verhindern wollte.
+>
+> Das Flag umzulegen loest den ersten Satz und macht den zweiten unmoeglich:
+> die Position der System-Tastatur ist Apples, sie kommt aus dem Caret-Rechteck,
+> und Flutter meldet Caret-Rechtecke nur mit Scribble — das M179 fuer
+> Zahlenfelder bewusst ABGESCHALTET hat, weil Scribble den Pencil-Strich klaut,
+> den der Scrub (M172) braucht. Also gehoert das Pad uns: es geht unter dem
+> Feld auf, das es bearbeitet, mit der Spitze darauf, es bringt sein eigenes
+> Minus (als VORZEICHEN, nicht als Zeichen an der Cursorposition) mit, und
+> `kValueKeyboard` ist `TextInputType.none` — das Feld behaelt Caret, Auswahl
+> und jede Hardware-Taste, das System hebt nur nichts mehr. Eingehaengt in
+> `ScrubField`, weil seit M180 ohnehin JEDES Zahlenfeld dort durchlaeuft; die
+> Equation-Zelle der Parameter steigt per `pad: false` aus, aus demselben
+> Grund, aus dem M171 sie schon von der Zifferntastatur ausgenommen hat.
+>
+> **Ehrlicher Stand:** 39 neue Tests in drei Dateien (`m206_press_drag_draw` 7,
+> `m206_dialog_dock` 8, `m206_value_pad` 24), dazu `m171_numeric_keyboard` auf
+> den neuen Kontrakt gezogen und die Zahlenfeld-Sonde in
+> `m180_every_number_scrubs` nachgefuehrt. Suite **1482 gruen** (von 1442),
+> analyze 50 Issues / 0 Errors = Ausgangsstand. Die
+> Ribbon-Breite ist unveraendert. **Am Geraet nicht nachgeprueft.** Zwei Dinge
+> sind ausdruecklich Umbau und nicht nur Reparatur: die Tastatur eines jeden
+> Wertfeldes (Punkt 5) und die Startposition von vier Fenstern (Punkt 3/4) —
+> wenn davon etwas nicht gefaellt, ist es an einer Stelle zurueckzudrehen.
+
 > **M205 — fuenf Meldungen der Sitzung vom 2026-08-05, Build `19fcae4`.
 > Vier davon sind Eingabe, und drei von denen haben EINE Ursache.**
 >

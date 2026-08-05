@@ -218,8 +218,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                       width: 54,
                       child: TextField(
                         controller: _hCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
+                        keyboardType: kValueKeyboard, // M206
                         stylusHandwritingEnabled: kValueHandwriting, // M179
                         style: const TextStyle(fontSize: 12, color: T.text),
                         decoration: const InputDecoration(

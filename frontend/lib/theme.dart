@@ -75,20 +75,31 @@ TextStyle ts(double size, Color color,
         {FontWeight w = FontWeight.normal, double height = 1.1}) =>
     TextStyle(fontSize: size, color: color, fontWeight: w, height: height);
 
-/// M171 — the keyboard a VALUE field asks for.
+/// M171/M206 — the keyboard a VALUE field asks for: NONE.
 ///
-/// With a Magic Keyboard attached iOS shows no software keyboard at all, so
-/// this only ever matters for touch and Pencil — and there, a full QWERTY for
-/// typing "12" is the wrong tool: it costs a third of the screen and buries
-/// the geometry you are dimensioning. This is the compact numeric pad, signed
-/// (an offset can be negative) and with a decimal separator.
+/// M171 asked for `numberWithOptions(signed: true, decimal: true)`, reasoning
+/// that a full QWERTY to type "12" costs a third of the screen and buries the
+/// geometry being dimensioned. That reasoning was right and the constant did
+/// the opposite of it, because of one flag: iOS maps a SIGNED number type to
+/// `UIKeyboardTypeNumbersAndPunctuation`, which is the full keyboard. The
+/// pattern dialog, which happened to ask unsigned, got the compact keypad —
+/// and the difference was reported as exactly that: "a really small number
+/// input field is used ... but in every dimension input field the whole
+/// keyboard comes."
+///
+/// Now the app brings its own (`value_pad.dart`), so the system is asked for
+/// nothing at all. The field keeps its caret, its selection and every hardware
+/// key; it simply never raises a keyboard. Read that file for why we draw the
+/// pad rather than flip the flag — the short version is that the system pad's
+/// position is not ours to set, and "the arrow should be right under the
+/// number field" was the other half of the same report.
 ///
 /// Deliberately NOT used for the Parameters window's Equation cells: those are
 /// expression-first — names, functions, references to other parameters — and a
 /// numeric pad has no letters. Numbers get the pad, formulas keep the
-/// keyboard.
-const TextInputType kValueKeyboard =
-    TextInputType.numberWithOptions(signed: true, decimal: true);
+/// keyboard. (Those cells pass `pad: false` to their ScrubField for the same
+/// reason, and the two must agree.)
+const TextInputType kValueKeyboard = TextInputType.none;
 
 /// M179 — Scribble OFF on every number field.
 ///

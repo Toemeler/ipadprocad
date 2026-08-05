@@ -291,6 +291,11 @@ class _ParamRowState extends State<_ParamRow> {
                   app: widget.app,
                   controller: _eq,
                   kind: widget.kind,
+                  // M206 — no number pad here. This cell is expression-first
+                  // (names, functions, references to other parameters) and a
+                  // pad has no letters; it keeps the real keyboard, which is
+                  // the same call M171 made about the keyboard TYPE.
+                  pad: false,
                   onCommit: (t) {
                     widget.commitEquation(t);
                     setState(() {});

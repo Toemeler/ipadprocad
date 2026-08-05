@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import 'dialog_dock.dart';
 import 'properties_panel.dart';
 
 class EdgeFeatureDialog extends StatefulWidget {
@@ -80,8 +81,8 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     // right edge, vertically centred, once the viewport size is known.
     const w = 300.0, h = 520.0;
     final vp = MediaQuery.sizeOf(context);
-    final pos = _pos ??
-        Offset(vp.width - w - 18, ((vp.height - h) / 2).clamp(12.0, 400.0));
+    // M206 — beside the quick-tool bar, not under it. See DialogDock.
+    final pos = _pos ?? DialogDock.spot(vp, const Size(w, h));
     return Positioned(
       left: pos.dx,
       top: pos.dy,

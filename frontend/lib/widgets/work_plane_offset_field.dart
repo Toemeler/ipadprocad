@@ -102,6 +102,9 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
                     final v = parseValueExpr(t);
                     if (v != null) app.updateWorkPlaneDragAbsolute(v);
                   },
+                  // M206 — the pad's OK is Enter, because on touch there is no
+                  // Enter (see the Shortcuts block below for the hardware one).
+                  onDone: _commit,
                   child: Shortcuts(
                   // M170 — Magic Keyboard. Esc cancels, Enter commits (via
                   // onSubmitted), and the arrows nudge the value the way

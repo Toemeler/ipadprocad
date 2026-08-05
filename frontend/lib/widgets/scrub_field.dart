@@ -19,7 +19,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../menus.dart';
 import '../scrub.dart';
+import 'value_pad.dart';
 
 /// Makes [child] (a TextField driven by [controller]) draggable.
 ///
@@ -50,6 +52,23 @@ class ScrubField extends StatefulWidget {
   /// model holds 4 is a lie about what is going on.
   final double? min, max;
 
+  /// M206 — what the pad's OK key means, when it means more than "done
+  /// typing". With no software keyboard there is no Return key on touch, so
+  /// any field that used to commit on `onSubmitted` has to be given the same
+  /// exit here — the inline dimension editor above all. Null falls back to
+  /// committing the text and dropping focus, which is what a dialog field with
+  /// its own OK button wants.
+  final VoidCallback? onDone;
+
+  /// M206 — show the app's own [ValuePad] while this field has focus.
+  ///
+  /// True for numbers, which is nearly everything wrapped in a ScrubField.
+  /// False for the Parameters window's Equation cell, which is expression-
+  /// first: names, functions, references to other parameters. A pad with no
+  /// letters is the wrong tool there, and M171 already said so about the
+  /// system keyboard for exactly the same reason.
+  final bool pad;
+
   const ScrubField({
     super.key,
     required this.app,
@@ -60,6 +79,8 @@ class ScrubField extends StatefulWidget {
     this.kind = ScrubKind.length,
     this.min,
     this.max,
+    this.pad = true,
+    this.onDone,
   });
 
   @override
@@ -148,7 +169,86 @@ class _ScrubFieldState extends State<ScrubField> {
   @override
   void dispose() {
     _unbracket();
+    _hidePad();
     super.dispose();
+  }
+
+  // ---- M206: the app's own number pad ----
+
+  OverlayEntry? _padEntry;
+  bool _padWanted = false;
+
+  /// True when this field's value may be negative. A pattern count and a tooth
+  /// count may not; an offset, a taper and a profile shift may. [ScrubField.min]
+  /// already carries that fact for the scrub, so the pad reads it from there
+  /// rather than growing a second flag that could disagree with the first.
+  bool get _signed => (widget.min ?? -1) < 0;
+
+  /// Focus can change DURING a build (a dialog that autofocuses its first
+  /// field does exactly that), and inserting an overlay entry mid-build
+  /// throws. So the request is recorded and served after the frame — by which
+  /// time the field has a laid-out box to anchor to as well.
+  void _showPad() {
+    if (!widget.pad || !mounted) return;
+    _padWanted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_padWanted || _padEntry != null || !mounted) return;
+      final box = context.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) return;
+      final overlay = Overlay.maybeOf(context);
+      if (overlay == null) return;
+      final anchor = box.localToGlobal(Offset.zero) & box.size;
+      _padEntry = OverlayEntry(
+        builder: (_) => ValuePadOverlay(
+          anchor: anchor,
+          signed: _signed,
+          onKey: _onPadKey,
+        ),
+      );
+      overlay.insert(_padEntry!);
+      // Clicking anywhere else takes it down, including on the native chrome
+      // that no Flutter barrier can see (M205).
+      OpenMenus.register(_hidePad);
+    });
+  }
+
+  void _hidePad() {
+    _padWanted = false;
+    OpenMenus.unregister(_hidePad);
+    _padEntry?.remove();
+    _padEntry = null;
+  }
+
+  void _onPadKey(PadKey key) {
+    if (key == PadKey.done) {
+      _hidePad();
+      final done = widget.onDone;
+      if (done != null) {
+        done();
+      } else {
+        widget.onCommit?.call(widget.controller.text);
+        FocusManager.instance.primaryFocus?.unfocus();
+      }
+      return;
+    }
+    final next = applyValueKey(widget.controller.value, key);
+    if (next == widget.controller.value) return;
+    if (_outOfRange(next.text)) return;
+    widget.controller.value = next;
+    widget.onCommit?.call(next.text);
+  }
+
+  /// Refuses a keystroke that would take the field outside [ScrubField.min] /
+  /// [ScrubField.max] — the same clamp the drag obeys. A half-typed number is
+  /// not judged: "" and "-" are on the way to something.
+  bool _outOfRange(String text) {
+    final t = text.trim();
+    if (t.isEmpty || t == '-' || t == '.' || t == '-.') return false;
+    final v = double.tryParse(t.replaceAll(',', '.'));
+    if (v == null) return false;
+    if (widget.min != null && v < widget.min!) return true;
+    if (widget.max != null && v > widget.max!) return true;
+    return false;
   }
 
   @override
@@ -167,7 +267,16 @@ class _ScrubFieldState extends State<ScrubField> {
         // The affordance. On a trackpad there is no other way to know the
         // number is draggable.
         cursor: SystemMouseCursors.resizeLeftRight,
-        child: widget.child,
+        // M206 — the pad follows FOCUS, not taps: a field reached with Tab, or
+        // one the dialog focuses itself when it opens, gets it too. The node
+        // takes no focus of its own (canRequestFocus: false) so it cannot come
+        // between the finger and the TextField underneath.
+        child: Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          onFocusChange: (has) => has ? _showPad() : _hidePad(),
+          child: widget.child,
+        ),
       ),
     );
   }

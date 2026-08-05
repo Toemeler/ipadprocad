@@ -385,11 +385,13 @@ class _RibbonState extends State<Ribbon> {
               kind: kind,
               min: min,
               max: max,
+              // M206 — the pad's OK accepts the prompt, the same as Enter on
+              // a hardware keyboard (onSubmitted below).
+              onDone: () => Navigator.pop(ctx, true),
               child: TextField(
                 controller: ctrls[i],
                 autofocus: i == 0,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: kValueKeyboard, // M206: the app's own pad
                 stylusHandwritingEnabled: kValueHandwriting, // M179
                 style: ts(13, T.text),
                 decoration: InputDecoration(

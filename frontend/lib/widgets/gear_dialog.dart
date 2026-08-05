@@ -283,8 +283,7 @@ class _GearDialogState extends State<GearDialog> {
             child: TextField(
               controller: c,
               onChanged: (_) => (on ?? _sync)(),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true, signed: true),
+              keyboardType: kValueKeyboard, // M206: the app's own pad
               stylusHandwritingEnabled: kValueHandwriting, // M179
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]'))
