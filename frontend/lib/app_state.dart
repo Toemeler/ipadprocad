@@ -10137,8 +10137,23 @@ class AppState extends ChangeNotifier {
           ? filletInventor(s.geometry, toolPoints[0], toolPoints[1], f.radius)
           : chamferInventor(s.geometry, toolPoints[0], toolPoints[1],
               mode: f.mode, d1: f.d1, d2: f.d2, angDeg: f.angle);
+      final picks = List<Offset>.from(toolPoints);
       toolPoints.clear();
       if (res == null) {
+        // M198 — a refused fillet says WHAT WOULD FIT. "Pick two lines that
+        // can meet" is the wrong sentence for a corner that is perfectly
+        // valid and simply too short for the radius asked of it, and the
+        // number is the one the user needs anyway.
+        if (tool == Tool.fillet && picks.length >= 2) {
+          final most = filletMaxRadius(s.geometry, picks[0], picks[1], f.radius);
+          if (most != null && most > 1e-6) {
+            toast('R${f.radius.toStringAsFixed(2)} runs past the end of that '
+                'edge. This corner takes at most '
+                'R${most.toStringAsFixed(2)}.');
+            notifyListeners();
+            return;
+          }
+        }
         toast(tool == Tool.fillet
             ? 'Pick two lines, arcs or circles that can meet.'
             : 'Pick two non-parallel lines.');

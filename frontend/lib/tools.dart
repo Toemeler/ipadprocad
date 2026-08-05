@@ -716,6 +716,77 @@ bool _angleInArc(Geo g, double ang) {
   return norm(ang) <= norm(a2) + 1e-9;
 }
 
+/// Which END of line [g] lies on the corner side of tangent point [tp] — the
+/// end the trim will move. [toward] is the tangent point on the OTHER pick,
+/// i.e. the direction the corner lies in.
+///
+/// M188: measured ALONG the line, so the length of either piece never enters
+/// into it. The old nearest-end rule broke on a second fillet, where the
+/// tangent point of an already-shortened edge is nearer the wrong end.
+int _cornerEnd(Geo g, Offset tp, Offset toward) {
+  final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+  final d = b - a;
+  final len = d.distance;
+  final along = len < 1e-12
+      ? 0.0
+      : ((toward - tp).dx * d.dx + (toward - tp).dy * d.dy) / len;
+  if (along.abs() > 1e-9) return along > 0 ? 1 : 0;
+  // Degenerate: the other tangent point is square off this line, so there is
+  // no corner side to speak of. Keep the old nearest-end rule.
+  return (a - tp).distance <= (b - tp).distance ? 0 : 1;
+}
+
+/// M198 — does the fillet's setback still fit on this edge?
+///
+/// Device report: "the fillet is still made even when it goes over the next
+/// corner this should not be possible. if the width is 4.6 like here only a
+/// 4.6 radius should be possible at all."
+///
+/// What made it possible was that an UNDIMENSIONED rectangle can satisfy any
+/// radius by growing. The bundle shows exactly that: R5 fillets on a 4.6-wide
+/// rectangle left the sketch spanning ±6257 units, every constraint satisfied
+/// and the shape destroyed. The solver was doing its job — nobody had told it
+/// that eating past the far end of an edge is not a solution.
+///
+/// So the geometry decides before the solver is asked: the piece that SURVIVES
+/// the trim must still point the same way it did. Once the tangent point runs
+/// past the far end, `far - tp` flips, and that is precisely "it goes over the
+/// next corner".
+///
+/// Extensions stay allowed. A tangent point beyond the CORNER end (Inventor
+/// lengthens two lines that do not quite meet) leaves the direction unchanged
+/// and is not what the report is about.
+bool _setbackFits(Geo g, Offset tp, Offset toward) {
+  if (g.type != Geo.line) return true; // arcs/circles: no far end to overrun
+  final a = Offset(g.data[0], g.data[1]), b = Offset(g.data[2], g.data[3]);
+  final corner = _cornerEnd(g, tp, toward);
+  final cornerPt = corner == 0 ? a : b;
+  final far = corner == 0 ? b : a;
+  final keep = far - tp, whole = far - cornerPt;
+  return keep.dx * whole.dx + keep.dy * whole.dy > 0;
+}
+
+/// The largest radius this corner will take, or null when it takes none.
+///
+/// Used for the message after a refusal, so the app can say "at most R4.6"
+/// instead of "that did not work". Bisection rather than a closed form: it is
+/// only ever run once, after a fillet has already failed, and it stays correct
+/// for the line-arc and arc-arc corners a formula would have to special-case.
+double? filletMaxRadius(List<Geo> geos, Offset h1, Offset h2, double want) {
+  if (filletInventor(geos, h1, h2, want) != null) return want;
+  var lo = 0.0, hi = want;
+  if (filletInventor(geos, h1, h2, hi * 1e-4) == null) return null;
+  for (var i = 0; i < 40; i++) {
+    final mid = (lo + hi) / 2;
+    if (filletInventor(geos, h1, h2, mid) != null) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
 /// Inventor's 2D Fillet between any two of line/arc/circle: the fillet
 /// center lies on the offset curves of both picks (line offset by r toward
 /// the pick side; circle/arc offset to R+r or |R-r|), the candidate nearest
@@ -833,6 +904,10 @@ FilletResult? filletInventor(
 
   final t1 = tangentOn(g1), t2 = tangentOn(g2);
   if ((t1 - t2).distance < 1e-9) return null; // degenerate corner
+  // M198 — refuse before the solver is asked. A radius that eats past the far
+  // end of either edge has no honest answer; the only way the old code could
+  // "succeed" was by letting an undimensioned shape grow to fit it.
+  if (!_setbackFits(g1, t1, t2) || !_setbackFits(g2, t2, t1)) return null;
   // fillet arc through t1 -> mid -> t2, bulging away from the center
   var midDir = (t1 + t2) / 2 - fc;
   if (midDir.distance < 1e-9) {
@@ -863,19 +938,7 @@ FilletResult? filletInventor(
       case Geo.line:
         final a = Offset(g.data[0], g.data[1]),
             b = Offset(g.data[2], g.data[3]);
-        final d = b - a;
-        final len = d.distance;
-        // Which END is on the corner side of the tangent point? Measured along
-        // the line, so the length of either piece never enters into it.
-        final along = len < 1e-12
-            ? 0.0
-            : ((toward - tp).dx * d.dx + (toward - tp).dy * d.dy) / len;
-        final corner = along.abs() > 1e-9
-            ? (along > 0 ? 1 : 0)
-            // Degenerate: the other tangent point is square off this line, so
-            // there is no corner side to speak of. Keep the old nearest-end
-            // rule rather than guessing.
-            : ((a - tp).distance <= (b - tp).distance ? 0 : 1);
+        final corner = _cornerEnd(g, tp, toward);
         return corner == 0
             ? (g.withData([tp.dx, tp.dy, b.dx, b.dy]), 0)
             : (g.withData([a.dx, a.dy, tp.dx, tp.dy]), 1);

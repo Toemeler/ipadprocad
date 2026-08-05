@@ -117,19 +117,29 @@ void main() {
     expectUnchanged(slotBefore, s.geometry, slotIdx, 'after fillet');
   });
 
-  test('an over-large fillet on a FREE rectangle is allowed (edges grow)', () {
-    // documents intended behaviour: without dimensions the edges may resize,
-    // so a big radius is satisfiable — Inventor allows it too
+  test('an over-large fillet on a FREE rectangle is REFUSED (M198)', () {
+    // This test used to assert the opposite, on the reasoning that an
+    // undimensioned rectangle may resize, so any radius is satisfiable. The
+    // device session of 2026-08-05 settled it: R5 fillets on a 4.6-wide
+    // rectangle left the sketch spanning ±6257 units with every constraint
+    // satisfied — "the fillet is still made even when it goes over the next
+    // corner this should not be possible". Growing the shape to fit the radius
+    // is not solving the fillet, it is destroying the shape.
     final app = makeApp();
     final s = app.current!;
     app.tool = Tool.rectTwoPoint;
     app.toolClick(const Offset(100, 40));
     app.toolClick(const Offset(120, 50));
+    final before = List<Geo>.from(s.geometry);
     app.tool = Tool.fillet;
     app.filletSess = FilletSession(Tool.fillet, radius: 500);
     app.toolClick(const Offset(118, 50));
     app.toolClick(const Offset(120, 48));
-    expect(s.geometry, hasLength(7)); // + 2 corner stubs (M197)
+    expect(s.geometry, hasLength(4), reason: 'nothing was added');
+    for (var i = 0; i < 4; i++) {
+      expect(s.geometry[i].data, before[i].data,
+          reason: 'and the rectangle did not move a hair');
+    }
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
   });
 
