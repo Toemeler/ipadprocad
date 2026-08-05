@@ -382,7 +382,10 @@ jobs:
           set -o pipefail
           # --debug is not a choice. Flutter rejects --profile/--release for
           # the simulator; see the header of this file.
-          flutter build ios --simulator --debug \
+          # -v so Xcode's own output — above all `ld: warning: ignoring file`
+          # — reaches ci-sim-appbuild.log. Without it Flutter prints a one-line
+          # summary and the reason a force_load silently did nothing is lost.
+          flutter build ios --simulator --debug -v \
             --build-name=0.1.${{ github.run_number }} \
             --build-number=${{ github.run_number }} \
             --dart-define=GIT_SHA=${GITHUB_SHA::7} 2>&1 | tee ../ci-sim-appbuild.log
@@ -392,8 +395,44 @@ jobs:
           # Same linkage proof m5 uses: the C-API version literal survives
           # stripping, so finding it means the core really is in the binary.
           HITS="$(strings "$APP/Runner" | grep -c "Prototype C-API" || true)"
-          [ "${HITS:-0}" -gt 0 ] || { echo "SIM LINK CHECK: FAIL (qcad core not linked)"; exit 1; }
-          echo "SIM LINK CHECK: PASS ($HITS marker hits)"
+          if [ "${HITS:-0}" -gt 0 ]; then
+            echo "SIM LINK CHECK: PASS ($HITS marker hits)"
+            exit 0
+          fi
+          # ---- the check failed: DIAGNOSE, do not just die -----------------
+          #
+          # Run 4 got here. The app built, and `ARCHS = x86_64` from
+          # ffi.xcconfig demonstrably took effect (the binary is x86_64), so
+          # the xcconfig IS being read — yet -force_load did not bring the core
+          # in. Flutter summarises Xcode's output, so the one line that would
+          # explain it ("ld: warning: ignoring file ... built for ...") never
+          # reached the log. Everything below exists to put it there, because a
+          # second guess costs another 40-minute round trip.
+          echo "SIM LINK CHECK: FAIL (qcad core not linked) — diagnostics follow"
+          echo "== 1. do the archives exist, and for which architecture? =="
+          for a in "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" \
+                   "$GITHUB_WORKSPACE/backend/slvs/build-sim/libslvs.a" \
+                   "$GITHUB_WORKSPACE/backend/occt/build-sim/libocct_capi.a"; do
+            if [ -f "$a" ]; then printf '%s: ' "$a"; lipo -info "$a" 2>&1 || true
+            else echo "MISSING $a"; fi
+          done
+          echo "== 2. is the marker even IN the archive we force_load? =="
+          strings "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" \
+            | grep -c "Prototype C-API" || echo "(marker absent from the archive itself)"
+          echo "== 3. platform of a member object (expect platform 7 = iOS Simulator) =="
+          otool -l "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" 2>/dev/null \
+            | grep -A4 -i 'LC_BUILD_VERSION' | head -20 || true
+          echo "== 4. what did the linker actually say? =="
+          grep -iE "ignoring file|ld: warning|was built for newer|不兼容|incompatible" \
+            ../ci-sim-appbuild.log | head -40 || echo "(no linker warnings captured)"
+          echo "== 5. the xcconfig we wrote =="
+          cat ios/Flutter/ffi.xcconfig || true
+          echo "== 6. OTHER_LDFLAGS as Xcode RESOLVED it (target settings can override xcconfig) =="
+          xcodebuild -showBuildSettings -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Debug -sdk iphonesimulator 2>/dev/null \
+            | grep -E "OTHER_LDFLAGS|ARCHS|EXCLUDED_ARCHS" | head -20 \
+            || echo "(showBuildSettings unavailable)"
+          exit 1
 
       - name: Boot simulator, launch the app, pull the perf log
         timeout-minutes: 30
