@@ -194,29 +194,108 @@ liegen im Bug-Bundle.
 
 ---
 
-## 5. Was noch dunkel ist
+## 5. Was noch dunkel ist (Stand nach M209c)
 
-Ehrlich benannt, damit niemand die Abdeckung fuer vollstaendig haelt:
+**Geschlossen seit der ersten Fassung:** Ribbon/Menue (`menu.ribbon.builds`
+als Zaehler plus `menu.ribbon.home/part/sketch` als Spans — der Zaehler ist
+der interessante Teil: ein Bau kostet Mikrosekunden, die Frage ist, wie oft
+er waehrend eines Drags passiert), Platform-View-Verkehr (`rv.setScene/
+setOverlays/setCamera` je mit Dauer UND Anzahl, `browser.sig` mit
+Trefferquote), `modify.dart` (trim, trimCutAway, extend, offset), das
+Dokument-LADEN (`io.openPart`, `io.openSketch`) und die restlichen
+QCAD-Einstiege (`addLine`, `addCircle`, `addArc`).
 
-* **Menue/Ribbon-Builds.** `ribbon.dart` hat allein zehn `build()`-Methoden,
-  keine davon ist gemessen. Widget-Build-Zeit steckt aggregiert in
-  `frame.build`, aber nicht aufgeschluesselt.
-* **Platform-View-Verkehr.** Die `MethodChannel`-Aufrufe liegen in den
-  Plugin-Paketen (`packages/native_menu`, `packages/reality_view`), die
-  `lib/perf.dart` nicht importieren koennen. Braucht dort dieselbe
-  Hook-Datei wie die FFI-Module. Der Modellbrowser-Resize-Sturm aus M204
-  waere genau damit sichtbar.
-* **`modify.dart` und `tools.dart`** — Trim, Extend, Pattern, Fillet-2D: keine
-  eigenen Spans.
-* **Dokument LADEN.** Speichern ist gemessen, Laden nicht.
-* **Die 15 QCAD-Einstiege** sind nur zu viert gemessen (die drei teuren plus
-  `allGeometry`); `addLine`/`addCircle`/`addArc` fehlen.
+**Weiterhin dunkel** — ehrlich benannt, damit niemand die Abdeckung fuer
+vollstaendig haelt:
+
+* **Die zwoelf Blatt-Widgets des Ribbons** (`_Big`, `_SmallRow`, `_ConGrid`,
+  `_OverRow`, `_FlyMenu`, …). Gemessen sind der Ribbon-Bau als Ganzes und die
+  drei Varianten; die Blaetter nicht. Bei ihnen waere ohnehin die ANZAHL die
+  Aussage, nicht die Dauer — derselbe Gedanke wie bei `menu.ribbon.builds`.
+* **`tools.dart`** — Pattern und Fillet-2D haben keine eigenen Spans
+  (`modify.dart` ist jetzt abgedeckt).
+* **`part_render.dart`** und die Dialoge (`extrude_dialog`,
+  `pattern_dialog`, `gear_dialog`, …).
+* **Die uebrigen `native_menu`-Kanaele** — `glass_toolbar` und `glass_tabbar`
+  haben dieselbe Push-Struktur wie `glass_browser`, sind aber nicht gemessen.
+* **Undo/Redo-SPEICHER.** Die Dauer ist gemessen (`history.undo/redo`), die
+  Groesse des Journals nicht.
 
 Das sind die naechsten Handgriffe, nicht offene Fragen.
 
 ---
 
-## 6. Der Simulator-Artefakt (Bahn B)
+## 6. Der Simulator-Artefakt (Bahn B) — STAND: GEPARKT, ungeloest
+
+**Kurz: die App baut, aber der native Stack landet nicht im Binary. Sieben
+CI-Laeufe haben die Ursache eingekreist und nicht gestellt.**
+
+Was funktioniert (alles bewiesen, nicht vermutet):
+
+| Schritt | Stand |
+| --- | --- |
+| qcad-core, libslvs, OCCT, Shim fuer iphonesimulator/x86_64 | gruen |
+| xcconfig-Injektion inkl. der ninja-Link-Zeile | gruen |
+| Flutter-Scaffold, analyze, 1533 Host-Tests | gruen |
+| `Runner.app` baut, x86_64, 61 MB, als Artefakt hochgeladen | gruen |
+| **Verlinkung des nativen Stacks** | **FEHLT** |
+
+Der Diskriminator aus Lauf 7 sagt: `nm -a` findet im Runner-Binary
+**70 Symbole insgesamt** und **null** occt_/qcad_/OCCT-C++-Symbole. Ein
+Binary mit force_geladenem OCCT haette Zehntausende. `-force_load` ist also
+nie ausgefuehrt worden — und zwar obwohl jede einzelne Voraussetzung stimmt:
+
+* Die drei Archive existieren, sind x86_64, ihre Member tragen platform 7 /
+  minos 14.0 / sdk 26.5.
+* Der Marker steckt nachweislich IM Archiv.
+* `#include "ffi.xcconfig"` steht zur BAUZEIT in `Debug.xcconfig`.
+* Im pbxproj gibt es **kein** target-eigenes `OTHER_LDFLAGS`, das die
+  xcconfig stechen koennte — der Hauptverdacht ist ausgeschlossen.
+* `xcodebuild -showBuildSettings` loest `OTHER_LDFLAGS` MIT allen drei
+  `-force_load` und saemtlichen OCCT-Archiven auf.
+* `ld` hat kein einziges `ignoring file` gemeldet.
+
+Xcode meldet das Flag also und benutzt es nicht. Was dazwischen passiert,
+ist aus der Ferne nicht mehr zu klaeren: `flutter build -v` gibt die echte
+`Ld`-Zeile nicht aus (die einzigen force_load-Vorkommen im ganzen Log sind
+unsere eigenen Diagnose-Echos), und damit fehlt das entscheidende
+Beweisstueck.
+
+**Naechster Schritt, wenn die Bahn wieder aufgenommen wird** — in dieser
+Reihenfolge, weil aufsteigend teuer:
+
+1. Statt durch Flutter direkt `xcodebuild -workspace ios/Runner.xcworkspace
+   -scheme Runner -configuration Debug -sdk iphonesimulator -showBuildSettings
+   -json` UND einen echten `xcodebuild build` laufen lassen, dessen Ausgabe
+   ungefiltert ins Log geht. Dort steht die `Ld`-Zeile.
+2. Faellt sie leer aus: die Flags nicht per `#include` anhaengen, sondern in
+   `Pods-Runner.debug.xcconfig` schreiben oder ins pbxproj patchen.
+3. Bleibt es dabei: die dokumentierte Ausweichloesung — Qt und qcad-core aus
+   dem SIMULATOR-Build nehmen und arm64 bauen. Weder OCCT noch libslvs
+   braucht Qt, `qcad_engine.dart` faellt bei fehlenden Symbolen ohnehin auf
+   seine Dart-Engine zurueck, und damit entfaellt auch die
+   Rosetta-Abhaengigkeit. Kostet die `ffi.qcad.*`-Spans.
+
+**Zwei Fehler in diesem Verlauf, protokolliert damit sie nicht wiederkommen:**
+
+* Der erste Runner war `macos-14`, gewaehlt „wie m3". m3 kompiliert aber nur
+  den C++-Smoke und nie die Swift-Plugins der App; die brauchen den
+  iOS-26-SDK (`UnlitMaterial.faceCulling`, bereits mit `#available`
+  abgesichert — ein LAUFZEIT-Guard hilft beim Kompilieren nicht).
+* Nach Lauf 5 stand hier, der Link sei in Ordnung und nur die Zusicherung
+  falsch, weil `strings` ohne `-a` unvollstaendig sucht. Das war ein
+  Fehlschluss: mit `-a` ist das Ergebnis dasselbe (0). Die symbolbasierte
+  Pruefung war trotzdem die richtige Aenderung — sie hat den Irrtum
+  aufgedeckt.
+* `actions/cache` deklariert `post-if: success()` und speichert daher nur bei
+  gruenem Job. Weil dieser Job jedes Mal scheiterte, lief der
+  35-Minuten-OCCT-Build in JEDEM Anlauf neu. Behoben durch getrenntes
+  `cache/restore` + `cache/save` mit `if: always()`; ab Lauf 7 ist der Baum
+  gespeichert.
+
+---
+
+## 6a. Wie die Bahn gebaut ist (unveraendert gueltig)
 
 `.github/workflows/sim-perf.yml`, `workflow_dispatch` oder Push auf
 `claude/perf-**`. Baut den ganzen nativen Stack fuer **iphonesimulator/x86_64**

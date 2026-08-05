@@ -297,15 +297,16 @@ class _FfiEngine implements Engine {
   String get version => b.version().toDartString();
 
   @override
-  bool addLine(double x1, double y1, double x2, double y2) =>
-      b.addLine(_doc, x1, y1, x2, y2) != 0;
+  bool addLine(double x1, double y1, double x2, double y2) => ffiSpan(
+      'ffi.qcad.addLine', () => b.addLine(_doc, x1, y1, x2, y2) != 0);
   @override
-  bool addCircle(double cx, double cy, double r) =>
-      b.addCircle(_doc, cx, cy, r) != 0;
+  bool addCircle(double cx, double cy, double r) => ffiSpan(
+      'ffi.qcad.addCircle', () => b.addCircle(_doc, cx, cy, r) != 0);
   @override
   bool addArc(double cx, double cy, double r, double a1, double a2,
           {bool reversed = false}) =>
-      b.addArc(_doc, cx, cy, r, a1, a2, reversed ? 1 : 0) != 0;
+      ffiSpan('ffi.qcad.addArc',
+          () => b.addArc(_doc, cx, cy, r, a1, a2, reversed ? 1 : 0) != 0);
   @override
   bool addPolyline(List<double> xy, {bool closed = false}) {
     final n = xy.length ~/ 2;

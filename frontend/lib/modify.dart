@@ -7,6 +7,7 @@
 // entity if nothing intersects), Extend prolongs the clicked end to the
 // next intersection, Split cuts at the clicked point (circles split at
 // their intersections with other geometry).
+import 'perf.dart';
 import 'pick_math.dart';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -166,7 +167,10 @@ Geo _stretchGeoRaw(Geo g, Rect box, Offset d) {
 // ---------------------------------------------------------------------------
 // Offset (parallel copy)
 // ---------------------------------------------------------------------------
-Geo? offsetEntity(Geo g, Offset side) {
+Geo? offsetEntity(Geo g, Offset side) =>
+    Perf.span('modify.offset', () => _offsetEntityMeasured(g, side));
+
+Geo? _offsetEntityMeasured(Geo g, Offset side) {
   final r = _offsetEntityRaw(g, side);
   return r == null ? null : _sameLayer(g, r);
 }
@@ -811,6 +815,9 @@ Geo _subArcRaw(Geo g, double u0, double u1) {
 /// Returns the replacement entities (empty list = delete whole entity, like
 /// Inventor when nothing intersects).
 List<Geo> trimEntity(List<Geo> geos, int i, Offset click) =>
+    Perf.span('modify.trim', () => _trimEntityMeasured(geos, i, click));
+
+List<Geo> _trimEntityMeasured(List<Geo> geos, int i, Offset click) =>
     _sameLayerAll(geos[i], _trimEntityRaw(geos, i, click).$1);
 
 /// The span a trim CUTS AWAY — the exact complement of [trimEntity] within the
@@ -820,6 +827,9 @@ List<Geo> trimEntity(List<Geo> geos, int i, Offset click) =>
 /// trim non-destructive (its dimensions and constraints still have geometry to
 /// hang on) without leaving a second copy of the entity under the visible one.
 List<Geo> trimCutAway(List<Geo> geos, int i, Offset click) =>
+    Perf.span('modify.trimCutAway', () => _trimCutAwayMeasured(geos, i, click));
+
+List<Geo> _trimCutAwayMeasured(List<Geo> geos, int i, Offset click) =>
     _sameLayerAll(geos[i], _trimEntityRaw(geos, i, click).$2);
 
 /// (kept, cut away). Both come out of the same bracket arithmetic on purpose —
@@ -984,7 +994,10 @@ List<Geo> trimCutAway(List<Geo> geos, int i, Offset click) =>
 
 /// Extends the clicked END of entity [i] to the nearest intersection of its
 /// prolongation with other geometry. Returns null if nothing to extend to.
-Geo? extendEntity(List<Geo> geos, int i, Offset click) {
+Geo? extendEntity(List<Geo> geos, int i, Offset click) =>
+    Perf.span('modify.extend', () => _extendEntityMeasured(geos, i, click));
+
+Geo? _extendEntityMeasured(List<Geo> geos, int i, Offset click) {
   final r = _extendEntityRaw(geos, i, click);
   return r == null ? null : _sameLayer(geos[i], r);
 }

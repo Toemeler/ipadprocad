@@ -1996,7 +1996,20 @@ class AppState extends ChangeNotifier {
   /// True when [name] is listed from outside the app folder.
   bool isExternal(String name) => _findDoc(name)?.source == DocSource.external;
 
+  /// Timed with a Stopwatch across the await, not with Perf.span: this is
+  /// async, and span measures a synchronous body — wrapping the future
+  /// would time how long it took to CREATE it, i.e. report that opening a
+  /// document is free. Same reason as savePart/saveSketch.
   Future<void> openSketch(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      await _openSketchInner(name);
+    } finally {
+      Perf.record('io.openSketch', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<void> _openSketchInner(String name) async {
     if (!sketches.containsKey(name)) {
       final s = SketchModel(name);
       _ensureStaged(name);
@@ -2933,7 +2946,20 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Timed with a Stopwatch across the await, not with Perf.span: this is
+  /// async, and span measures a synchronous body — wrapping the future
+  /// would time how long it took to CREATE it, i.e. report that opening a
+  /// document is free. Same reason as savePart/saveSketch.
   Future<void> openPart(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      await _openPartInner(name);
+    } finally {
+      Perf.record('io.openPart', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<void> _openPartInner(String name) async {
     if (!parts.containsKey(name)) {
       final p = PartModel(name);
       _ensureStaged(name);
