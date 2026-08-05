@@ -102,12 +102,37 @@ jobs:
   sim-app:
     needs: dart-checks
     name: Build + run the app in the iOS Simulator
-    # macos-14 deliberately: this is the runner the m3 simulator job is proven
-    # on with Qt 6.7 + the x86_64 simulator slice. The image is in deprecation
-    # (fully unsupported 2026-11-02) — when it goes, try macos-15 here FIRST
-    # and expect the Qt configure step to be the thing that breaks, exactly as
-    # m5's runner note predicts.
-    runs-on: macos-14
+    # macos-26, same as m5 — and the reason is worth recording, because the
+    # first attempt at this job got it wrong.
+    #
+    # This started on macos-14, chosen to match m3, which is where the
+    # iphonesimulator/x86_64 CMake recipe below is proven. That reasoning had a
+    # hole in it: m3 only ever compiles the C++ smoke. It never compiles the
+    # app's Swift plugins, and this job does. Run 3 built the entire native
+    # stack — qcad-core, libslvs, a cold OCCT, the shim, the xcconfig — and
+    # then died in 43 seconds of Xcode with:
+    #
+    #   Value of type 'UnlitMaterial' has no member 'faceCulling'
+    #   reality_view/ios/Classes/PartScene.swift:132
+    #
+    # That line is ALREADY guarded with `#available(iOS 18.0, *)`. An
+    # availability guard is a RUNTIME check; the symbol still has to exist in
+    # the SDK to compile, and macos-14 ships the iOS 17 SDK. So the app cannot
+    # be built on macos-14 at all, with or without the guard.
+    #
+    # m5 builds the same Swift on macos-26 and is green, so Qt 6.7 + the
+    # Xcode 26 toolchain is known to work for qcad-core there.
+    #
+    # STILL UNPROVEN, and the next thing likely to break: whether an x86_64
+    # simulator binary still launches under Rosetta on this image. x86_64 is
+    # forced by Qt (no arm64-simulator slice, see the header). If the launch
+    # step fails, the fallback is NOT to chase Rosetta — it is to drop Qt and
+    # qcad-core from the SIMULATOR build only and go arm64: neither OCCT nor
+    # libslvs needs Qt, `qcad_engine.dart` already falls back to its pure-Dart
+    # engine when the symbols are absent, and OCCT is where the kernel cost
+    # actually is. That trades the `ffi.qcad.*` spans for a pipeline with no
+    # Rosetta dependency at all.
+    runs-on: macos-26
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
