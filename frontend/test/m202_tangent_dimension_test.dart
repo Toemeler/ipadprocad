@@ -48,12 +48,17 @@ Constraint? dimOf(AppState app) {
 }
 
 /// Drives the dimension tool: pick the line, pick the circle at [onCircle],
-/// then place the label.
+/// place the label, and confirm the value dialog the placement opens.
+///
+/// The third click only sets [AppState.pendingDim] — on the device that is
+/// where the value editor appears — so a headless run has to answer it, the
+/// same way flow_probe_test reads it. `null` keeps the measured value.
 void dimension(AppState app, Offset onCircle) {
   app.selectTool(Tool.dimension);
   app.toolClick(const Offset(10, 0)); // the line
   app.toolClick(onCircle); // the circle
   app.toolClick(const Offset(30, 10)); // place
+  if (app.pendingDim != null) app.confirmDimension(null);
 }
 
 void main() {
@@ -95,11 +100,12 @@ void main() {
     dimension(app, const Offset(0, 25));
     final d = dimOf(app)!;
     app.setDimensionValue(d, 10);
-    // 10 of clearance + 5 of radius = a centre 15 above the line.
-    expect(s.geometry[1].data[1], closeTo(15, 1e-3));
+    // WHICH of the two moves is the solver's business — nothing is fixed here,
+    // so it is free to close the gap from either side. What the dimension
+    // promises is the measure.
+    expect(measureDim(s.geometry, d), closeTo(10, 1e-3));
     expect(s.geometry[1].data[2], closeTo(5, 1e-6),
         reason: 'a distance dimension must not resize the circle');
-    expect(measureDim(s.geometry, d), closeTo(10, 1e-3));
     expect(constraintResidualNorm(s.geometry, s.constraints), lessThan(1e-6));
   });
 
