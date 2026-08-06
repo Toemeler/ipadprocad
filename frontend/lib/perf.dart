@@ -186,7 +186,6 @@ class Perf {
       }
       docs ??= Directory.systemTemp.path;
       _open(docs);
-      SchedulerBinding.instance.addTimingsCallback(_onTimings);
       // Every Log.step in the app becomes a timed span (see Log.stepSink).
       // That covers the whole launch sequence without a probe per phase.
       Log.stepSink = record;
@@ -196,6 +195,43 @@ class Perf {
       Log.i('perf', 'performance log init FAILED: $e');
     }
   }
+
+  /// Registers the engine frame-timing callback. MUST be called after
+  /// `WidgetsFlutterBinding.ensureInitialized()`, and is deliberately NOT part
+  /// of [init].
+  ///
+  /// M210 — this is why the perf log never worked on the device, from M79
+  /// until now. `init()` runs as the second statement of `main()`, before any
+  /// binding exists, because the file has to be open before anything can be
+  /// measured. It also used to call `SchedulerBinding.instance` right there —
+  /// and that getter is a null check on a binding that does not exist yet, so
+  /// it threw:
+  ///
+  ///   perf: performance log init FAILED: Null check operator used on a null value
+  ///
+  /// The catch then set `_broken = true`, which makes every span, record,
+  /// count and gauge in the app a silent no-op, and stops [retarget] from ever
+  /// moving the file into Documents. The result was an instrument that
+  /// reported its own failure in one line of the OTHER log file and then
+  /// pretended to work for months.
+  ///
+  /// Split in two so the parts fail independently: losing frame timings must
+  /// not cost the subsystem spans, and neither may take the file down with it.
+  static void attachToBinding() {
+    if (_broken) return;
+    if (_timingsAttached) return;
+    try {
+      SchedulerBinding.instance.addTimingsCallback(_onTimings);
+      _timingsAttached = true;
+      Log.i('perf', 'frame timings attached');
+    } catch (e) {
+      // Explicitly NOT _broken: spans, counters and gauges are all still
+      // valid without frame timings. Only frame.* is lost.
+      Log.i('perf', 'frame timings NOT attached (spans still record): $e');
+    }
+  }
+
+  static bool _timingsAttached = false;
 
   /// Moves the file next to the main log once the real Documents path is
   /// known, carrying the history across — same dance as Log.retarget.
@@ -388,6 +424,14 @@ class Perf {
     if (_stats.isEmpty && totalFrames == 0) return;
     final b = StringBuffer()
       ..writeln('--- ${DateTime.now().toIso8601String()} ---');
+    // Self-diagnosis. Spans recording but zero frames means the timings
+    // callback never attached — the M210 failure. Without this line that state
+    // looks identical to "the app is idle", which is exactly how it survived
+    // from M79 until someone went looking for a file that was not there.
+    if (totalFrames == 0 && _stats.isNotEmpty) {
+      b.writeln('  WARNING  no frame timings — Perf.attachToBinding() did not '
+          'run or failed. Spans below are valid; frame.* is missing.');
+    }
     if (totalFrames > 0) {
       final fps = frameTotal.avgMs <= 0.01 ? 0.0 : 1000 / frameTotal.avgMs;
       b

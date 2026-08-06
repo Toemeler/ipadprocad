@@ -54,6 +54,11 @@ void main() {
     Log.step('main', 'WidgetsFlutterBinding.ensureInitialized', () {
       WidgetsFlutterBinding.ensureInitialized();
     });
+    // Only NOW can frame timings be registered — SchedulerBinding.instance
+    // does not exist before the line above. Perf.init() ran earlier on purpose
+    // (the file must be open before anything can be measured); this is the
+    // half that needs the binding. See Perf.attachToBinding.
+    Perf.attachToBinding();
     // Route every framework + platform-dispatcher error into the log file.
     FlutterError.onError = (details) {
       Log.e('flutter', 'FlutterError: ${details.exceptionAsString()}',

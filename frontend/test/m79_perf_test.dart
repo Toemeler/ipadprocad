@@ -218,6 +218,39 @@ void main() {
     });
   });
 
+  // M210 — the bug that made every number in this file worthless on the
+  // device from M79 until now.
+  //
+  // `Perf.init()` is the second statement of main(), before any binding
+  // exists, because the log file has to be open before anything can be
+  // measured. It also called `SchedulerBinding.instance` there, which is a
+  // null check on a binding that does not exist yet, so it threw. The catch
+  // set `_broken`, and a broken Perf makes EVERY span, record, count and gauge
+  // a silent no-op — while the only evidence was one line in the other log
+  // file. The registration now lives in `attachToBinding`, called after
+  // `ensureInitialized`, and its failure is not allowed to break the rest.
+  group('binding attachment (M210)', () {
+    test('attachToBinding is idempotent', () {
+      Perf.attachToBinding();
+      Perf.attachToBinding();
+      // No throw, and recording still works afterwards.
+      Perf.record('unit.afterAttach', 5);
+      expect(Perf.stats['unit.afterAttach']!.count, 1);
+    });
+
+    test('spans record whether or not frame timings are attached', () {
+      // The property that matters: losing frame.* must not cost the subsystem
+      // breakdown. That was the whole failure — one missing binding took the
+      // entire instrument down with it.
+      Perf.span('unit.noBinding', () => 1);
+      Perf.count('unit.noBindingCount');
+      Perf.gauge('unit.noBindingGauge', 3);
+      expect(Perf.stats['unit.noBinding']!.count, 1);
+      expect(Perf.counters['unit.noBindingCount'], 1);
+      expect(Perf.gauges['unit.noBindingGauge'], 3);
+    });
+  });
+
   group('json snapshot', () {
     test('carries spans, counters and gauges under stable keys', () {
       Perf.record('unit.j', 3);
