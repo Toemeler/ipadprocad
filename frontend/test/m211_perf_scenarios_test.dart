@@ -297,6 +297,17 @@ void _uiSuite() {
           reason: 'one snap per pointer-move event, as the viewport does');
     });
 
+    testWidgets('the ui report carries the same identity as the headless one',
+        (tester) async {
+      // Found by ci/perf_report.py, which reads both halves side by side and
+      // showed the UI one as "build ?". A report that cannot be attributed to a
+      // build, a device and a moment cannot be diffed against another — and
+      // diffing is the entire reason for collecting it.
+      final r = runUiPerfSuite(warmup: false);
+      expect(r.keys, containsAll(
+          ['suite', 'at', 'build', 'os', 'wallMs', 'occtAvailable', 'scenarios']));
+    });
+
     testWidgets('ui scenario names are unique and correctly prefixed',
         (tester) async {
       final names = buildUiScenarios().map((s) => s.name).toList();

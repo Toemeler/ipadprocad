@@ -17,12 +17,15 @@
 // It needs a Flutter binding (a Canvas and image decoding do), which is why it
 // is separate: keeping it out of perf_scenarios.dart is what lets that file
 // stay runnable anywhere.
+import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart' show Offset, Size;
 
 import 'app_state.dart';
+import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
+import 'log.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
 import 'perf_scenarios_app.dart';
@@ -250,6 +253,16 @@ Map<String, dynamic> runUiPerfSuite({bool warmup = true}) {
   sw.stop();
   return {
     'suite': 'perf_scenarios_ui/v1',
+    // The SAME identity block the headless runner emits. It was missing here,
+    // which any tool reading the two reports side by side shows immediately:
+    // the UI half arrived as "build ?", so on its own it could not be
+    // attributed to a build, a device or a moment. Two reports that cannot be
+    // told apart cannot be diffed, and diffing them is the entire point of
+    // collecting them.
+    'at': DateTime.now().toIso8601String(),
+    'build': Log.build,
+    'os': Platform.operatingSystemVersion,
+    'occtAvailable': OcctFfi.available,
     'wallMs': sw.elapsedMilliseconds,
     'scenarios': results,
   };
