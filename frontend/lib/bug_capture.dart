@@ -288,6 +288,34 @@ Future<File?> captureBugReport(AppState app, String description) async {
       Log.w('perf', 'native probe (post) failed: $e');
     }
 
+    // M215 — the time spent PAST the platform-view boundary.
+    //
+    // `rv.setScene` on the Dart side measures how long the channel call takes
+    // to return; on an asynchronous channel that is not how long RealityKit
+    // took to apply the payload. This is the native table, phase by phase, and
+    // it is the last thing in the report that used to be unmeasurable by
+    // construction. Recorded as ordinary spans so it ranks alongside
+    // everything else rather than sitting in a corner of its own.
+    try {
+      final rv = await RealityPush.drainNative();
+      rv.forEach((name, v) {
+        if (v is Map) {
+          final n = (v['n'] as num?)?.toInt() ?? 0;
+          final total = (v['totalMs'] as num?)?.toDouble() ?? 0.0;
+          // Recorded as n samples of the average: PerfStat keeps a count and a
+          // total, and feeding one fat sample would make the call count wrong
+          // in every report that reads it.
+          if (n > 0) {
+            for (var i = 0; i < n; i++) {
+              Perf.record(name, total / n);
+            }
+          }
+        }
+      });
+    } catch (e) {
+      Log.w('perf', 'reality native drain failed: $e');
+    }
+
     // The perf data a MACHINE can read. `perfText` above is the rolling text
     // log, which is what a person reads; this is one structured snapshot of
     // the same counters at the moment of capture, which is what gets diffed

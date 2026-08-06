@@ -71,6 +71,33 @@ class RealityViewController {
   /// gate has stopped working — exactly the class of bug M204 was (a resize
   /// per frame instead of one per state change), and it is invisible in any
   /// duration.
+  /// Pulls the NATIVE timing table and forgets it on the native side.
+  ///
+  /// `rv.setScene` above measures how long the channel call takes to RETURN,
+  /// which on an asynchronous channel is not how long RealityKit took to apply
+  /// the payload — a Dart reading of 0.4 ms can sit in front of thirty
+  /// milliseconds of mesh upload. Everything past that boundary was
+  /// unmeasurable from Dart by construction; this is the seam that closes it.
+  ///
+  /// PULL, not push: a callback per measurement would put a channel round trip
+  /// inside the very thing being measured. Draining resets the native table,
+  /// so two consecutive drains describe two disjoint intervals rather than
+  /// overlapping totals.
+  ///
+  /// Keys are `rv.native.*` with `{n, totalMs, worstMs}` — the same shape as a
+  /// Dart span, so a reader does not have to learn a second format.
+  Future<Map<String, dynamic>> drainNativePerf() async {
+    if (_disposed) return const {};
+    try {
+      final r = await _channel.invokeMapMethod<String, dynamic>('perfDrain');
+      return r ?? const {};
+    } on MissingPluginException {
+      return const {}; // host test / non-iOS
+    } catch (_) {
+      return const {}; // a diagnostic must never take down a frame
+    }
+  }
+
   Future<void> _invoke(String method, Map<String, dynamic> args) async {
     if (_disposed) return;
     rvCount('rv.$method.calls', 1);

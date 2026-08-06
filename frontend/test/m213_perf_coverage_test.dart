@@ -28,6 +28,7 @@ import 'package:prototype/perf_scenarios_app.dart';
 import 'package:prototype/perf_scenarios_kernel.dart';
 import 'package:prototype/perf_scenarios_tools.dart';
 import 'package:prototype/perf_scenarios_ui.dart';
+import 'package:prototype/reality_scene.dart';
 import 'package:prototype/tools.dart';
 
 void main() {
@@ -264,6 +265,21 @@ void main() {
       expect(Perf.jsonSnapshot().containsKey('native'), isFalse);
       Perf.setNative('preSuite', const {'thermalOrdinal': 0});
       expect(Perf.jsonSnapshot()['native'], isNotNull);
+    });
+
+    test('the native reality drain is a safe no-op without a view', () async {
+      // The 3D viewport registers a drain closure while mounted and clears it
+      // on dispose. With no view registered the bundle must get an empty map,
+      // not an exception and not a push into a dead channel — a diagnostic
+      // that can take down a bug report is worse than no diagnostic.
+      RealityPush.nativeDrain = null;
+      expect(await RealityPush.drainNative(), isEmpty);
+    });
+
+    test('a throwing drain is swallowed, not propagated', () async {
+      RealityPush.nativeDrain = () async => throw StateError('dead channel');
+      expect(await RealityPush.drainNative(), isEmpty);
+      RealityPush.nativeDrain = null;
     });
 
     test('the rebuild scenarios exist and are swept', () {

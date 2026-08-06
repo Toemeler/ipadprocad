@@ -81,6 +81,7 @@ class _Viewport3DState extends State<Viewport3D>
     // The controller itself is owned (and disposed) by the RealityView widget's
     // own State; just drop our reference so late pushes are no-ops.
     _reality = null;
+    RealityPush.nativeDrain = null;
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
@@ -299,6 +300,12 @@ class _Viewport3DState extends State<Viewport3D>
                           placeholder: const ColoredBox(color: T.viewport),
                           onCreated: (c) {
                             _reality = c;
+                            // Let the bug bundle reach the NATIVE timing table
+                            // without reaching into this State. Cleared in
+                            // dispose, so a drain after the view goes away is
+                            // an empty map rather than a push into a dead
+                            // channel.
+                            RealityPush.nativeDrain = c.drainNativePerf;
                             // A FRESH platform view starts empty. Without
                             // clearing these, the signature would still match
                             // the old view's contents, setScene would never
