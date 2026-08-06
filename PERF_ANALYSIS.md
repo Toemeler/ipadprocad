@@ -716,3 +716,68 @@ Dart-Anteil; `part.rebuild.passes` sagt, ob die Schleife mehr als einmal lief.
 Damit ist Punkt 4 aus Abschnitt 10.6 zu. Offen bleiben 1 (das Innere des
 C++ — jetzt aber durch Quelltextbefund statt Messung beantwortet), 2 (der
 RealityKit-Renderloop) und der Sampling-Profiler.
+
+---
+
+## 12. M215 — die Berichte lesbar machen, und der letzte blinde Fleck
+
+### 12.1 `ci/perf_report.py`
+
+Die Suite liefert ~73 Szenarien mit je drei Tabellen. Das ist die richtige
+Datenmenge und die falsche Lesemenge — jeder bisherige Geraetelauf wurde mit
+einem Wegwerfskript ausgewertet. Vier Abschnitte, in der Reihenfolge, in der
+die Antworten zaehlen:
+
+1. **Ist der Lauf vertrauenswuerdig?** Thermalzustand an beiden Enden,
+   Speicherabdruck, Restspeicher, alle Fehl-/Null-Zaehler. Eine Suite, die
+   lief waehrend das iPad drosselte, liefert echte Zahlen ueber eine Maschine,
+   die niemand hat.
+2. **Wie sieht jede Kostenkurve aus?** Jede Sweep-Familie per kleinster
+   Quadrate auf n^k gefittet.
+3. **Wo ging die Zeit hin?** — einmal fuer die Suite, einmal fuer die *echte
+   Sitzung* (die Spans, die beim tatsaechlichen Arbeiten anfielen).
+4. **Was hat sich geaendert?** gegen eine Baseline.
+
+Nimmt das Bug-Bundle-Zip direkt. Gegen Build 7fb7f8b geprueft: reproduziert
+die Handauswertung und meldet korrekt, dass dem Bundle die Thermalwerte
+fehlen.
+
+### 12.2 Die Zeit jenseits der Platform-View-Grenze
+
+`rv.setScene` auf der Dart-Seite misst, wann der Kanalaufruf zurueckkehrt —
+auf einem asynchronen Kanal nicht, wie lange RealityKit gebraucht hat.
+`RvPerf.swift` akkumuliert nativ, Dart **zieht** die Tabelle (Push waere
+falsch: ein Callback pro Messung legt eine Kanal-Rundreise in genau das, was
+gemessen wird). Phasen: solids, planes, sketches, accents, highlight,
+placeCamera — aus demselben Grund wie beim 2D-Painter.
+
+Der Controller gehoert dem State des 3D-Viewports; statt hineinzugreifen
+registriert der Viewport eine Drain-Closure solange er montiert ist. Das
+Bundle fragt `RealityPush`, nicht den Widget-Baum.
+
+**Nebenbefund aus dem alten Bundle:** `rv.setScene` 45.1 ms, `rv.setOverlays`
+45.1 ms, `rv.setCamera` 33.8 ms — bei je EINEM Aufruf. Das sind
+Erstaufruf-Kosten (Platform-View-Initialisierung), aber bisher stand nirgends,
+wie viel davon Dart und wie viel RealityKit war. Genau das beantwortet der
+native Drain beim naechsten Lauf.
+
+### 12.3 Zwei Genauigkeitskorrekturen an eigenem Code
+
+* Der Drain buchte n Kopien des Mittelwerts — Anzahl und Summe stimmen, aber
+  **der schlechteste Wert war weg**. Auf diesem Pfad ist gerade der
+  interessant: ein 300-ms-Mesh-Upload unter fuenfzig billigen Kamerapushes ist
+  ein sichtbarer Ruckler, den ein Mittel von 6 ms vollstaendig verdeckt. Jetzt
+  zusaetzlich als Messgroesse (nicht als Sample — das wuerde die gerade
+  korrekt gebuchte Summe verfaelschen).
+* `runUiPerfSuite` hatte keinen Identitaetsblock; der UI-Bericht kam als
+  „build ?" an. Zwei Berichte, die man nicht auseinanderhalten kann, kann man
+  nicht diffen.
+
+### 12.4 Was jetzt noch fehlt
+
+1. **RealityKits eigener Renderloop.** `RvPerf` misst bis zur Uebergabe; was
+   der Renderer danach auf seinem eigenen Zeitplan tut, gehoert dem OS.
+2. **Ein Sampling-Profiler** (VM-Service `getCpuSamples` → Perfetto). Die
+   Suite sagt, welche *Operation* was kostet; ein Profiler saegt, welche
+   *Zeile*. Fuer `analyzeSketch` ist das der Unterschied zwischen „die
+   Ranganalyse ist kubisch" und „diese Schleife ist es".

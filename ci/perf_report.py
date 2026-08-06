@@ -264,6 +264,43 @@ def section_costs(data: dict, top: int) -> list[str]:
     return out
 
 
+def section_session(data: dict, top: int) -> list[str]:
+    """The spans recorded during ACTUAL USE, not by the suite.
+
+    Two things live here and nowhere else. First, whatever the person was
+    doing before they pressed the button — the suite has fixed inputs by
+    design, so only this half reflects a real document. Second, the native
+    RealityKit table: it is drained into the session at capture time, not
+    inside a scenario, so a reader that only walked the scenarios would show
+    nothing for the one boundary that used to be unmeasurable.
+    """
+    spans = (data["snapshot"].get("spans") or {})
+    if not spans:
+        return ["  (no session snapshot in this bundle)"]
+    rows = sorted(spans.items(), key=lambda kv: -kv[1].get("totalMs", 0.0))
+    out = [f"  {'span':40s} {'n':>7s} {'total ms':>10s} {'avg ms':>9s} "
+           f"{'p95 ms':>9s} {'worst ms':>9s}"]
+    for name, v in rows[:top]:
+        out.append(f"  {name:40s} {v.get('n', 0):7d} {v.get('totalMs', 0):10.2f} "
+                   f"{v.get('avgMs', 0):9.4f} {v.get('p95Ms', 0):9.3f} "
+                   f"{v.get('worstMs', 0):9.3f}")
+
+    # The native block, called out rather than left to be spotted in the list:
+    # it is the answer to "is the 3D view heavy", and until M215 it did not
+    # exist at all.
+    nat = {k: v for k, v in spans.items() if k.startswith("rv.native.")}
+    if nat:
+        gauges = data["snapshot"].get("gauges") or {}
+        out.append("")
+        out.append("  PAST THE PLATFORM-VIEW BOUNDARY (native RealityKit):")
+        for name, v in sorted(nat.items(), key=lambda kv: -kv[1].get("totalMs", 0)):
+            worst_us = gauges.get(f"{name}.worstUs")
+            tail = f"   worst {worst_us / 1000:.2f} ms" if worst_us else ""
+            out.append(f"      {name:36s} n={v.get('n', 0):5d} "
+                       f"{v.get('totalMs', 0):9.2f} ms total{tail}")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 4. what changed
 # ---------------------------------------------------------------------------
@@ -358,8 +395,11 @@ def main() -> int:
     banner("2. COST CURVES — the exponent is what survives a change of chip")
     print("\n".join(section_curves(data)))
 
-    banner("3. WHERE THE TIME WENT")
+    banner("3. WHERE THE TIME WENT — the suite")
     print("\n".join(section_costs(data, args.top)))
+
+    banner("3b. THE LIVE SESSION — what the person was actually doing")
+    print("\n".join(section_session(data, args.top)))
 
     if args.baseline:
         if not os.path.exists(args.baseline):

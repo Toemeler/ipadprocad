@@ -302,6 +302,7 @@ Future<File?> captureBugReport(AppState app, String description) async {
         if (v is Map) {
           final n = (v['n'] as num?)?.toInt() ?? 0;
           final total = (v['totalMs'] as num?)?.toDouble() ?? 0.0;
+          final worst = (v['worstMs'] as num?)?.toDouble() ?? 0.0;
           // Recorded as n samples of the average: PerfStat keeps a count and a
           // total, and feeding one fat sample would make the call count wrong
           // in every report that reads it.
@@ -309,6 +310,14 @@ Future<File?> captureBugReport(AppState app, String description) async {
             for (var i = 0; i < n; i++) {
               Perf.record(name, total / n);
             }
+            // ...but n copies of the average erase the WORST, and on this path
+            // the worst is the interesting number: one 300 ms mesh upload
+            // among fifty cheap camera pushes is a visible stall, and an
+            // average of 6 ms hides it completely. The native side already
+            // tracked it, so publishing it separately costs nothing — as a
+            // gauge rather than a sample, because a sample would corrupt the
+            // total the loop above just got right.
+            Perf.gauge('$name.worstUs', (worst * 1000).round());
           }
         }
       });
