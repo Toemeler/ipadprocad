@@ -427,3 +427,116 @@ veroeffentlichen.
 neuen vergleichbar — die Eingabe hat sich geaendert. Das ist der Preis dafuer,
 dass die Eingabe vorher falsch war. Die Kernelzahlen (`kernel.*`, insbesondere
 der quadratische `allEdges`-Befund) sind unberuehrt.
+
+---
+
+## 9. Der erste Lauf mit reparierten Fixtures (Build 7fb7f8b, Geraet, M4)
+
+Bundle `bug20260806T155703`, iPadOS 27.0, OCCT-Shim v16, Qt 6.7.3.
+Leeres Dokument — der Wert steckt komplett in der Selbstfahr-Suite.
+
+Sitzung selbst gesund: 807 Frames, 93.5 fps, 2 Jank-Frames, Start bis erstem
+Frame 76.6 ms.
+
+### 9.1 gear.curve — repariert, und Zahnraeder sind entlastet
+
+| Zaehne | Punkte | kalt | Cache-Treffer (200x) |
+| ---: | ---: | ---: | ---: |
+| 10 | 640 | 0.129 ms | 0.000 ms |
+| 20 | 1200 | 0.257 ms | 0.000 ms |
+| 40 | 2160 | 0.495 ms | 0.000 ms |
+
+Exakt linear in der Punktzahl (~0.21 us/Punkt), und der Memo traegt: 200
+Treffer sind zusammen nicht messbar. Die vier 20-Zahn-Raeder aus Part2 kosten
+zusammen rund **1 ms, einmal**. Kein Verdaechtiger.
+
+### 9.2 dofColour — repariert, und die Diagnose kippt
+
+Statisches Malen, 128 Entities: `ent.dofColour` = 0.0008 ms = **0.7%**.
+Waehrend eines Zugs, 48 Entities: `ent.dofColour` = 0.1414 ms = **43.3%**.
+
+Und `2d.displayGeometry` misst im selben Szenario 0.1412 ms. Das ist keine
+Aehnlichkeit, das ist dieselbe Arbeit: **die Phase heisst falsch.** Zwischen
+`mark('editRef')` und `mark('ent.dofColour')` liegen sechs Paint-Objekte und
+`app.displayGeometry(s)` — also der DRAG-SOLVE, der in `CustomPainter.paint`
+laeuft. Die eigentliche Faerbung (`carrierFixed` pro Entity) steckt in der
+Phase `entities` und kostet 0.11 ms bei 128 Entities, ungefaehr linear.
+
+Damit ist die Lesart aus dem Geraetelauf zu korrigieren: „dofColour war 85% des
+Malens" hiess **„der Solve im Painter war 85% des Malens"**, nicht „die
+DOF-Faerbung ist teuer".
+
+**Und die zwei Solves pro Frame sind jetzt lokalisiert.** 60 gemalte Frames,
+`2d.displayGeometry.solves` = 120. Die Phase `constraints` springt von 0.0011 ms
+(statisch) auf 0.1426 ms (im Zug) — Faktor 130. Beide Aufrufe stehen im
+Painter:
+
+* `viewport.dart:2088` — im Segment `ent.dofColour`
+* `viewport.dart:2683` — im Segment `constraints` (`gs2`)
+
+Jeder loest waehrend eines Zugs komplett neu. Zusammen sind das 87% der
+Malzeit im Zug fuer *eine* Antwort, die zweimal berechnet wird.
+
+### 9.3 2d.snap — repariert, und ebenfalls entlastet
+
+| pro Pointer-Move | |
+| --- | ---: |
+| `2d.snap` | 0.0044 ms |
+| `2d.pickEntity` | 0.0234 ms |
+
+Snapping ist **5x billiger** als das Picken daneben. Die Phase, die nie in
+einem Report stand, ist die guenstigste im Pfad.
+
+### 9.4 NEUER BEFUND — analyzeSketch ist die superlineare Stelle
+
+| Entities | Constraints | DOF | `sketch.analyze` |
+| ---: | ---: | ---: | ---: |
+| 16 | 25 | 14 | 0.101 ms |
+| 48 | 73 | 46 | 0.934 ms |
+| 128 | 193 | 126 | **15.694 ms** |
+
+Exponent 16→48: **n^2.04**. Exponent 48→128: **n^2.88**. Der Exponent
+*steigt* — die kubische Zeilenreduktion uebernimmt, sobald das System gross
+genug ist. Hochgerechnet: ~430 ms bei 400 Entities, ~6 s bei 1000.
+
+Das laeuft bei **jedem Rebuild, jedem Solve und jedem Tab-Wechsel**
+(app_state.dart:2163, :2183, :6486). Es ist der beste Kandidat fuer „in 2d habe
+ich komplexes Zeug gezeichnet und es war buggy" — und es stand bis M212 in
+keinem Report.
+
+### 9.5 Der Solver ist entlastet — mit Zahlen
+
+`ffi.slvs.solve` bei 128 Entities / 193 Constraints: **0.725 ms**. Im Zug bei 48
+Entities: 0.114 ms. 420 Solves der ganzen Sitzung: avg 0.169 ms, p95 0.148 ms.
+
+Die 27 ms avg / 3.92 s worst vom ersten Geraetelauf sind damit **nicht
+groessenbedingt**. Es bleibt eine Konfiguration, keine Skalierung — und
+weiterhin offen.
+
+### 9.6 allEdges — dritte unabhaengige Bestaetigung
+
+| Kanten | `allEdges` | pro Kante | `edgeInfo.calls` |
+| ---: | ---: | ---: | ---: |
+| 36 | 7.00 ms | 194 us | 36 |
+| 144 | 99.66 ms | 692 us | 144 |
+| 360 | 607.13 ms | 1687 us | 360 |
+
+Kanten x4.0 → Zeit x14.2 (n^1.92); x2.5 → x6.09 (n^1.97). Die Aufrufzahl ist
+**exakt** die Kantenzahl, also genau ein FFI-Uebergang pro Kante — die
+Quadratik sitzt vollstaendig im C++, nicht an der Grenze. `repeat` (5x auf
+demselben Solid) bleibt bei 99.4 ms Schnitt: kein wiederverwendbarer Aufbau.
+
+Hochgerechnet auf Part2 (~3400 Kanten): **~48 s**. Das ist der Absturz.
+
+`kernel.fillet`: das Finden der Kandidaten (25.56 ms) kostet **2.4x** so viel
+wie das Verrunden selbst (10.80 ms).
+
+### 9.7 Rangliste nach diesem Lauf
+
+1. `occt_shape_edge_info` — quadratisch, 48 s auf einem echten Teil, Absturz.
+2. `analyzeSketch` — n^2.9, laeuft bei jedem Rebuild/Solve/Tabwechsel.
+3. Doppelter `displayGeometry` im Painter — 2 Solves pro gezogenem Frame.
+4. Unerklaerte Solver-Spitze (3.92 s) — reproduzierbar noch nicht eingefangen.
+
+Entlastet, mit Zahlen: Zahnradgenerierung, Snapping, DOF-Faerbung, Booleans,
+Tessellierung, `allGeometry`, Ribbon-Rebuilds, Start.
