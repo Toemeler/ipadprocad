@@ -39,6 +39,8 @@ import 'gear.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'perf_scenarios_kernel.dart';
+import 'perf_scenarios_quality.dart';
+import 'perf_scenarios_ramp.dart';
 import 'perf_scenarios_tools.dart';
 import 'solver.dart';
 
@@ -407,6 +409,13 @@ List<PerfScenario> buildScenarios() {
   // unit test, from CI and from a device button with the same code.
   out.addAll(buildToolScenarios());
   out.addAll(buildKernelScenarios());
+  // The RAMPS (M219): the shape of each curve rather than three points and a
+  // fit. A three-point fit cannot show a knee, and this app has at least one —
+  // the 334x cliff when the solver falls off libslvs.
+  out.addAll(buildRampScenarios());
+  // And the measurements that make the others usable: the noise floor, bytes
+  // per entity and per solid, the frame-budget limits, cache effectiveness.
+  out.addAll(buildQualityScenarios());
 
   return out;
 }

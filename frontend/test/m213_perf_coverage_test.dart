@@ -308,6 +308,86 @@ void main() {
     });
   });
 
+  group('M219 — ramps and quality', () {
+    test('the ramps are in the AUTOMATIC suite, not opt-in', () {
+      // The whole point: the shape of every curve, on every ordinary capture.
+      final names = buildScenarios().map((s) => s.name).toSet();
+      expect(names, containsAll([
+        'ramp.solve.entities', 'ramp.analyze.entities', 'ramp.drag.entities',
+        'ramp.solve.density',
+      ]));
+    });
+
+    test('a ramp records EVERY rung, not just the endpoints', () {
+      Perf.resetForTest();
+      final r = buildScenarios()
+          .firstWhere((s) => s.name == 'ramp.analyze.entities');
+      Perf.scenario(r.name, r.run);
+      final rungs = Perf.stats.keys.where((k) => RegExp(r'^ramp\.analyze\.\d+$')
+          .hasMatch(k)).toList();
+      expect(rungs.length, greaterThanOrEqualTo(6),
+          reason: 'three points cannot show a knee — that is why these exist');
+    });
+
+    test('a ramp publishes the LOCAL exponent between rungs', () {
+      Perf.resetForTest();
+      final r = buildScenarios()
+          .firstWhere((s) => s.name == 'ramp.analyze.entities');
+      Perf.scenario(r.name, r.run);
+      final ks = Perf.gauges.keys.where((k) => k.startsWith('ramp.analyze.k.'));
+      expect(ks, isNotEmpty,
+          reason: 'the local exponent is the whole point: a constant one is a '
+              'clean power law, a jump is a threshold');
+    });
+
+    test('the density ramp varies constraints at a FIXED entity count', () {
+      Perf.resetForTest();
+      final r = buildScenarios()
+          .firstWhere((s) => s.name == 'ramp.solve.density');
+      Perf.scenario(r.name, r.run);
+      final cons = {
+        for (final e in Perf.gauges.entries)
+          if (e.key.startsWith('ramp.density.cons.')) e.key: e.value
+      };
+      expect(cons.length, greaterThanOrEqualTo(3));
+      expect(cons.values.toSet().length, cons.length,
+          reason: 'each rung must really carry a different constraint count, '
+              'or the ramp measures the same thing repeatedly');
+    });
+
+    test('the noise floor is measured and published', () {
+      Perf.resetForTest();
+      final q = buildScenarios().firstWhere((s) => s.name == 'quality.variance');
+      Perf.scenario(q.name, q.run);
+      // Without this every diff is uninterpretable: a 20% change means nothing
+      // until you know whether 20% is inside the run-to-run spread.
+      expect(Perf.gauges.containsKey('quality.variance.solve.iqrPct'), isTrue);
+      expect(Perf.gauges.containsKey('quality.variance.solve.medianUs'), isTrue);
+      expect(Perf.gauges['quality.variance.solve.medianUs'], greaterThan(0));
+    });
+
+    test('the frame-budget limits come out as entity counts', () {
+      Perf.resetForTest();
+      final q = buildScenarios()
+          .firstWhere((s) => s.name == 'quality.frameBudget');
+      Perf.scenario(q.name, q.run);
+      final at120 = Perf.gauges['quality.budget.entitiesAt120Hz'] ?? 0;
+      final at60 = Perf.gauges['quality.budget.entitiesAt60Hz'] ?? 0;
+      expect(at60, greaterThanOrEqualTo(at120),
+          reason: 'a 60 Hz frame is twice as long, so it must fit at least as '
+              'much as a 120 Hz one — if not, the ladder is misreading');
+    });
+
+    test('cache effectiveness is a RATIO, so it survives a chip change', () {
+      Perf.resetForTest();
+      final q = buildScenarios().firstWhere((s) => s.name == 'quality.caches');
+      Perf.scenario(q.name, q.run);
+      expect(Perf.gauges.containsKey('quality.cache.gearSpeedup'), isTrue);
+      expect(Perf.gauges['quality.cache.gearSpeedup'], greaterThan(1),
+          reason: 'a memo that is not faster than recomputing is not a memo');
+    });
+  }, timeout: const Timeout(Duration(minutes: 10)));
+
   group('M218 — the stress tier', () {
     test('it is NOT part of the ordinary suites', () {
       // The whole point of the opt-in. Its ladders climb until they blow a
