@@ -25,6 +25,7 @@ import 'app_state.dart';
 import 'ffi/qcad_engine.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
+import 'perf_scenarios_app.dart';
 import 'snap.dart' show Grip;
 import 'solver.dart' show analyzeSketch;
 import 'widgets/viewport.dart'
@@ -219,6 +220,14 @@ List<PerfScenario> buildUiScenarios() {
     note: 'reading the whole document back out of the C++ side; compare '
         'ffi.qcad.allGeometry.entities against the call count',
   ));
+
+  // ---- everything that needs a live AppState or a real part (M213) -------
+  //
+  // Patterns, projection, the RealityKit handover, the undo journal and the
+  // document codec. They belong on this side of the split for the same reason
+  // painting does: they cannot run without the app object, and the headless
+  // runner's whole value is that it can.
+  out.addAll(buildAppScenarios());
 
   return out;
 }

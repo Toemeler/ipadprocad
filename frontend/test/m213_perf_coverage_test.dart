@@ -1,0 +1,260 @@
+// M213 — the systematic pass, and the tests that keep it honest.
+//
+// M212 taught the lesson these tests exist to enforce: a scenario that measures
+// NOTHING still produces a number, and that number is indistinguishable from a
+// fast one. `gear.curve` read 0.000 ms for two builds because the memo swallowed
+// nineteen of twenty calls; `2d.snap` was absent from every report ever produced
+// because the scenario never reached the snap path; `ent.dofColour` read ~0
+// because the fixture had no constraints for it to colour.
+//
+// So these tests do not check timings — a CI runner's milliseconds mean nothing.
+// They check that each scenario REACHED ITS SUBJECT:
+//
+//   * every drawing tool actually produced geometry (a null result is a zero),
+//   * the modify fixtures really intersect (on parallel lines trim exits early),
+//   * the kernel scenarios really built solids,
+//   * every scenario carries a note a reader can act on.
+@Timeout(Duration(minutes: 15))
+library;
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/app_state.dart' show Tool;
+import 'package:prototype/constraints.dart';
+import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/modify.dart';
+import 'package:prototype/perf.dart';
+import 'package:prototype/perf_scenarios.dart';
+import 'package:prototype/perf_scenarios_app.dart';
+import 'package:prototype/perf_scenarios_kernel.dart';
+import 'package:prototype/perf_scenarios_tools.dart';
+import 'package:prototype/perf_scenarios_ui.dart';
+import 'package:prototype/tools.dart';
+
+void main() {
+  setUp(Perf.resetForTest);
+
+  group('coverage — the suite reaches every subsystem', () {
+    test('the headless suite covers tools, kernel and the original probes', () {
+      final names = buildScenarios().map((s) => s.name).toSet();
+      // One representative per area. Naming them individually is deliberate:
+      // a count would still pass if an entire module stopped being wired in.
+      expect(names.any((n) => n.startsWith('solve.')), isTrue);
+      expect(names.any((n) => n.startsWith('analysis.')), isTrue);
+      expect(names.any((n) => n.startsWith('gear.')), isTrue);
+      expect(names.any((n) => n.startsWith('tools.')), isTrue);
+      expect(names.any((n) => n.startsWith('modify.')), isTrue);
+      expect(names.any((n) => n.startsWith('constraints.')), isTrue);
+    });
+
+    test('the UI suite covers paint, drag, snap and the app-level paths', () {
+      final names = buildUiScenarios().map((s) => s.name).toSet();
+      expect(names.any((n) => n.startsWith('ui.paint')), isTrue);
+      expect(names, contains('ui.drag60'));
+      expect(names, contains('ui.snapHover'));
+      expect(names.any((n) => n.startsWith('app.pattern')), isTrue);
+      expect(names.any((n) => n.startsWith('app.history')), isTrue);
+      expect(names.any((n) => n.startsWith('app.scene')), isTrue);
+    });
+
+    test('every scenario name is unique across BOTH runners', () {
+      // The two reports are read side by side and diffed on name. A collision
+      // would silently overwrite one of them in any tool that merges them.
+      final all = [
+        ...buildScenarios().map((s) => s.name),
+        ...buildUiScenarios().map((s) => s.name),
+      ];
+      expect(all.toSet().length, all.length);
+    });
+
+    test('every scenario carries an interpretable note', () {
+      for (final s in [...buildScenarios(), ...buildUiScenarios()]) {
+        expect(s.note.length, greaterThan(20),
+            reason: '${s.name} has no note — a number nobody can interpret is '
+                'not worth collecting');
+      }
+    });
+  });
+
+  group('the tool fixtures actually build geometry', () {
+    // The whole point of tools.buildAll is per-tool cost. A tool that returns
+    // null contributes a fast zero and looks like the cheapest thing in the
+    // app, so the fixture has to be able to drive every one of them.
+    test('every tool in toolMeta produces geometry from the fixture', () {
+      final existing = sketchFixture(24);
+      final failed = <String>[];
+      for (final t in toolMeta.keys) {
+        final meta = toolMeta[t]!;
+        final k = meta.fixed ?? (meta.minVar < 12 ? 12 : meta.minVar);
+        final r = buildToolGeometry(t, toolPoints(k),
+            existing: existing,
+            params: _paramsFor(t),
+            expr: t == Tool.eqCurve ? 'sin(t)*30, cos(t)*20' : '');
+        if (r == null || r.isEmpty) failed.add(t.name);
+      }
+      // Fillet and chamfer need two picks landing on two DIFFERENT existing
+      // entities; the generic point generator cannot guarantee that against an
+      // arbitrary sketch, and they have dedicated scenarios (tools.fillet2d /
+      // tools.chamfer2d) that do it properly. Everything else must build.
+      expect(failed.where((n) => n != 'fillet' && n != 'chamfer'), isEmpty,
+          reason: 'these tools produced nothing, so their numbers in '
+              'tools.buildAll would be measurements of an early return');
+    });
+
+    test('the corner fixture supports a real 2D fillet and chamfer', () {
+      final gs = cornerFixture();
+      expect(filletInventor(gs, const Offset(30, 2), const Offset(58, 30), 5),
+          isNotNull,
+          reason: 'tools.fillet2d would otherwise time a null');
+      expect(
+          chamferInventor(gs, const Offset(30, 2), const Offset(58, 30),
+              mode: 0, d1: 5),
+          isNotNull);
+    });
+
+    test('the cross fixture really crosses', () {
+      // On parallel or disjoint lines trim/extend/split exit immediately, and
+      // the whole modify sweep would measure the early exit.
+      final gs = crossFixture(10);
+      expect(gs.length, 20);
+      final hits = intersectionsWithOthers(gs, 0);
+      expect(hits.length, 10,
+          reason: 'each horizontal line must meet all ten verticals');
+    });
+
+    test('trim on the cross fixture actually changes the geometry', () {
+      final gs = crossFixture(10);
+      final before = [for (final g in gs) g.data.toList()];
+      final after = trimEntity(List.from(gs), 0, Offset(5, gs[0].data[1]));
+      var changed = after.length != gs.length;
+      for (var i = 0; i < after.length && !changed; i++) {
+        if (after[i].data.toString() != before[i].toString()) changed = true;
+      }
+      expect(changed, isTrue,
+          reason: 'a trim that changes nothing measured a no-op');
+    });
+  });
+
+  group('the constraint sampler covers every type', () {
+    test('every CType is either exercised or explicitly out of scope', () {
+      // Pinned so that adding a constraint type cannot silently skip it: the
+      // scenario counts unsupported types, but nothing would have FAILED.
+      final scen = buildScenarios()
+          .firstWhere((s) => s.name == 'constraints.addEachType');
+      Perf.resetForTest();
+      Perf.scenario(scen.name, scen.run);
+      final skipped = Perf.counters.keys
+          .where((k) => k.startsWith('constraints.unsupportedInFixture.'))
+          .map((k) => k.split('.').last)
+          .toSet();
+      // `pattern` ties a copy to a source produced by the pattern tool; the
+      // ring fixture has no patterned geometry, and app.pattern.* covers it.
+      expect(skipped, {'pattern'},
+          reason: 'a newly added constraint type must either be sampled here '
+              'or be a deliberate, named exception');
+      for (final t in CType.values) {
+        if (skipped.contains(t.name)) continue;
+        expect(Perf.stats.containsKey('constraints.add.${t.name}'), isTrue,
+            reason: '${t.name} was never timed');
+      }
+    });
+  });
+
+  group('kernel coverage', () {
+    test('every kernel op the shim exposes has a scenario', () {
+      final names = buildKernelScenarios().map((s) => s.name).toList();
+      if (!OcctFfi.available) {
+        // On a host without the kernel the list is empty BY DESIGN — better an
+        // empty section than scenarios reporting zeros for ops that never ran.
+        expect(names, isEmpty);
+        return;
+      }
+      for (final op in const [
+        'extrude', 'revolve', 'sweep', 'loft', 'coil',
+        'fillet', 'chamfer', 'boolean', 'unify', 'mesh',
+        'query', 'rayHits', 'transform',
+      ]) {
+        expect(names.any((n) => n.contains(op)), isTrue,
+            reason: 'no scenario covers $op');
+      }
+    });
+
+    test('the profile encodings are the ones the shim expects', () {
+      // The trap this pins: pairs vs triplets. Handing the wrong one over does
+      // not throw — the arity check returns null and the op reads as free.
+      expect(polyProfile(12, 40).length, 24, reason: '(x,y) pairs');
+      expect(arcRing(12, 40).length, 36, reason: '(x,y,bulge) triplets');
+      expect(arcPath(24, 60).length, 72, reason: '(x,y,z) triplets');
+      expect(identityMat34().length, 12);
+      expect(holedProfile(48, 40, 4).length, 5, reason: 'outer + 4 holes');
+    });
+
+    test('the kernel scenarios really build solids, on a host that has one',
+        () {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      final scen = buildKernelScenarios();
+      for (final s in scen.where((s) =>
+          s.name.startsWith('kernel.revolve') ||
+          s.name.startsWith('kernel.sweep') ||
+          s.name.startsWith('kernel.loft') ||
+          s.name.startsWith('kernel.coil'))) {
+        Perf.scenario(s.name, s.run);
+      }
+      // The failure counters are the point: a null return is a fast zero, and
+      // these four ops are the ones whose profile encoding is easiest to get
+      // wrong.
+      final fails = Perf.counters.entries
+          .where((e) => e.key.endsWith('.fail') || e.key.endsWith('.throw'))
+          .toList();
+      expect(fails, isEmpty,
+          reason: 'these ops returned null or threw, so their scenarios timed '
+              'nothing: ${fails.map((e) => '${e.key}=${e.value}').join(', ')}');
+    });
+  });
+
+  group('the app fixtures are real', () {
+    testWidgets('the pattern scenarios produce copies', (tester) async {
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.pattern.rect.16');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['app.patternCopies'] ?? 0, greaterThan(0),
+          reason: 'a pattern preview producing no copies measured an early '
+              'return, not a pattern');
+    });
+
+    testWidgets('the history scenario really snapshots', (tester) async {
+      Perf.resetForTest();
+      final s =
+          buildAppScenarios().firstWhere((sc) => sc.name == 'app.history.24');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.stats['app.checkpoint']?.count, 20);
+      expect(Perf.stats['app.undoStep']?.count, 20,
+          reason: 'undo must have something to step back through — a journal '
+              'that collapsed every snapshot as identical measured the '
+              'comparison instead');
+    });
+
+    testWidgets('the scene payload scenario runs on real geometry',
+        (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s =
+          buildAppScenarios().firstWhere((sc) => sc.name == 'app.scene.3x48');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['app.scene.tris'] ?? 0, greaterThan(100),
+          reason: 'a stub mesh would make every scene number meaningless');
+      expect(Perf.stats.containsKey('app.buildScenePayload'), isTrue);
+      expect(Perf.stats['app.sceneSignature']?.count, 60);
+    });
+  });
+}
+
+Map<String, double> _paramsFor(Tool t) => switch (t) {
+      Tool.polygon => const {'sides': 6},
+      Tool.fillet => const {'r': 5},
+      Tool.chamfer => const {'d': 5, 'mode': 0},
+      _ => const {},
+    };

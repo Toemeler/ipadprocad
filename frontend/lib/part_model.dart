@@ -4295,8 +4295,16 @@ class OcctPartKernel implements PartKernel {
 /// input, not something to combine with afterwards.
 bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
     {KernelSolid? base}) {
+  // Two spans, one nested inside the other. The aggregate answers "what does a
+  // feature rebuild cost"; the per-KIND one answers "which kind", and that is
+  // the question an optimisation actually needs — an extrude and a loft on the
+  // same part differ by more than an order of magnitude, and a single average
+  // over both is a number that describes neither (M75, again).
   final ok = Perf.span(
-      'kernel.feature', () => _recomputeFeature(part, f, kernel, base));
+      'kernel.feature',
+      () => Perf.span('kernel.feature.${f.kind}',
+          () => _recomputeFeature(part, f, kernel, base)));
+  Perf.count('kernel.feature.${ok ? 'ok' : 'fail'}');
   // M164 — every feature rebuild, named, with its outcome. A part that comes
   // back different after a reopen is a SEQUENCE of these going wrong, and
   // until now the log showed only the ones that happened to toast.
@@ -4968,6 +4976,20 @@ String featureInputSig(PartModel part, PartFeature f) {
 /// whose feature moves the very face it is anchored to — terminates with a
 /// complaint instead of hanging the app.
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
+        {bool force = false}) =>
+    Perf.span('part.rebuildAll', () {
+      Perf.gauge('part.features', part.features.length);
+      return _recomputeAllFeatures(part, kernel, force: force);
+    });
+
+/// The whole-part rebuild, wrapped above so its cost is one number.
+///
+/// This is what the user waits for after editing a parameter, and it was
+/// unmeasured as a WHOLE: `kernel.feature` gave the per-feature cost, but a
+/// part rebuilds every feature and may run the loop again when a face-anchored
+/// sketch moves. `part.rebuildAll` is the wall the user hits; the `passes`
+/// counter says whether a second pass is what made it long.
+bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
   if (!ok) {
@@ -5008,6 +5030,11 @@ const int _kMaxFaceSettlePasses = 3;
 
 bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     {bool force = false}) {
+  // Counted HERE, not in the caller: the caller runs this once and then again
+  // for every pass a moved face-anchored sketch forces. Counting the caller
+  // would report 1 for a rebuild that actually ran three times, which is the
+  // opposite of what the counter exists to reveal.
+  Perf.count('part.rebuild.passes');
   var allOk = true;
   // M128 — DERIVE the End of Part flags here, first, unconditionally.
   //

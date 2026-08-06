@@ -38,6 +38,8 @@ import 'ffi/qcad_engine.dart';
 import 'gear.dart';
 import 'log.dart';
 import 'perf.dart';
+import 'perf_scenarios_kernel.dart';
+import 'perf_scenarios_tools.dart';
 import 'solver.dart';
 
 /// One measured case.
@@ -395,6 +397,16 @@ List<PerfScenario> buildScenarios() {
           'the Dart copy — compare the two',
     ));
   }
+
+  // ---- the systematic passes (M213) --------------------------------------
+  //
+  // Appended rather than inlined so this file stays the record of what the
+  // FIRST investigation needed, and the two systematic sweeps stay readable as
+  // what they are. Both are pure — no AppState, no Canvas — so appending them
+  // here preserves the property that makes this runner useful: it runs from a
+  // unit test, from CI and from a device button with the same code.
+  out.addAll(buildToolScenarios());
+  out.addAll(buildKernelScenarios());
 
   return out;
 }
