@@ -26,6 +26,7 @@ import 'ffi/occt_engine.dart';
 import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
+import 'perf_scenarios.dart';
 import 'reality_scene.dart';
 
 /// Anchors the widget subtree the screenshot is taken from. Attached to a
@@ -234,6 +235,22 @@ Future<File?> captureBugReport(AppState app, String description) async {
     // Added here rather than in buildBundle because it needs the scene layer,
     // which the pure builder deliberately does not import.
     files['mesh.txt'] = captureMeshReports(part);
+
+    // The scenario suite: the app measuring ITSELF, on this device, with
+    // fixed inputs. A hand-driven session says what happened; this says what
+    // each operation costs and how that cost scales — and unlike the session,
+    // it is identical on every device, so two bundles from two iPads are
+    // directly comparable. Runs inside the bundle capture so one tap produces
+    // both the observation and the benchmark.
+    //
+    // Guarded: it is measurement, and a measurement failing must never cost
+    // the user their bug report.
+    try {
+      files['perf_suite.json'] = const JsonEncoder.withIndent('  ')
+          .convert(runPerfSuite());
+    } catch (e) {
+      files['perf_suite.json'] = 'scenario suite failed: $e';
+    }
 
     // The perf data a MACHINE can read. `perfText` above is the rolling text
     // log, which is what a person reads; this is one structured snapshot of

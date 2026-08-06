@@ -557,6 +557,80 @@ class Perf {
     report();
   }
 
+  // ---- scenario isolation ------------------------------------------------
+  //
+  // A session-cumulative report answers "where did two minutes go". It cannot
+  // answer "what does ONE fillet cost", because every number is mixed with
+  // everything else that happened. The scenario runner needs the second
+  // question, so it brackets each scenario and takes the DELTA.
+  //
+  // Deltas, not resets: resetting would throw away the session totals that the
+  // normal report is built from, and would make the runner's own numbers
+  // depend on running first.
+
+  static Map<String, dynamic> _mark() => {
+        'spans': {
+          for (final e in _stats.entries)
+            e.key: [e.value.count, e.value.totalMs, e.value.worstMs]
+        },
+        'counters': Map<String, int>.of(counters),
+      };
+
+  /// Runs [body] and returns everything that changed while it ran: per-span
+  /// call count and total/worst milliseconds, plus counter increments, plus
+  /// the gauges as they stood at the end.
+  ///
+  /// The `worstMs` is reported as the worst seen DURING the scenario only when
+  /// the span's session worst grew; otherwise it is reported as null, because
+  /// a session worst set by some earlier scenario says nothing about this one.
+  static Map<String, dynamic> scenario(String name, void Function() body) {
+    final before = _mark();
+    final sw = Stopwatch()..start();
+    Object? error;
+    try {
+      body();
+    } catch (e) {
+      error = e;
+    }
+    sw.stop();
+    final bs = before['spans'] as Map<String, List<Object>>;
+    final bc = before['counters'] as Map<String, int>;
+    final spans = <String, dynamic>{};
+    for (final e in _stats.entries) {
+      final b = bs[e.key];
+      final n = e.value.count - (b == null ? 0 : b[0] as int);
+      if (n <= 0) continue;
+      final tot = e.value.totalMs - (b == null ? 0.0 : b[1] as double);
+      final grew = b == null || e.value.worstMs > (b[2] as double);
+      spans[e.key] = {
+        'n': n,
+        'totalMs': tot,
+        'avgMs': n == 0 ? 0.0 : tot / n,
+        if (grew) 'worstMs': e.value.worstMs,
+      };
+    }
+    final ctr = <String, int>{};
+    for (final e in counters.entries) {
+      final d = e.value - (bc[e.key] ?? 0);
+      if (d != 0) ctr[e.key] = d;
+    }
+    return {
+      'scenario': name,
+      'wallMs': sw.elapsedMicroseconds / 1000.0,
+      if (error != null) 'error': error.toString(),
+      'spans': spans,
+      'counters': ctr,
+      'gauges': Map<String, int>.of(gauges),
+      'rssMB': (() {
+        try {
+          return ProcessInfo.currentRss ~/ (1024 * 1024);
+        } catch (_) {
+          return 0;
+        }
+      })(),
+    };
+  }
+
   /// Test hook.
   static void resetForTest() {
     _stats.clear();
