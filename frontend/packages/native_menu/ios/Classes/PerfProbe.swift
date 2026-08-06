@@ -146,7 +146,15 @@ enum PerfProbe {
         var byName: [String: Int] = [:]
         for i in 0..<Int(threadCount) {
             var basic = thread_basic_info()
-            var count = mach_msg_type_number_t(THREAD_BASIC_INFO_COUNT)
+            // THREAD_BASIC_INFO_COUNT is a C macro built from sizeof, and
+            // Swift only imports macros that are plain constants — so it is
+            // not in scope here however the mach headers arrive. The
+            // arithmetic it expands to IS the definition, so compute it
+            // directly. Same reason task_vm_info's count is spelled out above,
+            // which is why that one compiled and these two did not.
+            var count = mach_msg_type_number_t(
+                MemoryLayout<thread_basic_info_data_t>.size
+                    / MemoryLayout<natural_t>.size)
             let kr: kern_return_t = withUnsafeMutablePointer(to: &basic) {
                 $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                     thread_info(threads[i], thread_flavor_t(THREAD_BASIC_INFO),
@@ -165,7 +173,9 @@ enum PerfProbe {
 
     private static func threadName(_ t: thread_t) -> String? {
         var info = thread_extended_info()
-        var count = mach_msg_type_number_t(THREAD_EXTENDED_INFO_COUNT)
+        var count = mach_msg_type_number_t(
+            MemoryLayout<thread_extended_info_data_t>.size
+                / MemoryLayout<natural_t>.size)
         let kr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                 thread_info(t, thread_flavor_t(THREAD_EXTENDED_INFO), $0, &count)
