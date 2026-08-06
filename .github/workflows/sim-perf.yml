@@ -457,14 +457,41 @@ jobs:
           # DynamicLibrary.process() can dlsym them, so their absence here
           # would be the real failure — and unlike a string, a symbol cannot
           # be present for a decorative reason.
-          QCAD_N="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _qcad_' || true)"
-          OCCT_N="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _occt_' || true)"
-          SLVS_N="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _slvs_' || true)"
-          echo "exported symbols: qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N"
+          # Scan EVERY Mach-O in the bundle, not just $APP/Runner.
+          #
+          # This is the whole finding of runs 4-12, and it is worth stating
+          # plainly because it cost eight of them. Under Xcode 26 the app is
+          # built into `Runner.debug.dylib` (~64 MB) and `Runner` is a ~52 KB
+          # launcher stub that loads it. Our native stack was linked correctly
+          # the entire time — qcad=17, occt=46, 4538 OCCT C++ symbols, all in
+          # the dylib — while this check kept interrogating the stub and
+          # reporting a failure that never existed.
+          #
+          # The lesson is not "use nm instead of strings", which is what run 6
+          # concluded and which was too small a correction. It is: verify WHERE
+          # you are looking before hardening HOW you look. m5's check greps
+          # $APP/Runner because on its release device build that is the whole
+          # binary; carrying that assumption to a debug simulator build under a
+          # newer Xcode is what broke.
+          scan() {
+            local pat="$1" total=0
+            while read -r bin; do
+              file "$bin" 2>/dev/null | grep -q Mach-O || continue
+              local n
+              n=$(nm -a "$bin" 2>/dev/null | grep -c "$pat" || true)
+              total=$((total + n))
+            done < <(find "$APP" -type f -perm +111 2>/dev/null)
+            echo "$total"
+          }
+          QCAD_N="$(scan ' _qcad_')"
+          OCCT_N="$(scan ' _occt_')"
+          SLVS_N="$(scan ' _slvs_')"
+          echo "symbols across the whole bundle: qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N"
           # Belt and braces: -a makes strings scan the entire file, which is
           # what the m5-style check should have said all along.
-          HITS="$(strings -a "$APP/Runner" | grep -c "Prototype C-API" || true)"
-          echo "marker hits (strings -a): $HITS"
+          HITS="$(find "$APP" -type f -perm +111 -exec strings -a {} + 2>/dev/null \
+            | grep -c "Prototype C-API" || true)"
+          echo "marker hits (strings -a, whole bundle): $HITS"
           if [ "${QCAD_N:-0}" -gt 0 ] && [ "${OCCT_N:-0}" -gt 0 ] && [ "${SLVS_N:-0}" -gt 0 ]; then
             echo "SIM LINK CHECK: PASS (qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N exported)"
             exit 0

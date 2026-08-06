@@ -233,106 +233,49 @@ Das sind die naechsten Handgriffe, nicht offene Fragen.
 
 ---
 
-## 6. Der Simulator-Artefakt (Bahn B) — STAND: GEPARKT, ungeloest
+## 6. Der Simulator-Artefakt (Bahn B) — GELOEST
 
-**Kurz: die App baut, aber der native Stack landet nicht im Binary. Sieben
-CI-Laeufe haben die Ursache eingekreist und nicht gestellt.**
+**Der Link war die ganze Zeit in Ordnung. Kaputt war die Zusicherung.**
 
-Was funktioniert (alles bewiesen, nicht vermutet):
+Lauf 12 hat als erster die Annahme geprueft, auf der die Laeufe 4 bis 11
+standen — dass `Runner` der Ort ist, an dem die Symbole stuenden. Sie war
+falsch:
 
-| Schritt | Stand |
-| --- | --- |
-| qcad-core, libslvs, OCCT, Shim fuer iphonesimulator/x86_64 | gruen |
-| xcconfig-Injektion inkl. der ninja-Link-Zeile | gruen |
-| Flutter-Scaffold, analyze, 1533 Host-Tests | gruen |
-| `Runner.app` baut, x86_64, 61 MB, als Artefakt hochgeladen | gruen |
-| **Verlinkung des nativen Stacks** | **FEHLT** |
+```
+Runner                        52 384 Bytes   qcad=0  occt=0  occtC++=0
+Runner.debug.dylib        63 905 296 Bytes   qcad=17 occt=46 occtC++=4538
+```
 
-Der Diskriminator aus Lauf 7 sagt: `nm -a` findet im Runner-Binary
-**70 Symbole insgesamt** und **null** occt_/qcad_/OCCT-C++-Symbole. Ein
-Binary mit force_geladenem OCCT haette Zehntausende. `-force_load` ist also
-nie ausgefuehrt worden — und zwar obwohl jede einzelne Voraussetzung stimmt:
+Unter Xcode 26 wird die App in eine **`Runner.debug.dylib`** gebaut; `Runner`
+ist ein 52-KB-Startstueck, das sie laedt. Der native Stack ist vollstaendig
+verlinkt — 46 `occt_`-Einstiege, 17 `qcad_`-Einstiege, 4538
+OCCT-C++-Symbole — und die Pruefung hat acht Laeufe lang das Startstueck
+befragt und einen Fehler gemeldet, den es nie gab.
 
-* Die drei Archive existieren, sind x86_64, ihre Member tragen platform 7 /
-  minos 14.0 / sdk 26.5.
-* Der Marker steckt nachweislich IM Archiv.
-* `#include "ffi.xcconfig"` steht zur BAUZEIT in `Debug.xcconfig`.
-* Im pbxproj gibt es **kein** target-eigenes `OTHER_LDFLAGS`, das die
-  xcconfig stechen koennte — der Hauptverdacht ist ausgeschlossen.
-* `xcodebuild -showBuildSettings` loest `OTHER_LDFLAGS` MIT allen drei
-  `-force_load` und saemtlichen OCCT-Archiven auf.
-* `ld` hat kein einziges `ignoring file` gemeldet.
+**Damit sind rueckwirkend hinfaellig:** der Verdacht auf
+`-exported_symbols_list` (Lauf 10, widerlegt — richtig widerlegt, nur aus dem
+falschen Grund gesucht), der pbxproj-Patch (Lauf 11, wirkte, war nie noetig)
+und der Schluss „ueber Build-Einstellungen ist der Link nicht erreichbar".
+Der Schluss war falsch. `ci/patch_ldflags.py` bleibt als Guertel-und-Hosentraeger
+stehen; er schadet nicht, und die Frage, welcher der beiden Wege gewinnt, ist
+jetzt ohnehin gegenstandslos.
 
-Xcode meldet das Flag also und benutzt es nicht. Was dazwischen passiert,
-ist aus der Ferne nicht mehr zu klaeren: `flutter build -v` gibt die echte
-`Ld`-Zeile nicht aus (die einzigen force_load-Vorkommen im ganzen Log sind
-unsere eigenen Diagnose-Echos), und damit fehlt das entscheidende
-Beweisstueck.
+### Die Lehre, und sie ist nicht die, die Lauf 6 gezogen hat
 
-### Die drei geplanten Schritte sind abgearbeitet — alle drei negativ
+Lauf 6 schloss: `strings` ohne `-a` sucht unvollstaendig, also nimm `nm`. Das
+war eine Verschaerfung der Pruefung — richtig, aber zu klein. Die eigentliche
+Lehre lautet:
 
-**Schritt 1 (Lauf 9): die echte Ld-Zeile holen.** Fehlgeschlagen, aber nicht
-inhaltlich: ein direkter `xcodebuild` scheitert ohne Flutters
-Skriptphasen-Umgebung. Die Ld-Zeile ist auf diesem Weg nicht zu bekommen.
+> **Pruefe, WO du suchst, bevor du haertest, WIE du suchst.**
 
-**Schritt 2a (Lauf 10): `-exported_symbols_list` weglassen.** Das war die
-Hypothese „force_load laedt die Member, und der Linker wirft sie als
-verborgen+unreferenziert wieder weg". Ergebnis Zeichen fuer Zeichen
-identisch — 70 Symbole, null occt_/qcad_. **Hypothese widerlegt**, der Zweig
-„geladen und danach gestrippt" ist aus. Das Flag ist wieder drin.
+m5 grept `$APP/Runner`, weil das bei seinem Release-Geraetebuild das ganze
+Binary IST. Diese Annahme unbesehen in einen Debug-Simulator-Build unter
+neuerem Xcode mitzunehmen, war der Fehler — und er hat sich hinter einer
+immer strengeren Pruefung immer besser versteckt. Eine Zusicherung, die aus
+einem anderen Kontext stammt, ist im neuen keine gueltige Zusicherung.
 
-**Schritt 2b (Lauf 11): OTHER_LDFLAGS aufs Target schreiben**
-(`ci/patch_ldflags.py`). Der Patch greift nachweislich: Diagnose 0c zeigt die
-Flags in FUENF pbxproj-Konfigurationen, und sie ueberleben bis nach dem Build.
-Ergebnis trotzdem unveraendert: 70 Symbole, null occt_/qcad_.
-
-**Damit ist der Befund so scharf, wie er aus der Ferne werden kann:** die
-Flags stehen in der xcconfig UND im pbxproj, `xcodebuild -showBuildSettings`
-loest sie auf, `ld` laeuft fuers Runner-Target und meldet kein
-`ignoring file` — und im Binary ist trotzdem nichts davon. Ueber
-Build-Einstellungen ist der Link auf dieser Bahn nicht zu erreichen.
-
-### KORREKTUR: die arm64-Ausweichloesung hilft hier NICHT
-
-Weiter oben stand, der naechste Schritt sei arm64 ohne Qt und qcad-core. Das
-war richtig gegen das RISIKO, das dort gemeint war (Rosetta beim Starten),
-und es ist falsch gegen DIESEN Fehler: OCCT und libslvs kaemen ueber genau
-dieselbe `OTHER_LDFLAGS`-Route herein, die nachweislich nicht ankommt. Eine
-andere Architektur repariert keinen Mechanismus.
-
-### Was tatsaechlich weiterfuehrt
-
-1. **Ein lokaler Build**, bei dem sich DerivedData und die echte clang-Zeile
-   ansehen lassen. Das ist die billigste Antwort — und die einzige, die diese
-   Sitzung strukturell nicht liefern konnte, weil Flutter die Ld-Zeile
-   unterdrueckt und ein nackter `xcodebuild` ohne Flutters Umgebung nicht
-   laeuft.
-2. **Die Verlinkung anders bauen:** den nativen Stack als
-   `.xcframework`/dynamisches Framework paketieren und wie eine normale
-   Abhaengigkeit einbinden, statt statische Archive per `-force_load` durch
-   `OTHER_LDFLAGS` zu schieben. Das umgeht die Frage vollstaendig, statt sie
-   zu beantworten — und es ist der Weg, den ein iOS-Projekt ohnehin
-   normalerweise geht.
-
-Was **nicht** weiterfuehrt: eine weitere Runde am selben Mechanismus. Elf
-Laeufe haben jede erreichbare Stellschraube daran geprueft.
-
-**Zwei Fehler in diesem Verlauf, protokolliert damit sie nicht wiederkommen:**
-
-* Der erste Runner war `macos-14`, gewaehlt „wie m3". m3 kompiliert aber nur
-  den C++-Smoke und nie die Swift-Plugins der App; die brauchen den
-  iOS-26-SDK (`UnlitMaterial.faceCulling`, bereits mit `#available`
-  abgesichert — ein LAUFZEIT-Guard hilft beim Kompilieren nicht).
-* Nach Lauf 5 stand hier, der Link sei in Ordnung und nur die Zusicherung
-  falsch, weil `strings` ohne `-a` unvollstaendig sucht. Das war ein
-  Fehlschluss: mit `-a` ist das Ergebnis dasselbe (0). Die symbolbasierte
-  Pruefung war trotzdem die richtige Aenderung — sie hat den Irrtum
-  aufgedeckt.
-* `actions/cache` deklariert `post-if: success()` und speichert daher nur bei
-  gruenem Job. Weil dieser Job jedes Mal scheiterte, lief der
-  35-Minuten-OCCT-Build in JEDEM Anlauf neu. Behoben durch getrenntes
-  `cache/restore` + `cache/save` mit `if: always()`; ab Lauf 7 ist der Baum
-  gespeichert.
+Die Pruefung scannt jetzt **jedes Mach-O im Bundle** statt einer geratenen
+Datei.
 
 ---
 
