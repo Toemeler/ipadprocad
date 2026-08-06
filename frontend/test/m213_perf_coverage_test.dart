@@ -386,7 +386,7 @@ void main() {
       expect(Perf.gauges['quality.cache.gearSpeedup'], greaterThan(1),
           reason: 'a memo that is not faster than recomputing is not a memo');
     });
-  }, timeout: const Timeout(Duration(minutes: 10)));
+  });
 
   group('M218 — the stress tier', () {
     test('it is NOT part of the ordinary suites', () {

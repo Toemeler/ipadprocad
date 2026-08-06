@@ -240,10 +240,12 @@ List<PerfScenario> buildStressScenarios() {
               final b = occt.makeCylinder(
                   -30 + (i % 8) * 8.0, -30 + (i ~/ 8) * 8.0, -2, 3, 20);
               if (b == null) continue;
-              final next = occt.fuse(acc!, b);
+              final prev = acc;
+              if (prev == null) break;
+              final next = occt.fuse(prev, b);
               b.dispose();
               if (next == null) continue;
-              acc!.dispose();
+              prev.dispose();
               acc = next;
             }
             Perf.gauge('stress.boolChain.edges', acc?.edgeCount ?? -1);
