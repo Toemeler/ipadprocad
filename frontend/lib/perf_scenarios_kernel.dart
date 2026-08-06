@@ -28,6 +28,7 @@
 import 'dart:math' as math;
 
 import 'ffi/occt_engine.dart';
+import 'log.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart' show PerfScenario, ringProfile;
 
@@ -108,14 +109,36 @@ List<double> arcPath(int n, double r) {
 
 /// Records that an op returned null. See the header: a silent failure is
 /// indistinguishable from a fast success in a timing report.
+///
+/// The counter alone proved not to be enough. The first device run reported
+/// `kernel.sweepTwist.fail = 2` — correctly, that is what the counter is for —
+/// and then there was nothing to act on, because a refusal from the shim has a
+/// REASON and the counter throws it away. `lastError` is already maintained on
+/// the C++ side for exactly this purpose, so the failure now carries it and
+/// the next run says WHY instead of merely THAT.
 T? _guard<T>(String op, T? Function() f) {
   try {
     final r = f();
-    if (r == null) Perf.count('kernel.$op.fail');
+    if (r == null) {
+      Perf.count('kernel.$op.fail');
+      _logFailure(op);
+    }
     return r;
-  } catch (_) {
+  } catch (e) {
     Perf.count('kernel.$op.throw');
+    Log.w('perf', 'kernel scenario $op threw: $e');
     return null;
+  }
+}
+
+void _logFailure(String op) {
+  try {
+    final why = OcctFfi.instance()?.lastError() ?? '';
+    Log.w('perf',
+        'kernel scenario $op produced NOTHING — its timing is meaningless. '
+        'Shim says: ${why.isEmpty ? '(no error recorded)' : why}');
+  } catch (_) {
+    // A diagnostic about a diagnostic must not become the failure itself.
   }
 }
 

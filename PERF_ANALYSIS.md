@@ -781,3 +781,121 @@ native Drain beim naechsten Lauf.
    Suite sagt, welche *Operation* was kostet; ein Profiler saegt, welche
    *Zeile*. Fuer `analyzeSketch` ist das der Unterschied zwischen „die
    Ranganalyse ist kubisch" und „diese Schleife ist es".
+
+---
+
+## 13. Build 9bfe397 auf dem Geraet — die zentrale Frage ist beantwortet
+
+Bundle `bug20260806T234041`, 73 Szenarien, 14.5 s Suite-Wandzeit.
+
+### 13.1 allEdges: von aussen bestaetigt, unabhaengig vom Quelltextbefund
+
+| | |
+| --- | ---: |
+| `allEdges` auf **360 Kanten** | 1171.01 ms |
+| → pro Kante | **3.253 ms** |
+| EIN `edgeInfo` auf **demselben** Solid | **3.014 ms** (n=20) |
+| → davon erklaert | **92.7 %** |
+| Kontrolle `counts()` auf demselben Solid | 0.205 ms |
+| Kontrolle `bbox()` auf demselben Solid | 0.166 ms |
+
+Ein einzelner `edgeInfo` kostet **15x** so viel wie eine Abfrage, die dasselbe
+Solid anfasst aber die Topologie nicht durchlaeuft. 360 x 3.014 ms = 1085 ms
+der gemessenen 1171 ms.
+
+Damit ist Abschnitt 11.1 zweifach belegt: aus dem Quelltext (zwei
+`TopExp::MapShapes*` pro Aufruf) **und** aus der Messung. Der Rest von 7.3 %
+ist der FFI-Uebergang und der Dart-seitige Listenaufbau — also genau das, was
+Dart-seitiges Batching einsparen wuerde. Es wuerde die Quadratik nicht
+beruehren.
+
+### 13.2 Die native Probe hat sich im ERSTEN Lauf bezahlt gemacht
+
+`lowPowerMode: true`, an beiden Enden. Alles ist gegenueber Build 7fb7f8b
+gleichmaessig langsamer:
+
+| | 7fb7f8b | 9bfe397 | Faktor |
+| --- | ---: | ---: | ---: |
+| `allEdges` 360 Kanten | 607 ms | 1171 ms | 1.93x |
+| `analysis.sweep.64` | 15.69 ms | 26.27 ms | 1.67x |
+| `solve.sweep.64` | 7.96 ms | 16.31 ms | 2.05x |
+| `gear.curve.20` | 5.13 ms | 9.85 ms | 1.92x |
+
+Gleichmaessig ~2x ueber voellig verschiedene Subsysteme ist keine Regression,
+das ist eine gedrosselte CPU. **Ohne die Probe haette dieser Bericht
+„alles ist doppelt so langsam geworden" gemeldet** und die Suche nach einer
+Regression ausgeloest, die es nicht gibt. Genau dafuer wurde sie gebaut.
+
+Thermik blieb `nominal` — es war der Energiesparmodus, nicht Hitze. Auch das
+ist eine Unterscheidung, die vorher nicht moeglich war.
+
+### 13.3 Jenseits der Platform-View-Grenze — und es ist nicht das, was man denkt
+
+| Phase | Zeit |
+| --- | ---: |
+| `rv.setScene` (Dart-Seite) | 61.76 ms |
+| `rv.native.setScene` | 55.44 ms |
+| ├─ `rv.native.planes` | **55.24 ms** |
+| ├─ `rv.native.sketches` | 0.12 ms |
+| ├─ `rv.native.solids` | **0.06 ms** |
+| └─ Rest | < 0.1 ms |
+
+Der **Mesh-Upload ist praktisch kostenlos**. 99.6 % der nativen Zeit stecken in
+`rebuildPlanes`/`rebuildAxes`/`rebuildCenterPoint` — den drei
+Ursprungsebenen. Das ist ein Erstaufruf (n=1), also RealityKit-Entity- und
+Materialerzeugung, aber es sind 55 ms Ruckler beim Oeffnen eines Teils.
+
+Die naheliegende Annahme waere gewesen, dass ein Szenen-Push von der
+Geometrie dominiert wird. Sie ist falsch, und das war bis zu diesem Lauf nicht
+feststellbar.
+
+### 13.4 Fillet: Kandidatensuche gegen Verrundung, endlich getrennt
+
+| Kanten | `allEdges` | `filletEdges` |
+| ---: | ---: | ---: |
+| 1 | 49.79 ms | 10.17 ms |
+| 4 | 49.70 ms | 20.76 ms |
+| 12 | 49.88 ms | 47.07 ms |
+
+`allEdges` ist flach (dasselbe 72-Kanten-Solid), `filletEdges` waechst mit der
+Kantenzahl. Bei **einer** Kante kostet das Finden der Kandidaten **4.9x** so
+viel wie das Verrunden.
+
+Und der Radius zaehlt massiv: die Radius-Sweep-Szenarien brauchten 706 ms fuer
+drei Aufrufe, mit einem Schlechtestwert von 664 ms. Auf demselben Solid kostet
+r=1.0 rund 10 ms und r=4.0 rund 664 ms — **Faktor 66**. Ein Radius, der die
+Nachbargeometrie erreicht, ist eine voellig andere Operation.
+
+### 13.5 `filletMaxRadius` — die Binaersuche IST die Kosten
+
+Vorhersage: rund 40x `filletInventor` (die Suche macht 40 Iterationen).
+Gemessen: **46.4x** (0.0492 ms gegen 0.0011 ms). Bestaetigt. In Absolutwerten
+ist es billig, aber strukturell laeuft es waehrend des Radius-Ziehens.
+
+### 13.6 Neue superlineare Befunde
+
+| Familie | Exponent | laeuft wann |
+| --- | ---: | --- |
+| `modify.intersections` | **n^2.36** | pro Modify-Klick |
+| `analysis.sweep` | **n^2.33** | jeder Rebuild/Solve/Tabwechsel |
+| `kernel.allEdges.sweep` | n^1.93 | jede Kantenauswahl |
+| `app.rebuildPart` | n^1.66 | jede Parameteraenderung |
+
+Und die groessten Einzelposten der Suite: `ffi.occt.sweepProfile` mit
+**164 ms Schnitt** (48-Punkt-Profil: 419 ms) und `constraints.add.dimension`
+mit **44.7 ms fuer EINE Bemassung** (Solve plus Neuanalyse).
+
+### 13.7 Was der Waechter gefangen hat
+
+`kernel.sweepTwist.fail = 2`: der verdrehte Sweep liefert null. Der Zaehler
+hat seine Aufgabe erfuellt — aber er wirft den GRUND weg, und der Shim
+pflegt `lastError` genau dafuer. Ab jetzt protokolliert die Fehlerbehandlung
+ihn mit, damit der naechste Lauf sagt WARUM statt nur DASS.
+
+### 13.8 Eine Zahl, die noch zu pruefen ist
+
+`footprintMB` meldet 1397 → 1232 MB, waehrend `residentMB` bei 241 → 284 MB
+liegt. Ein Faktor 5 zwischen `phys_footprint` und RSS ist bei RealityKit/Metal
+plausibel (IOSurface- und GPU-Zuordnungen zaehlen in den Footprint, nicht in
+den RSS), aber der Abstand ist gross genug, dass er am naechsten Lauf
+gegengeprueft gehoert, bevor jemand darauf eine Entscheidung stuetzt.
