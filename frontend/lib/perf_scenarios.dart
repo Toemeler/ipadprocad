@@ -76,13 +76,53 @@ List<Geo> sketchFixture(int n) {
   return out;
 }
 
-/// Equal-radius constraints across consecutive circles plus horizontal pins.
-/// Enough coupling that the solver cannot treat them independently, which is
-/// what makes the cost scale the way a real sketch does.
+/// The constraint set for [sketchFixture], at the density a REAL sketch has.
+///
+/// The first version was one `equal` per pair of consecutive circles — about
+/// 0.5 constraints per entity, on a sketch whose entities were otherwise
+/// completely independent. That measured a system the solver can decouple and
+/// the rank analysis can shred, so `solve.*` looked cheap and the DOF colouring
+/// had nothing to colour: the fixture reported ~0 for the phase that was 85% of
+/// painting on the device.
+///
+/// The crashing device sketch carried 142 constraints over 96 entities — about
+/// 1.5 per entity — and, crucially, they COUPLE: every line is pinned to the
+/// circles at both of its ends, so a change anywhere propagates all the way
+/// round the ring. That is what this builds:
+///
+///   * `coincident` binding each line's two endpoints to the centres of the
+///     circles it spans — 2n, and the reason the system is one connected
+///     component rather than n small ones;
+///   * `equal` across consecutive circles — n−1, which ties the radii together;
+///   * one `fix` to ground the whole thing, exactly as a real sketch is
+///     grounded, so the analysis reports a finite DOF instead of the free
+///     rigid-body modes that make every entity trivially loose;
+///   * one radius dimension, so at least one driving dimension is exercised.
+///
+/// Total ≈ 3n over 2n entities ≈ 1.5 per entity. [sketchFixture] lays circle i
+/// at ring point i and line i from ring point i to point i+1, so the indices
+/// below are exact: circle i is entity i (point 0 = centre), line i is entity
+/// n + i (points 0 and 1 = its ends).
 List<Constraint> constraintFixture(int nCircles) {
+  final n = nCircles;
   final cs = <Constraint>[];
-  for (var i = 0; i + 1 < nCircles; i++) {
+  for (var i = 0; i + 1 < n; i++) {
     cs.add(Constraint(CType.equal, ents: [i, i + 1]));
+  }
+  for (var i = 0; i < n; i++) {
+    cs.add(Constraint(CType.coincident,
+        pts: [PRef(n + i, 0), PRef(i, 0)]));
+    cs.add(Constraint(CType.coincident,
+        pts: [PRef(n + i, 1), PRef((i + 1) % n, 0)]));
+  }
+  if (n > 0) {
+    // Ground it. Without this the sketch keeps its three rigid-body modes and
+    // EVERY carrier comes back loose, which is not what a drawn sketch looks
+    // like and not what the DOF colouring costs on one.
+    cs.add(Constraint(CType.fix,
+        ents: [0], pts: [const PRef(0, 0)], anchors: [60.0, 0.0]));
+    cs.add(Constraint(CType.dimension,
+        ents: [0], value: 4.0, dimKind: 'rad'));
   }
   return cs;
 }
@@ -134,7 +174,11 @@ List<PerfScenario> buildScenarios() {
           solveConstraints(gs, cs, iterations: 25);
         }
       },
-      note: 'solve cost vs sketch size; compare totalMs across the three sizes',
+      note: 'solve cost vs sketch size on a SETTLED sketch — the per-solve '
+          'floor (residual assembly plus the convergence check), which is what '
+          'most solves in a session actually are; solve.drag60 is the same '
+          'system with something moving. Compare totalMs across the three '
+          'sizes, and solve.entities/solve.constraints for the system size',
     ));
   }
 
@@ -145,11 +189,27 @@ List<PerfScenario> buildScenarios() {
     () {
       final gs = sketchFixture(24);
       final cs = constraintFixture(24);
+      // Entity 1, not 0: circle 0 is the fixture's GROUND (a `fix` anchoring
+      // it). Wishing a dragged position onto a fixed point measures an
+      // unsatisfiable system — the solver fighting itself for 25 iterations
+      // and losing — which is a real cost but not the one a drag has. Circle 1
+      // is free, and coincident-bound to the two lines that meet there, so
+      // moving it propagates the way a drag on a real sketch does.
+      final base = gs[1].data[0];
       for (var f = 0; f < 60; f++) {
-        solveConstraints(gs, cs, dragged: {(0, 0)}, iterations: 25);
+        // MOVE the grip first, exactly as _displayGeometryInner does. The
+        // `dragged` set only says which point is being held; it carries no
+        // position. Solving an untouched, already-satisfied system 60 times
+        // measures the per-solve floor, not a drag — the residual is zero on
+        // entry and LM returns on its first check.
+        final d = List<double>.from(gs[1].data);
+        d[0] = base + f * 0.5;
+        gs[1] = gs[1].withData(d);
+        solveConstraints(gs, cs, dragged: {(1, 0)}, iterations: 25);
       }
     },
-    note: 'one second of dragging at 60 fps; divide totalMs by 60 for per-frame',
+    note: 'one second of dragging at 60 fps, the grip actually moving each '
+        'frame; divide totalMs by 60 for per-frame',
   ));
 
   // ---- gear curve generation --------------------------------------------
@@ -161,11 +221,55 @@ List<PerfScenario> buildScenarios() {
       'gear.curve.$t',
       () {
         final g = gearFixture(teeth: t);
+        // COLD each iteration. gearCurve memoises on the gear's full geometric
+        // identity, and a fixture is by definition identical every time, so
+        // the first version of this scenario built the involute once and then
+        // measured nineteen map lookups: 0.012 ms of wall clock for twenty
+        // "calls", which reads as "generating a gear is free". It is not — the
+        // outline is z transcendental flank solves plus 4z fillet
+        // constructions, and it is what a part with four gears pays the first
+        // time it draws them, on every load.
+        var pts = 0;
         for (var i = 0; i < 20; i++) {
-          Perf.span('gear.curve', () => gearCurve(g));
+          clearGearCurveCache();
+          pts = Perf.span('gear.curve', () => gearCurve(g)).length;
+        }
+        // A gear whose parameters do not validate falls back to its two raw
+        // vertices instead of throwing, so a broken fixture would still record
+        // a plausible-looking (tiny) number. Publishing the point count makes
+        // that failure visible in the report instead of silent — 2 points means
+        // no gear was generated.
+        Perf.gauge('gear.curve.points', pts);
+        // And the HIT path, which is what every paint after the first pays and
+        // therefore what the per-frame cost of a gear on screen actually is.
+        for (var i = 0; i < 200; i++) {
+          Perf.span('gear.curve.cached', () => gearCurve(g));
         }
       },
-      note: 'gear outline generation; points scale with teeth',
+      note: 'gear outline generation, cache cleared per call so this is the '
+          'COLD cost; gear.curve.cached is the memo-hit cost paid per paint, '
+          'and gear.curve.points says how big the generated loop is',
+    ));
+  }
+
+  // ---- DOF / rank analysis ----------------------------------------------
+  // Runs on every rebuild, every solve and every tab switch, and was entirely
+  // unmeasured before M212. It differentiates the whole residual vector once
+  // per parameter and then row-reduces the result, so both the entity count
+  // and the constraint count enter more than linearly. The sweep says by how
+  // much — which is the difference between "a big sketch is slow" and "a big
+  // sketch is unusable".
+  for (final n in const [8, 24, 64]) {
+    out.add(PerfScenario(
+      'analysis.sweep.$n',
+      () {
+        final gs = sketchFixture(n);
+        final cs = constraintFixture(n);
+        analyzeSketch(gs, cs);
+      },
+      note: 'DOF analysis vs sketch size; compare sketch.analyze avgMs across '
+          'the three sizes against analyze.entities — a 3x size for a 30x cost '
+          'is the cubic row reduction, not the geometry',
     ));
   }
 

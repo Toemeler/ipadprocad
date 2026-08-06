@@ -329,3 +329,101 @@ M75-Fehler in neuem Kostuem. Die Absolutwerte kommen aus Bahn A, vom Geraet.
 4. Erst dann `perf/baseline.json` festschreiben und die Schranke ziehen.
 5. **Danach** optimieren. Nicht vorher — Regel 1 aus PERF_PLAN.md Abschnitt 5:
    nie ohne Szenarionummer.
+
+---
+
+## 8. M212 — die drei kaputten Fixtures
+
+Der erste Geraetelauf der Selbstfahr-Suite (Build 389, Bundle
+`bug20260806T142003`) hat nicht nur Zahlen geliefert, sondern auch drei
+Stellen, an denen die Suite **etwas anderes gemessen hat als sie behauptet**.
+Eine Fixture, die eine plausible kleine Zahl produziert, ist gefaehrlicher als
+gar keine: sie entlastet ein Subsystem, das nie getestet wurde. Alle drei sind
+jetzt zu.
+
+### 8.1 `gear.curve` mass 0.000 ms — der Memo
+
+`gearCurve` merkt sich das Ergebnis unter der vollstaendigen geometrischen
+Identitaet des Zahnrads. Eine Fixture ist per Definition jedes Mal identisch,
+also hat das Szenario **einmal** gerechnet und danach 19 Map-Lookups gemessen —
+0.012 ms Wanduhr fuer 20 „Aufrufe". Der Warmup-Durchlauf hat den Cache sogar
+schon vor der Messung gefuellt.
+
+Neu: `clearGearCurveCache()` vor jedem Aufruf. Damit misst `gear.curve` die
+**kalte** Erzeugung (z transzendente Flankenloesungen plus 4z
+Fussrundungen) — das, was ein Teil mit vier Zahnraedern bei jedem Laden zahlt.
+Der Trefferpfad wird getrennt als `gear.curve.cached` gemessen; das ist die
+Zahl pro Frame. Dazu die Messgroesse `gear.curve.points`: ein ungueltiges
+Zahnrad faellt auf seine zwei Rohpunkte zurueck statt zu werfen, und das war
+im Timing-Report nicht von „schnell" zu unterscheiden.
+
+### 8.2 `dofColour` ~0 statt 85% — eine Skizze, die niemand zeichnet
+
+Die Faerbung im Painter haengt komplett an einem Guard:
+
+```dart
+bool segFull(int i, int seg) => hasAnalysis && app.analysis!.carrierFixed(i, seg);
+```
+
+Die Fixture hatte 0.5 Constraints pro Entity (nur `equal` zwischen benachbarten
+Kreisen, sonst voellig unabhaengige Geometrie) und **gar keine Analyse**. Der
+Guard ist also auf dem ersten Term kurzgeschlossen — fuer jede Entity, in jedem
+Frame. Gemessen wurde eine Skizze, die so nie entsteht.
+
+Neu — `constraintFixture` baut jetzt die Dichte der Geraeteskizze (142
+Constraints auf 96 Entities, ~1.5 pro Entity) und vor allem die **Kopplung**:
+
+* `coincident` bindet beide Enden jeder Linie an die Mittelpunkte der Kreise,
+  die sie verbindet — 2n, und der Grund, warum das System *eine*
+  Zusammenhangskomponente ist statt n winziger;
+* `equal` ueber benachbarte Kreise — n−1;
+* ein `fix` als Erdung, sonst bleiben die drei Starrkoerpermoden und **jeder**
+  Carrier kommt lose zurueck (genauso degeneriert wie „alle fest");
+* eine Radiusbemassung.
+
+`_appWithSketch` haengt die Constraints an das SketchModel **und** setzt
+`app.analysis = analyzeSketch(...)`. Die Analyse entsteht bewusst im
+Fixture-Aufbau und nicht im gemessenen Block: die App hat sie fertig, wenn sie
+malt, also waere sie dem Painter angelastet Arbeit, die der Painter nicht tut.
+Die Fixtures werden pro Groesse gecacht, damit der Aufbau in den
+Warmup-Durchlauf faellt.
+
+**Nebenbefund:** `analyzeSketch` war bis hierhin voellig unvermessen. Es baut
+eine **Finite-Differenzen-Jacobi-Matrix** (eine volle Residuenauswertung *pro
+Parameter*) und reduziert sie dann zeilenweise — und laeuft bei jedem Rebuild,
+jedem Solve und jedem Tab-Wechsel. Neu: Span `sketch.analyze` plus
+`analyze.entities` / `analyze.constraints` / `analyze.dof`, und ein eigener
+Sweep `analysis.sweep.{8,24,64}`. Wenn eine grosse Skizze zaeh ist, stand die
+Antwort bisher nirgends im Report.
+
+### 8.3 `2d.snap` tauchte nie auf — die Messstelle fehlte
+
+`ui.snapHover` rief `app.setHover(...)` auf. Das ist die **zweite** Haelfte des
+Pointer-Move-Pfads; das Snapping selbst lag in `_snapped` und damit in
+`_Viewport2DState`, also unerreichbar fuer alles ausser einer echten Geste.
+Ergebnis: `2d.snap` stand in **keinem** einzigen Report, den die Suite je
+erzeugt hat, und die Phase las sich als kostenlos.
+
+Der Rumpf ist jetzt top-level (`snapViewportForBenchmark`), und `_snapped`
+delegiert dorthin — **nicht** umgekehrt. Diese Richtung ist der Punkt: eine
+Benchmark-Kopie haette eine Zahl fuer die Kopie geliefert. Das Szenario faehrt
+jetzt die echte Reihenfolge, erst snappen, dann das Ergebnis als Hover
+veroeffentlichen.
+
+### 8.4 Zwei Folgekorrekturen
+
+* `solve.drag60` und `ui.drag60` ziehen jetzt an **Entity 1**, nicht 0 — Kreis
+  0 ist die Erdung der Fixture, und einen fixierten Punkt zu wuenschen misst
+  den Solver beim Scheitern.
+* `solve.drag60` **bewegt** den Griff pro Frame. `dragged` sagt nur, *welcher*
+  Punkt gehalten wird, es traegt keine Position; ein unveraendertes, bereits
+  erfuelltes System 60-mal zu loesen misst den Boden, nicht einen Zug. Die
+  `solve.sweep.*` messen weiterhin genau diesen Boden — das ist ehrlich so
+  benannt und ist der haeufigste Fall in einer Sitzung.
+
+### Was das fuer die alten Zahlen heisst
+
+`solve.*`, `gear.curve.*` und alle `ui.*` aus Build 389 sind **nicht** mit den
+neuen vergleichbar — die Eingabe hat sich geaendert. Das ist der Preis dafuer,
+dass die Eingabe vorher falsch war. Die Kernelzahlen (`kernel.*`, insbesondere
+der quadratische `allEdges`-Befund) sind unberuehrt.

@@ -26,7 +26,9 @@ import 'ffi/qcad_engine.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
 import 'snap.dart' show Grip;
-import 'widgets/viewport.dart' show paintViewportForBenchmark;
+import 'solver.dart' show analyzeSketch;
+import 'widgets/viewport.dart'
+    show paintViewportForBenchmark, snapViewportForBenchmark;
 
 /// Paints [app] once into a throwaway canvas at [size].
 ///
@@ -51,7 +53,7 @@ void _paintOnce(AppState app, {Size size = const Size(1024, 768)}) {
 /// which the scenarios treat as "skip" rather than "fail": a perf suite that
 /// throws on a device with an unexpected state is worse than one that reports
 /// a gap.
-AppState? _appWithSketch(int n) {
+AppState? _buildAppWithSketch(int n) {
   try {
     final app = AppState();
     // CREATE the sketch rather than hoping one is open.
@@ -69,11 +71,53 @@ AppState? _appWithSketch(int n) {
     s.geometry
       ..clear()
       ..addAll(sketchFixture(n));
+    // CONSTRAINTS AND THE DOF ANALYSIS — the fixture's second gap (M212).
+    //
+    // The painter colours every entity by its constraint state, and the whole
+    // branch that does it is guarded by `hasAnalysis`:
+    //
+    //     bool segFull(int i, int seg) =>
+    //         hasAnalysis && app.analysis!.carrierFixed(i, seg);
+    //
+    // A sketch with no constraints and a null analysis short-circuits that
+    // guard on the first term, so the painter took the cheap path on every
+    // entity and `2d.paint.ent.*` reported near zero — for the phase that was
+    // 85% of all painting on the device. The fixture was measuring a sketch
+    // nobody draws.
+    //
+    // So the fixture now carries the device's constraint density (about 1.5
+    // per entity, see constraintFixture) AND the analysis those constraints
+    // produce, which is what makes `carrierFixed` return a mix of true and
+    // false rather than a constant. The analysis itself is deliberately built
+    // HERE, in fixture setup, and not inside a measured body: it is what the
+    // app has already computed by the time it paints, so charging it to a
+    // paint scenario would inflate paint by work paint does not do.
+    s.constraints
+      ..clear()
+      ..addAll(constraintFixture(n));
+    app.analysis = analyzeSketch(s.geometry, s.constraints);
     return app;
   } catch (_) {
     return null;
   }
 }
+
+/// Fixtures, memoised by size.
+///
+/// Building one now includes a full DOF analysis, which is itself one of the
+/// costs under study — and the scenarios call this from inside their measured
+/// body. Caching moves that build into the warmup pass, where its cost is
+/// discarded, so `ui.paint.sweep.64` reports painting rather than painting
+/// plus a rank analysis. Scenarios that mutate the app (the drag) restore what
+/// they touched, so sharing one instance across the suite is safe.
+final Map<int, AppState?> _fixtureApps = {};
+
+AppState? _appWithSketch(int n) =>
+    _fixtureApps.putIfAbsent(n, () => _buildAppWithSketch(n));
+
+/// Drops the memoised fixtures. For tests that want a cold build; normal runs
+/// never need it.
+void resetUiFixturesForTest() => _fixtureApps.clear();
 
 List<PerfScenario> buildUiScenarios() {
   final out = <PerfScenario>[];
@@ -89,12 +133,14 @@ List<PerfScenario> buildUiScenarios() {
         final app = _appWithSketch(n);
         if (app == null) return;
         Perf.gauge('ui.paint.entities', n * 2);
+        Perf.gauge('ui.paint.constraints', app.current?.constraints.length ?? 0);
         for (var f = 0; f < 30; f++) {
           _paintOnce(app);
         }
       },
-      note: 'painter cost vs entity count; the 2d.paint.* phases in the same '
-          'report say WHICH phase grows — dofColour was 85% on device',
+      note: 'painter cost vs entity count, on a CONSTRAINED sketch with a live '
+          'DOF analysis so the entity colouring really runs; the 2d.paint.* '
+          'phases in the same report say WHICH phase grows',
     ));
   }
 
@@ -112,7 +158,11 @@ List<PerfScenario> buildUiScenarios() {
       // untouched unless a grip AND a position are set, so setting only
       // dragPos would measure a scenario that never solves — a plausible
       // wrong number, which is worse than no number.
-      app.dragGrip = const Grip(0, 0, Offset(20, 10), 'center');
+      //
+      // Entity 1 rather than 0 for the same reason solve.drag60 uses it:
+      // circle 0 is the fixture's ground, and dragging a fixed point measures
+      // the solver failing, not the solver working.
+      app.dragGrip = const Grip(1, 0, Offset(20, 10), 'center');
       try {
         for (var f = 0; f < 60; f++) {
           // Move the wish a little each frame, as a finger does. A stationary
@@ -138,11 +188,20 @@ List<PerfScenario> buildUiScenarios() {
       final app = _appWithSketch(24);
       if (app == null) return;
       for (var i = 0; i < 120; i++) {
-        app.setHover(Offset(i * 0.9 - 50, i * 0.4 - 20));
+        // The REAL pointer-move sequence, in the order the viewport runs it:
+        // snap the raw world point first, then publish the snapped result as
+        // the hover. The first version called only `setHover`, which is the
+        // second half — so `2d.snap` never appeared in any report and the
+        // scenario's note promised a breakdown it could not deliver. Snapping
+        // lived inside the widget state and was unreachable from here until
+        // `snapViewportForBenchmark` moved the body out (M212).
+        final w = Offset(i * 0.9 - 50, i * 0.4 - 20);
+        app.setHover(snapViewportForBenchmark(app, w));
       }
     },
-    note: 'pointer-move path at 120 events; 2d.snap and 2d.pickEntity in the '
-        'same report carry the breakdown',
+    note: 'pointer-move path at 120 events, snap then hover; 2d.snap and '
+        '2d.pickEntity in the same report carry the breakdown — snap walks '
+        'the visible geometry twice per event, hover picks once',
   ));
 
   // ---- document round trip ----------------------------------------------

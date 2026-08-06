@@ -2440,7 +2440,22 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
 }
 
 /// Rank analysis: degrees of freedom + which points can still move.
+///
+/// Wrapped so its cost is visible: it builds a
+/// FINITE-DIFFERENCE Jacobian (one full residual evaluation per parameter) and
+/// then row-reduces it, which is superlinear in both entity and constraint
+/// count — and it runs on every rebuild, every solve and every tab switch. It
+/// was entirely unmeasured until M212, so a slow sketch could have been
+/// spending its time here with nothing in the report to say so.
 SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
+  Perf.gauge('analyze.entities', gs.length);
+  Perf.gauge('analyze.constraints', cs.length);
+  final r = Perf.span('sketch.analyze', () => _analyzeSketch(gs, cs));
+  Perf.gauge('analyze.dof', r.dof);
+  return r;
+}
+
+SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
   // projected geometry is pinned reference geometry: the same implicit fixes
   // the solver uses, so projections count as fully defined (white/yellow,
   // never draggable — the drag block runs on freePoints from this analysis)

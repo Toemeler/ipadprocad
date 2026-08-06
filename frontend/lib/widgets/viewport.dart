@@ -340,33 +340,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
   /// makes it a per-frame cost that does not appear in `2d.paint` at all,
   /// which is exactly the kind of blind spot M75 was about.
   Offset _snapped(Offset w, {Offset? exclude, double px = _snapPx}) =>
-      Perf.span('2d.snap', () => _snappedInner(w, exclude: exclude, px: px));
-
-  Offset _snappedInner(Offset w, {Offset? exclude, double px = _snapPx}) {
-    final app = widget.app;
-    final s = app.current;
-    if (s == null) return w;
-    // Hidden layers must not attract the cursor either. Snap carries no entity
-    // indices, so filtering the list here is safe (grips below are NOT filtered
-    // — those carry indices and must stay aligned with the geometry list).
-    final visible = [
-      for (final g in app.displayGeometry(s))
-        if (app.geoVisible(g)) g
-    ];
-    final sn = computeSnap(visible, w, px / app.zoom,
-        ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
-        exclude: exclude,
-        // Let the cursor snap to the points already placed by the active tool —
-        // above all the start point, so a spline/polyline can close on itself.
-        // M45: text bounding-box corners/midpoints are also snap targets, so
-        // dimensions and new geometry can measure to a text box.
-        extraPoints: [
-          ...app.toolPoints,
-          ...app.textSnapPoints(s, measure: measureSketchText),
-        ]);
-    app.setSnap(sn);
-    return sn?.pos ?? w;
-  }
+      snapViewportForBenchmark(widget.app, w, exclude: exclude, px: px);
 
   // ---- M44 helpers ----
   void _ensureImages() {
@@ -3407,4 +3381,49 @@ class _PalmAwareScale extends ScaleGestureRecognizer {
 /// it runs from a unit test and from a device button alike.
 void paintViewportForBenchmark(Canvas canvas, Size size, AppState app) {
   _ViewportPainter(app: app, projCpSelected: false).paint(canvas, size);
+}
+
+/// Snaps [w] against [app]'s visible geometry and publishes the marker — the
+/// whole pointer-move snap path, with no widget state involved.
+///
+/// This IS the implementation: `_snapped` delegates here rather than the other
+/// way round, and there is no second copy for benchmarking. That direction is
+/// the point. The body used to live inside `_Viewport2DState`, which made
+/// snapping unreachable from anything but a live gesture: the M211 suite's
+/// `ui.snapHover` scenario drove `setHover` and therefore recorded
+/// `2d.pickEntity` and nothing else, so `2d.snap` never appeared in a single
+/// report and the phase read as free. Writing a benchmark-only copy would have
+/// produced a number for the copy; moving the body out produces a number for
+/// the app.
+///
+/// It runs per pointer-move event — up to 120 Hz on ProMotion — and walks the
+/// visible geometry list twice, once to filter and once inside [computeSnap],
+/// so it is a per-frame cost that never shows up anywhere in `2d.paint`.
+Offset snapViewportForBenchmark(AppState app, Offset w,
+        {Offset? exclude, double px = _Viewport2DState._snapPx}) =>
+    Perf.span('2d.snap', () => _snapAt(app, w, exclude: exclude, px: px));
+
+Offset _snapAt(AppState app, Offset w, {Offset? exclude, required double px}) {
+  final s = app.current;
+  if (s == null) return w;
+  // Hidden layers must not attract the cursor either. Snap carries no entity
+  // indices, so filtering the list here is safe (grips are NOT filtered —
+  // those carry indices and must stay aligned with the geometry list).
+  final visible = [
+    for (final g in app.displayGeometry(s))
+      if (app.geoVisible(g)) g
+  ];
+  final sn = computeSnap(visible, w, px / app.zoom,
+      ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
+      exclude: exclude,
+      // Let the cursor snap to the points already placed by the active tool —
+      // above all the start point, so a spline/polyline can close on itself.
+      // M45: text bounding-box corners/midpoints are also snap targets, so
+      // dimensions and new geometry can measure to a text box.
+      extraPoints: [
+        ...app.toolPoints,
+        ...app.textSnapPoints(s, measure: measureSketchText),
+      ]);
+  app.setSnap(sn);
+  return sn?.pos ?? w;
 }
