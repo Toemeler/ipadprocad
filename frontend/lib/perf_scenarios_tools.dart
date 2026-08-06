@@ -98,9 +98,51 @@ const _toolParams = <Tool, Map<String, double>>{
   Tool.chamfer: {'d': 5, 'mode': 0},
 };
 
+/// The Equation Curve's expression. `ExprParser` accepts ONE function of a
+/// single variable `x` — numbers, x, + - * / ^, parentheses and the usual
+/// functions. The first version of this fixture passed a parametric PAIR
+/// ('sin(t)*30, cos(t)*20'); the parser rejected the comma, `parse()` returned
+/// null, and the tool exited before building anything. It still produced a
+/// timing, and that timing was of the early return.
 const _toolExpr = <Tool, String>{
-  Tool.eqCurve: 'sin(t)*30, cos(t)*20',
+  Tool.eqCurve: 'sin(x)*30',
 };
+
+/// Three lines forming a triangle, well clear of the ring fixture.
+///
+/// `circleTangent` picks three LINES out of the existing geometry and builds
+/// the circle tangent to all three. On the ring fixture the three generic pick
+/// points resolved to the same line more than once, `_tangentCircle3` had a
+/// degenerate system, and the tool returned null. A triangle with pick points
+/// just inside each edge is the configuration a user actually clicks.
+List<Geo> _tangentTriangle() => [
+      Geo(Geo.line, [200, 200, 320, 200]),
+      Geo(Geo.line, [320, 200, 260, 300]),
+      Geo(Geo.line, [260, 300, 200, 200]),
+    ];
+
+/// Pick points for tools whose GEOMETRIC preconditions the generic generator
+/// cannot satisfy.
+///
+/// The generic driver stays in charge — a new tool still appears in the report
+/// with no scenario written — and this map is the short, explicit list of
+/// exceptions. Each entry exists because the tool refuses input that does not
+/// meet a real condition, not because it is slow to please:
+///
+///   * circleTangent needs three picks landing on three DIFFERENT lines;
+///   * slotOverall requires length > 2 x width, or there is no slot to draw.
+Map<Tool, List<Offset>> _toolPointOverrides() => {
+      Tool.circleTangent: const [
+        Offset(260, 203), // just inside the bottom edge
+        Offset(288, 252), // just inside the right edge
+        Offset(232, 252), // just inside the left edge
+      ],
+      Tool.slotOverall: const [
+        Offset(-40, 0),
+        Offset(40, 0),
+        Offset(0, 8), // width 8, length 80 — comfortably > 2 x width
+      ],
+    };
 
 /// How many points to feed a tool. Variable-length tools (the splines) get a
 /// realistic control-point count rather than their bare minimum: a 3-point
@@ -110,6 +152,31 @@ int _pointsFor(Tool t) {
   if (m == null) return 2;
   return m.fixed ?? math.max(m.minVar, 12);
 }
+
+/// The sketch a tool is built AGAINST. Several tools hit-test it (the tangent
+/// and fillet constructions do), so an empty list would measure a different,
+/// cheaper function than the one a user runs.
+List<Geo> toolExistingFixture() => [
+      ...sketchFixture(24),
+      ..._tangentTriangle(),
+    ];
+
+/// The picks for [t]: an override where the tool has a real geometric
+/// precondition, the generic set otherwise.
+List<Offset> pointsForTool(Tool t) =>
+    _toolPointOverrides()[t] ?? toolPoints(_pointsFor(t));
+
+/// Builds [t] exactly as `tools.buildAll` does. Shared with the coverage test
+/// so the test and the scenario can never drift apart — a test that drove the
+/// tool differently from the benchmark would pass while the benchmark measured
+/// an early return, which is the whole failure mode this file guards against.
+List<Geo>? buildToolForPerf(Tool t, List<Geo> existing) => buildToolGeometry(
+      t,
+      pointsForTool(t),
+      existing: existing,
+      params: _toolParams[t] ?? const {},
+      expr: _toolExpr[t] ?? '',
+    );
 
 // ---------------------------------------------------------------------------
 // The suite
@@ -127,19 +194,13 @@ List<PerfScenario> buildToolScenarios() {
   out.add(PerfScenario(
     'tools.buildAll',
     () {
-      final existing = sketchFixture(24);
+      final existing = toolExistingFixture();
       var built = 0, missing = 0;
       for (final t in toolMeta.keys) {
-        final pts = toolPoints(_pointsFor(t));
         final name = t.name;
         List<Geo>? r;
         for (var i = 0; i < 50; i++) {
-          r = Perf.span(
-              'tool.build.$name',
-              () => buildToolGeometry(t, pts,
-                  existing: existing,
-                  params: _toolParams[t] ?? const {},
-                  expr: _toolExpr[t] ?? ''));
+          r = Perf.span('tool.build.$name', () => buildToolForPerf(t, existing));
         }
         // A tool that returns null measured its own early exit. Counting it
         // is the difference between "this tool is instant" and "this tool

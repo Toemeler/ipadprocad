@@ -297,10 +297,21 @@ void _uiSuite() {
           reason: 'one snap per pointer-move event, as the viewport does');
     });
 
-    testWidgets('ui scenario names are unique and non-empty', (tester) async {
+    testWidgets('ui scenario names are unique and correctly prefixed',
+        (tester) async {
       final names = buildUiScenarios().map((s) => s.name).toList();
       expect(names.toSet().length, names.length);
-      expect(names.every((n) => n.startsWith('ui.')), isTrue);
+      // Two prefixes since M213. This runner carries everything that needs a
+      // binding, and that is now two different things: `ui.` for the widget
+      // layer (paint, drag, snap) and `app.` for the paths that need a live
+      // AppState or a real part (patterns, projection, the scene handover, the
+      // undo journal). The prefix is what a reader groups the report by, so
+      // the split is deliberate rather than incidental — but nothing else may
+      // slip in, because an unprefixed name would sort into neither group.
+      expect(names.every((n) => n.startsWith('ui.') || n.startsWith('app.')),
+          isTrue,
+          reason: 'unexpected prefixes: '
+              '${names.where((n) => !n.startsWith('ui.') && !n.startsWith('app.'))}');
     });
   });
 }

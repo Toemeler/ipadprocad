@@ -18,7 +18,6 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:prototype/app_state.dart' show Tool;
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/modify.dart';
@@ -80,21 +79,27 @@ void main() {
     // null contributes a fast zero and looks like the cheapest thing in the
     // app, so the fixture has to be able to drive every one of them.
     test('every tool in toolMeta produces geometry from the fixture', () {
-      final existing = sketchFixture(24);
+      // Driven through buildToolForPerf — the SAME entry point the scenario
+      // uses. Reproducing the call here with its own points and parameters is
+      // how a test ends up passing while the benchmark it guards measures
+      // something else entirely.
+      final existing = toolExistingFixture();
       final failed = <String>[];
       for (final t in toolMeta.keys) {
-        final meta = toolMeta[t]!;
-        final k = meta.fixed ?? (meta.minVar < 12 ? 12 : meta.minVar);
-        final r = buildToolGeometry(t, toolPoints(k),
-            existing: existing,
-            params: _paramsFor(t),
-            expr: t == Tool.eqCurve ? 'sin(t)*30, cos(t)*20' : '');
+        final r = buildToolForPerf(t, existing);
         if (r == null || r.isEmpty) failed.add(t.name);
       }
       // Fillet and chamfer need two picks landing on two DIFFERENT existing
-      // entities; the generic point generator cannot guarantee that against an
-      // arbitrary sketch, and they have dedicated scenarios (tools.fillet2d /
-      // tools.chamfer2d) that do it properly. Everything else must build.
+      // entities AND a radius that fits the corner between them; the generic
+      // point generator cannot guarantee that against an arbitrary sketch, and
+      // they have dedicated scenarios (tools.fillet2d / tools.chamfer2d) that
+      // set it up properly. Everything else must build.
+      //
+      // The first run of this test earned its keep immediately: eqCurve
+      // (parametric expression the parser does not accept), circleTangent
+      // (three picks resolving to fewer than three distinct lines) and
+      // slotOverall (width >= half the length) all returned null and were
+      // being timed as if they were the fastest tools in the app.
       expect(failed.where((n) => n != 'fillet' && n != 'chamfer'), isEmpty,
           reason: 'these tools produced nothing, so their numbers in '
               'tools.buildAll would be measurements of an early return');
@@ -251,10 +256,3 @@ void main() {
     });
   });
 }
-
-Map<String, double> _paramsFor(Tool t) => switch (t) {
-      Tool.polygon => const {'sides': 6},
-      Tool.fillet => const {'r': 5},
-      Tool.chamfer => const {'d': 5, 'mode': 0},
-      _ => const {},
-    };
