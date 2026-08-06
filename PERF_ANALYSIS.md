@@ -633,3 +633,86 @@ Ehrlich benannt, damit die Abdeckung nicht groesser aussieht als sie ist:
    `kernel.feature.<kind>` sind jetzt instrumentiert, laufen also in einer
    echten Sitzung mit — aber es gibt noch kein Szenario mit fester Eingabe,
    das eine Feature-Kette selbst neu berechnet.
+
+---
+
+## 11. M214 — die Wurzelursache im Quelltext, und was die Maschine selbst sagt
+
+### 11.1 allEdges: nicht mehr gemessen, sondern gefunden
+
+Drei unabhaengige Messungen sagten „quadratisch". Der Quelltext sagt jetzt
+**warum**. `occt_shape_edge_info` in `backend/occt/shim/occt_capi.cpp` macht
+**pro Aufruf zwei vollstaendige Topologie-Durchlaeufe**:
+
+```cpp
+// Zeile 1679 — die Kantenkarte, nur um den Index aufzuloesen
+TopTools_IndexedMapOfShape m;
+TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
+
+// Zeile 1733 — die Kante-zu-Flaeche-Nachbarschaft, der teure Teil
+TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+```
+
+Der zweite laeuft ueber **jede Flaeche und jede Kante jeder Flaeche**, baut die
+komplette Nachbarschaftskarte auf — und wirft sie am Ende des Aufrufs weg.
+`allEdges()` ruft die Funktion einmal pro Kante auf:
+
+> n Kanten x O(n) Durchlauf = **O(n^2)**
+
+Das deckt sich exakt mit den gemessenen n^1.92 und n^1.97, und es erklaert,
+warum `kernel.allEdges.repeat` flach bleibt: es gibt keinen wiederverwendbaren
+Aufbau, weil der Aufbau pro Aufruf neu passiert.
+
+**Nicht repariert** — die Regel steht seit dem ersten Auftrag. Die Reparatur
+gehoert in den Shim (ein Durchlauf, der ein Array fuellt, als
+Bulk-Einstiegspunkt), nicht in Dart-seitiges Batching: das wuerde die Anzahl
+der Grenzuebergaenge senken und die Quadratik unberuehrt lassen.
+
+`kernel.query.edgeInfoOne` misst weiterhin von aussen gegen: EIN `edgeInfo`
+auf einem 360-Kanten-Solid, mal 360 gegen das gemessene `allEdges` gehalten.
+Stimmen die ueberein, ist der Befund oben von zwei Seiten bestaetigt.
+
+### 11.2 Was die Maschine selbst sagt (PerfProbe.swift)
+
+Bisher endete jede Messung an der Dart-Grenze. Drei Fakten, die darueber
+entscheiden, ob eine M4-Zahl etwas ueber einen M2 aussagt, liegen dahinter:
+
+| Messwert | warum er fehlt, wenn er fehlt |
+| --- | --- |
+| `thermalState` / `thermalOrdinal` | Ein luefterloses iPad drosselt unter anhaltender Last — und die Suite IST anhaltende Last. Ohne Wert an beiden Enden ist eine langsame zweite Haelfte nicht von langsamem Code zu unterscheiden. |
+| `footprintMB` (`phys_footprint`) | iOS killt **nicht** auf RSS. Die Sitzung, die beim Fillet starb, meldete 839 MB RSS; die Zahl, auf die es ankam, wurde nie erfasst. |
+| `availableMB` (`os_proc_available_memory`) | Wie viel Luft bis jetsam bleibt. Ein Teil, das mit 40 MB Rest oeffnet, ist ein Fillet vom Abschuss entfernt. |
+| `threads` (CPU pro Thread) | „180% CPU" sagt nicht, ob UI-Thread, Rasterizer oder IO gemeint ist — und die drei repariert man an verschiedenen Stellen. |
+| `physicalMemoryMB`, `lowPowerMode`, `activeProcessorCount` | Geraeteklasse und Energiezustand: der Unterschied zwischen 8-GB-A-Chip und 16-GB-M4 entscheidet mit, welche Teile ueberhaupt zu oeffnen sind. |
+
+`Perf.native` ist eine **eigene** Tabelle, bewusst nicht in `gauges` gefaltet.
+Das sind keine Eigenschaften der App, sondern der Maschine, auf der sie gerade
+laeuft. Ein Leser muss „der Code wurde langsamer" von „das iPad wurde heiss"
+trennen koennen — die Tabellen zu vermischen ist genau der Weg, auf dem diese
+Unterscheidung verlorengeht.
+
+Das Bundle zieht die Probe **vor und nach** der Suite (`preSuite.*`,
+`postSuite.*`). Ein Thermalzustand, der ueber den Lauf von `nominal` auf
+`serious` gestiegen ist, entwertet jeden Vergleich mit den Zahlen aus der
+zweiten Haelfte — und das ist nur mit beiden Enden sichtbar.
+
+Bewusst NICHT gebaut: Sampling-Profiler, MetricKit-Abo, os_signpost. Die
+brauchen einen Lebenszyklus und einen Zustellweg; das hier ist ein
+Pull-Snapshot, den Szenariorunner und Bug-Bundle jederzeit ziehen koennen.
+
+### 11.3 Der Ende-zu-Ende-Rebuild
+
+`app.rebuildPart.{1,3,6}` treibt `recomputeAllFeatures` selbst — die
+Orchestrierung ueber den Kernelaufrufen: Profilanordnung, Signatur-Hashing,
+die Boolesche Faltung auf den wachsenden Koerper, Mesh-Copy-out, und der
+Zusatzdurchlauf, den eine verschobene flaechenverankerte Skizze erzwingt.
+
+Erzwungen (`force: true`), sonst ueberspringt die Build-Signatur den zweiten
+Durchlauf und das Szenario misst einen Hash-Vergleich.
+`part.rebuildAll` gegen die Summe der `kernel.feature.*` gehalten ergibt den
+Dart-Anteil; `part.rebuild.passes` sagt, ob die Schleife mehr als einmal lief.
+
+Damit ist Punkt 4 aus Abschnitt 10.6 zu. Offen bleiben 1 (das Innere des
+C++ — jetzt aber durch Quelltextbefund statt Messung beantwortet), 2 (der
+RealityKit-Renderloop) und der Sampling-Profiler.
