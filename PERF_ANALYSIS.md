@@ -269,20 +269,53 @@ ist aus der Ferne nicht mehr zu klaeren: `flutter build -v` gibt die echte
 unsere eigenen Diagnose-Echos), und damit fehlt das entscheidende
 Beweisstueck.
 
-**Naechster Schritt, wenn die Bahn wieder aufgenommen wird** — in dieser
-Reihenfolge, weil aufsteigend teuer:
+### Die drei geplanten Schritte sind abgearbeitet — alle drei negativ
 
-1. Statt durch Flutter direkt `xcodebuild -workspace ios/Runner.xcworkspace
-   -scheme Runner -configuration Debug -sdk iphonesimulator -showBuildSettings
-   -json` UND einen echten `xcodebuild build` laufen lassen, dessen Ausgabe
-   ungefiltert ins Log geht. Dort steht die `Ld`-Zeile.
-2. Faellt sie leer aus: die Flags nicht per `#include` anhaengen, sondern in
-   `Pods-Runner.debug.xcconfig` schreiben oder ins pbxproj patchen.
-3. Bleibt es dabei: die dokumentierte Ausweichloesung — Qt und qcad-core aus
-   dem SIMULATOR-Build nehmen und arm64 bauen. Weder OCCT noch libslvs
-   braucht Qt, `qcad_engine.dart` faellt bei fehlenden Symbolen ohnehin auf
-   seine Dart-Engine zurueck, und damit entfaellt auch die
-   Rosetta-Abhaengigkeit. Kostet die `ffi.qcad.*`-Spans.
+**Schritt 1 (Lauf 9): die echte Ld-Zeile holen.** Fehlgeschlagen, aber nicht
+inhaltlich: ein direkter `xcodebuild` scheitert ohne Flutters
+Skriptphasen-Umgebung. Die Ld-Zeile ist auf diesem Weg nicht zu bekommen.
+
+**Schritt 2a (Lauf 10): `-exported_symbols_list` weglassen.** Das war die
+Hypothese „force_load laedt die Member, und der Linker wirft sie als
+verborgen+unreferenziert wieder weg". Ergebnis Zeichen fuer Zeichen
+identisch — 70 Symbole, null occt_/qcad_. **Hypothese widerlegt**, der Zweig
+„geladen und danach gestrippt" ist aus. Das Flag ist wieder drin.
+
+**Schritt 2b (Lauf 11): OTHER_LDFLAGS aufs Target schreiben**
+(`ci/patch_ldflags.py`). Der Patch greift nachweislich: Diagnose 0c zeigt die
+Flags in FUENF pbxproj-Konfigurationen, und sie ueberleben bis nach dem Build.
+Ergebnis trotzdem unveraendert: 70 Symbole, null occt_/qcad_.
+
+**Damit ist der Befund so scharf, wie er aus der Ferne werden kann:** die
+Flags stehen in der xcconfig UND im pbxproj, `xcodebuild -showBuildSettings`
+loest sie auf, `ld` laeuft fuers Runner-Target und meldet kein
+`ignoring file` — und im Binary ist trotzdem nichts davon. Ueber
+Build-Einstellungen ist der Link auf dieser Bahn nicht zu erreichen.
+
+### KORREKTUR: die arm64-Ausweichloesung hilft hier NICHT
+
+Weiter oben stand, der naechste Schritt sei arm64 ohne Qt und qcad-core. Das
+war richtig gegen das RISIKO, das dort gemeint war (Rosetta beim Starten),
+und es ist falsch gegen DIESEN Fehler: OCCT und libslvs kaemen ueber genau
+dieselbe `OTHER_LDFLAGS`-Route herein, die nachweislich nicht ankommt. Eine
+andere Architektur repariert keinen Mechanismus.
+
+### Was tatsaechlich weiterfuehrt
+
+1. **Ein lokaler Build**, bei dem sich DerivedData und die echte clang-Zeile
+   ansehen lassen. Das ist die billigste Antwort — und die einzige, die diese
+   Sitzung strukturell nicht liefern konnte, weil Flutter die Ld-Zeile
+   unterdrueckt und ein nackter `xcodebuild` ohne Flutters Umgebung nicht
+   laeuft.
+2. **Die Verlinkung anders bauen:** den nativen Stack als
+   `.xcframework`/dynamisches Framework paketieren und wie eine normale
+   Abhaengigkeit einbinden, statt statische Archive per `-force_load` durch
+   `OTHER_LDFLAGS` zu schieben. Das umgeht die Frage vollstaendig, statt sie
+   zu beantworten — und es ist der Weg, den ein iOS-Projekt ohnehin
+   normalerweise geht.
+
+Was **nicht** weiterfuehrt: eine weitere Runde am selben Mechanismus. Elf
+Laeufe haben jede erreichbare Stellschraube daran geprueft.
 
 **Zwei Fehler in diesem Verlauf, protokolliert damit sie nicht wiederkommen:**
 
