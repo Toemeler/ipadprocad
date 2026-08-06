@@ -399,6 +399,14 @@ jobs:
             [ -f "$f" ] && printf '\n#include "ffi.xcconfig"\n' >> "$f" && echo "patched $f"
           done
           cat ios/Flutter/ffi.xcconfig
+          # BELT AND BRACES — the same flags straight onto the app target.
+          # The xcconfig route demonstrably does not reach the link on this
+          # lane (ten runs; the full argument is in ci/patch_ldflags.py). A
+          # target-level setting cannot be inherited away, so this is the path
+          # that should win. The xcconfig include stays too — whichever wins,
+          # the flags are there, and that redundancy is deliberate.
+          python3 "$GITHUB_WORKSPACE/ci/patch_ldflags.py" \
+            ios/Runner.xcodeproj/project.pbxproj ios/Flutter/ffi.xcconfig
           } 2>&1 | tee ../ci-sim-xcconfig.log
 
       - name: Analyze Dart
