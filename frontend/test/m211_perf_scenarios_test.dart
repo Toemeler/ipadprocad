@@ -16,9 +16,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/perf.dart';
 import 'package:prototype/perf_scenarios.dart';
+import 'package:prototype/perf_scenarios_ui.dart';
 
 void main() {
   setUp(Perf.resetForTest);
+  _uiSuite();
 
   group('fixtures are deterministic', () {
     test('the same size yields identical geometry every time', () {
@@ -121,6 +123,38 @@ void main() {
       final r = runPerfSuite(warmup: false);
       expect(r.keys, containsAll(['suite', 'at', 'build', 'os', 'wallMs',
           'occtAvailable', 'scenarios']));
+    });
+  });
+}
+
+// The UI half. These need a binding, which `flutter test` provides.
+void _uiSuite() {
+  group('ui scenarios', () {
+    testWidgets('the drag scenario actually solves', (tester) async {
+      Perf.resetForTest();
+      final drag = buildUiScenarios().firstWhere((s) => s.name == 'ui.drag60');
+      Perf.scenario(drag.name, drag.run);
+      // The point of the test: displayGeometry returns early unless BOTH
+      // dragGrip and dragPos are set. If the scenario ever stops setting the
+      // grip it would still "pass" while measuring nothing, so pin the counter
+      // that proves a solve happened.
+      final solves = Perf.counters['2d.displayGeometry.solves'] ?? 0;
+      expect(solves, greaterThan(0),
+          reason: 'a drag scenario that never solves measures nothing');
+    });
+
+    testWidgets('paint scenarios record the painter phases', (tester) async {
+      Perf.resetForTest();
+      final p = buildUiScenarios().firstWhere((s) => s.name == 'ui.paint.sweep.8');
+      Perf.scenario(p.name, p.run);
+      expect(Perf.stats.containsKey('2d.paint'), isTrue,
+          reason: 'the real painter must have run, not a stand-in');
+    });
+
+    testWidgets('ui scenario names are unique and non-empty', (tester) async {
+      final names = buildUiScenarios().map((s) => s.name).toList();
+      expect(names.toSet().length, names.length);
+      expect(names.every((n) => n.startsWith('ui.')), isTrue);
     });
   });
 }

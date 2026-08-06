@@ -3393,3 +3393,18 @@ class _PalmAwareScale extends ScaleGestureRecognizer {
     return super.isPointerAllowed(event);
   }
 }
+
+/// Paints the 2D viewport into [canvas] without a widget tree.
+///
+/// The perf suite needs the real painter, not an approximation of it: the
+/// device session showed `2d.paint.ent.dofColour` alone at 85% of all painting,
+/// and a reimplementation would measure the reimplementation. This is the same
+/// [CustomPainter] the app uses, driven directly, so every `2d.paint.*` phase
+/// records exactly as it does on screen.
+///
+/// Deliberately the ONLY seam into the private painter. Callers hand in a
+/// `PictureRecorder`-backed canvas; nothing here touches the widget layer, so
+/// it runs from a unit test and from a device button alike.
+void paintViewportForBenchmark(Canvas canvas, Size size, AppState app) {
+  _ViewportPainter(app: app, projCpSelected: false).paint(canvas, size);
+}

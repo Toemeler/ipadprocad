@@ -27,6 +27,7 @@ import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
+import 'perf_scenarios_ui.dart';
 import 'reality_scene.dart';
 
 /// Anchors the widget subtree the screenshot is taken from. Attached to a
@@ -250,6 +251,15 @@ Future<File?> captureBugReport(AppState app, String description) async {
           .convert(runPerfSuite());
     } catch (e) {
       files['perf_suite.json'] = 'scenario suite failed: $e';
+    }
+    // The UI half — paint phases, the drag path, snap. Separate call because
+    // it needs a Flutter binding; separate try because a Canvas failing must
+    // not cost the headless numbers that already succeeded.
+    try {
+      files['perf_suite_ui.json'] = const JsonEncoder.withIndent('  ')
+          .convert(runUiPerfSuite());
+    } catch (e) {
+      files['perf_suite_ui.json'] = 'ui scenario suite failed: $e';
     }
 
     // The perf data a MACHINE can read. `perfText` above is the rolling text
