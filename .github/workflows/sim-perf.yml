@@ -489,6 +489,25 @@ jobs:
           #     the flags reach `xcodebuild -showBuildSettings` but not the
           #     actual link, i.e. something overrides OTHER_LDFLAGS at target
           #     level (the trap m5 documents for IPHONEOS_DEPLOYMENT_TARGET).
+          # FIRST: check the assumption every previous run rested on.
+          #
+          # Eleven runs have asked "are the symbols in Runner?" and never asked
+          # "is Runner where they would be?". That is the same class of mistake
+          # this lane already made once, when `strings` without -a was trusted
+          # to have scanned the whole file. So scan EVERY Mach-O in the bundle
+          # and print sizes: if the archives landed in a framework instead of
+          # the executable, the link was fine all along and the check has been
+          # looking in the wrong place since run 4.
+          echo "== 0-. every Mach-O in the .app, with size and our symbols =="
+          find "$APP" -type f -perm +111 2>/dev/null | while read -r bin; do
+            file "$bin" 2>/dev/null | grep -q Mach-O || continue
+            sz=$(stat -f%z "$bin" 2>/dev/null || echo '?')
+            q=$(nm -a "$bin" 2>/dev/null | grep -c ' _qcad_' || true)
+            o=$(nm -a "$bin" 2>/dev/null | grep -c ' _occt_' || true)
+            c=$(nm -a "$bin" 2>/dev/null | grep -c 'TopoDS\|BRepBuilderAPI' || true)
+            printf '  %-58s %10s bytes  qcad=%s occt=%s occtC++=%s\n' \
+              "${bin#$APP/}" "$sz" "$q" "$o" "$c"
+          done
           echo "== 0. ALL symbols (nm -a), not just exported =="
           echo "  total symbols:  $(nm -a "$APP/Runner" 2>/dev/null | wc -l)"
           echo "  any occt_:      $(nm -a "$APP/Runner" 2>/dev/null | grep -c occt_ || true)"
