@@ -91,6 +91,26 @@ jobs:
           # separated counter table, jsonSnapshot key stability.
           flutter test 2>&1 | tee ../ci-perf-tests.log
 
+      # WHY THIS STEP EXISTS
+      #
+      # `flutter test` under CI uses the GitHub reporter, which emits one log
+      # GROUP per test. With ~1600 tests that is a log tens of thousands of
+      # lines long, and a failure detail sits wherever that test happened to
+      # run — which in practice was unreachable: the Actions log API returns
+      # only a bounded TAIL, and the artifact lives on blob storage that is not
+      # always reachable either. The result was a red build reporting "2 failed"
+      # with no way to learn WHICH two without pushing another commit to
+      # bisect.
+      #
+      # So the failures are re-printed HERE, at the very end, where any tail
+      # reaches them. Costs nothing on a green run (the step is skipped).
+      - name: Which tests failed
+        if: failure()
+        run: |
+          echo "=== failing tests, extracted from the full log ==="
+          grep -nE '❌|Expected:|Actual:|Which:|TestFailure|^\s+package:prototype' \
+            ci-perf-tests.log | head -200 || echo "(no failure markers found)"
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
