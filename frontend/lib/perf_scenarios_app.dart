@@ -114,6 +114,48 @@ void resetAppFixturesForTest() {
   _parts.clear();
 }
 
+/// A part that can genuinely be REBUILT: real child sketches with closed
+/// profiles, real extrude features pointing at them, and the real OCCT kernel.
+///
+/// Distinct from [_buildPart], which assigns solids directly. That one is right
+/// for the scenarios measuring what happens downstream of a rebuild — driving
+/// the recompute there would fold kernel time into every projection reading.
+/// This one is for measuring the recompute ITSELF, so nothing may be
+/// short-circuited: the features have to resolve their sketches, arrange their
+/// profiles and fold onto the accumulating body exactly as they do in the app.
+///
+/// Not memoised: a rebuild MUTATES the part (solids, build signatures, face
+/// anchors), so handing the same instance to a second scenario would measure a
+/// part in whatever state the first one left it.
+(PartModel, PartKernel)? _buildRebuildablePart(int features) {
+  try {
+    if (!OcctFfi.available) return null;
+    final p = PartModel('perfRebuild');
+    for (var i = 0; i < features; i++) {
+      // A closed circular profile per feature, at increasing radius so the
+      // solids really intersect and the boolean fold has work to do. A
+      // disjoint stack would measure a fold that never touches anything.
+      final m = SketchModel('perfSketch$i');
+      m.geometry.add(Geo(Geo.circle, [0, 0, 30 + i * 8.0]));
+      p.childSketches.add(ChildSketch(m, 'xy'));
+      p.features.add(ExtrudeFeature(
+        name: 'Extrusion${i + 1}',
+        bodyName: 'Solid1',
+        sketchName: m.name,
+        // The centroid of the profile: how the app records which region of a
+        // sketch a feature consumes. An empty list means "no profile chosen"
+        // and the feature would decline to build.
+        profiles: [ProfileSel(0, 0, 1)],
+        distanceA: 10.0 + i * 2,
+        output: 'join',
+      )..seq = i);
+    }
+    return (p, OcctPartKernel());
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Total triangles across a part's solids — the axis every scene scenario is
 /// really swept against.
 int _tris(PartModel p) {
@@ -319,6 +361,43 @@ List<PerfScenario> buildAppScenarios() {
       note: 'projecting model edges onto a sketch plane vs part complexity. '
           'The hover highlight re-queries this per pointer move, so divide by '
           '10 and compare against a 8 ms frame budget',
+    ));
+  }
+
+  // ---- the whole-part rebuild, end to end --------------------------------
+  //
+  // THE number a user waits for after editing a parameter, and the last named
+  // gap from the M213 write-up. Everything else in this file measures a piece
+  // of the aftermath (projection, the scene handover, signatures); this drives
+  // `recomputeAllFeatures` itself, which is the orchestration ON TOP of the
+  // kernel calls: profile arrangement, build-signature hashing, the boolean
+  // fold onto the accumulating body, mesh copy-out, and the extra pass a moved
+  // face-anchored sketch forces.
+  //
+  // Kernel time is inside these numbers by construction — that is the point.
+  // `kernel.feature.<kind>` and `ffi.occt.*` in the same report separate the
+  // two, and `part.rebuild.passes` says whether the loop ran more than once.
+  for (final n in const [1, 3, 6]) {
+    out.add(PerfScenario(
+      'app.rebuildPart.$n',
+      () {
+        final built = _buildRebuildablePart(n);
+        if (built == null) return;
+        final (part, kernel) = built;
+        Perf.gauge('app.rebuild.features', part.features.length);
+        // FORCED. Every feature carries a build signature and an unchanged one
+        // is skipped — which is correct behaviour and the exact opposite of
+        // what this scenario needs to measure. Without `force` the second and
+        // later iterations would report the cost of comparing hashes.
+        for (var i = 0; i < 3; i++) {
+          recomputeAllFeatures(part, kernel, force: true);
+        }
+      },
+      note: 'the whole-part rebuild vs feature count — what you wait for after '
+          'a parameter edit. Compare part.rebuildAll against the sum of '
+          'kernel.feature.* to price the Dart-side orchestration, and check '
+          'part.rebuild.passes: more than one pass per rebuild means a '
+          'face-anchored sketch moved and everything was built twice',
     ));
   }
 

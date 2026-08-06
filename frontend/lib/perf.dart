@@ -156,6 +156,35 @@ class Perf {
   /// Snapshot values, set by whoever owns them (scene size, entity counts).
   static final Map<String, int> gauges = {};
 
+  /// The OS-level facts Dart cannot obtain: thermal state, physical footprint,
+  /// memory headroom, per-thread CPU. Filled by [setNative]; empty elsewhere.
+  ///
+  /// Kept in its OWN map rather than folded into [gauges] because these are not
+  /// all integers and, more importantly, because they are not properties of the
+  /// app at all — they are properties of the machine it happens to be running
+  /// on. A reader has to be able to tell "the code got slower" from "the iPad
+  /// got hot", and mixing the two tables is how that distinction gets lost.
+  static final Map<String, Object?> native = {};
+
+  /// Records an OS probe. [phase] namespaces it, so a suite can capture the
+  /// state BEFORE and AFTER a long run: a thermal state that rose from nominal
+  /// to serious across the suite invalidates every comparison made with the
+  /// numbers after the rise, and that is only visible with both ends recorded.
+  static void setNative(String phase, Map<String, Object?> probe) {
+    if (_broken || probe.isEmpty) return;
+    for (final e in probe.entries) {
+      native['$phase.${e.key}'] = e.value;
+    }
+    // Thermal state as a gauge too, so it rides along in the per-scenario
+    // deltas where the actual timings live.
+    final t = probe['thermalOrdinal'];
+    if (t is int) gauge('native.thermal.$phase', t);
+    final f = probe['footprintMB'];
+    if (f is int) gauge('native.footprintMB.$phase', f);
+    final a = probe['availableMB'];
+    if (a is int) gauge('native.availableMB.$phase', a);
+  }
+
   /// Wall clock since the session started, so each subsystem's total can be
   /// expressed as a SHARE of elapsed time. That share is the number that
   /// answers "which part of the app is eating the machine" — a total of
@@ -512,6 +541,9 @@ class Perf {
         'rssPeakBytes': rssPeakBytes,
         ..._resources(),
       },
+      // M214 — what the OS says, as opposed to what Dart can see. Empty on a
+      // host without the plugin. See [setNative].
+      if (native.isNotEmpty) 'native': Map<String, Object?>.of(native),
       'spans': {for (final e in _stats.entries) e.key: e.value.toJson()},
       'counters': Map<String, int>.of(counters),
       'gauges': Map<String, int>.of(gauges),
@@ -637,6 +669,7 @@ class Perf {
     _pool.clear();
     gauges.clear();
     counters.clear();
+    native.clear();
     totalFrames = 0;
     jankFrames = 0;
   }

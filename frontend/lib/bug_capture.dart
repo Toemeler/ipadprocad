@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:native_menu/native_menu.dart';
 
 import 'app_state.dart';
 import 'gesture_trace.dart';
@@ -246,6 +247,20 @@ Future<File?> captureBugReport(AppState app, String description) async {
     //
     // Guarded: it is measurement, and a measurement failing must never cost
     // the user their bug report.
+    // M214 — the machine's own state, BEFORE the suite runs.
+    //
+    // This is the number that decides whether an M4 measurement says anything
+    // about an M2. A fanless iPad throttles under a sustained benchmark, and
+    // the suite below IS a sustained benchmark: without a thermal reading at
+    // both ends, a slow second half is indistinguishable from slow code. The
+    // same applies to memory — the suite allocates real solids, and how much
+    // headroom there was when it started changes what the numbers mean.
+    try {
+      Perf.setNative('preSuite', await NativeMenu.perfProbe());
+    } catch (e) {
+      Log.w('perf', 'native probe (pre) failed: $e');
+    }
+
     try {
       files['perf_suite.json'] = const JsonEncoder.withIndent('  ')
           .convert(runPerfSuite());
@@ -260,6 +275,17 @@ Future<File?> captureBugReport(AppState app, String description) async {
           .convert(runUiPerfSuite());
     } catch (e) {
       files['perf_suite_ui.json'] = 'ui scenario suite failed: $e';
+    }
+
+    // ...and again afterwards. A thermal state that rose from nominal to
+    // serious across the run invalidates every comparison made with the
+    // numbers from its second half, and that is only visible with both ends
+    // recorded. A footprint that grew and never came back is the other thing
+    // this pair catches.
+    try {
+      Perf.setNative('postSuite', await NativeMenu.perfProbe());
+    } catch (e) {
+      Log.w('perf', 'native probe (post) failed: $e');
     }
 
     // The perf data a MACHINE can read. `perfText` above is the rolling text

@@ -18,6 +18,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:native_menu/native_menu.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/modify.dart';
@@ -214,6 +215,79 @@ void main() {
       expect(fails, isEmpty,
           reason: 'these ops returned null or threw, so their scenarios timed '
               'nothing: ${fails.map((e) => '${e.key}=${e.value}').join(', ')}');
+    });
+  });
+
+  group('M214 — the OS probe and the end-to-end rebuild', () {
+    test('the native probe degrades to an empty map off-device', () {
+      // On a host with no plugin the channel throws MissingPluginException.
+      // Returning {} rather than propagating is what lets the bug bundle and
+      // the suite call it unconditionally; a probe that can take down a bug
+      // report is worse than no probe.
+      expect(NativeMenu.perfProbe(), completion(isEmpty));
+    });
+
+    test('setNative namespaces by phase and mirrors the key gauges', () {
+      Perf.resetForTest();
+      Perf.setNative('preSuite', const {
+        'thermalState': 'fair',
+        'thermalOrdinal': 1,
+        'footprintMB': 512,
+        'availableMB': 2048,
+      });
+      Perf.setNative('postSuite', const {
+        'thermalState': 'serious',
+        'thermalOrdinal': 2,
+        'footprintMB': 890,
+        'availableMB': 1200,
+      });
+      // BOTH ends survive. This is the whole point: a thermal state that rose
+      // across the run invalidates the numbers from its second half, and only
+      // a before/after pair can show that.
+      expect(Perf.native['preSuite.thermalState'], 'fair');
+      expect(Perf.native['postSuite.thermalState'], 'serious');
+      expect(Perf.gauges['native.thermal.preSuite'], 1);
+      expect(Perf.gauges['native.thermal.postSuite'], 2);
+      expect(Perf.gauges['native.footprintMB.postSuite'], 890);
+    });
+
+    test('an empty probe records nothing rather than empty keys', () {
+      Perf.resetForTest();
+      Perf.setNative('preSuite', const {});
+      expect(Perf.native, isEmpty,
+          reason: 'a host without the plugin must leave no trace, or every '
+              'report grows a section of nulls');
+    });
+
+    test('the snapshot carries the native block only when it has one', () {
+      Perf.resetForTest();
+      expect(Perf.jsonSnapshot().containsKey('native'), isFalse);
+      Perf.setNative('preSuite', const {'thermalOrdinal': 0});
+      expect(Perf.jsonSnapshot()['native'], isNotNull);
+    });
+
+    test('the rebuild scenarios exist and are swept', () {
+      final names = buildAppScenarios().map((s) => s.name).toSet();
+      expect(names, containsAll(
+          ['app.rebuildPart.1', 'app.rebuildPart.3', 'app.rebuildPart.6']));
+    });
+
+    testWidgets('a forced rebuild really recomputes every feature',
+        (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.rebuildPart.3');
+      Perf.scenario(s.name, s.run);
+      // Three features x three forced passes. Without `force` the build
+      // signature would skip the second and third, and the scenario would be
+      // timing a hash comparison.
+      expect(Perf.stats['kernel.feature']?.count, 9,
+          reason: 'a skipped feature measures the signature check, not a build');
+      expect(Perf.stats.containsKey('part.rebuildAll'), isTrue);
+      expect(Perf.counters['kernel.feature.fail'] ?? 0, 0,
+          reason: 'a feature that fails to build produces no solid, and every '
+              'number after it describes an empty part');
     });
   });
 
