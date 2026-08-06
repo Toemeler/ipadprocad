@@ -899,3 +899,86 @@ liegt. Ein Faktor 5 zwischen `phys_footprint` und RSS ist bei RealityKit/Metal
 plausibel (IOSurface- und GPU-Zuordnungen zaehlen in den Footprint, nicht in
 den RSS), aber der Abstand ist gross genug, dass er am naechsten Lauf
 gegengeprueft gehoert, bevor jemand darauf eine Entscheidung stuetzt.
+
+---
+
+## 14. Constraint-Solving beim Ziehen — die eigentliche Antwort
+
+Die Frage „was kostet das Solving beim Ziehen, auch bei komplexen
+Constraints" hat eine scharfe Antwort, und sie ist nicht die erwartete.
+
+### 14.1 Normales Ziehen ist billig
+
+| | |
+| --- | ---: |
+| `solve.drag60` (48 Entities, 73 Constraints) | **0.274 ms** pro Solve |
+| `ui.drag60`, derselbe Fall durch den Painter | **0.277 ms** pro Solve |
+| davon in libslvs | **81 %** |
+
+Bei realistischer Skizzengroesse ist ein Zug-Solve ein Viertel einer
+Millisekunde. Das ist nicht das Problem.
+
+### 14.2 Aber ein Zug loest ZWEIMAL pro Frame
+
+60 gemalte Frames, **120 Solves**. Die beiden `displayGeometry`-Aufrufe im
+Painter (`viewport.dart:2088` und `:2683`) rechnen dieselbe Antwort doppelt.
+Zusammen sind sie **87 % der Malzeit im Zug** (`ent.dofColour` 43.6 % +
+`constraints` 43.5 %; das eigentliche Zeichnen der Entities ist 12.5 %).
+
+### 14.3 Und dann faellt die Skizze vom schnellen Pfad
+
+Hier ist der Befund, der alles erklaert:
+
+| Fall | pro Solve | Anteil libslvs |
+| --- | ---: | ---: |
+| normaler Zug | 0.277 ms | 81 % |
+| `solve.sweep.64` (128 Entities) | 1.631 ms | 85 % |
+| **ueberbestimmt** | **92.538 ms** | **0.4 %** |
+
+**Faktor 334.** Und libslvs hat in beiden Faellen ungefaehr gleich lange
+gebraucht (0.35 ms gegen 0.28 ms) — der Unterschied liegt vollstaendig auf der
+Dart-Seite.
+
+Der Mechanismus steht im Code (`solver.dart:2172`): libslvs rechnet, die
+Dart-Seite **verifiziert das Ergebnis gegen ihre eigenen Residuen**, und wenn
+die Residuen zu gross sind, wird das native Ergebnis **verworfen**. Dann
+laeuft der Dart-Levenberg-Marquardt — und beim Ziehen sogar **zweimal**:
+einmal mit eingefrorenem Griff (`lm-frozen`), und wenn das nicht haelt, noch
+einmal ohne (`lm-relaxed`). Jeder Lauf baut 80 Iterationen lang
+Finite-Differenzen-Jacobi-Matrizen ueber ein 168-Parameter-System.
+
+Bei zwei Solves pro Frame sind das **185 ms pro Frame — rund 5 fps.** Das ist
+das „beim Ziehen ruckelt und spinnt es".
+
+Und es erklaert die alten Ausreisser: die 3.92 s aus der ersten Geraetesitzung
+und der Schlechtestwert von 178.7 ms in diesem Lauf. `solve.total` hat einen
+Schlechtestwert von 178.7 ms bei einem p50 von 0.275 ms — waehrend
+`ffi.slvs.solve` bei 4.1 ms Schlechtestwert bleibt. **Der Ausreisser ist 44x
+groesser als alles, was libslvs je gebraucht hat.** Er war nie im nativen
+Solver.
+
+### 14.4 Was das kostet, war bisher UNSICHTBAR
+
+Bei `solve.overConstrained`: `solve.total` 925 ms, `ffi.slvs.solve` 3.5 ms,
+`sketch.syncProjections` 0.0 ms — und **99.6 % gehoerten zu keinem einzigen
+Span**. Der groesste Posten im ganzen 2D-Pfad war nur als Differenz zwischen
+Eltern- und Kindmessung auffindbar.
+
+Neu instrumentiert:
+
+* `solve.slvs` — der native Versuch samt Verifikation
+* `solve.lm` — der Dart-Fallback (beide Laeufe)
+* `solve.path.{slvs,lm-frozen,lm-relaxed,lm}` — welchen Weg jeder Solve nahm
+* `solve.slvs.rejected.{residual,nonFinite}` — warum ein natives Ergebnis
+  verworfen wurde
+
+Eine Sitzung mit `solve.path.lm-*` ungleich null ist eine Sitzung, in der die
+Skizze vom schnellen Pfad gefallen ist. Das ist ab jetzt die erste Zahl, die
+man beim Ruckeln nachschaut.
+
+### 14.5 Und pro Bearbeitung
+
+Dieselbe Ursache, ohne Zug: eine **Bemassung einzugeben kostet 44.7 ms**,
+Tangente 12.5 ms, Fix 11.8 ms — gegenueber ~0.5 ms fuer coincident, parallel,
+equal und den Rest. Die teuren sind genau die, deren Ergebnis libslvs nicht
+liefert oder deren Verifikation scheitert.

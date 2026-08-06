@@ -1640,6 +1640,7 @@ bool _trySolveWithSlvs(
   final r = _residuals(newGs, off, x, cs, ctx);
   final resid = r.isEmpty ? 0.0 : _norm(r);
   if (r.isNotEmpty && resid > 1e-4) {
+    Perf.count('solve.slvs.rejected.residual');
     Log.w('slvs',
         'VERIFY FAILED residual=${resid.toStringAsExponential(2)} '
         '(> 1e-4) — discarding native result, falling back');
@@ -1648,6 +1649,7 @@ bool _trySolveWithSlvs(
   }
   // Never let a native result poison the sketch either.
   if (!allFinite(newGs)) {
+    Perf.count('solve.slvs.rejected.nonFinite');
     Log.e('slvs', 'native result is NON-FINITE — discarding');
     Log.block('slvs', 'rejected native result', sketchDump(newGs, cs));
     return false;
@@ -2169,7 +2171,7 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
   try {
     // Prefer the native SolveSpace solver; it self-verifies and returns false
     // (falling through to the Dart loop below) whenever it can't be trusted.
-    if (_trySolveWithSlvs(gs, cs, dragged)) {
+    if (Perf.span('solve.slvs', () => _trySolveWithSlvs(gs, cs, dragged))) {
       path = 'slvs';
     } else if (dragged.isNotEmpty) {
       // Dart fallback. A drag is a WISH, never a command. Freezing the dragged
@@ -2179,17 +2181,22 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
       // that way, drop the freeze and let the solver pull the sketch back onto
       // the constraint manifold — the point then slides along its real freedom.
       final before = List<Geo>.from(gs);
-      if (_lm(gs, cs, dragged, iterations)) {
+      if (Perf.span('solve.lm', () => _lm(gs, cs, dragged, iterations))) {
         path = 'lm-frozen';
       } else {
         for (var i = 0; i < gs.length; i++) {
           gs[i] = before[i];
         }
-        _lm(gs, cs, const {}, iterations);
+        // A SECOND full LM run. This is the worst case in the whole 2D
+        // pipeline and it was invisible: the device data showed 92.5 ms per
+        // solve where libslvs accounted for 0.35 ms of it, and the remaining
+        // 99.6% belonged to no span at all — it could only be found by
+        // subtracting the children from the parent.
+        Perf.span('solve.lm', () => _lm(gs, cs, const {}, iterations));
         path = 'lm-relaxed';
       }
     } else {
-      _lm(gs, cs, const {}, iterations);
+      Perf.span('solve.lm', () => _lm(gs, cs, const {}, iterations));
       path = 'lm';
     }
   } catch (err, st) {
@@ -2200,6 +2207,15 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
     }
     return false;
   }
+
+  // WHICH PATH the solve took, counted. This one line is the difference
+  // between "solving is fast" and "solving is fast until it isn't": the device
+  // data showed 0.277 ms per solve on the libslvs path and 92.5 ms on the Dart
+  // fallback — a factor of 334 — and nothing in the report said which path a
+  // given solve had taken. A session whose `solve.path.lm-*` counters are
+  // non-zero is a session where the sketch fell off the fast path, and that is
+  // the first thing to check when dragging goes bad.
+  Perf.count('solve.path.$path');
 
   // A solve must NEVER hand back garbage. NaN/Inf coordinates (or a
   // non-positive radius) make Skia drop the path silently, so the geometry just
