@@ -54,8 +54,18 @@ void _paintOnce(AppState app, {Size size = const Size(1024, 768)}) {
 AppState? _appWithSketch(int n) {
   try {
     final app = AppState();
-    final s = app.current;
-    if (s == null) return null;
+    // CREATE the sketch rather than hoping one is open.
+    //
+    // Relying on `app.current` was wrong twice over: on a device it depends on
+    // what the user happened to have open, which destroys the fixed-input
+    // property the whole suite rests on; and on a fresh AppState there is no
+    // current sketch at all, so every scenario silently skipped and measured
+    // nothing. The unit tests caught the second case, which is exactly why
+    // they assert a solve happened rather than merely that the code ran.
+    final s = SketchModel('perf');
+    app.sketches['perf'] = s;
+    app.curTab = 'perf';
+    app.editingLayer = kDefaultLayer;
     s.geometry
       ..clear()
       ..addAll(sketchFixture(n));
