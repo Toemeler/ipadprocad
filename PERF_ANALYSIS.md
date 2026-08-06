@@ -540,3 +540,96 @@ wie das Verrunden selbst (10.80 ms).
 
 Entlastet, mit Zahlen: Zahnradgenerierung, Snapping, DOF-Faerbung, Booleans,
 Tessellierung, `allGeometry`, Ribbon-Rebuilds, Start.
+
+---
+
+## 10. M213 — die systematische Runde: was jetzt gemessen wird
+
+Nach M212 waren die drei kaputten Fixtures zu, aber die Abdeckung war schmal:
+21 Szenarien gegen rund 45 Werkzeuge, 10 Feature-Arten und ein Dutzend
+Dokumentoperationen. "Zeichnen fuehlt sich langsam an" war damit nicht bloss
+unbeantwortet — es war **unbeantwortbar**, weil fuer den Akt des Zeichnens
+keine Zahl existierte.
+
+Jetzt: **73 Szenario-Definitionen** (mit den Sweeps darin deutlich mehr
+Einzelmessungen) in fuenf Modulen, plus 43 neue Span-Namen.
+
+### 10.1 Was neu abgedeckt ist
+
+| Bereich | vorher | jetzt |
+| --- | --- | --- |
+| Zeichenwerkzeuge | — | alle aus `toolMeta`, generisch getrieben; Spline-Konstruktion UND -Auswertung nach Groesse; Freihand nach Strichlaenge |
+| 2D-Fillet/Chamfer | — | `filletInventor`, `chamferInventor`, `filletMaxRadius` |
+| Modify | — | trim, trimCutAway, extend, split, offset (einzeln + Kette), transform, stretch, `intersections` — gegen Gittergroesse |
+| Constraints | nur Solver + DOF | alle 12 Typen einzeln, Inferenz nach Skizzengroesse, Sidecar-Codec, solve-aus-verletzt, ueberbestimmt |
+| 3D-Kernel | 6 Operationen | Extrude x4, Revolve x2, Sweep x3, Loft x2, Coil, Fillet x2, Chamfer, Booleans nach Operandenkomplexitaet + 8er-Fusionskette, Unify, Transform, rayHits, Mesh auf zwei Achsen, plus die Billig-Query-Kontrolle |
+| App-Pfade | — | Muster (3 Arten), Undo-Journal, Szenen-Payload + Signatur, Projektion, 3D-Kantenpicken, Mesh-Diagnose, Dokument-Codec, qcad-Neuaufbau |
+
+### 10.2 Zwei Entwurfsentscheidungen, die ueber die Belastbarkeit entscheiden
+
+**Werkzeuge werden aus `toolMeta` getrieben, nicht aus einer Liste.** Ein neues
+Werkzeug erscheint ohne neues Szenario im Report. Eine handgepflegte Liste
+waere beim ersten neuen Werkzeug veraltet gewesen — und ein veralteter
+Benchmark ist schlimmer als ein fehlender, weil er vollstaendig aussieht.
+
+**Platten-I/O ist bewusst draussen.** Die Wandzeit von `savePart` wird von
+iOS-Datei-I/O beherrscht, das mit dem Speicherdruck schwankt und im Code nicht
+reparierbar ist. Reparierbar ist die Serialisierung davor und danach — die
+wird gemessen. Eine Zahl, die sich aus Gruenden ausserhalb des Codes bewegt,
+erzeugt Regressionen, die niemand verursacht hat.
+
+### 10.3 Die Falle, in die ich gelaufen bin
+
+Der Shim hat **zwei Profilkodierungen**: `extrudeProfile` und
+`extrudePolygon` nehmen (x, y)-PAARE, `extrudeProfileArcs`, `revolve`,
+`sweep`, `loft` und `coil` nehmen (x, y, bulge)-TRIPEL. Die falsche zu
+uebergeben wirft nicht — die Stelligkeitspruefung gibt null zurueck, das
+Szenario meldet eine schnelle Null, und die Operation liest sich als
+kostenlos. Jeder Kernelaufruf laeuft deshalb durch einen Waechter, der Nulls
+zaehlt, und der Abdeckungstest verlangt, dass diese Zaehler leer sind.
+
+### 10.4 Der Abdeckungstest hat sich sofort bezahlt gemacht
+
+Beim ersten Lauf fielen drei Werkzeuge durch — sie gaben null zurueck und
+wurden trotzdem getimt, also als waeren sie die guenstigsten im ganzen
+Programm:
+
+* **eqCurve** — `ExprParser` nimmt EINE Funktion einer Variablen `x`; die
+  Fixture uebergab ein parametrisches Paar, das Komma wurde abgelehnt.
+* **circleTangent** — braucht drei Klicks auf drei VERSCHIEDENE Linien; auf
+  der Ring-Fixture landeten die generischen Punkte mehrfach auf derselben.
+* **slotOverall** — verlangt Laenge > 2 x Breite.
+
+Genau die M212-Fehlerart, reproduziert in neuem Code. Deshalb pruefen diese
+Tests keine Zeiten, sondern **dass jedes Szenario sein Thema erreicht**.
+
+Und: Test und Szenario laufen jetzt durch DENSELBEN Einstiegspunkt. Den Aufruf
+im Test nachzubauen ist der Weg, auf dem ein Test gruen bleibt, waehrend der
+Benchmark, den er absichern soll, etwas anderes misst.
+
+### 10.5 Sichtbarkeit der CI-Fehler
+
+Der GitHub-Reporter macht pro Test eine Log-Gruppe; bei ~1600 Tests ist das
+Log zehntausende Zeilen lang, die Actions-API liefert nur einen begrenzten
+Tail, und das Artefakt liegt auf Blob-Storage ausserhalb der Proxy-Freigabe.
+Ein roter Build meldete "2 failed" ohne erreichbare Information WELCHE zwei.
+Ein `if: failure()`-Schritt gibt die Fehlerzeilen jetzt am Ende noch einmal
+aus, wo jeder Tail sie erreicht.
+
+### 10.6 Was weiterhin fehlt
+
+Ehrlich benannt, damit die Abdeckung nicht groesser aussieht als sie ist:
+
+1. **Im C++ selbst.** Wir wissen, dass `allEdges` bei 360 Kanten 607 ms
+   kostet; wir wissen nicht, welche Zeile des Shims das ausgibt.
+   `kernel.query.edgeInfoOne` grenzt es von aussen ein — mehr geht von Dart
+   aus nicht.
+2. **Der RealityKit-Renderloop.** Platform View, von Dart aus unsichtbar. Die
+   Payload-Szenarien messen alles bis zur Grenze.
+3. **Thermik, CPU pro Thread, echter Speicherabdruck, Absturzursache.**
+   Brauchen ein natives Plugin (MetricKit / `mach_task_basic_info`); existiert
+   noch nicht.
+4. **Feature-Rebuild Ende-zu-Ende.** `part.rebuildAll` und
+   `kernel.feature.<kind>` sind jetzt instrumentiert, laufen also in einer
+   echten Sitzung mit — aber es gibt noch kein Szenario mit fester Eingabe,
+   das eine Feature-Kette selbst neu berechnet.
