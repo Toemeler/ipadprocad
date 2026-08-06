@@ -28,6 +28,7 @@ import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
+import 'perf_scenarios_stress.dart';
 import 'perf_scenarios_ui.dart';
 import 'reality_scene.dart';
 
@@ -275,6 +276,23 @@ Future<File?> captureBugReport(AppState app, String description) async {
           .convert(runUiPerfSuite());
     } catch (e) {
       files['perf_suite_ui.json'] = 'ui scenario suite failed: $e';
+    }
+
+    // The STRESS tier — opt-in, by typing `stress` in the description.
+    //
+    // Not in the ordinary capture because its ladders climb until they blow a
+    // time budget, which at the top rungs means minutes. A diagnostic that
+    // makes the app look broken while diagnosing it is worse than no
+    // diagnostic — and this one deliberately drives the exact operation that
+    // already killed the app once, so it must never fire by accident.
+    if (description.toLowerCase().contains('stress')) {
+      Log.i('bug', 'stress tier requested — this will take a while');
+      try {
+        files['perf_suite_stress.json'] = const JsonEncoder.withIndent('  ')
+            .convert(runStressSuite());
+      } catch (e) {
+        files['perf_suite_stress.json'] = 'stress suite failed: $e';
+      }
     }
 
     // ...and again afterwards. A thermal state that rose from nominal to

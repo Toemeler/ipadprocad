@@ -41,7 +41,8 @@ import zipfile
 
 # Members a bundle may carry. Missing ones are skipped, never fatal: a bundle
 # from an older build is still worth reading.
-SUITE_MEMBERS = ("perf_suite.json", "perf_suite_ui.json")
+SUITE_MEMBERS = ("perf_suite.json", "perf_suite_ui.json",
+                 "perf_suite_stress.json")
 SNAPSHOT_MEMBER = "perf_snapshot.json"
 
 # Counter suffixes that mean "this scenario did not measure its subject".
@@ -301,8 +302,48 @@ def section_session(data: dict, top: int) -> list[str]:
     return out
 
 
+
+def section_stress(data: dict) -> list[str]:
+    """The ladders: how far each probe climbed before it blew its budget.
+
+    `maxSize` is the answer, not the durations. A ladder that stopped is not a
+    failed measurement — the rung it stopped at IS the measurement, and it is
+    the only honest way to ask "how big a part still works" without hanging the
+    app on the question.
+    """
+    g = {}
+    for s in scenarios(data):
+        for k, v in (s.get("gauges") or {}).items():
+            if k.startswith("stress."):
+                g[k] = v
+    if not g:
+        return ["  (no stress tier in this bundle — type `stress` in the bug "
+                "description to include it)"]
+    fams = sorted({k.split(".")[1] for k in g if k.endswith(".maxSize")})
+    out = [f"  {'ladder':16s} {'reached':>9s} {'rss delta':>10s}   rungs (ms)"]
+    for f in fams:
+        rungs = []
+        for s in scenarios(data):
+            for k, v in (s.get("spans") or {}).items():
+                if k.startswith(f"stress.{f}."):
+                    try:
+                        rungs.append((int(k.rsplit(".", 1)[1]), v.get("totalMs", 0)))
+                    except ValueError:
+                        pass
+        rungs.sort()
+        shown = "  ".join(f"{n}:{ms:.0f}" for n, ms in rungs)
+        extra = [f"{k.split('.')[-1]}={v}" for k, v in g.items()
+                 if k.startswith(f"stress.{f}.")
+                 and not k.endswith(("maxSize", "rssDeltaMB"))]
+        out.append(f"  {f:16s} {g.get(f'stress.{f}.maxSize', 0):9d} "
+                   f"{g.get(f'stress.{f}.rssDeltaMB', 0):9d} MB   {shown}")
+        if extra:
+            out.append(f"  {'':16s} {' '.join(extra)}")
+    return out
+
+
 # ---------------------------------------------------------------------------
-# 4. what changed
+# 5. what changed
 # ---------------------------------------------------------------------------
 
 def section_diff(new: dict, old: dict, top: int) -> list[str]:
@@ -392,13 +433,16 @@ def main() -> int:
     banner("1. IS THIS RUN TRUSTWORTHY?")
     print("\n".join(section_validity(data)))
 
-    banner("2. COST CURVES — the exponent is what survives a change of chip")
+    banner("2. HOW FAR IT GOES — the stress ladders, if this bundle has them")
+    print("\n".join(section_stress(data)))
+
+    banner("3. COST CURVES — the exponent is what survives a change of chip")
     print("\n".join(section_curves(data)))
 
-    banner("3. WHERE THE TIME WENT — the suite")
+    banner("4. WHERE THE TIME WENT — the suite")
     print("\n".join(section_costs(data, args.top)))
 
-    banner("3b. THE LIVE SESSION — what the person was actually doing")
+    banner("4b. THE LIVE SESSION — what the person was actually doing")
     print("\n".join(section_session(data, args.top)))
 
     if args.baseline:
@@ -406,7 +450,7 @@ def main() -> int:
             print(f"\nbaseline not found: {args.baseline}", file=sys.stderr)
             return 2
         old = load(args.baseline)
-        banner(f"4. WHAT CHANGED vs {old['label']}")
+        banner(f"5. WHAT CHANGED vs {old['label']}")
         print("\n".join(section_diff(data, old, args.top)))
     print()
     return 0

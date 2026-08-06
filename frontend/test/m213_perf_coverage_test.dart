@@ -27,6 +27,7 @@ import 'package:prototype/perf_scenarios.dart';
 import 'package:prototype/perf_scenarios_app.dart';
 import 'package:prototype/perf_scenarios_kernel.dart';
 import 'package:prototype/perf_scenarios_tools.dart';
+import 'package:prototype/perf_scenarios_stress.dart';
 import 'package:prototype/perf_scenarios_ui.dart';
 import 'package:prototype/reality_scene.dart';
 import 'package:prototype/tools.dart';
@@ -305,6 +306,48 @@ void main() {
           reason: 'a feature that fails to build produces no solid, and every '
               'number after it describes an empty part');
     });
+  });
+
+  group('M218 — the stress tier', () {
+    test('it is NOT part of the ordinary suites', () {
+      // The whole point of the opt-in. Its ladders climb until they blow a
+      // time budget, and one of them deliberately drives the operation that
+      // already killed the app once. Firing that from an ordinary bug report
+      // would make the app look broken while diagnosing it.
+      final ordinary = [
+        ...buildScenarios().map((s) => s.name),
+        ...buildUiScenarios().map((s) => s.name),
+      ];
+      expect(ordinary.where((n) => n.startsWith('stress.')), isEmpty);
+    });
+
+    test('every stress scenario is named and explained', () {
+      for (final s in buildStressScenarios()) {
+        expect(s.name, startsWith('stress.'));
+        expect(s.note.length, greaterThan(20));
+      }
+    });
+
+    test('the 2D ladders exist even without a kernel', () {
+      // The kernel ladders are skipped on a host with no OCCT, but the sketch
+      // ones must not be — otherwise the tier reports nothing at all on CI and
+      // a break in it would go unnoticed until a device run.
+      final names = buildStressScenarios().map((s) => s.name).toSet();
+      expect(names, containsAll(
+          ['stress.sketch.analyze', 'stress.sketch.solve', 'stress.sketch.drag']));
+    });
+
+    test('a ladder reports the rung it reached, even when it stops early', () {
+      Perf.resetForTest();
+      final s = buildStressScenarios()
+          .firstWhere((sc) => sc.name == 'stress.sketch.analyze');
+      Perf.scenario(s.name, s.run);
+      // maxSize is the RESULT of this tier, not a side effect: a ladder that
+      // stopped early has measured the wall, and the wall is the answer.
+      expect(Perf.gauges.containsKey('stress.analyze.maxSize'), isTrue);
+      expect(Perf.gauges['stress.analyze.maxSize'], greaterThan(0),
+          reason: 'a ladder that cleared no rung at all measured nothing');
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 
   group('the app fixtures are real', () {
