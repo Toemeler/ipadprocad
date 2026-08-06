@@ -13,6 +13,14 @@
 // Property 2 is the one worth pinning. Without it the first scenario looks
 // expensive and the rest look free, which is exactly the kind of plausible
 // wrong number that sends optimisation into the wrong layer (M75).
+//
+// The suite is a BENCHMARK, and since M212 it really works: the drag
+// scenario moves a grip through 60 solves and the analysis sweep
+// differentiates a 448-parameter system. The default 30-second per-test
+// timeout is a limit for unit tests, not for measurement.
+@Timeout(Duration(minutes: 10))
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/gear.dart';
@@ -133,7 +141,7 @@ void main() {
       final gs = sketchFixture(12), cs = constraintFixture(12);
       expect(solveConstraints([...gs], cs, iterations: 25), isTrue);
     });
-  }, timeout: const Timeout(Duration(minutes: 2)));
+  });
 
   group('scenario isolation', () {
     test('a delta reports only what happened inside it', () {
@@ -233,7 +241,7 @@ void main() {
       expect(report.keys, containsAll(['suite', 'at', 'build', 'os', 'wallMs',
           'occtAvailable', 'scenarios']));
     });
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  });
 }
 
 // The UI half. These need a binding, which `flutter test` provides.
@@ -294,5 +302,5 @@ void _uiSuite() {
       expect(names.toSet().length, names.length);
       expect(names.every((n) => n.startsWith('ui.')), isTrue);
     });
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  });
 }
