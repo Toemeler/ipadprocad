@@ -614,15 +614,33 @@ jobs:
             sleep 5
           done
           xcrun simctl install "$UDID" "$APP"
+          # Launch SYNCHRONOUSLY and keep the exit code.
+          #
+          # Run 13 backgrounded this and killed it after the hold, which threw
+          # away both the exit code and the error text — so the step reported
+          # success while the app had never run and Documents was empty. That
+          # is the same false-green that let the link check lie for eight runs,
+          # and it is not repeated here: `simctl launch` without --console-pty
+          # returns as soon as the app is up and tells us whether it started.
           echo "== launch =="
           set +e
-          xcrun simctl launch --console-pty --terminate-running-process "$UDID" "$BID" > ../ci-sim-console.log 2>&1 &
-          LAUNCH_PID=$!
-          # Let it actually run: Perf flushes every 5 s, so anything under that
-          # would pull an empty file and look like the app records nothing.
-          sleep "$HOLD"
-          kill "$LAUNCH_PID" 2>/dev/null
+          OUT="$(xcrun simctl launch --terminate-running-process "$UDID" "$BID" 2>&1)"; RC=$?
           set -e
+          echo "launch rc=$RC: $OUT"
+          if [ "$RC" -ne 0 ]; then
+            echo "LAUNCH FAILED — this is the Rosetta question being answered."
+            echo "== recent crash reports =="
+            find ~/Library/Logs/DiagnosticReports -name '*.ips' -newermt '-5 minutes' \
+              2>/dev/null | head -3 | while read -r c; do
+              echo "--- $c"; head -40 "$c"; done || true
+            echo "== simulator system log for our bundle =="
+            xcrun simctl spawn "$UDID" log show --last 3m --style compact \
+              --predicate 'processImagePath CONTAINS "prototype"' 2>/dev/null \
+              | tail -40 || true
+          fi
+          # Perf flushes every 5 s, so anything shorter pulls an empty file and
+          # looks like the app records nothing.
+          sleep "$HOLD"
           echo "== app Documents container =="
           DATA="$(xcrun simctl get_app_container "$UDID" "$BID" data)"
           echo "container: $DATA"
@@ -636,8 +654,16 @@ jobs:
           echo "== what we got back =="
           find "$GITHUB_WORKSPACE/perf-out" -type f -exec ls -la {} \;
           echo "== performance_logs.txt (tail) =="
-          tail -80 "$GITHUB_WORKSPACE/perf-out/logs/performance_logs.txt" 2>/dev/null || \
-            echo "(no performance log — see the note above)"
+          if [ -s "$GITHUB_WORKSPACE/perf-out/logs/performance_logs.txt" ]; then
+            tail -80 "$GITHUB_WORKSPACE/perf-out/logs/performance_logs.txt"
+            echo "PERF CAPTURE: PASS"
+          else
+            # FAIL, loudly. Run 13 printed "(no performance log)" and exited 0,
+            # so the job went green having produced nothing at all. A capture
+            # step that cannot fail is not a capture step.
+            echo "PERF CAPTURE: FAIL (no performance log was produced)"
+            exit 1
+          fi
           } 2>&1 | tee ../ci-sim-run.log
 
       - name: Zip the simulator app
