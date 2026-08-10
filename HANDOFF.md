@@ -8867,13 +8867,27 @@ gecacht pro Mesh-Identitaet.
 intern berechnet hat, nur um eine Anzahl in einen Text zu schreiben. Dieselbe
 Art wie Befund 3, aber hinter dem Cache und damit milder.
 
-**Neu gemessen, damit der naechste Geraetelauf das alles beantwortet:** sieben
-Szenariofamilien, 19 Einzelmessungen, alle im automatischen Tier —
-`kernel.query.edgeInfoScale.*` (EIN edgeInfo auf wachsender Form: macht den
-O(n)-pro-Aufruf von aussen falsifizierbar), `kernel.mirror.*` (das neue
-`occt_mirror`, gegen `transform` auf demselben Solid),
-`app.provenance.{faceSurfaces,newSurfaces,attribute}.*` und
-`app.pattern.occurrences.*` samt der Kurvenvariante.
+**Neu gemessen, damit der naechste Geraetelauf das alles beantwortet:** zehn
+Szenariofamilien, 26 Einzelmessungen, alle im automatischen Tier (kein `stress`
+noetig), dazu zwoelf Abdeckungstests:
+
+* `kernel.query.edgeInfoScale.{24,60,120,240}` — EIN `edgeInfo` auf Kante 1,
+  auf wachsender Form. Macht den O(n)-pro-Aufruf **von aussen falsifizierbar**:
+  steigt die Kurve, ist Befund 1 doppelt belegt; bleibt sie flach, ist der
+  Quelltextbefund falsch.
+* `kernel.mirror.{24,120}` — das neue `occt_mirror`, gegen `transform` auf
+  DEMSELBEN Solid. Die Differenz ist der Preis der Spiegelung.
+* `app.provenance.{faceSurfaces,newSurfaces,attribute}.*` — Rebuild-Pfad und
+  Pick-Pfad getrennt, weil es verschiedene Budgets sind.
+* `app.pattern.occurrences.*` — **alle vier Musterarten**: rechteckig, entlang
+  einer Kurve, kreisfoermig, skizzengetrieben (mit `sketchPatternPoints`
+  davor, weil die App sie zusammen faehrt) und gespiegelt.
+
+**Noch offen und bewusst nicht auf Verdacht gebaut:** `applyBlendOccurrence`
+(gemusterte Fillets) und der Ende-zu-Ende-Rebuild eines echten
+PatternFeature. Beide brauchen eine Fixture MIT Kernel; ohne OCCT auf der
+Entwicklungsmaschine liesse sich nicht pruefen, ob sie ihr Thema erreichen,
+und eine Fixture, die still nichts misst, ist schlimmer als eine fehlende.
 
 ### Wie man es benutzt
 

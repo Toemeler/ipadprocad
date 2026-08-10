@@ -1119,12 +1119,32 @@ ein anderes Feature, und `patternOccurrences` ist ihr arithmetischer Kern: er
 laeuft pro Rebuild eines Mustersfeatures und pro Frame, solange der
 Musterdialog offen ist.
 
-`app.pattern.occurrences.{4,16,64}` sweept die Anzahl.
-`app.pattern.occurrences.curve` misst dieselbe Funktion auf dem anderen Pfad —
-M213s „Reihen entlang einer Kurve", das statt einer Richtung eine Polylinie
-nach **Bogenlaenge** abschreitet und damit die Punktzahl des Pfades als zweite
-Achse mitbringt. Getrennt, weil ein Mittel ueber beide verstecken wuerde,
-welche der zwei Achsen etwas kostet.
+`patternOccurrences` verzweigt auf die **Musterart**, jede Art ist also eigener
+Code. Nur die rechteckige zu messen und Muster fuer abgedeckt zu halten waere
+derselbe Fehler wie eine handgepflegte Werkzeugliste: sieht vollstaendig aus
+und schweigt ueber drei Viertel des Features. Alle vier sind darum gemessen:
+
+| Szenario | Art | Achse |
+| --- | --- | --- |
+| `app.pattern.occurrences.{4,16,64}` | rechteckig | Anzahl |
+| `app.pattern.occurrences.curve` | rechteckig, entlang einer Kurve | Pfadpunkte |
+| `app.pattern.occurrences.circular.{4,16,64}` | kreisfoermig | Anzahl |
+| `app.pattern.occurrences.points.{4,16,64}` | skizzengetrieben | Punkte in der Skizze |
+| `app.pattern.occurrences.mirror` | gespiegelt | — (konstant) |
+
+Drei Anmerkungen dazu, weil sie den Wert der Zahlen bestimmen:
+
+* Die **Kurvenvariante** ist von der geraden getrennt, weil sie eine zweite
+  Achse mitbringt (Pfadpunkte neben der Anzahl); ein Mittel ueber beide wuerde
+  verstecken, welche der zwei etwas kostet.
+* Die **skizzengetriebene** Art misst `sketchPatternPoints` **mit**, weil die
+  App die beiden immer zusammen faehrt. Den Verbraucher ohne den Erzeuger zu
+  messen berichtete die halben Kosten. Und es ist die einzige Art, deren Achse
+  ein Benutzer durch ZEICHNEN vergroessert statt durch Eintippen einer Zahl.
+* Die **Spiegelung** ist konstruktionsbedingt konstant: genau ein Vorkommen,
+  ohne Matrix (`part_model.dart:3421`). Sie wird trotzdem gemessen, und genau
+  deshalb — die Zahl belegt, dass die Kosten eines Mirror-Musters vollstaendig
+  im Kernel liegen, wo `kernel.mirror.*` sie getrennt aufnimmt.
 
 **Nebenbefund im Vertrag, den der Test jetzt festnagelt:** ein Muster mit
 Anzahl n liefert **n-1** Platzierungen. Die identische Platzierung wird
@@ -1133,18 +1153,28 @@ mitzuliefern wuerde das Material verdoppeln.
 
 ### 15.7 Stand der Abdeckung
 
-Neu in dieser Runde: **sieben Szenariofamilien, 19 Einzelmessungen**, alle im
+Neu in dieser Runde: **zehn Szenariofamilien, 26 Einzelmessungen**, alle im
 AUTOMATISCHEN Tier — sie laufen also beim normalen Bug-Button mit, ohne dass
-jemand `stress` tippen muss. Was weiterhin fehlt, ist unveraendert die Liste
-aus Abschnitt 12.4 plus:
+jemand `stress` tippen muss.
+
+Dazu zwoelf neue Abdeckungstests. Sie pruefen weiterhin keine Zeiten, sondern
+dass jedes Szenario sein Thema erreicht, und zwei haben sich schon beim
+Schreiben bezahlt gemacht: die Provenienz-Fixture fuellt `ownSurfaces` nicht
+von selbst (`attributeFaces` haette sein eigenes leeres Eingabefeld gemessen),
+und ein Muster mit Anzahl n liefert n-1 Platzierungen, was ein
+„groesser als null" nie bemerkt haette.
+
+Was weiterhin fehlt, ist unveraendert die Liste aus Abschnitt 12.4 plus:
 
 * **`applyBlendOccurrence`** (gemusterte Fillets, M213) — laeuft im Kernel je
   Vorkommen, hat noch kein eigenes Szenario.
-* **`sketchPatternPoints`** und die punktgetriebene Musterart.
 * **Der Rebuild eines echten PatternFeature Ende-zu-Ende.**
   `app.rebuildPart.*` faehrt Extrusionen; ein Muster faltet zusaetzlich pro
   Vorkommen eine Boolesche Operation auf den Koerper, und das ist eine andere
   Kurve.
 
-Das sind die naechsten Handgriffe. Sie sind benannt, damit die Abdeckung nicht
-groesser aussieht als sie ist.
+Beide brauchen eine Fixture MIT Kernel, und beide sind bewusst nicht auf
+Verdacht gebaut worden: ohne OCCT auf der Entwicklungsmaschine liesse sich
+hier nicht pruefen, ob die Fixture ihr Thema ueberhaupt erreicht — und eine
+Fixture, die still nichts misst, ist schlimmer als eine fehlende. Das ist die
+Lehre aus M212, angewandt auf die eigene Arbeit.

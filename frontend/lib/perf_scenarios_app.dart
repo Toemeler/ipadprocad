@@ -733,7 +733,11 @@ List<PerfScenario> buildAppScenarios() {
         mode: PatternKind.rectangular,
         sources: const ['Extrusion1'],
         dirA: AxisRef(0, 0, 0, 1, 0, 0),
-        pathA: 'curvePath',
+        // Only its PRESENCE matters here: patternOccurrences takes the branch
+        // when `f.pathA != null && pathA.length >= 2`, then walks the point
+        // list passed in below. The selection record is how the app remembers
+        // which sketch curve that list came from, and it is not re-read.
+        pathA: CurveSel('perf', 0, 0, 0, 238, 0, 240),
         countA: 16,
         distanceA: 200,
         distributionA: PatternDistribution.curveLength,
@@ -748,6 +752,103 @@ List<PerfScenario> buildAppScenarios() {
     note: 'the along-a-curve row: arc-length walk of a 120-point path instead '
         'of a straight step. Compare against app.pattern.occurrences.16 — the '
         'difference is what following a curve costs',
+  ));
+
+  // patternOccurrences switches on the pattern KIND, so each kind is a
+  // separate body of code. Measuring only the rectangular one and calling
+  // patterns covered would be the same mistake as a hand-maintained tool list:
+  // complete-looking, and silent about three quarters of the feature.
+
+  for (final n in const [4, 16, 64]) {
+    out.add(PerfScenario(
+      'app.pattern.occurrences.circular.$n',
+      () {
+        final f = PatternFeature(
+          name: 'Pattern1',
+          bodyName: 'Solid1',
+          mode: PatternKind.circular,
+          sources: const ['Extrusion1'],
+          axis: AxisRef(0, 0, 0, 0, 0, 1),
+          countC: n,
+          angleC: 360,
+          distributionC: PatternDistribution.distance,
+        );
+        for (var i = 0; i < 20; i++) {
+          final occ = Perf.span(
+              'pattern.occurrences.circular', () => patternOccurrences(f));
+          Perf.gauge('pattern.occurrences.circular.out.$n', occ.length);
+        }
+      },
+      note: 'the circular kind: a rotation matrix per occurrence rather than a '
+          'translation. Compare against app.pattern.occurrences.$n — the two '
+          'kinds do different arithmetic for the same count',
+    ));
+  }
+
+  // Sketch-driven, and the only kind whose cost is driven by SKETCH content
+  // rather than by a typed count. sketchPatternPoints is measured in the same
+  // scenario because it is what feeds it: in the app the two always run
+  // together, and timing the consumer without the producer would report half
+  // the cost of placing a pattern on sketch points.
+  for (final n in const [4, 16, 64]) {
+    out.add(PerfScenario(
+      'app.pattern.occurrences.points.$n',
+      () {
+        final m = SketchModel('perfPts');
+        for (var i = 0; i < n; i++) {
+          final a = 2 * math.pi * i / n;
+          // A sketch POINT is a circle carrier tagged pointTag — building it
+          // any other way produces geometry sketchPatternPoints skips, and
+          // the scenario would measure an empty list.
+          m.geometry.add(Geo(Geo.circle,
+              [40 + 60 * math.cos(a), 60 * math.sin(a), 0.0],
+              spline: Geo.pointTag));
+        }
+        final f = PatternFeature(
+          name: 'Pattern1',
+          bodyName: 'Solid1',
+          mode: PatternKind.sketchDriven,
+          sources: const ['Extrusion1'],
+          pointSketch: 'perfPts',
+        );
+        for (var i = 0; i < 20; i++) {
+          final pts = Perf.span(
+              'pattern.sketchPoints', () => sketchPatternPoints(m));
+          final world = [for (final p in pts) Vec3(p.dx, p.dy, 0)];
+          final occ = Perf.span('pattern.occurrences.points',
+              () => patternOccurrences(f, points: world));
+          Perf.gauge('pattern.occurrences.points.out.$n', occ.length);
+          Perf.gauge('pattern.sketchPoints.out.$n', pts.length);
+        }
+      },
+      note: 'the sketch-driven kind, with sketchPatternPoints in front of it '
+          'because that is how the app runs it. Cost follows the number of '
+          'points in the driving sketch, which is the one pattern axis a user '
+          'grows by drawing rather than by typing a number',
+    ));
+  }
+
+  out.add(PerfScenario(
+    'app.pattern.occurrences.mirror',
+    () {
+      final f = PatternFeature(
+        name: 'Mirror1',
+        bodyName: 'Solid1',
+        mode: PatternKind.mirror,
+        sources: const ['Extrusion1'],
+        mirrorPlane: PlaneRef(0, 0, 0, 1, 0, 0),
+      );
+      for (var i = 0; i < 20; i++) {
+        final occ =
+            Perf.span('pattern.occurrences.mirror', () => patternOccurrences(f));
+        Perf.gauge('pattern.occurrences.mirror.out', occ.length);
+      }
+    },
+    note: 'CONSTANT by construction — a mirror yields exactly one occurrence '
+        'carrying no matrix (part_model.dart:3421), so this should be the '
+        'cheapest pattern in the report. That is the POINT of measuring it: '
+        'it establishes that the cost of a mirror pattern is entirely in the '
+        'kernel, which kernel.mirror.* measures separately',
   ));
 
   return out;

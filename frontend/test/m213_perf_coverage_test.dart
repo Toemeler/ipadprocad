@@ -562,6 +562,59 @@ void main() {
               'measuring a refusal, not a pattern');
     });
 
+    test('every pattern KIND has a scenario', () {
+      // patternOccurrences switches on the kind, so each is separate code.
+      // This is the list that fails when a fifth kind is added without a
+      // measurement — the same job the kernel-op list does one group above.
+      final names = buildAppScenarios().map((s) => s.name).toSet();
+      for (final kind in const ['', 'circular.', 'points.', 'mirror']) {
+        expect(
+            names.any((n) => n.startsWith('app.pattern.occurrences.$kind')),
+            isTrue,
+            reason: 'no scenario covers the "$kind" pattern kind');
+      }
+    });
+
+    test('the circular kind rotates rather than returning nothing', () {
+      Perf.resetForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.pattern.occurrences.circular.16');
+      Perf.scenario(s.name, s.run);
+      // Circular starts its loop at i=1, so a count of n gives n-1 — the same
+      // "the original is not a copy" rule as the rectangular kind, reached by
+      // different code. An invalid axis returns const [] instead of throwing,
+      // which is the silent nothing this pins.
+      expect(Perf.gauges['pattern.occurrences.circular.out.16'], 15);
+    });
+
+    test('the sketch-driven kind reads its points and places them', () {
+      Perf.resetForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.pattern.occurrences.points.16');
+      Perf.scenario(s.name, s.run);
+      // Both halves must be non-zero: sketchPatternPoints skips any geometry
+      // that is not a pointTag-carrying circle, so a fixture built with plain
+      // circles would hand an empty list to patternOccurrences and BOTH would
+      // read as free.
+      expect(Perf.gauges['pattern.sketchPoints.out.16'], 16,
+          reason: 'the driving sketch produced no points — the fixture built '
+              'geometry that sketchPatternPoints does not recognise');
+      expect(Perf.gauges['pattern.occurrences.points.out.16'] ?? 0,
+          greaterThan(0));
+    });
+
+    test('the mirror kind yields exactly one occurrence', () {
+      Perf.resetForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.pattern.occurrences.mirror');
+      Perf.scenario(s.name, s.run);
+      // Exactly one, by construction. Pinned because the scenario's whole
+      // claim is that this kind is CONSTANT — if it ever starts scaling, the
+      // note in the report ("the cost is entirely in the kernel") becomes a
+      // lie and this test is what catches it.
+      expect(Perf.gauges['pattern.occurrences.mirror.out'], 1);
+    });
+
     test('the along-a-curve row walks the path', () {
       Perf.resetForTest();
       final s = buildAppScenarios()
