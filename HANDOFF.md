@@ -170,8 +170,24 @@ Token NIE in Dateien/.git/config schreiben.
 >
 > **Ehrlicher Stand:** 58 neue Tests (`m212_pattern_3d_test.dart`). Suite
 > **1617 gruen**, analyze 50 Issues / 0 Errors = Ausgangsstand. **Am Geraet
-> nicht nachgeprueft**, und **OCCT wurde in dieser Sitzung nicht kompiliert**
-> — die Shim-Aenderung haengt am CI-Job (`occt-build.yml`, Smoke `[13b]`).
+> nicht nachgeprueft.**
+>
+> **Der Shim ist inzwischen gebaut und GELAUFEN** — nachgelesen im Log, nicht
+> am Haken: CI-Lauf `31383036783`, Zweig `ci-debug-logs-occt`, Datei
+> `ci-logs-occt/smoke.log`:
+>
+> ```
+> Prototype OCCT shim v17 (OCCT 7.9.3) (shim ABI v17)
+> [13b] mirrored bbox x[-10.000,0.000]
+> OCCT SMOKE: PASS
+> ```
+>
+> Der Kasten bei x=[0,10], an x=0 gespiegelt, liegt exakt bei x=[-10,0]; PASS
+> heisst zugleich, dass die uebrigen `[13b]`-Pruefungen durchgingen — Volumen
+> erhalten, Form gueltig, Original + Spiegelbild lassen sich VEREINIGEN (also
+> ist die Orientierung korrigiert), Spiegelung an einer versetzten Ebene, und
+> die beiden Zurueckweisungen. Der iOS-Job (`occt-ios-static`) ist ebenfalls
+> gruen: der Shim uebersetzt fuer arm64 und `nm` findet die Symbole.
 >
 > **Bewusst NICHT enthalten** (und darum hier genannt statt versteckt): ein
 > Feature durch Antippen seiner FLAECHE waehlen (dafuer fehlt die
