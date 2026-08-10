@@ -568,6 +568,31 @@ class OcctShape {
     }
   }
 
+  /// M212 — MIRROR about the plane through [px],[py],[pz] with normal
+  /// [nx],[ny],[nz] (shim v17). A NEW shape; this one is unchanged.
+  ///
+  /// Its own call rather than a matrix through [transformed] because a
+  /// reflection has determinant -1, which the shim refuses there on purpose
+  /// (see occt_capi.h): a non-rigid matrix arriving at a placement is a
+  /// caller bug far more often than an intended mirror. The result is
+  /// orientation-corrected by the shim, so it can go straight into a
+  /// boolean. Null on failure (see [OcctFfi.lastError]).
+  OcctShape? mirrored(double px, double py, double pz, double nx, double ny,
+      double nz) {
+    final p = calloc<Double>(6);
+    try {
+      p[0] = px;
+      p[1] = py;
+      p[2] = pz;
+      p[3] = nx;
+      p[4] = ny;
+      p[5] = nz;
+      return _ffi._wrap(_ffi._mirror(_handle, p));
+    } finally {
+      calloc.free(p);
+    }
+  }
+
   /// Triangulate for display. [linDeflection] is the max sag in model units
   /// (mm), [angDeflection] in radians. The buffers are copied to Dart and
   /// the native mesh is freed before returning. Null on shim failure (see
@@ -707,7 +732,8 @@ class OcctFfi {
       this._revolveHitsFace,
       this._sweepProfile,
       this._loftSections,
-      this._coilProfile);
+      this._coilProfile,
+      this._mirror);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -761,6 +787,7 @@ class OcctFfi {
   final _SweepD _sweepProfile; // v15
   final _LoftD _loftSections; // v15
   final _CoilD _coilProfile; // v15
+  final _TransformD _mirror; // v17 (occt_mirror: point + normal, 6 doubles)
 
   static OcctFfi? _cached;
   static bool _probed = false;
@@ -836,6 +863,8 @@ class OcctFfi {
         lib.lookupFunction<_SweepN, _SweepD>('occt_sweep_profile'),
         lib.lookupFunction<_LoftN, _LoftD>('occt_loft_sections'),
         lib.lookupFunction<_CoilN, _CoilD>('occt_coil_profile'),
+        // v17 — the mirror placement (M212's pattern/mirror features).
+        lib.lookupFunction<_TransformN, _TransformD>('occt_mirror'),
       );
     } catch (_) {
       _cached = null;

@@ -49,6 +49,12 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
   // previews. Nothing to stand in means nothing to hide.
   final sessHides = sess?.preview != null;
   final edgeHides = edge?.preview != null;
+  // M212 — a pattern preview stands in for its whole body exactly like a
+  // fillet's does: it IS that body with the occurrences in it, so leaving the
+  // un-patterned original in the scene would draw the first hole through the
+  // middle of the preview.
+  final pat = app.patternSession;
+  final patHides = pat?.preview != null;
   final out = <(String, KernelSolid)>[];
   for (final f in p.features) {
     if (f.visible &&
@@ -61,7 +67,9 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
         // M126 — a fillet/chamfer preview REPLACES its body; leaving the
         // original in would draw the un-filleted edges straight through it.
         !(edgeHides && f == edge?.editing) &&
-        !(edgeHides && f.bodyName == edge?.previewReplacesBody)) {
+        !(edgeHides && f.bodyName == edge?.previewReplacesBody) &&
+        !(patHides && f == pat?.editing) &&
+        !(patHides && f.bodyName == pat?.previewReplacesBody)) {
       // M168 — Slice Graphics substitutes the CUT solid for the whole one, so
       // every consumer (payload, signature, triangle budget, thumbnails) sees
       // one consistent scene. Null means "not slicing" or "the cut failed",
@@ -719,6 +727,11 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     // a solid one. The open panel is the signal that it is uncommitted.
     scene['preview'] =
         solidPayload('__preview__', app.edgeSession!.preview!);
+  } else if (app.patternSession?.preview != null) {
+    // Same reasoning as the fillet preview: it is the whole body, so it is
+    // drawn as one — you cannot count holes through frosted glass.
+    scene['preview'] =
+        solidPayload('__preview__', app.patternSession!.preview!);
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
@@ -801,6 +814,12 @@ String sceneSignature(AppState app, PartModel p) {
         : identityHashCode(app.edgeSession!.preview!.mesh))
     ..write(';eprevrepl:')
     ..write(app.edgeSession?.previewReplacesBody ?? '')
+    ..write(';pprev:')
+    ..write(app.patternSession?.preview == null
+        ? 0
+        : identityHashCode(app.patternSession!.preview!.mesh))
+    ..write(';pprevrepl:')
+    ..write(app.patternSession?.previewReplacesBody ?? '')
     ..write(';pick:')
     ..write(app.pickPlane ? 1 : 0)
     ..write(';vis:');

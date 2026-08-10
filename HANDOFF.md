@@ -16,6 +16,93 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M212 — die vier MUSTER im Teil: Rechteckig, Kreisfoermig,
+> Skizzengesteuert, Spiegeln. „Integrate all pattern tools in 3d mode",
+> recherchiert und gebaut wie in Inventor.**
+>
+> Bis hierher war die Pattern-Gruppe der Teil-Ribbon eine Attrappe: vier
+> Knoepfe mit `null` dahinter. Jetzt sind es vier echte Befehle mit EINEM
+> modelosen Eigenschaften-Panel, 1:1 nach den Inventor-Screenshots
+> (Input Geometry / Direction A+B bzw. Orientation bzw. Placement bzw. Mirror
+> Plane / Output Geometry, plus die senkrechte Leiste daneben, die zwischen
+> den Befehlen und zwischen „Features" und „Solid" umschaltet).
+>
+> **1. Der Kernel konnte nicht spiegeln — mit Absicht.** `occt_transform`
+> lehnt jede Matrix ab, deren 3x3-Teil nicht Determinante +1 hat („scale,
+> shear and mirror are refused"), und das ist richtig: eine nicht-starre
+> Matrix an einer PLATZIERUNG ist viel wahrscheinlicher ein Fehler des
+> Aufrufers als eine gewollte Spiegelung. Eine Spiegelung, die beim NAMEN
+> gerufen wird, kann dieser Fehler nicht sein — also Shim **v17**:
+> `occt_mirror(shape, {p, n})` ueber `gp_Trsf::SetMirror(gp_Ax2)`. Dazu die
+> Orientierungspruefung: eine Reflexion dreht einen Koerper von innen nach
+> aussen, und OCCTs Boolesche lesen die Orientierung — ein unkorrigiertes
+> Spiegelbild SCHNEIDET also, wo es fuegen soll. Der Shim misst das Volumen
+> und dreht die Form um, wenn es negativ zurueckkommt. Smoke `[13b]` prueft
+> Lage, Volumen, Gueltigkeit UND dass sich das Spiegelbild mit dem Original
+> vereinigen laesst.
+>
+> **2. Ein Feature, vier Platzierungsregeln.** `PatternFeature` ist ein
+> koerper-veraenderndes Feature wie Verrundung und Fase: es verzehrt den
+> Koerper, der es erreicht, und gibt das Ergebnis weiter. Das ORIGINAL ist
+> nie eine seiner Occurrences — es steckt schon im Koerper, weiter oben, und
+> genau deshalb zaehlt Inventor das Original als „Occurrence 1".
+>
+> Die Platzierungs-Arithmetik (`patternOccurrences`) ist rein und
+> host-testbar, denn genau dort sitzen die Ecken, die in einem Muster
+> traditionell falsch sind: der 360°-Umlauf teilt durch die ANZAHL (sonst
+> liegen die erste und die letzte Bohrung uebereinander), eine „fitted"
+> Teilstrecke durch die LUECKEN, Midplane zentriert die Spanne auf das
+> Original — und die Occurrence, die dabei auf dem Original landet, faellt
+> weg, sonst wuerde ein Koerper mit sich selbst verschmolzen.
+>
+> **Identical vs. Adjust** ist Inventors Creation Method, und beide tun hier
+> wirklich etwas Verschiedenes: Identical baut das Werkzeug EINMAL und
+> platziert es n-mal; Adjust baut jede Occurrence dort neu, wo sie landet —
+> `placedFrame` schiebt die Skizzenebene mit, also loest „To Next" /
+> „Through All" gegen den Koerper UNTER dieser Occurrence auf. Fuer die
+> gespiegelte Occurrence braucht es dazu `mirroredFrame`: eine Reflexion
+> macht aus einem rechtshaendigen Rahmen einen linkshaendigen, und den nimmt
+> kein Kernel an — also wird v negiert UND das Profil in v gespiegelt
+> gelesen. Die beiden gehoeren untrennbar zusammen; nur den Rahmen zu
+> spiegeln baut die ORIGINALFORM am gespiegelten Platz: richtige Stelle,
+> falsches Teil.
+>
+> **3. Was ehrlich verweigert wird.** Eine Verrundung ist keine Form, sondern
+> die Aenderung einer Form — es gibt kein Werkzeugvolumen zu kopieren, also
+> sagt das Feature das (`"... cannot be patterned — pattern the feature it
+> shapes"`) statt die Auswahl still fallenzulassen. Ebenso: eine Quelle
+> UNTERHALB des Musters (das waere ein Zyklus), eine Quelle auf einem ANDEREN
+> Koerper (der Rebuild-Schluessel ist die Kettenhash DIESES Koerpers — eine
+> fremde Quelle koennte sich aendern, ohne dass das Muster es merkt), ein
+> importierter Koerper, ein Kernel ohne Spiegelung. Und: sind ALLE
+> Occurrences unterdrueckt, wird der Koerper KOPIERT statt weitergereicht —
+> zwei Features mit einem Solid sind ein doppeltes Free auf dem Geraet.
+>
+> **4. Bedienung.** Features werden im MODELLBROWSER gewaehlt (im
+> Grafikfenster steht ein gefalteter Koerper, dessen Flaechen keinem Feature
+> mehr gehoeren) — beide Browser, mit Markierung; Richtung/Achse per Tipp auf
+> eine gerade oder RUNDE Kante (bei einer runden ist die Achse die nuetzliche
+> Antwort, nicht die Sehne — gelesen aus den analytischen Kurvensaetzen des
+> Meshes, nicht aus der Tesselierung), auf eine Skizzenlinie oder eine
+> Ursprungsachse; Spiegelebene per Flaeche, Arbeitsebene oder Ursprungsebene
+> (plus die drei Knoepfe im Panel); die Punkte eines skizzengesteuerten
+> Musters per Tipp auf einen Skizzenpunkt oder auf die Skizzenzeile im
+> Browser. Einzelne Occurrences lassen sich im Browser unterdruecken, wie in
+> Inventor. Esc/Cancel steigen erst aus dem PICK aus, dann aus dem Panel.
+>
+> **Ehrlicher Stand:** 58 neue Tests (`m212_pattern_3d_test.dart`). Suite
+> **1617 gruen**, analyze 50 Issues / 0 Errors = Ausgangsstand. **Am Geraet
+> nicht nachgeprueft**, und **OCCT wurde in dieser Sitzung nicht kompiliert**
+> — die Shim-Aenderung haengt am CI-Job (`occt-build.yml`, Smoke `[13b]`).
+>
+> **Bewusst NICHT enthalten** (und darum hier genannt statt versteckt): ein
+> Feature durch Antippen seiner FLAECHE waehlen (dafuer fehlt die
+> Flaechen-Herkunft — der Koerper ist gefaltet), Verrundung/Fase als
+> Musterquelle, Inventors „Curve Length"-Distribution und der Start-Punkt
+> pro Richtung (beides braucht Muster entlang einer KURVE), die Irregular
+> Distance/Angle aus Inventor 2026, und die variable Orientierung
+> (Follow Face) beim skizzengesteuerten Muster.
+
 > **M211 — eine Meldung zu Build `1a0bb61`, zwei Fehler, eine Frage: von
 > welcher SEITE der Ebene schauen wir?**
 >

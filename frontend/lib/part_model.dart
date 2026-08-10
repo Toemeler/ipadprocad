@@ -1722,6 +1722,8 @@ abstract class PartFeature {
         return LoftFeature.fromJson(j);
       case 'coil':
         return CoilFeature.fromJson(j);
+      case 'pattern':
+        return PatternFeature.fromJson(j);
       default:
         return null;
     }
@@ -2609,6 +2611,651 @@ class ChamferFeature extends BodyModifyFeature {
     f.readBaseJson(j);
     return f;
   }
+}
+
+// ---------------------------------------------------------------------------
+// M212 — patterns in the PART: Rectangular, Circular, Sketch Driven, Mirror
+// ---------------------------------------------------------------------------
+//
+// One feature class for all four, exactly as Inventor keeps one pattern
+// concept with four placement rules. What differs between them is only WHERE
+// the occurrences go; everything after that — which features are copied, how
+// each copy is combined into the body, which occurrences are suppressed, and
+// whether copies are identical or re-terminated — is shared, and four classes
+// would have been four places to keep that in step.
+
+/// Which placement rule a [PatternFeature] uses.
+enum PatternKind { rectangular, circular, sketchDriven, mirror }
+
+String patternKindName(PatternKind k) => switch (k) {
+      PatternKind.rectangular => 'rect',
+      PatternKind.circular => 'circ',
+      PatternKind.sketchDriven => 'sketch',
+      PatternKind.mirror => 'mirror',
+    };
+
+PatternKind patternKindFrom(String? s) => switch (s) {
+      'circ' => PatternKind.circular,
+      'sketch' => PatternKind.sketchDriven,
+      'mirror' => PatternKind.mirror,
+      _ => PatternKind.rectangular,
+    };
+
+/// The command name Inventor puts at the top of the panel.
+String patternKindLabel(PatternKind k) => switch (k) {
+      PatternKind.rectangular => 'Rectangular Pattern',
+      PatternKind.circular => 'Circular Pattern',
+      PatternKind.sketchDriven => 'Sketch Driven Pattern',
+      PatternKind.mirror => 'Mirror',
+    };
+
+/// The type label a new feature of this kind gets in the browser.
+String patternTypeLabel(PatternKind k) => switch (k) {
+      PatternKind.rectangular => 'RectangularPattern',
+      PatternKind.circular => 'CircularPattern',
+      PatternKind.sketchDriven => 'SketchDrivenPattern',
+      PatternKind.mirror => 'Mirror',
+    };
+
+/// Inventor's Distribution. The typed value is either the step BETWEEN
+/// neighbouring occurrences ([spacing], Inventor's "Spacing"; "Incremental"
+/// on a circular pattern) or the TOTAL span the occurrences fill ([distance],
+/// Inventor's "Distance"; "Fitted" on a circular pattern).
+///
+/// Fitted is the one to use when the design may change, because the pattern
+/// then re-divides the same total rather than growing out of its boundary —
+/// which is precisely Inventor's own advice.
+enum PatternDistribution { spacing, distance }
+
+String patternDistName(PatternDistribution d) =>
+    d == PatternDistribution.distance ? 'distance' : 'spacing';
+
+PatternDistribution patternDistFrom(String? s) =>
+    s == 'distance' ? PatternDistribution.distance : PatternDistribution.spacing;
+
+/// Inventor's circular Orientation: [rotational] turns each occurrence with
+/// the axis (the usual bolt-circle look), [fixed] carries it around the axis
+/// while keeping the parent's orientation.
+enum PatternOrient { rotational, fixed }
+
+/// Inventor's Creation Method (the old dialog's "Compute").
+///
+/// [identical] replicates the RESULT of the original feature — one tool
+/// solid, placed n times. It is what Inventor recommends and what every
+/// pattern here does unless told otherwise.
+///
+/// [adjust] rebuilds each occurrence at its own place, so a termination
+/// ("To Next", "To <face>", "Through All") is resolved against the body
+/// WHERE THAT OCCURRENCE LANDS. On a stepped part that is the difference
+/// between a row of holes that all stop at the first step and a row that each
+/// break through their own wall. Only the two feature kinds that HAVE a
+/// termination (extrude, revolve) can differ; for the others Adjust and
+/// Identical are the same solid, and this build does not pretend otherwise.
+enum PatternCompute { identical, adjust }
+
+String patternComputeName(PatternCompute c) =>
+    c == PatternCompute.adjust ? 'adjust' : 'identical';
+
+PatternCompute patternComputeFrom(String? s) =>
+    s == 'adjust' ? PatternCompute.adjust : PatternCompute.identical;
+
+/// A picked DIRECTION or AXIS, stored as geometry: a point plus a direction
+/// in world coordinates, with the label the panel shows.
+///
+/// Stored the way [RevolveFeature] stores its axis and for the same reason —
+/// the edge, sketch line or origin axis that produced it can be deleted or
+/// redrawn, and what the feature actually depends on is the direction it
+/// defined. A reference would die with the edge; the geometry does not.
+class AxisRef {
+  double px, py, pz, dx, dy, dz;
+  String label;
+  AxisRef(this.px, this.py, this.pz, this.dx, this.dy, this.dz,
+      [this.label = 'Direction']);
+
+  Vec3 get point => Vec3(px, py, pz);
+  Vec3 get dir => Vec3(dx, dy, dz);
+  Vec3 get unit => dir.normalized();
+  bool get valid => dir.length > 1e-9;
+
+  AxisRef copy() => AxisRef(px, py, pz, dx, dy, dz, label);
+
+  Map<String, dynamic> toJson() =>
+      {'p': [px, py, pz], 'd': [dx, dy, dz], 'label': label};
+
+  static AxisRef? fromJson(Map<String, dynamic> j) {
+    final p = (j['p'] as List?)?.cast<num>(), d = (j['d'] as List?)?.cast<num>();
+    if (p == null || d == null || p.length != 3 || d.length != 3) return null;
+    return AxisRef(p[0].toDouble(), p[1].toDouble(), p[2].toDouble(),
+        d[0].toDouble(), d[1].toDouble(), d[2].toDouble(),
+        j['label'] as String? ?? 'Direction');
+  }
+}
+
+/// A picked MIRROR PLANE — a point on it and its normal, plus a label.
+///
+/// Same contract as [AxisRef]: the plane is remembered as geometry, not as a
+/// reference to the face or work plane that defined it.
+class PlaneRef {
+  double px, py, pz, nx, ny, nz;
+  String label;
+  PlaneRef(this.px, this.py, this.pz, this.nx, this.ny, this.nz,
+      [this.label = 'Plane']);
+
+  Vec3 get point => Vec3(px, py, pz);
+  Vec3 get normal => Vec3(nx, ny, nz);
+  bool get valid => normal.length > 1e-9;
+
+  PlaneRef copy() => PlaneRef(px, py, pz, nx, ny, nz, label);
+
+  Map<String, dynamic> toJson() =>
+      {'p': [px, py, pz], 'n': [nx, ny, nz], 'label': label};
+
+  static PlaneRef? fromJson(Map<String, dynamic> j) {
+    final p = (j['p'] as List?)?.cast<num>(), n = (j['n'] as List?)?.cast<num>();
+    if (p == null || n == null || p.length != 3 || n.length != 3) return null;
+    return PlaneRef(p[0].toDouble(), p[1].toDouble(), p[2].toDouble(),
+        n[0].toDouble(), n[1].toDouble(), n[2].toDouble(),
+        j['label'] as String? ?? 'Plane');
+  }
+}
+
+/// ONE occurrence of a pattern: where a copy of the patterned geometry goes.
+///
+/// [mat34] is a rigid placement for every kind except the mirror, which is a
+/// REFLECTION and therefore not expressible as one (determinant -1; the shim
+/// refuses it in `occt_transform` on purpose). A mirror occurrence carries
+/// [mirror] = true instead and the plane comes from the feature.
+///
+/// [index] is the occurrence's position in Inventor's numbering, counting the
+/// ORIGINAL as 1 — so the copies this list describes start at 2. It is what
+/// the browser labels and what [PatternFeature.suppressed] addresses, and it
+/// must stay stable as long as the counts do, which is why it is computed
+/// from the grid indices rather than from the position in this list.
+class PatternOccurrence {
+  final int index;
+  final List<double>? mat34;
+  final bool mirror;
+  const PatternOccurrence(this.index, this.mat34, {this.mirror = false});
+}
+
+/// Row-major 3x4 rigid placement of a pure translation by [d].
+List<double> translationMat34(Vec3 d) => [
+      1, 0, 0, d.x, //
+      0, 1, 0, d.y, //
+      0, 0, 1, d.z, //
+    ];
+
+/// Row-major 3x4 rigid placement of a rotation by [angleRad] about the line
+/// through [p] along the UNIT axis [k].
+List<double> rotationMat34(Vec3 p, Vec3 k, double angleRad) {
+  final cx = rotateAboutAxis(const Vec3(1, 0, 0), k, angleRad);
+  final cy = rotateAboutAxis(const Vec3(0, 1, 0), k, angleRad);
+  final cz = rotateAboutAxis(const Vec3(0, 0, 1), k, angleRad);
+  // Rotation about a LINE, not the origin: x -> R(x - p) + p.
+  final t = p - rotateAboutAxis(p, k, angleRad);
+  return [
+    cx.x, cy.x, cz.x, t.x, //
+    cx.y, cy.y, cz.y, t.y, //
+    cx.z, cy.z, cz.z, t.z, //
+  ];
+}
+
+/// True when [m] is (numerically) the identity placement — the occurrence
+/// that would land exactly on the original, and must therefore not be built.
+bool isIdentityMat34(List<double> m) {
+  const id = [1.0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  if (m.length != 12) return false;
+  for (var i = 0; i < 12; i++) {
+    if ((m[i] - id[i]).abs() > 1e-9) return false;
+  }
+  return true;
+}
+
+/// Inventor's part-feature pattern: Rectangular, Circular, Sketch Driven and
+/// Mirror in one feature.
+///
+/// It MODIFIES a body (like fillet and chamfer): the occurrences are combined
+/// into the solid that reaches it, so the feature's own solid is the whole
+/// body afterwards. The original feature is NOT one of the occurrences this
+/// feature builds — it is already in that body, upstream, which is exactly
+/// why Inventor calls the original "occurrence 1" and why suppressing it is a
+/// different operation from suppressing a copy.
+class PatternFeature extends PartFeature {
+  PatternFeature({
+    required super.name,
+    required super.bodyName,
+    required this.mode,
+    this.patternSolid = false,
+    List<String> sources = const [],
+    this.dirA,
+    this.dirB,
+    this.flipA = false,
+    this.flipB = false,
+    this.midplaneA = false,
+    this.midplaneB = false,
+    this.countA = 2,
+    this.countB = 2,
+    this.distanceA = 25,
+    this.distanceB = 25,
+    this.exprCountA = '2',
+    this.exprCountB = '2',
+    this.exprDistanceA = '25 mm',
+    this.exprDistanceB = '25 mm',
+    this.distributionA = PatternDistribution.spacing,
+    this.distributionB = PatternDistribution.spacing,
+    this.axis,
+    this.flipC = false,
+    this.countC = 6,
+    this.angleC = 360,
+    this.exprCountC = '6',
+    this.exprAngleC = '360.00 deg',
+    this.distributionC = PatternDistribution.distance,
+    this.orientation = PatternOrient.rotational,
+    this.pointSketch = '',
+    this.basePicked = false,
+    this.baseX = 0,
+    this.baseY = 0,
+    this.mirrorPlane,
+    this.removeOriginal = false,
+    this.compute = PatternCompute.identical,
+    Set<int> suppressed = const {},
+    super.visible,
+  })  : sources = [...sources],
+        suppressed = {...suppressed},
+        // Like fillet and chamfer, a pattern's Output boolean is meaningless:
+        // it does not add a body, it reshapes the one that reaches it. It is
+        // NOT a [BodyModifyFeature] though — that class is the EDGE-picking
+        // family (resolveEdges, the displacement pool), and inheriting it
+        // would also route this feature straight into _recomputeBodyModify.
+        super(output: 'modify');
+
+  /// A pattern consumes the body that reaches it and hands on the result, so
+  /// it needs an upstream solid exactly the way a fillet does.
+  @override
+  bool get modifiesBody => true;
+
+  PatternKind mode;
+
+  /// Inventor's two Input Geometry modes: pattern a set of FEATURES, or
+  /// pattern the whole SOLID body ("Pattern a solid").
+  bool patternSolid;
+
+  /// Feature names being patterned, in pick order. Empty in solid mode.
+  final List<String> sources;
+
+  // ---- rectangular ----
+  AxisRef? dirA, dirB;
+  bool flipA, flipB;
+
+  /// Inventor's Midplane, available per direction: the occurrences are laid
+  /// out on BOTH sides of the original instead of growing away from it.
+  bool midplaneA, midplaneB;
+  int countA, countB;
+  double distanceA, distanceB;
+  String exprCountA, exprCountB, exprDistanceA, exprDistanceB;
+  PatternDistribution distributionA, distributionB;
+
+  // ---- circular ----
+  AxisRef? axis;
+  bool flipC;
+  int countC;
+  double angleC;
+  String exprCountC, exprAngleC;
+  PatternDistribution distributionC;
+  PatternOrient orientation;
+
+  // ---- sketch driven ----
+  /// Sketch whose POINTS place the occurrences.
+  String pointSketch;
+
+  /// Inventor's Base Point. Unset means the patterned geometry's own centre,
+  /// which is what makes "one occurrence per point" land the way you expect
+  /// without picking anything.
+  bool basePicked;
+  double baseX, baseY; // in [pointSketch]'s coordinates
+
+  // ---- mirror ----
+  PlaneRef? mirrorPlane;
+
+  /// Inventor's Remove Original: only the mirrored half survives. Solid mode
+  /// only — removing the original of a FEATURE mirror would mean deleting a
+  /// feature that is upstream of this one, which is a tree edit, not a
+  /// geometry option.
+  bool removeOriginal;
+
+  // ---- shared ----
+  PatternCompute compute;
+
+  /// Occurrence numbers (Inventor's numbering, original = 1) the user has
+  /// suppressed. Suppressing an occurrence is a property of the pattern, not
+  /// of the copy, which is why it lives here and survives a rebuild.
+  final Set<int> suppressed;
+
+  @override
+  String get kind => 'pattern';
+
+  @override
+  String get typeLabel => patternTypeLabel(mode);
+
+  /// A sketch-driven pattern depends on the sketch holding its points, so a
+  /// point moved there has to rebuild it. The others depend on no sketch of
+  /// their own (their inputs are stored as geometry).
+  @override
+  List<String> get sketchNames =>
+      mode == PatternKind.sketchDriven && pointSketch.isNotEmpty
+          ? [pointSketch]
+          : const [];
+
+  /// How many occurrences were actually built last time, INCLUDING the
+  /// original. Runtime only — it is a result, not an input.
+  ///
+  /// A sketch-driven pattern is the reason it exists: its count comes from
+  /// the points in a sketch, so it cannot be read off the feature, and the
+  /// browser still has to be able to list the occurrences to suppress one.
+  int builtOccurrences = 0;
+
+  /// How many occurrences the pattern describes INCLUDING the original, the
+  /// way Inventor counts them.
+  int get occurrenceCount => switch (mode) {
+        // A second direction that was never picked is not a second row.
+        PatternKind.rectangular => countA.clamp(1, kPatternMaxCount) *
+            (dirB == null ? 1 : countB.clamp(1, kPatternMaxCount)),
+        PatternKind.circular => countC.clamp(1, kPatternMaxCount),
+        PatternKind.mirror => 2,
+        PatternKind.sketchDriven => builtOccurrences,
+      };
+
+  @override
+  String ownSig() {
+    final b = StringBuffer('pat|${patternKindName(mode)}|')
+      ..write(patternSolid ? 'solid' : sources.join(','))
+      ..write('|')
+      ..write(patternComputeName(compute))
+      ..write('|')
+      ..write(suppressed.toList()..sort())
+      ..write('|');
+    switch (mode) {
+      case PatternKind.rectangular:
+        b
+          ..write(_axSig(dirA))
+          ..write(',$flipA,$midplaneA,$countA,$distanceA,')
+          ..write(patternDistName(distributionA))
+          ..write('|')
+          ..write(_axSig(dirB))
+          ..write(',$flipB,$midplaneB,$countB,$distanceB,')
+          ..write(patternDistName(distributionB));
+      case PatternKind.circular:
+        b
+          ..write(_axSig(axis))
+          ..write(',$flipC,$countC,$angleC,')
+          ..write(patternDistName(distributionC))
+          ..write(',')
+          ..write(orientation.name);
+      case PatternKind.sketchDriven:
+        b.write('$pointSketch,$basePicked,$baseX,$baseY');
+      case PatternKind.mirror:
+        final p = mirrorPlane;
+        b
+          ..write(p == null
+              ? 'none'
+              : '${p.px},${p.py},${p.pz},${p.nx},${p.ny},${p.nz}')
+          ..write(',$removeOriginal');
+    }
+    return b.toString();
+  }
+
+  static String _axSig(AxisRef? a) => a == null
+      ? 'none'
+      : '${a.px},${a.py},${a.pz},${a.dx},${a.dy},${a.dz}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'mode': patternKindName(mode),
+        'solid': patternSolid,
+        'sources': [...sources],
+        'compute': patternComputeName(compute),
+        if (suppressed.isNotEmpty) 'suppressed': (suppressed.toList()..sort()),
+        if (dirA != null) 'dirA': dirA!.toJson(),
+        if (dirB != null) 'dirB': dirB!.toJson(),
+        'flipA': flipA,
+        'flipB': flipB,
+        'midA': midplaneA,
+        'midB': midplaneB,
+        'countA': countA,
+        'countB': countB,
+        'distA': distanceA,
+        'distB': distanceB,
+        'exprCountA': exprCountA,
+        'exprCountB': exprCountB,
+        'exprDistA': exprDistanceA,
+        'exprDistB': exprDistanceB,
+        'distribA': patternDistName(distributionA),
+        'distribB': patternDistName(distributionB),
+        if (axis != null) 'axis': axis!.toJson(),
+        'flipC': flipC,
+        'countC': countC,
+        'angleC': angleC,
+        'exprCountC': exprCountC,
+        'exprAngleC': exprAngleC,
+        'distribC': patternDistName(distributionC),
+        'orient': orientation.name,
+        if (pointSketch.isNotEmpty) 'pointSketch': pointSketch,
+        'basePicked': basePicked,
+        'baseX': baseX,
+        'baseY': baseY,
+        if (mirrorPlane != null) 'plane': mirrorPlane!.toJson(),
+        'removeOriginal': removeOriginal,
+      };
+
+  static PatternFeature fromJson(Map<String, dynamic> j) {
+    Map<String, dynamic>? sub(String k) => j[k] == null
+        ? null
+        : (j[k] as Map).cast<String, dynamic>();
+    final a = sub('dirA'), b = sub('dirB'), ax = sub('axis'), pl = sub('plane');
+    final f = PatternFeature(
+      name: j['name'] as String? ?? 'Pattern',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      mode: patternKindFrom(j['mode'] as String?),
+      patternSolid: j['solid'] as bool? ?? false,
+      sources: [
+        for (final s in (j['sources'] as List? ?? const [])) s as String
+      ],
+      dirA: a == null ? null : AxisRef.fromJson(a),
+      dirB: b == null ? null : AxisRef.fromJson(b),
+      flipA: j['flipA'] as bool? ?? false,
+      flipB: j['flipB'] as bool? ?? false,
+      midplaneA: j['midA'] as bool? ?? false,
+      midplaneB: j['midB'] as bool? ?? false,
+      countA: (j['countA'] as num?)?.toInt() ?? 2,
+      countB: (j['countB'] as num?)?.toInt() ?? 2,
+      distanceA: (j['distA'] as num?)?.toDouble() ?? 25,
+      distanceB: (j['distB'] as num?)?.toDouble() ?? 25,
+      exprCountA: j['exprCountA'] as String? ?? '2',
+      exprCountB: j['exprCountB'] as String? ?? '2',
+      exprDistanceA: j['exprDistA'] as String? ?? '25 mm',
+      exprDistanceB: j['exprDistB'] as String? ?? '25 mm',
+      distributionA: patternDistFrom(j['distribA'] as String?),
+      distributionB: patternDistFrom(j['distribB'] as String?),
+      axis: ax == null ? null : AxisRef.fromJson(ax),
+      flipC: j['flipC'] as bool? ?? false,
+      countC: (j['countC'] as num?)?.toInt() ?? 6,
+      angleC: (j['angleC'] as num?)?.toDouble() ?? 360,
+      exprCountC: j['exprCountC'] as String? ?? '6',
+      exprAngleC: j['exprAngleC'] as String? ?? '360.00 deg',
+      // A circular pattern's typed value is a TOTAL angle by default
+      // (Inventor's Fitted), which is what makes "6 at 360" mean a bolt
+      // circle rather than six full turns.
+      distributionC: patternDistFrom(j['distribC'] as String? ?? 'distance'),
+      orientation: (j['orient'] as String?) == 'fixed'
+          ? PatternOrient.fixed
+          : PatternOrient.rotational,
+      pointSketch: j['pointSketch'] as String? ?? '',
+      basePicked: j['basePicked'] as bool? ?? false,
+      baseX: (j['baseX'] as num?)?.toDouble() ?? 0,
+      baseY: (j['baseY'] as num?)?.toDouble() ?? 0,
+      mirrorPlane: pl == null ? null : PlaneRef.fromJson(pl),
+      removeOriginal: j['removeOriginal'] as bool? ?? false,
+      compute: patternComputeFrom(j['compute'] as String?),
+      suppressed: {
+        for (final s in (j['suppressed'] as List? ?? const []))
+          (s as num).toInt()
+      },
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Hard ceiling on occurrences per direction. Not a style choice: every
+/// occurrence is a boolean against the whole body, so a slipped decimal point
+/// in a count is minutes of kernel work and an app that looks hung. Inventor
+/// caps patterns for the same reason.
+const int kPatternMaxCount = 512;
+
+/// The step between neighbouring occurrences.
+///
+/// [PatternDistribution.spacing] means the typed value IS the step;
+/// [PatternDistribution.distance] means it is the TOTAL the occurrences fill
+/// and the step is that divided by the gaps. A full 360° circle has as many
+/// gaps as occurrences (the last one wraps onto the first), which is why it
+/// divides by [count] rather than by count - 1 — without that a "6 at 360°"
+/// bolt circle puts two holes in the same place.
+double patternStep(double value, int count, PatternDistribution d,
+    {bool wrapsFullTurn = false}) {
+  if (d == PatternDistribution.spacing) return value;
+  if (count <= 1) return value;
+  return wrapsFullTurn ? value / count : value / (count - 1);
+}
+
+/// WHERE every copy of a pattern goes, as pure geometry.
+///
+/// Deliberately free of the kernel, the model and the app: given the feature,
+/// the centre of what is being patterned and (for a sketch-driven pattern)
+/// the points, this is arithmetic — and arithmetic that is wrong in a corner
+/// (the 360° wrap, the midplane centring, an occurrence landing back on the
+/// original) is exactly what a host test can pin down and a device cannot.
+///
+/// [refPoint] is the centre of the patterned geometry. It only matters for a
+/// circular pattern with [PatternOrient.fixed] (where the copy travels round
+/// the axis without turning) and as the default base point of a sketch-driven
+/// pattern.
+///
+/// The ORIGINAL is never in the result: it is already in the body. Any
+/// occurrence whose placement comes out as the identity — the middle one of
+/// an odd midplane row, a sketch point sitting on the base point — is dropped
+/// for the same reason, since building it would fuse a solid onto itself.
+List<PatternOccurrence> patternOccurrences(PatternFeature f,
+    {Vec3 refPoint = Vec3.zero, List<Vec3> points = const []}) {
+  final out = <PatternOccurrence>[];
+  switch (f.mode) {
+    case PatternKind.rectangular:
+      final a = f.dirA;
+      if (a == null || !a.valid) return const [];
+      final ua = a.unit * (f.flipA ? -1.0 : 1.0);
+      final b = f.dirB;
+      final ub = (b != null && b.valid) ? b.unit * (f.flipB ? -1.0 : 1.0) : null;
+      final na = f.countA.clamp(1, kPatternMaxCount);
+      final nb = ub == null ? 1 : f.countB.clamp(1, kPatternMaxCount);
+      final sa = patternStep(f.distanceA, na, f.distributionA);
+      final sb = patternStep(f.distanceB, nb, f.distributionB);
+      // Midplane centres the SPAN on the original: with an odd count one
+      // occurrence lands on it (and is dropped as the identity), with an even
+      // count the original sits between the two middle ones. That is what
+      // "distributed on both sides of the original feature" describes.
+      final oa = f.midplaneA ? (na - 1) / 2.0 : 0.0;
+      final ob = f.midplaneB ? (nb - 1) / 2.0 : 0.0;
+      for (var ib = 0; ib < nb; ib++) {
+        for (var ia = 0; ia < na; ia++) {
+          final d = ua * ((ia - oa) * sa) +
+              (ub == null ? Vec3.zero : ub * ((ib - ob) * sb));
+          final m = translationMat34(d);
+          if (isIdentityMat34(m)) continue;
+          out.add(PatternOccurrence(1 + ia + ib * na, m));
+        }
+      }
+      return out;
+    case PatternKind.circular:
+      final ax = f.axis;
+      if (ax == null || !ax.valid) return const [];
+      final k = ax.unit * (f.flipC ? -1.0 : 1.0);
+      final n = f.countC.clamp(1, kPatternMaxCount);
+      final full = (f.angleC.abs() - 360).abs() < 1e-9;
+      final stepDeg = patternStep(f.angleC, n, f.distributionC,
+          wrapsFullTurn: full && f.distributionC == PatternDistribution.distance);
+      for (var i = 1; i < n; i++) {
+        final ang = stepDeg * i * math.pi / 180.0;
+        final rot = rotationMat34(ax.point, k, ang);
+        // Fixed orientation: the copy travels to where the rotation would put
+        // it and keeps the parent's attitude — so the placement is the pure
+        // translation from the reference point to its rotated image.
+        final m = f.orientation == PatternOrient.fixed
+            ? translationMat34(
+                _applyMat34(rot, refPoint) - refPoint)
+            : rot;
+        if (isIdentityMat34(m)) continue;
+        out.add(PatternOccurrence(1 + i, m));
+      }
+      return out;
+    case PatternKind.sketchDriven:
+      if (points.isEmpty) return const [];
+      final base = f.basePicked ? points.first : refPoint;
+      // With a base point picked, that point is the one the parent sits on,
+      // so it must not also receive a copy. [points] arrives with the base
+      // point first exactly so this stays a list operation and not a search
+      // with its own tolerance.
+      for (var i = 0; i < points.length; i++) {
+        final m = translationMat34(points[i] - base);
+        if (isIdentityMat34(m)) continue;
+        out.add(PatternOccurrence(1 + i, m));
+      }
+      return out;
+    case PatternKind.mirror:
+      final p = f.mirrorPlane;
+      if (p == null || !p.valid) return const [];
+      return const [PatternOccurrence(2, null, mirror: true)];
+  }
+}
+
+/// Applies a row-major 3x4 placement to a point.
+Vec3 _applyMat34(List<double> m, Vec3 p) => Vec3(
+      m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3],
+      m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7],
+      m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11],
+    );
+
+/// The sketch frame an occurrence's copy of a feature is built in.
+///
+/// Only needed by [PatternCompute.adjust], which rebuilds each occurrence
+/// where it lands instead of copying the finished solid. Moving the FRAME is
+/// what makes the rebuild resolve "To Next" / "Through All" against the body
+/// under that occurrence — the profile numbers never change, only the plane
+/// they are read on.
+PlaneFrame placedFrame(PlaneFrame f, List<double> m) {
+  Vec3 rot(Vec3 v) => Vec3(
+        m[0] * v.x + m[1] * v.y + m[2] * v.z,
+        m[4] * v.x + m[5] * v.y + m[6] * v.z,
+        m[8] * v.x + m[9] * v.y + m[10] * v.z,
+      );
+  return PlaneFrame(
+      f.key, rot(f.u), rot(f.v), rot(f.n), _applyMat34(m, f.origin));
+}
+
+/// The sketch frame of a MIRRORED occurrence.
+///
+/// A reflection maps a right-handed frame to a left-handed one, and a
+/// left-handed frame is not a placement any kernel will accept. Negating v
+/// restores the handedness (u × v = n again) at the price of reading the
+/// profile mirrored in v — which is why this comes with [mirrorProfilesInV]
+/// and why the two must always travel together. Reflecting the frame and
+/// forgetting the profile silently builds the ORIGINAL shape at the mirrored
+/// place: right position, wrong part.
+PlaneFrame mirroredFrame(PlaneFrame f, Vec3 planePoint, Vec3 planeNormal) {
+  final n = planeNormal.normalized();
+  Vec3 refl(Vec3 v) => v - n * (2 * v.dot(n));
+  final o = f.origin - n * (2 * (f.origin - planePoint).dot(n));
+  return PlaneFrame(f.key, refl(f.u), refl(f.v) * -1.0, refl(f.n), o);
 }
 
 // ---------------------------------------------------------------------------
@@ -3714,6 +4361,25 @@ abstract class PartKernel {
   /// assembly becomes several bodies rather than one opaque compound. Empty
   /// list on failure or when the file holds no solids.
   List<KernelSolid> importStepSolids(String path);
+
+  // ---- M212: the two placements a PATTERN needs -------------------------
+  //
+  // Concrete and null-returning for the same reason as the M131 additions
+  // above: three test fakes implement PartKernel, and a fake that does not
+  // model placement should say so rather than break every unrelated test.
+
+  /// A NEW solid = [s] moved by the row-major rigid 3x4 [mat34]. [s] stays
+  /// owned by the caller. This is what every pattern occurrence except a
+  /// mirror is: the same tool solid, somewhere else.
+  KernelSolid? placeSolid(KernelSolid s, List<double> mat34) => null;
+
+  /// A NEW solid = [s] reflected about the plane through [planePoint] with
+  /// normal [planeNormal]. Its own method rather than a matrix through
+  /// [placeSolid] because a reflection is not a rigid motion — the shim
+  /// refuses det -1 there deliberately, so that a wrong frame can never
+  /// silently turn a solid inside out (occt_capi.h, occt_transform).
+  KernelSolid? mirrorSolid(KernelSolid s, Vec3 planePoint, Vec3 planeNormal) =>
+      null;
 }
 
 /// Applies Inventor's Output boolean [output] to combine [base] (the
@@ -4272,6 +4938,47 @@ class OcctPartKernel implements PartKernel {
     }
   }
 
+  @override
+  KernelSolid? placeSolid(KernelSolid s, List<double> mat34) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sh = s.shape;
+    if (sh == null) {
+      _err = 'placing a pattern occurrence needs a kernel-backed solid';
+      return null;
+    }
+    if (mat34.length != 12) {
+      _err = 'a placement matrix has 12 numbers, got ${mat34.length}';
+      return null;
+    }
+    return _wrapOwned(ffi, sh.transformed(mat34));
+  }
+
+  @override
+  KernelSolid? mirrorSolid(KernelSolid s, Vec3 planePoint, Vec3 planeNormal) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sh = s.shape;
+    if (sh == null) {
+      _err = 'mirroring needs a kernel-backed solid';
+      return null;
+    }
+    final n = planeNormal.normalized();
+    if (n.length < 0.5) {
+      _err = 'the mirror plane has no normal direction';
+      return null;
+    }
+    return _wrapOwned(
+        ffi,
+        sh.mirrored(
+            planePoint.x, planePoint.y, planePoint.z, n.x, n.y, n.z));
+  }
 }
 
 /// Re-matches [profiles] against the current regions of [sketchName] and
@@ -4280,7 +4987,8 @@ class OcctPartKernel implements PartKernel {
 /// Shared by extrude and revolve: both pick profiles from a sketch the same
 /// way, and duplicating this was how the two would have drifted apart.
 (List<List<List<Offset>>>?, PlaneFrame?, String?) resolveProfiles(
-    PartModel part, String sketchName, List<ProfileSel> profiles) {
+    PartModel part, String sketchName, List<ProfileSel> profiles,
+    {OccurrenceAt? at}) {
   final cs = part.sketchByName(sketchName);
   if (cs == null) return (null, null, 'sketch "$sketchName" no longer exists');
   final regions = regionsFrom(profileLoops(cs.model));
@@ -4311,6 +5019,20 @@ class OcctPartKernel implements PartKernel {
     groups.add([best.outer.pts, for (final h in best.holes) h.pts]);
   }
   if (groups.isEmpty) return (null, null, 'no profile selected');
+  // M212 — a PATTERN occurrence built with Adjust reads the same profile on a
+  // MOVED plane, so the caller may hand in the frame. [at] also decides
+  // whether the profile is read mirrored, which is the only way a reflected
+  // occurrence can keep a right-handed frame (see [OccurrenceAt]).
+  if (at != null) {
+    if (at.mirrorInV) {
+      for (final g in groups) {
+        for (var i = 0; i < g.length; i++) {
+          g[i] = [for (final p in g[i]) Offset(p.dx, -p.dy)];
+        }
+      }
+    }
+    return (groups, at.frame, null);
+  }
   return (groups, sketchFrameOf(cs), null);
 }
 
@@ -4321,10 +5043,13 @@ class OcctPartKernel implements PartKernel {
 /// [base] is the accumulated solid of this feature's body at this position.
 /// A body-modifying feature (fillet, chamfer) REQUIRES it — that is its
 /// input, not something to combine with afterwards.
+/// [at] moves the build somewhere else — M212's Adjust pattern occurrences,
+/// which are rebuilt where they land instead of copied. Null (the normal
+/// case) builds the feature on its own sketch plane.
 bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
-    {KernelSolid? base}) {
+    {KernelSolid? base, OccurrenceAt? at}) {
   final ok = Perf.span(
-      'kernel.feature', () => _recomputeFeature(part, f, kernel, base));
+      'kernel.feature', () => _recomputeFeature(part, f, kernel, base, at));
   // M164 — every feature rebuild, named, with its outcome. A part that comes
   // back different after a reopen is a SEQUENCE of these going wrong, and
   // until now the log showed only the ones that happened to toast.
@@ -4354,8 +5079,8 @@ bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   return ok;
 }
 
-bool _recomputeFeature(
-    PartModel part, PartFeature f, PartKernel kernel, KernelSolid? base) {
+bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
+    KernelSolid? base, [OccurrenceAt? at]) {
   // M182 — a failing recompute leaves the feature SICK, honestly, per the
   // repo's long-standing contract ("deleting the profile marks the feature
   // sick, honestly", m56): it holds no solid and reports its error. The
@@ -4365,8 +5090,9 @@ bool _recomputeFeature(
   f.disposeSolid();
   f.computeError = null;
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
-  if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base);
-  if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base);
+  if (f is PatternFeature) return _recomputePattern(part, f, kernel, base);
+  if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
+  if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
   if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
   if (f is LoftFeature) return _recomputeLoft(part, f, kernel);
   if (f is CoilFeature) return _recomputeCoil(part, f, kernel);
@@ -4454,8 +5180,14 @@ double? faceDistance(KernelSolid solid, PlaneFrame frame,
 /// at which it first meets material, which is what [PartKernel.revolveHits]
 /// answers. The smallest positive angle across the picked profile anchors
 /// wins, for the same reason the nearest hit wins for an extrude.
+/// [axPy]/[axDy] override the stored axis. Only M212's mirrored pattern
+/// occurrences pass them: their profile is read mirrored in v, so the axis
+/// that belongs to it is mirrored in v too. Everything else leaves them null
+/// and gets the feature's own axis.
 (double, double, String?) resolveRevolveSweep(
-    RevolveFeature f, PlaneFrame frame, KernelSolid? base, PartKernel kernel) {
+    RevolveFeature f, PlaneFrame frame, KernelSolid? base, PartKernel kernel,
+    {double? axPy, double? axDy}) {
+  final ay = axPy ?? f.axPy, ady = axDy ?? f.axDy;
   if (f.extent == FeatureExtent.distance) {
     final sweep = f.sweepDeg;
     return (sweep, f.startOffsetDeg,
@@ -4475,8 +5207,8 @@ double? faceDistance(KernelSolid solid, PlaneFrame frame,
     return (360.0, 0.0, null);
   }
   // The axis lives in sketch coordinates; the body does not.
-  final axP = frame.toWorld(Offset(f.axPx, f.axPy));
-  final axD = frame.u * f.axDx + frame.v * f.axDy;
+  final axP = frame.toWorld(Offset(f.axPx, ay));
+  final axD = frame.u * f.axDx + frame.v * ady;
   final flipped = f.direction == ExtrudeDirection.flipped;
   final face = f.extentFace;
   if (f.extent == FeatureExtent.toFace && face == null) {
@@ -4572,9 +5304,9 @@ double? faceDistance(KernelSolid solid, PlaneFrame frame,
 }
 
 bool _recomputeExtrude(PartModel part, ExtrudeFeature f, PartKernel kernel,
-    KernelSolid? base) {
+    KernelSolid? base, [OccurrenceAt? at]) {
   final (groups, frame, err) =
-      resolveProfiles(part, f.sketchName, f.profiles);
+      resolveProfiles(part, f.sketchName, f.profiles, at: at);
   if (groups == null || frame == null) {
     f.computeError = err ?? 'profile resolution failed';
     return false;
@@ -4594,9 +5326,9 @@ bool _recomputeExtrude(PartModel part, ExtrudeFeature f, PartKernel kernel,
 }
 
 bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
-    KernelSolid? base) {
+    KernelSolid? base, [OccurrenceAt? at]) {
   final (groups, frame, err) =
-      resolveProfiles(part, f.sketchName, f.profiles);
+      resolveProfiles(part, f.sketchName, f.profiles, at: at);
   if (groups == null || frame == null) {
     f.computeError = err ?? 'profile resolution failed';
     return false;
@@ -4605,8 +5337,15 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
     f.computeError = 'no axis of revolution selected';
     return false;
   }
+  // M212 — a MIRRORED occurrence reads its profile mirrored in v (see
+  // [OccurrenceAt]), and the axis lives in those same sketch coordinates, so
+  // it has to follow. Without this the mirrored profile would revolve about
+  // a line it no longer touches.
+  final mir = at != null && at.mirrorInV;
+  final axPy = mir ? -f.axPy : f.axPy;
+  final axDy = mir ? -f.axDy : f.axDy;
   final (sweep, startOffset, sweepErr) =
-      resolveRevolveSweep(f, frame, base, kernel);
+      resolveRevolveSweep(f, frame, base, kernel, axPy: axPy, axDy: axDy);
   if (sweepErr != null || !(sweep > 0)) {
     f.computeError = sweepErr ?? 'angle must be greater than 0';
     return false;
@@ -4615,8 +5354,8 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
   // The shim always sweeps in the positive direction from the profile, so the
   // offset rides in the placement transform — the same trick extrudeSpan uses
   // for the linear case, and the reason neither path ever mirrors a solid.
-  final solid = kernel.revolve(groups, sweep, f.axPx, f.axPy, f.axDx, f.axDy,
-      frame.mat34Rotated(f.axPx, f.axPy, f.axDx, f.axDy, startOffset));
+  final solid = kernel.revolve(groups, sweep, f.axPx, axPy, f.axDx, axDy,
+      frame.mat34Rotated(f.axPx, axPy, f.axDx, axDy, startOffset));
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;
@@ -4824,6 +5563,411 @@ bool _recomputeBodyModify(
   final note = report.note(ids.length, sizeLabel);
   if (note != null) Log.i('feature', '${f.name}: $note');
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// M212 — building a pattern
+// ---------------------------------------------------------------------------
+
+/// Where an OCCURRENCE of a feature is rebuilt, for [PatternCompute.adjust].
+///
+/// [frame] is the feature's own sketch plane, moved to the occurrence.
+/// [mirrorInV] says the profile must be read mirrored in v — the price of
+/// keeping a reflected frame right-handed, and inseparable from it (see
+/// [mirroredFrame]).
+class OccurrenceAt {
+  final PlaneFrame frame;
+  final bool mirrorInV;
+  const OccurrenceAt(this.frame, {this.mirrorInV = false});
+}
+
+/// Which SKETCH plane a feature is built on, or null when it has none.
+///
+/// Only the sketch-based kinds have one, and only they can be rebuilt
+/// somewhere else. This is what decides whether Adjust has anything to do.
+String? featureSketchOf(PartFeature f) =>
+    f.sketchName.isEmpty ? null : f.sketchName;
+
+/// The points a sketch-driven pattern places its occurrences on.
+///
+/// Inventor drives these patterns from sketch POINTS — the centre points a
+/// sketch carries, not its curves. M209 made a point a tagged circle (the
+/// QCAD core has no point entity), so that tag is what identifies one here;
+/// circle centres are deliberately NOT included, or every hole in the sketch
+/// would silently become a pattern position.
+///
+/// Returned in the sketch's own coordinates, in geometry order, so a stored
+/// base point can be matched against them.
+List<Offset> sketchPatternPoints(SketchModel m) {
+  final out = <Offset>[];
+  for (final g in m.geometry) {
+    if (!g.isSketchPoint || g.data.length < 2) continue;
+    out.add(Offset(g.data[0], g.data[1]));
+  }
+  return out;
+}
+
+/// Centre of a solid, used as the reference point of a pattern: the middle of
+/// its bounding box.
+///
+/// The bounding box and not the centre of mass, deliberately — it is what the
+/// shim already reports for free, and the reference point only ever measures
+/// a DISPLACEMENT (fixed-orientation circular occurrences, the default base
+/// point of a sketch-driven pattern), so the two differ by a constant that
+/// cancels. Null when the solid carries no B-Rep, and the callers then say so
+/// rather than pretending the part is centred on the origin.
+Vec3? solidCentre(KernelSolid s) {
+  final bb = s.shape?.bbox();
+  if (bb == null || bb.length != 6) return null;
+  return Vec3(
+      (bb[0] + bb[3]) / 2, (bb[1] + bb[4]) / 2, (bb[2] + bb[5]) / 2);
+}
+
+/// One thing a pattern copies: a tool solid and the boolean it was combined
+/// into the body with.
+class _PatternTool {
+  final PartFeature? source; // null in solid mode
+  final KernelSolid solid;
+  final String output; // 'join' | 'cut' | 'intersect'
+  _PatternTool(this.source, this.solid, this.output);
+}
+
+bool _recomputePattern(
+    PartModel part, PatternFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    // Inventor greys the pattern commands out with nothing to pattern; a
+    // saved file can still reach here when the upstream feature broke.
+    f.computeError = 'nothing to pattern — no solid before this feature';
+    return false;
+  }
+  // ---- 1. what is being copied -----------------------------------------
+  final tools = <_PatternTool>[];
+  final owned = <KernelSolid>[]; // everything this build must free again
+  String? fail;
+
+  void disposeOwned() {
+    for (final s in owned) {
+      s.dispose();
+    }
+    owned.clear();
+  }
+
+  if (f.patternSolid) {
+    // Inventor's "Pattern a solid": the whole body is the tool, and every
+    // occurrence is joined onto it.
+    tools.add(_PatternTool(null, base, 'join'));
+  } else if (f.sources.isEmpty) {
+    f.computeError = 'no features selected to pattern';
+    return false;
+  } else {
+    for (final name in f.sources) {
+      final src = _patternSource(part, f, name);
+      if (src == null) {
+        f.computeError = 'the patterned feature "$name" is not available any '
+            'more — it was deleted, suppressed, moved below this pattern, or '
+            'builds a different body';
+        disposeOwned();
+        return false;
+      }
+      if (src is PatternFeature || src.modifiesBody) {
+        // A fillet is not a shape, it is a modification of one, and there is
+        // no tool solid to copy. Inventor patterns them by re-running the
+        // whole feature per occurrence, which this build does not do — say so
+        // instead of silently dropping the selection.
+        f.computeError = '"$name" is a ${src.typeLabel.toLowerCase()} and '
+            'cannot be patterned on its own — pattern the feature it shapes';
+        disposeOwned();
+        return false;
+      }
+      if (src is ExtrudeFeature && src.imported) {
+        f.computeError = '"$name" is an imported body and has no feature to '
+            'copy — pattern the solid instead';
+        disposeOwned();
+        return false;
+      }
+      // A CLONE, so building the tool cannot disturb the real feature's
+      // folded solid (which holds the whole body at its own position) or
+      // re-anchor its profile selections behind its back.
+      final clone = PartFeature.fromJson(src.toJson());
+      if (clone == null || !recomputeFeature(part, clone, kernel, base: base)) {
+        f.computeError = clone?.computeError ??
+            'the patterned feature "$name" could not be rebuilt';
+        disposeOwned();
+        return false;
+      }
+      final tool = clone.solid;
+      if (tool == null) {
+        f.computeError = 'the patterned feature "$name" produced no solid';
+        disposeOwned();
+        return false;
+      }
+      clone.solid = null; // ownership moves here
+      owned.add(tool);
+      // 'new' means the source STARTED a body; an occurrence of it belongs to
+      // the body being patterned, so it joins.
+      tools.add(_PatternTool(
+          src, tool, src.output == 'new' ? 'join' : src.output));
+    }
+  }
+
+  // ---- 2. where the copies go ------------------------------------------
+  final refPoint = solidCentre(tools.first.solid) ?? Vec3.zero;
+  var points = const <Vec3>[];
+  if (f.mode == PatternKind.sketchDriven) {
+    final (pts, perr) = patternPointsOf(part, f);
+    if (pts == null) {
+      f.computeError = perr;
+      disposeOwned();
+      return false;
+    }
+    points = pts;
+  }
+  final occurrences = patternOccurrences(f, refPoint: refPoint, points: points);
+  if (occurrences.isEmpty) {
+    f.computeError = _patternInputError(f);
+    disposeOwned();
+    return false;
+  }
+
+  // ---- 3. combine them into the body -----------------------------------
+  //
+  // `result` is always a solid this function owns, EXCEPT when it is still
+  // `base` — that one belongs to the feature upstream and must never be
+  // disposed here. `resultOwned` is what keeps those two apart; getting it
+  // wrong is a double free on the device and nothing at all on the host.
+  var result = base;
+  var resultOwned = false;
+  var built = 0, skipped = 0;
+
+  bool combine(KernelSolid tool, String output) {
+    final next = combineSolids(kernel, output, result, tool);
+    if (next == null) return false;
+    if (resultOwned) result.dispose();
+    result = next;
+    resultOwned = true;
+    return true;
+  }
+
+  final plane = f.mirrorPlane;
+  // Inventor's Remove Original: only the mirrored half survives, so there is
+  // nothing to join it ONTO and the occurrence loop has nothing to do. Doing
+  // it anyway would mirror the body twice and throw the first one away.
+  final removeOnly = f.mode == PatternKind.mirror &&
+      f.removeOriginal &&
+      f.patternSolid &&
+      plane != null;
+  for (final occ in removeOnly ? const <PatternOccurrence>[] : occurrences) {
+    if (f.suppressed.contains(occ.index)) {
+      skipped++;
+      continue;
+    }
+    for (final t in tools) {
+      KernelSolid? placed;
+      var adjusted = false;
+      if (f.compute == PatternCompute.adjust && t.source != null) {
+        // Adjust only differs for a feature that HAS a termination; for the
+        // others it falls through to the placed copy, which is what
+        // "Identical and Adjust are the same solid here" means. A rebuild
+        // that was attempted and failed does NOT fall through — see
+        // [_adjustedOccurrence].
+        (placed, adjusted) =
+            _adjustedOccurrence(part, f, t.source!, kernel, base, occ);
+      }
+      if (!adjusted) {
+        placed = _placeOccurrence(kernel, t.solid, occ, plane);
+      }
+      if (placed == null) {
+        fail = kernel.lastError.isEmpty
+            ? 'occurrence ${occ.index} could not be placed'
+            : 'occurrence ${occ.index}: ${kernel.lastError}';
+        break;
+      }
+      final ok = combine(placed, t.output);
+      placed.dispose();
+      if (!ok) {
+        fail = 'occurrence ${occ.index} could not be ${t.output}ed into the '
+            'body${kernel.lastError.isEmpty ? "" : " (${kernel.lastError})"}';
+        break;
+      }
+      built++;
+    }
+    if (fail != null) break;
+  }
+
+  if (fail == null && removeOnly) {
+    // The result is exactly the mirror of the body — not the body plus its
+    // mirror.
+    final only = kernel.mirrorSolid(base, plane.point, plane.normal);
+    if (only == null) {
+      fail = kernel.lastError.isEmpty ? 'the mirror failed' : kernel.lastError;
+    } else {
+      if (resultOwned) result.dispose();
+      result = only;
+      resultOwned = true;
+    }
+  }
+
+  disposeOwned();
+  if (fail != null) {
+    if (resultOwned) result.dispose();
+    f.computeError = fail;
+    return false;
+  }
+  if (!resultOwned) {
+    // Every occurrence was suppressed. The body is unchanged, and handing on
+    // `base` itself would give two features one solid and a double free at
+    // the next rebuild — so it is copied by placing it with the identity.
+    final copy = kernel.placeSolid(base, translationMat34(Vec3.zero));
+    if (copy == null) {
+      f.computeError = kernel.lastError.isEmpty
+          ? 'every occurrence is suppressed and the body could not be copied'
+          : kernel.lastError;
+      return false;
+    }
+    result = copy;
+  }
+  f.solid = result;
+  f.builtOccurrences = occurrences.length + 1; // + the original
+  Log.i(
+      'feature',
+      '${f.name}: ${patternKindName(f.mode)} built $built occurrence'
+          '${built == 1 ? "" : "s"} of ${f.patternSolid ? "the solid" : "${tools.length} feature(s)"}'
+          '${skipped == 0 ? "" : ", $skipped suppressed"}'
+          '${f.compute == PatternCompute.adjust ? ", adjusted" : ""}');
+  return true;
+}
+
+/// The feature named [name], if it is a legitimate source for [f]: on the
+/// same body, above the pattern, and actually built.
+PartFeature? _patternSource(PartModel part, PatternFeature f, String name) {
+  for (final g in part.features) {
+    if (identical(g, f)) return null; // reached the pattern first: it is below
+    if (g.name != name) continue;
+    if (g.rolledBack) return null;
+    // The source must build into the SAME body. Not a rule for tidiness: the
+    // rebuild key of this feature is the running chain hash of its own body,
+    // so a source on another body could change without this pattern noticing
+    // — a cached fold of yesterday's geometry, which is the exact failure
+    // mode the chain hash exists to prevent.
+    if (g.bodyName != f.bodyName) return null;
+    return g;
+  }
+  return null;
+}
+
+/// Why a pattern produced no occurrences — the missing input, by name, rather
+/// than "nothing happened".
+String _patternInputError(PatternFeature f) => switch (f.mode) {
+      PatternKind.rectangular => f.dirA == null || !f.dirA!.valid
+          ? 'no direction selected for Direction A'
+          : 'the pattern has only one occurrence — increase the count',
+      PatternKind.circular => f.axis == null || !f.axis!.valid
+          ? 'no rotation axis selected'
+          : 'the pattern has only one occurrence — increase the count',
+      PatternKind.sketchDriven =>
+        'the sketch holds no points to place occurrences on',
+      PatternKind.mirror => 'no mirror plane selected',
+    };
+
+/// World points of a sketch-driven pattern, base point FIRST when one was
+/// picked (which is the order [patternOccurrences] documents).
+(List<Vec3>?, String?) patternPointsOf(PartModel part, PatternFeature f) {
+  if (f.pointSketch.isEmpty) return (null, 'no sketch of points selected');
+  final cs = part.sketchByName(f.pointSketch);
+  if (cs == null) {
+    return (null, 'the sketch "${f.pointSketch}" no longer exists');
+  }
+  final pts = sketchPatternPoints(cs.model);
+  if (pts.isEmpty) {
+    return (null, 'the sketch "${f.pointSketch}" holds no points — a '
+        'sketch-driven pattern places one occurrence per sketch point');
+  }
+  final frame = sketchFrameOf(cs);
+  final ordered = <Offset>[];
+  if (f.basePicked) {
+    // The base point is where the ORIGINAL sits, so it goes first and never
+    // receives a copy of its own. Matched by position because a sketch point
+    // has no identity that survives an edit — the same contract ProfileSel
+    // and EdgeSel work under.
+    var bi = 0;
+    var bd = double.infinity;
+    for (var i = 0; i < pts.length; i++) {
+      final d = (pts[i] - Offset(f.baseX, f.baseY)).distance;
+      if (d < bd) {
+        bd = d;
+        bi = i;
+      }
+    }
+    ordered.add(pts[bi]);
+    for (var i = 0; i < pts.length; i++) {
+      if (i != bi) ordered.add(pts[i]);
+    }
+  } else {
+    ordered.addAll(pts);
+  }
+  return ([for (final p in ordered) frame.toWorld(p)], null);
+}
+
+/// Places a tool solid at one occurrence — a rigid move, or the reflection.
+KernelSolid? _placeOccurrence(PartKernel kernel, KernelSolid tool,
+    PatternOccurrence occ, PlaneRef? plane) {
+  if (occ.mirror) {
+    if (plane == null) return null;
+    return kernel.mirrorSolid(tool, plane.point, plane.normal);
+  }
+  final m = occ.mat34;
+  if (m == null) return null;
+  return kernel.placeSolid(tool, m);
+}
+
+/// [PatternCompute.adjust] — rebuild [src] AT the occurrence, so its
+/// termination resolves against the body there.
+///
+/// Returns null when this feature kind has nothing to adjust (no sketch plane
+/// to move, or a plain Distance extent that would produce the identical
+/// solid), and the caller then places the copy instead. Failing here would be
+/// wrong: Adjust asks for each occurrence to be measured where it lands, and
+/// for a feature with no measurement to make, the copy IS that answer.
+(KernelSolid?, bool) _adjustedOccurrence(PartModel part, PatternFeature f,
+    PartFeature src, PartKernel kernel, KernelSolid base,
+    PatternOccurrence occ) {
+  const notApplicable = (null, false);
+  final sketch = featureSketchOf(src);
+  if (sketch == null) return notApplicable;
+  if (src is! ExtrudeFeature && src is! RevolveFeature) return notApplicable;
+  final ext =
+      src is ExtrudeFeature ? src.extent : (src as RevolveFeature).extent;
+  if (ext == FeatureExtent.distance) return notApplicable; // nothing to measure
+  final cs = part.sketchByName(sketch);
+  if (cs == null) return notApplicable;
+  final frame = sketchFrameOf(cs);
+  OccurrenceAt at;
+  if (occ.mirror) {
+    final plane = f.mirrorPlane;
+    if (plane == null) return notApplicable;
+    at = OccurrenceAt(mirroredFrame(frame, plane.point, plane.normal),
+        mirrorInV: true);
+  } else {
+    final m = occ.mat34;
+    if (m == null) return notApplicable;
+    at = OccurrenceAt(placedFrame(frame, m));
+  }
+  final clone = PartFeature.fromJson(src.toJson());
+  if (clone == null) return notApplicable;
+  if (!recomputeFeature(part, clone, kernel, base: base, at: at)) {
+    // An occurrence that cannot terminate where it landed is real news — a
+    // hole through thin air — so it FAILS the feature rather than quietly
+    // falling back to a copy of the original, which would silently be the
+    // wrong depth. That is what the `true` says.
+    Log.w(
+        'feature',
+        '${f.name}: occurrence ${occ.index} of ${src.name} could not be '
+            'adjusted: ${clone.computeError}');
+    return (null, true);
+  }
+  final out = clone.solid;
+  clone.solid = null;
+  return (out, true);
 }
 
 /// Sampled display curve of a sketch entity (for drawing it on its plane

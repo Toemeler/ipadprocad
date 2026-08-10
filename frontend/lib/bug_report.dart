@@ -180,6 +180,19 @@ List<String> featureDump(PartModel p) {
         out.add('     radii=${f.radii}  radii2=${f.radii2}');
       }
     }
+    // M212 — a pattern's inputs are NAMES of other features, so the params
+    // dump alone does not say whether they still exist. This line does.
+    if (f is PatternFeature) {
+      final missing = [
+        for (final n in f.sources)
+          if (!p.features.any((g) => g.name == n)) n
+      ];
+      out.add('     patterns '
+          '${f.patternSolid ? "the solid ${f.bodyName}" : (f.sources.isEmpty ? "(nothing)" : f.sources.join(", "))}'
+          ' -> ${f.builtOccurrences} occurrence(s) built'
+          '${f.suppressed.isEmpty ? "" : ", suppressed ${(f.suppressed.toList()..sort())}"}'
+          '${missing.isEmpty ? "" : "  MISSING SOURCES: ${missing.join(", ")}"}');
+    }
   }
   return out;
 }

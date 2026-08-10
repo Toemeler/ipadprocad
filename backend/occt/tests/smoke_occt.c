@@ -529,6 +529,53 @@ int main(void)
         occt_free_shape(b);
     }
 
+    /* [13b] v17 mirror ----------------------------------------------------- */
+    {
+        /* A box at x in [0,10] mirrored about the plane x = 0 must land at
+         * x in [-10,0] with the same volume, and it must still FUSE — which
+         * is the whole point of the orientation correction: an inside-out
+         * mirrored solid makes the boolean produce nonsense (or nothing). */
+        occt_shape *b = occt_make_box(10.0, 20.0, 30.0);
+        const double plane[6] = {0, 0, 0, 1, 0, 0}; /* x = 0, normal +x */
+        occt_shape *mir = b ? occt_mirror(b, plane) : NULL;
+        if (check(mir != NULL, "[13b] mirror returned NULL")) {
+            double bb[6];
+            if (check(occt_bbox(mir, bb), "[13b] bbox(mirror) failed")) {
+                printf("[13b] mirrored bbox x[%.3f,%.3f]\n", bb[0], bb[3]);
+                check(near_rel(bb[0], -10.0, 1e-6) && fabs(bb[3]) < 1e-6,
+                      "[13b] mirror did not reflect the box across x = 0");
+            }
+            check(near_rel(occt_shape_volume(mir), 6000.0, 1e-9),
+                  "[13b] mirrored volume is not the original volume");
+            check(occt_shape_valid(mir), "[13b] mirrored shape is not valid");
+            occt_shape *both = b ? occt_fuse(b, mir) : NULL;
+            if (check(both != NULL, "[13b] fuse(original, mirror) failed")) {
+                check(near_rel(occt_shape_volume(both), 12000.0, 1e-6),
+                      "[13b] mirrored half did not add its volume — the "
+                      "reflection is probably inside out");
+            }
+            occt_free_shape(both);
+        }
+        occt_free_shape(mir);
+        /* an offset plane mirrors about ITS location, not about the origin */
+        const double p2[6] = {15, 0, 0, 1, 0, 0};
+        occt_shape *mir2 = b ? occt_mirror(b, p2) : NULL;
+        if (check(mir2 != NULL, "[13b] offset-plane mirror returned NULL")) {
+            double bb[6];
+            if (check(occt_bbox(mir2, bb), "[13b] bbox(mirror2) failed")) {
+                check(near_rel(bb[0], 20.0, 1e-6) && near_rel(bb[3], 30.0, 1e-6),
+                      "[13b] mirror about x = 15 landed in the wrong place");
+            }
+        }
+        occt_free_shape(mir2);
+        const double pbad[6] = {0, 0, 0, 0, 0, 0};
+        check(occt_mirror(b, pbad) == NULL,
+              "[13b] a zero-length normal was not rejected");
+        check(occt_mirror(NULL, plane) == NULL,
+              "[13b] mirror(NULL) did not return NULL");
+        occt_free_shape(b);
+    }
+
     /* [14] v2 failure paths must not crash -------------------------------- */
     check(occt_mesh_create(NULL, 0.5, 0.5) == NULL,
           "[14] mesh_create(NULL) did not return NULL");

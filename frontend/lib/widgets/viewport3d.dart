@@ -21,6 +21,7 @@ import '../log.dart';
 import '../part_pick.dart';
 import '../pick_math.dart';
 import '../perf.dart';
+import '../ffi/qcad_engine.dart' show Geo;
 import '../part_model.dart';
 import '../part_render.dart';
 import '../reality_scene.dart';
@@ -106,7 +107,13 @@ class _Viewport3DState extends State<Viewport3D>
       return true;
     }
     if (k == LogicalKeyboardKey.escape) {
-      if (widget.app.pickPlane || widget.app.extrudeSession != null) {
+      if (widget.app.pickPlane ||
+          widget.app.extrudeSession != null ||
+          widget.app.edgeSession != null ||
+          // M212 — Esc must reach the pattern panel too: it is a 3D command
+          // like the others, and escape3D already knows the order (a pick
+          // backs out of the pick, not out of the panel that owns it).
+          widget.app.patternSession != null) {
         widget.app.escape3D();
         return true;
       }
@@ -357,7 +364,10 @@ class _Viewport3DState extends State<Viewport3D>
               if (!app.pickPlane &&
                   app.extrudeSession == null &&
                   app.edgeSession == null &&
-                  !app.pickingEdges) {
+                  !app.pickingEdges &&
+                  // M212 — ...and a pattern selector waiting for a plane or a
+                  // direction means the tap belongs to THAT, not to a drag.
+                  app.patternSession == null) {
                 final w = _workPlaneAt(cam, e.localPosition, p);
                 if (w != null) {
                   _wpDrag = w;
@@ -1277,9 +1287,154 @@ class _Viewport3DState extends State<Viewport3D>
     return null;
   }
 
+  /// M212 — one tap, routed to whichever pattern selector is armed.
+  ///
+  /// Every branch either fills its field or says what it wanted; a miss never
+  /// silently disarms the selector, because a pattern is usually defined by
+  /// picking twice in the same corner of the model and losing the arming on
+  /// the first near-miss is what makes a pick field feel unreliable.
+  void _patternTap(Cam3 cam, Offset px) {
+    final app = widget.app;
+    final p = part!;
+    final s = app.patternSession!;
+    switch (s.active) {
+      case PatternField.dirA:
+      case PatternField.dirB:
+      case PatternField.axis:
+        // An ORIGIN AXIS outranks an edge: it is drawn thinner and is easier
+        // to miss, so within tolerance of both it is what was meant (the same
+        // rule the revolve axis pick follows).
+        final origin = _hitOrigin(cam, px, p);
+        if (origin == 'x' || origin == 'y' || origin == 'z') {
+          final d = switch (origin) {
+            'x' => const Vec3(1, 0, 0),
+            'y' => const Vec3(0, 1, 0),
+            _ => const Vec3(0, 0, 1),
+          };
+          app.patternAxisPicked(
+              Vec3.zero, d, '${origin!.toUpperCase()} Axis');
+          return;
+        }
+        final hit = _pickEdgeAt(cam, px);
+        if (hit != null) {
+          final ax = edgeAxis(hit.$1.mesh, hit.$2.displayEdge);
+          if (ax != null) {
+            app.patternAxisPicked(ax.$1, ax.$2, ax.$3);
+            return;
+          }
+          app.toast('That edge is a spline — it defines no single direction.');
+          return;
+        }
+        // A sketch LINE is a direction too, and on a part whose origin axes
+        // are switched off it is often the only one to hand.
+        final key = _pickSketchCurve(cam, px);
+        final line = key == null ? null : _sketchLineOf(p, key);
+        if (line != null) {
+          app.patternAxisPicked(line.$1, line.$2, 'Sketch line');
+          return;
+        }
+        app.toast('Pick a straight or circular edge, a sketch line, or an '
+            'origin axis.');
+      case PatternField.plane:
+        final face = _pickSolidFace(cam, px);
+        final key = _hitOrigin(cam, px, p, planesOnly: true);
+        final planeD = key != null
+            ? (_planeDepthAt(cam, px, key) ?? double.infinity)
+            : double.infinity;
+        final faceD = face?.$4 ?? double.infinity;
+        if (face != null && faceD <= planeD) {
+          app.patternPlanePicked(face.$3.origin, face.$3.n, 'Face');
+          return;
+        }
+        final fr = key == null ? null : frameForPlaneKey(p, key);
+        if (fr != null) {
+          app.patternPlanePicked(fr.origin, fr.n,
+              kPlaneKeys.contains(key) ? '${key!.toUpperCase()} Plane'
+                  : (_workPlaneById(p, key!)?.name ?? 'Work Plane'));
+          return;
+        }
+        app.toast('Pick a planar face, a work plane, or an origin plane.');
+      case PatternField.pointSketch:
+      case PatternField.basePoint:
+        final hit = _sketchPointAt(cam, px, p);
+        if (hit == null) {
+          app.toast('Pick a sketch POINT — the occurrences go where the '
+              'points are.');
+          return;
+        }
+        if (s.active == PatternField.pointSketch) {
+          app.patternPointSketchPicked(hit.$1);
+        } else {
+          app.patternBasePointPicked(hit.$1, hit.$2);
+        }
+      case PatternField.solid:
+        final solid = _pickSolidAny(cam, px);
+        final name = solid == null ? null : _bodyNameOf(p, solid);
+        if (name == null) {
+          app.toast('Pick the solid body to pattern.');
+          return;
+        }
+        app.patternBodyPicked(name);
+      case PatternField.features:
+      case PatternField.none:
+        break;
+    }
+  }
+
+  /// The sketch LINE behind a `sketchName#index` pick key, as (point,
+  /// direction) in world coordinates. Null when the key names anything else.
+  (Vec3, Vec3)? _sketchLineOf(PartModel p, String key) {
+    final i = key.lastIndexOf('#');
+    if (i < 0) return null;
+    final cs = p.sketchByName(key.substring(0, i));
+    final gi = int.tryParse(key.substring(i + 1)) ?? -1;
+    if (cs == null || gi < 0 || gi >= cs.model.geometry.length) return null;
+    final g = cs.model.geometry[gi];
+    if (g.type != Geo.line || g.data.length < 4) return null;
+    final frame = sketchFrameOf(cs);
+    final a = frame.toWorld(Offset(g.data[0], g.data[1]));
+    final b = frame.toWorld(Offset(g.data[2], g.data[3]));
+    final d = b - a;
+    return d.length < 1e-9 ? null : (a, d.normalized());
+  }
+
+  /// The sketch POINT under [px]: its sketch name and its position in that
+  /// sketch's coordinates. Points are what a sketch-driven pattern is made
+  /// of, and they are markers rather than curves, so they get their own hit
+  /// test rather than going through the curve picker.
+  (String, Offset)? _sketchPointAt(Cam3 cam, Offset px, PartModel p) {
+    const tolPx = 14.0;
+    (String, Offset)? best;
+    var bestD = tolPx * tolPx;
+    for (final cs in p.childSketches) {
+      // Only what is DRAWN can be tapped: a point in a hidden sketch is not
+      // on screen, and picking one would be picking something invisible.
+      if (cs.rolledBack || !cs.visible) continue;
+      final frame = sketchFrameOf(cs);
+      for (final pt in sketchPatternPoints(cs.model)) {
+        final sp = cam.project(frame.toWorld(pt));
+        final dx = sp.dx - px.dx, dy = sp.dy - px.dy;
+        final d2 = dx * dx + dy * dy;
+        if (d2 <= bestD) {
+          bestD = d2;
+          best = (cs.model.name, pt);
+        }
+      }
+    }
+    return best;
+  }
+
   void _tap(Cam3 cam, Offset px) {
     final app = widget.app;
     final p = part!;
+    // M212 — the PATTERN panel's selectors come FIRST, before even the plain
+    // sketch-curve selection: while the panel is waiting for a direction, an
+    // axis, a plane or a point, that is what the tap is for. Anything below
+    // would otherwise consume it and the pick field would look dead.
+    if (app.patternPicking3D) {
+      _patternTap(cam, px);
+      return;
+    }
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
     if (!app.pickPlane && app.extrudeSession == null) {
