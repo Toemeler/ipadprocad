@@ -27,6 +27,12 @@ const String kIdFeature = 'ft:';
 const String kIdWorkPlane = 'wp:';
 const String kIdBody = 'bd:';
 const String kIdOrigin = 'or:';
+
+/// M212 — one OCCURRENCE of a pattern feature: `oc:<feature>#<index>`, with
+/// the index in Inventor's numbering (the original is 1). Suppressing one is
+/// a property of the pattern, so the row addresses the pattern plus a number
+/// rather than an object of its own.
+const String kIdOccurrence = 'oc:';
 const String kIdEos = '__eos__';
 const String kIdEop = '__eop__';
 
@@ -179,16 +185,27 @@ List<GlassRow> _buildRows(
         final consumed = part.sketchByName(f.sketchName);
         final nests = consumed != null &&
             identical(firstConsumerOf(part, f.sketchName), f);
+        // M212 — a pattern's OCCURRENCES nest under it, exactly as Inventor
+        // lists them, so one of them can be suppressed without touching the
+        // rest. A pattern never nests a consumed sketch (it consumes none),
+        // so the two uses of the chevron cannot collide.
+        final pat = f is PatternFeature ? f : null;
         rows.add(GlassRow(
           id: '$kIdFeature${f.name}',
           label: f.name,
-          symbol: f.computeError != null ? 'exclamationmark.triangle' : 'cube',
+          symbol: f.computeError != null
+              ? 'exclamationmark.triangle'
+              : (pat == null ? 'cube' : _patternSymbol(pat.mode)),
           tint: f.computeError != null ? 'red' : null,
           depth: 1,
           hasEye: true,
           eyeOn: f.visible,
           dim: !f.visible || f.rolledBack,
-          expandable: nests,
+          // M212 — while the pattern panel is picking features, a tap on a
+          // feature row ADDS it to the selection, so it is highlighted like
+          // any other picked thing.
+          selected: app.patternHasFeature(f.name),
+          expandable: nests || (pat != null && pat.occurrenceCount > 1),
           // M182 — the expansion key MUST be the row id ('ft:Name'): the host
           // stores exactly what onExpand handed it. It used to look up the
           // bare name here, so the set held 'ft:Extrusion1' while the row
@@ -197,6 +214,26 @@ List<GlassRow> _buildRows(
           expanded: expanded.contains('$kIdFeature${f.name}'),
           menu: _featureMenu(f),
         ));
+        if (pat != null && expanded.contains('$kIdFeature${f.name}')) {
+          for (var i = 2; i <= pat.occurrenceCount; i++) {
+            final off = pat.suppressed.contains(i);
+            rows.add(GlassRow(
+              id: '$kIdOccurrence${f.name}#$i',
+              label: 'Occurrence $i',
+              symbol: off ? 'circle.dashed' : 'cube',
+              depth: 2,
+              dim: off,
+              menu: [
+                [
+                  GlassMenuItem(
+                      id: off ? 'ocRestore' : 'ocSuppress',
+                      title: off ? 'Restore Occurrence' : 'Suppress Occurrence',
+                      symbol: off ? 'eye' : 'eye.slash'),
+                ]
+              ],
+            ));
+          }
+        }
         if (nests && expanded.contains('$kIdFeature${f.name}')) {
           rows.add(GlassRow(
             id: '$kIdNested${consumed.model.name}',
@@ -326,6 +363,15 @@ List<List<GlassMenuItem>> _bodyMenu(AppState app, bool on) => [
             destructive: true),
       ],
     ];
+
+/// SF Symbol for each pattern kind, so the browser row says WHICH pattern it
+/// is without opening it.
+String _patternSymbol(PatternKind k) => switch (k) {
+      PatternKind.rectangular => 'square.grid.3x3',
+      PatternKind.circular => 'circle.grid.cross',
+      PatternKind.sketchDriven => 'point.3.connected.trianglepath.dotted',
+      PatternKind.mirror => 'flip.horizontal',
+    };
 
 List<List<GlassMenuItem>> _featureMenu(PartFeature f) => [
       [

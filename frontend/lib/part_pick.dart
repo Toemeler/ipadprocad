@@ -178,3 +178,52 @@ EdgePick? pickEdge(
   }
   return best.value;
 }
+
+// ---------------------------------------------------------------------------
+// M212 — the DIRECTION or AXIS a picked edge stands for
+// ---------------------------------------------------------------------------
+
+/// The line a display edge defines: a point on it and a direction.
+///
+/// A pattern asks a different question of an edge than a fillet does. A
+/// fillet wants the edge itself; a rectangular pattern wants the DIRECTION it
+/// runs in, and a circular pattern wants the AXIS it turns about — and for a
+/// circular edge those are not the same thing at all: the direction of a
+/// circle is meaningless, its axis is the useful answer.
+///
+/// Read from the mesh's analytic curve records (`occt_mesh_edge_curves`,
+/// 16 doubles per display edge), not from the tessellation, so a bolt circle
+/// gives its exact axis rather than the chord of whichever facet was tapped:
+///   type 1 line:    [1, p0.xyz, p1.xyz, ...]
+///   type 2 circle:  [2, centre.xyz, xdir.xyz, ydir.xyz, radius, t0, t1]
+///   type 3 ellipse: [3, centre.xyz, xdir.xyz, ydir.xyz, majR, minR, t0, t1]
+///
+/// Null when the mesh carries no curve records (a fake, a legacy mesh) or the
+/// edge is a spline — neither of which defines one line, and guessing one
+/// from two tessellation points is how a pattern ends up 0.3° off.
+(Vec3, Vec3, String)? edgeAxis(OcctMeshData m, int displayEdge) {
+  const stride = 16;
+  if (displayEdge < 0) return null;
+  final at = displayEdge * stride;
+  if (at + stride > m.edgeCurves.length) return null;
+  final type = m.edgeCurves[at].round();
+  Vec3 v(int i) => Vec3(
+      m.edgeCurves[at + i], m.edgeCurves[at + i + 1], m.edgeCurves[at + i + 2]);
+  switch (type) {
+    case 1:
+      final p0 = v(1), p1 = v(4);
+      final d = p1 - p0;
+      return d.length < 1e-9 ? null : (p0, d.normalized(), 'Edge');
+    case 2:
+    case 3:
+      // The axis of a circle (or ellipse) is the normal of its plane, and the
+      // plane is spanned by the two conjugate directions the shim reports.
+      final c = v(1), xd = v(4), yd = v(7);
+      final n = xd.cross(yd);
+      return n.length < 1e-9
+          ? null
+          : (c, n.normalized(), type == 2 ? 'Circular edge' : 'Elliptical edge');
+    default:
+      return null;
+  }
+}

@@ -12,7 +12,7 @@ import '../app_state.dart';
 import '../log.dart';
 import '../perf.dart';
 import '../menus.dart';
-import '../part_model.dart' show WorkPlaneKind;
+import '../part_model.dart' show PatternKind, WorkPlaneKind;
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -508,6 +508,26 @@ class _RibbonState extends State<Ribbon> {
       Perf.span('menu.ribbon.part', () => _partRibbonInner(app));
 
   Widget _partRibbonInner(AppState app) {
+    // Like [col], but each row can also LIGHT UP — a part command that is
+    // currently open says so, the way the Extrude button does.
+    Widget colActive(List<(String, String, VoidCallback?, bool)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      onTap: rows[i].$3 ?? () {},
+                      active: rows[i].$4),
+                ]
+              ]),
+        );
     Widget col(List<(String, String, VoidCallback?)> rows,
             {double leftPad = 8}) =>
         Padding(
@@ -547,7 +567,10 @@ class _RibbonState extends State<Ribbon> {
                 icon: CR['extrude']!,
                 label: 'Extrude',
                 onTap: () => app.openExtrude(),
-                active: app.extrudeSession != null),
+                // M210 — the highlight names THIS command, not "some panel is
+                // open": it toggles now, and a button that lights for a
+                // revolve would toggle the wrong thing off.
+                active: app.extrudeSession?.kind == 'extrude'),
             _BigWide(
                 width: 58,
                 icon: CR['revolve']!,
@@ -614,16 +637,24 @@ class _RibbonState extends State<Ribbon> {
             ]),
           ]),
         ),
+        // M212 — the four pattern commands, wired. They toggle like every
+        // other part command (M210) and light for the one that is open.
         _panel(
           label: 'Pattern',
           arrow: false,
           child: Row(children: [
-            col([
-              (PT['rect']!, 'Rectangular', null),
-              (PT['circ']!, 'Circular', null),
-              (PT['sketch']!, 'Sketch Driven', null),
+            colActive([
+              (PT['rect']!, 'Rectangular', app.openRectPattern,
+                  app.patternKind == PatternKind.rectangular),
+              (PT['circ']!, 'Circular', app.openCircPattern,
+                  app.patternKind == PatternKind.circular),
+              (PT['sketch']!, 'Sketch Driven', app.openSketchPattern,
+                  app.patternKind == PatternKind.sketchDriven),
             ], leftPad: 2),
-            col([(PT['mirror']!, 'Mirror', null)]),
+            colActive([
+              (PT['mirror']!, 'Mirror', app.openMirror,
+                  app.patternKind == PatternKind.mirror)
+            ]),
           ]),
         ),
       ]),

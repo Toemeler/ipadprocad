@@ -25,6 +25,36 @@ export 'reality_payload.dart';
 /// feature name, which is unique within a part.
 List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
   final sess = app.extrudeSession;
+  final edge = app.edgeSession;
+  // M210 — A PREVIEW ONLY HIDES WHAT IT CAN STAND IN FOR.
+  //
+  // "When i select extrude the solid is invisible suddenly."
+  //
+  // Editing a feature hides that feature, and a boolean preview hides the
+  // whole body it is joining into or cutting from — because the preview shows
+  // the combined result and drawing both would double the shape. Right, as
+  // long as there IS a preview. From the bug20260805T230356 log:
+  //
+  //     feature: FAIL Extrusion5 ... err=the termination face is not
+  //                                    reachable from this profile
+  //     reality: setScene #98: 0 solid(s) —
+  //
+  // The extent's face reference did not survive the re-edit, so the preview
+  // failed and was null — and the body it would have replaced stayed hidden
+  // anyway. Nothing was drawn at all, and the part looked deleted while a
+  // panel sat open over an empty viewport.
+  //
+  // The slice case three lines down already states this rule ("a failed slice
+  // must never make the part vanish"); it simply was not applied to the two
+  // previews. Nothing to stand in means nothing to hide.
+  final sessHides = sess?.preview != null;
+  final edgeHides = edge?.preview != null;
+  // M212 — a pattern preview stands in for its whole body exactly like a
+  // fillet's does: it IS that body with the occurrences in it, so leaving the
+  // un-patterned original in the scene would draw the first hole through the
+  // middle of the preview.
+  final pat = app.patternSession;
+  final patHides = pat?.preview != null;
   final out = <(String, KernelSolid)>[];
   for (final f in p.features) {
     if (f.visible &&
@@ -32,12 +62,14 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
         !f.consumedByJoin &&
         !f.rolledBack && // M91 — below End of Part
 
-        f != sess?.editing &&
-        f.bodyName != sess?.previewReplacesBody &&
+        !(sessHides && f == sess?.editing) &&
+        !(sessHides && f.bodyName == sess?.previewReplacesBody) &&
         // M126 — a fillet/chamfer preview REPLACES its body; leaving the
         // original in would draw the un-filleted edges straight through it.
-        f != app.edgeSession?.editing &&
-        f.bodyName != app.edgeSession?.previewReplacesBody) {
+        !(edgeHides && f == edge?.editing) &&
+        !(edgeHides && f.bodyName == edge?.previewReplacesBody) &&
+        !(patHides && f == pat?.editing) &&
+        !(patHides && f.bodyName == pat?.previewReplacesBody)) {
       // M168 — Slice Graphics substitutes the CUT solid for the whole one, so
       // every consumer (payload, signature, triangle budget, thumbnails) sees
       // one consistent scene. Null means "not slicing" or "the cut failed",
@@ -716,6 +748,11 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     // a solid one. The open panel is the signal that it is uncommitted.
     scene['preview'] =
         solidPayload('__preview__', app.edgeSession!.preview!);
+  } else if (app.patternSession?.preview != null) {
+    // Same reasoning as the fillet preview: it is the whole body, so it is
+    // drawn as one — you cannot count holes through frosted glass.
+    scene['preview'] =
+        solidPayload('__preview__', app.patternSession!.preview!);
   }
   final hl = _highlightPayload(app, p, hoverFace);
   if (hl != null) scene['highlight'] = hl;
@@ -798,6 +835,12 @@ String sceneSignature(AppState app, PartModel p) {
         : identityHashCode(app.edgeSession!.preview!.mesh))
     ..write(';eprevrepl:')
     ..write(app.edgeSession?.previewReplacesBody ?? '')
+    ..write(';pprev:')
+    ..write(app.patternSession?.preview == null
+        ? 0
+        : identityHashCode(app.patternSession!.preview!.mesh))
+    ..write(';pprevrepl:')
+    ..write(app.patternSession?.previewReplacesBody ?? '')
     ..write(';pick:')
     ..write(app.pickPlane ? 1 : 0)
     ..write(';vis:');

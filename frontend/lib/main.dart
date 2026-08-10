@@ -24,6 +24,7 @@ import 'package:native_menu/native_menu.dart';
 
 import 'widgets/native_browser_host.dart';
 import 'widgets/quick_tools.dart';
+import 'widgets/pattern_panel_3d.dart';
 import 'widgets/ribbon.dart';
 import 'widgets/ribbon_chrome.dart';
 import 'widgets/viewport.dart';
@@ -296,6 +297,11 @@ class PrototypeApp extends StatelessWidget {
                                             ExtrudeDialog(app: app),
                                           if (app.edgeSession != null)
                                             EdgeFeatureDialog(app: app),
+                                          // M212 — Rectangular / Circular /
+                                          // Sketch Driven / Mirror, one
+                                          // modeless panel for all four.
+                                          if (app.patternSession != null)
+                                            PatternPanel3D(app: app),
                                           // M169 — the work plane's dynamic
                                           // offset input. Anchored over the
                                           // viewport, never modal: the plane
