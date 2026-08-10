@@ -8363,3 +8363,155 @@ analyze 0 errors, **573 gruen**.
   `forSketch(...)`. Das ist ungefaehrlich (kein Ueberschreiben der
   Ebenenausrichtung), aber die Eingabe erreicht die 3D-Ebene ohnehin nicht,
   weil das 2D-Overlay darueber liegt.
+
+---
+
+## M210–M219 — Die Performance-Messinfrastruktur (NUR Analyse, nichts optimiert)
+
+**Branch:** `claude/perf-deep-analysis` · **Stand:** `92ffc56` · **Build 399**
+**Volle Details:** `PERF_ANALYSIS.md` (Abschnitte 8–14), Messplan in
+`PERF_PLAN.md`. Dieser Eintrag ist der Einstiegspunkt.
+
+### Die stehende Regel
+
+Der Auftrag war ausdruecklich: *„Don't optimize anything, only analyse."*
+Daran wurde sich gehalten — **am Verhalten der App ist nichts geaendert**.
+Alles unten ist Messtechnik. Die Reparaturen sind noch zu machen und stehen
+unter „Rangliste".
+
+### Was gebaut wurde
+
+**Die Selbstfahr-Suite** — die App misst sich selbst mit festen Eingaben, ohne
+dass jemand tippt. Ausgeloest vom Bug-Button, ein JSON pro Lauf:
+
+| Datei | Inhalt |
+| --- | --- |
+| `perf_scenarios.dart` | Kern: Solver, DOF-Analyse, Zahnraeder, Fixtures (`sketchFixture`, `constraintFixture`), Runner |
+| `perf_scenarios_tools.dart` | JEDES Zeichenwerkzeug (generisch aus `toolMeta`), Modify, 2D-Fillet, Constraint-Inferenz, alle 12 Constraint-Typen, Freihand |
+| `perf_scenarios_kernel.dart` | Jede OCCT-Operation, gegen die richtige Achse gesweept |
+| `perf_scenarios_ui.dart` | Malen (phasenweise), Zug, Snap — durch den ECHTEN Painter |
+| `perf_scenarios_app.dart` | Muster, Projektion, Szenen-Payload, Undo, 3D-Picken, Feature-Rebuild |
+| `perf_scenarios_ramp.dart` | **Rampen**: feine Schritte statt drei Punkte, mit LOKALEM Exponent pro Schritt |
+| `perf_scenarios_quality.dart` | Rauschgrenze, Speicher pro Entity/Solid, Frame-Budget-Grenzen, Cache-Wirksamkeit |
+| `perf_scenarios_stress.dart` | **Opt-in** (`stress` in die Beschreibung tippen): Leitern bis zur Wand |
+
+**Native Sonden** — was Dart nicht sehen kann:
+
+* `packages/native_menu/ios/Classes/PerfProbe.swift` — Thermalzustand,
+  `phys_footprint` (iOS killt darauf, nicht auf RSS), Restspeicher,
+  CPU pro Thread. Gezogen vor UND nach der Suite.
+* `packages/reality_view/ios/Classes/RvPerf.swift` — die Zeit JENSEITS der
+  Platform-View-Grenze, phasenweise. Dart ZIEHT die Tabelle (`perfDrain`).
+
+**Auswertung** — `ci/perf_report.py <bundle.zip>`:
+1. Ist der Lauf vertrauenswuerdig (Thermik, Energiesparmodus, tote Sonden)
+2. Wie weit geht es (Stress-Leitern)
+3. Kostenkurven mit gefittetem n^k
+4. Wo die Zeit hinging — Suite und echte Sitzung getrennt
+5. `--baseline <alt.zip>` fuer den Diff
+
+**Neu instrumentiert** (vorher unsichtbar): `sketch.analyze`, `2d.snap`,
+`part.rebuildAll`, `part.rebuild.passes`, `kernel.feature.<kind>`,
+`solve.slvs`, `solve.lm`, `solve.path.*`, `solve.slvs.rejected.*`.
+
+### Rangliste der Befunde — das ist die To-do-Liste
+
+**1. `occt_shape_edge_info` ist O(n²).** Zweifach belegt: im Quelltext
+(`backend/occt/shim/occt_capi.cpp:1679` und `:1733` — ZWEI vollstaendige
+Topologie-Durchlaeufe pro Aufruf, danach weggeworfen) und in der Messung (EIN
+`edgeInfo` = 3.014 ms erklaert 92.7 % der 1171 ms fuer 360 Kanten; die
+Kontrollen `counts()`/`bbox()` auf demselben Solid kosten 0.2 ms).
+Hochgerechnet ~48 s auf dem Teil, das abgestuerzt ist.
+**Reparatur gehoert in den Shim** — ein Durchlauf, der ein Array fuellt, als
+Bulk-Einstiegspunkt. Dart-seitiges Batching wuerde nur die Grenzuebergaenge
+sparen (7 %) und die Quadratik unberuehrt lassen.
+
+**2. Der Solver faellt vom schnellen Pfad — Faktor 334.** Normaler Zug
+0.277 ms pro Solve, davon 81 % in libslvs. Ueberbestimmt: 92.5 ms, davon
+0.4 % in libslvs. Mechanismus in `solver.dart:2172`: libslvs rechnet, Dart
+verifiziert gegen die eigenen Residuen, verwirft bei Residuum > 1e-4, und dann
+laeuft der Dart-LM — beim Ziehen zweimal (`lm-frozen`, dann `lm-relaxed`), je
+80 Iterationen ueber ein 168-Parameter-System. Bei zwei Solves pro Frame sind
+das ~185 ms/Frame ≈ 5 fps. Erklaert auch die 3.92-s-Spitze aus der ersten
+Sitzung: `solve.total` Schlechtestwert 178.7 ms bei p50 0.275 ms, waehrend
+`ffi.slvs.solve` bei 4.1 ms bleibt.
+
+**3. Der Painter loest ZWEIMAL pro Frame.** `viewport.dart:2088` (Segment
+`ent.dofColour`) und `:2683` (Segment `constraints`) rufen beide
+`displayGeometry`. 60 gemalte Frames → 120 Solves. Zusammen 87 % der Malzeit
+im Zug; das eigentliche Zeichnen ist 12.5 %.
+
+**4. `analyzeSketch` ist n^2.33** und laeuft bei jedem Rebuild, jedem Solve und
+jedem Tab-Wechsel (`app_state.dart:2163`, `:2183`, `:6486`). 26 ms bei 128
+Entities. War bis M212 voellig unvermessen.
+
+**5. RealityKit: die Ursprungsebenen, nicht die Geometrie.**
+`rv.native.setScene` 55.44 ms, davon `rv.native.planes` 55.24 ms und
+`rv.native.solids` 0.06 ms. Der Mesh-Upload ist praktisch kostenlos.
+
+**6. Fillet:** die Kandidatensuche (`allEdges`) kostet bei EINER Kante 4.9x das
+Verrunden. Und der Radius zaehlt massiv: r=1.0 ≈ 10 ms, r=4.0 ≈ 664 ms auf
+demselben Solid — Faktor 66.
+
+**Mit Zahlen entlastet:** Zahnradgenerierung (linear, Cache traegt), Snapping
+(0.0044 ms/Event, 5x billiger als Picken), DOF-Faerbung, Booleans,
+Tessellierung, `allGeometry`, Ribbon-Rebuilds, Start (76 ms), 3D-Picken,
+Projektion, Szenen-Payload, Dokument-Codec.
+
+### Wie man es benutzt
+
+1. Build 399 (oder neuer) sideloaden.
+2. Bug-Button druecken. ~30–60 s. Fuer die Grenzen: `stress` in die
+   Beschreibung tippen (dann Minuten — die Leiter faehrt absichtlich die
+   Operation, die die App schon umgebracht hat).
+3. `python3 ci/perf_report.py <bundle.zip>` — oder mit
+   `--baseline <alter.zip>` fuer den Diff.
+
+**Beim Lesen zuerst pruefen:** `lowPowerMode` und den Thermalzustand. Der Lauf
+vom 6.8. abends lief im Energiesparmodus und war dadurch gleichmaessig ~2x
+langsamer als der davor — ohne die native Sonde haette der Bericht „alles
+doppelt so langsam" gemeldet und eine Regressionssuche ausgeloest, die es
+nicht gibt.
+
+### Was noch fehlt
+
+1. **RealityKits eigener Renderloop.** `RvPerf` misst bis zur Uebergabe; was
+   der Renderer danach auf seinem eigenen Zeitplan tut, gehoert dem OS.
+2. **Ein Sampling-Profiler** (VM-Service `getCpuSamples` → Perfetto). Die
+   Suite sagt, welche OPERATION was kostet; ein Profiler saegt, welche ZEILE.
+   Fuer `analyzeSketch` ist das der Unterschied zwischen „die Ranganalyse ist
+   kubisch" und „diese Schleife ist es".
+3. **`kernel.sweepTwist` liefert null** — der Waechter meldet es, und seit
+   M216 protokolliert er auch `lastError`. Beim naechsten Geraetelauf steht
+   der Grund im Log.
+4. **`footprintMB` 1397 gegen `residentMB` 241** — ein Faktor 5 ist bei
+   RealityKit/Metal plausibel, aber gross genug, dass er gegengeprueft
+   gehoert, bevor jemand darauf eine Entscheidung stuetzt.
+5. **Die Stress- und Rampen-Tiers sind noch nie auf dem Geraet gelaufen.**
+   Sie sind gruen in CI (1580 Tests) und im IPA 399 enthalten, aber die
+   Zahlen, die sie produzieren sollen, gibt es noch nicht.
+
+### Lehren aus dieser Sitzung
+
+* **Ein Szenario, das nichts misst, liefert trotzdem eine Zahl — und die ist
+  von einer schnellen nicht zu unterscheiden.** Drei Fixtures waren kaputt
+  (`gear.curve` mass den Memo, `dofColour` eine Skizze ohne Constraints,
+  `2d.snap` existierte gar nicht), und spaeter drei Werkzeuge (`eqCurve`,
+  `circleTangent`, `slotOverall` gaben null zurueck). Deshalb pruefen die
+  Tests in `m213_perf_coverage_test.dart` keine Zeiten, sondern **dass jedes
+  Szenario sein Thema erreicht**.
+* **Test und Benchmark muessen durch DENSELBEN Einstiegspunkt laufen**
+  (`buildToolForPerf`). Den Aufruf im Test nachzubauen ist der Weg, auf dem
+  ein Test gruen bleibt, waehrend der Benchmark etwas anderes misst.
+* **`group()` nimmt in flutter_test kein `timeout:`** — nur `test()` und
+  `testWidgets()`. Diesen Fehler habe ich in dieser Sitzung ZWEIMAL gemacht.
+  Library-Annotation `@Timeout(...)` benutzen.
+* **Swift importiert nur Makros, die schlichte Konstanten sind.**
+  `THREAD_BASIC_INFO_COUNT` und Verwandte sind aus `sizeof` gebaut und muessen
+  als `MemoryLayout<...>.size / MemoryLayout<natural_t>.size` gerechnet werden.
+* **Vor dem Warten pruefen, ob der CI-Lauf zum HEAD gehoert.** Ich habe einen
+  veralteten Lauf beobachtet und ein Ergebnis vom falschen Commit gemeldet.
+* **Der Shim hat zwei Profilkodierungen:** `extrudeProfile`/`extrudePolygon`
+  nehmen (x,y)-PAARE, `extrudeProfileArcs`/`revolve`/`sweep`/`loft`/`coil`
+  nehmen (x,y,bulge)-TRIPEL. Die falsche wirft nicht — sie gibt null zurueck,
+  und die Operation liest sich als kostenlos.
