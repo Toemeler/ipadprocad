@@ -835,6 +835,18 @@ void main() {
       expect(app.patternSession, isNull, reason: 'the panel closes on OK');
     });
 
+    test('a single-occurrence pattern is refused by the PANEL, not by the '
+        'kernel', () async {
+      final app = await appWithPart(PatternRecorder());
+      app.openRectPattern();
+      app.patternToggleFeature(app.currentPart!.features.first);
+      app.patternPick(PatternField.dirA);
+      app.patternAxisPicked(Vec3.zero, const Vec3(1, 0, 0), 'X Axis');
+      app.patternSession!.exprCountA = '1';
+      app.patternChanged();
+      expect(app.patternSession!.previewError, contains('more than one'));
+    });
+
     test('a count field takes an expression but refuses a fraction',
         () async {
       final app = await appWithPart(PatternRecorder());

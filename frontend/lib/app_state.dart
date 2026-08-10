@@ -5131,7 +5131,11 @@ class AppState extends ChangeNotifier {
             ..distributionB = s.distributionB;
           f.irregularB.addAll(s.irregularB);
         }
-        if (f.countA * f.countB <= 1) {
+        // Through occurrenceCount, not countA * countB: a second direction
+        // that was never picked is not a second row, and multiplying by its
+        // leftover count let a one-occurrence pattern through the panel to
+        // fail in the kernel instead.
+        if (f.occurrenceCount <= 1) {
           return (null, 'A pattern needs more than one occurrence.');
         }
       case PatternKind.circular:

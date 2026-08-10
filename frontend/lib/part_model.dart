@@ -6878,6 +6878,10 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     if (f is ExtrudeFeature && f.imported) {
       final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
       if (prevI != null && prevI.solid != null) prevI.consumedByJoin = true;
+      // M213 — an imported body owns its faces as much as a built one does,
+      // and picking one has to name it rather than come back "unknown".
+      f.ownSurfaces =
+          f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
       if (f.solid != null) chainLast[f.bodyName] = f;
       continue;
     }
