@@ -16,6 +16,84 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **M213 — die fuenf Dinge, die M212 ausdruecklich NICHT konnte. Jetzt
+> koennen sie es: Flaechen-Herkunft, gemusterte Verrundungen, Muster entlang
+> einer KURVE (mit Curve Length und Start), unregelmaessige Abstaende und
+> Winkel, und die Variable Orientierung.**
+>
+> **1. Flaechen-Herkunft — „welches Feature hat diese Flaeche gemacht?"**
+> In Inventor waehlt man ein Feature durch Anklicken einer seiner Flaechen.
+> Hier ging das nicht: nach dem Fold steht EIN Koerper pro Body, und dessen
+> Flaechen wissen nichts mehr von der Extrusion, aus der sie kamen. OCCTs
+> eigene Boolean-History (`Modified`/`Generated`) exportiert der Shim nicht,
+> und sie durch jede Operation zu faedeln waere eine neue ABI pro Feature-Art.
+>
+> Also wird die Herkunft GEOMETRISCH zurueckgewonnen, aus etwas, das der Fold
+> ohnehin in der Hand hat: dem eigenen Solid jedes Features, in dem einen
+> Moment, bevor die Boolesche es wegfaltet. Eine Boolesche BESCHNEIDET
+> Flaechen, aber sie VERSCHIEBT sie nicht — die Flaeche eines Ergebnisses
+> liegt weiter auf einer Flaeche, die einer der Operanden mitgebracht hat.
+> Verglichen wird darum die FLAECHE im Sinne der unendlichen Ebene bzw. des
+> ganzen Zylinders, nicht das beschnittene Stueck; und die Orientierung wird
+> bewusst ignoriert, denn ein Loch hat die Wand des Werkzeugs mit umgedrehter
+> Normale — genau deshalb ist ein Schnitt ueberhaupt zuordenbar. Ein
+> koerper-veraenderndes Feature beansprucht nur, was es HINZUGEFUEGT hat
+> (Ergebnis minus Basis), sonst wuerde eine Verrundung jede Flaeche des
+> Koerpers fuer sich reklamieren. Und eine Flaeche, die niemand erklaert,
+> bleibt UNBEKANNT statt geraten zu werden.
+>
+> **2. Verrundungen und Fasen lassen sich mustern.** Eine Verrundung ist
+> keine Form, sondern die Aenderung einer — es gibt kein Volumen zu kopieren.
+> Wiederholt wird darum die OPERATION: die Kanten-Fingerabdruecke werden an
+> die Occurrence VERSCHOBEN (Laenge, Kurventyp und Radius aendert eine starre
+> Bewegung nicht — genau darum ist ein Fingerabdruck an der Kopie
+> wiederfindbar), gegen die Kanten des laufenden Ergebnisses aufgeloest und
+> derselbe Blend erneut ausgefuehrt. Die Werkzeuge werden dafuer in
+> BAUMREIHENFOLGE sortiert, nicht in Pickreihenfolge: eine Verrundung muss
+> nach der Extrusion laufen, die sie rundet, sonst sucht sie Kanten, die es
+> an dieser Stelle noch nicht gibt. Eine Verrundung ALLEIN wird abgelehnt
+> („waehle auch das Feature, das sie formt"), und ein Muster eines Musters
+> ebenfalls.
+>
+> **3. Reihen entlang einer KURVE.** Inventor laesst Zeilen und Spalten
+> „lines, arcs, splines, or trimmed ellipses" sein. Der Richtungs-Pick nimmt
+> jetzt jede Skizzenkurve: eine Gerade bleibt eine Richtung, alles andere
+> wird ein PFAD, und die Occurrences werden nach BOGENLAENGE darauf verteilt.
+> Damit gibt es endlich auch die dritte Distribution — **Curve Length**, die
+> auf die Kurve passt, die wirklich da ist — und den **Start** (Inventors
+> Extents-Abschnitt, der jetzt echten Inhalt hat: wo auf der Kurve das
+> Original sitzt, per Tipp gewaehlt). Die Orientierungsmethode gehoert
+> ebenfalls hierher: „Identical" behaelt die Lage des Originals, „Direction A"
+> dreht jede Kopie in die Tangente. Ueber das Kurvenende hinaus wird das
+> letzte Segment VERLAENGERT statt geklemmt — ein Muster, das zu lang ist,
+> laeuft sichtbar hinaus, statt alle restlichen Kopien still aufeinander zu
+> stapeln.
+>
+> **4. Irregular Distance / Irregular Angle** (Inventor 2026). Ein Eintrag
+> pro Schritt ersetzt dessen gleichmaessigen Versatz — also genau dieselbe
+> Groesse, die die Verteilung sonst ausrechnet, weshalb nichts weiter unten
+> wissen muss, welche Occurrence unregelmaessig ist. Neu angelegte Eintraege
+> starten auf dem gleichmaessigen Wert, aendern also erst dann etwas, wenn man
+> sie aendert. Die Eintraege stehen SORTIERT im Rebuild-Schluessel: die
+> Iterationsreihenfolge einer Map ist die Einfuegereihenfolge, und zwei
+> gleiche Muster, in anderer Reihenfolge eingegeben, duerfen nicht zwei
+> Schluessel ergeben.
+>
+> **5. Variable Orientierung (Follow Face)** beim skizzengesteuerten Muster:
+> mit gewaehlter Flaeche wird jede Kopie von der Normalen am ORIGINAL auf die
+> Normale dort gedreht, wo sie landet (aus dem Anzeige-Mesh abgetastet) — ein
+> Noppenmuster auf einer gewoelbten Schale steht damit aus der Schale heraus,
+> statt mit dem Original mitzukippen. Ein Punkt, der die Flaeche verfehlt,
+> behaelt die Original-Normale, statt auf irgendetwas zu kippen.
+>
+> **Ehrlicher Stand:** 26 weitere Tests im selben File (`m212_pattern_3d_test`,
+> Gruppen „M213 — …"), Suite **1643 gruen**, analyze 50 Issues / 0 Errors =
+> Ausgangsstand. **Am Geraet nicht nachgeprueft.** Die Flaechen-Herkunft ist
+> eine HEURISTIK und sagt das auch: sie ist auf Ebenen und Zylinder exakt
+> (analytische Flaechensaetze des Shims), bei Kegel/Kugel/Torus/Spline liefert
+> der Shim keine Parameter, dort entscheidet die Lage — und wenn nichts passt,
+> lautet die Antwort „unbekannt, waehle im Browser".
+
 > **M212 — die vier MUSTER im Teil: Rechteckig, Kreisfoermig,
 > Skizzengesteuert, Spiegeln. „Integrate all pattern tools in 3d mode",
 > recherchiert und gebaut wie in Inventor.**

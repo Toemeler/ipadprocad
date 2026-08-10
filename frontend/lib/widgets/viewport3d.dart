@@ -1191,7 +1191,11 @@ class _Viewport3DState extends State<Viewport3D>
     return (solids[hit.meshIndex], hit);
   }
 
-  (KernelSolid, int, PlaneFrame, double)? _pickSolidFace(Cam3 cam, Offset px) {
+  /// [planarOnly] is what sketch-on-face needs (Inventor only sketches on a
+  /// plane). M213 picks ANY face, because the feature that made a cylinder is
+  /// as selectable as the one that made a wall.
+  (KernelSolid, int, PlaneFrame, double)? _pickSolidFace(Cam3 cam, Offset px,
+      {bool planarOnly = true}) {
     (KernelSolid, int, PlaneFrame, double)? best;
     var bestDepth = double.infinity;
     for (final s in _liveSolids()) {
@@ -1228,8 +1232,10 @@ class _Viewport3DState extends State<Viewport3D>
           faceId = m.triFaces[t ~/ 3];
           // Only PLANAR faces accept sketches (Inventor) — authoritative
           // answer straight from the B-Rep surface record.
-          if (m.faceInfos[15 * faceId].round() != kFacePlane) continue;
-        } else {
+          if (planarOnly && m.faceInfos[15 * faceId].round() != kFacePlane) {
+            continue;
+          }
+        } else if (planarOnly) {
           // fallback: planar iff the tessellation vertex normals all equal
           // the geometric normal (curved faces fan out)
           var planar = true;
@@ -1326,15 +1332,57 @@ class _Viewport3DState extends State<Viewport3D>
           return;
         }
         // A sketch LINE is a direction too, and on a part whose origin axes
-        // are switched off it is often the only one to hand.
+        // are switched off it is often the only one to hand. Anything else —
+        // an arc, a spline, a trimmed ellipse — is a PATH the row runs along,
+        // which is exactly the range Inventor accepts for a row or column.
         final key = _pickSketchCurve(cam, px);
-        final line = key == null ? null : _sketchLineOf(p, key);
-        if (line != null) {
-          app.patternAxisPicked(line.$1, line.$2, 'Sketch line');
+        if (key != null) {
+          final line = _sketchLineOf(p, key);
+          if (line != null) {
+            app.patternAxisPicked(line.$1, line.$2, 'Sketch line');
+            return;
+          }
+          final path = _sketchPathOf(p, key);
+          if (path != null) {
+            if (s.active == PatternField.axis) {
+              app.toast('A rotation axis must be a straight line or an axis.');
+              return;
+            }
+            app.patternPathPicked(path, first: s.active == PatternField.dirA);
+            return;
+          }
+        }
+        app.toast('Pick a straight or circular edge, a sketch curve, or an '
+            'origin axis.');
+      case PatternField.startA:
+      case PatternField.startB:
+        final first = s.active == PatternField.startA;
+        final sel = first ? s.pathA : s.pathB;
+        if (sel == null) {
+          app.toast('Pick the curve for this direction first.');
           return;
         }
-        app.toast('Pick a straight or circular edge, a sketch line, or an '
-            'origin axis.');
+        final cs = p.sketchByName(sel.sketchName);
+        if (cs == null) {
+          app.toast('That curve is no longer available.');
+          return;
+        }
+        // The tap is turned into a point ON THE CURVE'S PLANE, which is where
+        // the curve is; the arc length nearest that point is the start.
+        final frame = sketchFrameOf(cs);
+        final w = cam.rayOnPlane(px, frame.n, frame.origin);
+        if (w == null) {
+          app.toast('Tap on the curve.');
+          return;
+        }
+        app.patternStartPicked(w, first: first);
+      case PatternField.orientFace:
+        final face = _pickSolidFace(cam, px, planarOnly: false);
+        if (face == null) {
+          app.toast('Tap the face the occurrences should follow.');
+          return;
+        }
+        app.patternOrientFacePicked(face.$3);
       case PatternField.plane:
         final face = _pickSolidFace(cam, px);
         final key = _hitOrigin(cam, px, p, planesOnly: true);
@@ -1376,6 +1424,26 @@ class _Viewport3DState extends State<Viewport3D>
         }
         app.patternBodyPicked(name);
       case PatternField.features:
+        // M213 — a face names the feature that made it. The provenance is
+        // recovered geometrically (see attributeFaces), so it can honestly
+        // fail to know; when it does, say which face and point at the
+        // browser rather than selecting something at random.
+        final face = _pickSolidFace(cam, px, planarOnly: false);
+        if (face == null) {
+          app.toast('Tap a face of the feature to pattern, or pick it in the '
+              'browser.');
+          return;
+        }
+        final owner = app.featureOfFace(face.$1, face.$2);
+        if (owner == null) {
+          app.toast('That face cannot be traced back to one feature — pick '
+              'the feature in the browser.');
+          return;
+        }
+        if (!app.patternToggleFeature(owner)) return;
+        app.toast(app.patternHasFeature(owner.name)
+            ? 'Added ${owner.name}.'
+            : 'Removed ${owner.name}.');
       case PatternField.none:
         break;
     }
@@ -1396,6 +1464,28 @@ class _Viewport3DState extends State<Viewport3D>
     final b = frame.toWorld(Offset(g.data[2], g.data[3]));
     final d = b - a;
     return d.length < 1e-9 ? null : (a, d.normalized());
+  }
+
+  /// The sketch CURVE behind a `sketchName#index` pick key, as the
+  /// re-findable [CurveSel] a pattern path is stored as. Null for a straight
+  /// line, which is a direction rather than a path.
+  CurveSel? _sketchPathOf(PartModel p, String key) {
+    final i = key.lastIndexOf('#');
+    if (i < 0) return null;
+    final name = key.substring(0, i);
+    final cs = p.sketchByName(name);
+    final gi = int.tryParse(key.substring(i + 1)) ?? -1;
+    if (cs == null || gi < 0 || gi >= cs.model.geometry.length) return null;
+    final g = cs.model.geometry[gi];
+    if (g.type == Geo.line) return null;
+    final pts = sketchCurve(g);
+    if (pts.length < 2) return null;
+    var len = 0.0;
+    for (var k = 1; k < pts.length; k++) {
+      len += (pts[k] - pts[k - 1]).distance;
+    }
+    return CurveSel(name, gi, pts.first.dx, pts.first.dy, pts.last.dx,
+        pts.last.dy, len);
   }
 
   /// The sketch POINT under [px]: its sketch name and its position in that

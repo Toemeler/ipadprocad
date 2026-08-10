@@ -1644,6 +1644,12 @@ abstract class PartFeature {
 
   // ---- runtime, never serialised ----
   KernelSolid? solid;
+
+  /// M213 — the surfaces THIS feature contributed to its body, captured by
+  /// the fold at the one moment they exist on their own: after the feature
+  /// built and before the boolean folds it away. What makes "click a face,
+  /// select the feature that made it" possible at all — see [attributeFaces].
+  List<FaceSurface> ownSurfaces = const [];
   String? computeError;
   bool consumedByJoin = false;
   bool rolledBack = false;
@@ -1701,6 +1707,10 @@ abstract class PartFeature {
     solid?.dispose();
     solid = null;
     builtSig = null;
+    // The surfaces described the solid that just went away. Keeping them
+    // would let a feature that failed to rebuild go on claiming faces of the
+    // body it is no longer part of.
+    ownSurfaces = const [];
   }
 
   /// Dispatching loader. An unknown 'kind' returns null and the caller drops
@@ -2665,13 +2675,23 @@ String patternTypeLabel(PatternKind k) => switch (k) {
 /// Fitted is the one to use when the design may change, because the pattern
 /// then re-divides the same total rather than growing out of its boundary —
 /// which is precisely Inventor's own advice.
-enum PatternDistribution { spacing, distance }
+/// [curveLength] is Inventor's third option and only exists for a direction
+/// that is a CURVE: the occurrences are fitted to the length of that curve,
+/// so the pattern re-divides itself when the curve is redrawn. It behaves as
+/// [distance] on a straight direction, where there is no curve to fit to.
+enum PatternDistribution { spacing, distance, curveLength }
 
-String patternDistName(PatternDistribution d) =>
-    d == PatternDistribution.distance ? 'distance' : 'spacing';
+String patternDistName(PatternDistribution d) => switch (d) {
+      PatternDistribution.distance => 'distance',
+      PatternDistribution.curveLength => 'curve',
+      PatternDistribution.spacing => 'spacing',
+    };
 
-PatternDistribution patternDistFrom(String? s) =>
-    s == 'distance' ? PatternDistribution.distance : PatternDistribution.spacing;
+PatternDistribution patternDistFrom(String? s) => switch (s) {
+      'distance' => PatternDistribution.distance,
+      'curve' => PatternDistribution.curveLength,
+      _ => PatternDistribution.spacing,
+    };
 
 /// Inventor's circular Orientation: [rotational] turns each occurrence with
 /// the axis (the usual bolt-circle look), [fixed] carries it around the axis
@@ -2843,6 +2863,13 @@ class PatternFeature extends PartFeature {
     this.exprDistanceB = '25 mm',
     this.distributionA = PatternDistribution.spacing,
     this.distributionB = PatternDistribution.spacing,
+    this.pathA,
+    this.pathB,
+    this.startA = 0,
+    this.startB = 0,
+    Map<int, double> irregularA = const {},
+    Map<int, double> irregularB = const {},
+    Map<int, double> irregularC = const {},
     this.axis,
     this.flipC = false,
     this.countC = 6,
@@ -2856,12 +2883,16 @@ class PatternFeature extends PartFeature {
     this.baseX = 0,
     this.baseY = 0,
     this.mirrorPlane,
+    this.orientFace,
     this.removeOriginal = false,
     this.compute = PatternCompute.identical,
     Set<int> suppressed = const {},
     super.visible,
   })  : sources = [...sources],
         suppressed = {...suppressed},
+        irregularA = {...irregularA},
+        irregularB = {...irregularB},
+        irregularC = {...irregularC},
         // Like fillet and chamfer, a pattern's Output boolean is meaningless:
         // it does not add a body, it reshapes the one that reaches it. It is
         // NOT a [BodyModifyFeature] though — that class is the EDGE-picking
@@ -2895,6 +2926,26 @@ class PatternFeature extends PartFeature {
   String exprCountA, exprCountB, exprDistanceA, exprDistanceB;
   PatternDistribution distributionA, distributionB;
 
+  /// M213 — Inventor lets a row run along a CURVE, not only along a straight
+  /// direction ("rows and columns can be lines, arcs, splines, or trimmed
+  /// ellipses"). When a path is set it REPLACES the direction: the
+  /// occurrences are spaced by arc length along it, and Curve Length becomes
+  /// available as a distribution.
+  CurveSel? pathA, pathB;
+
+  /// Inventor's Start: how far along the path the ORIGINAL sits, in mm of
+  /// arc length from the curve's first point. Meaningless without a path.
+  double startA, startB;
+
+  /// M213 — Inventor 2026's Irregular Distance / Irregular Angle: one
+  /// occurrence given its own offset instead of the even step.
+  ///
+  /// Keyed by STEP index along that direction (1 = the first copy after the
+  /// original), valued as the offset FROM THE ORIGINAL — the same quantity
+  /// the even spacing produces, so an entry simply replaces it and nothing
+  /// downstream has to know which occurrences are irregular.
+  final Map<int, double> irregularA, irregularB, irregularC;
+
   // ---- circular ----
   AxisRef? axis;
   bool flipC;
@@ -2913,6 +2964,15 @@ class PatternFeature extends PartFeature {
   /// without picking anything.
   bool basePicked;
   double baseX, baseY; // in [pointSketch]'s coordinates
+
+  /// M213 — Inventor's Variable Orientation: a face the occurrences FOLLOW.
+  ///
+  /// With it set, each copy is turned from the sketch plane's normal to the
+  /// surface normal where it lands, so a pattern of bosses over a curved
+  /// shell stands up out of the shell instead of leaning with the original.
+  /// Stored as a point + normal like every other picked face, and sampled
+  /// against the live body at build time.
+  FaceSel? orientFace;
 
   // ---- mirror ----
   PlaneRef? mirrorPlane;
@@ -2941,10 +3001,20 @@ class PatternFeature extends PartFeature {
   /// point moved there has to rebuild it. The others depend on no sketch of
   /// their own (their inputs are stored as geometry).
   @override
-  List<String> get sketchNames =>
-      mode == PatternKind.sketchDriven && pointSketch.isNotEmpty
-          ? [pointSketch]
-          : const [];
+  List<String> get sketchNames {
+    final out = <String>[];
+    if (mode == PatternKind.sketchDriven && pointSketch.isNotEmpty) {
+      out.add(pointSketch);
+    }
+    // A path lives in a sketch too, and redrawing that curve has to rebuild
+    // the pattern that runs along it.
+    for (final c in [pathA, pathB]) {
+      if (c != null && c.sketchName.isNotEmpty && !out.contains(c.sketchName)) {
+        out.add(c.sketchName);
+      }
+    }
+    return out;
+  }
 
   /// How many occurrences were actually built last time, INCLUDING the
   /// original. Runtime only — it is a result, not an input.
@@ -2959,7 +3029,9 @@ class PatternFeature extends PartFeature {
   int get occurrenceCount => switch (mode) {
         // A second direction that was never picked is not a second row.
         PatternKind.rectangular => countA.clamp(1, kPatternMaxCount) *
-            (dirB == null ? 1 : countB.clamp(1, kPatternMaxCount)),
+            (dirB == null && pathB == null
+                ? 1
+                : countB.clamp(1, kPatternMaxCount)),
         PatternKind.circular => countC.clamp(1, kPatternMaxCount),
         PatternKind.mirror => 2,
         PatternKind.sketchDriven => builtOccurrences,
@@ -2980,19 +3052,25 @@ class PatternFeature extends PartFeature {
           ..write(_axSig(dirA))
           ..write(',$flipA,$midplaneA,$countA,$distanceA,')
           ..write(patternDistName(distributionA))
+          ..write(',${_pathSig(pathA)},$startA,${_irrSig(irregularA)}')
           ..write('|')
           ..write(_axSig(dirB))
           ..write(',$flipB,$midplaneB,$countB,$distanceB,')
-          ..write(patternDistName(distributionB));
+          ..write(patternDistName(distributionB))
+          ..write(',${_pathSig(pathB)},$startB,${_irrSig(irregularB)}')
+          ..write(',${orientation.name}');
       case PatternKind.circular:
         b
           ..write(_axSig(axis))
           ..write(',$flipC,$countC,$angleC,')
           ..write(patternDistName(distributionC))
           ..write(',')
-          ..write(orientation.name);
+          ..write(orientation.name)
+          ..write(',${_irrSig(irregularC)}');
       case PatternKind.sketchDriven:
-        b.write('$pointSketch,$basePicked,$baseX,$baseY');
+        final of = orientFace;
+        b.write('$pointSketch,$basePicked,$baseX,$baseY,'
+            '${of == null ? "flat" : "${of.px},${of.py},${of.pz}"}');
       case PatternKind.mirror:
         final p = mirrorPlane;
         b
@@ -3007,6 +3085,19 @@ class PatternFeature extends PartFeature {
   static String _axSig(AxisRef? a) => a == null
       ? 'none'
       : '${a.px},${a.py},${a.pz},${a.dx},${a.dy},${a.dz}';
+
+  static String _pathSig(CurveSel? c) => c == null
+      ? 'nopath'
+      : '${c.sketchName}#${c.geoIndex}:${c.x0},${c.y0},${c.x1},${c.y1}';
+
+  /// The irregular entries in a stable order — a Map's iteration order is
+  /// insertion order, and two identical patterns edited in a different order
+  /// must produce the same key or the cache reuses the wrong solid.
+  static String _irrSig(Map<int, double> m) {
+    if (m.isEmpty) return '-';
+    final ks = m.keys.toList()..sort();
+    return [for (final k in ks) '$k=${m[k]}'].join(';');
+  }
 
   @override
   Map<String, dynamic> toJson() => {
@@ -3032,6 +3123,14 @@ class PatternFeature extends PartFeature {
         'exprDistB': exprDistanceB,
         'distribA': patternDistName(distributionA),
         'distribB': patternDistName(distributionB),
+        if (pathA != null) 'pathA': pathA!.toJson(),
+        if (pathB != null) 'pathB': pathB!.toJson(),
+        if (startA != 0) 'startA': startA,
+        if (startB != 0) 'startB': startB,
+        if (irregularA.isNotEmpty) 'irrA': _irrJson(irregularA),
+        if (irregularB.isNotEmpty) 'irrB': _irrJson(irregularB),
+        if (irregularC.isNotEmpty) 'irrC': _irrJson(irregularC),
+        if (orientFace != null) 'orientFace': orientFace!.toJson(),
         if (axis != null) 'axis': axis!.toJson(),
         'flipC': flipC,
         'countC': countC,
@@ -3048,11 +3147,27 @@ class PatternFeature extends PartFeature {
         'removeOriginal': removeOriginal,
       };
 
+  static Map<String, double> _irrJson(Map<int, double> m) {
+    final ks = m.keys.toList()..sort();
+    return {for (final k in ks) '$k': m[k]!};
+  }
+
+  static Map<int, double> _irrFrom(Object? j) {
+    if (j is! Map) return const {};
+    final out = <int, double>{};
+    j.forEach((k, v) {
+      final i = int.tryParse('$k');
+      if (i != null && v is num) out[i] = v.toDouble();
+    });
+    return out;
+  }
+
   static PatternFeature fromJson(Map<String, dynamic> j) {
     Map<String, dynamic>? sub(String k) => j[k] == null
         ? null
         : (j[k] as Map).cast<String, dynamic>();
     final a = sub('dirA'), b = sub('dirB'), ax = sub('axis'), pl = sub('plane');
+    final pa = sub('pathA'), pb = sub('pathB'), of = sub('orientFace');
     final f = PatternFeature(
       name: j['name'] as String? ?? 'Pattern',
       bodyName: j['body'] as String? ?? 'Solid1',
@@ -3077,6 +3192,13 @@ class PatternFeature extends PartFeature {
       exprDistanceB: j['exprDistB'] as String? ?? '25 mm',
       distributionA: patternDistFrom(j['distribA'] as String?),
       distributionB: patternDistFrom(j['distribB'] as String?),
+      pathA: pa == null ? null : CurveSel.fromJson(pa),
+      pathB: pb == null ? null : CurveSel.fromJson(pb),
+      startA: (j['startA'] as num?)?.toDouble() ?? 0,
+      startB: (j['startB'] as num?)?.toDouble() ?? 0,
+      irregularA: _irrFrom(j['irrA']),
+      irregularB: _irrFrom(j['irrB']),
+      irregularC: _irrFrom(j['irrC']),
       axis: ax == null ? null : AxisRef.fromJson(ax),
       flipC: j['flipC'] as bool? ?? false,
       countC: (j['countC'] as num?)?.toInt() ?? 6,
@@ -3097,6 +3219,7 @@ class PatternFeature extends PartFeature {
       mirrorPlane: pl == null ? null : PlaneRef.fromJson(pl),
       removeOriginal: j['removeOriginal'] as bool? ?? false,
       compute: patternComputeFrom(j['compute'] as String?),
+      orientFace: of == null ? null : FaceSel.fromJson(of),
       suppressed: {
         for (final s in (j['suppressed'] as List? ?? const []))
           (s as num).toInt()
@@ -3123,10 +3246,33 @@ const int kPatternMaxCount = 512;
 /// divides by [count] rather than by count - 1 — without that a "6 at 360°"
 /// bolt circle puts two holes in the same place.
 double patternStep(double value, int count, PatternDistribution d,
-    {bool wrapsFullTurn = false}) {
+    {bool wrapsFullTurn = false, double curveLength = 0}) {
   if (d == PatternDistribution.spacing) return value;
   if (count <= 1) return value;
-  return wrapsFullTurn ? value / count : value / (count - 1);
+  // Curve Length fits the occurrences to the curve that is actually there,
+  // which is the point of it: redraw the curve and the pattern re-divides.
+  // Without a curve it is a Distance, because there is nothing to fit to.
+  final total =
+      d == PatternDistribution.curveLength && curveLength > 0 ? curveLength : value;
+  return wrapsFullTurn ? total / count : total / (count - 1);
+}
+
+/// [a] then [b] — the placement that applies [b] to the result of [a].
+List<double> composeMat34(List<double> a, List<double> b) {
+  double r(int row, int col) =>
+      b[row * 4] * a[col] +
+      b[row * 4 + 1] * a[4 + col] +
+      b[row * 4 + 2] * a[8 + col];
+  double t(int row) =>
+      b[row * 4] * a[3] +
+      b[row * 4 + 1] * a[7] +
+      b[row * 4 + 2] * a[11] +
+      b[row * 4 + 3];
+  return [
+    r(0, 0), r(0, 1), r(0, 2), t(0), //
+    r(1, 0), r(1, 1), r(1, 2), t(1), //
+    r(2, 0), r(2, 1), r(2, 2), t(2), //
+  ];
 }
 
 /// WHERE every copy of a pattern goes, as pure geometry.
@@ -3147,30 +3293,80 @@ double patternStep(double value, int count, PatternDistribution d,
 /// an odd midplane row, a sketch point sitting on the base point — is dropped
 /// for the same reason, since building it would fuse a solid onto itself.
 List<PatternOccurrence> patternOccurrences(PatternFeature f,
-    {Vec3 refPoint = Vec3.zero, List<Vec3> points = const []}) {
+    {Vec3 refPoint = Vec3.zero,
+    List<Vec3> points = const [],
+    List<Vec3> pathA = const [],
+    List<Vec3> pathB = const [],
+    List<Vec3> pointNormals = const []}) {
   final out = <PatternOccurrence>[];
   switch (f.mode) {
     case PatternKind.rectangular:
+      // A direction is either a straight line or a CURVE the row runs along.
+      // The two produce the same thing — an offset per step — so everything
+      // after this point is common.
+      final onPathA = f.pathA != null && pathA.length >= 2;
+      final onPathB = f.pathB != null && pathB.length >= 2;
       final a = f.dirA;
-      if (a == null || !a.valid) return const [];
-      final ua = a.unit * (f.flipA ? -1.0 : 1.0);
+      if (!onPathA && (a == null || !a.valid)) return const [];
+      final ua = onPathA
+          ? Vec3.zero
+          : a!.unit * (f.flipA ? -1.0 : 1.0);
       final b = f.dirB;
+      final hasB = onPathB || (b != null && b.valid);
       final ub = (b != null && b.valid) ? b.unit * (f.flipB ? -1.0 : 1.0) : null;
       final na = f.countA.clamp(1, kPatternMaxCount);
-      final nb = ub == null ? 1 : f.countB.clamp(1, kPatternMaxCount);
-      final sa = patternStep(f.distanceA, na, f.distributionA);
-      final sb = patternStep(f.distanceB, nb, f.distributionB);
+      final nb = hasB ? f.countB.clamp(1, kPatternMaxCount) : 1;
+      final lenA = onPathA ? polylineLength(pathA) : 0.0;
+      final lenB = onPathB ? polylineLength(pathB) : 0.0;
+      final sa = patternStep(f.distanceA, na, f.distributionA,
+          curveLength: lenA - f.startA);
+      final sb = patternStep(f.distanceB, nb, f.distributionB,
+          curveLength: lenB - f.startB);
       // Midplane centres the SPAN on the original: with an odd count one
       // occurrence lands on it (and is dropped as the identity), with an even
       // count the original sits between the two middle ones. That is what
       // "distributed on both sides of the original feature" describes.
       final oa = f.midplaneA ? (na - 1) / 2.0 : 0.0;
       final ob = f.midplaneB ? (nb - 1) / 2.0 : 0.0;
+      // An irregular entry REPLACES the even offset of that step, so nothing
+      // downstream has to know which occurrences are irregular.
+      double offA(int i) => f.irregularA[i] ?? (i - oa) * sa;
+      double offB(int i) => f.irregularB[i] ?? (i - ob) * sb;
+      // On a path the offsets are arc lengths, so the base point and the base
+      // tangent are read once and every step measured against them.
+      final baseA = onPathA ? pointAtArcLength(pathA, f.startA) : null;
+      final baseB = onPathB ? pointAtArcLength(pathB, f.startB) : null;
+      if (onPathA && baseA == null) return const [];
       for (var ib = 0; ib < nb; ib++) {
         for (var ia = 0; ia < na; ia++) {
-          final d = ua * ((ia - oa) * sa) +
-              (ub == null ? Vec3.zero : ub * ((ib - ob) * sb));
-          final m = translationMat34(d);
+          List<double> m;
+          if (onPathA) {
+            final at = pointAtArcLength(pathA, f.startA + offA(ia));
+            if (at == null) continue;
+            var d = at.$1 - baseA!.$1;
+            if (onPathB && baseB != null) {
+              final atB = pointAtArcLength(pathB, f.startB + offB(ib));
+              if (atB != null) d = d + (atB.$1 - baseB.$1);
+            } else if (ub != null) {
+              d = d + ub * offB(ib);
+            }
+            m = translationMat34(d);
+            // Inventor's Orientation Method: Identical keeps the parent's
+            // attitude, Direction 1 turns each copy to follow the curve.
+            if (f.orientation == PatternOrient.rotational) {
+              final turn = rotationBetween(baseA.$2, at.$2, at.$1);
+              m = composeMat34(m, turn);
+            }
+          } else {
+            var d = ua * offA(ia);
+            if (onPathB && baseB != null) {
+              final atB = pointAtArcLength(pathB, f.startB + offB(ib));
+              if (atB != null) d = d + (atB.$1 - baseB.$1);
+            } else if (ub != null) {
+              d = d + ub * offB(ib);
+            }
+            m = translationMat34(d);
+          }
           if (isIdentityMat34(m)) continue;
           out.add(PatternOccurrence(1 + ia + ib * na, m));
         }
@@ -3185,7 +3381,7 @@ List<PatternOccurrence> patternOccurrences(PatternFeature f,
       final stepDeg = patternStep(f.angleC, n, f.distributionC,
           wrapsFullTurn: full && f.distributionC == PatternDistribution.distance);
       for (var i = 1; i < n; i++) {
-        final ang = stepDeg * i * math.pi / 180.0;
+        final ang = (f.irregularC[i] ?? stepDeg * i) * math.pi / 180.0;
         final rot = rotationMat34(ax.point, k, ang);
         // Fixed orientation: the copy travels to where the rotation would put
         // it and keeps the parent's attitude — so the placement is the pure
@@ -3201,12 +3397,20 @@ List<PatternOccurrence> patternOccurrences(PatternFeature f,
     case PatternKind.sketchDriven:
       if (points.isEmpty) return const [];
       final base = f.basePicked ? points.first : refPoint;
-      // With a base point picked, that point is the one the parent sits on,
-      // so it must not also receive a copy. [points] arrives with the base
-      // point first exactly so this stays a list operation and not a search
-      // with its own tolerance.
+      // Inventor's Variable Orientation: with a face picked, each copy is
+      // turned from the surface normal AT THE ORIGINAL to the one where it
+      // lands, so a boss on a curved shell stands up out of the shell.
+      // [pointNormals] is parallel to [points]; an empty list is the plain
+      // "Identical" orientation and every copy is a pure translation.
+      final follow = f.orientFace != null &&
+          pointNormals.length == points.length &&
+          points.isNotEmpty;
+      final n0 = follow ? pointNormals.first : Vec3.zero;
       for (var i = 0; i < points.length; i++) {
-        final m = translationMat34(points[i] - base);
+        var m = translationMat34(points[i] - base);
+        if (follow && i > 0) {
+          m = composeMat34(m, rotationBetween(n0, pointNormals[i], points[i]));
+        }
         if (isIdentityMat34(m)) continue;
         out.add(PatternOccurrence(1 + i, m));
       }
@@ -3216,6 +3420,80 @@ List<PatternOccurrence> patternOccurrences(PatternFeature f,
       if (p == null || !p.valid) return const [];
       return const [PatternOccurrence(2, null, mirror: true)];
   }
+}
+
+/// Total length of a world-space polyline.
+double polylineLength(List<Vec3> pts) {
+  var l = 0.0;
+  for (var i = 1; i < pts.length; i++) {
+    l += (pts[i] - pts[i - 1]).length;
+  }
+  return l;
+}
+
+/// Point and unit tangent at arc length [s] along [pts].
+///
+/// Beyond either end the last segment is EXTENDED rather than clamped: a
+/// pattern whose count overruns its curve then keeps its spacing and walks
+/// off the end (visibly wrong, and fixable by reading the number), instead of
+/// silently stacking every remaining occurrence on the final point.
+(Vec3, Vec3)? pointAtArcLength(List<Vec3> pts, double s) {
+  if (pts.length < 2) return null;
+  if (s <= 0) {
+    final d = (pts[1] - pts[0]);
+    if (d.length < 1e-12) return null;
+    final t = d.normalized();
+    return (pts[0] + t * s, t);
+  }
+  var acc = 0.0;
+  for (var i = 1; i < pts.length; i++) {
+    final seg = pts[i] - pts[i - 1];
+    final len = seg.length;
+    if (len < 1e-12) continue;
+    if (acc + len >= s || i == pts.length - 1) {
+      final t = seg.normalized();
+      return (pts[i - 1] + t * (s - acc), t);
+    }
+    acc += len;
+  }
+  return null;
+}
+
+/// Arc length of the point on [pts] nearest [q] — Inventor's Start point,
+/// picked by tapping the curve.
+double arcLengthNearest(List<Vec3> pts, Vec3 q) {
+  var acc = 0.0, best = 0.0, bestD = double.infinity;
+  for (var i = 1; i < pts.length; i++) {
+    final a = pts[i - 1], b = pts[i];
+    final seg = b - a;
+    final len = seg.length;
+    if (len < 1e-12) continue;
+    final t = ((q - a).dot(seg) / (len * len)).clamp(0.0, 1.0);
+    final d = (a + seg * t - q).length;
+    if (d < bestD) {
+      bestD = d;
+      best = acc + t * len;
+    }
+    acc += len;
+  }
+  return best;
+}
+
+/// The rotation that takes unit [from] onto unit [to], as a 3x4 placement
+/// about the point [about]. The identity when they already agree, and a
+/// half-turn about any perpendicular when they oppose (the axis is
+/// undetermined there, and refusing would be worse than choosing one).
+List<double> rotationBetween(Vec3 from, Vec3 to, Vec3 about) {
+  final a = from.normalized(), b = to.normalized();
+  final d = a.dot(b).clamp(-1.0, 1.0);
+  if (d > 1 - 1e-12) return translationMat34(Vec3.zero);
+  var axis = a.cross(b);
+  if (axis.length < 1e-9) {
+    // opposite: any perpendicular will do, so take the most stable one
+    final ref = a.x.abs() < 0.9 ? const Vec3(1, 0, 0) : const Vec3(0, 1, 0);
+    axis = a.cross(ref);
+  }
+  return rotationMat34(about, axis.normalized(), math.acos(d));
 }
 
 /// Applies a row-major 3x4 placement to a point.
@@ -3271,6 +3549,196 @@ class FaceRec {
   final Vec3 n; // outward normal
   final double area;
   const FaceRec(this.id, this.c, this.n, this.area);
+}
+
+// ---------------------------------------------------------------------------
+// M213 — FACE PROVENANCE: which feature made this face?
+// ---------------------------------------------------------------------------
+//
+// Inventor lets you select a feature by clicking one of its faces in the
+// graphics window. Until now this build could not: the fold leaves ONE solid
+// per body, and a face of that solid knows nothing about the extrusion or
+// fillet it came from. OCCT's own boolean history (Modified/Generated) is not
+// exposed by the shim, and threading it through every operation would mean a
+// new ABI for every kind of feature.
+//
+// So provenance is recovered GEOMETRICALLY, from something the fold already
+// has: each feature's own solid, at the moment before it is combined away.
+// A boolean trims faces, but it does not move them — the face of a result
+// still lies on a surface that one of the operands brought. Matching the
+// SURFACE (the infinite plane, the whole cylinder) rather than the trimmed
+// patch is what makes this survive the trimming.
+//
+// It is a heuristic, and it says so: a face whose surface no feature claims
+// is reported as unknown rather than attributed to the nearest guess.
+
+/// The surface a mesh face lies on, plus where its triangles actually are.
+///
+/// [type] follows the shim's face record (0 plane, 1 cylinder, 2 cone,
+/// 3 sphere, 4 torus, 5 other). Only plane and cylinder carry analytic
+/// parameters there; for the rest the record is empty and only the extent is
+/// available, which is why [sameSurfaceAs] falls back to containment for them.
+class FaceSurface {
+  final int id; // mesh face index
+  final int type;
+  final Vec3 p; // point on the plane / on the axis
+  final Vec3 d; // plane normal / axis direction
+  final double radius;
+  final Vec3 lo, hi; // bounding box of this face's triangles
+  final Vec3 centroid;
+  final double area;
+
+  const FaceSurface(this.id, this.type, this.p, this.d, this.radius, this.lo,
+      this.hi, this.centroid, this.area);
+
+  bool contains(Vec3 q, double tol) =>
+      q.x >= lo.x - tol &&
+      q.x <= hi.x + tol &&
+      q.y >= lo.y - tol &&
+      q.y <= hi.y + tol &&
+      q.z >= lo.z - tol &&
+      q.z <= hi.z + tol;
+
+  /// Do these two faces lie on the SAME surface?
+  ///
+  /// Orientation is deliberately ignored: cutting a cylinder out of a block
+  /// leaves a wall whose normal points into the hole, i.e. opposite to the
+  /// tool's outward normal, and it is still the same cylinder. That is the
+  /// whole reason a cut can be attributed at all.
+  bool sameSurfaceAs(FaceSurface o, double tol) {
+    if (type != o.type) return false;
+    switch (type) {
+      case 0:
+        if (d.dot(o.d).abs() < 1 - 1e-6) return false;
+        // same infinite plane: the offsets along the shared normal agree
+        return (p.dot(d) - o.p.dot(d)).abs() <= tol;
+      case 1:
+        if (d.dot(o.d).abs() < 1 - 1e-6) return false;
+        if ((radius - o.radius).abs() > tol) return false;
+        // the two axis LINES must coincide, not merely be parallel
+        final v = o.p - p;
+        final perp = v - d * v.dot(d);
+        return perp.length <= tol;
+      default:
+        // No analytic record from the shim for cones, spheres, tori and
+        // splines. What is left is where the face IS, which is enough as long
+        // as it is not dressed up as more than it is.
+        return contains(o.centroid, tol) || o.contains(centroid, tol);
+    }
+  }
+}
+
+/// One [FaceSurface] per triangulated face of [m], or empty when the mesh
+/// carries no face metadata (a test fake, a legacy mesh) — and "empty" must
+/// be read as "unknown", never as "this solid has no faces".
+List<FaceSurface> faceSurfaces(OcctMeshData m) {
+  if (m.faceInfos.isEmpty || m.triFaces.length * 3 != m.indices.length) {
+    return const [];
+  }
+  final n = m.faceCount;
+  if (n <= 0) return const [];
+  final lo = List<Vec3>.filled(n, const Vec3(1e30, 1e30, 1e30));
+  final hi = List<Vec3>.filled(n, const Vec3(-1e30, -1e30, -1e30));
+  final cx = List<Vec3>.filled(n, Vec3.zero);
+  final ar = List<double>.filled(n, 0);
+  for (var t = 0; t + 2 < m.indices.length; t += 3) {
+    final f = m.triFaces[t ~/ 3];
+    if (f < 0 || f >= n) continue;
+    final i0 = m.indices[t] * 3,
+        i1 = m.indices[t + 1] * 3,
+        i2 = m.indices[t + 2] * 3;
+    final a = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+    final b = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+    final c = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+    final w = (b - a).cross(c - a).length * 0.5;
+    // Area-weighted, like planarFaceRecs: a face tessellated into one big
+    // triangle and twenty slivers still reports its true centre.
+    cx[f] = cx[f] + (a + b + c) * (w / 3);
+    ar[f] += w;
+    for (final q in [a, b, c]) {
+      lo[f] = Vec3(math.min(lo[f].x, q.x), math.min(lo[f].y, q.y),
+          math.min(lo[f].z, q.z));
+      hi[f] = Vec3(math.max(hi[f].x, q.x), math.max(hi[f].y, q.y),
+          math.max(hi[f].z, q.z));
+    }
+  }
+  final out = <FaceSurface>[];
+  for (var f = 0; f < n; f++) {
+    if (ar[f] <= 0) continue;
+    final r = 15 * f;
+    if (r + 15 > m.faceInfos.length) break;
+    out.add(FaceSurface(
+      f,
+      m.faceInfos[r].round(),
+      Vec3(m.faceInfos[r + 1], m.faceInfos[r + 2], m.faceInfos[r + 3]),
+      Vec3(m.faceInfos[r + 4], m.faceInfos[r + 5], m.faceInfos[r + 6])
+          .normalized(),
+      m.faceInfos[r + 10],
+      lo[f],
+      hi[f],
+      cx[f] * (1 / ar[f]),
+      ar[f],
+    ));
+  }
+  return out;
+}
+
+/// Tolerance for surface matching, in mm. Generous on purpose: the display
+/// mesh is a coarse tessellation, so a plane's sampled points sit up to the
+/// deflection off the true surface, and a provenance answer that is right
+/// 99% of the time and admits the rest beats one that is silently wrong.
+const double kFaceMatchTol = 0.05;
+
+/// The faces of [result] that [base] did not already have — what a
+/// body-modifying feature (a fillet, a pattern) actually ADDED.
+///
+/// Without this a fillet would claim every face of the body it modified,
+/// which is worse than claiming none: clicking the front face of a block
+/// would select the fillet at the far corner.
+List<FaceSurface> newSurfacesOf(
+    List<FaceSurface> result, List<FaceSurface> base) {
+  if (base.isEmpty) return result;
+  return [
+    for (final f in result)
+      if (!base.any((b) => b.sameSurfaceAs(f, kFaceMatchTol))) f
+  ];
+}
+
+/// Which feature made each face of [solid]: face id -> feature name.
+///
+/// Rules, in order:
+///   * a feature only claims a face lying on a surface it contributed;
+///   * among several claimants, one whose own face CONTAINED that face wins
+///     over one that merely shares an infinite plane;
+///   * otherwise the LATEST claimant wins, because a later feature is what
+///     you see: it cut or joined over the earlier one.
+/// A face nobody claims is absent from the map — unknown, not guessed.
+Map<int, String> attributeFaces(
+    PartModel part, String bodyName, KernelSolid solid) {
+  final faces = faceSurfaces(solid.mesh);
+  final out = <int, String>{};
+  if (faces.isEmpty) return out;
+  for (final f in faces) {
+    String? best;
+    var bestContained = false;
+    for (final g in part.features) {
+      if (g.bodyName != bodyName || g.rolledBack) continue;
+      for (final s in g.ownSurfaces) {
+        if (!s.sameSurfaceAs(f, kFaceMatchTol)) continue;
+        final contained = s.contains(f.centroid, kFaceMatchTol);
+        // Later wins, but a containment beats a bare surface match even from
+        // an earlier feature — that is the difference between "the same
+        // infinite plane" and "this piece of material".
+        if (best == null || contained || !bestContained) {
+          best = g.name;
+          bestContained = contained;
+        }
+        break;
+      }
+    }
+    if (best != null) out[f.id] = best;
+  }
+  return out;
 }
 
 /// Planar faces of a mesh, with centroid and area accumulated per face id.
@@ -5623,13 +6091,115 @@ Vec3? solidCentre(KernelSolid s) {
       (bb[0] + bb[3]) / 2, (bb[1] + bb[4]) / 2, (bb[2] + bb[5]) / 2);
 }
 
-/// One thing a pattern copies: a tool solid and the boolean it was combined
-/// into the body with.
+/// Surface normal of the display mesh nearest [q], looking along [dir].
+///
+/// Used by a sketch-driven pattern's Variable Orientation, which has to know
+/// which way the shell faces where each occurrence lands. The nearest
+/// triangle by point-to-plane distance wins, restricted to triangles facing
+/// against [dir] so the far side of a thin wall cannot answer for the near
+/// one. Null when the mesh carries no triangles.
+Vec3? meshNormalAt(OcctMeshData m, Vec3 q, Vec3 dir) {
+  Vec3? best;
+  var bestD = double.infinity;
+  for (var t = 0; t + 2 < m.indices.length; t += 3) {
+    final i0 = m.indices[t] * 3,
+        i1 = m.indices[t + 1] * 3,
+        i2 = m.indices[t + 2] * 3;
+    final a = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+    final b = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+    final c = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+    final n = (b - a).cross(c - a);
+    if (n.length < 1e-12) continue;
+    final nn = n.normalized();
+    if (nn.dot(dir) > 0) continue; // facing away from where we are looking
+    final centre = (a + b + c) * (1 / 3);
+    final d = (centre - q).length;
+    if (d < bestD) {
+      bestD = d;
+      best = nn;
+    }
+  }
+  return best;
+}
+
+/// One thing a pattern copies.
+///
+/// Two kinds, because features come in two kinds. A feature that brings its
+/// own volume is copied as a SOLID and combined with the body by its own
+/// boolean. A fillet or a chamfer has no volume to copy — it is a
+/// modification — so what is repeated is the OPERATION: the same blend, on
+/// the edges the occurrence lands on. Inventor patterns both, and a pattern
+/// that silently dropped the fillet would produce sharp copies of a rounded
+/// original, which is a wrong part rather than a missing one.
 class _PatternTool {
   final PartFeature? source; // null in solid mode
-  final KernelSolid solid;
+  final KernelSolid? solid; // null for a blend
   final String output; // 'join' | 'cut' | 'intersect'
-  _PatternTool(this.source, this.solid, this.output);
+  final BodyModifyFeature? blend; // the fillet/chamfer to re-apply
+  _PatternTool(this.source, this.solid, this.output, {this.blend});
+}
+
+/// A picked edge, moved to where an occurrence puts it.
+///
+/// Only the anchor travels: length, curve type and radius are properties of
+/// the edge itself and a rigid motion (or a reflection) does not change them.
+/// That is precisely why a fingerprint can be re-found at the copy.
+EdgeSel placedEdgeSel(EdgeSel e, PatternOccurrence occ, PlaneRef? plane) {
+  final m = occ.mat34;
+  Vec3 at;
+  if (occ.mirror) {
+    if (plane == null) return EdgeSel(e.mx, e.my, e.mz, e.length, e.kind, e.radius);
+    final n = plane.normal.normalized();
+    final p0 = Vec3(e.mx, e.my, e.mz);
+    at = p0 - n * (2 * (p0 - plane.point).dot(n));
+  } else if (m != null) {
+    at = _applyMat34(m, Vec3(e.mx, e.my, e.mz));
+  } else {
+    at = Vec3(e.mx, e.my, e.mz);
+  }
+  return EdgeSel(at.x, at.y, at.z, e.length, e.kind, e.radius);
+}
+
+/// Re-applies a fillet or chamfer at one occurrence: the same blend, on the
+/// edges of [body] that the occurrence's copy brought with it.
+///
+/// Returns null on failure, having said why through [kernel]'s error — most
+/// often "the copy's edges are not there", which happens when the feature the
+/// blend shapes was not patterned along with it.
+KernelSolid? applyBlendOccurrence(PartKernel kernel, KernelSolid body,
+    BodyModifyFeature blend, PatternOccurrence occ, PlaneRef? plane) {
+  final live = kernel.edgesOf(body);
+  if (live.isEmpty) return null;
+  // A CLONE: resolveEdges re-anchors the fingerprints it matches, and the
+  // real feature's own selections must keep pointing at the ORIGINAL edges.
+  final moved = PartFeature.fromJson(blend.toJson());
+  if (moved is! BodyModifyFeature) return null;
+  for (var i = 0; i < moved.edges.length && i < blend.edges.length; i++) {
+    final e = placedEdgeSel(blend.edges[i], occ, plane);
+    moved.edges[i]
+      ..mx = e.mx
+      ..my = e.my
+      ..mz = e.mz;
+  }
+  final (ids, src, _) = moved.resolveEdges(live);
+  if (ids.isEmpty) return null;
+  if (moved is FilletFeature) {
+    final radii = [
+      for (final i in src)
+        i < moved.radii.length
+            ? moved.radii[i]
+            : (moved.radii.isEmpty ? 2.0 : moved.radii.last)
+    ];
+    final radii2 = moved.radii2.any((r) => r > 0)
+        ? [for (final i in src) i < moved.radii2.length ? moved.radii2[i] : 0.0]
+        : const <double>[];
+    return kernel.filletEdges(body, ids, radii, radii2: radii2);
+  }
+  if (moved is ChamferFeature) {
+    final (d1, d2, ang) = moved.kernelParams;
+    return kernel.chamferEdges(body, ids, moved.mode, d1, d2, ang);
+  }
+  return null;
 }
 
 bool _recomputePattern(
@@ -5669,13 +6239,19 @@ bool _recomputePattern(
         disposeOwned();
         return false;
       }
-      if (src is PatternFeature || src.modifiesBody) {
-        // A fillet is not a shape, it is a modification of one, and there is
-        // no tool solid to copy. Inventor patterns them by re-running the
-        // whole feature per occurrence, which this build does not do — say so
-        // instead of silently dropping the selection.
-        f.computeError = '"$name" is a ${src.typeLabel.toLowerCase()} and '
-            'cannot be patterned on its own — pattern the feature it shapes';
+      if (src is BodyModifyFeature) {
+        // A fillet or a chamfer has no volume to copy — what repeats is the
+        // OPERATION. It is carried as a blend tool and re-applied at each
+        // occurrence (M213); see [applyBlendOccurrence].
+        tools.add(_PatternTool(src, null, 'modify', blend: src));
+        continue;
+      }
+      if (src is PatternFeature) {
+        // A pattern of a pattern would have to re-run a whole fold per
+        // occurrence, and its own sources are already in the body it was
+        // built into. Refused by name rather than half-done.
+        f.computeError = '"$name" is itself a pattern — pattern the features '
+            'it copies instead';
         disposeOwned();
         return false;
       }
@@ -5710,9 +6286,29 @@ bool _recomputePattern(
     }
   }
 
+  // Tree order, not pick order: a fillet must be applied AFTER the extrusion
+  // it rounds, or the edges it looks for do not exist yet at that occurrence.
+  if (tools.length > 1) {
+    int pos(_PatternTool t) =>
+        t.source == null ? -1 : part.features.indexOf(t.source!);
+    tools.sort((a, b) => pos(a).compareTo(pos(b)));
+  }
+
   // ---- 2. where the copies go ------------------------------------------
-  final refPoint = solidCentre(tools.first.solid) ?? Vec3.zero;
+  final firstSolid = tools.firstWhere((t) => t.solid != null,
+      orElse: () => _PatternTool(null, null, 'join'));
+  if (firstSolid.solid == null) {
+    // Only blends were selected. There is nothing to place, and re-blending
+    // the same body at another location is not a pattern of anything.
+    f.computeError = 'select the feature the '
+        '${tools.first.source?.typeLabel.toLowerCase() ?? 'blend'} shapes as '
+        'well — a fillet on its own has no shape to copy';
+    disposeOwned();
+    return false;
+  }
+  final refPoint = solidCentre(firstSolid.solid!) ?? Vec3.zero;
   var points = const <Vec3>[];
+  var normals = const <Vec3>[];
   if (f.mode == PatternKind.sketchDriven) {
     final (pts, perr) = patternPointsOf(part, f);
     if (pts == null) {
@@ -5721,8 +6317,47 @@ bool _recomputePattern(
       return false;
     }
     points = pts;
+    // M213 — Variable Orientation: sample the picked face's surface where
+    // each occurrence lands. A point that misses the face keeps the original
+    // normal, so a pattern that runs off the edge of the shell leans like the
+    // parent rather than flipping to something arbitrary.
+    final of = f.orientFace;
+    if (of != null) {
+      final fallback = Vec3(of.nx, of.ny, of.nz).normalized();
+      final dir = fallback * -1.0;
+      normals = [
+        for (final q in points)
+          meshNormalAt(base.mesh, q, dir) ?? fallback
+      ];
+    }
   }
-  final occurrences = patternOccurrences(f, refPoint: refPoint, points: points);
+  // A path is stored as a curve in a sketch, and is re-found there by
+  // fingerprint — the same contract a sweep's path lives under.
+  var ptsA = const <Vec3>[], ptsB = const <Vec3>[];
+  for (final (sel, isA) in [(f.pathA, true), (f.pathB, false)]) {
+    if (sel == null) continue;
+    final (pts, perr) = resolvePath(part, sel);
+    if (pts == null) {
+      f.computeError = perr ?? 'the pattern path could not be found';
+      disposeOwned();
+      return false;
+    }
+    final world = <Vec3>[
+      for (var i = 0; i + 2 < pts.length; i += 3)
+        Vec3(pts[i], pts[i + 1], pts[i + 2])
+    ];
+    if (isA) {
+      ptsA = world;
+    } else {
+      ptsB = world;
+    }
+  }
+  final occurrences = patternOccurrences(f,
+      refPoint: refPoint,
+      points: points,
+      pointNormals: normals,
+      pathA: ptsA,
+      pathB: ptsB);
   if (occurrences.isEmpty) {
     f.computeError = _patternInputError(f);
     disposeOwned();
@@ -5762,6 +6397,23 @@ bool _recomputePattern(
       continue;
     }
     for (final t in tools) {
+      final blend = t.blend;
+      if (blend != null) {
+        // A blend is not combined INTO the body — it reshapes it, so it
+        // replaces the running result outright.
+        final out = applyBlendOccurrence(kernel, result, blend, occ, plane);
+        if (out == null) {
+          fail = 'occurrence ${occ.index}: ${blend.name} could not be applied '
+              '— the copy\'s edges were not found'
+              '${kernel.lastError.isEmpty ? "" : " (${kernel.lastError})"}';
+          break;
+        }
+        if (resultOwned) result.dispose();
+        result = out;
+        resultOwned = true;
+        built++;
+        continue;
+      }
       KernelSolid? placed;
       var adjusted = false;
       if (f.compute == PatternCompute.adjust && t.source != null) {
@@ -5774,7 +6426,7 @@ bool _recomputePattern(
             _adjustedOccurrence(part, f, t.source!, kernel, base, occ);
       }
       if (!adjusted) {
-        placed = _placeOccurrence(kernel, t.solid, occ, plane);
+        placed = _placeOccurrence(kernel, t.solid!, occ, plane);
       }
       if (placed == null) {
         fail = kernel.lastError.isEmpty
@@ -5858,9 +6510,10 @@ PartFeature? _patternSource(PartModel part, PatternFeature f, String name) {
 /// Why a pattern produced no occurrences — the missing input, by name, rather
 /// than "nothing happened".
 String _patternInputError(PatternFeature f) => switch (f.mode) {
-      PatternKind.rectangular => f.dirA == null || !f.dirA!.valid
-          ? 'no direction selected for Direction A'
-          : 'the pattern has only one occurrence — increase the count',
+      PatternKind.rectangular =>
+        f.pathA == null && (f.dirA == null || !f.dirA!.valid)
+            ? 'no direction selected for Direction A'
+            : 'the pattern has only one occurrence — increase the count',
       PatternKind.circular => f.axis == null || !f.axis!.valid
           ? 'no rotation axis selected'
           : 'the pattern has only one occurrence — increase the count',
@@ -6295,6 +6948,18 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
       chainLast.remove(f.bodyName); // a broken chain stops accumulating
       brokenBody[f.bodyName] = f.name;
       continue;
+    }
+    // M213 — provenance, captured HERE and nowhere else. For a feature that
+    // brings its own volume this is its solid before the boolean consumes it;
+    // for one that modifies the body it is what the modification ADDED, which
+    // is why the base is subtracted rather than the whole result claimed.
+    if (f.solid != null) {
+      final mine = faceSurfaces(f.solid!.mesh);
+      f.ownSurfaces = f.modifiesBody && prev?.solid != null
+          ? newSurfacesOf(mine, faceSurfaces(prev!.solid!.mesh))
+          : mine;
+    } else {
+      f.ownSurfaces = const [];
     }
     if (f.modifiesBody) {
       if (prev != null && prev.solid != null) prev.consumedByJoin = true;

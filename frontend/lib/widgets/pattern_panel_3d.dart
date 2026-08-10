@@ -45,6 +45,12 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   final _angleC = TextEditingController();
 
   bool _inputOpen = true, _aOpen = true, _bOpen = true, _outOpen = true;
+  bool _extentsOpen = false;
+
+  /// One controller per irregular entry, keyed 'A2', 'B3', 'C4' — direction
+  /// and step. Kept for the life of the panel so a field does not lose the
+  /// cursor when a sibling is added.
+  final Map<String, TextEditingController> _irr = {};
 
   /// Null until first laid out, then wherever the user dragged it to.
   Offset? _pos;
@@ -55,6 +61,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   @override
   void dispose() {
     for (final c in [_countA, _distA, _countB, _distB, _countC, _angleC]) {
+      c.dispose();
+    }
+    for (final c in _irr.values) {
       c.dispose();
     }
     super.dispose();
@@ -69,6 +78,12 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     final id = '${s.mode}/${identityHashCode(s)}';
     if (_syncedFor == id) return;
     _syncedFor = id;
+    // A different session means different irregular entries; keeping the old
+    // controllers would show the previous command's numbers in this one.
+    for (final c in _irr.values) {
+      c.dispose();
+    }
+    _irr.clear();
     _countA.text = s.exprCountA;
     _distA.text = s.exprDistanceA;
     _countB.text = s.exprCountB;
@@ -228,11 +243,152 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         PatternKind.rectangular => [
             _directionSection('Direction A', s, first: true),
             _directionSection('Direction B', s, first: false),
+            _extentsSection(s),
           ],
         PatternKind.circular => [_orientationSection(s)],
         PatternKind.sketchDriven => [_placementSection(s)],
         PatternKind.mirror => [_mirrorSection(s)],
       };
+
+  /// Inventor's Extents: WHERE on the path each row starts. Shown only when
+  /// a row actually runs along a curve — on a straight direction there is no
+  /// path to start anywhere on, and a permanently dead field would be the
+  /// ninth of those this ribbon has had.
+  Widget _extentsSection(PartPatternSession s) {
+    if (s.pathA == null && s.pathB == null) return const SizedBox.shrink();
+    final app = widget.app;
+    return panelSection('Extents', _extentsOpen,
+        () => setState(() => _extentsOpen = !_extentsOpen), [
+      if (s.pathA != null)
+        panelRow(
+            'Start A',
+            _pickButton(
+                label: s.startPickedA
+                    ? '${s.startA.toStringAsFixed(2)} mm along'
+                    : 'Curve start',
+                active: s.active == PatternField.startA,
+                hint: 'Tap a point on the curve…',
+                onTap: () => app.patternPick(PatternField.startA),
+                onClear: s.startPickedA
+                    ? () => _changed(() {
+                          s.startA = 0;
+                          s.startPickedA = false;
+                        })
+                    : null)),
+      if (s.pathB != null)
+        panelRow(
+            'Start B',
+            _pickButton(
+                label: s.startPickedB
+                    ? '${s.startB.toStringAsFixed(2)} mm along'
+                    : 'Curve start',
+                active: s.active == PatternField.startB,
+                hint: 'Tap a point on the curve…',
+                onTap: () => app.patternPick(PatternField.startB),
+                onClear: s.startPickedB
+                    ? () => _changed(() {
+                          s.startB = 0;
+                          s.startPickedB = false;
+                        })
+                    : null)),
+    ]);
+  }
+
+  /// Inventor 2026's Irregular Distance / Irregular Angle: one occurrence
+  /// given its own offset instead of the even step. The "+" adds the next
+  /// step that has none, which is the order they are normally wanted in.
+  List<Widget> _irregularRows(PartPatternSession s, String which, int count,
+      String unit) {
+    final map = switch (which) {
+      'B' => s.irregularB,
+      'C' => s.irregularC,
+      _ => s.irregularA,
+    };
+    final steps = map.keys.toList()..sort();
+    return [
+      for (final k in steps)
+        panelRow(
+            'Occurrence ${k + 1}',
+            Row(children: [
+              Expanded(
+                child: panelValueField(_irrController('$which$k', map[k]!),
+                    unit, (v) {
+                  final parsed = parseValueExpr(v);
+                  if (parsed != null) {
+                    widget.app.patternSetIrregular(which, k, parsed);
+                  }
+                }, app: widget.app),
+              ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => widget.app.patternSetIrregular(which, k, null),
+                child: Icon(Icons.cancel_outlined, size: 14, color: T.dim),
+              ),
+            ])),
+      panelRow(
+          '',
+          _smallButton(
+              which == 'C' ? '+ Irregular Angle' : '+ Irregular Distance',
+              false, () {
+            for (var k = 1; k < count; k++) {
+              if (!map.containsKey(k)) {
+                // Seeded with the even offset, so adding one changes nothing
+                // until it is edited — an Inventor-shaped "make this one
+                // different", not a jump.
+                widget.app.patternSetIrregular(which, k, _evenOffset(s, which, k));
+                setState(() {});
+                return;
+              }
+            }
+          })),
+    ];
+  }
+
+  /// The offset the even spacing would give step [k] — what a new irregular
+  /// entry starts at.
+  double _evenOffset(PartPatternSession s, String which, int k) {
+    final v = parseValueExpr(switch (which) {
+          'B' => s.exprDistanceB,
+          'C' => s.exprAngleC,
+          _ => s.exprDistanceA,
+        }) ??
+        0;
+    final n = (parseValueExpr(switch (which) {
+              'B' => s.exprCountB,
+              'C' => s.exprCountC,
+              _ => s.exprCountA,
+            }) ??
+            2)
+        .round();
+    final d = switch (which) {
+      'B' => s.distributionB,
+      'C' => s.distributionC,
+      _ => s.distributionA,
+    };
+    final full = which == 'C' && (v.abs() - 360).abs() < 1e-9;
+    return patternStep(v, n, d,
+            wrapsFullTurn: full && d == PatternDistribution.distance) *
+        k;
+  }
+
+  TextEditingController _irrController(String key, double value) {
+    final c = _irr.putIfAbsent(
+        key, () => TextEditingController(text: _fmt(value)));
+    return c;
+  }
+
+  /// The count a direction currently holds, for bounding the irregular
+  /// entries. A field mid-edit can be anything, so an unparsable one means
+  /// "no room" rather than an exception.
+  static int _countOf(String expr) {
+    final v = parseValueExpr(expr);
+    if (v == null) return 1;
+    final n = v.round();
+    return n < 1 ? 1 : n;
+  }
+
+  static String _fmt(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 
   /// Direction A / B of a rectangular pattern.
   Widget _directionSection(String title, PartPatternSession s,
@@ -246,6 +402,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     final flip = first ? s.flipA : s.flipB;
     final mid = first ? s.midplaneA : s.midplaneB;
     final distribution = first ? s.distributionA : s.distributionB;
+    final path = first ? s.pathA : s.pathB;
     return panelSection(
         title,
         open,
@@ -257,17 +414,25 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               Row(children: [
                 Expanded(
                   child: _pickButton(
-                      label: ref?.label ?? 'Select Dir...',
+                      label: path != null
+                          ? '${path.sketchName} curve'
+                          : (ref?.label ?? 'Select Dir...'),
                       active: s.active == field,
                       hint: 'Tap an edge or axis…',
                       onTap: () => app.patternPick(field),
-                      onClear: ref == null
+                      onClear: (ref == null && path == null)
                           ? null
                           : () => _changed(() {
                                 if (first) {
                                   s.dirA = null;
+                                  s.pathA = null;
+                                  s.startPickedA = false;
+                                  s.startA = 0;
                                 } else {
                                   s.dirB = null;
+                                  s.pathB = null;
+                                  s.startPickedB = false;
+                                  s.startB = 0;
                                 }
                               })),
                 ),
@@ -320,20 +485,48 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                             s.distributionB = PatternDistribution.distance;
                           }
                         })),
+                // Inventor's third option exists only for a row that runs
+                // along a CURVE — there is nothing to fit to on a straight
+                // direction, and an option that cannot act is a lie.
+                if (path != null)
+                  ('Curve Length',
+                      distribution == PatternDistribution.curveLength,
+                      () => _changed(() {
+                            if (first) {
+                              s.distributionA = PatternDistribution.curveLength;
+                            } else {
+                              s.distributionB = PatternDistribution.curveLength;
+                            }
+                          })),
               ])),
-          panelRow(
-              distribution == PatternDistribution.spacing
-                  ? 'Spacing'
-                  : 'Distance',
-              panelValueField(dist, 'mm', (v) {
-                _changed(() {
-                  if (first) {
-                    s.exprDistanceA = v;
-                  } else {
-                    s.exprDistanceB = v;
-                  }
-                });
-              }, app: app)),
+          if (distribution != PatternDistribution.curveLength)
+            panelRow(
+                distribution == PatternDistribution.spacing
+                    ? 'Spacing'
+                    : 'Distance',
+                panelValueField(dist, 'mm', (v) {
+                  _changed(() {
+                    if (first) {
+                      s.exprDistanceA = v;
+                    } else {
+                      s.exprDistanceB = v;
+                    }
+                  });
+                }, app: app)),
+          // Inventor's Orientation Method belongs to a row on a PATH: only
+          // there can a copy follow the curve instead of keeping its attitude.
+          if (path != null && first)
+            panelRow(
+                'Orientation',
+                _segmented([
+                  ('Identical', s.orientation == PatternOrient.fixed,
+                      () => _changed(
+                          () => s.orientation = PatternOrient.fixed)),
+                  ('Direction A', s.orientation == PatternOrient.rotational,
+                      () => _changed(
+                          () => s.orientation = PatternOrient.rotational)),
+                ])),
+          ..._irregularRows(s, first ? 'A' : 'B', _countOf(first ? s.exprCountA : s.exprCountB), 'mm'),
         ]);
   }
 
@@ -389,6 +582,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             ('Fixed', s.orientation == PatternOrient.fixed,
                 () => _changed(() => s.orientation = PatternOrient.fixed)),
           ])),
+      ..._irregularRows(s, 'C', _countOf(s.exprCountC), 'deg'),
     ]);
   }
 
@@ -424,6 +618,27 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               onClear: s.basePicked
                   ? () => _changed(() => s.basePicked = false)
                   : null)),
+      // Inventor's Variable Orientation: Identical keeps every copy parallel
+      // to the parent, Follow Face turns it to the surface it lands on.
+      panelRow(
+          'Orientation',
+          _segmented([
+            ('Identical', s.orientFace == null,
+                () => _changed(() => s.orientFace = null)),
+            ('Follow Face', s.orientFace != null,
+                () => app.patternPick(PatternField.orientFace)),
+          ])),
+      if (s.orientFace != null || s.active == PatternField.orientFace)
+        panelRow(
+            'Face',
+            _pickButton(
+                label: s.orientFace == null ? 'Select Face' : 'Face',
+                active: s.active == PatternField.orientFace,
+                hint: 'Tap the face to follow…',
+                onTap: () => app.patternPick(PatternField.orientFace),
+                onClear: s.orientFace == null
+                    ? null
+                    : () => _changed(() => s.orientFace = null))),
     ]);
   }
 

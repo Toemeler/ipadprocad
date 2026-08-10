@@ -663,6 +663,11 @@ enum PatternField {
   plane,
   pointSketch,
   basePoint,
+  // M213 — Inventor's Extents (where a row STARTS on its path) and its
+  // Variable Orientation (the face a sketch-driven pattern follows).
+  startA,
+  startB,
+  orientFace,
 }
 
 /// Live state of the open pattern panel (M212): Rectangular, Circular,
@@ -704,6 +709,17 @@ class PartPatternSession {
   PatternDistribution distributionA = PatternDistribution.spacing;
   PatternDistribution distributionB = PatternDistribution.spacing;
 
+  /// M213 — a row can run along a CURVE instead of a straight direction. A
+  /// path REPLACES the direction of its own row, which is why picking one
+  /// clears the other: showing both would leave the panel saying two
+  /// different things about where the occurrences go.
+  CurveSel? pathA, pathB;
+  double startA = 0, startB = 0;
+  bool startPickedA = false, startPickedB = false;
+
+  /// Inventor 2026's Irregular Distance / Angle: step index -> its own offset.
+  final Map<int, double> irregularA = {}, irregularB = {}, irregularC = {};
+
   // ---- circular ----
   AxisRef? axis;
   bool flipC = false;
@@ -718,6 +734,9 @@ class PartPatternSession {
   String pointSketch = '';
   bool basePicked = false;
   double baseX = 0, baseY = 0;
+
+  /// Inventor's Variable Orientation — the face the occurrences follow.
+  FaceSel? orientFace;
 
   // ---- mirror ----
   PlaneRef? plane;
@@ -765,6 +784,22 @@ class PartPatternSession {
     basePicked = f.basePicked;
     baseX = f.baseX;
     baseY = f.baseY;
+    orientFace = f.orientFace;
+    pathA = f.pathA;
+    pathB = f.pathB;
+    startA = f.startA;
+    startB = f.startB;
+    startPickedA = f.startA != 0;
+    startPickedB = f.startB != 0;
+    irregularA
+      ..clear()
+      ..addAll(f.irregularA);
+    irregularB
+      ..clear()
+      ..addAll(f.irregularB);
+    irregularC
+      ..clear()
+      ..addAll(f.irregularC);
     plane = f.mirrorPlane?.copy();
     removeOriginal = f.removeOriginal;
     compute = f.compute;
@@ -4638,6 +4673,8 @@ class AppState extends ChangeNotifier {
     s.axis = old.axis ?? old.dirA;
     s.plane = old.plane;
     s.pointSketch = old.pointSketch;
+    s.pathA = old.pathA;
+    s.startA = old.startA;
     s.active = old.features.isEmpty && !old.patternSolid
         ? PatternField.features
         : PatternField.none;
@@ -4670,7 +4707,7 @@ class AppState extends ChangeNotifier {
     s.active = s.active == field ? PatternField.none : field;
     switch (s.active) {
       case PatternField.features:
-        toast('Select features in the model browser — tap to add or remove.');
+        toast('Select features — tap a face in 3D, or a row in the browser.');
       case PatternField.dirA:
       case PatternField.dirB:
         toast('Tap a straight edge, a circular edge, or an origin axis.');
@@ -4682,6 +4719,11 @@ class AppState extends ChangeNotifier {
         toast('Tap the sketch whose points place the occurrences.');
       case PatternField.basePoint:
         toast('Tap the sketch point the original sits on.');
+      case PatternField.startA:
+      case PatternField.startB:
+        toast('Tap the point on the curve where the pattern starts.');
+      case PatternField.orientFace:
+        toast('Tap the face the occurrences should follow.');
       case PatternField.solid:
         toast('Tap the solid body to pattern.');
       case PatternField.none:
@@ -4696,7 +4738,13 @@ class AppState extends ChangeNotifier {
   bool get patternPicking3D {
     final s = patternSession;
     if (s == null) return false;
-    return s.active == PatternField.dirA ||
+    // M213 — features are pickable in the GRAPHICS WINDOW now, not only in
+    // the browser: a tap on a face selects the feature that made it.
+    return s.active == PatternField.features ||
+        s.active == PatternField.startA ||
+        s.active == PatternField.startB ||
+        s.active == PatternField.orientFace ||
+        s.active == PatternField.dirA ||
         s.active == PatternField.dirB ||
         s.active == PatternField.axis ||
         s.active == PatternField.plane ||
@@ -4744,6 +4792,42 @@ class AppState extends ChangeNotifier {
 
   bool patternHasFeature(String name) =>
       patternSession?.features.contains(name) ?? false;
+
+  /// M213 — face -> feature, cached per MESH.
+  ///
+  /// Keyed by mesh identity because that is exactly what changes when the
+  /// answer changes: a rebuild produces new meshes, and so does a refine at a
+  /// finer tessellation. The cache is small and is dropped wholesale rather
+  /// than invalidated cleverly — attribution costs one pass over the faces,
+  /// and a stale entry here would select the wrong feature.
+  final Map<int, Map<int, String>> _faceOwnerCache = {};
+
+  /// Which feature made face [faceId] of [solid], or null when nothing
+  /// claims it. Null is a real answer here: a face that no feature's surface
+  /// accounts for is unknown, and guessing would pick a feature at random.
+  PartFeature? featureOfFace(KernelSolid solid, int faceId) {
+    final p = currentPart;
+    if (p == null || faceId < 0) return null;
+    final body = _bodyNameOfSolid(solid);
+    if (body == null) return null;
+    final key = identityHashCode(solid.mesh);
+    var owners = _faceOwnerCache[key];
+    if (owners == null) {
+      if (_faceOwnerCache.length > 8) _faceOwnerCache.clear();
+      owners = attributeFaces(p, body, solid);
+      _faceOwnerCache[key] = owners;
+      Log.i(
+          'part',
+          'face provenance for "$body": ${owners.length} of '
+              '${faceSurfaces(solid.mesh).length} faces attributed');
+    }
+    final name = owners[faceId];
+    if (name == null) return null;
+    for (final f in p.features) {
+      if (f.name == name) return f;
+    }
+    return null;
+  }
 
   /// A SKETCH row was tapped in the browser while the sketch-driven pattern
   /// is waiting for its points. Returns true when the tap was consumed, so
@@ -4793,6 +4877,100 @@ class AppState extends ChangeNotifier {
     // viewport is an ordinary tap again, not a silent re-pick of the value
     // that was just chosen.
     s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// M213 — a CURVE was picked as the direction of a row.
+  ///
+  /// A path and a straight direction are alternatives for the same row, so
+  /// picking one clears the other: a panel showing both would be saying two
+  /// different things about where the occurrences go.
+  void patternPathPicked(CurveSel sel, {required bool first}) {
+    final s = patternSession;
+    if (s == null) return;
+    if (first) {
+      s.pathA = sel;
+      s.dirA = null;
+      s.startA = 0;
+      s.startPickedA = false;
+      // Inventor's Orientation Method starts at Identical for a path pattern.
+      // The field is shared with the circular command, whose own default is
+      // Rotational, so it is set HERE rather than left at whatever the other
+      // command wanted.
+      s.orientation = PatternOrient.fixed;
+    } else {
+      s.pathB = sel;
+      s.dirB = null;
+      s.startB = 0;
+      s.startPickedB = false;
+    }
+    s.active = PatternField.none;
+    Log.i('pattern',
+        '${first ? "A" : "B"} runs along ${sel.sketchName}#${sel.geoIndex}');
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Start: where on the path the ORIGINAL sits.
+  void patternStartPicked(Vec3 world, {required bool first}) {
+    final s = patternSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    final sel = first ? s.pathA : s.pathB;
+    if (sel == null) {
+      toast('Pick the curve for this direction first.');
+      return;
+    }
+    final (pts, err) = resolvePath(p, sel);
+    if (pts == null) {
+      toast(err ?? 'That curve is no longer available.');
+      return;
+    }
+    final poly = <Vec3>[
+      for (var i = 0; i + 2 < pts.length; i += 3)
+        Vec3(pts[i], pts[i + 1], pts[i + 2])
+    ];
+    final at = arcLengthNearest(poly, world);
+    if (first) {
+      s.startA = at;
+      s.startPickedA = true;
+    } else {
+      s.startB = at;
+      s.startPickedB = true;
+    }
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Variable Orientation: the face the occurrences follow.
+  void patternOrientFacePicked(PlaneFrame frame) {
+    final s = patternSession;
+    if (s == null) return;
+    s.orientFace = FaceSel(frame.origin.x, frame.origin.y, frame.origin.z,
+        frame.n.x, frame.n.y, frame.n.z);
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor 2026's Irregular Distance / Angle. [step] is the occurrence's
+  /// step index (1 = the first copy); a null [value] removes the override and
+  /// the even spacing takes that occurrence back.
+  void patternSetIrregular(String which, int step, double? value) {
+    final s = patternSession;
+    if (s == null || step < 1) return;
+    final m = switch (which) {
+      'B' => s.irregularB,
+      'C' => s.irregularC,
+      _ => s.irregularA,
+    };
+    if (value == null) {
+      m.remove(step);
+    } else {
+      m[step] = value;
+    }
     _updatePatternPreview();
     notifyListeners();
   }
@@ -4909,7 +5087,9 @@ class AppState extends ChangeNotifier {
     );
     switch (s.mode) {
       case PatternKind.rectangular:
-        if (s.dirA == null) return (null, 'Select a direction for Direction A.');
+        if (s.dirA == null && s.pathA == null) {
+          return (null, 'Select a direction or a curve for Direction A.');
+        }
         final ca = _patternCount(s.exprCountA);
         if (ca == null) return (null, 'Number in Direction A must be 1 or more.');
         final da = parseValueExpr(s.exprDistanceA);
@@ -4917,15 +5097,19 @@ class AppState extends ChangeNotifier {
           return (null, 'Distance in Direction A must be greater than 0.');
         }
         f
-          ..dirA = s.dirA!.copy()
+          ..dirA = s.dirA?.copy()
+          ..pathA = s.pathA
+          ..startA = s.startA
           ..flipA = s.flipA
           ..midplaneA = s.midplaneA
           ..countA = ca
           ..distanceA = da
           ..exprCountA = s.exprCountA
           ..exprDistanceA = s.exprDistanceA
-          ..distributionA = s.distributionA;
-        if (s.dirB != null) {
+          ..distributionA = s.distributionA
+          ..orientation = s.orientation;
+        f.irregularA.addAll(s.irregularA);
+        if (s.dirB != null || s.pathB != null) {
           final cb = _patternCount(s.exprCountB);
           if (cb == null) {
             return (null, 'Number in Direction B must be 1 or more.');
@@ -4935,7 +5119,9 @@ class AppState extends ChangeNotifier {
             return (null, 'Distance in Direction B must be greater than 0.');
           }
           f
-            ..dirB = s.dirB!.copy()
+            ..dirB = s.dirB?.copy()
+            ..pathB = s.pathB
+            ..startB = s.startB
             ..flipB = s.flipB
             ..midplaneB = s.midplaneB
             ..countB = cb
@@ -4943,6 +5129,7 @@ class AppState extends ChangeNotifier {
             ..exprCountB = s.exprCountB
             ..exprDistanceB = s.exprDistanceB
             ..distributionB = s.distributionB;
+          f.irregularB.addAll(s.irregularB);
         }
         if (f.countA * f.countB <= 1) {
           return (null, 'A pattern needs more than one occurrence.');
@@ -4965,6 +5152,7 @@ class AppState extends ChangeNotifier {
           ..exprAngleC = s.exprAngleC
           ..distributionC = s.distributionC
           ..orientation = s.orientation;
+        f.irregularC.addAll(s.irregularC);
       case PatternKind.sketchDriven:
         if (s.pointSketch.isEmpty) {
           return (null, 'Select the sketch that holds the points.');
@@ -4973,7 +5161,8 @@ class AppState extends ChangeNotifier {
           ..pointSketch = s.pointSketch
           ..basePicked = s.basePicked
           ..baseX = s.baseX
-          ..baseY = s.baseY;
+          ..baseY = s.baseY
+          ..orientFace = s.orientFace;
       case PatternKind.mirror:
         if (s.plane == null) return (null, 'Select the mirror plane.');
         f
