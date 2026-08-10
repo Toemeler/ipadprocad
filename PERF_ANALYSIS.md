@@ -982,3 +982,169 @@ Dieselbe Ursache, ohne Zug: eine **Bemassung einzugeben kostet 44.7 ms**,
 Tangente 12.5 ms, Fix 11.8 ms — gegenueber ~0.5 ms fuer coincident, parallel,
 equal und den Rest. Die teuren sind genau die, deren Ergebnis libslvs nicht
 liefert oder deren Verifikation scheitert.
+
+---
+
+## 15. M220 — was die Zusammenfuehrung mit main mitbrachte
+
+Der Branch stand sieben Commits hinter main. M209-M213 sind jetzt drin, und
+damit ein ganzer Satz Pfade, fuer die es **keine einzige Messung** gab. Dieser
+Abschnitt ist wieder reine Analyse: Quelltextbefunde und die Szenarien, die sie
+am Geraet falsifizierbar machen. Nichts davon ist repariert.
+
+### 15.1 `occt_shape_edge_info` macht VIER Ganzform-Operationen, nicht zwei
+
+Abschnitt 11.1 nannte zwei vollstaendige Topologie-Durchlaeufe pro Aufruf. Das
+war richtig und unvollstaendig. Vollstaendig gelesen macht die Funktion pro
+Aufruf:
+
+| # | Zeile | Was | wann |
+| ---: | ---: | --- | --- |
+| 1 | 1738 | `TopExp::MapShapes(EDGE)` — nur um den Index aufzuloesen | immer |
+| 2 | 1792 | `TopExp::MapShapesAndAncestors(EDGE, FACE)` | immer |
+| 3 | 1832 | `BRepBndLib::Add(shape->s, bb)` — Bounding Box der GANZEN Form | s.u. |
+| 4 | 1836 | `BRepClass3d_SolidClassifier cls(shape->s)` — Klassifizierer ueber die GANZE Form | s.u. |
+
+3 und 4 stehen im Konvexitaetszweig und laufen nur, wenn die Kante **genau
+zwei** Nachbarflaechen hat (`out10[9] == 2.0`) und der Diederwinkel ueber
+1e-3 liegt. Auf einem geschlossenen Solid ist das die **Mehrheit** der Kanten —
+eine freie Randkante ist die Ausnahme, nicht die Regel. Der teuerste Teil des
+Aufrufs ist also der Normalfall, nicht der Sonderfall.
+
+Besonders 4: einen `BRepClass3d_SolidClassifier` zu konstruieren baut interne
+Strukturen ueber jede Flaeche der Form auf — und das Objekt lebt bis zum Ende
+des Aufrufs und wird dann verworfen, genau wie die beiden Karten. Vier
+Ganzform-Aufbauten, viermal weggeworfen, einmal pro Kante.
+
+Das aendert die Wurzelursache nicht (die Quadratik stand schon fest), aber es
+aendert die Reparatur: ein Bulk-Einstiegspunkt muss **alle vier** aus der
+Schleife heben, nicht nur die zwei Karten. Wer nur `MapShapes*` hebt, hat den
+Klassifizierer noch pro Kante drin und wundert sich, warum die Quadratik nicht
+verschwindet.
+
+**Neu messbar gemacht:** `kernel.query.edgeInfoScale.{24,60,120,240}` — EIN
+`edgeInfo` auf Kante 1, auf Solids wachsender Groesse. Die Kante ist in jeder
+Sprosse dieselbe; nur die Form um sie herum waechst. Steigt die Zeit, ist der
+Ganzform-Durchlauf pro Aufruf **von aussen** bestaetigt und n x O(n) = O(n^2)
+ist danach Arithmetik statt Schlussfolgerung. Bleibt sie flach, ist der
+Quelltextbefund falsch und die Diagnose muss zurueck an die Grenze. Genau das
+macht die Messung ihr Geld wert.
+
+### 15.2 `newSurfacesOf` ist quadratisch in der Flaechenzahl
+
+`part_model.dart:3701`:
+
+```dart
+return [
+  for (final f in result)
+    if (!base.any((b) => b.sameSurfaceAs(f, kFaceMatchTol))) f
+];
+```
+
+`base.any(...)` in einer Schleife ueber `result` — also `result x base`
+Flaechenvergleiche. Aufgerufen wird das in `recomputeAllFeatures`
+(`part_model.dart:6990`) fuer **jedes koerpermodifizierende Feature bei jedem
+Rebuild**, und `faceSurfaces` laeuft daneben gleich zweimal (eigenes Mesh und
+Vorgaengermesh).
+
+Damit haengt an jedem Rebuild eine Kostenkurve, die mit dem **Quadrat der
+Modelldetails** waechst, und sie stand bis jetzt in keinem Report — der
+Aggregat-Span `part.rebuildAll` enthaelt sie, trennt sie aber nicht ab.
+
+**Neu:** `app.provenance.newSurfaces.{24,120,360}` mit der Vorhersage
+Exponent ~2 im Vermerk. Dazu `app.provenance.faceSurfaces.{24,120,360}` fuer
+die lineare Haelfte, damit die beiden nicht wieder in einer Zahl verschwimmen.
+
+### 15.3 `attributeFaces` ist ein dreifaches Produkt
+
+`part_model.dart:3721` laeuft ueber jede Mesh-Flaeche, darin ueber jedes
+Feature des Koerpers, darin ueber jede `ownSurfaces` des Features — mit
+`sameSurfaceAs` im Innersten. Kosten also
+**Flaechen x Features x Flaechen-je-Feature**.
+
+Das haengt am Flaechenpicken (`app_state.dart:4859`), gecacht pro
+Mesh-Identitaet. Ein Pick-Budget ist ein anderes als ein Rebuild-Budget, darum
+ein eigenes Szenario mit der **Featurezahl** als Achse:
+`app.provenance.attribute.{2,6,12}` — die Achse, gegen die diese Suite sonst
+nichts sweept.
+
+**Fallstrick, im Szenario ausdruecklich behandelt:** die Fixture weist ihre
+Solids direkt zu und fuellt `ownSurfaces` nie. Ohne Nachhilfe findet
+`attributeFaces` nichts zu vergleichen, gibt eine leere Map zurueck und
+misst — schnell und plausibel — sein eigenes leeres Eingabefeld. Das ist
+haargenau der M212-Fehler. Das Szenario fuellt `ownSurfaces` deshalb vorher
+und veroeffentlicht `provenance.attribute.out`; der Abdeckungstest verlangt,
+dass die Zahl ungleich null ist.
+
+### 15.4 `faceSurfaces` wird fuer eine Log-Zeile ein zweites Mal gerechnet
+
+`app_state.dart:4859-4864`:
+
+```dart
+owners = attributeFaces(p, body, solid);   // rechnet faceSurfaces intern
+_faceOwnerCache[key] = owners;
+Log.i('part', '... ${owners.length} of '
+    '${faceSurfaces(solid.mesh).length} faces attributed');
+```
+
+`attributeFaces` hat die Flaechenzerlegung eben erst berechnet; die Log-Zeile
+berechnet sie **komplett neu**, nur um eine Anzahl in einen Text zu schreiben.
+Dieselbe Art wie der doppelte `displayGeometry` im Painter (Befund 3): eine
+Antwort zweimal gerechnet, eine davon fuer eine Diagnose.
+
+Milder als der Painter-Fall — es sitzt hinter `_faceOwnerCache`, laeuft also
+einmal pro Mesh-Identitaet und nicht pro Frame. Aber es sitzt auf dem
+Pick-Pfad, und `app.provenance.faceSurfaces` sagt ab dem naechsten Lauf, was
+diese Zeile kostet.
+
+### 15.5 `occt_mirror` kam ungemessen an
+
+Shim v17, M212s Mirror-Platzierung, das einzige neue `lookupFunction` im
+ganzen main-Diff — und ohne Sonde, weil main die Messinfrastruktur nicht hat.
+Beim Zusammenfuehren als `ffi.occt.mirror` eingewickelt, in derselben Form wie
+`ffi.occt.transform` daneben.
+
+Eigenes Szenario (`kernel.mirror.{24,120}`) statt einer Zeile in
+`kernel.transform`, weil die beiden nicht austauschbar sind: eine Spiegelung
+hat Determinante -1, was `occt_transform` absichtlich verweigert, und der
+Mirror-Pfad korrigiert zusaetzlich die Orientierung, damit das Ergebnis direkt
+in eine Boolesche Operation kann. Das Szenario faehrt beide auf **demselben**
+Solid; die Differenz ist genau das, was die Spiegelung mehr kostet. Ein
+Mirror-Pattern zahlt sie pro Vorkommen.
+
+### 15.6 Die Part-Muster (M212) hatten keine Zahl
+
+`app.pattern.*` misst die **2D-Skizzen**-Musterschau. Die 3D-Partmuster sind
+ein anderes Feature, und `patternOccurrences` ist ihr arithmetischer Kern: er
+laeuft pro Rebuild eines Mustersfeatures und pro Frame, solange der
+Musterdialog offen ist.
+
+`app.pattern.occurrences.{4,16,64}` sweept die Anzahl.
+`app.pattern.occurrences.curve` misst dieselbe Funktion auf dem anderen Pfad —
+M213s „Reihen entlang einer Kurve", das statt einer Richtung eine Polylinie
+nach **Bogenlaenge** abschreitet und damit die Punktzahl des Pfades als zweite
+Achse mitbringt. Getrennt, weil ein Mittel ueber beide verstecken wuerde,
+welche der zwei Achsen etwas kostet.
+
+**Nebenbefund im Vertrag, den der Test jetzt festnagelt:** ein Muster mit
+Anzahl n liefert **n-1** Platzierungen. Die identische Platzierung wird
+verworfen (`part_model.dart:3370`) — sie IST das Originalfeature, und sie
+mitzuliefern wuerde das Material verdoppeln.
+
+### 15.7 Stand der Abdeckung
+
+Neu in dieser Runde: **sieben Szenariofamilien, 19 Einzelmessungen**, alle im
+AUTOMATISCHEN Tier — sie laufen also beim normalen Bug-Button mit, ohne dass
+jemand `stress` tippen muss. Was weiterhin fehlt, ist unveraendert die Liste
+aus Abschnitt 12.4 plus:
+
+* **`applyBlendOccurrence`** (gemusterte Fillets, M213) — laeuft im Kernel je
+  Vorkommen, hat noch kein eigenes Szenario.
+* **`sketchPatternPoints`** und die punktgetriebene Musterart.
+* **Der Rebuild eines echten PatternFeature Ende-zu-Ende.**
+  `app.rebuildPart.*` faehrt Extrusionen; ein Muster faltet zusaetzlich pro
+  Vorkommen eine Boolesche Operation auf den Koerper, und das ist eine andere
+  Kurve.
+
+Das sind die naechsten Handgriffe. Sie sind benannt, damit die Abdeckung nicht
+groesser aussieht als sie ist.

@@ -588,6 +588,95 @@ List<PerfScenario> buildKernelScenarios() {
         'measured allEdges — if they match, every call re-walks the topology',
   ));
 
+  // M220 — the same query, one edge, against a GROWING shape.
+  //
+  // kernel.query.edgeInfoOne proves that one call is expensive on one solid.
+  // It cannot prove WHY, and the difference matters for the repair: a call
+  // that is expensive because the EDGE is complicated is fixed differently
+  // from one that is expensive because the SHAPE is big.
+  //
+  // Reading occt_capi.cpp says it is the shape (see PERF_ANALYSIS §15), and
+  // this is that claim made falsifiable from Dart. Always edge 1 — the same
+  // edge of the same kind, on the outer ring, in every rung. The only thing
+  // that varies is how much shape surrounds it. If the cost of asking about
+  // ONE unchanged edge grows with the size of the shape it happens to belong
+  // to, every per-call whole-shape traversal is confirmed from the outside,
+  // and n calls x O(n) = O(n^2) is then arithmetic rather than inference.
+  //
+  // A flat line here would REFUTE the source reading and send the diagnosis
+  // back to the boundary. That is what makes it worth running.
+  for (final n in const [24, 60, 120, 240]) {
+    out.add(PerfScenario(
+      'kernel.query.edgeInfoScale.$n',
+      () {
+        final s = _guard('edgeInfoScaleBase',
+            () => occt.extrudeProfileArcs([ringProfile(n, 40)], 10.0));
+        if (s == null) return;
+        try {
+          // The axis the report should plot against — the profile point count
+          // is the input, the edge count is what the kernel made of it.
+          Perf.gauge('kernel.edgeInfoScale.edges.$n', s.edgeCount);
+          Perf.gauge('kernel.edgeInfoScale.faces.$n', s.counts()?.faces ?? -1);
+          for (var i = 0; i < 20; i++) {
+            Perf.span('kernel.edgeInfoScale.$n', () => s.edgeInfo(1));
+          }
+        } finally {
+          s.dispose();
+        }
+      },
+      note: 'ONE edgeInfo on edge 1, on solids of growing size. The edge is '
+          'the same in every rung; only the surrounding shape grows. Rising '
+          'cost = the call traverses the whole shape (the O(n^2) mechanism); '
+          'flat = the cost is per-edge and the diagnosis in PERF_ANALYSIS '
+          'section 15 is wrong. Compare the slope against '
+          'kernel.edgeInfoScale.edges/faces',
+    ));
+  }
+
+  // M220 — occt_mirror (shim v17), which arrived with M212's pattern/mirror
+  // features and reached this branch unmeasured.
+  //
+  // Its own scenario rather than a line in kernel.transform, because the shim
+  // gives it its own entry point for a reason: a reflection has determinant
+  // -1, which occt_transform refuses on purpose, and the mirror path also
+  // ORIENTATION-CORRECTS the result so it can go straight into a boolean.
+  // That correction is real work that a rigid placement does not do, so the
+  // two are not interchangeable and one number cannot stand for both. A
+  // mirror pattern pays this per occurrence.
+  for (final n in const [24, 120]) {
+    out.add(PerfScenario(
+      'kernel.mirror.$n',
+      () {
+        final s = _guard('mirrorBase',
+            () => occt.extrudeProfileArcs([ringProfile(n, 40)], 10.0));
+        if (s == null) return;
+        try {
+          for (var i = 0; i < 10; i++) {
+            final m = _guard('mirror',
+                () => s.mirrored(100, 0, 0, 1, 0, 0));
+            m?.dispose();
+          }
+          // The control, on the SAME solid: a rigid placement of the same
+          // shape. Mirror minus transform is what the reflection and the
+          // orientation fix actually cost.
+          for (var i = 0; i < 10; i++) {
+            final t = _guard(
+                'mirrorControl',
+                () => s.transformed(
+                    [1, 0, 0, 100, 0, 1, 0, 0, 0, 0, 1, 0]));
+            t?.dispose();
+          }
+        } finally {
+          s.dispose();
+        }
+      },
+      note: 'ffi.occt.mirror against ffi.occt.transform on the SAME solid. '
+          'The difference is the reflection plus the orientation correction '
+          'the shim applies so the result can enter a boolean; a mirror '
+          'pattern pays it once per occurrence',
+    ));
+  }
+
   out.add(PerfScenario(
     'kernel.rayHits',
     () {

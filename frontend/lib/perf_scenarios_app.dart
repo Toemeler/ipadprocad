@@ -556,5 +556,199 @@ List<PerfScenario> buildAppScenarios() {
         'the size where it starts to matter. 2d.pickEntity carries it',
   ));
 
+  // ---- M213 face provenance ----------------------------------------------
+  //
+  // "Which feature made this face" arrived with M213 and reached this branch
+  // with no measurement at all. It deserves its own section because it is not
+  // one function on one path — it is three functions on TWO paths with very
+  // different frequencies:
+  //
+  //   * faceSurfaces + newSurfacesOf run inside recomputeAllFeatures, once
+  //     per feature, on EVERY rebuild (part_model.dart:6988-6990);
+  //   * attributeFaces runs when a face is picked (app_state.dart:4859),
+  //     cached per mesh identity.
+  //
+  // A rebuild cost and a pick cost are different budgets — a rebuild may take
+  // 200 ms without anyone minding, a pick may not — so folding them into one
+  // number would hide whichever is the problem. Hence three scenarios.
+
+  // The triangle axis. faceSurfaces walks every triangle of a mesh once, so
+  // this should be LINEAR; it is measured anyway because it is on the rebuild
+  // path per feature, and because it allocates a three-element list per
+  // triangle, which linear-in-time does not tell you about.
+  for (final pts in const [24, 120, 360]) {
+    out.add(PerfScenario(
+      'app.provenance.faceSurfaces.$pts',
+      () {
+        final p = _part(1, pts);
+        if (p == null) return;
+        final solid = p.features.first.solid;
+        if (solid == null) return;
+        Perf.gauge('provenance.tris.$pts', solid.mesh.triangleCount);
+        Perf.gauge('provenance.faces.$pts', solid.mesh.faceCount);
+        for (var i = 0; i < 10; i++) {
+          final fs =
+              Perf.span('provenance.faceSurfaces', () => faceSurfaces(solid.mesh));
+          // A mesh whose faceInfos are empty makes faceSurfaces return an
+          // empty list IMMEDIATELY (part_model.dart:3635) — the fast, silent
+          // nothing this suite has been caught by twice. Publish the count so
+          // a zero is visible in the report instead of reading as speed.
+          Perf.gauge('provenance.faceSurfaces.out.$pts', fs.length);
+        }
+      },
+      note: 'faceSurfaces vs triangle count, on the per-feature rebuild path. '
+          'Expected LINEAR — check provenance.faceSurfaces.out is non-zero '
+          'before believing any of it',
+    ));
+  }
+
+  // The face axis, and the one with a real prediction attached.
+  //
+  // newSurfacesOf does `base.any(...)` inside a loop over `result`
+  // (part_model.dart:3701-3704), so it is O(result x base) surface
+  // comparisons — quadratic in the FACE count of the mesh. It runs for every
+  // body-modifying feature in every rebuild. If the exponent comes back near
+  // 2, this is a rebuild cost that grows with the square of model detail and
+  // nobody has ever seen it, because until now it had no span.
+  for (final pts in const [24, 120, 360]) {
+    out.add(PerfScenario(
+      'app.provenance.newSurfaces.$pts',
+      () {
+        final p = _part(2, pts);
+        if (p == null || p.features.length < 2) return;
+        final a = p.features[0].solid, b = p.features[1].solid;
+        if (a == null || b == null) return;
+        final mine = faceSurfaces(a.mesh);
+        final base = faceSurfaces(b.mesh);
+        if (mine.isEmpty || base.isEmpty) return;
+        Perf.gauge('provenance.newSurfaces.in.$pts', mine.length);
+        for (var i = 0; i < 10; i++) {
+          final n = Perf.span(
+              'provenance.newSurfaces', () => newSurfacesOf(mine, base));
+          Perf.gauge('provenance.newSurfaces.out.$pts', n.length);
+        }
+      },
+      note: 'newSurfacesOf vs face count. PREDICTED QUADRATIC: base.any() '
+          'inside a loop over result, so faces^2 surface comparisons, once '
+          'per body-modifying feature per rebuild. Fit the exponent across '
+          'the three sizes — near 2 confirms it',
+    ));
+  }
+
+  // The pick path, swept against FEATURE count rather than mesh size.
+  //
+  // attributeFaces is a triple loop: for every face of the mesh, for every
+  // feature of the body, for every surface that feature owns
+  // (part_model.dart:3721-3738). Its cost is therefore a PRODUCT, and feature
+  // count is the axis nothing else in this suite sweeps it against.
+  for (final f in const [2, 6, 12]) {
+    out.add(PerfScenario(
+      'app.provenance.attribute.$f',
+      () {
+        final p = _part(f, 60);
+        if (p == null || p.features.isEmpty) return;
+        final solid = p.features.first.solid;
+        if (solid == null) return;
+        // The fixture assigns solids directly and never populates
+        // ownSurfaces, so attributeFaces would find nothing to match and
+        // return an empty map in almost no time — a scenario measuring its
+        // own empty input, which is exactly the M212 failure this suite has
+        // a coverage test for. Give every feature the provenance a real
+        // rebuild would have given it.
+        for (final g in p.features) {
+          final s = g.solid;
+          g.ownSurfaces = s == null ? const [] : faceSurfaces(s.mesh);
+        }
+        Perf.gauge('provenance.attribute.features.$f', p.features.length);
+        var attributed = 0;
+        for (var i = 0; i < 5; i++) {
+          final owners = Perf.span('provenance.attributeFaces',
+              () => attributeFaces(p, 'Solid1', solid));
+          attributed = owners.length;
+        }
+        // The number that says the scenario reached its subject: an
+        // attribution that attributes nothing is fast and worthless.
+        Perf.gauge('provenance.attribute.out.$f', attributed);
+      },
+      note: 'attributeFaces vs FEATURE count — the face-pick path. A triple '
+          'loop (faces x features x surfaces-per-feature), so expect a '
+          'product. provenance.attribute.out must be non-zero, otherwise the '
+          'fixture matched nothing and the timing is meaningless',
+    ));
+  }
+
+  // ---- M212 part patterns ------------------------------------------------
+  //
+  // app.pattern.* above measures the 2D SKETCH pattern preview. The 3D part
+  // patterns are a different feature that arrived with M212, and
+  // patternOccurrences is their arithmetic core: it runs once per rebuild of
+  // a pattern feature and once per frame while the pattern dialog is open,
+  // producing one placement matrix per occurrence.
+  //
+  // Swept on count, because count is the thing a user turns up and the only
+  // input that can grow without bound.
+  for (final n in const [4, 16, 64]) {
+    out.add(PerfScenario(
+      'app.pattern.occurrences.$n',
+      () {
+        final f = PatternFeature(
+          name: 'Pattern1',
+          bodyName: 'Solid1',
+          mode: PatternKind.rectangular,
+          sources: const ['Extrusion1'],
+          dirA: AxisRef(0, 0, 0, 1, 0, 0),
+          countA: n,
+          distanceA: 10.0 * n,
+          distributionA: PatternDistribution.spacing,
+        );
+        for (var i = 0; i < 20; i++) {
+          final occ =
+              Perf.span('pattern.occurrences', () => patternOccurrences(f));
+          Perf.gauge('pattern.occurrences.out.$n', occ.length);
+        }
+      },
+      note: 'patternOccurrences vs occurrence count, rectangular. Runs per '
+          'rebuild AND per frame while the dialog is open. Expected linear; '
+          'pattern.occurrences.out should be count-1, because the identity '
+          'placement is dropped (it IS the original feature)',
+    ));
+  }
+
+  // The curve-driven row (M213's "rows along a curve"), which is the same
+  // feature on a genuinely different code path: instead of stepping a
+  // direction it walks a polyline by ARC LENGTH, so its cost carries the
+  // path's point count as well as the occurrence count. Measured separately
+  // for that reason — averaging it into the straight case above would hide
+  // whichever of the two axes actually costs something.
+  out.add(PerfScenario(
+    'app.pattern.occurrences.curve',
+    () {
+      final path = <Vec3>[
+        for (var i = 0; i < 120; i++)
+          Vec3(i * 2.0, 20 * math.sin(i * 0.12), 0),
+      ];
+      final f = PatternFeature(
+        name: 'Pattern1',
+        bodyName: 'Solid1',
+        mode: PatternKind.rectangular,
+        sources: const ['Extrusion1'],
+        dirA: AxisRef(0, 0, 0, 1, 0, 0),
+        pathA: 'curvePath',
+        countA: 16,
+        distanceA: 200,
+        distributionA: PatternDistribution.curveLength,
+      );
+      for (var i = 0; i < 20; i++) {
+        final occ = Perf.span(
+            'pattern.occurrences.curve', () => patternOccurrences(f, pathA: path));
+        Perf.gauge('pattern.occurrences.curve.out', occ.length);
+      }
+      Perf.gauge('pattern.occurrences.curve.pathPts', path.length);
+    },
+    note: 'the along-a-curve row: arc-length walk of a 120-point path instead '
+        'of a straight step. Compare against app.pattern.occurrences.16 — the '
+        'difference is what following a curve costs',
+  ));
+
   return out;
 }

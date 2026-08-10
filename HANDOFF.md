@@ -8745,8 +8745,8 @@ analyze 0 errors, **573 gruen**.
 
 ## M210–M219 — Die Performance-Messinfrastruktur (NUR Analyse, nichts optimiert)
 
-**Branch:** `claude/perf-deep-analysis` · **Stand:** `92ffc56` · **Build 399**
-**Volle Details:** `PERF_ANALYSIS.md` (Abschnitte 8–14), Messplan in
+**Branch:** `claude/perf-deep-analysis` · **Stand:** M220 (main zusammengefuehrt)
+**Volle Details:** `PERF_ANALYSIS.md` (Abschnitte 8–15), Messplan in
 `PERF_PLAN.md`. Dieser Eintrag ist der Einstiegspunkt.
 
 ### Die stehende Regel
@@ -8834,6 +8834,46 @@ demselben Solid — Faktor 66.
 (0.0044 ms/Event, 5x billiger als Picken), DOF-Faerbung, Booleans,
 Tessellierung, `allGeometry`, Ribbon-Rebuilds, Start (76 ms), 3D-Picken,
 Projektion, Szenen-Payload, Dokument-Codec.
+
+### M220 — nach der Zusammenfuehrung mit main (PERF_ANALYSIS Abschnitt 15)
+
+main brachte M209-M213 mit, darunter die Partmuster und die Flaechen-Provenienz
+— Pfade, fuer die es keine einzige Messung gab. Vier Quelltextbefunde kommen
+in die Rangliste, einer davon schaerft Befund 1:
+
+**1 (praezisiert). `occt_shape_edge_info` macht VIER Ganzform-Operationen pro
+Aufruf, nicht zwei.** Zusaetzlich zu den beiden `TopExp::MapShapes*`: eine
+Bounding Box der ganzen Form (`:1832`) und ein `BRepClass3d_SolidClassifier`
+ueber die ganze Form (`:1836`). Beide stehen im Konvexitaetszweig, der nur bei
+Kanten mit **genau zwei** Nachbarflaechen laeuft — auf einem geschlossenen
+Solid also bei der Mehrheit. **Folge fuer die Reparatur:** der
+Bulk-Einstiegspunkt muss alle vier aus der Schleife heben. Wer nur die zwei
+Karten hebt, laesst den Klassifizierer pro Kante stehen und die Quadratik
+bleibt.
+
+**7. `newSurfacesOf` ist quadratisch in der Flaechenzahl** —
+`base.any(...)` in einer Schleife ueber `result` (`part_model.dart:3701`), pro
+koerpermodifizierendem Feature bei **jedem Rebuild** (`:6990`), mit
+`faceSurfaces` gleich zweimal daneben. Steckt heute unaufgetrennt in
+`part.rebuildAll`.
+
+**8. `attributeFaces` ist ein dreifaches Produkt** — Flaechen x Features x
+Flaechen-je-Feature, mit `sameSurfaceAs` im Innersten
+(`part_model.dart:3721`). Haengt am Flaechenpicken (`app_state.dart:4859`),
+gecacht pro Mesh-Identitaet.
+
+**9. `faceSurfaces` laeuft ein zweites Mal fuer eine Log-Zeile**
+(`app_state.dart:4864`) — direkt nachdem `attributeFaces` dieselbe Zerlegung
+intern berechnet hat, nur um eine Anzahl in einen Text zu schreiben. Dieselbe
+Art wie Befund 3, aber hinter dem Cache und damit milder.
+
+**Neu gemessen, damit der naechste Geraetelauf das alles beantwortet:** sieben
+Szenariofamilien, 19 Einzelmessungen, alle im automatischen Tier —
+`kernel.query.edgeInfoScale.*` (EIN edgeInfo auf wachsender Form: macht den
+O(n)-pro-Aufruf von aussen falsifizierbar), `kernel.mirror.*` (das neue
+`occt_mirror`, gegen `transform` auf demselben Solid),
+`app.provenance.{faceSurfaces,newSurfaces,attribute}.*` und
+`app.pattern.occurrences.*` samt der Kurvenvariante.
 
 ### Wie man es benutzt
 

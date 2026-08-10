@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:native_menu/native_menu.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/ffi/perf_hook.dart';
 import 'package:prototype/modify.dart';
 import 'package:prototype/perf.dart';
 import 'package:prototype/perf_scenarios.dart';
@@ -179,7 +180,12 @@ void main() {
       for (final op in const [
         'extrude', 'revolve', 'sweep', 'loft', 'coil',
         'fillet', 'chamfer', 'boolean', 'unify', 'mesh',
-        'query', 'rayHits', 'transform',
+        // M220 — mirror is occt_mirror (shim v17), which came in with M212's
+        // pattern features. It belongs in THIS list rather than in a test of
+        // its own: this list is the thing that fails when the next kernel
+        // entry point arrives without a scenario, and that is the failure
+        // worth having.
+        'query', 'rayHits', 'transform', 'mirror',
       ]) {
         expect(names.any((n) => n.contains(op)), isTrue,
             reason: 'no scenario covers $op');
@@ -466,6 +472,150 @@ void main() {
           reason: 'a stub mesh would make every scene number meaningless');
       expect(Perf.stats.containsKey('app.buildScenePayload'), isTrue);
       expect(Perf.stats['app.sceneSignature']?.count, 60);
+    });
+  });
+
+  // M220 — the paths that arrived with M212/M213 and reached this branch
+  // unmeasured. Same discipline as everything above: these tests do not look
+  // at timings, they check that the scenario reached the thing it claims to
+  // measure. Face provenance is especially prone to the silent-nothing
+  // failure, because faceSurfaces returns an EMPTY LIST rather than throwing
+  // when a mesh arrives without faceInfos — a fixture built against an older
+  // shim would report every provenance scenario as instant and correct.
+  group('M220 — provenance, part patterns and the new kernel entry', () {
+    test('the new scenarios are wired into the suite at all', () {
+      final names = buildAppScenarios().map((s) => s.name).toSet();
+      expect(names.any((n) => n.startsWith('app.provenance.faceSurfaces')),
+          isTrue);
+      expect(
+          names.any((n) => n.startsWith('app.provenance.newSurfaces')), isTrue);
+      expect(names.any((n) => n.startsWith('app.provenance.attribute')), isTrue);
+      expect(names.any((n) => n.startsWith('app.pattern.occurrences')), isTrue);
+      expect(names, contains('app.pattern.occurrences.curve'));
+
+      // The kernel list is empty by design on a host without OCCT (see
+      // 'kernel coverage' above), so the sweep can only be asserted where a
+      // kernel exists.
+      if (!OcctFfi.available) return;
+      final kernel = buildKernelScenarios().map((s) => s.name).toSet();
+      expect(
+          kernel.any((n) => n.startsWith('kernel.query.edgeInfoScale')), isTrue);
+      expect(kernel.any((n) => n.startsWith('kernel.mirror')), isTrue);
+    });
+
+    testWidgets('faceSurfaces really decomposes a mesh', (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.provenance.faceSurfaces.120');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['provenance.faceSurfaces.out.120'] ?? 0, greaterThan(0),
+          reason: 'faceSurfaces returned nothing — a mesh without faceInfos '
+              'exits on its first line, so the whole provenance section would '
+              'be timing an early return');
+      expect(Perf.stats['provenance.faceSurfaces']?.count, 10);
+    });
+
+    testWidgets('newSurfacesOf compares two real surface sets', (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.provenance.newSurfaces.120');
+      Perf.scenario(s.name, s.run);
+      // The INPUT is what matters here: newSurfacesOf legitimately returns an
+      // empty list when every surface already exists in the base, so an empty
+      // OUTPUT is not proof of failure — an empty input is.
+      expect(Perf.gauges['provenance.newSurfaces.in.120'] ?? 0, greaterThan(0),
+          reason: 'nothing to compare means the quadratic being hunted here '
+              'never ran');
+      expect(Perf.stats['provenance.newSurfaces']?.count, 10);
+    });
+
+    testWidgets('attributeFaces actually attributes', (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.provenance.attribute.6');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['provenance.attribute.out.6'] ?? 0, greaterThan(0),
+          reason: 'the triple loop matched no face to any feature, so this '
+              'measured the loop skipping rather than the loop working — the '
+              'fixture must populate ownSurfaces');
+      expect(Perf.gauges['provenance.attribute.features.6'], 6);
+    });
+
+    test('patternOccurrences produces the requested count', () {
+      Perf.resetForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.pattern.occurrences.16');
+      Perf.scenario(s.name, s.run);
+      // FIFTEEN, not sixteen. patternOccurrences drops the occurrence whose
+      // placement is the identity (part_model.dart:3370) — that one IS the
+      // original feature, and re-adding it would double the material. So a
+      // count of n yields n-1 placements, and pinning the exact number is
+      // what would catch the off-by-one if that rule ever changed.
+      expect(Perf.gauges['pattern.occurrences.out.16'], 15,
+          reason: 'a pattern that yields fewer placements than count-1 is '
+              'measuring a refusal, not a pattern');
+    });
+
+    test('the along-a-curve row walks the path', () {
+      Perf.resetForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.pattern.occurrences.curve');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['pattern.occurrences.curve.pathPts'], 120);
+      expect(Perf.gauges['pattern.occurrences.curve.out'] ?? 0, greaterThan(1),
+          reason: 'the curve distribution fell back to a single occurrence, '
+              'which is the straight case wearing a curve fixture');
+    });
+
+    testWidgets('the edgeInfo scale rungs really build their solids',
+        (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      final s = buildKernelScenarios()
+          .firstWhere((sc) => sc.name == 'kernel.query.edgeInfoScale.120');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['kernel.edgeInfoScale.edges.120'] ?? 0, greaterThan(0),
+          reason: 'no solid means no traversal to measure, and the sweep that '
+              'is supposed to prove the O(n^2) mechanism proves nothing');
+      expect(Perf.stats['kernel.edgeInfoScale.120']?.count, 20);
+    });
+
+    testWidgets('the mirror scenario mirrors and does not silently fail',
+        (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      // The FFI spans are hooks that do NOTHING until main() installs them
+      // (see ffi/perf_hook.dart), so asserting on ffi.occt.* without this
+      // would be asserting on a no-op: the test would pass on a build where
+      // the wrapper had been deleted. Installed here and torn down after, so
+      // one test's recorder cannot leak into the next test's numbers.
+      installFfiPerfHooks(span: Perf.span, count: Perf.count);
+      try {
+        final s = buildKernelScenarios()
+            .firstWhere((sc) => sc.name == 'kernel.mirror.24');
+        Perf.scenario(s.name, s.run);
+        expect(Perf.stats['ffi.occt.mirror']?.count, 10,
+            reason: 'occt_mirror arrived with M212 uninstrumented and was '
+                'wrapped during the merge; a missing span means the wrapper '
+                'was lost again');
+        // Its control, measured in the same scenario on the same solid — the
+        // comparison is the whole point, so a missing control is a broken
+        // scenario even though the mirror numbers would look fine.
+        expect(Perf.stats['ffi.occt.transform']?.count, 10);
+        // The guard counter must be EMPTY. A shim older than v17 has no
+        // occt_mirror, mirrored() returns null, and ten fast nulls would read
+        // as the cheapest kernel operation in the whole report.
+        expect(Perf.counters['kernel.mirror.fail'] ?? 0, 0,
+            reason: 'the mirror returned null — its timing is meaningless');
+      } finally {
+        resetFfiPerfHooks();
+      }
     });
   });
 }
