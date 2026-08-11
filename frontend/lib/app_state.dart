@@ -36,6 +36,7 @@ import 'solver.dart';
 import 'spline.dart';
 import 'theme.dart';
 import 'tools.dart';
+import 'work_features.dart';
 
 /// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
 /// (splines/ellipse/equation curves sampled to polylines — spline support in
@@ -3440,6 +3441,7 @@ class AppState extends ChangeNotifier {
       // Reached from the browser rather than mid-pick: whatever else was
       // armed is not what the user meant any more.
       if (workPlaneArm != null) cancelWorkPlane();
+      cancelWorkFeature(); // M213 — same reason as the line above
       cancelPlanePick();
     }
     pickPlane = false;
@@ -4063,6 +4065,274 @@ class AppState extends ChangeNotifier {
     if (p == null) return;
     p.workPlanes.remove(wp);
     p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  // ---- M213: work axes and work points ------------------------------------
+  //
+  // One command shape for both, because Inventor's are the same shape: arm a
+  // method, collect picks, and the moment the picks determine an answer, build
+  // it. The geometry lives in work_features.dart; everything here is the
+  // session state around it.
+
+  /// Which Work Axis method is armed, or null.
+  WorkAxisMethod? workAxisArm;
+
+  /// Which Work Point method is armed, or null. At most one of these two and
+  /// [workPlaneArm] is ever set — arming any of them cancels the others,
+  /// because three commands competing for the same tap is not a UI.
+  WorkPointMethod? workPointArm;
+
+  /// Picks collected so far for the armed command.
+  final List<WorkRef> _wfPicks = [];
+
+  /// True while a work AXIS or POINT command wants geometry. The viewport
+  /// reads this to offer faces, edges, vertices and existing work features as
+  /// hover targets — a superset of [pickPlane], which only ever wanted planes.
+  bool get pickWorkGeometry => workAxisArm != null || workPointArm != null;
+
+  /// The prompt currently shown for the armed command, or '' when none is.
+  String workFeaturePrompt = '';
+
+  /// Selected work axis / point, for the browser highlight and the 3D
+  /// highlight. Mirrors [selectedWorkPlane].
+  WorkAxis? selectedWorkAxis;
+  WorkPoint? selectedWorkPoint;
+
+  void selectWorkAxis(WorkAxis? a) {
+    if (identical(selectedWorkAxis, a)) return;
+    selectedWorkAxis = a;
+    if (a != null) {
+      selectedWorkPoint = null;
+      selectWorkPlane(null);
+    }
+    notifyListeners();
+  }
+
+  void selectWorkPoint(WorkPoint? pt) {
+    if (identical(selectedWorkPoint, pt)) return;
+    selectedWorkPoint = pt;
+    if (pt != null) {
+      selectedWorkAxis = null;
+      selectWorkPlane(null);
+    }
+    notifyListeners();
+  }
+
+  /// Arm Work Axis with [method]. Re-arming the same method cancels, so every
+  /// ribbon entry is a toggle — the same contract [startWorkPlane] has.
+  void startWorkAxis(WorkAxisMethod method) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workAxisArm == method) return cancelWorkFeature();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    workAxisArm = method;
+    _armWorkFeature(p, workAxisPrompt(method, 0));
+  }
+
+  void startWorkPoint(WorkPointMethod method) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workPointArm == method) return cancelWorkFeature();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    workPointArm = method;
+    _armWorkFeature(p, workPointPrompt(method, 0));
+  }
+
+  void _armWorkFeature(PartModel p, String prompt) {
+    _wfPicks.clear();
+    workFeaturePrompt = prompt;
+    // The origin planes, axes and centre point are offered for the duration,
+    // exactly as the sketch and work-plane flows do. Without them an empty
+    // part has nothing to pick at all, and an axis through the origin point
+    // is one of the commonest things you want on a part that is still empty.
+    _wfOriginAutoShown = !p.hasSolid;
+    if (_wfOriginAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+      p.vis['x'] = p.vis['y'] = p.vis['z'] = p.vis['cp'] = true;
+    }
+    toast(prompt);
+    notifyListeners();
+  }
+
+  bool _wfOriginAutoShown = false;
+
+  void cancelWorkFeature() {
+    if (workAxisArm == null && workPointArm == null) return;
+    workAxisArm = null;
+    workPointArm = null;
+    _wfPicks.clear();
+    workFeaturePrompt = '';
+    final p = currentPart;
+    if (p != null && _wfOriginAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+      p.vis['x'] = p.vis['y'] = p.vis['z'] = p.vis['cp'] = false;
+    }
+    _wfOriginAutoShown = false;
+    notifyListeners();
+  }
+
+  /// How many picks the armed command has taken. The viewport shows this so
+  /// a two-input method does not look identical to a one-input one.
+  int get workFeaturePickCount => _wfPicks.length;
+
+  /// The viewport reports one picked entity. Returns true when it was taken.
+  ///
+  /// Three outcomes, all of them visible to the user:
+  ///   complete  -> the feature is created and the command disarms
+  ///   needMore  -> the pick is kept and the prompt advances
+  ///   rejected  -> the pick is DROPPED and the command stays armed
+  ///
+  /// The last one is the one that matters: a mis-tap costs you that tap and
+  /// nothing else. Making the user restart from the ribbon after picking a
+  /// parallel face is the kind of small cruelty that makes a tool feel
+  /// hostile — the same rule the midplane flow already follows.
+  bool workFeaturePick(WorkRef ref) {
+    final p = currentPart;
+    if (p == null) return false;
+    final axisM = workAxisArm;
+    final pointM = workPointArm;
+    if (axisM == null && pointM == null) return false;
+
+    _wfPicks.add(ref);
+    if (axisM != null) {
+      final r = solveWorkAxis(axisM, _wfPicks);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitWorkAxis(p, r.solution!);
+        return true;
+      }
+      return _wfPending(r.outcome, r.message);
+    }
+    final r = solveWorkPoint(pointM!, _wfPicks);
+    if (r.outcome == WorkPickOutcome.complete) {
+      _commitWorkPoint(p, r.solution!,
+          grounded: pointM == WorkPointMethod.grounded);
+      return true;
+    }
+    return _wfPending(r.outcome, r.message);
+  }
+
+  /// The two NON-committing outcomes, which are identical for axes and
+  /// points: keep the pick and advance the prompt, or drop it and say why.
+  bool _wfPending(WorkPickOutcome outcome, String message) {
+    final kept = outcome == WorkPickOutcome.needMore;
+    if (kept) {
+      workFeaturePrompt = message;
+    } else {
+      _wfPicks.removeLast();
+    }
+    toast(message);
+    notifyListeners();
+    return kept;
+  }
+
+  void _commitWorkAxis(PartModel p, WorkAxisSolution s) {
+    final a = WorkAxis(
+        _freeWorkName('Work Axis', {for (final w in p.workAxes) w.name}),
+        p.nextSeq(),
+        s.def,
+        s.at,
+        s.dir);
+    p.workAxes.add(a);
+    p.dirty = true;
+    workAxisArm = null;
+    _finishWorkFeature(p);
+    selectedWorkAxis = a;
+    toast('${a.name}: ${a.def}');
+    Log.i('part', 'work axis "${a.name}" — ${a.def} '
+        'at=(${a.at.x.toStringAsFixed(2)},${a.at.y.toStringAsFixed(2)},'
+        '${a.at.z.toStringAsFixed(2)}) '
+        'dir=(${a.dir.x.toStringAsFixed(4)},${a.dir.y.toStringAsFixed(4)},'
+        '${a.dir.z.toStringAsFixed(4)})');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void _commitWorkPoint(PartModel p, WorkPointSolution s,
+      {bool grounded = false}) {
+    final pt = WorkPoint(
+        _freeWorkName('Work Point', {for (final w in p.workPoints) w.name}),
+        p.nextSeq(),
+        s.def,
+        s.at,
+        grounded: grounded);
+    p.workPoints.add(pt);
+    p.dirty = true;
+    workPointArm = null;
+    _finishWorkFeature(p);
+    selectedWorkPoint = pt;
+    toast('${pt.name}: ${pt.def}');
+    Log.i('part', 'work point "${pt.name}" — ${pt.def} '
+        'at=(${pt.at.x.toStringAsFixed(2)},${pt.at.y.toStringAsFixed(2)},'
+        '${pt.at.z.toStringAsFixed(2)})');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void _finishWorkFeature(PartModel p) {
+    workAxisArm = null;
+    workPointArm = null;
+    _wfPicks.clear();
+    workFeaturePrompt = '';
+    if (_wfOriginAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+      p.vis['x'] = p.vis['y'] = p.vis['z'] = p.vis['cp'] = false;
+    }
+    _wfOriginAutoShown = false;
+  }
+
+  /// First free "<base>N". Skips names already in use rather than counting the
+  /// list, so deleting Work Axis2 and making another does not produce a second
+  /// Work Axis3 — the same rule [PartModel.peekSolidName] follows for bodies.
+  String _freeWorkName(String base, Set<String> taken) {
+    var n = 1;
+    while (taken.contains('$base$n')) {
+      n++;
+    }
+    return '$base$n';
+  }
+
+  void toggleWorkAxisVisible(WorkAxis a) {
+    a.visible = !a.visible;
+    currentPart?.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void toggleWorkPointVisible(WorkPoint pt) {
+    pt.visible = !pt.visible;
+    currentPart?.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void deleteWorkAxis(WorkAxis a) {
+    final p = currentPart;
+    if (p == null) return;
+    p.workAxes.remove(a);
+    if (identical(selectedWorkAxis, a)) selectedWorkAxis = null;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void deleteWorkPoint(WorkPoint pt) {
+    final p = currentPart;
+    if (p == null) return;
+    p.workPoints.remove(pt);
+    if (identical(selectedWorkPoint, pt)) selectedWorkPoint = null;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// Reverses a work axis. See [WorkAxis.flip] for why this exists.
+  void flipWorkAxis(WorkAxis a) {
+    a.flip();
+    currentPart?.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }

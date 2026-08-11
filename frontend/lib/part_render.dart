@@ -228,6 +228,10 @@ const Color kFaceHighlight = Color(0xFF4FA3FF);
 
 /// Surface-type codes of the 15-double face records (see occt_capi.h).
 const int kFacePlane = 0, kFaceCylinder = 1;
+// M213 — the rest of the shim's surface discriminator. Cone, sphere and
+// torus records carry a real centre/axis since shim v18; before that they
+// were type-only, which is why nothing named them until now.
+const int kFaceCone = 2, kFaceSphere = 3, kFaceTorus = 4, kFaceOther = 5;
 
 /// Curve-type codes of the 16-double edge records (see occt_capi.h).
 const int kEdgeOther = 0, kEdgeLine = 1, kEdgeCircle = 2, kEdgeEllipse = 3;

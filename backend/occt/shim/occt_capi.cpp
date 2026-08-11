@@ -28,6 +28,9 @@
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
 #include <gp_Cylinder.hxx>
+#include <gp_Cone.hxx>
+#include <gp_Sphere.hxx>
+#include <gp_Torus.hxx>
 
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
@@ -183,13 +186,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v17 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v18 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 17; }
+extern "C" int occt_shim_version(void) { return 18; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1044,9 +1047,52 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                 rec[10] = cy.Radius();
                 break;
             }
-            case GeomAbs_Cone:   rec[0] = 2; break;
-            case GeomAbs_Sphere: rec[0] = 3; break;
-            case GeomAbs_Torus:  rec[0] = 4; break;
+            /* M213 (v18) — cone, sphere and torus used to record their TYPE
+             * and nothing else: slots 1..10 stayed zero. Nothing needed them
+             * until work features arrived, and then three Inventor methods
+             * (Through Revolved Face, Center Point of Sphere, Center Point of
+             * Torus) would all have quietly produced a feature at the WORLD
+             * ORIGIN — geometry in the wrong place, with no error. Filling
+             * them is purely additive: every previous reader either ignores
+             * these types or switches on rec[0] first. */
+            case GeomAbs_Cone: {
+                const gp_Cone co = surf.Cone();
+                rec[0] = 2;
+                const gp_Pnt o = co.Location();
+                const gp_Dir a = co.Axis().Direction();
+                const gp_Dir x = co.XAxis().Direction();
+                rec[1] = o.X(); rec[2] = o.Y(); rec[3] = o.Z();
+                rec[4] = a.X(); rec[5] = a.Y(); rec[6] = a.Z();
+                rec[7] = x.X(); rec[8] = x.Y(); rec[9] = x.Z();
+                rec[10] = co.RefRadius();
+                break;
+            }
+            case GeomAbs_Sphere: {
+                const gp_Sphere sp = surf.Sphere();
+                rec[0] = 3;
+                /* Location() IS the centre for a sphere — the one point the
+                 * "Center Point of Sphere" method exists to find. */
+                const gp_Pnt o = sp.Location();
+                const gp_Dir a = sp.Position().Direction();
+                const gp_Dir x = sp.XAxis().Direction();
+                rec[1] = o.X(); rec[2] = o.Y(); rec[3] = o.Z();
+                rec[4] = a.X(); rec[5] = a.Y(); rec[6] = a.Z();
+                rec[7] = x.X(); rec[8] = x.Y(); rec[9] = x.Z();
+                rec[10] = sp.Radius();
+                break;
+            }
+            case GeomAbs_Torus: {
+                const gp_Torus to = surf.Torus();
+                rec[0] = 4;
+                const gp_Pnt o = to.Location();
+                const gp_Dir a = to.Axis().Direction();
+                const gp_Dir x = to.XAxis().Direction();
+                rec[1] = o.X(); rec[2] = o.Y(); rec[3] = o.Z();
+                rec[4] = a.X(); rec[5] = a.Y(); rec[6] = a.Z();
+                rec[7] = x.X(); rec[8] = x.Y(); rec[9] = x.Z();
+                rec[10] = to.MajorRadius();
+                break;
+            }
             default:             rec[0] = 5; break;
             }
             rec[11] = surf.FirstUParameter();

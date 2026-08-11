@@ -181,6 +181,10 @@ const String kWorkPlaneKey = 'work';
 
 /// Resolves a plane pick key — an origin key or a work plane's `wp:N` id — to
 /// its frame. Null when the key names nothing on this part.
+///
+/// M213 — deliberately still PLANES only. A work axis (`wa:N`) and a work
+/// point (`wpt:N`) are pickable too, but they are not frames and a caller that
+/// wanted a plane must not silently get something else.
 PlaneFrame? frameForPlaneKey(PartModel p, String key) {
   if (kPlaneKeys.contains(key)) return planeFrame(key);
   for (final w in p.workPlanes) {
@@ -318,6 +322,119 @@ class WorkPlane {
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.
+      return null;
+    }
+  }
+}
+
+/// M213 — a user-created work axis.
+///
+/// Baked at creation, exactly like [WorkPlane]: `at`/`dir` are world-space and
+/// do not follow the geometry they were derived from. That is a real
+/// difference from Inventor, where work features are parametric, and it is
+/// stated here rather than implied — [def] records what it was built from so
+/// the browser can say so, but nothing re-derives it.
+class WorkAxis {
+  final String name;
+  final int seq;
+
+  /// A point on the axis, and its UNIT direction. The direction's SIGN is
+  /// meaningful: "Through Two Points" runs first to second, and an axis used
+  /// as a revolve axis or a pattern direction inherits that choice.
+  Vec3 at, dir;
+
+  /// What it was made from, e.g. "Intersection of Front Face and XY Plane".
+  String def;
+  bool visible;
+
+  WorkAxis(this.name, this.seq, this.def, this.at, this.dir,
+      {this.visible = true});
+
+  /// Stable id used by hover, picking and the browser, e.g. `wa:3`.
+  String get id => 'wa:$seq';
+
+  /// Reverses the axis. Inventor has no "flip work axis" command, but this
+  /// app's axis carries a sign that matters downstream (revolve direction),
+  /// and re-picking two points in the other order to change it would be an
+  /// absurd amount of work for a minus sign.
+  void flip() => dir = dir * -1;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'seq': seq,
+        'def': def,
+        'visible': visible,
+        'at': [at.x, at.y, at.z],
+        'dir': [dir.x, dir.y, dir.z],
+      };
+
+  static WorkAxis? fromJson(Map<String, dynamic> m) {
+    try {
+      final a = (m['at'] as List).cast<num>();
+      final d = (m['dir'] as List).cast<num>();
+      final dir = Vec3(d[0].toDouble(), d[1].toDouble(), d[2].toDouble());
+      // A zero direction is not an axis. Dropping the entry loses one row;
+      // keeping it would put a NaN into every span and highlight that ever
+      // touches it.
+      if (dir.length < 1e-9) return null;
+      return WorkAxis(
+        m['name'] as String? ?? 'Work Axis',
+        (m['seq'] as num?)?.toInt() ?? 0,
+        m['def'] as String? ?? '',
+        Vec3(a[0].toDouble(), a[1].toDouble(), a[2].toDouble()),
+        dir.normalized(),
+        visible: m['visible'] as bool? ?? true,
+      );
+    } catch (_) {
+      // A corrupt entry must not take the whole part down with it — same
+      // policy as WorkPlane.fromJson.
+      return null;
+    }
+  }
+}
+
+/// M213 — a user-created work point. Baked at creation, as [WorkAxis] is.
+class WorkPoint {
+  final String name;
+  final int seq;
+  Vec3 at;
+  String def;
+  bool visible;
+
+  /// Inventor's Grounded Point: a point that is deliberately fixed in space
+  /// rather than attached to geometry. Here EVERY work feature is baked, so
+  /// this changes nothing about the arithmetic — it is recorded because the
+  /// user asked for a grounded point and the browser should say that is what
+  /// they got, instead of quietly relabelling it.
+  final bool grounded;
+
+  WorkPoint(this.name, this.seq, this.def, this.at,
+      {this.visible = true, this.grounded = false});
+
+  /// Stable id used by hover, picking and the browser, e.g. `wpt:3`.
+  String get id => 'wpt:$seq';
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'seq': seq,
+        'def': def,
+        'visible': visible,
+        'at': [at.x, at.y, at.z],
+        if (grounded) 'grounded': true,
+      };
+
+  static WorkPoint? fromJson(Map<String, dynamic> m) {
+    try {
+      final a = (m['at'] as List).cast<num>();
+      return WorkPoint(
+        m['name'] as String? ?? 'Work Point',
+        (m['seq'] as num?)?.toInt() ?? 0,
+        m['def'] as String? ?? '',
+        Vec3(a[0].toDouble(), a[1].toDouble(), a[2].toDouble()),
+        visible: m['visible'] as bool? ?? true,
+        grounded: m['grounded'] as bool? ?? false,
+      );
+    } catch (_) {
       return null;
     }
   }
@@ -2885,6 +3002,24 @@ class PartModel {
   /// M151 — user-created work planes, in creation order.
   final List<WorkPlane> workPlanes = [];
 
+  /// M213 — user-created work axes and work points, in creation order.
+  ///
+  /// Three parallel lists rather than one heterogeneous one, for the reason
+  /// the browser already documents about work planes: these are NOT
+  /// [partTimeline] nodes. That list is what the End of Part marker indexes
+  /// into, and a work feature is not rolled back by EOP. They are interleaved
+  /// into the browser by `seq` and the marker keeps counting only the
+  /// timeline's own rows.
+  final List<WorkAxis> workAxes = [];
+  final List<WorkPoint> workPoints = [];
+
+  /// Every work feature's seq, for the browser's interleave.
+  Iterable<int> get workFeatureSeqs => [
+        for (final w in workPlanes) w.seq,
+        for (final a in workAxes) a.seq,
+        for (final pt in workPoints) pt.seq,
+      ];
+
   /// Origin-item visibility (all invisible by default, like the mock).
   final Map<String, bool> vis = {
     'yz': false,
@@ -3119,6 +3254,12 @@ class PartModel {
         // is byte-identical to what it was before work planes existed.
         if (workPlanes.isNotEmpty)
           'workPlanes': [for (final w in workPlanes) w.toJson()],
+        // M213 — same rule: absent when there are none, so a document made
+        // before work axes existed round-trips byte-identical.
+        if (workAxes.isNotEmpty)
+          'workAxes': [for (final a in workAxes) a.toJson()],
+        if (workPoints.isNotEmpty)
+          'workPoints': [for (final pt in workPoints) pt.toJson()],
         'featureN': featureN,
         'solidN': solidN,
         // M91 — timeline + End of Part. `eopAfter` is only written when the
@@ -3159,6 +3300,14 @@ class PartModel {
     for (final w in (j['workPlanes'] as List? ?? const [])) {
       final wp = WorkPlane.fromJson((w as Map).cast<String, dynamic>());
       if (wp != null) workPlanes.add(wp);
+    }
+    for (final a in (j['workAxes'] as List? ?? const [])) {
+      final wa = WorkAxis.fromJson((a as Map).cast<String, dynamic>());
+      if (wa != null) workAxes.add(wa);
+    }
+    for (final pt in (j['workPoints'] as List? ?? const [])) {
+      final wpt = WorkPoint.fromJson((pt as Map).cast<String, dynamic>());
+      if (wpt != null) workPoints.add(wpt);
     }
     // M91 — creation order. A pre-M91 document has no 'seq' anywhere; the
     // sketches are numbered first and the features after, which reproduces
@@ -3233,7 +3382,8 @@ class PartModel {
     // (M160). Printing it means the next one is one line, not a bisect.
     Log.block('part', 'loaded "$name"', [
       'sketches=${childSketches.length}  features=${features.length}  '
-          'workPlanes=${workPlanes.length}',
+          'workPlanes=${workPlanes.length} workAxes=${workAxes.length} '
+          'workPoints=${workPoints.length}',
       'counters: featureN=$featureN solidN=$solidN seqNext=$seqNext',
       'bodies: ${{for (final f in features) f.bodyName}.join(", ")}',
       'eopAfter=${eopAfter == kEopAtEnd ? "AT END" : eopAfter} '

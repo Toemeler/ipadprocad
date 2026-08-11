@@ -233,13 +233,23 @@ int occt_mesh_triangle_faces(const occt_mesh *m, int *out);
 
 /* Per-face surface record, 15 doubles each:
  *   [0] type: 0 plane, 1 cylinder, 2 cone, 3 sphere, 4 torus, 5 other
- *   [1..3]  plane: point on plane   | cylinder/cone: axis point
- *   [4..6]  plane: OUTWARD normal (face orientation applied)
- *           cylinder/cone: axis direction
+ *   [1..3]  plane:            point on plane
+ *           cylinder/cone:    axis point
+ *           sphere/torus:     CENTRE
+ *   [4..6]  plane:            OUTWARD normal (face orientation applied)
+ *           everything else:  axis direction
  *   [7..9]  x-direction of the surface frame (u = 0 reference)
- *   [10]    radius (cylinder/cone base), 0 otherwise
+ *   [10]    radius: cylinder radius, cone reference radius, sphere radius,
+ *           torus MAJOR radius; 0 for a plane
  *   [11,12] u parameter range of the face (angle for cylinder)
  *   [13,14] v parameter range of the face (along the axis for cylinder)
+ *
+ * v18 (M213) — cone, sphere and torus used to fill [0] only and leave the
+ * rest zero. Work features read the centre and axis of exactly those three
+ * (Through Revolved Face, Center Point of Sphere / Torus), and zeros would
+ * have put every one of them at the world origin without an error. The
+ * change is additive: [0] still discriminates and every earlier reader
+ * switches on it first.
  * Returns 1/0. */
 int occt_mesh_face_infos(const occt_mesh *m, double *out);
 

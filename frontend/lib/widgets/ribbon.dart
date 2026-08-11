@@ -12,6 +12,7 @@ import '../app_state.dart';
 import '../log.dart';
 import '../menus.dart';
 import '../part_model.dart' show WorkPlaneKind;
+import '../work_features.dart' show WorkAxisMethod, WorkPointMethod;
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -81,6 +82,31 @@ const flyouts = <String, List<FlyItem>>{
   'text': [
     FlyItem('ftext', 'Text', ''),
     FlyItem('fgtext', 'Geometry Text', ''),
+  ],
+  // M213 — Work Features > Axis / Point. Every entry is REAL and every label
+  // is Inventor's own wording, so a user who knows Inventor finds the method
+  // they are looking for by name. `wa`/`wpt` prefixes keep the ids apart from
+  // the plane list's.
+  'axis': [
+    FlyItem('waAuto', 'Axis', ''),
+    FlyItem('waLine', 'On Line or Edge', ''),
+    FlyItem('waParPt', 'Parallel to Line through Point', ''),
+    FlyItem('wa2Pt', 'Through Two Points', ''),
+    FlyItem('wa2Pl', 'Intersection of Two Planes', ''),
+    FlyItem('waNormPt', 'Normal to Plane through Point', ''),
+    FlyItem('waCirc', 'Through Center of Circular Edge', ''),
+    FlyItem('waRev', 'Through Revolved Face or Feature', ''),
+  ],
+  'point': [
+    FlyItem('wptAuto', 'Point', ''),
+    FlyItem('wptGround', 'Grounded Point', ''),
+    FlyItem('wptVertex', 'On Vertex, Sketch Point, or Midpoint', ''),
+    FlyItem('wpt3Pl', 'Intersection of Three Planes', ''),
+    FlyItem('wpt2Ln', 'Intersection of Two Lines', ''),
+    FlyItem('wptPlLn', 'Intersection of Plane/Surface and Line', ''),
+    FlyItem('wptLoop', 'Center Point of Loop of Edges', ''),
+    FlyItem('wptTorus', 'Center Point of Torus', ''),
+    FlyItem('wptSphere', 'Center Point of Sphere', ''),
   ],
   // M56 — Work Features > Plane (dummy items, real Inventor list)
   'plane': [
@@ -209,6 +235,67 @@ class _RibbonState extends State<Ribbon> {
                   break;
                 case 'midplane2':
                   widget.app.startWorkPlane(WorkPlaneKind.midplane);
+                  break;
+                // M213 — Work Axis.
+                case 'waAuto':
+                  widget.app.startWorkAxis(WorkAxisMethod.auto);
+                  break;
+                case 'waLine':
+                  widget.app.startWorkAxis(WorkAxisMethod.onLineOrEdge);
+                  break;
+                case 'waParPt':
+                  widget.app.startWorkAxis(
+                      WorkAxisMethod.parallelToLineThroughPoint);
+                  break;
+                case 'wa2Pt':
+                  widget.app.startWorkAxis(WorkAxisMethod.throughTwoPoints);
+                  break;
+                case 'wa2Pl':
+                  widget.app
+                      .startWorkAxis(WorkAxisMethod.intersectionOfTwoPlanes);
+                  break;
+                case 'waNormPt':
+                  widget.app
+                      .startWorkAxis(WorkAxisMethod.normalToPlaneThroughPoint);
+                  break;
+                case 'waCirc':
+                  widget.app.startWorkAxis(
+                      WorkAxisMethod.throughCenterOfCircularEdge);
+                  break;
+                case 'waRev':
+                  widget.app
+                      .startWorkAxis(WorkAxisMethod.throughRevolvedFace);
+                  break;
+                // M213 — Work Point.
+                case 'wptAuto':
+                  widget.app.startWorkPoint(WorkPointMethod.auto);
+                  break;
+                case 'wptGround':
+                  widget.app.startWorkPoint(WorkPointMethod.grounded);
+                  break;
+                case 'wptVertex':
+                  widget.app.startWorkPoint(WorkPointMethod.onVertex);
+                  break;
+                case 'wpt3Pl':
+                  widget.app.startWorkPoint(
+                      WorkPointMethod.intersectionOfThreePlanes);
+                  break;
+                case 'wpt2Ln':
+                  widget.app
+                      .startWorkPoint(WorkPointMethod.intersectionOfTwoLines);
+                  break;
+                case 'wptPlLn':
+                  widget.app.startWorkPoint(
+                      WorkPointMethod.intersectionOfPlaneAndLine);
+                  break;
+                case 'wptLoop':
+                  widget.app.startWorkPoint(WorkPointMethod.centerOfLoop);
+                  break;
+                case 'wptTorus':
+                  widget.app.startWorkPoint(WorkPointMethod.centerOfTorus);
+                  break;
+                case 'wptSphere':
+                  widget.app.startWorkPoint(WorkPointMethod.centerOfSphere);
                   break;
                 default:
                   // Silence is the worst answer: the user cannot tell a broken
@@ -495,8 +582,13 @@ class _RibbonState extends State<Ribbon> {
   // inert placeholders the dummy ships, so the layout is final while the
   // behaviour grows feature by feature.
   Widget _partRibbon(AppState app) {
+    // M213 — [flyIds] maps a row's LABEL to a flyout id, so a small row can
+    // carry the same drop chip the big split buttons have. _SmallRow has
+    // supported flyId/onFly since M205; nothing in the part ribbon had ever
+    // passed them, which is why Axis and Point could only ever have been
+    // one-shot buttons with eight unreachable methods behind them.
     Widget col(List<(String, String, VoidCallback?)> rows,
-            {double leftPad = 8}) =>
+            {double leftPad = 8, Map<String, String> flyIds = const {}}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
           child: Column(
@@ -508,6 +600,8 @@ class _RibbonState extends State<Ribbon> {
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
+                      flyId: flyIds[rows[i].$2],
+                      onFly: flyIds[rows[i].$2] == null ? null : toggleFly,
                       onTap: rows[i].$3 ?? () {}),
                 ]
               ]),
@@ -598,10 +692,27 @@ class _RibbonState extends State<Ribbon> {
                 onDefault: () =>
                     widget.app.startWorkPlane(WorkPlaneKind.offset)),
             col([
-              (WF['axis']!, 'Axis', null),
-              (WF['point']!, 'Point', null),
+              // M213 — the two that are built. Tapping the row runs the
+              // LEGACY method (Inventor's plain "Axis" / "Point"), which is
+              // the one people actually use: pick geometry and it works out
+              // what you meant. The flyout carries the eight/nine named
+              // methods for the cases where a pick is ambiguous.
+              (
+                WF['axis']!,
+                'Axis',
+                () => widget.app.startWorkAxis(WorkAxisMethod.auto)
+              ),
+              (
+                WF['point']!,
+                'Point',
+                () => widget.app.startWorkPoint(WorkPointMethod.auto)
+              ),
+              // UCS is deliberately still inert: it is a coordinate SYSTEM
+              // with its own triad and placement gestures, not a third
+              // variant of these two, and a button that half-works would be
+              // worse than one that says it is not built. See M157.
               (WF['ucs']!, 'UCS', null),
-            ]),
+            ], flyIds: const {'Axis': 'axis', 'Point': 'point'}),
           ]),
         ),
         _panel(
