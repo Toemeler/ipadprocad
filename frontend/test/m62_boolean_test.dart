@@ -72,6 +72,16 @@ class FakeKernel implements PartKernel {
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
 
+  // M217 — this fake implements EVERY member explicitly (no noSuchMethod), so
+  // face surgery has to land here too. It models none of it, and says so.
+  @override
+  KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
+  @override
+  KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>
+      null;
+  @override
+  KernelSolid? scaleSolid(KernelSolid base, Vec3 centre, double factor) => null;
+
   // M214 — this fake implements EVERY member explicitly (no noSuchMethod), so
   // a new member on PartKernel has to land here too. It writes nothing, like
   // exportStep above.

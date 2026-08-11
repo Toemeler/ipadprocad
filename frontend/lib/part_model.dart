@@ -2396,13 +2396,13 @@ class CoilFeature extends PartFeature {
 /// type are the tie-breakers, and a TYPE change is disqualifying — a planar
 /// face that became cylindrical is not the same face any more, which is
 /// exactly the rule [EdgeSel] applies to a line that became an arc.
-class FaceSel {
+class FacePick {
   double cx, cy, cz; // mesh centroid, WORLD
   double nx, ny, nz; // outward unit normal there
   double area;
   int kind; // kFacePlane / kFaceCylinder / ... (part_render constants)
 
-  FaceSel(this.cx, this.cy, this.cz, this.nx, this.ny, this.nz, this.area,
+  FacePick(this.cx, this.cy, this.cz, this.nx, this.ny, this.nz, this.area,
       this.kind);
 
   Vec3 get centre => Vec3(cx, cy, cz);
@@ -2411,11 +2411,11 @@ class FaceSel {
   Map<String, dynamic> toJson() =>
       {'c': [cx, cy, cz], 'n': [nx, ny, nz], 'a': area, 'k': kind};
 
-  static FaceSel? fromJson(Map<String, dynamic> j) {
+  static FacePick? fromJson(Map<String, dynamic> j) {
     final c = (j['c'] as List?)?.cast<num>();
     final n = (j['n'] as List?)?.cast<num>();
     if (c == null || c.length != 3 || n == null || n.length != 3) return null;
-    return FaceSel(
+    return FacePick(
         c[0].toDouble(),
         c[1].toDouble(),
         c[2].toDouble(),
@@ -2445,7 +2445,7 @@ class FaceSel {
   }
 }
 
-/// A LIVE face of a computed solid: what [FaceSel] is re-matched against.
+/// A LIVE face of a computed solid: what [FacePick] is re-matched against.
 class FaceRef {
   /// 1-based TOPOLOGICAL index — what the kernel operations name.
   final int topoIndex;
@@ -2460,7 +2460,7 @@ class FaceRef {
       this.area, this.kind);
 }
 
-/// Every live face of [mesh], with the centroid/area/normal a [FaceSel] needs.
+/// Every live face of [mesh], with the centroid/area/normal a [FacePick] needs.
 ///
 /// Computed from the TRIANGLES rather than the surface record because a
 /// centroid and an area are properties of the trimmed face, and the surface
@@ -2541,7 +2541,7 @@ Vec3 meshCentreOf(OcctMeshData mesh) {
 /// already applies to edges: a Direct Edit whose face set partly survives
 /// keeps editing the rest rather than failing whole.
 (List<int> topoIds, int lost) resolveFaces(
-    List<FaceSel> sels, List<FaceRef> live) {
+    List<FacePick> sels, List<FaceRef> live) {
   final ids = <int>[];
   final taken = <int>{};
   var lost = 0;
@@ -2601,7 +2601,7 @@ class FaceEditSession {
   /// came from. The mesh indices are display state only — they drive the
   /// highlight and let a second tap deselect — and are deliberately not what
   /// the feature stores, because they do not survive a rebuild.
-  final List<FaceSel> faces = [];
+  final List<FacePick> faces = [];
   final List<int> meshIndices = [];
 
   /// Move/Size: the delta in mm. Size is offered along the first picked face's
@@ -2629,7 +2629,7 @@ abstract class FaceModifyFeature extends PartFeature {
     super.visible,
   }) : super(output: 'modify');
 
-  final List<FaceSel> faces;
+  final List<FacePick> faces;
 
   @override
   bool get modifiesBody => true;
@@ -2665,9 +2665,9 @@ class DeleteFaceFeature extends FaceModifyFeature {
       };
 
   static DeleteFaceFeature fromJson(Map<String, dynamic> j) {
-    final fs = <FaceSel>[];
+    final fs = <FacePick>[];
     for (final e in (j['faces'] as List? ?? const [])) {
-      final f = FaceSel.fromJson((e as Map).cast<String, dynamic>());
+      final f = FacePick.fromJson((e as Map).cast<String, dynamic>());
       if (f != null) fs.add(f);
     }
     final f = DeleteFaceFeature(
@@ -2748,9 +2748,9 @@ class DirectEditFeature extends FaceModifyFeature {
       };
 
   static DirectEditFeature fromJson(Map<String, dynamic> j) {
-    final fs = <FaceSel>[];
+    final fs = <FacePick>[];
     for (final e in (j['faces'] as List? ?? const [])) {
-      final f = FaceSel.fromJson((e as Map).cast<String, dynamic>());
+      final f = FacePick.fromJson((e as Map).cast<String, dynamic>());
       if (f != null) fs.add(f);
     }
     final d = (j['d'] as List?)?.cast<num>();

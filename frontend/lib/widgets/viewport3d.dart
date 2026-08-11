@@ -1329,16 +1329,16 @@ class _Viewport3DState extends State<Viewport3D>
   /// Any surface type, unlike [_pickSolidFace]: deleting the cylindrical face
   /// of a hole is the single commonest thing Delete Face is reached for, and a
   /// planar-only pick would make it unreachable.
-  (int, FaceSel)? _pickFaceForEdit(Cam3 cam, Offset px) {
+  (int, FacePick)? _pickFaceForEdit(Cam3 cam, Offset px) {
     for (final sol in _liveSolids()) {
       final m = sol.mesh;
-      final hit = _frontFaceIndex(cam, px, m);
+      final hit = _frontFaceIndex(cam, px, sol);
       if (hit == null) continue;
       for (final fr in facesOf(m)) {
         if (fr.meshIndex != hit) continue;
         return (
           hit,
-          FaceSel(fr.centre.x, fr.centre.y, fr.centre.z, fr.normal.x,
+          FacePick(fr.centre.x, fr.centre.y, fr.centre.z, fr.normal.x,
               fr.normal.y, fr.normal.z, fr.area, fr.kind)
         );
       }
@@ -1346,8 +1346,13 @@ class _Viewport3DState extends State<Viewport3D>
     return null;
   }
 
-  /// Index of the frontmost face of [m] under [px], or null.
-  int? _frontFaceIndex(Cam3 cam, Offset px, OcctMeshData m) {
+  /// Index of the frontmost face of [sol] under [px], or null.
+  ///
+  /// Takes the SOLID rather than its mesh because this file deliberately does
+  /// not import the FFI layer (see the imports) and so cannot name
+  /// OcctMeshData — which it never needs to.
+  int? _frontFaceIndex(Cam3 cam, Offset px, KernelSolid sol) {
+    final m = sol.mesh;
     if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
       return null;
     }

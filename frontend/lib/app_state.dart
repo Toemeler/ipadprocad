@@ -4286,7 +4286,7 @@ class AppState extends ChangeNotifier {
   /// The viewport reports a tapped face. Toggles it in the set, like the edge
   /// pick — tapping a selected face again removes it, which is the only way to
   /// undo a mis-pick without restarting the command.
-  void toggleFacePick(FaceSel sel, int meshIndex) {
+  void toggleFacePick(FacePick sel, int meshIndex) {
     final s = faceEdit;
     if (s == null) return;
     final at = s.meshIndices.indexOf(meshIndex);

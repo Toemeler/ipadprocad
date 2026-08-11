@@ -89,10 +89,10 @@ void main() {
     });
   });
 
-  group('FaceSel — surviving a rebuild', () {
+  group('FacePick — surviving a rebuild', () {
     test('finds its face again after the body was rebuilt', () {
       final before = facesOf(squareMesh(z: 0)).single;
-      final sel = FaceSel(before.centre.x, before.centre.y, before.centre.z,
+      final sel = FacePick(before.centre.x, before.centre.y, before.centre.z,
           before.normal.x, before.normal.y, before.normal.z, before.area,
           before.kind);
       // Same face, but the rebuild handed it a different topological index.
@@ -103,7 +103,7 @@ void main() {
     });
 
     test('re-anchors so the next rebuild measures from where the face IS', () {
-      final sel = FaceSel(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
+      final sel = FacePick(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
       // The face moved 4 mm in z (a Direct Edit upstream).
       resolveFaces([sel], facesOf(squareMesh(z: 4)));
       expect(sel.cz, closeTo(4, 1e-9),
@@ -111,7 +111,7 @@ void main() {
     });
 
     test('a face whose TYPE changed is not the same face', () {
-      final sel = FaceSel(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
+      final sel = FacePick(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
       final (ids, lost) =
           resolveFaces([sel], facesOf(squareMesh(kind: kFaceCylinder)));
       expect(ids, isEmpty);
@@ -119,7 +119,7 @@ void main() {
     });
 
     test('a face whose normal flipped is not the same face', () {
-      final sel = FaceSel(0.5, 0.5, 0, 0, 0, -1, 1, kFacePlane);
+      final sel = FacePick(0.5, 0.5, 0, 0, 0, -1, 1, kFacePlane);
       final (ids, lost) = resolveFaces([sel], facesOf(squareMesh()));
       expect(ids, isEmpty);
       expect(lost, 1);
@@ -131,8 +131,8 @@ void main() {
         ...facesOf(squareMesh(x: 0, topo: 1)),
         ...facesOf(squareMesh(x: 10, topo: 2)),
       ];
-      final a = FaceSel(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
-      final b = FaceSel(0.6, 0.5, 0, 0, 0, 1, 1, kFacePlane);
+      final a = FacePick(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
+      final b = FacePick(0.6, 0.5, 0, 0, 0, 1, 1, kFacePlane);
       final (ids, lost) = resolveFaces([a, b], live);
       expect(ids.toSet().length, ids.length,
           reason: 'one live face cannot serve two selections');
@@ -141,8 +141,8 @@ void main() {
 
     test('a partly-surviving set keeps the survivors', () {
       final live = facesOf(squareMesh(topo: 5));
-      final good = FaceSel(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
-      final gone = FaceSel(0.5, 0.5, 0, 0, 0, 1, 1, kFaceCylinder);
+      final good = FacePick(0.5, 0.5, 0, 0, 0, 1, 1, kFacePlane);
+      final gone = FacePick(0.5, 0.5, 0, 0, 0, 1, 1, kFaceCylinder);
       final (ids, lost) = resolveFaces([good, gone], live);
       expect(ids, [5],
           reason: 'Inventor keeps editing the faces that survived');
@@ -155,7 +155,7 @@ void main() {
       final f = DeleteFaceFeature(
           name: 'Delete Face1',
           bodyName: 'Solid1',
-          faces: [FaceSel(1, 2, 3, 0, 0, 1, 4, kFaceCylinder)]);
+          faces: [FacePick(1, 2, 3, 0, 0, 1, 4, kFaceCylinder)]);
       f.seq = 9;
       final back = PartFeature.fromJson(f.toJson()) as DeleteFaceFeature;
       expect(back.name, 'Delete Face1');
@@ -170,7 +170,7 @@ void main() {
       final f = DirectEditFeature(
           name: 'Direct1',
           bodyName: 'Solid1',
-          faces: [FaceSel(0, 0, 0, 0, 0, 1, 1, kFacePlane)],
+          faces: [FacePick(0, 0, 0, 0, 0, 1, 1, kFacePlane)],
           op: DirectOp.size,
           dx: 0,
           dy: 0,
@@ -201,7 +201,7 @@ void main() {
       DirectEditFeature make(double dz) => DirectEditFeature(
           name: 'D',
           bodyName: 'S',
-          faces: [FaceSel(0, 0, 0, 0, 0, 1, 1, kFacePlane)],
+          faces: [FacePick(0, 0, 0, 0, 0, 1, 1, kFacePlane)],
           op: DirectOp.move,
           dx: 0,
           dy: 0,
@@ -214,9 +214,9 @@ void main() {
   group('session', () {
     test('a face tapped twice is deselected, not added twice', () {
       final s = FaceEditSession(FaceEditKind.delete);
-      final sel = FaceSel(0, 0, 0, 0, 0, 1, 1, kFacePlane);
+      final sel = FacePick(0, 0, 0, 0, 0, 1, 1, kFacePlane);
       // mirrors AppState.toggleFacePick's contract
-      void toggle(FaceSel f, int idx) {
+      void toggle(FacePick f, int idx) {
         final at = s.meshIndices.indexOf(idx);
         if (at >= 0) {
           s.meshIndices.removeAt(at);
