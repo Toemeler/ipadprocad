@@ -122,6 +122,10 @@
 #include <TopoDS_Edge.hxx>
 #include <algorithm>
 
+/* v20 (M217): Delete Face and Direct Edit. */
+#include <BRepAlgoAPI_Defeaturing.hxx>
+#include <BRepGProp_Face.hxx>
+
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
@@ -186,7 +190,7 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v19 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v20 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -198,7 +202,7 @@ extern "C" const char *occt_version(void)
  * either, so it takes the next free number rather than pretending one of the
  * two v17s did not happen. A version that means different things in two
  * binaries is worse than a gap in the sequence. */
-extern "C" int occt_shim_version(void) { return 19; }
+extern "C" int occt_shim_version(void) { return 20; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1041,6 +1045,8 @@ struct occt_mesh
     std::vector<double> edge_curves;/* 16 doubles per edge (see header) */
     /* v12 */
     std::vector<int> edge_ids;      /* 1-based topological index per display edge */
+    /* v20 */
+    std::vector<int> face_ids;      /* 1-based topological index per mesh face */
 };
 
 extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
@@ -1069,6 +1075,14 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     std::vector<double> verts, norms, edge_pts, edge_curves;
     std::vector<int> tris, edge_starts;
     std::vector<int> edge_ids; /* v12: topological index per display edge */
+    /* v20 — the same problem edge_ids solves, for faces. The loop below SKIPS
+     * a face with no triangulation, so the mesh's face index and the
+     * topological index (TopExp_Explorer order) part company the moment one
+     * face fails to mesh. Picking produces the mesh index; every kernel
+     * operation that names a face — delete, move — needs the topological one.
+     * Deriving it later by re-exploring would be guesswork; recording it here,
+     * where both numbers are in hand, cannot be wrong. */
+    std::vector<int> face_ids;
     edge_starts.push_back(0);
 
     /* Faces -> shaded triangles. Vertices are emitted PER FACE, so B-Rep
@@ -1076,12 +1090,15 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     std::vector<int> tri_face;
     std::vector<double> face_infos;
     int face_idx = 0;
+    int topo_face = 0; /* v20: advances for EVERY face, meshed or not */
     for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next()) {
         const TopoDS_Face face = TopoDS::Face(ex.Current());
+        ++topo_face;
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull() || tri->NbTriangles() < 1)
             continue;
+        face_ids.push_back(topo_face);
         /* v4: one 15-double surface record per triangulated face */
         {
             BRepAdaptor_Surface surf(face, Standard_True);
@@ -1349,6 +1366,7 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     m->face_infos.swap(face_infos);
     m->edge_curves.swap(edge_curves);
     m->edge_ids.swap(edge_ids);
+    m->face_ids.swap(face_ids);
     return m;
     OCCT_CATCH("occt_mesh_create", nullptr)
 }
@@ -1659,6 +1677,247 @@ extern "C" int occt_split_solids(const occt_shape *shape, occt_shape **out,
     }
     return n;
     OCCT_CATCH("occt_split_solids", 0)
+}
+
+
+/* ---- v20 (M217): Delete Face and Direct Edit --------------------------- */
+
+/* Defined with the v16 blend guards further down; forward-declared because
+ * the catastrophe check it powers ("the operation said done and emptied the
+ * body") is wanted here too, and moving the definition up would drag the
+ * whole blend section with it. */
+static double solid_volume(const TopoDS_Shape &s);
+
+/* The 1-based topological faces named by `ids`, or an empty list when any id
+ * is out of range. Out of range is a CALLER bug (a stale pick), and silently
+ * dropping it would delete a different face than the one that was tapped. */
+static TopTools_ListOfShape faces_by_id(const TopoDS_Shape &shape,
+                                        const int *ids, int n, int *bad)
+{
+    TopTools_ListOfShape out;
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, TopAbs_FACE, map);
+    for (int i = 0; i < n; ++i) {
+        if (ids[i] < 1 || ids[i] > map.Extent()) {
+            if (bad) *bad = ids[i];
+            out.Clear();
+            return out;
+        }
+        out.Append(map(ids[i]));
+    }
+    return out;
+}
+
+/* Outward unit normal of `face` at its parametric middle, face orientation
+ * applied. BRepGProp_Face::Normal already accounts for REVERSED, so this is
+ * the direction that points OUT of the material. */
+static Standard_Boolean face_outward(const TopoDS_Face &face, gp_Dir &out)
+{
+    BRepGProp_Face prop(face);
+    Standard_Real u0, u1, v0, v1;
+    prop.Bounds(u0, u1, v0, v1);
+    gp_Pnt p;
+    gp_Vec n;
+    prop.Normal((u0 + u1) * 0.5, (v0 + v1) * 0.5, p, n);
+    if (n.Magnitude() < 1e-12) return Standard_False;
+    out = gp_Dir(n);
+    return Standard_True;
+}
+
+/*
+ * M217 — Inventor's Delete Face with Heal.
+ *
+ * BRepAlgoAPI_Defeaturing IS this command: OCCT's own description of it is
+ * "removal of features from a shape", and the way it closes the wound is
+ * exactly Inventor's Heal — the faces around the hole are extended until they
+ * intersect. Deleting a fillet gives back the sharp corner; deleting the
+ * cylindrical face of a hole fills the hole.
+ *
+ * `heal` = 0 is REFUSED rather than approximated. Inventor's un-healed Delete
+ * Face converts the part into a SURFACE body and says so in the browser; this
+ * app has no surface bodies at all — every KernelSolid is a solid with a
+ * volume, booleans and a STEP product. Returning an open shell here would
+ * hand every one of those a shape it cannot honour. Saying no is the honest
+ * answer until surface bodies exist.
+ */
+extern "C" occt_shape *occt_delete_faces(const occt_shape *shape,
+                                         const int *ids, int n, int heal)
+{
+    OCCT_TRY("occt_delete_faces")
+    if (!shape || !ids || n <= 0) {
+        set_err("occt_delete_faces", "null shape/ids or n <= 0");
+        return nullptr;
+    }
+    if (!heal) {
+        set_err("occt_delete_faces",
+                "Delete Face without Heal would leave an open surface body, "
+                "which this app has no representation for — leave Heal on");
+        return nullptr;
+    }
+    int bad = 0;
+    TopTools_ListOfShape rm = faces_by_id(shape->s, ids, n, &bad);
+    if (rm.IsEmpty()) {
+        char msg[128];
+        std::snprintf(msg, sizeof(msg),
+                      "face %d does not exist on this body any more", bad);
+        set_err("occt_delete_faces", msg);
+        return nullptr;
+    }
+    BRepAlgoAPI_Defeaturing df;
+    df.SetShape(shape->s);
+    df.AddFacesToRemove(rm);
+    df.SetRunParallel(Standard_False);
+    df.Build();
+    if (!df.IsDone()) {
+        set_err("occt_delete_faces",
+                "the faces could not be removed — the gap they leave cannot "
+                "be closed by extending their neighbours");
+        return nullptr;
+    }
+    const TopoDS_Shape res = df.Shape();
+    if (res.IsNull()) {
+        set_err("occt_delete_faces", "removal produced nothing");
+        return nullptr;
+    }
+    /* A defeaturing that silently emptied or exploded the body is a failure
+     * even when OCCT calls it done — the same catastrophe guard the blends
+     * use. */
+    const double before = solid_volume(shape->s);
+    const double after = solid_volume(res);
+    if (after <= 0 || (before > 0 && after > before * 100)) {
+        set_err("occt_delete_faces",
+                "removal produced a degenerate body");
+        return nullptr;
+    }
+    return wrap(res, "occt_delete_faces");
+    OCCT_CATCH("occt_delete_faces", nullptr)
+}
+
+/*
+ * M217 — Inventor's Direct > Move / Size on a set of faces.
+ *
+ * WHY A PRISM AND A BOOLEAN, and not a surface-level face move: the honest
+ * kernel answer for "slide this face and re-trim its neighbours" is a
+ * BRepTools_Modification subclass, which is real work and, more to the point,
+ * work whose failure modes only show up on shapes. Sweeping the face itself
+ * along the delta and fusing or cutting the swept volume produces EXACTLY the
+ * same solid whenever the neighbouring walls are parallel to the motion —
+ * which is every prismatic part, i.e. what Direct Edit is reached for. On a
+ * tapered neighbour the two differ, and the caller is told (see the Dart
+ * side) rather than being handed a quiet approximation.
+ *
+ * Fuse or cut is decided PER FACE by the sign of delta against that face's
+ * outward normal: moving a face along its outward normal adds the swept
+ * material, moving it inward removes it. A selection whose faces disagree is
+ * fine — each one is applied with the operation its own geometry calls for.
+ */
+extern "C" occt_shape *occt_move_faces(const occt_shape *shape,
+                                       const int *ids, int n,
+                                       double dx, double dy, double dz)
+{
+    OCCT_TRY("occt_move_faces")
+    if (!shape || !ids || n <= 0) {
+        set_err("occt_move_faces", "null shape/ids or n <= 0");
+        return nullptr;
+    }
+    const gp_Vec delta(dx, dy, dz);
+    if (delta.Magnitude() < 1e-9) {
+        set_err("occt_move_faces", "zero move");
+        return nullptr;
+    }
+    int bad = 0;
+    TopTools_ListOfShape sel = faces_by_id(shape->s, ids, n, &bad);
+    if (sel.IsEmpty()) {
+        char msg[128];
+        std::snprintf(msg, sizeof(msg),
+                      "face %d does not exist on this body any more", bad);
+        set_err("occt_move_faces", msg);
+        return nullptr;
+    }
+    TopoDS_Shape acc = shape->s;
+    for (TopTools_ListIteratorOfListOfShape it(sel); it.More(); it.Next()) {
+        const TopoDS_Face f = TopoDS::Face(it.Value());
+        gp_Dir outward;
+        if (!face_outward(f, outward)) {
+            set_err("occt_move_faces", "a selected face has no usable normal");
+            return nullptr;
+        }
+        const double along = delta.Dot(gp_Vec(outward));
+        if (std::fabs(along) < 1e-12) {
+            /* Sliding a face along its own plane changes nothing about the
+             * solid. Skipping it is right; failing would make a multi-face
+             * move fail because one face happened to be edge-on. */
+            continue;
+        }
+        BRepPrimAPI_MakePrism prism(f, delta);
+        if (!prism.IsDone()) {
+            set_err("occt_move_faces", "could not sweep a selected face");
+            return nullptr;
+        }
+        const TopoDS_Shape tool = prism.Shape();
+        TopoDS_Shape next;
+        if (along > 0) {
+            BRepAlgoAPI_Fuse op(acc, tool);
+            if (!op.IsDone()) {
+                set_err("occt_move_faces", "adding the swept material failed");
+                return nullptr;
+            }
+            next = op.Shape();
+        } else {
+            BRepAlgoAPI_Cut op(acc, tool);
+            if (!op.IsDone()) {
+                set_err("occt_move_faces",
+                        "removing the swept material failed");
+                return nullptr;
+            }
+            next = op.Shape();
+        }
+        if (next.IsNull() || solid_volume(next) <= 0) {
+            set_err("occt_move_faces",
+                    "the move would consume the body — try a smaller distance");
+            return nullptr;
+        }
+        acc = next;
+    }
+    /* Booleans leave co-planar splits behind; without this a moved face comes
+     * back drawn with a seam across it (the v4 unify note). */
+    ShapeUpgrade_UnifySameDomain uni(acc, Standard_True, Standard_True,
+                                     Standard_True);
+    uni.Build();
+    const TopoDS_Shape out = uni.Shape().IsNull() ? acc : uni.Shape();
+    return wrap(out, "occt_move_faces");
+    OCCT_CATCH("occt_move_faces", nullptr)
+}
+
+/*
+ * M217 — Inventor's Direct > Scale: a uniform scale of the whole body about
+ * `c`. Its own entry point rather than a matrix through occt_transform,
+ * because occt_transform REFUSES a non-rigid matrix on purpose (v2) — it
+ * places features, and a scale slipping through there would silently resize a
+ * solid. Scaling is a deliberate command, so it gets a deliberate door.
+ */
+extern "C" occt_shape *occt_scale_shape(const occt_shape *shape,
+                                        double cx, double cy, double cz,
+                                        double factor)
+{
+    OCCT_TRY("occt_scale_shape")
+    if (!shape) {
+        set_err("occt_scale_shape", "null shape");
+        return nullptr;
+    }
+    if (!(factor > 1e-9) || !std::isfinite(factor)) {
+        set_err("occt_scale_shape", "scale factor must be positive");
+        return nullptr;
+    }
+    gp_Trsf t;
+    t.SetScale(gp_Pnt(cx, cy, cz), factor);
+    BRepBuilderAPI_Transform op(shape->s, t, Standard_True);
+    if (!op.IsDone()) {
+        set_err("occt_scale_shape", "scaling failed");
+        return nullptr;
+    }
+    return wrap(op.Shape(), "occt_scale_shape");
+    OCCT_CATCH("occt_scale_shape", nullptr)
 }
 
 /* ---- lifecycle -------------------------------------------------------------- */
@@ -2047,6 +2306,19 @@ extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)
         out[i] = m->edge_ids[i];
     return 1;
     OCCT_CATCH("occt_mesh_edge_ids", 0)
+}
+
+extern "C" int occt_mesh_face_ids(const occt_mesh *m, int *out)
+{
+    OCCT_TRY("occt_mesh_face_ids")
+    if (!m || !out) {
+        set_err("occt_mesh_face_ids", "null argument");
+        return 0;
+    }
+    for (size_t i = 0; i < m->face_ids.size(); ++i)
+        out[i] = m->face_ids[i];
+    return 1;
+    OCCT_CATCH("occt_mesh_face_ids", 0)
 }
 
 /* ---- v16: a fillet and chamfer that cannot hand back a broken solid ------ */

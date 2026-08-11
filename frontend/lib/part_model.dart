@@ -4990,6 +4990,26 @@ abstract class PartKernel {
           double d1, double d2, double angleDeg, {BlendReport? report}) =>
       null;
 
+  // ---- M217: Delete Face and Direct Edit --------------------------------
+  //
+  // Concrete and null-returning, for the reason documented on [revolve]: the
+  // test fakes `implement` this interface, and a fake that does not model
+  // face surgery should say so rather than break every unrelated test.
+
+  /// Inventor's Delete Face (Heal on): removes [faceIds] — 1-based
+  /// TOPOLOGICAL face indices — and closes the wound by extending their
+  /// neighbours. Returns a NEW solid; [base] stays owned by the caller.
+  KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
+
+  /// Inventor's Direct > Move/Size: slides [faceIds] by [delta].
+  KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>
+      null;
+
+  /// Inventor's Direct > Scale: uniform scale of the whole body about
+  /// [centre] by [factor].
+  KernelSolid? scaleSolid(KernelSolid base, Vec3 centre, double factor) =>
+      null;
+
   /// M111 — reads a STEP file as one [KernelSolid] per SOLID, so an imported
   /// assembly becomes several bodies rather than one opaque compound. Empty
   /// list on failure or when the file holds no solids.
@@ -5624,6 +5644,83 @@ class OcctPartKernel implements PartKernel {
         ffi,
         sh.mirrored(
             planePoint.x, planePoint.y, planePoint.z, n.x, n.y, n.z));
+  }
+
+  // ---- M217: Delete Face and Direct Edit --------------------------------
+
+  /// Shared preamble: a kernel, a live B-Rep and a non-empty face set. Every
+  /// one of the three below needs exactly this, and each of the three getting
+  /// its own copy is how they would have drifted.
+  OcctShape? _facesInput(KernelSolid base, List<int> faceIds, String what) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sh = base.shape;
+    if (sh == null || sh.disposed) {
+      _err = '$what needs a kernel-backed solid';
+      return null;
+    }
+    if (faceIds.isEmpty) {
+      _err = 'no faces selected';
+      return null;
+    }
+    // A pick that could not be mapped to a topological face arrives as -1 (see
+    // OcctMeshData.topoFaceId). Passing it on would delete or move whichever
+    // face the kernel happened to have at a bogus index — refuse instead.
+    for (final id in faceIds) {
+      if (id < 1) {
+        _err = 'a selected face could not be identified on the body';
+        return null;
+      }
+    }
+    return sh;
+  }
+
+  @override
+  KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) {
+    final sh = _facesInput(base, faceIds, 'Delete Face');
+    if (sh == null) return null;
+    final ffi = _ffi!;
+    final out = ffi.deleteFaces(sh, faceIds);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
+  }
+
+  @override
+  KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) {
+    final sh = _facesInput(base, faceIds, 'Move Faces');
+    if (sh == null) return null;
+    if (delta.length < 1e-9) {
+      _err = 'nothing to move — the distance is zero';
+      return null;
+    }
+    final ffi = _ffi!;
+    final out = ffi.moveFaces(sh, faceIds, delta.x, delta.y, delta.z);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
+  }
+
+  @override
+  KernelSolid? scaleSolid(KernelSolid base, Vec3 centre, double factor) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sh = base.shape;
+    if (sh == null || sh.disposed) {
+      _err = 'Scale needs a kernel-backed solid';
+      return null;
+    }
+    if (!(factor > 0) || !factor.isFinite) {
+      _err = 'the scale factor must be greater than zero';
+      return null;
+    }
+    final out = ffi.scaleShape(sh, centre.x, centre.y, centre.z, factor);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
   }
 }
 
