@@ -260,7 +260,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       }
       return;
     }
-    // M213 — tapping a work axis or point SELECTS it, the way a work plane
+    // M215 — tapping a work axis or point SELECTS it, the way a work plane
     // does: it highlights in 3D so you can see which row is which.
     if (id.startsWith(kIdWorkAxis)) {
       app.selectWorkAxis(_workAxis(part, id));
@@ -315,7 +315,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     }
   }
 
-  // M213 — 'wp:' and 'wpt:' cannot collide: startsWith('wp:') compares the
+  // M215 — 'wp:' and 'wpt:' cannot collide: startsWith('wp:') compares the
   // third character against ':' and a work point has 't' there. Checked
   // rather than assumed, because a silent prefix collision here would route
   // every work point tap into the work plane branch.

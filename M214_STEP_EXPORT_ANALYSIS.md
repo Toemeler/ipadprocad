@@ -1,4 +1,4 @@
-# M212 — "The STEP export tells the truth" — Analysis & Fix
+# M214 — "The STEP export tells the truth" — Analysis & Fix
 
 Report: *"the step exporter has a lot of problems. some features are not correctly
 exported like holes or fillets and stuff. also the share button only opens the part
@@ -204,7 +204,7 @@ before this commit matched only the four `exportStep` stubs in kernel fakes, all
 which `return false`. The one code path whose output leaves the device and gets
 manufactured from was the one path with no coverage.
 
-`frontend/test/m212_step_export_test.dart` now pins, on host with a fake kernel:
+`frontend/test/m214_step_export_test.dart` now pins, on host with a fake kernel:
 
 - a hole survives the export (the cut result reaches the kernel, not the block)
 - a fillet survives the export

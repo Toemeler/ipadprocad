@@ -25,7 +25,7 @@ const String kIdFeature = 'ft:';
 /// M165 — a user work plane row. They were created and saved but appeared
 /// NOWHERE in the browser, so the only evidence a plane existed was the toast.
 const String kIdWorkPlane = 'wp:';
-// M213 — work axes and work points, interleaved by seq exactly like
+// M215 — work axes and work points, interleaved by seq exactly like
 // work planes and for exactly the same reasons (see planesBefore).
 const String kIdWorkAxis = 'wa:';
 const String kIdWorkPoint = 'wpt:';
@@ -152,7 +152,7 @@ List<GlassRow> _buildRows(
     // it counts ROWS. A work plane is not rolled back by EOP either. So they
     // are interleaved by `seq` while the marker keeps counting only the
     // timeline's own rows.
-    // M213 — ONE interleaved stream for all three work-feature kinds. They
+    // M215 — ONE interleaved stream for all three work-feature kinds. They
     // were three separate emitters for about ten minutes, which put every
     // axis after every plane regardless of when either was made — the exact
     // "block of things grouped by type" layout M169 removed for planes.
@@ -422,7 +422,7 @@ List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
       ],
     ];
 
-/// M213 — a work axis's row menu. No "Edit": unlike a work plane's offset
+/// M215 — a work axis's row menu. No "Edit": unlike a work plane's offset
 /// there is no single number behind an axis to change, so offering an editor
 /// that could only re-open the pick flow would be a button that lies.
 List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a) => [

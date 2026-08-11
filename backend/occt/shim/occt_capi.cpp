@@ -126,7 +126,7 @@
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
 #include <IFSelect_ReturnStatus.hxx>
-/* M212 — a STEP file nobody has to apologise for: explicit units, an explicit
+/* M214 — a STEP file nobody has to apologise for: explicit units, an explicit
  * schema, a real product name per body, and a real FILE_NAME header. */
 #include <Interface_Static.hxx>
 #include <APIHeaderSection_MakeHeader.hxx>
@@ -1047,7 +1047,7 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                 rec[10] = cy.Radius();
                 break;
             }
-            /* M213 (v18) — cone, sphere and torus used to record their TYPE
+            /* M215 (v18) — cone, sphere and torus used to record their TYPE
              * and nothing else: slots 1..10 stayed zero. Nothing needed them
              * until work features arrived, and then three Inventor methods
              * (Through Revolved Face, Center Point of Sphere, Center Point of
@@ -1390,9 +1390,9 @@ extern "C" void occt_free_mesh(occt_mesh *m)
 
 /* ---- STEP ------------------------------------------------------------------ */
 
-/* M212 — the write-side translation parameters, pinned EXPLICITLY.
+/* M214 — the write-side translation parameters, pinned EXPLICITLY.
  *
- * Every one of these has an OCCT default, and until M212 the exporter relied
+ * Every one of these has an OCCT default, and until M214 the exporter relied
  * on all of them. That is not the same as them being right:
  *
  *   - Interface_Static is PROCESS-GLOBAL and PERSISTENT. Anything that reads
@@ -1445,7 +1445,7 @@ static int step_write_setup(void)
     return (unit && std::strcmp(unit, "MM") == 0) ? 1 : 0;
 }
 
-/* M212 — writes `n` bodies as `n` named STEP products.
+/* M214 — writes `n` bodies as `n` named STEP products.
  *
  * WHY NOT ONE FUSED SOLID (what the Dart side used to do): a part with two
  * separate bodies is two bodies. Fusing them to get a single shape to hand

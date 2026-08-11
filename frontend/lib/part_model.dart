@@ -182,7 +182,7 @@ const String kWorkPlaneKey = 'work';
 /// Resolves a plane pick key — an origin key or a work plane's `wp:N` id — to
 /// its frame. Null when the key names nothing on this part.
 ///
-/// M213 — deliberately still PLANES only. A work axis (`wa:N`) and a work
+/// M215 — deliberately still PLANES only. A work axis (`wa:N`) and a work
 /// point (`wpt:N`) are pickable too, but they are not frames and a caller that
 /// wanted a plane must not silently get something else.
 PlaneFrame? frameForPlaneKey(PartModel p, String key) {
@@ -327,7 +327,7 @@ class WorkPlane {
   }
 }
 
-/// M213 — a user-created work axis.
+/// M215 — a user-created work axis.
 ///
 /// Baked at creation, exactly like [WorkPlane]: `at`/`dir` are world-space and
 /// do not follow the geometry they were derived from. That is a real
@@ -393,7 +393,7 @@ class WorkAxis {
   }
 }
 
-/// M213 — a user-created work point. Baked at creation, as [WorkAxis] is.
+/// M215 — a user-created work point. Baked at creation, as [WorkAxis] is.
 class WorkPoint {
   final String name;
   final int seq;
@@ -3002,7 +3002,7 @@ class PartModel {
   /// M151 — user-created work planes, in creation order.
   final List<WorkPlane> workPlanes = [];
 
-  /// M213 — user-created work axes and work points, in creation order.
+  /// M215 — user-created work axes and work points, in creation order.
   ///
   /// Three parallel lists rather than one heterogeneous one, for the reason
   /// the browser already documents about work planes: these are NOT
@@ -3254,7 +3254,7 @@ class PartModel {
         // is byte-identical to what it was before work planes existed.
         if (workPlanes.isNotEmpty)
           'workPlanes': [for (final w in workPlanes) w.toJson()],
-        // M213 — same rule: absent when there are none, so a document made
+        // M215 — same rule: absent when there are none, so a document made
         // before work axes existed round-trips byte-identical.
         if (workAxes.isNotEmpty)
           'workAxes': [for (final a in workAxes) a.toJson()],
@@ -3811,12 +3811,12 @@ abstract class PartKernel {
 
   /// Writes the union of [solids] as STEP to [path].
   ///
-  /// M212 — prefer [exportStepBodies]. This one unions, which is only ever
+  /// M214 — prefer [exportStepBodies]. This one unions, which is only ever
   /// right for a caller that already knows its solids are one body; the part
   /// export is not such a caller and used to be one by accident.
   bool exportStep(List<KernelSolid> solids, String path);
 
-  /// M212 — writes [bodies] as STEP: one NAMED product per body, no union.
+  /// M214 — writes [bodies] as STEP: one NAMED product per body, no union.
   ///
   /// [product] names the document in the file header. Concrete (not abstract)
   /// for the reason documented below on [revolve] — three test fakes
@@ -4365,7 +4365,7 @@ class OcctPartKernel implements PartKernel {
   bool exportStep(List<KernelSolid> solids, String path) =>
       exportStepBodies([for (final s in solids) ('', s)], path);
 
-  /// M212 — the part export. One STEP product per body, named, no boolean.
+  /// M214 — the part export. One STEP product per body, named, no boolean.
   ///
   /// What this replaced, and why each part of it was wrong:
   ///
@@ -5382,7 +5382,7 @@ KernelSolid? currentBodySolid(PartModel part, String bodyName) {
   return found;
 }
 
-/// M212 — THE MODEL, as a list of named bodies. What an export must write,
+/// M214 — THE MODEL, as a list of named bodies. What an export must write,
 /// and the same set the viewport, the RealityKit scene and the gallery
 /// thumbnail draw.
 ///

@@ -2948,10 +2948,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// M212 — reads a part off disk and builds its geometry, and NOTHING else.
+  /// M214 — reads a part off disk and builds its geometry, and NOTHING else.
   ///
   /// Split out of [openPart] because "I need this part's solids" and "the user
-  /// wants to look at this part" are two different requests, and until M212
+  /// wants to look at this part" are two different requests, and until M214
   /// only the second one existed. Exporting a part from the gallery went
   /// through [openPart], so sharing a part ALSO added it to the tab bar, made
   /// it the current document, cleared the active tool and rebuilt the
@@ -3252,7 +3252,7 @@ class AppState extends ChangeNotifier {
       return null;
     }
     final wasLoaded = parts.containsKey(name);
-    // M212 — a part that is NOT open loads headlessly and is thrown away
+    // M214 — a part that is NOT open loads headlessly and is thrown away
     // again. It used to go through openPart, which is why sharing a part from
     // the gallery opened it: new tab, new current document, tool cleared,
     // viewport rebuilt. Exporting is not navigation.
@@ -3263,7 +3263,7 @@ class AppState extends ChangeNotifier {
       // thumbnail, and its modified date) purely as a side effect of sharing
       // it — and it is a byte-for-byte copy of what is already on disk.
       if (wasLoaded) await savePart(name);
-      // M212 — the LIVE bodies, not every solid the fold produced on its way
+      // M214 — the LIVE bodies, not every solid the fold produced on its way
       // here. See partExportBodies: each feature stores the running
       // accumulation at its own position, so taking them all handed the
       // kernel the block AND the block-with-the-hole AND the filleted
@@ -3441,7 +3441,7 @@ class AppState extends ChangeNotifier {
       // Reached from the browser rather than mid-pick: whatever else was
       // armed is not what the user meant any more.
       if (workPlaneArm != null) cancelWorkPlane();
-      cancelWorkFeature(); // M213 — same reason as the line above
+      cancelWorkFeature(); // M215 — same reason as the line above
       cancelPlanePick();
     }
     pickPlane = false;
@@ -4069,7 +4069,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- M213: work axes and work points ------------------------------------
+  // ---- M215: work axes and work points ------------------------------------
   //
   // One command shape for both, because Inventor's are the same shape: arm a
   // method, collect picks, and the moment the picks determine an answer, build

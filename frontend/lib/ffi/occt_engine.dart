@@ -59,7 +59,7 @@ typedef _ExportN = Int32 Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
-// shim v17 (M212): many bodies -> many NAMED products in one STEP file.
+// shim v17 (M214): many bodies -> many NAMED products in one STEP file.
 typedef _ExportNamedN = Int32 Function(Pointer<Pointer<Void>>,
     Pointer<Pointer<Utf8>>, Int32, Pointer<Utf8>, Pointer<Utf8>);
 typedef _ExportNamedD = int Function(Pointer<Pointer<Void>>,
@@ -376,7 +376,7 @@ class OcctShape {
 
   /// Write this ONE shape to STEP (AP214IS, millimetres). Returns success.
   ///
-  /// M212 — a PART export does not come through here: it has bodies, and each
+  /// M214 — a PART export does not come through here: it has bodies, and each
   /// one should reach the file as its own named product. See
   /// [OcctFfi.exportStepNamed].
   bool exportStep(String path) {
@@ -847,7 +847,7 @@ class OcctFfi {
         lib.lookupFunction<_SweepN, _SweepD>('occt_sweep_profile'),
         lib.lookupFunction<_LoftN, _LoftD>('occt_loft_sections'),
         lib.lookupFunction<_CoilN, _CoilD>('occt_coil_profile'),
-        // v17 (M212) — named multi-body STEP export.
+        // v17 (M214) — named multi-body STEP export.
         lib.lookupFunction<_ExportNamedN, _ExportNamedD>(
             'occt_export_step_named'),
       );
@@ -1146,7 +1146,7 @@ class OcctFfi {
   /// spurious split lines render). Input stays owned; result is NEW.
   OcctShape? unify(OcctShape a) => _wrap(_unify(a._handle));
 
-  /// M212 — writes [shapes] to one STEP file as one NAMED product each.
+  /// M214 — writes [shapes] to one STEP file as one NAMED product each.
   ///
   /// [names] must be the same length as [shapes] (an empty or blank entry
   /// falls back to [product]). [product] names the document in the file

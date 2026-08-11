@@ -88,7 +88,7 @@ static int counts(occt_shape *s, int *f, int *e, int *v, const char *what)
     return 1;
 }
 
-/* M212 — whole file as a NUL-terminated string, or NULL. Caller frees.
+/* M214 — whole file as a NUL-terminated string, or NULL. Caller frees.
  * Used to search an exported STEP for names and units: reading line by line
  * would miss a match that the writer wrapped across a line boundary. */
 static char *slurp(const char *path)
@@ -1450,7 +1450,7 @@ int main(void)
                   == NULL, "[32] unimplemented coil ends are refused");
     }
 
-    /* [33] v17 (M212) MULTI-BODY NAMED STEP EXPORT.
+    /* [33] v17 (M214) MULTI-BODY NAMED STEP EXPORT.
      *
      * The bug this guards: the app used to hand the exporter every solid its
      * feature fold produced and let the kernel UNION them, which put back

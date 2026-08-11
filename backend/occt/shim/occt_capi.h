@@ -156,7 +156,7 @@ int occt_bbox(const occt_shape *shape, double *out6);
 int occt_export_step(const occt_shape *shape, const char *path);
 
 /*
- * v17 (M212) — write `n` bodies to one STEP file as `n` NAMED products.
+ * v17 (M214) — write `n` bodies to one STEP file as `n` NAMED products.
  *
  * This is the entry point a part export should use. Each shape becomes its
  * own STEP product carrying `names[i]`, so a part with three bodies opens in
@@ -244,7 +244,7 @@ int occt_mesh_triangle_faces(const occt_mesh *m, int *out);
  *   [11,12] u parameter range of the face (angle for cylinder)
  *   [13,14] v parameter range of the face (along the axis for cylinder)
  *
- * v18 (M213) — cone, sphere and torus used to fill [0] only and leave the
+ * v18 (M215) — cone, sphere and torus used to fill [0] only and leave the
  * rest zero. Work features read the centre and axis of exactly those three
  * (Through Revolved Face, Center Point of Sphere / Torus), and zeros would
  * have put every one of them at the world origin without an error. The

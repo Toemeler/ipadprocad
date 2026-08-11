@@ -1,4 +1,4 @@
-// M212 — the STEP exporter, made to tell the truth.
+// M214 — the STEP exporter, made to tell the truth.
 //
 // Two bugs, both reported from the device, both reproduced here:
 //
