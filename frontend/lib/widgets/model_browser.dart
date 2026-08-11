@@ -1331,6 +1331,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
           exp: ' ',
           icon: badged ? sharedSketchCubeIcon : sketchCubeIcon,
           label: cs.model.name,
+          // M212 — while a sketch-driven pattern is asking for its points, a
+          // single tap on a sketch row picks that sketch.
+          active: app.patternSession?.pointSketch == cs.model.name,
+          onTap: () => app.patternToggleSketch(cs),
           trailing: _EyeButton(
               visible: cs.visible, onTap: () => app.toggleSketchVisible(cs)),
         ),
@@ -1349,16 +1353,28 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final nests = consumedSketch != null &&
         identical(firstConsumerOf(part, f.sketchName), f);
     final open = _expandedFeatures.contains(f.name);
+    // M212 — a pattern nests its OCCURRENCES the way Inventor lists them, so
+    // one can be suppressed on its own. It consumes no sketch, so the two
+    // uses of the expander never collide.
+    final pat = f is PatternFeature ? f : null;
+    final nestsOcc = pat != null && pat.occurrenceCount > 1;
+    final canExpand = nests || nestsOcc;
     final row = _row(
       indent: 8,
-      exp: nests ? (open ? '-' : '+') : ' ',
+      exp: canExpand ? (open ? '-' : '+') : ' ',
       icon: broken ? endOfSketchIcon : partCubeIcon,
       label: f.name,
-      onTap: nests
-          ? () => setState(() => open
+      // While the pattern panel is picking features, a SINGLE tap picks this
+      // one — the same rule the native browser follows.
+      active: app.patternHasFeature(f.name),
+      onTap: () {
+        if (app.patternToggleFeature(f)) return;
+        if (canExpand) {
+          setState(() => open
               ? _expandedFeatures.remove(f.name)
-              : _expandedFeatures.add(f.name))
-          : null,
+              : _expandedFeatures.add(f.name));
+        }
+      },
       trailing: _EyeButton(
           visible: f.visible, onTap: () => app.toggleFeatureVisible(f)),
     );
@@ -1379,6 +1395,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
     // M91 — below End of Part: dimmed exactly like a rolled-back layer, so a
     // part that is showing an earlier state of itself says so.
     Widget dim(Widget w) => rolled ? Opacity(opacity: 0.4, child: w) : w;
+    if (pat != null && open) {
+      return dim(Column(mainAxisSize: MainAxisSize.min, children: [
+        wrapped,
+        for (var i = 2; i <= pat.occurrenceCount; i++)
+          _occurrenceRow(app, pat, i),
+      ]));
+    }
     if (!nests || !open) return dim(wrapped);
     // expanded: the consumed sketch sits nested one level deeper, with its
     // own eye — Inventor's Extrusion1 ▸ Sketch1
@@ -1386,6 +1409,23 @@ class _ModelBrowserState extends State<ModelBrowser> {
       wrapped,
       _sketchRow(app, consumedSketch, indent: 30, nested: true),
     ]));
+  }
+
+  /// One occurrence of a pattern. Tapping it suppresses or restores it,
+  /// which is Inventor's "suppress an individual occurrence" — the reason the
+  /// occurrences are listed at all.
+  Widget _occurrenceRow(AppState app, PatternFeature f, int index) {
+    final off = f.suppressed.contains(index);
+    final row = _row(
+      indent: 30,
+      icon: partCubeIcon,
+      label: 'Occurrence $index',
+      onTap: () => app.patternSuppressOccurrence(f, index, !off),
+      trailing: _EyeButton(
+          visible: !off,
+          onTap: () => app.patternSuppressOccurrence(f, index, !off)),
+    );
+    return off ? Opacity(opacity: 0.4, child: row) : row;
   }
 
   Future<void> _confirmDeleteFeature(PartFeature f) async {

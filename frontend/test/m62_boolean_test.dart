@@ -100,6 +100,13 @@ class FakeKernel implements PartKernel {
 
   @override
   List<KernelSolid> importStepSolids(String path) => const [];
+  // M212 — the two placements a pattern needs. This fake models neither, and
+  // says so rather than inventing a solid.
+  @override
+  KernelSolid? placeSolid(KernelSolid s, List<double> mat34) => null;
+  @override
+  KernelSolid? mirrorSolid(KernelSolid s, Vec3 planePoint, Vec3 planeNormal) =>
+      null;
   @override
   List<double> revolveHits(KernelSolid s, Vec3 axP, Vec3 axD, Vec3 p) =>
       const [];

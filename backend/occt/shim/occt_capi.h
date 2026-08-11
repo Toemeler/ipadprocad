@@ -132,6 +132,24 @@ occt_shape *occt_extrude_profile_arcs(const double *xyb,
  */
 occt_shape *occt_transform(const occt_shape *shape, const double *mat34);
 
+/*
+ * v17 — MIRROR a shape about a plane. `plane6` = {px, py, pz, nx, ny, nz}:
+ * a point on the plane plus its normal (normalised here; a zero-length
+ * normal is refused).
+ *
+ * Separate from occt_transform because a reflection has determinant -1, and
+ * occt_transform refuses that deliberately: a non-rigid matrix arriving there
+ * is far more likely to be a caller bug (a scale, a shear, a frame built the
+ * wrong way round) than an intended mirror. Asking for a mirror BY NAME
+ * cannot be that mistake.
+ *
+ * The result is orientation-correct: a reflection turns a solid inside out,
+ * and OCCT booleans read orientation, so an uncorrected mirrored tool would
+ * cut where it should join. The shim measures the volume and reverses the
+ * shape if it came back negative. NULL on failure.
+ */
+occt_shape *occt_mirror(const occt_shape *shape, const double *plane6);
+
 /* ---- Queries ---------------------------------------------------------- */
 
 /* Count unique faces / edges / vertices of the shape. Any out-pointer may be

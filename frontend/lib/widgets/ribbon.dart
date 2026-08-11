@@ -11,7 +11,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../app_state.dart';
 import '../log.dart';
 import '../menus.dart';
-import '../part_model.dart' show WorkPlaneKind;
+import '../part_model.dart' show PatternKind, WorkPlaneKind;
 import '../work_features.dart' show WorkAxisMethod, WorkPointMethod;
 import '../svg_icons.dart';
 import '../tools.dart';
@@ -582,6 +582,31 @@ class _RibbonState extends State<Ribbon> {
   // inert placeholders the dummy ships, so the layout is final while the
   // behaviour grows feature by feature.
   Widget _partRibbon(AppState app) {
+    // Like [col], but each row can also LIGHT UP — a part command that is
+    // currently open says so, the way the Extrude button does.
+    //
+    // M216 — the callback is non-nullable here too. It arrived taking a
+    // `VoidCallback?` with a `?? () {}` fallback, which is exactly the hole
+    // [col] had; every colActive row today is a real command, so closing it
+    // costs nothing and stops the next dead button being added by accident.
+    Widget colActive(List<(String, String, VoidCallback, bool)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      onTap: rows[i].$3,
+                      active: rows[i].$4),
+                ]
+              ]),
+        );
     // M215 — [flyIds] maps a row's LABEL to a flyout id, so a small row can
     // carry the same drop chip the big split buttons have. _SmallRow has
     // supported flyId/onFly since M205; nothing in the part ribbon had ever
@@ -673,13 +698,7 @@ class _RibbonState extends State<Ribbon> {
             ]),
           ]),
         ),
-        // Modify ALSO carries the Pattern commands, because Pattern had no
-        // built entry at all and a panel that is nothing but a title and a ▼
-        // is worse than a slightly longer list. Pattern operations are
-        // modifications of an existing body, so they read fine here. The
-        // moment one of them is built, Pattern gets its panel back.
-        //
-        // Hole is in the list too: its onTap was `() {}` — an empty closure,
+        // Hole is in the list: its onTap was `() {}` — an empty closure,
         // the exact thing M157 called out on the Plane button. A big button
         // that silently does nothing is the most expensive kind of lie in a
         // ribbon, because it looks the most finished.
@@ -697,10 +716,6 @@ class _RibbonState extends State<Ribbon> {
             OverItem(MO['split']!, 'Split', null),
             OverItem(MO['direct']!, 'Direct', null),
             OverItem(MO['deleteface']!, 'Delete Face', null),
-            OverItem(PT['rect']!, 'Rectangular Pattern', null),
-            OverItem(PT['circ']!, 'Circular Pattern', null),
-            OverItem(PT['sketch']!, 'Sketch Driven Pattern', null),
-            OverItem(PT['mirror']!, 'Mirror', null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
@@ -753,6 +768,33 @@ class _RibbonState extends State<Ribbon> {
                 () => widget.app.startWorkPoint(WorkPointMethod.auto)
               ),
             ], flyIds: const {'Axis': 'axis', 'Point': 'point'}),
+          ]),
+        ),
+        // M212 — the four pattern commands, wired. They toggle like every
+        // other part command (M210) and light for the one that is open.
+        //
+        // M216 — this panel is VISIBLE and stays visible. The dropdown pass
+        // had folded Pattern away on the evidence of its own branch, where
+        // all four were inert; main had built them in the meantime. "Hide
+        // what does not work" is only ever as good as the reading of what
+        // works, so the rule is applied to the MERGED truth, not to a
+        // snapshot of one side.
+        _panel(
+          label: 'Pattern',
+          arrow: false,
+          child: Row(children: [
+            colActive([
+              (PT['rect']!, 'Rectangular', app.openRectPattern,
+                  app.patternKind == PatternKind.rectangular),
+              (PT['circ']!, 'Circular', app.openCircPattern,
+                  app.patternKind == PatternKind.circular),
+              (PT['sketch']!, 'Sketch Driven', app.openSketchPattern,
+                  app.patternKind == PatternKind.sketchDriven),
+            ], leftPad: 2),
+            colActive([
+              (PT['mirror']!, 'Mirror', app.openMirror,
+                  app.patternKind == PatternKind.mirror)
+            ]),
           ]),
         ),
       ]),

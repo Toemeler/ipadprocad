@@ -651,6 +651,178 @@ class EdgeFeatureSession {
   }
 }
 
+/// Which selector of the pattern panel the next pick feeds — Inventor's
+/// blue-outlined field. [none] means the panel is not waiting for anything
+/// and a tap in the viewport is an ordinary tap again.
+enum PatternField {
+  none,
+  features,
+  solid,
+  dirA,
+  dirB,
+  axis,
+  plane,
+  pointSketch,
+  basePoint,
+  // M213 — Inventor's Extents (where a row STARTS on its path) and its
+  // Variable Orientation (the face a sketch-driven pattern follows).
+  startA,
+  startB,
+  orientFace,
+}
+
+/// Live state of the open pattern panel (M212): Rectangular, Circular,
+/// Sketch Driven and Mirror.
+///
+/// ONE session for all four, for the same reason [ExtrudeSession] serves five
+/// commands: they share the feature selection, the solid/feature switch, the
+/// creation method, the preview and the commit, and differ only in which
+/// selectors and numbers sit in the middle. [mode] is what selects those.
+///
+/// The panel is MODELESS — it floats over the viewport while you keep picking
+/// geometry — so the values live here as the strings the user typed, and are
+/// parsed on the way into the feature.
+class PartPatternSession {
+  PartPatternSession(this.mode, {this.editing});
+
+  final PatternKind mode;
+
+  /// The feature being edited, or null when creating.
+  final PatternFeature? editing;
+
+  /// The selector a viewport (or browser) pick feeds.
+  PatternField active = PatternField.features;
+
+  /// Inventor's Input Geometry: a set of FEATURES, or the whole solid.
+  bool patternSolid = false;
+
+  /// Picked feature names, in pick order.
+  final List<String> features = [];
+
+  /// The body the pattern acts on — the one the picked features build.
+  String bodyName = '';
+
+  // ---- rectangular ----
+  AxisRef? dirA, dirB;
+  bool flipA = false, flipB = false, midplaneA = false, midplaneB = false;
+  String exprCountA = '2', exprCountB = '2';
+  String exprDistanceA = '25 mm', exprDistanceB = '25 mm';
+  PatternDistribution distributionA = PatternDistribution.spacing;
+  PatternDistribution distributionB = PatternDistribution.spacing;
+
+  /// M213 — a row can run along a CURVE instead of a straight direction. A
+  /// path REPLACES the direction of its own row, which is why picking one
+  /// clears the other: showing both would leave the panel saying two
+  /// different things about where the occurrences go.
+  CurveSel? pathA, pathB;
+  double startA = 0, startB = 0;
+  bool startPickedA = false, startPickedB = false;
+
+  /// Inventor 2026's Irregular Distance / Angle: step index -> its own offset.
+  final Map<int, double> irregularA = {}, irregularB = {}, irregularC = {};
+
+  // ---- circular ----
+  AxisRef? axis;
+  bool flipC = false;
+  String exprCountC = '6', exprAngleC = '360.00 deg';
+
+  /// Inventor's circular Distribution defaults to the TOTAL angle (Fitted),
+  /// which is what makes the out-of-the-box "6 at 360 deg" a bolt circle.
+  PatternDistribution distributionC = PatternDistribution.distance;
+  PatternOrient orientation = PatternOrient.rotational;
+
+  // ---- sketch driven ----
+  String pointSketch = '';
+  bool basePicked = false;
+  double baseX = 0, baseY = 0;
+
+  /// Inventor's Variable Orientation — the face the occurrences follow.
+  FaceSel? orientFace;
+
+  // ---- mirror ----
+  PlaneRef? plane;
+  bool removeOriginal = false;
+
+  // ---- shared ----
+  PatternCompute compute = PatternCompute.identical;
+  final Set<int> suppressed = {};
+
+  KernelSolid? preview;
+  String? previewError;
+
+  /// The body the preview REPLACES on screen. A pattern reshapes a body
+  /// rather than adding one, so the original must be hidden while the panel
+  /// is up or the un-patterned body would show through the preview — the same
+  /// rule the fillet panel follows.
+  String? previewReplacesBody;
+
+  /// Seeds the session from an existing feature, for "edit this pattern".
+  void readFrom(PatternFeature f) {
+    patternSolid = f.patternSolid;
+    features
+      ..clear()
+      ..addAll(f.sources);
+    bodyName = f.bodyName;
+    dirA = f.dirA?.copy();
+    dirB = f.dirB?.copy();
+    flipA = f.flipA;
+    flipB = f.flipB;
+    midplaneA = f.midplaneA;
+    midplaneB = f.midplaneB;
+    exprCountA = f.exprCountA;
+    exprCountB = f.exprCountB;
+    exprDistanceA = f.exprDistanceA;
+    exprDistanceB = f.exprDistanceB;
+    distributionA = f.distributionA;
+    distributionB = f.distributionB;
+    axis = f.axis?.copy();
+    flipC = f.flipC;
+    exprCountC = f.exprCountC;
+    exprAngleC = f.exprAngleC;
+    distributionC = f.distributionC;
+    orientation = f.orientation;
+    pointSketch = f.pointSketch;
+    basePicked = f.basePicked;
+    baseX = f.baseX;
+    baseY = f.baseY;
+    orientFace = f.orientFace;
+    pathA = f.pathA;
+    pathB = f.pathB;
+    startA = f.startA;
+    startB = f.startB;
+    startPickedA = f.startA != 0;
+    startPickedB = f.startB != 0;
+    irregularA
+      ..clear()
+      ..addAll(f.irregularA);
+    irregularB
+      ..clear()
+      ..addAll(f.irregularB);
+    irregularC
+      ..clear()
+      ..addAll(f.irregularC);
+    plane = f.mirrorPlane?.copy();
+    removeOriginal = f.removeOriginal;
+    compute = f.compute;
+    suppressed
+      ..clear()
+      ..addAll(f.suppressed);
+    active = PatternField.none;
+  }
+
+  /// Label for the Direction/Axis/Plane pick fields.
+  String get dirALabel => dirA?.label ?? 'Select Dir...';
+  String get dirBLabel => dirB?.label ?? 'Select Dir...';
+  String get axisLabel => axis?.label ?? 'Select Dir...';
+  String get planeLabel => plane?.label ?? 'Mirror Plane';
+
+  void disposePreview() {
+    preview?.dispose();
+    preview = null;
+    previewReplacesBody = null;
+  }
+}
+
 /// Live state of the Extrude AND Revolve panels.
 ///
 /// One session for both: of its fields only exprTaper/iMate/matchShape are
@@ -4475,6 +4647,8 @@ class AppState extends ChangeNotifier {
       openLoft(f);
     } else if (f is CoilFeature) {
       openCoil(f);
+    } else if (f is PatternFeature) {
+      _openPattern(f.mode, f);
     } else {
       // Revolve still has no panel; opening the extrude one instead would let
       // the user change a value that belongs to a different feature.
@@ -4757,6 +4931,676 @@ class AppState extends ChangeNotifier {
     Log.i('part',
         '${s.kind} ${edit == null ? "created" : "edited"} ${f.name} '
         '(${f.bodyName}) edges=${f.edges.length}');
+    notifyListeners();
+    return true;
+  }
+
+
+  // ---- M212 — the PART patterns: Rectangular / Circular / Sketch Driven /
+  //             Mirror. Inventor's Pattern panel, in 3D. ------------------
+  //
+  // ONE session for all four, mirroring [PatternFeature]: the four panels
+  // differ only in which selectors and numbers they show, and four sessions
+  // would have been four places to keep the feature selection, the preview
+  // and the commit in step — the mistake this file already learned from
+  // (ExtrudeSession serves five commands).
+  PartPatternSession? patternSession;
+
+  /// Which pattern command is open, or null. Used by the ribbon so a second
+  /// tap on the same button closes it (M210's toggle).
+  PatternKind? get patternKind => patternSession?.mode;
+
+  void openRectPattern([PatternFeature? edit]) =>
+      _openPattern(PatternKind.rectangular, edit);
+  void openCircPattern([PatternFeature? edit]) =>
+      _openPattern(PatternKind.circular, edit);
+  void openSketchPattern([PatternFeature? edit]) =>
+      _openPattern(PatternKind.sketchDriven, edit);
+  void openMirror([PatternFeature? edit]) =>
+      _openPattern(PatternKind.mirror, edit);
+
+  void _openPattern(PatternKind kind, PatternFeature? edit) {
+    // M210 — the same command twice closes it. Keyed by the pattern kind, so
+    // Rectangular -> Circular switches rather than toggling off.
+    if (edit == null &&
+        patternSession != null &&
+        patternSession!.editing == null &&
+        patternSession!.mode == kind) {
+      cancelPattern();
+      return;
+    }
+    final p = currentPart;
+    if (p == null) return;
+    if (p.features.isEmpty) {
+      toast('${patternKindLabel(kind)} needs a feature to copy — build one '
+          'first.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    final s = PartPatternSession(kind, editing: edit);
+    if (edit != null) {
+      s.readFrom(edit);
+    } else {
+      // Inventor pre-selects nothing but does put you straight into the
+      // Feature selector, which is where every one of these commands starts.
+      s.bodyName = lastSolidFeature(p)?.bodyName ?? 'Solid1';
+      s.active = PatternField.features;
+    }
+    patternSession = s;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's rail beside the panel: switch to another pattern command
+  /// WITHOUT losing what has been picked.
+  ///
+  /// The feature selection, the creation method and the solid/feature mode
+  /// are the parts every one of the four commands shares, so they carry over;
+  /// the placement inputs do not, because a direction is not an axis and an
+  /// axis is not a plane. Re-opening the command from the ribbon instead
+  /// would have thrown the selection away — which is the reason Inventor's
+  /// rail exists at all.
+  void switchPattern(PatternKind kind) {
+    final old = patternSession;
+    if (old == null || old.mode == kind) return;
+    final s = PartPatternSession(kind, editing: null);
+    s.patternSolid = old.patternSolid;
+    s.features
+      ..clear()
+      ..addAll(old.features);
+    s.bodyName = old.bodyName;
+    s.compute = old.compute;
+    // The placement inputs that DO mean the same thing in both commands are
+    // kept: a direction and a rotation axis are both "a line you picked".
+    s.dirA = old.dirA ?? old.axis;
+    s.axis = old.axis ?? old.dirA;
+    s.plane = old.plane;
+    s.pointSketch = old.pointSketch;
+    s.pathA = old.pathA;
+    s.startA = old.startA;
+    s.active = old.features.isEmpty && !old.patternSolid
+        ? PatternField.features
+        : PatternField.none;
+    old.disposePreview();
+    patternSession = s;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  void cancelPattern() {
+    final s = patternSession;
+    if (s == null) return;
+    s.disposePreview();
+    patternSession = null;
+    notifyListeners();
+  }
+
+  /// The panel mutates the session directly (counts, flips, the active
+  /// selector) and calls this to re-preview and repaint.
+  void patternChanged() {
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Arms one of the panel's selectors. Tapping the ACTIVE one disarms it,
+  /// exactly like the pick fields in the extrude panel.
+  void patternPick(PatternField field) {
+    final s = patternSession;
+    if (s == null) return;
+    s.active = s.active == field ? PatternField.none : field;
+    switch (s.active) {
+      case PatternField.features:
+        toast('Select features — tap a face in 3D, or a row in the browser.');
+      case PatternField.dirA:
+      case PatternField.dirB:
+        toast('Tap a straight edge, a circular edge, or an origin axis.');
+      case PatternField.axis:
+        toast('Tap a circular edge, a straight edge, or an origin axis.');
+      case PatternField.plane:
+        toast('Tap a planar face, a work plane, or an origin plane.');
+      case PatternField.pointSketch:
+        toast('Tap the sketch whose points place the occurrences.');
+      case PatternField.basePoint:
+        toast('Tap the sketch point the original sits on.');
+      case PatternField.startA:
+      case PatternField.startB:
+        toast('Tap the point on the curve where the pattern starts.');
+      case PatternField.orientFace:
+        toast('Tap the face the occurrences should follow.');
+      case PatternField.solid:
+        toast('Tap the solid body to pattern.');
+      case PatternField.none:
+        break;
+    }
+    notifyListeners();
+  }
+
+  /// True while a pattern selector wants a tap in the 3D viewport. The
+  /// feature list is fed from the BROWSER, not from the viewport, so it is
+  /// deliberately not in here.
+  bool get patternPicking3D {
+    final s = patternSession;
+    if (s == null) return false;
+    // M213 — features are pickable in the GRAPHICS WINDOW now, not only in
+    // the browser: a tap on a face selects the feature that made it.
+    return s.active == PatternField.features ||
+        s.active == PatternField.startA ||
+        s.active == PatternField.startB ||
+        s.active == PatternField.orientFace ||
+        s.active == PatternField.dirA ||
+        s.active == PatternField.dirB ||
+        s.active == PatternField.axis ||
+        s.active == PatternField.plane ||
+        s.active == PatternField.pointSketch ||
+        s.active == PatternField.basePoint ||
+        s.active == PatternField.solid;
+  }
+
+  /// A FEATURE row was tapped in the model browser while the Feature selector
+  /// is armed. Inventor's multi-select: tapping a chosen feature removes it.
+  ///
+  /// Returns true when the tap was consumed, so the browser knows not to open
+  /// the feature's editor as well.
+  bool patternToggleFeature(PartFeature f) {
+    final s = patternSession;
+    if (s == null || s.active != PatternField.features || s.patternSolid) {
+      return false;
+    }
+    final p = currentPart;
+    if (p == null) return false;
+    // A pattern can only copy what is BUILT BEFORE it. Picking a feature that
+    // sits below the pattern would be a cycle: the pattern's input would be
+    // built out of the pattern's own result.
+    final edit = s.editing;
+    if (edit != null) {
+      var seenPattern = false;
+      for (final g in p.features) {
+        if (identical(g, edit)) seenPattern = true;
+        if (identical(g, f) && seenPattern) {
+          toast('"${f.name}" is built after this pattern, so the pattern '
+              'cannot copy it.');
+          return true;
+        }
+      }
+    }
+    if (!s.features.remove(f.name)) {
+      s.features.add(f.name);
+      // Inventor patterns into the body the selected features build.
+      s.bodyName = f.bodyName;
+    }
+    _updatePatternPreview();
+    notifyListeners();
+    return true;
+  }
+
+  bool patternHasFeature(String name) =>
+      patternSession?.features.contains(name) ?? false;
+
+  /// M213 — face -> feature, cached per MESH.
+  ///
+  /// Keyed by mesh identity because that is exactly what changes when the
+  /// answer changes: a rebuild produces new meshes, and so does a refine at a
+  /// finer tessellation. The cache is small and is dropped wholesale rather
+  /// than invalidated cleverly — attribution costs one pass over the faces,
+  /// and a stale entry here would select the wrong feature.
+  final Map<int, Map<int, String>> _faceOwnerCache = {};
+
+  /// Which feature made face [faceId] of [solid], or null when nothing
+  /// claims it. Null is a real answer here: a face that no feature's surface
+  /// accounts for is unknown, and guessing would pick a feature at random.
+  PartFeature? featureOfFace(KernelSolid solid, int faceId) {
+    final p = currentPart;
+    if (p == null || faceId < 0) return null;
+    final body = _bodyNameOfSolid(solid);
+    if (body == null) return null;
+    final key = identityHashCode(solid.mesh);
+    var owners = _faceOwnerCache[key];
+    if (owners == null) {
+      if (_faceOwnerCache.length > 8) _faceOwnerCache.clear();
+      owners = attributeFaces(p, body, solid);
+      _faceOwnerCache[key] = owners;
+      Log.i(
+          'part',
+          'face provenance for "$body": ${owners.length} of '
+              '${faceSurfaces(solid.mesh).length} faces attributed');
+    }
+    final name = owners[faceId];
+    if (name == null) return null;
+    for (final f in p.features) {
+      if (f.name == name) return f;
+    }
+    return null;
+  }
+
+  /// A SKETCH row was tapped in the browser while the sketch-driven pattern
+  /// is waiting for its points. Returns true when the tap was consumed, so
+  /// the browser does not also open the sketch for editing — which would
+  /// close the panel that asked for it.
+  ///
+  /// The browser matters here more than the viewport does: the points of a
+  /// consumed sketch are hidden by default, so on a real part the tree is
+  /// usually the only place the sketch can be pointed at at all.
+  bool patternToggleSketch(ChildSketch cs) {
+    final s = patternSession;
+    if (s == null ||
+        s.mode != PatternKind.sketchDriven ||
+        s.active != PatternField.pointSketch) {
+      return false;
+    }
+    patternPointSketchPicked(cs.model.name);
+    return true;
+  }
+
+  /// A direction or axis was picked in 3D, already reduced to a point and a
+  /// direction in world coordinates by the viewport.
+  void patternAxisPicked(Vec3 point, Vec3 dir, String label) {
+    final s = patternSession;
+    if (s == null) return;
+    if (dir.length < 1e-9) {
+      toast('That edge has no direction.');
+      return;
+    }
+    final ref = AxisRef(point.x, point.y, point.z, dir.x, dir.y, dir.z, label);
+    switch (s.active) {
+      case PatternField.dirA:
+        s.dirA = ref;
+      case PatternField.dirB:
+        s.dirB = ref;
+      case PatternField.axis:
+        s.axis = ref;
+      default:
+        return;
+    }
+    Log.i('pattern',
+        '${s.active.name} = $label p=(${point.x.toStringAsFixed(2)},'
+        '${point.y.toStringAsFixed(2)},${point.z.toStringAsFixed(2)}) '
+        'd=(${dir.x.toStringAsFixed(3)},${dir.y.toStringAsFixed(3)},'
+        '${dir.z.toStringAsFixed(3)})');
+    // One pick, one field: the selector disarms itself so the next tap in the
+    // viewport is an ordinary tap again, not a silent re-pick of the value
+    // that was just chosen.
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// M213 — a CURVE was picked as the direction of a row.
+  ///
+  /// A path and a straight direction are alternatives for the same row, so
+  /// picking one clears the other: a panel showing both would be saying two
+  /// different things about where the occurrences go.
+  void patternPathPicked(CurveSel sel, {required bool first}) {
+    final s = patternSession;
+    if (s == null) return;
+    if (first) {
+      s.pathA = sel;
+      s.dirA = null;
+      s.startA = 0;
+      s.startPickedA = false;
+      // Inventor's Orientation Method starts at Identical for a path pattern.
+      // The field is shared with the circular command, whose own default is
+      // Rotational, so it is set HERE rather than left at whatever the other
+      // command wanted.
+      s.orientation = PatternOrient.fixed;
+    } else {
+      s.pathB = sel;
+      s.dirB = null;
+      s.startB = 0;
+      s.startPickedB = false;
+    }
+    s.active = PatternField.none;
+    Log.i('pattern',
+        '${first ? "A" : "B"} runs along ${sel.sketchName}#${sel.geoIndex}');
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Start: where on the path the ORIGINAL sits.
+  void patternStartPicked(Vec3 world, {required bool first}) {
+    final s = patternSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    final sel = first ? s.pathA : s.pathB;
+    if (sel == null) {
+      toast('Pick the curve for this direction first.');
+      return;
+    }
+    final (pts, err) = resolvePath(p, sel);
+    if (pts == null) {
+      toast(err ?? 'That curve is no longer available.');
+      return;
+    }
+    final poly = <Vec3>[
+      for (var i = 0; i + 2 < pts.length; i += 3)
+        Vec3(pts[i], pts[i + 1], pts[i + 2])
+    ];
+    final at = arcLengthNearest(poly, world);
+    if (first) {
+      s.startA = at;
+      s.startPickedA = true;
+    } else {
+      s.startB = at;
+      s.startPickedB = true;
+    }
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Variable Orientation: the face the occurrences follow.
+  void patternOrientFacePicked(PlaneFrame frame) {
+    final s = patternSession;
+    if (s == null) return;
+    s.orientFace = FaceSel(frame.origin.x, frame.origin.y, frame.origin.z,
+        frame.n.x, frame.n.y, frame.n.z);
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor 2026's Irregular Distance / Angle. [step] is the occurrence's
+  /// step index (1 = the first copy); a null [value] removes the override and
+  /// the even spacing takes that occurrence back.
+  void patternSetIrregular(String which, int step, double? value) {
+    final s = patternSession;
+    if (s == null || step < 1) return;
+    final m = switch (which) {
+      'B' => s.irregularB,
+      'C' => s.irregularC,
+      _ => s.irregularA,
+    };
+    if (value == null) {
+      m.remove(step);
+    } else {
+      m[step] = value;
+    }
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// A planar face / work plane / origin plane was picked for the mirror.
+  void patternPlanePicked(Vec3 point, Vec3 normal, String label) {
+    final s = patternSession;
+    if (s == null || s.active != PatternField.plane) return;
+    if (normal.length < 1e-9) return;
+    s.plane =
+        PlaneRef(point.x, point.y, point.z, normal.x, normal.y, normal.z, label);
+    s.active = PatternField.none;
+    Log.i('pattern', 'mirror plane = $label');
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// The sketch that holds a sketch-driven pattern's points.
+  void patternPointSketchPicked(String sketchName) {
+    final s = patternSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    final cs = p.sketchByName(sketchName);
+    if (cs == null) return;
+    final pts = sketchPatternPoints(cs.model);
+    if (pts.isEmpty) {
+      toast('"$sketchName" holds no sketch points — a sketch-driven pattern '
+          'places one occurrence per point.');
+      return;
+    }
+    s.pointSketch = sketchName;
+    s.basePicked = false;
+    s.active = PatternField.none;
+    Log.i('pattern',
+        'point sketch = $sketchName (${pts.length} point(s))');
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Base Point: which of the sketch's points the ORIGINAL sits on.
+  void patternBasePointPicked(String sketchName, Offset sketchPoint) {
+    final s = patternSession;
+    if (s == null) return;
+    if (s.pointSketch.isEmpty) s.pointSketch = sketchName;
+    if (s.pointSketch != sketchName) {
+      toast('The base point must be a point of "${s.pointSketch}".');
+      return;
+    }
+    s.basePicked = true;
+    s.baseX = sketchPoint.dx;
+    s.baseY = sketchPoint.dy;
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Solid mode: which body the whole-solid pattern acts on.
+  void patternBodyPicked(String name) {
+    final s = patternSession;
+    if (s == null) return;
+    s.bodyName = name;
+    s.active = PatternField.none;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Input Geometry switch: pattern FEATURES, or the whole solid.
+  void patternSetSolidMode(bool solid) {
+    final s = patternSession;
+    if (s == null || s.patternSolid == solid) return;
+    s.patternSolid = solid;
+    s.active = solid ? PatternField.solid : PatternField.features;
+    _updatePatternPreview();
+    notifyListeners();
+  }
+
+  /// Suppress / restore ONE occurrence, the way Inventor does it from the
+  /// browser. [index] is Inventor's numbering, with the original as 1 — and
+  /// the original is not this feature's to suppress, so it is refused.
+  void patternSuppressOccurrence(PatternFeature f, int index, bool suppress) {
+    final p = currentPart;
+    if (p == null || index <= 1) return;
+    if (suppress ? !f.suppressed.add(index) : !f.suppressed.remove(index)) {
+      return;
+    }
+    f.builtSig = null;
+    if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    Log.i('part',
+        '${f.name}: occurrence $index ${suppress ? "suppressed" : "restored"}');
+    notifyListeners();
+  }
+
+  /// The feature the panel currently describes, or the reason it cannot be
+  /// built yet. One function, used by BOTH the preview and OK, so what you
+  /// see is exactly what the button commits.
+  (PatternFeature?, String?) _patternSessionFeature() {
+    final s = patternSession;
+    final p = currentPart;
+    if (s == null || p == null) return (null, 'no session');
+    if (!s.patternSolid && s.features.isEmpty) {
+      return (null, 'Select at least one feature to pattern.');
+    }
+    final f = PatternFeature(
+      name: s.editing?.name ?? p.nextFeatureName(patternTypeLabel(s.mode)),
+      bodyName: s.bodyName.isEmpty ? 'Solid1' : s.bodyName,
+      mode: s.mode,
+      patternSolid: s.patternSolid,
+      sources: s.patternSolid ? const [] : s.features,
+      compute: s.compute,
+      suppressed: s.suppressed,
+      visible: s.editing?.visible ?? true,
+    );
+    switch (s.mode) {
+      case PatternKind.rectangular:
+        if (s.dirA == null && s.pathA == null) {
+          return (null, 'Select a direction or a curve for Direction A.');
+        }
+        final ca = _patternCount(s.exprCountA);
+        if (ca == null) return (null, 'Number in Direction A must be 1 or more.');
+        final da = parseValueExpr(s.exprDistanceA);
+        if (da == null || !(da > 0)) {
+          return (null, 'Distance in Direction A must be greater than 0.');
+        }
+        f
+          ..dirA = s.dirA?.copy()
+          ..pathA = s.pathA
+          ..startA = s.startA
+          ..flipA = s.flipA
+          ..midplaneA = s.midplaneA
+          ..countA = ca
+          ..distanceA = da
+          ..exprCountA = s.exprCountA
+          ..exprDistanceA = s.exprDistanceA
+          ..distributionA = s.distributionA
+          ..orientation = s.orientation;
+        f.irregularA.addAll(s.irregularA);
+        if (s.dirB != null || s.pathB != null) {
+          final cb = _patternCount(s.exprCountB);
+          if (cb == null) {
+            return (null, 'Number in Direction B must be 1 or more.');
+          }
+          final db = parseValueExpr(s.exprDistanceB);
+          if (db == null || !(db > 0)) {
+            return (null, 'Distance in Direction B must be greater than 0.');
+          }
+          f
+            ..dirB = s.dirB?.copy()
+            ..pathB = s.pathB
+            ..startB = s.startB
+            ..flipB = s.flipB
+            ..midplaneB = s.midplaneB
+            ..countB = cb
+            ..distanceB = db
+            ..exprCountB = s.exprCountB
+            ..exprDistanceB = s.exprDistanceB
+            ..distributionB = s.distributionB;
+          f.irregularB.addAll(s.irregularB);
+        }
+        // Through occurrenceCount, not countA * countB: a second direction
+        // that was never picked is not a second row, and multiplying by its
+        // leftover count let a one-occurrence pattern through the panel to
+        // fail in the kernel instead.
+        if (f.occurrenceCount <= 1) {
+          return (null, 'A pattern needs more than one occurrence.');
+        }
+      case PatternKind.circular:
+        if (s.axis == null) return (null, 'Select the rotation axis.');
+        final n = _patternCount(s.exprCountC);
+        if (n == null) return (null, 'Count must be 1 or more.');
+        if (n <= 1) return (null, 'A pattern needs more than one occurrence.');
+        final ang = parseValueExpr(s.exprAngleC);
+        if (ang == null || ang == 0) {
+          return (null, 'Angle must not be 0.');
+        }
+        f
+          ..axis = s.axis!.copy()
+          ..flipC = s.flipC
+          ..countC = n
+          ..angleC = ang
+          ..exprCountC = s.exprCountC
+          ..exprAngleC = s.exprAngleC
+          ..distributionC = s.distributionC
+          ..orientation = s.orientation;
+        f.irregularC.addAll(s.irregularC);
+      case PatternKind.sketchDriven:
+        if (s.pointSketch.isEmpty) {
+          return (null, 'Select the sketch that holds the points.');
+        }
+        f
+          ..pointSketch = s.pointSketch
+          ..basePicked = s.basePicked
+          ..baseX = s.baseX
+          ..baseY = s.baseY
+          ..orientFace = s.orientFace;
+      case PatternKind.mirror:
+        if (s.plane == null) return (null, 'Select the mirror plane.');
+        f
+          ..mirrorPlane = s.plane!.copy()
+          ..removeOriginal = s.removeOriginal && s.patternSolid;
+    }
+    return (f, null);
+  }
+
+  /// A count field: a positive whole number, through the same expression
+  /// parser every other value uses (so "2 * 3" is six occurrences).
+  static int? _patternCount(String expr) {
+    final v = parseValueExpr(expr);
+    if (v == null) return null;
+    final n = v.round();
+    if (n < 1 || (v - n).abs() > 1e-6) return null;
+    return n > kPatternMaxCount ? null : n;
+  }
+
+  void _updatePatternPreview() {
+    final s = patternSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    s.disposePreview();
+    s.previewError = null;
+    final (f, err) = _patternSessionFeature();
+    if (f == null) {
+      s.previewError = err;
+      return;
+    }
+    if (!partKernel.available) {
+      // Host builds have no kernel. Say so rather than showing an empty
+      // viewport that looks like a broken pattern.
+      s.previewError = null;
+      return;
+    }
+    // The base is the body as it stands just BEFORE this feature's position:
+    // for a new pattern that is the whole body, for an edit it is everything
+    // above the feature being edited.
+    final edit = s.editing;
+    final base = edit == null
+        ? currentBodySolid(p, f.bodyName)
+        : bodyBaseBefore(p, f.bodyName, edit);
+    if (base == null) {
+      s.previewError = 'There is no solid to pattern yet.';
+      return;
+    }
+    if (!recomputeFeature(p, f, partKernel, base: base)) {
+      s.previewError = f.computeError;
+      return;
+    }
+    s.preview = f.solid;
+    s.previewReplacesBody = f.bodyName;
+    f.solid = null; // ownership moves to the session
+  }
+
+  Future<bool> applyPattern() async {
+    final s = patternSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    final (f, err) = _patternSessionFeature();
+    if (f == null) {
+      toast(err ?? 'Cannot create the pattern.');
+      return false;
+    }
+    final edit = s.editing;
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    s.disposePreview();
+    patternSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    Log.i(
+        'part',
+        '${patternKindLabel(f.mode)} ${edit == null ? "created" : "edited"} '
+            '${f.name} (${f.bodyName}) '
+            '${f.patternSolid ? "solid" : "${f.sources.length} feature(s)"}');
     notifyListeners();
     return true;
   }
@@ -5076,6 +5920,11 @@ class AppState extends ChangeNotifier {
   /// another is not either — only the same kind, twice.
   bool _toggles3DOff(String kind, Object? edit) {
     if (edit != null) return false;
+    // M212 — the pattern panel is a 3D command like the others: opening
+    // Extrude while it is up closes it, and it never survives underneath.
+    if (patternSession != null && patternSession!.editing == null) {
+      cancelPattern();
+    }
     final ex = extrudeSession;
     if (ex != null && ex.editing == null && ex.kind == kind) {
       cancelExtrude();
@@ -5735,7 +6584,14 @@ class AppState extends ChangeNotifier {
     // Innermost mode first: Esc during a pick backs OUT of the pick, it does
     // not throw the whole dialog away. Anything else loses the profiles and
     // settings the user just entered.
-    if (pickingEdges && edgeSession == null) {
+    if (patternSession != null && patternSession!.active != PatternField.none) {
+      // M212 — a pattern selector is a PICK, and Esc during a pick backs out
+      // of the pick, not out of the panel that owns it.
+      patternSession!.active = PatternField.none;
+      notifyListeners();
+    } else if (patternSession != null) {
+      cancelPattern();
+    } else if (pickingEdges && edgeSession == null) {
       cancelPickEdges();
     } else if (edgeSession != null) {
       // The edge pick belongs TO the fillet panel, so Esc closes both at
@@ -5956,8 +6812,21 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (p == null) return;
     _partCheckpoint(p); // M182 — deleting a feature must be undoable
+    // M212 — a pattern that copies this feature loses its input. The pattern
+    // survives and reports it honestly at the next rebuild ("the patterned
+    // feature X is not available any more"), but the message belongs HERE
+    // too: the moment of the deletion is when it can still be undone.
+    final orphaned = [
+      for (final g in p.features)
+        if (g is PatternFeature && g.sources.contains(f.name)) g.name
+    ];
     f.disposeSolid();
     p.features.remove(f);
+    if (orphaned.isNotEmpty) {
+      toast('"${f.name}" was patterned by ${orphaned.join(", ")} — '
+          '${orphaned.length == 1 ? "that pattern is" : "those patterns are"} '
+          'now broken. Undo restores it.');
+    }
     Log.i('part', 'feature "${f.name}" deleted from "${p.name}"');
     p.dirty = true;
     if (curTab != null) {

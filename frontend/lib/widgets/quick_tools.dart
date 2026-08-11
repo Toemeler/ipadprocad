@@ -69,7 +69,10 @@ bool quickCanConfirm(AppState app) {
   // M210 — the 3D panels have an OK too, and the bar is where a tablet reaches
   // for Enter. Paired with the Cancel below: a lone Cancel would be the only
   // half of the pair that ever lit.
-  return app.extrudeSession != null || app.edgeSession != null;
+  return app.extrudeSession != null ||
+      app.edgeSession != null ||
+      // M212 — the pattern panels have an OK too.
+      app.patternSession != null;
 }
 
 /// True when Esc would do something: a command is running, ink is waiting, or
@@ -91,6 +94,7 @@ bool quickCanCancel(AppState app) =>
 bool quickCancels3D(AppState app) =>
     app.extrudeSession != null ||
     app.edgeSession != null ||
+    app.patternSession != null ||
     app.pickingEdges ||
     app.pickingExtentFace ||
     app.pickingBody ||
@@ -278,6 +282,8 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
         app.freehandCommit();
       } else if (app.tool != Tool.none) {
         app.finishVariableTool();
+      } else if (app.patternSession != null) {
+        app.applyPattern(); // M212 — the pattern panel's OK
       } else if (app.edgeSession != null) {
         app.applyEdgeFeature(); // M210 — the fillet/chamfer panel's OK
       } else if (app.extrudeSession != null) {

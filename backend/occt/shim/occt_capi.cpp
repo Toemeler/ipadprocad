@@ -186,13 +186,19 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v18 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v19 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 18; }
+/* v19, not v18: TWO branches in flight both claimed v17 — main for
+ * occt_mirror, this one for occt_export_step_named — and this branch then
+ * built v18 on top of its own v17. The merged surface is strictly larger than
+ * either, so it takes the next free number rather than pretending one of the
+ * two v17s did not happen. A version that means different things in two
+ * binaries is worse than a gap in the sequence. */
+extern "C" int occt_shim_version(void) { return 19; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -916,6 +922,66 @@ extern "C" occt_shape *occt_transform(const occt_shape *shape,
     }
     return wrap(tr.Shape(), "occt_transform");
     OCCT_CATCH("occt_transform", nullptr)
+}
+
+/* ---- v17: reflection ----------------------------------------------------- */
+
+/*
+ * v17 — occt_mirror. The ONE placement occt_transform is not allowed to
+ * express, and the reason it needs its own entry point.
+ *
+ * A reflection has determinant -1, which trsf_from_mat34 refuses on purpose:
+ * a matrix arriving there with det != +1 is far more likely to be a bug in
+ * the caller (a scale, a shear, a frame built the wrong way round) than a
+ * deliberate mirror, and silently resizing or inverting a solid is exactly
+ * the class of error that check exists to catch. A mirror asked for BY NAME
+ * cannot be that mistake, so it is built here from a plane rather than
+ * smuggled in as a matrix.
+ *
+ * plane6 = {px, py, pz, nx, ny, nz}: a point on the mirror plane and its
+ * normal (need not be unit; a zero-length normal is refused).
+ *
+ * gp_Trsf::SetMirror(gp_Ax2) mirrors about the PLANE of the axis placement,
+ * i.e. the plane through its location perpendicular to its main direction.
+ *
+ * The orientation check afterwards is not decoration. A reflection turns a
+ * solid inside out: every face normal that pointed outward now points in,
+ * and OCCT's boolean operations read orientation, so a mirrored tool that
+ * kept the reversed sense would CUT where it should ADD. BRepBuilderAPI_
+ * Transform corrects this itself for a negative-determinant transformation,
+ * but "itself" is a behaviour, not a contract — measuring the volume costs
+ * one mass property evaluation and turns a silent wrong-boolean into a
+ * shape that is right or an error that says so.
+ */
+extern "C" occt_shape *occt_mirror(const occt_shape *shape,
+                                   const double *plane6)
+{
+    OCCT_TRY("occt_mirror")
+    if (!shape || !plane6) {
+        set_err("occt_mirror", "null argument");
+        return nullptr;
+    }
+    const double nx = plane6[3], ny = plane6[4], nz = plane6[5];
+    const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+    if (!(len > 1e-12)) {
+        set_err("occt_mirror", "the mirror plane has no normal direction");
+        return nullptr;
+    }
+    gp_Trsf t;
+    t.SetMirror(gp_Ax2(gp_Pnt(plane6[0], plane6[1], plane6[2]),
+                       gp_Dir(nx / len, ny / len, nz / len)));
+    BRepBuilderAPI_Transform tr(shape->s, t, Standard_True /* copy */);
+    if (!tr.IsDone()) {
+        set_err("occt_mirror", "mirror did not complete");
+        return nullptr;
+    }
+    TopoDS_Shape out = tr.Shape();
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(out, props);
+    if (props.Mass() < 0.0)
+        out = out.Reversed();
+    return wrap(out, "occt_mirror");
+    OCCT_CATCH("occt_mirror", nullptr)
 }
 
 /* ---- v2: tessellation --------------------------------------------------- */

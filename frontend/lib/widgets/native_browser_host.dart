@@ -274,14 +274,23 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final n = id.startsWith(kIdNested)
           ? id.substring(kIdNested.length)
           : id.substring(kIdSketch.length);
+      // M212 — while a sketch-driven pattern is asking for its points, a tap
+      // on a sketch row PICKS that sketch instead of opening it.
+      final cs = part?.sketchByName(n);
+      if (cs != null && app.patternToggleSketch(cs)) return;
       app.openChildSketch(n);
       return;
     }
     if (id.startsWith(kIdFeature) && part != null) {
       final f = _feature(part, id.substring(kIdFeature.length));
+      if (f == null) return;
+      // M212 — while a pattern panel is waiting for features, a tap on a
+      // feature row PICKS it. Opening its editor as well would close the
+      // panel that asked for it.
+      if (app.patternToggleFeature(f)) return;
       // M131 — dispatches by feature kind, so the native browser edits
       // fillets, chamfers and revolves too, not just extrusions.
-      if (f != null) app.editFeature(f);
+      app.editFeature(f);
     }
   }
 
@@ -424,6 +433,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           await app.deleteFeature(f);
           break;
       }
+      return;
+    }
+    // M212 — suppress / restore ONE occurrence of a pattern.
+    if (id.startsWith(kIdOccurrence) && part != null) {
+      final rest = id.substring(kIdOccurrence.length);
+      final hash = rest.lastIndexOf('#');
+      if (hash < 0) return;
+      final f = _feature(part, rest.substring(0, hash));
+      final n = int.tryParse(rest.substring(hash + 1));
+      if (f is! PatternFeature || n == null) return;
+      app.patternSuppressOccurrence(f, n, item == 'ocSuppress');
       return;
     }
     if (id.startsWith(kIdWorkPlane)) {
