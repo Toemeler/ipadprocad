@@ -59,6 +59,11 @@ typedef _ExportN = Int32 Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
+// shim v17 (M212): many bodies -> many NAMED products in one STEP file.
+typedef _ExportNamedN = Int32 Function(Pointer<Pointer<Void>>,
+    Pointer<Pointer<Utf8>>, Int32, Pointer<Utf8>, Pointer<Utf8>);
+typedef _ExportNamedD = int Function(Pointer<Pointer<Void>>,
+    Pointer<Pointer<Utf8>>, int, Pointer<Utf8>, Pointer<Utf8>);
 
 // shim v12 (M130): revolve, edge identity, fillet/chamfer, ray casting
 typedef _RevolveN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
@@ -369,7 +374,11 @@ class OcctShape {
     }
   }
 
-  /// Write to STEP (AP214). Returns success.
+  /// Write this ONE shape to STEP (AP214IS, millimetres). Returns success.
+  ///
+  /// M212 — a PART export does not come through here: it has bodies, and each
+  /// one should reach the file as its own named product. See
+  /// [OcctFfi.exportStepNamed].
   bool exportStep(String path) {
     final p = path.toNativeUtf8();
     try {
@@ -707,7 +716,8 @@ class OcctFfi {
       this._revolveHitsFace,
       this._sweepProfile,
       this._loftSections,
-      this._coilProfile);
+      this._coilProfile,
+      this._exportStepNamed);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -729,6 +739,7 @@ class OcctFfi {
   final _VolumeD _volume;
   final _BboxD _bbox;
   final _ExportD _exportStep;
+  final _ExportNamedD _exportStepNamed; // v17
   final _ImportD _importStep;
   final _SplitD _splitSolids;
   final _FreeD _free;
@@ -836,6 +847,9 @@ class OcctFfi {
         lib.lookupFunction<_SweepN, _SweepD>('occt_sweep_profile'),
         lib.lookupFunction<_LoftN, _LoftD>('occt_loft_sections'),
         lib.lookupFunction<_CoilN, _CoilD>('occt_coil_profile'),
+        // v17 (M212) — named multi-body STEP export.
+        lib.lookupFunction<_ExportNamedN, _ExportNamedD>(
+            'occt_export_step_named'),
       );
     } catch (_) {
       _cached = null;
@@ -1131,6 +1145,44 @@ class OcctFfi {
   /// v4: merge same-domain faces/edges (cleans boolean results so no
   /// spurious split lines render). Input stays owned; result is NEW.
   OcctShape? unify(OcctShape a) => _wrap(_unify(a._handle));
+
+  /// M212 — writes [shapes] to one STEP file as one NAMED product each.
+  ///
+  /// [names] must be the same length as [shapes] (an empty or blank entry
+  /// falls back to [product]). [product] names the document in the file
+  /// header. Returns false on failure — see [lastError], which names the body
+  /// that could not be written.
+  ///
+  /// This is deliberately NOT "fuse everything and write one shape". Two
+  /// bodies are two bodies; a union to make them one is slow, lossy, and can
+  /// fail, and a failed convenience union used to mean no export at all.
+  bool exportStepNamed(List<OcctShape> shapes, List<String> names, String path,
+      String product) {
+    if (shapes.isEmpty) return false;
+    final arr = calloc<Pointer<Void>>(shapes.length);
+    final nameArr = calloc<Pointer<Utf8>>(shapes.length);
+    final owned = <Pointer<Utf8>>[];
+    final p = path.toNativeUtf8();
+    final prod = product.toNativeUtf8();
+    try {
+      for (var i = 0; i < shapes.length; i++) {
+        arr[i] = shapes[i]._handle;
+        final n = i < names.length ? names[i] : '';
+        final np = n.toNativeUtf8();
+        owned.add(np);
+        nameArr[i] = np;
+      }
+      return _exportStepNamed(arr, nameArr, shapes.length, p, prod) == 1;
+    } finally {
+      for (final np in owned) {
+        calloc.free(np);
+      }
+      calloc.free(nameArr);
+      calloc.free(arr);
+      calloc.free(prod);
+      calloc.free(p);
+    }
+  }
 
   /// Read a STEP file (all roots, compound if several). Null on failure.
   OcctShape? importStep(String path) {

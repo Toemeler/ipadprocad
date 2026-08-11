@@ -123,6 +123,12 @@
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
 #include <IFSelect_ReturnStatus.hxx>
+/* M212 — a STEP file nobody has to apologise for: explicit units, an explicit
+ * schema, a real product name per body, and a real FILE_NAME header. */
+#include <Interface_Static.hxx>
+#include <APIHeaderSection_MakeHeader.hxx>
+#include <StepData_StepModel.hxx>
+#include <TCollection_HAsciiString.hxx>
 
 /* ---- error plumbing ---------------------------------------------------- */
 
@@ -177,13 +183,13 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v16 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v17 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
 }
 
-extern "C" int occt_shim_version(void) { return 16; }
+extern "C" int occt_shim_version(void) { return 17; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1338,24 +1344,158 @@ extern "C" void occt_free_mesh(occt_mesh *m)
 
 /* ---- STEP ------------------------------------------------------------------ */
 
-extern "C" int occt_export_step(const occt_shape *shape, const char *path)
+/* M212 — the write-side translation parameters, pinned EXPLICITLY.
+ *
+ * Every one of these has an OCCT default, and until M212 the exporter relied
+ * on all of them. That is not the same as them being right:
+ *
+ *   - Interface_Static is PROCESS-GLOBAL and PERSISTENT. Anything that reads
+ *     a STEP file earlier in the session runs through the same registry, and
+ *     the app does read them (occt_import_step, on every reopen of a part
+ *     with an imported body). Leaning on "the default is still whatever it
+ *     was at startup" is a bet, not a contract — and the losing side of that
+ *     bet is a file that is silently off by a factor of 25.4.
+ *   - The header advertises AP214; nothing enforced it. `write.step.schema`
+ *     is settable by anyone in the process, so the advertised schema and the
+ *     written schema were only coincidentally the same.
+ *   - AP214IS deliberately, NOT AP242. AP242 is the newer schema, but the job
+ *     of this file is to open everywhere — including in the older readers a
+ *     machine shop actually runs. AP242 only starts paying for itself with
+ *     colours/PMI, which need XCAF (see occt_export_step_named).
+ *
+ * Called after the writer is constructed, because the STEP controller (which
+ * is what REGISTERS these parameter names) initialises lazily in that
+ * constructor — see the file header. Setting them before would silently do
+ * nothing.
+ */
+/* Returns 1 when the UNIT took, 0 when it did not. The unit is the one
+ * parameter worth refusing to write over: a file silently in inches is a part
+ * machined 25.4x wrong, whereas a schema or curve-mode fallback is cosmetic.
+ * Enum parameters are set by NAME rather than by index — the numbering is an
+ * OCCT implementation detail, the names are the documented interface. */
+static int step_write_setup(void)
 {
-    OCCT_TRY("occt_export_step")
-    if (!shape || !path || !*path) {
-        set_err("occt_export_step", "null shape or path");
+    /* Millimetres — the unit every length in this shim is documented in
+     * (occt_capi.h) and the unit the app models in. */
+    Interface_Static::SetCVal("write.step.unit", "MM");
+    /* AP214, international standard — what occt_capi.h promises. */
+    Interface_Static::SetCVal("write.step.schema", "AP214IS");
+    /* Each transferred root is its own product; no assembly wrapper is
+     * synthesised around bodies that are not an assembly. */
+    Interface_Static::SetCVal("write.step.assembly", "Off");
+    /* Write both the 3D curve and its parametric (pcurve) counterpart. Some
+     * readers trust one and some the other; writing both is what makes a
+     * trimmed cylindrical face (i.e. every hole in this app) survive the
+     * trip into a reader that rebuilds surfaces from pcurves. */
+    Interface_Static::SetIVal("write.surfacecurve.mode", 1);
+    /* Tolerances come from the shape itself rather than a fixed value, so a
+     * fillet built at 1e-7 does not get flattened to a coarser global. */
+    Interface_Static::SetIVal("write.precision.mode", 0);
+
+    /* Read back rather than trust the setter: SetCVal on an unregistered or
+     * mis-spelled parameter returns quietly and leaves the old value in
+     * place, which is exactly the silent-wrong-units failure this guards. */
+    const char *unit = Interface_Static::CVal("write.step.unit");
+    return (unit && std::strcmp(unit, "MM") == 0) ? 1 : 0;
+}
+
+/* M212 — writes `n` bodies as `n` named STEP products.
+ *
+ * WHY NOT ONE FUSED SOLID (what the Dart side used to do): a part with two
+ * separate bodies is two bodies. Fusing them to get a single shape to hand
+ * over is wrong three times — it destroys body identity, it runs a full
+ * boolean (slow, and it can FAIL, which turned "export two bodies" into
+ * "export nothing"), and on disjoint solids it is pure cost for no change.
+ *
+ * WHY NOT ONE COMPOUND: a compound transfers as ONE product, so the receiving
+ * CAD shows one body called "OCCT STEP model" no matter how many bodies went
+ * in. Transferring each solid separately gives each its own PRODUCT, and
+ * `write.step.product.name` is read by STEPControl_ActorWrite at TRANSFER
+ * time — so setting it between transfers is what names them individually.
+ * That is the whole trick, and it is why the loop looks redundant but is not.
+ *
+ * `names` may be NULL, and any individual entry may be NULL/empty; such a
+ * body falls back to `product`, then to a generic name. `product` names the
+ * document in the FILE_NAME header.
+ */
+extern "C" int occt_export_step_named(const occt_shape **shapes,
+                                      const char **names, int n,
+                                      const char *path, const char *product)
+{
+    OCCT_TRY("occt_export_step_named")
+    if (!shapes || n <= 0 || !path || !*path) {
+        set_err("occt_export_step_named", "null shapes/path or n <= 0");
         return 0;
     }
+    const char *doc = (product && *product) ? product : "Part";
+
     STEPControl_Writer writer;
-    if (writer.Transfer(shape->s, STEPControl_AsIs) != IFSelect_RetDone) {
-        set_err("occt_export_step", "shape transfer to STEP model failed");
+    if (!step_write_setup()) {
+        set_err("occt_export_step_named",
+                "could not pin the STEP write units to millimetres — refusing "
+                "to write a file whose scale cannot be guaranteed");
         return 0;
     }
+
+    for (int i = 0; i < n; ++i) {
+        if (!shapes[i] || shapes[i]->s.IsNull()) {
+            set_err("occt_export_step_named", "null shape in the export set");
+            return 0;
+        }
+        /* Read at TRANSFER time by STEPControl_ActorWrite, so setting it here
+         * — between transfers — is what gives each body its own name. */
+        const char *nm = (names && names[i] && *names[i]) ? names[i] : doc;
+        Interface_Static::SetCVal("write.step.product.name", nm);
+        if (writer.Transfer(shapes[i]->s, STEPControl_AsIs)
+            != IFSelect_RetDone) {
+            /* Name the body that failed. "transfer failed" on a ten-body part
+             * is not something the user can act on; "Solid7 failed" is. */
+            char msg[256];
+            std::snprintf(msg, sizeof(msg),
+                          "body \"%s\" (%d of %d) could not be transferred to "
+                          "the STEP model", nm, i + 1, n);
+            set_err("occt_export_step_named", msg);
+            return 0;
+        }
+    }
+
+    /* FILE_NAME. Written AFTER the transfers: the model does not exist until
+     * the first one runs. Without this the header carries OCCT's own defaults,
+     * so every file the app has ever produced claimed to be an unnamed model
+     * from a generic translator — the document's own name appeared nowhere in
+     * the file the user just shared.
+     *
+     * Only the two SINGLE-VALUED header fields are set. The array-valued ones
+     * (author, organisation, description) are addressed by index, and writing
+     * index 1 of a list the writer may not have sized is an out-of-range throw
+     * — i.e. a lost export in exchange for a cosmetic string. Not a trade
+     * worth making. */
+    Handle(StepData_StepModel) model = writer.Model();
+    if (!model.IsNull()) {
+        APIHeaderSection_MakeHeader header(model);
+        header.SetName(new TCollection_HAsciiString(doc));
+        header.SetOriginatingSystem(
+            new TCollection_HAsciiString(occt_version()));
+    }
+
     if (writer.Write(path) != IFSelect_RetDone) {
-        set_err("occt_export_step", "writing STEP file failed");
+        set_err("occt_export_step_named", "writing the STEP file failed "
+                                          "(path not writable?)");
         return 0;
     }
     return 1;
-    OCCT_CATCH("occt_export_step", 0)
+    OCCT_CATCH("occt_export_step_named", 0)
+}
+
+extern "C" int occt_export_step(const occt_shape *shape, const char *path)
+{
+    if (!shape) {
+        set_err("occt_export_step", "null shape or path");
+        return 0;
+    }
+    /* One body, unnamed: exactly occt_export_step_named with n = 1, so the
+     * two entry points cannot drift apart on units or schema. */
+    return occt_export_step_named(&shape, nullptr, 1, path, nullptr);
 }
 
 extern "C" occt_shape *occt_import_step(const char *path)

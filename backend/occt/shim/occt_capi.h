@@ -151,8 +151,34 @@ int occt_bbox(const occt_shape *shape, double *out6);
 
 /* ---- STEP exchange ----------------------------------------------------- */
 
-/* Write the shape to a STEP (AP214, AsIs) file at `path`. Returns 1/0. */
+/* Write the shape to a STEP (AP214IS, AsIs, millimetres) file at `path`.
+ * Returns 1/0. Exactly occt_export_step_named with one unnamed body. */
 int occt_export_step(const occt_shape *shape, const char *path);
+
+/*
+ * v17 (M212) — write `n` bodies to one STEP file as `n` NAMED products.
+ *
+ * This is the entry point a part export should use. Each shape becomes its
+ * own STEP product carrying `names[i]`, so a part with three bodies opens in
+ * the receiving CAD as three named bodies rather than one anonymous lump.
+ *
+ * Callers must NOT pre-fuse the bodies to get a single shape: a boolean union
+ * is slow, can fail outright, and erases the body identity this preserves.
+ *
+ * `names` may be NULL (all bodies fall back to `product`), and any individual
+ * entry may be NULL or empty. `product` names the document in the FILE_NAME
+ * header; NULL/empty falls back to a generic name.
+ *
+ * Units are millimetres and the schema is AP214IS, both pinned explicitly on
+ * every call — Interface_Static is process-global, so a STEP file READ earlier
+ * in the session could otherwise decide what units this one is written in.
+ *
+ * Returns 1 on success, 0 on failure (occt_last_error names the body that
+ * could not be transferred). Nothing is written on failure.
+ */
+int occt_export_step_named(const occt_shape **shapes, const char **names,
+                           int n,
+                           const char *path, const char *product);
 
 /* Read a STEP file and return all roots as one shape (compound if several).
  * NULL on failure (missing/garbage file included — never crashes). */

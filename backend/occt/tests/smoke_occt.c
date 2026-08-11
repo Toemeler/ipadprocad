@@ -88,6 +88,34 @@ static int counts(occt_shape *s, int *f, int *e, int *v, const char *what)
     return 1;
 }
 
+/* M212 — whole file as a NUL-terminated string, or NULL. Caller frees.
+ * Used to search an exported STEP for names and units: reading line by line
+ * would miss a match that the writer wrapped across a line boundary. */
+static char *slurp(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    long sz = ftell(fp);
+    if (sz < 0 || sz > (64L << 20)) { /* a smoke-test STEP is tiny */
+        fclose(fp);
+        return NULL;
+    }
+    rewind(fp);
+    char *buf = (char *)malloc((size_t)sz + 1);
+    if (!buf) {
+        fclose(fp);
+        return NULL;
+    }
+    size_t got = fread(buf, 1, (size_t)sz, fp);
+    fclose(fp);
+    buf[got] = '\0';
+    return buf;
+}
+
 int main(void)
 {
     const double PI = 3.14159265358979323846;
@@ -1420,6 +1448,97 @@ int main(void)
                   == NULL, "[32] a degenerate axis must fail");
         check(occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1, 5, 50, 0, 0,1,0)
                   == NULL, "[32] unimplemented coil ends are refused");
+    }
+
+    /* [33] v17 (M212) MULTI-BODY NAMED STEP EXPORT.
+     *
+     * The bug this guards: the app used to hand the exporter every solid its
+     * feature fold produced and let the kernel UNION them, which put back
+     * exactly the material the later features had removed. The shim side of
+     * the fix is that two bodies go in and TWO SOLIDS come out — never one
+     * fused lump — and that each carries its own name.
+     *
+     * Two DISJOINT boxes: 10x10x10 at the origin and 5x5x5 far away. Volumes
+     * 1000 and 125. A fused export would come back as one solid; a correct one
+     * comes back as two, total volume 1125. */
+    {
+        occt_shape *b1 = occt_make_box(10, 10, 10);
+        occt_shape *b2raw = occt_make_box(5, 5, 5);
+        /* move the second box clear of the first */
+        const double away[12] = {1,0,0,100, 0,1,0,0, 0,0,1,0};
+        occt_shape *b2 = (b2raw != NULL) ? occt_transform(b2raw, away) : NULL;
+        occt_free_shape(b2raw);
+
+        if (check(b1 != NULL && b2 != NULL, "[33] setup boxes failed")) {
+            const occt_shape *set[2] = {b1, b2};
+            const char *names[2] = {"Solid1", "Solid2"};
+            char multi_path[1024];
+            snprintf(multi_path, sizeof(multi_path), "%s/prototype_multi.step",
+                     (tmpdir && *tmpdir) ? tmpdir : "/tmp");
+
+            if (check(occt_export_step_named(set, names, 2, multi_path,
+                                             "SmokePart") == 1,
+                      "[33] named multi-body export failed")) {
+                occt_shape *back = occt_import_step(multi_path);
+                if (check(back != NULL, "[33] re-import returned NULL")) {
+                    occt_shape *solids[8];
+                    int n = occt_split_solids(back, solids, 8);
+                    printf("[33] re-imported solids=%d (want 2)\n", n);
+                    check(n == 2, "[33] bodies were fused/merged on export");
+                    double total = 0;
+                    for (int i = 0; i < n; i++) {
+                        total += occt_shape_volume(solids[i]);
+                        occt_free_shape(solids[i]);
+                    }
+                    printf("[33] total volume %.4f (want 1125)\n", total);
+                    check(near_rel(total, 1125.0, 1e-4),
+                          "[33] volume changed across the roundtrip");
+                }
+                occt_free_shape(back);
+
+                /* The names and the unit must actually be IN the file. A
+                 * silent fallback to OCCT's generic product name, or a unit
+                 * left over from an earlier import, would pass every geometric
+                 * check above without being noticed.
+                 *
+                 * The whole file is slurped rather than read line by line: a
+                 * STEP writer wraps long entities, and a match split across a
+                 * line boundary would read as a missing name. */
+                char *blob = slurp(multi_path);
+                if (check(blob != NULL, "[33] could not read back the file")) {
+                    const int saw1 = strstr(blob, "Solid1") != NULL;
+                    const int saw2 = strstr(blob, "Solid2") != NULL;
+                    const int sawdoc = strstr(blob, "SmokePart") != NULL;
+                    const int saw_mm = strstr(blob, "MILLI") != NULL;
+                    printf("[33] in file: Solid1=%d Solid2=%d SmokePart=%d "
+                           "MILLI=%d\n", saw1, saw2, sawdoc, saw_mm);
+                    check(saw1 && saw2,
+                          "[33] per-body product names not written");
+                    check(sawdoc,
+                          "[33] document name not written to the header");
+                    check(saw_mm,
+                          "[33] exported STEP does not declare millimetres");
+                }
+                free(blob);
+            }
+        }
+
+        /* Failure paths: refused, not crashed, and nothing half-written. */
+        check(occt_export_step_named(NULL, NULL, 2, "/tmp/x.step", "P") == 0,
+              "[33] null shape array was not refused");
+        if (b1 != NULL) {
+            const occt_shape *one[1] = {b1};
+            check(occt_export_step_named(one, NULL, 0, "/tmp/x.step", "P") == 0,
+                  "[33] n = 0 was not refused");
+            check(occt_export_step_named(one, NULL, 1, "", "P") == 0,
+                  "[33] empty path was not refused");
+            const occt_shape *withnull[2] = {b1, NULL};
+            check(occt_export_step_named(withnull, NULL, 2, "/tmp/x.step", "P")
+                      == 0,
+                  "[33] a null body in the set was not refused");
+        }
+        occt_free_shape(b1);
+        occt_free_shape(b2);
     }
 
     if (g_failures == 0) {

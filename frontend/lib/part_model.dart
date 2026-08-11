@@ -3660,7 +3660,22 @@ abstract class PartKernel {
       null;
 
   /// Writes the union of [solids] as STEP to [path].
+  ///
+  /// M212 — prefer [exportStepBodies]. This one unions, which is only ever
+  /// right for a caller that already knows its solids are one body; the part
+  /// export is not such a caller and used to be one by accident.
   bool exportStep(List<KernelSolid> solids, String path);
+
+  /// M212 — writes [bodies] as STEP: one NAMED product per body, no union.
+  ///
+  /// [product] names the document in the file header. Concrete (not abstract)
+  /// for the reason documented below on [revolve] — three test fakes
+  /// `implement` this interface, and the default delegates to [exportStep] so
+  /// a fake that does not model naming still behaves exactly as it did.
+  bool exportStepBodies(
+          List<(String, KernelSolid)> bodies, String path,
+          {String product = ''}) =>
+      exportStep([for (final b in bodies) b.$2], path);
 
   // ---- M131: revolve + body modification -------------------------------
   //
@@ -4197,48 +4212,61 @@ class OcctPartKernel implements PartKernel {
   }
 
   @override
-  bool exportStep(List<KernelSolid> solids, String path) {
+  bool exportStep(List<KernelSolid> solids, String path) =>
+      exportStepBodies([for (final s in solids) ('', s)], path);
+
+  /// M212 — the part export. One STEP product per body, named, no boolean.
+  ///
+  /// What this replaced, and why each part of it was wrong:
+  ///
+  ///   `ffi.fuse(s, s)` as a "cheap copy via self-union" — a self-union is a
+  ///   FULL boolean against identical geometry. It is the most expensive way
+  ///   to copy a handle that exists, it can regularise the shape into
+  ///   something that is not what the user modelled, and on a part with many
+  ///   faces it was simply slow.
+  ///
+  ///   Unioning the bodies together — two separate bodies ARE two bodies. The
+  ///   union threw away that fact, and when it failed (a boolean on disjoint
+  ///   solids is not free of failure modes) the whole export failed with it.
+  ///   The shim now writes them side by side, which cannot fail that way.
+  ///
+  /// A disposed or shapeless solid is REFUSED rather than skipped: silently
+  /// dropping a body means handing over a file that is missing part of the
+  /// model without saying so, which is the one outcome an exporter must never
+  /// have. (A test-fake solid has no shape at all, so on host this reports
+  /// honestly instead of writing an empty file.)
+  @override
+  bool exportStepBodies(
+      List<(String, KernelSolid)> bodies, String path,
+      {String product = ''}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
       return false;
     }
-    final shapes = [
-      for (final s in solids)
-        if (s.shape != null && !s.shape!.disposed) s.shape!
-    ];
-    if (shapes.isEmpty) {
+    if (bodies.isEmpty) {
       _err = 'no solids to export';
       return false;
     }
-    if (shapes.length == 1) return shapes.first.exportStep(path);
-    OcctShape? acc;
-    try {
-      for (final s in shapes) {
-        if (acc == null) {
-          final seed = ffi.fuse(s, s); // cheap copy via self-union
-          if (seed == null) {
-            _err = ffi.lastError();
-            return false;
-          }
-          acc = seed;
-        } else {
-          final fused = ffi.fuse(acc, s);
-          acc.dispose();
-          if (fused == null) {
-            _err = ffi.lastError();
-            return false;
-          }
-          acc = fused;
-        }
+    final shapes = <OcctShape>[];
+    final names = <String>[];
+    for (final (name, solid) in bodies) {
+      final sh = solid.shape;
+      if (sh == null || sh.disposed) {
+        _err = 'body "$name" has no live B-Rep to export';
+        return false;
       }
-      final ok = acc!.exportStep(path);
-      if (!ok) _err = ffi.lastError();
-      return ok;
-    } finally {
-      acc?.dispose();
+      shapes.add(sh);
+      names.add(name);
     }
+    final doc = product.isNotEmpty
+        ? product
+        : (names.first.isEmpty ? 'Part' : names.first);
+    final ok = ffi.exportStepNamed(shapes, names, path, doc);
+    if (!ok) _err = ffi.lastError();
+    return ok;
   }
+
   @override
   List<KernelSolid> importStepSolids(String path) {
     final ffi = OcctFfi.instance();
@@ -5202,6 +5230,43 @@ KernelSolid? currentBodySolid(PartModel part, String bodyName) {
     }
   }
   return found;
+}
+
+/// M212 — THE MODEL, as a list of named bodies. What an export must write,
+/// and the same set the viewport, the RealityKit scene and the gallery
+/// thumbnail draw.
+///
+/// The rule is three clauses and every one of them earns its place:
+///
+///   solid != null      — the feature computed something.
+///   !consumedByJoin    — it is still the head of its body. THIS is the clause
+///                        the STEP export was missing. Each feature stores the
+///                        RUNNING accumulation at its own position, so a
+///                        block, then that block minus a hole, then that
+///                        filleted, are three solids of which only the last is
+///                        the part. Exporting all three (and, worse, unioning
+///                        them, which is what the kernel did with a list) puts
+///                        the material straight back: block ∪ (block − hole)
+///                        is the block, hole gone; block ∪ filleted-block is
+///                        the block, fillet gone. That is exactly the reported
+///                        "holes and fillets are not exported".
+///   !rolledBack        — below End of Part is not part of the model yet.
+///
+/// `visible` is deliberately NOT one of them. M182 settled that visibility is
+/// a DISPLAY property: a hidden body is still part of the part, and Inventor
+/// exports it too. Hiding a body to see past it must not silently drop it from
+/// the file you send to the shop.
+///
+/// Returned in creation order, so the STEP products come out in the same order
+/// the browser lists the bodies.
+List<(String, KernelSolid)> partExportBodies(PartModel part) {
+  final out = <(String, KernelSolid)>[];
+  for (final f in part.features) {
+    final s = f.solid;
+    if (s == null || f.consumedByJoin || f.rolledBack) continue;
+    out.add((f.bodyName, s));
+  }
+  return out;
 }
 
 /// The accumulated solid of [bodyName] considering only features strictly

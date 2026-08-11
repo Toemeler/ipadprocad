@@ -2937,107 +2937,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> openPart(String name) async {
-    if (!parts.containsKey(name)) {
-      final p = PartModel(name);
-      _ensureStaged(name);
-      try {
-        final f = _partJson(name);
-        if (f.existsSync()) {
-          final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-          p.loadJson(j);
-          for (final sk in (j['sketches'] as List? ?? const [])) {
-            final m = sk as Map;
-            final model =
-                await _loadSketchIn(_partSketchDir(name), m['name'] as String);
-            p.childSketches.add(ChildSketch(
-                model,
-                m['plane'] as String? ?? 'xy',
-                PlaneFrame.fromFrameJson(m['frame'] as List?),
-                true, // real visibility is applied below from 'vis'
-                m['shared'] as bool? ?? false,
-                (m['seq'] as num?)?.toInt() ?? 0,
-                // M153 — absent on pre-M153 documents, which then keep the
-                // old frozen behaviour rather than being re-anchored onto a
-                // face nobody chose.
-                m['faceRef'] is Map
-                    ? SketchFaceSel.fromJson(
-                        (m['faceRef'] as Map).cast<String, dynamic>())
-                    : null));
-            _loadedSketchVis[model.name] =
-                m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
-          }
-        }
-      } catch (e, st) {
-        Log.e('part', 'open "$name" failed', e, st);
-      }
-      parts[name] = p;
-      // M160 — the child sketches are attached above, AFTER loadJson ran, so
-      // only now is the timeline complete enough to place the End of Part
-      // marker and decide what it rolls back.
-      p.finishLoad();
-      // Legacy sidecars (pre-M59) have no per-sketch 'vis': apply the
-      // Inventor default — consumed sketches load hidden.
-      for (final cs in p.childSketches) {
-        final consumed = firstConsumerOf(p, cs.model.name) != null;
-        final stored = _loadedSketchVis[cs.model.name];
-        cs.visible = stored ?? !consumed;
-      }
-      _loadedSketchVis.clear();
-      // M112 — imported bodies are re-read from their STEP file. Their B-Rep
-      // is deliberately NOT serialised (the file is the source of truth), so
-      // without this an imported body would come back empty and the part would
-      // silently lose geometry on reopen. A missing file is REPORTED, not
-      // swallowed: geometry vanishing without explanation is the worse failure.
-      //
-      // Grouped by file and read ONCE per file, then handed out in order — a
-      // STEP holding four solids became four features, and re-reading it four
-      // times would be both slow and a leak, since each read returns all four.
-      if (partKernel.available) {
-        final byFile = <String, List<ExtrudeFeature>>{};
-        for (final f in p.features) {
-          // M131 — features are polymorphic; only an extrude can be an
-          // imported body, so the type test is the guard AND the promotion.
-          if (f is! ExtrudeFeature) continue;
-          if (!f.imported || f.solid != null) continue;
-          final rel = f.importPath;
-          if (rel == null) {
-            f.computeError = 'imported body has no source file';
-            continue;
-          }
-          (byFile[rel] ??= []).add(f);
-        }
-        for (final entry in byFile.entries) {
-          final abs = _resolveImport(name, entry.key);
-          if (abs == null) {
-            for (final f in entry.value) {
-              f.computeError = 'imported file missing';
-            }
-            Log.w('import', 'missing STEP: ${entry.key}');
-            continue;
-          }
-          final solids = partKernel.importStepSolids(abs);
-          for (var i = 0; i < entry.value.length; i++) {
-            if (i < solids.length) {
-              entry.value[i].solid = solids[i];
-            } else {
-              entry.value[i].computeError = 'solid no longer in the file';
-            }
-          }
-          // The file grew since the import: nothing claims those, so free them.
-          for (var i = entry.value.length; i < solids.length; i++) {
-            solids[i].dispose();
-          }
-        }
-        // M182 — only sync projections when the recompute SUCCEEDED: a failed
-        // pass leaves last-good geometry in place, and re-deriving projections
-        // from a half-broken body is how closed profiles opened.
-        if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
-      }
-      Log.i(
-          'part',
-          'opened "$name": sketches=${p.childSketches.length} '
-              'features=${p.features.length} kernel=${partKernel.available}');
-    }
+    if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
     activeChild = null;
@@ -3045,6 +2945,124 @@ class AppState extends ChangeNotifier {
     tool = Tool.none;
     _reanalyze();
     notifyListeners();
+  }
+
+  /// M212 — reads a part off disk and builds its geometry, and NOTHING else.
+  ///
+  /// Split out of [openPart] because "I need this part's solids" and "the user
+  /// wants to look at this part" are two different requests, and until M212
+  /// only the second one existed. Exporting a part from the gallery went
+  /// through [openPart], so sharing a part ALSO added it to the tab bar, made
+  /// it the current document, cleared the active tool and rebuilt the
+  /// viewport — the whole app navigated into the part you meant to hand to
+  /// someone. ([partExportStep] even had a `wasLoaded` local, computed and
+  /// never read: the intent to undo that was written down and never finished.)
+  ///
+  /// The sketch side has always had this (`sketchExportPath` loads a headless
+  /// model via `_loadSketchIn`); this is the part-side equivalent.
+  ///
+  /// The result is NOT registered in [parts]. A caller that wants it in the
+  /// session puts it there; a caller that just needs geometry disposes it.
+  Future<PartModel> _loadPartModel(String name) async {
+    final p = PartModel(name);
+    _ensureStaged(name);
+    try {
+      final f = _partJson(name);
+      if (f.existsSync()) {
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        p.loadJson(j);
+        for (final sk in (j['sketches'] as List? ?? const [])) {
+          final m = sk as Map;
+          final model =
+              await _loadSketchIn(_partSketchDir(name), m['name'] as String);
+          p.childSketches.add(ChildSketch(
+              model,
+              m['plane'] as String? ?? 'xy',
+              PlaneFrame.fromFrameJson(m['frame'] as List?),
+              true, // real visibility is applied below from 'vis'
+              m['shared'] as bool? ?? false,
+              (m['seq'] as num?)?.toInt() ?? 0,
+              // M153 — absent on pre-M153 documents, which then keep the
+              // old frozen behaviour rather than being re-anchored onto a
+              // face nobody chose.
+              m['faceRef'] is Map
+                  ? SketchFaceSel.fromJson(
+                      (m['faceRef'] as Map).cast<String, dynamic>())
+                  : null));
+          _loadedSketchVis[model.name] =
+              m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
+        }
+      }
+    } catch (e, st) {
+      Log.e('part', 'open "$name" failed', e, st);
+    }
+    // M160 — the child sketches are attached above, AFTER loadJson ran, so
+    // only now is the timeline complete enough to place the End of Part
+    // marker and decide what it rolls back.
+    p.finishLoad();
+    // Legacy sidecars (pre-M59) have no per-sketch 'vis': apply the
+    // Inventor default — consumed sketches load hidden.
+    for (final cs in p.childSketches) {
+      final consumed = firstConsumerOf(p, cs.model.name) != null;
+      final stored = _loadedSketchVis[cs.model.name];
+      cs.visible = stored ?? !consumed;
+    }
+    _loadedSketchVis.clear();
+    // M112 — imported bodies are re-read from their STEP file. Their B-Rep
+    // is deliberately NOT serialised (the file is the source of truth), so
+    // without this an imported body would come back empty and the part would
+    // silently lose geometry on reopen. A missing file is REPORTED, not
+    // swallowed: geometry vanishing without explanation is the worse failure.
+    //
+    // Grouped by file and read ONCE per file, then handed out in order — a
+    // STEP holding four solids became four features, and re-reading it four
+    // times would be both slow and a leak, since each read returns all four.
+    if (partKernel.available) {
+      final byFile = <String, List<ExtrudeFeature>>{};
+      for (final f in p.features) {
+        // M131 — features are polymorphic; only an extrude can be an
+        // imported body, so the type test is the guard AND the promotion.
+        if (f is! ExtrudeFeature) continue;
+        if (!f.imported || f.solid != null) continue;
+        final rel = f.importPath;
+        if (rel == null) {
+          f.computeError = 'imported body has no source file';
+          continue;
+        }
+        (byFile[rel] ??= []).add(f);
+      }
+      for (final entry in byFile.entries) {
+        final abs = _resolveImport(name, entry.key);
+        if (abs == null) {
+          for (final f in entry.value) {
+            f.computeError = 'imported file missing';
+          }
+          Log.w('import', 'missing STEP: ${entry.key}');
+          continue;
+        }
+        final solids = partKernel.importStepSolids(abs);
+        for (var i = 0; i < entry.value.length; i++) {
+          if (i < solids.length) {
+            entry.value[i].solid = solids[i];
+          } else {
+            entry.value[i].computeError = 'solid no longer in the file';
+          }
+        }
+        // The file grew since the import: nothing claims those, so free them.
+        for (var i = entry.value.length; i < solids.length; i++) {
+          solids[i].dispose();
+        }
+      }
+      // M182 — only sync projections when the recompute SUCCEEDED: a failed
+      // pass leaves last-good geometry in place, and re-deriving projections
+      // from a half-broken body is how closed profiles opened.
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    Log.i(
+        'part',
+        'opened "$name": sketches=${p.childSketches.length} '
+            'features=${p.features.length} kernel=${partKernel.available}');
+    return p;
   }
 
   Future<bool> savePart(String name) async {
@@ -3225,31 +3243,88 @@ class AppState extends ChangeNotifier {
   /// without any computed solid — reported honestly, never faked.
   Future<String?> partExportStep(String name) async {
     if (_docsDir == null) return null;
-    final wasLoaded = parts.containsKey(name);
-    if (!wasLoaded) await openPart(name);
-    final p = parts[name];
-    if (p == null) return null;
-    await savePart(name);
+    // Checked BEFORE the part is loaded: without a kernel there are no solids
+    // to export no matter what the document holds, so reading it off disk and
+    // folding its features would be pure waste before saying so.
     if (!partKernel.available) {
       toast('No 3D kernel linked — STEP export needs the device build.');
       return null;
     }
-    final solids = [
-      for (final f in p.features)
-        if (f.solid != null) f.solid!
-    ];
-    if (solids.isEmpty) {
-      toast('Nothing to export yet — extrude a profile first.');
-      return null;
+    final wasLoaded = parts.containsKey(name);
+    // M212 — a part that is NOT open loads headlessly and is thrown away
+    // again. It used to go through openPart, which is why sharing a part from
+    // the gallery opened it: new tab, new current document, tool cleared,
+    // viewport rebuilt. Exporting is not navigation.
+    final p = wasLoaded ? parts[name]! : await _loadPartModel(name);
+    try {
+      // Only a part the user actually has open can have unsaved edits worth
+      // flushing. Saving the headless copy would rewrite the document (and its
+      // thumbnail, and its modified date) purely as a side effect of sharing
+      // it — and it is a byte-for-byte copy of what is already on disk.
+      if (wasLoaded) await savePart(name);
+      // M212 — the LIVE bodies, not every solid the fold produced on its way
+      // here. See partExportBodies: each feature stores the running
+      // accumulation at its own position, so taking them all handed the
+      // kernel the block AND the block-with-the-hole AND the filleted
+      // block — which the kernel then unioned back into a plain block. Holes
+      // and fillets disappeared from the file while being perfectly visible
+      // on screen.
+      final bodies = partExportBodies(p);
+      if (bodies.isEmpty) {
+        toast('Nothing to export yet — extrude a profile first.');
+        return null;
+      }
+      // A feature that failed to build is not in `bodies` at all, so an export
+      // could otherwise quietly hand over a part with a body missing. Say so
+      // instead: the file is still written (the rest of it is real), but the
+      // user is told what is not in it.
+      final broken = [
+        for (final f in p.features)
+          if (f.computeError != null && !f.rolledBack) f.name
+      ];
+      final exportDir = Directory('${_cacheRoot.path}/export');
+      if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+      final path = '${exportDir.path}/$name.step';
+      // A stale file from an earlier export must never be what gets shared.
+      // Without this, a failed write leaves the PREVIOUS export in place, and
+      // the only thing standing between it and the share sheet is that we
+      // return null — which is true today and is one refactor from not being.
+      final out = File(path);
+      if (out.existsSync()) {
+        try {
+          out.deleteSync();
+        } catch (e) {
+          Log.w('export', 'could not clear stale $path: $e');
+        }
+      }
+      if (!partKernel.exportStepBodies(bodies, path, product: name)) {
+        toast('STEP export failed: ${partKernel.lastError}');
+        return null;
+      }
+      if (!out.existsSync() || out.lengthSync() == 0) {
+        // The kernel said yes and produced nothing. Sharing a zero-byte file
+        // is worse than reporting the failure.
+        toast('STEP export produced an empty file.');
+        Log.w('export', 'kernel reported success but $path is empty/missing');
+        return null;
+      }
+      Log.i(
+          'export',
+          'STEP "$name": bodies=${bodies.length} '
+              '(${bodies.map((b) => b.$1).join(", ")}) '
+              'bytes=${out.lengthSync()}'
+              '${broken.isEmpty ? "" : " SKIPPED=${broken.join(", ")}"}');
+      if (broken.isNotEmpty) {
+        toast('Exported without ${broken.join(", ")} — '
+            '${broken.length == 1 ? "it" : "they"} could not be built.');
+      }
+      return path;
+    } finally {
+      // The headless copy owns a B-Rep per body AND a solver engine per child
+      // sketch. Dropping the reference without disposing leaks all of them,
+      // once per share. `closeTab` disposes an open part for the same reason.
+      if (!wasLoaded) p.dispose();
     }
-    final exportDir = Directory('${_cacheRoot.path}/export');
-    if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
-    final path = '${exportDir.path}/$name.step';
-    if (!partKernel.exportStep(solids, path)) {
-      toast('STEP export failed: ${partKernel.lastError}');
-      return null;
-    }
-    return path;
   }
 
   // ---- gallery routing: one card menu, two document kinds ----
