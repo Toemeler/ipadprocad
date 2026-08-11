@@ -597,6 +597,39 @@ void main() {
               'measuring a refusal, not a pattern');
     });
 
+    testWidgets('the pattern REBUILD actually builds a pattern',
+        (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.patternRebuild.4');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['app.patternRebuild.ok.4'], 1,
+          reason: 'the pattern was refused, so this scenario timed two '
+              'extrudes and a failure rather than an occurrence fold. Any '
+              'reason the kernel gave is in app.patternRebuild.4.error');
+      expect(Perf.stats['part.rebuildAll']?.count, 2);
+    });
+
+    testWidgets('the blend-pattern edge query really traverses',
+        (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.blendPattern.edgeQuery.4');
+      Perf.scenario(s.name, s.run);
+      // The whole claim is N traversals; a zero edge count means edgesOf
+      // returned early and the timing is meaningless.
+      expect(Perf.gauges['app.blendPattern.edgesFound.4'] ?? 0, greaterThan(0),
+          reason: 'edgesOf found no edges — the solid is not kernel-backed '
+              'and the composition claim in PERFORMANCE_PROFILE 8.2 is '
+              'untested by this scenario');
+      expect(Perf.stats['app.blendPattern.edgesOf']?.count, 4,
+          reason: 'one traversal per occurrence is the point');
+    });
+
     test('every pattern KIND has a scenario', () {
       // patternOccurrences switches on the kind, so each is separate code.
       // This is the list that fails when a fifth kind is added without a

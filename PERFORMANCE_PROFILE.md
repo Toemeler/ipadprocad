@@ -1145,8 +1145,26 @@ the codebase compose. A user patterning a fillet around a moderately detailed
 body is multiplying a quadratic by an occurrence count, and nothing in the UI
 suggests that is what they are doing.
 
-**Verdict: PROBLEM (derived).** It should be confirmed by measurement before
-it is acted on — see §9.1 item 4 for why the fixture was not built blind.
+**Verdict: PROBLEM (derived).** As of M221 two scenarios exist to convert this
+from inference into measurement on the next device run:
+
+* **`app.blendPattern.edgeQuery.{2,4,8}`** measures the dominant term
+  directly — N full `allEdges` traversals, one per occurrence, with the edge
+  count published so a zero cannot pass as speed. Dividing its total by the
+  occurrence count and comparing against `kernel.allEdges.sweep` at the same
+  edge count is what makes the composition above a measurement.
+* **`app.patternRebuild.{2,4,8}`** drives a real `PatternFeature` through
+  `recomputeAllFeatures`, giving the *other* half of a pattern's cost — one
+  boolean fold per occurrence. It uses `patternSolid: true` (Inventor's
+  "pattern a solid") because that path needs no valid source feature and so
+  cannot silently degrade into "the patterned feature is not available any
+  more" and time an early return.
+
+**What is still not measured:** `applyBlendOccurrence` end to end. A blend
+source needs a `BodyModifyFeature` whose edge fingerprints resolve against a
+live solid, and a fixture that failed to resolve would report a fast zero —
+the M212 failure. The dominant term is measured; the remainder (cloning the
+feature, re-anchoring fingerprints, the blend itself) is not.
 
 **Verdict for the pattern arithmetic itself: SMOOTH throughout.** The largest
 pattern cost measured is 0.0213 ms.
@@ -1255,10 +1273,13 @@ Under Low Power Mode; the uncapped figures are correspondingly higher.
    profiler attributes it to *lines*. For `analyzeSketch` this is the
    difference between “rank reduction is cubic” and “this loop is”. Specified
    as Track A4 in `PERF_PLAN.md`; not built.
-4. **`applyBlendOccurrence`** (patterned fillets) has no scenario.
-5. **End-to-end rebuild of a `PatternFeature`** — `app.rebuildPart` drives
-   extrusions only; a pattern additionally folds one boolean per occurrence,
-   which is a different curve.
+4. **`applyBlendOccurrence` end to end.** Its dominant term is now measured
+   (`app.blendPattern.edgeQuery.*`, M221); the function as a whole is not,
+   because a blend fixture that failed to resolve its edges would report a
+   fast zero. See §8.2.
+5. ~~**End-to-end rebuild of a `PatternFeature`**~~ **Closed (M221)** —
+   `app.patternRebuild.{2,4,8}` drives one through `recomputeAllFeatures`.
+   No device run has produced the numbers yet.
 6. **Ribbon leaf widgets and dialogs.** Frequency matters more than duration
    here, and `menu.ribbon.builds` = 1 makes them uninteresting at present.
 7. ~~**Undo journal size.**~~ **Closed (M221)** — `app.journal.depth`,

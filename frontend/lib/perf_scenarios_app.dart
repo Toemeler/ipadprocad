@@ -421,6 +421,94 @@ List<PerfScenario> buildAppScenarios() {
     ));
   }
 
+  // ---- M221: the part pattern REBUILD, not just its arithmetic ------------
+  //
+  // §8.2 established that `patternOccurrences` — the placement maths — is
+  // free. That is not the same as a pattern being free: a rebuild additionally
+  // folds one boolean onto the accumulating body PER OCCURRENCE, and that
+  // curve had no scenario.
+  //
+  // `patternSolid: true` is Inventor's "Pattern a solid": the whole body is
+  // the tool and every occurrence is joined onto it. It is used here rather
+  // than a feature-sourced pattern because it needs no valid source feature,
+  // so the fixture cannot silently degrade into "the patterned feature is not
+  // available any more" and time an early return.
+  for (final n in const [2, 4, 8]) {
+    out.add(PerfScenario(
+      'app.patternRebuild.$n',
+      () {
+        final built = _buildRebuildablePart(2);
+        if (built == null) return;
+        final (part, kernel) = built;
+        part.features.add(PatternFeature(
+          name: 'Pattern1',
+          bodyName: 'Solid1',
+          mode: PatternKind.rectangular,
+          patternSolid: true,
+          dirA: AxisRef(0, 0, 0, 1, 0, 0),
+          countA: n,
+          distanceA: 20.0 * n,
+          distributionA: PatternDistribution.spacing,
+        )..seq = part.features.length);
+        Perf.gauge('app.patternRebuild.count.$n', n);
+        for (var i = 0; i < 2; i++) {
+          recomputeAllFeatures(part, kernel, force: true);
+        }
+        // Did the pattern actually build? A refused pattern leaves no solid
+        // and the scenario would be timing two extrudes and a failure.
+        final pat = part.features.last;
+        Perf.gauge('app.patternRebuild.ok.$n', pat.solid == null ? 0 : 1);
+        if (pat.computeError != null) {
+          Perf.note('app.patternRebuild.$n.error', pat.computeError!);
+        }
+      },
+      note: 'a part pattern REBUILT end to end vs occurrence count — one '
+          'boolean fold per occurrence on top of the (free) placement maths. '
+          'app.patternRebuild.ok must be 1; a 0 means the pattern was refused '
+          'and the timing is of two extrudes plus a failure',
+    ));
+  }
+
+  // The dominant term of `applyBlendOccurrence` — a PATTERNED FILLET.
+  //
+  // That function opens with `kernel.edgesOf(body)` (part_model.dart:6179),
+  // and `OcctPartKernel.edgesOf` (:5245) is `shape.allEdges()` — the Θ(n²)
+  // operation. So a patterned blend runs a full edge traversal per occurrence,
+  // composing the two worst-scaling behaviours in the codebase.
+  //
+  // This measures that dominant term DIRECTLY rather than driving
+  // applyBlendOccurrence end to end. The honest reason: a blend source needs a
+  // BodyModifyFeature whose edge fingerprints resolve against a live solid,
+  // and a fixture that silently fails to resolve would report a fast zero —
+  // the M212 failure. What is measured here is exactly the claim being made
+  // (N × allEdges), with the rest of the function's cost excluded and named.
+  for (final n in const [2, 4, 8]) {
+    out.add(PerfScenario(
+      'app.blendPattern.edgeQuery.$n',
+      () {
+        final p = _part(1, 60);
+        if (p == null) return;
+        final solid = p.features.first.solid;
+        if (solid == null) return;
+        final kernel = OcctPartKernel();
+        Perf.gauge('app.blendPattern.occurrences.$n', n);
+        var edges = 0;
+        for (var i = 0; i < n; i++) {
+          edges = Perf.span('app.blendPattern.edgesOf',
+              () => kernel.edgesOf(solid).length);
+        }
+        // Non-zero proves the traversal happened. Zero means edgesOf bailed
+        // (no kernel-backed solid) and the timing is of an early return.
+        Perf.gauge('app.blendPattern.edgesFound.$n', edges);
+      },
+      note: 'the dominant term of applyBlendOccurrence: one full allEdges '
+          'traversal per pattern occurrence. Divide by the occurrence count '
+          'and compare against kernel.allEdges.sweep at the same edge count — '
+          'they should agree, which is what makes the composition claim in '
+          'section 8.2 a measurement rather than an inference',
+    ));
+  }
+
   // ---- 3D picking --------------------------------------------------------
   //
   // The 2D side has `2d.pickEntity`; this is its 3D twin, and it had no
