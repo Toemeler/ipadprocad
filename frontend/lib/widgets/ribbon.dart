@@ -587,7 +587,13 @@ class _RibbonState extends State<Ribbon> {
     // supported flyId/onFly since M205; nothing in the part ribbon had ever
     // passed them, which is why Axis and Point could only ever have been
     // one-shot buttons with eight unreachable methods behind them.
-    Widget col(List<(String, String, VoidCallback?)> rows,
+    // M214 — the callback is NON-nullable, deliberately. Every row here used
+    // to accept null and fall back to `?? () {}`, which is how nine dead
+    // buttons sat in this ribbon looking finished. An unbuilt command now
+    // cannot be put in a visible column at all: it goes in the panel's `over`
+    // list, where _OverRow renders it dimmed and untappable. The rule is a
+    // type, not a convention somebody has to remember.
+    Widget col(List<(String, String, VoidCallback)> rows,
             {double leftPad = 8, Map<String, String> flyIds = const {}}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
@@ -602,7 +608,7 @@ class _RibbonState extends State<Ribbon> {
                       label: rows[i].$2,
                       flyId: flyIds[rows[i].$2],
                       onFly: flyIds[rows[i].$2] == null ? null : toggleFly,
-                      onTap: rows[i].$3 ?? () {}),
+                      onTap: rows[i].$3),
                 ]
               ]),
         );
@@ -619,9 +625,31 @@ class _RibbonState extends State<Ribbon> {
               onTap: app.startPartSketch,
               active: app.pickPlane),
         ),
+        // M214 — the part ribbon shows what is BUILT; everything else is one
+        // tap away behind the panel title's ▼.
+        //
+        // Same treatment the sketch ribbon has had since M50 (Constrain) and
+        // the Insert+Format+Manage merge, and the same rule M157 stated for
+        // the Plane button: a control that is visible must do something,
+        // because silence reads as broken. Nine of Modify's twelve entries,
+        // three of Create's six and all four Pattern commands did nothing at
+        // all, so two thirds of the 3D ribbon was furniture — and furniture
+        // that costs permanent width AND makes the working tools harder to
+        // find among it.
+        //
+        // NOT deleted: an unbuilt OverItem passes a null onTap, which _OverRow
+        // already renders dimmed and untappable. The roadmap stays visible and
+        // honest instead of the ribbon quietly pretending these commands were
+        // never planned.
         _panel(
           label: 'Create',
           arrow: false,
+          overId: 'ov-create3d',
+          over: () => [
+            OverItem(CR['emboss']!, 'Emboss', null),
+            OverItem(CR['derive']!, 'Derive', null),
+            OverItem(CR['decal']!, 'Decal', null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 58,
@@ -643,18 +671,38 @@ class _RibbonState extends State<Ribbon> {
               (CR['loft']!, 'Loft', () => app.openLoft()),
               (CR['coil']!, 'Coil', () => app.openCoil()),
             ]),
-            col([
-              (CR['emboss']!, 'Emboss', null),
-              (CR['derive']!, 'Derive', null),
-              (CR['decal']!, 'Decal', null),
-            ], leftPad: 0),
           ]),
         ),
+        // Modify ALSO carries the Pattern commands, because Pattern had no
+        // built entry at all and a panel that is nothing but a title and a ▼
+        // is worse than a slightly longer list. Pattern operations are
+        // modifications of an existing body, so they read fine here. The
+        // moment one of them is built, Pattern gets its panel back.
+        //
+        // Hole is in the list too: its onTap was `() {}` — an empty closure,
+        // the exact thing M157 called out on the Plane button. A big button
+        // that silently does nothing is the most expensive kind of lie in a
+        // ribbon, because it looks the most finished.
         _panel(
           label: 'Modify',
           arrow: false,
+          overId: 'ov-modify3d',
+          over: () => [
+            OverItem(MO['hole']!, 'Hole', null),
+            OverItem(MO['shell']!, 'Shell', null),
+            OverItem(MO['draft']!, 'Draft', null),
+            OverItem(MO['thread']!, 'Thread', null),
+            OverItem(MO['combine']!, 'Combine', null),
+            OverItem(MO['thicken']!, 'Thicken / Offset', null),
+            OverItem(MO['split']!, 'Split', null),
+            OverItem(MO['direct']!, 'Direct', null),
+            OverItem(MO['deleteface']!, 'Delete Face', null),
+            OverItem(PT['rect']!, 'Rectangular Pattern', null),
+            OverItem(PT['circ']!, 'Circular Pattern', null),
+            OverItem(PT['sketch']!, 'Sketch Driven Pattern', null),
+            OverItem(PT['mirror']!, 'Mirror', null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _BigWide(width: 58, icon: MO['hole']!, label: 'Hole', onTap: () {}),
             _BigWide(
                 width: 58,
                 icon: MO['fillet']!,
@@ -663,24 +711,21 @@ class _RibbonState extends State<Ribbon> {
                 active: app.edgeSession?.isFillet == true),
             col([
               (MO['chamfer']!, 'Chamfer', () => app.openChamfer()),
-              (MO['shell']!, 'Shell', null),
-              (MO['draft']!, 'Draft', null),
             ]),
-            col([
-              (MO['thread']!, 'Thread', null),
-              (MO['combine']!, 'Combine', null),
-              (MO['thicken']!, 'Thicken/ Offset', null),
-            ], leftPad: 0),
-            col([
-              (MO['split']!, 'Split', null),
-              (MO['direct']!, 'Direct', null),
-              (MO['deleteface']!, 'Delete Face', null),
-            ], leftPad: 0),
           ]),
         ),
         _panel(
           label: 'Work Features',
           arrow: false,
+          overId: 'ov-work3d',
+          // UCS is deliberately still inert: it is a coordinate SYSTEM with
+          // its own triad and placement gestures, not a third variant of Axis
+          // and Point, and a button that half-works would be worse than one
+          // that says it is not built (M157). Behind the ▼ it is listed,
+          // dimmed and honest instead of sitting in the panel looking ready.
+          over: () => [
+            OverItem(WF['ucs']!, 'UCS', null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(
                 id: 'plane',
@@ -707,24 +752,7 @@ class _RibbonState extends State<Ribbon> {
                 'Point',
                 () => widget.app.startWorkPoint(WorkPointMethod.auto)
               ),
-              // UCS is deliberately still inert: it is a coordinate SYSTEM
-              // with its own triad and placement gestures, not a third
-              // variant of these two, and a button that half-works would be
-              // worse than one that says it is not built. See M157.
-              (WF['ucs']!, 'UCS', null),
             ], flyIds: const {'Axis': 'axis', 'Point': 'point'}),
-          ]),
-        ),
-        _panel(
-          label: 'Pattern',
-          arrow: false,
-          child: Row(children: [
-            col([
-              (PT['rect']!, 'Rectangular', null),
-              (PT['circ']!, 'Circular', null),
-              (PT['sketch']!, 'Sketch Driven', null),
-            ], leftPad: 2),
-            col([(PT['mirror']!, 'Mirror', null)]),
           ]),
         ),
       ]),
