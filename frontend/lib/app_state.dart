@@ -4241,6 +4241,137 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M217: Delete Face and Direct Edit ----------------------------------
+
+  /// The open Delete Face / Direct Edit session, or null.
+  ///
+  /// One session type for both commands, exactly as [EdgeFeatureSession] serves
+  /// fillet and chamfer: they collect the same thing (a face set on one body)
+  /// and differ only in what they do with it.
+  FaceEditSession? faceEdit;
+
+  /// True while the viewport should offer FACES as pick targets.
+  bool get pickingFaces => faceEdit != null;
+
+  void openDeleteFace() => _openFaceEdit(FaceEditKind.delete);
+  void openDirectMove() => _openFaceEdit(FaceEditKind.move);
+  void openDirectSize() => _openFaceEdit(FaceEditKind.size);
+  void openDirectScale() => _openFaceEdit(FaceEditKind.scale);
+
+  void _openFaceEdit(FaceEditKind kind) {
+    final p = currentPart;
+    if (p == null) return;
+    // Toggling, like every other part command since M210.
+    if (faceEdit?.kind == kind) return cancelFaceEdit();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    if (!p.hasSolid) {
+      toast('${faceEditLabel(kind)} needs a solid body first.');
+      return;
+    }
+    faceEdit = FaceEditSession(kind);
+    final verb = kind == FaceEditKind.delete ? 'delete' : 'move';
+    toast(kind == FaceEditKind.scale
+        ? 'Set the scale factor, then apply.'
+        : 'Select the faces to $verb.');
+    notifyListeners();
+  }
+
+  void cancelFaceEdit() {
+    if (faceEdit == null) return;
+    faceEdit = null;
+    notifyListeners();
+  }
+
+  /// The viewport reports a tapped face. Toggles it in the set, like the edge
+  /// pick — tapping a selected face again removes it, which is the only way to
+  /// undo a mis-pick without restarting the command.
+  void toggleFacePick(FaceSel sel, int meshIndex) {
+    final s = faceEdit;
+    if (s == null) return;
+    final at = s.meshIndices.indexOf(meshIndex);
+    if (at >= 0) {
+      s.meshIndices.removeAt(at);
+      s.faces.removeAt(at);
+    } else {
+      s.meshIndices.add(meshIndex);
+      s.faces.add(sel);
+    }
+    notifyListeners();
+  }
+
+  void setFaceEditValue({double? dx, double? dy, double? dz, double? factor}) {
+    final s = faceEdit;
+    if (s == null) return;
+    if (dx != null) s.dx = dx;
+    if (dy != null) s.dy = dy;
+    if (dz != null) s.dz = dz;
+    if (factor != null) s.factor = factor;
+    notifyListeners();
+  }
+
+  /// Commits the session as a real timeline feature.
+  ///
+  /// A feature and not an in-place edit of the solid, deliberately: everything
+  /// else in this app rebuilds from the timeline, and a face edit that lived
+  /// outside it would be silently discarded by the next recompute — which is
+  /// the worst possible failure, because the model would look right until it
+  /// did not.
+  Future<bool> applyFaceEdit() async {
+    final p = currentPart;
+    final s = faceEdit;
+    if (p == null || s == null) return false;
+    final scale = s.kind == FaceEditKind.scale;
+    if (s.faces.isEmpty && !scale) {
+      toast('Select at least one face.');
+      return false;
+    }
+    final host = lastSolidFeature(p);
+    if (host == null) {
+      toast('Nothing to edit — build a body first.');
+      return false;
+    }
+    final f = s.kind == FaceEditKind.delete
+        ? DeleteFaceFeature(
+            name: p.nextFeatureName('Delete Face'),
+            bodyName: host.bodyName,
+            faces: s.faces)
+        : DirectEditFeature(
+            name: p.nextFeatureName(scale ? 'Scale' : 'Direct'),
+            bodyName: host.bodyName,
+            faces: s.faces,
+            op: switch (s.kind) {
+              FaceEditKind.move => DirectOp.move,
+              FaceEditKind.size => DirectOp.size,
+              _ => DirectOp.scale,
+            },
+            dx: s.dx,
+            dy: s.dy,
+            dz: s.dz,
+            factor: s.factor);
+    f.seq = p.nextSeq();
+    p.features.add(f);
+    final ok = recomputeFeature(p, f, partKernel, base: host.solid);
+    if (!ok) {
+      // A refusal must not leave a sick feature in the timeline: the user
+      // asked for an edit and did not get one, so the timeline should look
+      // exactly as it did before they asked.
+      p.features.remove(f);
+      toast('${f.typeLabel}: ${f.computeError ?? partKernel.lastError}');
+      notifyListeners();
+      return false;
+    }
+    faceEdit = null;
+    p.dirty = true;
+    if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    if (f.lostFaces > 0) {
+      toast('${f.name}: ${f.lostFaces} selected face(s) no longer exist.');
+    }
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
   // ---- M215: work axes and work points ------------------------------------
   //
   // One command shape for both, because Inventor's are the same shape: arm a

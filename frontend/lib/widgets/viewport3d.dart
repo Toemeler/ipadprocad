@@ -1323,6 +1323,68 @@ class _Viewport3DState extends State<Viewport3D>
     return best;
   }
 
+  /// M217 — the face under [px] for a Delete Face / Direct Edit pick, as
+  /// (mesh index, fingerprint). Null when the tap missed every solid.
+  ///
+  /// Any surface type, unlike [_pickSolidFace]: deleting the cylindrical face
+  /// of a hole is the single commonest thing Delete Face is reached for, and a
+  /// planar-only pick would make it unreachable.
+  (int, FaceSel)? _pickFaceForEdit(Cam3 cam, Offset px) {
+    for (final sol in _liveSolids()) {
+      final m = sol.mesh;
+      final hit = _frontFaceIndex(cam, px, m);
+      if (hit == null) continue;
+      for (final fr in facesOf(m)) {
+        if (fr.meshIndex != hit) continue;
+        return (
+          hit,
+          FaceSel(fr.centre.x, fr.centre.y, fr.centre.z, fr.normal.x,
+              fr.normal.y, fr.normal.z, fr.area, fr.kind)
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Index of the frontmost face of [m] under [px], or null.
+  int? _frontFaceIndex(Cam3 cam, Offset px, OcctMeshData m) {
+    if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
+      return null;
+    }
+    int? best;
+    var bestDepth = double.infinity;
+    for (var t = 0; t < m.indices.length; t += 3) {
+      final i0 = m.indices[t] * 3,
+          i1 = m.indices[t + 1] * 3,
+          i2 = m.indices[t + 2] * 3;
+      final w0 =
+          Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+      final w1 =
+          Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+      final w2 =
+          Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+      final n = (w1 - w0).cross(w2 - w0);
+      if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+      final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+      final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
+      if (den.abs() < 1e-9) continue;
+      final l0 =
+          ((b.dy - c.dy) * (px.dx - c.dx) + (c.dx - b.dx) * (px.dy - c.dy)) /
+              den;
+      final l1 =
+          ((c.dy - a.dy) * (px.dx - c.dx) + (a.dx - c.dx) * (px.dy - c.dy)) /
+              den;
+      final l2 = 1 - l0 - l1;
+      const e = -1e-6;
+      if (l0 < e || l1 < e || l2 < e) continue;
+      final d = cam.depth(w0 * l0 + w1 * l1 + w2 * l2);
+      if (d >= bestDepth) continue;
+      bestDepth = d;
+      best = m.triFaces[t ~/ 3];
+    }
+    return best;
+  }
+
   /// An existing work axis or work point under [px], as a [WorkRef] — so a
   /// work feature can be built ON another one, exactly as Inventor allows
   /// ("any combination of two lines including ... work axes").
@@ -1755,6 +1817,14 @@ class _Viewport3DState extends State<Viewport3D>
           return;
         }
       }
+      return;
+    }
+    // M217 — 0. a Delete Face / Direct Edit command is armed. Like the edge
+    // pick it STAYS armed: a face set is built up over several taps and a miss
+    // must not throw away what is already selected.
+    if (app.pickingFaces) {
+      final hit = _pickFaceForEdit(cam, px);
+      if (hit != null) app.toggleFacePick(hit.$2, hit.$1);
       return;
     }
     // M215 — 0. a Work Axis / Work Point command is armed. Runs before every

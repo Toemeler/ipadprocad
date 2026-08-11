@@ -1843,6 +1843,10 @@ abstract class PartFeature {
         return FilletFeature.fromJson(j);
       case 'chamfer':
         return ChamferFeature.fromJson(j);
+      case 'deleteface':
+        return DeleteFaceFeature.fromJson(j);
+      case 'direct':
+        return DirectEditFeature.fromJson(j);
       case 'sweep':
         return SweepFeature.fromJson(j);
       case 'loft':
@@ -2379,6 +2383,394 @@ class CoilFeature extends PartFeature {
 /// Base for the two features that MODIFY an existing body instead of adding
 /// one. They consume no sketch, they cannot be a base feature, and the fold
 /// feeds them the accumulated solid of their body as input.
+/// M217 — a picked FACE, stored as geometry so it survives a rebuild.
+///
+/// The face twin of [EdgeSel], and for the same reason: a topological index is
+/// meaningless across a rebuild (add a feature upstream and every index
+/// shifts), so what a feature stores has to be something the face IS, not
+/// where it happened to sit in a list.
+///
+/// The anchor is the face's mesh CENTROID rather than the surface's Location:
+/// two coplanar faces of the same body share a Location and would be
+/// indistinguishable, while their centroids are metres apart. Area and surface
+/// type are the tie-breakers, and a TYPE change is disqualifying — a planar
+/// face that became cylindrical is not the same face any more, which is
+/// exactly the rule [EdgeSel] applies to a line that became an arc.
+class FaceSel {
+  double cx, cy, cz; // mesh centroid, WORLD
+  double nx, ny, nz; // outward unit normal there
+  double area;
+  int kind; // kFacePlane / kFaceCylinder / ... (part_render constants)
+
+  FaceSel(this.cx, this.cy, this.cz, this.nx, this.ny, this.nz, this.area,
+      this.kind);
+
+  Vec3 get centre => Vec3(cx, cy, cz);
+  Vec3 get normal => Vec3(nx, ny, nz);
+
+  Map<String, dynamic> toJson() =>
+      {'c': [cx, cy, cz], 'n': [nx, ny, nz], 'a': area, 'k': kind};
+
+  static FaceSel? fromJson(Map<String, dynamic> j) {
+    final c = (j['c'] as List?)?.cast<num>();
+    final n = (j['n'] as List?)?.cast<num>();
+    if (c == null || c.length != 3 || n == null || n.length != 3) return null;
+    return FaceSel(
+        c[0].toDouble(),
+        c[1].toDouble(),
+        c[2].toDouble(),
+        n[0].toDouble(),
+        n[1].toDouble(),
+        n[2].toDouble(),
+        (j['a'] as num?)?.toDouble() ?? 0,
+        (j['k'] as num?)?.toInt() ?? 0);
+  }
+
+  /// Distance between this fingerprint and a live face; [double.infinity]
+  /// means "cannot be this face".
+  ///
+  /// Position dominates, because that is what the user pointed at. Area is a
+  /// weak tiebreaker only — a Direct Edit legitimately changes the area of the
+  /// faces around the one it moved, so a hard area match would lose exactly
+  /// the faces that matter most on a second edit.
+  double distanceTo(FaceRef live) {
+    if (live.kind != kind) return double.infinity;
+    // A face whose normal flipped is a different face, not a moved one.
+    if (normal.dot(live.normal) < 0.2) return double.infinity;
+    final d = (live.centre - centre).length;
+    final aRel = area <= 0 || live.area <= 0
+        ? 0.0
+        : (live.area - area).abs() / (area + live.area);
+    return d + aRel * 2.0;
+  }
+}
+
+/// A LIVE face of a computed solid: what [FaceSel] is re-matched against.
+class FaceRef {
+  /// 1-based TOPOLOGICAL index — what the kernel operations name.
+  final int topoIndex;
+
+  /// Index into the mesh's face list — what picking produces.
+  final int meshIndex;
+
+  final Vec3 centre, normal;
+  final double area;
+  final int kind;
+  const FaceRef(this.topoIndex, this.meshIndex, this.centre, this.normal,
+      this.area, this.kind);
+}
+
+/// Every live face of [mesh], with the centroid/area/normal a [FaceSel] needs.
+///
+/// Computed from the TRIANGLES rather than the surface record because a
+/// centroid and an area are properties of the trimmed face, and the surface
+/// record describes the untrimmed surface it lies on.
+List<FaceRef> facesOf(OcctMeshData mesh) {
+  final n = mesh.faceCount;
+  if (n <= 0 || mesh.triFaces.isEmpty) return const [];
+  final cx = List<double>.filled(n, 0), cy = List<double>.filled(n, 0);
+  final cz = List<double>.filled(n, 0), ar = List<double>.filled(n, 0);
+  for (var t = 0; t + 2 < mesh.indices.length; t += 3) {
+    final f = t ~/ 3;
+    if (f >= mesh.triFaces.length) break;
+    final fi = mesh.triFaces[f];
+    if (fi < 0 || fi >= n) continue;
+    final i0 = mesh.indices[t] * 3,
+        i1 = mesh.indices[t + 1] * 3,
+        i2 = mesh.indices[t + 2] * 3;
+    final a = Vec3(mesh.positions[i0], mesh.positions[i0 + 1],
+        mesh.positions[i0 + 2]);
+    final b = Vec3(mesh.positions[i1], mesh.positions[i1 + 1],
+        mesh.positions[i1 + 2]);
+    final c = Vec3(mesh.positions[i2], mesh.positions[i2 + 1],
+        mesh.positions[i2 + 2]);
+    // Area-WEIGHTED centroid: a face triangulated into one huge and twenty
+    // slivers has its centre where the material is, not where the vertices
+    // happen to crowd.
+    final w = (b - a).cross(c - a).length * 0.5;
+    if (w <= 0) continue;
+    ar[fi] += w;
+    cx[fi] += (a.x + b.x + c.x) / 3 * w;
+    cy[fi] += (a.y + b.y + c.y) / 3 * w;
+    cz[fi] += (a.z + b.z + c.z) / 3 * w;
+  }
+  final out = <FaceRef>[];
+  for (var f = 0; f < n; f++) {
+    if (ar[f] <= 0) continue;
+    final rec = 15 * f;
+    if (rec + 7 > mesh.faceInfos.length) continue;
+    final topo = mesh.topoFaceId(f);
+    out.add(FaceRef(
+        topo,
+        f,
+        Vec3(cx[f] / ar[f], cy[f] / ar[f], cz[f] / ar[f]),
+        Vec3(mesh.faceInfos[rec + 4], mesh.faceInfos[rec + 5],
+                mesh.faceInfos[rec + 6])
+            .normalized(),
+        ar[f],
+        mesh.faceInfos[rec].round()));
+  }
+  return out;
+}
+
+/// Centre of [mesh]'s bounding box, or the origin for an empty mesh.
+///
+/// Direct > Scale needs a fixed point, and the box centre is the one that
+/// keeps the body where it is: scaling about the world origin would fling a
+/// part modelled off-origin across the scene, which reads as the command
+/// having moved it rather than resized it.
+Vec3 meshCentreOf(OcctMeshData mesh) {
+  if (mesh.positions.length < 3) return Vec3.zero;
+  var lox = mesh.positions[0], loy = mesh.positions[1], loz = mesh.positions[2];
+  var hix = lox, hiy = loy, hiz = loz;
+  for (var i = 0; i + 2 < mesh.positions.length; i += 3) {
+    final x = mesh.positions[i], y = mesh.positions[i + 1];
+    final z = mesh.positions[i + 2];
+    if (x < lox) lox = x;
+    if (y < loy) loy = y;
+    if (z < loz) loz = z;
+    if (x > hix) hix = x;
+    if (y > hiy) hiy = y;
+    if (z > hiz) hiz = z;
+  }
+  return Vec3((lox + hix) / 2, (loy + hiy) / 2, (loz + hiz) / 2);
+}
+
+/// The live face each selection now refers to, in order. A selection that no
+/// longer matches is DROPPED and counted — the rule [BodyModifyFeature]
+/// already applies to edges: a Direct Edit whose face set partly survives
+/// keeps editing the rest rather than failing whole.
+(List<int> topoIds, int lost) resolveFaces(
+    List<FaceSel> sels, List<FaceRef> live) {
+  final ids = <int>[];
+  final taken = <int>{};
+  var lost = 0;
+  for (final sel in sels) {
+    var best = -1;
+    var bestD = double.infinity;
+    for (var i = 0; i < live.length; i++) {
+      if (taken.contains(i) || live[i].topoIndex < 1) continue;
+      final d = sel.distanceTo(live[i]);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0 || !bestD.isFinite) {
+      lost++;
+      continue;
+    }
+    taken.add(best);
+    ids.add(live[best].topoIndex);
+    // Re-anchor, so the next rebuild measures from where the face IS now
+    // rather than from where it was first picked.
+    final f = live[best];
+    sel
+      ..cx = f.centre.x
+      ..cy = f.centre.y
+      ..cz = f.centre.z
+      ..nx = f.normal.x
+      ..ny = f.normal.y
+      ..nz = f.normal.z
+      ..area = f.area;
+  }
+  return (ids, lost);
+}
+
+
+/// M217 — which face edit is open.
+enum FaceEditKind { delete, move, size, scale }
+
+String faceEditLabel(FaceEditKind k) => switch (k) {
+      FaceEditKind.delete => 'Delete Face',
+      FaceEditKind.move => 'Move Faces',
+      FaceEditKind.size => 'Size Faces',
+      FaceEditKind.scale => 'Scale Body',
+    };
+
+/// M217 — the open Delete Face / Direct Edit session.
+///
+/// One type for both commands, the way [EdgeFeatureSession] serves fillet and
+/// chamfer: they collect the same thing (a face set on one body) and differ
+/// only in what they do with it.
+class FaceEditSession {
+  FaceEditSession(this.kind);
+  final FaceEditKind kind;
+
+  /// The picked faces, as re-findable fingerprints, and the MESH indices they
+  /// came from. The mesh indices are display state only — they drive the
+  /// highlight and let a second tap deselect — and are deliberately not what
+  /// the feature stores, because they do not survive a rebuild.
+  final List<FaceSel> faces = [];
+  final List<int> meshIndices = [];
+
+  /// Move/Size: the delta in mm. Size is offered along the first picked face's
+  /// own normal, Move in free direction; both end up here.
+  double dx = 0, dy = 0, dz = 0;
+
+  /// Scale: the uniform factor.
+  double factor = 1;
+
+  bool get isScale => kind == FaceEditKind.scale;
+  String get label => faceEditLabel(kind);
+}
+
+/// M217 — a feature that operates on picked FACES of the body it sits on.
+///
+/// The face-side sibling of [BodyModifyFeature]. Not a subclass of it: that
+/// one's whole contract is a `List<EdgeSel>` and its edge re-matching, and
+/// bolting faces onto it would leave every fillet carrying an empty face list
+/// and every Direct Edit an empty edge list.
+abstract class FaceModifyFeature extends PartFeature {
+  FaceModifyFeature({
+    required super.name,
+    required super.bodyName,
+    required this.faces,
+    super.visible,
+  }) : super(output: 'modify');
+
+  final List<FaceSel> faces;
+
+  @override
+  bool get modifiesBody => true;
+
+  /// How many selections the last rebuild could not find. Reported, never
+  /// silent — a Direct Edit quietly applying to three of four picked faces is
+  /// a wrong part that looks right.
+  int lostFaces = 0;
+}
+
+/// M217 — Inventor's Delete Face (with Heal).
+class DeleteFaceFeature extends FaceModifyFeature {
+  DeleteFaceFeature({
+    required super.name,
+    required super.bodyName,
+    required super.faces,
+    super.visible,
+  });
+
+  @override
+  String get kind => 'deleteface';
+  @override
+  String get typeLabel => 'Delete Face';
+
+  @override
+  String ownSig() =>
+      'df|${faces.map((f) => '${f.cx},${f.cy},${f.cz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'faces': [for (final f in faces) f.toJson()],
+      };
+
+  static DeleteFaceFeature fromJson(Map<String, dynamic> j) {
+    final fs = <FaceSel>[];
+    for (final e in (j['faces'] as List? ?? const [])) {
+      final f = FaceSel.fromJson((e as Map).cast<String, dynamic>());
+      if (f != null) fs.add(f);
+    }
+    final f = DeleteFaceFeature(
+      name: j['name'] as String? ?? 'Delete Face',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      faces: fs,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Which Direct Edit operation a [DirectEditFeature] performs.
+///
+/// Inventor's Direct panel offers Move, Size, Scale, Rotate and Delete. Delete
+/// is [DeleteFaceFeature] (it is the same command as Delete Face, which is why
+/// Inventor's own Delete Face and Direct > Delete produce the same feature).
+/// Rotate is absent, deliberately — see [DirectEditFeature].
+enum DirectOp { move, size, scale }
+
+/// M217 — Inventor's Direct Edit.
+///
+/// [DirectOp.move] and [DirectOp.size] are the same kernel call and differ
+/// only in how the UI offers the direction: Move takes a free direction, Size
+/// pushes along the face's own normal. Keeping them one feature means a part
+/// that was sized cannot rebuild differently from one that was moved by the
+/// same vector, because they ARE the same edit.
+///
+/// ROTATE IS NOT HERE. Rotating a face means sliding its surface and
+/// re-trimming its neighbours — a BRepTools_Modification subclass whose
+/// failure modes only appear on real shapes. Shipping it unverified would be
+/// exactly the dead-looking-alive control this milestone's ribbon pass
+/// removed, so it is absent and the ribbon says so.
+class DirectEditFeature extends FaceModifyFeature {
+  DirectEditFeature({
+    required super.name,
+    required super.bodyName,
+    required super.faces,
+    required this.op,
+    required this.dx,
+    required this.dy,
+    required this.dz,
+    this.factor = 1,
+    super.visible,
+  });
+
+  final DirectOp op;
+
+  /// Move/Size: the delta, in mm, world axes.
+  double dx, dy, dz;
+
+  /// Scale: the uniform factor about the body's bounding-box centre.
+  double factor;
+
+  Vec3 get delta => Vec3(dx, dy, dz);
+
+  @override
+  String get kind => 'direct';
+  @override
+  String get typeLabel => switch (op) {
+        DirectOp.move => 'Move Faces',
+        DirectOp.size => 'Size Faces',
+        DirectOp.scale => 'Scale Body',
+      };
+
+  @override
+  String ownSig() => 'de|${op.name}|$dx,$dy,$dz|$factor|'
+      '${faces.map((f) => '${f.cx},${f.cy},${f.cz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'op': op.name,
+        'd': [dx, dy, dz],
+        if (op == DirectOp.scale) 'f': factor,
+        'faces': [for (final f in faces) f.toJson()],
+      };
+
+  static DirectEditFeature fromJson(Map<String, dynamic> j) {
+    final fs = <FaceSel>[];
+    for (final e in (j['faces'] as List? ?? const [])) {
+      final f = FaceSel.fromJson((e as Map).cast<String, dynamic>());
+      if (f != null) fs.add(f);
+    }
+    final d = (j['d'] as List?)?.cast<num>();
+    final f = DirectEditFeature(
+      name: j['name'] as String? ?? 'Direct',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      faces: fs,
+      op: DirectOp.values.firstWhere((o) => o.name == j['op'],
+          orElse: () => DirectOp.move),
+      dx: d != null && d.length == 3 ? d[0].toDouble() : 0,
+      dy: d != null && d.length == 3 ? d[1].toDouble() : 0,
+      dz: d != null && d.length == 3 ? d[2].toDouble() : 0,
+      factor: (j['f'] as num?)?.toDouble() ?? 1,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
 abstract class BodyModifyFeature extends PartFeature {
   BodyModifyFeature({
     required super.name,
@@ -5833,6 +6225,9 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   f.disposeSolid();
   f.computeError = null;
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
+  // M217 — the face-side twin. Same contract: no base means the upstream
+  // broke, and the feature goes sick honestly rather than materialising.
+  if (f is FaceModifyFeature) return _recomputeFaceModify(f, kernel, base);
   if (f is PatternFeature) return _recomputePattern(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
@@ -6236,6 +6631,78 @@ bool _recomputeCoil(PartModel part, CoilFeature f, PartKernel kernel) {
     return false;
   }
   f.solid = solid;
+  return true;
+}
+
+
+/// M217 — Delete Face and Direct Edit.
+///
+/// The whole reason this is separate from [_recomputeBodyModify]: the
+/// selections are FACES, and a face is re-found by [resolveFaces] against the
+/// live mesh rather than by the edge machinery.
+bool _recomputeFaceModify(
+    FaceModifyFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'nothing to modify — no solid before this feature';
+    return false;
+  }
+  // Scale is the one operation with no face selection: it takes the whole
+  // body, which is what Inventor's Direct > Scale does too.
+  final isScale = f is DirectEditFeature && f.op == DirectOp.scale;
+  if (f.faces.isEmpty && !isScale) {
+    f.computeError = 'no faces selected';
+    return false;
+  }
+
+  if (isScale) {
+    final d = f as DirectEditFeature;
+    final centre = meshCentreOf(base.mesh);
+    final out = kernel.scaleSolid(base, centre, d.factor);
+    if (out == null) {
+      f.computeError = kernel.lastError.isEmpty
+          ? 'scaling failed'
+          : kernel.lastError;
+      return false;
+    }
+    f.lostFaces = 0;
+    f.solid = out;
+    return true;
+  }
+
+  final live = facesOf(base.mesh);
+  if (live.isEmpty) {
+    f.computeError = kernel.lastError.isEmpty
+        ? 'the body reports no identifiable faces — a build without face '
+            'identity cannot delete or move one'
+        : kernel.lastError;
+    return false;
+  }
+  final (ids, lost) = resolveFaces(f.faces, live);
+  f.lostFaces = lost;
+  if (ids.isEmpty) {
+    f.computeError = 'none of the selected faces exist any more';
+    return false;
+  }
+
+  KernelSolid? out;
+  if (f is DeleteFaceFeature) {
+    out = kernel.deleteFaces(base, ids);
+  } else if (f is DirectEditFeature) {
+    out = kernel.moveFaces(base, ids, f.delta);
+  }
+  if (out == null) {
+    f.computeError =
+        kernel.lastError.isEmpty ? 'the edit failed' : kernel.lastError;
+    return false;
+  }
+  f.solid = out;
+  // A partial loss is not a failure — Inventor keeps editing the faces that
+  // survived — but it must not be silent either. Same rule as a fillet whose
+  // edge set partly survives.
+  if (lost > 0) {
+    Log.i('feature',
+        '${f.name}: $lost of ${f.faces.length} picked faces no longer exist');
+  }
   return true;
 }
 

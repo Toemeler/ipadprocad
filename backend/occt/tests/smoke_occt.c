@@ -1588,6 +1588,142 @@ int main(void)
         occt_free_shape(b2);
     }
 
+    /* [34] v20 (M217) DELETE FACE + DIRECT EDIT, against real geometry.
+     *
+     * A 20x20x20 box with a 5 mm-radius hole drilled through it. Deleting the
+     * hole's cylindrical face with Heal must give the SOLID box back — that is
+     * the whole promise of Inventor's Delete Face, and a volume check catches
+     * every way of getting it wrong (nothing removed, too much removed, the
+     * wrong face removed). Then a face move must change the volume by exactly
+     * the swept slab. */
+    {
+        occt_shape *blk = occt_make_box(20, 20, 20);
+        occt_shape *drill = occt_make_cylinder(10, 10, -1, 5, 22);
+        occt_shape *holed = (blk && drill) ? occt_cut(blk, drill) : NULL;
+        if (check(holed != NULL, "[34] setup (box minus cylinder) failed")) {
+            const double v_box = 20.0 * 20.0 * 20.0;
+            const double v_hole =
+                3.14159265358979323846 * 5.0 * 5.0 * 20.0;
+            const double v_holed = occt_shape_volume(holed);
+            printf("[34] drilled volume %.4f (want %.4f)\n", v_holed,
+                   v_box - v_hole);
+            check(near_rel(v_holed, v_box - v_hole, 1e-3),
+                  "[34] the drilled block is not the expected volume");
+
+            /* Find the cylindrical face by its surface record. */
+            occt_mesh *m = occt_mesh_create(holed, 0.2, 0.35);
+            int cyl_topo = -1;
+            if (check(m != NULL, "[34] mesh failed")) {
+                const int fn = occt_mesh_face_count(m);
+                const int fc = (fn > 0 ? fn : 1);
+                double *fi = (double *)malloc(sizeof(double) * 15 * fc);
+                int *fid = (int *)malloc(sizeof(int) * fc);
+                if (fi && fid && occt_mesh_face_infos(m, fi) &&
+                    occt_mesh_face_ids(m, fid)) {
+                    for (int i = 0; i < fn; ++i) {
+                        if ((int)(fi[15 * i] + 0.5) == 1) { /* cylinder */
+                            cyl_topo = fid[i];
+                            break;
+                        }
+                    }
+                }
+                printf("[34] cylindrical face topo index = %d (of %d faces)\n",
+                       cyl_topo, fn);
+                check(cyl_topo > 0, "[34] no cylindrical face found");
+                free(fi);
+                free(fid);
+            }
+            occt_free_mesh(m);
+
+            if (cyl_topo > 0) {
+                const int ids[1] = {cyl_topo};
+                occt_shape *filled = occt_delete_faces(holed, ids, 1, 1);
+                if (check(filled != NULL, "[34] delete face returned NULL")) {
+                    const double v = occt_shape_volume(filled);
+                    printf("[34] after Delete Face volume %.4f (want %.4f)\n",
+                           v, v_box);
+                    check(near_rel(v, v_box, 1e-4),
+                          "[34] healing the hole did not restore the block");
+                    check(occt_shape_valid(filled),
+                          "[34] healed solid is not valid");
+                }
+                occt_free_shape(filled);
+                /* heal = 0 is refused, not approximated. */
+                check(occt_delete_faces(holed, ids, 1, 0) == NULL,
+                      "[34] un-healed delete was not refused");
+            }
+
+            /* Direct > Move: push the top face (z = 20) up by 5 mm. The volume
+             * must grow by exactly one 20x20x5 slab minus the hole it carries.
+             */
+            occt_mesh *m2 = occt_mesh_create(holed, 0.2, 0.35);
+            int top_topo = -1;
+            if (m2 != NULL) {
+                const int fn = occt_mesh_face_count(m2);
+                const int fc = (fn > 0 ? fn : 1);
+                double *fi = (double *)malloc(sizeof(double) * 15 * fc);
+                int *fid = (int *)malloc(sizeof(int) * fc);
+                if (fi && fid && occt_mesh_face_infos(m2, fi) &&
+                    occt_mesh_face_ids(m2, fid)) {
+                    for (int i = 0; i < fn; ++i) {
+                        /* planar, +Z normal, sitting at z = 20 */
+                        if ((int)(fi[15 * i] + 0.5) == 0 &&
+                            fi[15 * i + 6] > 0.9 && fi[15 * i + 3] > 19.5) {
+                            top_topo = fid[i];
+                            break;
+                        }
+                    }
+                }
+                free(fi);
+                free(fid);
+            }
+            occt_free_mesh(m2);
+            printf("[34] top face topo index = %d\n", top_topo);
+            if (check(top_topo > 0, "[34] no top face found")) {
+                const int ids[1] = {top_topo};
+                occt_shape *taller =
+                    occt_move_faces(holed, ids, 1, 0.0, 0.0, 5.0);
+                if (check(taller != NULL, "[34] move faces returned NULL")) {
+                    const double v = occt_shape_volume(taller);
+                    const double want =
+                        v_holed + (20.0 * 20.0 * 5.0) -
+                        (3.14159265358979323846 * 25.0 * 5.0);
+                    printf("[34] after Move Faces volume %.4f (want %.4f)\n",
+                           v, want);
+                    check(near_rel(v, want, 1e-3),
+                          "[34] the moved face did not add the swept slab");
+                    check(occt_shape_valid(taller),
+                          "[34] moved solid is not valid");
+                }
+                occt_free_shape(taller);
+            }
+
+            /* Direct > Scale: x2 about the centre is 8x the volume. */
+            occt_shape *big = occt_scale_shape(holed, 10, 10, 10, 2.0);
+            if (check(big != NULL, "[34] scale returned NULL")) {
+                const double v = occt_shape_volume(big);
+                printf("[34] after Scale x2 volume %.4f (want %.4f)\n", v,
+                       v_holed * 8.0);
+                check(near_rel(v, v_holed * 8.0, 1e-4),
+                      "[34] a x2 scale is not 8x the volume");
+            }
+            occt_free_shape(big);
+            check(occt_scale_shape(holed, 0, 0, 0, 0.0) == NULL,
+                  "[34] a zero scale factor was not refused");
+        }
+        occt_free_shape(blk);
+        occt_free_shape(drill);
+        occt_free_shape(holed);
+
+        /* Refusals: never crash, always 0/NULL. */
+        check(occt_delete_faces(NULL, NULL, 1, 1) == NULL,
+              "[34] null shape was not refused");
+        check(occt_move_faces(NULL, NULL, 1, 1, 0, 0) == NULL,
+              "[34] null move was not refused");
+        check(occt_scale_shape(NULL, 0, 0, 0, 2) == NULL,
+              "[34] null scale was not refused");
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

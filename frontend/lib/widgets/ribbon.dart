@@ -11,7 +11,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../app_state.dart';
 import '../log.dart';
 import '../menus.dart';
-import '../part_model.dart' show PatternKind, WorkPlaneKind;
+import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
 import '../work_features.dart' show WorkAxisMethod, WorkPointMethod;
 import '../svg_icons.dart';
 import '../tools.dart';
@@ -87,6 +87,17 @@ const flyouts = <String, List<FlyItem>>{
   // is Inventor's own wording, so a user who knows Inventor finds the method
   // they are looking for by name. `wa`/`wpt` prefixes keep the ids apart from
   // the plane list's.
+  // M217 — Inventor's Direct panel. Move/Size/Scale/Delete are built; Rotate
+  // is listed because Inventor lists it and left inert because rotating a face
+  // needs a BRepTools_Modification whose failure modes only show on real
+  // shapes — see DirectEditFeature.
+  'direct': [
+    FlyItem('deMove', 'Move', ''),
+    FlyItem('deSize', 'Size', ''),
+    FlyItem('deScale', 'Scale', ''),
+    FlyItem('deRotate', 'Rotate', ''),
+    FlyItem('deDelete', 'Delete', ''),
+  ],
   'axis': [
     FlyItem('waAuto', 'Axis', ''),
     FlyItem('waLine', 'On Line or Edge', ''),
@@ -235,6 +246,19 @@ class _RibbonState extends State<Ribbon> {
                   break;
                 case 'midplane2':
                   widget.app.startWorkPlane(WorkPlaneKind.midplane);
+                  break;
+                // M217 — Direct Edit.
+                case 'deMove':
+                  widget.app.openDirectMove();
+                  break;
+                case 'deSize':
+                  widget.app.openDirectSize();
+                  break;
+                case 'deScale':
+                  widget.app.openDirectScale();
+                  break;
+                case 'deDelete':
+                  widget.app.openDeleteFace();
                   break;
                 // M215 — Work Axis.
                 case 'waAuto':
@@ -714,8 +738,6 @@ class _RibbonState extends State<Ribbon> {
             OverItem(MO['combine']!, 'Combine', null),
             OverItem(MO['thicken']!, 'Thicken / Offset', null),
             OverItem(MO['split']!, 'Split', null),
-            OverItem(MO['direct']!, 'Direct', null),
-            OverItem(MO['deleteface']!, 'Delete Face', null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
@@ -724,9 +746,18 @@ class _RibbonState extends State<Ribbon> {
                 label: 'Fillet',
                 onTap: () => app.openFillet(),
                 active: app.edgeSession?.isFillet == true),
-            col([
-              (MO['chamfer']!, 'Chamfer', () => app.openChamfer()),
+            colActive([
+              (MO['chamfer']!, 'Chamfer', app.openChamfer,
+                  app.edgeSession?.isFillet == false),
+              // M217 — built, so they leave the ▼ and take their place in the
+              // panel. The rule cuts both ways: the dropdown is where a
+              // command waits to be built, not where it stays after it is.
+              (MO['deleteface']!, 'Delete Face', app.openDeleteFace,
+                  app.faceEdit?.kind == FaceEditKind.delete),
             ]),
+            col([
+              (MO['direct']!, 'Direct', () => app.openDirectMove()),
+            ], leftPad: 0, flyIds: const {'Direct': 'direct'}),
           ]),
         ),
         _panel(
