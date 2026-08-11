@@ -45,8 +45,11 @@ on:
     branches: [ 'claude/perf-**' ]
     paths-ignore: [ '**.md' ]
 
+# write, because the perf capture is published to the ci-logs-perf branch
+# (see the last step) — an artifact alone is not reachable from every
+# environment that needs to read these numbers.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -723,3 +726,39 @@ jobs:
             perf-out/**
             ci-sim-*.log
           if-no-files-found: warn
+
+      # M221 — the capture on a BRANCH, not only as an artifact.
+      #
+      # An artifact is delivered from Azure blob storage, which the agent proxy
+      # refuses (403 on the CONNECT tunnel). The consequence was concrete and
+      # lasted the whole branch: sim-perf has been green since run 32 and NOT
+      # ONE of its numbers has ever been read by anyone. The measurement
+      # existed, the delivery did not.
+      #
+      # Same belt as ci-debug-logs-dart/-m3/-m5: commit it where git can reach
+      # it. The perf files are small (a text log plus two JSON), so a branch is
+      # the cheap and durable channel. `|| exit 0` keeps a no-change run green,
+      # exactly as the other log branches do.
+      - name: Publish the perf capture to ci-logs-perf
+        if: always()
+        run: |
+          mkdir -p ci-logs-perf
+          cp -R perf-out/. ci-logs-perf/ 2>/dev/null || true
+          cp ci-sim-*.log ci-logs-perf/ 2>/dev/null || true
+          # Stamp the run so a reader knows which commit produced the numbers
+          # without opening the Actions UI. Simulator captures are otherwise
+          # indistinguishable from one another.
+          {
+            echo "run_id:     ${{ github.run_id }}"
+            echo "run_number: ${{ github.run_number }}"
+            echo "sha:        ${{ github.sha }}"
+            echo "ref:        ${{ github.ref }}"
+            echo "captured:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > ci-logs-perf/RUN.txt
+          find ci-logs-perf -type f -exec ls -la {} \;
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
+          git add -f ci-logs-perf
+          git commit -m "CI(perf): simulator capture from run ${{ github.run_id }} (${{ github.sha }})" \
+            || exit 0
+          git push origin HEAD:ci-logs-perf --force
