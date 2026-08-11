@@ -1,1164 +1,1222 @@
-# Performance Profile — what every part of the app actually costs
+# Performance Profile — a measurement report
 
-**Analysis only.** Nothing here proposes a fix, and nothing in the app was
-changed to produce it. This is the inventory: for each subsystem, what it
-costs, how that cost grows, and whether it is smooth or a problem. The
-optimisation work is deliberately a separate exercise — the rule this branch
-has run under since M209 is that no optimisation happens without a scenario
-number attached (PERF_PLAN.md §5, the M75 lesson).
+**Analysis only.** No optimisation is proposed here and nothing in the
+application was changed to produce these results. This document reports what
+each subsystem costs, how that cost scales, and with what confidence.
 
-Companion documents: `PERF_PLAN.md` (how the measurement was planned),
-`PERF_ANALYSIS.md` (§8–15, the milestone-by-milestone record of how each
-finding was arrived at), `HANDOFF.md` (the entry point). This file is the
-*result*: the numbers, organised by what part of the app they describe.
+Companion documents: `PERF_PLAN.md` (experimental design), `PERF_ANALYSIS.md`
+(§8–15, chronological derivation of each finding), `HANDOFF.md` (entry point).
 
 ---
 
-## 0. How to read this document
+## 1. Method
 
-Every number below is from a real device, not a simulator and not a
-projection. Where a number is extrapolated it says so in the same sentence.
+Numbers without a stated method are anecdotes. This section defines how every
+value below was obtained and what it can support.
 
-Three verdicts are used, and they mean specific things:
+### 1.1 Instrument
 
-| Verdict | Meaning |
+Timing is `Perf.span`: a pooled `Stopwatch` around a synchronous body,
+recorded via `sw.elapsedMicroseconds / 1000.0` (`perf.dart:372`). Two
+consequences follow and govern the whole report:
+
+| Property | Value |
 | --- | --- |
-| **SMOOTH** | Cost is negligible at realistic sizes AND the curve is linear or better. Not a candidate for work. |
-| **WATCH** | Cheap today, but the curve is superlinear — it becomes a problem at a size the app can plausibly reach. |
-| **PROBLEM** | Expensive now, at sizes that occur in normal use. |
+| Quantum *q* (tick) | **1 µs = 0.001 ms** |
+| Observation domain | integer multiples of *q* |
+| Per-probe overhead | one `Stopwatch` start/stop + one map lookup; no allocation |
+| Aggregation | count, sum, mean, p50, p95, max, over a 128-sample ring buffer |
 
-A "cost curve" is written as `n^k`, fitted by least squares across the sweep
-sizes. The exponent is the number that survives a change of chip; the
-milliseconds are specific to this device in this state.
+Counters (`Perf.count`) and gauges (`Perf.gauge`) are exact integers and carry
+no timing uncertainty. **Where a count and a duration answer the same
+question, the count is the stronger evidence** — it is exact, and it is
+invariant under a change of processor.
+
+### 1.2 Quantization model and resolution classes
+
+Because observations are integer-quantized, a uniform quantization model
+applies. For a single observation the quantization standard deviation is
+
+> σ_q = q / √12 = 0.289 µs
+
+and for a mean of *n* independent observations the standard error contributed
+by quantization alone is
+
+> SE_q = q / √(12·n)
+
+Define the signal-to-noise ratio of a reported mean as SNR = x̄ / SE_q. Every
+span in this run was classified on that basis:
+
+| Class | Criterion | Count (of 273 spans) | Treatment |
+| --- | --- | ---: | --- |
+| **Resolved** | SNR ≥ 10 | **239** | Reported as a measurement |
+| **Marginal** | 3 ≤ SNR < 10 | 12 | Reported with the caveat inline |
+| **Unresolved** | SNR < 3 | 22 | Reported as **“< 1 µs”**, never as a number |
+
+This matters. Twenty-two spans in this run — including
+`pattern.occurrences.mirror`, `app.sceneRevs`, `app.undoStep`,
+`app.redoStep`, `sketch.syncProjections`, `modify.offset`, and seven drawing
+tools — produced a mean of 0.00000 ms. That value is **not** a measurement of
+zero; it is the statement that every observation fell below one microsecond.
+Quoting it as “0.000 ms” would imply a precision the instrument does not have.
+
+### 1.3 Significant figures
+
+Values are reported to **three significant figures, truncated at the
+quantization floor** for their sample size. A mean over n = 100 has
+SE_q ≈ 2.9 × 10⁻⁵ ms, so four decimal places in ms is the finest defensible
+resolution; a single observation (n = 1) supports three.
+
+Sample size *n* is given for every timing statistic in this report. A
+statistic without an *n* is not interpretable and none appears here.
+
+### 1.4 Curve fitting
+
+Cost curves are fitted by ordinary least squares on log-transformed axes,
+giving the exponent *k* in t ∝ n^k. For each family this report gives:
+
+* **N** — number of distinct sizes measured (not the number of observations);
+* ***k*** — the fitted exponent;
+* **R²** — fraction of log-variance explained;
+* **95 % CI on *k*** — from the standard error of the slope, `t ≈ 1.96`.
+
+Three rules are applied and never silently violated:
+
+1. **N = 2 yields a slope, not a fit.** Two points have zero residual degrees
+   of freedom: R² is 1.000 by construction and no confidence interval exists.
+   Such families are marked *slope only* and no scaling claim is made from
+   them.
+2. **A low R² is a result, not a failure.** Where the data do not support a
+   power law, that is reported as the finding rather than a number being
+   quoted anyway.
+3. **A wide CI forbids a claim.** Where the interval spans linear and
+   quadratic, the report says the two cannot be distinguished.
+
+The size axis differs per family (profile points, entity count, feature count,
+edge count) and is stated with each table. The dependent variable is the
+scenario’s **dominant span total** — the largest single span recorded inside
+the scenario — which excludes fixture construction. This is the same metric
+`ci/perf_report.py` uses, so any table here can be regenerated.
+
+### 1.5 Verdict criteria
+
+Three verdicts are used, defined numerically rather than by impression:
+
+| Verdict | Criteria (both required) |
+| --- | --- |
+| **SMOOTH** | Cost < 1 ms at the largest measured size, **and** upper CI bound on *k* ≤ 1.2 |
+| **WATCH** | Cost currently tolerable, **but** lower CI bound on *k* > 1.2 |
+| **PROBLEM** | Cost > 10 ms at a size reachable in ordinary use, at any *k* |
+
+Where a verdict rests on judgement beyond these thresholds, the judgement is
+stated in the same sentence.
+
+### 1.6 Known confounds
+
+Stated up front because each one limits what the data can support.
+
+1. **Low Power Mode was active for the entire run** (verified at both ends).
+   The CPU is capped by policy. A prior controlled comparison — builds
+   `7fb7f8b` (LPM off) and `9bfe397` (LPM on), same suite — measured a uniform
+   1.67–2.05× slowdown across four unrelated subsystems, so **absolute times
+   here are approximately 2× pessimistic**. Ratios, exponents and counts are
+   unaffected, which is why this report leads with those wherever a choice
+   exists.
+2. **Self-interference.** The suite executes synchronous FFI calls on the UI
+   thread for 24 s. Frame statistics for the session are therefore *of the
+   measurement*, not of the application at rest (§4.3).
+3. **Warm-up.** Fixtures are memoised and a warm-up pass runs before
+   measurement, but the first rung of a ramp still carries more construction
+   cost than later rungs. Where this is visible it is noted.
+4. **Memoisation.** `gearCurve` memoises on full geometric identity; the cold
+   path is measured only because the scenario explicitly clears the cache
+   between calls. Any operation with an undisclosed cache is a systematic risk
+   to this kind of measurement, and this one was found the hard way (M212).
+5. **Single-device.** All results are from one iPad. Nothing here supports a
+   claim about any other chip except through the exponents.
 
 ---
 
-## 1. The run these numbers come from
+## 2. Experimental conditions
 
-| | |
+| Parameter | Value |
 | --- | --- |
 | Bundle | `bug20260811T104745` |
 | Build | `cd961ee` |
-| Device OS | iPadOS 27.0 (24A5390f), `ios_arm64` |
-| Processors | 9 (9 active), 7374 MB physical |
-| Kernels | OCCT shim v17 (OCCT 7.9.3), qcad C-API 0.1.0 (Qt 6.7.3) |
+| OS | iPadOS 27.0 (24A5390f) |
+| Architecture | `ios_arm64` |
+| Logical processors | 9 (9 active) |
+| Physical memory | 7374 MB |
+| Geometry kernel | OCCT shim v17 (OCCT 7.9.3) |
+| 2D kernel | qcad C-API 0.1.0 (Qt 6.7.3) |
+| Constraint solver | libslvs (native) + Dart Levenberg–Marquardt fallback |
 | Dart | 3.12.2 stable |
-| Headless suite | 24 354 ms wall |
-| UI suite | 1 138 ms wall |
-| Session total | 42 210 ms |
+| Headless suite wall time | 24 354 ms |
+| UI suite wall time | 1 138 ms |
+| Session wall time | 42 210 ms |
 
-The suite is self-driving: fixed inputs, no human tapping, one JSON per run.
-That is what makes these numbers comparable to each other and to the next run.
+Inputs are fixed and scripted; no human interaction occurs during a run. This
+is what makes the run comparable to another run of the same build, and to a
+different build of the same suite.
 
 ---
 
-## 2. Is this run trustworthy?
+## 3. Validity checks
 
-This section comes first on purpose. A suite that ran while the device was
-throttling produces real numbers about a machine nobody has.
+### 3.1 Device state (native probe, sampled before and after the suite)
 
-| Probe | Pre-suite | Post-suite |
-| --- | --- | --- |
-| Thermal state | `nominal` (ordinal 0) | `nominal` (ordinal 0) |
-| **Low Power Mode** | **ON** | **ON** |
-| Footprint (`phys_footprint`) | 1372 MB | 1234 MB |
-| Available (`os_proc_available_memory`) | 3747 MB | 3885 MB |
-| Resident (RSS) | 234 MB | 323 MB |
-| Peak resident | 243 MB | 323 MB |
-| CPU | 81 % | 257 % |
-| Threads | 19 | 26 |
+| Quantity | Pre-suite | Post-suite | Interpretation |
+| --- | ---: | ---: | --- |
+| Thermal state | `nominal` (0) | `nominal` (0) | No throttling |
+| **Low Power Mode** | **on** | **on** | **CPU capped — see §1.6.1** |
+| `phys_footprint` | 1372 MB | 1234 MB | The metric jetsam acts on |
+| `os_proc_available_memory` | 3747 MB | 3885 MB | Headroom ample |
+| Resident (RSS) | 234 MB | 323 MB | |
+| Peak resident | 243 MB | 323 MB | |
+| CPU | 81 % | 257 % | Multi-core during suite |
+| Thread count | 19 | 26 | |
 
-**The one caveat that governs every absolute number below: Low Power Mode was
-on for the whole run.** Thermal stayed nominal, so this was not heat — the CPU
-was capped by policy. On the previous comparison (build `7fb7f8b` vs
-`9bfe397`, PERF_ANALYSIS §13.2) the same condition made everything uniformly
-~1.9–2.05× slower across completely unrelated subsystems.
+Thermal state constant at both ends means no time-dependent drift confound:
+measurements from the second half of the run are comparable with the first.
 
-So: **absolute milliseconds here are roughly 2× pessimistic. Exponents,
-ratios, and call counts are unaffected**, which is exactly why this document
-leads with those wherever a choice exists.
+### 3.2 Repeatability — the noise floor
 
-### 2.1 Noise floor — how big a difference has to be before it means anything
+`quality.variance` re-executes four representative operations and reports
+dispersion. Without this, any run-to-run difference is uninterpretable.
 
-`quality.variance` re-runs four representative operations and reports spread.
-Without this, every "regression" is a coin flip.
-
-| Operation | Median | IQR | Full spread |
-| --- | ---: | ---: | ---: |
-| `extrude` | 2834 µs | **0 %** | 3 % |
-| `solve` | 281 µs | 4 % | 18 % |
-| `analyze` | 1777 µs | 13 % | 17 % |
-| `splineEval` | 104 µs | 7 % | **67 %** |
-
-Kernel work is essentially noise-free (extrude IQR 0 %). Anything under ~15 %
-on `analyze` is not a signal. `splineEval` swings 67 % end to end, so only
-large changes there mean anything.
-
-### 2.2 Dead measurements in this run
-
-A scenario that measures nothing still reports a number, and a fast zero is
-indistinguishable from a fast operation. Three showed up:
-
-| Counter | Count | Status |
-| --- | ---: | --- |
-| `kernel.sweepTwist.fail` | 4 | Twisted sweep returns null. **Reason still unobtainable** — see §14.2. |
-| `tool.build.fillet.null` | 2 | Expected. The generic point generator cannot guarantee a fittable corner; `tools.fillet2d` covers it properly. |
-| `tool.build.chamfer.null` | 2 | Expected, same reason. |
-
-### 2.3 What the frame counters do and do not say
-
-Session frames: **304 frames, 39.0 fps, 162 jank frames**, frame total p50
-35.997 ms / p95 37.57 ms / worst 154.437 ms.
-
-That looks alarming and is **not** a usability reading. Build and raster —
-the parts the app controls — are healthy:
-
-| Phase | avg | p50 | p95 | worst |
+| Operation | Median | IQR | Full spread | Smallest meaningful difference |
 | --- | ---: | ---: | ---: | ---: |
-| `frame.build` (Dart) | 0.323 ms | 0.175 ms | 0.835 ms | 6.32 ms |
-| `frame.raster` (GPU) | 2.232 ms | 2.213 ms | 3.457 ms | 8.87 ms |
+| `extrude` | 2834 µs | **0 %** | 3 % | ~3 % |
+| `solve` | 281 µs | 4 % | 18 % | ~18 % |
+| `analyze` | 1777 µs | 13 % | 17 % | ~17 % |
+| `splineEval` | 104 µs | 7 % | **67 %** | ~67 % |
 
-Build + raster is ~2.4 ms at p50 against a 36 ms frame total. The gap is the
-UI thread being blocked by the suite's own synchronous kernel calls — the
-suite spends 24 seconds hammering OCCT on the platform thread on purpose. The
-jank is the measurement, not the app at rest.
+Kernel work is effectively noise-free. **A change below ~17 % in `analyze` or
+`solve`, or below ~67 % in `splineEval`, is not a signal.** This is the
+threshold against which any future baseline diff must be read.
 
----
+### 3.3 Null-measurement audit
 
-## 3. Scoreboard — the whole app, ranked
+A scenario that reaches nothing still emits a number, and a fast zero is
+indistinguishable from a fast operation. Guards are therefore explicit:
 
-| # | Subsystem | Cost | Curve | Verdict |
-| ---: | --- | ---: | ---: | --- |
-| 1 | `occt_shape_edge_info` / `allEdges` | 243 ms avg, **1701 ms worst**, 32.9 % of the suite | **n^1.93–1.98** | **PROBLEM** |
-| 2 | Solver LM fallback | **50.4 ms** vs 0.27 ms normal (**186×**) | cliff, not a curve | **PROBLEM** |
-| 3 | Painter solves twice per dragged frame | 86.8 % of paint time in a drag | — | **PROBLEM** |
-| 4 | `analyzeSketch` | 156 ms @ 256 entities | **n^2.0–2.9** | **PROBLEM** |
-| 5 | Fillet radius sensitivity | 10 ms → **658 ms** (65×) on the same solid | discontinuous | **PROBLEM** |
-| 6 | `ffi.occt.sweepProfile` | **159.8 ms avg**, 395.9 ms worst | n^1.06 | **PROBLEM** (absolute) |
-| 7 | Booleans | 14.2 ms avg fuse, 126.5 ms worst | n^0.94–1.22 | **WATCH** (absolute) |
-| 8 | RealityKit origin planes | 33.4 ms of 33.5 ms first scene push | n=1 | **WATCH** |
-| 9 | `newSurfacesOf` (provenance) | 0.72 ms @ 362 faces | **n^1.85** | **WATCH** |
-| 10 | `modify.intersections` | 0.33 ms @ 20 entities | **n^2.25** | **WATCH** |
-| 11 | Part rebuild end-to-end | 25.1 ms @ 6 features | n^1.71 | **WATCH** |
-| — | Everything else in §13 | — | linear or better | **SMOOTH** |
+| Counter | Value | Status |
+| --- | ---: | --- |
+| `kernel.sweepTwist.fail` | 4 | **Genuine failure.** Twisted sweep returns null. Cause still unobtainable — §9.2. |
+| `tool.build.fillet.null` | 2 | Expected: the generic point generator cannot guarantee a fittable corner. Covered by `tools.fillet2d`. |
+| `tool.build.chamfer.null` | 2 | Expected, same cause. |
 
----
+All other scenarios published a non-zero subject gauge. Specifically, the
+M220 fixtures were verified to reach their subject on-device: face
+decomposition returned 26/122/362 surfaces at the three sizes, attribution
+matched 62 faces, and the five pattern kinds produced 15/15/16/15/1
+placements — each equal to the value its host-side test asserts.
 
-## 4. Startup
+### 3.4 What the frame counters do and do not measure
 
-`launch.toFirstFrame` = **171.2 ms**.
+Session: n = 304 frames, 39.0 fps, 162 frames over 33 ms.
 
-All 20 instrumented startup steps together account for ~15.7 ms of that:
-
-| Step | ms |
-| --- | ---: |
-| `Engine.create` (backend probe) | 4.782 |
-| OCCT smoke test | 3.163 |
-| symbol lookup + `qcad_init()` | 2.482 |
-| `getApplicationDocumentsDirectory` (platform channel) | 2.243 |
-| `qcad_document_new()` | 1.682 |
-| `WidgetsFlutterBinding.ensureInitialized` | 0.377 |
-| `refreshSaved` | 0.288 |
-| probe `qcad_add_line()` | 0.206 |
-| `Engine.create` (smoke) | 0.130 |
-| `loadRemembered` | 0.124 |
-| `migrateLegacyDocuments` | 0.063 |
-| probe entity round-trip | 0.061 |
-| `runApp` | 0.037 |
-| `setPreferredOrientations` | 0.035 |
-| probe `qcad_document_free()` | 0.035 |
-| `DynamicLibrary.process()` | 0.020 |
-| `reacquireExternals` | 0.020 |
-| `AppState()` | 0.015 |
-| hide system UI | 0.013 |
-| `qcad_version()` | 0.006 |
-
-**Verdict: SMOOTH.** The app's own startup work is ~9 % of time-to-first-frame;
-the rest is Flutter engine boot. Nothing here is worth touching. Note this is
-171 ms *in Low Power Mode* — the earlier run on build `7fb7f8b` measured
-76.6 ms.
-
----
-
-## 5. 2D — sketching
-
-### 5.1 The painter, phase by phase
-
-`2d.paint` over the session: **n=300, 100.86 ms total, 0.336 ms average.**
-Eighteen named phases, plus `2d.paint.z` which catches anything after the last
-mark (if `z` ever grows, a phase is missing).
-
-| Phase | total ms | avg ms | share |
-| --- | ---: | ---: | ---: |
-| `constraints` | 34.78 | 0.1159 | **34.5 %** |
-| `ent.dofColour` | 33.62 | 0.1121 | **33.3 %** |
-| `entities` | 31.42 | 0.1047 | 31.2 % |
-| `editRef` | 0.35 | 0.0012 | 0.3 % |
-| `z` (unaccounted) | 0.25 | 0.0008 | 0.2 % |
-| `ent.halo` | 0.10 | 0.0003 | 0.1 % |
-| `gearGhost` | 0.04 | 0.0001 | 0.0 % |
-| `freehand` | 0.03 | 0.0001 | 0.0 % |
-| `boxSelect` | 0.03 | 0.0001 | 0.0 % |
-| `snap` | 0.03 | 0.0001 | 0.0 % |
-| `bg` | 0.03 | 0.0001 | 0.0 % |
-| `cursorHints` | 0.02 | 0.0001 | 0.0 % |
-| `modifyGhost` | 0.02 | 0.0001 | 0.0 % |
-| `pattern` | 0.02 | 0.0001 | 0.0 % |
-| `notice` | 0.02 | 0.0001 | 0.0 % |
-| `toolPreview` | 0.02 | 0.0001 | 0.0 % |
-| `ent.projectEdges` | 0.02 | 0.0001 | 0.0 % |
-| `ent.images` | 0.01 | 0.0000 | 0.0 % |
-| `slice` | 0.00 | 0.0000 | 0.0 % |
-
-`2d.paint.z` at 0.2 % confirms the phase decomposition is complete — the
-probe reports its own gaps and there is no gap.
-
-**Two phases carry 67.8 % of painting, and neither of them is drawing.**
-Both `constraints` and `ent.dofColour` contain a call to
-`app.displayGeometry`, which runs the constraint solver *inside*
-`CustomPainter.paint`.
-
-### 5.2 Static paint vs painting during a drag — the same code, two worlds
-
-`ui.paint.sweep.64` — static paint, 64 entities, 30 frames:
-
-| Phase | avg ms | share |
-| --- | ---: | ---: |
-| `entities` | 0.2124 | **97.3 %** |
-| `constraints` | 0.0022 | 1.0 % |
-| `ent.dofColour` | 0.0010 | 0.5 % |
-| whole `2d.paint` | 0.2183 | |
-
-`ui.drag60` — one second of dragging at 60 fps, same sketch:
-
-| Phase | avg ms | share |
-| --- | ---: | ---: |
-| `constraints` | 0.2772 | **43.6 %** |
-| `ent.dofColour` | 0.2748 | **43.2 %** |
-| `entities` | 0.0802 | 12.6 % |
-| whole `2d.paint` | 0.6359 | |
-
-**During a drag, 86.8 % of paint time is solving and 12.6 % is drawing.** The
-static case is the exact inverse: 97.3 % drawing.
-
-**And the solve happens twice per painted frame.** The counters are
-unambiguous: 60 painted frames, `2d.displayGeometry` n=**120**,
-`2d.displayGeometry.solves` = **120**, `solve.total` n=**120**. The two call
-sites are `viewport.dart:2088` (inside the `ent.dofColour` segment) and
-`viewport.dart:2683` (inside the `constraints` segment). Both compute the same
-answer.
-
-Session-wide the same pattern: `2d.displayGeometry` n=240, avg 0.2821 ms.
-
-**Verdict: PROBLEM** (item 3 on the scoreboard). Note the *phase name is
-misleading* — the earlier reading "dofColour is 85 % of painting" was wrong;
-it is the solve sitting inside that segment. The actual DOF colouring
-(`carrierFixed` per entity) is inside `entities` and costs ~0.11 ms at 128
-entities, roughly linear.
-
-### 5.3 Interaction — snap and pick
-
-| Path | n | avg | p50 | p95 | worst |
+| Phase | n | mean | p50 | p95 | max |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `2d.snap` | 240 | **0.0079 ms** | 0.009 | 0.010 | 0.012 |
-| `2d.pickEntity` | 480 | **0.0899 ms** | 0.127 | 0.140 | 0.280 |
+| `frame.build` (Dart) | 304 | 0.323 ms | 0.175 ms | 0.835 ms | 6.32 ms |
+| `frame.raster` (GPU) | 304 | 2.23 ms | 2.21 ms | 3.46 ms | 8.87 ms |
+| `frame.total` | 304 | 25.6 ms | 36.0 ms | 37.6 ms | 154 ms |
 
-From `ui.snapHover` (120 hovers): snap 0.0079 ms, pick 0.0497 ms.
+Build + raster ≈ 2.4 ms at p50 against a 36 ms frame total. **The residual is
+the UI thread blocked by the suite’s own synchronous kernel calls** (§1.6.2).
+These figures characterise the instrument under load, not the application in
+use, and no usability conclusion is drawn from them.
 
-**Snapping is 6–11× cheaper than the entity pick next to it.** Snap was the
-phase that appeared in *no* report until M212 because the measurement point
-did not exist; now measured, it is the cheapest thing on the pointer path.
+---
 
-**Verdict: SMOOTH**, both.
+## 4. Summary of results
 
-### 5.4 The constraint solver
+Ranked by severity. Every row is expanded, with its evidence, in §5–§8.
 
-Session totals: `solve.total` n=**726**, avg 2.5744 ms, **p50 0.271 ms**,
-p95 0.279 ms, **worst 66.948 ms**.
+| # | Subsystem | Measured cost | *k* [95 % CI] | Verdict |
+| ---: | --- | ---: | ---: | --- |
+| 1 | `occt_shape_edge_info` / `allEdges` | 243 ms mean, 1702 ms max, 32.9 % of suite | **1.935** [1.910, 1.960] | **PROBLEM** |
+| 2 | Solver LM fallback | 50.4 ms vs 0.271 ms (186×) | bimodal, not a curve | **PROBLEM** |
+| 3 | Painter solves twice per dragged frame | 86.8 % of paint time | — (exact counts) | **PROBLEM** |
+| 4 | `analyzeSketch` | 156 ms at 256 entities | **2.30** [2.15, 2.46] | **PROBLEM** |
+| 5 | Fillet radius sensitivity | 10 ms → 658 ms (≈65×) | discontinuous | **PROBLEM** |
+| 6 | `sweepProfile` | 160 ms mean, 396 ms max | 1.06 (slope only) | **PROBLEM** (absolute) |
+| 7 | Constraint density | 18.3 ms at 8× redundancy | **1.79** [1.69, 1.88] | **WATCH** |
+| 8 | Booleans | 14.2 ms mean, 126 ms max | **1.07** [1.03, 1.12] | **WATCH** (absolute) |
+| 9 | RealityKit origin planes | 33.4 of 33.5 ms | n = 1 | **WATCH** |
+| 10 | `newSurfacesOf` | 0.721 ms at 362 faces | **1.85** [1.84, 1.86] | **WATCH** |
+| 11 | `modify.intersections` | 0.331 ms at 20 entities | **2.25** [2.05, 2.45] | **WATCH** |
+| 12 | Part rebuild | 25.1 ms at 6 features | 1.71 [1.04, 2.39] — **indeterminate** | **WATCH** |
 
-| Layer | n | avg | worst |
-| --- | ---: | ---: | ---: |
-| `solve.total` | 726 | 2.5744 ms | 66.948 ms |
-| `solve.slvs` (native attempt + verification) | 726 | 0.6120 ms | 18.417 ms |
-| `ffi.slvs.solve` (libslvs itself) | 722 | **0.4922 ms** | 18.249 ms |
-| `solve.lm` (Dart fallback) | **28** | **50.4125 ms** | 64.695 ms |
+---
 
-Path counters for the session:
+## 5. Results — 2D
 
-| Counter | Value |
-| --- | ---: |
-| `solve.path.slvs` | 698 |
-| `solve.path.lm` | **28** |
-| `solve.slvs.rejected.residual` | 24 |
+### 5.1 Painter decomposition
 
-**3.9 % of solves took the LM path, and each cost 186× a normal one.** That
-is the entire explanation for a p50 of 0.271 ms sitting next to a worst of
-66.9 ms — the mean of 2.57 ms is an artefact of mixing two populations.
+`2d.paint`, session: n = 300, total 101 ms, mean 0.336 ms. Eighteen named
+phases plus `2d.paint.z`, which captures anything after the final mark.
 
-The mechanism, isolated by `solve.overConstrained` (10 solves):
+| Phase | n | mean (ms) | share | class |
+| --- | ---: | ---: | ---: | --- |
+| `constraints` | 300 | 0.1159 | 34.5 % | resolved |
+| `ent.dofColour` | 300 | 0.1121 | 33.3 % | resolved |
+| `entities` | 300 | 0.1047 | 31.2 % | resolved |
+| `editRef` | 300 | 0.0012 | 0.3 % | resolved |
+| `z` (unaccounted) | 300 | 0.0008 | 0.2 % | marginal |
+| `ent.halo` | 300 | 0.0003 | 0.1 % | marginal |
+| 12 further phases | 300 | ≤ 0.0001 each | < 0.1 % total | unresolved |
+| `slice` | 300 | < 1 µs | — | **unresolved** |
 
-| Layer | avg ms | share |
+**Completeness check:** `2d.paint.z` at 0.2 % confirms the decomposition
+accounts for the function. The probe reports its own gaps, and there is no gap.
+
+### 5.2 Static paint versus paint during a drag
+
+The same function measured in two regimes. This is the most consequential
+comparison in the 2D path.
+
+| Phase | Static (`ui.paint.sweep.64`, n = 30) | Dragging (`ui.drag60`, n = 60) |
 | --- | ---: | ---: |
-| `solve.total` | 66.352 | 100 % |
-| `solve.lm` (Dart Levenberg-Marquardt) | 64.176 | **96.7 %** |
-| `solve.slvs` | 2.156 | 3.2 % |
-| `ffi.slvs.solve` (libslvs) | 0.228 | **0.34 %** |
+| `entities` | **0.2124 ms (97.3 %)** | 0.0802 ms (12.6 %) |
+| `constraints` | 0.0022 ms (1.0 %) | **0.2772 ms (43.6 %)** |
+| `ent.dofColour` | 0.0010 ms (0.5 %) | **0.2748 ms (43.2 %)** |
+| whole `2d.paint` | 0.2183 ms | 0.6359 ms |
 
-libslvs does essentially the same work in both cases (0.228 ms here vs
-0.220 ms in the normal drag). The 290× difference is entirely Dart-side:
+**Static painting is 97.3 % drawing. Painting during a drag is 86.8 % solving
+and 12.6 % drawing.** The regimes are inverted.
+
+The cause is established by exact counters, not by timing inference:
+
+| Counter (`ui.drag60`) | Value |
+| --- | ---: |
+| Frames painted | 60 |
+| `2d.displayGeometry` invocations | **120** |
+| `2d.displayGeometry.solves` | **120** |
+| `solve.total` invocations | **120** |
+| `solve.path.slvs` | 120 |
+| `solve.path.lm` | 0 |
+
+Exactly **two solves per painted frame**, from two call sites —
+`viewport.dart:2088` (within the `ent.dofColour` segment) and
+`viewport.dart:2683` (within the `constraints` segment) — computing the same
+result. Session-wide: `2d.displayGeometry` n = 240, mean 0.2821 ms.
+
+**Verdict: PROBLEM.** Note also that the phase name misleads: an earlier
+reading, “dofColour is 85 % of painting”, attributed the cost to DOF colouring.
+It is the solve located inside that segment. The colouring itself
+(`carrierFixed` per entity) sits in `entities` and costs ≈ 0.11 ms at 128
+entities.
+
+### 5.3 Pointer path
+
+| Path | n | mean | p50 | p95 | max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `2d.snap` | 240 | 0.0079 ms | 0.009 | 0.010 | 0.012 |
+| `2d.pickEntity` | 480 | 0.0899 ms | 0.127 | 0.140 | 0.280 |
+
+Isolated (`ui.snapHover`, n = 120 each): snap 0.0079 ms, pick 0.0497 ms — a
+ratio of 6.3.
+
+**Snapping costs between 1/6 and 1/11 of the entity pick beside it.** Snap
+appeared in no report before M212 because the measurement point did not exist;
+measured, it is the cheapest step on the pointer path. **Verdict: SMOOTH**
+(both; largest measured value 0.28 ms, no size dependence claimed).
+
+### 5.4 Constraint solver
+
+Session: `solve.total` n = 726, mean 2.57 ms, **p50 0.271 ms**, p95 0.279 ms,
+**max 66.9 ms**.
+
+A mean of 2.57 ms sitting between a p50 of 0.271 ms and a max of 66.9 ms is
+the signature of **two populations**, not of dispersion around a centre. The
+path counters identify them exactly:
+
+| Counter | Value | Share |
+| --- | ---: | ---: |
+| `solve.path.slvs` (native accepted) | 698 | 96.1 % |
+| `solve.path.lm` (Dart fallback) | **28** | **3.9 %** |
+| `solve.slvs.rejected.residual` | 24 | — |
+
+| Layer | n | mean | max |
+| --- | ---: | ---: | ---: |
+| `solve.total` | 726 | 2.57 ms | 66.9 ms |
+| `solve.slvs` (native attempt + verification) | 726 | 0.612 ms | 18.4 ms |
+| `ffi.slvs.solve` (libslvs proper) | 722 | 0.492 ms | 18.2 ms |
+| `solve.lm` (Dart fallback) | **28** | **50.4 ms** | 64.7 ms |
+
+**The fallback costs 186× a fast-path solve.** The mean of 2.57 ms describes
+neither population and should not be quoted.
+
+Mechanism, isolated (`solve.overConstrained`, n = 10):
+
+| Layer | mean | share of `solve.total` |
+| --- | ---: | ---: |
+| `solve.total` | 66.4 ms | 100 % |
+| `solve.lm` | 64.2 ms | **96.7 %** |
+| `solve.slvs` | 2.16 ms | 3.2 % |
+| `ffi.slvs.solve` | 0.228 ms | **0.34 %** |
+
+libslvs performs comparably in both regimes (0.228 ms here against 0.220 ms in
+a normal drag). **The 290× difference is entirely Dart-side.**
 `solver.dart:2172` verifies the native result against its own residuals,
-discards it above tolerance (`solve.slvs.rejected.residual` = 10 for these 10
-solves), and then runs the Dart LM — twice during a drag (`lm-frozen`, then
-`lm-relaxed`), 80 iterations of finite-difference Jacobians over a
-168-parameter system each time.
+rejects it above tolerance (`solve.slvs.rejected.residual` = 10 for these 10
+solves), then runs the Dart Levenberg–Marquardt — twice during a drag
+(`lm-frozen`, then `lm-relaxed`), each 80 iterations of finite-difference
+Jacobians over a 168-parameter system.
 
-A normal drag, for contrast (`ui.drag60`, 120 solves): `solve.total` 0.2711 ms,
-`solve.slvs` 0.2585 ms, `ffi.slvs.solve` 0.2202 ms — **81 % of the time is in
-libslvs**, exactly where it should be. `solve.path.slvs` = 120, `solve.path.lm`
-= 0.
+For contrast, a normal drag (`ui.drag60`, n = 120): `solve.total` 0.271 ms,
+`solve.slvs` 0.259 ms, `ffi.slvs.solve` 0.220 ms — **81 % of the time inside
+libslvs**, which is where it belongs.
 
-**Verdict: normal solving is SMOOTH (0.27 ms). The fallback is a PROBLEM.**
-The number to check first on any "dragging is janky" report is
-`solve.path.lm`: non-zero means the sketch fell off the fast path.
+**Verdict: fast-path solving SMOOTH; the fallback a PROBLEM.** `solve.path.lm`
+is the first quantity to inspect on any report of drag stutter: non-zero means
+the sketch left the fast path.
 
-Solve cost against sketch size (`ramp.solve`, settled sketch — the per-solve
-floor):
+**Scaling of the fast path** (`ramp.solve`, settled sketch; axis = entities):
 
-| Entities | ms | local exponent |
-| ---: | ---: | ---: |
-| 8 | 0.076 | — |
-| 16 | 0.075 | n^-0.02 |
-| 24 | 0.118 | n^1.13 |
-| 32 | 0.168 | n^1.22 |
-| 48 | 0.304 | n^1.46 |
-| 64 | 0.481 | n^1.59 |
-| 96 | 0.936 | n^1.64 |
-| 128 | 1.531 | n^1.71 |
-| 192 | 3.179 | n^1.80 |
-| 256 | **5.374** | n^1.82 |
+N = 10, **k = 1.34, R² = 0.9498, 95 % CI [1.13, 1.56]**
 
-The local exponent *climbs* steadily from ~1.1 to ~1.8. Even so, 5.4 ms at 256
-entities is affordable. Size is not the solver's problem; the fallback is.
+| Entities | 8 | 16 | 24 | 32 | 48 | 64 | 96 | 128 | 192 | 256 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ms | 0.076 | 0.075 | 0.118 | 0.168 | 0.304 | 0.481 | 0.936 | 1.53 | 3.18 | **5.37** |
 
-Constraint **density** at fixed entity count (`ramp.density`, redundant
-repetitions — how a sketch becomes over-constrained in practice):
+The CI excludes both linear and quadratic; growth is superlinear but modest,
+and 5.37 ms at 256 entities is affordable. **Size is not the solver’s problem.**
 
-| Density × | ms | local exponent |
-| ---: | ---: | ---: |
-| 1 | 0.452 | — |
-| 2 | 1.337 | n^1.57 |
-| 3 | 2.704 | n^1.74 |
-| 4 | 4.741 | n^1.95 |
-| 6 | 10.277 | n^1.91 |
-| 8 | **18.289** | **n^2.00** |
+**Scaling with constraint density** at fixed entity count (`ramp.density`,
+redundant repetitions — how sketches become over-constrained in practice):
 
-Density is quadratic and steady at it. This is the axis nobody had measured
-before M219, and it is the one a user grows by over-constraining a sketch.
+N = 6, **k = 1.79, R² = 0.9971, 95 % CI [1.69, 1.88]**
 
-### 5.5 DOF analysis (`analyzeSketch`)
+| Density × | 1 | 2 | 3 | 4 | 6 | 8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ms | 0.452 | 1.34 | 2.70 | 4.74 | 10.3 | **18.3** |
 
-Session: n=**75**, avg 8.939 ms, p50 0.776 ms, p95 27.546 ms, **worst
-158.852 ms**.
+Density is markedly steeper than entity count and the interval is tight. This
+axis was unmeasured before M219 and is the one a user grows by
+over-constraining. **Verdict: WATCH.**
 
-It builds a finite-difference Jacobian (a full residual evaluation *per
-parameter*) then reduces it row-wise, and it runs on **every rebuild, every
-solve and every tab switch** (`app_state.dart:2163`, `:2183`, `:6486`).
+### 5.5 Degree-of-freedom analysis (`analyzeSketch`)
 
-`ramp.analyze` — fine steps, with the local exponent between neighbours:
+Session: n = 75, mean 8.94 ms, p50 0.776 ms, p95 27.5 ms, **max 159 ms**.
 
-| Entities | ms | local exponent |
+Executes on every rebuild, every solve and every tab switch
+(`app_state.dart:2163`, `:2183`, `:6486`). Builds a finite-difference Jacobian
+— a full residual evaluation per parameter — then reduces it row-wise.
+
+`ramp.analyze`, N = 10, **k = 2.30, R² = 0.9908, 95 % CI [2.15, 2.46]**
+
+| Entities | ms | local exponent vs previous |
 | ---: | ---: | ---: |
 | 8 | 0.066 | — |
-| 16 | 0.206 | n^1.65 |
-| 24 | 0.433 | n^1.84 |
-| 32 | 0.782 | n^2.05 |
-| 48 | 1.791 | n^2.04 |
-| 64 | 5.800 | **n^4.08** |
-| 96 | 13.503 | n^2.08 |
-| 128 | 22.562 | n^1.78 |
-| 192 | 71.969 | n^2.86 |
-| 256 | **156.069** | n^2.69 |
+| 16 | 0.206 | 1.65 |
+| 24 | 0.433 | 1.84 |
+| 32 | 0.782 | 2.05 |
+| 48 | 1.79 | 2.04 |
+| 64 | 5.80 | **4.08** |
+| 96 | 13.5 | 2.08 |
+| 128 | 22.6 | 1.78 |
+| 192 | 72.0 | 2.86 |
+| 256 | **156** | 2.69 |
 
-Two things the coarse three-point sweep (`analysis.sweep`, n^2.24) could never
-have shown, and which are the reason ramps exist:
+The 95 % CI excludes quadratic from below at the top end and the **local**
+exponents are not constant — evidence that a single power law is an
+approximation here, not a law:
 
-* **A knee at 64 entities** — a local exponent of 4.08 across one step, then
-  back to ~2.0. Something changes behaviour there; a smooth power-law fit
-  averages it away entirely.
-* **The exponent rises again past 128** (2.86, 2.69) as the cubic row
-  reduction takes over.
+* a **discontinuity at 64 entities** (local exponent 4.08 across one step,
+  then back to ≈ 2.0), which a three-point fit averages away entirely;
+* a **rising exponent past 128** (2.86, 2.69), consistent with cubic row
+  reduction becoming dominant.
 
-**Verdict: PROBLEM.** At 256 entities a single analysis is 156 ms, and it runs
-on every solve.
+This is the specific reason ramps exist: a fit through three points assumes
+the curve *is* a power law and cannot reveal a knee.
+
+**Verdict: PROBLEM.** 156 ms per analysis at 256 entities, on every solve.
 
 ### 5.6 Drag, end to end
 
-`ramp.drag` — the full painter-path drag, per frame:
+`ramp.drag`, N = 8, k = 0.96, **R² = 0.6213**, 95 % CI [0.36, 1.55].
 
-| Entities | ms | local exponent |
-| ---: | ---: | ---: |
-| 8 | 2.302 | — |
-| 16 | 0.570 | n^-2.01 |
-| 24 | 0.968 | n^1.31 |
-| 32 | 1.420 | n^1.33 |
-| 48 | 5.345 | **n^3.27** |
-| 64 | 4.591 | n^-0.53 |
-| 96 | 8.875 | n^1.63 |
-| 128 | **14.893** | n^1.80 |
+| Entities | 8 | 16 | 24 | 32 | 48 | 64 | 96 | 128 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ms | 2.30 | 0.570 | 0.968 | 1.42 | 5.35 | 4.59 | 8.88 | **14.9** |
 
-The negative exponents at 16 and 64 are warm-up and noise (the first rung
-carries fixture cost). The signal is the trend: **14.9 ms per dragged frame at
-128 entities**, which at two solves per frame is already outside a 120 Hz
-budget and close to the edge of 60 Hz.
+**No exponent is claimed for this family.** R² = 0.62 and a CI spanning
+[0.36, 1.55] mean the data do not support a power law: the first rung carries
+fixture cost and two rungs (16, 64) fall below their predecessors. Per rule
+§1.4.2, this is reported as an absence of fit rather than as a number.
 
-### 5.7 Drawing tools — all 26
+What the data *do* support is the endpoint: **14.9 ms per dragged frame at 128
+entities**, which at two solves per frame exceeds a 120 Hz budget and
+approaches the 60 Hz limit.
 
-Every tool in `toolMeta`, driven generically so a new tool is measured the day
-it is added — all 26, ranked, 100 builds each:
+### 5.7 Drawing tools
 
-| # | Tool | avg ms | | # | Tool | avg ms |
+All 26 tools in `toolMeta`, driven generically so a new tool is measured on
+the day it is added. n = 100 each; SE_q = 2.9 × 10⁻⁵ ms.
+
+| # | Tool | mean (ms) | | # | Tool | mean (ms) |
 | ---: | --- | ---: | --- | ---: | --- | ---: |
-| 1 | `eqCurve` | 0.04248 | | 14 | `rectTwoPoint` | 0.00048 |
-| 2 | `bridge` | 0.01013 | | 15 | `polygon` | 0.00044 |
-| 3 | `circleTangent` | 0.01006 | | 16 | `ellipse` | 0.00008 |
-| 4 | `arcTangent` | 0.00356 | | 17 | `arcThreePoint` | 0.00007 |
-| 5 | `fillet` | 0.00356 | | 18 | `lineMid` | 0.00006 |
-| 6 | `chamfer` | 0.00237 | | 19 | `point` | 0.00004 |
-| 7 | `splineInterp` | 0.00119 | | 20 | `circleCenter` | 0.00003 |
-| 8 | `slotCC` | 0.00118 | | 21 | `rect2PC` | 0.00003 |
-| 9 | `splineCV` | 0.00112 | | 22 | `slotOverall` | 0.00003 |
-| 10 | `splineFree` | 0.00108 | | 23 | `slotCP` | 0.00003 |
-| 11 | `slot3A` | 0.00101 | | 24 | `rect3PC` | 0.00002 |
-| 12 | `slotCPA` | 0.00093 | | 25 | `arcCenter` | 0.00001 |
-| 13 | `line` | 0.00054 | | 26 | `rect3P` | 0.00000 |
+| 1 | `eqCurve` | 0.0425 | | 14 | `rectTwoPoint` | 0.0005 |
+| 2 | `bridge` | 0.0101 | | 15 | `polygon` | 0.0004 |
+| 3 | `circleTangent` | 0.0101 | | 16 | `ellipse` | 0.0001 |
+| 4 | `arcTangent` | 0.0036 | | 17 | `arcThreePoint` | 0.0001 |
+| 5 | `fillet` | 0.0036 | | 18 | `lineMid` | < 1 µs |
+| 6 | `chamfer` | 0.0024 | | 19 | `point` | < 1 µs |
+| 7 | `splineInterp` | 0.0012 | | 20 | `circleCenter` | < 1 µs |
+| 8 | `slotCC` | 0.0012 | | 21 | `rect2PC` | < 1 µs |
+| 9 | `splineCV` | 0.0011 | | 22 | `slotOverall` | < 1 µs |
+| 10 | `splineFree` | 0.0011 | | 23 | `slotCP` | < 1 µs |
+| 11 | `slot3A` | 0.0010 | | 24 | `rect3PC` | < 1 µs |
+| 12 | `slotCPA` | 0.0009 | | 25 | `arcCenter` | < 1 µs |
+| 13 | `line` | 0.0005 | | 26 | `rect3P` | < 1 µs |
 
-**Verdict: SMOOTH.** The slowest tool in the app builds geometry in 42
-microseconds. Tool construction is not a cost centre and never was.
+Ranks 18–26 are in the **unresolved** class (§1.2): their means fall below the
+instrument’s floor and are reported as such rather than as numbers.
 
-Related 2D geometry work:
+**Verdict: SMOOTH.** The slowest tool constructs geometry in 42.5 µs. Tool
+construction is not a cost centre. The upper bound on the whole family is
+`eqCurve` at 0.0425 ms — three orders of magnitude below a frame budget.
 
-| Operation | n | avg | curve |
-| --- | ---: | ---: | ---: |
-| `spline.curveFor` (evaluation, 64 CVs) | 600 | 0.594 ms | n^1.30 |
-| `tool.spline.cv` / `.interp` (construction) | 20 | 0.002 ms | flat |
-| `tools.filletMaxRadius` (40-step binary search) | 20 | 0.0495 ms | — |
+Associated 2D geometry:
+
+| Operation | n | mean | fit |
+| --- | ---: | ---: | --- |
+| `spline.curveFor` (evaluation, 64 CVs) | 600 | 0.594 ms | k = 1.30 [1.22, 1.39], R² = 0.999 |
+| `tool.spline.cv` / `.interp` (construction) | 20 | 0.002 ms | marginal |
+| `tools.filletMaxRadius` (40-step search) | 20 | 0.0495 ms | — |
 | `ellipse.curve` | 200 | 0.0020 ms | — |
-| `freehand.fit` | 60 | 0.0872 ms | n^1.59 |
+| `freehand.fit` | 60 | 0.0872 ms | k = 1.59 [1.38, 1.79] |
 | `freehand.smooth` | 60 | 0.0785 ms | — |
 | `freehand.dedupe` | 60 | 0.0044 ms | — |
 
-Spline **evaluation** is 300× spline **construction** — the split that makes
-that visible was deliberate. `filletMaxRadius` is 46× a single fillet
-computation, as predicted from the 40-iteration search, but 0.05 ms absolute.
+Spline **evaluation** exceeds spline **construction** by roughly 300× — the
+separation that makes that visible was deliberate. `filletMaxRadius` costs
+46× a single fillet computation, matching the prediction from its 40-iteration
+binary search, at 0.0495 ms absolute.
 
 ### 5.8 Modify operations
 
-| Operation | n | avg ms | curve |
-| --- | ---: | ---: | ---: |
-| `modify.intersectionsWithOthers` | 136 | 0.0063 | **n^2.25** |
-| `modify.trimEntity` | 68 | 0.0084 | n^1.83 |
-| `modify.trim` | 68 | 0.0081 | |
-| `modify.transformGeo` | 80 | 0.0058 | n^1.25 |
-| `modify.extendEntity` | 40 | 0.0049 | |
-| `modify.extend` | 40 | 0.0043 | |
-| `modify.stretchGeo` | 40 | 0.0042 | |
-| `modify.offsetChainAt` | 100 | 0.0035 | |
-| `modify.offsetEntity` | 800 | 0.0004 | |
+| Operation | n | mean (ms) | fit |
+| --- | ---: | ---: | --- |
+| `modify.intersectionsWithOthers` | 136 | 0.0063 | **k = 2.25 [2.05, 2.45]**, R² = 0.998 |
+| `modify.trimEntity` | 68 | 0.0084 | k = 1.83 [1.76, 1.89], R² = 1.000 |
+| `modify.transformGeo` | 80 | 0.0058 | k = 1.25, slope only (N = 2) |
+| `modify.extendEntity` | 40 | 0.0049 | — |
+| `modify.stretchGeo` | 40 | 0.0042 | — |
+| `modify.offsetChainAt` | 100 | 0.0035 | — |
+| `modify.offsetEntity` | 800 | 0.0004 | marginal |
+| `modify.offset` | 800 | < 1 µs | **unresolved** |
 
-`modify.intersections` at 20 entities: 0.33 ms total, n^2.25.
+**`modify.intersections` carries the steepest well-determined exponent in the
+2D path** — the CI excludes anything below 2.05 — and it executes on every
+modify click. At 20 entities it costs 0.331 ms. Extrapolating the fitted model
+(and labelling it as extrapolation): ≈ 33 ms at 200 entities, ≈ 350 ms at 600.
 
-**Verdict: WATCH.** Everything is microseconds today, but intersections is the
-steepest curve in 2D and it runs on every modify click. At 200 entities the
-exponent projects ~33 ms; at 600, ~350 ms.
+**Verdict: WATCH.** Microseconds today; the exponent is the concern.
 
 ### 5.9 Constraints
 
-Cost of *adding* one constraint of each of the 12 types:
+Cost of adding one constraint, by type (n = 2 each — small samples, reported
+because the spread between types is far larger than the uncertainty within
+one):
 
-| Type | avg ms |
-| --- | ---: |
-| **`dimension`** | **44.1995** |
-| **`tangent`** | **12.1735** |
-| **`fix`** | **11.1805** |
-| `perpendicular` | 4.4260 |
-| `parallel` | 0.6500 |
-| `coincident` | 0.6290 |
-| `collinear` | 0.6235 |
-| `symmetric` | 0.5915 |
-| `midpoint` | 0.5850 |
-| `horizontal` | 0.5615 |
-| `concentric` | 0.5590 |
-| `vertical` | 0.5215 |
-| `equal` | 0.5195 |
-| `smooth` | 0.4395 |
+| Type | mean (ms) | | Type | mean (ms) |
+| --- | ---: | --- | --- | ---: |
+| **`dimension`** | **44.2** | | `symmetric` | 0.592 |
+| **`tangent`** | **12.2** | | `midpoint` | 0.585 |
+| **`fix`** | **11.2** | | `horizontal` | 0.562 |
+| `perpendicular` | 4.43 | | `concentric` | 0.559 |
+| `parallel` | 0.650 | | `vertical` | 0.522 |
+| `coincident` | 0.629 | | `equal` | 0.520 |
+| `collinear` | 0.624 | | `smooth` | 0.440 |
 
-**Entering one dimension costs 44.2 ms — 85× a coincident.** The expensive
-four are exactly the ones whose result libslvs does not deliver cleanly, so
-verification fails and the Dart LM runs. This is §5.4's cliff seen from the
-editing side rather than the dragging side.
+**Entering one dimension costs 85× a coincident constraint.** The four
+expensive types are precisely those whose native result fails verification,
+triggering the Dart LM path of §5.4. This is the same defect observed from the
+editing side rather than the dragging side, and the two observations are
+mutually corroborating.
 
-Supporting operations, all smooth:
+Supporting operations, all SMOOTH:
 
-| Operation | n | avg ms |
+| Operation | n | mean (ms) |
 | --- | ---: | ---: |
-| `constraints.encode` | 40 | 0.2675 |
-| `constraints.decode` | 40 | 0.1728 |
+| `constraints.encode` | 40 | 0.268 |
+| `constraints.decode` | 40 | 0.173 |
 | `constraints.inferConstraints` | 80 | 0.0039 |
 | `constraints.inferPointBindings` | 80 | 0.0025 |
 
-### 5.10 Gears
+`constraints.infer`: k = 0.91 [0.76, 1.06] — linear, R² = 0.993.
 
-| | |
-| --- | ---: |
-| `gear.curve` (cold generation) | 0.6067 ms avg (n=120) |
-| `gear.curve.cached` | **0.0010 ms** avg (n=1200) |
-| Cache speed-up | **432×** (475 µs → 1 µs) |
-| Cost per point | ~0.21 µs, exactly linear |
+### 5.10 Gear generation
 
-At 10 / 20 / 40 teeth: 5.91 / 11.14 / 19.22 ms per scenario batch, n^0.85.
+| Quantity | n | value |
+| --- | ---: | ---: |
+| `gear.curve` (cold) | 120 | 0.607 ms |
+| `gear.curve.cached` | 1200 | 0.0010 ms |
+| Cold path, isolated | — | 475 µs |
+| Warm path, isolated | — | 1 µs |
+| **Cache speed-up** | — | **432×** |
 
-**Verdict: SMOOTH, and the memo works.** Four 20-tooth gears cost ~1 ms once,
-on load. Gears were the original suspect in the crashing part and they are
-comprehensively cleared.
+`gear.curve` fit: k = 0.85 [0.78, 0.92], R² = 0.998 — **sublinear to linear**,
+≈ 0.21 µs per generated point.
+
+**Verdict: SMOOTH, and the memoisation is effective.** Four 20-tooth gears
+cost ≈ 1 ms once, at load. Gears were the original suspect for the crash in
+the field; they are excluded by these measurements.
 
 ---
 
-## 6. 3D — the kernel
+## 6. Results — 3D geometry kernel
 
-### 6.1 Creation operations
+### 6.1 Feature construction
 
-| Operation | n | avg ms | worst | curve |
-| --- | ---: | ---: | ---: | ---: |
-| **`sweepProfile`** | 16 | **159.77** | **395.95** | n^1.06 |
-| `coilProfile` | 6 | 28.99 | 47.50 | n^0.44 |
-| `loftSections` | 10 | 13.79 | 35.64 | n^0.39 |
-| `extrudeProfileArcs` | 410 | 3.92 | 66.21 | n^1.00 |
-| `revolveProfile` | 12 | 2.95 | 5.54 | n^0.99 |
-| `extrudeProfile` | 12 | 0.93 | 1.82 | — |
-| `makeCylinder` | 18 | 0.0097 | 0.021 | — |
-| `makeBox` | 9 | 0.164 | 1.273 | — |
+| Operation | n | mean | max | fit |
+| --- | ---: | ---: | ---: | --- |
+| **`sweepProfile`** | 16 | **160 ms** | **396 ms** | k = 1.06, slope only (N = 2) |
+| `coilProfile` | 6 | 29.0 ms | 47.5 ms | k = 0.44 [0.25, 0.64] |
+| `loftSections` | 10 | 13.8 ms | 35.6 ms | k = 0.39 [0.32, 0.47] |
+| `extrudeProfileArcs` | 410 | 3.92 ms | 66.2 ms | **k = 1.00 [0.98, 1.01]** |
+| `revolveProfile` | 12 | 2.95 ms | 5.54 ms | **k = 0.99 [0.98, 1.01]** |
+| `extrudeProfile` | 12 | 0.929 ms | 1.82 ms | — |
+| `makeCylinder` | 18 | 0.0097 ms | 0.021 ms | — |
+| `makeBox` | 9 | 0.164 ms | 1.27 ms | — |
 
-Swept against profile point count, all comparable on the same axis:
+Common axis (profile points), directly comparable:
 
-| Profile pts | extrude.arcs | revolve | mesh.complexity |
+| Profile points | `extrude.arcs` | `revolve` | `mesh.complexity` |
 | ---: | ---: | ---: | ---: |
-| 12 | 0.72 ms | 0.55 ms | 1.39 ms |
+| 12 | 0.722 ms | 0.554 ms | 1.39 ms |
 | 48 | 2.83 ms | 2.16 ms | 5.13 ms |
-| 120 | 7.15 ms | 5.48 ms | 12.86 ms |
+| 120 | 7.15 ms | 5.48 ms | 12.9 ms |
 
-`kernel.sweep.path` (96-point path): **204.86 ms per sweep.**
+`kernel.sweep.path` (96-point path): **205 ms per sweep**, n = 3.
 
-**Verdict: sweep is a PROBLEM in absolute terms** — 160 ms average, 396 ms
-worst, and it is a normal modelling operation. Everything else in this table
-is smooth and linear. Extrude, the most-used operation in the app (410 calls
-this run), is 3.9 ms.
+**Verdict: sweep is a PROBLEM on absolute cost** — 160 ms mean over 16
+observations, 396 ms max, for an ordinary modelling operation. Its exponent is
+a two-point slope and no scaling claim is made. Extrude, the most-executed
+kernel operation in this run (n = 410), is 3.92 ms and exactly linear
+(CI [0.98, 1.01]).
 
-### 6.2 Booleans
+### 6.2 Boolean operations
 
-| Operation | n | avg ms | p95 | worst |
+| Operation | n | mean | p95 | max |
 | --- | ---: | ---: | ---: | ---: |
-| `fuse` | 90 | 14.22 | 76.03 | 126.49 |
-| `cut` | 16 | 17.32 | 90.21 | 90.89 |
-| `common` | 16 | 16.57 | 86.77 | 87.07 |
-| `unify` | 44 | 0.0808 | 0.095 | 0.141 |
+| `fuse` | 90 | 14.2 ms | 76.0 ms | 126 ms |
+| `cut` | 16 | 17.3 ms | 90.2 ms | 90.9 ms |
+| `common` | 16 | 16.6 ms | 86.8 ms | 87.1 ms |
+| `unify` | 44 | 0.0808 ms | 0.095 ms | 0.141 ms |
 
-`ramp.boolean` against operand complexity:
+`ramp.boolean` (axis = operand profile points): N = 7, **k = 1.07, R² = 0.9974,
+95 % CI [1.03, 1.12]**
 
-| Profile pts | ms | local exponent |
-| ---: | ---: | ---: |
-| 12 | 10.013 | — |
-| 24 | 19.215 | n^0.94 |
-| 36 | 29.181 | n^1.03 |
-| 48 | 39.868 | n^1.08 |
-| 72 | 62.880 | n^1.12 |
-| 96 | 87.625 | n^1.15 |
-| 144 | **143.908** | n^1.22 |
+| Profile points | 12 | 24 | 36 | 48 | 72 | 96 | 144 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ms | 10.0 | 19.2 | 29.2 | 39.9 | 62.9 | 87.6 | **144** |
 
-An 8-deep fusion chain (`kernel.boolean.chain`): 8 fuses, 8.201 ms each,
-65.9 ms total.
+The CI excludes quadratic decisively and barely admits anything above linear —
+about as favourable as boolean scaling gets. An 8-deep fusion chain
+(`kernel.boolean.chain`) averages 8.20 ms per fuse over 8 operations.
 
-**Verdict: WATCH.** The curve is near-linear and drifting up only slowly, which
-is as good as booleans get. But 144 ms for one boolean on a 144-point profile
-is a visible stall, and a rebuild does one per feature. `unify` is free.
+**Verdict: WATCH on absolute cost.** 144 ms for a single boolean on a
+144-point profile is a perceptible stall, and a rebuild performs one per
+feature. `unify` is negligible.
 
 ### 6.3 Fillet and chamfer
 
-This is where the topology defect surfaces as user-visible behaviour.
+| Edges filleted | `allEdges` | `filletEdges` | ratio |
+| ---: | ---: | ---: | ---: |
+| 1 | **49.3 ms** | 10.1 ms | candidate search = **4.9×** the rounding |
+| 4 | 49.5 ms | 20.8 ms | 2.4× |
+| 12 | 49.3 ms | 46.7 ms | 1.06× |
 
-| Scenario | `allEdges` | `filletEdges` | ratio |
-| --- | ---: | ---: | ---: |
-| 1 edge | **49.31 ms** | 10.10 ms | candidate search = **4.9×** the rounding |
-| 4 edges | 49.49 ms | 20.76 ms | 2.4× |
-| 12 edges | 49.28 ms | 46.66 ms | 1.06× |
+`kernel.fillet.edges` fit: N = 3, k = −0.00, **R² = 0.0025**.
 
-**`allEdges` is flat at ~49 ms** — it is the same 72-edge solid every time —
-while the actual rounding scales with edge count. The fitted curve for
-`kernel.fillet.edges` is **n^-0.00**: the wall time does not move at all with
-the number of edges filleted, because finding the candidates dominates.
+**R² ≈ 0 is the result.** The null hypothesis — that total cost is independent
+of the number of edges filleted — is not rejected. The wall time does not move
+because candidate search dominates it. `kernel.chamfer.edges` behaves
+identically (k = −0.00, R² = 0.877 on a range of 0.3 %, i.e. also flat;
+`chamferEdges` itself n = 6, mean 25.2 ms, max 46.2 ms).
 
-`chamferEdges`: n=6, avg 25.24 ms, worst 46.22 ms — same shape (`n^-0.00`).
+**Radius sensitivity** (`kernel.fillet.radius`, n = 3):
 
-**Radius sensitivity is the sharper finding:**
-
-| | |
+| Quantity | Value |
 | --- | ---: |
-| `kernel.fillet.radius`, 3 calls | 699.59 ms total |
-| average | 233.20 ms |
-| **worst (r = 4.0)** | **657.71 ms** |
-| r = 1.0 on the same solid | ~10 ms |
-| **ratio** | **~65×** |
+| `filletEdges` mean | 233 ms |
+| `filletEdges` max (r = 4.0) | **658 ms** |
+| r = 1.0 on the same solid | ≈ 10 ms |
+| **Ratio** | **≈ 65×** |
 
-A radius large enough to reach neighbouring geometry is not a slower version
-of the same operation — it is a different operation.
+A radius large enough to reach neighbouring geometry is not a slower instance
+of the same operation; it is a different operation. With n = 3 this is a
+demonstration of magnitude, not a characterised curve.
 
-**Verdict: PROBLEM**, on both axes.
+**Verdict: PROBLEM** on both axes.
 
 ### 6.4 Tessellation
 
-| Operation | n | avg ms | p95 | worst |
+| Operation | n | mean | p95 | max |
 | --- | ---: | ---: | ---: | ---: |
-| `meshCreate` (OCCT tessellating) | 302 | 4.4797 | 6.565 | 41.605 |
-| `meshCopyOut` (Dart copying the result) | 302 | **0.0046** | 0.008 | 0.197 |
+| `meshCreate` (OCCT tessellating) | 302 | 4.48 ms | 6.57 ms | 41.6 ms |
+| `meshCopyOut` (Dart copying across FFI) | 302 | **0.0046 ms** | 0.008 ms | 0.197 ms |
 
-`ramp.mesh`:
+Both are in the resolved class (`meshCopyOut` SNR ≈ 277).
 
-| Profile pts | ms | local exponent |
-| ---: | ---: | ---: |
-| 12 | 2.203 | — |
-| 48 | 8.018 | n^0.98 |
-| 96 | 15.869 | n^0.93 |
-| 192 | 33.090 | n^1.05 |
-| 288 | **49.982** | n^1.02 |
+`ramp.mesh`: N = 9, **k = 0.99, R² = 0.9992, 95 % CI [0.97, 1.01]** — linear
+to within ±2 %, over a 24× range of input size (12 → 288 profile points,
+2.20 → 50.0 ms).
 
-**`meshCreate` is 974× `meshCopyOut`.** Separating those two was one of the
-design decisions of the measurement net, and it settles a plausible
-suspicion: the FFI boundary is *not* where tessellation cost lives. Nine typed
-copies of hundreds of thousands of doubles cost 4.6 microseconds. The cost is
-OCCT tessellating, and it is dead linear.
+**`meshCreate` exceeds `meshCopyOut` by a factor of 974.** This was a
+falsifiable question — nine typed copies of up to hundreds of thousands of
+doubles could plausibly have dominated — and the answer is unambiguous: the
+FFI boundary is **not** where tessellation cost lives. Separating the two
+spans is what made the question answerable.
 
-**Verdict: SMOOTH** (linear, and the boundary is exonerated).
+**Verdict: SMOOTH** (linear within a tight interval; boundary exonerated).
 
-### 6.5 Topology queries — the defect
+### 6.5 Topology queries — the principal finding
 
-This is finding #1, and it is now proven three independent ways.
+Three independent lines of evidence, each capable of refuting the others.
 
-**Session cost:**
+**Observed cost.**
 
-| | |
+| Quantity | Value |
 | --- | ---: |
-| `ffi.occt.allEdges` | n=**50** |
-| total | **12 163.32 ms** |
-| average | **243.27 ms** |
-| p50 | 49.954 ms |
-| p95 | **1171.47 ms** |
-| worst | **1701.81 ms** |
-| share of the whole suite | **32.9 %** |
-| `ffi.occt.edgeInfo.calls` | **6552** |
+| `ffi.occt.allEdges` | n = **50** |
+| Total | **12 163 ms** |
+| Mean | **243 ms** |
+| p50 | 50.0 ms |
+| p95 | **1171 ms** |
+| Max | **1702 ms** |
+| Share of suite | **32.9 %** |
+| `ffi.occt.edgeInfo.calls` (exact) | **6552** |
 
-**Proof 1 — the growth curve.** `ramp.allEdges`, with per-edge cost:
+**Evidence 1 — growth curve.** `ramp.allEdges`, N = 7,
+**k = 1.935, R² = 0.99978, 95 % CI [1.910, 1.960]**
 
-| Profile pts | Edges | ms | local exponent | per edge |
+| Profile pts | Edges | ms | local exponent | µs per edge |
 | ---: | ---: | ---: | ---: | ---: |
-| 12 | ~36 | 14.12 | — | 392 µs |
-| 24 | ~72 | 50.80 | n^1.85 | 706 µs |
-| 36 | ~108 | 111.16 | n^1.93 | 1029 µs |
-| 48 | ~144 | 195.94 | n^1.97 | 1361 µs |
-| 72 | ~216 | 433.75 | n^1.96 | 2008 µs |
-| 96 | ~288 | 765.89 | n^1.98 | 2659 µs |
-| 144 | ~432 | **1708.56** | n^1.98 | **3955 µs** |
+| 12 | ≈ 36 | 14.1 | — | 392 |
+| 24 | ≈ 72 | 50.8 | 1.85 | 706 |
+| 36 | ≈ 108 | 111 | 1.93 | 1029 |
+| 48 | ≈ 144 | 196 | 1.97 | 1361 |
+| 72 | ≈ 216 | 434 | 1.96 | 2008 |
+| 96 | ≈ 288 | 766 | 1.98 | 2659 |
+| 144 | ≈ 432 | **1709** | 1.98 | **3955** |
 
-The local exponent converges on **1.98** and stays there. This is a clean
-quadratic, not a knee. Per-edge cost grows 10× across the ramp — the tell that
-each call is doing work proportional to the whole shape.
+R² = 0.9998 over a 12× range, with local exponents converging on 1.98 and
+remaining there. This is a clean quadratic with no knee. Per-edge cost rises
+10× across the ramp — the diagnostic signature of per-call work proportional
+to the whole shape.
 
-**Proof 2 — one call against a growing shape.** `kernel.query.edgeInfoScale`
-asks for **the same edge** (edge 1) twenty times, on solids of increasing
-size. Only the surrounding shape changes:
+**Evidence 2 — one call against a growing shape.** `kernel.query.edgeInfoScale`
+queries **the same edge** (index 1), 20 times, on solids of increasing size.
+The requested work is held constant; only the surrounding shape varies.
 
-| Profile pts | Edges | Faces | per call | vs smallest |
+N = 4, **k = 0.99, R² = 0.9999, 95 % CI [0.97, 1.01]**
+
+| Profile pts | Edges | Faces | mean per call | ratio to smallest |
 | ---: | ---: | ---: | ---: | ---: |
-| 24 | 72 | 26 | 0.6252 ms | 1.00× |
-| 60 | 180 | 62 | 1.5080 ms | 2.41× |
-| 120 | 360 | 122 | 3.0383 ms | 4.86× |
-| 240 | 720 | 242 | **6.0729 ms** | **9.73×** |
+| 24 | 72 | 26 | 0.625 ms | 1.00 |
+| 60 | 180 | 62 | 1.51 ms | 2.41 |
+| 120 | 360 | 122 | 3.04 ms | 4.86 |
+| 240 | 720 | 242 | **6.07 ms** | **9.73** |
 
-**Edges ×10 → the cost of one unchanged query ×9.73.** A single `edgeInfo` is
-O(shape). `allEdges` makes one such call per edge. n × O(n) = O(n²) is then
-arithmetic, not inference.
+Edge count ×10 → cost of one unchanged query ×9.73, with the exponent’s CI
+excluding anything outside [0.97, 1.01]. **A single `edgeInfo` is Θ(shape).**
+`allEdges` issues one per edge; n × Θ(n) = Θ(n²) then follows arithmetically
+rather than by inference. A flat line here would have refuted the hypothesis
+and returned the diagnosis to the FFI boundary; it did not appear.
 
-> **Read the fitted verdict carefully here.** `perf_report.py` labels this
-> family "linear" (n^0.99), which reads as reassuring. For this family linear
-> is the *damning* result, because the swept axis is not the amount of work
-> requested — it is the size of the shape that one fixed unit of work has to
-> look at. The report tool has no way to know the difference; a reader does.
+> **Interpretation warning.** `ci/perf_report.py` labels this family “linear”.
+> For this family linear is the *positive* result for the defect hypothesis,
+> because the swept axis is not the quantity of work requested but the size of
+> the shape one fixed unit of work must traverse. The tool cannot distinguish
+> the two; a reader must.
 
-**Proof 3 — the control queries.** On the *same* 360-edge solid:
+**Evidence 3 — control queries on the same solid** (360 edges):
 
-| Query | avg ms | vs `edgeInfo` |
+| Query | n | mean | ratio |
+| --- | ---: | ---: | ---: |
+| `kernel.edgeInfo1` (one edge) | 40 | 2.99 ms | 1.00 |
+| `kernel.counts()` | 40 | 0.205 ms | **1/14.6** |
+| `kernel.bbox()` | 40 | 0.165 ms | **1/18.1** |
+
+Touching the shape is cheap; crossing the FFI boundary is cheap; querying one
+edge is not. **Closure check:** 360 × 2.99 ms = 1077 ms against a measured
+`allEdges` of ≈ 1170 ms — **92 % of the total accounted for by per-call cost**,
+the residual 8 % being boundary crossings and Dart-side list construction.
+
+**Mechanism in source** (`backend/occt/shim/occt_capi.cpp`): each call performs
+four whole-shape operations — `TopExp::MapShapes` (:1738),
+`TopExp::MapShapesAndAncestors` (:1792), `BRepBndLib::Add` (:1832), and
+construction of a `BRepClass3d_SolidClassifier` (:1836) — and discards all
+four. The latter two lie in the convexity branch, taken for any edge with
+exactly two adjacent faces: on a closed solid, the majority.
+
+**Extrapolation to the part that crashed in the field (≈ 3400 edges),** stated
+as extrapolation with its interval propagated from the fit:
+
+| Basis | Predicted `allEdges` |
+| --- | ---: |
+| Central (k = 1.935) | **90.4 s** |
+| CI lower (k = 1.910) | 75.8 s |
+| CI upper (k = 1.960) | 108 s |
+
+Correcting for Low Power Mode (§1.6.1, ≈ 2×) gives an order of **40–55 s** on
+an uncapped device, consistent with the ≈ 48 s previously derived by a
+different route.
+
+**Verdict: PROBLEM — the largest single cost in the application.**
+
+### 6.6 Placement
+
+| Operation | n | mean |
 | --- | ---: | ---: |
-| `kernel.edgeInfo1` (one edge) | 2.9911 | 1× |
-| `kernel.counts()` | 0.2052 | **14.6× cheaper** |
-| `kernel.bbox()` | 0.1651 | **18.1× cheaper** |
+| `ffi.occt.transform` | 140 | 0.430 ms |
+| `ffi.occt.mirror` | 40 | 2.67 ms |
 
-Touching the shape is cheap. Crossing the FFI boundary is cheap. Asking about
-one edge is not. And 360 × 2.9911 ms = 1076.8 ms against a measured
-`allEdges` of ~1171 ms — **92 %** of the total explained by per-call cost, the
-remaining 8 % being the boundary crossings and the Dart-side list build.
-
-**The source, for completeness** (`backend/occt/shim/occt_capi.cpp`): each call
-performs *four* whole-shape operations — `TopExp::MapShapes` (:1738),
-`TopExp::MapShapesAndAncestors` (:1792), `BRepBndLib::Add` (:1832) and
-constructing a `BRepClass3d_SolidClassifier` (:1836) — then discards all four.
-The last two sit in the convexity branch, which runs for any edge with exactly
-two adjacent faces: on a closed solid, the majority.
-
-**Verdict: PROBLEM — the single largest cost in the application.**
-Extrapolated to the ~3400-edge part that crashed the app, ~48 s.
-
-### 6.6 Placement — transform and mirror
-
-| Operation | n | avg ms |
-| --- | ---: | ---: |
-| `ffi.occt.transform` | 140 | 0.4302 |
-| `ffi.occt.mirror` | 40 | 2.6702 |
-
-Head to head, on the *same* solid within one scenario:
+Paired comparison, both operations on the **same solid within one scenario**
+(n = 10 each), which controls for shape:
 
 | Solid | `mirror` | `transform` | ratio |
 | ---: | ---: | ---: | ---: |
-| 72 edges | 0.886 ms | 0.291 ms | **3.04×** |
-| 360 edges | 4.440 ms | 1.481 ms | **3.00×** |
+| 72 edges | 0.886 ms | 0.291 ms | **3.04** |
+| 360 edges | 4.44 ms | 1.48 ms | **3.00** |
 
-A consistent 3× at both sizes, both linear in shape size. The extra 2× is the
-reflection plus the orientation correction the shim applies so the result can
-enter a boolean directly. A mirror pattern pays this per occurrence.
+The ratio is stable at 3.0 across a 5× change in shape size — a stronger
+statement than either absolute value, and invariant to the Low Power Mode
+confound. The excess is the reflection plus the orientation correction the
+shim applies so the result may enter a boolean directly.
 
-**Verdict: SMOOTH**, with the ratio recorded so a mirror pattern's cost is
-predictable.
+`kernel.mirror` fit: k = 1.00, **slope only (N = 2)** — no scaling claim.
+
+**Verdict: SMOOTH**, with the ratio recorded so a mirror pattern’s cost is
+predictable (it is paid once per occurrence).
 
 ### 6.7 Ray casting
 
-| Operation | n | avg ms | p95 | worst |
+| Operation | n | mean | p95 | max |
 | --- | ---: | ---: | ---: | ---: |
-| `kernel.rayHit` | 120 | 0.2431 | 0.242 | 1.237 |
-| `ffi.occt.rayHits` | 120 | 0.2427 | 0.241 | 1.235 |
+| `kernel.rayHit` | 120 | 0.243 ms | 0.242 | 1.24 |
+| `ffi.occt.rayHits` | 120 | 0.243 ms | 0.241 | 1.24 |
 
-**Verdict: SMOOTH.** Essentially all of `rayHit` is the native call; the Dart
-wrapper adds 0.4 µs.
+The difference between the two is 0.4 µs — below the instrument’s floor,
+i.e. the Dart wrapper adds nothing measurable. **Verdict: SMOOTH.**
 
-### 6.8 Feature rebuild, end to end
+### 6.8 Feature rebuild
 
-| | n | avg | p95 | worst |
+| Quantity | n | mean | p95 | max |
 | --- | ---: | ---: | ---: | ---: |
-| `part.rebuildAll` | 18 | 13.53 ms | 25.43 ms | 25.90 ms |
-| `kernel.feature` | 60 | 1.1704 ms | 1.237 ms | 1.606 ms |
-| `kernel.feature.extrude` | 60 | 1.1699 ms | 1.236 ms | 1.604 ms |
+| `part.rebuildAll` | 18 | 13.5 ms | 25.4 ms | 25.9 ms |
+| `kernel.feature` | 60 | 1.17 ms | 1.24 ms | 1.61 ms |
+| `kernel.feature.extrude` | 60 | 1.17 ms | 1.24 ms | 1.60 ms |
 
-`app.rebuildPart` swept on feature count: 1 → 3.78 ms, 3 → 40.81 ms,
-6 → 75.16 ms, fitted **n^1.71**.
+`app.rebuildPart` (axis = feature count): N = 3, k = 1.71, R² = 0.9608,
+**95 % CI [1.04, 2.39]**.
 
-Inside the 6-feature rebuild (3 forced passes, 18 feature computations):
+**The interval spans linear to quadratic; the two cannot be distinguished from
+three points.** Per rule §1.4.3 no scaling claim is made. The measured values
+are 3.78 ms (1 feature), 40.8 ms (3), 75.2 ms (6).
 
-| Component | n | total ms | avg |
-| --- | ---: | ---: | ---: |
-| `part.rebuildAll` | 3 | 75.16 | 25.05 |
-| `ffi.occt.fuse` | 15 | 45.90 | 3.060 |
-| `kernel.feature` | 18 | 20.56 | 1.142 |
-| `ffi.occt.meshCreate` | 33 | 12.48 | 0.378 |
-| `ffi.occt.extrudeProfileArcs` | 18 | 6.75 | 0.375 |
+Composition of the 6-feature rebuild (3 forced passes, 18 feature computations):
 
-`part.rebuild.passes` = 3, `kernel.feature.ok` = 18, `meshCopyOut.tris` = 4620.
+| Component | n | total | mean | share |
+| --- | ---: | ---: | ---: | ---: |
+| `part.rebuildAll` | 3 | 75.2 ms | 25.1 ms | 100 % |
+| `ffi.occt.fuse` | 15 | 45.9 ms | 3.06 ms | **61 %** |
+| `kernel.feature` | 18 | 20.6 ms | 1.14 ms | 27 % |
+| `ffi.occt.meshCreate` | 33 | 12.5 ms | 0.378 ms | 17 % |
+| `ffi.occt.extrudeProfileArcs` | 18 | 6.75 ms | 0.375 ms | 9 % |
 
-**The boolean fold is 61 % of a rebuild.** `ramp.build` (creation only, no
-fold) is dead linear at n^1.00–1.04 across 12→288 profile points, which
-isolates the superlinearity to the accumulating boolean, not to feature
-construction.
+Exact counters: `part.rebuild.passes` = 3, `kernel.feature.ok` = 18,
+`meshCopyOut.tris` = 4620.
 
-`ramp.solids` — holding N solids simultaneously — is also linear
-(n^0.94–1.05, 1 → 8.07 ms, 16 → 126.19 ms).
+**The boolean fold accounts for 61 % of a rebuild.** Construction alone
+(`ramp.build`) is linear — N = 9, k = 0.99, R² = 0.9994, CI [0.97, 1.01] —
+which localises any superlinearity to the accumulating boolean rather than to
+feature construction. Holding N solids simultaneously (`ramp.solids`) is also
+linear: N = 7, k = 0.99, R² = 0.9999, CI [0.98, 1.00].
 
-**Verdict: WATCH.** 25 ms for a 6-feature part is fine; n^1.71 to 40 features
-is not.
+**Verdict: WATCH.** 25 ms for six features is acceptable; the growth law is
+undetermined and must be measured at higher feature counts before any claim.
 
 ---
 
-## 7. 3D — the display path
+## 7. Results — display path
 
-### 7.1 Scene payload (Dart side)
+### 7.1 Scene preparation (Dart side)
 
-| Operation | n | avg ms | worst |
-| --- | ---: | ---: | ---: |
-| `app.buildScenePayload` | 60 | 0.0157 | 0.303 |
-| `app.sceneSignature` | 360 | 0.0007 | 0.006 |
-| `app.buildOverlaysPayload` | 10 | 0.0010 | — |
-| `app.sceneRevs` | 60 | 0.0000 | — |
-| `3d.push` | 2 | 0.0915 | 0.183 |
+| Operation | n | mean | class |
+| --- | ---: | ---: | --- |
+| `app.buildScenePayload` | 60 | 0.0157 ms | resolved |
+| `app.sceneSignature` | 360 | 0.0007 ms | marginal |
+| `app.buildOverlaysPayload` | 10 | 0.0010 ms | marginal |
+| `3d.push` | 2 | 0.0915 ms | resolved |
+| `app.sceneRevs` | 120 | **< 1 µs** | **unresolved** |
 
-**Verdict: SMOOTH.** Everything Dart does to prepare a scene for RealityKit is
-free. The signature check that decides whether to push at all costs 0.7 µs.
+**Verdict: SMOOTH.** Everything Dart does to prepare a scene is at or below
+the instrument’s floor. The signature check that decides whether to push at
+all is itself unmeasurably cheap.
 
-### 7.2 Past the platform-view boundary (native RealityKit)
+### 7.2 Beyond the platform-view boundary (native RealityKit)
 
-Measured natively in `RvPerf.swift` and *pulled* by Dart, so no channel
-round-trip contaminates the measurement.
+Measured in `RvPerf.swift` and **pulled** by Dart rather than pushed, so no
+channel round-trip is included in the measurement. All values n = 1 — single
+observations, reported as such, with no dispersion implied.
 
-| Phase | ms | share |
+| Phase | ms (n = 1) | share |
 | --- | ---: | ---: |
-| `rv.native.setScene` | 33.51 | 100 % |
-| ├─ **`rv.native.planes`** | **33.36** | **99.6 %** |
+| `rv.native.setScene` | 33.5 | 100 % |
+| ├─ **`rv.native.planes`** | **33.4** | **99.6 %** |
 | ├─ `rv.native.sketches` | 0.08 | 0.2 % |
 | ├─ `rv.native.solids` | **0.04** | 0.1 % |
 | ├─ `rv.native.setCamera` | 0.08 | — |
 | ├─ `rv.native.placeCamera` | 0.02 | — |
 | ├─ `rv.native.setOverlays` | 0.02 | — |
-| ├─ `rv.native.accents` | 0.00 | — |
-| └─ `rv.native.highlight` | 0.00 | — |
+| ├─ `rv.native.accents` | < 1 µs | unresolved |
+| └─ `rv.native.highlight` | < 1 µs | unresolved |
 
-Dart-side, for the same single push: `rv.setScene` 35.73 ms, `rv.setOverlays`
-35.72 ms, `rv.setCamera` 35.09 ms (n=1 each).
+Dart-side, same single push: `rv.setScene` 35.7 ms, `rv.setOverlays` 35.7 ms,
+`rv.setCamera` 35.1 ms.
 
-**The mesh upload is effectively free (0.04 ms) and the three origin planes
-cost 33.36 ms.** The intuitive assumption — that pushing a scene is dominated
-by geometry — is simply false, and it was not falsifiable at all before the
-native drain existed. This is first-call cost (RealityKit entity and material
-creation, n=1), but it is a 33 ms hitch when a part opens.
+**Mesh upload costs 0.04 ms; the three origin planes cost 33.4 ms — 99.6 % of
+the push.** The intuitive expectation, that scene push is dominated by
+geometry, is contradicted. This was not falsifiable at all before the native
+drain existed. The measurement is first-call cost (RealityKit entity and
+material construction, n = 1) and cannot be generalised to steady state.
 
-Down from 55.24 ms on build `9bfe397`, though both runs were in Low Power Mode
-so the comparison is soft.
+Previous run (`9bfe397`) measured 55.4 ms for the same phase; both runs were
+under Low Power Mode, so the comparison is directional only.
 
-**Verdict: WATCH** — small, one-off, but it is the whole cost of showing a part.
+**Verdict: WATCH** — small and non-recurring, but it is the entire cost of
+first displaying a part.
 
-### 7.3 Projection of model edges into a sketch
+### 7.3 Projection and 3D picking
 
-| Operation | n | avg ms | p95 | worst |
+| Operation | n | mean | p95 | max |
 | --- | ---: | ---: | ---: | ---: |
-| `project.partEdges` | 60 | 0.1572 | 0.507 | 1.531 |
-| `app.partEdges` | 60 | 0.1575 | 0.507 | 1.531 |
+| `project.partEdges` | 60 | 0.157 ms | 0.507 ms | 1.53 ms |
+| `app.partEdges` | 60 | 0.158 ms | 0.507 ms | 1.53 ms |
+| `app.pickEdge3d` | 180 | 0.0232 ms | 0.056 ms | 0.152 ms |
+| `app.meshSelfReport` | 6 | 0.125 ms | — | — |
+| `app.meshAnomalies` | 6 | < 1 µs | — | **unresolved** |
 
-At 3 features × 48 points: 0.047 ms.
-
-**Verdict: SMOOTH.** Projection was a named stress case in M76/M77 and it is
-comprehensively cleared — provided `allEdges` is not on its path.
-
-### 7.4 3D picking
-
-| Operation | n | avg ms | worst |
-| --- | ---: | ---: | ---: |
-| `app.pickEdge3d` | 180 | 0.0232 | 0.152 |
-
-**Verdict: SMOOTH.**
-
-### 7.5 Mesh diagnostics
-
-| Operation | n | avg ms |
-| --- | ---: | ---: |
-| `app.meshSelfReport` | 6 | 0.1253 |
-| `app.meshAnomalies` | 3 | 0.0000 |
-
-**Verdict: SMOOTH.**
+**Verdict: SMOOTH.** Projection was a named stress case in M76/M77 and is
+excluded by these measurements — conditional on `allEdges` not lying on its
+path.
 
 ---
 
-## 8. Face provenance (M213) and part patterns (M212)
+## 8. Results — provenance, patterns, documents, shell, memory
 
-Both arrived from `main` with no measurement at all and were instrumented in
-M220.
+### 8.1 Face provenance (M213)
 
-### 8.1 Provenance — the rebuild path
-
-`faceSurfaces` and `newSurfacesOf` run inside `recomputeAllFeatures`, once per
-feature, on **every rebuild** (`part_model.dart:6988-6990`); for a
-body-modifying feature `faceSurfaces` runs twice.
+Rebuild path — executes once per feature on every rebuild
+(`part_model.dart:6988–6990`); twice for a body-modifying feature.
 
 | Profile pts | Triangles | Faces | `faceSurfaces` | `newSurfacesOf` |
 | ---: | ---: | ---: | ---: | ---: |
 | 24 | 92 | 26 | 0.009 ms | 0.005 ms |
 | 120 | 476 | 122 | 0.046 ms | 0.093 ms |
 | 360 | 1436 | 362 | 0.139 ms | **0.721 ms** |
-| **curve** | | | **n^1.01** | **n^1.85** |
 
-Session: `faceSurfaces` n=60 avg 0.0673 ms; `newSurfaces` n=60 avg 0.2721 ms,
-p95 0.722 ms.
+| Function | N | *k* | R² | 95 % CI |
+| --- | ---: | ---: | ---: | ---: |
+| `faceSurfaces` | 3 | **1.01** | 1.0000 | [1.00, 1.02] |
+| `newSurfacesOf` | 3 | **1.85** | 1.0000 | [1.84, 1.86] |
 
-`faceSurfaces` is linear, as expected — one pass over triangles.
-`newSurfacesOf` is **quadratic**, as predicted from the source
-(`base.any(...)` inside a loop over `result`, `part_model.dart:3701`) — face
-count ×13.9 gives time ×144.
+Session: `faceSurfaces` n = 60, mean 0.0673 ms; `newSurfacesOf` n = 60,
+mean 0.272 ms, p95 0.722 ms.
 
-**Verdict: `faceSurfaces` SMOOTH; `newSurfacesOf` WATCH.** 0.72 ms per
-modifying feature is nothing today. At 10× the face count the quadratic makes
-it ~70 ms per feature, per rebuild.
+`faceSurfaces` is linear to within ±2 %, as predicted from a single pass over
+triangles. **`newSurfacesOf` is confirmed near-quadratic with an exceptionally
+tight interval** — predicted from source (`base.any(...)` nested in a loop over
+`result`, `part_model.dart:3701`) *before* measurement, and confirmed: face
+count ×13.9 produced time ×144.
 
-### 8.2 Provenance — the pick path
+Pick path — `attributeFaces`, cached per mesh identity
+(`app_state.dart:4859`):
 
-`attributeFaces` answers "which feature made this face" and is cached per mesh
-identity (`app_state.dart:4859`).
-
-| Features | avg ms | faces attributed |
+| Features | mean | faces attributed |
 | ---: | ---: | ---: |
-| 2 | 0.172 | 62 |
-| 6 | 0.285 | 62 |
-| 12 | 0.577 | 62 |
-| **curve** | **n^0.65** | |
+| 2 | 0.172 ms | 62 |
+| 6 | 0.285 ms | 62 |
+| 12 | 0.577 ms | 62 |
 
-Session: n=30, avg 0.3347 ms, p95 0.591 ms.
+N = 3, k = 0.65, R² = 0.9502, **95 % CI [0.36, 0.95]**. The interval lies
+entirely below 1: growth is **sublinear** in feature count.
 
-Structurally this is a triple loop (faces × features × surfaces-per-feature)
-and it was predicted to be a product. **The measurement says otherwise** — the
-`break` after the first surface match keeps the inner loop short, and the cost
-grows *sublinearly* with feature count.
+**This refutes the pre-measurement hypothesis.** The function is structurally a
+triple loop (faces × features × surfaces-per-feature) and was predicted to
+scale as a product. It does not: the `break` after the first surface match
+truncates the inner loop. Recorded as a refuted prediction rather than
+omitted. **Verdict: SMOOTH.**
 
-**Verdict: SMOOTH.** A prediction that did not survive contact with the
-device, recorded as such.
+*Structural note not captured by timing:* `featureOfFace` invokes
+`faceSurfaces(solid.mesh)` a second time solely to obtain a count for a log
+line (`app_state.dart:4864`), immediately after `attributeFaces` computed the
+same decomposition internally. It lies behind the cache, so it executes once
+per mesh identity rather than per frame.
 
-One structural note that the timings do not capture: `featureOfFace` calls
-`faceSurfaces(solid.mesh)` a second time purely to put a count into a log line
-(`app_state.dart:4864`), immediately after `attributeFaces` computed the same
-decomposition internally. It sits behind the cache, so it runs once per mesh
-identity rather than per frame.
+### 8.2 Part patterns (M212/M213)
 
-### 8.3 Part patterns — all five kinds
+| Kind | n | mean per call | occurrences | fit |
+| --- | ---: | ---: | ---: | --- |
+| rectangular | 120 | 0.0015 ms | 15 | k = 0.93, slope only |
+| circular | 120 | 0.0122 ms | 15 | k = 1.35 [0.98, 1.72] |
+| sketch-driven | 120 | 0.0014 ms | 16 | k = 1.05, slope only |
+| along-a-curve | 40 | 0.0213 ms | 15 | single size |
+| mirror | 40 | **< 1 µs** | 1 | constant by construction |
 
-| Kind | span avg | 20 iterations | occurrences produced |
+`app.patternPreview` (2D sketch pattern, redrawn each frame while its dialog
+is open): n = 200, mean 0.0195 ms.
+
+**Verdict: SMOOTH throughout.** The largest pattern cost measured is 0.0213 ms.
+The along-a-curve variant costs ≈ 14× the straight case and remains 21 µs.
+**The cost of a part pattern therefore lies entirely in the kernel** — which is
+precisely what the mirror scenario was constructed to establish, and
+`kernel.mirror` (§6.6) quantifies the part that is not free.
+
+*Behavioural contract, pinned by test:* a pattern of count *n* yields *n − 1*
+placements; the identity placement is discarded (`part_model.dart:3370`)
+because it **is** the original feature.
+
+### 8.3 Documents, history, serialisation
+
+| Operation | n | mean | max |
 | --- | ---: | ---: | ---: |
-| rectangular | 0.0015 ms | 0.017 ms | 15 (of count 16) |
-| circular | 0.0122 ms | 0.083 ms | 15 (of count 16) |
-| sketch-driven | 0.0014 ms | 0.016 ms | 16 (of 16 points) |
-| along-a-curve | 0.0213 ms | 0.422 ms | 15 |
-| mirror | 0.0000 ms | 0.000 ms | 1 (constant by construction) |
+| `io.savePart` (including disk) | 1 | 21.1 ms | — |
+| `app.sketch.encodeCons` | 40 | 0.269 ms | 0.413 ms |
+| `app.sketch.decodeCons` | 40 | 0.173 ms | 0.342 ms |
+| `app.part.toJson` | 40 | 0.0083 ms | 0.015 ms |
+| `app.checkpoint` (undo snapshot) | 120 | 0.144 ms | 0.613 ms |
+| `app.undoStep` / `app.redoStep` | 120 | **< 1 µs** | **unresolved** |
+| `ffi.qcad.allGeometry` | 32 | 0.0661 ms | 0.180 ms |
+| `ffi.qcad.addLine` | 762 | 0.0034 ms | 0.179 ms |
+| `ffi.qcad.addCircle` | 761 | 0.0032 ms | 0.049 ms |
+| `app.engineFill` | 20 | 0.508 ms | 0.823 ms |
 
-Curves: rectangular n^0.93, circular n^1.35, sketch-driven n^1.05 — all
-linear. `app.patternPreview` (the 2D sketch pattern, redrawn every frame while
-its dialog is open): n=200, avg 0.0195 ms.
+`app.history`: N = 3, k = 0.82, R² = 0.9900, CI [0.66, 0.98] — sublinear.
 
-**Verdict: SMOOTH, all of it.** The Dart arithmetic of a pattern is free. The
-along-a-curve variant costs ~14× the straight one (0.0213 vs 0.0015 ms) and is
-still 21 microseconds. **The cost of a pattern is therefore entirely in the
-kernel** — the mirror scenario exists precisely to establish that, and
-`kernel.mirror` (§6.6) measures the part that actually costs something.
+**Verdict: SMOOTH.** Disk I/O is deliberately excluded from the sweeps: its
+wall time is governed by iOS storage pressure and is not addressable in this
+code, so including it would manufacture regressions with no cause. The single
+observed real `savePart` took 21.1 ms in total.
 
-*Contract worth knowing:* a pattern of count *n* yields *n−1* placements. The
-identity placement is dropped (`part_model.dart:3370`) because it **is** the
-original feature.
+`ffi.qcad.allGeometry` merits a note: it is structurally 1 + 3n boundary
+crossings plus a per-entity allocation pair, and was flagged as a concern
+before measurement. At 0.0661 ms for a whole-document read it is excluded.
 
----
+### 8.4 UI shell
 
-## 9. Documents, history, codecs
-
-| Operation | n | avg ms | worst |
-| --- | ---: | ---: | ---: |
-| `io.savePart` (incl. disk) | 1 | 21.136 | — |
-| `app.sketch.encodeCons` | 40 | 0.2692 | 0.413 |
-| `app.sketch.decodeCons` | 40 | 0.1726 | 0.342 |
-| `app.part.toJson` | 40 | 0.0083 | 0.015 |
-| `app.checkpoint` (undo snapshot) | 120 | 0.1437 | 0.613 |
-| `ffi.qcad.allGeometry` | 32 | 0.0661 | 0.180 |
-| `ffi.qcad.addLine` | 762 | 0.0034 | 0.179 |
-| `ffi.qcad.addCircle` | 761 | 0.0032 | 0.049 |
-| `app.engineFill` | 20 | 0.5083 | 0.823 |
-
-`app.history` swept: 8 → 0.98 ms, 24 → 2.09 ms, 64 → 5.44 ms, **n^0.82**.
-
-**Verdict: SMOOTH.** Serialisation, undo journaling and the qcad round-trip are
-all cheap and linear or better. Disk I/O is deliberately excluded from the
-sweeps — its wall time is governed by iOS storage pressure and is not fixable
-in this code — but the one real `savePart` observed took 21.1 ms in total.
-
-`ffi.qcad.allGeometry` is worth a note: it is structurally `1 + 3n` boundary
-crossings plus a per-entity allocation pair, which was flagged as a concern
-before measurement. At 0.066 ms for a full document read, it is cleared.
-
----
-
-## 10. UI shell
+Exact counters for the entire session:
 
 | Signal | Value |
 | --- | ---: |
-| `menu.ribbon.builds` (whole session) | **1** |
+| `menu.ribbon.builds` | **1** |
 | `toolbar.setItems.calls` / `rows.hit` / `rows.miss` | 2 / 1 / 2 |
 | `tabbar.setTabs.calls` / `rows.miss` | 2 / 2 |
 | `browser.setRows.calls` / `rows.hit` / `rows.miss` | 1 / 1 / 1 |
-| `rv.setScene.calls` / `setOverlays` / `setCamera` | 1 / 1 / 1 |
+| `rv.setScene` / `setOverlays` / `setCamera` calls | 1 / 1 / 1 |
 
-**Verdict: SMOOTH.** The ribbon was built **once** in the entire session. The
-interesting number for the ribbon was never its duration (microseconds) but
-its frequency — a ribbon rebuilding during a drag would have been a real find.
-It does not. Platform-view channels are similarly quiet: single-digit call
-counts with the signature caches doing their job.
+**Verdict: SMOOTH.** The ribbon was constructed **once** in the whole session.
+For the ribbon the informative quantity was never duration (microseconds) but
+frequency — a ribbon rebuilding during a drag would have been a genuine
+finding. It does not. These are exact counts and carry no timing uncertainty.
 
----
-
-## 11. Memory
+### 8.5 Memory
 
 | Measure | Value |
 | --- | ---: |
 | RSS | 313 MB (peak 313 MB, max 323 MB) |
 | `phys_footprint` | 1372 → 1234 MB |
-| Available before jetsam | 3747 → 3885 MB |
+| `os_proc_available_memory` | 3747 → 3885 MB |
 | Physical memory | 7374 MB |
 | **Per solid** | **2 KB** |
 | **Per triangle** | **14 bytes** |
-| Per entity | (measured, sub-KB) |
 
-Two things to take from this:
+Two observations:
 
-* **The footprint/RSS ratio is ~4×** (1234 MB vs 313 MB). Plausible for
-  RealityKit/Metal, where IOSurface and GPU allocations count toward the
-  footprint but not RSS — but large enough that it should be corroborated
-  before any decision rests on it. Flagged in PERF_ANALYSIS §13.8 and still
-  open. **iOS kills on footprint, not RSS**, so this is the number that
-  matters.
-* **14 bytes per triangle** makes file-size questions arithmetic rather than
-  guesswork. A 100 000-triangle model is ~1.4 MB of mesh.
+* **The footprint-to-RSS ratio is ≈ 4** (1234 MB against 313 MB). This is
+  plausible for RealityKit/Metal, where IOSurface and GPU allocations count
+  toward footprint but not RSS, but the discrepancy is large enough that it
+  requires independent corroboration before any decision rests on it. Open
+  since PERF_ANALYSIS §13.8. **iOS terminates on footprint, not RSS**, so this
+  is the operative number.
+* **14 bytes per triangle** converts file-size questions into arithmetic: a
+  100 000-triangle model is ≈ 1.4 MB of mesh.
 
-Headroom in this run was comfortable (3.9 GB). The session that died during a
-fillet reported 839 MB RSS — and its footprint, the number that actually
-triggered the kill, was never captured, which is why the native probe exists.
+Headroom in this run was ample (3.9 GB). The session that terminated during a
+fillet reported 839 MB RSS; its footprint — the quantity that actually
+triggered termination — was never captured, which is the reason the native
+probe exists.
 
----
+### 8.6 Frame budget
 
-## 12. Frame budget — how big a sketch still fits
+`quality.frameBudget` computes the largest sketch fitting one frame, using the
+**two** solves per painted frame the painter actually performs (§5.2):
 
-`quality.frameBudget` computes the largest sketch that fits in a frame,
-accounting for the **two** solves per painted frame that the painter really
-does:
-
-| Target | Max entities |
+| Target | Maximum entities |
 | --- | ---: |
 | 120 Hz (8.3 ms) | **192** |
 | 60 Hz (16.7 ms) | **256** |
 
-In Low Power Mode. These are the numbers that turn "it feels slow" into "you
-are above the budget at this size".
+Under Low Power Mode; the uncapped figures are correspondingly higher.
 
 ---
 
-## 13. Every cost curve in one table
+## 9. Threats to validity and unmeasured quantities
 
-Fitted exponents across all sweep families in this run, ordered by steepness.
+### 9.1 Structural gaps
 
-| Family | Sizes → ms | n^k | Verdict |
-| --- | --- | ---: | --- |
-| `modify.intersections` | 4:0.01 10:0.08 20:0.33 | **2.25** | superlinear |
-| `analysis.sweep` | 8:0.20 24:1.81 64:21.82 | **2.24** | superlinear |
-| `ramp.density` | 1:0.45 → 8:18.29 | **2.00** | superlinear |
-| `ramp.allEdges` | 12:14.12 → 144:1708.56 | **1.98** | superlinear |
-| `kernel.allEdges.sweep` | 12:13.66 48:191.73 120:1169.67 | **1.93** | superlinear |
-| `app.provenance.newSurfaces` | 24:0.05 120:0.93 360:7.21 | **1.85** | superlinear |
-| `modify.trim` | 4:0.01 10:0.06 20:0.21 | 1.83 | superlinear |
-| `ramp.solve` | 8:0.08 → 256:5.37 | 1.82 | superlinear |
-| `ramp.drag` | 8:2.30 → 128:14.89 | 1.80 | superlinear |
-| `app.rebuildPart` | 1:3.78 3:40.81 6:75.16 | **1.71** | superlinear |
-| `tools.freehand` | 64:0.03 256:0.21 1024:2.44 | 1.59 | linear |
-| `solve.sweep` | 8:0.83 24:3.97 64:21.20 | 1.55 | linear |
-| `app.pattern.occurrences.circular` | 4:0.02 16:0.08 64:0.85 | 1.35 | linear |
-| `tools.splineEval` | 4:1.61 16:8.82 64:59.38 | 1.30 | linear |
-| `modify.transform` | 24:0.02 128:0.17 | 1.25 | linear |
-| `ramp.boolean` | 12:10.01 → 144:143.91 | 1.22 | linear |
-| `app.pattern.rect` | 4:0.05 16:0.28 64:1.17 | 1.17 | linear |
-| `kernel.boolean.complex` | 12:8.06 48:33.88 120:99.94 | 1.09 | linear |
-| `kernel.sweep` | 12:89.90 48:392.27 | 1.06 | linear |
-| `app.pattern.occurrences.points` | 4:0.00 16:0.02 64:0.07 | 1.05 | linear |
-| `ramp.solids` | 1:8.07 → 16:126.19 | 1.05 | linear |
-| `ramp.build` | 12:0.79 → 288:17.89 | 1.04 | linear |
-| `ramp.mesh` | 12:2.20 → 288:49.98 | 1.02 | linear |
-| `app.provenance.faceSurfaces` | 24:0.09 120:0.46 360:1.39 | 1.01 | linear |
-| `kernel.mirror` | 24:8.86 120:44.40 | 1.00 | linear |
-| `kernel.extrude.arcs` | 12:0.72 48:2.83 120:7.15 | 1.00 | linear |
-| `kernel.revolve` | 12:0.55 48:2.16 120:5.48 | 0.99 | linear |
-| **`kernel.query.edgeInfoScale`** | 24:12.48 → 240:121.44 | **0.99** | **see §6.5 — linear here is the bad result** |
-| `kernel.mesh.complexity` | 12:1.39 48:5.13 120:12.86 | 0.96 | linear |
-| `ui.paint.sweep` | 8:0.94 24:2.52 64:6.55 | 0.93 | linear |
-| `app.pattern.occurrences` | 4:0.00 16:0.02 64:0.06 | 0.93 | linear |
-| `constraints.infer` | 8:0.01 24:0.03 64:0.07 | 0.91 | linear |
-| `gear.curve` | 10:5.91 20:11.14 40:19.22 | 0.85 | linear |
-| `app.history` | 8:0.98 24:2.09 64:5.44 | 0.82 | linear |
-| `app.engineFill` | 24:1.21 128:3.85 | 0.69 | sublinear |
-| `app.provenance.attribute` | 2:0.86 6:1.43 12:2.88 | 0.65 | sublinear |
-| `kernel.coil` | 1:15.50 4:23.31 12:47.50 | 0.44 | sublinear |
-| `kernel.loft` | 2:5.96 4:8.18 8:10.24 | 0.39 | sublinear |
-| `kernel.fillet.edges` | 1:49.31 4:49.49 12:49.28 | **-0.00** | flat — `allEdges` dominates |
-| `kernel.chamfer.edges` | 1:49.45 4:49.16 12:49.13 | **-0.00** | flat — same cause |
-| `tools.spline` | 4:0.00 16:0.00 64:0.05 | — | unmeasurably fast |
-
----
-
-## 14. What is still NOT measured
-
-Named explicitly so coverage is not mistaken for completeness.
-
-### 14.1 Structural gaps
-
-1. **Inside the C++.** We know `edgeInfo` is O(shape) and we know from reading
-   which four operations cause it. We do not have a per-line profile of the
-   shim. `kernel.query.edgeInfoScale` bounds it from outside; from Dart there
-   is nothing further.
-2. **RealityKit's own render loop.** `RvPerf` measures to the hand-off. What
-   the renderer then does on its own schedule belongs to the OS.
-3. **A sampling profiler.** The suite says which *operation* costs what; a
-   profiler says which *line*. For `analyzeSketch` that is the difference
-   between "the rank analysis is cubic" and "this loop is". Planned as Track A4
-   in PERF_PLAN.md, never built.
+1. **Interior of the C++ shim.** `edgeInfo` is established as Θ(shape) and the
+   four responsible operations are identified by reading. No per-line profile
+   exists. §6.5 bounds it from outside; from Dart nothing further is possible.
+2. **RealityKit’s render loop.** `RvPerf` measures to hand-off only.
+3. **No sampling profiler.** The suite attributes cost to *operations*; a
+   profiler attributes it to *lines*. For `analyzeSketch` this is the
+   difference between “rank reduction is cubic” and “this loop is”. Specified
+   as Track A4 in `PERF_PLAN.md`; not built.
 4. **`applyBlendOccurrence`** (patterned fillets) has no scenario.
-5. **End-to-end rebuild of a real `PatternFeature`** — `app.rebuildPart` drives
-   extrusions; a pattern additionally folds a boolean per occurrence, which is
-   a different curve.
-6. **The twelve leaf widgets of the ribbon**, and the dialogs. For these the
-   count matters more than the duration, and `menu.ribbon.builds` = 1 makes
-   them uninteresting for now.
-7. **Undo journal SIZE.** The duration is measured (`app.checkpoint`); the
-   memory the journal holds is not.
+5. **End-to-end rebuild of a `PatternFeature`** — `app.rebuildPart` drives
+   extrusions only; a pattern additionally folds one boolean per occurrence,
+   which is a different curve.
+6. **Ribbon leaf widgets and dialogs.** Frequency matters more than duration
+   here, and `menu.ribbon.builds` = 1 makes them uninteresting at present.
+7. **Undo journal size.** Duration measured (`app.checkpoint`); retained
+   memory not.
 
-### 14.2 A gap in the apparatus itself
+### 9.2 A defect in the apparatus
 
-**Failure reasons cannot reach the bundle.** `kernel.sweepTwist.fail` = 4 in
-this run, and M216 added `lastError` logging precisely so the next run would
-say *why*. It is not in the bundle, and the ordering explains it: `log.txt`
-ends at 10:47:45 with "BUG REPORT REQUESTED", while the suite ran at 10:48:10
-— **25 seconds after the log was captured**. The diagnostic is written after
-the snapshot that would carry it, so it can never appear. Any failure reason
-belongs in the suite's own JSON, which is written after the suite by
+**Failure causes cannot reach the bundle.** `kernel.sweepTwist.fail` = 4, and
+M216 added `lastError` logging expressly so the next run would report *why*.
+It is absent, and the ordering explains it: `log.txt` terminates at 10:47:45
+with “BUG REPORT REQUESTED”, while the suite executed at 10:48:10 — **25
+seconds after the log was captured**. The diagnostic is written after the
+snapshot intended to carry it and therefore can never appear. Any failure
+cause belongs in the suite’s own JSON, which is written after the suite by
 construction.
 
-### 14.3 Conditions never yet captured
+### 9.3 Conditions never yet observed
 
-* **A run that is not in Low Power Mode.** Both recent device runs were capped.
-  Every absolute number in this document is ~2× pessimistic and no clean
-  best-case baseline exists.
-* **The stress tier has still never run on a device.** It is green in CI and
-  shipped in the build; type `stress` in the bug description to include it.
-  Its ladders are the only thing that answers "where does it actually fall
-  over" rather than extrapolating.
-* **A 30-minute continuous session.** Scenario 18 in the catalogue, never run.
-  It is the only one that finds a leak, and a CAD session is an hour, not a
-  click.
+* **A run with Low Power Mode off.** Both recent device runs were capped.
+  Every absolute figure here is ≈ 2× pessimistic and no clean best-case
+  baseline exists.
+* **The stress tier has never executed on a device.** It is green in CI and
+  present in the build (type `stress` in the bug description to include it).
+  Its ladders are the only instrument that measures where the application
+  actually fails rather than extrapolating to it — and every failure figure in
+  this document is therefore an extrapolation.
+* **A 30-minute continuous session.** Scenario 18 of the catalogue, never run.
+  It is the only one capable of detecting a leak, and a CAD session is an hour,
+  not a click.
 
 ---
 
-## 15. Appendix — how the headline numbers moved across builds
+## 10. Complete cost-model table
 
-All three device runs were taken under different conditions; this is for
-direction, not for precision.
+All fitted families. Dependent variable: dominant span total. Ordered by
+exponent. **N** is the number of distinct sizes; families with N = 2 provide a
+slope with zero residual degrees of freedom and support no scaling claim.
 
-| Measure | `7fb7f8b` (6 Aug) | `9bfe397` (6 Aug, LPM) | `cd961ee` (11 Aug, LPM) |
+| Family | N | *k* | R² | 95 % CI | Range (ms) | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `modify.intersections` | 3 | 2.25 | 0.9979 | [2.05, 2.45] | 0.009–0.331 | quadratic |
+| `analysis.sweep` | 3 | 2.24 | 0.9951 | [1.93, 2.55] | 0.204–21.8 | quadratic |
+| `ramp.analyze` | 10 | **2.30** | 0.9908 | [2.15, 2.46] | 0.066–156 | **quadratic+, knee at 64** |
+| `kernel.allEdges.sweep` | 3 | 1.93 | 0.9999 | [1.89, 1.97] | 13.7–1170 | quadratic |
+| `ramp.allEdges` | 7 | **1.935** | 0.9998 | [1.910, 1.960] | 14.1–1709 | **quadratic** |
+| `app.provenance.newSurfaces` | 3 | 1.85 | 1.0000 | [1.84, 1.86] | 0.048–7.21 | quadratic |
+| `modify.trim` | 3 | 1.83 | 0.9996 | [1.76, 1.89] | 0.011–0.209 | superlinear |
+| `ramp.density` | 6 | 1.79 | 0.9971 | [1.69, 1.88] | 0.452–18.3 | superlinear |
+| `app.rebuildPart` | 3 | 1.71 | 0.9608 | [1.04, 2.39] | 3.78–75.2 | **indeterminate** |
+| `tools.freehand` | 3 | 1.59 | 0.9956 | [1.38, 1.79] | 0.030–2.44 | superlinear |
+| `solve.sweep` | 3 | 1.55 | 0.9971 | [1.39, 1.72] | 0.834–21.2 | superlinear |
+| `app.pattern.occurrences.circular` | 3 | 1.35 | 0.9810 | [0.98, 1.72] | 0.020–0.850 | indeterminate |
+| `ramp.solve` | 10 | 1.34 | 0.9498 | [1.13, 1.56] | 0.076–5.37 | superlinear |
+| `tools.splineEval` | 3 | 1.30 | 0.9989 | [1.22, 1.39] | 1.61–59.4 | superlinear |
+| `modify.transform` | 2 | 1.25 | — | slope only | 0.021–0.171 | no claim |
+| `app.pattern.rect` | 3 | 1.17 | 0.9952 | [1.01, 1.33] | 0.046–1.17 | ≈ linear |
+| `kernel.boolean.complex` | 3 | 1.09 | 0.9987 | [1.01, 1.17] | 8.07–99.9 | linear |
+| `ramp.boolean` | 7 | 1.07 | 0.9974 | [1.03, 1.12] | 10.0–144 | linear |
+| `kernel.sweep` | 2 | 1.06 | — | slope only | 89.9–392 | no claim |
+| `app.pattern.occurrences.points` | 2 | 1.05 | — | slope only | 0.016–0.069 | no claim |
+| `app.provenance.faceSurfaces` | 3 | 1.01 | 1.0000 | [1.00, 1.02] | 0.090–1.39 | linear |
+| `kernel.mirror` | 2 | 1.00 | — | slope only | 8.86–44.4 | no claim |
+| `kernel.extrude.arcs` | 3 | 1.00 | 1.0000 | [0.98, 1.01] | 0.722–7.15 | linear |
+| `kernel.revolve` | 3 | 0.99 | 0.9999 | [0.98, 1.01] | 0.554–5.48 | linear |
+| **`kernel.query.edgeInfoScale`** | 4 | **0.99** | 0.9999 | [0.97, 1.01] | 12.5–121 | **linear ⇒ Θ(shape) per call** |
+| `ramp.build` | 9 | 0.99 | 0.9994 | [0.97, 1.01] | 0.787–17.9 | linear |
+| `ramp.mesh` | 9 | 0.99 | 0.9992 | [0.97, 1.01] | 2.20–50.0 | linear |
+| `ramp.solids` | 7 | 0.99 | 0.9999 | [0.98, 1.00] | 8.07–126 | linear |
+| `kernel.mesh.complexity` | 3 | 0.96 | 0.9997 | [0.93, 1.00] | 1.39–12.9 | linear |
+| `ramp.drag` | 8 | 0.96 | **0.6213** | [0.36, 1.55] | 0.570–14.9 | **no fit** |
+| `ui.paint.sweep` | 3 | 0.93 | 0.9995 | [0.89, 0.98] | 0.936–6.55 | linear |
+| `app.pattern.occurrences` | 2 | 0.93 | — | slope only | 0.017–0.062 | no claim |
+| `constraints.infer` | 3 | 0.91 | 0.9928 | [0.76, 1.06] | 0.011–0.073 | linear |
+| `gear.curve` | 3 | 0.85 | 0.9981 | [0.78, 0.92] | 5.91–19.2 | sublinear |
+| `app.history` | 3 | 0.82 | 0.9900 | [0.66, 0.98] | 0.979–5.44 | sublinear |
+| `app.engineFill` | 2 | 0.69 | — | slope only | 1.21–3.85 | no claim |
+| `app.provenance.attribute` | 3 | 0.65 | 0.9502 | [0.36, 0.95] | 0.862–2.88 | sublinear |
+| `kernel.coil` | 3 | 0.44 | 0.9513 | [0.25, 0.64] | 15.5–47.5 | sublinear |
+| `kernel.loft` | 3 | 0.39 | 0.9905 | [0.32, 0.47] | 5.96–10.2 | sublinear |
+| `kernel.fillet.edges` | 3 | −0.00 | **0.0025** | [−0.00, 0.00] | 49.3–49.5 | **independent of n** |
+| `kernel.chamfer.edges` | 3 | −0.00 | 0.8770 | [−0.00, −0.00] | 49.1–49.5 | **independent of n** |
+
+---
+
+## 11. Hypotheses and outcomes
+
+Predictions made before measurement, and how each resolved. Recorded whether
+or not they were confirmed.
+
+| # | Hypothesis | Outcome | Evidence |
+| ---: | --- | --- | --- |
+| 1 | One `edgeInfo` call is Θ(whole shape), making `allEdges` Θ(n²) | **Confirmed** | k = 0.99 [0.97, 1.01] on fixed work vs growing shape; 92 % closure against measured `allEdges` |
+| 2 | `newSurfacesOf` is quadratic in face count | **Confirmed** | k = 1.85 [1.84, 1.86], R² = 1.0000 |
+| 3 | `attributeFaces` scales as a product of faces × features × surfaces | **Refuted** | k = 0.65 [0.36, 0.95] — sublinear; the early `break` truncates the inner loop |
+| 4 | FFI boundary crossing dominates tessellation cost | **Refuted** | `meshCreate` : `meshCopyOut` = 974 : 1 |
+| 5 | Scene push is dominated by geometry upload | **Refuted** | origin planes 99.6 %, mesh upload 0.1 % |
+| 6 | Ribbon rebuilds during interaction | **Refuted** | `menu.ribbon.builds` = 1 for the entire session |
+| 7 | Gear generation is a crash suspect | **Refuted** | k = 0.85, 432× cache speed-up, ≈ 1 ms for four gears |
+| 8 | Pattern arithmetic contributes materially | **Refuted** | all five kinds ≤ 0.0213 ms |
+| 9 | Fillet cost scales with the number of edges filleted | **Refuted** | R² = 0.0025; cost independent of n, dominated by candidate search |
+| 10 | The 3.92 s solver outlier is size-driven | **Refuted** | fast-path solve is 0.271 ms at any measured size; the outlier is the LM fallback (bimodal, 186×) |
+
+Seven of ten predictions were refuted. This is the intended function of the
+exercise: the measurements exist to overturn assumptions, and a suite that only
+ever confirmed them would not be earning its cost.
+
+---
+
+## 12. Reproducibility across builds
+
+Three device runs under differing conditions. Directional, not precise —
+except where noted.
+
+| Measure | `7fb7f8b` (6 Aug) | `9bfe397` (6 Aug) | `cd961ee` (11 Aug) |
 | --- | ---: | ---: | ---: |
-| `allEdges` @ 360 edges | 607 ms | 1171 ms | ~1170 ms |
-| One `edgeInfo` @ 360 edges | — | 3.014 ms | **3.038 ms** |
-| `analysis` @ 64 entities | 15.69 ms | 26.27 ms | 5.80 ms* |
-| `solve.sweep` @ 64 | 7.96 ms | 16.31 ms | 21.20 ms |
-| `gear.curve` @ 20 teeth | 5.13 ms | 9.85 ms | 11.14 ms |
-| `rv.native.setScene` | — | 55.44 ms | 33.51 ms |
-| Low Power Mode | off | **on** | **on** |
+| Low Power Mode | **off** | **on** | **on** |
+| `allEdges` @ 360 edges | 607 ms | 1171 ms | ≈ 1170 ms |
+| **One `edgeInfo` @ 360 edges** | — | **3.014 ms** | **3.038 ms** |
+| `analysis` @ 64 entities | 15.7 ms | 26.3 ms | 21.8 ms |
+| `solve.sweep` @ 64 | 7.96 ms | 16.3 ms | 21.2 ms |
+| `gear.curve` @ 20 teeth | 5.13 ms | 9.85 ms | 11.1 ms |
+| `rv.native.setScene` | — | 55.4 ms | 33.5 ms |
 
-\* `ramp.analyze.64` rather than the coarse `analysis.sweep.64` (21.82 ms in
-this run) — the ramp uses a different fixture progression, so the two are not
-directly comparable.
+**The `edgeInfo` measurement reproduces to 0.8 % across two builds five days
+apart** (3.014 ms and 3.038 ms, independent runs, independent binaries). The
+defect is stable and precisely reproducible, which is the property that makes
+it safe to act on.
 
-The `edgeInfo` reproduction is the one to note: **3.014 ms and 3.038 ms on
-different builds five days apart** — the defect is perfectly stable and
-perfectly reproducible, which is what makes it safe to work on.
+The LPM-off to LPM-on transition (columns 1 → 2) produced a uniform
+1.67–2.05× slowdown across four unrelated subsystems, which is the empirical
+basis for the ≈ 2× correction applied throughout this report (§1.6.1).
 
 ---
 
-*Generated from `bug20260811T104745`, build `cd961ee`, iPadOS 27.0.
-Regenerate any table with `python3 ci/perf_report.py <bundle.zip>`.*
+*Source: `bug20260811T104745`, build `cd961ee`, iPadOS 27.0, single device.
+All tables regenerable via `python3 ci/perf_report.py <bundle.zip>`; fit
+statistics (R², CI) computed as specified in §1.4.*
