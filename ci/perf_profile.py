@@ -309,6 +309,28 @@ def section_gauges(snap: dict) -> list[str]:
     return out
 
 
+def section_notes(snap: dict, runners) -> list[str]:
+    """Free-text findings — the channel a REASON travels on (M221)."""
+    notes = dict(snap.get("notes") or {})
+    for _, data in runners:
+        for sc in data.get("scenarios", []):
+            for k, v in (sc.get("notes") or {}).items():
+                notes.setdefault(k, v)
+    if not notes:
+        return ["_No notes in this bundle._ Either nothing failed, or the "
+                "build predates `Perf.note` (M221) — before it, a kernel "
+                "refusal recorded its reason in the event log, which is "
+                "captured **before** the suite runs and therefore never "
+                "carried one."]
+    out = [f"**{len(notes)} notes.** A counter says an operation produced "
+           "nothing; a note says what the kernel objected to.", "",
+           "| note | text |", "| --- | --- |"]
+    for k in sorted(notes):
+        out.append(f"| `{k}` | {notes[k]} |")
+    out.append("")
+    return out
+
+
 def section_scenarios(runners) -> list[str]:
     rows = []
     for fname, data in runners:
@@ -441,9 +463,10 @@ def main() -> int:
         ("A. Complete span inventory", section_spans(snap)),
         ("B. Complete counter inventory", section_counters(snap)),
         ("C. Complete gauge inventory", section_gauges(snap)),
-        ("D. Complete scenario inventory", section_scenarios(runners)),
-        ("E. Ramp families with local exponents", section_ramps(snap)),
-        ("F. All fitted cost models", section_fits(runners)),
+        ("D. Notes — recorded failure reasons", section_notes(snap, runners)),
+        ("E. Complete scenario inventory", section_scenarios(runners)),
+        ("F. Ramp families with local exponents", section_ramps(snap)),
+        ("G. All fitted cost models", section_fits(runners)),
     ):
         print(f"### {title}")
         print()

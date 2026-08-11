@@ -401,6 +401,35 @@ class Perf {
   /// Event counters, by name. See [count].
   static final Map<String, int> counters = {};
 
+  /// Short free-text findings, by name — the channel a REASON travels on.
+  ///
+  /// M221. A counter can say a kernel call returned null; it cannot say why,
+  /// and the shim maintains `lastError` for exactly that. Until now the reason
+  /// went to the event log, and the device run of 11 Aug proved that path
+  /// cannot work: `log.txt` is captured when the bug button is pressed, at
+  /// 10:47:45, while the suite runs at 10:48:10 — the diagnostic is written
+  /// TWENTY-FIVE SECONDS after the snapshot meant to carry it, so it could
+  /// never appear in a bundle. Three runs reported `kernel.sweepTwist.fail`
+  /// with no reason attached for that reason alone.
+  ///
+  /// Notes travel in the suite's own JSON, which is assembled after the suite
+  /// by construction, so the ordering that lost the log entry cannot lose
+  /// these. Kept short: this is a diagnostic channel, not a log.
+  static final Map<String, String> notes = {};
+
+  /// Records [text] under [name], keeping the FIRST occurrence.
+  ///
+  /// First rather than last, deliberately: when an operation fails repeatedly
+  /// the interesting failure is the one that started it, and a later, more
+  /// generic error would otherwise overwrite the specific one.
+  static void note(String name, String text) {
+    if (_broken) return;
+    if (text.isEmpty) return;
+    notes.putIfAbsent(name, () => text.length > 400
+        ? '${text.substring(0, 400)}…'
+        : text);
+  }
+
   /// Records a hit/miss pair under one name, so the report can print a rate.
   /// A cache whose hit rate you cannot see is a cache you cannot tune.
   static void cache(String name, bool hit) {
@@ -547,6 +576,7 @@ class Perf {
       'spans': {for (final e in _stats.entries) e.key: e.value.toJson()},
       'counters': Map<String, int>.of(counters),
       'gauges': Map<String, int>.of(gauges),
+      if (notes.isNotEmpty) 'notes': Map<String, String>.of(notes),
     };
   }
 
@@ -653,6 +683,7 @@ class Perf {
       'spans': spans,
       'counters': ctr,
       'gauges': Map<String, int>.of(gauges),
+      if (notes.isNotEmpty) 'notes': Map<String, String>.of(notes),
       'rssMB': (() {
         try {
           return ProcessInfo.currentRss ~/ (1024 * 1024);
@@ -669,6 +700,7 @@ class Perf {
     _pool.clear();
     gauges.clear();
     counters.clear();
+    notes.clear();
     native.clear();
     totalFrames = 0;
     jankFrames = 0;

@@ -134,6 +134,16 @@ T? _guard<T>(String op, T? Function() f) {
 void _logFailure(String op) {
   try {
     final why = OcctFfi.instance()?.lastError() ?? '';
+    // M221 — the reason goes into the REPORT, not only the event log.
+    //
+    // The log is captured when the bug button is pressed; the suite runs
+    // afterwards. On the 11 Aug device run that gap was 25 seconds, so every
+    // reason written here has been unreachable from every bundle ever
+    // produced — which is why kernel.sweepTwist.fail was reported three times
+    // with no cause attached. Perf.notes rides in the suite's own JSON, which
+    // is assembled after the suite by construction.
+    Perf.note('kernel.$op.fail.reason',
+        why.isEmpty ? '(shim recorded no error)' : why);
     Log.w('perf',
         'kernel scenario $op produced NOTHING — its timing is meaningless. '
         'Shim says: ${why.isEmpty ? '(no error recorded)' : why}');

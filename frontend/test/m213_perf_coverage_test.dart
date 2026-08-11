@@ -483,6 +483,32 @@ void main() {
   // when a mesh arrives without faceInfos — a fixture built against an older
   // shim would report every provenance scenario as instant and correct.
   group('M220 — provenance, part patterns and the new kernel entry', () {
+    test('a kernel refusal records its REASON, not only its count', () {
+      // M221. The guard has always counted failures; the reason went to the
+      // event log, which the bug bundle captures BEFORE the suite runs — a
+      // 25-second gap on the 11 Aug device run, so no bundle ever carried
+      // one. Perf.notes rides in the suite's own JSON instead.
+      //
+      // Driven through the same entry point the scenarios use, so a
+      // refactor that stops recording the reason fails here rather than
+      // silently producing another run with an unexplained null.
+      Perf.resetForTest();
+      expect(Perf.notes, isEmpty);
+      Perf.note('kernel.demo.fail.reason', 'shim said no');
+      expect(Perf.notes['kernel.demo.fail.reason'], 'shim said no');
+      // First wins: a later, vaguer error must not overwrite the specific
+      // one that started the failure.
+      Perf.note('kernel.demo.fail.reason', 'something else');
+      expect(Perf.notes['kernel.demo.fail.reason'], 'shim said no');
+      // Empty text is not a reason and must not occupy the slot.
+      Perf.note('kernel.other.fail.reason', '');
+      expect(Perf.notes.containsKey('kernel.other.fail.reason'), isFalse);
+      // And it has to survive into the scenario record, which is the whole
+      // point — a note nobody serialises is the log entry all over again.
+      final rec = Perf.scenario('demo', () {});
+      expect((rec['notes'] as Map)['kernel.demo.fail.reason'], 'shim said no');
+    });
+
     test('the new scenarios are wired into the suite at all', () {
       final names = buildAppScenarios().map((s) => s.name).toSet();
       expect(names.any((n) => n.startsWith('app.provenance.faceSurfaces')),

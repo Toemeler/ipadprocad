@@ -373,6 +373,7 @@ Ranked by severity. Every row is expanded, with its evidence, in §5–§8.
 | 10 | `newSurfacesOf` | 0.721 ms at 362 faces | **1.85** [1.84, 1.86] | **WATCH** |
 | 11 | `modify.intersections` | 0.331 ms at 20 entities | **2.25** [2.05, 2.45] | **WATCH** |
 | 12 | Part rebuild | 25.1 ms at 6 features | 1.71 [1.04, 2.39] — **indeterminate** | **WATCH** |
+| 13 | **Patterned fillet** (derived, §8.2) | `allEdges` **per occurrence** — 9.4 s for 8 occurrences on a 360-edge body | 1.935 × occurrences | **PROBLEM (derived)** |
 
 ---
 
@@ -1110,7 +1111,45 @@ per mesh identity rather than per frame.
 `app.patternPreview` (2D sketch pattern, redrawn each frame while its dialog
 is open): n = 200, mean 0.0195 ms.
 
-**Verdict: SMOOTH throughout.** The largest pattern cost measured is 0.0213 ms.
+#### The one place patterns are not free — and it is not the arithmetic
+
+`applyBlendOccurrence` (`part_model.dart:6177`) is how a **patterned fillet or
+chamfer** is placed at each occurrence. Its first statement is:
+
+```dart
+final live = kernel.edgesOf(body);        // :6179
+```
+
+and `OcctPartKernel.edgesOf` (`:5245`) is `shape.allEdges()` — the Θ(n²)
+operation of §6.5, unmodified. **A patterned blend therefore performs a full
+`allEdges` traversal once per occurrence.**
+
+The composition is multiplicative and can be stated from the measurements
+already in this report, with no new experiment:
+
+| Body | `allEdges` (measured) | × 8 occurrences | × 16 occurrences |
+| --- | ---: | ---: | ---: |
+| 72 edges | 49.3 ms | 0.39 s | 0.79 s |
+| 360 edges | 1170 ms | **9.4 s** | **18.7 s** |
+| 720 edges | ~4600 ms (extrapolated, k = 1.935) | **37 s** | **74 s** |
+
+This is a **structural finding from source, not a measurement**: no scenario
+drives `applyBlendOccurrence` end to end (§9.1 item 4), so the figures above
+are the dominant term multiplied out, not observed wall time. The remaining
+cost of the function — cloning the feature, re-anchoring the edge fingerprints,
+and the blend itself — is additional.
+
+It is stated here because it is the sharpest practical consequence of the §6.5
+defect found anywhere in the application: the two worst-scaling behaviours in
+the codebase compose. A user patterning a fillet around a moderately detailed
+body is multiplying a quadratic by an occurrence count, and nothing in the UI
+suggests that is what they are doing.
+
+**Verdict: PROBLEM (derived).** It should be confirmed by measurement before
+it is acted on — see §9.1 item 4 for why the fixture was not built blind.
+
+**Verdict for the pattern arithmetic itself: SMOOTH throughout.** The largest
+pattern cost measured is 0.0213 ms.
 The along-a-curve variant costs ≈ 14× the straight case and remains 21 µs.
 **The cost of a part pattern therefore lies entirely in the kernel** — which is
 precisely what the mirror scenario was constructed to establish, and
@@ -1227,14 +1266,25 @@ Under Low Power Mode; the uncapped figures are correspondingly higher.
 
 ### 9.2 A defect in the apparatus
 
-**Failure causes cannot reach the bundle.** `kernel.sweepTwist.fail` = 4, and
-M216 added `lastError` logging expressly so the next run would report *why*.
-It is absent, and the ordering explains it: `log.txt` terminates at 10:47:45
-with “BUG REPORT REQUESTED”, while the suite executed at 10:48:10 — **25
-seconds after the log was captured**. The diagnostic is written after the
-snapshot intended to carry it and therefore can never appear. Any failure
-cause belongs in the suite’s own JSON, which is written after the suite by
-construction.
+**Failure causes could not reach the bundle — fixed, pending confirmation.**
+`kernel.sweepTwist.fail` = 4, and M216 added `lastError` logging expressly so
+the next run would report *why*. It was absent, and the ordering explains it:
+`log.txt` terminates at 10:47:45 with “BUG REPORT REQUESTED”, while the suite
+executed at 10:48:10 — **25 seconds after the log was captured**. The
+diagnostic was written after the snapshot intended to carry it and therefore
+could never appear.
+
+**Fix (M221):** `Perf.note(name, text)` carries short free-text findings in the
+suite's own JSON, which is assembled after the suite by construction, so the
+ordering that lost the log entry cannot lose these. The kernel guard now
+records `kernel.<op>.fail.reason` alongside `kernel.<op>.fail`, and
+`ci/perf_report.py` prints the reason directly beneath the counter it explains.
+Notes keep the **first** occurrence rather than the last, because when an
+operation fails repeatedly the informative failure is the one that started it.
+
+**Status: unconfirmed.** No device run has yet exercised this path. The reason
+`kernel.sweepTwist` returns null remains unknown, and will be answered by the
+next device capture (§15).
 
 ### 9.3 Conditions never yet observed
 
@@ -1333,8 +1383,9 @@ or not they were confirmed.
 | 10 | The 3.92 s solver outlier is size-driven | **Refuted** | fast-path solve is 0.271 ms at any measured size; the outlier is the LM fallback (bimodal, 186×) |
 | 11 | Low Power Mode is only a confound to be corrected away | **Refuted** | It is a uniform clock scalar (CV 8.3 %, memory-bound and compute-bound workloads within 0.5 % of each other) and therefore a usable proxy for slower hardware — §3.5 |
 | 12 | Simulator timings can be converted to device timings by a correction factor | **Refuted** | Ratio spread 63× (27×–1677×), CV 138 %; a fixed-overhead model fits with R² = 0.095 — §13.5 |
+| 13 | Part patterns are free because their arithmetic is free | **Refuted (from source)** | `applyBlendOccurrence` calls `allEdges` once per occurrence, composing the Θ(n²) defect with the occurrence count — §8.2 |
 
-Nine of twelve predictions were refuted. This is the intended function of the
+Ten of thirteen predictions were refuted. This is the intended function of the
 exercise: the measurements exist to overturn assumptions, and a suite that only
 ever confirmed them would not be earning its cost.
 
@@ -1733,7 +1784,50 @@ could be one.
 
 ---
 
-## 14. Complete data appendix
+## 14. What the next device run will answer
+
+Everything below is instrumented and shipping but has never been executed on a
+device. This section exists so the next capture is taken deliberately rather
+than incidentally, and so its results have somewhere to land.
+
+| # | Open question | What answers it | Where it lands |
+| ---: | --- | --- | --- |
+| 1 | **Why does `kernel.sweepTwist` return null?** Counted four times across three runs, cause never recorded. | `Perf.note` (M221) now carries the shim's `lastError` in the suite JSON. | §3.3, §9.2 |
+| 2 | **How far does it actually go before failing?** Every failure figure in this report is an extrapolation. | The **stress tier** — type `stress` in the bug description. Ladders double until a rung breaks a time budget and report the rung reached. | §9.3 |
+| 3 | **What is the device's true best case?** Both existing runs were capped. | A run with **Low Power Mode off**. | §1.7, §3.5 |
+| 4 | Does `footprint : RSS ≈ 4–5` hold, and what drives it? | Any run; the ratio has now reproduced twice and wants a third with a different scene loaded. | §8.5 |
+| 5 | Do the M220 sweeps hold at larger sizes? `app.rebuildPart`'s CI spans linear to quadratic. | Larger fixtures, or the stress tier's rungs. | §6.8 |
+
+### 14.1 How to take it
+
+1. Sideload a build from this branch **newer than `8a6690d`** — earlier
+   binaries have no `Perf.note` and will answer nothing in row 1.
+2. **Turn Low Power Mode off** and let the device sit until thermal state
+   reads `nominal`. That gives row 3 and makes every absolute number
+   comparable with the uncapped run of 6 August.
+3. Press the bug button with the description **`stress`** — that opts the
+   ladders in (rows 2 and 5). Expect minutes rather than seconds: the ladders
+   deliberately drive the operation that has already killed the app once.
+4. Then, ideally, a **second** capture with Low Power Mode **on** and no
+   `stress`, to extend the longitudinal series of §12 under the conditions the
+   existing runs used.
+
+### 14.2 How to read what comes back
+
+```
+python3 ci/perf_report.py  <bundle.zip>                 # is it trustworthy, then what changed
+python3 ci/perf_report.py  <bundle.zip> --baseline <old.zip>
+python3 ci/perf_profile.py <bundle.zip> > appendix.md   # every number, for §15
+```
+
+**Check first, before reading any timing:** `lowPowerMode`, thermal state at
+both ends, and the dead-measurement block. A suite that ran while the device
+throttled produces real numbers about a machine nobody has, and §3.2's noise
+floor decides whether any difference means anything at all.
+
+---
+
+## 15. Complete data appendix
 
 Sections 1–12 are analysis: they select, rank and interpret. Selection is
 where bias enters — the spans nobody printed are the spans nobody questioned —
@@ -2703,7 +2797,11 @@ These describe the machine, not the application. They are deliberately a separat
 | `native.thermal.preSuite` | 0 |
 
 
-### D. Complete scenario inventory
+### D. Notes — recorded failure reasons
+
+_No notes in this bundle._ Either nothing failed, or the build predates `Perf.note` (M221) — before it, a kernel refusal recorded its reason in the event log, which is captured **before** the suite runs and therefore never carried one.
+
+### E. Complete scenario inventory
 
 **167 scenario executions** across 2 runners, scenario scope (measured pass only). `dominant span` is the largest single span inside the scenario — the quantity the cost-model fits use, because it excludes fixture construction.
 
@@ -2878,7 +2976,7 @@ These describe the machine, not the application. They are deliberately a separat
 | `ui.snapHover` | ui | 7.086 | `2d.pickEntity` | 5.962 | 2 |
 
 
-### E. Ramp families with local exponents
+### F. Ramp families with local exponents
 
 Ramps use fine steps so a **knee** is visible. A fit through three points assumes the curve *is* a power law and averages away anything that is not one; the local exponent between neighbouring rungs does not. A constant local exponent means a clean power law; a jump means a threshold, and the rung it jumps at is the size that matters.
 
@@ -3001,7 +3099,7 @@ Ramps use fine steps so a **knee** is visible. A fit through three points assume
 | 256 | 5.3740 | 1.82 |
 
 
-### F. All fitted cost models
+### G. All fitted cost models
 
 **32 sweep families.** Dependent variable: dominant span total. Families with N = 2 yield a slope with zero residual degrees of freedom — R² is 1.000 by construction and no confidence interval exists, so they support **no scaling claim**.
 
@@ -3046,5 +3144,5 @@ Ramps use fine steps so a **knee** is visible. A fit through three points assume
 
 *Source: `bug20260811T104745`, build `cd961ee`, iPadOS 27.0, single device.
 Sections 1–12 regenerable via `python3 ci/perf_report.py <bundle.zip>`;
-section 14 via `python3 ci/perf_profile.py <bundle.zip>`. Fit statistics
+section 15 via `python3 ci/perf_profile.py <bundle.zip>`. Fit statistics
 (R², CI) computed as specified in §1.5.*

@@ -149,6 +149,20 @@ def section_validity(data: dict) -> list[str]:
                    "than a fast operation:")
         for k, v in sorted(dead.items(), key=lambda kv: -kv[1]):
             out.append(f"      {k:52s} {v}")
+        # M221 — and WHY, when the shim recorded a reason. A counter says a
+        # call produced nothing; it cannot say what the kernel objected to,
+        # and until notes existed that reason was written to the event log
+        # AFTER the log had already been captured, so no bundle ever carried
+        # one. Printed directly beneath the counter it explains.
+        reasons = {}
+        for s2 in scenarios(data):
+            for k, v in (s2.get("notes") or {}).items():
+                if k.endswith(".fail.reason"):
+                    reasons.setdefault(k, v)
+        if reasons:
+            out.append("      —— reasons recorded by the shim ——")
+            for k, v in sorted(reasons.items()):
+                out.append(f"      {k:52s} {v}")
     else:
         out.append("  dead probes  : none — every scenario reached its subject")
 
@@ -163,6 +177,16 @@ def section_validity(data: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 SWEEP_RE = re.compile(r"^(.*)\.(\d+)$")
+
+# Families whose swept axis is the size of the INPUT a fixed unit of work has
+# to traverse, rather than the amount of work asked for. For these, k ≈ 1 means
+# "one call is O(input)" — the finding, not the absence of one. Kept as an
+# explicit list because nothing in the data distinguishes the two kinds of
+# sweep, and a reader who does not know the difference will read the verdict
+# backwards.
+CONSTANT_WORK_FAMILIES = {
+    "kernel.query.edgeInfoScale",
+}
 
 
 def section_curves(data: dict) -> list[str]:
@@ -197,7 +221,16 @@ def section_curves(data: dict) -> list[str]:
             verdict, ks = "flat/unmeasurable", "   -- "
         else:
             ks = f"{k:6.2f}"
-            if k >= 2.5:
+            if fam in CONSTANT_WORK_FAMILIES:
+                # The swept axis here is the size of the ENVIRONMENT, not the
+                # amount of work requested: the scenario asks for one fixed
+                # unit of work on progressively larger input. Linear is
+                # therefore the DAMNING result, not the reassuring one, and
+                # labelling it "linear" alongside families whose axis is the
+                # workload invites exactly the wrong conclusion.
+                verdict = ("** per-call cost scales with input size **"
+                           if k >= 0.8 else "flat — cost independent of input")
+            elif k >= 2.5:
                 verdict = "** CUBIC-ISH — this is the one that breaks **"
             elif k >= 1.6:
                 verdict = "** superlinear **"

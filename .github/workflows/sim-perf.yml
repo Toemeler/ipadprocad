@@ -51,9 +51,22 @@ on:
 permissions:
   contents: write
 
+# M221 — do NOT cancel a run in progress.
+#
+# `cancel-in-progress: true` is the right default for a fast check, where the
+# newest commit is the only one worth testing. It is the wrong one here: this
+# job takes 26–48 minutes, and every push during that window killed it. Runs
+# 35, 36 and 37 all died that way, which is how the workflow came to be
+# "green since run 32" while producing no usable capture at all — the failure
+# was invisible because a cancelled run is not a red one.
+#
+# A superseded capture is still a capture, and the branch it publishes to is
+# force-pushed anyway, so the last finisher wins. Letting runs complete costs
+# runner minutes; cancelling them cost a week of nobody noticing there were no
+# numbers.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # FAST FEEDBACK, and not optional. The heavy job below can spend 150 minutes
