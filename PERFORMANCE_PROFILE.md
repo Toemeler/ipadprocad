@@ -1248,6 +1248,9 @@ construction.
   3.7–3.9 GB of headroom; the field crash was a `phys_footprint` kill. Nothing
   in this report constrains behaviour on a 3–4 GB iPad except the
   hardware-independent 14 bytes/triangle and 2 KB/solid.
+* ~~**Track B has never delivered a number.**~~ **Closed** — see §13. The
+  delivery path is built and the first capture landed (run 38). Its result is
+  that the track cannot answer timing questions at all.
 * **The stress tier has never executed on a device.** It is green in CI and
   present in the build (type `stress` in the bug description to include it).
   Its ladders are the only instrument that measures where the application
@@ -1329,8 +1332,9 @@ or not they were confirmed.
 | 9 | Fillet cost scales with the number of edges filleted | **Refuted** | R² = 0.0025; cost independent of n, dominated by candidate search |
 | 10 | The 3.92 s solver outlier is size-driven | **Refuted** | fast-path solve is 0.271 ms at any measured size; the outlier is the LM fallback (bimodal, 186×) |
 | 11 | Low Power Mode is only a confound to be corrected away | **Refuted** | It is a uniform clock scalar (CV 8.3 %, memory-bound and compute-bound workloads within 0.5 % of each other) and therefore a usable proxy for slower hardware — §3.5 |
+| 12 | Simulator timings can be converted to device timings by a correction factor | **Refuted** | Ratio spread 63× (27×–1677×), CV 138 %; a fixed-overhead model fits with R² = 0.095 — §13.5 |
 
-Eight of eleven predictions were refuted. This is the intended function of the
+Nine of twelve predictions were refuted. This is the intended function of the
 exercise: the measurements exist to overturn assumptions, and a suite that only
 ever confirmed them would not be earning its cost.
 
@@ -1587,13 +1591,145 @@ ships only an x86_64 simulator slice. So this is not merely a different clock
 from the device — it is a different instruction set, executed under binary
 translation. Relative kernel costs survive that; nothing else reliably does.
 
-### 13.4 Status
+### 13.4 The first capture — run 38
 
-**Open.** The delivery mechanism is built and pushed; the first capture it
-produces has not yet landed at the time of writing. When `ci-logs-perf`
-carries a capture, this section is to be filled with the native-kernel ratios
-and the counter comparison against §5–§8, and the corresponding item in §9.3
-closed.
+| | |
+| --- | --- |
+| Run | 38, id `31479868573` |
+| Commit | `8a6690d` |
+| Captured | 2026-08-11T10:46:38Z |
+| Verdict | `PERF CAPTURE: PASS`, launch rc = 0 |
+| Delivered via | `ci-logs-perf` branch (10 files, 9.5 MB of build logs + the capture) |
+
+**What it contains.** The job launches the app and holds it briefly; it does
+**not** run the 167-scenario suite. So the capture is startup plus whatever the
+app does at rest: 21 spans, all n = 1 except two, six periodic snapshots, and a
+handful of counters. There are no sweeps, no ramps and no scenario data, and
+none of §5–§8's cost curves can be checked against it.
+
+### 13.5 The result: the simulator is not a scaled device
+
+Comparing the 21 spans common to both platforms. Both sides are n = 1
+first-call startup measurements, so the comparison is like-for-like in kind —
+but each is a single observation with no dispersion, and the smallest device
+values (6–20 µs) carry 5–17 % quantization uncertainty which the ratio
+inherits.
+
+| Span | Device ms | Simulator ms | Ratio |
+| --- | ---: | ---: | ---: |
+| `getApplicationDocumentsDirectory` (platform channel) | 2.2430 | 3762.5 | **1677×** |
+| `qcad_version()` | 0.0060 | 5.4 | 900× |
+| `WidgetsFlutterBinding.ensureInitialized` | 0.3770 | 335.3 | 889× |
+| `runApp` | 0.0370 | 31.6 | 854× |
+| `hide system UI` | 0.0130 | 4.5 | 346× |
+| `probe entity_ids/geometry round-trip` | 0.0610 | 18.0 | 295× |
+| `reacquireExternals` | 0.0200 | 5.9 | 295× |
+| `AppState()` | 0.0150 | 4.3 | 287× |
+| `refreshSaved` | 0.2880 | 44.5 | 155× |
+| `probe qcad_document_free()` | 0.0350 | 4.3 | 123× |
+| `setPreferredOrientations` | 0.0350 | 3.9 | 111× |
+| **`launch.toFirstFrame`** | **171.172** | **14 527.0** | **85×** |
+| `probe qcad_add_line()` | 0.2060 | 14.2 | 69× |
+| `DynamicLibrary.process()` | 0.0200 | 1.3 | 65× |
+| `migrateLegacyDocuments` | 0.0630 | 3.7 | 59× |
+| `Engine.create` (smoke) | 0.1300 | 7.3 | 56× |
+| `loadRemembered` | 0.1240 | 6.2 | 50× |
+| `Engine.create` (backend probe) | 4.7820 | 238.2 | 50× |
+| `qcad_document_new()` | 1.6820 | 75.1 | 45× |
+| `symbol lookup + qcad_init()` | 2.4820 | 93.6 | 38× |
+| **`occt smoke`** | **3.1630** | **83.9** | **27×** |
+
+| Statistic | Simulator vs device | **Low Power Mode vs device (§3.5)** |
+| --- | ---: | ---: |
+| n | 21 | 4 |
+| Median ratio | **111×** | 1.92× |
+| Range | **27× – 1677×** | 1.67× – 2.05× |
+| Spread (max/min) | **63×** | **1.22×** |
+| Coefficient of variation | **138 %** | **8.3 %** |
+
+**This is the decisive comparison of the whole track.** Low Power Mode applies
+a uniform scalar and is therefore a usable proxy for slower hardware. The
+simulator does not: its slowdown varies by a factor of 63 between operations.
+There is no single number by which a simulator millisecond can be converted
+into a device millisecond, and §13.3's prohibition — asserted as policy since
+M215 — is now a measurement.
+
+A fixed-overhead model was tested and **rejected**: regressing simulator on
+device time gives `sim = 87.2 ms + 190.1 × device` with **R² = 0.095**, i.e. no
+useful relationship. So the spread is not a constant per-call cost that could
+be subtracted away.
+
+**Structure within the spread.** Grouping by which layer an operation lives in:
+
+| Layer | n | Median ratio | Range |
+| --- | ---: | ---: | ---: |
+| Native C++ (built `Release` on **both** sides) | 6 | **55×** | 27–900× |
+| Dart / Flutter / platform channel | 14 | **221×** | 50–1677× |
+
+The native half degrades about 4× less than the Dart half, which is the
+direction the build configuration predicts: the kernels are compiled Release
+identically for both targets, while the simulator's Dart engine is JIT/debug
+and the whole stack runs **x86_64 under Rosetta** on an arm64 runner. The
+ranges overlap and n is small, so this is a consistent tendency rather than an
+established law. The rank correlation between an operation's device cost and
+its ratio is ρ = −0.50 (n = 20, marginally significant), consistent with a
+floor effect inflating the ratios of the cheapest operations — the 900× on
+`qcad_version()`, a 6 µs operation on device, should be read that way rather
+than as a property of the kernel.
+
+### 13.6 Frame timings — measured, and unusable exactly as predicted
+
+The first five snapshots carry `WARNING no frame timings —
+Perf.attachToBinding() did not run or failed`. The sixth has them:
+
+| Phase | n | last | mean | p95 | max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `frame.total` | 5 | 13.5 ms | 832.0 ms | 2246.2 ms | 2246.2 ms |
+| `frame.build` (Dart) | 5 | 0.7 ms | 111.5 ms | 254.4 ms | 254.4 ms |
+| `frame.raster` (GPU) | 5 | 10.1 ms | 525.3 ms | 1990.9 ms | 1990.9 ms |
+
+**fps = 1.2, jank 4 of 5 frames (80 %).** Against the device's `frame.build`
+p95 of 0.835 ms and `frame.raster` p95 of 3.457 ms, these are three orders of
+magnitude apart. They are reported here solely to document that the
+prohibition in §13.3 is not theoretical: anyone reading a simulator frame time
+as an application property would conclude the app renders at one frame per
+second.
+
+`launch.toFirstFrame` = 14.5 s on the simulator against 171 ms on device is
+the same phenomenon at startup.
+
+### 13.7 Memory
+
+| Measure | Simulator | Device |
+| --- | ---: | ---: |
+| RSS at capture | 96.5 MB | 313 MB |
+| RSS peak | 387.4 MB | 313 MB |
+| `phys_footprint` | not available | 1234 MB |
+
+The simulator has no `PerfProbe` native readings (`phys_footprint`, thermal
+state, per-thread CPU) — that plugin is iOS-device-only in this
+configuration — so the memory axis, already the one Low Power Mode fails to
+proxy (§3.5), is not covered by this track either.
+
+### 13.8 What Track B is actually good for
+
+Narrower than the plan hoped, and now on evidence rather than assertion:
+
+* **Exact counters.** `ffi.qcad.allGeometry.entities` = 3,
+  `tabbar.rows.miss` = 1, `toolbar.setItems.calls` = 1. Counters are integers
+  and identical in meaning on both platforms; a change in call *count* is a
+  real structural regression wherever it is observed.
+* **Linkage and startup integrity.** The capture proves the native stack
+  linked and initialised — `occt smoke` and the qcad probes all completed. That
+  is the question the eleven failed runs of M209–M214 were actually about.
+* **Nothing quantitative about time.** With a 63× spread there is no ratio
+  worth quoting, not even between subsystems, unless both are measured in the
+  same layer and neither is near the quantization floor.
+
+The honest conclusion is that Track B, as currently built, is a **build and
+linkage smoke test that also produces numbers**, not a performance track. Its
+one measurement of lasting value is §13.5's refutation of the idea that it
+could be one.
 
 ---
 
