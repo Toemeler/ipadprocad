@@ -1261,8 +1261,17 @@ Under Low Power Mode; the uncapped figures are correspondingly higher.
    which is a different curve.
 6. **Ribbon leaf widgets and dialogs.** Frequency matters more than duration
    here, and `menu.ribbon.builds` = 1 makes them uninteresting at present.
-7. **Undo journal size.** Duration measured (`app.checkpoint`); retained
-   memory not.
+7. ~~**Undo journal size.**~~ **Closed (M221)** — `app.journal.depth`,
+   `.bytes` and `.bytesPerEntry` are now published by `app.history.*`. The
+   journal is unbounded by design (`app_state.dart:415`, "undo until the
+   start, nothing gets lost"); that choice is not challenged here, but its
+   consequence is now visible. `journalBytes` is an explicit **estimate** —
+   Dart exposes no retained size, so it counts 8 bytes per geometry double,
+   2 per UTF-16 code unit of the serialised strings, and a flat 64 per
+   snapshot and per `Geo`. Wrong in absolute terms, correct in shape, which
+   is what a growth question needs. **Read `bytesPerEntry`**: constant means
+   the journal grows linearly with edits, rising means each snapshot is also
+   getting bigger. No device run has produced this number yet.
 
 ### 9.2 A defect in the apparatus
 
@@ -1797,6 +1806,8 @@ than incidentally, and so its results have somewhere to land.
 | 3 | **What is the device's true best case?** Both existing runs were capped. | A run with **Low Power Mode off**. | §1.7, §3.5 |
 | 4 | Does `footprint : RSS ≈ 4–5` hold, and what drives it? | Any run; the ratio has now reproduced twice and wants a third with a different scene loaded. | §8.5 |
 | 5 | Do the M220 sweeps hold at larger sizes? `app.rebuildPart`'s CI spans linear to quadratic. | Larger fixtures, or the stress tier's rungs. | §6.8 |
+| 6 | **How fast does the undo journal grow?** It is unbounded by design and has never been sized. | `app.journal.bytesPerEntry` (M221) — constant means linear growth in edits, rising means the snapshots themselves are growing. | §8.3, §9.1 item 7 |
+| 7 | **Does a patterned fillet really cost `allEdges` per occurrence?** Currently derived from source, not measured. | Any run that patterns a blend; or the stress tier if a rung reaches one. | §8.2 |
 
 ### 14.1 How to take it
 

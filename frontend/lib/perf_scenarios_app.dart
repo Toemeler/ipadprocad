@@ -287,10 +287,30 @@ List<PerfScenario> buildAppScenarios() {
         for (var i = 0; i < 20; i++) {
           Perf.span('app.redoStep', s.redoStep);
         }
+        // M221 — the SIZE of the journal, not only the cost of adding to it.
+        //
+        // The journal is unbounded by design ("undo until the start, nothing
+        // gets lost", app_state.dart:415). That is a defensible choice whose
+        // consequence nobody has ever measured: a CAD session is an hour, and
+        // every edit in it appends a full sketch snapshot. Duration alone
+        // cannot show that — a checkpoint stays cheap while the retained set
+        // grows without bound.
+        //
+        // Bytes per checkpoint is the number to read: constant means the
+        // journal grows linearly with edits (expected), rising means each
+        // snapshot is also getting bigger.
+        Perf.gauge('app.journal.depth', s.journalDepth);
+        Perf.gauge('app.journal.bytes', s.journalBytes);
+        if (s.journalDepth > 0) {
+          Perf.gauge('app.journal.bytesPerEntry',
+              s.journalBytes ~/ s.journalDepth);
+        }
       },
       note: 'undo journal vs sketch size: 20 checkpoints, 20 undos, 20 redos. '
           'The checkpoint is the one that matters — it is paid after every '
-          'single edit, not only when the user presses undo',
+          'single edit, not only when the user presses undo. '
+          'app.journal.bytes is an ESTIMATE (see SketchModel.journalBytes); '
+          'read bytesPerEntry for the growth shape, not the absolute size',
     ));
   }
 

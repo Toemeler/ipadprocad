@@ -422,6 +422,47 @@ class SketchModel {
   /// which is a restore TARGET, never popped — hence length > 1.
   bool get canUndo => _undoStack.length > 1;
   bool get canRedo => _redoStack.isNotEmpty;
+
+  /// M221, DIAGNOSTIC ONLY — how many states the journal holds.
+  ///
+  /// The comment above says the journal is unbounded on purpose. That is a
+  /// deliberate design choice and this getter does not challenge it; it makes
+  /// the consequence *visible*. The duration of a checkpoint has been measured
+  /// since M211 (`app.checkpoint`, ~0.14 ms) but the memory it retains never
+  /// has, so "undo until the start" has always been a promise with no number
+  /// attached to it.
+  int get journalDepth => _undoStack.length + _redoStack.length;
+
+  /// M221, DIAGNOSTIC ONLY — an ESTIMATE of the bytes the journal retains.
+  ///
+  /// Deliberately an estimate, and named so. Dart exposes no per-object
+  /// retained size, so this counts what is actually variable: 8 bytes per
+  /// double of geometry, 2 bytes per UTF-16 code unit of the serialised
+  /// strings, and a flat 64 bytes of object overhead per snapshot and per
+  /// Geo. It will be wrong in absolute terms; it is correct in SHAPE, which
+  /// is what a growth question needs — the interesting result is bytes per
+  /// checkpoint and whether that stays constant as a session runs.
+  int get journalBytes {
+    var b = 0;
+    for (final s in [..._undoStack, ..._redoStack]) {
+      b += 64;
+      for (final g in s.geometry) {
+        b += 64 + g.data.length * 8;
+      }
+      b += (s.cons.length + s.uparams.length + s.texts.length +
+              s.images.length) * 2;
+      for (final l in s.layers) {
+        b += l.length * 2;
+      }
+      for (final h in s.hidden) {
+        b += h.length * 2;
+      }
+      for (final l in s.locked) {
+        b += l.length * 2;
+      }
+    }
+    return b;
+  }
   int get undoDepth => _undoStack.length;
 
   UndoSnap _takeSnap() => UndoSnap(

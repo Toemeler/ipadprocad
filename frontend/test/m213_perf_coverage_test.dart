@@ -453,6 +453,15 @@ void main() {
       final s =
           buildAppScenarios().firstWhere((sc) => sc.name == 'app.history.24');
       Perf.scenario(s.name, s.run);
+      // M221 — the journal's SIZE, not only the cost of appending to it.
+      // A depth of zero would mean the checkpoints collapsed as identical,
+      // which is the same failure the varied geometry above guards against,
+      // reached from the other side.
+      expect(Perf.gauges['app.journal.depth'] ?? 0, greaterThan(0),
+          reason: 'an empty journal means nothing was retained, so the '
+              'checkpoint timings measured a no-op');
+      expect(Perf.gauges['app.journal.bytes'] ?? 0, greaterThan(0));
+      expect(Perf.gauges['app.journal.bytesPerEntry'] ?? 0, greaterThan(0));
       expect(Perf.stats['app.checkpoint']?.count, 20);
       expect(Perf.stats['app.undoStep']?.count, 20,
           reason: 'undo must have something to step back through — a journal '
