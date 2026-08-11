@@ -60,7 +60,33 @@ tools — produced a mean of 0.00000 ms. That value is **not** a measurement of
 zero; it is the statement that every observation fell below one microsecond.
 Quoting it as “0.000 ms” would imply a precision the instrument does not have.
 
-### 1.3 Significant figures
+### 1.3 Measurement scope — two accumulators, and why they differ
+
+Every timing appears in two places, and confusing them was the source of two
+errors in an earlier draft of this document. They are stated here as a
+convention that the rest of the report follows.
+
+| Scope | Source | Contents |
+| --- | --- | --- |
+| **Scenario** | `perf_suite.json`, `perf_suite_ui.json` | Spans recorded *inside one bracketed scenario*, measured pass only |
+| **Session** | `perf_snapshot.json` | Every span recorded over the process lifetime, **including the warm-up pass** |
+
+Because `runPerfSuite` executes a warm-up pass before the measured one,
+**session counts are approximately twice scenario counts**. This is verified
+rather than assumed: `ffi.occt.allEdges` records n = 25 / 6077.70 ms in
+scenario scope and n = 50 / 12 163.32 ms in session scope — a ratio of exactly
+2.0, with the *means* agreeing to 0.07 % (243.11 ms vs 243.27 ms).
+
+The consequences for reading this report:
+
+* **Means, p50, p95 and maxima are safe in either scope** and are quoted from
+  session scope, which has the larger sample.
+* **Totals and shares are scenario-scope only.** A share computed from a
+  session total against a scenario denominator is meaningless.
+* Every share below uses the denominator `ci/perf_report.py` uses: the sum of
+  all span totals across both runners, 18 480.63 ms for this run.
+
+### 1.4 Significant figures
 
 Values are reported to **three significant figures, truncated at the
 quantization floor** for their sample size. A mean over n = 100 has
@@ -70,7 +96,7 @@ resolution; a single observation (n = 1) supports three.
 Sample size *n* is given for every timing statistic in this report. A
 statistic without an *n* is not interpretable and none appears here.
 
-### 1.4 Curve fitting
+### 1.5 Curve fitting
 
 Cost curves are fitted by ordinary least squares on log-transformed axes,
 giving the exponent *k* in t ∝ n^k. For each family this report gives:
@@ -98,7 +124,7 @@ scenario’s **dominant span total** — the largest single span recorded inside
 the scenario — which excludes fixture construction. This is the same metric
 `ci/perf_report.py` uses, so any table here can be regenerated.
 
-### 1.5 Verdict criteria
+### 1.6 Verdict criteria
 
 Three verdicts are used, defined numerically rather than by impression:
 
@@ -111,7 +137,7 @@ Three verdicts are used, defined numerically rather than by impression:
 Where a verdict rests on judgement beyond these thresholds, the judgement is
 stated in the same sentence.
 
-### 1.6 Known confounds
+### 1.7 Known confounds
 
 Stated up front because each one limits what the data can support.
 
@@ -125,7 +151,7 @@ Stated up front because each one limits what the data can support.
    the limits of that reading.
 2. **Self-interference.** The suite executes synchronous FFI calls on the UI
    thread for 24 s. Frame statistics for the session are therefore *of the
-   measurement*, not of the application at rest (§4.3).
+   measurement*, not of the application at rest (§3.4).
 3. **Warm-up.** Fixtures are memoised and a warm-up pass runs before
    measurement, but the first rung of a ramp still carries more construction
    cost than later rungs. Where this is visible it is noted.
@@ -169,7 +195,7 @@ different build of the same suite.
 | Quantity | Pre-suite | Post-suite | Interpretation |
 | --- | ---: | ---: | --- |
 | Thermal state | `nominal` (0) | `nominal` (0) | No throttling |
-| **Low Power Mode** | **on** | **on** | **CPU capped — see §1.6.1** |
+| **Low Power Mode** | **on** | **on** | **CPU capped — see §1.7 confound 1, and §3.5** |
 | `phys_footprint` | 1372 MB | 1234 MB | The metric jetsam acts on |
 | `os_proc_available_memory` | 3747 MB | 3885 MB | Headroom ample |
 | Resident (RSS) | 234 MB | 323 MB | |
@@ -224,7 +250,7 @@ Session: n = 304 frames, 39.0 fps, 162 frames over 33 ms.
 | `frame.total` | 304 | 25.6 ms | 36.0 ms | 37.6 ms | 154 ms |
 
 Build + raster ≈ 2.4 ms at p50 against a 36 ms frame total. **The residual is
-the UI thread blocked by the suite’s own synchronous kernel calls** (§1.6.2).
+the UI thread blocked by the suite’s own synchronous kernel calls** (§1.7 confound 2).
 These figures characterise the instrument under load, not the application in
 use, and no usability conclusion is drawn from them.
 
@@ -335,7 +361,7 @@ Ranked by severity. Every row is expanded, with its evidence, in §5–§8.
 
 | # | Subsystem | Measured cost | *k* [95 % CI] | Verdict |
 | ---: | --- | ---: | ---: | --- |
-| 1 | `occt_shape_edge_info` / `allEdges` | 243 ms mean, 1702 ms max, 32.9 % of suite | **1.935** [1.910, 1.960] | **PROBLEM** |
+| 1 | `occt_shape_edge_info` / `allEdges` | 243 ms mean, 1702 ms max, 32.9 % of measured span time | **1.935** [1.910, 1.960] | **PROBLEM** |
 | 2 | Solver LM fallback | 50.4 ms vs 0.271 ms (186×) | bimodal, not a curve | **PROBLEM** |
 | 3 | Painter solves twice per dragged frame | 86.8 % of paint time | — (exact counts) | **PROBLEM** |
 | 4 | `analyzeSketch` | 156 ms at 256 entities | **2.30** [2.15, 2.46] | **PROBLEM** |
@@ -457,8 +483,10 @@ Mechanism, isolated (`solve.overConstrained`, n = 10):
 | `solve.slvs` | 2.16 ms | 3.2 % |
 | `ffi.slvs.solve` | 0.228 ms | **0.34 %** |
 
-libslvs performs comparably in both regimes (0.228 ms here against 0.220 ms in
-a normal drag). **The 290× difference is entirely Dart-side.**
+libslvs performs comparably in both regimes (0.2281 ms here against 0.2202 ms
+in a normal drag — a ratio of 1.04). The end-to-end difference between an
+over-constrained solve and a normal one is **66.352 / 0.2711 = 245×**, and
+**all of it is Dart-side.**
 `solver.dart:2172` verifies the native result against its own residuals,
 rejects it above tolerance (`solve.slvs.rejected.residual` = 10 for these 10
 solves), then runs the Dart Levenberg–Marquardt — twice during a drag
@@ -545,7 +573,7 @@ the curve *is* a power law and cannot reveal a knee.
 **No exponent is claimed for this family.** R² = 0.62 and a CI spanning
 [0.36, 1.55] mean the data do not support a power law: the first rung carries
 fixture cost and two rungs (16, 64) fall below their predecessors. Per rule
-§1.4.2, this is reported as an absence of fit rather than as a number.
+rule 2 of §1.5, this is reported as an absence of fit rather than as a number.
 
 What the data *do* support is the endpoint: **14.9 ms per dragged frame at 128
 entities**, which at two solves per frame exceeds a 120 Hz budget and
@@ -632,7 +660,8 @@ one):
 | `coincident` | 0.629 | | `equal` | 0.520 |
 | `collinear` | 0.624 | | `smooth` | 0.440 |
 
-**Entering one dimension costs 85× a coincident constraint.** The four
+**Entering one dimension costs 70× a coincident constraint, and 101× the
+cheapest (`smooth`).** The four
 expensive types are precisely those whose native result fails verification,
 triggering the Dart LM path of §5.4. This is the same defect observed from the
 editing side rather than the dragging side, and the two observations are
@@ -781,16 +810,20 @@ Three independent lines of evidence, each capable of refuting the others.
 
 **Observed cost.**
 
-| Quantity | Value |
-| --- | ---: |
-| `ffi.occt.allEdges` | n = **50** |
-| Total | **12 163 ms** |
-| Mean | **243 ms** |
-| p50 | 50.0 ms |
-| p95 | **1171 ms** |
-| Max | **1702 ms** |
-| Share of suite | **32.9 %** |
-| `ffi.occt.edgeInfo.calls` (exact) | **6552** |
+| Quantity | Scenario scope | Session scope |
+| --- | ---: | ---: |
+| `ffi.occt.allEdges` observations | n = **25** | n = **50** (incl. warm-up) |
+| Total | **6077.70 ms** | 12 163.32 ms |
+| Mean | **243.11 ms** | 243.27 ms |
+| p50 | — | 50.0 ms |
+| p95 | — | **1171 ms** |
+| Max | — | **1702 ms** |
+| **Share of all measured span time** | **32.9 %** | — |
+| `ffi.occt.edgeInfo.calls` (exact counter) | — | **6552** |
+
+Per §1.3: the two scopes differ by the warm-up pass (ratio exactly 2.0) and
+their means agree to 0.07 %. The share is scenario-scope against the
+18 480.63 ms denominator; distribution statistics are session-scope.
 
 **Evidence 1 — growth curve.** `ramp.allEdges`, N = 7,
 **k = 1.935, R² = 0.99978, 95 % CI [1.910, 1.960]**
@@ -816,14 +849,16 @@ The requested work is held constant; only the surrounding shape varies.
 
 N = 4, **k = 0.99, R² = 0.9999, 95 % CI [0.97, 1.01]**
 
-| Profile pts | Edges | Faces | mean per call | ratio to smallest |
+| Profile pts | Edges | Faces | mean per call (n = 40) | ratio to smallest |
 | ---: | ---: | ---: | ---: | ---: |
-| 24 | 72 | 26 | 0.625 ms | 1.00 |
-| 60 | 180 | 62 | 1.51 ms | 2.41 |
-| 120 | 360 | 122 | 3.04 ms | 4.86 |
-| 240 | 720 | 242 | **6.07 ms** | **9.73** |
+| 24 | 72 | 26 | 0.6252 ms | 1.00 |
+| 60 | 180 | 62 | 1.5080 ms | 2.41 |
+| 120 | 360 | 122 | 3.0383 ms | 4.86 |
+| 240 | 720 | 242 | **6.0729 ms** | **9.71** |
 
-Edge count ×10 → cost of one unchanged query ×9.73, with the exponent’s CI
+Edge and face counts are exact gauges read from the kernel, not derived.
+
+Edge count ×10 → cost of one unchanged query ×9.71, with the exponent’s CI
 excluding anything outside [0.97, 1.01]. **A single `edgeInfo` is Θ(shape).**
 `allEdges` issues one per edge; n × Θ(n) = Θ(n²) then follows arithmetically
 rather than by inference. A flat line here would have refuted the hypothesis
@@ -839,14 +874,16 @@ and returned the diagnosis to the FFI boundary; it did not appear.
 
 | Query | n | mean | ratio |
 | --- | ---: | ---: | ---: |
-| `kernel.edgeInfo1` (one edge) | 40 | 2.99 ms | 1.00 |
-| `kernel.counts()` | 40 | 0.205 ms | **1/14.6** |
-| `kernel.bbox()` | 40 | 0.165 ms | **1/18.1** |
+| `kernel.edgeInfo1` (one edge) | 20 | 2.9862 ms | 1.00 |
+| `kernel.counts()` | 20 | 0.2061 ms | **1/14.5** |
+| `kernel.bbox()` | 20 | 0.1651 ms | **1/18.1** |
 
 Touching the shape is cheap; crossing the FFI boundary is cheap; querying one
-edge is not. **Closure check:** 360 × 2.99 ms = 1077 ms against a measured
-`allEdges` of ≈ 1170 ms — **92 % of the total accounted for by per-call cost**,
-the residual 8 % being boundary crossings and Dart-side list construction.
+edge is not. **Closure check:** 360 × 2.9862 ms = 1075.0 ms against the measured
+`allEdges` of 1169.7 ms on the same solid (`kernel.allEdges.sweep.120`) —
+**91.9 % of the total accounted for by per-call cost**, the residual 8.1 %
+being boundary crossings and Dart-side list construction. Both figures are
+scenario-scope, so the comparison is like-for-like.
 
 **Mechanism in source** (`backend/occt/shim/occt_capi.cpp`): each call performs
 four whole-shape operations — `TopExp::MapShapes` (:1738),
@@ -864,7 +901,7 @@ as extrapolation with its interval propagated from the fit:
 | CI lower (k = 1.910) | 75.8 s |
 | CI upper (k = 1.960) | 108 s |
 
-Correcting for Low Power Mode (§1.6.1, ≈ 2×) gives an order of **40–55 s** on
+Correcting for Low Power Mode (§1.7 confound 1 and §3.5, ≈ 1.89×) gives an order of **40–55 s** on
 an uncapped device, consistent with the ≈ 48 s previously derived by a
 different route.
 
@@ -917,7 +954,7 @@ i.e. the Dart wrapper adds nothing measurable. **Verdict: SMOOTH.**
 **95 % CI [1.04, 2.39]**.
 
 **The interval spans linear to quadratic; the two cannot be distinguished from
-three points.** Per rule §1.4.3 no scaling claim is made. The measured values
+three points.** Per rule 3 of §1.5 no scaling claim is made. The measured values
 are 3.78 ms (1 feature), 40.8 ms (3), 75.2 ms (6).
 
 Composition of the 6-feature rebuild (3 forced passes, 18 feature computations):
@@ -1143,7 +1180,7 @@ Two observations:
   plausible for RealityKit/Metal, where IOSurface and GPU allocations count
   toward footprint but not RSS, but the discrepancy is large enough that it
   requires independent corroboration before any decision rests on it. Open
-  since PERF_ANALYSIS §13.8. **iOS terminates on footprint, not RSS**, so this
+  since `PERF_ANALYSIS.md` §13.8. **iOS terminates on footprint, not RSS**, so this
   is the operative number.
 * **14 bytes per triangle** converts file-size questions into arithmetic: a
   100 000-triangle model is ≈ 1.4 MB of mesh.
@@ -1321,10 +1358,10 @@ it safe to act on.
 
 The LPM-off to LPM-on transition (columns 1 → 2) produced a uniform
 1.67–2.05× slowdown across four unrelated subsystems, which is the empirical
-basis for the ≈ 2× correction applied throughout this report (§1.6.1).
+basis for the ≈ 2× correction applied throughout this report (§1.7 confound 1).
 
 ---
 
 *Source: `bug20260811T104745`, build `cd961ee`, iPadOS 27.0, single device.
 All tables regenerable via `python3 ci/perf_report.py <bundle.zip>`; fit
-statistics (R², CI) computed as specified in §1.4.*
+statistics (R², CI) computed as specified in §1.5.*
