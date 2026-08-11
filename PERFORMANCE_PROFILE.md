@@ -1534,7 +1534,70 @@ proxy for slower hardware.
 
 ---
 
-## 13. Complete data appendix
+## 13. Track B — the iOS Simulator
+
+### 13.1 Why this section was empty for the whole branch
+
+`sim-perf.yml` builds the entire native stack for `iphonesimulator/x86_64`,
+builds the Flutter app against it, boots an iPad simulator, runs the app and
+retrieves `performance_logs.txt` and `performance_snapshot.json` from the data
+container. It has been green since run 32 (6 Aug).
+
+**Not one of its numbers had ever been read.** The measurement worked; the
+*delivery* did not. GitHub artifacts are served from Azure blob storage, which
+the agent proxy refuses (HTTP 403 on the CONNECT tunnel), so the capture was
+reachable only by a human downloading a zip. Item 1 of `PERF_ANALYSIS.md` §7 —
+"run sim-perf once, pull `perf-capture`" — had therefore stood open since M215
+while the job that satisfies it ran green a dozen times.
+
+This is worth recording as a methodological failure in its own right: **a
+measurement with no delivery path is not a measurement.** It is the same class
+of defect as §9.2, where a diagnostic is written 25 seconds after the snapshot
+meant to carry it.
+
+### 13.2 The fix
+
+The workflow now publishes its capture to a **`ci-logs-perf` branch** as well
+as an artifact, reusing the pattern the repository already uses for
+`ci-debug-logs-dart`, `-m3` and `-m5`. The files are small (one text log and
+two JSON), so a branch is a cheap and durable channel, and git is reachable
+from every environment that needs to read them. A `RUN.txt` stamps run id,
+commit and timestamp, because two simulator captures are otherwise
+indistinguishable.
+
+### 13.3 What these numbers may and may not be used for
+
+Established in `PERF_ANALYSIS.md` §6a and unchanged. Flutter refuses
+`--profile` and `--release` for the simulator, so the engine is JIT/debug:
+
+| Legitimate to read | **Not** legitimate to read |
+| --- | --- |
+| `ffi.occt.*`, `ffi.slvs.*`, `ffi.qcad.*` **relative to each other** | fps, `frame.build`, `frame.raster`, jank |
+| **All counters** — call counts, entity counts, solves per frame, cache hit rates | absolute milliseconds as iPad milliseconds |
+| Structural regressions ("does it now call this twice as often?") | anything about rendering |
+
+The native half is built `-DCMAKE_BUILD_TYPE=Release`, exactly as for the
+device, so kernel *ratios* transfer. The Dart half is unoptimised and its
+frame times are meaningless. Quoting a simulator millisecond as an iPad
+millisecond repeats the M75 error in new clothing.
+
+A second, structural caveat specific to this track: the whole stack runs
+**x86_64 under Rosetta** on an arm64 runner, because the Qt-for-iOS package
+ships only an x86_64 simulator slice. So this is not merely a different clock
+from the device — it is a different instruction set, executed under binary
+translation. Relative kernel costs survive that; nothing else reliably does.
+
+### 13.4 Status
+
+**Open.** The delivery mechanism is built and pushed; the first capture it
+produces has not yet landed at the time of writing. When `ci-logs-perf`
+carries a capture, this section is to be filled with the native-kernel ratios
+and the counter comparison against §5–§8, and the corresponding item in §9.3
+closed.
+
+---
+
+## 14. Complete data appendix
 
 Sections 1–12 are analysis: they select, rank and interpret. Selection is
 where bias enters — the spans nobody printed are the spans nobody questioned —
@@ -2847,5 +2910,5 @@ Ramps use fine steps so a **knee** is visible. A fit through three points assume
 
 *Source: `bug20260811T104745`, build `cd961ee`, iPadOS 27.0, single device.
 Sections 1–12 regenerable via `python3 ci/perf_report.py <bundle.zip>`;
-section 13 via `python3 ci/perf_profile.py <bundle.zip>`. Fit statistics
+section 14 via `python3 ci/perf_profile.py <bundle.zip>`. Fit statistics
 (R², CI) computed as specified in §1.5.*
