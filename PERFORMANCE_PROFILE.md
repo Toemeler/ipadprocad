@@ -119,9 +119,10 @@ Stated up front because each one limits what the data can support.
    The CPU is capped by policy. A prior controlled comparison — builds
    `7fb7f8b` (LPM off) and `9bfe397` (LPM on), same suite — measured a uniform
    1.67–2.05× slowdown across four unrelated subsystems, so **absolute times
-   here are approximately 2× pessimistic**. Ratios, exponents and counts are
-   unaffected, which is why this report leads with those wherever a choice
-   exists.
+   here are approximately 2× pessimistic** for this device at full clock.
+   Ratios, exponents and counts are unaffected. This condition is **not only a
+   confound**: §3.5 shows it is a usable proxy for slower hardware, and states
+   the limits of that reading.
 2. **Self-interference.** The suite executes synchronous FFI calls on the UI
    thread for 24 s. Frame statistics for the session are therefore *of the
    measurement*, not of the application at rest (§4.3).
@@ -226,6 +227,105 @@ Build + raster ≈ 2.4 ms at p50 against a 36 ms frame total. **The residual is
 the UI thread blocked by the suite’s own synchronous kernel calls** (§1.6.2).
 These figures characterise the instrument under load, not the application in
 use, and no usability conclusion is drawn from them.
+
+### 3.5 Low Power Mode as a proxy for older hardware
+
+The cap is an accidental controlled experiment, and a useful one: the app must
+also run on iPads considerably slower than an M4. The question is what kind of
+transform Low Power Mode applies — a uniform clock scaling, or a change in the
+machine's balance.
+
+**The data answer it.** Four subsystems, same suite, same device, LPM off → on:
+
+| Subsystem | Work dominated by | LPM off | LPM on | ratio |
+| --- | --- | ---: | ---: | ---: |
+| `allEdges` @ 360 edges | native C++ topology traversal (pointer-chasing, memory-bound) | 607 ms | 1171 ms | **1.929** |
+| `analysis.sweep.64` | Dart dense matrix reduction | 15.69 ms | 26.27 ms | 1.674 |
+| `solve.sweep.64` | native libslvs + Dart verification | 7.96 ms | 16.31 ms | 2.049 |
+| `gear.curve.20` | Dart transcendental arithmetic (compute-bound) | 5.13 ms | 9.85 ms | **1.920** |
+
+Mean 1.893, SD 0.157, **CV 8.3 %**, range 1.674–2.049.
+
+The decisive comparison is the first row against the last: a **memory-bound
+native traversal** and a **compute-bound Dart floating-point loop** scale by
+1.929 and 1.920 — a difference of 0.5 %. Had the cap altered memory bandwidth
+or cache behaviour disproportionately, those two would have separated sharply.
+They do not. **Low Power Mode behaves as a clock scalar, not as a different
+machine.**
+
+**Why this proxy is unusually valid for this application.** Finding B1 of the
+original survey still holds: there is not a single `Isolate` in the codebase,
+and all 58 FFI entry points execute synchronously on the UI thread. The app is
+therefore clock-bound and effectively single-threaded on its critical path, so
+core count is nearly irrelevant to it and clock is nearly everything — exactly
+the axis Low Power Mode moves. For a parallel application this proxy would be
+much weaker.
+
+#### What it does and does not stand in for
+
+| Axis of an older iPad | Proxied? | Basis |
+| --- | --- | --- |
+| Lower CPU clock | **Yes, well** | Uniform 1.89× across unrelated subsystems |
+| Single-thread-bound critical path | **Yes** | Zero isolates; all FFI on the UI thread |
+| 60 Hz panel rather than ProMotion | **Yes, incidentally** | LPM caps refresh; §8.6 gives the 60 Hz budget |
+| Smaller caches / lower memory bandwidth | **No** | LPM leaves the balance unchanged; an older SoC would not, and `allEdges` is precisely the pointer-chasing workload that would degrade *more* than the scalar predicts |
+| **Less RAM, lower jetsam ceiling** | **No** | This device had 3.7–3.9 GB of headroom throughout. A 3–4 GB iPad has far less |
+| Weaker GPU | **Not tested** | `frame.raster` p95 was 3.46 ms here and is not GPU-limited |
+
+The unproxied memory axis is the consequential one: **the field crash was a
+memory kill on `phys_footprint`, and Low Power Mode says nothing whatsoever
+about that.** The two figures that do transfer unchanged, because they are
+properties of the data rather than of the processor, are **14 bytes per
+triangle** and **2 KB per solid** (§8.5). On a 4 GB iPad those convert directly
+into a much lower ceiling on model size.
+
+#### What a slower device can still handle
+
+For a cost model t = c·n^e, holding wall time fixed, the reachable size on a
+device k times slower scales as k^(−1/e). Taking k = 1.893 — that is, treating
+these LPM figures as the *fast* case and asking about a device a further factor
+of 1.89 slower:
+
+| Operation | e | Reachable size vs the faster device |
+| --- | ---: | ---: |
+| `analyzeSketch` | 2.30 | 75.8 % |
+| `allEdges` | 1.935 | **71.9 %** |
+| Constraint density | 1.79 | 70.0 % |
+| Booleans | 1.07 | 55.1 % |
+| Mesh / extrude | 0.99 | 52.5 % |
+
+**A non-obvious consequence: steeper exponents lose *less* reachable size.**
+Because a quadratic cost climbs fast, only a modest reduction in size is needed
+to absorb a given slowdown, whereas a linear operation must halve its input to
+absorb a factor of two. This inverts the intuition that superlinear operations
+are the ones that "fall off a cliff" on weaker hardware — on the *size* axis
+they degrade most gracefully. What makes them dangerous is not their behaviour
+across devices but their behaviour across model sizes on any one device.
+
+Applying this to the dominant defect — the model size at which `allEdges`
+alone consumes one second:
+
+| Device state | 1-second threshold |
+| --- | ---: |
+| This device, LPM off (≈ 1.89× faster) | ≈ 456 edges |
+| **This device, LPM on (as measured)** | **≈ 328 edges** |
+| A device a further 1.89× slower | ≈ 236 edges |
+
+A part with a few hundred edges is unremarkable. On slower hardware the defect
+of §6.5 is not merely slower — it is reached by smaller models.
+
+#### Standing recommendation
+
+Because the transform is uniform and the application is clock-bound, **runs
+under Low Power Mode are worth keeping deliberately**, not merely tolerated
+when they happen. The productive protocol is to capture both: an uncapped run
+for the device's true best case, and a capped run as a standing lower bound
+that approximates weaker hardware. What a capped run cannot substitute for is a
+**memory**-constrained one, and that gap can only be closed on a device with
+less RAM, or by the stress tier's memory ladders (§9.3), which have still never
+been executed on any device.
+
+---
 
 ---
 
@@ -1102,8 +1202,15 @@ construction.
 ### 9.3 Conditions never yet observed
 
 * **A run with Low Power Mode off.** Both recent device runs were capped.
-  Every absolute figure here is ≈ 2× pessimistic and no clean best-case
-  baseline exists.
+  Every absolute figure here is ≈ 2× pessimistic for this device at full clock,
+  and no clean best-case baseline exists. Note this is a gap in the *upper*
+  bound only — §3.5 argues the capped run is the more useful of the two for
+  the older-hardware question, so the correct remedy is to hold both, not to
+  replace one with the other.
+* **A memory-constrained device.** The unproxied axis (§3.5). This device had
+  3.7–3.9 GB of headroom; the field crash was a `phys_footprint` kill. Nothing
+  in this report constrains behaviour on a 3–4 GB iPad except the
+  hardware-independent 14 bytes/triangle and 2 KB/solid.
 * **The stress tier has never executed on a device.** It is green in CI and
   present in the build (type `stress` in the bug description to include it).
   Its ladders are the only instrument that measures where the application
@@ -1184,8 +1291,9 @@ or not they were confirmed.
 | 8 | Pattern arithmetic contributes materially | **Refuted** | all five kinds ≤ 0.0213 ms |
 | 9 | Fillet cost scales with the number of edges filleted | **Refuted** | R² = 0.0025; cost independent of n, dominated by candidate search |
 | 10 | The 3.92 s solver outlier is size-driven | **Refuted** | fast-path solve is 0.271 ms at any measured size; the outlier is the LM fallback (bimodal, 186×) |
+| 11 | Low Power Mode is only a confound to be corrected away | **Refuted** | It is a uniform clock scalar (CV 8.3 %, memory-bound and compute-bound workloads within 0.5 % of each other) and therefore a usable proxy for slower hardware — §3.5 |
 
-Seven of ten predictions were refuted. This is the intended function of the
+Eight of eleven predictions were refuted. This is the intended function of the
 exercise: the measurements exist to overturn assumptions, and a suite that only
 ever confirmed them would not be earning its cost.
 
