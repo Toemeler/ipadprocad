@@ -25,10 +25,12 @@ import '../ffi/qcad_engine.dart' show Geo;
 import '../part_model.dart';
 import '../part_render.dart';
 import '../reality_scene.dart';
+import '../menus.dart';
 import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
-import 'package:native_menu/native_menu.dart' show GlassBrowser;
+import 'package:native_menu/native_menu.dart'
+    show GlassBrowser, NativeMenu, NativeMenuItem;
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'ribbon_chrome.dart';
@@ -45,6 +47,35 @@ const _greenBright = Color(0xFF8DFFA0);
 // ../part_render.dart now — shared verbatim with off-screen thumbnail
 // rendering (AppState._writePartPreview). kSolidBase/kSolidEdge moved with
 // them.
+
+/// M218 — the context menu behind a LONG PRESS on a sketch in the 3D
+/// viewport ("long press a sketch in 3d and export as dxf only this sketch").
+///
+/// Edit and Hide are the model browser's own sketch commands, under the same
+/// ids; Export and Share are the reason this menu exists. A sketch inside a
+/// part is a DRAWING, and a drawing is something you hand to a machine — the
+/// part exports as STEP, and until now the profile that would actually be cut
+/// could only leave the app by way of the whole solid.
+///
+/// Visibility is one-way here, unlike the browser's Hide/Show toggle: only a
+/// VISIBLE sketch can be under the finger ([_pickSketchCurve] skips the rest),
+/// so a "Show" that could never be reached would be a dead control.
+///
+/// Top-level and const so a host test can pin the contract — ids, order,
+/// labels — without a device: UIKit never sees these strings, this list is
+/// their only source (exactly like `sketchMenuGroups` for the gallery card).
+List<NativeMenuItem> sketch3dMenuItems() => const [
+      NativeMenuItem(id: 'skEdit', title: 'Edit Sketch', symbol: 'pencil.tip'),
+      NativeMenuItem(id: 'skVisible', title: 'Hide', symbol: 'eye.slash'),
+      NativeMenuItem(
+          id: 'skExportDxf',
+          title: 'Export DXF…',
+          symbol: 'square.and.arrow.down'),
+      NativeMenuItem(
+          id: 'skShareDxf',
+          title: 'Share DXF…',
+          symbol: 'square.and.arrow.up'),
+    ];
 
 class Viewport3D extends StatefulWidget {
   final AppState app;
@@ -80,6 +111,7 @@ class _Viewport3DState extends State<Viewport3D>
   void dispose() {
     _camAnim?.dispose();
     _refineTimer?.cancel();
+    _cancelLongPress();
     // The controller itself is owned (and disposed) by the RealityView widget's
     // own State; just drop our reference so late pushes are no-ops.
     _reality = null;
@@ -158,6 +190,23 @@ class _Viewport3DState extends State<Viewport3D>
   // coalesces into a single kernel re-mesh once the gesture settles.
   Timer? _refineTimer;
 
+  // ==== M218 — long press on a sketch = its context menu ==================
+  //
+  // A timer in the raw Listener, not GestureDetector.onLongPressStart, and
+  // ARMED ONLY when the press starts on a sketch curve. The reason is the
+  // one-finger orbit: a long-press recognizer that joins the arena wins it by
+  // holding still for half a second, and everything else in the gesture — the
+  // orbit the user was about to start — is rejected with it. Arming on the
+  // pick means a press anywhere else never enters the question, and a press
+  // ON a curve is a press on the one thing that has a menu.
+  Timer? _lpTimer;
+  Offset _lpDown = Offset.zero;
+
+  /// True from the moment the press fires until the next pointer goes down:
+  /// the tap that ends the SAME contact must not also run the general pick,
+  /// and the camera must not orbit out from under an open menu.
+  bool _lpFired = false;
+
   // M60: the RealityKit output surface. Null until the platform view is
   // created, and always null off-iOS — where the CPU painter (_ScenePainter)
   // still draws, so host/widget tests and the headless thumbnail path are
@@ -230,6 +279,119 @@ class _Viewport3DState extends State<Viewport3D>
       }
     }
     return best.value;
+  }
+
+  // ---- M218: long press a sketch -> Edit / Hide / Export DXF / Share ------
+
+  /// The sketch a long press at [px] would act on, or null.
+  ///
+  /// Both the ARMING test and the ACTING test, so what starts the timer and
+  /// what the menu is built for can never disagree — the finger may have
+  /// wandered a few pixels in between, and the answer must still be the same
+  /// sketch or no menu at all.
+  ChildSketch? _sketchAt(Cam3 cam, Offset px) {
+    final p = part;
+    if (p == null || widget.app.picking3D || widget.app.activeChild != null) {
+      return null;
+    }
+    final key = _pickSketchCurve(cam, px);
+    if (key == null) return null;
+    final i = key.lastIndexOf('#');
+    return i < 0 ? null : p.sketchByName(key.substring(0, i));
+  }
+
+  void _cancelLongPress() {
+    _lpTimer?.cancel();
+    _lpTimer = null;
+  }
+
+  /// The press has been held long enough: select the whole sketch (so what is
+  /// about to be exported is lit up while the menu is over it) and open the
+  /// menu at the finger.
+  Future<void> _fireSketchLongPress(
+      Cam3 cam, Offset local, Offset global) async {
+    _lpTimer = null;
+    if (!mounted) return;
+    final cs = _sketchAt(cam, local);
+    if (cs == null) return;
+    _lpFired = true;
+    HapticFeedback.selectionClick();
+    // M205 — anything else that is open is cancelled by a press elsewhere,
+    // and this press is elsewhere.
+    OpenMenus.closeAll();
+    setState(() {
+      _selSketch
+        ..clear()
+        ..addAll([
+          for (var gi = 0; gi < cs.model.geometry.length; gi++)
+            sketchKey(cs.model.name, gi)
+        ]);
+    });
+    // iPad refuses to present a popover without a source rectangle, and the
+    // finger is the source: an action sheet at the press point, and the share
+    // sheet that may follow it hangs off the same spot.
+    final anchor = Rect.fromCenter(center: global, width: 1, height: 1);
+    final choice = await _showSketchMenu(anchor, cs.model.name);
+    if (choice == null || !mounted) return;
+    await _onSketchMenu(choice, cs, anchor);
+  }
+
+  /// The native action sheet on iOS, an identical Flutter popup everywhere
+  /// else — same ids, so both paths funnel into one handler.
+  Future<String?> _showSketchMenu(Rect anchor, String title) async {
+    final items = sketch3dMenuItems();
+    if (NativeMenu.isSupported) {
+      // The sketch's NAME as the sheet title: a curve in 3D is a thin line
+      // among several, and the menu has to say which sketch it caught.
+      return NativeMenu.menu(items: items, anchor: anchor, title: title);
+    }
+    return showMenu<String>(
+      context: context,
+      color: T.fly,
+      position: RelativeRect.fromLTRB(
+          anchor.left, anchor.top, anchor.left, anchor.top),
+      items: [
+        for (final i in items)
+          PopupMenuItem<String>(
+              value: i.id,
+              height: 40,
+              child: Text(i.title, style: ts(12.5, T.text))),
+      ],
+    );
+  }
+
+  Future<void> _onSketchMenu(String id, ChildSketch cs, Rect anchor) async {
+    final app = widget.app;
+    switch (id) {
+      case 'skEdit':
+        app.openChildSketch(cs.model.name);
+        break;
+      case 'skVisible':
+        app.toggleSketchVisible(cs);
+        break;
+      case 'skExportDxf':
+        await _sendSketchDxf(cs, anchor, share: false);
+        break;
+      case 'skShareDxf':
+        await _sendSketchDxf(cs, anchor, share: true);
+        break;
+    }
+  }
+
+  /// Writes the sketch's DXF and hands it to the Files exporter (Save to
+  /// Files) or the share sheet. A refusal has already said why on screen
+  /// ([AppState.childSketchExportPath]), so a null path is silent here.
+  Future<void> _sendSketchDxf(ChildSketch cs, Rect anchor,
+      {required bool share}) async {
+    final p = part;
+    if (p == null) return;
+    final path = await widget.app.childSketchExportPath(p.name, cs.model.name);
+    if (path == null || !mounted) return;
+    if (share) {
+      await NativeMenu.shareFile(path, anchor: anchor);
+    } else {
+      await NativeMenu.exportFile(path, anchor: anchor);
+    }
   }
 
   /// Push the current camera (always), the scene (only when its signature
@@ -383,8 +545,28 @@ class _Viewport3DState extends State<Viewport3D>
                 _mmbPan = HardwareKeyboard.instance.isShiftPressed;
                 _mmbLast = e.localPosition;
               }
+              // M218 — long-press a SKETCH for its context menu (the
+              // right-click role, 600 ms, exactly as in 2D — M53). Armed only
+              // when the press starts ON a curve and nothing else has claimed
+              // the pointer, so navigation is untouched everywhere else.
+              _cancelLongPress();
+              _lpFired = false;
+              if (_wpDrag == null &&
+                  _wpNewBase == null &&
+                  !_mmb &&
+                  _sketchAt(cam, e.localPosition) != null) {
+                _lpDown = e.localPosition;
+                _lpTimer = Timer(const Duration(milliseconds: 600),
+                    () => _fireSketchLongPress(cam, _lpDown, e.position));
+              }
             },
             onPointerMove: (e) {
+              // Moving is orbiting or dragging, not a long press (8 px, the
+              // 2D viewport's threshold).
+              if (_lpTimer != null &&
+                  (e.localPosition - _lpDown).distance > 8) {
+                _cancelLongPress();
+              }
               // M174 — a new plane being dragged off its base. Same projection
               // as M169: pointer travel onto the base normal, scaled by the
               // normal's screen length per world mm.
@@ -447,6 +629,10 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerUp: (_) {
               _mmb = false;
+              // The press ended before the menu was earned. (_lpFired is NOT
+              // cleared here: the tap that follows this up must still know
+              // the press was consumed, and the next pointer down clears it.)
+              _cancelLongPress();
               if (_wpNewBase != null) {
                 _wpNewBase = null;
                 _wpMoved = false;
@@ -468,6 +654,7 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerCancel: (_) {
               _mmb = false;
+              _cancelLongPress();
               if (_wpNewBase != null) {
                 _wpNewBase = null;
                 _wpMoved = false;
@@ -539,6 +726,10 @@ class _Viewport3DState extends State<Viewport3D>
                 // as well would fight it.
                 onTapUp: (d) {
                   if (_wpDrag != null) return;
+                  // M218 — the long press already consumed this contact: it
+                  // opened the sketch menu, and the finger coming off it is
+                  // not a pick.
+                  if (_lpFired) return;
                   _tap(cam, d.localPosition);
                 },
                 onScaleStart: (d) {
@@ -559,6 +750,12 @@ class _Viewport3DState extends State<Viewport3D>
                     p.camera.oy += mv.dy * wpp;
                   } else if (!_mmb &&
                       _wpDrag == null &&
+                      // M218 — and NOT under an open sketch menu. Same trap
+                      // as the work-plane drag: the press that opened it
+                      // lives in the raw Listener, so the finger still on the
+                      // glass would otherwise orbit the model away behind the
+                      // sheet.
+                      !_lpFired &&
                       _dragKind == PointerDeviceKind.touch) {
                     // One finger orbits ON TOUCH only. A single trackpad or
                     // mouse drag is reserved for picking and must not move the

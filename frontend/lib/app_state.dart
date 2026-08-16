@@ -1898,50 +1898,9 @@ class AppState extends ChangeNotifier {
     if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
     final named = File('${exportDir.path}/$name.dxf');
 
-    // M112 — EXPORT A COPY, not the storage file.
-    //
-    // Construction and centreline geometry is only construction because of a
-    // Dart-side style tag that rides in a SIDECAR; the DXF itself has no such
-    // flag, so handing over the storage file exports scaffolding as REAL
-    // geometry. Anyone manufacturing from it cuts the construction lines. That
-    // was the one thing blocking this from being production-ready.
-    //
-    // The fix is the standard convention: construction geometry goes onto
-    // "Defpoints", which every CAD package treats as non-plotting. The
-    // geometry is still there — you can see it, snap to it, and re-import it —
-    // it just cannot be mistaken for the part.
     final model = await _loadSketchIn(_stage(name), name, base: kSketchBase);
     try {
-      final gs = model.geometry;
-      final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
-      if (!needsSplit) {
-        f.copySync(named.path); // nothing to protect: ship it under its name
-        return named.path;
-      }
-      final out = named;
-      final tmp = SketchModel('_export');
-      try {
-        tmp.layers
-          ..clear()
-          ..addAll(model.layers);
-        if (!tmp.layers.contains(kDxfConstructionLayer)) {
-          tmp.layers.add(kDxfConstructionLayer);
-        }
-        _rebuildEngine(tmp, [
-          for (final g in gs)
-            (g.isConstruction || g.isCenterline)
-                ? g.onLayer(kDxfConstructionLayer)
-                : g
-        ]);
-        if (!tmp.engine.saveDxf(out.path)) {
-          Log.w('export', 'export copy failed; falling back to storage file');
-          f.copySync(named.path);
-          return named.path;
-        }
-      } finally {
-        tmp.dispose();
-      }
-      return out.path;
+      return _writeExportDxf(model, named, storage: f);
     } catch (e) {
       Log.w('export', 'export copy failed: $e');
       try {
@@ -1953,6 +1912,60 @@ class AppState extends ChangeNotifier {
     } finally {
       if (!sketches.containsKey(name)) model.dispose();
     }
+  }
+
+  /// Writes [model] to [out] as the EXPORT copy and returns its path, or null
+  /// when nothing could be written. [storage] is the sketch's own DXF where
+  /// one exists — the cheapest correct answer when there is nothing to
+  /// protect, and the fallback when the rebuild fails.
+  ///
+  /// M112 — EXPORT A COPY, not the storage file.
+  ///
+  /// Construction and centreline geometry is only construction because of a
+  /// Dart-side style tag that rides in a SIDECAR; the DXF itself has no such
+  /// flag, so handing over the storage file exports scaffolding as REAL
+  /// geometry. Anyone manufacturing from it cuts the construction lines. That
+  /// was the one thing blocking this from being production-ready.
+  ///
+  /// The fix is the standard convention: construction geometry goes onto
+  /// "Defpoints", which every CAD package treats as non-plotting. The
+  /// geometry is still there — you can see it, snap to it, and re-import it —
+  /// it just cannot be mistaken for the part.
+  ///
+  /// M218 — shared with [childSketchExportPath]: a sketch inside a part is a
+  /// sketch, and the rule that keeps scaffolding out of a manufactured part
+  /// cannot be one the gallery has and the 3D viewport has not.
+  String? _writeExportDxf(SketchModel model, File out, {File? storage}) {
+    final gs = model.geometry;
+    final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
+    if (!needsSplit && storage != null && storage.existsSync()) {
+      storage.copySync(out.path); // nothing to protect: ship it under its name
+      return out.path;
+    }
+    final tmp = SketchModel('_export');
+    try {
+      tmp.layers
+        ..clear()
+        ..addAll(model.layers);
+      if (needsSplit && !tmp.layers.contains(kDxfConstructionLayer)) {
+        tmp.layers.add(kDxfConstructionLayer);
+      }
+      _rebuildEngine(tmp, [
+        for (final g in gs)
+          (g.isConstruction || g.isCenterline)
+              ? g.onLayer(kDxfConstructionLayer)
+              : g
+      ]);
+      if (tmp.engine.saveDxf(out.path)) return out.path;
+      Log.w('export', 'export copy failed; falling back to storage file');
+    } finally {
+      tmp.dispose();
+    }
+    if (storage != null && storage.existsSync()) {
+      storage.copySync(out.path);
+      return out.path;
+    }
+    return null;
   }
 
   // (Removed the six first-launch design-dummy cards: a fresh install now
@@ -3496,6 +3509,79 @@ class AppState extends ChangeNotifier {
       // The headless copy owns a B-Rep per body AND a solver engine per child
       // sketch. Dropping the reference without disposing leaks all of them,
       // once per share. `closeTab` disposes an open part for the same reason.
+      if (!wasLoaded) p.dispose();
+    }
+  }
+
+  /// M218 — ONE sketch of a part, as DXF, for the share sheet / Files
+  /// exporter. Null (with a reason on screen) when there is nothing to write.
+  ///
+  /// A part exports as STEP because a part is solids; a single sketch inside
+  /// it is 2D geometry and therefore exports exactly like a sketch document —
+  /// same file format, same Defpoints rule for construction geometry
+  /// ([_writeExportDxf]), so what a laser cutter reads does not depend on
+  /// which of the two places the drawing happens to live in.
+  ///
+  /// The file holds the sketch's OWN 2D coordinates, not its placement in the
+  /// part. That is what a DXF is, and it is what the receiving machine wants:
+  /// a profile on the XZ plane 40 mm up would otherwise arrive 40 mm off its
+  /// own origin for no gain whatsoever.
+  ///
+  /// [partName] is the document, [sketchName] the child sketch inside it. An
+  /// open part is flushed first so the export is never stale; a part that is
+  /// NOT open loads headlessly and is thrown away again (M214 — exporting is
+  /// not navigation, and it must not add a tab).
+  Future<String?> childSketchExportPath(
+      String partName, String sketchName) async {
+    if (_docsDir == null) return null;
+    final wasLoaded = parts.containsKey(partName);
+    final p = wasLoaded ? parts[partName]! : await _loadPartModel(partName);
+    try {
+      if (wasLoaded) await savePart(partName);
+      final cs = p.sketchByName(sketchName);
+      if (cs == null) {
+        Log.w('export', '"$partName" has no sketch "$sketchName"');
+        return null;
+      }
+      if (cs.model.geometry.isEmpty) {
+        toast('Nothing to export — “$sketchName” is empty.');
+        return null;
+      }
+      final exportDir = Directory('${_cacheRoot.path}/export');
+      if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+      // Named for BOTH, because a child sketch is identified by both: every
+      // part of the gallery is free to call its first sketch "Sketch1", and
+      // three of those in the Files app under one name help nobody.
+      final out = File('${exportDir.path}/$partName - $sketchName.dxf');
+      // A stale file from an earlier export must never be what gets shared
+      // (partExportStep's rule, for the same reason: a failed write leaves the
+      // previous export in place and only a null return stands between it and
+      // the share sheet).
+      if (out.existsSync()) {
+        try {
+          out.deleteSync();
+        } catch (e) {
+          Log.w('export', 'could not clear stale ${out.path}: $e');
+        }
+      }
+      final storage = File('${_partSketchDir(partName).path}/$sketchName.dxf');
+      final path = _writeExportDxf(cs.model, out,
+          storage: storage.existsSync() ? storage : null);
+      if (path == null || !out.existsSync() || out.lengthSync() == 0) {
+        toast('DXF export failed.');
+        Log.w('export', 'DXF "$partName/$sketchName" produced nothing');
+        return null;
+      }
+      Log.i(
+          'export',
+          'DXF "$partName/$sketchName": entities=${cs.model.geometry.length} '
+              'bytes=${out.lengthSync()}');
+      return path;
+    } catch (e, st) {
+      Log.e('export', 'DXF "$partName/$sketchName" failed', e, st);
+      toast('DXF export failed.');
+      return null;
+    } finally {
       if (!wasLoaded) p.dispose();
     }
   }
@@ -6709,6 +6795,32 @@ class AppState extends ChangeNotifier {
     // dont work".
     notifyListeners();
   }
+
+  /// M218 — true while ANY 3D command owns the next pick in the viewport.
+  ///
+  /// The long-press context menu asks this before it opens: a press during a
+  /// plane pick, a profile pick, an edge / face / work-geometry pick or a
+  /// pattern selector belongs to THAT command, and a menu on top of it is a
+  /// trap rather than a shortcut.
+  ///
+  /// One predicate here rather than a dozen flags at the call site, for the
+  /// same reason [escape3D] lives here: the list of 3D modes is knowledge
+  /// this class already has to keep straight, and a widget that copied it
+  /// would go stale the first time a command was added.
+  bool get picking3D =>
+      pickPlane ||
+      extrudeSession != null ||
+      edgeSession != null ||
+      patternSession != null ||
+      workPlaneArm != null ||
+      pickingEdges ||
+      pickingFaces ||
+      pickingExtentFace ||
+      pickingBody ||
+      pickingSweepPath ||
+      pickingLoftSections ||
+      pickingRevolveAxis ||
+      pickWorkGeometry;
 
   /// Esc in the 3D viewport: session first, then an armed plane pick.
   void escape3D() {
