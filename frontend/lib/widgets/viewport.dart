@@ -2347,9 +2347,11 @@ class _ViewportPainter extends CustomPainter {
           // vertex dots) whenever it is selected or hovered — without it the
           // off-curve control points are invisible and the spline feels
           // uneditable. Fit splines don't need it: their points sit ON the
-          // curve and get grips like any vertex.
+          // curve and get grips like any vertex. A Bézier chain (what Trim and
+          // Split leave behind) has off-curve handles for exactly the same
+          // reason, so it gets the same treatment.
           final g = gs[i];
-          if (g.spline == Geo.splineCv &&
+          if ((g.spline == Geo.splineCv || g.spline == Geo.splineBez) &&
               (app.selection.contains(i) || app.hoverEnt == i)) {
             final poly = Paint()
               ..color = const Color(0x88E8C060)

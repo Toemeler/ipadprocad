@@ -10333,9 +10333,7 @@ class AppState extends ChangeNotifier {
             final g1 = s.geometry[conEnts[0]];
             final g2 = s.geometry[conEnts[1]];
             bool round(int t) => t == Geo.arc || t == Geo.circle;
-            bool spl(Geo g) =>
-                g.type == Geo.polyline &&
-                (g.spline == Geo.splineCv || g.spline == Geo.splineFit);
+            bool spl(Geo g) => g.isFreeSpline;
             bool plainPoly(Geo g) =>
                 g.type == Geo.polyline && g.spline == Geo.straight;
             if (!round(g1.type) && !round(g2.type) && !spl(g1) && !spl(g2)) {
@@ -13073,7 +13071,13 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       if (g.isSpline) {
         // A spline is a polyline of control/fit points — draw the smooth curve
         // through/of them, not the control polygon.
-        final curve = splineCurveFor(g);
+        //
+        // M219 — sampled for THIS zoom. A curve is flattened until it is
+        // within a fifth of a pixel of straight ON SCREEN, so it stays smooth
+        // however far in the user zooms and costs nothing when zoomed out.
+        // A model-space sample count cannot do both: whatever it is, some
+        // magnification turns it into a visible polygon.
+        final curve = splineCurveFor(g, tolMm: splineDisplayTol(scale));
         if (curve.length < 2) break;
         final pts = [for (final w in curve) map(w.dx, w.dy)];
         if (cDash) {

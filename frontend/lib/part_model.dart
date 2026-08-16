@@ -22,7 +22,7 @@ import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'snap.dart' show sampleEntity;
-import 'spline.dart' show splineCurveFor, polyPoints;
+import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
 
@@ -821,7 +821,12 @@ bool _profileGeo(ProfileInput pi, Geo g) {
     case Geo.polyline:
       final closedFlag = g.data[0] != 0;
       if (g.spline != Geo.straight) {
-        final pts = List<Offset>.of(splineCurveFor(g));
+        // The ARC-CHAIN form, not the display curve: arcFitLoop turns points
+        // that lie on true arcs into exact bulges, so the prism gets
+        // near-tangent cylindrical faces instead of a fan of flat strips with
+        // a crease at every one. That decimation is wrong for everything else
+        // (see splineCurveFor) and right here.
+        final pts = List<Offset>.of(splineArcChain(g));
         if (g.spline == Geo.ellipseTag) {
           if ((pts.first - pts.last).distance < 1e-9) pts.removeLast();
           return (pts, true);

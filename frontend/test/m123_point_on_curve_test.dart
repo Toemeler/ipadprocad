@@ -28,6 +28,19 @@ AppState makeApp() {
   return app;
 }
 
+/// A point a given FRACTION along the sampled curve of [g].
+///
+/// Deliberately NOT `sampleEntity(g)[k]`: the sample count of a spline follows
+/// the curve's own tolerance (M219 made it adaptive), so a fixed index is a
+/// different place on the curve whenever the sampler changes. Every test here
+/// wants "a point on the curve, well away from its ends" — that is a fraction,
+/// not an index.
+Offset onCurveAt(Geo g, double frac) {
+  final pts = sampleEntity(g);
+  final i = (pts.length * frac).round().clamp(1, pts.length - 2);
+  return pts[i];
+}
+
 /// The point-on-CURVE binds of [cs]: one point, one entity.
 List<Constraint> onCurveOf(List<Constraint> cs) => [
       for (final c in cs)
@@ -200,7 +213,7 @@ void main() {
             .asSpline(Geo.splineCv),
         Geo(Geo.polyline, [1, 4, 0, 0, 100, 0, 100, 100, 0, 100]),
       ]) {
-        final target = sampleEntity(carrier)[3];
+        final target = onCurveAt(carrier, 0.25);
         // The free end starts 6 mm OFF the carrier; the carrier itself is
         // pinned, so the only way to satisfy the bind is to move the point.
         final gs = [
@@ -226,7 +239,7 @@ void main() {
       // renormalised for: the weights must reproduce a translation.
       final sp = Geo(Geo.polyline, [0, 4, 0, 0, 30, 60, 70, 60, 100, 0])
           .asSpline(Geo.splineCv);
-      final target = sampleEntity(sp)[5];
+      final target = onCurveAt(sp, 0.25);
       final gs = [
         sp,
         Geo(Geo.line, [180, 180, target.dx, target.dy])
@@ -253,7 +266,7 @@ void main() {
       // re-projection passes in _lm are there to deliver.
       final sp = Geo(Geo.polyline, [0, 4, 0, 0, 30, 60, 70, 60, 100, 0])
           .asSpline(Geo.splineCv);
-      final target = sampleEntity(sp)[5];
+      final target = onCurveAt(sp, 0.25);
       final gs = [sp, Geo(Geo.line, [180, 180, target.dx, target.dy])];
       final cs = <Constraint>[
         Constraint(CType.fix, pts: [const PRef(1, 0)], anchors: [180, 180]),
@@ -274,7 +287,7 @@ void main() {
     test('the bind removes exactly one DOF', () {
       final sp = Geo(Geo.polyline, [0, 4, 0, 0, 30, 60, 70, 60, 100, 0])
           .asSpline(Geo.splineCv);
-      final onCurve = sampleEntity(sp)[4];
+      final onCurve = onCurveAt(sp, 0.25);
       final gs = [
         sp,
         Geo(Geo.line, [180, 180, onCurve.dx, onCurve.dy])

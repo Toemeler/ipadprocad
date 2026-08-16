@@ -35,7 +35,20 @@ class Geo {
   // a plain polyline and this Dart-side tag — restored from the sidecar and
   // preserved across the engine refresh — says "render/snap as a smooth curve".
   // This is what makes a spline expose only its few control points, like Inventor.
-  static const straight = 0, splineCv = 1, splineFit = 2, ellipseTag = 3;
+  //   splineBez  = cubic BEZIER CHAIN (M219). The vertices are the chain's
+  //                control points: 3·s+1 of them for s segments, 3·s when the
+  //                chain closes (the last segment ends on vertex 0). This is
+  //                the form every EXACT spline operation produces — Trim and
+  //                Split cut a spline by de Casteljau, which is lossless, and
+  //                the piece is stored back like this. Reading it needs
+  //                nothing but the tag, so it round-trips through the DXF, the
+  //                .splines.json sidecar, the solver and undo like any other
+  //                spline. See bezier.dart.
+  static const straight = 0,
+      splineCv = 1,
+      splineFit = 2,
+      ellipseTag = 3,
+      splineBez = 6;
 
   // gearTag (M61): a parametric involute gear. Same mechanism as the ellipse —
   // the polyline stores ONLY two defining vertices [center, orientation handle]
@@ -154,6 +167,16 @@ class Geo {
       layer: layer, spline: spline, style: st, proj: proj, projSeg: projSeg);
 
   bool get isSpline => spline != straight;
+
+  /// A FREE-FORM spline — one the user shaped point by point, as opposed to
+  /// the parametric carriers that merely ride the same polyline mechanism (an
+  /// ellipse is 3 defining points, a gear is 2 plus a parameter block, a
+  /// sketch point is a circle). Tangency, end-tangent reads and the trim/split
+  /// curve path all mean THIS set, not "any tagged polyline".
+  bool get isFreeSpline =>
+      type == polyline &&
+      (spline == splineCv || spline == splineFit || spline == splineBez);
+
   bool get isGear => spline == gearTag;
   bool get isCenterline => style == styleCenterline;
   bool get isConstruction => style == styleConstruction;
