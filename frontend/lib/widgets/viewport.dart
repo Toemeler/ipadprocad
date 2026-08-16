@@ -50,20 +50,19 @@ import 'text_editor_window.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import '../inserts.dart';
+import '../text_geometry.dart' show textLayoutOf;
+import '../vector_font.dart' show measureText;
 
 /// M45 — measures a rendered string into world-mm (width,height) for a text's
-/// font and cap height. Single source of truth for the bounding rect and its
-/// snap points; used by both the widget (snapping) and the painter (drawing).
-/// Cap height maps to font size 1:1 (mm == logical px in world space).
-Size measureSketchText(SketchText t, String rendered) {
-  final tp = TextPainter(
-      text: TextSpan(
-          text: rendered.isEmpty ? ' ' : rendered,
-          style: TextStyle(fontFamily: t.font, fontSize: t.height)),
-      textDirection: TextDirection.ltr)
-    ..layout();
-  return Size(tp.width, tp.height);
-}
+/// font and size. Single source of truth for the bounding rect and its snap
+/// points.
+///
+/// M220 — measured from the OUTLINE font, not from a TextPainter. The box has
+/// to bound the curves that are drawn, exported and extruded, and those come
+/// from vector_font.dart; a screen font's metrics would have described a
+/// different shape than the one in the file.
+Size measureSketchText(SketchText t, String rendered) =>
+    measureText(rendered.isEmpty ? ' ' : rendered, t.font, t.height);
 
 class Viewport2D extends StatefulWidget {
   final AppState app;
@@ -2633,30 +2632,41 @@ class _ViewportPainter extends CustomPainter {
       // grows up and to the right so the construction bounding rect matches the
       // measurer used for snapping. The rect renders in the CONSTRUCTION
       // linetype (thin dashed) and ONLY on the layer being edited.
+      //
+      // M220 — the letters are CURVES, drawn from the very contours that go
+      // into the DXF and into the kernel (text_geometry.dart), not a
+      // TextPainter's pixels. What is on screen is now what is in the file:
+      // stroked like every other sketch curve, with a faint fill so a small
+      // text is still legible.
       app.textRects.clear();
       if (s != null) {
-        final table = app.paramTable(s);
         for (final t in s.texts) {
-          final rendered = renderTemplate(t.template, table);
-          final fontPx = (t.height * app.zoom).clamp(3.0, 1200.0);
+          final layout = textLayoutOf(s, t);
           final dim = !app.inEditMode || t.layer == app.editingLayer;
-          final tp = TextPainter(
-              text: TextSpan(
-                  text: rendered,
-                  style: TextStyle(
-                      color: dim
-                          ? const Color(0xFFDDE0E3)
-                          : const Color(0x66DDE0E3),
-                      fontFamily: t.font,
-                      fontSize: fontPx)),
-              textDirection: TextDirection.ltr)
-            ..layout();
-          // lower-left anchor -> the paint origin (top-left) is height up
-          final o = map(t.x, t.y);
-          final topLeft = o - Offset(0, tp.height);
-          tp.paint(canvas, topLeft);
-          final screenRect =
-              Rect.fromLTWH(topLeft.dx, topLeft.dy, tp.width, tp.height);
+          final ink = dim ? const Color(0xFFDDE0E3) : const Color(0x66DDE0E3);
+          // NON-ZERO, the rule TrueType outlines are drawn with: a counter
+          // runs opposite to its outer contour and so punches a hole, while
+          // two letters that overlap stay solid where they meet (even-odd
+          // would cut a gap out of them).
+          final path = ui.Path();
+          for (final c in layout.contours) {
+            for (var i = 0; i < c.length; i++) {
+              final p = map(c[i].dx, c[i].dy);
+              i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+            }
+            path.close();
+          }
+          canvas.drawPath(path, Paint()..color = ink.withOpacity(0.28));
+          canvas.drawPath(
+              path,
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.0
+                ..color = ink);
+          // the hit rect for tap/drag: the text's own box, in screen space
+          final screenRect = Rect.fromPoints(
+              map(t.x, t.y + layout.size.height),
+              map(t.x + layout.size.width, t.y));
           app.textRects.add((t, screenRect));
 
           // construction bounding rect (edit-mode + own layer only)

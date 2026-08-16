@@ -23,6 +23,7 @@ import 'log.dart';
 import 'perf.dart';
 import 'snap.dart' show sampleEntity;
 import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
+import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
 
@@ -1054,6 +1055,42 @@ List<ProfileLoop> _arrangementLoops(ProfileInput pi) {
   return loops;
 }
 
+/// M220 — the sketch's TEXTS as profile loops.
+///
+/// A glyph contour is already a closed loop, so it does not go through the
+/// planar arrangement: it needs nothing from it (there is no chaining to do
+/// and no crossing to split) and it would pay dearly for it — the arrangement
+/// is quadratic in the number of segments, and one line of text is a couple
+/// of thousand. Text is therefore its own profile, exactly as in Inventor: it
+/// does not cut regions out of the geometry it happens to sit on, and the
+/// geometry does not cut regions out of it.
+///
+/// The layer rules are the ones every profile obeys — a text on a hidden
+/// layer, or on one rolled back below the End of Sketch, is not a profile.
+/// [ents] is empty on purpose: these loops belong to no entity INDEX, because
+/// a text is not in `geometry` (see text_geometry.dart). Nothing reads a
+/// loop's ents but the highlight, which simply lights nothing up for a text.
+List<ProfileLoop> textLoops(SketchModel s, {int firstId = 0}) {
+  final out = <ProfileLoop>[];
+  var id = firstId;
+  for (final t in s.texts) {
+    final layer = textLayerOf(t);
+    if (s.hiddenLayers.contains(layer)) continue;
+    final li = s.layers.indexOf(layer);
+    if (li >= 0 && li >= s.eosAfter) continue;
+    for (final c in textContours(s, t)) {
+      final pts = dedupeClosedLoop(c);
+      if (pts.length < 3) continue;
+      final a = _signedArea(pts);
+      if (a.abs() < 1e-9) continue; // a hairline contour is not a face
+      final ccw = a > 0 ? pts : pts.reversed.toList();
+      out.add(
+          ProfileLoop(id++, ccw, a.abs(), _centroidOf(ccw), const <int>{}));
+    }
+  }
+  return out;
+}
+
 List<ProfileLoop> profileLoops(SketchModel s) {
   final all = Perf.span(
       'sketch.profileLoops', () => _profileLoops(ProfileInput.of(s)));
@@ -1075,7 +1112,14 @@ List<ProfileLoop> profileLoops(SketchModel s) {
             '${kept.isEmpty ? "" : "  areas=[${kept.map((l) =>
                 l.area.toStringAsFixed(2)).join(", ")}]"}');
   }
-  return kept;
+  if (s.texts.isEmpty) return kept;
+  // M220 — text loops carry on the same id sequence, because a duplicate id
+  // would make two loops the same loop to [regionsFrom]'s nesting map.
+  var next = 0;
+  for (final l in kept) {
+    if (l.id >= next) next = l.id + 1;
+  }
+  return [...kept, ...textLoops(s, firstId: next)];
 }
 
 /// How many closed loops [in] yields — the cheap shape of the profile

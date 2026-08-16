@@ -25,6 +25,7 @@ import '../ffi/qcad_engine.dart' show Geo;
 import '../part_model.dart';
 import '../part_render.dart';
 import '../reality_scene.dart';
+import '../text_geometry.dart' show textContours, textLayerOf;
 import '../menus.dart';
 import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
@@ -2557,6 +2558,24 @@ class _ScenePainter extends CustomPainter {
       drawOccludedPolyline(
           canvas, cam, [for (final p in pts) frame.toWorld(p)], pen,
           occ: occ, extra: occ?.edgeMargin ?? 0);
+    }
+    // M220 — a text is geometry, so it is part of the sketch in 3D as well:
+    // the same contours the extrude reads, closed (first point repeated).
+    for (final t in cs.model.texts) {
+      final layer = textLayerOf(t);
+      if (cs.model.hiddenLayers.contains(layer)) continue;
+      final li = cs.model.layers.indexOf(layer);
+      if (li >= 0 && li >= cs.model.eosAfter) continue;
+      for (final c in textContours(cs.model, t)) {
+        if (c.length < 3) continue;
+        drawOccludedPolyline(
+            canvas,
+            cam,
+            [for (final p in [...c, c.first]) frame.toWorld(p)],
+            pen,
+            occ: occ,
+            extra: occ?.edgeMargin ?? 0);
+      }
     }
   }
 

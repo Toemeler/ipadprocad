@@ -49,12 +49,16 @@ void main() {
 
   test('text font + layer round-trip; rendering substitutes params', () {
     final app = makeApp();
+    // M220 SPEC CHANGE — a text names an OUTLINE family now, because that is
+    // what its geometry is built from. A screen-font name (what this test
+    // passed before outline fonts existed) is mapped onto the family that
+    // replaced it rather than stored as a name nothing can draw.
     final t = app.addText(const Offset(0, 0), 'L=<d0>',
         height: 10, font: 'Courier');
-    expect(t.font, 'Courier');
+    expect(t.font, 'CAD Mono');
     expect(t.layer, kDefaultLayer);
     final back = SketchText.fromJson(t.toJson());
-    expect(back.font, 'Courier');
+    expect(back.font, 'CAD Mono');
     expect(back.layer, kDefaultLayer);
     expect(back.height, closeTo(10, 1e-9));
     // default font is omitted from JSON to keep sidecars lean

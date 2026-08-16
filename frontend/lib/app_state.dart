@@ -34,8 +34,10 @@ import 'inserts.dart';
 import 'snap.dart';
 import 'solver.dart';
 import 'spline.dart';
+import 'text_geometry.dart';
 import 'theme.dart';
 import 'tools.dart';
+import 'vector_font.dart';
 import 'work_features.dart';
 
 /// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
@@ -1938,7 +1940,20 @@ class AppState extends ChangeNotifier {
   String? _writeExportDxf(SketchModel model, File out, {File? storage}) {
     final gs = model.geometry;
     final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
-    if (!needsSplit && storage != null && storage.existsSync()) {
+    // M220 — TEXT IS GEOMETRY, and the storage file does not contain it.
+    //
+    // A text lives in a sidecar (it is one anchor plus a template, not a
+    // thousand points — see text_geometry.dart), so the sketch's own DXF has
+    // never held a single letter. Handing that file over would export a
+    // drawing with the text missing, which is exactly the thing Inventor does
+    // not do: there, a text IS in the exported DXF, as curves. So the moment
+    // the sketch carries one, the export takes the rebuild path below and the
+    // letters go into the file as closed polylines.
+    final texts = textGeometry(model);
+    if (!needsSplit &&
+        texts.isEmpty &&
+        storage != null &&
+        storage.existsSync()) {
       storage.copySync(out.path); // nothing to protect: ship it under its name
       return out.path;
     }
@@ -1954,7 +1969,8 @@ class AppState extends ChangeNotifier {
         for (final g in gs)
           (g.isConstruction || g.isCenterline)
               ? g.onLayer(kDxfConstructionLayer)
-              : g
+              : g,
+        ...texts,
       ]);
       if (tmp.engine.saveDxf(out.path)) return out.path;
       Log.w('export', 'export copy failed; falling back to storage file');
@@ -11051,14 +11067,10 @@ class AppState extends ChangeNotifier {
 
   /// name -> current base value (mm resp. deg) of every named dimension AND
   /// every user parameter (M43: Inventors fx table).
-  Map<String, double> paramTable(SketchModel s) => {
-        for (final c in s.constraints)
-          if (c.type == CType.dimension &&
-              c.paramName != null &&
-              c.value != null)
-            c.paramName!: c.value!,
-        for (final u in s.userParams) u.name: u.value,
-      };
+  /// M220 — the table itself moved to text_geometry.dart: deriving a text's
+  /// GEOMETRY needs the same rendered template the label used to need, and
+  /// that code has no AppState. One implementation, forwarded here.
+  Map<String, double> paramTable(SketchModel s) => sketchParamTable(s);
 
   Constraint? _dimByName(SketchModel s, String name) {
     for (final c in s.constraints) {
@@ -11487,12 +11499,17 @@ class AppState extends ChangeNotifier {
   /// editor on a brand-new text that is only kept if the user commits it
   /// (the commit path checkpoints then).
   SketchText addText(Offset pos, String template,
-      {double height = 8, String font = 'Roboto', bool placeholder = false}) {
+      {double height = 8, String? font, bool placeholder = false}) {
     final s = current!;
     final t = SketchText(template, pos.dx, pos.dy,
-        height: height, font: font, layer: editingLayer ?? kDefaultLayer);
+        height: height,
+        font: vectorFontName(font ?? kDefaultTextFont),
+        layer: editingLayer ?? kDefaultLayer);
     s.texts.add(t);
     s.dirty = true;
+    // M220 — a text is a profile now, so the regions an open extrude session
+    // is offering are out of date the moment one appears, moves or changes.
+    _regionCache.clear();
     if (!placeholder) s.checkpoint();
     notifyListeners();
     return t;
@@ -11502,8 +11519,9 @@ class AppState extends ChangeNotifier {
       {String? font}) {
     t.template = template;
     t.height = height;
-    if (font != null) t.font = font;
+    if (font != null) t.font = vectorFontName(font);
     current?.dirty = true;
+    _regionCache.clear();
     current?.checkpoint();
     notifyListeners();
   }
@@ -11511,6 +11529,7 @@ class AppState extends ChangeNotifier {
   void moveText(SketchText t, Offset pos, {bool commit = false}) {
     t.x = pos.dx;
     t.y = pos.dy;
+    _regionCache.clear();
     if (commit) {
       current?.dirty = true;
       current?.checkpoint();
@@ -11521,23 +11540,28 @@ class AppState extends ChangeNotifier {
   void deleteText(SketchText t) {
     current?.texts.remove(t);
     current?.dirty = true;
+    _regionCache.clear();
     current?.checkpoint();
     notifyListeners();
   }
 
   /// Renders [t]'s template against the current parameter table.
-  String textDisplay(SketchModel s, SketchText t) =>
-      renderTemplate(t.template, paramTable(s));
+  String textDisplay(SketchModel s, SketchText t) => renderedText(s, t);
 
   /// M45 — the world-space bounding rectangle of a text, sized automatically
-  /// from its rendered content, font and height. [measure] turns the rendered
-  /// string + cap height into a (width, height) in mm; the viewport passes a
-  /// TextPainter-backed measurer (font metrics live in the widget layer).
-  /// The anchor (t.x, t.y) is the LOWER-LEFT of the text, so the rect spans
-  /// up and to the right.
+  /// from its rendered content, font and height. The anchor (t.x, t.y) is the
+  /// LOWER-LEFT of the text, so the rect spans up and to the right.
+  ///
+  /// M220 — [measure] is no longer required: the box now comes from the same
+  /// outline font the geometry is built from ([measureText2D]), so the dashed
+  /// rectangle and its snap points bound exactly the curves that are drawn,
+  /// exported and extruded. It used to be a TextPainter in the widget layer,
+  /// which is why it had to be injected at all.
   Rect textBoundsWorld(SketchModel s, SketchText t,
-      {required Size Function(SketchText, String) measure}) {
-    final sz = measure(t, textDisplay(s, t));
+      {Size Function(SketchText, String)? measure}) {
+    final sz = measure == null
+        ? measureText2D(s, t)
+        : measure(t, textDisplay(s, t));
     final pad = t.height * 0.25; // small breathing room, scales with size
     return Rect.fromLTWH(
         t.x - pad, t.y - pad, sz.width + 2 * pad, sz.height + 2 * pad);
@@ -11548,7 +11572,7 @@ class AppState extends ChangeNotifier {
   /// texts on the layer being edited contribute (their rect is only shown
   /// there). [measure] as in [textBoundsWorld].
   List<Offset> textSnapPoints(SketchModel s,
-      {required Size Function(SketchText, String) measure}) {
+      {Size Function(SketchText, String)? measure}) {
     final pts = <Offset>[];
     for (final t in s.texts) {
       if (inEditMode && t.layer != editingLayer) continue;
@@ -12900,7 +12924,9 @@ class AppState extends ChangeNotifier {
       // same dark radial feel as the mock card thumb
       canvas.drawRect(
           const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
-      final geos = s.geometry;
+      // M220 — the card shows the text too, because the text IS geometry now
+      // (and a thumbnail that omitted half the drawing was never right).
+      final geos = [...s.geometry, ...textGeometry(s)];
       if (geos.isNotEmpty) {
         // fit bbox
         double minx = 1e30, miny = 1e30, maxx = -1e30, maxy = -1e30;
