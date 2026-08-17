@@ -138,7 +138,12 @@ Token NIE in Dateien/.git/config schreiben.
 > Ablehnungen, der Roundtrip, der Rebuild-Schluessel von beiden Seiten, dass
 > ein Muster ein Combine wie jedes koerper-veraendernde Feature ablehnt (M226),
 > und die Befehlsseite: Basis, Werkzeuge, OK, Esc, Verdraengung, Browser-Edit.
-> **Am Geraet nicht nachgeprueft.**
+> CI-Lauf **32028790477**: **1918 gruen**, analyze 55 Issues / 0 Errors. Der
+> Lauf zu (1/2) hatte genau einen roten — meinen, nicht den des Codes: mit Keep
+> Toolbody ueberleben beide Koerper, und `bodyNames` kam als
+> `['Solid2','Solid1']` zurueck, weil die Reihenfolge dem Feature folgt, das
+> den Koerper traegt (Solid1 haengt jetzt am Combine ganz hinten). Behauptet
+> wird die MENGE, nicht die Folge. **Am Geraet nicht nachgeprueft.**
 
 > **M226 — Senkungen: was ein Loch zu einem Schraubenloch macht.**
 >
