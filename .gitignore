@@ -8,3 +8,7 @@ DerivedData/
 
 release/
 plugins/
+
+# Python bytecode from the ci/ tooling (M221 — committed by accident once)
+__pycache__/
+*.pyc
