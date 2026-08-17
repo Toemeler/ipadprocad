@@ -203,9 +203,11 @@ void _sectionTests() {
   });
 
   group('M168 — the painter is only asked when it should be', () {
-    test('no section triangles while slicing is off', () async {
+    // M222 — the painter asks per BODY now (outlines, not triangles); the
+    // rule it is asking about is unchanged.
+    test('no section faces while slicing is off', () async {
       final app = await _partWithSolidAndOpenSketch();
-      expect(app.sectionTriangles(), isEmpty);
+      expect(app.sectionSlices(), isEmpty);
     });
   });
 }

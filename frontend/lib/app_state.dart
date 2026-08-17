@@ -3957,6 +3957,9 @@ class AppState extends ChangeNotifier {
 
   final Map<String, KernelSolid> _sliceCache = {};
   String _sliceKey = '';
+  // M222 — the outlines derived from those cuts, memoised on the same inputs.
+  String _sliceFacesKey = '';
+  List<SectionSlice> _sliceFaces = const [];
 
   /// Whether the command is offered at all. Inventor greys it out with no
   /// solid to cut; here it is not shown, per M157 — a button that is visible
@@ -3974,14 +3977,36 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// M168 — the section faces of every sliced body, in the open sketch's
-  /// (u,v), for the 2D painter to hatch. Empty when not slicing.
-  List<List<Offset>> sectionTriangles() {
+  /// M168/M222 — the section faces of every sliced body, in the open sketch's
+  /// (u,v), as closed OUTLINES and grouped by the body they cut. Empty when
+  /// not slicing.
+  ///
+  /// Grouped, because ISO 128 hatches adjacent parts differently and the same
+  /// part identically throughout — so the unit the painter works in is the
+  /// body, not the triangle. Outlines, because the triangles are tessellation
+  /// and drawing them is what put triangle edges on the screen (M222).
+  ///
+  /// Memoised on the sketch plane and the identity of every cut mesh, the same
+  /// key [slicedSolid] uses: this runs from `paint`, and walking every mesh of
+  /// every body per frame is the kind of cost M159/M75 were about.
+  List<SectionSlice> sectionSlices() {
     final p = currentPart;
     final cs = activeChild == null ? null : p?.sketchByName(activeChild!.name);
     if (!sliceGraphics || p == null || cs == null) return const [];
     final fr = sketchFrameOf(cs);
-    final out = <List<Offset>>[];
+    final byBody = <String, List<List<Offset>>>{};
+    final sig = StringBuffer()
+      ..write(fr.origin.x)
+      ..write(',')
+      ..write(fr.origin.y)
+      ..write(',')
+      ..write(fr.origin.z)
+      ..write(',')
+      ..write(fr.n.x)
+      ..write(',')
+      ..write(fr.n.y)
+      ..write(',')
+      ..write(fr.n.z);
     for (final f in p.features) {
       final whole = f.solid;
       if (whole == null || !f.visible || f.consumedByJoin || f.rolledBack) {
@@ -3989,8 +4014,27 @@ class AppState extends ChangeNotifier {
       }
       final cut = slicedSolid(f.name, whole);
       if (cut == null) continue; // not sliced: nothing was exposed
-      out.addAll(sectionTrianglesAt(cut.mesh, fr));
+      sig
+        ..write(';')
+        ..write(f.bodyName)
+        ..write(':')
+        ..write(identityHashCode(cut.mesh));
+      byBody
+          .putIfAbsent(f.bodyName, () => [])
+          .addAll(sectionTrianglesAt(cut.mesh, fr));
     }
+    final key = sig.toString();
+    if (key == _sliceFacesKey) return _sliceFaces;
+    final order = p.bodyNames;
+    final out = <SectionSlice>[];
+    byBody.forEach((body, tris) {
+      final loops = sectionOutlines(tris);
+      if (loops.isEmpty) return;
+      final i = order.indexOf(body);
+      out.add(SectionSlice(body, loops, i < 0 ? out.length : i));
+    });
+    _sliceFacesKey = key;
+    _sliceFaces = out;
     return out;
   }
 
@@ -4135,6 +4179,8 @@ class AppState extends ChangeNotifier {
     }
     _sliceCache.clear();
     _sliceKey = '';
+    _sliceFacesKey = '';
+    _sliceFaces = const [];
   }
 
   /// The sliced stand-in for [solid], or null to draw it whole.

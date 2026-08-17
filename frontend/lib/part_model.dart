@@ -8365,6 +8365,128 @@ List<List<Offset>> sectionTrianglesAt(OcctMeshData m, PlaneFrame frame,
   return out;
 }
 
+/// The BOUNDARY of a set of coplanar triangles, as closed loops in the same
+/// (u,v) the triangles came in (M222).
+///
+/// The section faces arrive as a triangle SOUP — that is what a mesh is — and
+/// drawing that soup is what made the reported triangles visible: every shared
+/// edge got stroked as if it were an edge of the cut. It is not; it is an
+/// artefact of how the face was tessellated, and it changes whenever the model
+/// is re-meshed.
+///
+/// An edge that two triangles share is interior; one that belongs to a single
+/// triangle is on the boundary. Vertices are welded onto a [weld] grid first,
+/// because two triangles of one face meet at coordinates that are equal in the
+/// kernel and can differ in the last bit after the transform into sketch
+/// coordinates — un-welded, every interior edge would look like two boundary
+/// edges and the whole soup would come back.
+///
+/// Loops keep the winding of the triangles they came from, so an outer
+/// boundary and the hole inside it wind opposite ways and both `evenOdd` and
+/// `nonZero` fill them correctly.
+List<List<Offset>> sectionOutlines(List<List<Offset>> tris,
+    {double weld = 1e-6}) {
+  if (tris.isEmpty) return const [];
+  final ids = <String, int>{};
+  final pts = <Offset>[];
+  int idOf(Offset p) {
+    final key = '${(p.dx / weld).round()},${(p.dy / weld).round()}';
+    final hit = ids[key];
+    if (hit != null) return hit;
+    ids[key] = pts.length;
+    pts.add(p);
+    return pts.length - 1;
+  }
+
+  // Directed edges, counted by their UNDIRECTED key: an interior edge is
+  // walked once each way by the two triangles that share it.
+  final count = <String, int>{};
+  final dir = <String, List<int>>{}; // undirected key -> [from, to] as walked
+  void edge(int a, int b) {
+    final key = a < b ? '$a-$b' : '$b-$a';
+    count[key] = (count[key] ?? 0) + 1;
+    dir.putIfAbsent(key, () => [a, b]);
+  }
+
+  for (final t in tris) {
+    if (t.length < 3) continue;
+    final idx = [for (final p in t) idOf(p)];
+    for (var i = 0; i < idx.length; i++) {
+      edge(idx[i], idx[(i + 1) % idx.length]);
+    }
+  }
+
+  // Boundary edges, indexed by the vertex they leave from.
+  final outgoing = <int, List<List<int>>>{};
+  var edges = 0;
+  count.forEach((key, n) {
+    if (n != 1) return;
+    final e = dir[key]!;
+    outgoing.putIfAbsent(e[0], () => []).add(e);
+    edges++;
+  });
+  if (edges == 0) return const [];
+
+  final used = <String, bool>{};
+  final loops = <List<Offset>>[];
+  for (final start in outgoing.keys.toList()) {
+    for (final first in outgoing[start]!) {
+      final firstKey = '${first[0]}>${first[1]}';
+      if (used[firstKey] == true) continue;
+      final loop = <int>[first[0]];
+      var cur = first;
+      // Bounded by the edge count: a malformed soup must not spin here.
+      for (var step = 0; step <= edges; step++) {
+        used['${cur[0]}>${cur[1]}'] = true;
+        loop.add(cur[1]);
+        if (cur[1] == first[0]) break; // closed
+        final next = outgoing[cur[1]];
+        if (next == null) break; // open chain: draw what there is
+        List<int>? go;
+        for (final e in next) {
+          if (used['${e[0]}>${e[1]}'] == true) continue;
+          go = e;
+          break;
+        }
+        if (go == null) break;
+        cur = go;
+      }
+      if (loop.length >= 4) {
+        // The closing vertex repeats the first one; a Path closes itself.
+        loops.add([for (final i in loop.sublist(0, loop.length - 1)) pts[i]]);
+      }
+    }
+  }
+  return loops;
+}
+
+/// One body's cut faces, ready to hatch (M222).
+class SectionSlice {
+  final String body;
+
+  /// Closed boundary loops in the sketch's (u,v).
+  final List<List<Offset>> loops;
+
+  /// Which entry of [kSectionHatch] this body draws with.
+  final int style;
+  const SectionSlice(this.body, this.loops, this.style);
+}
+
+/// ISO 128-50 section hatching, as (angle in degrees, spacing in SCREEN px).
+///
+/// The standard's rule is that ADJACENT parts must be distinguishable — by
+/// direction, or, when the same direction cannot be avoided, by spacing. Bodies
+/// take these in the order they were created, so two bodies next to each other
+/// in the browser can never draw the same hatch. Bodies four apart can, and
+/// that is the honest limit of an index-based rule: it does not know which
+/// bodies TOUCH, only which are neighbours in the list.
+const List<(double, double)> kSectionHatch = [
+  (45, 7),
+  (135, 7),
+  (45, 12),
+  (135, 12),
+];
+
 /// M168 — Inventor's **Slice Graphics**: the solid with everything between the
 /// viewer and the sketch plane cut away, so you can see and draw inside the
 /// part.

@@ -36,6 +36,60 @@ Token NIE in Dateien/.git/config schreiben.
 > STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
 > **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
 
+> **M222 — ein Schnitt hat eine Kontur, ein Netz hat Kanten — und die
+> Schraffur unterscheidet die Koerper (ISO 128).**
+>
+> Die zweite in M210 offen gelassene Meldung: „when i slice graphics there are
+> triangles visible ... different parts should have different schraffur, like
+> in iso norm." Dort als „ein Render-Fehler und eine echte neue Funktion"
+> notiert. Beides steckt an derselben Stelle.
+>
+> **1. Die Dreiecke.** Der Painter baute EINEN `Path` aus jedem DREIECK des
+> Schnittnetzes und zeichnete ihn anschliessend als „die Kontur des Schnitts".
+> Eine Dreieckssuppe hat aber keine Kontur: jede geteilte Kante liegt zweimal
+> in diesem Pfad und wurde mitgestrichen. Was auf dem Schirm stand, war die
+> TESSELIERUNG — und weil die sich bei jedem Remesh aendert, sah es zufaellig
+> aus.
+>
+> `sectionOutlines()` behaelt nur die Kanten, die zu genau EINEM Dreieck
+> gehoeren — das ist die Definition eines Randes — und faedelt sie zu
+> geschlossenen Schleifen. Die Vertices werden vorher auf ein Raster
+> GESCHWEISST (1 µm): zwei Dreiecke einer Flaeche treffen sich an Koordinaten,
+> die der Kernel gleich nennt und die nach der Transformation in
+> Skizzenkoordinaten im letzten Bit auseinanderliegen koennen — ungeschweisst
+> saehe jede Innenkante wie zwei Randkanten aus und die ganze Suppe waere
+> zurueck. Die Schleifen behalten die Windung ihrer Dreiecke, aussen und Loch
+> laufen also gegenlaeufig, und `evenOdd` fuellt beides richtig.
+>
+> **2. Die Schraffur.** ISO 128-50 verlangt, dass BENACHBARTE Teile im Schnitt
+> unterscheidbar sind — ueber die Richtung, und wo die Richtung wiederkommt,
+> ueber den Abstand. Die Einheit, in der der Painter arbeitet, ist damit der
+> KOERPER und nicht das Dreieck: `sectionSlices()` gruppiert die Konturen je
+> Koerper und gibt jedem einen Stil-Index aus seiner Position in
+> `bodyNames`, `kSectionHatch` haelt die vier Varianten (45°/135°, zwei
+> Abstaende). Zwei im Browser benachbarte Koerper koennen so nie dieselbe
+> Schraffur bekommen. Zwei, die VIER auseinanderliegen, schon — das ist die
+> ehrliche Grenze einer Index-Regel: sie weiss, wer in der Liste nebeneinander
+> steht, nicht wer sich beruehrt.
+>
+> Die Schraffurlinien laufen jetzt senkrecht zu ihrer eigenen Richtung im
+> Abstand `step` (vorher wurde in x geschritten, womit 45° und 135° sich um
+> √2 in der Dichte unterschieden haetten).
+>
+> **Nebenbei ein Frame-Kosten-Fehler:** `sectionTriangles()` lief bei JEDEM
+> Paint durch das komplette Netz jedes Koerpers. Der Schnitt selbst war
+> gecacht, seine Auswertung nicht. `sectionSlices()` memoisiert auf demselben
+> Schluessel, den `slicedSolid` schon benutzt (Skizzenebene + Identitaet jedes
+> geschnittenen Netzes), und wird mit ihm zusammen geleert.
+>
+> **Ehrlicher Stand:** 10 neue Tests (`m222_section_outlines_test.dart`), die
+> Randfaelle vorab in einer Simulation nachgerechnet (Quadrat mit Diagonale →
+> EINE Schleife mit vier Punkten; Ring mit Loch → +100 und −4, also
+> gegenlaeufig; 1e-9-Versatz → immer noch eine Schleife). Eine bestehende
+> M168-Erwartung ist auf den neuen Kontrakt gezogen (`sectionSlices()` statt
+> `sectionTriangles()`). **Am Geraet nicht nachgeprueft** — und gerade hier
+> heisst das etwas: dass die Dreiecke weg sind, sieht man erst auf dem Schirm.
+
 > **M221 — „I cant select the inner circle to also extrude somehow."**
 >
 > Der eine offene Punkt aus M210, dort ausdruecklich NICHT behoben, weil nur

@@ -29,6 +29,7 @@ import '../menus.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../perf.dart';
+import '../part_model.dart' show kSectionHatch;
 import '../pick_math.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -2033,34 +2034,36 @@ class _ViewportPainter extends CustomPainter {
     // and not as a material on a 3D surface. Inventor draws it the same way:
     // the section reads as flat on the sketch.
     if (inPartSketch && app.sliceGraphics) {
-      final tris = app.sectionTriangles();
-      if (tris.isNotEmpty) {
-        final path = Path();
-        for (final t in tris) {
-          path.moveTo(map(t[0].dx, t[0].dy).dx, map(t[0].dx, t[0].dy).dy);
-          for (var i = 1; i < t.length; i++) {
-            final q = map(t[i].dx, t[i].dy);
+      // M222 — one path per BODY, built from the section's boundary loops.
+      // It used to be one path per mesh TRIANGLE, and the stroke below then
+      // drew every tessellation edge: that is the reported "there are
+      // triangles visible". A cut has an outline; a mesh has an arbitrary
+      // number of internal edges, and none of them is a feature of the part.
+      for (final slice in app.sectionSlices()) {
+        final path = Path()..fillType = PathFillType.evenOdd;
+        for (final loop in slice.loops) {
+          if (loop.length < 3) continue;
+          final start = map(loop.first.dx, loop.first.dy);
+          path.moveTo(start.dx, start.dy);
+          for (var i = 1; i < loop.length; i++) {
+            final q = map(loop[i].dx, loop[i].dy);
             path.lineTo(q.dx, q.dy);
           }
           path.close();
         }
         canvas.save();
         canvas.clipPath(path);
-        // A light wash so the cut material reads as solid, then the 45-degree
-        // section lines over it. Spacing is in SCREEN space on purpose: a
-        // hatch is an annotation, so it stays legible at any zoom instead of
-        // collapsing into a smear when you zoom out.
+        // A light wash so the cut material reads as solid, then the section
+        // lines over it. Spacing is in SCREEN space on purpose: a hatch is an
+        // annotation, so it stays legible at any zoom instead of collapsing
+        // into a smear when you zoom out.
         canvas.drawRect(
             Offset.zero & size, Paint()..color = T.rawGrey.withAlpha(77));
         final pen = Paint()
           ..color = T.rawGrey.withAlpha(217)
           ..strokeWidth = 1.0;
-        const step = 7.0;
-        // y = x + c at 45 degrees; c runs far enough to cross the whole view.
-        for (var c = -size.height; c < size.width; c += step) {
-          canvas.drawLine(
-              Offset(c, 0), Offset(c + size.height, size.height), pen);
-        }
+        final (deg, step) = kSectionHatch[slice.style % kSectionHatch.length];
+        _hatch(canvas, size, deg, step, pen);
         canvas.restore();
         // The section OUTLINE, drawn crisply on top — the boundary is what
         // makes a section read as a cut rather than as shading.
@@ -3450,5 +3453,24 @@ class _PalmAwareScale extends ScaleGestureRecognizer {
   bool isPointerAllowed(PointerDownEvent event) {
     if (event.kind == PointerDeviceKind.touch && rejectTouch()) return false;
     return super.isPointerAllowed(event);
+  }
+}
+
+/// M222 — parallel hatch lines at [deg] across the whole canvas, [step] px
+/// apart, measured perpendicular to their own direction so 45 and 135 come out
+/// equally dense (stepping in x would make the diagonals differ by sqrt(2)).
+///
+/// Anchored at the canvas origin rather than at the model, deliberately and for
+/// the same reason the spacing is in pixels: the hatch is an annotation about
+/// WHAT the material is, not about where it sits.
+void _hatch(Canvas canvas, Size size, double deg, double step, Paint pen) {
+  final rad = deg * math.pi / 180;
+  final dx = math.cos(rad), dy = math.sin(rad);
+  final nx = -dy, ny = dx;
+  final span = size.width + size.height; // covers the diagonal either way
+  for (var t = -span; t <= span; t += step) {
+    final cx = nx * t, cy = ny * t;
+    canvas.drawLine(Offset(cx - dx * span, cy - dy * span),
+        Offset(cx + dx * span, cy + dy * span), pen);
   }
 }
