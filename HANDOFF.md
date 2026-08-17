@@ -17,10 +17,10 @@ Token NIE in Dateien/.git/config schreiben.
 ## Meilenstein-Status
 
 > **Stand der CI (nachgelesen, nicht am Haken abgezaehlt).**
-> Letzter Lauf auf `main`: **31970418590** zu `a6efbec` (M220), Core + C-API
-> Build (iOS) gruen — `ci-logs-dart/ci-dart-tests.log.gz` sagt **1805 Tests
-> bestanden**, `ci-dart-analyze.log` **55 Issues / 0 Errors** (das ist die
-> neue Ausgangszahl). Der OCCT-Kernel-Lauf **31820861588** zu `07e3790`
+> Letzter Lauf auf `main`: **32029429683** zu `eb8e035` (M228) — **1931 Tests
+> bestanden**, **55 Issues / 0 Errors** (Ausgangszahl seit M220; der M225-Lauf
+> stand kurz auf 59 und ist zurueckgeholt). Der Stand zu M220 zum Vergleich:
+> Lauf 31970418590, 1805 Tests. Der OCCT-Kernel-Lauf **31820861588** zu `07e3790`
 > (M217) ist der letzte, der den Shim wirklich gebaut hat;
 > `ci-logs-occt/smoke.log` beginnt mit
 > `Prototype OCCT shim v20 (OCCT 7.9.3) (shim ABI v20)` und endet auf
@@ -28,6 +28,57 @@ Token NIE in Dateien/.git/config schreiben.
 > Direct Edit) darin. Der Workflow ignoriert `**.md`, ein reiner
 > Dokumentations-Push loest also KEINEN Lauf aus.
 >
+> **GERAETE-TEST — die Reihenfolge, in der es sich in EINER Sitzung pruefen
+> laesst (M221–M228).**
+>
+> Nichts davon war je auf Hardware; das ist der aelteste offene Punkt und
+> reicht in Wahrheit bis M192 zurueck. Diese Liste deckt nur die acht
+> Meilensteine dieser Sitzung ab, dafuer in einer Reihenfolge, die aufeinander
+> aufbaut: jeder Schritt benutzt, was der vorige gebaut hat.
+>
+> 1. **Skizze mit zwei konzentrischen Kreisen, Extrude oeffnen (M221).**
+>    Erwartet: das Panel geht auf und die Skizze SCHLIESST sich dabei (vorher
+>    lag das 2D-Overlay darueber und verschluckte jeden Pick). Dann Ring
+>    antippen, danach die Scheibe: **beide** muessen ausgewaehlt sein, und die
+>    Fuellung muss die zeigen, die man gerade getippt hat — nicht die andere.
+>    Das war die gemeldete Sache.
+> 2. **Denselben Ring extrudieren.** Erwartet: ein Ring mit Loch, keine volle
+>    Scheibe. (Der Anker lag frueher in der Mitte des Lochs, also konnte die
+>    Aufloesung beim Rebuild die falsche Region treffen.)
+> 3. **Eine Skizze auf der Deckflaeche oeffnen, Slice Graphics an (M222).**
+>    Erwartet: die Schnittflaeche ist schraffiert und zeigt **keine
+>    Dreieckskanten** mehr. Mit zwei Koerpern im Schnitt: die Schraffuren
+>    muessen sich unterscheiden (45°/135°).
+> 4. **Arbeitsebene: Three Points, dann Two Coplanar Edges (M223).** Erwartet:
+>    beide bauen; ein dritter Punkt auf einer Linie mit den ersten beiden wird
+>    mit einer Meldung abgelehnt, nicht geraten.
+> 5. **Tangential zu einem Zylinder durch einen Punkt (M224).** Zylinder auf
+>    der Seite antippen, auf der die Ebene liegen soll. Erwartet: die Ebene
+>    liegt auf DIESER Seite. Tippt man den Zylinder genau in Richtung des
+>    Punktes an, muss der Befehl noch einmal fragen statt zu raten.
+> 6. **Hole auf zwei Skizzenpunkten (M225).** Erwartet: Panel oeffnet, Tipp auf
+>    einen Punkt setzt eine Bohrung, zweiter Tipp nimmt sie weg; OK bohrt beide
+>    nach INNEN (nicht aus dem Teil heraus). Danach den Punkt in der Skizze
+>    verschieben: die Bohrung muss mitwandern.
+> 7. **Dasselbe Loch auf Counterbore stellen (M226).** Erwartet: ein flacher,
+>    weiterer Topf an der Oberflaeche. Dann Countersink, 90°: ein Kegel, der
+>    sich nach OBEN oeffnet. **Wenn der Kegel andersherum steht, ist das
+>    Taper-Vorzeichen falsch** — das ist die eine Stelle dieser Sitzung, die
+>    nur ein Bild klaeren kann.
+> 8. **Das Loch im Browser doppelt antippen.** Erwartet: das Panel geht mit den
+>    gespeicherten Werten auf (das war bis M226 tot).
+> 9. **Zweiten Koerper bauen, Combine > Cut (M227).** Erwartet: erster Tipp
+>    waehlt den Koerper, der BLEIBT; danach den anderen; OK laesst einen
+>    Koerper uebrig. Mit „Keep tool" bleiben beide.
+> 10. **Split mit der XZ-Ebene (M228).** Erwartet: die Haelfte auf einer Seite
+>     verschwindet, „Other side" dreht es um, und der Ebenen-Pick startet
+>     **keine Skizze**.
+>
+> Was dabei nebenbei mitgeprueft wird, weil es ueberall drinsteckt: dass ein
+> 3D-Panel die anderen schliesst, dass Esc Panel UND Pick zusammen wegraeumt,
+> und dass OK/Abbrechen in der Schnellwerkzeug-Leiste fuer alle vier neuen
+> Panels funktionieren.
+
 > **Nachtrag zur Nummerierung (M214–M216).** Diese drei entstanden auf einem
 > eigenen Branch als M212/M213/M214, waehrend `main` M212 und M213 bereits
 > fuer die 3D-Muster vergeben hatte. Zwei verschiedene M212 in einer
