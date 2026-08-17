@@ -789,7 +789,10 @@ class _RibbonState extends State<Ribbon> {
             OverItem(MO['combine']!, 'Combine', () => app.openCombine(),
                 active: app.combineSession != null),
             OverItem(MO['thicken']!, 'Thicken / Offset', null),
-            OverItem(MO['split']!, 'Split', null),
+            // M228 — Trim Solid, built. Splitting a body INTO TWO needs a
+            // feature that spawns a body, which the fold does not do.
+            OverItem(MO['split']!, 'Split', () => app.openSplit(),
+                active: app.splitSession != null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(

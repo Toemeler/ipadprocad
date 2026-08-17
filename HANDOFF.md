@@ -90,6 +90,44 @@ Token NIE in Dateien/.git/config schreiben.
 > testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
 > gruen**, analyze 55 Issues / 0 Errors.
 
+> **M228 — Split: die Haelfte, die diese Architektur ehrlich tragen kann.**
+>
+> Inventors Split macht drei Dinge: eine FLAECHE mit einer Kurve teilen, einen
+> Koerper in ZWEI Koerper teilen, und einen Koerper an einer Ebene abschneiden
+> (Trim Solid). Das mittlere ist keine Fussnote zu den anderen beiden: ein
+> Feature, das einen ZWEITEN Koerper erzeugt, hat im Fold keinen Platz — der
+> bildet ein Feature auf einen Solid ab und faltet ihn in EINE Kette. Das zu
+> bauen hiesse, dem Zeitstrahl beizubringen, dass ein Feature einen Koerper
+> gebaeren kann, und das ist ein eigener Meilenstein. Also der Trim — und das
+> Panel sagt es, statt es den Nutzer herausfinden zu lassen.
+>
+> **Das Werkzeug ist der Halbraum-Kasten, den Slice Graphics seit M168 baut.**
+> Genau deshalb wird seine Groesse hier nicht neu hergeleitet: er schneidet
+> seit M168 in jeder Geraete-Sitzung die nahe Seite weg. Neu ist nur, dass er
+> BLEIBT und sich umdrehen laesst. `flip` startet den Kasten eine volle Laenge
+> vorher, sodass er exakt AUF der Ebene endet — die beiden Seiten treffen sich
+> dort, und keine wird zweimal geschnitten.
+>
+> **Die Ebene wird gespeichert, nicht ihr Schluessel.** Eine Arbeitsebene kann
+> sich bewegen, und ein Ursprungs-Schluessel kann nicht „die Flaeche, die ich
+> angetippt habe" sagen; eine Skizze auf einer Flaeche legt ihren Frame aus
+> genau diesem Grund ab (M58).
+>
+> **Der Pick ist der bestehende:** „eine Ebene oder eine planare Flaeche" ist
+> dieselbe Frage wie beim Skizzieren und beim Arbeitsebenen-Offset, also
+> laeuft der Split durch `planePicked`/`facePicked` — mit einem Zweig neben dem
+> von M151, nicht mit einem zweiten Pick-Weg. Die Ursprungsebenen kommen fuer
+> die Dauer heraus und verschwinden wieder, wie bei einer Skizze; Esc raeumt
+> beides zusammen weg.
+>
+> **Ehrlicher Stand:** 14 Tests (`m228_split_test.dart`) — der Schnitt und wo
+> das Werkzeug liegt, beide Seiten (inklusive der Gleichung
+> `start + hoehe = Ebene`), die Ablehnungen, Roundtrip mit Frame, der
+> Rebuild-Schluessel, und die Befehlsseite: Vorbedingung, Pick, OK, Esc,
+> Verdraengung, Browser-Edit. Ausdruecklich mitgeprueft: der Ebenen-Pick darf
+> KEINE Skizze anfangen — das ist der andere Fluss auf demselben Tipp.
+> **Am Geraet nicht nachgeprueft.**
+
 > **M227 — Combine: eine Boolesche zwischen KOERPERN — und das erste Feature,
 > das einen anderen Koerper liest.**
 >

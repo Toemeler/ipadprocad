@@ -857,6 +857,15 @@ class HoleSession {
   String exprCsAngle = '90 deg';
 }
 
+/// M228 — the live state of the Split panel.
+class SplitSession {
+  SplitFeature? editing;
+  PlaneFrame? frame;
+  String label = '';
+  bool flip = false;
+  String? bodyName;
+}
+
 /// M227 — the live state of the Combine panel.
 class CombineSession {
   CombineFeature? editing;
@@ -3700,6 +3709,12 @@ class AppState extends ChangeNotifier {
       _workPlaneInput(wp?.frame ?? planeFrame(key), wp?.name ?? key.toUpperCase());
       return;
     }
+    // M228 — likewise for the split panel.
+    if (splitSession != null && splitSession!.frame == null) {
+      _splitPlaneInput(wp?.frame ?? planeFrame(key),
+          wp?.name ?? '${key.toUpperCase()} Plane');
+      return;
+    }
     pickPlane = false;
     if (_planesAutoShown) {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
@@ -4887,6 +4902,11 @@ class AppState extends ChangeNotifier {
       _workPlaneInput(frame, 'face');
       return;
     }
+    // M228 — the split panel asks the same question, so it reads the same pick.
+    if (splitSession != null && splitSession!.frame == null) {
+      _splitPlaneInput(frame, 'Face');
+      return;
+    }
     pickPlane = false;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
     final fn = frame.n;
@@ -5019,6 +5039,8 @@ class AppState extends ChangeNotifier {
       _openPattern(f.mode, f);
     } else if (f is CombineFeature) {
       openCombine(f);
+    } else if (f is SplitFeature) {
+      openSplit(f);
     } else if (f is HoleFeature) {
       // M226 — without this a Hole row in the browser opened nothing at all:
       // the feature was reachable to build and unreachable to change, which is
@@ -5043,6 +5065,7 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     cancelHole(); // M225 — one 3D panel at a time
     cancelCombine(); // M227 — likewise
+    cancelSplit(); // M228 — likewise
     _leaveSketchForCommand(); // M221 — an edge pick needs the 3D viewport
     final s = EdgeFeatureSession(kind, editing: edit);
     if (edit is FilletFeature) {
@@ -5507,6 +5530,149 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  // ---- M228 — Split (Trim Solid): trim a body with a plane --------------
+
+  SplitSession? splitSession;
+
+  /// True while the split panel is waiting for its plane. It borrows the plane
+  /// PICK the sketch and work-plane flows use ([pickPlane]), because "a plane
+  /// or a planar face" is the same question in all three.
+  bool get splitPickingPlane => splitSession != null && pickPlane;
+
+  void openSplit([SplitFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (edit == null && splitSession != null && splitSession!.editing == null) {
+      cancelSplit();
+      return;
+    }
+    if (edit == null && !p.hasSolid) {
+      toast('Split trims a body — there is none yet.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    cancelCombine();
+    cancelSplit();
+    _leaveSketchForCommand();
+    final s = SplitSession()..editing = edit;
+    if (edit != null) {
+      s
+        ..frame = edit.frame
+        ..label = edit.label
+        ..flip = edit.flip
+        ..bodyName = edit.bodyName;
+    }
+    splitSession = s;
+    if (s.frame == null) {
+      // The origin planes come out for the duration, exactly as they do for a
+      // sketch: on a part with one body there may be nothing else to pick.
+      pickPlane = true;
+      _planesAutoShown = true;
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+      toast('Select the plane to trim with.');
+    }
+    notifyListeners();
+  }
+
+  /// The split panel's plane arrived — from an origin plane, a work plane or a
+  /// planar face; by the time it is here they are all just a frame.
+  void _splitPlaneInput(PlaneFrame f, String label) {
+    final s = splitSession;
+    if (s == null) return;
+    s.frame = f;
+    s.label = label;
+    pickPlane = false;
+    final p = currentPart;
+    if (p != null && _planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
+    toast('Trimming with $label. OK keeps the side that is left.');
+    notifyListeners();
+  }
+
+  void repickSplitPlane() {
+    final s = splitSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    s.frame = null;
+    pickPlane = true;
+    _planesAutoShown = true;
+    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    toast('Select the plane to trim with.');
+    notifyListeners();
+  }
+
+  void setSplit({bool? flip, String? bodyName}) {
+    final s = splitSession;
+    if (s == null) return;
+    if (flip != null) s.flip = flip;
+    if (bodyName != null) s.bodyName = bodyName;
+    notifyListeners();
+  }
+
+  void cancelSplit() {
+    if (splitSession == null) return;
+    final p = currentPart;
+    if (pickPlane) {
+      pickPlane = false;
+      if (p != null && _planesAutoShown) {
+        p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+      }
+      _planesAutoShown = false;
+    }
+    splitSession = null;
+    notifyListeners();
+  }
+
+  Future<bool> applySplit() async {
+    final s = splitSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    final fr = s.frame;
+    if (fr == null) {
+      toast('Select the plane to trim with.');
+      return false;
+    }
+    final edit = s.editing;
+    final body = edit?.bodyName ??
+        s.bodyName ??
+        (p.bodyNames.isEmpty ? p.nextSolidName() : p.bodyNames.last);
+    final f = SplitFeature(
+      name: edit?.name ?? p.nextFeatureName('Split'),
+      bodyName: body,
+      frame: fr,
+      label: s.label.isEmpty ? 'Plane' : s.label,
+      flip: s.flip,
+    );
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    splitSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    p.dirty = true;
+    Log.i('part',
+        'split ${edit == null ? "created" : "edited"} ${f.name} '
+        'with ${f.label}${f.flip ? " (flipped)" : ""} -> ${f.bodyName}');
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
   // ---- M227 — Combine: a boolean between two bodies ---------------------
 
   CombineSession? combineSession;
@@ -5674,6 +5840,7 @@ class AppState extends ChangeNotifier {
     cancelPattern();
     cancelHole(); // M225 — one 3D panel at a time
     cancelCombine(); // M227 — likewise
+    cancelSplit(); // M228 — likewise
     _leaveSketchForCommand(); // M221 — its picks are 3D picks too
     final s = PartPatternSession(kind, editing: edit);
     if (edit != null) {
@@ -6669,6 +6836,7 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     cancelHole(); // M225 — one 3D panel at a time
     cancelCombine(); // M227 — likewise
+    cancelSplit(); // M228 — likewise
     final wasOpen = _leaveSketchForCommand();
     final s = ExtrudeSession();
     if (edit != null) {
@@ -7355,6 +7523,8 @@ class AppState extends ChangeNotifier {
       cancelHole();
     } else if (combineSession != null) {
       cancelCombine(); // M227 — same shape
+    } else if (splitSession != null) {
+      cancelSplit(); // M228 — same shape, and it puts the origin planes back
     } else if (pickingEdges && edgeSession == null) {
       cancelPickEdges();
     } else if (edgeSession != null) {

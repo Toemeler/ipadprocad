@@ -2046,6 +2046,8 @@ abstract class PartFeature {
         return HoleFeature.fromJson(j);
       case 'combine':
         return CombineFeature.fromJson(j);
+      case 'split':
+        return SplitFeature.fromJson(j);
       default:
         return null;
     }
@@ -2064,6 +2066,80 @@ class HolePlace {
   Map<String, dynamic> toJson() => {'x': x, 'y': y};
   static HolePlace fromJson(Map<String, dynamic> j) => HolePlace(
       (j['x'] as num?)?.toDouble() ?? 0, (j['y'] as num?)?.toDouble() ?? 0);
+}
+
+/// M228 — Inventor's **Modify > Split**, in the half this architecture can
+/// carry honestly: **Trim Solid**.
+///
+/// Inventor's Split does three things: split a FACE with a curve, split a body
+/// into TWO bodies, and trim a body away on one side of a plane. The middle
+/// one is not a footnote to the other two — a feature that produces a SECOND
+/// body has no place in the fold, which maps one feature to one solid and
+/// folds it into one chain. Building it would mean teaching the timeline that
+/// a feature can spawn a body, and that is its own milestone.
+///
+/// So this is the trim: everything on one side of [frame] goes away. [flip]
+/// chooses the side, because which half you meant is not derivable from a
+/// plane — a plane has two sides and no opinion.
+class SplitFeature extends PartFeature {
+  /// The cutting plane, stored OUTRIGHT rather than as a key. A work plane can
+  /// move and an origin key cannot say "the face I picked"; a sketch on a face
+  /// stores its frame for exactly this reason (M58).
+  PlaneFrame frame;
+
+  /// What the plane was called when it was picked — for the browser sentence.
+  String label;
+
+  /// Keep the material on the +normal side instead of the -normal side.
+  bool flip;
+
+  SplitFeature({
+    required super.name,
+    required super.bodyName,
+    required this.frame,
+    this.label = 'Plane',
+    this.flip = false,
+    super.visible,
+  }) : super(output: 'cut');
+
+  @override
+  String get kind => 'split';
+  @override
+  String get typeLabel => 'Split';
+
+  @override
+  bool get modifiesBody => true;
+
+  @override
+  String ownSig() {
+    final o = frame.origin, n = frame.n;
+    return 'sp|${o.x},${o.y},${o.z}|${n.x},${n.y},${n.z}|$flip';
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'frame': frame.frameJson(),
+        'label': label,
+        'flip': flip,
+      };
+
+  static SplitFeature fromJson(Map<String, dynamic> j) {
+    final fr = PlaneFrame.fromFrameJson(j['frame'] as List?);
+    final f = SplitFeature(
+      name: j['name'] as String? ?? 'Split',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      // A split with no plane cannot be rebuilt, and says so at recompute
+      // rather than being dropped on load: losing a feature silently is how a
+      // part comes back different (M111's rule for imports, same reasoning).
+      frame: fr ?? planeFrame('xy'),
+      label: j['label'] as String? ?? 'Plane',
+      flip: j['flip'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
 }
 
 /// M227 — Inventor's **Modify > Combine**: a boolean between solid BODIES.
@@ -6676,6 +6752,7 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   if (f is PatternFeature) return _recomputePattern(part, f, kernel, base);
   if (f is HoleFeature) return _recomputeHole(part, f, kernel, base);
   if (f is CombineFeature) return _recomputeCombine(part, f, kernel, base);
+  if (f is SplitFeature) return _recomputeSplit(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
   if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
@@ -7156,6 +7233,53 @@ bool _recomputeHole(
       return false;
     }
     cut = done;
+  }
+  f.solid = cut;
+  return true;
+}
+
+/// M228 — the half-space tool: a slab covering everything on ONE side of
+/// [frame], big enough to swallow the part.
+///
+/// The same box [sliceSolidAt] builds for Slice Graphics, and that is the
+/// point: Slice Graphics has cut the near side away on every device session
+/// since M168, so the sizing is proven. What differs is that this one is
+/// PERMANENT and can be flipped.
+KernelSolid? halfSpaceTool(
+    PartKernel kernel, PartModel part, PlaneFrame frame, bool flip) {
+  final (lo, hi) = originExtentBounds(part);
+  final r = (hi - lo).length + 10.0;
+  if (!r.isFinite || r <= 0) return null;
+  final profile = [
+    [
+      [Offset(-r, -r), Offset(r, -r), Offset(r, r), Offset(-r, r)]
+    ]
+  ];
+  // Extruding along +n covers the +side; the -side is the same box started a
+  // full length back. Never both, and never zero-thickness at the plane.
+  return kernel.extrude(profile, r, 0, frame.mat34(flip ? -r : 0));
+}
+
+bool _recomputeSplit(
+    PartModel part, SplitFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'a split needs a body to trim';
+    return false;
+  }
+  if (f.frame.n.length < 1e-9) {
+    f.computeError = 'the splitting plane is gone';
+    return false;
+  }
+  final tool = halfSpaceTool(kernel, part, f.frame, f.flip);
+  if (tool == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  final cut = kernel.cutSolids(base, tool);
+  tool.dispose();
+  if (cut == null) {
+    f.computeError = kernel.lastError;
+    return false;
   }
   f.solid = cut;
   return true;
