@@ -36,6 +36,60 @@ Token NIE in Dateien/.git/config schreiben.
 > STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
 > **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
 
+> **M225 (1/2) — Hole: das Feature.**
+>
+> „Hole" steht seit M56 als Beschriftung im Teil-Ribbon und war bis M216 ein
+> Knopf in voller Groesse mit leerem `onTap`. Es ist der meistbenutzte Eintrag
+> in Inventors Modify-Panel, und der einzige Weg hierher war bisher: einen
+> Kreis zeichnen und als Cut extrudieren — hinterher etwas voellig anderes.
+> Im Browser steht „Extrusion", der Durchmesser ist eine Skizzenbemassung
+> statt einer Lochgroesse, und das Loch zu verschieben heisst, Geometrie zu
+> bearbeiten statt einen Punkt.
+>
+> **Es ist ein koerper-veraenderndes Feature, keine Extrusion mit
+> `output: 'cut'`** — obwohl es genau so beim Kernel ankommt. Ein Loch kann
+> nie ein Basis-Feature sein (es muss Material geben), sein Browser-Eintrag
+> und sein Dialog handeln von einem Loch und nicht von einem Profil, und das
+> Profil, mit dem es schneidet, wird aus einem DURCHMESSER abgeleitet statt
+> gezeichnet: nichts in der Skizze muss ein Kreis sein, und wer den Punkt
+> verschiebt, verschiebt das Loch.
+>
+> **Platzierung auf Skizzen-PUNKTEN** (Inventors „From Sketch"). Gespeichert
+> werden Koordinaten, und bei jedem Rebuild wird der naechste Skizzenpunkt
+> gesucht und die Platzierung darauf umgeschrieben — dieselbe Regel wie bei
+> `ProfileSel` und aus demselben Grund: ein Index verschiebt sich, sobald
+> etwas eingefuegt wird. Landen ZWEI Platzierungen auf demselben Punkt, wird
+> abgelehnt statt zweimal dasselbe Loch zu bohren; genau das hinterlaesst ein
+> geloeschter Punkt, und es ist die Verwechslung, die M217s `resolveFaces`
+> fuer Flaechen schon verweigert.
+>
+> **Die Bohrrichtung ist nach INNEN.** Die Normale einer Skizze zeigt zum
+> Betrachter, das Werkzeug startet also bei −Tiefe und endet auf der
+> Skizzenebene. `flip` dreht es um. Bei „Through All" ist das Werkzeug so
+> lang wie die Diagonale des Teils plus 20 mm und ragt auf BEIDEN Seiten
+> heraus — eine Werkzeugflaeche, die mit einer Koerperflaeche zusammenfaellt,
+> ist der klassische Muenzwurf einer Booleschen.
+>
+> **Bewusst NICHT drin, statt halb:** Senkung, Zylindersenkung und Planansenkung
+> (jeweils ein gestuftes oder konisches Profil und ein zweiter Satz Zahlen),
+> Gewinde- und Durchgangsloecher (eine Gewindetabelle), der Spitzenwinkel am
+> Grund (ein Kegel, also ein Revolve statt einer Extrusion) und die
+> Platzierungen Linear/Konzentrisch. To Next / To Face werden ABGELEHNT statt
+> als Distanz gebohrt.
+>
+> Der Kreis geht als 96-Punkt-Polygon zum Kernel — genau wie ein GEZEICHNETER
+> Kreis (`sampleEntity(g, arcSamples: 96)`), damit `arcFitLoop` daraus
+> dieselben exakten Boegen macht und das Loch eine echte Zylinderflaeche
+> bekommt.
+>
+> **Ehrlicher Stand:** 14 neue Tests (`m225_hole_test.dart`) — was beim Kernel
+> ankommt (ein Werkzeug je Platzierung, jeder Punkt exakt auf dem Radius), die
+> Lage des Werkzeugs, Flip, Through All, das Mitwandern mit dem Punkt, alle
+> Fehlerwege und der JSON-Roundtrip. Die Punkte entstehen im Test durch das
+> ECHTE Werkzeug (`Tool.point`), nicht von Hand — ein Loch, das nur
+> testgebaute Punkte findet, bewiese nichts. **Panel und Ribbon folgen in
+> (2/2); ohne sie ist der Befehl noch nicht bedienbar.**
+
 > **M224 — die drei Tangential-Ebenen: was fehlte, war die SEITE.**
 >
 > M223 hat sie ausdruecklich nicht gebaut und den Grund notiert: durch einen
@@ -82,7 +136,8 @@ Token NIE in Dateien/.git/config schreiben.
 > **Ehrlicher Stand:** 12 neue Tests im selben File
 > (`m223_work_plane_methods_test.dart`, Gruppen „M224 — …"): je Methode die
 > Tangentialbedingung (Abstand Achse→Ebene = r) UND die Punktbedingung, beide
-> Seiten, die drei Ablehnungen und der Gleichstand. **Am Geraet nicht
+> Seiten, die drei Ablehnungen und der Gleichstand. CI-Lauf **32025781360**:
+> **1864 gruen**, analyze 55 Issues / 0 Errors. **Am Geraet nicht
 > nachgeprueft.**
 
 > **M223 — der Rest von Inventors Work-Plane-Liste, auf der Maschinerie von

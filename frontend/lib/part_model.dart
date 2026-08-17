@@ -2034,9 +2034,124 @@ abstract class PartFeature {
         return CoilFeature.fromJson(j);
       case 'pattern':
         return PatternFeature.fromJson(j);
+      case 'hole':
+        return HoleFeature.fromJson(j);
       default:
         return null;
     }
+  }
+}
+
+/// M225 — where one hole goes: a point in the SKETCH's own (u,v).
+///
+/// Stored as coordinates and re-matched to a sketch point on every rebuild,
+/// exactly as [ProfileSel] is re-matched to a region: an index into the
+/// sketch's entity list moves the moment anything is inserted, and a hole that
+/// silently walks to another point is worse than one that fails.
+class HolePlace {
+  double x, y;
+  HolePlace(this.x, this.y);
+  Map<String, dynamic> toJson() => {'x': x, 'y': y};
+  static HolePlace fromJson(Map<String, dynamic> j) => HolePlace(
+      (j['x'] as num?)?.toDouble() ?? 0, (j['y'] as num?)?.toDouble() ?? 0);
+}
+
+/// Inventor's **Modify > Hole**, first cut: simple drilled holes on sketch
+/// points.
+///
+/// It is a BODY-MODIFYING feature and not an extrusion with `output: 'cut'`,
+/// even though a cut extrusion is how it reaches the kernel. Inventor treats a
+/// hole as its own feature for good reasons this app shares: it can never be a
+/// base feature (there must be material to drill), its browser row and its
+/// edit dialog are about a hole rather than about a profile, and the profile
+/// it cuts with is DERIVED from a diameter rather than drawn — nothing in the
+/// sketch has to be a circle, and a user who moves a point moves the hole.
+///
+/// What this first cut deliberately does NOT do, rather than half-doing it:
+/// counterbore, countersink and spotface (each is a stepped or conical profile
+/// and a second set of numbers), tapped and clearance holes (a thread table),
+/// the drill-point angle at the bottom (a cone, so a revolve rather than an
+/// extrusion), and the linear/concentric placements (this one places on sketch
+/// POINTS, which is Inventor's "From Sketch"). Every one of them is a real
+/// feature, not a footnote.
+class HoleFeature extends PartFeature {
+  @override
+  final String sketchName;
+  final List<HolePlace> places;
+  double dia, depth;
+  String exprDia, exprDepth;
+
+  /// Only [FeatureExtent.distance] and [FeatureExtent.throughAll] are honoured;
+  /// To Next / To Face need a face reference the panel does not offer yet and
+  /// are refused rather than silently treated as a distance.
+  FeatureExtent extent;
+
+  /// Drill along +n instead of the default -n. The default is "into the
+  /// material": a sketch's normal faces the viewer, so a hole goes away from
+  /// it.
+  bool flip;
+
+  HoleFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sketchName,
+    required this.places,
+    this.dia = 6,
+    this.depth = 10,
+    this.exprDia = '6 mm',
+    this.exprDepth = '10 mm',
+    this.extent = FeatureExtent.distance,
+    this.flip = false,
+    super.visible,
+  }) : super(output: 'cut');
+
+  @override
+  String get kind => 'hole';
+  @override
+  String get typeLabel => 'Hole';
+
+  /// A hole needs something to drill: it consumes the body it lands in and can
+  /// never be a base feature.
+  @override
+  bool get modifiesBody => true;
+
+  @override
+  String ownSig() => 'ho|$sketchName|$dia,$depth,'
+      '${featureExtentName(extent)},$flip|'
+      '${places.map((p) => '${p.x}:${p.y}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'sketch': sketchName,
+        'places': [for (final p in places) p.toJson()],
+        'dia': dia,
+        'depth': depth,
+        'exprDia': exprDia,
+        'exprDepth': exprDepth,
+        'extent': featureExtentName(extent),
+        'flip': flip,
+      };
+
+  static HoleFeature fromJson(Map<String, dynamic> j) {
+    final f = HoleFeature(
+      name: j['name'] as String? ?? 'Hole',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sketchName: j['sketch'] as String? ?? '',
+      places: [
+        for (final p in (j['places'] as List? ?? const []))
+          HolePlace.fromJson((p as Map).cast<String, dynamic>())
+      ],
+      dia: (j['dia'] as num?)?.toDouble() ?? 6,
+      depth: (j['depth'] as num?)?.toDouble() ?? 10,
+      exprDia: j['exprDia'] as String? ?? '6 mm',
+      exprDepth: j['exprDepth'] as String? ?? '10 mm',
+      extent: featureExtentFrom(j['extent'] as String? ?? 'distance'),
+      flip: j['flip'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
   }
 }
 
@@ -6403,6 +6518,7 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   // broke, and the feature goes sick honestly rather than materialising.
   if (f is FaceModifyFeature) return _recomputeFaceModify(f, kernel, base);
   if (f is PatternFeature) return _recomputePattern(part, f, kernel, base);
+  if (f is HoleFeature) return _recomputeHole(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
   if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
@@ -6741,6 +6857,129 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
     return false;
   }
   f.solid = solid;
+  return true;
+}
+
+/// M225 — the sketch points a hole feature drills on, or an error.
+///
+/// Nearest point wins and the placement is rewritten to it, so moving a point
+/// moves its hole. Two placements landing on ONE point is refused rather than
+/// drilling the same hole twice: that is the state a deleted point leaves
+/// behind, and it is exactly the confusion M217's resolveFaces refuses for
+/// faces.
+(List<Offset>?, String?) holeCentresFor(SketchModel sk, List<HolePlace> places) {
+  if (places.isEmpty) return (null, 'no hole placed');
+  final pts = <Offset>[];
+  for (final g in sk.geometry) {
+    if (g.isSketchPoint) pts.add(Offset(g.data[0], g.data[1]));
+  }
+  if (pts.isEmpty) {
+    return (null, 'no sketch point in "${sk.name}" to place a hole on');
+  }
+  final out = <Offset>[];
+  final taken = <int>{};
+  for (final pl in places) {
+    final anchor = Offset(pl.x, pl.y);
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < pts.length; i++) {
+      final d = (pts[i] - anchor).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (!taken.add(best)) {
+      return (null, 'two holes resolved to the same sketch point — one of '
+          'the points they were placed on is gone');
+    }
+    pl.x = pts[best].dx;
+    pl.y = pts[best].dy;
+    out.add(pts[best]);
+  }
+  return (out, null);
+}
+
+/// A closed polygon on the circle, in the sketch's own (u,v).
+///
+/// A polygon and not an arc pair because that is what the kernel path takes —
+/// and it stays a true cylinder anyway: [arcFitLoop] recognises points that
+/// lie on one circle and hands OCCT exact arcs. 96 points is what a DRAWN
+/// circle gets on the way to a profile (`sampleEntity(g, arcSamples: 96)`), so
+/// a hole is tessellated exactly like the circle a user would have drawn for
+/// it — same input to arcFitLoop, same faces out of the kernel.
+List<Offset> holeProfile(Offset c, double r, {int n = 96}) {
+  return [
+    for (var i = 0; i < n; i++)
+      c + Offset(r * math.cos(2 * math.pi * i / n),
+          r * math.sin(2 * math.pi * i / n))
+  ];
+}
+
+bool _recomputeHole(
+    PartModel part, HoleFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'a hole needs a body to drill into';
+    return false;
+  }
+  final cs = part.sketchByName(f.sketchName);
+  if (cs == null) {
+    f.computeError = 'sketch "${f.sketchName}" no longer exists';
+    return false;
+  }
+  final (centres, err) = holeCentresFor(cs.model, f.places);
+  if (centres == null) {
+    f.computeError = err ?? 'the hole has nowhere to go';
+    return false;
+  }
+  final r = f.dia / 2;
+  if (!(r > 0)) {
+    f.computeError = 'diameter must be greater than 0';
+    return false;
+  }
+  final frame = sketchFrameOf(cs);
+  double height;
+  double start; // where the tool begins, along n
+  if (f.extent == FeatureExtent.throughAll) {
+    // Long enough to leave the part on both sides, and STARTED outside it: a
+    // tool face exactly on the body's face is the classic boolean coin toss.
+    final (lo, hi) = originExtentBounds(part);
+    final span = (hi - lo).length + 20.0;
+    if (!span.isFinite || span <= 0) {
+      f.computeError = 'the part has no extent to drill through';
+      return false;
+    }
+    height = span;
+    start = f.flip ? -1.0 : -(span - 1.0);
+  } else if (f.extent == FeatureExtent.distance) {
+    height = f.depth;
+    if (!(height > 0)) {
+      f.computeError = 'depth must be greater than 0';
+      return false;
+    }
+    start = f.flip ? 0.0 : -height;
+  } else {
+    // To Next / To Face need a face reference the hole panel does not offer.
+    // Saying so beats treating it as a distance and drilling the wrong depth.
+    f.computeError =
+        '${extentLabel(f.extent)} is not available for a hole yet';
+    return false;
+  }
+  final groups = [
+    for (final c in centres) [holeProfile(c, r)]
+  ];
+  final tool = kernel.extrude(groups, height, 0, frame.mat34(start));
+  if (tool == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  final cut = kernel.cutSolids(base, tool);
+  tool.dispose();
+  if (cut == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = cut;
   return true;
 }
 
