@@ -36,6 +36,55 @@ Token NIE in Dateien/.git/config schreiben.
 > STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
 > **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
 
+> **M224 — die drei Tangential-Ebenen: was fehlte, war die SEITE.**
+>
+> M223 hat sie ausdruecklich nicht gebaut und den Grund notiert: durch einen
+> Punkt ausserhalb eines Zylinders gehen ZWEI Tangentialebenen, und Inventor
+> entscheidet ueber die Seite, die man angetippt hat. `WorkRef` hielt aber nur
+> fest, was ein Pick BEITRAEGT, nicht wo er landete. Genau das ist jetzt
+> ergaenzt — und nur das: `radius` und `hitAt` fuer eine Zylinderflaeche, mit
+> einem Kommentar, der sagt, warum diese beiden nicht in dieselbe Kategorie
+> gehoeren wie der Rest der Klasse. Der Trefferpunkt wurde im Viewport
+> ohnehin schon berechnet (fuer den Tiefentest); er wird jetzt bloss nicht
+> mehr weggeworfen.
+>
+> **Eine Ebene, dreimal dieselbe Aufgabe.** Die Normale einer Tangentialebene
+> steht IMMER senkrecht auf der Achse, jede ist also durch einen einzigen
+> Winkel um sie herum bestimmt: zulaessige Winkel bestimmen, dann mit der
+> Tippseite auswaehlen.
+>
+> * **through Point:** liegt der Punkt AUF dem Zylinder, gibt es genau eine
+>   Ebene und gar keine Wahl. Liegt er weiter draussen, sind es zwei, bei
+>   ±acos(r/h) um seine eigene Richtung. Liegt er drinnen, gibt es keine — und
+>   das wird gesagt, nicht gerechnet.
+> * **through Edge:** eine Kante, die AUF dem Zylinder liegt und parallel zur
+>   Achse laeuft, bestimmt die Ebene eindeutig. Eine Kante daneben wird mit
+>   ihrem Abstand abgelehnt (`... is 4.000 mm off it`) — eine Kante, die nicht
+>   auf der Flaeche liegt, ist viel wahrscheinlicher ein Fehlgriff als ein
+>   Wunsch.
+> * **and Parallel to Plane:** existiert nur, wenn die Normale der Bezugsebene
+>   senkrecht zur Achse steht; sonst gibt es gar keine parallele Tangente.
+>   Dann sind es +n und −n, und wieder entscheidet die Seite.
+>
+> **Ein Gleichstand ist keine Antwort.** Tippt man den Zylinder GENAU in
+> Richtung des Zielpunkts an, liegen beide Tangenten gleich weit weg, der Pick
+> traegt also keine Seite. Statt die erste zu nehmen, fragt der Befehl noch
+> einmal („tap the face on the side the plane should go"). Das ist M158s
+> Lektion, woertlich: Ranking ist nicht Akzeptanz, ein Muenzwurf gehoert
+> verworfen. Aufgefallen ist es beim Nachrechnen der Geometrie in einer
+> Simulation VOR dem Push — beide Kandidaten kamen mit demselben Skalarprodukt
+> heraus.
+>
+> Damit sind **elf von dreizehn** Plane-Eintraegen echt. Offen bleiben Angle to
+> Plane around Edge (braucht ein Winkelfeld, den Zwilling von M169) und Normal
+> to Curve at Point (braucht einen Kurven-Beitrag in `WorkRef`).
+>
+> **Ehrlicher Stand:** 12 neue Tests im selben File
+> (`m223_work_plane_methods_test.dart`, Gruppen „M224 — …"): je Methode die
+> Tangentialbedingung (Abstand Achse→Ebene = r) UND die Punktbedingung, beide
+> Seiten, die drei Ablehnungen und der Gleichstand. **Am Geraet nicht
+> nachgeprueft.**
+
 > **M223 — der Rest von Inventors Work-Plane-Liste, auf der Maschinerie von
 > M215.**
 >
@@ -88,7 +137,8 @@ Token NIE in Dateien/.git/config schreiben.
 > `WorkRef`s. Ein gemeinsames Feld haette einen der beiden Fluesse dazu
 > gebracht, den anderen zu spielen.
 >
-> **Ehrlicher Stand:** 20 neue Tests (`m223_work_plane_methods_test.dart`) —
+> **Ehrlicher Stand:** 21 neue Tests (`m223_work_plane_methods_test.dart`),
+> CI-Lauf **32025159761**: **1852 gruen**, analyze 55 Issues / 0 Errors —
 > je Methode die Geometrie (der Punkt liegt AUF der Ebene, nicht daneben), die
 > Refusals, die Pick-Reihenfolge, der Befehl im AppState und der
 > Namens-Fehler, der ohne den Fix wieder auftritt. **Am Geraet nicht

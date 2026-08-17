@@ -1451,7 +1451,7 @@ class _Viewport3DState extends State<Viewport3D>
     // -- 3. faces ----------------------------------------------------------
     final fr = _pickFaceRecord(cam, px);
     if (fr == null) return null;
-    final (info, _) = fr;
+    final (info, _, hit) = fr;
     final type = info[0].round();
     final at = Vec3(info[1], info[2], info[3]);
     final dir = Vec3(info[4], info[5], info[6]);
@@ -1460,7 +1460,10 @@ class _Viewport3DState extends State<Viewport3D>
       case kFacePlane:
         return WorkRef.plane('Face', at, dir);
       case kFaceCylinder:
-        return WorkRef.revolvedFace('Cylindrical Face', at, dir);
+        // M224 — radius (slot 10) and the tapped point: everything a tangent
+        // plane needs beyond the axis.
+        return WorkRef.cylinder('Cylindrical Face', at, dir,
+            radius: info[10], hitAt: hit);
       case kFaceCone:
         return WorkRef.revolvedFace('Conical Face', at, dir);
       case kFaceSphere:
@@ -1472,11 +1475,18 @@ class _Viewport3DState extends State<Viewport3D>
     }
   }
 
-  /// The frontmost face's 15-double surface record under [px], with its depth.
+  /// The frontmost face's 15-double surface record under [px], with its depth
+  /// and the world point the ray HIT.
   /// Unlike [_pickSolidFace] this accepts EVERY surface type — a work feature
   /// wants the cylinder that a sketch cannot be drawn on.
-  (List<double>, double)? _pickFaceRecord(Cam3 cam, Offset px) {
-    (List<double>, double)? best;
+  ///
+  /// M224 — the hit point comes back because a tangent work plane needs the
+  /// SIDE of the cylinder that was tapped: there are two tangent planes
+  /// through a point outside it, and nothing in the cylinder's own geometry
+  /// says which one the user meant. It was already being computed here for the
+  /// depth test.
+  (List<double>, double, Vec3)? _pickFaceRecord(Cam3 cam, Offset px) {
+    (List<double>, double, Vec3)? best;
     var bestDepth = double.infinity;
     for (final s in _liveSolids()) {
       final m = s.mesh;
@@ -1510,12 +1520,13 @@ class _Viewport3DState extends State<Viewport3D>
         final l2 = 1 - l0 - l1;
         const e = -1e-6;
         if (l0 < e || l1 < e || l2 < e) continue;
-        final d = cam.depth(w0 * l0 + w1 * l1 + w2 * l2);
+        final hit = w0 * l0 + w1 * l1 + w2 * l2;
+        final d = cam.depth(hit);
         if (d >= bestDepth) continue;
         final fid = m.triFaces[t ~/ 3];
         if (15 * fid + 15 > m.faceInfos.length) continue;
         bestDepth = d;
-        best = (m.faceInfos.sublist(15 * fid, 15 * fid + 15), d);
+        best = (m.faceInfos.sublist(15 * fid, 15 * fid + 15), d, hit);
       }
     }
     return best;

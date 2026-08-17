@@ -82,6 +82,19 @@ class WorkRef {
   /// for `def` — the geometry is already in the fields above.
   final WorkRefSource source;
 
+  /// M224 — the radius of a cylindrical face, and WHERE ON IT the ray landed.
+  ///
+  /// The one thing a pick knows that its contributions do not: where the
+  /// finger was. Everything else in this class is deliberately about what a
+  /// pick can STAND IN FOR, and that is what makes the inference tractable —
+  /// but a tangent plane genuinely needs more than the cylinder's geometry.
+  /// There are two tangent planes through any point outside a cylinder, and
+  /// Inventor picks between them by the side you clicked. Without this a
+  /// tangent plane lands on the far side of the part half the time, which is
+  /// exactly why M223 refused to build one.
+  final double? radius;
+  final Vec3? hitAt;
+
   const WorkRef._({
     required this.label,
     required this.source,
@@ -90,6 +103,8 @@ class WorkRef {
     this.lineDir,
     this.planeAt,
     this.planeNormal,
+    this.radius,
+    this.hitAt,
   });
 
   /// A vertex, an edge midpoint, a sketch point, the origin centre point, or
@@ -165,6 +180,20 @@ class WorkRef {
           source: WorkRefSource.revolved,
           lineAt: axisAt,
           lineDir: axisDir.normalized());
+
+  /// M224 — a CYLINDRICAL face: its axis, as [revolvedFace] gives, plus the
+  /// radius and the point the ray hit. Source stays [WorkRefSource.revolved]
+  /// so every method that already accepts a revolved face keeps accepting it.
+  factory WorkRef.cylinder(String label, Vec3 axisAt, Vec3 axisDir,
+          {required double radius, Vec3? hitAt}) =>
+      WorkRef._(
+        label: label,
+        source: WorkRefSource.revolved,
+        lineAt: axisAt,
+        lineDir: axisDir.normalized(),
+        radius: radius,
+        hitAt: hitAt,
+      );
 
   /// A spherical face: its centre.
   factory WorkRef.sphere(String label, Vec3 centre) => WorkRef._(
@@ -963,18 +992,11 @@ String _mm(double v) {
 //                                   geometry one.
 //   Normal to Curve at Point        needs a CURVE contribution — a tangent at a
 //                                   parameter — which WorkRef does not carry.
-//   Tangent to Surface through Edge / through Point / and Parallel to Plane
-//                                   a cylinder has TWO tangent planes through
-//                                   an external point or parallel to a plane,
-//                                   and Inventor resolves that with the side
-//                                   you clicked. WorkRef records what a pick
-//                                   CONTRIBUTES, not where on the face it
-//                                   landed, so building this means teaching it
-//                                   the hit point first. Guessing a side would
-//                                   put the plane on the far side of the part
-//                                   half the time.
-//   Midplane of Torus               is built (below); listed here only because
-//                                   the ribbon groups it with the tangents.
+//   (M224 built the three Tangent to Surface methods, which had been listed
+//   here as blocked: a cylinder has TWO tangent planes through an external
+//   point or parallel to a plane, and Inventor resolves that with the side you
+//   clicked. WorkRef now carries the hit point for exactly that, and refuses
+//   rather than guessing when a pick arrives without one.)
 
 /// Inventor's Work Plane creation methods that run on picks alone.
 enum WorkPlaneMethod {
@@ -983,6 +1005,10 @@ enum WorkPlaneMethod {
   twoCoplanarEdges,
   normalToAxisThroughPoint,
   midplaneOfTorus,
+  // M224 — the three that needed the side of the face you picked.
+  tangentToSurfaceThroughPoint,
+  tangentToSurfaceThroughEdge,
+  tangentToSurfaceParallelToPlane,
 }
 
 String workPlaneMethodLabel(WorkPlaneMethod m) {
@@ -997,6 +1023,12 @@ String workPlaneMethodLabel(WorkPlaneMethod m) {
       return 'Normal to Axis through Point';
     case WorkPlaneMethod.midplaneOfTorus:
       return 'Midplane of Torus';
+    case WorkPlaneMethod.tangentToSurfaceThroughPoint:
+      return 'Tangent to Surface through Point';
+    case WorkPlaneMethod.tangentToSurfaceThroughEdge:
+      return 'Tangent to Surface through Edge';
+    case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
+      return 'Tangent to Surface and Parallel to Plane';
   }
 }
 
@@ -1007,6 +1039,9 @@ int workPlaneArity(WorkPlaneMethod m) {
     case WorkPlaneMethod.parallelToPlaneThroughPoint:
     case WorkPlaneMethod.twoCoplanarEdges:
     case WorkPlaneMethod.normalToAxisThroughPoint:
+    case WorkPlaneMethod.tangentToSurfaceThroughPoint:
+    case WorkPlaneMethod.tangentToSurfaceThroughEdge:
+    case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
       return 2;
     case WorkPlaneMethod.threePoints:
       return 3;
@@ -1035,6 +1070,18 @@ String workPlanePrompt(WorkPlaneMethod m, int have) {
         1 => 'Select the second point.',
         _ => 'Select the third point.',
       };
+    case WorkPlaneMethod.tangentToSurfaceThroughPoint:
+      return have == 0
+          ? 'Select a cylindrical face, on the side the plane goes.'
+          : 'Select the point the plane runs through.';
+    case WorkPlaneMethod.tangentToSurfaceThroughEdge:
+      return have == 0
+          ? 'Select a cylindrical face.'
+          : 'Select an edge lying along it.';
+    case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
+      return have == 0
+          ? 'Select a cylindrical face, on the side the plane goes.'
+          : 'Select the plane to be parallel to.';
   }
 }
 
@@ -1131,7 +1178,158 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         return _twoEdgePlane(refs[0], refs[1]);
       }
+
+    case WorkPlaneMethod.tangentToSurfaceThroughPoint:
+    case WorkPlaneMethod.tangentToSurfaceThroughEdge:
+    case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
+      {
+        final cyl = refs.firstWhere((r) => r.radius != null,
+            orElse: () => refs.first);
+        if (cyl.radius == null || !cyl.hasLine) {
+          return WorkAttempt.no('${refs.first.label} is not a cylindrical '
+              'face — a tangent plane needs one.');
+        }
+        if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
+        final other =
+            refs.firstWhere((r) => !identical(r, cyl), orElse: () => refs.last);
+        if (m == WorkPlaneMethod.tangentToSurfaceThroughEdge) {
+          return _tangentThroughEdge(cyl, other);
+        }
+        if (m == WorkPlaneMethod.tangentToSurfaceParallelToPlane) {
+          return _tangentParallelToPlane(cyl, other);
+        }
+        return _tangentThroughPoint(cyl, other);
+      }
   }
+}
+
+// ---------------------------------------------------------------------------
+// M224 — tangent planes
+// ---------------------------------------------------------------------------
+//
+// A tangent plane of a cylinder always has its normal PERPENDICULAR to the
+// axis, so every one of them is fixed by a single angle around it. That is
+// what makes these three methods the same problem three times: find the
+// admissible angles, then choose between them with the side the user picked.
+
+/// The part of [v] perpendicular to the unit direction [axis].
+Vec3 _radial(Vec3 v, Vec3 axis) => v - axis * v.dot(axis);
+
+/// The tangent plane of [cyl] whose outward normal is the unit [m]: it touches
+/// at axis + m*r, taken at the axial position of [along].
+WorkPlaneSolution _tangentAt(WorkRef cyl, Vec3 m, Vec3 along, String def) {
+  final a = cyl.lineAt!, d = cyl.lineDir!;
+  final base = a + d * (along - a).dot(d);
+  return WorkPlaneSolution(base + m * cyl.radius!, m, def);
+}
+
+/// Which of [cands] the user meant, by the point the ray hit. Null when the
+/// pick carried no hit — the caller then refuses rather than guessing.
+Vec3? _sideChosen(WorkRef cyl, List<Vec3> cands) {
+  final hit = cyl.hitAt;
+  if (hit == null) return null;
+  final h = _radial(hit - cyl.lineAt!, cyl.lineDir!);
+  if (h.length < 1e-12) return null;
+  final hn = h.normalized();
+  Vec3? best;
+  var bestDot = -2.0, runnerUp = -2.0;
+  for (final c in cands) {
+    final dot = c.dot(hn);
+    if (dot > bestDot) {
+      runnerUp = bestDot;
+      bestDot = dot;
+      best = c;
+    } else if (dot > runnerUp) {
+      runnerUp = dot;
+    }
+  }
+  // A TIE is not an answer. Tapping the cylinder straight towards the point
+  // lands exactly between the two tangent lines, and both score the same — the
+  // pick genuinely carries no side then, so the caller asks again rather than
+  // tossing a coin (M158: ranking is not acceptance).
+  if (best == null || (bestDot - runnerUp).abs() < 1e-9) return null;
+  return best;
+}
+
+WorkAttempt<WorkPlaneSolution> _tangentThroughPoint(WorkRef cyl, WorkRef pt) {
+  if (!pt.hasPoint) {
+    return WorkAttempt.no('${pt.label} does not give a point.');
+  }
+  final d = cyl.lineDir!, r = cyl.radius!;
+  final w = _radial(pt.point! - cyl.lineAt!, d);
+  final h = w.length;
+  if (h < r - 1e-9) {
+    return WorkAttempt.no('${pt.label} is inside ${cyl.label} — no tangent '
+        'plane passes through it.');
+  }
+  final def = 'Tangent to ${cyl.label} through ${pt.label}';
+  if (h <= r + 1e-9) {
+    // The point is ON the cylinder: one tangent plane, no side to choose.
+    return WorkAttempt.ok(
+        _tangentAt(cyl, w.normalized(), pt.point!, def), def);
+  }
+  // Two of them, at +/- acos(r/h) around the axis from the point's own
+  // direction. Both are correct; only the user knows which side they meant.
+  final wn = w.normalized();
+  final side = wn.cross(d).normalized(); // the other axis of the radial plane
+  final cos = r / h, sin = math.sqrt(1 - cos * cos);
+  final cands = [
+    (wn * cos + side * sin).normalized(),
+    (wn * cos - side * sin).normalized(),
+  ];
+  final m = _sideChosen(cyl, cands);
+  if (m == null) {
+    return WorkAttempt.no('Two planes are tangent to ${cyl.label} through '
+        '${pt.label} — tap the face on the side the plane should go.');
+  }
+  return WorkAttempt.ok(_tangentAt(cyl, m, pt.point!, def), def);
+}
+
+WorkAttempt<WorkPlaneSolution> _tangentThroughEdge(WorkRef cyl, WorkRef edge) {
+  if (!edge.hasLine) {
+    return WorkAttempt.no('${edge.label} is not an edge or line.');
+  }
+  final d = cyl.lineDir!, r = cyl.radius!;
+  if (edge.lineDir!.cross(d).length > 1e-6) {
+    return WorkAttempt.no('${edge.label} is not parallel to the axis of '
+        '${cyl.label}.');
+  }
+  final w = _radial(edge.lineAt! - cyl.lineAt!, d);
+  final h = w.length;
+  if ((h - r).abs() > 1e-6) {
+    // An edge OFF the surface has two tangent planes through it as well, but
+    // an edge that is not on the cylinder is far more likely a mis-pick than a
+    // request, so this says so instead of choosing.
+    return WorkAttempt.no('${edge.label} does not lie on ${cyl.label} — it is '
+        '${(h - r).abs().toStringAsFixed(3)} mm off it.');
+  }
+  final def = 'Tangent to ${cyl.label} through ${edge.label}';
+  return WorkAttempt.ok(
+      _tangentAt(cyl, w.normalized(), edge.lineAt!, def), def);
+}
+
+WorkAttempt<WorkPlaneSolution> _tangentParallelToPlane(
+    WorkRef cyl, WorkRef plane) {
+  if (!plane.hasPlane) {
+    return WorkAttempt.no('${plane.label} is not a plane or planar face.');
+  }
+  final d = cyl.lineDir!;
+  final n = plane.planeNormal!;
+  // A tangent plane's normal is perpendicular to the axis, so a plane whose
+  // normal is not can never have a tangent parallel to it.
+  final along = n.dot(d).abs();
+  if (along > 1e-6) {
+    return WorkAttempt.no('${plane.label} is not parallel to the axis of '
+        '${cyl.label} — no tangent plane is parallel to it.');
+  }
+  final def = 'Tangent to ${cyl.label}, parallel to ${plane.label}';
+  final m = _sideChosen(cyl, [n, n * -1.0]);
+  if (m == null) {
+    return WorkAttempt.no('Two planes are tangent to ${cyl.label} parallel to '
+        '${plane.label} — tap the face on the side the plane should go.');
+  }
+  return WorkAttempt.ok(
+      _tangentAt(cyl, m, cyl.hitAt ?? cyl.lineAt!, def), def);
 }
 
 WorkAttempt<WorkPlaneSolution> _threePointPlane(WorkRef a, WorkRef b, WorkRef c) {

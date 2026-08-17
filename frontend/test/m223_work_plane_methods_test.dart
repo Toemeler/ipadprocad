@@ -279,6 +279,143 @@ void main() {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // M224 — the three that needed the side of the face you picked
+  // -------------------------------------------------------------------------
+
+  WorkRef cyl({Vec3 hitAt = const Vec3(5, 0, 3), double radius = 5}) =>
+      WorkRef.cylinder('Cylindrical Face', Vec3.zero, const Vec3(0, 0, 1),
+          radius: radius, hitAt: hitAt);
+
+  group('M224 — Tangent to Surface through Point', () {
+    test('the plane touches the cylinder AND contains the point', () {
+      // Point out on +x, tapped round on -y: of the two tangents, the one on
+      // the tapped side.
+      final s = _solve(WorkPlaneMethod.tangentToSurfaceThroughPoint, [
+        cyl(hitAt: const Vec3(0, -5, 3)),
+        _pt('Vertex', 20, 0, 0),
+      ]);
+      _contains(s, const Vec3(20, 0, 0));
+      // Tangency: the plane's distance from the axis is exactly the radius.
+      expect(s.at.dot(s.n), closeTo(5, 1e-9));
+      expect(s.n.z.abs(), lessThan(1e-12),
+          reason: 'a tangent normal is perpendicular to the axis');
+      expect(s.n.y, lessThan(0), reason: 'the side that was tapped');
+    });
+
+    test('the other side of the same cylinder gives the other plane', () {
+      final s = _solve(WorkPlaneMethod.tangentToSurfaceThroughPoint, [
+        cyl(hitAt: const Vec3(0, 5, 3)),
+        _pt('Vertex', 20, 0, 0),
+      ]);
+      _contains(s, const Vec3(20, 0, 0));
+      expect(s.n.y, greaterThan(0));
+    });
+
+    test('a point ON the surface needs no side at all', () {
+      final s = _solve(WorkPlaneMethod.tangentToSurfaceThroughPoint, [
+        cyl(hitAt: const Vec3(5, 0, 3)),
+        _pt('Vertex', 5, 0, 8),
+      ]);
+      _contains(s, const Vec3(5, 0, 8));
+      expect(s.n.x, closeTo(1, 1e-9));
+    });
+
+    test('a point INSIDE the cylinder is refused', () {
+      final r = solveWorkPlane(WorkPlaneMethod.tangentToSurfaceThroughPoint, [
+        cyl(),
+        _pt('Vertex', 1, 0, 0),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('inside'));
+    });
+
+    test('a tap that says nothing about the side is refused, not guessed', () {
+      // Straight towards the point: both tangents are equidistant from it, so
+      // the pick carries no side. A coin flip belongs discarded (M158).
+      final r = solveWorkPlane(WorkPlaneMethod.tangentToSurfaceThroughPoint, [
+        cyl(hitAt: const Vec3(5, 0, 3)),
+        _pt('Vertex', 20, 0, 0),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('side'));
+    });
+
+    test('a face with no radius is not a cylinder', () {
+      final r = solveWorkPlane(WorkPlaneMethod.tangentToSurfaceThroughPoint, [
+        WorkRef.revolvedFace('Conical Face', Vec3.zero, const Vec3(0, 0, 1)),
+        _pt('Vertex', 20, 0, 0),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('cylindrical'));
+    });
+  });
+
+  group('M224 — Tangent to Surface through Edge', () {
+    test('an edge lying along the cylinder gives one plane, no side needed',
+        () {
+      final s = _solve(WorkPlaneMethod.tangentToSurfaceThroughEdge, [
+        cyl(),
+        _line('Edge', const Vec3(5, 0, 0), const Vec3(5, 0, 20)),
+      ]);
+      expect(s.n.x, closeTo(1, 1e-9));
+      expect(s.at.dot(s.n), closeTo(5, 1e-9));
+      _contains(s, const Vec3(5, 0, 20));
+    });
+
+    test('an edge off the surface is refused WITH the distance', () {
+      final r = solveWorkPlane(WorkPlaneMethod.tangentToSurfaceThroughEdge, [
+        cyl(),
+        _line('Edge', const Vec3(9, 0, 0), const Vec3(9, 0, 20)),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('4.000'));
+    });
+
+    test('an edge across the axis is refused', () {
+      final r = solveWorkPlane(WorkPlaneMethod.tangentToSurfaceThroughEdge, [
+        cyl(),
+        _line('Edge', const Vec3(5, 0, 0), const Vec3(5, 20, 0)),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('not parallel'));
+    });
+  });
+
+  group('M224 — Tangent to Surface and Parallel to Plane', () {
+    test('the tangent on the tapped side, parallel to the plane', () {
+      final s = _solve(WorkPlaneMethod.tangentToSurfaceParallelToPlane, [
+        cyl(hitAt: const Vec3(0, -5, 2)),
+        _plane('XZ Plane', Vec3.zero, const Vec3(0, 1, 0)),
+      ]);
+      expect(s.n.cross(const Vec3(0, 1, 0)).length, lessThan(1e-12),
+          reason: 'parallel means the same normal, up to sign');
+      expect(s.n.y, closeTo(-1, 1e-12), reason: 'the tapped side');
+      expect(s.at.dot(s.n), closeTo(5, 1e-9), reason: 'and it touches');
+    });
+
+    test('a plane the axis is not parallel to has no tangent parallel to it',
+        () {
+      final r =
+          solveWorkPlane(WorkPlaneMethod.tangentToSurfaceParallelToPlane, [
+        cyl(),
+        _plane('XY Plane', Vec3.zero, const Vec3(0, 0, 1)),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('not parallel to the axis'));
+    });
+
+    test('a tap that straddles both sides is refused', () {
+      final r =
+          solveWorkPlane(WorkPlaneMethod.tangentToSurfaceParallelToPlane, [
+        cyl(hitAt: const Vec3(5, 0, 2)), // 90 degrees from the plane normal
+        _plane('XZ Plane', Vec3.zero, const Vec3(0, 1, 0)),
+      ]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('side'));
+    });
+  });
+
   group('M223 — work planes get a FREE name, not a count', () {
     test('deleting one and making another never repeats a name', () async {
       final app = _app();

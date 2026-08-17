@@ -280,11 +280,19 @@ class _RibbonState extends State<Ribbon> {
                   widget.app.toast('Normal to Curve at Point needs a curve '
                       'tangent — not built yet.');
                   break;
-                case 'tansurfedge':
+                // M224 — the tangent trio, now that a pick carries the side
+                // of the face it landed on.
                 case 'tansurfpt':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.tangentToSurfaceThroughPoint);
+                  break;
+                case 'tansurfedge':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.tangentToSurfaceThroughEdge);
+                  break;
                 case 'tanparallel':
-                  widget.app.toast('Tangent planes need the side of the face '
-                      'you picked — not built yet.');
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.tangentToSurfaceParallelToPlane);
                   break;
                 // M217 — Direct Edit.
                 case 'deMove':
