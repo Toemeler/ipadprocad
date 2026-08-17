@@ -28,8 +28,48 @@ Token NIE in Dateien/.git/config schreiben.
 > Direct Edit) darin. Der Workflow ignoriert `**.md`, ein reiner
 > Dokumentations-Push loest also KEINEN Lauf aus.
 >
+> **WAS JETZT NOCH OFFEN IST** (Stand M231, gegen den Code geprueft — nicht
+> aus den Eintraegen unten abgeschrieben, die immer nur ihren eigenen Moment
+> beschreiben).
+>
+> **1. Der Geraete-Test.** Weiterhin der aelteste und groesste Punkt: nichts
+> seit M192 lief auf Hardware. Die Reihenfolge fuer M221–M231 steht unten.
+>
+> **2. Ungebaute Ribbon-Eintraege** (`onTap: null`, gedimmt im Klappmenue —
+> die Liste ist aus `ribbon.dart` gezogen, nicht erinnert):
+> * **Create ▼** Emboss, Derive, Decal
+> * **Modify ▼** Shell, Draft, Thread, Thicken / Offset
+> * **Work ▼** UCS (bewusst: ein Koordinaten-SYSTEM, kein dritter Fall von
+>   Achse und Punkt)
+> * **Skizze, Insert ▼** Points, Center Point, Driven Dimension, Show Format
+>
+> Shell, Draft und Thicken/Offset brauchen alle drei denselben Shim-Zusatz
+> (`BRepOffsetAPI_MakeThickSolid`); das ist C++ plus ein OCCT-Lauf, und der
+> Smoke-Test kann sie ueber das VOLUMEN pruefen — die staerkste Verifikation,
+> die dieses Projekt hat.
+>
+> **3. Bewusst verweigert, mit Grund** (nicht vergessen, sondern entschieden):
+> * **Direct > Rotate** (M217) — braucht eine `BRepTools_Modification`, deren
+>   Fehlerfaelle erst an echten Formen auftreten.
+> * **Delete Face ohne Heal** (M217) — es gaebe Flaechenkoerper, die es hier
+>   nicht gibt.
+> * **Sweep-Twist und Coil-Enden** (M131b) — der Shim lehnt sie ab, statt
+>   still etwas Falsches zu bauen.
+> * **Split in ZWEI Koerper** (M228) — braucht ein Feature, das einen Koerper
+>   gebaeren kann; der Fold bildet eines auf einen Solid ab.
+> * **Ein Muster ueber ein Loch oder eine Flaechen-Aenderung** (M226) — der
+>   Weg dahin ist benannt: das WERKZEUG wiederholen, wie M213 es fuer Blends
+>   tat. Der Umweg, der funktioniert, steht in der Ablehnung: die
+>   Skizzenpunkte mustern.
+> * **Hole: Linear/Konzentrisch, Gewinde, Spitzenwinkel** (M225/M226) — jedes
+>   ein eigener Satz Zahlen bzw. eine Gewindetabelle.
+>
+> **4. Zwei Meldungen aus M210, weiterhin ohne Befund:** keine. Beide sind
+> erledigt — der Profil-Pick in M221, die Dreiecke und die ISO-Schraffur in
+> M222.
+
 > **GERAETE-TEST — die Reihenfolge, in der es sich in EINER Sitzung pruefen
-> laesst (M221–M228).**
+> laesst (M221–M231).**
 >
 > Nichts davon war je auf Hardware; das ist der aelteste offene Punkt und
 > reicht in Wahrheit bis M192 zurueck. Diese Liste deckt nur die acht
@@ -73,6 +113,16 @@ Token NIE in Dateien/.git/config schreiben.
 > 10. **Split mit der XZ-Ebene (M228).** Erwartet: die Haelfte auf einer Seite
 >     verschwindet, „Other side" dreht es um, und der Ebenen-Pick startet
 >     **keine Skizze**.
+> 11. **Arbeitsebene: Angle to Plane around Edge (M229).** Ebene, dann eine
+>     Kante darin. Erwartet: die Ebene steht schraeg DURCH die Kante, und das
+>     Wertfeld oben steht offen — mit **„deg"** statt „mm". Zahl aendern: die
+>     Ebene folgt.
+> 12. **Normal to Curve at Point (M231).** Eine Skizzenkurve dort antippen, wo
+>     die Ebene sie kreuzen soll. Erwartet: die Ebene steht senkrecht auf der
+>     Kurve an genau dieser Stelle.
+> 13. **Ein Panel offen lassen und nach Hause gehen (M230).** Erwartet: das
+>     Panel ist beim Zurueckkommen WEG. (Vorher kam es wieder — und zeigte auf
+>     die Skizze des anderen Teils.)
 >
 > Was dabei nebenbei mitgeprueft wird, weil es ueberall drinsteckt: dass ein
 > 3D-Panel die anderen schliesst, dass Esc Panel UND Pick zusammen wegraeumt,
@@ -177,7 +227,8 @@ Token NIE in Dateien/.git/config schreiben.
 > als Normale, Punkt auf der Ebene, Normalisierung eines beliebig langen
 > Abtastsegments, die Abgrenzung zur Kante, die Arity, und der Commit ueber
 > denselben Weg wie die anderen. **Am Geraet nicht nachgeprueft** — und hier
-> heisst das: ob ein Tipp auf eine Kurve dort trifft, wo man zielt.
+> heisst das: ob ein Tipp auf eine Kurve dort trifft, wo man zielt. CI-Lauf
+> **32047189527**: **1956 gruen**, analyze 55 Issues / 0 Errors.
 
 > **M230 — ein 3D-Panel darf die Modelle nicht ueberleben, auf die es zeigt.**
 >
