@@ -277,8 +277,8 @@ class _RibbonState extends State<Ribbon> {
                       WorkPlaneMethod.angleToPlaneAroundEdge);
                   break;
                 case 'normalcurve':
-                  widget.app.toast('Normal to Curve at Point needs a curve '
-                      'tangent — not built yet.');
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.normalToCurveAtPoint);
                   break;
                 // M224 — the tangent trio, now that a pick carries the side
                 // of the face it landed on.

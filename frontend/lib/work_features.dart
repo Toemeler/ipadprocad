@@ -195,6 +195,20 @@ class WorkRef {
         hitAt: hitAt,
       );
 
+  /// M231 — a point on a CURVE, with the curve's tangent at that point.
+  ///
+  /// Contributes both, which is what makes "Normal to Curve at Point" one pick
+  /// rather than two: the point is where the plane sits and the tangent is its
+  /// normal. [source] is what tells it apart from a straight edge, which also
+  /// offers a point and a direction but means something else by them.
+  factory WorkRef.curveAt(String label, Vec3 at, Vec3 tangent) => WorkRef._(
+        label: label,
+        source: WorkRefSource.curve,
+        point: at,
+        lineAt: at,
+        lineDir: tangent.normalized(),
+      );
+
   /// A spherical face: its centre.
   factory WorkRef.sphere(String label, Vec3 centre) => WorkRef._(
       label: label, source: WorkRefSource.sphere, point: centre);
@@ -226,7 +240,9 @@ enum WorkRefSource {
   circle,
   revolved,
   sphere,
-  torus
+  torus,
+  /// M231 — a point ON a sketch curve, carrying that curve's tangent there.
+  curve
 }
 
 /// Inventor's Work Axis creation methods. [auto] is the legacy "Axis" entry —
@@ -990,8 +1006,11 @@ String _mm(double v) {
 //   Angle to Plane around Edge      needs an angle to type; that is the offset
 //                                   field's twin (M169) and a UI job, not a
 //                                   geometry one.
-//   Normal to Curve at Point        needs a CURVE contribution — a tangent at a
-//                                   parameter — which WorkRef does not carry.
+//   (M231 built Normal to Curve at Point, which had been listed here as needing
+//   a CURVE contribution WorkRef did not carry. It carries one now: the 3D
+//   curve pick already computed the hit point and the direction of the sampled
+//   segment it met, and on M219's adaptively sampled curve that segment IS the
+//   tangent to within the sampling tolerance. Both were being discarded.)
 //   (M224 built the three Tangent to Surface methods, which had been listed
 //   here as blocked: a cylinder has TWO tangent planes through an external
 //   point or parallel to a plane, and Inventor resolves that with the side you
@@ -1007,6 +1026,8 @@ enum WorkPlaneMethod {
   midplaneOfTorus,
   // M229 — the one that needed a NUMBER as well as picks.
   angleToPlaneAroundEdge,
+  // M231 — the last of the thirteen.
+  normalToCurveAtPoint,
   // M224 — the three that needed the side of the face you picked.
   tangentToSurfaceThroughPoint,
   tangentToSurfaceThroughEdge,
@@ -1033,12 +1054,15 @@ String workPlaneMethodLabel(WorkPlaneMethod m) {
       return 'Tangent to Surface and Parallel to Plane';
     case WorkPlaneMethod.angleToPlaneAroundEdge:
       return 'Angle to Plane around Edge';
+    case WorkPlaneMethod.normalToCurveAtPoint:
+      return 'Normal to Curve at Point';
   }
 }
 
 int workPlaneArity(WorkPlaneMethod m) {
   switch (m) {
     case WorkPlaneMethod.midplaneOfTorus:
+    case WorkPlaneMethod.normalToCurveAtPoint:
       return 1;
     case WorkPlaneMethod.parallelToPlaneThroughPoint:
     case WorkPlaneMethod.twoCoplanarEdges:
@@ -1091,6 +1115,8 @@ String workPlanePrompt(WorkPlaneMethod m, int have) {
       return have == 0
           ? 'Select the plane to angle from.'
           : 'Select the edge to pivot about — it must lie in that plane.';
+    case WorkPlaneMethod.normalToCurveAtPoint:
+      return 'Tap a sketch curve where the plane should cross it.';
   }
 }
 
@@ -1191,6 +1217,21 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         return _twoEdgePlane(refs[0], refs[1]);
+      }
+
+    case WorkPlaneMethod.normalToCurveAtPoint:
+      {
+        final r = refs.first;
+        if (r.source != WorkRefSource.curve) {
+          return WorkAttempt.no('${r.label} is not a curve — tap a sketch '
+              'curve where the plane should cross it.');
+        }
+        // The plane sits AT the tapped point with the tangent as its normal.
+        // That is the definition, and it is why this is one pick: a curve
+        // hands over both halves at once.
+        final def = 'Normal to ${r.label}';
+        return WorkAttempt.ok(
+            WorkPlaneSolution(r.point!, r.lineDir!, def), def);
       }
 
     case WorkPlaneMethod.angleToPlaneAroundEdge:

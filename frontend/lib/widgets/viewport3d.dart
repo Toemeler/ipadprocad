@@ -243,13 +243,20 @@ class _Viewport3DState extends State<Viewport3D>
   /// pixel-only tie-break, which meant a curve on the FAR side of the model
   /// could win over the one you were pointing at; PickBest resolves by depth
   /// first, exactly as face and edge picking do.
-  String? _pickSketchCurve(Cam3 cam, Offset px) {
+  /// M231 — the same pick, with the hit KEPT.
+  ///
+  /// The walk below already computes the world point where the ray met the
+  /// curve (it needs it for the depth test) and the direction of the segment
+  /// it met — which, on the adaptively sampled curve M219 gives us, is the
+  /// TANGENT to within the sampling tolerance. Both were being thrown away.
+  /// Everything that only wants the key calls [_pickSketchCurve], unchanged.
+  ({String key, Vec3 at, Vec3 dir})? _pickSketchCurveHit(Cam3 cam, Offset px) {
     final p = part;
     if (p == null) return null;
     final sess = widget.app.extrudeSession;
     const tolPx = 9.0;
     const tol2 = tolPx * tolPx;
-    final best = PickBest<String>();
+    final best = PickBest<({String key, Vec3 at, Vec3 dir})>();
     for (final cs in p.childSketches) {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
@@ -271,7 +278,13 @@ class _Viewport3DState extends State<Viewport3D>
           final (d2, t) = segDistSq(px, prev, cur);
           if (d2 <= tol2) {
             final hit = prevW + (w - prevW) * t;
-            best.offer(sketchKey(cs.model.name, gi), cam.depth(hit),
+            best.offer(
+                (
+                  key: sketchKey(cs.model.name, gi),
+                  at: hit,
+                  dir: w - prevW,
+                ),
+                cam.depth(hit),
                 math.sqrt(d2));
           }
           prevW = w;
@@ -281,6 +294,10 @@ class _Viewport3DState extends State<Viewport3D>
     }
     return best.value;
   }
+
+  /// The sketch curve under [px], as the key every caller but M231 wants.
+  String? _pickSketchCurve(Cam3 cam, Offset px) =>
+      _pickSketchCurveHit(cam, px)?.key;
 
   // ---- M218: long press a sketch -> Edit / Hide / Export DXF / Share ------
 
@@ -1450,7 +1467,9 @@ class _Viewport3DState extends State<Viewport3D>
 
     // -- 3. faces ----------------------------------------------------------
     final fr = _pickFaceRecord(cam, px);
-    if (fr == null) return null;
+    // M231 — nothing solid under the finger: a sketch curve is the last thing
+    // it can have meant, and it is the input "Normal to Curve at Point" wants.
+    if (fr == null) return _pickWorkCurve(cam, px);
     final (info, _, hit) = fr;
     final type = info[0].round();
     final at = Vec3(info[1], info[2], info[3]);
@@ -1473,6 +1492,18 @@ class _Viewport3DState extends State<Viewport3D>
       default:
         return null; // a surface with no axis and no centre offers nothing
     }
+  }
+
+  /// M231 — a sketch CURVE, as a last resort.
+  ///
+  /// Last on purpose: every solid pick above wins over it, so nothing that
+  /// worked before M231 picks differently now. A curve only answers when
+  /// nothing solid was under the finger, which is also when the user can only
+  /// have meant the curve.
+  WorkRef? _pickWorkCurve(Cam3 cam, Offset px) {
+    final hit = _pickSketchCurveHit(cam, px);
+    if (hit == null || hit.dir.length < 1e-9) return null;
+    return WorkRef.curveAt('Curve', hit.at, hit.dir);
   }
 
   /// The frontmost face's 15-double surface record under [px], with its depth

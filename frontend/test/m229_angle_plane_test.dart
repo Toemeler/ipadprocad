@@ -33,6 +33,7 @@ AppState _app() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  _curveTests();
 
   group('M229 — the geometry', () {
     test('the normal turns about the edge by the angle asked for', () {
@@ -221,6 +222,82 @@ void main() {
       expect(wp.valueEditable, isFalse);
       expect(app.workPlaneOffsetEditing, isFalse,
           reason: 'no number, no field');
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M231 — Normal to Curve at Point: the thirteenth and last
+// ---------------------------------------------------------------------------
+
+void _curveTests() {
+  group('M231 — Normal to Curve at Point', () {
+    WorkRef curve() => WorkRef.curveAt(
+        'Curve', const Vec3(5, 0, 0), const Vec3(0, 1, 0));
+
+    test('the tangent IS the normal, and the point is on the plane', () {
+      final r =
+          solveWorkPlane(WorkPlaneMethod.normalToCurveAtPoint, [curve()]);
+      expect(r.outcome, WorkPickOutcome.complete, reason: r.message);
+      final s = r.solution!;
+      expect(s.n.dot(const Vec3(0, 1, 0)), closeTo(1, 1e-12));
+      expect((const Vec3(5, 0, 0) - s.at).dot(s.n).abs(), lessThan(1e-12));
+      expect(s.def, 'Normal to Curve');
+    });
+
+    test('the tangent is normalised even when the sample is not', () {
+      // The picker hands over a SEGMENT of the sampled curve, whose length is
+      // whatever the sampling made it.
+      final r = solveWorkPlane(WorkPlaneMethod.normalToCurveAtPoint,
+          [WorkRef.curveAt('Curve', Vec3.zero, const Vec3(0, 0, 17))]);
+      expect(r.solution!.n.length, closeTo(1, 1e-12));
+    });
+
+    test('an EDGE is not a curve, even though it offers the same two things',
+        () {
+      // A straight edge carries a point (its midpoint) and a direction too.
+      // What separates them is what they MEAN, which is the source.
+      final r = solveWorkPlane(WorkPlaneMethod.normalToCurveAtPoint,
+          [WorkRef.line('Edge', Vec3.zero, const Vec3(10, 0, 0))]);
+      expect(r.outcome, WorkPickOutcome.rejected);
+      expect(r.message, contains('not a curve'));
+    });
+
+    test('one pick is the whole method', () {
+      expect(workPlaneArity(WorkPlaneMethod.normalToCurveAtPoint), 1);
+      expect(workPlaneMethodLabel(WorkPlaneMethod.normalToCurveAtPoint),
+          'Normal to Curve at Point');
+      expect(workPlanePrompt(WorkPlaneMethod.normalToCurveAtPoint, 0),
+          contains('curve'));
+    });
+
+    test('every one of the thirteen flyout entries now leads somewhere', () {
+      // The Plane flyout has thirteen entries. TEN of them are these methods;
+      // the other three are "Plane" and "Offset from Plane" (both the offset
+      // flow, M151/M157) and "Midplane between Two Planes" — those two keep
+      // their own flow because they are not pick-only: one is a drag with a
+      // live distance and an editable base, the other collects PlaneFrames.
+      expect(WorkPlaneMethod.values.length, 10,
+          reason: 'offset and midplane are WorkPlaneKind, not a method');
+      for (final m in WorkPlaneMethod.values) {
+        expect(workPlaneMethodLabel(m), isNotEmpty);
+        expect(workPlanePrompt(m, 0), isNotEmpty);
+        expect(workPlaneArity(m), inInclusiveRange(1, 3));
+      }
+    });
+
+    test('it commits through the same path as the others', () async {
+      final app = _app();
+      await app.createNamedPart('P');
+      app.startWorkPlaneMethod(WorkPlaneMethod.normalToCurveAtPoint);
+      expect(app.workFeaturePick(curve()), isTrue);
+
+      final wp = app.currentPart!.workPlanes.single;
+      expect(wp.kind, WorkPlaneKind.constructed,
+          reason: 'nothing about it can be re-typed');
+      expect(wp.def, 'Normal to Curve');
+      expect(wp.frame.n.dot(const Vec3(0, 1, 0)).abs(), closeTo(1, 1e-9));
+      expect(app.workPlaneOffsetEditing, isFalse);
     });
   });
 }

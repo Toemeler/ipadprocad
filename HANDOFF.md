@@ -141,6 +141,44 @@ Token NIE in Dateien/.git/config schreiben.
 > testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
 > gruen**, analyze 55 Issues / 0 Errors.
 
+> **M231 — Normal to Curve at Point: die dreizehnte, und die Tangente lag
+> schon da.**
+>
+> M223 hatte sie mit Grund liegen lassen: „braucht einen KURVEN-Beitrag —
+> eine Tangente an einem Parameter —, den `WorkRef` nicht fuehrt." Den fuehrt
+> er jetzt, und er kostete keine neue Mathematik: der 3D-Kurven-Pick rechnet
+> den Trefferpunkt ohnehin aus (er braucht ihn fuer den Tiefentest) und kennt
+> das Segment, das er getroffen hat. Auf der seit M219 ADAPTIV abgetasteten
+> Kurve IST dieses Segment die Tangente, bis auf die Abtast-Toleranz. Beides
+> wurde bisher weggeworfen; `_pickSketchCurveHit` behaelt es, und
+> `_pickSketchCurve` ist nur noch dessen Schluessel — alle bisherigen Aufrufer
+> bleiben unveraendert.
+>
+> **Ein Pick, beide Haelften.** `WorkRef.curveAt` traegt den Punkt UND die
+> Tangente, und genau deshalb ist die Methode ein einziger Tipp: der Punkt ist,
+> wo die Ebene sitzt, die Tangente ist ihre Normale. Was sie von einer geraden
+> KANTE unterscheidet, die ebenfalls Punkt und Richtung anbietet, ist nicht die
+> Geometrie, sondern die Bedeutung — also die `source`.
+>
+> **Der Kurven-Pick steht GANZ HINTEN** in `_pickWorkRef`: jeder Solid-Pick
+> gewinnt vor ihm, damit nichts, was vor M231 funktioniert hat, jetzt anders
+> greift. Eine Kurve antwortet nur, wenn nichts Festes unter dem Finger war —
+> und das ist genau der Moment, in dem der Benutzer nur die Kurve gemeint
+> haben kann.
+>
+> **Damit fuehrt jeder der dreizehn Flyout-Eintraege irgendwohin.** Zehn sind
+> diese Methoden, drei sind „Plane"/„Offset from Plane" (beide der
+> Offset-Fluss) und „Midplane between Two Planes". Die Liste, die seit M56 als
+> Attrappe dastand, ist vollstaendig — und keine einzige Zeile davon ist eine
+> stille Naeherung: was nicht gebaut werden konnte, wurde jedes Mal mit Grund
+> abgelehnt, bis der Grund weggeraeumt war.
+>
+> **Ehrlicher Stand:** 6 neue Tests im M229-File (Gruppe „M231 — …"): Tangente
+> als Normale, Punkt auf der Ebene, Normalisierung eines beliebig langen
+> Abtastsegments, die Abgrenzung zur Kante, die Arity, und der Commit ueber
+> denselben Weg wie die anderen. **Am Geraet nicht nachgeprueft** — und hier
+> heisst das: ob ein Tipp auf eine Kurve dort trifft, wo man zielt.
+
 > **M230 — ein 3D-Panel darf die Modelle nicht ueberleben, auf die es zeigt.**
 >
 > Beim Nachsehen gefunden, nicht gemeldet — wie schon die beiden aus M226.
@@ -169,7 +207,8 @@ Token NIE in Dateien/.git/config schreiben.
 > die Sammelabfrage prueft ALLE neun Sitzungsflags, sodass eine kuenftige
 > Sitzung, die jemand hier vergisst, hier auffliegt. **Am Geraet nicht
 > nachgeprueft** (aber diese Klasse faellt auf dem Host auf, nicht am Geraet —
-> deshalb steht sie hier).
+> deshalb steht sie hier). CI-Lauf **32046670339**: **1950 gruen**, analyze 55
+> Issues / 0 Errors.
 
 > **M229 — Angle to Plane around Edge: die zwoelfte Methode, und sie brauchte
 > kein zweites Feld.**
