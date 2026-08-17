@@ -25,9 +25,13 @@ import '../ffi/qcad_engine.dart' show Geo;
 import '../part_model.dart';
 import '../part_render.dart';
 import '../reality_scene.dart';
+import '../text_geometry.dart' show textContours, textLayerOf;
+import '../menus.dart';
+import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
-import 'package:native_menu/native_menu.dart' show GlassBrowser;
+import 'package:native_menu/native_menu.dart'
+    show GlassBrowser, NativeMenu, NativeMenuItem;
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'ribbon_chrome.dart';
@@ -44,6 +48,35 @@ const _greenBright = Color(0xFF8DFFA0);
 // ../part_render.dart now — shared verbatim with off-screen thumbnail
 // rendering (AppState._writePartPreview). kSolidBase/kSolidEdge moved with
 // them.
+
+/// M218 — the context menu behind a LONG PRESS on a sketch in the 3D
+/// viewport ("long press a sketch in 3d and export as dxf only this sketch").
+///
+/// Edit and Hide are the model browser's own sketch commands, under the same
+/// ids; Export and Share are the reason this menu exists. A sketch inside a
+/// part is a DRAWING, and a drawing is something you hand to a machine — the
+/// part exports as STEP, and until now the profile that would actually be cut
+/// could only leave the app by way of the whole solid.
+///
+/// Visibility is one-way here, unlike the browser's Hide/Show toggle: only a
+/// VISIBLE sketch can be under the finger ([_pickSketchCurve] skips the rest),
+/// so a "Show" that could never be reached would be a dead control.
+///
+/// Top-level and const so a host test can pin the contract — ids, order,
+/// labels — without a device: UIKit never sees these strings, this list is
+/// their only source (exactly like `sketchMenuGroups` for the gallery card).
+List<NativeMenuItem> sketch3dMenuItems() => const [
+      NativeMenuItem(id: 'skEdit', title: 'Edit Sketch', symbol: 'pencil.tip'),
+      NativeMenuItem(id: 'skVisible', title: 'Hide', symbol: 'eye.slash'),
+      NativeMenuItem(
+          id: 'skExportDxf',
+          title: 'Export DXF…',
+          symbol: 'square.and.arrow.down'),
+      NativeMenuItem(
+          id: 'skShareDxf',
+          title: 'Share DXF…',
+          symbol: 'square.and.arrow.up'),
+    ];
 
 class Viewport3D extends StatefulWidget {
   final AppState app;
@@ -79,6 +112,7 @@ class _Viewport3DState extends State<Viewport3D>
   void dispose() {
     _camAnim?.dispose();
     _refineTimer?.cancel();
+    _cancelLongPress();
     // The controller itself is owned (and disposed) by the RealityView widget's
     // own State; just drop our reference so late pushes are no-ops.
     _reality = null;
@@ -158,6 +192,23 @@ class _Viewport3DState extends State<Viewport3D>
   // coalesces into a single kernel re-mesh once the gesture settles.
   Timer? _refineTimer;
 
+  // ==== M218 — long press on a sketch = its context menu ==================
+  //
+  // A timer in the raw Listener, not GestureDetector.onLongPressStart, and
+  // ARMED ONLY when the press starts on a sketch curve. The reason is the
+  // one-finger orbit: a long-press recognizer that joins the arena wins it by
+  // holding still for half a second, and everything else in the gesture — the
+  // orbit the user was about to start — is rejected with it. Arming on the
+  // pick means a press anywhere else never enters the question, and a press
+  // ON a curve is a press on the one thing that has a menu.
+  Timer? _lpTimer;
+  Offset _lpDown = Offset.zero;
+
+  /// True from the moment the press fires until the next pointer goes down:
+  /// the tap that ends the SAME contact must not also run the general pick,
+  /// and the camera must not orbit out from under an open menu.
+  bool _lpFired = false;
+
   // M60: the RealityKit output surface. Null until the platform view is
   // created, and always null off-iOS — where the CPU painter (_ScenePainter)
   // still draws, so host/widget tests and the headless thumbnail path are
@@ -193,13 +244,20 @@ class _Viewport3DState extends State<Viewport3D>
   /// pixel-only tie-break, which meant a curve on the FAR side of the model
   /// could win over the one you were pointing at; PickBest resolves by depth
   /// first, exactly as face and edge picking do.
-  String? _pickSketchCurve(Cam3 cam, Offset px) {
+  /// M231 — the same pick, with the hit KEPT.
+  ///
+  /// The walk below already computes the world point where the ray met the
+  /// curve (it needs it for the depth test) and the direction of the segment
+  /// it met — which, on the adaptively sampled curve M219 gives us, is the
+  /// TANGENT to within the sampling tolerance. Both were being thrown away.
+  /// Everything that only wants the key calls [_pickSketchCurve], unchanged.
+  ({String key, Vec3 at, Vec3 dir})? _pickSketchCurveHit(Cam3 cam, Offset px) {
     final p = part;
     if (p == null) return null;
     final sess = widget.app.extrudeSession;
     const tolPx = 9.0;
     const tol2 = tolPx * tolPx;
-    final best = PickBest<String>();
+    final best = PickBest<({String key, Vec3 at, Vec3 dir})>();
     for (final cs in p.childSketches) {
       final showForSession = sess?.sketchName == cs.model.name ||
           (sess != null && sess.sketchName == null);
@@ -221,7 +279,13 @@ class _Viewport3DState extends State<Viewport3D>
           final (d2, t) = segDistSq(px, prev, cur);
           if (d2 <= tol2) {
             final hit = prevW + (w - prevW) * t;
-            best.offer(sketchKey(cs.model.name, gi), cam.depth(hit),
+            best.offer(
+                (
+                  key: sketchKey(cs.model.name, gi),
+                  at: hit,
+                  dir: w - prevW,
+                ),
+                cam.depth(hit),
                 math.sqrt(d2));
           }
           prevW = w;
@@ -230,6 +294,123 @@ class _Viewport3DState extends State<Viewport3D>
       }
     }
     return best.value;
+  }
+
+  /// The sketch curve under [px], as the key every caller but M231 wants.
+  String? _pickSketchCurve(Cam3 cam, Offset px) =>
+      _pickSketchCurveHit(cam, px)?.key;
+
+  // ---- M218: long press a sketch -> Edit / Hide / Export DXF / Share ------
+
+  /// The sketch a long press at [px] would act on, or null.
+  ///
+  /// Both the ARMING test and the ACTING test, so what starts the timer and
+  /// what the menu is built for can never disagree — the finger may have
+  /// wandered a few pixels in between, and the answer must still be the same
+  /// sketch or no menu at all.
+  ChildSketch? _sketchAt(Cam3 cam, Offset px) {
+    final p = part;
+    if (p == null || widget.app.picking3D || widget.app.activeChild != null) {
+      return null;
+    }
+    final key = _pickSketchCurve(cam, px);
+    if (key == null) return null;
+    final i = key.lastIndexOf('#');
+    return i < 0 ? null : p.sketchByName(key.substring(0, i));
+  }
+
+  void _cancelLongPress() {
+    _lpTimer?.cancel();
+    _lpTimer = null;
+  }
+
+  /// The press has been held long enough: select the whole sketch (so what is
+  /// about to be exported is lit up while the menu is over it) and open the
+  /// menu at the finger.
+  Future<void> _fireSketchLongPress(
+      Cam3 cam, Offset local, Offset global) async {
+    _lpTimer = null;
+    if (!mounted) return;
+    final cs = _sketchAt(cam, local);
+    if (cs == null) return;
+    _lpFired = true;
+    HapticFeedback.selectionClick();
+    // M205 — anything else that is open is cancelled by a press elsewhere,
+    // and this press is elsewhere.
+    OpenMenus.closeAll();
+    setState(() {
+      _selSketch
+        ..clear()
+        ..addAll([
+          for (var gi = 0; gi < cs.model.geometry.length; gi++)
+            sketchKey(cs.model.name, gi)
+        ]);
+    });
+    // iPad refuses to present a popover without a source rectangle, and the
+    // finger is the source: an action sheet at the press point, and the share
+    // sheet that may follow it hangs off the same spot.
+    final anchor = Rect.fromCenter(center: global, width: 1, height: 1);
+    final choice = await _showSketchMenu(anchor, cs.model.name);
+    if (choice == null || !mounted) return;
+    await _onSketchMenu(choice, cs, anchor);
+  }
+
+  /// The native action sheet on iOS, an identical Flutter popup everywhere
+  /// else — same ids, so both paths funnel into one handler.
+  Future<String?> _showSketchMenu(Rect anchor, String title) async {
+    final items = sketch3dMenuItems();
+    if (NativeMenu.isSupported) {
+      // The sketch's NAME as the sheet title: a curve in 3D is a thin line
+      // among several, and the menu has to say which sketch it caught.
+      return NativeMenu.menu(items: items, anchor: anchor, title: title);
+    }
+    return showMenu<String>(
+      context: context,
+      color: T.fly,
+      position: RelativeRect.fromLTRB(
+          anchor.left, anchor.top, anchor.left, anchor.top),
+      items: [
+        for (final i in items)
+          PopupMenuItem<String>(
+              value: i.id,
+              height: 40,
+              child: Text(i.title, style: ts(12.5, T.text))),
+      ],
+    );
+  }
+
+  Future<void> _onSketchMenu(String id, ChildSketch cs, Rect anchor) async {
+    final app = widget.app;
+    switch (id) {
+      case 'skEdit':
+        app.openChildSketch(cs.model.name);
+        break;
+      case 'skVisible':
+        app.toggleSketchVisible(cs);
+        break;
+      case 'skExportDxf':
+        await _sendSketchDxf(cs, anchor, share: false);
+        break;
+      case 'skShareDxf':
+        await _sendSketchDxf(cs, anchor, share: true);
+        break;
+    }
+  }
+
+  /// Writes the sketch's DXF and hands it to the Files exporter (Save to
+  /// Files) or the share sheet. A refusal has already said why on screen
+  /// ([AppState.childSketchExportPath]), so a null path is silent here.
+  Future<void> _sendSketchDxf(ChildSketch cs, Rect anchor,
+      {required bool share}) async {
+    final p = part;
+    if (p == null) return;
+    final path = await widget.app.childSketchExportPath(p.name, cs.model.name);
+    if (path == null || !mounted) return;
+    if (share) {
+      await NativeMenu.shareFile(path, anchor: anchor);
+    } else {
+      await NativeMenu.exportFile(path, anchor: anchor);
+    }
   }
 
   /// Push the current camera (always), the scene (only when its signature
@@ -389,8 +570,28 @@ class _Viewport3DState extends State<Viewport3D>
                 _mmbPan = HardwareKeyboard.instance.isShiftPressed;
                 _mmbLast = e.localPosition;
               }
+              // M218 — long-press a SKETCH for its context menu (the
+              // right-click role, 600 ms, exactly as in 2D — M53). Armed only
+              // when the press starts ON a curve and nothing else has claimed
+              // the pointer, so navigation is untouched everywhere else.
+              _cancelLongPress();
+              _lpFired = false;
+              if (_wpDrag == null &&
+                  _wpNewBase == null &&
+                  !_mmb &&
+                  _sketchAt(cam, e.localPosition) != null) {
+                _lpDown = e.localPosition;
+                _lpTimer = Timer(const Duration(milliseconds: 600),
+                    () => _fireSketchLongPress(cam, _lpDown, e.position));
+              }
             },
             onPointerMove: (e) {
+              // Moving is orbiting or dragging, not a long press (8 px, the
+              // 2D viewport's threshold).
+              if (_lpTimer != null &&
+                  (e.localPosition - _lpDown).distance > 8) {
+                _cancelLongPress();
+              }
               // M174 — a new plane being dragged off its base. Same projection
               // as M169: pointer travel onto the base normal, scaled by the
               // normal's screen length per world mm.
@@ -453,6 +654,10 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerUp: (_) {
               _mmb = false;
+              // The press ended before the menu was earned. (_lpFired is NOT
+              // cleared here: the tap that follows this up must still know
+              // the press was consumed, and the next pointer down clears it.)
+              _cancelLongPress();
               if (_wpNewBase != null) {
                 _wpNewBase = null;
                 _wpMoved = false;
@@ -474,6 +679,7 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerCancel: (_) {
               _mmb = false;
+              _cancelLongPress();
               if (_wpNewBase != null) {
                 _wpNewBase = null;
                 _wpMoved = false;
@@ -545,6 +751,10 @@ class _Viewport3DState extends State<Viewport3D>
                 // as well would fight it.
                 onTapUp: (d) {
                   if (_wpDrag != null) return;
+                  // M218 — the long press already consumed this contact: it
+                  // opened the sketch menu, and the finger coming off it is
+                  // not a pick.
+                  if (_lpFired) return;
                   _tap(cam, d.localPosition);
                 },
                 onScaleStart: (d) {
@@ -565,6 +775,12 @@ class _Viewport3DState extends State<Viewport3D>
                     p.camera.oy += mv.dy * wpp;
                   } else if (!_mmb &&
                       _wpDrag == null &&
+                      // M218 — and NOT under an open sketch menu. Same trap
+                      // as the work-plane drag: the press that opened it
+                      // lives in the raw Listener, so the finger still on the
+                      // glass would otherwise orbit the model away behind the
+                      // sheet.
+                      !_lpFired &&
                       _dragKind == PointerDeviceKind.touch) {
                     // One finger orbits ON TOUCH only. A single trackpad or
                     // mouse drag is reserved for picking and must not move the
@@ -1200,6 +1416,275 @@ class _Viewport3DState extends State<Viewport3D>
   /// The decision itself lives in part_pick.dart so it can be tested without
   /// a device; all this does is hand it the live meshes and the camera's two
   /// projections, then map the mesh index back to its solid.
+  /// M215 — the tap under a Work Axis / Work Point command, reduced to what
+  /// it CONTRIBUTES (see WorkRef). Null when nothing usable is under [px].
+  ///
+  /// Priority, and why each step is where it is:
+  ///   1. existing work features and origin entities. They are drawn thin and
+  ///      are the easiest things on screen to miss, so a tap within tolerance
+  ///      of both an axis and the face behind it means the axis — the same
+  ///      rule the revolve-axis pick already follows for origin axes.
+  ///   2. edges. An edge sits ON a face, so a face test would always win at
+  ///      the boundary and "pick an edge" would be unreachable.
+  ///   3. faces, any type. Planar gives a plane; a cylinder or cone gives its
+  ///      axis of revolution; a sphere or torus gives its centre.
+  WorkRef? _pickWorkRef(Cam3 cam, Offset px, PartModel p) {
+    // -- 1. work features and origin entities ------------------------------
+    final wf = _hitWorkFeature(cam, px, p);
+    if (wf != null) return wf;
+    final origin = _hitOrigin(cam, px, p);
+    if (origin != null) {
+      if (origin == 'cp') {
+        return WorkRef.point('Center Point', Vec3.zero);
+      }
+      if (origin == 'x' || origin == 'y' || origin == 'z') {
+        final d = origin == 'x'
+            ? const Vec3(1, 0, 0)
+            : origin == 'y'
+                ? const Vec3(0, 1, 0)
+                : const Vec3(0, 0, 1);
+        // An origin axis is INFINITE, so it offers no midpoint — the middle
+        // of an infinite line is not a point the user pointed at.
+        return WorkRef.axis('${origin.toUpperCase()} Axis', Vec3.zero, d);
+      }
+      final f = frameForPlaneKey(p, origin);
+      if (f != null) {
+        final label = origin.startsWith('wp:')
+            ? _workPlaneById(p, origin)?.name ?? 'Work Plane'
+            : planeLabel(origin);
+        return WorkRef.plane(label, f.origin, f.n);
+      }
+    }
+
+    // -- 2. edges ----------------------------------------------------------
+    final e = _pickEdgeAt(cam, px);
+    if (e != null) {
+      final ep = e.$2;
+      final m = e.$1.mesh;
+      // The ANALYTIC curve record, not the tessellation: a circle picked off
+      // its polyline would give a centre that wobbles with the deflection.
+      final ci = ep.displayEdge * 16;
+      if (ci >= 0 && ci + 16 <= m.edgeCurves.length) {
+        final c = m.edgeCurves;
+        final type = c[ci].round();
+        if (type == 1) {
+          final a = Vec3(c[ci + 1], c[ci + 2], c[ci + 3]);
+          final b = Vec3(c[ci + 4], c[ci + 5], c[ci + 6]);
+          if ((b - a).length > 1e-9) return WorkRef.line('Edge', a, b);
+        } else if (type == 2 || type == 3) {
+          final centre = Vec3(c[ci + 1], c[ci + 2], c[ci + 3]);
+          final xd = Vec3(c[ci + 4], c[ci + 5], c[ci + 6]);
+          final yd = Vec3(c[ci + 7], c[ci + 8], c[ci + 9]);
+          final axis = xd.cross(yd);
+          if (axis.length > 1e-9) {
+            return WorkRef.circle(
+                type == 2 ? 'Circular Edge' : 'Elliptical Edge', centre, axis);
+          }
+        }
+      }
+      // No analytic record (a spline, or a legacy mesh): the tessellation
+      // still gives an honest MIDPOINT, which is a real Inventor input.
+      return WorkRef.point('Edge Midpoint', ep.mid);
+    }
+
+    // -- 3. faces ----------------------------------------------------------
+    final fr = _pickFaceRecord(cam, px);
+    // M231 — nothing solid under the finger: a sketch curve is the last thing
+    // it can have meant, and it is the input "Normal to Curve at Point" wants.
+    if (fr == null) return _pickWorkCurve(cam, px);
+    final (info, _, hit) = fr;
+    final type = info[0].round();
+    final at = Vec3(info[1], info[2], info[3]);
+    final dir = Vec3(info[4], info[5], info[6]);
+    if (dir.length < 1e-9 && type != kFacePlane) return null;
+    switch (type) {
+      case kFacePlane:
+        return WorkRef.plane('Face', at, dir);
+      case kFaceCylinder:
+        // M224 — radius (slot 10) and the tapped point: everything a tangent
+        // plane needs beyond the axis.
+        return WorkRef.cylinder('Cylindrical Face', at, dir,
+            radius: info[10], hitAt: hit);
+      case kFaceCone:
+        return WorkRef.revolvedFace('Conical Face', at, dir);
+      case kFaceSphere:
+        return WorkRef.sphere('Spherical Face', at);
+      case kFaceTorus:
+        return WorkRef.torus('Toroidal Face', at, dir);
+      default:
+        return null; // a surface with no axis and no centre offers nothing
+    }
+  }
+
+  /// M231 — a sketch CURVE, as a last resort.
+  ///
+  /// Last on purpose: every solid pick above wins over it, so nothing that
+  /// worked before M231 picks differently now. A curve only answers when
+  /// nothing solid was under the finger, which is also when the user can only
+  /// have meant the curve.
+  WorkRef? _pickWorkCurve(Cam3 cam, Offset px) {
+    final hit = _pickSketchCurveHit(cam, px);
+    if (hit == null || hit.dir.length < 1e-9) return null;
+    return WorkRef.curveAt('Curve', hit.at, hit.dir);
+  }
+
+  /// The frontmost face's 15-double surface record under [px], with its depth
+  /// and the world point the ray HIT.
+  /// Unlike [_pickSolidFace] this accepts EVERY surface type — a work feature
+  /// wants the cylinder that a sketch cannot be drawn on.
+  ///
+  /// M224 — the hit point comes back because a tangent work plane needs the
+  /// SIDE of the cylinder that was tapped: there are two tangent planes
+  /// through a point outside it, and nothing in the cylinder's own geometry
+  /// says which one the user meant. It was already being computed here for the
+  /// depth test.
+  (List<double>, double, Vec3)? _pickFaceRecord(Cam3 cam, Offset px) {
+    (List<double>, double, Vec3)? best;
+    var bestDepth = double.infinity;
+    for (final s in _liveSolids()) {
+      final m = s.mesh;
+      if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
+        continue; // no face identity on this mesh: nothing to report
+      }
+      for (var t = 0; t < m.indices.length; t += 3) {
+        final i0 = m.indices[t] * 3,
+            i1 = m.indices[t + 1] * 3,
+            i2 = m.indices[t + 2] * 3;
+        final w0 =
+            Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+        final w1 =
+            Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+        final w2 =
+            Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+        final n = (w1 - w0).cross(w2 - w0);
+        // Front faces only — see _pickSolidFace for why n·dir > 0 is the
+        // visible side.
+        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+        final den =
+            (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
+        if (den.abs() < 1e-9) continue;
+        final l0 =
+            ((b.dy - c.dy) * (px.dx - c.dx) + (c.dx - b.dx) * (px.dy - c.dy)) /
+                den;
+        final l1 =
+            ((c.dy - a.dy) * (px.dx - c.dx) + (a.dx - c.dx) * (px.dy - c.dy)) /
+                den;
+        final l2 = 1 - l0 - l1;
+        const e = -1e-6;
+        if (l0 < e || l1 < e || l2 < e) continue;
+        final hit = w0 * l0 + w1 * l1 + w2 * l2;
+        final d = cam.depth(hit);
+        if (d >= bestDepth) continue;
+        final fid = m.triFaces[t ~/ 3];
+        if (15 * fid + 15 > m.faceInfos.length) continue;
+        bestDepth = d;
+        best = (m.faceInfos.sublist(15 * fid, 15 * fid + 15), d, hit);
+      }
+    }
+    return best;
+  }
+
+  /// M217 — the face under [px] for a Delete Face / Direct Edit pick, as
+  /// (mesh index, fingerprint). Null when the tap missed every solid.
+  ///
+  /// Any surface type, unlike [_pickSolidFace]: deleting the cylindrical face
+  /// of a hole is the single commonest thing Delete Face is reached for, and a
+  /// planar-only pick would make it unreachable.
+  (int, FacePick)? _pickFaceForEdit(Cam3 cam, Offset px) {
+    for (final sol in _liveSolids()) {
+      final m = sol.mesh;
+      final hit = _frontFaceIndex(cam, px, sol);
+      if (hit == null) continue;
+      for (final fr in facesOf(m)) {
+        if (fr.meshIndex != hit) continue;
+        return (
+          hit,
+          FacePick(fr.centre.x, fr.centre.y, fr.centre.z, fr.normal.x,
+              fr.normal.y, fr.normal.z, fr.area, fr.kind)
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Index of the frontmost face of [sol] under [px], or null.
+  ///
+  /// Takes the SOLID rather than its mesh because this file deliberately does
+  /// not import the FFI layer (see the imports) and so cannot name
+  /// OcctMeshData — which it never needs to.
+  int? _frontFaceIndex(Cam3 cam, Offset px, KernelSolid sol) {
+    final m = sol.mesh;
+    if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
+      return null;
+    }
+    int? best;
+    var bestDepth = double.infinity;
+    for (var t = 0; t < m.indices.length; t += 3) {
+      final i0 = m.indices[t] * 3,
+          i1 = m.indices[t + 1] * 3,
+          i2 = m.indices[t + 2] * 3;
+      final w0 =
+          Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+      final w1 =
+          Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+      final w2 =
+          Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+      final n = (w1 - w0).cross(w2 - w0);
+      if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+      final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+      final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
+      if (den.abs() < 1e-9) continue;
+      final l0 =
+          ((b.dy - c.dy) * (px.dx - c.dx) + (c.dx - b.dx) * (px.dy - c.dy)) /
+              den;
+      final l1 =
+          ((c.dy - a.dy) * (px.dx - c.dx) + (a.dx - c.dx) * (px.dy - c.dy)) /
+              den;
+      final l2 = 1 - l0 - l1;
+      const e = -1e-6;
+      if (l0 < e || l1 < e || l2 < e) continue;
+      final d = cam.depth(w0 * l0 + w1 * l1 + w2 * l2);
+      if (d >= bestDepth) continue;
+      bestDepth = d;
+      best = m.triFaces[t ~/ 3];
+    }
+    return best;
+  }
+
+  /// An existing work axis or work point under [px], as a [WorkRef] — so a
+  /// work feature can be built ON another one, exactly as Inventor allows
+  /// ("any combination of two lines including ... work axes").
+  WorkRef? _hitWorkFeature(Cam3 cam, Offset px, PartModel p) {
+    const pickPx = 9.0;
+    for (final pt in p.workPoints) {
+      if (!pt.visible) continue;
+      if ((cam.project(pt.at) - px).distance < pickPx) {
+        return WorkRef.point(pt.name, pt.at, source: WorkRefSource.vertex);
+      }
+    }
+    for (final a in p.workAxes) {
+      if (!a.visible) continue;
+      final (s0, s1) = _workAxisEnds(p, a);
+      if (segDistSq(px, cam.project(s0), cam.project(s1)).$1 <
+          pickPx * pickPx) {
+        return WorkRef.axis(a.name, a.at, a.dir);
+      }
+    }
+    return null;
+  }
+
+  /// The drawn ends of [a], so picking and painting can never disagree about
+  /// where the axis stops — the rule M83 established for the origin axes.
+  (Vec3, Vec3) _workAxisEnds(PartModel p, WorkAxis a) {
+    // Null bounds means an empty part — workAxisSpan's own minimum then
+    // supplies a stub long enough to see and tap, which is what an axis on a
+    // part with no geometry needs.
+    final b = partContentBounds(p);
+    return workAxisSpan(
+        a.at, a.dir, b?.$1 ?? a.at, b?.$2 ?? a.at);
+  }
+
   (KernelSolid, EdgePick)? _pickEdgeAt(Cam3 cam, Offset px) {
     final solids = _liveSolids().toList();
     if (solids.isEmpty) return null;
@@ -1547,6 +2032,29 @@ class _Viewport3DState extends State<Viewport3D>
       _patternTap(cam, px);
       return;
     }
+    // M225 — the hole panel wants sketch POINTS, and nothing else may consume
+    // the tap while it is open: a pick field that looks dead is the failure
+    // this file has fixed twice (M210's profile pick, M212's selectors).
+    // M227 — the combine panel wants BODIES, and owns the tap while it is up.
+    if (app.combinePicking3D) {
+      final solid = _pickSolidAny(cam, px);
+      final name = solid == null ? null : _bodyNameOf(p, solid);
+      if (name == null) {
+        app.toast('Tap a solid body.');
+        return;
+      }
+      app.combineBodyPicked(name);
+      return;
+    }
+    if (app.holePicking3D) {
+      final hit = _sketchPointAt(cam, px, p);
+      if (hit == null) {
+        app.toast('Tap a sketch POINT — that is where a hole goes.');
+        return;
+      }
+      app.holePointPicked(hit.$1, hit.$2);
+      return;
+    }
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
     if (!app.pickPlane && app.extrudeSession == null) {
@@ -1593,11 +2101,38 @@ class _Viewport3DState extends State<Viewport3D>
         final sp = frame.toSketch(w); // M175 — origin-aware, like the sketch
         final r = regionAt(app.sessionRegions(cs), sp);
         if (r != null) {
-          final ip = interiorPointOf(r.outer);
+          final ip = regionAnchor(r); // M221 — the region's, not its loop's
           app.toggleLoftSection(
               cs.model.name, ProfileSel(ip.dx, ip.dy, r.outer.area));
           return;
         }
+      }
+      return;
+    }
+    // M217 — 0. a Delete Face / Direct Edit command is armed. Like the edge
+    // pick it STAYS armed: a face set is built up over several taps and a miss
+    // must not throw away what is already selected.
+    if (app.pickingFaces) {
+      final hit = _pickFaceForEdit(cam, px);
+      if (hit != null) app.toggleFacePick(hit.$2, hit.$1);
+      return;
+    }
+    // M215 — 0. a Work Axis / Work Point command is armed. Runs before every
+    // other pick mode because it is the ONLY one that wants edges, faces,
+    // vertices and existing work features all at once: letting the plane pick
+    // below see the tap first would swallow every face before this could ask
+    // whether the user meant its axis.
+    //
+    // A miss does NOT cancel. These commands can need two or three picks, and
+    // throwing away a half-built selection because one tap landed on empty
+    // space would be the most expensive possible response to the cheapest
+    // possible mistake. Esc and the ribbon toggle cancel; nothing else does.
+    if (app.pickWorkGeometry) {
+      final ref = _pickWorkRef(cam, px, p);
+      if (ref != null) {
+        app.workFeaturePick(ref);
+      } else {
+        app.toast(app.workFeaturePrompt);
       }
       return;
     }
@@ -1776,6 +2311,84 @@ class _Viewport3DState extends State<Viewport3D>
 // ---------------------------------------------------------------------------
 // scene painter
 // ---------------------------------------------------------------------------
+/// M215 — a dashed segment in SCREEN space.
+///
+/// Screen space and not model space on purpose: the dash is a legend ("the
+/// user made this"), so it must read the same at every zoom. A model-space
+/// dash would turn into a solid line when you zoom out and into one long dash
+/// when you zoom in, which is the opposite of what a legend does.
+void _dashedLine(Canvas canvas, Offset a, Offset b, Paint paint,
+    {double dash = 6, double gap = 4}) {
+  final total = (b - a).distance;
+  if (total < 1e-6) return;
+  final step = dash + gap;
+  final dir = (b - a) / total;
+  for (var t = 0.0; t < total; t += step) {
+    final end = math.min(t + dash, total);
+    canvas.drawLine(a + dir * t, a + dir * end, paint);
+  }
+}
+
+/// M215 — user work axes and work points, in SCREEN space.
+///
+/// Called from BOTH painters, and that is the whole point. On iOS the scene is
+/// RealityKit and `_ScenePainter` never runs — only `_OverlayPainter` does. A
+/// work feature drawn in the scene painter alone would have been perfectly
+/// visible on the host and invisible on the device it was built for.
+///
+/// Screen space also means no Swift: an axis is two projected points joined by
+/// a dashed line and a point is a small cross, neither of which needs an
+/// entity in the RealityKit graph to look right. (A work PLANE does — it is a
+/// filled quad that has to be depth-tested against the solid — which is why
+/// that one goes through the scene payload and these two do not.)
+void paintWorkFeatures(
+    Canvas canvas, Cam3 cam, PartModel part, AppState app) {
+  for (final a in part.workAxes) {
+    if (!a.visible) continue;
+    final sel = identical(app.selectedWorkAxis, a);
+    final b = partContentBounds(part);
+    final (e0, e1) = workAxisSpan(a.at, a.dir, b?.$1 ?? a.at, b?.$2 ?? a.at);
+    final p0 = cam.project(e0), p1 = cam.project(e1);
+    // Dashed, because unlike an origin axis this is something the user made
+    // and can delete — the same cue that already separates a work plane from
+    // an origin plane.
+    _dashedLine(
+        canvas,
+        p0,
+        p1,
+        Paint()
+          ..strokeWidth = sel ? 2 : 1.2
+          ..color = sel ? _greenBright : _orangeEdge);
+    if (sel) {
+      for (final e in [p0, p1]) {
+        canvas.drawCircle(
+            e,
+            5,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2
+              ..color = _greenBright);
+      }
+    }
+  }
+  for (final pt in part.workPoints) {
+    if (!pt.visible) continue;
+    final sel = identical(app.selectedWorkPoint, pt);
+    final c = cam.project(pt.at);
+    // A cross in a box, not a filled dot: it has to stay tellable apart from
+    // the origin centre point and from a sketch point at the same place.
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = sel ? 2 : 1.3
+      ..color = sel ? _greenBright : _orangeEdge;
+    const r = 4.5;
+    canvas.drawLine(c + const Offset(-r, 0), c + const Offset(r, 0), paint);
+    canvas.drawLine(c + const Offset(0, -r), c + const Offset(0, r), paint);
+    canvas.drawRect(
+        Rect.fromCenter(center: c, width: r * 2, height: r * 2), paint);
+  }
+}
+
 class _ScenePainter extends CustomPainter {
   final AppState app;
   final PartModel part;
@@ -1984,6 +2597,8 @@ class _ScenePainter extends CustomPainter {
       }
     }
 
+    paintWorkFeatures(canvas, cam, part, app);
+
     // ---- child sketches as curves on their planes: Inventor visibility —
     // a sketch renders while cs.visible (consumption turns it off, the
     // browser eye turns it back on), and always while a session shows it ----
@@ -2031,6 +2646,24 @@ class _ScenePainter extends CustomPainter {
           canvas, cam, [for (final p in pts) frame.toWorld(p)], pen,
           occ: occ, extra: occ?.edgeMargin ?? 0);
     }
+    // M220 — a text is geometry, so it is part of the sketch in 3D as well:
+    // the same contours the extrude reads, closed (first point repeated).
+    for (final t in cs.model.texts) {
+      final layer = textLayerOf(t);
+      if (cs.model.hiddenLayers.contains(layer)) continue;
+      final li = cs.model.layers.indexOf(layer);
+      if (li >= 0 && li >= cs.model.eosAfter) continue;
+      for (final c in textContours(cs.model, t)) {
+        if (c.length < 3) continue;
+        drawOccludedPolyline(
+            canvas,
+            cam,
+            [for (final p in [...c, c.first]) frame.toWorld(p)],
+            pen,
+            occ: occ,
+            extra: occ?.edgeMargin ?? 0);
+      }
+    }
   }
 
   void _paintRegions(
@@ -2038,7 +2671,7 @@ class _ScenePainter extends CustomPainter {
     final frame = sketchFrameOf(cs);
     for (final r in app.sessionRegions(cs)) {
       final selected = sess.sketchName == cs.model.name &&
-          sess.hasProfileAt(interiorPointOf(r.outer));
+          sess.hasProfileAt(regionAnchor(r));
       final hovered = hoverRegion == r.outer.id;
       if (!selected && !hovered) continue;
       final path = Path()..fillType = PathFillType.evenOdd;
@@ -2148,6 +2781,8 @@ class _OverlayPainter extends CustomPainter {
       canvas.drawCircle(cam.project(Vec3.zero), 9, ring);
     }
 
+    paintWorkFeatures(canvas, cam, part, app);
+
     // ---- extrude profile regions (hovered / selected) ----
     final sess = app.extrudeSession;
     if (sess == null) return;
@@ -2158,7 +2793,7 @@ class _OverlayPainter extends CustomPainter {
       final frame = sketchFrameOf(cs);
       for (final r in app.sessionRegions(cs)) {
         final selected = sess.sketchName == cs.model.name &&
-            sess.hasProfileAt(interiorPointOf(r.outer));
+            sess.hasProfileAt(regionAnchor(r));
         final hovered = hoverRegion == r.outer.id;
         if (!selected && !hovered) continue;
         final path = Path()..fillType = PathFillType.evenOdd;

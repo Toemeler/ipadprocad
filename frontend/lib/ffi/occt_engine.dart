@@ -64,6 +64,11 @@ typedef _ExportN = Int32 Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
+// shim v17 (M214): many bodies -> many NAMED products in one STEP file.
+typedef _ExportNamedN = Int32 Function(Pointer<Pointer<Void>>,
+    Pointer<Pointer<Utf8>>, Int32, Pointer<Utf8>, Pointer<Utf8>);
+typedef _ExportNamedD = int Function(Pointer<Pointer<Void>>,
+    Pointer<Pointer<Utf8>>, int, Pointer<Utf8>, Pointer<Utf8>);
 
 // shim v12 (M130): revolve, edge identity, fillet/chamfer, ray casting
 typedef _RevolveN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
@@ -130,6 +135,20 @@ typedef _RayHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
     Double, Double, Double, Pointer<Double>, Int32);
 typedef _RayHitsD = int Function(Pointer<Void>, double, double, double, double,
     double, double, Pointer<Double>, int);
+
+// shim v20 (M217): face identity + Delete Face + Direct Edit.
+typedef _FaceOpN = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, Int32, Int32);
+typedef _FaceOpD = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, int, int);
+typedef _MoveFacesN = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, Int32, Double, Double, Double);
+typedef _MoveFacesD = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, int, double, double, double);
+typedef _ScaleN = Pointer<Void> Function(
+    Pointer<Void>, Double, Double, Double, Double);
+typedef _ScaleD = Pointer<Void> Function(
+    Pointer<Void>, double, double, double, double);
 
 // M110 — occt_split_solids(shape, out, max) -> count
 typedef _SplitN = Int32 Function(Pointer<Void>, Pointer<Pointer<Void>>, Int32);
@@ -304,20 +323,33 @@ class OcctMeshData {
   /// disable edge-based features rather than guessing an index.
   final Int32List edgeIds;
 
+  /// v20 — the 1-based TOPOLOGICAL face index behind each MESH face. Same
+  /// distinction [edgeIds] draws for edges and for the same reason: a face the
+  /// kernel could not triangulate is absent from the mesh but still counts in
+  /// the topological order, so the two indices diverge. Delete Face and Direct
+  /// Edit address the topological one. Empty = unknown; callers must then
+  /// disable those commands rather than guess an index.
+  final Int32List faceIds;
+
   OcctMeshData(this.positions, this.normals, this.indices, this.edgeStarts,
       this.edgePoints,
       {Int32List? triFaces,
       Float64List? faceInfos,
       Float64List? edgeCurves,
-      Int32List? edgeIds})
+      Int32List? edgeIds,
+      Int32List? faceIds})
       : triFaces = triFaces ?? Int32List(0),
         faceInfos = faceInfos ?? Float64List(0),
         edgeCurves = edgeCurves ?? Float64List(0),
-        edgeIds = edgeIds ?? Int32List(0);
+        edgeIds = edgeIds ?? Int32List(0),
+        faceIds = faceIds ?? Int32List(0);
 
   /// Topological edge index of display edge [i], or -1 when unknown.
   int topoEdgeId(int i) =>
       (i >= 0 && i < edgeIds.length) ? edgeIds[i] : -1;
+
+  /// Topological face index of MESH face [i], or -1 when unknown.
+  int topoFaceId(int i) => (i >= 0 && i < faceIds.length) ? faceIds[i] : -1;
 
   int get faceCount => faceInfos.length ~/ 15;
 
@@ -374,7 +406,11 @@ class OcctShape {
     }
   }
 
-  /// Write to STEP (AP214). Returns success.
+  /// Write this ONE shape to STEP (AP214IS, millimetres). Returns success.
+  ///
+  /// M214 — a PART export does not come through here: it has bodies, and each
+  /// one should reach the file as its own named product. See
+  /// [OcctFfi.exportStepNamed].
   bool exportStep(String path) {
     final p = path.toNativeUtf8();
     try {
@@ -659,6 +695,7 @@ class OcctShape {
           final fiBuf = calloc<Double>(15 * (fN > 0 ? fN : 1));
           final ecBuf = calloc<Double>(16 * (eN > 0 ? eN : 1));
           final eiBuf = calloc<Int32>(eN > 0 ? eN : 1);
+          final fidBuf = calloc<Int32>(fN > 0 ? fN : 1);
           try {
             final v4ok = fN >= 0 &&
                 f._meshTriangleFaces(mp, tfBuf) == 1 &&
@@ -668,6 +705,10 @@ class OcctShape {
             // from the v4 block so a failure here costs edge-based features
             // (fillet/chamfer picking) and nothing else.
             final v12ok = eN > 0 && f._meshEdgeIds(mp, eiBuf) == 1;
+            // v20: the mesh-face -> topological-face map. Read separately for
+            // the same reason: losing it must cost Delete Face and Direct Edit
+            // and nothing else.
+            final v20ok = fN > 0 && f._meshFaceIds(mp, fidBuf) == 1;
             ffiCount('ffi.occt.meshCopyOut.tris', tN);
             ffiCount('ffi.occt.meshCopyOut.verts', vN);
             return ffiSpan(
@@ -690,11 +731,15 @@ class OcctShape {
                       edgeIds: v12ok
                           ? Int32List.fromList(eiBuf.asTypedList(eN))
                           : null,
+                      faceIds: v20ok
+                          ? Int32List.fromList(fidBuf.asTypedList(fN))
+                          : null,
                     ));
           } finally {
             calloc.free(tfBuf);
             calloc.free(fiBuf);
             calloc.free(eiBuf);
+            calloc.free(fidBuf);
             calloc.free(ecBuf);
           }
         } finally {
@@ -770,7 +815,12 @@ class OcctFfi {
       this._sweepProfile,
       this._loftSections,
       this._coilProfile,
-      this._mirror);
+      this._mirror,
+      this._exportStepNamed,
+      this._meshFaceIds,
+      this._deleteFaces,
+      this._moveFaces,
+      this._scaleShape);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -792,6 +842,11 @@ class OcctFfi {
   final _VolumeD _volume;
   final _BboxD _bbox;
   final _ExportD _exportStep;
+  final _ExportNamedD _exportStepNamed; // v17
+  final _MeshIntOutD _meshFaceIds; // v20
+  final _FaceOpD _deleteFaces; // v20
+  final _MoveFacesD _moveFaces; // v20
+  final _ScaleD _scaleShape; // v20
   final _ImportD _importStep;
   final _SplitD _splitSolids;
   final _FreeD _free;
@@ -902,6 +957,16 @@ class OcctFfi {
         lib.lookupFunction<_CoilN, _CoilD>('occt_coil_profile'),
         // v17 — the mirror placement (M212's pattern/mirror features).
         lib.lookupFunction<_TransformN, _TransformD>('occt_mirror'),
+        // v17 (M214) — named multi-body STEP export. Both branches added a
+        // trailing positional argument; the ORDER here is the contract with
+        // the constructor above, so the two must stay in lockstep.
+        lib.lookupFunction<_ExportNamedN, _ExportNamedD>(
+            'occt_export_step_named'),
+        // v20 (M217) — face identity, Delete Face, Direct Edit.
+        lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_face_ids'),
+        lib.lookupFunction<_FaceOpN, _FaceOpD>('occt_delete_faces'),
+        lib.lookupFunction<_MoveFacesN, _MoveFacesD>('occt_move_faces'),
+        lib.lookupFunction<_ScaleN, _ScaleD>('occt_scale_shape'),
       );
     } catch (_) {
       _cached = null;
@@ -1213,6 +1278,96 @@ class OcctFfi {
   /// spurious split lines render). Input stays owned; result is NEW.
   OcctShape? unify(OcctShape a) =>
       ffiSpan('ffi.occt.unify', () => _wrap(_unify(a._handle)));
+
+  /// M214 — writes [shapes] to one STEP file as one NAMED product each.
+  ///
+  /// [names] must be the same length as [shapes] (an empty or blank entry
+  /// falls back to [product]). [product] names the document in the file
+  /// header. Returns false on failure — see [lastError], which names the body
+  /// that could not be written.
+  ///
+  /// This is deliberately NOT "fuse everything and write one shape". Two
+  /// bodies are two bodies; a union to make them one is slow, lossy, and can
+  /// fail, and a failed convenience union used to mean no export at all.
+  bool exportStepNamed(List<OcctShape> shapes, List<String> names, String path,
+      String product) {
+    if (shapes.isEmpty) return false;
+    final arr = calloc<Pointer<Void>>(shapes.length);
+    final nameArr = calloc<Pointer<Utf8>>(shapes.length);
+    final owned = <Pointer<Utf8>>[];
+    final p = path.toNativeUtf8();
+    final prod = product.toNativeUtf8();
+    try {
+      for (var i = 0; i < shapes.length; i++) {
+        arr[i] = shapes[i]._handle;
+        final n = i < names.length ? names[i] : '';
+        final np = n.toNativeUtf8();
+        owned.add(np);
+        nameArr[i] = np;
+      }
+      ffiCount('ffi.occt.exportStepNamed.shapes', shapes.length);
+      return ffiSpan(
+              'ffi.occt.exportStepNamed',
+              () => _exportStepNamed(
+                  arr, nameArr, shapes.length, p, prod)) ==
+          1;
+    } finally {
+      for (final np in owned) {
+        calloc.free(np);
+      }
+      calloc.free(nameArr);
+      calloc.free(arr);
+      calloc.free(prod);
+      calloc.free(p);
+    }
+  }
+
+  /// M217 — Inventor's Delete Face (Heal on). [faceIds] are 1-based
+  /// TOPOLOGICAL indices ([OcctMeshData.topoFaceId] maps a pick to one).
+  /// Null on failure; see [lastError].
+  OcctShape? deleteFaces(OcctShape s, List<int> faceIds) {
+    if (faceIds.isEmpty) return null;
+    final ids = calloc<Int32>(faceIds.length);
+    try {
+      for (var i = 0; i < faceIds.length; i++) {
+        ids[i] = faceIds[i];
+      }
+      ffiCount('ffi.occt.deleteFaces.faces', faceIds.length);
+      return ffiSpan('ffi.occt.deleteFaces',
+          () => _wrap(_deleteFaces(s._handle, ids, faceIds.length, 1)));
+    } finally {
+      calloc.free(ids);
+    }
+  }
+
+  /// M217 — Inventor's Direct > Move/Size: slide [faceIds] by (dx,dy,dz).
+  OcctShape? moveFaces(
+      OcctShape s, List<int> faceIds, double dx, double dy, double dz) {
+    if (faceIds.isEmpty) return null;
+    final ids = calloc<Int32>(faceIds.length);
+    try {
+      for (var i = 0; i < faceIds.length; i++) {
+        ids[i] = faceIds[i];
+      }
+      ffiCount('ffi.occt.moveFaces.faces', faceIds.length);
+      return ffiSpan(
+          'ffi.occt.moveFaces',
+          () => _wrap(
+              _moveFaces(s._handle, ids, faceIds.length, dx, dy, dz)));
+    } finally {
+      calloc.free(ids);
+    }
+  }
+
+  /// M217 — Inventor's Direct > Scale: uniform scale about a centre.
+  ///
+  /// Three doubles rather than a Vec3 on purpose: this file imports nothing
+  /// from the app (see the header note), so that it can never drag the rest of
+  /// the tree into a compile error.
+  OcctShape? scaleShape(
+          OcctShape s, double cx, double cy, double cz, double factor) =>
+      ffiSpan('ffi.occt.scaleShape',
+          () => _wrap(_scaleShape(s._handle, cx, cy, cz, factor)));
 
   /// Read a STEP file (all roots, compound if several). Null on failure.
   OcctShape? importStep(String path) {

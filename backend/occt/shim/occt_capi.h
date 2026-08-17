@@ -169,8 +169,34 @@ int occt_bbox(const occt_shape *shape, double *out6);
 
 /* ---- STEP exchange ----------------------------------------------------- */
 
-/* Write the shape to a STEP (AP214, AsIs) file at `path`. Returns 1/0. */
+/* Write the shape to a STEP (AP214IS, AsIs, millimetres) file at `path`.
+ * Returns 1/0. Exactly occt_export_step_named with one unnamed body. */
 int occt_export_step(const occt_shape *shape, const char *path);
+
+/*
+ * v17 (M214) — write `n` bodies to one STEP file as `n` NAMED products.
+ *
+ * This is the entry point a part export should use. Each shape becomes its
+ * own STEP product carrying `names[i]`, so a part with three bodies opens in
+ * the receiving CAD as three named bodies rather than one anonymous lump.
+ *
+ * Callers must NOT pre-fuse the bodies to get a single shape: a boolean union
+ * is slow, can fail outright, and erases the body identity this preserves.
+ *
+ * `names` may be NULL (all bodies fall back to `product`), and any individual
+ * entry may be NULL or empty. `product` names the document in the FILE_NAME
+ * header; NULL/empty falls back to a generic name.
+ *
+ * Units are millimetres and the schema is AP214IS, both pinned explicitly on
+ * every call — Interface_Static is process-global, so a STEP file READ earlier
+ * in the session could otherwise decide what units this one is written in.
+ *
+ * Returns 1 on success, 0 on failure (occt_last_error names the body that
+ * could not be transferred). Nothing is written on failure.
+ */
+int occt_export_step_named(const occt_shape **shapes, const char **names,
+                           int n,
+                           const char *path, const char *product);
 
 /* Read a STEP file and return all roots as one shape (compound if several).
  * NULL on failure (missing/garbage file included — never crashes). */
@@ -225,13 +251,23 @@ int occt_mesh_triangle_faces(const occt_mesh *m, int *out);
 
 /* Per-face surface record, 15 doubles each:
  *   [0] type: 0 plane, 1 cylinder, 2 cone, 3 sphere, 4 torus, 5 other
- *   [1..3]  plane: point on plane   | cylinder/cone: axis point
- *   [4..6]  plane: OUTWARD normal (face orientation applied)
- *           cylinder/cone: axis direction
+ *   [1..3]  plane:            point on plane
+ *           cylinder/cone:    axis point
+ *           sphere/torus:     CENTRE
+ *   [4..6]  plane:            OUTWARD normal (face orientation applied)
+ *           everything else:  axis direction
  *   [7..9]  x-direction of the surface frame (u = 0 reference)
- *   [10]    radius (cylinder/cone base), 0 otherwise
+ *   [10]    radius: cylinder radius, cone reference radius, sphere radius,
+ *           torus MAJOR radius; 0 for a plane
  *   [11,12] u parameter range of the face (angle for cylinder)
  *   [13,14] v parameter range of the face (along the axis for cylinder)
+ *
+ * v18 (M215) — cone, sphere and torus used to fill [0] only and leave the
+ * rest zero. Work features read the centre and axis of exactly those three
+ * (Through Revolved Face, Center Point of Sphere / Torus), and zeros would
+ * have put every one of them at the world origin without an error. The
+ * change is additive: [0] still discriminates and every earlier reader
+ * switches on it first.
  * Returns 1/0. */
 int occt_mesh_face_infos(const occt_mesh *m, double *out);
 
@@ -246,6 +282,14 @@ int occt_mesh_face_infos(const occt_mesh *m, double *out);
  * the display can draw them as exact vector curves at every zoom.
  * Returns 1/0. */
 int occt_mesh_edge_curves(const occt_mesh *m, double *out);
+
+/* v20 (M217) — 1-based TOPOLOGICAL face index per MESH face (nfaces ints).
+ * Exactly the problem occt_mesh_edge_ids solves for edges: occt_mesh_create
+ * skips a face it cannot triangulate, so mesh face i and topological face i
+ * are different numbers as soon as one face fails to mesh. Picking yields the
+ * mesh index; occt_delete_faces and occt_move_faces name the topological one.
+ * Returns 1/0. */
+int occt_mesh_face_ids(const occt_mesh *m, int *out);
 
 /* Release a mesh returned by occt_mesh_create. NULL is ignored. */
 void occt_free_mesh(occt_mesh *m);
@@ -507,6 +551,46 @@ occt_shape *occt_coil_profile(const double *xyb, const int *loop_counts,
                               double ax_dy, double ax_dz, double revolutions,
                               double height, double taper_deg, int clockwise,
                               int close_start, int close_end);
+
+/* ---- v20 (M217): Delete Face and Direct Edit ---------------------------- */
+
+/*
+ * Inventor's Delete Face with Heal: removes the `n` TOPOLOGICAL faces named by
+ * `ids` (1-based, occt_mesh_face_ids space) and closes the wound by extending
+ * their neighbours until they intersect — deleting a fillet gives back the
+ * sharp corner, deleting a hole's cylindrical face fills the hole.
+ *
+ * `heal` must be non-zero. Inventor's un-healed variant turns the part into a
+ * SURFACE body; this app has no surface bodies, so that mode is REFUSED with
+ * an explanation rather than returning an open shell every caller would
+ * mishandle. NULL on failure.
+ */
+occt_shape *occt_delete_faces(const occt_shape *shape, const int *ids, int n,
+                              int heal);
+
+/*
+ * Inventor's Direct > Move / Size on faces: slides the `n` faces named by
+ * `ids` by the vector (dx,dy,dz).
+ *
+ * Implemented by sweeping each face along the delta and fusing or cutting the
+ * swept volume — fuse when the delta runs along that face's OUTWARD normal,
+ * cut when it runs against it, decided per face so a mixed selection still
+ * does the right thing on each. Faces moved parallel to themselves are
+ * skipped (they change nothing). Exact whenever the neighbouring walls are
+ * parallel to the motion, i.e. every prismatic part; see the .cpp for what
+ * differs on a tapered neighbour. NULL on failure.
+ */
+occt_shape *occt_move_faces(const occt_shape *shape, const int *ids, int n,
+                            double dx, double dy, double dz);
+
+/*
+ * Inventor's Direct > Scale: uniform scale of the whole body about (cx,cy,cz)
+ * by `factor` (> 0). Its own entry point because occt_transform deliberately
+ * REFUSES a non-rigid matrix — placing a feature must never resize it, while
+ * scaling is a command in its own right. NULL on failure.
+ */
+occt_shape *occt_scale_shape(const occt_shape *shape, double cx, double cy,
+                             double cz, double factor);
 
 /* ---- Lifecycle --------------------------------------------------------- */
 

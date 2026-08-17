@@ -260,6 +260,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       }
       return;
     }
+    // M215 — tapping a work axis or point SELECTS it, the way a work plane
+    // does: it highlights in 3D so you can see which row is which.
+    if (id.startsWith(kIdWorkAxis)) {
+      app.selectWorkAxis(_workAxis(part, id));
+      return;
+    }
+    if (id.startsWith(kIdWorkPoint)) {
+      app.selectWorkPoint(_workPoint(part, id));
+      return;
+    }
     if (id.startsWith(kIdSketch) || id.startsWith(kIdNested)) {
       final n = id.startsWith(kIdNested)
           ? id.substring(kIdNested.length)
@@ -299,6 +309,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     } else if (id.startsWith(kIdWorkPlane)) {
       final w = _workPlane(part, id);
       if (w != null) app.toggleWorkPlaneVisible(w);
+    } else if (id.startsWith(kIdWorkAxis)) {
+      final a = _workAxis(part, id);
+      if (a != null) app.toggleWorkAxisVisible(a);
+    } else if (id.startsWith(kIdWorkPoint)) {
+      final pt = _workPoint(part, id);
+      if (pt != null) app.toggleWorkPointVisible(pt);
     } else if (id.startsWith(kIdSketch) || id.startsWith(kIdNested)) {
       final n = id.startsWith(kIdNested)
           ? id.substring(kIdNested.length)
@@ -306,6 +322,28 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final cs = part?.sketchByName(n);
       if (cs != null) app.toggleSketchVisible(cs);
     }
+  }
+
+  // M215 — 'wp:' and 'wpt:' cannot collide: startsWith('wp:') compares the
+  // third character against ':' and a work point has 't' there. Checked
+  // rather than assumed, because a silent prefix collision here would route
+  // every work point tap into the work plane branch.
+  WorkAxis? _workAxis(PartModel? part, String rowId) {
+    final seq = int.tryParse(rowId.substring(kIdWorkAxis.length));
+    if (part == null || seq == null) return null;
+    for (final a in part.workAxes) {
+      if (a.seq == seq) return a;
+    }
+    return null;
+  }
+
+  WorkPoint? _workPoint(PartModel? part, String rowId) {
+    final seq = int.tryParse(rowId.substring(kIdWorkPoint.length));
+    if (part == null || seq == null) return null;
+    for (final pt in part.workPoints) {
+      if (pt.seq == seq) return pt;
+    }
+    return null;
   }
 
   WorkPlane? _workPlane(PartModel? part, String rowId) {
@@ -424,6 +462,35 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'wpDelete':
           app.deleteWorkPlane(w);
+          break;
+      }
+      return;
+    }
+    if (id.startsWith(kIdWorkAxis)) {
+      final a = _workAxis(part, id);
+      if (a == null) return;
+      switch (item) {
+        case 'waVis':
+          app.toggleWorkAxisVisible(a);
+          break;
+        case 'waFlip':
+          app.flipWorkAxis(a);
+          break;
+        case 'waDelete':
+          app.deleteWorkAxis(a);
+          break;
+      }
+      return;
+    }
+    if (id.startsWith(kIdWorkPoint)) {
+      final pt = _workPoint(part, id);
+      if (pt == null) return;
+      switch (item) {
+        case 'wptVis':
+          app.toggleWorkPointVisible(pt);
+          break;
+        case 'wptDelete':
+          app.deleteWorkPoint(pt);
           break;
       }
       return;

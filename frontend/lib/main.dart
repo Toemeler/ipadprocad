@@ -31,6 +31,9 @@ import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
+import 'widgets/combine_dialog.dart';
+import 'widgets/split_dialog.dart';
+import 'widgets/hole_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
 
 void main() {
@@ -302,6 +305,15 @@ class PrototypeApp extends StatelessWidget {
                                           // modeless panel for all four.
                                           if (app.patternSession != null)
                                             PatternPanel3D(app: app),
+                                          // M225 — Hole.
+                                          if (app.holeSession != null)
+                                            HoleDialog(app: app),
+                                          // M227 — Combine.
+                                          if (app.combineSession != null)
+                                            CombineDialog(app: app),
+                                          // M228 — Split.
+                                          if (app.splitSession != null)
+                                            SplitDialog(app: app),
                                           // M169 — the work plane's dynamic
                                           // offset input. Anchored over the
                                           // viewport, never modal: the plane

@@ -76,6 +76,24 @@ class CylKernel implements PartKernel {
   @override
   bool exportStep(List<KernelSolid> solids, String path) => false;
 
+  // M217 — this fake implements EVERY member explicitly (no noSuchMethod), so
+  // face surgery has to land here too. It models none of it, and says so.
+  @override
+  KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
+  @override
+  KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>
+      null;
+  @override
+  KernelSolid? scaleSolid(KernelSolid base, Vec3 centre, double factor) => null;
+
+  // M214 — this fake implements EVERY member explicitly (no noSuchMethod), so
+  // a new member on PartKernel has to land here too. It writes nothing, like
+  // exportStep above.
+  @override
+  bool exportStepBodies(List<(String, KernelSolid)> bodies, String path,
+          {String product = ''}) =>
+      exportStep([for (final b in bodies) b.$2], path);
+
   // M102 — the fake does not model revolve or body modification; saying so
   // honestly is what the feature will surface as its computeError.
   @override

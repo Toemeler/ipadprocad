@@ -22,7 +22,8 @@ import 'ffi/qcad_engine.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'snap.dart' show sampleEntity;
-import 'spline.dart' show splineCurveFor, polyPoints;
+import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
+import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
 
@@ -168,6 +169,16 @@ PlaneFrame faceFrame(Vec3 hit, Vec3 normal) {
   return PlaneFrame('face', u, v, n, origin);
 }
 
+/// M223 — the frame of a work plane built from picks: [at] lies on it, [n] is
+/// its normal, and u/v come from [faceFrame] — the app's ONE rule for turning
+/// a normal into a sketch basis. The origin is [at] itself rather than the
+/// plane's closest point to the world origin: for a plane through three picked
+/// points, "where is its origin" has an answer the user chose.
+PlaneFrame workPlaneFrameAt(Vec3 at, Vec3 n) {
+  final f = faceFrame(at, n);
+  return PlaneFrame(kWorkPlaneKey, f.u, f.v, f.n, at);
+}
+
 const kPlaneKeys = ['yz', 'xz', 'xy'];
 
 /// M151 — key carried by every user-created work plane's frame.
@@ -181,6 +192,10 @@ const String kWorkPlaneKey = 'work';
 
 /// Resolves a plane pick key — an origin key or a work plane's `wp:N` id — to
 /// its frame. Null when the key names nothing on this part.
+///
+/// M215 — deliberately still PLANES only. A work axis (`wa:N`) and a work
+/// point (`wpt:N`) are pickable too, but they are not frames and a caller that
+/// wanted a plane must not silently get something else.
 PlaneFrame? frameForPlaneKey(PartModel p, String key) {
   if (kPlaneKeys.contains(key)) return planeFrame(key);
   for (final w in p.workPlanes) {
@@ -191,7 +206,14 @@ PlaneFrame? frameForPlaneKey(PartModel p, String key) {
 
 /// How a work plane was defined. Two kinds for now, both parametric only in
 /// the sense that the DEFINITION is recorded; the frame is baked at creation.
-enum WorkPlaneKind { offset, midplane }
+/// M223 — [constructed] covers every method that is BUILT FROM PICKS and
+/// carries no editable number: three points, two coplanar edges, normal to an
+/// axis, parallel through a point, the midplane of a torus. They differ only
+/// in the sentence they record, which is what `def` is for; what they share is
+/// that nothing about them can be re-typed afterwards. `fromJson` falls back
+/// to [offset] for a name it does not know, so adding this is safe for
+/// documents written before it.
+enum WorkPlaneKind { offset, midplane, constructed, angle }
 
 /// A plane offset from [base] along its own normal by [d] mm.
 ///
@@ -200,6 +222,24 @@ enum WorkPlaneKind { offset, midplane }
 /// sketch axes would be worse than useless.
 PlaneFrame offsetPlaneFrame(PlaneFrame base, double d) => PlaneFrame(
     kWorkPlaneKey, base.u, base.v, base.n, base.origin + base.n * d);
+
+/// M229 — [base] rotated by [deg] about the line ([axisAt], [axisDir]).
+///
+/// Rodrigues on the whole frame, not just the normal: u and v have to come
+/// along or a sketch on the result would be twisted relative to the plane it
+/// was angled from — the same reason [offsetPlaneFrame] inherits its axes.
+/// The origin is a point ON the axis, because that is the one line the two
+/// planes share and the only origin that keeps the angle visible.
+PlaneFrame anglePlaneFrame(
+    PlaneFrame base, Vec3 axisAt, Vec3 axisDir, double deg) {
+  final d = axisDir.normalized();
+  final r = deg * math.pi / 180;
+  final c = math.cos(r), sn = math.sin(r);
+  Vec3 rot(Vec3 v) =>
+      v * c + d.cross(v) * sn + d * (d.dot(v) * (1 - c));
+  return PlaneFrame(kWorkPlaneKey, rot(base.u).normalized(),
+      rot(base.v).normalized(), rot(base.n).normalized(), axisAt);
+}
 
 /// The plane halfway between [a] and [b], or null when they are not parallel.
 ///
@@ -242,11 +282,52 @@ class WorkPlane {
   PlaneFrame? base;
   double? offset;
 
+  /// M229 — the edge an [WorkPlaneKind.angle] plane pivots about, and by how
+  /// much. Stored for the same reason [base]/[offset] are: without them the
+  /// angle is baked into the frame at creation and the one number the user
+  /// actually thinks in is gone.
+  Vec3? axisAt;
+  Vec3? axisDir;
+  double? angle;
+
   WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
-      {this.visible = true, this.base, this.offset});
+      {this.visible = true,
+      this.base,
+      this.offset,
+      this.axisAt,
+      this.axisDir,
+      this.angle});
 
   /// Whether [setOffset] can move this plane.
   bool get offsetEditable => kind == WorkPlaneKind.offset && base != null;
+
+  /// M229 — the angle twin of [offsetEditable].
+  bool get angleEditable =>
+      kind == WorkPlaneKind.angle &&
+      base != null &&
+      axisAt != null &&
+      axisDir != null;
+
+  /// True when the plane carries ONE number the value field can edit — mm for
+  /// an offset, degrees for an angle. The field asks this rather than the kind,
+  /// so a third editable kind lands in one place.
+  bool get valueEditable => offsetEditable || angleEditable;
+
+  /// The unit of that number, for the field's suffix and its scrub steps.
+  String get valueUnit => kind == WorkPlaneKind.angle ? 'deg' : 'mm';
+
+  double? get value => kind == WorkPlaneKind.angle ? angle : offset;
+
+  /// M229 — re-angle an existing plane, the twin of [setOffset].
+  bool setAngle(double deg, {String? baseLabel}) {
+    final b = base, at = axisAt, dir = axisDir;
+    if (!angleEditable || b == null || at == null || dir == null) return false;
+    if (!deg.isFinite) return false;
+    angle = deg;
+    frame = anglePlaneFrame(b, at, dir, deg);
+    def = '${deg.toStringAsFixed(2)} deg from ${baseLabel ?? _defSource()}';
+    return true;
+  }
 
   /// Re-offsets the plane from its recorded base. Returns false when this
   /// plane has no base to measure from.
@@ -293,7 +374,13 @@ class WorkPlane {
           'bu': _v(base!.u),
           'bv': _v(base!.v),
           'bn': _v(base!.n),
-          'd': offset,
+          if (offset != null) 'd': offset,
+        },
+        // M229 — the pivot of an angle plane, written only when there is one.
+        if (axisAt != null && axisDir != null) ...{
+          'aa': _v(axisAt!),
+          'ad': _v(axisDir!),
+          'ang': angle,
         },
       };
 
@@ -315,9 +402,125 @@ class WorkPlane {
             : PlaneFrame(kWorkPlaneKey, _p(m['bu']), _p(m['bv']), _p(m['bn']),
                 _p(m['bo'])),
         offset: (m['d'] as num?)?.toDouble(),
+        axisAt: m['aa'] == null ? null : _p(m['aa']),
+        axisDir: m['ad'] == null ? null : _p(m['ad']),
+        angle: (m['ang'] as num?)?.toDouble(),
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.
+      return null;
+    }
+  }
+}
+
+/// M215 — a user-created work axis.
+///
+/// Baked at creation, exactly like [WorkPlane]: `at`/`dir` are world-space and
+/// do not follow the geometry they were derived from. That is a real
+/// difference from Inventor, where work features are parametric, and it is
+/// stated here rather than implied — [def] records what it was built from so
+/// the browser can say so, but nothing re-derives it.
+class WorkAxis {
+  final String name;
+  final int seq;
+
+  /// A point on the axis, and its UNIT direction. The direction's SIGN is
+  /// meaningful: "Through Two Points" runs first to second, and an axis used
+  /// as a revolve axis or a pattern direction inherits that choice.
+  Vec3 at, dir;
+
+  /// What it was made from, e.g. "Intersection of Front Face and XY Plane".
+  String def;
+  bool visible;
+
+  WorkAxis(this.name, this.seq, this.def, this.at, this.dir,
+      {this.visible = true});
+
+  /// Stable id used by hover, picking and the browser, e.g. `wa:3`.
+  String get id => 'wa:$seq';
+
+  /// Reverses the axis. Inventor has no "flip work axis" command, but this
+  /// app's axis carries a sign that matters downstream (revolve direction),
+  /// and re-picking two points in the other order to change it would be an
+  /// absurd amount of work for a minus sign.
+  void flip() => dir = dir * -1;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'seq': seq,
+        'def': def,
+        'visible': visible,
+        'at': [at.x, at.y, at.z],
+        'dir': [dir.x, dir.y, dir.z],
+      };
+
+  static WorkAxis? fromJson(Map<String, dynamic> m) {
+    try {
+      final a = (m['at'] as List).cast<num>();
+      final d = (m['dir'] as List).cast<num>();
+      final dir = Vec3(d[0].toDouble(), d[1].toDouble(), d[2].toDouble());
+      // A zero direction is not an axis. Dropping the entry loses one row;
+      // keeping it would put a NaN into every span and highlight that ever
+      // touches it.
+      if (dir.length < 1e-9) return null;
+      return WorkAxis(
+        m['name'] as String? ?? 'Work Axis',
+        (m['seq'] as num?)?.toInt() ?? 0,
+        m['def'] as String? ?? '',
+        Vec3(a[0].toDouble(), a[1].toDouble(), a[2].toDouble()),
+        dir.normalized(),
+        visible: m['visible'] as bool? ?? true,
+      );
+    } catch (_) {
+      // A corrupt entry must not take the whole part down with it — same
+      // policy as WorkPlane.fromJson.
+      return null;
+    }
+  }
+}
+
+/// M215 — a user-created work point. Baked at creation, as [WorkAxis] is.
+class WorkPoint {
+  final String name;
+  final int seq;
+  Vec3 at;
+  String def;
+  bool visible;
+
+  /// Inventor's Grounded Point: a point that is deliberately fixed in space
+  /// rather than attached to geometry. Here EVERY work feature is baked, so
+  /// this changes nothing about the arithmetic — it is recorded because the
+  /// user asked for a grounded point and the browser should say that is what
+  /// they got, instead of quietly relabelling it.
+  final bool grounded;
+
+  WorkPoint(this.name, this.seq, this.def, this.at,
+      {this.visible = true, this.grounded = false});
+
+  /// Stable id used by hover, picking and the browser, e.g. `wpt:3`.
+  String get id => 'wpt:$seq';
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'seq': seq,
+        'def': def,
+        'visible': visible,
+        'at': [at.x, at.y, at.z],
+        if (grounded) 'grounded': true,
+      };
+
+  static WorkPoint? fromJson(Map<String, dynamic> m) {
+    try {
+      final a = (m['at'] as List).cast<num>();
+      return WorkPoint(
+        m['name'] as String? ?? 'Work Point',
+        (m['seq'] as num?)?.toInt() ?? 0,
+        m['def'] as String? ?? '',
+        Vec3(a[0].toDouble(), a[1].toDouble(), a[2].toDouble()),
+        visible: m['visible'] as bool? ?? true,
+        grounded: m['grounded'] as bool? ?? false,
+      );
+    } catch (_) {
       return null;
     }
   }
@@ -704,7 +907,12 @@ bool _profileGeo(ProfileInput pi, Geo g) {
     case Geo.polyline:
       final closedFlag = g.data[0] != 0;
       if (g.spline != Geo.straight) {
-        final pts = List<Offset>.of(splineCurveFor(g));
+        // The ARC-CHAIN form, not the display curve: arcFitLoop turns points
+        // that lie on true arcs into exact bulges, so the prism gets
+        // near-tangent cylindrical faces instead of a fan of flat strips with
+        // a crease at every one. That decimation is wrong for everything else
+        // (see splineCurveFor) and right here.
+        final pts = List<Offset>.of(splineArcChain(g));
         if (g.spline == Geo.ellipseTag) {
           if ((pts.first - pts.last).distance < 1e-9) pts.removeLast();
           return (pts, true);
@@ -932,6 +1140,42 @@ List<ProfileLoop> _arrangementLoops(ProfileInput pi) {
   return loops;
 }
 
+/// M220 — the sketch's TEXTS as profile loops.
+///
+/// A glyph contour is already a closed loop, so it does not go through the
+/// planar arrangement: it needs nothing from it (there is no chaining to do
+/// and no crossing to split) and it would pay dearly for it — the arrangement
+/// is quadratic in the number of segments, and one line of text is a couple
+/// of thousand. Text is therefore its own profile, exactly as in Inventor: it
+/// does not cut regions out of the geometry it happens to sit on, and the
+/// geometry does not cut regions out of it.
+///
+/// The layer rules are the ones every profile obeys — a text on a hidden
+/// layer, or on one rolled back below the End of Sketch, is not a profile.
+/// [ents] is empty on purpose: these loops belong to no entity INDEX, because
+/// a text is not in `geometry` (see text_geometry.dart). Nothing reads a
+/// loop's ents but the highlight, which simply lights nothing up for a text.
+List<ProfileLoop> textLoops(SketchModel s, {int firstId = 0}) {
+  final out = <ProfileLoop>[];
+  var id = firstId;
+  for (final t in s.texts) {
+    final layer = textLayerOf(t);
+    if (s.hiddenLayers.contains(layer)) continue;
+    final li = s.layers.indexOf(layer);
+    if (li >= 0 && li >= s.eosAfter) continue;
+    for (final c in textContours(s, t)) {
+      final pts = dedupeClosedLoop(c);
+      if (pts.length < 3) continue;
+      final a = _signedArea(pts);
+      if (a.abs() < 1e-9) continue; // a hairline contour is not a face
+      final ccw = a > 0 ? pts : pts.reversed.toList();
+      out.add(
+          ProfileLoop(id++, ccw, a.abs(), _centroidOf(ccw), const <int>{}));
+    }
+  }
+  return out;
+}
+
 List<ProfileLoop> profileLoops(SketchModel s) {
   final all = Perf.span(
       'sketch.profileLoops', () => _profileLoops(ProfileInput.of(s)));
@@ -953,7 +1197,14 @@ List<ProfileLoop> profileLoops(SketchModel s) {
             '${kept.isEmpty ? "" : "  areas=[${kept.map((l) =>
                 l.area.toStringAsFixed(2)).join(", ")}]"}');
   }
-  return kept;
+  if (s.texts.isEmpty) return kept;
+  // M220 — text loops carry on the same id sequence, because a duplicate id
+  // would make two loops the same loop to [regionsFrom]'s nesting map.
+  var next = 0;
+  for (final l in kept) {
+    if (l.id >= next) next = l.id + 1;
+  }
+  return [...kept, ...textLoops(s, firstId: next)];
 }
 
 /// How many closed loops [in] yields — the cheap shape of the profile
@@ -1263,6 +1514,119 @@ Offset interiorPointOf(ProfileLoop l) {
     }
   }
   return l.centroid;
+}
+
+/// A point inside the region's MATERIAL — inside its outer loop and outside
+/// every hole. This is what IDENTIFIES a selected region (M221).
+///
+/// [interiorPointOf] answers for one loop and knows nothing of the holes cut
+/// out of it. For a ring — a circle, or a rectangle, with a concentric loop
+/// inside it — its answer is the centre, which is exactly the spot the HOLE
+/// occupies and exactly the spot the disc in that hole reports as its own.
+/// The ring and the disc then carry the SAME anchor, and nothing downstream
+/// can tell them apart: picking the disc reads as re-picking the ring (so the
+/// second one can never be added), the highlight paints the wrong one, and
+/// [resolveProfiles] matches whichever of the two it happens to meet first.
+/// That is the reported "I cant select the inner circle to also extrude".
+Offset regionAnchor(ProfileRegion r) {
+  final c = interiorPointOf(r.outer);
+  if (!r.holes.any((h) => pointInPolygon(c, h.pts))) return c;
+  // The centre is in a hole. Cut the region with horizontal lines, take the
+  // middle of each piece of material on them, and keep the one that sits
+  // FARTHEST from every boundary.
+  //
+  // Not the widest piece, which is the obvious rule and is wrong: a row that
+  // runs TANGENT to a hole crosses it zero times, so the hole does not split
+  // that row at all and the span looks like the whole chord — while its
+  // midpoint sits exactly on the hole's extreme vertex. That is how the first
+  // version of this put a ring's anchor precisely on the boundary of its own
+  // hole (a Ø30 ring around a Ø10 hole answered `(0, 5)`), and a point on a
+  // boundary is the one point whose inside/outside answer the next
+  // tessellation may well reverse. Clearance says what the anchor is FOR.
+  var minY = double.infinity, maxY = -double.infinity;
+  for (final p in r.outer.pts) {
+    if (p.dy < minY) minY = p.dy;
+    if (p.dy > maxY) maxY = p.dy;
+  }
+  if (!(maxY > minY)) return c;
+  final loops = [r.outer, ...r.holes];
+  Offset? best;
+  var bestClear = -1.0; // squared
+  const rows = 9;
+  for (var k = 1; k < rows; k++) {
+    final y = minY + (maxY - minY) * k / rows;
+    final xs = <double>[];
+    for (final loop in loops) {
+      final pts = loop.pts;
+      for (var i = 0; i < pts.length; i++) {
+        final a = pts[i], b = pts[(i + 1) % pts.length];
+        if ((a.dy > y) == (b.dy > y)) continue;
+        xs.add(a.dx + (b.dx - a.dx) * (y - a.dy) / (b.dy - a.dy));
+      }
+    }
+    xs.sort();
+    for (var i = 0; i + 1 < xs.length; i++) {
+      final mid = Offset((xs[i] + xs[i + 1]) / 2, y);
+      if (!pointInPolygon(mid, r.outer.pts)) continue;
+      if (r.holes.any((h) => pointInPolygon(mid, h.pts))) continue;
+      var clear = double.infinity;
+      for (final loop in loops) {
+        final d = _distSqToLoop(mid, loop.pts);
+        if (d < clear) clear = d;
+      }
+      if (clear > bestClear) {
+        bestClear = clear;
+        best = mid;
+      }
+    }
+  }
+  return best ?? c;
+}
+
+/// Squared distance from [p] to the closed polyline [pts] (its EDGES, not its
+/// vertices — a coarse polygon has long ones).
+double _distSqToLoop(Offset p, List<Offset> pts) {
+  var best = double.infinity;
+  for (var i = 0; i < pts.length; i++) {
+    final a = pts[i], b = pts[(i + 1) % pts.length];
+    final v = b - a, w = p - a;
+    final len2 = v.dx * v.dx + v.dy * v.dy;
+    var t = len2 <= 0 ? 0.0 : (w.dx * v.dx + w.dy * v.dy) / len2;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    final d = w - v * t;
+    final d2 = d.dx * d.dx + d.dy * d.dy;
+    if (d2 < best) best = d2;
+  }
+  return best;
+}
+
+/// The region a stored selection points at, or null if there are none.
+///
+/// Nearest anchor — but a region whose AREA still matches the selection beats
+/// a nearer one that does not. A document written before M221 stored the outer
+/// LOOP's interior point, so a ring's anchor sits in the middle of its own
+/// hole: the disc living there is zero away from it and would otherwise steal
+/// the selection the first time the part is rebuilt. [resolveProfiles] writes
+/// the new anchor back, so each document migrates on its next rebuild and the
+/// area only has to carry it across that one hop.
+ProfileRegion? regionForSel(List<ProfileRegion> regions, ProfileSel sel) {
+  final anchor = Offset(sel.ax, sel.ay);
+  ProfileRegion? best;
+  var bestFar = 2, bestD = double.infinity;
+  for (final r in regions) {
+    final rel = sel.area.abs() < 1e-12
+        ? 1.0
+        : (r.outer.area - sel.area).abs() / sel.area.abs();
+    final far = rel <= 0.05 ? 0 : 1;
+    final d = (regionAnchor(r) - anchor).distance;
+    if (far < bestFar || (far == bestFar && d < bestD)) {
+      bestFar = far;
+      bestD = d;
+      best = r;
+    }
+  }
+  return best;
 }
 
 bool _loopInside(ProfileLoop inner, ProfileLoop outer) {
@@ -1675,6 +2039,14 @@ abstract class PartFeature {
   List<String> get sketchNames =>
       sketchName.isEmpty ? const [] : [sketchName];
 
+  /// M227 — OTHER bodies this feature reads, by name.
+  ///
+  /// Empty for everything that only ever touches its own chain, which is
+  /// everything except Combine. The fold mixes these bodies' rebuild keys into
+  /// this feature's own, because a feature that consumes another body has to
+  /// rebuild when THAT body changes — and nothing else in the key can see it.
+  List<String> get inputBodies => const [];
+
   /// True for features built FROM a sketch (extrude, revolve). False for
   /// features that MODIFY an existing body (fillet, chamfer) — those need an
   /// upstream solid as input and fail honestly without one, whereas a
@@ -1726,6 +2098,10 @@ abstract class PartFeature {
         return FilletFeature.fromJson(j);
       case 'chamfer':
         return ChamferFeature.fromJson(j);
+      case 'deleteface':
+        return DeleteFaceFeature.fromJson(j);
+      case 'direct':
+        return DirectEditFeature.fromJson(j);
       case 'sweep':
         return SweepFeature.fromJson(j);
       case 'loft':
@@ -1734,9 +2110,348 @@ abstract class PartFeature {
         return CoilFeature.fromJson(j);
       case 'pattern':
         return PatternFeature.fromJson(j);
+      case 'hole':
+        return HoleFeature.fromJson(j);
+      case 'combine':
+        return CombineFeature.fromJson(j);
+      case 'split':
+        return SplitFeature.fromJson(j);
       default:
         return null;
     }
+  }
+}
+
+/// M225 — where one hole goes: a point in the SKETCH's own (u,v).
+///
+/// Stored as coordinates and re-matched to a sketch point on every rebuild,
+/// exactly as [ProfileSel] is re-matched to a region: an index into the
+/// sketch's entity list moves the moment anything is inserted, and a hole that
+/// silently walks to another point is worse than one that fails.
+class HolePlace {
+  double x, y;
+  HolePlace(this.x, this.y);
+  Map<String, dynamic> toJson() => {'x': x, 'y': y};
+  static HolePlace fromJson(Map<String, dynamic> j) => HolePlace(
+      (j['x'] as num?)?.toDouble() ?? 0, (j['y'] as num?)?.toDouble() ?? 0);
+}
+
+/// M228 — Inventor's **Modify > Split**, in the half this architecture can
+/// carry honestly: **Trim Solid**.
+///
+/// Inventor's Split does three things: split a FACE with a curve, split a body
+/// into TWO bodies, and trim a body away on one side of a plane. The middle
+/// one is not a footnote to the other two — a feature that produces a SECOND
+/// body has no place in the fold, which maps one feature to one solid and
+/// folds it into one chain. Building it would mean teaching the timeline that
+/// a feature can spawn a body, and that is its own milestone.
+///
+/// So this is the trim: everything on one side of [frame] goes away. [flip]
+/// chooses the side, because which half you meant is not derivable from a
+/// plane — a plane has two sides and no opinion.
+class SplitFeature extends PartFeature {
+  /// The cutting plane, stored OUTRIGHT rather than as a key. A work plane can
+  /// move and an origin key cannot say "the face I picked"; a sketch on a face
+  /// stores its frame for exactly this reason (M58).
+  PlaneFrame frame;
+
+  /// What the plane was called when it was picked — for the browser sentence.
+  String label;
+
+  /// Keep the material on the +normal side instead of the -normal side.
+  bool flip;
+
+  SplitFeature({
+    required super.name,
+    required super.bodyName,
+    required this.frame,
+    this.label = 'Plane',
+    this.flip = false,
+    super.visible,
+  }) : super(output: 'cut');
+
+  @override
+  String get kind => 'split';
+  @override
+  String get typeLabel => 'Split';
+
+  @override
+  bool get modifiesBody => true;
+
+  @override
+  String ownSig() {
+    final o = frame.origin, n = frame.n;
+    return 'sp|${o.x},${o.y},${o.z}|${n.x},${n.y},${n.z}|$flip';
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'frame': frame.frameJson(),
+        'label': label,
+        'flip': flip,
+      };
+
+  static SplitFeature fromJson(Map<String, dynamic> j) {
+    final fr = PlaneFrame.fromFrameJson(j['frame'] as List?);
+    final f = SplitFeature(
+      name: j['name'] as String? ?? 'Split',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      // A split with no plane cannot be rebuilt, and says so at recompute
+      // rather than being dropped on load: losing a feature silently is how a
+      // part comes back different (M111's rule for imports, same reasoning).
+      frame: fr ?? planeFrame('xy'),
+      label: j['label'] as String? ?? 'Plane',
+      flip: j['flip'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// M227 — Inventor's **Modify > Combine**: a boolean between solid BODIES.
+///
+/// The one Inventor operation that works on bodies rather than on profiles or
+/// edges. Extrude has carried Join/Cut/Intersect since M62, but only against
+/// the body its own profile builds into — there was no way to say "take this
+/// body away from that one" once both existed.
+///
+/// The base is [bodyName], as for every other feature; [tools] are the bodies
+/// consumed. They are named rather than indexed for the same reason a profile
+/// is anchored rather than indexed: a body list re-orders the moment one is
+/// deleted.
+class CombineFeature extends PartFeature {
+  final List<String> tools;
+
+  /// 'join' | 'cut' | 'intersect' — Inventor's three, and the same words the
+  /// extrude Output uses, so [combineSolids] serves both.
+  String op;
+
+  /// Inventor's "Keep Toolbody": the tool survives as its own body instead of
+  /// being folded away.
+  bool keepTool;
+
+  CombineFeature({
+    required super.name,
+    required super.bodyName,
+    required this.tools,
+    this.op = 'cut',
+    this.keepTool = false,
+    super.visible,
+  }) : super(output: 'cut');
+
+  @override
+  String get kind => 'combine';
+  @override
+  String get typeLabel => 'Combine';
+
+  /// It consumes the body that reaches it and hands on the result.
+  @override
+  bool get modifiesBody => true;
+
+  @override
+  List<String> get inputBodies => tools;
+
+  @override
+  String ownSig() => 'cb|$op|$keepTool|${tools.join(",")}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'tools': tools,
+        'op': op,
+        'keepTool': keepTool,
+      };
+
+  static CombineFeature fromJson(Map<String, dynamic> j) {
+    final f = CombineFeature(
+      name: j['name'] as String? ?? 'Combine',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      tools: [
+        for (final t in (j['tools'] as List? ?? const [])) t.toString()
+      ],
+      op: j['op'] as String? ?? 'cut',
+      keepTool: j['keepTool'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// M226 — Inventor's four hole shapes.
+///
+/// [spotface] is geometrically a [counterbore] and is kept apart anyway,
+/// because it is a different INTENT and the browser should say which one was
+/// asked for: a counterbore sinks a head, a spotface just flattens a boss so a
+/// washer sits square. Inventor draws them the same way and dimensions them
+/// differently, and quietly relabelling one as the other is the kind of small
+/// lie that survives into a drawing.
+enum HoleType { simple, counterbore, spotface, countersink }
+
+String holeTypeLabel(HoleType t) => switch (t) {
+      HoleType.simple => 'Simple',
+      HoleType.counterbore => 'Counterbore',
+      HoleType.spotface => 'Spotface',
+      HoleType.countersink => 'Countersink',
+    };
+
+String holeTypeName(HoleType t) => t.name;
+
+/// Short label for the panel's four-way switch. Not the first N characters of
+/// [holeTypeLabel]: Counterbore and Countersink share their first six, and two
+/// buttons reading the same word is not a choice.
+String holeTypeShort(HoleType t) => switch (t) {
+      HoleType.simple => 'Simple',
+      HoleType.counterbore => "C'bore",
+      HoleType.spotface => 'Spot',
+      HoleType.countersink => "C'sink",
+    };
+
+HoleType holeTypeFrom(String? s) => switch (s) {
+      'counterbore' => HoleType.counterbore,
+      'spotface' => HoleType.spotface,
+      'countersink' => HoleType.countersink,
+      _ => HoleType.simple,
+    };
+
+/// Inventor's **Modify > Hole**, first cut: simple drilled holes on sketch
+/// points.
+///
+/// It is a BODY-MODIFYING feature and not an extrusion with `output: 'cut'`,
+/// even though a cut extrusion is how it reaches the kernel. Inventor treats a
+/// hole as its own feature for good reasons this app shares: it can never be a
+/// base feature (there must be material to drill), its browser row and its
+/// edit dialog are about a hole rather than about a profile, and the profile
+/// it cuts with is DERIVED from a diameter rather than drawn — nothing in the
+/// sketch has to be a circle, and a user who moves a point moves the hole.
+///
+/// What this first cut deliberately does NOT do, rather than half-doing it:
+/// counterbore, countersink and spotface (each is a stepped or conical profile
+/// and a second set of numbers), tapped and clearance holes (a thread table),
+/// the drill-point angle at the bottom (a cone, so a revolve rather than an
+/// extrusion), and the linear/concentric placements (this one places on sketch
+/// POINTS, which is Inventor's "From Sketch"). Every one of them is a real
+/// feature, not a footnote.
+class HoleFeature extends PartFeature {
+  @override
+  final String sketchName;
+  final List<HolePlace> places;
+  double dia, depth;
+  String exprDia, exprDepth;
+
+  /// M226 — the shape at the mouth of the hole.
+  HoleType type;
+
+  /// Counterbore / spotface: the wider, flat-bottomed pocket at the top.
+  double cbDia, cbDepth;
+  String exprCbDia, exprCbDepth;
+
+  /// Countersink: the cone at the top. [csAngle] is Inventor's INCLUDED angle
+  /// (90 deg by default, which is what a 90 deg countersunk screw needs).
+  double csDia, csAngle;
+  String exprCsDia, exprCsAngle;
+
+  /// Only [FeatureExtent.distance] and [FeatureExtent.throughAll] are honoured;
+  /// To Next / To Face need a face reference the panel does not offer yet and
+  /// are refused rather than silently treated as a distance.
+  FeatureExtent extent;
+
+  /// Drill along +n instead of the default -n. The default is "into the
+  /// material": a sketch's normal faces the viewer, so a hole goes away from
+  /// it.
+  bool flip;
+
+  HoleFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sketchName,
+    required this.places,
+    this.dia = 6,
+    this.depth = 10,
+    this.exprDia = '6 mm',
+    this.exprDepth = '10 mm',
+    this.extent = FeatureExtent.distance,
+    this.flip = false,
+    this.type = HoleType.simple,
+    this.cbDia = 11,
+    this.cbDepth = 6,
+    this.exprCbDia = '11 mm',
+    this.exprCbDepth = '6 mm',
+    this.csDia = 12,
+    this.csAngle = 90,
+    this.exprCsDia = '12 mm',
+    this.exprCsAngle = '90 deg',
+    super.visible,
+  }) : super(output: 'cut');
+
+  @override
+  String get kind => 'hole';
+  @override
+  String get typeLabel => 'Hole';
+
+  /// A hole needs something to drill: it consumes the body it lands in and can
+  /// never be a base feature.
+  @override
+  bool get modifiesBody => true;
+
+  @override
+  String ownSig() => 'ho|$sketchName|$dia,$depth,'
+      '${featureExtentName(extent)},$flip|${type.name},'
+      '$cbDia,$cbDepth,$csDia,$csAngle|'
+      '${places.map((p) => '${p.x}:${p.y}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'sketch': sketchName,
+        'places': [for (final p in places) p.toJson()],
+        'dia': dia,
+        'depth': depth,
+        'exprDia': exprDia,
+        'exprDepth': exprDepth,
+        'extent': featureExtentName(extent),
+        'flip': flip,
+        'type': holeTypeName(type),
+        'cbDia': cbDia,
+        'cbDepth': cbDepth,
+        'exprCbDia': exprCbDia,
+        'exprCbDepth': exprCbDepth,
+        'csDia': csDia,
+        'csAngle': csAngle,
+        'exprCsDia': exprCsDia,
+        'exprCsAngle': exprCsAngle,
+      };
+
+  static HoleFeature fromJson(Map<String, dynamic> j) {
+    final f = HoleFeature(
+      name: j['name'] as String? ?? 'Hole',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sketchName: j['sketch'] as String? ?? '',
+      places: [
+        for (final p in (j['places'] as List? ?? const []))
+          HolePlace.fromJson((p as Map).cast<String, dynamic>())
+      ],
+      dia: (j['dia'] as num?)?.toDouble() ?? 6,
+      depth: (j['depth'] as num?)?.toDouble() ?? 10,
+      exprDia: j['exprDia'] as String? ?? '6 mm',
+      exprDepth: j['exprDepth'] as String? ?? '10 mm',
+      extent: featureExtentFrom(j['extent'] as String? ?? 'distance'),
+      flip: j['flip'] as bool? ?? false,
+      type: holeTypeFrom(j['type'] as String?),
+      cbDia: (j['cbDia'] as num?)?.toDouble() ?? 11,
+      cbDepth: (j['cbDepth'] as num?)?.toDouble() ?? 6,
+      exprCbDia: j['exprCbDia'] as String? ?? '11 mm',
+      exprCbDepth: j['exprCbDepth'] as String? ?? '6 mm',
+      csDia: (j['csDia'] as num?)?.toDouble() ?? 12,
+      csAngle: (j['csAngle'] as num?)?.toDouble() ?? 90,
+      exprCsDia: j['exprCsDia'] as String? ?? '12 mm',
+      exprCsAngle: j['exprCsAngle'] as String? ?? '90 deg',
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
   }
 }
 
@@ -2262,6 +2977,394 @@ class CoilFeature extends PartFeature {
 /// Base for the two features that MODIFY an existing body instead of adding
 /// one. They consume no sketch, they cannot be a base feature, and the fold
 /// feeds them the accumulated solid of their body as input.
+/// M217 — a picked FACE, stored as geometry so it survives a rebuild.
+///
+/// The face twin of [EdgeSel], and for the same reason: a topological index is
+/// meaningless across a rebuild (add a feature upstream and every index
+/// shifts), so what a feature stores has to be something the face IS, not
+/// where it happened to sit in a list.
+///
+/// The anchor is the face's mesh CENTROID rather than the surface's Location:
+/// two coplanar faces of the same body share a Location and would be
+/// indistinguishable, while their centroids are metres apart. Area and surface
+/// type are the tie-breakers, and a TYPE change is disqualifying — a planar
+/// face that became cylindrical is not the same face any more, which is
+/// exactly the rule [EdgeSel] applies to a line that became an arc.
+class FacePick {
+  double cx, cy, cz; // mesh centroid, WORLD
+  double nx, ny, nz; // outward unit normal there
+  double area;
+  int kind; // kFacePlane / kFaceCylinder / ... (part_render constants)
+
+  FacePick(this.cx, this.cy, this.cz, this.nx, this.ny, this.nz, this.area,
+      this.kind);
+
+  Vec3 get centre => Vec3(cx, cy, cz);
+  Vec3 get normal => Vec3(nx, ny, nz);
+
+  Map<String, dynamic> toJson() =>
+      {'c': [cx, cy, cz], 'n': [nx, ny, nz], 'a': area, 'k': kind};
+
+  static FacePick? fromJson(Map<String, dynamic> j) {
+    final c = (j['c'] as List?)?.cast<num>();
+    final n = (j['n'] as List?)?.cast<num>();
+    if (c == null || c.length != 3 || n == null || n.length != 3) return null;
+    return FacePick(
+        c[0].toDouble(),
+        c[1].toDouble(),
+        c[2].toDouble(),
+        n[0].toDouble(),
+        n[1].toDouble(),
+        n[2].toDouble(),
+        (j['a'] as num?)?.toDouble() ?? 0,
+        (j['k'] as num?)?.toInt() ?? 0);
+  }
+
+  /// Distance between this fingerprint and a live face; [double.infinity]
+  /// means "cannot be this face".
+  ///
+  /// Position dominates, because that is what the user pointed at. Area is a
+  /// weak tiebreaker only — a Direct Edit legitimately changes the area of the
+  /// faces around the one it moved, so a hard area match would lose exactly
+  /// the faces that matter most on a second edit.
+  double distanceTo(FaceRef live) {
+    if (live.kind != kind) return double.infinity;
+    // A face whose normal flipped is a different face, not a moved one.
+    if (normal.dot(live.normal) < 0.2) return double.infinity;
+    final d = (live.centre - centre).length;
+    final aRel = area <= 0 || live.area <= 0
+        ? 0.0
+        : (live.area - area).abs() / (area + live.area);
+    return d + aRel * 2.0;
+  }
+}
+
+/// A LIVE face of a computed solid: what [FacePick] is re-matched against.
+class FaceRef {
+  /// 1-based TOPOLOGICAL index — what the kernel operations name.
+  final int topoIndex;
+
+  /// Index into the mesh's face list — what picking produces.
+  final int meshIndex;
+
+  final Vec3 centre, normal;
+  final double area;
+  final int kind;
+  const FaceRef(this.topoIndex, this.meshIndex, this.centre, this.normal,
+      this.area, this.kind);
+}
+
+/// Every live face of [mesh], with the centroid/area/normal a [FacePick] needs.
+///
+/// Computed from the TRIANGLES rather than the surface record because a
+/// centroid and an area are properties of the trimmed face, and the surface
+/// record describes the untrimmed surface it lies on.
+List<FaceRef> facesOf(OcctMeshData mesh) {
+  final n = mesh.faceCount;
+  if (n <= 0 || mesh.triFaces.isEmpty) return const [];
+  final cx = List<double>.filled(n, 0), cy = List<double>.filled(n, 0);
+  final cz = List<double>.filled(n, 0), ar = List<double>.filled(n, 0);
+  for (var t = 0; t + 2 < mesh.indices.length; t += 3) {
+    final f = t ~/ 3;
+    if (f >= mesh.triFaces.length) break;
+    final fi = mesh.triFaces[f];
+    if (fi < 0 || fi >= n) continue;
+    final i0 = mesh.indices[t] * 3,
+        i1 = mesh.indices[t + 1] * 3,
+        i2 = mesh.indices[t + 2] * 3;
+    final a = Vec3(mesh.positions[i0], mesh.positions[i0 + 1],
+        mesh.positions[i0 + 2]);
+    final b = Vec3(mesh.positions[i1], mesh.positions[i1 + 1],
+        mesh.positions[i1 + 2]);
+    final c = Vec3(mesh.positions[i2], mesh.positions[i2 + 1],
+        mesh.positions[i2 + 2]);
+    // Area-WEIGHTED centroid: a face triangulated into one huge and twenty
+    // slivers has its centre where the material is, not where the vertices
+    // happen to crowd.
+    final w = (b - a).cross(c - a).length * 0.5;
+    if (w <= 0) continue;
+    ar[fi] += w;
+    cx[fi] += (a.x + b.x + c.x) / 3 * w;
+    cy[fi] += (a.y + b.y + c.y) / 3 * w;
+    cz[fi] += (a.z + b.z + c.z) / 3 * w;
+  }
+  final out = <FaceRef>[];
+  for (var f = 0; f < n; f++) {
+    if (ar[f] <= 0) continue;
+    final rec = 15 * f;
+    if (rec + 7 > mesh.faceInfos.length) continue;
+    final topo = mesh.topoFaceId(f);
+    out.add(FaceRef(
+        topo,
+        f,
+        Vec3(cx[f] / ar[f], cy[f] / ar[f], cz[f] / ar[f]),
+        Vec3(mesh.faceInfos[rec + 4], mesh.faceInfos[rec + 5],
+                mesh.faceInfos[rec + 6])
+            .normalized(),
+        ar[f],
+        mesh.faceInfos[rec].round()));
+  }
+  return out;
+}
+
+/// Centre of [mesh]'s bounding box, or the origin for an empty mesh.
+///
+/// Direct > Scale needs a fixed point, and the box centre is the one that
+/// keeps the body where it is: scaling about the world origin would fling a
+/// part modelled off-origin across the scene, which reads as the command
+/// having moved it rather than resized it.
+Vec3 meshCentreOf(OcctMeshData mesh) {
+  if (mesh.positions.length < 3) return Vec3.zero;
+  var lox = mesh.positions[0], loy = mesh.positions[1], loz = mesh.positions[2];
+  var hix = lox, hiy = loy, hiz = loz;
+  for (var i = 0; i + 2 < mesh.positions.length; i += 3) {
+    final x = mesh.positions[i], y = mesh.positions[i + 1];
+    final z = mesh.positions[i + 2];
+    if (x < lox) lox = x;
+    if (y < loy) loy = y;
+    if (z < loz) loz = z;
+    if (x > hix) hix = x;
+    if (y > hiy) hiy = y;
+    if (z > hiz) hiz = z;
+  }
+  return Vec3((lox + hix) / 2, (loy + hiy) / 2, (loz + hiz) / 2);
+}
+
+/// The live face each selection now refers to, in order. A selection that no
+/// longer matches is DROPPED and counted — the rule [BodyModifyFeature]
+/// already applies to edges: a Direct Edit whose face set partly survives
+/// keeps editing the rest rather than failing whole.
+(List<int> topoIds, int lost) resolveFaces(
+    List<FacePick> sels, List<FaceRef> live) {
+  final ids = <int>[];
+  final taken = <int>{};
+  var lost = 0;
+  for (final sel in sels) {
+    var best = -1;
+    var bestD = double.infinity;
+    for (var i = 0; i < live.length; i++) {
+      if (taken.contains(i) || live[i].topoIndex < 1) continue;
+      final d = sel.distanceTo(live[i]);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0 || !bestD.isFinite) {
+      lost++;
+      continue;
+    }
+    taken.add(best);
+    ids.add(live[best].topoIndex);
+    // Re-anchor, so the next rebuild measures from where the face IS now
+    // rather than from where it was first picked.
+    final f = live[best];
+    sel
+      ..cx = f.centre.x
+      ..cy = f.centre.y
+      ..cz = f.centre.z
+      ..nx = f.normal.x
+      ..ny = f.normal.y
+      ..nz = f.normal.z
+      ..area = f.area;
+  }
+  return (ids, lost);
+}
+
+
+/// M217 — which face edit is open.
+enum FaceEditKind { delete, move, size, scale }
+
+String faceEditLabel(FaceEditKind k) => switch (k) {
+      FaceEditKind.delete => 'Delete Face',
+      FaceEditKind.move => 'Move Faces',
+      FaceEditKind.size => 'Size Faces',
+      FaceEditKind.scale => 'Scale Body',
+    };
+
+/// M217 — the open Delete Face / Direct Edit session.
+///
+/// One type for both commands, the way [EdgeFeatureSession] serves fillet and
+/// chamfer: they collect the same thing (a face set on one body) and differ
+/// only in what they do with it.
+class FaceEditSession {
+  FaceEditSession(this.kind);
+  final FaceEditKind kind;
+
+  /// The picked faces, as re-findable fingerprints, and the MESH indices they
+  /// came from. The mesh indices are display state only — they drive the
+  /// highlight and let a second tap deselect — and are deliberately not what
+  /// the feature stores, because they do not survive a rebuild.
+  final List<FacePick> faces = [];
+  final List<int> meshIndices = [];
+
+  /// Move/Size: the delta in mm. Size is offered along the first picked face's
+  /// own normal, Move in free direction; both end up here.
+  double dx = 0, dy = 0, dz = 0;
+
+  /// Scale: the uniform factor.
+  double factor = 1;
+
+  bool get isScale => kind == FaceEditKind.scale;
+  String get label => faceEditLabel(kind);
+}
+
+/// M217 — a feature that operates on picked FACES of the body it sits on.
+///
+/// The face-side sibling of [BodyModifyFeature]. Not a subclass of it: that
+/// one's whole contract is a `List<EdgeSel>` and its edge re-matching, and
+/// bolting faces onto it would leave every fillet carrying an empty face list
+/// and every Direct Edit an empty edge list.
+abstract class FaceModifyFeature extends PartFeature {
+  FaceModifyFeature({
+    required super.name,
+    required super.bodyName,
+    required this.faces,
+    super.visible,
+  }) : super(output: 'modify');
+
+  final List<FacePick> faces;
+
+  @override
+  bool get modifiesBody => true;
+
+  /// How many selections the last rebuild could not find. Reported, never
+  /// silent — a Direct Edit quietly applying to three of four picked faces is
+  /// a wrong part that looks right.
+  int lostFaces = 0;
+}
+
+/// M217 — Inventor's Delete Face (with Heal).
+class DeleteFaceFeature extends FaceModifyFeature {
+  DeleteFaceFeature({
+    required super.name,
+    required super.bodyName,
+    required super.faces,
+    super.visible,
+  });
+
+  @override
+  String get kind => 'deleteface';
+  @override
+  String get typeLabel => 'Delete Face';
+
+  @override
+  String ownSig() =>
+      'df|${faces.map((f) => '${f.cx},${f.cy},${f.cz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'faces': [for (final f in faces) f.toJson()],
+      };
+
+  static DeleteFaceFeature fromJson(Map<String, dynamic> j) {
+    final fs = <FacePick>[];
+    for (final e in (j['faces'] as List? ?? const [])) {
+      final f = FacePick.fromJson((e as Map).cast<String, dynamic>());
+      if (f != null) fs.add(f);
+    }
+    final f = DeleteFaceFeature(
+      name: j['name'] as String? ?? 'Delete Face',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      faces: fs,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// Which Direct Edit operation a [DirectEditFeature] performs.
+///
+/// Inventor's Direct panel offers Move, Size, Scale, Rotate and Delete. Delete
+/// is [DeleteFaceFeature] (it is the same command as Delete Face, which is why
+/// Inventor's own Delete Face and Direct > Delete produce the same feature).
+/// Rotate is absent, deliberately — see [DirectEditFeature].
+enum DirectOp { move, size, scale }
+
+/// M217 — Inventor's Direct Edit.
+///
+/// [DirectOp.move] and [DirectOp.size] are the same kernel call and differ
+/// only in how the UI offers the direction: Move takes a free direction, Size
+/// pushes along the face's own normal. Keeping them one feature means a part
+/// that was sized cannot rebuild differently from one that was moved by the
+/// same vector, because they ARE the same edit.
+///
+/// ROTATE IS NOT HERE. Rotating a face means sliding its surface and
+/// re-trimming its neighbours — a BRepTools_Modification subclass whose
+/// failure modes only appear on real shapes. Shipping it unverified would be
+/// exactly the dead-looking-alive control this milestone's ribbon pass
+/// removed, so it is absent and the ribbon says so.
+class DirectEditFeature extends FaceModifyFeature {
+  DirectEditFeature({
+    required super.name,
+    required super.bodyName,
+    required super.faces,
+    required this.op,
+    required this.dx,
+    required this.dy,
+    required this.dz,
+    this.factor = 1,
+    super.visible,
+  });
+
+  final DirectOp op;
+
+  /// Move/Size: the delta, in mm, world axes.
+  double dx, dy, dz;
+
+  /// Scale: the uniform factor about the body's bounding-box centre.
+  double factor;
+
+  Vec3 get delta => Vec3(dx, dy, dz);
+
+  @override
+  String get kind => 'direct';
+  @override
+  String get typeLabel => switch (op) {
+        DirectOp.move => 'Move Faces',
+        DirectOp.size => 'Size Faces',
+        DirectOp.scale => 'Scale Body',
+      };
+
+  @override
+  String ownSig() => 'de|${op.name}|$dx,$dy,$dz|$factor|'
+      '${faces.map((f) => '${f.cx},${f.cy},${f.cz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'op': op.name,
+        'd': [dx, dy, dz],
+        if (op == DirectOp.scale) 'f': factor,
+        'faces': [for (final f in faces) f.toJson()],
+      };
+
+  static DirectEditFeature fromJson(Map<String, dynamic> j) {
+    final fs = <FacePick>[];
+    for (final e in (j['faces'] as List? ?? const [])) {
+      final f = FacePick.fromJson((e as Map).cast<String, dynamic>());
+      if (f != null) fs.add(f);
+    }
+    final d = (j['d'] as List?)?.cast<num>();
+    final f = DirectEditFeature(
+      name: j['name'] as String? ?? 'Direct',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      faces: fs,
+      op: DirectOp.values.firstWhere((o) => o.name == j['op'],
+          orElse: () => DirectOp.move),
+      dx: d != null && d.length == 3 ? d[0].toDouble() : 0,
+      dy: d != null && d.length == 3 ? d[1].toDouble() : 0,
+      dz: d != null && d.length == 3 ? d[2].toDouble() : 0,
+      factor: (j['f'] as num?)?.toDouble() ?? 1,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
 abstract class BodyModifyFeature extends PartFeature {
   BodyModifyFeature({
     required super.name,
@@ -4000,6 +5103,24 @@ class PartModel {
   /// M151 — user-created work planes, in creation order.
   final List<WorkPlane> workPlanes = [];
 
+  /// M215 — user-created work axes and work points, in creation order.
+  ///
+  /// Three parallel lists rather than one heterogeneous one, for the reason
+  /// the browser already documents about work planes: these are NOT
+  /// [partTimeline] nodes. That list is what the End of Part marker indexes
+  /// into, and a work feature is not rolled back by EOP. They are interleaved
+  /// into the browser by `seq` and the marker keeps counting only the
+  /// timeline's own rows.
+  final List<WorkAxis> workAxes = [];
+  final List<WorkPoint> workPoints = [];
+
+  /// Every work feature's seq, for the browser's interleave.
+  Iterable<int> get workFeatureSeqs => [
+        for (final w in workPlanes) w.seq,
+        for (final a in workAxes) a.seq,
+        for (final pt in workPoints) pt.seq,
+      ];
+
   /// Origin-item visibility (all invisible by default, like the mock).
   final Map<String, bool> vis = {
     'yz': false,
@@ -4234,6 +5355,12 @@ class PartModel {
         // is byte-identical to what it was before work planes existed.
         if (workPlanes.isNotEmpty)
           'workPlanes': [for (final w in workPlanes) w.toJson()],
+        // M215 — same rule: absent when there are none, so a document made
+        // before work axes existed round-trips byte-identical.
+        if (workAxes.isNotEmpty)
+          'workAxes': [for (final a in workAxes) a.toJson()],
+        if (workPoints.isNotEmpty)
+          'workPoints': [for (final pt in workPoints) pt.toJson()],
         'featureN': featureN,
         'solidN': solidN,
         // M91 — timeline + End of Part. `eopAfter` is only written when the
@@ -4274,6 +5401,14 @@ class PartModel {
     for (final w in (j['workPlanes'] as List? ?? const [])) {
       final wp = WorkPlane.fromJson((w as Map).cast<String, dynamic>());
       if (wp != null) workPlanes.add(wp);
+    }
+    for (final a in (j['workAxes'] as List? ?? const [])) {
+      final wa = WorkAxis.fromJson((a as Map).cast<String, dynamic>());
+      if (wa != null) workAxes.add(wa);
+    }
+    for (final pt in (j['workPoints'] as List? ?? const [])) {
+      final wpt = WorkPoint.fromJson((pt as Map).cast<String, dynamic>());
+      if (wpt != null) workPoints.add(wpt);
     }
     // M91 — creation order. A pre-M91 document has no 'seq' anywhere; the
     // sketches are numbered first and the features after, which reproduces
@@ -4348,7 +5483,8 @@ class PartModel {
     // (M160). Printing it means the next one is one line, not a bisect.
     Log.block('part', 'loaded "$name"', [
       'sketches=${childSketches.length}  features=${features.length}  '
-          'workPlanes=${workPlanes.length}',
+          'workPlanes=${workPlanes.length} workAxes=${workAxes.length} '
+          'workPoints=${workPoints.length}',
       'counters: featureN=$featureN solidN=$solidN seqNext=$seqNext',
       'bodies: ${{for (final f in features) f.bodyName}.join(", ")}',
       'eopAfter=${eopAfter == kEopAtEnd ? "AT END" : eopAfter} '
@@ -4775,7 +5911,22 @@ abstract class PartKernel {
       null;
 
   /// Writes the union of [solids] as STEP to [path].
+  ///
+  /// M214 — prefer [exportStepBodies]. This one unions, which is only ever
+  /// right for a caller that already knows its solids are one body; the part
+  /// export is not such a caller and used to be one by accident.
   bool exportStep(List<KernelSolid> solids, String path);
+
+  /// M214 — writes [bodies] as STEP: one NAMED product per body, no union.
+  ///
+  /// [product] names the document in the file header. Concrete (not abstract)
+  /// for the reason documented below on [revolve] — three test fakes
+  /// `implement` this interface, and the default delegates to [exportStep] so
+  /// a fake that does not model naming still behaves exactly as it did.
+  bool exportStepBodies(
+          List<(String, KernelSolid)> bodies, String path,
+          {String product = ''}) =>
+      exportStep([for (final b in bodies) b.$2], path);
 
   // ---- M131: revolve + body modification -------------------------------
   //
@@ -4823,6 +5974,26 @@ abstract class PartKernel {
   /// [report] carries the same after-the-fact truth as on [filletEdges].
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
           double d1, double d2, double angleDeg, {BlendReport? report}) =>
+      null;
+
+  // ---- M217: Delete Face and Direct Edit --------------------------------
+  //
+  // Concrete and null-returning, for the reason documented on [revolve]: the
+  // test fakes `implement` this interface, and a fake that does not model
+  // face surgery should say so rather than break every unrelated test.
+
+  /// Inventor's Delete Face (Heal on): removes [faceIds] — 1-based
+  /// TOPOLOGICAL face indices — and closes the wound by extending their
+  /// neighbours. Returns a NEW solid; [base] stays owned by the caller.
+  KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
+
+  /// Inventor's Direct > Move/Size: slides [faceIds] by [delta].
+  KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>
+      null;
+
+  /// Inventor's Direct > Scale: uniform scale of the whole body about
+  /// [centre] by [factor].
+  KernelSolid? scaleSolid(KernelSolid base, Vec3 centre, double factor) =>
       null;
 
   /// M111 — reads a STEP file as one [KernelSolid] per SOLID, so an imported
@@ -5331,48 +6502,61 @@ class OcctPartKernel implements PartKernel {
   }
 
   @override
-  bool exportStep(List<KernelSolid> solids, String path) {
+  bool exportStep(List<KernelSolid> solids, String path) =>
+      exportStepBodies([for (final s in solids) ('', s)], path);
+
+  /// M214 — the part export. One STEP product per body, named, no boolean.
+  ///
+  /// What this replaced, and why each part of it was wrong:
+  ///
+  ///   `ffi.fuse(s, s)` as a "cheap copy via self-union" — a self-union is a
+  ///   FULL boolean against identical geometry. It is the most expensive way
+  ///   to copy a handle that exists, it can regularise the shape into
+  ///   something that is not what the user modelled, and on a part with many
+  ///   faces it was simply slow.
+  ///
+  ///   Unioning the bodies together — two separate bodies ARE two bodies. The
+  ///   union threw away that fact, and when it failed (a boolean on disjoint
+  ///   solids is not free of failure modes) the whole export failed with it.
+  ///   The shim now writes them side by side, which cannot fail that way.
+  ///
+  /// A disposed or shapeless solid is REFUSED rather than skipped: silently
+  /// dropping a body means handing over a file that is missing part of the
+  /// model without saying so, which is the one outcome an exporter must never
+  /// have. (A test-fake solid has no shape at all, so on host this reports
+  /// honestly instead of writing an empty file.)
+  @override
+  bool exportStepBodies(
+      List<(String, KernelSolid)> bodies, String path,
+      {String product = ''}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
       return false;
     }
-    final shapes = [
-      for (final s in solids)
-        if (s.shape != null && !s.shape!.disposed) s.shape!
-    ];
-    if (shapes.isEmpty) {
+    if (bodies.isEmpty) {
       _err = 'no solids to export';
       return false;
     }
-    if (shapes.length == 1) return shapes.first.exportStep(path);
-    OcctShape? acc;
-    try {
-      for (final s in shapes) {
-        if (acc == null) {
-          final seed = ffi.fuse(s, s); // cheap copy via self-union
-          if (seed == null) {
-            _err = ffi.lastError();
-            return false;
-          }
-          acc = seed;
-        } else {
-          final fused = ffi.fuse(acc, s);
-          acc.dispose();
-          if (fused == null) {
-            _err = ffi.lastError();
-            return false;
-          }
-          acc = fused;
-        }
+    final shapes = <OcctShape>[];
+    final names = <String>[];
+    for (final (name, solid) in bodies) {
+      final sh = solid.shape;
+      if (sh == null || sh.disposed) {
+        _err = 'body "$name" has no live B-Rep to export';
+        return false;
       }
-      final ok = acc!.exportStep(path);
-      if (!ok) _err = ffi.lastError();
-      return ok;
-    } finally {
-      acc?.dispose();
+      shapes.add(sh);
+      names.add(name);
     }
+    final doc = product.isNotEmpty
+        ? product
+        : (names.first.isEmpty ? 'Part' : names.first);
+    final ok = ffi.exportStepNamed(shapes, names, path, doc);
+    if (!ok) _err = ffi.lastError();
+    return ok;
   }
+
   @override
   List<KernelSolid> importStepSolids(String path) {
     final ffi = OcctFfi.instance();
@@ -5447,6 +6631,83 @@ class OcctPartKernel implements PartKernel {
         sh.mirrored(
             planePoint.x, planePoint.y, planePoint.z, n.x, n.y, n.z));
   }
+
+  // ---- M217: Delete Face and Direct Edit --------------------------------
+
+  /// Shared preamble: a kernel, a live B-Rep and a non-empty face set. Every
+  /// one of the three below needs exactly this, and each of the three getting
+  /// its own copy is how they would have drifted.
+  OcctShape? _facesInput(KernelSolid base, List<int> faceIds, String what) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sh = base.shape;
+    if (sh == null || sh.disposed) {
+      _err = '$what needs a kernel-backed solid';
+      return null;
+    }
+    if (faceIds.isEmpty) {
+      _err = 'no faces selected';
+      return null;
+    }
+    // A pick that could not be mapped to a topological face arrives as -1 (see
+    // OcctMeshData.topoFaceId). Passing it on would delete or move whichever
+    // face the kernel happened to have at a bogus index — refuse instead.
+    for (final id in faceIds) {
+      if (id < 1) {
+        _err = 'a selected face could not be identified on the body';
+        return null;
+      }
+    }
+    return sh;
+  }
+
+  @override
+  KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) {
+    final sh = _facesInput(base, faceIds, 'Delete Face');
+    if (sh == null) return null;
+    final ffi = _ffi!;
+    final out = ffi.deleteFaces(sh, faceIds);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
+  }
+
+  @override
+  KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) {
+    final sh = _facesInput(base, faceIds, 'Move Faces');
+    if (sh == null) return null;
+    if (delta.length < 1e-9) {
+      _err = 'nothing to move — the distance is zero';
+      return null;
+    }
+    final ffi = _ffi!;
+    final out = ffi.moveFaces(sh, faceIds, delta.x, delta.y, delta.z);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
+  }
+
+  @override
+  KernelSolid? scaleSolid(KernelSolid base, Vec3 centre, double factor) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return null;
+    }
+    final sh = base.shape;
+    if (sh == null || sh.disposed) {
+      _err = 'Scale needs a kernel-backed solid';
+      return null;
+    }
+    if (!(factor > 0) || !factor.isFinite) {
+      _err = 'the scale factor must be greater than zero';
+      return null;
+    }
+    final out = ffi.scaleShape(sh, centre.x, centre.y, centre.z, factor);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
+  }
 }
 
 /// Re-matches [profiles] against the current regions of [sketchName] and
@@ -5464,15 +6725,7 @@ class OcctPartKernel implements PartKernel {
   final groups = <List<List<Offset>>>[];
   for (final sel in profiles) {
     final anchor = Offset(sel.ax, sel.ay);
-    ProfileRegion? best;
-    var bestD = double.infinity;
-    for (final r in regions) {
-      final d = (interiorPointOf(r.outer) - anchor).distance;
-      if (d < bestD) {
-        bestD = d;
-        best = r;
-      }
-    }
+    final best = regionForSel(regions, sel);
     // sanity: the anchor should still sit INSIDE the matched region, or at
     // least the region should not have changed beyond recognition
     if (best == null ||
@@ -5480,7 +6733,10 @@ class OcctPartKernel implements PartKernel {
             (best.outer.area - sel.area).abs() > 0.5 * sel.area)) {
       return (null, null, 'a picked profile could not be found any more');
     }
-    final ip = interiorPointOf(best.outer);
+    // M221 — the anchor is the region's, not its outer loop's, so a ring and
+    // the disc in its hole stay two different selections. Writing it back here
+    // is also what migrates a document saved before that rule.
+    final ip = regionAnchor(best);
     sel.ax = ip.dx;
     sel.ay = ip.dy;
     sel.area = best.outer.area;
@@ -5566,7 +6822,13 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   f.disposeSolid();
   f.computeError = null;
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
+  // M217 — the face-side twin. Same contract: no base means the upstream
+  // broke, and the feature goes sick honestly rather than materialising.
+  if (f is FaceModifyFeature) return _recomputeFaceModify(f, kernel, base);
   if (f is PatternFeature) return _recomputePattern(part, f, kernel, base);
+  if (f is HoleFeature) return _recomputeHole(part, f, kernel, base);
+  if (f is CombineFeature) return _recomputeCombine(part, f, kernel, base);
+  if (f is SplitFeature) return _recomputeSplit(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
   if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
@@ -5908,6 +7170,312 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
   return true;
 }
 
+/// M225 — the sketch points a hole feature drills on, or an error.
+///
+/// Nearest point wins and the placement is rewritten to it, so moving a point
+/// moves its hole. Two placements landing on ONE point is refused rather than
+/// drilling the same hole twice: that is the state a deleted point leaves
+/// behind, and it is exactly the confusion M217's resolveFaces refuses for
+/// faces.
+(List<Offset>?, String?) holeCentresFor(SketchModel sk, List<HolePlace> places) {
+  if (places.isEmpty) return (null, 'no hole placed');
+  // The SAME rule the sketch-driven pattern uses (M212): a tagged sketch
+  // point, never a circle centre. Two definitions of "a point in this sketch"
+  // is two chances for a hole and a pattern occurrence to disagree about where
+  // they are.
+  final pts = sketchPatternPoints(sk);
+  if (pts.isEmpty) {
+    return (null, 'no sketch point in "${sk.name}" to place a hole on');
+  }
+  final out = <Offset>[];
+  final taken = <int>{};
+  for (final pl in places) {
+    final anchor = Offset(pl.x, pl.y);
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < pts.length; i++) {
+      final d = (pts[i] - anchor).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (!taken.add(best)) {
+      return (null, 'two holes resolved to the same sketch point — one of '
+          'the points they were placed on is gone');
+    }
+    pl.x = pts[best].dx;
+    pl.y = pts[best].dy;
+    out.add(pts[best]);
+  }
+  return (out, null);
+}
+
+/// A closed polygon on the circle, in the sketch's own (u,v).
+///
+/// A polygon and not an arc pair because that is what the kernel path takes —
+/// and it stays a true cylinder anyway: [arcFitLoop] recognises points that
+/// lie on one circle and hands OCCT exact arcs. 96 points is what a DRAWN
+/// circle gets on the way to a profile (`sampleEntity(g, arcSamples: 96)`), so
+/// a hole is tessellated exactly like the circle a user would have drawn for
+/// it — same input to arcFitLoop, same faces out of the kernel.
+List<Offset> holeProfile(Offset c, double r, {int n = 96}) {
+  return [
+    for (var i = 0; i < n; i++)
+      c + Offset(r * math.cos(2 * math.pi * i / n),
+          r * math.sin(2 * math.pi * i / n))
+  ];
+}
+
+bool _recomputeHole(
+    PartModel part, HoleFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'a hole needs a body to drill into';
+    return false;
+  }
+  final cs = part.sketchByName(f.sketchName);
+  if (cs == null) {
+    f.computeError = 'sketch "${f.sketchName}" no longer exists';
+    return false;
+  }
+  final (centres, err) = holeCentresFor(cs.model, f.places);
+  if (centres == null) {
+    f.computeError = err ?? 'the hole has nowhere to go';
+    return false;
+  }
+  final r = f.dia / 2;
+  if (!(r > 0)) {
+    f.computeError = 'diameter must be greater than 0';
+    return false;
+  }
+  final frame = sketchFrameOf(cs);
+  double height;
+  double start; // where the tool begins, along n
+  if (f.extent == FeatureExtent.throughAll) {
+    // Long enough to leave the part on both sides, and STARTED outside it: a
+    // tool face exactly on the body's face is the classic boolean coin toss.
+    final (lo, hi) = originExtentBounds(part);
+    final span = (hi - lo).length + 20.0;
+    if (!span.isFinite || span <= 0) {
+      f.computeError = 'the part has no extent to drill through';
+      return false;
+    }
+    height = span;
+    start = f.flip ? -1.0 : -(span - 1.0);
+  } else if (f.extent == FeatureExtent.distance) {
+    height = f.depth;
+    if (!(height > 0)) {
+      f.computeError = 'depth must be greater than 0';
+      return false;
+    }
+    start = f.flip ? 0.0 : -height;
+  } else {
+    // To Next / To Face need a face reference the hole panel does not offer.
+    // Saying so beats treating it as a distance and drilling the wrong depth.
+    f.computeError =
+        '${extentLabel(f.extent)} is not available for a hole yet';
+    return false;
+  }
+  final groups = [
+    for (final c in centres) [holeProfile(c, r)]
+  ];
+  final tool = kernel.extrude(groups, height, 0, frame.mat34(start));
+  if (tool == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  var cut = kernel.cutSolids(base, tool);
+  tool.dispose();
+  if (cut == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  // M226 — the shape at the MOUTH, cut as a second tool rather than folded
+  // into the first. Two cuts of simple solids is what OCCT is happiest with,
+  // and it keeps the counterbore's flat bottom and the countersink's cone out
+  // of the profile arithmetic entirely.
+  if (f.type != HoleType.simple) {
+    final (mouth, mErr) = _holeMouthTool(f, centres, r, frame, kernel);
+    if (mouth == null) {
+      cut.dispose();
+      f.computeError = mErr ?? 'the hole mouth could not be built';
+      return false;
+    }
+    final done = kernel.cutSolids(cut, mouth);
+    mouth.dispose();
+    cut.dispose();
+    if (done == null) {
+      f.computeError = kernel.lastError;
+      return false;
+    }
+    cut = done;
+  }
+  f.solid = cut;
+  return true;
+}
+
+/// M228 — the half-space tool: a slab covering everything on ONE side of
+/// [frame], big enough to swallow the part.
+///
+/// The same box [sliceSolidAt] builds for Slice Graphics, and that is the
+/// point: Slice Graphics has cut the near side away on every device session
+/// since M168, so the sizing is proven. What differs is that this one is
+/// PERMANENT and can be flipped.
+KernelSolid? halfSpaceTool(
+    PartKernel kernel, PartModel part, PlaneFrame frame, bool flip) {
+  final (lo, hi) = originExtentBounds(part);
+  final r = (hi - lo).length + 10.0;
+  if (!r.isFinite || r <= 0) return null;
+  final profile = [
+    [
+      [Offset(-r, -r), Offset(r, -r), Offset(r, r), Offset(-r, r)]
+    ]
+  ];
+  // Extruding along +n covers the +side; the -side is the same box started a
+  // full length back. Never both, and never zero-thickness at the plane.
+  return kernel.extrude(profile, r, 0, frame.mat34(flip ? -r : 0));
+}
+
+bool _recomputeSplit(
+    PartModel part, SplitFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'a split needs a body to trim';
+    return false;
+  }
+  if (f.frame.n.length < 1e-9) {
+    f.computeError = 'the splitting plane is gone';
+    return false;
+  }
+  final tool = halfSpaceTool(kernel, part, f.frame, f.flip);
+  if (tool == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  final cut = kernel.cutSolids(base, tool);
+  tool.dispose();
+  if (cut == null) {
+    f.computeError = kernel.lastError;
+    return false;
+  }
+  f.solid = cut;
+  return true;
+}
+
+/// M227 — the live feature of [body] as of just before [before] in the
+/// timeline, or null when that body has nothing built there.
+///
+/// "As of" is the whole point: features of the tool body that come LATER may
+/// still be holding a solid from the previous pass, and folding one of those
+/// in would combine with a body from the future.
+PartFeature? bodyFeatureBefore(PartModel part, String body, int before) {
+  PartFeature? best;
+  for (final f in part.features) {
+    // BEFORE is by seq, which is the timeline the browser shows and the
+    // marker walks — `features` is kept in that order but is not sorted by it,
+    // and the answer must be the one the user can see.
+    if (f.bodyName != body || f.rolledBack || f.seq >= before) continue;
+    if (f.solid == null) continue;
+    if (best == null || f.seq > best.seq) best = f;
+  }
+  return best;
+}
+
+bool _recomputeCombine(
+    PartModel part, CombineFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'a combine needs a base body';
+    return false;
+  }
+  if (f.tools.isEmpty) {
+    f.computeError = 'no tool body selected';
+    return false;
+  }
+  var acc = base;
+  var owned = false; // whether acc is ours to dispose
+  for (final name in f.tools) {
+    if (name == f.bodyName) {
+      if (owned) acc.dispose();
+      f.computeError = 'a body cannot be combined with itself';
+      return false;
+    }
+    final src = bodyFeatureBefore(part, name, f.seq);
+    if (src?.solid == null) {
+      if (owned) acc.dispose();
+      // A tool built LATER in the timeline is the commonest way to get here,
+      // and saying "not built yet at this point" is the difference between a
+      // fixable mistake and a mystery.
+      f.computeError = 'body "$name" has nothing built before this feature';
+      return false;
+    }
+    final out = combineSolids(kernel, f.op, acc, src!.solid!);
+    if (out == null) {
+      if (owned) acc.dispose();
+      f.computeError = kernel.lastError;
+      return false;
+    }
+    if (owned) acc.dispose();
+    acc = out;
+    owned = true;
+    // The tool is folded away unless Inventor's Keep Toolbody says otherwise.
+    // Marking it here is what makes it vanish from the viewport, the browser's
+    // body list and the STEP export in one move — they all read the same
+    // solid/!consumedByJoin rule (M214).
+    if (!f.keepTool) src.consumedByJoin = true;
+  }
+  f.solid = acc;
+  return true;
+}
+
+/// The counterbore / spotface pocket or the countersink cone, as ONE tool for
+/// every placement.
+(KernelSolid?, String?) _holeMouthTool(HoleFeature f, List<Offset> centres,
+    double r, PlaneFrame frame, PartKernel kernel) {
+  if (f.type == HoleType.countersink) {
+    final bigR = f.csDia / 2;
+    if (!(bigR > r)) {
+      return (null, 'the countersink must be wider than the hole');
+    }
+    if (!(f.csAngle > 0) || f.csAngle >= 180) {
+      return (null, 'the countersink angle must be between 0 and 180 deg');
+    }
+    // Included angle: the cone's half-angle is what the wall makes with the
+    // axis, so the depth follows from the radius it has to open out by.
+    final half = f.csAngle / 2;
+    final dz = (bigR - r) / math.tan(half * math.pi / 180);
+    if (!(dz > 0) || !dz.isFinite) {
+      return (null, 'the countersink angle leaves it no depth');
+    }
+    // The shim's taper is Inventor's sign: POSITIVE flares outward along the
+    // extrusion. Drilling inwards the tool runs from the small end up to the
+    // face, so it flares; flipped it starts wide at the face and closes, which
+    // is the same cone read the other way.
+    final profileR = f.flip ? bigR : r;
+    final taper = f.flip ? -half : half;
+    final start = f.flip ? 0.0 : -dz;
+    final groups = [
+      for (final c in centres) [holeProfile(c, profileR)]
+    ];
+    final tool = kernel.extrude(groups, dz, taper, frame.mat34(start));
+    return (tool, tool == null ? kernel.lastError : null);
+  }
+  // Counterbore and spotface: the same flat-bottomed pocket.
+  final bigR = f.cbDia / 2;
+  if (!(bigR > r)) {
+    return (null, '${holeTypeLabel(f.type).toLowerCase()} must be wider than '
+        'the hole');
+  }
+  if (!(f.cbDepth > 0)) {
+    return (null, '${holeTypeLabel(f.type).toLowerCase()} depth must be '
+        'greater than 0');
+  }
+  final groups = [
+    for (final c in centres) [holeProfile(c, bigR)]
+  ];
+  final tool = kernel.extrude(
+      groups, f.cbDepth, 0, frame.mat34(f.flip ? 0.0 : -f.cbDepth));
+  return (tool, tool == null ? kernel.lastError : null);
+}
+
 bool _recomputeLoft(PartModel part, LoftFeature f, PartKernel kernel) {
   if (f.sections.length < 2) {
     f.computeError = 'a loft needs at least 2 sections';
@@ -5969,6 +7537,78 @@ bool _recomputeCoil(PartModel part, CoilFeature f, PartKernel kernel) {
     return false;
   }
   f.solid = solid;
+  return true;
+}
+
+
+/// M217 — Delete Face and Direct Edit.
+///
+/// The whole reason this is separate from [_recomputeBodyModify]: the
+/// selections are FACES, and a face is re-found by [resolveFaces] against the
+/// live mesh rather than by the edge machinery.
+bool _recomputeFaceModify(
+    FaceModifyFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'nothing to modify — no solid before this feature';
+    return false;
+  }
+  // Scale is the one operation with no face selection: it takes the whole
+  // body, which is what Inventor's Direct > Scale does too.
+  final isScale = f is DirectEditFeature && f.op == DirectOp.scale;
+  if (f.faces.isEmpty && !isScale) {
+    f.computeError = 'no faces selected';
+    return false;
+  }
+
+  if (isScale) {
+    final d = f as DirectEditFeature;
+    final centre = meshCentreOf(base.mesh);
+    final out = kernel.scaleSolid(base, centre, d.factor);
+    if (out == null) {
+      f.computeError = kernel.lastError.isEmpty
+          ? 'scaling failed'
+          : kernel.lastError;
+      return false;
+    }
+    f.lostFaces = 0;
+    f.solid = out;
+    return true;
+  }
+
+  final live = facesOf(base.mesh);
+  if (live.isEmpty) {
+    f.computeError = kernel.lastError.isEmpty
+        ? 'the body reports no identifiable faces — a build without face '
+            'identity cannot delete or move one'
+        : kernel.lastError;
+    return false;
+  }
+  final (ids, lost) = resolveFaces(f.faces, live);
+  f.lostFaces = lost;
+  if (ids.isEmpty) {
+    f.computeError = 'none of the selected faces exist any more';
+    return false;
+  }
+
+  KernelSolid? out;
+  if (f is DeleteFaceFeature) {
+    out = kernel.deleteFaces(base, ids);
+  } else if (f is DirectEditFeature) {
+    out = kernel.moveFaces(base, ids, f.delta);
+  }
+  if (out == null) {
+    f.computeError =
+        kernel.lastError.isEmpty ? 'the edit failed' : kernel.lastError;
+    return false;
+  }
+  f.solid = out;
+  // A partial loss is not a failure — Inventor keeps editing the faces that
+  // survived — but it must not be silent either. Same rule as a fillet whose
+  // edge set partly survives.
+  if (lost > 0) {
+    Log.i('feature',
+        '${f.name}: $lost of ${f.faces.length} picked faces no longer exist');
+  }
   return true;
 }
 
@@ -6260,6 +7900,28 @@ bool _recomputePattern(
         // built into. Refused by name rather than half-done.
         f.computeError = '"$name" is itself a pattern — pattern the features '
             'it copies instead';
+        disposeOwned();
+        return false;
+      }
+      if (src.modifiesBody) {
+        // M226 — anything else that CHANGES the body instead of bringing a
+        // volume: a hole (M225), and the face edits of M217. Its own solid is
+        // the whole body with the change already in it, so the clone path
+        // below would place a copy of THAT at every occurrence and subtract
+        // the part from itself — silently, and the model would look eaten
+        // rather than patterned.
+        //
+        // Doing it properly means repeating the TOOL, the treatment M213 gave
+        // blends; a hole's tool is a cylinder and a face edit's is a swept
+        // slab, so each needs its own path. Until then this says so, and names
+        // the way round that already works.
+        //
+        // ORDER MATTERS: this sits below the two more specific refusals above,
+        // because a fillet and a pattern are both modifiesBody too and each
+        // has a better sentence to offer.
+        f.computeError = '"$name" changes the body rather than adding one and '
+            'cannot be patterned yet — for a hole, pattern the sketch points '
+            'it sits on instead';
         disposeOwned();
         return false;
       }
@@ -6926,7 +8588,13 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
       allOk = false;
       continue;
     }
-    final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
+    // M227 — a Combine reads another body, so that body's key is part of this
+    // feature's key. Empty for every other feature, so nothing else changes.
+    final cross = f.inputBodies.isEmpty
+        ? ''
+        : [for (final b in f.inputBodies) '$b=${upstream[b] ?? ''}'].join(',');
+    final sig =
+        '${upstream[f.bodyName] ?? ''}#$cross#${featureInputSig(part, f)}';
     if (!force &&
         f.solid != null &&
         f.computeError == null &&
@@ -7042,6 +8710,43 @@ KernelSolid? currentBodySolid(PartModel part, String bodyName) {
     }
   }
   return found;
+}
+
+/// M214 — THE MODEL, as a list of named bodies. What an export must write,
+/// and the same set the viewport, the RealityKit scene and the gallery
+/// thumbnail draw.
+///
+/// The rule is three clauses and every one of them earns its place:
+///
+///   solid != null      — the feature computed something.
+///   !consumedByJoin    — it is still the head of its body. THIS is the clause
+///                        the STEP export was missing. Each feature stores the
+///                        RUNNING accumulation at its own position, so a
+///                        block, then that block minus a hole, then that
+///                        filleted, are three solids of which only the last is
+///                        the part. Exporting all three (and, worse, unioning
+///                        them, which is what the kernel did with a list) puts
+///                        the material straight back: block ∪ (block − hole)
+///                        is the block, hole gone; block ∪ filleted-block is
+///                        the block, fillet gone. That is exactly the reported
+///                        "holes and fillets are not exported".
+///   !rolledBack        — below End of Part is not part of the model yet.
+///
+/// `visible` is deliberately NOT one of them. M182 settled that visibility is
+/// a DISPLAY property: a hidden body is still part of the part, and Inventor
+/// exports it too. Hiding a body to see past it must not silently drop it from
+/// the file you send to the shop.
+///
+/// Returned in creation order, so the STEP products come out in the same order
+/// the browser lists the bodies.
+List<(String, KernelSolid)> partExportBodies(PartModel part) {
+  final out = <(String, KernelSolid)>[];
+  for (final f in part.features) {
+    final s = f.solid;
+    if (s == null || f.consumedByJoin || f.rolledBack) continue;
+    out.add((f.bodyName, s));
+  }
+  return out;
 }
 
 /// The accumulated solid of [bodyName] considering only features strictly
@@ -7455,6 +9160,128 @@ List<List<Offset>> sectionTrianglesAt(OcctMeshData m, PlaneFrame frame,
   }
   return out;
 }
+
+/// The BOUNDARY of a set of coplanar triangles, as closed loops in the same
+/// (u,v) the triangles came in (M222).
+///
+/// The section faces arrive as a triangle SOUP — that is what a mesh is — and
+/// drawing that soup is what made the reported triangles visible: every shared
+/// edge got stroked as if it were an edge of the cut. It is not; it is an
+/// artefact of how the face was tessellated, and it changes whenever the model
+/// is re-meshed.
+///
+/// An edge that two triangles share is interior; one that belongs to a single
+/// triangle is on the boundary. Vertices are welded onto a [weld] grid first,
+/// because two triangles of one face meet at coordinates that are equal in the
+/// kernel and can differ in the last bit after the transform into sketch
+/// coordinates — un-welded, every interior edge would look like two boundary
+/// edges and the whole soup would come back.
+///
+/// Loops keep the winding of the triangles they came from, so an outer
+/// boundary and the hole inside it wind opposite ways and both `evenOdd` and
+/// `nonZero` fill them correctly.
+List<List<Offset>> sectionOutlines(List<List<Offset>> tris,
+    {double weld = 1e-6}) {
+  if (tris.isEmpty) return const [];
+  final ids = <String, int>{};
+  final pts = <Offset>[];
+  int idOf(Offset p) {
+    final key = '${(p.dx / weld).round()},${(p.dy / weld).round()}';
+    final hit = ids[key];
+    if (hit != null) return hit;
+    ids[key] = pts.length;
+    pts.add(p);
+    return pts.length - 1;
+  }
+
+  // Directed edges, counted by their UNDIRECTED key: an interior edge is
+  // walked once each way by the two triangles that share it.
+  final count = <String, int>{};
+  final dir = <String, List<int>>{}; // undirected key -> [from, to] as walked
+  void edge(int a, int b) {
+    final key = a < b ? '$a-$b' : '$b-$a';
+    count[key] = (count[key] ?? 0) + 1;
+    dir.putIfAbsent(key, () => [a, b]);
+  }
+
+  for (final t in tris) {
+    if (t.length < 3) continue;
+    final idx = [for (final p in t) idOf(p)];
+    for (var i = 0; i < idx.length; i++) {
+      edge(idx[i], idx[(i + 1) % idx.length]);
+    }
+  }
+
+  // Boundary edges, indexed by the vertex they leave from.
+  final outgoing = <int, List<List<int>>>{};
+  var edges = 0;
+  count.forEach((key, n) {
+    if (n != 1) return;
+    final e = dir[key]!;
+    outgoing.putIfAbsent(e[0], () => []).add(e);
+    edges++;
+  });
+  if (edges == 0) return const [];
+
+  final used = <String, bool>{};
+  final loops = <List<Offset>>[];
+  for (final start in outgoing.keys.toList()) {
+    for (final first in outgoing[start]!) {
+      final firstKey = '${first[0]}>${first[1]}';
+      if (used[firstKey] == true) continue;
+      final loop = <int>[first[0]];
+      var cur = first;
+      // Bounded by the edge count: a malformed soup must not spin here.
+      for (var step = 0; step <= edges; step++) {
+        used['${cur[0]}>${cur[1]}'] = true;
+        loop.add(cur[1]);
+        if (cur[1] == first[0]) break; // closed
+        final next = outgoing[cur[1]];
+        if (next == null) break; // open chain: draw what there is
+        List<int>? go;
+        for (final e in next) {
+          if (used['${e[0]}>${e[1]}'] == true) continue;
+          go = e;
+          break;
+        }
+        if (go == null) break;
+        cur = go;
+      }
+      if (loop.length >= 4) {
+        // The closing vertex repeats the first one; a Path closes itself.
+        loops.add([for (final i in loop.sublist(0, loop.length - 1)) pts[i]]);
+      }
+    }
+  }
+  return loops;
+}
+
+/// One body's cut faces, ready to hatch (M222).
+class SectionSlice {
+  final String body;
+
+  /// Closed boundary loops in the sketch's (u,v).
+  final List<List<Offset>> loops;
+
+  /// Which entry of [kSectionHatch] this body draws with.
+  final int style;
+  const SectionSlice(this.body, this.loops, this.style);
+}
+
+/// ISO 128-50 section hatching, as (angle in degrees, spacing in SCREEN px).
+///
+/// The standard's rule is that ADJACENT parts must be distinguishable — by
+/// direction, or, when the same direction cannot be avoided, by spacing. Bodies
+/// take these in the order they were created, so two bodies next to each other
+/// in the browser can never draw the same hatch. Bodies four apart can, and
+/// that is the honest limit of an index-based rule: it does not know which
+/// bodies TOUCH, only which are neighbours in the list.
+const List<(double, double)> kSectionHatch = [
+  (45, 7),
+  (135, 7),
+  (45, 12),
+  (135, 12),
+];
 
 /// M168 — Inventor's **Slice Graphics**: the solid with everything between the
 /// viewer and the sketch plane cut away, so you can see and draw inside the

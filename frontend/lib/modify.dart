@@ -12,8 +12,10 @@ import 'pick_math.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'bezier.dart';
 import 'ffi/qcad_engine.dart';
 import 'snap.dart';
+import 'spline.dart' show splineCurveFor;
 
 const double _eps = 1e-9;
 
@@ -33,16 +35,30 @@ List<Geo> _sameLayerAll(Geo src, List<Geo> out) =>
 /// Copy layer (always), the LINE STYLE (always — centerline/construction are
 /// entity tags exactly like the layer; before M40 every trim/move/rotate/
 /// mirror/stretch/offset silently reverted a styled entity to normal), and the
-/// spline tag (when the result is still a polyline) from [src] onto [out].
-/// A spline is a tagged polyline, so those ops must keep the tag or the curve
-/// reverts to a straight polygon.
+/// spline tag (when the result is still a polyline of the SAME SHAPE) from
+/// [src] onto [out]. A spline is a tagged polyline, so those ops must keep the
+/// tag or the curve reverts to a straight polygon.
+///
+/// The same-vertex-count condition is what separates "same entity, new
+/// numbers" (move/rotate/mirror/scale/stretch/offset — the tag still describes
+/// the points) from "a NEW entity derived from it" (trim/split pieces — the
+/// tag would describe points that are not there). Stamping ellipseTag onto a
+/// two-point fragment or gearTag onto a cut outline does not produce a smaller
+/// ellipse or gear; it produces a garbage curve, which is exactly what Trim on
+/// a spline used to hand back. Pieces that ARE curves now arrive already
+/// tagged from the exact Bézier path, and this leaves them alone.
 Geo _carry(Geo src, Geo out) {
   var o = out.onLayer(src.layer);
   if (src.style != Geo.styleNormal && out.style == Geo.styleNormal) {
     o = o.withStyle(src.style);
   }
+  final sameShape = out.type == Geo.polyline &&
+      src.type == Geo.polyline &&
+      out.data.length > 1 &&
+      src.data.length > 1 &&
+      out.data[1] == src.data[1];
   return (src.spline != Geo.straight &&
-          out.type == Geo.polyline &&
+          sameShape &&
           out.spline == Geo.straight)
       ? o.asSpline(src.spline)
       : o;
@@ -81,6 +97,15 @@ Geo _transformGeoRaw(Geo g, Offset Function(Offset) f) {
       for (var i = 0; i < n; i++) {
         final p = f(Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]));
         out.addAll([p.dx, p.dy]);
+      }
+      // A gear carries a PARAMETER BLOCK past its two defining vertices
+      // (module, teeth, pressure angle, ...). Rebuilding the data list from
+      // the vertices alone dropped it, and a gear without its parameters falls
+      // back to the two bare points — i.e. Move/Rotate/Mirror deleted the
+      // gear's teeth. Rigid motions and scaling leave those numbers meaningful,
+      // so they ride along untouched.
+      if (g.data.length > 2 + 2 * n) {
+        out.addAll(g.data.sublist(2 + 2 * n));
       }
       return Geo(Geo.polyline, out);
   }
@@ -740,18 +765,35 @@ List<Offset> intersections(Geo a, Geo b) {
   }
   if (_isRound(a)) return intersections(b, a);
   final out = <Offset>[];
-  for (final s in _segments(a)) {
-    if (_isRound(b)) {
+  final sa = _segments(a);
+  if (_isRound(b)) {
+    for (final s in sa) {
       var pts =
           _segCircle(s.$1, s.$2, Offset(b.data[0], b.data[1]), b.data[2]);
       if (b.type == Geo.arc) {
         pts = pts.where((p) => _onArcRange(b, p)).toList();
       }
       out.addAll(pts);
-    } else {
-      for (final t in _segments(b)) {
-        out.addAll(_segSeg(s.$1, s.$2, t.$1, t.$2));
+    }
+    return _distinct(out);
+  }
+  // Hoisted out of the loop: _segments(b) used to be rebuilt for EVERY segment
+  // of a — an allocation of the whole chain per step, which a spline sampled
+  // on the curve (M219) turns from wasteful into slow. The bounding-box reject
+  // is what keeps the O(n·m) sweep cheap once both sides are real curves: a
+  // pair that cannot touch costs four comparisons instead of a line solve.
+  final sb = _segments(b);
+  for (final s in sa) {
+    final sx0 = math.min(s.$1.dx, s.$2.dx), sx1 = math.max(s.$1.dx, s.$2.dx);
+    final sy0 = math.min(s.$1.dy, s.$2.dy), sy1 = math.max(s.$1.dy, s.$2.dy);
+    for (final t in sb) {
+      if (math.min(t.$1.dx, t.$2.dx) > sx1 + _touch ||
+          math.max(t.$1.dx, t.$2.dx) < sx0 - _touch ||
+          math.min(t.$1.dy, t.$2.dy) > sy1 + _touch ||
+          math.max(t.$1.dy, t.$2.dy) < sy0 - _touch) {
+        continue;
       }
+      out.addAll(_segSeg(s.$1, s.$2, t.$1, t.$2));
     }
   }
   return _distinct(out);
@@ -931,6 +973,12 @@ List<Geo> _trimCutAwayMeasured(List<Geo> geos, int i, Offset click) =>
         [_subArc(g, hasLo ? lo : 0, hasHi ? hi : sweep)],
       );
     case Geo.polyline:
+      // A SPLINE (or ellipse) is a polyline only in storage: its vertices are
+      // control points, not the curve. Cutting them as line segments is what
+      // made Trim on a spline return a straight fragment somewhere off the
+      // curve — it has its own exact path.
+      final curve = _trimCurveCarrier(geos, i, xs, click);
+      if (curve != null) return curve;
       // treat the clicked SEGMENT like a line trim; other segments survive
       final n = g.data[1].toInt();
       final closed = g.data[0] != 0;
@@ -990,6 +1038,277 @@ List<Geo> _trimCutAwayMeasured(List<Geo> geos, int i, Offset click) =>
       );
   }
   return ([g], const []);
+}
+
+// ---------------------------------------------------------------------------
+// Trim on a CURVE CARRIER (spline / Bézier chain / ellipse / gear)
+// ---------------------------------------------------------------------------
+// A spline is stored as a polyline of control points, so before M219 Trim fell
+// into the polyline branch and cut the CONTROL POLYGON: it picked the nearest
+// control-polygon segment (for a CV spline that segment does not even touch
+// the curve), trimmed it as a straight line, and handed back straight
+// fragments re-tagged as a spline — a different curve, in a different place,
+// with the shape gone. Ellipses fared worse still: their three vertices are
+// centre/major/minor, so "the clicked segment" was a radius.
+//
+// The curve is cut where it actually runs instead. bezier.dart gives the exact
+// cubic Bézier chain of every one of these carriers, de Casteljau cuts that
+// chain at any parameter without approximation, and the piece is stored back
+// as a Geo.splineBez — so what is left after a trim is the SAME CURVE, only
+// shorter, and it is still editable through its few control points.
+
+/// A trim tolerance in world units: two crossings closer than this are one.
+const double _curveEps = 1e-6;
+
+/// How far along the curve a crossing may be slid while being refined onto its
+/// cutter (world units). Fifty times the carrier's own worst sampling error, so
+/// the refinement always reaches — and far too little to reach the next
+/// crossing over.
+const double _maxCrossingShift = 5e-2;
+
+/// (kept, cut away) for a curve-carrying polyline, or null when [g] is a plain
+/// polyline and belongs in the segment-wise branch.
+(List<Geo>, List<Geo>)? _trimCurveCarrier(
+    List<Geo> geos, int i, List<Offset> xs, Offset click) {
+  final g = geos[i];
+  if (!g.isSpline) return null;
+  final path = bezPathOf(g);
+  if (path == null || path.isEmpty) {
+    return _trimBakedCarrier(g, xs, click);
+  }
+  final end = path.count.toDouble();
+  final uc = path.paramOf(click);
+  final us = _crossingParams(geos, i, path, xs);
+  // A crossing AT an end is already a boundary of the carrier — it cuts
+  // nothing (same rule the arc branch above uses).
+  final tol = math.max(1e-9, end * 1e-9);
+  if (path.closed) {
+    // No ends to bound a single cut: bracket the click cyclically, exactly
+    // like a full circle. One touch cannot separate a closed curve.
+    if (us.length < 2) return (const [], [g]);
+    var lo = us.last, hi = us.first;
+    for (var k = 0; k < us.length; k++) {
+      final a0 = us[k], a1 = us[(k + 1) % us.length];
+      final inSpan =
+          a0 <= a1 ? (uc >= a0 && uc <= a1) : (uc >= a0 || uc <= a1);
+      if (inSpan) {
+        lo = a0;
+        hi = a1;
+        break;
+      }
+    }
+    // keep the complement hi -> lo; the clicked span lo -> hi goes
+    return (_curvePieces(path, hi, lo), _curvePieces(path, lo, hi));
+  }
+  double lo = 0, hi = end;
+  var hasLo = false, hasHi = false;
+  for (final u in us) {
+    if (u <= tol || u >= end - tol) continue;
+    if (u < uc - tol) {
+      lo = math.max(lo, u);
+      hasLo = true;
+    }
+    if (u > uc + tol) {
+      hi = math.min(hi, u);
+      hasHi = true;
+    }
+  }
+  // nothing crosses: the whole curve goes (and all of it is the cut away)
+  if (!hasLo && !hasHi) return (const [], [g]);
+  return (
+    [
+      if (hasLo) ..._curvePieces(path, 0, lo),
+      if (hasHi) ..._curvePieces(path, hi, end),
+    ],
+    _curvePieces(path, hasLo ? lo : 0, hasHi ? hi : end),
+  );
+}
+
+/// The chain parameters of the crossings [xs], deduplicated and SORTED.
+///
+/// [xs] came out of a segment sweep over the carrier's SAMPLED chain, so each
+/// crossing carries that chain's tolerance (a fraction of a micron, but not
+/// zero). Projecting it onto the exact curve fixes the "off the curve" half of
+/// that error and leaves the "along the curve" half, so each crossing is then
+/// slid along the curve until it sits on the entity that produced it: the cut
+/// lands on the real intersection, not near it.
+List<double> _crossingParams(
+    List<Geo> geos, int self, BezPath path, List<Offset> xs) {
+  final out = <double>[];
+  for (final p in xs) {
+    final u = _refineCrossing(geos, self, path, path.paramOf(p));
+    if (out.every((o) => (path.at(o) - path.at(u)).distance > _curveEps)) {
+      out.add(u);
+    }
+  }
+  out.sort();
+  return out;
+}
+
+/// Slides [u0] along the curve onto the nearest other entity. A ternary search
+/// on a smooth distance over a bracket that already contains the crossing —
+/// no derivatives, no branch to pick wrong, and it cannot wander off to another
+/// crossing because the bracket is one coarse sample wide.
+double _refineCrossing(
+    List<Geo> geos, int self, BezPath path, double u0) {
+  final p0 = path.at(u0);
+  var best = -1;
+  var bd = double.infinity;
+  for (var j = 0; j < geos.length; j++) {
+    if (j == self) continue;
+    final d = _exactDist(geos[j], p0);
+    if (d < bd) {
+      bd = d;
+      best = j;
+    }
+  }
+  if (best < 0 || bd > _touch * 1e3) return u0;
+  final cutter = geos[best];
+  // The bracket is a SHIFT BUDGET, not a search range: the crossing is already
+  // within the carrier's own chord error of the truth (microns), so anything
+  // beyond a few hundredths of a millimetre would not be a refinement, it would
+  // be a jump — possibly onto a neighbouring crossing, which would then
+  // deduplicate away and lose a cut.
+  final speed = path.tangentAt(u0).distance;
+  final span =
+      speed < _eps ? 1 / 24 : math.min(1 / 24, _maxCrossingShift / speed);
+  var lo = u0 - span, hi = u0 + span;
+  if (!path.closed) {
+    lo = lo.clamp(0.0, path.count.toDouble());
+    hi = hi.clamp(0.0, path.count.toDouble());
+  }
+  for (var k = 0; k < 80 && hi - lo > 1e-14; k++) {
+    final a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
+    if (_exactDist(cutter, path.at(a)) <= _exactDist(cutter, path.at(b))) {
+      hi = b;
+    } else {
+      lo = a;
+    }
+  }
+  final u = (lo + hi) / 2;
+  // Never make it worse: a tangential graze or a cutter this cannot measure
+  // exactly (another spline) keeps the projected parameter.
+  return _exactDist(cutter, path.at(u)) <= bd ? u : u0;
+}
+
+/// Distance from [p] to [g], ANALYTIC where the type allows it. [distToEntity]
+/// measures against a 32-gon for a circle, which is fine for picking and much
+/// too coarse to refine a cut against.
+double _exactDist(Geo g, Offset p) {
+  switch (g.type) {
+    case Geo.line:
+      return (p -
+              closestOnSegment(p, Offset(g.data[0], g.data[1]),
+                  Offset(g.data[2], g.data[3])))
+          .distance;
+    case Geo.circle:
+      if (g.isSketchPoint) return (p - Offset(g.data[0], g.data[1])).distance;
+      return ((p - Offset(g.data[0], g.data[1])).distance - g.data[2]).abs();
+    case Geo.arc:
+      final c = Offset(g.data[0], g.data[1]);
+      if (_onArcRange(g, p)) return ((p - c).distance - g.data[2]).abs();
+      var best = double.infinity;
+      for (final a in [g.data[3], g.data[4]]) {
+        final e = c + Offset(math.cos(a), math.sin(a)) * g.data[2];
+        best = math.min(best, (p - e).distance);
+      }
+      return best;
+  }
+  return distToEntity(g, p);
+}
+
+/// The span [u0]..[u1] of [path] as a spline entity — empty when the span has
+/// no extent (a cut that landed on an end leaves exactly that, and a zero-size
+/// leftover is litter, not geometry).
+List<Geo> _curvePieces(BezPath path, double u0, double u1) {
+  final g = bezGeo(path.sub(u0, u1), minExtent: _curveEps);
+  return g == null ? const [] : [g];
+}
+
+/// Trim for a curve carrier with no cubic form — today that is the GEAR, whose
+/// outline comes out of the involute generator, not out of control points.
+/// Cutting a gear necessarily BAKES it: what is left is the cut outline as
+/// ordinary geometry, because half a gear is no longer a gear.
+(List<Geo>, List<Geo>)? _trimBakedCarrier(
+    Geo g, List<Offset> xs, Offset click) {
+  final pts = List<Offset>.of(splineCurveFor(g));
+  if (pts.length < 3) return null;
+  final closed = (pts.first - pts.last).distance < _eps;
+  if (closed) pts.removeLast();
+  if (pts.length < 3) return null;
+  final lens = _polyCumLen(pts, closed);
+  final total = lens.last;
+  if (total <= _eps) return null;
+  double param(Offset p) => _polyParam(pts, closed, lens, p);
+  List<Geo> piece(double s0, double s1) {
+    final sub = _polySub(pts, closed, lens, s0, s1);
+    return _notTiny(sub) ? [sub] : const [];
+  }
+
+  final sc = param(click);
+  final ss = <double>[];
+  for (final p in xs) {
+    final s = param(p);
+    if (ss.every((o) => (o - s).abs() > _curveEps)) ss.add(s);
+  }
+  ss.sort();
+  if (closed) {
+    if (ss.length < 2) return (const [], [g]);
+    var lo = ss.last, hi = ss.first;
+    for (var k = 0; k < ss.length; k++) {
+      final a0 = ss[k], a1 = ss[(k + 1) % ss.length];
+      final inSpan =
+          a0 <= a1 ? (sc >= a0 && sc <= a1) : (sc >= a0 || sc <= a1);
+      if (inSpan) {
+        lo = a0;
+        hi = a1;
+        break;
+      }
+    }
+    return (piece(hi, lo), piece(lo, hi));
+  }
+  double lo = 0, hi = total;
+  var hasLo = false, hasHi = false;
+  for (final s in ss) {
+    if (s <= _curveEps || s >= total - _curveEps) continue;
+    if (s < sc - _curveEps) {
+      lo = math.max(lo, s);
+      hasLo = true;
+    }
+    if (s > sc + _curveEps) {
+      hi = math.min(hi, s);
+      hasHi = true;
+    }
+  }
+  if (!hasLo && !hasHi) return (const [], [g]);
+  return (
+    [
+      if (hasLo) ...piece(0, lo),
+      if (hasHi) ...piece(hi, total),
+    ],
+    piece(hasLo ? lo : 0, hasHi ? hi : total),
+  );
+}
+
+/// Does this piece have any extent at all?
+bool _notTiny(Geo g) {
+  switch (g.type) {
+    case Geo.line:
+      return (Offset(g.data[0], g.data[1]) - Offset(g.data[2], g.data[3]))
+              .distance >
+          _curveEps;
+    case Geo.polyline:
+      final n = g.data[1].toInt();
+      if (n < 2) return false;
+      var len = 0.0;
+      for (var i = 0; i + 1 < n; i++) {
+        len += (Offset(g.data[4 + 2 * i], g.data[5 + 2 * i]) -
+                Offset(g.data[2 + 2 * i], g.data[3 + 2 * i]))
+            .distance;
+      }
+      return len > _curveEps;
+  }
+  return true;
 }
 
 /// Extends the clicked END of entity [i] to the nearest intersection of its
@@ -1114,7 +1433,7 @@ List<Offset> splitPoints(List<Geo> geos, int i, Offset click) =>
 
 SplitPlan? _planSplitRaw(List<Geo> geos, int i, Offset click) {
   final g = geos[i];
-  final xs = intersectionsWithOthers(geos, i);
+  var xs = intersectionsWithOthers(geos, i);
   if (xs.isEmpty) return null;
   switch (g.type) {
     case Geo.line:
@@ -1160,6 +1479,75 @@ SplitPlan? _planSplitRaw(List<Geo> geos, int i, Offset click) {
         at: (a) => c + Offset(math.cos(a) * r, math.sin(a) * r),
       );
     case Geo.polyline:
+      // Same story as Trim: a spline's vertices are control points, so a split
+      // planned on the control polygon cuts at a point that is not on the
+      // curve and hands back two straight fragments. The exact Bézier chain
+      // splits at the real cut, losslessly, in both halves.
+      if (g.isSpline) {
+        final path = bezPathOf(g);
+        if (path != null && !path.isEmpty) {
+          final end = path.count.toDouble();
+          // The cut must land ON the cutter, not a sampling tolerance beside
+          // it: refine each crossing first, then hand _splitOpen/_splitClosed
+          // the refined points so the piece endpoints and the drawn preview
+          // marker are the same place.
+          xs = [
+            for (final u in _crossingParams(geos, i, path, xs)) path.at(u)
+          ];
+          Geo piece(double u0, double u1) =>
+              bezGeo(path.sub(u0, u1), minExtent: _curveEps) ??
+              Geo(Geo.line, [
+                path.at(u0).dx,
+                path.at(u0).dy,
+                path.at(u1).dx,
+                path.at(u1).dy
+              ]);
+          return path.closed
+              ? _splitClosed(
+                  param: path.paramOf,
+                  period: end,
+                  click: click,
+                  xs: xs,
+                  piece: piece,
+                  at: path.at)
+              : _splitOpen(
+                  param: path.paramOf,
+                  end: end,
+                  click: click,
+                  xs: xs,
+                  piece: piece,
+                  at: path.at);
+        }
+        // A gear has no cubic form; splitting it bakes the outline, exactly as
+        // trimming it does.
+        final baked = List<Offset>.of(splineCurveFor(g));
+        if (baked.length >= 3) {
+          final loop = (baked.first - baked.last).distance < _eps;
+          if (loop) baked.removeLast();
+          if (baked.length >= 3) {
+            final bl = _polyCumLen(baked, loop);
+            final bt = bl.last;
+            if (bt > _eps) {
+              return loop
+                  ? _splitClosed(
+                      param: (p) => _polyParam(baked, loop, bl, p),
+                      period: bt,
+                      click: click,
+                      xs: xs,
+                      piece: (a, b) => _polySub(baked, loop, bl, a, b),
+                      at: (s) => _polyPointAt(baked, loop, bl, s))
+                  : _splitOpen(
+                      param: (p) => _polyParam(baked, loop, bl, p),
+                      end: bt,
+                      click: click,
+                      xs: xs,
+                      piece: (a, b) => _polySub(baked, loop, bl, a, b),
+                      at: (s) => _polyPointAt(baked, loop, bl, s));
+            }
+          }
+        }
+        return null;
+      }
       final closed = g.data[0] != 0;
       final pts = _polyPts(g);
       if (pts.length < 2) return null;

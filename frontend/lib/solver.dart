@@ -392,9 +392,7 @@ int residualCount(List<Geo> gs, Constraint c) {
       // edge vertex pair(s)...], all resolved at click time. One direction
       // equation, exactly like Inventor's 1-DOF tangency.
       final nSpl = [c.ents[0], c.ents[1]]
-          .where((e) =>
-              gs[e].type == Geo.polyline &&
-              (gs[e].spline == Geo.splineCv || gs[e].spline == Geo.splineFit))
+          .where((e) => gs[e].isFreeSpline)
           .length;
       final nPoly = [c.ents[0], c.ents[1]]
           .where((e) =>
@@ -834,9 +832,7 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
   // Rom phantom ends; clamped B-spline endpoint property) — is made parallel
   // to the line, perpendicular to the circle/arc radius at the endpoint, or
   // parallel to the other spline's end tangent. One normalized equation.
-  bool isSpl(int e) =>
-      gs[e].type == Geo.polyline &&
-      (gs[e].spline == Geo.splineCv || gs[e].spline == Geo.splineFit);
+  bool isSpl(int e) => gs[e].isFreeSpline;
   bool isPoly(int e) =>
       gs[e].type == Geo.polyline && gs[e].spline == Geo.straight;
   if (isSpl(c.ents[0]) || isSpl(c.ents[1])) {

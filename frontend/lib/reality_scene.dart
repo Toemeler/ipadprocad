@@ -16,6 +16,7 @@ import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'log.dart';
 import 'part_model.dart';
 import 'reality_payload.dart';
+import 'text_geometry.dart' show textContours, textLayerOf;
 export 'reality_payload.dart';
 
 /// The committed solids the viewport draws: visible, non-consumed features,
@@ -624,6 +625,32 @@ List<Map<String, dynamic>> _sketchPayloads(AppState app, PartModel p) {
         buf[i * 3 + 2] = w.z;
       }
       polylines.add(buf);
+    }
+    // M220 — the sketch's TEXTS, as the closed contours they now are. Their
+    // key carries an index PAST the geometry list: a long press still finds
+    // the sketch (everything before the '#'), while nothing can mistake a
+    // letter for entity number so-and-so.
+    var tk = cs.model.geometry.length;
+    for (final t in cs.model.texts) {
+      final layer = textLayerOf(t);
+      if (cs.model.hiddenLayers.contains(layer)) continue;
+      final li = cs.model.layers.indexOf(layer);
+      if (li >= 0 && li >= cs.model.eosAfter) continue;
+      for (final c in textContours(cs.model, t)) {
+        if (c.length < 3) continue;
+        final ring = [...c, c.first];
+        keys.add(sketchKey(cs.model.name, tk++));
+        colors.add(sketchGeoColor(
+            projection: false, dofKnown: false, fullyConstrained: false));
+        final buf = Float32List(ring.length * 3);
+        for (var i = 0; i < ring.length; i++) {
+          final w = frame.toWorld(ring[i]);
+          buf[i * 3] = w.x;
+          buf[i * 3 + 1] = w.y;
+          buf[i * 3 + 2] = w.z;
+        }
+        polylines.add(buf);
+      }
     }
     if (polylines.isNotEmpty) {
       out.add({

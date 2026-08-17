@@ -7,22 +7,23 @@
 // the cursor (AppState.textRefSink) — the user's requested syntax. Live
 // preview shows the rendered result. Dragging the title bar moves the window.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../inserts.dart';
 import '../theme.dart';
+import '../vector_font.dart';
 import 'scrub_field.dart';
 
-/// Font families offered in the dropdown. Roboto is Flutter's default and is
-/// always present; the others are common iOS system faces.
-const List<String> kTextFonts = [
-  'Roboto',
-  'Helvetica',
-  'Courier',
-  'Georgia',
-  'Menlo',
-];
+/// Font families offered in the dropdown.
+///
+/// M220 — the OUTLINE families, not screen faces. What the dropdown may offer
+/// is what the app can turn into curves: a font that only exists as pixels
+/// could be drawn but never exported or extruded, which is exactly the gap
+/// this milestone closed. See vector_font.dart.
+const List<String> kTextFonts = kVectorFontNames;
 
 class TextEditorWindow extends StatefulWidget {
   final AppState app;
@@ -51,7 +52,9 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
     _tpl = TextEditingController(text: t.template);
     _height = t.height;
     _hCtrl = TextEditingController(text: _heightText());
-    _font = kTextFonts.contains(t.font) ? t.font : 'Roboto';
+    // A pre-M220 text names a screen font; open it on the family that took
+    // its place instead of silently resetting it to the default.
+    _font = vectorFontName(t.font);
     _tplF = FocusNode();
     _tplF.addListener(() {
       final app = widget.app;
@@ -193,10 +196,8 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                         DropdownMenuItem(
                             value: f,
                             child: Text(f,
-                                style: TextStyle(
-                                    fontFamily: f,
-                                    fontSize: 12,
-                                    color: T.text)))
+                                style: const TextStyle(
+                                    fontSize: 12, color: T.text)))
                     ],
                     onChanged: (v) => setState(() => _font = v ?? _font),
                   ),
@@ -233,12 +234,18 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                 ]),
                 if (preview.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text('Preview',
-                      style: const TextStyle(color: T.dim, fontSize: 10)),
+                  const Text('Preview',
+                      style: TextStyle(color: T.dim, fontSize: 10)),
                   const SizedBox(height: 2),
-                  Text(preview,
-                      style: TextStyle(
-                          color: T.text, fontFamily: _font, fontSize: 15)),
+                  // M220 — the preview is drawn from the OUTLINE, so what the
+                  // window shows is the curve that will be sketched, exported
+                  // and extruded, in the family that is actually selected.
+                  SizedBox(
+                    height: 34,
+                    width: double.infinity,
+                    child: CustomPaint(
+                        painter: _OutlinePreview(preview, _font)),
+                  ),
                 ],
                 const SizedBox(height: 8),
                 Row(mainAxisAlignment: MainAxisAlignment.end, children: [
@@ -269,4 +276,43 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
       ]),
     );
   }
+}
+
+/// M220 — draws a string with the outline font, scaled to fit the strip.
+///
+/// Only the FIRST line is previewed (the window is 360 px wide and the field
+/// takes four): it is a face-and-shape check, not a page proof.
+class _OutlinePreview extends CustomPainter {
+  final String text;
+  final String font;
+  const _OutlinePreview(this.text, this.font);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = text.split('\n').first;
+    if (line.trim().isEmpty || size.height <= 0) return;
+    final l = layoutText(line, font, 1); // one em tall, then fitted
+    if (l.contours.isEmpty || l.size.width <= 0 || l.size.height <= 0) return;
+    final k = math.min(size.height / l.size.height, size.width / l.size.width);
+    final path = Path(); // non-zero, like the viewport — see there
+    for (final c in l.contours) {
+      for (var i = 0; i < c.length; i++) {
+        // font space is y-up, the canvas is y-down
+        final p = Offset(c[i].dx * k, size.height - c[i].dy * k);
+        i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+      }
+      path.close();
+    }
+    canvas.drawPath(path, Paint()..color = T.text.withOpacity(0.30));
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = T.text);
+  }
+
+  @override
+  bool shouldRepaint(covariant _OutlinePreview old) =>
+      old.text != text || old.font != font;
 }

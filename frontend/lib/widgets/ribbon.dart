@@ -12,7 +12,9 @@ import '../app_state.dart';
 import '../log.dart';
 import '../perf.dart';
 import '../menus.dart';
-import '../part_model.dart' show PatternKind, WorkPlaneKind;
+import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
+import '../work_features.dart'
+    show WorkAxisMethod, WorkPlaneMethod, WorkPointMethod;
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -82,6 +84,42 @@ const flyouts = <String, List<FlyItem>>{
   'text': [
     FlyItem('ftext', 'Text', ''),
     FlyItem('fgtext', 'Geometry Text', ''),
+  ],
+  // M215 — Work Features > Axis / Point. Every entry is REAL and every label
+  // is Inventor's own wording, so a user who knows Inventor finds the method
+  // they are looking for by name. `wa`/`wpt` prefixes keep the ids apart from
+  // the plane list's.
+  // M217 — Inventor's Direct panel. Move/Size/Scale/Delete are built; Rotate
+  // is listed because Inventor lists it and left inert because rotating a face
+  // needs a BRepTools_Modification whose failure modes only show on real
+  // shapes — see DirectEditFeature.
+  'direct': [
+    FlyItem('deMove', 'Move', ''),
+    FlyItem('deSize', 'Size', ''),
+    FlyItem('deScale', 'Scale', ''),
+    FlyItem('deRotate', 'Rotate', ''),
+    FlyItem('deDelete', 'Delete', ''),
+  ],
+  'axis': [
+    FlyItem('waAuto', 'Axis', ''),
+    FlyItem('waLine', 'On Line or Edge', ''),
+    FlyItem('waParPt', 'Parallel to Line through Point', ''),
+    FlyItem('wa2Pt', 'Through Two Points', ''),
+    FlyItem('wa2Pl', 'Intersection of Two Planes', ''),
+    FlyItem('waNormPt', 'Normal to Plane through Point', ''),
+    FlyItem('waCirc', 'Through Center of Circular Edge', ''),
+    FlyItem('waRev', 'Through Revolved Face or Feature', ''),
+  ],
+  'point': [
+    FlyItem('wptAuto', 'Point', ''),
+    FlyItem('wptGround', 'Grounded Point', ''),
+    FlyItem('wptVertex', 'On Vertex, Sketch Point, or Midpoint', ''),
+    FlyItem('wpt3Pl', 'Intersection of Three Planes', ''),
+    FlyItem('wpt2Ln', 'Intersection of Two Lines', ''),
+    FlyItem('wptPlLn', 'Intersection of Plane/Surface and Line', ''),
+    FlyItem('wptLoop', 'Center Point of Loop of Edges', ''),
+    FlyItem('wptTorus', 'Center Point of Torus', ''),
+    FlyItem('wptSphere', 'Center Point of Sphere', ''),
   ],
   // M56 — Work Features > Plane (dummy items, real Inventor list)
   'plane': [
@@ -210,6 +248,126 @@ class _RibbonState extends State<Ribbon> {
                   break;
                 case 'midplane2':
                   widget.app.startWorkPlane(WorkPlaneKind.midplane);
+                  break;
+                // M223 — the pick-only Plane methods, on M215's WorkRef
+                // machinery. The five that are missing are missing for a
+                // reason, and each says so rather than doing nothing:
+                // silence reads as broken (M157).
+                case 'parallelpt':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.parallelToPlaneThroughPoint);
+                  break;
+                case 'threepts':
+                  widget.app
+                      .startWorkPlaneMethod(WorkPlaneMethod.threePoints);
+                  break;
+                case 'twoedges':
+                  widget.app
+                      .startWorkPlaneMethod(WorkPlaneMethod.twoCoplanarEdges);
+                  break;
+                case 'normalaxis':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.normalToAxisThroughPoint);
+                  break;
+                case 'midtorus':
+                  widget.app
+                      .startWorkPlaneMethod(WorkPlaneMethod.midplaneOfTorus);
+                  break;
+                case 'angleedge':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.angleToPlaneAroundEdge);
+                  break;
+                case 'normalcurve':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.normalToCurveAtPoint);
+                  break;
+                // M224 — the tangent trio, now that a pick carries the side
+                // of the face it landed on.
+                case 'tansurfpt':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.tangentToSurfaceThroughPoint);
+                  break;
+                case 'tansurfedge':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.tangentToSurfaceThroughEdge);
+                  break;
+                case 'tanparallel':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.tangentToSurfaceParallelToPlane);
+                  break;
+                // M217 — Direct Edit.
+                case 'deMove':
+                  widget.app.openDirectMove();
+                  break;
+                case 'deSize':
+                  widget.app.openDirectSize();
+                  break;
+                case 'deScale':
+                  widget.app.openDirectScale();
+                  break;
+                case 'deDelete':
+                  widget.app.openDeleteFace();
+                  break;
+                // M215 — Work Axis.
+                case 'waAuto':
+                  widget.app.startWorkAxis(WorkAxisMethod.auto);
+                  break;
+                case 'waLine':
+                  widget.app.startWorkAxis(WorkAxisMethod.onLineOrEdge);
+                  break;
+                case 'waParPt':
+                  widget.app.startWorkAxis(
+                      WorkAxisMethod.parallelToLineThroughPoint);
+                  break;
+                case 'wa2Pt':
+                  widget.app.startWorkAxis(WorkAxisMethod.throughTwoPoints);
+                  break;
+                case 'wa2Pl':
+                  widget.app
+                      .startWorkAxis(WorkAxisMethod.intersectionOfTwoPlanes);
+                  break;
+                case 'waNormPt':
+                  widget.app
+                      .startWorkAxis(WorkAxisMethod.normalToPlaneThroughPoint);
+                  break;
+                case 'waCirc':
+                  widget.app.startWorkAxis(
+                      WorkAxisMethod.throughCenterOfCircularEdge);
+                  break;
+                case 'waRev':
+                  widget.app
+                      .startWorkAxis(WorkAxisMethod.throughRevolvedFace);
+                  break;
+                // M215 — Work Point.
+                case 'wptAuto':
+                  widget.app.startWorkPoint(WorkPointMethod.auto);
+                  break;
+                case 'wptGround':
+                  widget.app.startWorkPoint(WorkPointMethod.grounded);
+                  break;
+                case 'wptVertex':
+                  widget.app.startWorkPoint(WorkPointMethod.onVertex);
+                  break;
+                case 'wpt3Pl':
+                  widget.app.startWorkPoint(
+                      WorkPointMethod.intersectionOfThreePlanes);
+                  break;
+                case 'wpt2Ln':
+                  widget.app
+                      .startWorkPoint(WorkPointMethod.intersectionOfTwoLines);
+                  break;
+                case 'wptPlLn':
+                  widget.app.startWorkPoint(
+                      WorkPointMethod.intersectionOfPlaneAndLine);
+                  break;
+                case 'wptLoop':
+                  widget.app.startWorkPoint(WorkPointMethod.centerOfLoop);
+                  break;
+                case 'wptTorus':
+                  widget.app.startWorkPoint(WorkPointMethod.centerOfTorus);
+                  break;
+                case 'wptSphere':
+                  widget.app.startWorkPoint(WorkPointMethod.centerOfSphere);
                   break;
                 default:
                   // Silence is the worst answer: the user cannot tell a broken
@@ -510,7 +668,12 @@ class _RibbonState extends State<Ribbon> {
   Widget _partRibbonInner(AppState app) {
     // Like [col], but each row can also LIGHT UP — a part command that is
     // currently open says so, the way the Extrude button does.
-    Widget colActive(List<(String, String, VoidCallback?, bool)> rows,
+    //
+    // M216 — the callback is non-nullable here too. It arrived taking a
+    // `VoidCallback?` with a `?? () {}` fallback, which is exactly the hole
+    // [col] had; every colActive row today is a real command, so closing it
+    // costs nothing and stops the next dead button being added by accident.
+    Widget colActive(List<(String, String, VoidCallback, bool)> rows,
             {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
@@ -523,13 +686,24 @@ class _RibbonState extends State<Ribbon> {
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
-                      onTap: rows[i].$3 ?? () {},
+                      onTap: rows[i].$3,
                       active: rows[i].$4),
                 ]
               ]),
         );
-    Widget col(List<(String, String, VoidCallback?)> rows,
-            {double leftPad = 8}) =>
+    // M215 — [flyIds] maps a row's LABEL to a flyout id, so a small row can
+    // carry the same drop chip the big split buttons have. _SmallRow has
+    // supported flyId/onFly since M205; nothing in the part ribbon had ever
+    // passed them, which is why Axis and Point could only ever have been
+    // one-shot buttons with eight unreachable methods behind them.
+    // M216 — the callback is NON-nullable, deliberately. Every row here used
+    // to accept null and fall back to `?? () {}`, which is how nine dead
+    // buttons sat in this ribbon looking finished. An unbuilt command now
+    // cannot be put in a visible column at all: it goes in the panel's `over`
+    // list, where _OverRow renders it dimmed and untappable. The rule is a
+    // type, not a convention somebody has to remember.
+    Widget col(List<(String, String, VoidCallback)> rows,
+            {double leftPad = 8, Map<String, String> flyIds = const {}}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
           child: Column(
@@ -541,7 +715,9 @@ class _RibbonState extends State<Ribbon> {
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
-                      onTap: rows[i].$3 ?? () {}),
+                      flyId: flyIds[rows[i].$2],
+                      onFly: flyIds[rows[i].$2] == null ? null : toggleFly,
+                      onTap: rows[i].$3),
                 ]
               ]),
         );
@@ -558,9 +734,31 @@ class _RibbonState extends State<Ribbon> {
               onTap: app.startPartSketch,
               active: app.pickPlane),
         ),
+        // M216 — the part ribbon shows what is BUILT; everything else is one
+        // tap away behind the panel title's ▼.
+        //
+        // Same treatment the sketch ribbon has had since M50 (Constrain) and
+        // the Insert+Format+Manage merge, and the same rule M157 stated for
+        // the Plane button: a control that is visible must do something,
+        // because silence reads as broken. Nine of Modify's twelve entries,
+        // three of Create's six and all four Pattern commands did nothing at
+        // all, so two thirds of the 3D ribbon was furniture — and furniture
+        // that costs permanent width AND makes the working tools harder to
+        // find among it.
+        //
+        // NOT deleted: an unbuilt OverItem passes a null onTap, which _OverRow
+        // already renders dimmed and untappable. The roadmap stays visible and
+        // honest instead of the ribbon quietly pretending these commands were
+        // never planned.
         _panel(
           label: 'Create',
           arrow: false,
+          overId: 'ov-create3d',
+          over: () => [
+            OverItem(CR['emboss']!, 'Emboss', null),
+            OverItem(CR['derive']!, 'Derive', null),
+            OverItem(CR['decal']!, 'Decal', null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 58,
@@ -582,44 +780,71 @@ class _RibbonState extends State<Ribbon> {
               (CR['loft']!, 'Loft', () => app.openLoft()),
               (CR['coil']!, 'Coil', () => app.openCoil()),
             ]),
-            col([
-              (CR['emboss']!, 'Emboss', null),
-              (CR['derive']!, 'Derive', null),
-              (CR['decal']!, 'Decal', null),
-            ], leftPad: 0),
           ]),
         ),
+        // Hole is in the list: its onTap was `() {}` — an empty closure,
+        // the exact thing M157 called out on the Plane button. A big button
+        // that silently does nothing is the most expensive kind of lie in a
+        // ribbon, because it looks the most finished.
         _panel(
           label: 'Modify',
           arrow: false,
+          overId: 'ov-modify3d',
+          over: () => [
+            OverItem(MO['shell']!, 'Shell', null),
+            OverItem(MO['draft']!, 'Draft', null),
+            OverItem(MO['thread']!, 'Thread', null),
+            // M227 — built. It stays in the ▼ rather than moving out: the
+            // dropdown is for commands that are available but do not earn
+            // permanent ribbon width (M216's own words for the sketch side),
+            // and Modify's visible column is full. A live callback is what
+            // separates built from unbuilt here, not which list it is in.
+            OverItem(MO['combine']!, 'Combine', () => app.openCombine(),
+                active: app.combineSession != null),
+            OverItem(MO['thicken']!, 'Thicken / Offset', null),
+            // M228 — Trim Solid, built. Splitting a body INTO TWO needs a
+            // feature that spawns a body, which the fold does not do.
+            OverItem(MO['split']!, 'Split', () => app.openSplit(),
+                active: app.splitSession != null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _BigWide(width: 58, icon: MO['hole']!, label: 'Hole', onTap: () {}),
             _BigWide(
                 width: 58,
                 icon: MO['fillet']!,
                 label: 'Fillet',
                 onTap: () => app.openFillet(),
                 active: app.edgeSession?.isFillet == true),
-            col([
-              (MO['chamfer']!, 'Chamfer', () => app.openChamfer()),
-              (MO['shell']!, 'Shell', null),
-              (MO['draft']!, 'Draft', null),
+            colActive([
+              (MO['chamfer']!, 'Chamfer', app.openChamfer,
+                  app.edgeSession?.isFillet == false),
+              // M217 — built, so they leave the ▼ and take their place in the
+              // panel. The rule cuts both ways: the dropdown is where a
+              // command waits to be built, not where it stays after it is.
+              (MO['deleteface']!, 'Delete Face', app.openDeleteFace,
+                  app.faceEdit?.kind == FaceEditKind.delete),
+              // M225 — Hole, the same way: built, so it leaves the ▼. It sat
+              // there as an OverItem with a null onTap, and before M216 as a
+              // full-size button with an empty closure.
+              (MO['hole']!, 'Hole', () => app.openHole(),
+                  app.holeSession != null),
             ]),
             col([
-              (MO['thread']!, 'Thread', null),
-              (MO['combine']!, 'Combine', null),
-              (MO['thicken']!, 'Thicken/ Offset', null),
-            ], leftPad: 0),
-            col([
-              (MO['split']!, 'Split', null),
-              (MO['direct']!, 'Direct', null),
-              (MO['deleteface']!, 'Delete Face', null),
-            ], leftPad: 0),
+              (MO['direct']!, 'Direct', () => app.openDirectMove()),
+            ], leftPad: 0, flyIds: const {'Direct': 'direct'}),
           ]),
         ),
         _panel(
           label: 'Work Features',
           arrow: false,
+          overId: 'ov-work3d',
+          // UCS is deliberately still inert: it is a coordinate SYSTEM with
+          // its own triad and placement gestures, not a third variant of Axis
+          // and Point, and a button that half-works would be worse than one
+          // that says it is not built (M157). Behind the ▼ it is listed,
+          // dimmed and honest instead of sitting in the panel looking ready.
+          over: () => [
+            OverItem(WF['ucs']!, 'UCS', null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(
                 id: 'plane',
@@ -631,14 +856,33 @@ class _RibbonState extends State<Ribbon> {
                 onDefault: () =>
                     widget.app.startWorkPlane(WorkPlaneKind.offset)),
             col([
-              (WF['axis']!, 'Axis', null),
-              (WF['point']!, 'Point', null),
-              (WF['ucs']!, 'UCS', null),
-            ]),
+              // M215 — the two that are built. Tapping the row runs the
+              // LEGACY method (Inventor's plain "Axis" / "Point"), which is
+              // the one people actually use: pick geometry and it works out
+              // what you meant. The flyout carries the eight/nine named
+              // methods for the cases where a pick is ambiguous.
+              (
+                WF['axis']!,
+                'Axis',
+                () => widget.app.startWorkAxis(WorkAxisMethod.auto)
+              ),
+              (
+                WF['point']!,
+                'Point',
+                () => widget.app.startWorkPoint(WorkPointMethod.auto)
+              ),
+            ], flyIds: const {'Axis': 'axis', 'Point': 'point'}),
           ]),
         ),
         // M212 — the four pattern commands, wired. They toggle like every
         // other part command (M210) and light for the one that is open.
+        //
+        // M216 — this panel is VISIBLE and stays visible. The dropdown pass
+        // had folded Pattern away on the evidence of its own branch, where
+        // all four were inert; main had built them in the meantime. "Hide
+        // what does not work" is only ever as good as the reading of what
+        // works, so the rule is applied to the MERGED truth, not to a
+        // snapshot of one side.
         _panel(
           label: 'Pattern',
           arrow: false,

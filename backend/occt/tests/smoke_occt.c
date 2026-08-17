@@ -88,6 +88,34 @@ static int counts(occt_shape *s, int *f, int *e, int *v, const char *what)
     return 1;
 }
 
+/* M214 — whole file as a NUL-terminated string, or NULL. Caller frees.
+ * Used to search an exported STEP for names and units: reading line by line
+ * would miss a match that the writer wrapped across a line boundary. */
+static char *slurp(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    long sz = ftell(fp);
+    if (sz < 0 || sz > (64L << 20)) { /* a smoke-test STEP is tiny */
+        fclose(fp);
+        return NULL;
+    }
+    rewind(fp);
+    char *buf = (char *)malloc((size_t)sz + 1);
+    if (!buf) {
+        fclose(fp);
+        return NULL;
+    }
+    size_t got = fread(buf, 1, (size_t)sz, fp);
+    fclose(fp);
+    buf[got] = '\0';
+    return buf;
+}
+
 int main(void)
 {
     const double PI = 3.14159265358979323846;
@@ -1467,6 +1495,233 @@ int main(void)
                   == NULL, "[32] a degenerate axis must fail");
         check(occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1, 5, 50, 0, 0,1,0)
                   == NULL, "[32] unimplemented coil ends are refused");
+    }
+
+    /* [33] v17 (M214) MULTI-BODY NAMED STEP EXPORT.
+     *
+     * The bug this guards: the app used to hand the exporter every solid its
+     * feature fold produced and let the kernel UNION them, which put back
+     * exactly the material the later features had removed. The shim side of
+     * the fix is that two bodies go in and TWO SOLIDS come out — never one
+     * fused lump — and that each carries its own name.
+     *
+     * Two DISJOINT boxes: 10x10x10 at the origin and 5x5x5 far away. Volumes
+     * 1000 and 125. A fused export would come back as one solid; a correct one
+     * comes back as two, total volume 1125. */
+    {
+        occt_shape *b1 = occt_make_box(10, 10, 10);
+        occt_shape *b2raw = occt_make_box(5, 5, 5);
+        /* move the second box clear of the first */
+        const double away[12] = {1,0,0,100, 0,1,0,0, 0,0,1,0};
+        occt_shape *b2 = (b2raw != NULL) ? occt_transform(b2raw, away) : NULL;
+        occt_free_shape(b2raw);
+
+        if (check(b1 != NULL && b2 != NULL, "[33] setup boxes failed")) {
+            const occt_shape *set[2] = {b1, b2};
+            const char *names[2] = {"Solid1", "Solid2"};
+            char multi_path[1024];
+            snprintf(multi_path, sizeof(multi_path), "%s/prototype_multi.step",
+                     (tmpdir && *tmpdir) ? tmpdir : "/tmp");
+
+            if (check(occt_export_step_named(set, names, 2, multi_path,
+                                             "SmokePart") == 1,
+                      "[33] named multi-body export failed")) {
+                occt_shape *back = occt_import_step(multi_path);
+                if (check(back != NULL, "[33] re-import returned NULL")) {
+                    occt_shape *solids[8];
+                    int n = occt_split_solids(back, solids, 8);
+                    printf("[33] re-imported solids=%d (want 2)\n", n);
+                    check(n == 2, "[33] bodies were fused/merged on export");
+                    double total = 0;
+                    for (int i = 0; i < n; i++) {
+                        total += occt_shape_volume(solids[i]);
+                        occt_free_shape(solids[i]);
+                    }
+                    printf("[33] total volume %.4f (want 1125)\n", total);
+                    check(near_rel(total, 1125.0, 1e-4),
+                          "[33] volume changed across the roundtrip");
+                }
+                occt_free_shape(back);
+
+                /* The names and the unit must actually be IN the file. A
+                 * silent fallback to OCCT's generic product name, or a unit
+                 * left over from an earlier import, would pass every geometric
+                 * check above without being noticed.
+                 *
+                 * The whole file is slurped rather than read line by line: a
+                 * STEP writer wraps long entities, and a match split across a
+                 * line boundary would read as a missing name. */
+                char *blob = slurp(multi_path);
+                if (check(blob != NULL, "[33] could not read back the file")) {
+                    const int saw1 = strstr(blob, "Solid1") != NULL;
+                    const int saw2 = strstr(blob, "Solid2") != NULL;
+                    const int sawdoc = strstr(blob, "SmokePart") != NULL;
+                    const int saw_mm = strstr(blob, "MILLI") != NULL;
+                    printf("[33] in file: Solid1=%d Solid2=%d SmokePart=%d "
+                           "MILLI=%d\n", saw1, saw2, sawdoc, saw_mm);
+                    check(saw1 && saw2,
+                          "[33] per-body product names not written");
+                    check(sawdoc,
+                          "[33] document name not written to the header");
+                    check(saw_mm,
+                          "[33] exported STEP does not declare millimetres");
+                }
+                free(blob);
+            }
+        }
+
+        /* Failure paths: refused, not crashed, and nothing half-written. */
+        check(occt_export_step_named(NULL, NULL, 2, "/tmp/x.step", "P") == 0,
+              "[33] null shape array was not refused");
+        if (b1 != NULL) {
+            const occt_shape *one[1] = {b1};
+            check(occt_export_step_named(one, NULL, 0, "/tmp/x.step", "P") == 0,
+                  "[33] n = 0 was not refused");
+            check(occt_export_step_named(one, NULL, 1, "", "P") == 0,
+                  "[33] empty path was not refused");
+            const occt_shape *withnull[2] = {b1, NULL};
+            check(occt_export_step_named(withnull, NULL, 2, "/tmp/x.step", "P")
+                      == 0,
+                  "[33] a null body in the set was not refused");
+        }
+        occt_free_shape(b1);
+        occt_free_shape(b2);
+    }
+
+    /* [34] v20 (M217) DELETE FACE + DIRECT EDIT, against real geometry.
+     *
+     * A 20x20x20 box with a 5 mm-radius hole drilled through it. Deleting the
+     * hole's cylindrical face with Heal must give the SOLID box back — that is
+     * the whole promise of Inventor's Delete Face, and a volume check catches
+     * every way of getting it wrong (nothing removed, too much removed, the
+     * wrong face removed). Then a face move must change the volume by exactly
+     * the swept slab. */
+    {
+        occt_shape *blk = occt_make_box(20, 20, 20);
+        occt_shape *drill = occt_make_cylinder(10, 10, -1, 5, 22);
+        occt_shape *holed = (blk && drill) ? occt_cut(blk, drill) : NULL;
+        if (check(holed != NULL, "[34] setup (box minus cylinder) failed")) {
+            const double v_box = 20.0 * 20.0 * 20.0;
+            const double v_hole =
+                3.14159265358979323846 * 5.0 * 5.0 * 20.0;
+            const double v_holed = occt_shape_volume(holed);
+            printf("[34] drilled volume %.4f (want %.4f)\n", v_holed,
+                   v_box - v_hole);
+            check(near_rel(v_holed, v_box - v_hole, 1e-3),
+                  "[34] the drilled block is not the expected volume");
+
+            /* Find the cylindrical face by its surface record. */
+            occt_mesh *m = occt_mesh_create(holed, 0.2, 0.35);
+            int cyl_topo = -1;
+            if (check(m != NULL, "[34] mesh failed")) {
+                const int fn = occt_mesh_face_count(m);
+                const int fc = (fn > 0 ? fn : 1);
+                double *fi = (double *)malloc(sizeof(double) * 15 * fc);
+                int *fid = (int *)malloc(sizeof(int) * fc);
+                if (fi && fid && occt_mesh_face_infos(m, fi) &&
+                    occt_mesh_face_ids(m, fid)) {
+                    for (int i = 0; i < fn; ++i) {
+                        if ((int)(fi[15 * i] + 0.5) == 1) { /* cylinder */
+                            cyl_topo = fid[i];
+                            break;
+                        }
+                    }
+                }
+                printf("[34] cylindrical face topo index = %d (of %d faces)\n",
+                       cyl_topo, fn);
+                check(cyl_topo > 0, "[34] no cylindrical face found");
+                free(fi);
+                free(fid);
+            }
+            occt_free_mesh(m);
+
+            if (cyl_topo > 0) {
+                const int ids[1] = {cyl_topo};
+                occt_shape *filled = occt_delete_faces(holed, ids, 1, 1);
+                if (check(filled != NULL, "[34] delete face returned NULL")) {
+                    const double v = occt_shape_volume(filled);
+                    printf("[34] after Delete Face volume %.4f (want %.4f)\n",
+                           v, v_box);
+                    check(near_rel(v, v_box, 1e-4),
+                          "[34] healing the hole did not restore the block");
+                    check(occt_shape_valid(filled),
+                          "[34] healed solid is not valid");
+                }
+                occt_free_shape(filled);
+                /* heal = 0 is refused, not approximated. */
+                check(occt_delete_faces(holed, ids, 1, 0) == NULL,
+                      "[34] un-healed delete was not refused");
+            }
+
+            /* Direct > Move: push the top face (z = 20) up by 5 mm. The volume
+             * must grow by exactly one 20x20x5 slab minus the hole it carries.
+             */
+            occt_mesh *m2 = occt_mesh_create(holed, 0.2, 0.35);
+            int top_topo = -1;
+            if (m2 != NULL) {
+                const int fn = occt_mesh_face_count(m2);
+                const int fc = (fn > 0 ? fn : 1);
+                double *fi = (double *)malloc(sizeof(double) * 15 * fc);
+                int *fid = (int *)malloc(sizeof(int) * fc);
+                if (fi && fid && occt_mesh_face_infos(m2, fi) &&
+                    occt_mesh_face_ids(m2, fid)) {
+                    for (int i = 0; i < fn; ++i) {
+                        /* planar, +Z normal, sitting at z = 20 */
+                        if ((int)(fi[15 * i] + 0.5) == 0 &&
+                            fi[15 * i + 6] > 0.9 && fi[15 * i + 3] > 19.5) {
+                            top_topo = fid[i];
+                            break;
+                        }
+                    }
+                }
+                free(fi);
+                free(fid);
+            }
+            occt_free_mesh(m2);
+            printf("[34] top face topo index = %d\n", top_topo);
+            if (check(top_topo > 0, "[34] no top face found")) {
+                const int ids[1] = {top_topo};
+                occt_shape *taller =
+                    occt_move_faces(holed, ids, 1, 0.0, 0.0, 5.0);
+                if (check(taller != NULL, "[34] move faces returned NULL")) {
+                    const double v = occt_shape_volume(taller);
+                    const double want =
+                        v_holed + (20.0 * 20.0 * 5.0) -
+                        (3.14159265358979323846 * 25.0 * 5.0);
+                    printf("[34] after Move Faces volume %.4f (want %.4f)\n",
+                           v, want);
+                    check(near_rel(v, want, 1e-3),
+                          "[34] the moved face did not add the swept slab");
+                    check(occt_shape_valid(taller),
+                          "[34] moved solid is not valid");
+                }
+                occt_free_shape(taller);
+            }
+
+            /* Direct > Scale: x2 about the centre is 8x the volume. */
+            occt_shape *big = occt_scale_shape(holed, 10, 10, 10, 2.0);
+            if (check(big != NULL, "[34] scale returned NULL")) {
+                const double v = occt_shape_volume(big);
+                printf("[34] after Scale x2 volume %.4f (want %.4f)\n", v,
+                       v_holed * 8.0);
+                check(near_rel(v, v_holed * 8.0, 1e-4),
+                      "[34] a x2 scale is not 8x the volume");
+            }
+            occt_free_shape(big);
+            check(occt_scale_shape(holed, 0, 0, 0, 0.0) == NULL,
+                  "[34] a zero scale factor was not refused");
+        }
+        occt_free_shape(blk);
+        occt_free_shape(drill);
+        occt_free_shape(holed);
+
+        /* Refusals: never crash, always 0/NULL. */
+        check(occt_delete_faces(NULL, NULL, 1, 1) == NULL,
+              "[34] null shape was not refused");
+        check(occt_move_faces(NULL, NULL, 1, 1, 0, 0) == NULL,
+              "[34] null move was not refused");
+        check(occt_scale_shape(NULL, 0, 0, 0, 2) == NULL,
+              "[34] null scale was not refused");
     }
 
     if (g_failures == 0) {

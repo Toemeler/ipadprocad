@@ -16,6 +16,1071 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **Stand der CI (nachgelesen, nicht am Haken abgezaehlt).**
+> Letzter Lauf auf `main`: **32029429683** zu `eb8e035` (M228) — **1931 Tests
+> bestanden**, **55 Issues / 0 Errors** (Ausgangszahl seit M220; der M225-Lauf
+> stand kurz auf 59 und ist zurueckgeholt). Der Stand zu M220 zum Vergleich:
+> Lauf 31970418590, 1805 Tests. Der OCCT-Kernel-Lauf **31820861588** zu `07e3790`
+> (M217) ist der letzte, der den Shim wirklich gebaut hat;
+> `ci-logs-occt/smoke.log` beginnt mit
+> `Prototype OCCT shim v20 (OCCT 7.9.3) (shim ABI v20)` und endet auf
+> `OCCT SMOKE: PASS`, mit `[33]` (STEP-Export) und `[34]` (Delete Face /
+> Direct Edit) darin. Der Workflow ignoriert `**.md`, ein reiner
+> Dokumentations-Push loest also KEINEN Lauf aus.
+>
+> **WAS JETZT NOCH OFFEN IST** (Stand M231, gegen den Code geprueft — nicht
+> aus den Eintraegen unten abgeschrieben, die immer nur ihren eigenen Moment
+> beschreiben).
+>
+> **1. Der Geraete-Test.** Weiterhin der aelteste und groesste Punkt: nichts
+> seit M192 lief auf Hardware. Die Reihenfolge fuer M221–M231 steht unten.
+>
+> **2. Ungebaute Ribbon-Eintraege** (`onTap: null`, gedimmt im Klappmenue —
+> die Liste ist aus `ribbon.dart` gezogen, nicht erinnert):
+> * **Create ▼** Emboss, Derive, Decal
+> * **Modify ▼** Shell, Draft, Thread, Thicken / Offset
+> * **Work ▼** UCS (bewusst: ein Koordinaten-SYSTEM, kein dritter Fall von
+>   Achse und Punkt)
+> * **Skizze, Insert ▼** Points, Center Point, Driven Dimension, Show Format
+>
+> Shell, Draft und Thicken/Offset brauchen alle drei denselben Shim-Zusatz
+> (`BRepOffsetAPI_MakeThickSolid`); das ist C++ plus ein OCCT-Lauf, und der
+> Smoke-Test kann sie ueber das VOLUMEN pruefen — die staerkste Verifikation,
+> die dieses Projekt hat.
+>
+> **3. Bewusst verweigert, mit Grund** (nicht vergessen, sondern entschieden):
+> * **Direct > Rotate** (M217) — braucht eine `BRepTools_Modification`, deren
+>   Fehlerfaelle erst an echten Formen auftreten.
+> * **Delete Face ohne Heal** (M217) — es gaebe Flaechenkoerper, die es hier
+>   nicht gibt.
+> * **Sweep-Twist und Coil-Enden** (M131b) — der Shim lehnt sie ab, statt
+>   still etwas Falsches zu bauen.
+> * **Split in ZWEI Koerper** (M228) — braucht ein Feature, das einen Koerper
+>   gebaeren kann; der Fold bildet eines auf einen Solid ab.
+> * **Ein Muster ueber ein Loch oder eine Flaechen-Aenderung** (M226) — der
+>   Weg dahin ist benannt: das WERKZEUG wiederholen, wie M213 es fuer Blends
+>   tat. Der Umweg, der funktioniert, steht in der Ablehnung: die
+>   Skizzenpunkte mustern.
+> * **Hole: Linear/Konzentrisch, Gewinde, Spitzenwinkel** (M225/M226) — jedes
+>   ein eigener Satz Zahlen bzw. eine Gewindetabelle.
+>
+> **4. Zwei Meldungen aus M210, weiterhin ohne Befund:** keine. Beide sind
+> erledigt — der Profil-Pick in M221, die Dreiecke und die ISO-Schraffur in
+> M222.
+
+> **GERAETE-TEST — die Reihenfolge, in der es sich in EINER Sitzung pruefen
+> laesst (M221–M231).**
+>
+> Nichts davon war je auf Hardware; das ist der aelteste offene Punkt und
+> reicht in Wahrheit bis M192 zurueck. Diese Liste deckt nur die acht
+> Meilensteine dieser Sitzung ab, dafuer in einer Reihenfolge, die aufeinander
+> aufbaut: jeder Schritt benutzt, was der vorige gebaut hat.
+>
+> 1. **Skizze mit zwei konzentrischen Kreisen, Extrude oeffnen (M221).**
+>    Erwartet: das Panel geht auf und die Skizze SCHLIESST sich dabei (vorher
+>    lag das 2D-Overlay darueber und verschluckte jeden Pick). Dann Ring
+>    antippen, danach die Scheibe: **beide** muessen ausgewaehlt sein, und die
+>    Fuellung muss die zeigen, die man gerade getippt hat — nicht die andere.
+>    Das war die gemeldete Sache.
+> 2. **Denselben Ring extrudieren.** Erwartet: ein Ring mit Loch, keine volle
+>    Scheibe. (Der Anker lag frueher in der Mitte des Lochs, also konnte die
+>    Aufloesung beim Rebuild die falsche Region treffen.)
+> 3. **Eine Skizze auf der Deckflaeche oeffnen, Slice Graphics an (M222).**
+>    Erwartet: die Schnittflaeche ist schraffiert und zeigt **keine
+>    Dreieckskanten** mehr. Mit zwei Koerpern im Schnitt: die Schraffuren
+>    muessen sich unterscheiden (45°/135°).
+> 4. **Arbeitsebene: Three Points, dann Two Coplanar Edges (M223).** Erwartet:
+>    beide bauen; ein dritter Punkt auf einer Linie mit den ersten beiden wird
+>    mit einer Meldung abgelehnt, nicht geraten.
+> 5. **Tangential zu einem Zylinder durch einen Punkt (M224).** Zylinder auf
+>    der Seite antippen, auf der die Ebene liegen soll. Erwartet: die Ebene
+>    liegt auf DIESER Seite. Tippt man den Zylinder genau in Richtung des
+>    Punktes an, muss der Befehl noch einmal fragen statt zu raten.
+> 6. **Hole auf zwei Skizzenpunkten (M225).** Erwartet: Panel oeffnet, Tipp auf
+>    einen Punkt setzt eine Bohrung, zweiter Tipp nimmt sie weg; OK bohrt beide
+>    nach INNEN (nicht aus dem Teil heraus). Danach den Punkt in der Skizze
+>    verschieben: die Bohrung muss mitwandern.
+> 7. **Dasselbe Loch auf Counterbore stellen (M226).** Erwartet: ein flacher,
+>    weiterer Topf an der Oberflaeche. Dann Countersink, 90°: ein Kegel, der
+>    sich nach OBEN oeffnet. **Wenn der Kegel andersherum steht, ist das
+>    Taper-Vorzeichen falsch** — das ist die eine Stelle dieser Sitzung, die
+>    nur ein Bild klaeren kann.
+> 8. **Das Loch im Browser doppelt antippen.** Erwartet: das Panel geht mit den
+>    gespeicherten Werten auf (das war bis M226 tot).
+> 9. **Zweiten Koerper bauen, Combine > Cut (M227).** Erwartet: erster Tipp
+>    waehlt den Koerper, der BLEIBT; danach den anderen; OK laesst einen
+>    Koerper uebrig. Mit „Keep tool" bleiben beide.
+> 10. **Split mit der XZ-Ebene (M228).** Erwartet: die Haelfte auf einer Seite
+>     verschwindet, „Other side" dreht es um, und der Ebenen-Pick startet
+>     **keine Skizze**.
+> 11. **Arbeitsebene: Angle to Plane around Edge (M229).** Ebene, dann eine
+>     Kante darin. Erwartet: die Ebene steht schraeg DURCH die Kante, und das
+>     Wertfeld oben steht offen — mit **„deg"** statt „mm". Zahl aendern: die
+>     Ebene folgt.
+> 12. **Normal to Curve at Point (M231).** Eine Skizzenkurve dort antippen, wo
+>     die Ebene sie kreuzen soll. Erwartet: die Ebene steht senkrecht auf der
+>     Kurve an genau dieser Stelle.
+> 13. **Ein Panel offen lassen und nach Hause gehen (M230).** Erwartet: das
+>     Panel ist beim Zurueckkommen WEG. (Vorher kam es wieder — und zeigte auf
+>     die Skizze des anderen Teils.)
+>
+> Was dabei nebenbei mitgeprueft wird, weil es ueberall drinsteckt: dass ein
+> 3D-Panel die anderen schliesst, dass Esc Panel UND Pick zusammen wegraeumt,
+> und dass OK/Abbrechen in der Schnellwerkzeug-Leiste fuer alle vier neuen
+> Panels funktionieren.
+
+> **Nachtrag zur Nummerierung (M214–M216).** Diese drei entstanden auf einem
+> eigenen Branch als M212/M213/M214, waehrend `main` M212 und M213 bereits
+> fuer die 3D-Muster vergeben hatte. Zwei verschiedene M212 in einer
+> Codebasis, deren Kommentare alle an Meilensteinnummern haengen, sind eine
+> Falle — also ist die ungemergte Seite gewandert (`43a404c`):
+> STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
+> **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
+
+> **M225 (1/2) — Hole: das Feature.**
+>
+> „Hole" steht seit M56 als Beschriftung im Teil-Ribbon und war bis M216 ein
+> Knopf in voller Groesse mit leerem `onTap`. Es ist der meistbenutzte Eintrag
+> in Inventors Modify-Panel, und der einzige Weg hierher war bisher: einen
+> Kreis zeichnen und als Cut extrudieren — hinterher etwas voellig anderes.
+> Im Browser steht „Extrusion", der Durchmesser ist eine Skizzenbemassung
+> statt einer Lochgroesse, und das Loch zu verschieben heisst, Geometrie zu
+> bearbeiten statt einen Punkt.
+>
+> **Es ist ein koerper-veraenderndes Feature, keine Extrusion mit
+> `output: 'cut'`** — obwohl es genau so beim Kernel ankommt. Ein Loch kann
+> nie ein Basis-Feature sein (es muss Material geben), sein Browser-Eintrag
+> und sein Dialog handeln von einem Loch und nicht von einem Profil, und das
+> Profil, mit dem es schneidet, wird aus einem DURCHMESSER abgeleitet statt
+> gezeichnet: nichts in der Skizze muss ein Kreis sein, und wer den Punkt
+> verschiebt, verschiebt das Loch.
+>
+> **Platzierung auf Skizzen-PUNKTEN** (Inventors „From Sketch"). Gespeichert
+> werden Koordinaten, und bei jedem Rebuild wird der naechste Skizzenpunkt
+> gesucht und die Platzierung darauf umgeschrieben — dieselbe Regel wie bei
+> `ProfileSel` und aus demselben Grund: ein Index verschiebt sich, sobald
+> etwas eingefuegt wird. Landen ZWEI Platzierungen auf demselben Punkt, wird
+> abgelehnt statt zweimal dasselbe Loch zu bohren; genau das hinterlaesst ein
+> geloeschter Punkt, und es ist die Verwechslung, die M217s `resolveFaces`
+> fuer Flaechen schon verweigert.
+>
+> **Die Bohrrichtung ist nach INNEN.** Die Normale einer Skizze zeigt zum
+> Betrachter, das Werkzeug startet also bei −Tiefe und endet auf der
+> Skizzenebene. `flip` dreht es um. Bei „Through All" ist das Werkzeug so
+> lang wie die Diagonale des Teils plus 20 mm und ragt auf BEIDEN Seiten
+> heraus — eine Werkzeugflaeche, die mit einer Koerperflaeche zusammenfaellt,
+> ist der klassische Muenzwurf einer Booleschen.
+>
+> **Bewusst NICHT drin, statt halb:** Senkung, Zylindersenkung und Planansenkung
+> (jeweils ein gestuftes oder konisches Profil und ein zweiter Satz Zahlen),
+> Gewinde- und Durchgangsloecher (eine Gewindetabelle), der Spitzenwinkel am
+> Grund (ein Kegel, also ein Revolve statt einer Extrusion) und die
+> Platzierungen Linear/Konzentrisch. To Next / To Face werden ABGELEHNT statt
+> als Distanz gebohrt.
+>
+> Der Kreis geht als 96-Punkt-Polygon zum Kernel — genau wie ein GEZEICHNETER
+> Kreis (`sampleEntity(g, arcSamples: 96)`), damit `arcFitLoop` daraus
+> dieselben exakten Boegen macht und das Loch eine echte Zylinderflaeche
+> bekommt.
+>
+> **Ehrlicher Stand:** 13 neue Tests (`m225_hole_test.dart`) — was beim Kernel
+> ankommt (ein Werkzeug je Platzierung, jeder Punkt exakt auf dem Radius), die
+> Lage des Werkzeugs, Flip, Through All, das Mitwandern mit dem Punkt, alle
+> Fehlerwege und der JSON-Roundtrip. Die Punkte entstehen im Test durch das
+> ECHTE Werkzeug (`Tool.point`), nicht von Hand — ein Loch, das nur
+> testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
+> gruen**, analyze 55 Issues / 0 Errors.
+
+> **M231 — Normal to Curve at Point: die dreizehnte, und die Tangente lag
+> schon da.**
+>
+> M223 hatte sie mit Grund liegen lassen: „braucht einen KURVEN-Beitrag —
+> eine Tangente an einem Parameter —, den `WorkRef` nicht fuehrt." Den fuehrt
+> er jetzt, und er kostete keine neue Mathematik: der 3D-Kurven-Pick rechnet
+> den Trefferpunkt ohnehin aus (er braucht ihn fuer den Tiefentest) und kennt
+> das Segment, das er getroffen hat. Auf der seit M219 ADAPTIV abgetasteten
+> Kurve IST dieses Segment die Tangente, bis auf die Abtast-Toleranz. Beides
+> wurde bisher weggeworfen; `_pickSketchCurveHit` behaelt es, und
+> `_pickSketchCurve` ist nur noch dessen Schluessel — alle bisherigen Aufrufer
+> bleiben unveraendert.
+>
+> **Ein Pick, beide Haelften.** `WorkRef.curveAt` traegt den Punkt UND die
+> Tangente, und genau deshalb ist die Methode ein einziger Tipp: der Punkt ist,
+> wo die Ebene sitzt, die Tangente ist ihre Normale. Was sie von einer geraden
+> KANTE unterscheidet, die ebenfalls Punkt und Richtung anbietet, ist nicht die
+> Geometrie, sondern die Bedeutung — also die `source`.
+>
+> **Der Kurven-Pick steht GANZ HINTEN** in `_pickWorkRef`: jeder Solid-Pick
+> gewinnt vor ihm, damit nichts, was vor M231 funktioniert hat, jetzt anders
+> greift. Eine Kurve antwortet nur, wenn nichts Festes unter dem Finger war —
+> und das ist genau der Moment, in dem der Benutzer nur die Kurve gemeint
+> haben kann.
+>
+> **Damit fuehrt jeder der dreizehn Flyout-Eintraege irgendwohin.** Zehn sind
+> diese Methoden, drei sind „Plane"/„Offset from Plane" (beide der
+> Offset-Fluss) und „Midplane between Two Planes". Die Liste, die seit M56 als
+> Attrappe dastand, ist vollstaendig — und keine einzige Zeile davon ist eine
+> stille Naeherung: was nicht gebaut werden konnte, wurde jedes Mal mit Grund
+> abgelehnt, bis der Grund weggeraeumt war.
+>
+> **Ehrlicher Stand:** 6 neue Tests im M229-File (Gruppe „M231 — …"): Tangente
+> als Normale, Punkt auf der Ebene, Normalisierung eines beliebig langen
+> Abtastsegments, die Abgrenzung zur Kante, die Arity, und der Commit ueber
+> denselben Weg wie die anderen. **Am Geraet nicht nachgeprueft** — und hier
+> heisst das: ob ein Tipp auf eine Kurve dort trifft, wo man zielt. CI-Lauf
+> **32047189527**: **1956 gruen**, analyze 55 Issues / 0 Errors.
+
+> **M230 — ein 3D-Panel darf die Modelle nicht ueberleben, auf die es zeigt.**
+>
+> Beim Nachsehen gefunden, nicht gemeldet — wie schon die beiden aus M226.
+> Jede 3D-Sitzung haelt Referenzen IN ein Teil hinein: einen Skizzennamen,
+> einen Koerpernamen, einen von einer Flaeche abgenommenen Frame, eine Liste
+> von Platzierungen. Vier Stellen in `app_state.dart` sind Momente, in denen
+> genau dieses Teil ersetzt oder verlassen wird — nach Hause gehen, Tab
+> schliessen, Teil loeschen, Undo-Schnappschuss zurueckspielen — und alle vier
+> riefen `cancelExtrude()` **allein**.
+>
+> Das war richtig, solange die Extrude-Sitzung die einzige war. Seit M136 (das
+> Fillet-Panel) ist es still falsch, und diese Sitzung hat vier weitere
+> hinzugefuegt (M212 Muster, M225 Hole, M227 Combine, M228 Split). Der Ablauf,
+> der es zeigt: in Teil A ein Loch anfangen, nach Hause gehen, Teil B oeffnen —
+> das Panel kam wieder und zeigte auf As Skizze.
+>
+> `cancel3DCommands()` ist die eine Liste, damit der NAECHSTE Befehl per
+> Konstruktion mit abgeraeumt wird statt per Erinnerung. Besonders bezeichnend
+> ist die vierte Stelle: `_restorePartSnap` traegt seit M182 den Kommentar
+> „In-flight 3D sessions hold references into the model that is about to be
+> replaced wholesale — cancel them first". Der Kommentar hatte recht; die
+> Liste darunter war vier Befehle alt.
+>
+> **Ehrlicher Stand:** 5 neue Tests
+> (`m230_sessions_do_not_outlive_their_part_test.dart`) — je Stelle einer, und
+> die Sammelabfrage prueft ALLE neun Sitzungsflags, sodass eine kuenftige
+> Sitzung, die jemand hier vergisst, hier auffliegt. **Am Geraet nicht
+> nachgeprueft** (aber diese Klasse faellt auf dem Host auf, nicht am Geraet —
+> deshalb steht sie hier). CI-Lauf **32046670339**: **1950 gruen**, analyze 55
+> Issues / 0 Errors.
+
+> **M229 — Angle to Plane around Edge: die zwoelfte Methode, und sie brauchte
+> kein zweites Feld.**
+>
+> M223 hatte sie mit ihrer Begruendung liegen lassen: „braucht einen Winkel
+> zum Eintippen. Das ist der Zwilling des Offset-Feldes (M169), eine
+> UI-Aufgabe." Ein Zwilling war dann nicht noetig. Eine Arbeitsebene traegt
+> hoechstens EINE editierbare Zahl — Millimeter bei einer Offset-Ebene, Grad
+> bei einer gewinkelten —, also fragt das Feld die EBENE, welche es ist
+> (`WorkPlane.valueUnit`), und es bleibt bei einem Feld, einem Flag und einem
+> Commit-Weg. Eine dritte editierbare Art landet damit an einer Stelle statt
+> an dreien.
+>
+> **Die Geometrie:** die Normale dreht per Rodrigues um die Kante, und der
+> Ursprung ist ein Punkt AUF der Kante — das ist die eine Linie, die beide
+> Ebenen teilen, und die einzige Wahl, bei der der Winkel sichtbar bleibt.
+> `anglePlaneFrame` dreht den GANZEN Frame mit, nicht nur die Normale: sonst
+> stuende eine Skizze auf dem Ergebnis verdreht zu der Ebene, aus der sie
+> gewinkelt wurde (derselbe Grund, aus dem `offsetPlaneFrame` seine Achsen
+> erbt). Eine Kante, die nicht IN der Ebene liegt, wird abgelehnt — die
+> Drehung wuerde die Ebene von ihr wegschwenken, und Inventor verlangt sie aus
+> demselben Grund.
+>
+> **Die Ebene behaelt, woraus sie gemacht ist** (Basis, Kante, Winkel) — genau
+> das, was M162 fuer den Offset getan hat, und aus demselben Grund: sonst ist
+> die eine Zahl, in der der Nutzer denkt, beim Anlegen eingebacken und weg.
+> Das Feld geht auf, sobald die Ebene existiert (M169s Reihenfolge: erst
+> hinkommen, dann richtig machen), und der naechste Winkel startet bei dem,
+> den man zuletzt benutzt hat.
+>
+> Damit sind **zwoelf von dreizehn** Plane-Eintraegen echt. Offen bleibt nur
+> noch Normal to Curve at Point — es braucht einen KURVEN-Beitrag (Tangente an
+> einem Parameter), den `WorkRef` nicht fuehrt.
+>
+> **Ehrlicher Stand:** 14 neue Tests (`m229_angle_plane_test.dart`) — der
+> Drehwinkel, dass die Kante in der Ebene BLEIBT, 0 Grad als Identitaet, die
+> Ablehnung, der Frame als Ganzes, `setAngle`, dass eine Offset-Ebene weiter
+> Millimeter spricht und eine konstruierte gar keine Zahl hat, der Roundtrip
+> mit Drehachse, und die Befehlsseite samt „das Feld geht auf". **Am Geraet
+> nicht nachgeprueft** — und hier heisst das vor allem: ob das Feld mit „deg"
+> an der richtigen Stelle steht. CI-Lauf **32046227338**: **1945 gruen**,
+> analyze 55 Issues / 0 Errors.
+
+> **M228 — Split: die Haelfte, die diese Architektur ehrlich tragen kann.**
+>
+> Inventors Split macht drei Dinge: eine FLAECHE mit einer Kurve teilen, einen
+> Koerper in ZWEI Koerper teilen, und einen Koerper an einer Ebene abschneiden
+> (Trim Solid). Das mittlere ist keine Fussnote zu den anderen beiden: ein
+> Feature, das einen ZWEITEN Koerper erzeugt, hat im Fold keinen Platz — der
+> bildet ein Feature auf einen Solid ab und faltet ihn in EINE Kette. Das zu
+> bauen hiesse, dem Zeitstrahl beizubringen, dass ein Feature einen Koerper
+> gebaeren kann, und das ist ein eigener Meilenstein. Also der Trim — und das
+> Panel sagt es, statt es den Nutzer herausfinden zu lassen.
+>
+> **Das Werkzeug ist der Halbraum-Kasten, den Slice Graphics seit M168 baut.**
+> Genau deshalb wird seine Groesse hier nicht neu hergeleitet: er schneidet
+> seit M168 in jeder Geraete-Sitzung die nahe Seite weg. Neu ist nur, dass er
+> BLEIBT und sich umdrehen laesst. `flip` startet den Kasten eine volle Laenge
+> vorher, sodass er exakt AUF der Ebene endet — die beiden Seiten treffen sich
+> dort, und keine wird zweimal geschnitten.
+>
+> **Die Ebene wird gespeichert, nicht ihr Schluessel.** Eine Arbeitsebene kann
+> sich bewegen, und ein Ursprungs-Schluessel kann nicht „die Flaeche, die ich
+> angetippt habe" sagen; eine Skizze auf einer Flaeche legt ihren Frame aus
+> genau diesem Grund ab (M58).
+>
+> **Der Pick ist der bestehende:** „eine Ebene oder eine planare Flaeche" ist
+> dieselbe Frage wie beim Skizzieren und beim Arbeitsebenen-Offset, also
+> laeuft der Split durch `planePicked`/`facePicked` — mit einem Zweig neben dem
+> von M151, nicht mit einem zweiten Pick-Weg. Die Ursprungsebenen kommen fuer
+> die Dauer heraus und verschwinden wieder, wie bei einer Skizze; Esc raeumt
+> beides zusammen weg.
+>
+> **Ehrlicher Stand:** 13 Tests (`m228_split_test.dart`), CI-Lauf
+> **32029429683**: **1931 gruen**, analyze 55 Issues / 0 Errors — der Schnitt und wo
+> das Werkzeug liegt, beide Seiten (inklusive der Gleichung
+> `start + hoehe = Ebene`), die Ablehnungen, Roundtrip mit Frame, der
+> Rebuild-Schluessel, und die Befehlsseite: Vorbedingung, Pick, OK, Esc,
+> Verdraengung, Browser-Edit. Ausdruecklich mitgeprueft: der Ebenen-Pick darf
+> KEINE Skizze anfangen — das ist der andere Fluss auf demselben Tipp.
+> **Am Geraet nicht nachgeprueft.**
+
+> **M227 — Combine: eine Boolesche zwischen KOERPERN — und das erste Feature,
+> das einen anderen Koerper liest.**
+>
+> Extrude traegt Join/Cut/Intersect seit M62, aber nur gegen den Koerper, in
+> den sein eigenes Profil baut. Sobald zwei Koerper da sind, gab es keinen Weg
+> zu sagen „nimm diesen aus jenem heraus" — genau der Fall, fuer den Inventor
+> Combine unter Modify fuehrt.
+>
+> **Die Boolesche selbst ist nichts Neues:** `combineSolids` bedient das
+> Extrude-Output seit M62 und nimmt dieselben drei Woerter. Neu ist die
+> ABHAENGIGKEIT. Ein Combine liest einen fremden Koerper, und der
+> Rebuild-Schluessel konnte das nicht sehen: er besteht aus den eigenen Zahlen
+> plus dem Upstream-Hash des EIGENEN Koerpers. Ein bearbeiteter Werkzeugkoerper
+> haette also einen Solid stehen lassen, der aus einem Koerper geschnitten ist,
+> den es so nicht mehr gibt.
+>
+> `PartFeature.inputBodies` ist der Haken — leer fuer alles andere, es aendert
+> sich also sonst nichts —, und der Fold mischt die Schluessel dieser Koerper
+> mit ein. Zwei Tests nageln genau das fest: ein geaenderter Werkzeugkoerper
+> laesst die Boolesche neu laufen, ein Leerlauf-Durchgang nichts.
+>
+> **Aufgeloest wird ueber SEQ, nicht ueber die Listenposition.**
+> `bodyFeatureBefore` liefert das lebende Feature dieses Koerpers, wie es
+> unmittelbar VOR diesem hier steht. Features des Werkzeugkoerpers, die spaeter
+> kommen, halten unter Umstaenden noch einen Solid aus dem vorigen Durchgang —
+> einen davon einzufalten hiesse, mit einem Koerper aus der Zukunft zu
+> verrechnen. Ein Werkzeug, das an dieser Stelle noch nichts gebaut hat, wird
+> beim Namen abgelehnt.
+>
+> **Keep Toolbody** ist Inventors, und es ist eine Zeile: ohne es wird das
+> Werkzeug-Feature `consumedByJoin` gesetzt, und genau das laesst den Koerper
+> aus Viewport, Koerperliste und STEP-Export zugleich verschwinden — alle drei
+> lesen dieselbe `solid`/`!consumedByJoin`-Regel (M214).
+>
+> **Bedienung (2/2):** erster Tipp = der Koerper, der BLEIBT (kein Toggle — ihn
+> noch einmal anzutippen liesse das Panel ohne Basis), danach die Werkzeuge,
+> die sich ein- und ausschalten lassen. Der Befehl oeffnet gar nicht erst,
+> wenn es weniger als zwei Koerper gibt. Im Ribbon bleibt Combine im
+> Klappmenue, jetzt aber mit echtem Callback: das ▼ ist laut M216 fuer
+> Befehle, die verfuegbar sind, aber keine dauerhafte Ribbon-Breite verdienen —
+> und Modifys sichtbare Spalte ist voll. Was gebaut von ungebaut trennt, ist
+> der Callback, nicht die Liste.
+>
+> **Ehrlicher Stand:** 20 Tests (`m227_combine_test.dart`) — die drei
+> Operationen, mehrere Werkzeuge nacheinander, Keep Toolbody, vier
+> Ablehnungen, der Roundtrip, der Rebuild-Schluessel von beiden Seiten, dass
+> ein Muster ein Combine wie jedes koerper-veraendernde Feature ablehnt (M226),
+> und die Befehlsseite: Basis, Werkzeuge, OK, Esc, Verdraengung, Browser-Edit.
+> CI-Lauf **32028790477**: **1918 gruen**, analyze 55 Issues / 0 Errors. Der
+> Lauf zu (1/2) hatte genau einen roten — meinen, nicht den des Codes: mit Keep
+> Toolbody ueberleben beide Koerper, und `bodyNames` kam als
+> `['Solid2','Solid1']` zurueck, weil die Reihenfolge dem Feature folgt, das
+> den Koerper traegt (Solid1 haengt jetzt am Combine ganz hinten). Behauptet
+> wird die MENGE, nicht die Folge. **Am Geraet nicht nachgeprueft.**
+
+> **M226 — Senkungen: was ein Loch zu einem Schraubenloch macht.**
+>
+> M225 hat die vier Mundformen ausdruecklich weggelassen und den Grund
+> genannt: „jeweils ein gestuftes oder konisches Profil und ein zweiter Satz
+> Zahlen". Beides ist jetzt da — ohne eine einzige neue Kernel-Funktion.
+>
+> **Zylindersenkung und Planansenkung sind derselbe Schnitt** (ein flacher,
+> weiterer Topf an der Oberflaeche) und bleiben trotzdem zwei Eintraege: eine
+> Zylindersenkung versenkt einen Kopf, eine Planansenkung plant nur eine Nabe,
+> damit eine Scheibe eben aufliegt. Inventor zeichnet beide gleich und
+> bemasst sie verschieden — das eine still als das andere zu fuehren, ist die
+> Sorte kleiner Luege, die bis in die Zeichnung ueberlebt.
+>
+> **Die Senkung ist ein KEGEL, und dafuer gibt es den Taper schon.** Der Shim
+> dokumentiert sein Vorzeichen: „INVENTOR sign: positive tapers outward". Das
+> Werkzeug laeuft beim Bohren nach innen vom kleinen Ende zur Flaeche hinauf,
+> waechst also — Taper = +Winkel/2. Umgedreht (`flip`) startet es breit an der
+> Flaeche und schliesst sich: dasselbe Profil in der anderen Leserichtung,
+> Taper = −Winkel/2, und das Profil ist dann der GROSSE Kreis. Die Tiefe folgt
+> aus dem eingeschlossenen Winkel: (R − r) / tan(Winkel/2), bei 90° also genau
+> die Aufweitung selbst.
+>
+> **Zwei Schnitte statt eines zusammengesetzten Werkzeugs.** Zwei einfache
+> Koerper nacheinander abzuziehen ist das, womit OCCT am wenigsten Muehe hat,
+> und es haelt den flachen Boden der Zylindersenkung und den Kegel der Senkung
+> vollstaendig aus der Profil-Arithmetik heraus.
+>
+> **Abgelehnt statt gerechnet:** eine Senkung, die nicht weiter ist als das
+> Loch; eine Tiefe von 0; ein Winkel ausserhalb (0, 180). Und zwar zweimal —
+> im Panel beim OK und noch einmal im Rebuild, weil ein geladenes Dokument
+> nicht durch das Panel gekommen sein muss.
+>
+> **Ehrlicher Stand:** 6 neue Tests in `m225_hole_test.dart` (Gruppen
+> „M226 — …") plus zwei erweiterte: was als ZWEITES beim Kernel ankommt
+> (Radius, Hoehe, Taper, Startlage), beide Richtungen, die Ablehnungen, der
+> Roundtrip und der Rebuild-Schluessel — ohne den letzten wuerde eine
+> geaenderte Senkung den gecachten Solid stehenlassen. Der Panel-Schalter
+> traegt vier UNTERSCHIEDLICHE Kurzlabels: „Counterbore" und „Countersink"
+> teilen sich sechs Anfangsbuchstaben, und zwei Knoepfe mit demselben Wort
+> sind keine Wahl. CI-Lauf **32027556475**: **1896 gruen**, analyze zurueck auf
+> **55 Issues / 0 Errors** (der M225-Lauf stand kurzzeitig auf 59 — beide
+> Hole-Testdateien importierten `tools.dart show Tool`, und `Tool` kommt aus
+> `app_state.dart`; die Tests liefen trotzdem gruen, was genau der Grund ist,
+> die Zahl zu lesen). **Am Geraet nicht nachgeprueft** — und beim Kegel heisst
+> das ausdruecklich: dass das Taper-Vorzeichen stimmt, sagt der Shim-Kommentar,
+> nicht ein Bild.
+>
+> **Zwei Anschluss-Fehler, beim Nachsehen gefunden statt gemeldet:**
+>
+> * **Der Browser konnte ein Loch nicht oeffnen.** `editFeature` kannte
+>   `HoleFeature` nicht und landete im `else`-Zweig, der nur eine Logzeile
+>   schreibt. Ein Feature, das man bauen und nicht mehr aendern kann, ist ein
+>   halbes Feature.
+> * **Ein Muster haette das Teil aufgefressen.** Die Werkzeug-Einteilung in
+>   `_recomputePattern` fragt `src is BodyModifyFeature` — das ist die Klasse
+>   mit den KANTEN-Fingerabdruecken (Fillet/Chamfer). Ein Loch ist das nicht,
+>   also waere es in den Klon-Pfad gefallen: dort wird das Feature nachgebaut
+>   und sein SOLID als Werkzeug kopiert — und der Solid eines Lochs ist der
+>   ganze Koerper mit dem Loch drin. Jede Occurrence haette das Teil von sich
+>   selbst abgezogen, still. Neu wird jedes Feature mit `modifiesBody`
+>   abgelehnt (das trifft auch M217s Flaechen-Edits, die dieselbe Falle
+>   hatten), UNTER den beiden spezifischeren Ablehnungen darueber, weil Fillet
+>   und Muster ebenfalls `modifiesBody` sind und je einen besseren Satz haben.
+>   Der Weg, der wirklich funktioniert, steht in der Meldung: die SKIZZENPUNKTE
+>   mustern.
+
+> **M225 (2/2) — Hole: der Befehl.**
+>
+> `HoleSession`, das Panel, der Pick und der Commit. Bewusst KEINE Variante
+> von `ExtrudeSession`: die bedient fuenf Befehle, die alle PROFILE picken und
+> sich nur in den Zahlen darunter unterscheiden — ein Loch pickt PUNKTE und
+> leitet sein Profil aus einem Durchmesser ab. Es einzufalten hiesse, allen
+> fuenfen eine Platzierungsliste anzuhaengen, die sie nie benutzen koennen.
+>
+> **Das Panel ist klein, weil das Feature klein ist:** Platzierungen,
+> Durchmesser, Termination (Distance / Through All), Richtung. Eine leere
+> Sektion, die Senkungen oder Gewinde verspraeche, waere genau das tote
+> Bedienelement, das M216 abgeraeumt hat. Chrome und Felder kommen aus
+> `properties_panel.dart` — der Datei, die es gibt, WEIL drei Panels einmal
+> per Kopie gleich aussahen.
+>
+> **Der Pick:** solange das Panel offen ist, gehoert der Tipp ihm
+> (`holePicking3D`, vor allem anderen im `_tap`, wie M212 es fuer die
+> Muster-Selektoren eingefuehrt hat — ein Pickfeld, das tot aussieht, ist der
+> Fehler, den diese Datei zweimal hatte). Getroffen wird ein Skizzenpunkt ueber
+> `_sketchPointAt`, also exakt der Pfad des skizzengesteuerten Musters, und
+> `holeCentresFor` liest dieselbe Liste (`sketchPatternPoints`) — zwei
+> Definitionen von „ein Punkt in dieser Skizze" waeren zwei Gelegenheiten, sich
+> zu widersprechen. Ein zweiter Tipp auf denselben Punkt nimmt ihn wieder weg.
+>
+> **Und die eine Regel, die dabei ueberall hin musste:** ein 3D-Panel
+> schliesst die anderen. Extrude, Fillet, Muster und Hole brechen sich jetzt
+> gegenseitig ab, und `openChildSketch` schliesst das Loch-Panel mit — zwei
+> Panels, die um denselben Tipp konkurrieren, sind keine Bedienung. Esc
+> schliesst Panel und Pick in einem, OK/Cancel der Schnellwerkzeug-Leiste
+> bedienen es mit.
+>
+> **Im Ribbon verlaesst Hole das Klappmenue** und steht neben Chamfer und
+> Delete Face — M217s Regel gilt in beide Richtungen: das Klappmenue ist, wo
+> ein Befehl auf seinen Bau wartet, nicht wo er danach bleibt.
+>
+> **Ehrlicher Stand:** 13 weitere Tests (`m225_hole_command_test.dart`):
+> Toggle, die Ablehnung ohne Koerper, die Uebernahme des Viewports, Esc, die
+> gegenseitige Verdraengung, das Hin und Her beim Punktpicken, der Commit, die
+> Ablehnungen und das Bearbeiten an Ort und Stelle. **Am Geraet nicht
+> nachgeprueft** — und das Panel ist reine Geraeteseite: dass es sitzt, wo es
+> soll, und dass die Tipps ankommen, sagt kein Host-Test.
+
+> **M224 — die drei Tangential-Ebenen: was fehlte, war die SEITE.**
+>
+> M223 hat sie ausdruecklich nicht gebaut und den Grund notiert: durch einen
+> Punkt ausserhalb eines Zylinders gehen ZWEI Tangentialebenen, und Inventor
+> entscheidet ueber die Seite, die man angetippt hat. `WorkRef` hielt aber nur
+> fest, was ein Pick BEITRAEGT, nicht wo er landete. Genau das ist jetzt
+> ergaenzt — und nur das: `radius` und `hitAt` fuer eine Zylinderflaeche, mit
+> einem Kommentar, der sagt, warum diese beiden nicht in dieselbe Kategorie
+> gehoeren wie der Rest der Klasse. Der Trefferpunkt wurde im Viewport
+> ohnehin schon berechnet (fuer den Tiefentest); er wird jetzt bloss nicht
+> mehr weggeworfen.
+>
+> **Eine Ebene, dreimal dieselbe Aufgabe.** Die Normale einer Tangentialebene
+> steht IMMER senkrecht auf der Achse, jede ist also durch einen einzigen
+> Winkel um sie herum bestimmt: zulaessige Winkel bestimmen, dann mit der
+> Tippseite auswaehlen.
+>
+> * **through Point:** liegt der Punkt AUF dem Zylinder, gibt es genau eine
+>   Ebene und gar keine Wahl. Liegt er weiter draussen, sind es zwei, bei
+>   ±acos(r/h) um seine eigene Richtung. Liegt er drinnen, gibt es keine — und
+>   das wird gesagt, nicht gerechnet.
+> * **through Edge:** eine Kante, die AUF dem Zylinder liegt und parallel zur
+>   Achse laeuft, bestimmt die Ebene eindeutig. Eine Kante daneben wird mit
+>   ihrem Abstand abgelehnt (`... is 4.000 mm off it`) — eine Kante, die nicht
+>   auf der Flaeche liegt, ist viel wahrscheinlicher ein Fehlgriff als ein
+>   Wunsch.
+> * **and Parallel to Plane:** existiert nur, wenn die Normale der Bezugsebene
+>   senkrecht zur Achse steht; sonst gibt es gar keine parallele Tangente.
+>   Dann sind es +n und −n, und wieder entscheidet die Seite.
+>
+> **Ein Gleichstand ist keine Antwort.** Tippt man den Zylinder GENAU in
+> Richtung des Zielpunkts an, liegen beide Tangenten gleich weit weg, der Pick
+> traegt also keine Seite. Statt die erste zu nehmen, fragt der Befehl noch
+> einmal („tap the face on the side the plane should go"). Das ist M158s
+> Lektion, woertlich: Ranking ist nicht Akzeptanz, ein Muenzwurf gehoert
+> verworfen. Aufgefallen ist es beim Nachrechnen der Geometrie in einer
+> Simulation VOR dem Push — beide Kandidaten kamen mit demselben Skalarprodukt
+> heraus.
+>
+> Damit sind **elf von dreizehn** Plane-Eintraegen echt. Offen bleiben Angle to
+> Plane around Edge (braucht ein Winkelfeld, den Zwilling von M169) und Normal
+> to Curve at Point (braucht einen Kurven-Beitrag in `WorkRef`).
+>
+> **Ehrlicher Stand:** 12 neue Tests im selben File
+> (`m223_work_plane_methods_test.dart`, Gruppen „M224 — …"): je Methode die
+> Tangentialbedingung (Abstand Achse→Ebene = r) UND die Punktbedingung, beide
+> Seiten, die drei Ablehnungen und der Gleichstand. CI-Lauf **32025781360**:
+> **1864 gruen**, analyze 55 Issues / 0 Errors. **Am Geraet nicht
+> nachgeprueft.**
+
+> **M223 — der Rest von Inventors Work-Plane-Liste, auf der Maschinerie von
+> M215.**
+>
+> Das Plane-Flyout traegt Inventors dreizehn Eintraege seit M56. Drei waren
+> echt: „Plane" und „Offset from Plane" (M151/M157, beide der Offset-Fluss)
+> und „Midplane between Two Planes". Die anderen zehn taten **nichts** — genau
+> die Form, die M216 im Teil-Ribbon gerade abgeraeumt hat, eine Ebene tiefer
+> stehengeblieben.
+>
+> **Fuenf sind jetzt gebaut**, und sie brauchten keine neue Maschinerie:
+> `WorkRef` aus M215 modelliert einen Pick nach dem, was er BEITRAEGT, und
+> genau das ist es, was diese Methoden lesen. Parallel to Plane through Point,
+> Three Points, Two Coplanar Edges, Normal to Axis through Point, Midplane of
+> Torus — `solveWorkPlane` ist der Zwilling von `solveWorkAxis`, mit demselben
+> `WorkAttempt`-Kontrakt (weiter / abgelehnt / fertig), derselben
+> Pick-Schleife in `workFeaturePick` und ohne eine einzige Zeile im Viewport:
+> der ruft `pickWorkGeometry` und `workFeaturePick`, beides schon generisch.
+>
+> **Was die Refusals sagen, ist der Punkt.** Drei kollineare Punkte werden
+> abgelehnt, weil eine Unendlichkeit von Ebenen sie enthaelt — das ist keine
+> Antwort. Zwei windschiefe Kanten melden, um WIEVIEL sie sich verfehlen
+> (`... miss each other by 7.000 mm`), dieselbe Regel wie bei den Achsen. Und
+> ein Fehlgriff kostet den Tipp und nicht den Befehl.
+>
+> **Fuenf sind NICHT gebaut, jede mit Grund** (im Code und im Flyout, das
+> jetzt sagt was fehlt, statt stumm zu bleiben — M157):
+>
+> * **Angle to Plane around Edge** braucht einen Winkel zum Eintippen. Das ist
+>   der Zwilling des Offset-Feldes (M169) und eine UI-Aufgabe, keine
+>   geometrische.
+> * **Normal to Curve at Point** braucht einen KURVEN-Beitrag (Tangente an
+>   einem Parameter), den `WorkRef` nicht fuehrt.
+> * **Tangent to Surface through Edge / through Point / and Parallel to
+>   Plane:** ein Zylinder hat ZWEI Tangentialebenen durch einen aeusseren
+>   Punkt bzw. parallel zu einer Ebene, und Inventor entscheidet das ueber die
+>   SEITE, die man angeklickt hat. `WorkRef` haelt fest, was ein Pick
+>   beitraegt, nicht wo auf der Flaeche er landete — das muesste zuerst dazu.
+>   Eine Seite zu raten hiesse, die Ebene in der Haelfte der Faelle auf die
+>   falsche Seite des Teils zu legen.
+>
+> **Nebenbei ein M155-Fehler, an der letzten Stelle, wo er ueberlebt hatte:**
+> `_commitWorkPlane` vergab `'Work Plane${p.workPlanes.length + 1}'` — ein
+> ZAEHLERSTAND. Loescht man Work Plane2 von dreien und baut eine neue, kommt
+> „Work Plane3" ein zweites Mal heraus. Arbeitsachsen und -punkte benutzen
+> `_freeWorkName` seit M215, Koerper seit M155; jetzt auch die Ebenen.
+>
+> Der Offset- und der Midplane-Fluss bleiben, wo sie sind: Offset ist ein ZUG
+> mit lebendiger Distanz (M174/M169) und traegt als einzige Ebene eine
+> nachtraeglich editierbare Zahl (M162), und beide sammeln `PlaneFrame`s statt
+> `WorkRef`s. Ein gemeinsames Feld haette einen der beiden Fluesse dazu
+> gebracht, den anderen zu spielen.
+>
+> **Ehrlicher Stand:** 21 neue Tests (`m223_work_plane_methods_test.dart`),
+> CI-Lauf **32025159761**: **1852 gruen**, analyze 55 Issues / 0 Errors —
+> je Methode die Geometrie (der Punkt liegt AUF der Ebene, nicht daneben), die
+> Refusals, die Pick-Reihenfolge, der Befehl im AppState und der
+> Namens-Fehler, der ohne den Fix wieder auftritt. **Am Geraet nicht
+> nachgeprueft.**
+
+> **M222 — ein Schnitt hat eine Kontur, ein Netz hat Kanten — und die
+> Schraffur unterscheidet die Koerper (ISO 128).**
+>
+> Die zweite in M210 offen gelassene Meldung: „when i slice graphics there are
+> triangles visible ... different parts should have different schraffur, like
+> in iso norm." Dort als „ein Render-Fehler und eine echte neue Funktion"
+> notiert. Beides steckt an derselben Stelle.
+>
+> **1. Die Dreiecke.** Der Painter baute EINEN `Path` aus jedem DREIECK des
+> Schnittnetzes und zeichnete ihn anschliessend als „die Kontur des Schnitts".
+> Eine Dreieckssuppe hat aber keine Kontur: jede geteilte Kante liegt zweimal
+> in diesem Pfad und wurde mitgestrichen. Was auf dem Schirm stand, war die
+> TESSELIERUNG — und weil die sich bei jedem Remesh aendert, sah es zufaellig
+> aus.
+>
+> `sectionOutlines()` behaelt nur die Kanten, die zu genau EINEM Dreieck
+> gehoeren — das ist die Definition eines Randes — und faedelt sie zu
+> geschlossenen Schleifen. Die Vertices werden vorher auf ein Raster
+> GESCHWEISST (1 µm): zwei Dreiecke einer Flaeche treffen sich an Koordinaten,
+> die der Kernel gleich nennt und die nach der Transformation in
+> Skizzenkoordinaten im letzten Bit auseinanderliegen koennen — ungeschweisst
+> saehe jede Innenkante wie zwei Randkanten aus und die ganze Suppe waere
+> zurueck. Die Schleifen behalten die Windung ihrer Dreiecke, aussen und Loch
+> laufen also gegenlaeufig, und `evenOdd` fuellt beides richtig.
+>
+> **2. Die Schraffur.** ISO 128-50 verlangt, dass BENACHBARTE Teile im Schnitt
+> unterscheidbar sind — ueber die Richtung, und wo die Richtung wiederkommt,
+> ueber den Abstand. Die Einheit, in der der Painter arbeitet, ist damit der
+> KOERPER und nicht das Dreieck: `sectionSlices()` gruppiert die Konturen je
+> Koerper und gibt jedem einen Stil-Index aus seiner Position in
+> `bodyNames`, `kSectionHatch` haelt die vier Varianten (45°/135°, zwei
+> Abstaende). Zwei im Browser benachbarte Koerper koennen so nie dieselbe
+> Schraffur bekommen. Zwei, die VIER auseinanderliegen, schon — das ist die
+> ehrliche Grenze einer Index-Regel: sie weiss, wer in der Liste nebeneinander
+> steht, nicht wer sich beruehrt.
+>
+> Die Schraffurlinien laufen jetzt senkrecht zu ihrer eigenen Richtung im
+> Abstand `step` (vorher wurde in x geschritten, womit 45° und 135° sich um
+> √2 in der Dichte unterschieden haetten).
+>
+> **Nebenbei ein Frame-Kosten-Fehler:** `sectionTriangles()` lief bei JEDEM
+> Paint durch das komplette Netz jedes Koerpers. Der Schnitt selbst war
+> gecacht, seine Auswertung nicht. `sectionSlices()` memoisiert auf demselben
+> Schluessel, den `slicedSolid` schon benutzt (Skizzenebene + Identitaet jedes
+> geschnittenen Netzes), und wird mit ihm zusammen geleert.
+>
+> **Ehrlicher Stand:** 10 neue Tests (`m222_section_outlines_test.dart`), die
+> Randfaelle vorab in einer Simulation nachgerechnet (Quadrat mit Diagonale →
+> EINE Schleife mit vier Punkten; Ring mit Loch → +100 und −4, also
+> gegenlaeufig; 1e-9-Versatz → immer noch eine Schleife). Eine bestehende
+> M168-Erwartung ist auf den neuen Kontrakt gezogen (`sectionSlices()` statt
+> `sectionTriangles()`). CI-Lauf **32024481461**: **1831 gruen**, analyze 55
+> Issues / 0 Errors. **Am Geraet nicht nachgeprueft** — und gerade hier heisst
+> das etwas: dass die Dreiecke weg sind, sieht man erst auf dem Schirm.
+
+> **M221 — „I cant select the inner circle to also extrude somehow."**
+>
+> Der eine offene Punkt aus M210, dort ausdruecklich NICHT behoben, weil nur
+> eine Vermutung vorlag. Es sind ZWEI Fehler, und keiner davon liegt in der
+> Regionen-Zerlegung — die war, wie M210 schon nachgewiesen hatte, richtig.
+>
+> **1. Der Anker.** Eine Auswahl wird als PUNKT plus Flaeche gespeichert, und
+> dieser Punkt war `interiorPointOf(region.outer)` — der Innenpunkt der
+> aeusseren SCHLEIFE, die von dem Loch in ihr nichts weiss. Bei einem Ring
+> liegt der Schwerpunkt innerhalb der aeusseren Schleife, also ist er die
+> Antwort: die Mitte des Lochs. Und exakt dieselbe Antwort gibt die Scheibe,
+> die in diesem Loch liegt. Beide Regionen standen damit unter EINEM Anker:
+>
+> * `toggleSessionProfile` fand den Anker der Scheibe schon in der Liste und
+>   tat nichts — das gemeldete Symptom, und zwar in BEIDER Reihenfolge;
+> * `hasProfileAt` malte den Ring als ausgewaehlt, wenn die Scheibe gewaehlt
+>   war;
+> * `resolveProfiles` suchte den naechsten Anker — bei Abstand 0 auf beiden
+>   Seiten entschied die Listenreihenfolge, ein Ring konnte also als volle
+>   Scheibe neu aufgebaut werden.
+>
+> Neu ist `regionAnchor(region)`: der Innenpunkt der REGION, also innerhalb
+> der aeusseren Schleife und ausserhalb jedes Lochs. Liegt der Schwerpunkt
+> frei, bleibt es bei der billigen Antwort; sonst schneidet eine Handvoll
+> waagerechter Linien die Region, und von allen Materialmitten auf diesen
+> Linien gewinnt die mit dem groessten ABSTAND zu jeder Begrenzung.
+>
+> **Nicht die breiteste** — das war die erste Fassung, und die CI hat sie
+> widerlegt: eine Zeile, die TANGENTIAL an einem Loch entlanglaeuft, kreuzt
+> es null Mal, das Loch teilt diese Zeile also gar nicht und die Spanne sieht
+> aus wie die ganze Sehne — waehrend ihre Mitte exakt auf dem aeussersten
+> Punkt des Lochs sitzt. Der Ring Ø30 um ein Loch Ø10 bekam so den Anker
+> `(0, 5)`, also genau auf den Rand seines eigenen Lochs. Ein Punkt auf einer
+> Grenze ist der eine Punkt, dessen Innen/Aussen die naechste Tesselierung
+> umdrehen kann. Der Abstand sagt, wofuer der Anker da ist.
+>
+> **Alte Dokumente.** Deren Ring-Auswahl traegt weiter den Mittelpunkt, und
+> der ist von der Scheibe null entfernt — nach reiner Naehe wuerde die
+> Scheibe die Auswahl beim ersten Rebuild stehlen. `regionForSel` (jetzt der
+> eine gemeinsame Zuordner) bevorzugt darum eine Region, deren FLAECHE noch
+> zur Auswahl passt, vor einer naeheren, die das nicht tut; die Flaeche ist
+> das, was Ring und Scheibe ueber diesen einen Sprung hinweg trennt.
+> `resolveProfiles` schreibt danach den neuen Anker zurueck, jedes Dokument
+> wandert also beim naechsten Rebuild von selbst mit.
+>
+> **2. Die Ueberlagerung.** Ist eine Kindskizze offen, liegt Viewport2D ueber
+> dem ganzen Viewport (`main.dart`) und reicht keinen Tipp an einen 3D-Pick
+> weiter — es IST der Sketcher und kennt weder Profile noch Kanten noch
+> Flaechen. Das Panel ging also ueber einer Flaeche auf, die jeden Pick
+> verschluckte: gar kein Profil war waehlbar. `openChildSketch` macht die
+> Gegenrichtung seit jeher (es bricht ein offenes Extrude ab); nur diese
+> Richtung fehlte. Genau das zeigt auch das Log zur Meldung — der Benutzer
+> war die ganze Zeit in Sketch7. Neu schliesst ein 3D-Befehl die offene
+> Skizze (`_leaveSketchForCommand`, wie Inventor es tut) und Extrude zielt
+> danach auf GENAU DIESE Skizze statt auf die neueste; Fillet/Chamfer und die
+> Muster-Panels gehen durch dieselbe Stelle, ihre Picks sind dieselben Picks.
+>
+> **Ehrlicher Stand:** 16 neue Tests (`m221_profile_pick_test.dart`), die
+> beide Fehler einzeln festnageln — der Anker-Test haelt ausdruecklich fest,
+> dass die ALTE Regel fuer beide Regionen denselben Punkt liefert. CI-Lauf
+> **32023838016** zu `b0e8d73`: **1821 gruen** (von 1805), analyze 55 Issues /
+> 0 Errors = Ausgangsstand. Der Lauf davor (`32023295745`) hatte genau zwei
+> rote, beide meine — siehe den Absatz ueber den Abstand; die Tangenten-Zeile
+> haette kein Nachdenken gefunden, nur die CI. **Am Geraet nicht
+> nachgeprueft.** Bewusste Abwaegung: die Flaechen-Vorliebe in
+> `regionForSel` kann eine stark GEAENDERTE Skizze theoretisch anders
+> zuordnen als die reine Naehe (eine andere Region liegt zufaellig naeher an
+> der alten Flaeche) — der Preis dafuer, dass keine gespeicherte Ringauswahl
+> beim Laden auf die Scheibe kippt.
+
+> **M220 — eine Schrift IST Geometrie: im DXF, und extrudierbar.**
+>
+> „schriften sollen tatsächlich linien sein wie in dxf üblich … und jede
+> schrift kann extrudiert werden". Sie konnte es nicht: eine Schrift war ein
+> ETIKETT — ein `TextPainter` malte Pixel und gab nur eine Groesse zurueck.
+> In keiner Datei, in keinem Profil, in keinem Koerper.
+>
+> Das System danach zu fragen geht nicht: `dart:ui` hat keine
+> Glyph-Umriss-API, CoreText gibt es nur auf dem Geraet — auf dem Host, also
+> in JEDEM Test, waere eine Schrift ein Etikett geblieben. Die Umrisse werden
+> darum EINMAL vorab extrahiert (`tool/make_vector_font.py`) und als Daten
+> ausgeliefert: jede Glyphe als move/line/quadratic in 1/1000 em, y nach
+> oben, Ursprung auf der Grundlinie. Drei Familien (CAD Sans / CAD Mono /
+> CAD Serif), ASCII plus Latin-1 — Umlaute und Eszett sind hier nicht
+> optional —, dazu Ø, °, µ und die typografischen Striche. Aus den
+> DejaVu-Fonts abgeleitet und umbenannt, wie deren Lizenz es verlangt.
+>
+> Die Kette: `vector_font.dart` flacht die Quadratiken adaptiv ab (0,002 em
+> Sehnentoleranz, 16 µm bei 8 mm Schrifthoehe) und setzt eine Zeile;
+> `text_geometry.dart` macht daraus Skizzengeometrie — eine GESCHLOSSENE
+> Polylinie je Kontur, auf der Ebene der Schrift. Die Punze eines „O" ist
+> eine eigene Kontur, `regionsFrom` verschachtelt sie also als Loch und der
+> Kernel bekommt Aussen + Loch statt einer vollen Platte.
+>
+> **Bewusst NICHT in `SketchModel.geometry`:** eine Schrift ist EIN Objekt
+> mit EINEM Anker (Inventors auch), ihr Umriss dagegen hunderte Punkte —
+> jeder davon waere eine Solver-Unbekannte, ein Griff unter dem Finger und
+> ein Eintrag in jedem Undo-Schnappschuss. Die Schrift bleibt parametrisch im
+> Sidecar, die Kurven werden abgeleitet und je Text gecacht. Aus demselben
+> Grund laufen Textschleifen nicht durch die planare Anordnung: eine
+> Glyphenkontur ist bereits geschlossen, und die Anordnung ist quadratisch in
+> der Segmentzahl (eine Textzeile hat einige tausend).
+>
+> **Ehrlich:** die Speicher-DXF der Skizze enthaelt weiterhin keinen Text (er
+> lebt parametrisch im Sidecar — nur der EXPORT bekommt die Kurven), ein
+> importiertes DXF mit TEXT-Entitaeten wird weiterhin kein Text, und eine
+> alte „Georgia"-Schrift behaelt ihre Groesse, ist aber jetzt CAD Serif.
+> 29 neue Tests, **1805 gruen** (CI-Lauf 31970418590). **Geraete-Test offen.**
+
+> **M219 — ein Trim an einer Spline schneidet die KURVE, und Splines sind
+> nicht mehr grobaufgeloest.**
+>
+> Zwei Geraete-Meldungen, zwei getrennte Ursachen.
+>
+> **1. „I can't trim splines. It's really fucked up."** Eine Spline ist hier
+> eine POLYLINIE aus Kontroll-/Stuetzpunkten plus einem Dart-seitigen Tag —
+> der vendorierte QCAD-Kern ist ohne OpenNURBS gebaut, es gibt also gar keine
+> Spline-Entitaet zu schneiden. Trim und Split fielen darum in den
+> Polylinien-Zweig und schnitten das KONTROLLPOLYGON: bei einer CV-Spline
+> beruehrt das gewaehlte Segment die Kurve nicht einmal. Zurueck kamen gerade
+> Stuecke, neu als Spline getaggt — eine andere Kurve, an einer anderen
+> Stelle, ohne die Form. Eine Ellipse traf es schlimmer: ihre drei Vertices
+> sind Mitte/Haupt-/Nebenachse, das „angeklickte Segment" war also ein
+> Radius.
+>
+> Jede Kurve, die diese App auf einer Polylinie traegt, ist stueckweise
+> KUBISCH — eine Kette kubischer Bezier-Segmente stellt sie also EXAKT dar,
+> und eine Bezierkette schneidet exakt, weil de Casteljau an jedem Parameter
+> ohne Naeherung teilt. `bezier.dart` rechnet um: geklemmte B-Spline per
+> Boehm-Knoteneinfuegung, periodische ueber den uniformen Basiswechsel,
+> Catmull-Rom in geschlossener Form, Ellipse als 16 Bogensegmente — alle vier
+> in den Tests gegen die bestehenden Sampler auf 1e-9 geprueft. Das Stueck
+> wird als `Geo.splineBez` zurueckgelegt: eine Polylinie, deren Vertices die
+> Kontrollpunkte der Kette SIND, also ohne neue Entitaet, ohne Knotenvektor
+> und mit unveraendertem Round-Trip durch DXF, Solver, Undo und
+> `.splines.json`. Ein Zahnrad hat keine kubische Form (Evolventen-Generator)
+> — es wird beim Schneiden GEBACKEN, denn ein halbes Zahnrad darf kein Tag
+> behalten, das „lies meine Punkte als Parameterblock" bedeutet.
+>
+> Zwei Folgefehler aus derselben Ecke: `_carry` reicht den Spline-Tag nur bei
+> gleicher Vertex-ZAHL weiter (das trennt „dieselbe Entitaet, neue Zahlen"
+> von „eine neue, daraus abgeleitete"), und `_transformGeoRaw` verlor den
+> Parameterblock eines Zahnrads — Move/Rotate/Mirror loeschten dessen Zaehne
+> still.
+>
+> **2. „Also splines are low resolution sometimes."** `splineCurveFor` gab
+> die Kurve auf echte Boegen dezimiert zurueck, mit fuenf Punkten je Bogen.
+> Diese Kette gehoert in den 3D-Pfad (dort macht `arcFitLoop` daraus wieder
+> exakte Bulges, damit eine extrudierte Spline zylindrische Flaechen bekommt)
+> — als ANZEIGE-Kurve ist sie schlecht, denn die eingehaltene Toleranz ist
+> die des BOGENS, nicht die der fuenf Sehnen darin: gemessen 25 Punkte und
+> 10-mm-Sehnen auf einer sanften 200-mm-S-Spline, 0,17 mm neben der Kurve.
+> Anzeige, Picking, Snap und Verschneidung bekommen jetzt die echte Kurve,
+> adaptiv unterteilt; der Painter reicht eine aus dem ZOOM abgeleitete
+> Toleranz durch (ein Fuenftel Pixel, auf Zweierpotenzen gerundet, damit eine
+> Pinch-Geste den Memo nicht zerreibt). Nur die Profilkette zum Kernel bleibt
+> auf Boegen — mit groesserem Budget, denn bei 64 war es vor dem Ende einer
+> langen Spline aufgebraucht und `_greedySpans` deckte den Rest mit EINEM
+> Bogen ab.
+>
+> Dichteres Abtasten kostet, also wurde derselbe Pfad billiger: `intersections()`
+> baut die Segmentkette der zweiten Entitaet nicht mehr je Segment der ersten
+> neu und verwirft nicht ueberlappende Paare per Bounding Box; die abgetastete
+> Kurve wird auf einem Hash der Zahlen memoisiert.
+>
+> 31 neue Tests, lokal **1774 gruen**. **Geraete-Test offen.**
+
+> **M218 — eine Skizze in 3D lange druecken und GENAU DIESE als DXF
+> exportieren.**
+>
+> „I also want to be able to long press a sketch in 3d mode and export as dxf
+> only this sketch from the context menu." Ein Teil verlaesst die App als
+> STEP, ganz. Was eine Maschine schneidet, ist EIN Profil — und das kam bis
+> hierher nur heraus, indem man es als eigenes 2D-Dokument neu zeichnete.
+>
+> **Der Export.** `childSketchExportPath(part, sketch)` ist der teil-seitige
+> Zwilling von `sketchExportPath` und ausdruecklich keine zweite
+> Implementierung davon: die M112-Regel — Konstruktions- und
+> Mittelliniengeometrie geht auf den nicht plottenden Layer „Defpoints",
+> weil der Stil-Tag in einem Sidecar reist, den das DXF nicht tragen kann —
+> ist jetzt `_writeExportDxf`, und beide Aufrufer gehen hindurch. Die Datei
+> haelt die EIGENEN 2D-Koordinaten der Skizze, nicht ihre Lage im Teil; sie
+> heisst „<Teil> - <Skizze>.dxf", weil eine Kindskizze nur durch beides
+> identifiziert ist. Ein offenes Teil wird vorher geschrieben, ein
+> geschlossenes kopflos geladen und wieder verworfen (M214: Exportieren ist
+> keine Navigation und darf keinen Tab aufmachen).
+>
+> **Das Menue.** `sketch3dMenuItems()` — Edit Sketch, Hide, Export DXF…,
+> Share DXF…. Kein „Show" (nur eine SICHTBARE Skizze kann unter dem Finger
+> liegen) und vor allem kein Delete: das steht im Browser, wo die Zeile
+> eindeutig ist; ein langer Druck im Viewport kann auf einer Kurve landen,
+> die man nicht gemeint hat, und das darf nie eine Skizze kosten.
+>
+> **Die Geste.** Ein Timer im rohen Listener, NICHT `onLongPress` — ein
+> Long-Press-Recognizer gewinnt in der Arena durch Stillhalten und nimmt den
+> Ein-Finger-Orbit mit; jede langsame Beruehrung auf leerer Flaeche haette
+> die Geste gekostet. Scharf geschaltet wird er nur, wenn der Druck AUF einer
+> Skizzenkurve beginnt. 600 ms und 8 px Abbruch, dieselben Zahlen wie im
+> 2D-Viewport seit M53. Der Druck verzehrt seinen Kontakt, der Tipp danach
+> laeuft also nicht zusaetzlich als Pick und der Finger orbitet das Modell
+> nicht hinter dem Menue weg.
+>
+> 17 neue Tests, **1745 gruen**, analyze 52 Issues / 0 Errors. **Ehrlich:**
+> die UIKit-Haelfte (Action Sheet, Files-Exporter, Share Sheet) laeuft auf
+> dem Host nicht und ist nur ueber ihren Kontrakt festgenagelt.
+> **Geraete-Test offen.**
+
+> **M217 — Delete Face und Direct Edit, Kernel bis Ribbon (Shim v20).**
+>
+> **Kernel (`b3d1f15`).** Delete Face bildet 1:1 auf
+> `BRepAlgoAPI_Defeaturing` ab — OCCTs eigene Beschreibung ist „removal of
+> features from a shape", und wie es die Wunde schliesst, IST Inventors Heal:
+> die Nachbarn werden verlaengert, bis sie sich schneiden. `heal = 0` wird
+> ABGELEHNT statt genaehert: Inventors ungeheilte Variante macht aus dem Teil
+> einen FLAECHEN-Koerper und sagt das im Browser, und diese App hat keine
+> Flaechenkoerper — jeder `KernelSolid` ist ein Volumen mit Booleschen und
+> einem STEP-Produkt. Nein ist die ehrliche Antwort, solange das so ist.
+>
+> Direct > Move/Size zieht jede gewaehlte Flaeche entlang des Deltas auf und
+> fuegt das aufgezogene Volumen hinzu oder schneidet es weg — je Flaeche
+> entschieden, am Vorzeichen gegen ihre eigene Aussennormale. Der Lehrbuchweg
+> (eine `BRepTools_Modification`, die die Flaeche verschiebt und die Nachbarn
+> nachtrimmt) zeigt seine Fehlerfaelle erst an echten Formen, und das
+> ungeprueft auszuliefern waere genau die tot-lebendige Bedienung, die dieser
+> Zweig gerade abgeraeumt hat. Der Prismenweg ist EXAKT, wo die angrenzenden
+> Waende parallel zur Bewegung stehen — also an jedem prismatischen Teil, und
+> fuer die greift man zu Direct Edit; an einem konischen Nachbarn weichen
+> beide ab, und dann wird es dem Aufrufer GESAGT statt still genaehert.
+> Direct > Scale bekommt einen eigenen Einstieg, weil `occt_transform`
+> nicht-starre Matrizen mit Absicht ablehnt (v2): eine Platzierung darf nie
+> skalieren, Skalieren ist ein Befehl fuer sich.
+>
+> `occt_mesh_face_ids` ist der Ermoeglicher und loest fuer Flaechen genau
+> das, was `occt_mesh_edge_ids` fuer Kanten geloest hat: `occt_mesh_create`
+> UEBERSPRINGT eine Flaeche, die es nicht triangulieren kann — Mesh-Index und
+> topologischer Index laufen also auseinander, sobald eine einzige ausfaellt.
+> Gepickt wird der Mesh-Index, gebraucht der topologische; ein Pick, der auf
+> -1 abbildet, wird abgewiesen statt an ein Loeschen mit falschem Index
+> weitergereicht. **v20 und nicht v18+1:** zwei Zweige hatten beide v17
+> beansprucht (main fuer `occt_mirror`, dieser fuer
+> `occt_export_step_named`), dieser hatte darauf schon v18 gebaut, der Merge
+> nahm v19.
+>
+> **Feature-Ebene (`c0ec375`).** `FacePick` ist der Flaechen-Zwilling von
+> `EdgeSel`, aus demselben Grund: ein topologischer Index ist ueber einen
+> Rebuild hinweg bedeutungslos. Der Anker ist der Mesh-SCHWERPUNKT der
+> Flaeche, nicht die `Location` ihrer Flaeche — zwei koplanare Flaechen eines
+> Koerpers teilen sich eine Location und waeren ununterscheidbar, ihre
+> Schwerpunkte liegen Meter auseinander. Er ist FLAECHENGEWICHTET, damit eine
+> in ein grosses Dreieck und zwanzig Splitter zerlegte Flaeche ihren Mittelpunkt
+> dort hat, wo das Material ist. Ein Typwechsel oder eine gekippte Normale
+> disqualifiziert, genau wie eine Linie, die ein Bogen wurde, es fuer
+> `EdgeSel` tut.
+>
+> Eine Flaechen-Aenderung wird ein echtes ZEITSTRAHL-Feature, kein Griff in
+> den Solid: alles in dieser App baut sich aus dem Zeitstrahl neu auf, eine
+> Aenderung daneben wuerde der naechste Rebuild verwerfen — das Modell sieht
+> richtig aus, bis es das nicht mehr tut. Eine Ablehnung entfernt das Feature
+> wieder, ein abgelehnter Edit laesst den Zeitstrahl also so, wie der
+> Benutzer ihn vorgefunden hat. Direct > Scale skaliert um die Mitte der
+> Bounding Box, nicht um den Weltursprung, sonst schleudert es ein
+> ausserhalb modelliertes Teil durch die Szene.
+>
+> **Nachtrag (`07e3790`).** Die CI fand drei echte Fehler: `FaceSel` gab es
+> schon (mains M213 fuer Skizze-auf-Flaeche und „To Face"), meine zweite
+> Klasse gleichen Namens heisst jetzt `FacePick` — der bessere Name, denn sie
+> ist, was ein PICK erzeugt hat. `viewport3d.dart` importiert die FFI-Ebene
+> mit Absicht nicht und braucht sie auch nicht. Und die vier Kernel-Fakes
+> ohne `noSuchMethod` brauchen jede neue Schnittstellen-Methode.
+>
+> **Im Ribbon** verlassen Delete Face und Direct das Klappmenue — die Regel
+> aus M216 gilt in beide Richtungen. Das Direct-Flyout traegt Inventors fuenf
+> Eintraege; **Rotate ist gelistet und inert**, weil das Drehen einer Flaeche
+> dieselbe `BRepTools_Modification` braucht.
+>
+> Tests: `m217_face_edit_test.dart` plus Smoke `[34]` gegen echte Geometrie —
+> ein 20-mm-Klotz mit 5-mm-Bohrung, Delete Face auf der Zylinderflaeche muss
+> das Volumen des vollen Klotzes exakt wiederherstellen (Log: `8000.0000`),
+> ein ungeheiltes Loeschen muss abgelehnt werden, eine Deckflaechen-
+> Verschiebung addiert genau die aufgezogene Platte abzueglich der Bohrung
+> darin (`8036.5046`), und x2 skaliert ist 8x Volumen (`51433.6294`).
+> **Am Geraet nicht nachgeprueft.**
+
+> **M216 — der 3D-Ribbon zeigt, was gebaut ist; der Rest ist einen Tipp
+> tiefer.**
+>
+> Zwei Drittel des Teil-Ribbons taten nichts: neun von zwoelf Modify-
+> Eintraegen, drei von sechs Create-Eintraegen und UCS waren Beschriftungen
+> mit `null`-Callback — und Hole war ein Knopf in voller Groesse, dessen
+> `onTap` `() {}` war, genau die leere Closure, die M157 am Plane-Knopf
+> angeprangert hat. Ein sichtbares Bedienelement muss etwas tun; Schweigen
+> liest sich als kaputt, und ein grosser, fertig aussehender Knopf ist die
+> teuerste Fassung dieser Luege.
+>
+> Sie stehen jetzt hinter dem ▼ des Panel-Titels, so wie es der SKIZZEN-
+> Ribbon seit M50 macht. Geloescht wird nichts: ein ungebautes `OverItem`
+> reicht `null` durch, `_OverRow` zeichnet es gedimmt und untippbar — die
+> Roadmap bleibt sichtbar und ehrlich, statt dass der Ribbon so tut, als
+> waeren diese Befehle nie geplant gewesen.
+>
+> **Die Regel ist jetzt ein TYP und keine Konvention mehr:** der Callback von
+> `col()` ist nicht mehr nullable und das `?? () {}` ist weg — ein ungebauter
+> Befehl kann gar nicht mehr in einer sichtbaren Spalte stehen, er MUSS in
+> die `over`-Liste. Genau dieses Fallback ist es, hinter dem hier neun tote
+> Knoepfe fertig aussahen.
+>
+> Stand nach dem Merge mit mains Muster-Befehlen — ungebaut und damit im
+> Klappmenue sind noch: **Create ▼** Emboss, Derive, Decal; **Modify ▼**
+> Hole, Shell, Draft, Thread, Combine, Thicken/Offset, Split; **Work ▼** UCS.
+> (Der Skizzen-Ribbon fuehrt dieselbe Liste fuer Points, Center Point,
+> Driven Dimension und Show Format.)
+
+> **M215 — Work Axis und Work Point, jede Inventor-Methode, aus dem Pick
+> erschlossen.**
+>
+> Das Work-Features-Panel hat Plane seit M151; Axis, Point und UCS waren
+> Symbol und Beschriftung mit `onTap: null`. Gebaut sind jetzt Axis und
+> Point — zuerst gegen die Autodesk-Hilfe recherchiert: Inventor dokumentiert
+> acht Achsen- und neun Punkt-Methoden, und die beiden wichtigsten sind die
+> ALTEN Eintraege „Axis" und „Point", die gar nicht fragen, welche Methode
+> gemeint ist, sondern es aus dem Angetippten erschliessen. Genau diese Form
+> hat das hier.
+>
+> `WorkRef` modelliert einen Pick danach, was er BEITRAEGT, nicht danach, was
+> er ist: eine kreisrunde Kante ist gleichzeitig ein Punkt (Mittelpunkt),
+> eine Achse und eine Ebene, und was davon zaehlt, entscheidet der jeweils
+> andere Pick. Nach Typ braeuchte es einen Fall je PAAR von Typen, nach
+> Beitrag einen Fall je Inventor-Methode — also genau die dokumentierte
+> Liste. Die Geometrie steht in `work_features.dart`: kein Flutter, kein
+> Kernel, kein AppState, also auf dem Host testbar.
+>
+> **Bedienung, mit Absicht so:** ein Pick, der die Antwort ALLEIN festlegt,
+> committet sofort (Kante antippen, Achse da); nur was nicht allein stehen
+> kann, wartet auf einen zweiten. Die Folge deckt sich mit Inventor — der
+> generische Befehl kann „Through Two Points" nicht aus zwei kreisrunden
+> Kanten bauen, weil die erste schon geantwortet hat, und genau darum gibt es
+> die benannten Methoden im Menue. Ein Pick, der nicht funktionieren kann,
+> wird VERWORFEN und der Befehl bleibt scharf: ein Fehlgriff kostet diesen
+> Tipp und sonst nichts. Ein Danebentippen auf leere Flaeche wiederholt die
+> Aufforderung, statt abzubrechen. Und eine Ablehnung traegt das Mass mit
+> sich: zwei windschiefe Kanten melden, um wieviel sie sich verfehlen.
+>
+> **Shim v18:** die Flaechen-Datensaetze fuer Kegel, Kugel und Torus sind
+> gefuellt. Sie trugen bisher nur ihren TYP, die Slots 1..10 blieben null —
+> „Through Revolved Face", „Center of Sphere" und „Center of Torus" haetten
+> also still ein Feature im WELTURSPRUNG erzeugt, ohne Fehler. Rein additiv.
+>
+> **Gezeichnet wird in BEIDEN Painters**, und das ist der Punkt: auf iOS ist
+> die Szene RealityKit, `_ScenePainter` laeuft dort nie — eine nur dort
+> gezeichnete Achse waere auf dem Host sichtbar und auf dem Geraet unsichtbar
+> gewesen. Im Bildschirmraum, also ohne Swift: eine Achse sind zwei
+> projizierte Punkte, ein Punkt ein kleines Kreuz. (Eine Arbeits-EBENE
+> braucht Tiefe und geht darum durch die Szenen-Payload.)
+>
+> **UCS bleibt bewusst inert.** Es ist ein Koordinaten-SYSTEM mit eigenem
+> Triad und eigenen Platzierungsgesten, keine dritte Variante dieser beiden —
+> und ein halb funktionierender Knopf ist schlimmer als einer, der sagt, dass
+> er nicht gebaut ist (M157).
+
+> **M214 — ein exportiertes Loch ist ein Loch, eine Verrundung eine
+> Verrundung, und Teilen ist kein Oeffnen.** (Ausfuehrliche Analyse:
+> `M214_STEP_EXPORT_ANALYSIS.md`.)
+>
+> Zwei gemeldete Fehler, beide in Dart, bevor der Kernel ueberhaupt erreicht
+> wird.
+>
+> **1. Loecher und Verrundungen fehlten in der STEP-Datei**, obwohl sie auf
+> dem Schirm zu sehen waren. Der Export sammelte `f.solid` von JEDEM Feature.
+> Jedes Feature haelt aber die laufende Anhaeufung an seiner eigenen Stelle —
+> ein Teil aus Klotz → Bohrung → Verrundung reichte dem Kernel also drei
+> Solids, und der VEREINIGTE sie. Vereinigung ist exakt die Umkehrung dessen,
+> was die spaeteren Features taten: `Klotz ∪ (Klotz − Bohrung)` ist der
+> Klotz. Der Export machte die Modellierung rueckgaengig. Additive Features
+> ueberlebten, weshalb es meistens zu funktionieren schien.
+> `partExportBodies()` ist jetzt die eine benannte Definition von „das Modell
+> als Liste von Koerpern", mit derselben Regel
+> (`solid` / `!consumedByJoin` / `!rolledBack`), die Viewport, RealityKit-
+> Szene und Galerie-Thumbnail laengst benutzen.
+>
+> **2. Ein Teil aus der Galerie zu teilen OEFFNETE es.** `partExportStep`
+> lief durch `openPart`, das einen Tab anlegt, das Teil aktuell macht, das
+> Werkzeug loescht und den Viewport neu baut; die lokale Variable `wasLoaded`,
+> die das rueckgaengig machen sollte, wurde berechnet und nie gelesen.
+> `openPart` ist jetzt geteilt: `_loadPartModel()` liest und faltet ein Teil
+> und fasst keinen UI-Zustand an, `openPart` ist das plus die Tab-Buchhaltung.
+> Der Export nimmt den kopflosen Weg und entsorgt die Kopie danach (sie
+> besitzt ein B-Rep je Koerper und eine Solver-Engine je Kindskizze).
+>
+> **Produktionshaertung der geschriebenen Datei (Shim-ABI → v17):**
+> `occt_export_step_named()` schreibt N Koerper als N BENANNTE Produkte —
+> kein Verschmelzen mehr (der alte Weg vereinigte den ersten Solid mit sich
+> selbst als „billige Kopie", verlor die Koerper-Identitaet und liess bei
+> einer fehlschlagenden Booleschen den ganzen Export scheitern). Einheiten
+> auf MM festgenagelt und ZURUECKGELESEN — der Export wird verweigert statt
+> geschrieben, wenn es nicht griff, denn `Interface_Static` ist
+> prozessglobal und die App liest STEP im selben Prozess: die Verliererseite
+> dieser Wette ist ein um 25,4 falsch gefraestes Teil. Schema auf AP214IS
+> (was der Header immer behauptet hat), Assembly aus, `surfacecurve` auf 1,
+> damit getrimmte Zylinderflaechen — also jedes Loch dieser App — Leser
+> ueberleben, die aus PCurves rekonstruieren. `FILE_NAME` traegt den
+> Dokumentnamen, ein Transferfehler NENNT den Koerper, veraltete Exporte
+> werden vorher geloescht, eine Null-Byte-Datei wird gemeldet statt geteilt.
+>
+> Tests: es gab **keinerlei** Abdeckung des Export-Pfads — so ist das
+> ausgeliefert worden. `m214_step_export_test.dart` nagelt die Koerpermenge
+> fest (Bohrung, Verrundung, beides, zwei Koerper, End of Part, versteckte
+> Koerper), was beim Kernel ankommt, den Veralteten- und den Leerdatei-Pfad
+> und dass Exportieren keine Navigation ist. Smoke `[33]` gegen echtes OCCT:
+> zwei getrennte Kaesten muessen als zwei Solids mit zusammen 1125 mm³
+> zurueckkommen, mit beiden Namen, dem Dokumentnamen und Millimetern in der
+> Datei (Log: `[33] total volume 1125.0000 (want 1125)`).
+
 > **M213 — die fuenf Dinge, die M212 ausdruecklich NICHT konnte. Jetzt
 > koennen sie es: Flaechen-Herkunft, gemusterte Verrundungen, Muster entlang
 > einer KURVE (mit Curve Length und Start), unregelmaessige Abstaende und

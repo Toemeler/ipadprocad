@@ -9,11 +9,21 @@
 
 import 'dart:convert';
 
+import 'vector_font.dart' show kDefaultTextFont;
+
+export 'vector_font.dart' show kDefaultTextFont;
+
 /// One parametric text. [template] may embed parameters as <Name>;
 /// unknown names stay literal (Inventor shows the raw token until the
-/// parameter exists). [height] is the cap height in mm. [font] is a family
-/// name; [layer] is the sketch layer it belongs to (its construction
-/// bounding rect is only shown while that layer is edited).
+/// parameter exists). [height] is the em size in mm — the number a font
+/// dialog calls the point size, and the height of one line's box. [font] is
+/// one of [kVectorFontNames]; [layer] is the sketch layer it belongs to (its
+/// construction bounding rect is only shown while that layer is edited).
+///
+/// M220 — a text is GEOMETRY: its outline (text_geometry.dart) is what the
+/// DXF export writes and what the profile finder and the kernel see. What is
+/// stored here is still only the parametric definition, because that is what
+/// stays editable — the curves are derived from it, never the other way round.
 class SketchText {
   String template;
   double x, y;
@@ -21,20 +31,25 @@ class SketchText {
   String font;
   String layer;
   SketchText(this.template, this.x, this.y,
-      {this.height = 8, this.font = 'Roboto', this.layer = ''});
+      {this.height = 8, this.font = kDefaultTextFont, this.layer = ''});
 
   Map<String, dynamic> toJson() => {
         't': template,
         'x': x,
         'y': y,
         'h': height,
-        if (font != 'Roboto') 'f': font,
+        if (font != kDefaultTextFont) 'f': font,
         if (layer.isNotEmpty) 'l': layer,
       };
+
+  /// A text written before M220 carries the name of a SCREEN font ("Roboto"
+  /// was the default and was therefore omitted, exactly like now). Those names
+  /// still load; [vectorFontName] maps them onto the outline family that comes
+  /// closest, so an old sketch opens with its text in place.
   static SketchText fromJson(Map<String, dynamic> j) => SketchText(
       j['t'] as String, (j['x'] as num).toDouble(), (j['y'] as num).toDouble(),
       height: (j['h'] as num?)?.toDouble() ?? 8,
-      font: j['f'] as String? ?? 'Roboto',
+      font: j['f'] as String? ?? kDefaultTextFont,
       layer: j['l'] as String? ?? '');
 }
 

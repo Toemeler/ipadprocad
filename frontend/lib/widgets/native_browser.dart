@@ -25,6 +25,10 @@ const String kIdFeature = 'ft:';
 /// M165 — a user work plane row. They were created and saved but appeared
 /// NOWHERE in the browser, so the only evidence a plane existed was the toast.
 const String kIdWorkPlane = 'wp:';
+// M215 — work axes and work points, interleaved by seq exactly like
+// work planes and for exactly the same reasons (see planesBefore).
+const String kIdWorkAxis = 'wa:';
+const String kIdWorkPoint = 'wpt:';
 const String kIdBody = 'bd:';
 const String kIdOrigin = 'or:';
 
@@ -154,23 +158,64 @@ List<GlassRow> _buildRows(
     // it counts ROWS. A work plane is not rolled back by EOP either. So they
     // are interleaved by `seq` while the marker keeps counting only the
     // timeline's own rows.
-    final planes = [...part.workPlanes]..sort((a, b) => a.seq.compareTo(b.seq));
+    // M215 — ONE interleaved stream for all three work-feature kinds. They
+    // were three separate emitters for about ten minutes, which put every
+    // axis after every plane regardless of when either was made — the exact
+    // "block of things grouped by type" layout M169 removed for planes.
+    final work = <(int, GlassRow)>[
+      for (final w in part.workPlanes)
+        (
+          w.seq,
+          GlassRow(
+            id: '$kIdWorkPlane${w.seq}',
+            label: w.name,
+            symbol: 'squareshape.dashed.squareshape',
+            tint: 'blue',
+            depth: 1,
+            hasEye: true,
+            eyeOn: w.visible,
+            dim: !w.visible,
+            selected: app.selectedWorkPlane?.seq == w.seq,
+            menu: _workPlaneMenu(app, w),
+          )
+        ),
+      for (final a in part.workAxes)
+        (
+          a.seq,
+          GlassRow(
+            id: '$kIdWorkAxis${a.seq}',
+            label: a.name,
+            symbol: 'line.diagonal',
+            tint: 'blue',
+            depth: 1,
+            hasEye: true,
+            eyeOn: a.visible,
+            dim: !a.visible,
+            selected: app.selectedWorkAxis?.seq == a.seq,
+            menu: _workAxisMenu(a),
+          )
+        ),
+      for (final pt in part.workPoints)
+        (
+          pt.seq,
+          GlassRow(
+            id: '$kIdWorkPoint${pt.seq}',
+            label: pt.name,
+            symbol: pt.grounded ? 'pin.fill' : 'smallcircle.filled.circle',
+            tint: 'blue',
+            depth: 1,
+            hasEye: true,
+            eyeOn: pt.visible,
+            dim: !pt.visible,
+            selected: app.selectedWorkPoint?.seq == pt.seq,
+            menu: _workPointMenu(pt),
+          )
+        ),
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
     var nextPlane = 0;
     void planesBefore(int seq) {
-      while (nextPlane < planes.length && planes[nextPlane].seq < seq) {
-        final w = planes[nextPlane++];
-        rows.add(GlassRow(
-          id: '$kIdWorkPlane${w.seq}',
-          label: w.name,
-          symbol: 'squareshape.dashed.squareshape',
-          tint: 'blue',
-          depth: 1,
-          hasEye: true,
-          eyeOn: w.visible,
-          dim: !w.visible,
-          selected: app.selectedWorkPlane?.seq == w.seq,
-          menu: _workPlaneMenu(app, w),
-        ));
+      while (nextPlane < work.length && work[nextPlane].$1 < seq) {
+        rows.add(work[nextPlane++].$2);
       }
     }
 
@@ -417,6 +462,48 @@ List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
       [
         const GlassMenuItem(
             id: 'wpDelete',
+            title: 'Delete',
+            symbol: 'trash',
+            destructive: true),
+      ],
+    ];
+
+/// M215 — a work axis's row menu. No "Edit": unlike a work plane's offset
+/// there is no single number behind an axis to change, so offering an editor
+/// that could only re-open the pick flow would be a button that lies.
+List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a) => [
+      [
+        GlassMenuItem(
+            id: 'waVis',
+            title: a.visible ? 'Hide' : 'Show',
+            symbol: a.visible ? 'eye.slash' : 'eye'),
+        // The axis carries a SIGN that revolve and pattern directions inherit
+        // (see WorkAxis.flip), and re-picking two points in the other order to
+        // change it would be absurd.
+        const GlassMenuItem(
+            id: 'waFlip',
+            title: 'Flip Direction',
+            symbol: 'arrow.up.arrow.down'),
+      ],
+      [
+        const GlassMenuItem(
+            id: 'waDelete',
+            title: 'Delete',
+            symbol: 'trash',
+            destructive: true),
+      ],
+    ];
+
+List<List<GlassMenuItem>> _workPointMenu(WorkPoint pt) => [
+      [
+        GlassMenuItem(
+            id: 'wptVis',
+            title: pt.visible ? 'Hide' : 'Show',
+            symbol: pt.visible ? 'eye.slash' : 'eye'),
+      ],
+      [
+        const GlassMenuItem(
+            id: 'wptDelete',
             title: 'Delete',
             symbol: 'trash',
             destructive: true),

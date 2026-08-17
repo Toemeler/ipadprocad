@@ -34,8 +34,11 @@ import 'inserts.dart';
 import 'snap.dart';
 import 'solver.dart';
 import 'spline.dart';
+import 'text_geometry.dart';
 import 'theme.dart';
 import 'tools.dart';
+import 'vector_font.dart';
+import 'work_features.dart';
 
 /// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
 /// (splines/ellipse/equation curves sampled to polylines — spline support in
@@ -873,6 +876,48 @@ class PartPatternSession {
 ///
 /// The name is kept because it appears across main, ribbon, viewport3d and
 /// the tests; [kind] is what actually selects the behaviour.
+/// M225 — the live state of the Hole panel.
+///
+/// Deliberately NOT a variant of [ExtrudeSession], which serves five commands
+/// that all pick PROFILES and differ only in the numbers underneath. A hole
+/// picks POINTS and derives its profile from a diameter; folding it in would
+/// mean every one of those five carrying a placement list it can never use.
+class HoleSession {
+  HoleFeature? editing;
+  String? sketchName;
+  final List<HolePlace> places = [];
+  String exprDia = '6 mm';
+  String exprDepth = '10 mm';
+  FeatureExtent extent = FeatureExtent.distance;
+  bool flip = false;
+  // M226 — the shape at the mouth.
+  HoleType type = HoleType.simple;
+  String exprCbDia = '11 mm';
+  String exprCbDepth = '6 mm';
+  String exprCsDia = '12 mm';
+  String exprCsAngle = '90 deg';
+}
+
+/// M228 — the live state of the Split panel.
+class SplitSession {
+  SplitFeature? editing;
+  PlaneFrame? frame;
+  String label = '';
+  bool flip = false;
+  String? bodyName;
+}
+
+/// M227 — the live state of the Combine panel.
+class CombineSession {
+  CombineFeature? editing;
+
+  /// The body being kept. Inventor asks for it first, and so does this.
+  String? baseBody;
+  final List<String> tools = [];
+  String op = 'cut';
+  bool keepTool = false;
+}
+
 class ExtrudeSession {
   /// 'extrude' | 'revolve' | 'sweep' | 'loft' | 'coil'.
   ///
@@ -1938,50 +1983,9 @@ class AppState extends ChangeNotifier {
     if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
     final named = File('${exportDir.path}/$name.dxf');
 
-    // M112 — EXPORT A COPY, not the storage file.
-    //
-    // Construction and centreline geometry is only construction because of a
-    // Dart-side style tag that rides in a SIDECAR; the DXF itself has no such
-    // flag, so handing over the storage file exports scaffolding as REAL
-    // geometry. Anyone manufacturing from it cuts the construction lines. That
-    // was the one thing blocking this from being production-ready.
-    //
-    // The fix is the standard convention: construction geometry goes onto
-    // "Defpoints", which every CAD package treats as non-plotting. The
-    // geometry is still there — you can see it, snap to it, and re-import it —
-    // it just cannot be mistaken for the part.
     final model = await _loadSketchIn(_stage(name), name, base: kSketchBase);
     try {
-      final gs = model.geometry;
-      final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
-      if (!needsSplit) {
-        f.copySync(named.path); // nothing to protect: ship it under its name
-        return named.path;
-      }
-      final out = named;
-      final tmp = SketchModel('_export');
-      try {
-        tmp.layers
-          ..clear()
-          ..addAll(model.layers);
-        if (!tmp.layers.contains(kDxfConstructionLayer)) {
-          tmp.layers.add(kDxfConstructionLayer);
-        }
-        _rebuildEngine(tmp, [
-          for (final g in gs)
-            (g.isConstruction || g.isCenterline)
-                ? g.onLayer(kDxfConstructionLayer)
-                : g
-        ]);
-        if (!tmp.engine.saveDxf(out.path)) {
-          Log.w('export', 'export copy failed; falling back to storage file');
-          f.copySync(named.path);
-          return named.path;
-        }
-      } finally {
-        tmp.dispose();
-      }
-      return out.path;
+      return _writeExportDxf(model, named, storage: f);
     } catch (e) {
       Log.w('export', 'export copy failed: $e');
       try {
@@ -1995,6 +1999,74 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Writes [model] to [out] as the EXPORT copy and returns its path, or null
+  /// when nothing could be written. [storage] is the sketch's own DXF where
+  /// one exists — the cheapest correct answer when there is nothing to
+  /// protect, and the fallback when the rebuild fails.
+  ///
+  /// M112 — EXPORT A COPY, not the storage file.
+  ///
+  /// Construction and centreline geometry is only construction because of a
+  /// Dart-side style tag that rides in a SIDECAR; the DXF itself has no such
+  /// flag, so handing over the storage file exports scaffolding as REAL
+  /// geometry. Anyone manufacturing from it cuts the construction lines. That
+  /// was the one thing blocking this from being production-ready.
+  ///
+  /// The fix is the standard convention: construction geometry goes onto
+  /// "Defpoints", which every CAD package treats as non-plotting. The
+  /// geometry is still there — you can see it, snap to it, and re-import it —
+  /// it just cannot be mistaken for the part.
+  ///
+  /// M218 — shared with [childSketchExportPath]: a sketch inside a part is a
+  /// sketch, and the rule that keeps scaffolding out of a manufactured part
+  /// cannot be one the gallery has and the 3D viewport has not.
+  String? _writeExportDxf(SketchModel model, File out, {File? storage}) {
+    final gs = model.geometry;
+    final needsSplit = gs.any((g) => g.isConstruction || g.isCenterline);
+    // M220 — TEXT IS GEOMETRY, and the storage file does not contain it.
+    //
+    // A text lives in a sidecar (it is one anchor plus a template, not a
+    // thousand points — see text_geometry.dart), so the sketch's own DXF has
+    // never held a single letter. Handing that file over would export a
+    // drawing with the text missing, which is exactly the thing Inventor does
+    // not do: there, a text IS in the exported DXF, as curves. So the moment
+    // the sketch carries one, the export takes the rebuild path below and the
+    // letters go into the file as closed polylines.
+    final texts = textGeometry(model);
+    if (!needsSplit &&
+        texts.isEmpty &&
+        storage != null &&
+        storage.existsSync()) {
+      storage.copySync(out.path); // nothing to protect: ship it under its name
+      return out.path;
+    }
+    final tmp = SketchModel('_export');
+    try {
+      tmp.layers
+        ..clear()
+        ..addAll(model.layers);
+      if (needsSplit && !tmp.layers.contains(kDxfConstructionLayer)) {
+        tmp.layers.add(kDxfConstructionLayer);
+      }
+      _rebuildEngine(tmp, [
+        for (final g in gs)
+          (g.isConstruction || g.isCenterline)
+              ? g.onLayer(kDxfConstructionLayer)
+              : g,
+        ...texts,
+      ]);
+      if (tmp.engine.saveDxf(out.path)) return out.path;
+      Log.w('export', 'export copy failed; falling back to storage file');
+    } finally {
+      tmp.dispose();
+    }
+    if (storage != null && storage.existsSync()) {
+      storage.copySync(out.path);
+      return out.path;
+    }
+    return null;
+  }
+
   // (Removed the six first-launch design-dummy cards: a fresh install now
   // shows an empty gallery with a "new sketch" prompt instead of fake sketches
   // that could not be opened.)
@@ -2003,7 +2075,7 @@ class AppState extends ChangeNotifier {
   void goHome() {
     final leaving = curTab;
     if (leaving != null && parts.containsKey(leaving)) {
-      cancelExtrude();
+      cancel3DCommands(); // M230 — not just the extrude one
       pickPlane = false;
       activeChild = null;
     }
@@ -2571,7 +2643,7 @@ class AppState extends ChangeNotifier {
   Future<void> closeTab(String name) async {
     if (parts.containsKey(name)) {
       if (curTab == name) {
-        cancelExtrude();
+        cancel3DCommands(); // M230
         pickPlane = false;
         activeChild = null;
         finishEdit(save: false);
@@ -3179,107 +3251,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _openPartInner(String name) async {
-    if (!parts.containsKey(name)) {
-      final p = PartModel(name);
-      _ensureStaged(name);
-      try {
-        final f = _partJson(name);
-        if (f.existsSync()) {
-          final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-          p.loadJson(j);
-          for (final sk in (j['sketches'] as List? ?? const [])) {
-            final m = sk as Map;
-            final model =
-                await _loadSketchIn(_partSketchDir(name), m['name'] as String);
-            p.childSketches.add(ChildSketch(
-                model,
-                m['plane'] as String? ?? 'xy',
-                PlaneFrame.fromFrameJson(m['frame'] as List?),
-                true, // real visibility is applied below from 'vis'
-                m['shared'] as bool? ?? false,
-                (m['seq'] as num?)?.toInt() ?? 0,
-                // M153 — absent on pre-M153 documents, which then keep the
-                // old frozen behaviour rather than being re-anchored onto a
-                // face nobody chose.
-                m['faceRef'] is Map
-                    ? SketchFaceSel.fromJson(
-                        (m['faceRef'] as Map).cast<String, dynamic>())
-                    : null));
-            _loadedSketchVis[model.name] =
-                m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
-          }
-        }
-      } catch (e, st) {
-        Log.e('part', 'open "$name" failed', e, st);
-      }
-      parts[name] = p;
-      // M160 — the child sketches are attached above, AFTER loadJson ran, so
-      // only now is the timeline complete enough to place the End of Part
-      // marker and decide what it rolls back.
-      p.finishLoad();
-      // Legacy sidecars (pre-M59) have no per-sketch 'vis': apply the
-      // Inventor default — consumed sketches load hidden.
-      for (final cs in p.childSketches) {
-        final consumed = firstConsumerOf(p, cs.model.name) != null;
-        final stored = _loadedSketchVis[cs.model.name];
-        cs.visible = stored ?? !consumed;
-      }
-      _loadedSketchVis.clear();
-      // M112 — imported bodies are re-read from their STEP file. Their B-Rep
-      // is deliberately NOT serialised (the file is the source of truth), so
-      // without this an imported body would come back empty and the part would
-      // silently lose geometry on reopen. A missing file is REPORTED, not
-      // swallowed: geometry vanishing without explanation is the worse failure.
-      //
-      // Grouped by file and read ONCE per file, then handed out in order — a
-      // STEP holding four solids became four features, and re-reading it four
-      // times would be both slow and a leak, since each read returns all four.
-      if (partKernel.available) {
-        final byFile = <String, List<ExtrudeFeature>>{};
-        for (final f in p.features) {
-          // M131 — features are polymorphic; only an extrude can be an
-          // imported body, so the type test is the guard AND the promotion.
-          if (f is! ExtrudeFeature) continue;
-          if (!f.imported || f.solid != null) continue;
-          final rel = f.importPath;
-          if (rel == null) {
-            f.computeError = 'imported body has no source file';
-            continue;
-          }
-          (byFile[rel] ??= []).add(f);
-        }
-        for (final entry in byFile.entries) {
-          final abs = _resolveImport(name, entry.key);
-          if (abs == null) {
-            for (final f in entry.value) {
-              f.computeError = 'imported file missing';
-            }
-            Log.w('import', 'missing STEP: ${entry.key}');
-            continue;
-          }
-          final solids = partKernel.importStepSolids(abs);
-          for (var i = 0; i < entry.value.length; i++) {
-            if (i < solids.length) {
-              entry.value[i].solid = solids[i];
-            } else {
-              entry.value[i].computeError = 'solid no longer in the file';
-            }
-          }
-          // The file grew since the import: nothing claims those, so free them.
-          for (var i = entry.value.length; i < solids.length; i++) {
-            solids[i].dispose();
-          }
-        }
-        // M182 — only sync projections when the recompute SUCCEEDED: a failed
-        // pass leaves last-good geometry in place, and re-deriving projections
-        // from a half-broken body is how closed profiles opened.
-        if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
-      }
-      Log.i(
-          'part',
-          'opened "$name": sketches=${p.childSketches.length} '
-              'features=${p.features.length} kernel=${partKernel.available}');
-    }
+    if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
     activeChild = null;
@@ -3287,6 +3259,124 @@ class AppState extends ChangeNotifier {
     tool = Tool.none;
     _reanalyze();
     notifyListeners();
+  }
+
+  /// M214 — reads a part off disk and builds its geometry, and NOTHING else.
+  ///
+  /// Split out of [openPart] because "I need this part's solids" and "the user
+  /// wants to look at this part" are two different requests, and until M214
+  /// only the second one existed. Exporting a part from the gallery went
+  /// through [openPart], so sharing a part ALSO added it to the tab bar, made
+  /// it the current document, cleared the active tool and rebuilt the
+  /// viewport — the whole app navigated into the part you meant to hand to
+  /// someone. ([partExportStep] even had a `wasLoaded` local, computed and
+  /// never read: the intent to undo that was written down and never finished.)
+  ///
+  /// The sketch side has always had this (`sketchExportPath` loads a headless
+  /// model via `_loadSketchIn`); this is the part-side equivalent.
+  ///
+  /// The result is NOT registered in [parts]. A caller that wants it in the
+  /// session puts it there; a caller that just needs geometry disposes it.
+  Future<PartModel> _loadPartModel(String name) async {
+    final p = PartModel(name);
+    _ensureStaged(name);
+    try {
+      final f = _partJson(name);
+      if (f.existsSync()) {
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        p.loadJson(j);
+        for (final sk in (j['sketches'] as List? ?? const [])) {
+          final m = sk as Map;
+          final model =
+              await _loadSketchIn(_partSketchDir(name), m['name'] as String);
+          p.childSketches.add(ChildSketch(
+              model,
+              m['plane'] as String? ?? 'xy',
+              PlaneFrame.fromFrameJson(m['frame'] as List?),
+              true, // real visibility is applied below from 'vis'
+              m['shared'] as bool? ?? false,
+              (m['seq'] as num?)?.toInt() ?? 0,
+              // M153 — absent on pre-M153 documents, which then keep the
+              // old frozen behaviour rather than being re-anchored onto a
+              // face nobody chose.
+              m['faceRef'] is Map
+                  ? SketchFaceSel.fromJson(
+                      (m['faceRef'] as Map).cast<String, dynamic>())
+                  : null));
+          _loadedSketchVis[model.name] =
+              m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
+        }
+      }
+    } catch (e, st) {
+      Log.e('part', 'open "$name" failed', e, st);
+    }
+    // M160 — the child sketches are attached above, AFTER loadJson ran, so
+    // only now is the timeline complete enough to place the End of Part
+    // marker and decide what it rolls back.
+    p.finishLoad();
+    // Legacy sidecars (pre-M59) have no per-sketch 'vis': apply the
+    // Inventor default — consumed sketches load hidden.
+    for (final cs in p.childSketches) {
+      final consumed = firstConsumerOf(p, cs.model.name) != null;
+      final stored = _loadedSketchVis[cs.model.name];
+      cs.visible = stored ?? !consumed;
+    }
+    _loadedSketchVis.clear();
+    // M112 — imported bodies are re-read from their STEP file. Their B-Rep
+    // is deliberately NOT serialised (the file is the source of truth), so
+    // without this an imported body would come back empty and the part would
+    // silently lose geometry on reopen. A missing file is REPORTED, not
+    // swallowed: geometry vanishing without explanation is the worse failure.
+    //
+    // Grouped by file and read ONCE per file, then handed out in order — a
+    // STEP holding four solids became four features, and re-reading it four
+    // times would be both slow and a leak, since each read returns all four.
+    if (partKernel.available) {
+      final byFile = <String, List<ExtrudeFeature>>{};
+      for (final f in p.features) {
+        // M131 — features are polymorphic; only an extrude can be an
+        // imported body, so the type test is the guard AND the promotion.
+        if (f is! ExtrudeFeature) continue;
+        if (!f.imported || f.solid != null) continue;
+        final rel = f.importPath;
+        if (rel == null) {
+          f.computeError = 'imported body has no source file';
+          continue;
+        }
+        (byFile[rel] ??= []).add(f);
+      }
+      for (final entry in byFile.entries) {
+        final abs = _resolveImport(name, entry.key);
+        if (abs == null) {
+          for (final f in entry.value) {
+            f.computeError = 'imported file missing';
+          }
+          Log.w('import', 'missing STEP: ${entry.key}');
+          continue;
+        }
+        final solids = partKernel.importStepSolids(abs);
+        for (var i = 0; i < entry.value.length; i++) {
+          if (i < solids.length) {
+            entry.value[i].solid = solids[i];
+          } else {
+            entry.value[i].computeError = 'solid no longer in the file';
+          }
+        }
+        // The file grew since the import: nothing claims those, so free them.
+        for (var i = entry.value.length; i < solids.length; i++) {
+          solids[i].dispose();
+        }
+      }
+      // M182 — only sync projections when the recompute SUCCEEDED: a failed
+      // pass leaves last-good geometry in place, and re-deriving projections
+      // from a half-broken body is how closed profiles opened.
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    Log.i(
+        'part',
+        'opened "$name": sketches=${p.childSketches.length} '
+            'features=${p.features.length} kernel=${partKernel.available}');
+    return p;
   }
 
   Future<bool> savePart(String name) async {
@@ -3416,7 +3506,7 @@ class AppState extends ChangeNotifier {
     if (_docsDir == null) return;
     openTabs.remove(name);
     if (curTab == name) {
-      cancelExtrude();
+      cancel3DCommands(); // M230
       pickPlane = false;
       activeChild = null;
       curTab = openTabs.isNotEmpty ? openTabs.last : null;
@@ -3480,31 +3570,161 @@ class AppState extends ChangeNotifier {
   /// without any computed solid — reported honestly, never faked.
   Future<String?> partExportStep(String name) async {
     if (_docsDir == null) return null;
-    final wasLoaded = parts.containsKey(name);
-    if (!wasLoaded) await openPart(name);
-    final p = parts[name];
-    if (p == null) return null;
-    await savePart(name);
+    // Checked BEFORE the part is loaded: without a kernel there are no solids
+    // to export no matter what the document holds, so reading it off disk and
+    // folding its features would be pure waste before saying so.
     if (!partKernel.available) {
       toast('No 3D kernel linked — STEP export needs the device build.');
       return null;
     }
-    final solids = [
-      for (final f in p.features)
-        if (f.solid != null) f.solid!
-    ];
-    if (solids.isEmpty) {
-      toast('Nothing to export yet — extrude a profile first.');
-      return null;
+    final wasLoaded = parts.containsKey(name);
+    // M214 — a part that is NOT open loads headlessly and is thrown away
+    // again. It used to go through openPart, which is why sharing a part from
+    // the gallery opened it: new tab, new current document, tool cleared,
+    // viewport rebuilt. Exporting is not navigation.
+    final p = wasLoaded ? parts[name]! : await _loadPartModel(name);
+    try {
+      // Only a part the user actually has open can have unsaved edits worth
+      // flushing. Saving the headless copy would rewrite the document (and its
+      // thumbnail, and its modified date) purely as a side effect of sharing
+      // it — and it is a byte-for-byte copy of what is already on disk.
+      if (wasLoaded) await savePart(name);
+      // M214 — the LIVE bodies, not every solid the fold produced on its way
+      // here. See partExportBodies: each feature stores the running
+      // accumulation at its own position, so taking them all handed the
+      // kernel the block AND the block-with-the-hole AND the filleted
+      // block — which the kernel then unioned back into a plain block. Holes
+      // and fillets disappeared from the file while being perfectly visible
+      // on screen.
+      final bodies = partExportBodies(p);
+      if (bodies.isEmpty) {
+        toast('Nothing to export yet — extrude a profile first.');
+        return null;
+      }
+      // A feature that failed to build is not in `bodies` at all, so an export
+      // could otherwise quietly hand over a part with a body missing. Say so
+      // instead: the file is still written (the rest of it is real), but the
+      // user is told what is not in it.
+      final broken = [
+        for (final f in p.features)
+          if (f.computeError != null && !f.rolledBack) f.name
+      ];
+      final exportDir = Directory('${_cacheRoot.path}/export');
+      if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+      final path = '${exportDir.path}/$name.step';
+      // A stale file from an earlier export must never be what gets shared.
+      // Without this, a failed write leaves the PREVIOUS export in place, and
+      // the only thing standing between it and the share sheet is that we
+      // return null — which is true today and is one refactor from not being.
+      final out = File(path);
+      if (out.existsSync()) {
+        try {
+          out.deleteSync();
+        } catch (e) {
+          Log.w('export', 'could not clear stale $path: $e');
+        }
+      }
+      if (!partKernel.exportStepBodies(bodies, path, product: name)) {
+        toast('STEP export failed: ${partKernel.lastError}');
+        return null;
+      }
+      if (!out.existsSync() || out.lengthSync() == 0) {
+        // The kernel said yes and produced nothing. Sharing a zero-byte file
+        // is worse than reporting the failure.
+        toast('STEP export produced an empty file.');
+        Log.w('export', 'kernel reported success but $path is empty/missing');
+        return null;
+      }
+      Log.i(
+          'export',
+          'STEP "$name": bodies=${bodies.length} '
+              '(${bodies.map((b) => b.$1).join(", ")}) '
+              'bytes=${out.lengthSync()}'
+              '${broken.isEmpty ? "" : " SKIPPED=${broken.join(", ")}"}');
+      if (broken.isNotEmpty) {
+        toast('Exported without ${broken.join(", ")} — '
+            '${broken.length == 1 ? "it" : "they"} could not be built.');
+      }
+      return path;
+    } finally {
+      // The headless copy owns a B-Rep per body AND a solver engine per child
+      // sketch. Dropping the reference without disposing leaks all of them,
+      // once per share. `closeTab` disposes an open part for the same reason.
+      if (!wasLoaded) p.dispose();
     }
-    final exportDir = Directory('${_cacheRoot.path}/export');
-    if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
-    final path = '${exportDir.path}/$name.step';
-    if (!partKernel.exportStep(solids, path)) {
-      toast('STEP export failed: ${partKernel.lastError}');
+  }
+
+  /// M218 — ONE sketch of a part, as DXF, for the share sheet / Files
+  /// exporter. Null (with a reason on screen) when there is nothing to write.
+  ///
+  /// A part exports as STEP because a part is solids; a single sketch inside
+  /// it is 2D geometry and therefore exports exactly like a sketch document —
+  /// same file format, same Defpoints rule for construction geometry
+  /// ([_writeExportDxf]), so what a laser cutter reads does not depend on
+  /// which of the two places the drawing happens to live in.
+  ///
+  /// The file holds the sketch's OWN 2D coordinates, not its placement in the
+  /// part. That is what a DXF is, and it is what the receiving machine wants:
+  /// a profile on the XZ plane 40 mm up would otherwise arrive 40 mm off its
+  /// own origin for no gain whatsoever.
+  ///
+  /// [partName] is the document, [sketchName] the child sketch inside it. An
+  /// open part is flushed first so the export is never stale; a part that is
+  /// NOT open loads headlessly and is thrown away again (M214 — exporting is
+  /// not navigation, and it must not add a tab).
+  Future<String?> childSketchExportPath(
+      String partName, String sketchName) async {
+    if (_docsDir == null) return null;
+    final wasLoaded = parts.containsKey(partName);
+    final p = wasLoaded ? parts[partName]! : await _loadPartModel(partName);
+    try {
+      if (wasLoaded) await savePart(partName);
+      final cs = p.sketchByName(sketchName);
+      if (cs == null) {
+        Log.w('export', '"$partName" has no sketch "$sketchName"');
+        return null;
+      }
+      if (cs.model.geometry.isEmpty) {
+        toast('Nothing to export — “$sketchName” is empty.');
+        return null;
+      }
+      final exportDir = Directory('${_cacheRoot.path}/export');
+      if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+      // Named for BOTH, because a child sketch is identified by both: every
+      // part of the gallery is free to call its first sketch "Sketch1", and
+      // three of those in the Files app under one name help nobody.
+      final out = File('${exportDir.path}/$partName - $sketchName.dxf');
+      // A stale file from an earlier export must never be what gets shared
+      // (partExportStep's rule, for the same reason: a failed write leaves the
+      // previous export in place and only a null return stands between it and
+      // the share sheet).
+      if (out.existsSync()) {
+        try {
+          out.deleteSync();
+        } catch (e) {
+          Log.w('export', 'could not clear stale ${out.path}: $e');
+        }
+      }
+      final storage = File('${_partSketchDir(partName).path}/$sketchName.dxf');
+      final path = _writeExportDxf(cs.model, out,
+          storage: storage.existsSync() ? storage : null);
+      if (path == null || !out.existsSync() || out.lengthSync() == 0) {
+        toast('DXF export failed.');
+        Log.w('export', 'DXF "$partName/$sketchName" produced nothing');
+        return null;
+      }
+      Log.i(
+          'export',
+          'DXF "$partName/$sketchName": entities=${cs.model.geometry.length} '
+              'bytes=${out.lengthSync()}');
+      return path;
+    } catch (e, st) {
+      Log.e('export', 'DXF "$partName/$sketchName" failed', e, st);
+      toast('DXF export failed.');
       return null;
+    } finally {
+      if (!wasLoaded) p.dispose();
     }
-    return path;
   }
 
   // ---- gallery routing: one card menu, two document kinds ----
@@ -3572,6 +3792,12 @@ class AppState extends ChangeNotifier {
       _workPlaneInput(wp?.frame ?? planeFrame(key), wp?.name ?? key.toUpperCase());
       return;
     }
+    // M228 — likewise for the split panel.
+    if (splitSession != null && splitSession!.frame == null) {
+      _splitPlaneInput(wp?.frame ?? planeFrame(key),
+          wp?.name ?? '${key.toUpperCase()} Plane');
+      return;
+    }
     pickPlane = false;
     if (_planesAutoShown) {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
@@ -3620,6 +3846,7 @@ class AppState extends ChangeNotifier {
       // Reached from the browser rather than mid-pick: whatever else was
       // armed is not what the user meant any more.
       if (workPlaneArm != null) cancelWorkPlane();
+      cancelWorkFeature(); // M215 — same reason as the line above
       cancelPlanePick();
     }
     pickPlane = false;
@@ -3826,6 +4053,12 @@ class AppState extends ChangeNotifier {
   /// thing to build than a Flip button.
   double workPlaneOffset = 10;
 
+  /// M229 — the angle a new [WorkPlaneMethod.angleToPlaneAroundEdge] plane is
+  /// built at, and what the value field writes back. 45 is a starting point,
+  /// not a destination: the field opens on the plane the moment it exists, the
+  /// same order M169 gave the offset (get close, then make it right).
+  double workPlaneAngle = 45;
+
   /// Inputs collected so far. Offset needs one, midplane two.
   final List<PlaneFrame> _wpPicks = [];
   final List<String> _wpNames = [];
@@ -3861,6 +4094,9 @@ class AppState extends ChangeNotifier {
 
   final Map<String, KernelSolid> _sliceCache = {};
   String _sliceKey = '';
+  // M222 — the outlines derived from those cuts, memoised on the same inputs.
+  String _sliceFacesKey = '';
+  List<SectionSlice> _sliceFaces = const [];
 
   /// Whether the command is offered at all. Inventor greys it out with no
   /// solid to cut; here it is not shown, per M157 — a button that is visible
@@ -3878,14 +4114,36 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// M168 — the section faces of every sliced body, in the open sketch's
-  /// (u,v), for the 2D painter to hatch. Empty when not slicing.
-  List<List<Offset>> sectionTriangles() {
+  /// M168/M222 — the section faces of every sliced body, in the open sketch's
+  /// (u,v), as closed OUTLINES and grouped by the body they cut. Empty when
+  /// not slicing.
+  ///
+  /// Grouped, because ISO 128 hatches adjacent parts differently and the same
+  /// part identically throughout — so the unit the painter works in is the
+  /// body, not the triangle. Outlines, because the triangles are tessellation
+  /// and drawing them is what put triangle edges on the screen (M222).
+  ///
+  /// Memoised on the sketch plane and the identity of every cut mesh, the same
+  /// key [slicedSolid] uses: this runs from `paint`, and walking every mesh of
+  /// every body per frame is the kind of cost M159/M75 were about.
+  List<SectionSlice> sectionSlices() {
     final p = currentPart;
     final cs = activeChild == null ? null : p?.sketchByName(activeChild!.name);
     if (!sliceGraphics || p == null || cs == null) return const [];
     final fr = sketchFrameOf(cs);
-    final out = <List<Offset>>[];
+    final byBody = <String, List<List<Offset>>>{};
+    final sig = StringBuffer()
+      ..write(fr.origin.x)
+      ..write(',')
+      ..write(fr.origin.y)
+      ..write(',')
+      ..write(fr.origin.z)
+      ..write(',')
+      ..write(fr.n.x)
+      ..write(',')
+      ..write(fr.n.y)
+      ..write(',')
+      ..write(fr.n.z);
     for (final f in p.features) {
       final whole = f.solid;
       if (whole == null || !f.visible || f.consumedByJoin || f.rolledBack) {
@@ -3893,8 +4151,27 @@ class AppState extends ChangeNotifier {
       }
       final cut = slicedSolid(f.name, whole);
       if (cut == null) continue; // not sliced: nothing was exposed
-      out.addAll(sectionTrianglesAt(cut.mesh, fr));
+      sig
+        ..write(';')
+        ..write(f.bodyName)
+        ..write(':')
+        ..write(identityHashCode(cut.mesh));
+      byBody
+          .putIfAbsent(f.bodyName, () => [])
+          .addAll(sectionTrianglesAt(cut.mesh, fr));
     }
+    final key = sig.toString();
+    if (key == _sliceFacesKey) return _sliceFaces;
+    final order = p.bodyNames;
+    final out = <SectionSlice>[];
+    byBody.forEach((body, tris) {
+      final loops = sectionOutlines(tris);
+      if (loops.isEmpty) return;
+      final i = order.indexOf(body);
+      out.add(SectionSlice(body, loops, i < 0 ? out.length : i));
+    });
+    _sliceFacesKey = key;
+    _sliceFaces = out;
     return out;
   }
 
@@ -3990,8 +4267,27 @@ class AppState extends ChangeNotifier {
     if (w == null) return false;
     final v = parseValueExpr(text); // the same grammar every dialog uses
     if (v == null || !v.isFinite) return false;
-    if (!setWorkPlaneOffset(w, v)) return false;
+    // M229 — the field edits the plane's ONE number, and which number that is
+    // depends on the plane. Asking the plane beats a second field and a second
+    // flag for what is the same gesture on the same widget.
+    final ok = w.kind == WorkPlaneKind.angle
+        ? setWorkPlaneAngle(w, v)
+        : setWorkPlaneOffset(w, v);
+    if (!ok) return false;
     workPlaneOffsetEditing = false;
+    notifyListeners();
+    return true;
+  }
+
+  /// M229 — the angle twin of [setWorkPlaneOffset].
+  bool setWorkPlaneAngle(WorkPlane wp, double deg) {
+    final p = currentPart;
+    if (p == null || !wp.angleEditable) return false;
+    if (!wp.setAngle(deg)) return false;
+    workPlaneAngle = deg; // the next one starts from what you last used
+    p.dirty = true;
+    Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
+    if (curTab != null) savePart(curTab!);
     notifyListeners();
     return true;
   }
@@ -4002,7 +4298,11 @@ class AppState extends ChangeNotifier {
   void updateWorkPlaneDragAbsolute(double mm) {
     final w = selectedWorkPlane;
     if (w == null || !mm.isFinite) return;
-    if (!w.setOffset(mm)) return;
+    // M229 — a scrub on the field moves whichever number the plane carries;
+    // on an angle plane those are degrees, which is also what the scrub steps
+    // in (the field passes the plane's own unit).
+    final ok = w.kind == WorkPlaneKind.angle ? w.setAngle(mm) : w.setOffset(mm);
+    if (!ok) return;
     final p = currentPart;
     if (p != null) p.dirty = true;
     notifyListeners();
@@ -4039,6 +4339,8 @@ class AppState extends ChangeNotifier {
     }
     _sliceCache.clear();
     _sliceKey = '';
+    _sliceFacesKey = '';
+    _sliceFaces = const [];
   }
 
   /// The sliced stand-in for [solid], or null to draw it whole.
@@ -4193,10 +4495,25 @@ class AppState extends ChangeNotifier {
 
   void _commitWorkPlane(
       PartModel p, WorkPlaneKind kind, PlaneFrame frame, String def,
-      {PlaneFrame? base, double? offset}) {
+      {PlaneFrame? base,
+      double? offset,
+      Vec3? axisAt,
+      Vec3? axisDir,
+      double? angle}) {
     final wp = WorkPlane(
-        'Work Plane${p.workPlanes.length + 1}', p.nextSeq(), kind, def, frame,
-        base: base, offset: offset);
+        // M223 — a free name, not a COUNT. Deleting Work Plane2 of three and
+        // making another handed out "Work Plane3" a second time; work axes and
+        // points have used _freeWorkName since M215, and bodies since M155.
+        _freeWorkName('Work Plane', {for (final w in p.workPlanes) w.name}),
+        p.nextSeq(),
+        kind,
+        def,
+        frame,
+        base: base,
+        offset: offset,
+        axisAt: axisAt,
+        axisDir: axisDir,
+        angle: angle);
     p.workPlanes.add(wp);
     p.dirty = true;
     workPlaneArm = null;
@@ -4247,6 +4564,479 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M217: Delete Face and Direct Edit ----------------------------------
+
+  /// The open Delete Face / Direct Edit session, or null.
+  ///
+  /// One session type for both commands, exactly as [EdgeFeatureSession] serves
+  /// fillet and chamfer: they collect the same thing (a face set on one body)
+  /// and differ only in what they do with it.
+  FaceEditSession? faceEdit;
+
+  /// True while the viewport should offer FACES as pick targets.
+  bool get pickingFaces => faceEdit != null;
+
+  void openDeleteFace() => _openFaceEdit(FaceEditKind.delete);
+  void openDirectMove() => _openFaceEdit(FaceEditKind.move);
+  void openDirectSize() => _openFaceEdit(FaceEditKind.size);
+  void openDirectScale() => _openFaceEdit(FaceEditKind.scale);
+
+  void _openFaceEdit(FaceEditKind kind) {
+    final p = currentPart;
+    if (p == null) return;
+    // Toggling, like every other part command since M210.
+    if (faceEdit?.kind == kind) return cancelFaceEdit();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    if (!p.hasSolid) {
+      toast('${faceEditLabel(kind)} needs a solid body first.');
+      return;
+    }
+    faceEdit = FaceEditSession(kind);
+    final verb = kind == FaceEditKind.delete ? 'delete' : 'move';
+    toast(kind == FaceEditKind.scale
+        ? 'Set the scale factor, then apply.'
+        : 'Select the faces to $verb.');
+    notifyListeners();
+  }
+
+  void cancelFaceEdit() {
+    if (faceEdit == null) return;
+    faceEdit = null;
+    notifyListeners();
+  }
+
+  /// The viewport reports a tapped face. Toggles it in the set, like the edge
+  /// pick — tapping a selected face again removes it, which is the only way to
+  /// undo a mis-pick without restarting the command.
+  void toggleFacePick(FacePick sel, int meshIndex) {
+    final s = faceEdit;
+    if (s == null) return;
+    final at = s.meshIndices.indexOf(meshIndex);
+    if (at >= 0) {
+      s.meshIndices.removeAt(at);
+      s.faces.removeAt(at);
+    } else {
+      s.meshIndices.add(meshIndex);
+      s.faces.add(sel);
+    }
+    notifyListeners();
+  }
+
+  void setFaceEditValue({double? dx, double? dy, double? dz, double? factor}) {
+    final s = faceEdit;
+    if (s == null) return;
+    if (dx != null) s.dx = dx;
+    if (dy != null) s.dy = dy;
+    if (dz != null) s.dz = dz;
+    if (factor != null) s.factor = factor;
+    notifyListeners();
+  }
+
+  /// Commits the session as a real timeline feature.
+  ///
+  /// A feature and not an in-place edit of the solid, deliberately: everything
+  /// else in this app rebuilds from the timeline, and a face edit that lived
+  /// outside it would be silently discarded by the next recompute — which is
+  /// the worst possible failure, because the model would look right until it
+  /// did not.
+  Future<bool> applyFaceEdit() async {
+    final p = currentPart;
+    final s = faceEdit;
+    if (p == null || s == null) return false;
+    final scale = s.kind == FaceEditKind.scale;
+    if (s.faces.isEmpty && !scale) {
+      toast('Select at least one face.');
+      return false;
+    }
+    final host = lastSolidFeature(p);
+    if (host == null) {
+      toast('Nothing to edit — build a body first.');
+      return false;
+    }
+    final f = s.kind == FaceEditKind.delete
+        ? DeleteFaceFeature(
+            name: p.nextFeatureName('Delete Face'),
+            bodyName: host.bodyName,
+            faces: s.faces)
+        : DirectEditFeature(
+            name: p.nextFeatureName(scale ? 'Scale' : 'Direct'),
+            bodyName: host.bodyName,
+            faces: s.faces,
+            op: switch (s.kind) {
+              FaceEditKind.move => DirectOp.move,
+              FaceEditKind.size => DirectOp.size,
+              _ => DirectOp.scale,
+            },
+            dx: s.dx,
+            dy: s.dy,
+            dz: s.dz,
+            factor: s.factor);
+    f.seq = p.nextSeq();
+    p.features.add(f);
+    final ok = recomputeFeature(p, f, partKernel, base: host.solid);
+    if (!ok) {
+      // A refusal must not leave a sick feature in the timeline: the user
+      // asked for an edit and did not get one, so the timeline should look
+      // exactly as it did before they asked.
+      p.features.remove(f);
+      toast('${f.typeLabel}: ${f.computeError ?? partKernel.lastError}');
+      notifyListeners();
+      return false;
+    }
+    faceEdit = null;
+    p.dirty = true;
+    if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    if (f.lostFaces > 0) {
+      toast('${f.name}: ${f.lostFaces} selected face(s) no longer exist.');
+    }
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
+  // ---- M215: work axes and work points ------------------------------------
+  //
+  // One command shape for both, because Inventor's are the same shape: arm a
+  // method, collect picks, and the moment the picks determine an answer, build
+  // it. The geometry lives in work_features.dart; everything here is the
+  // session state around it.
+
+  /// Which Work Axis method is armed, or null.
+  WorkAxisMethod? workAxisArm;
+
+  /// Which Work Point method is armed, or null. At most one of these two and
+  /// [workPlaneArm] is ever set — arming any of them cancels the others,
+  /// because three commands competing for the same tap is not a UI.
+  WorkPointMethod? workPointArm;
+
+  /// M223 — which pick-only Work PLANE method is armed, or null.
+  ///
+  /// Separate from [workPlaneArm], which drives Offset and Midplane: those two
+  /// are not pick-only (Offset is a drag with a live distance and an editable
+  /// base) and they collect PlaneFrames rather than WorkRefs. Sharing one field
+  /// would mean one of the two flows pretending to be the other; sharing the
+  /// PICK path, which is what actually matters, costs nothing.
+  WorkPlaneMethod? workPlaneMethodArm;
+
+  /// Picks collected so far for the armed command.
+  final List<WorkRef> _wfPicks = [];
+
+  /// True while a work AXIS or POINT command wants geometry. The viewport
+  /// reads this to offer faces, edges, vertices and existing work features as
+  /// hover targets — a superset of [pickPlane], which only ever wanted planes.
+  bool get pickWorkGeometry =>
+      workAxisArm != null || workPointArm != null || workPlaneMethodArm != null;
+
+  /// The prompt currently shown for the armed command, or '' when none is.
+  String workFeaturePrompt = '';
+
+  /// Selected work axis / point, for the browser highlight and the 3D
+  /// highlight. Mirrors [selectedWorkPlane].
+  WorkAxis? selectedWorkAxis;
+  WorkPoint? selectedWorkPoint;
+
+  void selectWorkAxis(WorkAxis? a) {
+    if (identical(selectedWorkAxis, a)) return;
+    selectedWorkAxis = a;
+    if (a != null) {
+      selectedWorkPoint = null;
+      selectWorkPlane(null);
+    }
+    notifyListeners();
+  }
+
+  void selectWorkPoint(WorkPoint? pt) {
+    if (identical(selectedWorkPoint, pt)) return;
+    selectedWorkPoint = pt;
+    if (pt != null) {
+      selectedWorkAxis = null;
+      selectWorkPlane(null);
+    }
+    notifyListeners();
+  }
+
+  /// Arm Work Axis with [method]. Re-arming the same method cancels, so every
+  /// ribbon entry is a toggle — the same contract [startWorkPlane] has.
+  void startWorkAxis(WorkAxisMethod method) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workAxisArm == method) return cancelWorkFeature();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    workAxisArm = method;
+    _armWorkFeature(p, workAxisPrompt(method, 0));
+  }
+
+  void startWorkPoint(WorkPointMethod method) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workPointArm == method) return cancelWorkFeature();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    workPointArm = method;
+    _armWorkFeature(p, workPointPrompt(method, 0));
+  }
+
+  /// M223 — arm one of the pick-only Work Plane methods. Same toggle contract
+  /// as [startWorkAxis]: the same entry twice cancels.
+  void startWorkPlaneMethod(WorkPlaneMethod method) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workPlaneMethodArm == method) return cancelWorkFeature();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    workPlaneMethodArm = method;
+    _armWorkFeature(p, workPlanePrompt(method, 0));
+  }
+
+  void _armWorkFeature(PartModel p, String prompt) {
+    _wfPicks.clear();
+    workFeaturePrompt = prompt;
+    // The origin planes, axes and centre point are offered for the duration,
+    // exactly as the sketch and work-plane flows do. Without them an empty
+    // part has nothing to pick at all, and an axis through the origin point
+    // is one of the commonest things you want on a part that is still empty.
+    _wfOriginAutoShown = !p.hasSolid;
+    if (_wfOriginAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+      p.vis['x'] = p.vis['y'] = p.vis['z'] = p.vis['cp'] = true;
+    }
+    toast(prompt);
+    notifyListeners();
+  }
+
+  bool _wfOriginAutoShown = false;
+
+  void cancelWorkFeature() {
+    if (workAxisArm == null &&
+        workPointArm == null &&
+        workPlaneMethodArm == null) {
+      return;
+    }
+    workAxisArm = null;
+    workPointArm = null;
+    workPlaneMethodArm = null;
+    _wfPicks.clear();
+    workFeaturePrompt = '';
+    final p = currentPart;
+    if (p != null && _wfOriginAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+      p.vis['x'] = p.vis['y'] = p.vis['z'] = p.vis['cp'] = false;
+    }
+    _wfOriginAutoShown = false;
+    notifyListeners();
+  }
+
+  /// How many picks the armed command has taken. The viewport shows this so
+  /// a two-input method does not look identical to a one-input one.
+  int get workFeaturePickCount => _wfPicks.length;
+
+  /// The viewport reports one picked entity. Returns true when it was taken.
+  ///
+  /// Three outcomes, all of them visible to the user:
+  ///   complete  -> the feature is created and the command disarms
+  ///   needMore  -> the pick is kept and the prompt advances
+  ///   rejected  -> the pick is DROPPED and the command stays armed
+  ///
+  /// The last one is the one that matters: a mis-tap costs you that tap and
+  /// nothing else. Making the user restart from the ribbon after picking a
+  /// parallel face is the kind of small cruelty that makes a tool feel
+  /// hostile — the same rule the midplane flow already follows.
+  bool workFeaturePick(WorkRef ref) {
+    final p = currentPart;
+    if (p == null) return false;
+    final axisM = workAxisArm;
+    final pointM = workPointArm;
+    final planeM = workPlaneMethodArm;
+    if (axisM == null && pointM == null && planeM == null) return false;
+
+    _wfPicks.add(ref);
+    if (planeM != null) {
+      final r = solveWorkPlane(planeM, _wfPicks, angleDeg: workPlaneAngle);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitConstructedWorkPlane(p, r.solution!, planeM, _wfPicks);
+        return true;
+      }
+      return _wfPending(r.outcome, r.message);
+    }
+    if (axisM != null) {
+      final r = solveWorkAxis(axisM, _wfPicks);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitWorkAxis(p, r.solution!);
+        return true;
+      }
+      return _wfPending(r.outcome, r.message);
+    }
+    final r = solveWorkPoint(pointM!, _wfPicks);
+    if (r.outcome == WorkPickOutcome.complete) {
+      _commitWorkPoint(p, r.solution!,
+          grounded: pointM == WorkPointMethod.grounded);
+      return true;
+    }
+    return _wfPending(r.outcome, r.message);
+  }
+
+  /// The two NON-committing outcomes, which are identical for axes and
+  /// points: keep the pick and advance the prompt, or drop it and say why.
+  bool _wfPending(WorkPickOutcome outcome, String message) {
+    final kept = outcome == WorkPickOutcome.needMore;
+    if (kept) {
+      workFeaturePrompt = message;
+    } else {
+      _wfPicks.removeLast();
+    }
+    toast(message);
+    notifyListeners();
+    return kept;
+  }
+
+  /// M223 — a work plane built from picks. Goes through the same
+  /// [_commitWorkPlane] as Offset and Midplane, so naming, the browser row,
+  /// the log line and the save are one implementation.
+  void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s,
+      [WorkPlaneMethod? method, List<WorkRef> picks = const []]) {
+    // M229 — an ANGLE plane keeps what it was made from, so the one number it
+    // has stays editable. Every other method bakes, and says so: there is
+    // nothing to re-type on a plane through three points.
+    if (method == WorkPlaneMethod.angleToPlaneAroundEdge && picks.isNotEmpty) {
+      final base = picks.firstWhere((r) => r.hasPlane, orElse: () => picks.first);
+      final edge = picks.firstWhere(
+          (r) => !identical(r, base) && r.hasLine,
+          orElse: () => base);
+      if (base.hasPlane && edge.hasLine && !identical(base, edge)) {
+        _commitWorkPlane(
+          p,
+          WorkPlaneKind.angle,
+          workPlaneFrameAt(s.at, s.n),
+          s.def,
+          base: workPlaneFrameAt(base.planeAt!, base.planeNormal!),
+          axisAt: edge.lineAt!,
+          axisDir: edge.lineDir!,
+          angle: workPlaneAngle,
+        );
+        _finishWorkFeature(p);
+        // The field opens on it straight away — dynamic input, M169's order.
+        selectWorkPlane(p.workPlanes.last);
+        workPlaneOffsetEditing = true;
+        notifyListeners();
+        return;
+      }
+    }
+    _commitWorkPlane(p, WorkPlaneKind.constructed,
+        workPlaneFrameAt(s.at, s.n), s.def);
+    _finishWorkFeature(p);
+  }
+
+  void _commitWorkAxis(PartModel p, WorkAxisSolution s) {
+    final a = WorkAxis(
+        _freeWorkName('Work Axis', {for (final w in p.workAxes) w.name}),
+        p.nextSeq(),
+        s.def,
+        s.at,
+        s.dir);
+    p.workAxes.add(a);
+    p.dirty = true;
+    workAxisArm = null;
+    _finishWorkFeature(p);
+    selectedWorkAxis = a;
+    toast('${a.name}: ${a.def}');
+    Log.i('part', 'work axis "${a.name}" — ${a.def} '
+        'at=(${a.at.x.toStringAsFixed(2)},${a.at.y.toStringAsFixed(2)},'
+        '${a.at.z.toStringAsFixed(2)}) '
+        'dir=(${a.dir.x.toStringAsFixed(4)},${a.dir.y.toStringAsFixed(4)},'
+        '${a.dir.z.toStringAsFixed(4)})');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void _commitWorkPoint(PartModel p, WorkPointSolution s,
+      {bool grounded = false}) {
+    final pt = WorkPoint(
+        _freeWorkName('Work Point', {for (final w in p.workPoints) w.name}),
+        p.nextSeq(),
+        s.def,
+        s.at,
+        grounded: grounded);
+    p.workPoints.add(pt);
+    p.dirty = true;
+    workPointArm = null;
+    _finishWorkFeature(p);
+    selectedWorkPoint = pt;
+    toast('${pt.name}: ${pt.def}');
+    Log.i('part', 'work point "${pt.name}" — ${pt.def} '
+        'at=(${pt.at.x.toStringAsFixed(2)},${pt.at.y.toStringAsFixed(2)},'
+        '${pt.at.z.toStringAsFixed(2)})');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void _finishWorkFeature(PartModel p) {
+    workAxisArm = null;
+    workPointArm = null;
+    workPlaneMethodArm = null;
+    _wfPicks.clear();
+    workFeaturePrompt = '';
+    if (_wfOriginAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+      p.vis['x'] = p.vis['y'] = p.vis['z'] = p.vis['cp'] = false;
+    }
+    _wfOriginAutoShown = false;
+  }
+
+  /// First free "<base>N". Skips names already in use rather than counting the
+  /// list, so deleting Work Axis2 and making another does not produce a second
+  /// Work Axis3 — the same rule [PartModel.peekSolidName] follows for bodies.
+  String _freeWorkName(String base, Set<String> taken) {
+    var n = 1;
+    while (taken.contains('$base$n')) {
+      n++;
+    }
+    return '$base$n';
+  }
+
+  void toggleWorkAxisVisible(WorkAxis a) {
+    a.visible = !a.visible;
+    currentPart?.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void toggleWorkPointVisible(WorkPoint pt) {
+    pt.visible = !pt.visible;
+    currentPart?.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void deleteWorkAxis(WorkAxis a) {
+    final p = currentPart;
+    if (p == null) return;
+    p.workAxes.remove(a);
+    if (identical(selectedWorkAxis, a)) selectedWorkAxis = null;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  void deleteWorkPoint(WorkPoint pt) {
+    final p = currentPart;
+    if (p == null) return;
+    p.workPoints.remove(pt);
+    if (identical(selectedWorkPoint, pt)) selectedWorkPoint = null;
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// Reverses a work axis. See [WorkAxis.flip] for why this exists.
+  void flipWorkAxis(WorkAxis a) {
+    a.flip();
+    currentPart?.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as
   /// [planePicked], but the sketch lives on the face's own frame — Inventor's
   /// sketch-on-face.
@@ -4257,6 +5047,11 @@ class AppState extends ChangeNotifier {
     // inputs here; both are just a PlaneFrame by the time they arrive.
     if (workPlaneArm != null) {
       _workPlaneInput(frame, 'face');
+      return;
+    }
+    // M228 — the split panel asks the same question, so it reads the same pick.
+    if (splitSession != null && splitSession!.frame == null) {
+      _splitPlaneInput(frame, 'Face');
       return;
     }
     pickPlane = false;
@@ -4328,6 +5123,8 @@ class AppState extends ChangeNotifier {
     final cs = p?.sketchByName(name);
     if (p == null || cs == null) return;
     cancelExtrude();
+    cancelHole(); // M225 — the same rule, the other way round
+    cancelCombine();
     // M211 — a sketch on a FACE or a work plane has no origin-plane key, and
     // `orientToPlane` answers every key it does not know with the XY target.
     // Reopening one from the browser therefore aimed the part camera at the
@@ -4387,6 +5184,15 @@ class AppState extends ChangeNotifier {
       openCoil(f);
     } else if (f is PatternFeature) {
       _openPattern(f.mode, f);
+    } else if (f is CombineFeature) {
+      openCombine(f);
+    } else if (f is SplitFeature) {
+      openSplit(f);
+    } else if (f is HoleFeature) {
+      // M226 — without this a Hole row in the browser opened nothing at all:
+      // the feature was reachable to build and unreachable to change, which is
+      // the half-built state this file logs about below.
+      openHole(f);
     } else {
       // Revolve still has no panel; opening the extrude one instead would let
       // the user change a value that belongs to a different feature.
@@ -4404,6 +5210,10 @@ class AppState extends ChangeNotifier {
     if (_toggles3DOff(kind, edit)) return; // M210
     if (currentPart == null) return;
     cancelExtrude();
+    cancelHole(); // M225 — one 3D panel at a time
+    cancelCombine(); // M227 — likewise
+    cancelSplit(); // M228 — likewise
+    _leaveSketchForCommand(); // M221 — an edge pick needs the 3D viewport
     final s = EdgeFeatureSession(kind, editing: edit);
     if (edit is FilletFeature) {
       // One set per DISTINCT radius, preserving first-seen order, so
@@ -4494,6 +5304,32 @@ class AppState extends ChangeNotifier {
     if (edgeChain != null) s.edgeChain = edgeChain;
     _updateEdgeFeaturePreview();
     notifyListeners();
+  }
+
+  /// M230 — every in-flight 3D command, cancelled together.
+  ///
+  /// They all hold references INTO the model: a sketch name, a body name, a
+  /// frame lifted off a face, a list of placements. Every caller of this is a
+  /// moment when that model is about to be replaced or left behind — going
+  /// home, closing or deleting a part, restoring an undo snapshot — and a
+  /// panel that survives one of those comes back pointing at geometry that is
+  /// no longer there.
+  ///
+  /// One list, so the NEXT command is cancelled by construction rather than by
+  /// remembering. All four sites used to name `cancelExtrude` alone, which was
+  /// right when it was the only 3D session and has been quietly wrong since
+  /// M136 added the second.
+  void cancel3DCommands() {
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    cancelCombine();
+    cancelSplit();
+    cancelWorkFeature();
+    cancelWorkPlane();
+    cancelPickBody();
+    cancelPickExtentFace();
   }
 
   void cancelEdgeFeature() {
@@ -4674,6 +5510,464 @@ class AppState extends ChangeNotifier {
   }
 
 
+  // ---- M225 — Hole: Inventor's Modify > Hole, on sketch points ----------
+
+  HoleSession? holeSession;
+
+  /// True while the hole panel wants a sketch point. Read by the viewport for
+  /// the same reason [patternPicking3D] is: one predicate next to escape3D
+  /// beats a flag test spread through the widget.
+  bool get holePicking3D => holeSession != null;
+
+  /// Open the Hole panel — for a new hole, or to [edit] an existing one.
+  void openHole([HoleFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (edit == null && holeSession != null && holeSession!.editing == null) {
+      cancelHole(); // M210's toggle: the same command twice closes it
+      return;
+    }
+    if (p.childSketches.isEmpty) {
+      toast('A hole is placed on sketch points — create a sketch first.');
+      return;
+    }
+    if (edit == null && !p.hasSolid) {
+      toast('A hole needs a body to drill into.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    _leaveSketchForCommand(); // M221 — its picks are 3D picks
+    final s = HoleSession()..editing = edit;
+    if (edit != null) {
+      s
+        ..sketchName = edit.sketchName
+        ..exprDia = edit.exprDia
+        ..exprDepth = edit.exprDepth
+        ..extent = edit.extent
+        ..flip = edit.flip
+        ..type = edit.type
+        ..exprCbDia = edit.exprCbDia
+        ..exprCbDepth = edit.exprCbDepth
+        ..exprCsDia = edit.exprCsDia
+        ..exprCsAngle = edit.exprCsAngle;
+      for (final pl in edit.places) {
+        s.places.add(HolePlace(pl.x, pl.y));
+      }
+    }
+    holeSession = s;
+    toast(s.places.isEmpty
+        ? 'Tap the sketch points the holes go on.'
+        : '${s.places.length} hole(s) — tap a point to add or remove one.');
+    notifyListeners();
+  }
+
+  /// A tap landed on the sketch point [at] of [sketchName]: add it, or take it
+  /// away if it is already there. Same toggle as a profile pick, and for the
+  /// same reason — building up a set must never silently drop one.
+  void holePointPicked(String sketchName, Offset at) {
+    final s = holeSession;
+    if (s == null) return;
+    if (s.sketchName != null && s.sketchName != sketchName) {
+      if (s.places.isNotEmpty) {
+        toast('All holes of one feature come from the same sketch.');
+        return;
+      }
+    }
+    s.sketchName = sketchName;
+    final i = s.places.indexWhere(
+        (pl) => (Offset(pl.x, pl.y) - at).distance < 1e-6);
+    if (i >= 0) {
+      s.places.removeAt(i);
+      if (s.places.isEmpty) s.sketchName = null;
+    } else {
+      s.places.add(HolePlace(at.dx, at.dy));
+    }
+    notifyListeners();
+  }
+
+  void setHole(
+      {String? exprDia,
+      String? exprDepth,
+      FeatureExtent? extent,
+      bool? flip,
+      HoleType? type,
+      String? exprCbDia,
+      String? exprCbDepth,
+      String? exprCsDia,
+      String? exprCsAngle}) {
+    final s = holeSession;
+    if (s == null) return;
+    if (exprDia != null) s.exprDia = exprDia;
+    if (exprDepth != null) s.exprDepth = exprDepth;
+    if (extent != null) s.extent = extent;
+    if (flip != null) s.flip = flip;
+    if (type != null) s.type = type;
+    if (exprCbDia != null) s.exprCbDia = exprCbDia;
+    if (exprCbDepth != null) s.exprCbDepth = exprCbDepth;
+    if (exprCsDia != null) s.exprCsDia = exprCsDia;
+    if (exprCsAngle != null) s.exprCsAngle = exprCsAngle;
+    notifyListeners();
+  }
+
+  void cancelHole() {
+    if (holeSession == null) return;
+    holeSession = null;
+    notifyListeners();
+  }
+
+  /// Build (or update) the feature and rebuild the part.
+  Future<bool> applyHole() async {
+    final s = holeSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    if (s.places.isEmpty || s.sketchName == null) {
+      toast('Tap the sketch points the holes go on.');
+      return false;
+    }
+    final dia = parseValueExpr(s.exprDia);
+    if (dia == null || !(dia > 0)) {
+      toast('Diameter must be a number greater than 0.');
+      return false;
+    }
+    final depth = parseValueExpr(s.exprDepth) ?? 0;
+    if (s.extent == FeatureExtent.distance && !(depth > 0)) {
+      toast('Depth must be a number greater than 0.');
+      return false;
+    }
+    final edit = s.editing;
+    // M226 — the mouth's numbers, parsed with the same refusal as the rest:
+    // a hole that silently drills a 0 mm counterbore is a wrong part.
+    final cbDia = parseValueExpr(s.exprCbDia) ?? 0;
+    final cbDepth = parseValueExpr(s.exprCbDepth) ?? 0;
+    final csDia = parseValueExpr(s.exprCsDia) ?? 0;
+    final csAngle = parseValueExpr(s.exprCsAngle) ?? 0;
+    if ((s.type == HoleType.counterbore || s.type == HoleType.spotface) &&
+        !(cbDia > dia && cbDepth > 0)) {
+      toast('The ${holeTypeLabel(s.type).toLowerCase()} must be wider than '
+          'the hole and deeper than 0.');
+      return false;
+    }
+    if (s.type == HoleType.countersink &&
+        !(csDia > dia && csAngle > 0 && csAngle < 180)) {
+      toast('The countersink must be wider than the hole, with an angle '
+          'between 0 and 180 deg.');
+      return false;
+    }
+    final f = HoleFeature(
+      name: edit?.name ?? p.nextFeatureName('Hole'),
+      bodyName: edit?.bodyName ??
+          (p.features.isEmpty ? p.nextSolidName() : p.features.last.bodyName),
+      sketchName: s.sketchName!,
+      places: [for (final pl in s.places) HolePlace(pl.x, pl.y)],
+      dia: dia,
+      depth: depth,
+      exprDia: s.exprDia,
+      exprDepth: s.exprDepth,
+      extent: s.extent,
+      flip: s.flip,
+      type: s.type,
+      cbDia: cbDia,
+      cbDepth: cbDepth,
+      exprCbDia: s.exprCbDia,
+      exprCbDepth: s.exprCbDepth,
+      csDia: csDia,
+      csAngle: csAngle,
+      exprCsDia: s.exprCsDia,
+      exprCsAngle: s.exprCsAngle,
+    );
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    holeSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    p.dirty = true;
+    Log.i('part',
+        'hole ${edit == null ? "created" : "edited"} ${f.name} '
+        '(${f.bodyName}) places=${f.places.length} dia=${f.dia}');
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
+  // ---- M228 — Split (Trim Solid): trim a body with a plane --------------
+
+  SplitSession? splitSession;
+
+  /// True while the split panel is waiting for its plane. It borrows the plane
+  /// PICK the sketch and work-plane flows use ([pickPlane]), because "a plane
+  /// or a planar face" is the same question in all three.
+  bool get splitPickingPlane => splitSession != null && pickPlane;
+
+  void openSplit([SplitFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (edit == null && splitSession != null && splitSession!.editing == null) {
+      cancelSplit();
+      return;
+    }
+    if (edit == null && !p.hasSolid) {
+      toast('Split trims a body — there is none yet.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    cancelCombine();
+    cancelSplit();
+    _leaveSketchForCommand();
+    final s = SplitSession()..editing = edit;
+    if (edit != null) {
+      s
+        ..frame = edit.frame
+        ..label = edit.label
+        ..flip = edit.flip
+        ..bodyName = edit.bodyName;
+    }
+    splitSession = s;
+    if (s.frame == null) {
+      // The origin planes come out for the duration, exactly as they do for a
+      // sketch: on a part with one body there may be nothing else to pick.
+      pickPlane = true;
+      _planesAutoShown = true;
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+      toast('Select the plane to trim with.');
+    }
+    notifyListeners();
+  }
+
+  /// The split panel's plane arrived — from an origin plane, a work plane or a
+  /// planar face; by the time it is here they are all just a frame.
+  void _splitPlaneInput(PlaneFrame f, String label) {
+    final s = splitSession;
+    if (s == null) return;
+    s.frame = f;
+    s.label = label;
+    pickPlane = false;
+    final p = currentPart;
+    if (p != null && _planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
+    toast('Trimming with $label. OK keeps the side that is left.');
+    notifyListeners();
+  }
+
+  void repickSplitPlane() {
+    final s = splitSession;
+    final p = currentPart;
+    if (s == null || p == null) return;
+    s.frame = null;
+    pickPlane = true;
+    _planesAutoShown = true;
+    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    toast('Select the plane to trim with.');
+    notifyListeners();
+  }
+
+  void setSplit({bool? flip, String? bodyName}) {
+    final s = splitSession;
+    if (s == null) return;
+    if (flip != null) s.flip = flip;
+    if (bodyName != null) s.bodyName = bodyName;
+    notifyListeners();
+  }
+
+  void cancelSplit() {
+    if (splitSession == null) return;
+    final p = currentPart;
+    if (pickPlane) {
+      pickPlane = false;
+      if (p != null && _planesAutoShown) {
+        p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+      }
+      _planesAutoShown = false;
+    }
+    splitSession = null;
+    notifyListeners();
+  }
+
+  Future<bool> applySplit() async {
+    final s = splitSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    final fr = s.frame;
+    if (fr == null) {
+      toast('Select the plane to trim with.');
+      return false;
+    }
+    final edit = s.editing;
+    final body = edit?.bodyName ??
+        s.bodyName ??
+        (p.bodyNames.isEmpty ? p.nextSolidName() : p.bodyNames.last);
+    final f = SplitFeature(
+      name: edit?.name ?? p.nextFeatureName('Split'),
+      bodyName: body,
+      frame: fr,
+      label: s.label.isEmpty ? 'Plane' : s.label,
+      flip: s.flip,
+    );
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    splitSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    p.dirty = true;
+    Log.i('part',
+        'split ${edit == null ? "created" : "edited"} ${f.name} '
+        'with ${f.label}${f.flip ? " (flipped)" : ""} -> ${f.bodyName}');
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
+  // ---- M227 — Combine: a boolean between two bodies ---------------------
+
+  CombineSession? combineSession;
+
+  /// True while the combine panel wants a BODY.
+  bool get combinePicking3D => combineSession != null;
+
+  void openCombine([CombineFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (edit == null &&
+        combineSession != null &&
+        combineSession!.editing == null) {
+      cancelCombine();
+      return;
+    }
+    if (edit == null && p.bodyNames.length < 2) {
+      toast('Combine needs two bodies — it joins, cuts or intersects one '
+          'with another.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    cancelCombine();
+    _leaveSketchForCommand();
+    final s = CombineSession()..editing = edit;
+    if (edit != null) {
+      s
+        ..baseBody = edit.bodyName
+        ..op = edit.op
+        ..keepTool = edit.keepTool;
+      s.tools.addAll(edit.tools);
+    }
+    combineSession = s;
+    toast(s.baseBody == null
+        ? 'Tap the body to KEEP.'
+        : 'Tap the bodies to combine into ${s.baseBody}.');
+    notifyListeners();
+  }
+
+  /// A tap landed on [bodyName]. The FIRST pick is the base — Inventor asks
+  /// for it first, and it is the one thing here that is not a toggle: tapping
+  /// the base again would leave the panel with nothing to keep.
+  void combineBodyPicked(String bodyName) {
+    final s = combineSession;
+    if (s == null) return;
+    if (s.baseBody == null) {
+      s.baseBody = bodyName;
+      toast('Tap the bodies to combine into $bodyName.');
+      notifyListeners();
+      return;
+    }
+    if (bodyName == s.baseBody) {
+      toast('That is the base body — pick another one to combine with it.');
+      return;
+    }
+    if (!s.tools.remove(bodyName)) s.tools.add(bodyName);
+    notifyListeners();
+  }
+
+  void setCombine({String? op, bool? keepTool, String? baseBody}) {
+    final s = combineSession;
+    if (s == null) return;
+    if (op != null) s.op = op;
+    if (keepTool != null) s.keepTool = keepTool;
+    if (baseBody != null) {
+      s.baseBody = baseBody;
+      s.tools.remove(baseBody);
+    }
+    notifyListeners();
+  }
+
+  void cancelCombine() {
+    if (combineSession == null) return;
+    combineSession = null;
+    notifyListeners();
+  }
+
+  Future<bool> applyCombine() async {
+    final s = combineSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    if (s.baseBody == null || s.tools.isEmpty) {
+      toast('Pick the body to keep, then the bodies to combine into it.');
+      return false;
+    }
+    final edit = s.editing;
+    final f = CombineFeature(
+      name: edit?.name ?? p.nextFeatureName('Combine'),
+      bodyName: s.baseBody!,
+      tools: [...s.tools],
+      op: s.op,
+      keepTool: s.keepTool,
+    );
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    combineSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    p.dirty = true;
+    Log.i('part',
+        'combine ${edit == null ? "created" : "edited"} ${f.name} '
+        '${f.op} ${f.tools.join(",")} -> ${f.bodyName}'
+        '${f.keepTool ? " (keep)" : ""}');
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
   // ---- M212 — the PART patterns: Rectangular / Circular / Sketch Driven /
   //             Mirror. Inventor's Pattern panel, in 3D. ------------------
   //
@@ -4717,6 +6011,10 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     cancelEdgeFeature();
     cancelPattern();
+    cancelHole(); // M225 — one 3D panel at a time
+    cancelCombine(); // M227 — likewise
+    cancelSplit(); // M228 — likewise
+    _leaveSketchForCommand(); // M221 — its picks are 3D picks too
     final s = PartPatternSession(kind, editing: edit);
     if (edit != null) {
       s.readFrom(edit);
@@ -5681,6 +6979,23 @@ class AppState extends ChangeNotifier {
     _openExtrudeCore(edit);
   }
 
+  /// A 3D command takes the viewport back from an open sketch, and returns the
+  /// name of the sketch it closed (M221).
+  ///
+  /// With a child sketch open, `Viewport2D` is laid over the whole viewport
+  /// (main.dart) and there is no path from a tap on it to a profile, an edge or
+  /// a face — it is the sketcher, and it knows nothing about them. So the panel
+  /// came up over a surface that swallowed every pick: not one profile could be
+  /// selected, which is half of the reported "I cant select the inner circle".
+  /// [openChildSketch] has always done the mirror of this (it cancels an open
+  /// extrude); only this direction was missing. Inventor finishes the sketch
+  /// the same way when a part command starts.
+  String? _leaveSketchForCommand() {
+    final open = activeChild?.name;
+    if (open != null) finishPartSketch();
+    return open;
+  }
+
   /// The opener without the toggle, for the panels that BUILD on the extrude
   /// session (revolve, sweep, loft, coil): they run their own toggle first and
   /// must not be closed by this one on the way in.
@@ -5692,6 +7007,10 @@ class AppState extends ChangeNotifier {
       return;
     }
     cancelExtrude();
+    cancelHole(); // M225 — one 3D panel at a time
+    cancelCombine(); // M227 — likewise
+    cancelSplit(); // M228 — likewise
+    final wasOpen = _leaveSketchForCommand();
     final s = ExtrudeSession();
     if (edit != null) {
       s
@@ -5720,11 +7039,15 @@ class AppState extends ChangeNotifier {
         s.output = 'join';
         s.bodyName = bodies.last;
       }
-      final cs = p.childSketches.last;
+      // The sketch the command was started FROM, if there was one: that is the
+      // profile the user is looking at. Only with no sketch open does "the
+      // newest one" remain the best guess.
+      final cs = (wasOpen == null ? null : p.sketchByName(wasOpen)) ??
+          p.childSketches.last;
       s.sketchName = cs.model.name;
       final regs = sessionRegions(cs);
       if (regs.length == 1) {
-        final ip = interiorPointOf(regs.first.outer);
+        final ip = regionAnchor(regs.first);
         s.profiles.add(ProfileSel(ip.dx, ip.dy, regs.first.outer.area));
         s.autoPicked = true; // an explicit pick elsewhere replaces this
       }
@@ -5752,9 +7075,22 @@ class AppState extends ChangeNotifier {
     }
     s.autoPicked = false;
     s.sketchName = sketchName;
-    final ip = interiorPointOf(r.outer);
-    final i =
-        s.profiles.indexWhere((x) => (Offset(x.ax, x.ay) - ip).distance < 1e-6);
+    // M221 — the region's own anchor, not its outer loop's: for a ring the
+    // loop's interior point is the middle of the hole, which is also the disc's
+    // anchor, so "is this one already selected?" answered yes for the OTHER
+    // region and the second of the two could never be picked.
+    final ip = regionAnchor(r);
+    // A selection made before this rule (or loaded from such a document) still
+    // carries the old anchor, so compare through the region each one resolves
+    // to rather than through the stored numbers.
+    final cs = currentPart?.sketchByName(sketchName);
+    final regions = cs == null ? const <ProfileRegion>[] : sessionRegions(cs);
+    final i = s.profiles.indexWhere((x) {
+      final m = regions.isEmpty ? null : regionForSel(regions, x);
+      return m == null
+          ? (Offset(x.ax, x.ay) - ip).distance < 1e-6
+          : (regionAnchor(m) - ip).distance < 1e-6;
+    });
     if (remove) {
       if (i >= 0) s.profiles.removeAt(i);
     } else if (i < 0) {
@@ -6317,6 +7653,32 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// M218 — true while ANY 3D command owns the next pick in the viewport.
+  ///
+  /// The long-press context menu asks this before it opens: a press during a
+  /// plane pick, a profile pick, an edge / face / work-geometry pick or a
+  /// pattern selector belongs to THAT command, and a menu on top of it is a
+  /// trap rather than a shortcut.
+  ///
+  /// One predicate here rather than a dozen flags at the call site, for the
+  /// same reason [escape3D] lives here: the list of 3D modes is knowledge
+  /// this class already has to keep straight, and a widget that copied it
+  /// would go stale the first time a command was added.
+  bool get picking3D =>
+      pickPlane ||
+      extrudeSession != null ||
+      edgeSession != null ||
+      patternSession != null ||
+      workPlaneArm != null ||
+      pickingEdges ||
+      pickingFaces ||
+      pickingExtentFace ||
+      pickingBody ||
+      pickingSweepPath ||
+      pickingLoftSections ||
+      pickingRevolveAxis ||
+      pickWorkGeometry;
+
   /// Esc in the 3D viewport: session first, then an armed plane pick.
   void escape3D() {
     // Innermost mode first: Esc during a pick backs OUT of the pick, it does
@@ -6329,6 +7691,13 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } else if (patternSession != null) {
       cancelPattern();
+    } else if (holeSession != null) {
+      // M225 — the hole panel owns its point picking, so one Esc closes both.
+      cancelHole();
+    } else if (combineSession != null) {
+      cancelCombine(); // M227 — same shape
+    } else if (splitSession != null) {
+      cancelSplit(); // M228 — same shape, and it puts the origin planes back
     } else if (pickingEdges && edgeSession == null) {
       cancelPickEdges();
     } else if (edgeSession != null) {
@@ -6440,12 +7809,10 @@ class AppState extends ChangeNotifier {
     // 0. In-flight 3D sessions hold references into the model that is about
     //    to be replaced wholesale — cancel them first, exactly like the 2D
     //    undo cancels every in-flight pick before restoring.
-    cancelExtrude();
-    edgeSession?.disposePreview();
-    edgeSession = null;
-    cancelPickEdges();
-    cancelPickBody();
-    cancelPickExtentFace();
+    // M230 — every 3D session, not the three that happened to be listed. The
+    // comment above has been right since M182; the list under it went stale
+    // four commands ago.
+    cancel3DCommands();
     cancelPlanePick();
     pickingSweepPath = false;
     pickingLoftSections = false;
@@ -9852,9 +11219,7 @@ class AppState extends ChangeNotifier {
             final g1 = s.geometry[conEnts[0]];
             final g2 = s.geometry[conEnts[1]];
             bool round(int t) => t == Geo.arc || t == Geo.circle;
-            bool spl(Geo g) =>
-                g.type == Geo.polyline &&
-                (g.spline == Geo.splineCv || g.spline == Geo.splineFit);
+            bool spl(Geo g) => g.isFreeSpline;
             bool plainPoly(Geo g) =>
                 g.type == Geo.polyline && g.spline == Geo.straight;
             if (!round(g1.type) && !round(g2.type) && !spl(g1) && !spl(g2)) {
@@ -10572,14 +11937,10 @@ class AppState extends ChangeNotifier {
 
   /// name -> current base value (mm resp. deg) of every named dimension AND
   /// every user parameter (M43: Inventors fx table).
-  Map<String, double> paramTable(SketchModel s) => {
-        for (final c in s.constraints)
-          if (c.type == CType.dimension &&
-              c.paramName != null &&
-              c.value != null)
-            c.paramName!: c.value!,
-        for (final u in s.userParams) u.name: u.value,
-      };
+  /// M220 — the table itself moved to text_geometry.dart: deriving a text's
+  /// GEOMETRY needs the same rendered template the label used to need, and
+  /// that code has no AppState. One implementation, forwarded here.
+  Map<String, double> paramTable(SketchModel s) => sketchParamTable(s);
 
   Constraint? _dimByName(SketchModel s, String name) {
     for (final c in s.constraints) {
@@ -11008,12 +12369,17 @@ class AppState extends ChangeNotifier {
   /// editor on a brand-new text that is only kept if the user commits it
   /// (the commit path checkpoints then).
   SketchText addText(Offset pos, String template,
-      {double height = 8, String font = 'Roboto', bool placeholder = false}) {
+      {double height = 8, String? font, bool placeholder = false}) {
     final s = current!;
     final t = SketchText(template, pos.dx, pos.dy,
-        height: height, font: font, layer: editingLayer ?? kDefaultLayer);
+        height: height,
+        font: vectorFontName(font ?? kDefaultTextFont),
+        layer: editingLayer ?? kDefaultLayer);
     s.texts.add(t);
     s.dirty = true;
+    // M220 — a text is a profile now, so the regions an open extrude session
+    // is offering are out of date the moment one appears, moves or changes.
+    _regionCache.clear();
     if (!placeholder) s.checkpoint();
     notifyListeners();
     return t;
@@ -11023,8 +12389,9 @@ class AppState extends ChangeNotifier {
       {String? font}) {
     t.template = template;
     t.height = height;
-    if (font != null) t.font = font;
+    if (font != null) t.font = vectorFontName(font);
     current?.dirty = true;
+    _regionCache.clear();
     current?.checkpoint();
     notifyListeners();
   }
@@ -11032,6 +12399,7 @@ class AppState extends ChangeNotifier {
   void moveText(SketchText t, Offset pos, {bool commit = false}) {
     t.x = pos.dx;
     t.y = pos.dy;
+    _regionCache.clear();
     if (commit) {
       current?.dirty = true;
       current?.checkpoint();
@@ -11042,23 +12410,28 @@ class AppState extends ChangeNotifier {
   void deleteText(SketchText t) {
     current?.texts.remove(t);
     current?.dirty = true;
+    _regionCache.clear();
     current?.checkpoint();
     notifyListeners();
   }
 
   /// Renders [t]'s template against the current parameter table.
-  String textDisplay(SketchModel s, SketchText t) =>
-      renderTemplate(t.template, paramTable(s));
+  String textDisplay(SketchModel s, SketchText t) => renderedText(s, t);
 
   /// M45 — the world-space bounding rectangle of a text, sized automatically
-  /// from its rendered content, font and height. [measure] turns the rendered
-  /// string + cap height into a (width, height) in mm; the viewport passes a
-  /// TextPainter-backed measurer (font metrics live in the widget layer).
-  /// The anchor (t.x, t.y) is the LOWER-LEFT of the text, so the rect spans
-  /// up and to the right.
+  /// from its rendered content, font and height. The anchor (t.x, t.y) is the
+  /// LOWER-LEFT of the text, so the rect spans up and to the right.
+  ///
+  /// M220 — [measure] is no longer required: the box now comes from the same
+  /// outline font the geometry is built from ([measureText2D]), so the dashed
+  /// rectangle and its snap points bound exactly the curves that are drawn,
+  /// exported and extruded. It used to be a TextPainter in the widget layer,
+  /// which is why it had to be injected at all.
   Rect textBoundsWorld(SketchModel s, SketchText t,
-      {required Size Function(SketchText, String) measure}) {
-    final sz = measure(t, textDisplay(s, t));
+      {Size Function(SketchText, String)? measure}) {
+    final sz = measure == null
+        ? measureText2D(s, t)
+        : measure(t, textDisplay(s, t));
     final pad = t.height * 0.25; // small breathing room, scales with size
     return Rect.fromLTWH(
         t.x - pad, t.y - pad, sz.width + 2 * pad, sz.height + 2 * pad);
@@ -11069,7 +12442,7 @@ class AppState extends ChangeNotifier {
   /// texts on the layer being edited contribute (their rect is only shown
   /// there). [measure] as in [textBoundsWorld].
   List<Offset> textSnapPoints(SketchModel s,
-      {required Size Function(SketchText, String) measure}) {
+      {Size Function(SketchText, String)? measure}) {
     final pts = <Offset>[];
     for (final t in s.texts) {
       if (inEditMode && t.layer != editingLayer) continue;
@@ -12430,7 +13803,9 @@ class AppState extends ChangeNotifier {
       // same dark radial feel as the mock card thumb
       canvas.drawRect(
           const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
-      final geos = s.geometry;
+      // M220 — the card shows the text too, because the text IS geometry now
+      // (and a thumbnail that omitted half the drawing was never right).
+      final geos = [...s.geometry, ...textGeometry(s)];
       if (geos.isNotEmpty) {
         // fit bbox
         double minx = 1e30, miny = 1e30, maxx = -1e30, maxy = -1e30;
@@ -12601,7 +13976,13 @@ void paintGeo(Canvas canvas, Geo g, Offset Function(double, double) map,
       if (g.isSpline) {
         // A spline is a polyline of control/fit points — draw the smooth curve
         // through/of them, not the control polygon.
-        final curve = splineCurveFor(g);
+        //
+        // M219 — sampled for THIS zoom. A curve is flattened until it is
+        // within a fifth of a pixel of straight ON SCREEN, so it stays smooth
+        // however far in the user zooms and costs nothing when zoomed out.
+        // A model-space sample count cannot do both: whatever it is, some
+        // magnification turns it into a visible polygon.
+        final curve = splineCurveFor(g, tolMm: splineDisplayTol(scale));
         if (curve.length < 2) break;
         final pts = [for (final w in curve) map(w.dx, w.dy)];
         if (cDash) {

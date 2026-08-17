@@ -72,7 +72,16 @@ bool quickCanConfirm(AppState app) {
   return app.extrudeSession != null ||
       app.edgeSession != null ||
       // M212 — the pattern panels have an OK too.
-      app.patternSession != null;
+      app.patternSession != null ||
+      // M225 — and so does the hole panel.
+      app.holeSession != null ||
+    app.combineSession != null ||
+    app.splitSession != null ||
+      // M227 — and the combine panel.
+      app.combineSession != null ||
+    app.splitSession != null ||
+      // M228 — and the split panel.
+      app.splitSession != null;
 }
 
 /// True when Esc would do something: a command is running, ink is waiting, or
@@ -95,6 +104,9 @@ bool quickCancels3D(AppState app) =>
     app.extrudeSession != null ||
     app.edgeSession != null ||
     app.patternSession != null ||
+    app.holeSession != null ||
+    app.combineSession != null ||
+    app.splitSession != null ||
     app.pickingEdges ||
     app.pickingExtentFace ||
     app.pickingBody ||
@@ -282,6 +294,12 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
         app.freehandCommit();
       } else if (app.tool != Tool.none) {
         app.finishVariableTool();
+      } else if (app.holeSession != null) {
+        app.applyHole(); // M225 — the hole panel's OK
+      } else if (app.combineSession != null) {
+        app.applyCombine(); // M227 — the combine panel's OK
+      } else if (app.splitSession != null) {
+        app.applySplit(); // M228 — the split panel's OK
       } else if (app.patternSession != null) {
         app.applyPattern(); // M212 — the pattern panel's OK
       } else if (app.edgeSession != null) {
