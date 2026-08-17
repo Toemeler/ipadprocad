@@ -1979,6 +1979,18 @@ class _Viewport3DState extends State<Viewport3D>
       _patternTap(cam, px);
       return;
     }
+    // M225 — the hole panel wants sketch POINTS, and nothing else may consume
+    // the tap while it is open: a pick field that looks dead is the failure
+    // this file has fixed twice (M210's profile pick, M212's selectors).
+    if (app.holePicking3D) {
+      final hit = _sketchPointAt(cam, px, p);
+      if (hit == null) {
+        app.toast('Tap a sketch POINT — that is where a hole goes.');
+        return;
+      }
+      app.holePointPicked(hit.$1, hit.$2);
+      return;
+    }
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
     if (!app.pickPlane && app.extrudeSession == null) {

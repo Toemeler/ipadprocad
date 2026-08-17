@@ -6869,10 +6869,11 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
 /// faces.
 (List<Offset>?, String?) holeCentresFor(SketchModel sk, List<HolePlace> places) {
   if (places.isEmpty) return (null, 'no hole placed');
-  final pts = <Offset>[];
-  for (final g in sk.geometry) {
-    if (g.isSketchPoint) pts.add(Offset(g.data[0], g.data[1]));
-  }
+  // The SAME rule the sketch-driven pattern uses (M212): a tagged sketch
+  // point, never a circle centre. Two definitions of "a point in this sketch"
+  // is two chances for a hole and a pattern occurrence to disagree about where
+  // they are.
+  final pts = sketchPatternPoints(sk);
   if (pts.isEmpty) {
     return (null, 'no sketch point in "${sk.name}" to place a hole on');
   }

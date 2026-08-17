@@ -778,7 +778,6 @@ class _RibbonState extends State<Ribbon> {
           arrow: false,
           overId: 'ov-modify3d',
           over: () => [
-            OverItem(MO['hole']!, 'Hole', null),
             OverItem(MO['shell']!, 'Shell', null),
             OverItem(MO['draft']!, 'Draft', null),
             OverItem(MO['thread']!, 'Thread', null),
@@ -801,6 +800,11 @@ class _RibbonState extends State<Ribbon> {
               // command waits to be built, not where it stays after it is.
               (MO['deleteface']!, 'Delete Face', app.openDeleteFace,
                   app.faceEdit?.kind == FaceEditKind.delete),
+              // M225 — Hole, the same way: built, so it leaves the ▼. It sat
+              // there as an OverItem with a null onTap, and before M216 as a
+              // full-size button with an empty closure.
+              (MO['hole']!, 'Hole', () => app.openHole(),
+                  app.holeSession != null),
             ]),
             col([
               (MO['direct']!, 'Direct', () => app.openDirectMove()),

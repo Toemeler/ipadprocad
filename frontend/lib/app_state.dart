@@ -835,6 +835,22 @@ class PartPatternSession {
 ///
 /// The name is kept because it appears across main, ribbon, viewport3d and
 /// the tests; [kind] is what actually selects the behaviour.
+/// M225 — the live state of the Hole panel.
+///
+/// Deliberately NOT a variant of [ExtrudeSession], which serves five commands
+/// that all pick PROFILES and differ only in the numbers underneath. A hole
+/// picks POINTS and derives its profile from a diameter; folding it in would
+/// mean every one of those five carrying a placement list it can never use.
+class HoleSession {
+  HoleFeature? editing;
+  String? sketchName;
+  final List<HolePlace> places = [];
+  String exprDia = '6 mm';
+  String exprDepth = '10 mm';
+  FeatureExtent extent = FeatureExtent.distance;
+  bool flip = false;
+}
+
 class ExtrudeSession {
   /// 'extrude' | 'revolve' | 'sweep' | 'loft' | 'coil'.
   ///
@@ -4923,6 +4939,7 @@ class AppState extends ChangeNotifier {
     final cs = p?.sketchByName(name);
     if (p == null || cs == null) return;
     cancelExtrude();
+    cancelHole(); // M225 — the same rule, the other way round
     // M211 — a sketch on a FACE or a work plane has no origin-plane key, and
     // `orientToPlane` answers every key it does not know with the XY target.
     // Reopening one from the browser therefore aimed the part camera at the
@@ -4999,6 +5016,7 @@ class AppState extends ChangeNotifier {
     if (_toggles3DOff(kind, edit)) return; // M210
     if (currentPart == null) return;
     cancelExtrude();
+    cancelHole(); // M225 — one 3D panel at a time
     _leaveSketchForCommand(); // M221 — an edge pick needs the 3D viewport
     final s = EdgeFeatureSession(kind, editing: edit);
     if (edit is FilletFeature) {
@@ -5270,6 +5288,157 @@ class AppState extends ChangeNotifier {
   }
 
 
+  // ---- M225 — Hole: Inventor's Modify > Hole, on sketch points ----------
+
+  HoleSession? holeSession;
+
+  /// True while the hole panel wants a sketch point. Read by the viewport for
+  /// the same reason [patternPicking3D] is: one predicate next to escape3D
+  /// beats a flag test spread through the widget.
+  bool get holePicking3D => holeSession != null;
+
+  /// Open the Hole panel — for a new hole, or to [edit] an existing one.
+  void openHole([HoleFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (edit == null && holeSession != null && holeSession!.editing == null) {
+      cancelHole(); // M210's toggle: the same command twice closes it
+      return;
+    }
+    if (p.childSketches.isEmpty) {
+      toast('A hole is placed on sketch points — create a sketch first.');
+      return;
+    }
+    if (edit == null && !p.hasSolid) {
+      toast('A hole needs a body to drill into.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    _leaveSketchForCommand(); // M221 — its picks are 3D picks
+    final s = HoleSession()..editing = edit;
+    if (edit != null) {
+      s
+        ..sketchName = edit.sketchName
+        ..exprDia = edit.exprDia
+        ..exprDepth = edit.exprDepth
+        ..extent = edit.extent
+        ..flip = edit.flip;
+      for (final pl in edit.places) {
+        s.places.add(HolePlace(pl.x, pl.y));
+      }
+    }
+    holeSession = s;
+    toast(s.places.isEmpty
+        ? 'Tap the sketch points the holes go on.'
+        : '${s.places.length} hole(s) — tap a point to add or remove one.');
+    notifyListeners();
+  }
+
+  /// A tap landed on the sketch point [at] of [sketchName]: add it, or take it
+  /// away if it is already there. Same toggle as a profile pick, and for the
+  /// same reason — building up a set must never silently drop one.
+  void holePointPicked(String sketchName, Offset at) {
+    final s = holeSession;
+    if (s == null) return;
+    if (s.sketchName != null && s.sketchName != sketchName) {
+      if (s.places.isNotEmpty) {
+        toast('All holes of one feature come from the same sketch.');
+        return;
+      }
+    }
+    s.sketchName = sketchName;
+    final i = s.places.indexWhere(
+        (pl) => (Offset(pl.x, pl.y) - at).distance < 1e-6);
+    if (i >= 0) {
+      s.places.removeAt(i);
+      if (s.places.isEmpty) s.sketchName = null;
+    } else {
+      s.places.add(HolePlace(at.dx, at.dy));
+    }
+    notifyListeners();
+  }
+
+  void setHole(
+      {String? exprDia,
+      String? exprDepth,
+      FeatureExtent? extent,
+      bool? flip}) {
+    final s = holeSession;
+    if (s == null) return;
+    if (exprDia != null) s.exprDia = exprDia;
+    if (exprDepth != null) s.exprDepth = exprDepth;
+    if (extent != null) s.extent = extent;
+    if (flip != null) s.flip = flip;
+    notifyListeners();
+  }
+
+  void cancelHole() {
+    if (holeSession == null) return;
+    holeSession = null;
+    notifyListeners();
+  }
+
+  /// Build (or update) the feature and rebuild the part.
+  Future<bool> applyHole() async {
+    final s = holeSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    if (s.places.isEmpty || s.sketchName == null) {
+      toast('Tap the sketch points the holes go on.');
+      return false;
+    }
+    final dia = parseValueExpr(s.exprDia);
+    if (dia == null || !(dia > 0)) {
+      toast('Diameter must be a number greater than 0.');
+      return false;
+    }
+    final depth = parseValueExpr(s.exprDepth) ?? 0;
+    if (s.extent == FeatureExtent.distance && !(depth > 0)) {
+      toast('Depth must be a number greater than 0.');
+      return false;
+    }
+    final edit = s.editing;
+    final f = HoleFeature(
+      name: edit?.name ?? p.nextFeatureName('Hole'),
+      bodyName: edit?.bodyName ??
+          (p.features.isEmpty ? p.nextSolidName() : p.features.last.bodyName),
+      sketchName: s.sketchName!,
+      places: [for (final pl in s.places) HolePlace(pl.x, pl.y)],
+      dia: dia,
+      depth: depth,
+      exprDia: s.exprDia,
+      exprDepth: s.exprDepth,
+      extent: s.extent,
+      flip: s.flip,
+    );
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    holeSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    p.dirty = true;
+    Log.i('part',
+        'hole ${edit == null ? "created" : "edited"} ${f.name} '
+        '(${f.bodyName}) places=${f.places.length} dia=${f.dia}');
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
   // ---- M212 — the PART patterns: Rectangular / Circular / Sketch Driven /
   //             Mirror. Inventor's Pattern panel, in 3D. ------------------
   //
@@ -5313,6 +5482,7 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     cancelEdgeFeature();
     cancelPattern();
+    cancelHole(); // M225 — one 3D panel at a time
     _leaveSketchForCommand(); // M221 — its picks are 3D picks too
     final s = PartPatternSession(kind, editing: edit);
     if (edit != null) {
@@ -6306,6 +6476,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     cancelExtrude();
+    cancelHole(); // M225 — one 3D panel at a time
     final wasOpen = _leaveSketchForCommand();
     final s = ExtrudeSession();
     if (edit != null) {
@@ -6987,6 +7158,9 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } else if (patternSession != null) {
       cancelPattern();
+    } else if (holeSession != null) {
+      // M225 — the hole panel owns its point picking, so one Esc closes both.
+      cancelHole();
     } else if (pickingEdges && edgeSession == null) {
       cancelPickEdges();
     } else if (edgeSession != null) {

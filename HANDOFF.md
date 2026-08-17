@@ -82,13 +82,55 @@ Token NIE in Dateien/.git/config schreiben.
 > dieselben exakten Boegen macht und das Loch eine echte Zylinderflaeche
 > bekommt.
 >
-> **Ehrlicher Stand:** 14 neue Tests (`m225_hole_test.dart`) — was beim Kernel
+> **Ehrlicher Stand:** 13 neue Tests (`m225_hole_test.dart`) — was beim Kernel
 > ankommt (ein Werkzeug je Platzierung, jeder Punkt exakt auf dem Radius), die
 > Lage des Werkzeugs, Flip, Through All, das Mitwandern mit dem Punkt, alle
 > Fehlerwege und der JSON-Roundtrip. Die Punkte entstehen im Test durch das
 > ECHTE Werkzeug (`Tool.point`), nicht von Hand — ein Loch, das nur
-> testgebaute Punkte findet, bewiese nichts. **Panel und Ribbon folgen in
-> (2/2); ohne sie ist der Befehl noch nicht bedienbar.**
+> testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
+> gruen**, analyze 55 Issues / 0 Errors.
+
+> **M225 (2/2) — Hole: der Befehl.**
+>
+> `HoleSession`, das Panel, der Pick und der Commit. Bewusst KEINE Variante
+> von `ExtrudeSession`: die bedient fuenf Befehle, die alle PROFILE picken und
+> sich nur in den Zahlen darunter unterscheiden — ein Loch pickt PUNKTE und
+> leitet sein Profil aus einem Durchmesser ab. Es einzufalten hiesse, allen
+> fuenfen eine Platzierungsliste anzuhaengen, die sie nie benutzen koennen.
+>
+> **Das Panel ist klein, weil das Feature klein ist:** Platzierungen,
+> Durchmesser, Termination (Distance / Through All), Richtung. Eine leere
+> Sektion, die Senkungen oder Gewinde verspraeche, waere genau das tote
+> Bedienelement, das M216 abgeraeumt hat. Chrome und Felder kommen aus
+> `properties_panel.dart` — der Datei, die es gibt, WEIL drei Panels einmal
+> per Kopie gleich aussahen.
+>
+> **Der Pick:** solange das Panel offen ist, gehoert der Tipp ihm
+> (`holePicking3D`, vor allem anderen im `_tap`, wie M212 es fuer die
+> Muster-Selektoren eingefuehrt hat — ein Pickfeld, das tot aussieht, ist der
+> Fehler, den diese Datei zweimal hatte). Getroffen wird ein Skizzenpunkt ueber
+> `_sketchPointAt`, also exakt der Pfad des skizzengesteuerten Musters, und
+> `holeCentresFor` liest dieselbe Liste (`sketchPatternPoints`) — zwei
+> Definitionen von „ein Punkt in dieser Skizze" waeren zwei Gelegenheiten, sich
+> zu widersprechen. Ein zweiter Tipp auf denselben Punkt nimmt ihn wieder weg.
+>
+> **Und die eine Regel, die dabei ueberall hin musste:** ein 3D-Panel
+> schliesst die anderen. Extrude, Fillet, Muster und Hole brechen sich jetzt
+> gegenseitig ab, und `openChildSketch` schliesst das Loch-Panel mit — zwei
+> Panels, die um denselben Tipp konkurrieren, sind keine Bedienung. Esc
+> schliesst Panel und Pick in einem, OK/Cancel der Schnellwerkzeug-Leiste
+> bedienen es mit.
+>
+> **Im Ribbon verlaesst Hole das Klappmenue** und steht neben Chamfer und
+> Delete Face — M217s Regel gilt in beide Richtungen: das Klappmenue ist, wo
+> ein Befehl auf seinen Bau wartet, nicht wo er danach bleibt.
+>
+> **Ehrlicher Stand:** 13 weitere Tests (`m225_hole_command_test.dart`):
+> Toggle, die Ablehnung ohne Koerper, die Uebernahme des Viewports, Esc, die
+> gegenseitige Verdraengung, das Hin und Her beim Punktpicken, der Commit, die
+> Ablehnungen und das Bearbeiten an Ort und Stelle. **Am Geraet nicht
+> nachgeprueft** — und das Panel ist reine Geraeteseite: dass es sitzt, wo es
+> soll, und dass die Tipps ankommen, sagt kein Host-Test.
 
 > **M224 — die drei Tangential-Ebenen: was fehlte, war die SEITE.**
 >
