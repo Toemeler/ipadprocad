@@ -4,15 +4,15 @@
 // and fillet panels use them: three panels that looked alike by copy were the
 // reason that file exists, and a fourth copy would undo it.
 //
-// The panel is deliberately small, because the FEATURE is deliberately small
-// (see HoleFeature): placements, a diameter, and how deep. Counterbore,
-// countersink, threads and the drill-point angle are each a second set of
-// numbers and are not offered — an empty section that promises them would be
-// the dead control M216 spent a commit removing.
+// The panel shows exactly what the FEATURE can do: placements, a diameter, the
+// four mouth shapes (M226) and how deep. Threads and the drill-point angle are
+// each a second set of numbers and are still not offered — an empty section
+// that promised them would be the dead control M216 spent a commit removing.
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
-import '../part_model.dart' show FeatureExtent;
+import '../part_model.dart'
+    show FeatureExtent, HoleType, holeTypeLabel, holeTypeShort;
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
@@ -28,6 +28,10 @@ class HoleDialog extends StatefulWidget {
 class _HoleDialogState extends State<HoleDialog> {
   final _dia = TextEditingController();
   final _depth = TextEditingController();
+  final _cbDia = TextEditingController();
+  final _cbDepth = TextEditingController();
+  final _csDia = TextEditingController();
+  final _csAngle = TextEditingController();
   bool _placeOpen = true, _shapeOpen = true;
   Offset? _pos;
   String? _syncedFor;
@@ -36,6 +40,10 @@ class _HoleDialogState extends State<HoleDialog> {
   void dispose() {
     _dia.dispose();
     _depth.dispose();
+    _cbDia.dispose();
+    _cbDepth.dispose();
+    _csDia.dispose();
+    _csAngle.dispose();
     super.dispose();
   }
 
@@ -47,6 +55,10 @@ class _HoleDialogState extends State<HoleDialog> {
     _syncedFor = id;
     _dia.text = s.exprDia;
     _depth.text = s.exprDepth;
+    _cbDia.text = s.exprCbDia;
+    _cbDepth.text = s.exprCbDepth;
+    _csDia.text = s.exprCsDia;
+    _csAngle.text = s.exprCsAngle;
   }
 
   @override
@@ -58,7 +70,7 @@ class _HoleDialogState extends State<HoleDialog> {
     final n = s.places.length;
     final through = s.extent == FeatureExtent.throughAll;
 
-    const w = 300.0, h = 360.0;
+    const w = 300.0, h = 420.0;
     final vp = MediaQuery.sizeOf(context);
     final pos = _pos ?? DialogDock.spot(vp, const Size(w, h));
     return Positioned(
@@ -129,10 +141,42 @@ class _HoleDialogState extends State<HoleDialog> {
             ]),
             panelSection('Hole', _shapeOpen,
                 () => setState(() => _shapeOpen = !_shapeOpen), [
+              // M226 — Inventor's four shapes. Spotface is drawn like a
+              // counterbore and kept apart because it MEANS something else.
+              panelRow(
+                  'Type',
+                  Row(children: [
+                    for (final t in HoleType.values) ...[
+                      if (t != HoleType.values.first) const SizedBox(width: 4),
+                      _seg(holeTypeShort(t), s.type == t,
+                          () => app.setHole(type: t)),
+                    ],
+                  ])),
               panelRow(
                   'Diameter',
                   panelValueField(_dia, 'mm',
                       (v) => app.setHole(exprDia: v), app: app)),
+              if (s.type == HoleType.counterbore ||
+                  s.type == HoleType.spotface) ...[
+                panelRow(
+                    '${holeTypeLabel(s.type)} ⌀',
+                    panelValueField(_cbDia, 'mm',
+                        (v) => app.setHole(exprCbDia: v), app: app)),
+                panelRow(
+                    '${holeTypeLabel(s.type)} depth',
+                    panelValueField(_cbDepth, 'mm',
+                        (v) => app.setHole(exprCbDepth: v), app: app)),
+              ],
+              if (s.type == HoleType.countersink) ...[
+                panelRow(
+                    'Countersink ⌀',
+                    panelValueField(_csDia, 'mm',
+                        (v) => app.setHole(exprCsDia: v), app: app)),
+                panelRow(
+                    'Angle',
+                    panelValueField(_csAngle, 'deg',
+                        (v) => app.setHole(exprCsAngle: v), app: app)),
+              ],
               panelRow(
                   'Termination',
                   Row(children: [

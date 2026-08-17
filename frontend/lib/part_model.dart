@@ -2056,6 +2056,42 @@ class HolePlace {
       (j['x'] as num?)?.toDouble() ?? 0, (j['y'] as num?)?.toDouble() ?? 0);
 }
 
+/// M226 — Inventor's four hole shapes.
+///
+/// [spotface] is geometrically a [counterbore] and is kept apart anyway,
+/// because it is a different INTENT and the browser should say which one was
+/// asked for: a counterbore sinks a head, a spotface just flattens a boss so a
+/// washer sits square. Inventor draws them the same way and dimensions them
+/// differently, and quietly relabelling one as the other is the kind of small
+/// lie that survives into a drawing.
+enum HoleType { simple, counterbore, spotface, countersink }
+
+String holeTypeLabel(HoleType t) => switch (t) {
+      HoleType.simple => 'Simple',
+      HoleType.counterbore => 'Counterbore',
+      HoleType.spotface => 'Spotface',
+      HoleType.countersink => 'Countersink',
+    };
+
+String holeTypeName(HoleType t) => t.name;
+
+/// Short label for the panel's four-way switch. Not the first N characters of
+/// [holeTypeLabel]: Counterbore and Countersink share their first six, and two
+/// buttons reading the same word is not a choice.
+String holeTypeShort(HoleType t) => switch (t) {
+      HoleType.simple => 'Simple',
+      HoleType.counterbore => "C'bore",
+      HoleType.spotface => 'Spot',
+      HoleType.countersink => "C'sink",
+    };
+
+HoleType holeTypeFrom(String? s) => switch (s) {
+      'counterbore' => HoleType.counterbore,
+      'spotface' => HoleType.spotface,
+      'countersink' => HoleType.countersink,
+      _ => HoleType.simple,
+    };
+
 /// Inventor's **Modify > Hole**, first cut: simple drilled holes on sketch
 /// points.
 ///
@@ -2081,6 +2117,18 @@ class HoleFeature extends PartFeature {
   double dia, depth;
   String exprDia, exprDepth;
 
+  /// M226 — the shape at the mouth of the hole.
+  HoleType type;
+
+  /// Counterbore / spotface: the wider, flat-bottomed pocket at the top.
+  double cbDia, cbDepth;
+  String exprCbDia, exprCbDepth;
+
+  /// Countersink: the cone at the top. [csAngle] is Inventor's INCLUDED angle
+  /// (90 deg by default, which is what a 90 deg countersunk screw needs).
+  double csDia, csAngle;
+  String exprCsDia, exprCsAngle;
+
   /// Only [FeatureExtent.distance] and [FeatureExtent.throughAll] are honoured;
   /// To Next / To Face need a face reference the panel does not offer yet and
   /// are refused rather than silently treated as a distance.
@@ -2102,6 +2150,15 @@ class HoleFeature extends PartFeature {
     this.exprDepth = '10 mm',
     this.extent = FeatureExtent.distance,
     this.flip = false,
+    this.type = HoleType.simple,
+    this.cbDia = 11,
+    this.cbDepth = 6,
+    this.exprCbDia = '11 mm',
+    this.exprCbDepth = '6 mm',
+    this.csDia = 12,
+    this.csAngle = 90,
+    this.exprCsDia = '12 mm',
+    this.exprCsAngle = '90 deg',
     super.visible,
   }) : super(output: 'cut');
 
@@ -2117,7 +2174,8 @@ class HoleFeature extends PartFeature {
 
   @override
   String ownSig() => 'ho|$sketchName|$dia,$depth,'
-      '${featureExtentName(extent)},$flip|'
+      '${featureExtentName(extent)},$flip|${type.name},'
+      '$cbDia,$cbDepth,$csDia,$csAngle|'
       '${places.map((p) => '${p.x}:${p.y}').join(';')}';
 
   @override
@@ -2131,6 +2189,15 @@ class HoleFeature extends PartFeature {
         'exprDepth': exprDepth,
         'extent': featureExtentName(extent),
         'flip': flip,
+        'type': holeTypeName(type),
+        'cbDia': cbDia,
+        'cbDepth': cbDepth,
+        'exprCbDia': exprCbDia,
+        'exprCbDepth': exprCbDepth,
+        'csDia': csDia,
+        'csAngle': csAngle,
+        'exprCsDia': exprCsDia,
+        'exprCsAngle': exprCsAngle,
       };
 
   static HoleFeature fromJson(Map<String, dynamic> j) {
@@ -2148,6 +2215,15 @@ class HoleFeature extends PartFeature {
       exprDepth: j['exprDepth'] as String? ?? '10 mm',
       extent: featureExtentFrom(j['extent'] as String? ?? 'distance'),
       flip: j['flip'] as bool? ?? false,
+      type: holeTypeFrom(j['type'] as String?),
+      cbDia: (j['cbDia'] as num?)?.toDouble() ?? 11,
+      cbDepth: (j['cbDepth'] as num?)?.toDouble() ?? 6,
+      exprCbDia: j['exprCbDia'] as String? ?? '11 mm',
+      exprCbDepth: j['exprCbDepth'] as String? ?? '6 mm',
+      csDia: (j['csDia'] as num?)?.toDouble() ?? 12,
+      csAngle: (j['csAngle'] as num?)?.toDouble() ?? 90,
+      exprCsDia: j['exprCsDia'] as String? ?? '12 mm',
+      exprCsAngle: j['exprCsAngle'] as String? ?? '90 deg',
       visible: j['visible'] as bool? ?? true,
     );
     f.readBaseJson(j);
@@ -6974,14 +7050,84 @@ bool _recomputeHole(
     f.computeError = kernel.lastError;
     return false;
   }
-  final cut = kernel.cutSolids(base, tool);
+  var cut = kernel.cutSolids(base, tool);
   tool.dispose();
   if (cut == null) {
     f.computeError = kernel.lastError;
     return false;
   }
+  // M226 — the shape at the MOUTH, cut as a second tool rather than folded
+  // into the first. Two cuts of simple solids is what OCCT is happiest with,
+  // and it keeps the counterbore's flat bottom and the countersink's cone out
+  // of the profile arithmetic entirely.
+  if (f.type != HoleType.simple) {
+    final (mouth, mErr) = _holeMouthTool(f, centres, r, frame, kernel);
+    if (mouth == null) {
+      cut.dispose();
+      f.computeError = mErr ?? 'the hole mouth could not be built';
+      return false;
+    }
+    final done = kernel.cutSolids(cut, mouth);
+    mouth.dispose();
+    cut.dispose();
+    if (done == null) {
+      f.computeError = kernel.lastError;
+      return false;
+    }
+    cut = done;
+  }
   f.solid = cut;
   return true;
+}
+
+/// The counterbore / spotface pocket or the countersink cone, as ONE tool for
+/// every placement.
+(KernelSolid?, String?) _holeMouthTool(HoleFeature f, List<Offset> centres,
+    double r, PlaneFrame frame, PartKernel kernel) {
+  if (f.type == HoleType.countersink) {
+    final bigR = f.csDia / 2;
+    if (!(bigR > r)) {
+      return (null, 'the countersink must be wider than the hole');
+    }
+    if (!(f.csAngle > 0) || f.csAngle >= 180) {
+      return (null, 'the countersink angle must be between 0 and 180 deg');
+    }
+    // Included angle: the cone's half-angle is what the wall makes with the
+    // axis, so the depth follows from the radius it has to open out by.
+    final half = f.csAngle / 2;
+    final dz = (bigR - r) / math.tan(half * math.pi / 180);
+    if (!(dz > 0) || !dz.isFinite) {
+      return (null, 'the countersink angle leaves it no depth');
+    }
+    // The shim's taper is Inventor's sign: POSITIVE flares outward along the
+    // extrusion. Drilling inwards the tool runs from the small end up to the
+    // face, so it flares; flipped it starts wide at the face and closes, which
+    // is the same cone read the other way.
+    final profileR = f.flip ? bigR : r;
+    final taper = f.flip ? -half : half;
+    final start = f.flip ? 0.0 : -dz;
+    final groups = [
+      for (final c in centres) [holeProfile(c, profileR)]
+    ];
+    final tool = kernel.extrude(groups, dz, taper, frame.mat34(start));
+    return (tool, tool == null ? kernel.lastError : null);
+  }
+  // Counterbore and spotface: the same flat-bottomed pocket.
+  final bigR = f.cbDia / 2;
+  if (!(bigR > r)) {
+    return (null, '${holeTypeLabel(f.type).toLowerCase()} must be wider than '
+        'the hole');
+  }
+  if (!(f.cbDepth > 0)) {
+    return (null, '${holeTypeLabel(f.type).toLowerCase()} depth must be '
+        'greater than 0');
+  }
+  final groups = [
+    for (final c in centres) [holeProfile(c, bigR)]
+  ];
+  final tool = kernel.extrude(
+      groups, f.cbDepth, 0, frame.mat34(f.flip ? 0.0 : -f.cbDepth));
+  return (tool, tool == null ? kernel.lastError : null);
 }
 
 bool _recomputeLoft(PartModel part, LoftFeature f, PartKernel kernel) {

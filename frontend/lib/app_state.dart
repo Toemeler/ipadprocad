@@ -849,6 +849,12 @@ class HoleSession {
   String exprDepth = '10 mm';
   FeatureExtent extent = FeatureExtent.distance;
   bool flip = false;
+  // M226 — the shape at the mouth.
+  HoleType type = HoleType.simple;
+  String exprCbDia = '11 mm';
+  String exprCbDepth = '6 mm';
+  String exprCsDia = '12 mm';
+  String exprCsAngle = '90 deg';
 }
 
 class ExtrudeSession {
@@ -5325,7 +5331,12 @@ class AppState extends ChangeNotifier {
         ..exprDia = edit.exprDia
         ..exprDepth = edit.exprDepth
         ..extent = edit.extent
-        ..flip = edit.flip;
+        ..flip = edit.flip
+        ..type = edit.type
+        ..exprCbDia = edit.exprCbDia
+        ..exprCbDepth = edit.exprCbDepth
+        ..exprCsDia = edit.exprCsDia
+        ..exprCsAngle = edit.exprCsAngle;
       for (final pl in edit.places) {
         s.places.add(HolePlace(pl.x, pl.y));
       }
@@ -5365,13 +5376,23 @@ class AppState extends ChangeNotifier {
       {String? exprDia,
       String? exprDepth,
       FeatureExtent? extent,
-      bool? flip}) {
+      bool? flip,
+      HoleType? type,
+      String? exprCbDia,
+      String? exprCbDepth,
+      String? exprCsDia,
+      String? exprCsAngle}) {
     final s = holeSession;
     if (s == null) return;
     if (exprDia != null) s.exprDia = exprDia;
     if (exprDepth != null) s.exprDepth = exprDepth;
     if (extent != null) s.extent = extent;
     if (flip != null) s.flip = flip;
+    if (type != null) s.type = type;
+    if (exprCbDia != null) s.exprCbDia = exprCbDia;
+    if (exprCbDepth != null) s.exprCbDepth = exprCbDepth;
+    if (exprCsDia != null) s.exprCsDia = exprCsDia;
+    if (exprCsAngle != null) s.exprCsAngle = exprCsAngle;
     notifyListeners();
   }
 
@@ -5401,6 +5422,24 @@ class AppState extends ChangeNotifier {
       return false;
     }
     final edit = s.editing;
+    // M226 — the mouth's numbers, parsed with the same refusal as the rest:
+    // a hole that silently drills a 0 mm counterbore is a wrong part.
+    final cbDia = parseValueExpr(s.exprCbDia) ?? 0;
+    final cbDepth = parseValueExpr(s.exprCbDepth) ?? 0;
+    final csDia = parseValueExpr(s.exprCsDia) ?? 0;
+    final csAngle = parseValueExpr(s.exprCsAngle) ?? 0;
+    if ((s.type == HoleType.counterbore || s.type == HoleType.spotface) &&
+        !(cbDia > dia && cbDepth > 0)) {
+      toast('The ${holeTypeLabel(s.type).toLowerCase()} must be wider than '
+          'the hole and deeper than 0.');
+      return false;
+    }
+    if (s.type == HoleType.countersink &&
+        !(csDia > dia && csAngle > 0 && csAngle < 180)) {
+      toast('The countersink must be wider than the hole, with an angle '
+          'between 0 and 180 deg.');
+      return false;
+    }
     final f = HoleFeature(
       name: edit?.name ?? p.nextFeatureName('Hole'),
       bodyName: edit?.bodyName ??
@@ -5413,6 +5452,15 @@ class AppState extends ChangeNotifier {
       exprDepth: s.exprDepth,
       extent: s.extent,
       flip: s.flip,
+      type: s.type,
+      cbDia: cbDia,
+      cbDepth: cbDepth,
+      exprCbDia: s.exprCbDia,
+      exprCbDepth: s.exprCbDepth,
+      csDia: csDia,
+      csAngle: csAngle,
+      exprCsDia: s.exprCsDia,
+      exprCsAngle: s.exprCsAngle,
     );
     if (edit != null) {
       final i = p.features.indexOf(edit);

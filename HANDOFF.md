@@ -90,6 +90,49 @@ Token NIE in Dateien/.git/config schreiben.
 > testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
 > gruen**, analyze 55 Issues / 0 Errors.
 
+> **M226 — Senkungen: was ein Loch zu einem Schraubenloch macht.**
+>
+> M225 hat die vier Mundformen ausdruecklich weggelassen und den Grund
+> genannt: „jeweils ein gestuftes oder konisches Profil und ein zweiter Satz
+> Zahlen". Beides ist jetzt da — ohne eine einzige neue Kernel-Funktion.
+>
+> **Zylindersenkung und Planansenkung sind derselbe Schnitt** (ein flacher,
+> weiterer Topf an der Oberflaeche) und bleiben trotzdem zwei Eintraege: eine
+> Zylindersenkung versenkt einen Kopf, eine Planansenkung plant nur eine Nabe,
+> damit eine Scheibe eben aufliegt. Inventor zeichnet beide gleich und
+> bemasst sie verschieden — das eine still als das andere zu fuehren, ist die
+> Sorte kleiner Luege, die bis in die Zeichnung ueberlebt.
+>
+> **Die Senkung ist ein KEGEL, und dafuer gibt es den Taper schon.** Der Shim
+> dokumentiert sein Vorzeichen: „INVENTOR sign: positive tapers outward". Das
+> Werkzeug laeuft beim Bohren nach innen vom kleinen Ende zur Flaeche hinauf,
+> waechst also — Taper = +Winkel/2. Umgedreht (`flip`) startet es breit an der
+> Flaeche und schliesst sich: dasselbe Profil in der anderen Leserichtung,
+> Taper = −Winkel/2, und das Profil ist dann der GROSSE Kreis. Die Tiefe folgt
+> aus dem eingeschlossenen Winkel: (R − r) / tan(Winkel/2), bei 90° also genau
+> die Aufweitung selbst.
+>
+> **Zwei Schnitte statt eines zusammengesetzten Werkzeugs.** Zwei einfache
+> Koerper nacheinander abzuziehen ist das, womit OCCT am wenigsten Muehe hat,
+> und es haelt den flachen Boden der Zylindersenkung und den Kegel der Senkung
+> vollstaendig aus der Profil-Arithmetik heraus.
+>
+> **Abgelehnt statt gerechnet:** eine Senkung, die nicht weiter ist als das
+> Loch; eine Tiefe von 0; ein Winkel ausserhalb (0, 180). Und zwar zweimal —
+> im Panel beim OK und noch einmal im Rebuild, weil ein geladenes Dokument
+> nicht durch das Panel gekommen sein muss.
+>
+> **Ehrlicher Stand:** 6 neue Tests in `m225_hole_test.dart` (Gruppen
+> „M226 — …") plus zwei erweiterte: was als ZWEITES beim Kernel ankommt
+> (Radius, Hoehe, Taper, Startlage), beide Richtungen, die Ablehnungen, der
+> Roundtrip und der Rebuild-Schluessel — ohne den letzten wuerde eine
+> geaenderte Senkung den gecachten Solid stehenlassen. Der Panel-Schalter
+> traegt vier UNTERSCHIEDLICHE Kurzlabels: „Counterbore" und „Countersink"
+> teilen sich sechs Anfangsbuchstaben, und zwei Knoepfe mit demselben Wort
+> sind keine Wahl. **Am Geraet nicht nachgeprueft** — und beim Kegel heisst
+> das ausdruecklich: dass das Taper-Vorzeichen stimmt, sagt der Shim-Kommentar,
+> nicht ein Bild.
+
 > **M225 (2/2) — Hole: der Befehl.**
 >
 > `HoleSession`, das Panel, der Pick und der Commit. Bewusst KEINE Variante

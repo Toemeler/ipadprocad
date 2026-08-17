@@ -243,6 +243,124 @@ void main() {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // M226 — the shape at the mouth
+  // -------------------------------------------------------------------------
+
+  group('M226 — counterbore and spotface', () {
+    test('a second, wider tool is cut at the surface', () async {
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)], dia: 6, depth: 20)
+        ..type = HoleType.counterbore
+        ..cbDia = 12
+        ..cbDepth = 4;
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+
+      expect(f.computeError, isNull, reason: f.computeError ?? '');
+      expect(k.cuts, 2, reason: 'the hole, then its mouth');
+      // The LAST extrude is the counterbore.
+      final (lo, hi) = _radii(k.lastGroups!.single.single, const Offset(10, 10));
+      expect(lo, closeTo(6, 1e-9));
+      expect(hi, closeTo(6, 1e-9));
+      expect(k.lastHeight, closeTo(4, 1e-9));
+      expect(k.lastTaper, 0, reason: 'a counterbore has a FLAT bottom');
+      expect(k.lastMat![11], closeTo(-4, 1e-9),
+          reason: 'it opens AT the face, not somewhere down the hole');
+    });
+
+    test('a spotface is the same cut, and says it is a spotface', () async {
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)])
+        ..type = HoleType.spotface
+        ..cbDia = 14
+        ..cbDepth = 1;
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+      expect(f.computeError, isNull, reason: f.computeError ?? '');
+      expect(holeTypeLabel(f.type), 'Spotface');
+      expect(k.lastHeight, closeTo(1, 1e-9));
+    });
+
+    test('one no wider than the hole is refused', () async {
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)], dia: 6)
+        ..type = HoleType.counterbore
+        ..cbDia = 6
+        ..cbDepth = 3;
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+      expect(f.solid, isNull);
+      expect(f.computeError, contains('wider than the hole'));
+    });
+  });
+
+  group('M226 — countersink', () {
+    test('the cone opens from the hole to the countersink diameter', () async {
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)], dia: 6)
+        ..type = HoleType.countersink
+        ..csDia = 12
+        ..csAngle = 90;
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+
+      expect(f.computeError, isNull, reason: f.computeError ?? '');
+      // 90 deg included angle: the wall runs at 45 deg, so opening out by
+      // (6-3) = 3 mm takes exactly 3 mm of depth.
+      expect(k.lastHeight, closeTo(3, 1e-9));
+      expect(k.lastTaper, closeTo(45, 1e-9),
+          reason: "the shim's taper is Inventor's sign: positive flares out "
+              'along the extrusion, which is what a countersink does when the '
+              'tool runs from the small end up to the face');
+      expect(k.lastMat![11], closeTo(-3, 1e-9));
+      final (lo, hi) = _radii(k.lastGroups!.single.single, const Offset(10, 10));
+      expect(lo, closeTo(3, 1e-9),
+          reason: 'it starts at the HOLE radius and flares to 6');
+      expect(hi, closeTo(3, 1e-9));
+    });
+
+    test('flipped, the cone starts wide and closes', () async {
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)], dia: 6, flip: true)
+        ..type = HoleType.countersink
+        ..csDia = 12
+        ..csAngle = 90;
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+
+      expect(f.computeError, isNull, reason: f.computeError ?? '');
+      expect(k.lastTaper, closeTo(-45, 1e-9));
+      expect(k.lastMat![11], closeTo(0, 1e-9));
+      final (lo, _) = _radii(k.lastGroups!.single.single, const Offset(10, 10));
+      expect(lo, closeTo(6, 1e-9), reason: 'the WIDE end leads');
+    });
+
+    test('an angle of 180 deg has no cone in it', () async {
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)])
+        ..type = HoleType.countersink
+        ..csDia = 12
+        ..csAngle = 180;
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+      expect(f.solid, isNull);
+      expect(f.computeError, contains('between 0 and 180'));
+    });
+  });
+
   group('M225 — it is a feature like the others', () {
     test('it consumes the body it drills, like a fillet does', () async {
       final k = FakeKernel();
@@ -272,6 +390,9 @@ void main() {
       expect(back.extent, FeatureExtent.throughAll);
       expect(back.flip, isTrue);
       expect(back.seq, 7);
+      expect(back.type, HoleType.simple, reason: 'M226 defaults to simple');
+      expect(back.cbDia, f.cbDia);
+      expect(back.csAngle, f.csAngle);
       expect(back.ownSig(), f.ownSig());
     });
 
@@ -286,6 +407,14 @@ void main() {
       expect(
           a.ownSig(),
           isNot(_hole('Sketch2', [const Offset(1, 2)], flip: true).ownSig()));
+      // M226 — and the mouth's numbers, or a counterbore edit would not rebuild.
+      final cb = _hole('Sketch2', [const Offset(1, 2)])
+        ..type = HoleType.counterbore;
+      expect(a.ownSig(), isNot(cb.ownSig()));
+      final deeper = _hole('Sketch2', [const Offset(1, 2)])
+        ..type = HoleType.counterbore
+        ..cbDepth = 9;
+      expect(cb.ownSig(), isNot(deeper.ownSig()));
     });
   });
 }
