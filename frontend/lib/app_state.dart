@@ -4337,8 +4337,16 @@ class AppState extends ChangeNotifier {
       PartModel p, WorkPlaneKind kind, PlaneFrame frame, String def,
       {PlaneFrame? base, double? offset}) {
     final wp = WorkPlane(
-        'Work Plane${p.workPlanes.length + 1}', p.nextSeq(), kind, def, frame,
-        base: base, offset: offset);
+        // M223 — a free name, not a COUNT. Deleting Work Plane2 of three and
+        // making another handed out "Work Plane3" a second time; work axes and
+        // points have used _freeWorkName since M215, and bodies since M155.
+        _freeWorkName('Work Plane', {for (final w in p.workPlanes) w.name}),
+        p.nextSeq(),
+        kind,
+        def,
+        frame,
+        base: base,
+        offset: offset);
     p.workPlanes.add(wp);
     p.dirty = true;
     workPlaneArm = null;
@@ -4535,13 +4543,23 @@ class AppState extends ChangeNotifier {
   /// because three commands competing for the same tap is not a UI.
   WorkPointMethod? workPointArm;
 
+  /// M223 — which pick-only Work PLANE method is armed, or null.
+  ///
+  /// Separate from [workPlaneArm], which drives Offset and Midplane: those two
+  /// are not pick-only (Offset is a drag with a live distance and an editable
+  /// base) and they collect PlaneFrames rather than WorkRefs. Sharing one field
+  /// would mean one of the two flows pretending to be the other; sharing the
+  /// PICK path, which is what actually matters, costs nothing.
+  WorkPlaneMethod? workPlaneMethodArm;
+
   /// Picks collected so far for the armed command.
   final List<WorkRef> _wfPicks = [];
 
   /// True while a work AXIS or POINT command wants geometry. The viewport
   /// reads this to offer faces, edges, vertices and existing work features as
   /// hover targets — a superset of [pickPlane], which only ever wanted planes.
-  bool get pickWorkGeometry => workAxisArm != null || workPointArm != null;
+  bool get pickWorkGeometry =>
+      workAxisArm != null || workPointArm != null || workPlaneMethodArm != null;
 
   /// The prompt currently shown for the armed command, or '' when none is.
   String workFeaturePrompt = '';
@@ -4593,6 +4611,18 @@ class AppState extends ChangeNotifier {
     _armWorkFeature(p, workPointPrompt(method, 0));
   }
 
+  /// M223 — arm one of the pick-only Work Plane methods. Same toggle contract
+  /// as [startWorkAxis]: the same entry twice cancels.
+  void startWorkPlaneMethod(WorkPlaneMethod method) {
+    final p = currentPart;
+    if (p == null) return;
+    if (workPlaneMethodArm == method) return cancelWorkFeature();
+    cancelWorkPlane();
+    cancelWorkFeature();
+    workPlaneMethodArm = method;
+    _armWorkFeature(p, workPlanePrompt(method, 0));
+  }
+
   void _armWorkFeature(PartModel p, String prompt) {
     _wfPicks.clear();
     workFeaturePrompt = prompt;
@@ -4612,9 +4642,14 @@ class AppState extends ChangeNotifier {
   bool _wfOriginAutoShown = false;
 
   void cancelWorkFeature() {
-    if (workAxisArm == null && workPointArm == null) return;
+    if (workAxisArm == null &&
+        workPointArm == null &&
+        workPlaneMethodArm == null) {
+      return;
+    }
     workAxisArm = null;
     workPointArm = null;
+    workPlaneMethodArm = null;
     _wfPicks.clear();
     workFeaturePrompt = '';
     final p = currentPart;
@@ -4646,9 +4681,18 @@ class AppState extends ChangeNotifier {
     if (p == null) return false;
     final axisM = workAxisArm;
     final pointM = workPointArm;
-    if (axisM == null && pointM == null) return false;
+    final planeM = workPlaneMethodArm;
+    if (axisM == null && pointM == null && planeM == null) return false;
 
     _wfPicks.add(ref);
+    if (planeM != null) {
+      final r = solveWorkPlane(planeM, _wfPicks);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitConstructedWorkPlane(p, r.solution!);
+        return true;
+      }
+      return _wfPending(r.outcome, r.message);
+    }
     if (axisM != null) {
       final r = solveWorkAxis(axisM, _wfPicks);
       if (r.outcome == WorkPickOutcome.complete) {
@@ -4678,6 +4722,15 @@ class AppState extends ChangeNotifier {
     toast(message);
     notifyListeners();
     return kept;
+  }
+
+  /// M223 — a work plane built from picks. Goes through the same
+  /// [_commitWorkPlane] as Offset and Midplane, so naming, the browser row,
+  /// the log line and the save are one implementation.
+  void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s) {
+    _commitWorkPlane(p, WorkPlaneKind.constructed,
+        workPlaneFrameAt(s.at, s.n), s.def);
+    _finishWorkFeature(p);
   }
 
   void _commitWorkAxis(PartModel p, WorkAxisSolution s) {
@@ -4726,6 +4779,7 @@ class AppState extends ChangeNotifier {
   void _finishWorkFeature(PartModel p) {
     workAxisArm = null;
     workPointArm = null;
+    workPlaneMethodArm = null;
     _wfPicks.clear();
     workFeaturePrompt = '';
     if (_wfOriginAutoShown) {

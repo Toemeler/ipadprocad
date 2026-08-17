@@ -944,3 +944,235 @@ String _mm(double v) {
   }
   return (at + d * t0, at + d * t1);
 }
+
+// ---------------------------------------------------------------------------
+// M223 — Work PLANE methods
+// ---------------------------------------------------------------------------
+//
+// Inventor documents thirteen. Two of them have been real since M151 and keep
+// their own flow, because they are not pick-only: Offset from Plane is a DRAG
+// with a live distance (M174/M169) and carries an editable base+offset (M162),
+// and Midplane between Two Planes shares that flow's plane-key picking. The
+// five below are pure geometry — they need nothing but picks — so they run on
+// the WorkRef machinery M215 built for axes and points.
+//
+// The remaining six are NOT built, and each for a stated reason rather than by
+// omission:
+//   Angle to Plane around Edge      needs an angle to type; that is the offset
+//                                   field's twin (M169) and a UI job, not a
+//                                   geometry one.
+//   Normal to Curve at Point        needs a CURVE contribution — a tangent at a
+//                                   parameter — which WorkRef does not carry.
+//   Tangent to Surface through Edge / through Point / and Parallel to Plane
+//                                   a cylinder has TWO tangent planes through
+//                                   an external point or parallel to a plane,
+//                                   and Inventor resolves that with the side
+//                                   you clicked. WorkRef records what a pick
+//                                   CONTRIBUTES, not where on the face it
+//                                   landed, so building this means teaching it
+//                                   the hit point first. Guessing a side would
+//                                   put the plane on the far side of the part
+//                                   half the time.
+//   Midplane of Torus               is built (below); listed here only because
+//                                   the ribbon groups it with the tangents.
+
+/// Inventor's Work Plane creation methods that run on picks alone.
+enum WorkPlaneMethod {
+  parallelToPlaneThroughPoint,
+  threePoints,
+  twoCoplanarEdges,
+  normalToAxisThroughPoint,
+  midplaneOfTorus,
+}
+
+String workPlaneMethodLabel(WorkPlaneMethod m) {
+  switch (m) {
+    case WorkPlaneMethod.parallelToPlaneThroughPoint:
+      return 'Parallel to Plane through Point';
+    case WorkPlaneMethod.threePoints:
+      return 'Three Points';
+    case WorkPlaneMethod.twoCoplanarEdges:
+      return 'Two Coplanar Edges';
+    case WorkPlaneMethod.normalToAxisThroughPoint:
+      return 'Normal to Axis through Point';
+    case WorkPlaneMethod.midplaneOfTorus:
+      return 'Midplane of Torus';
+  }
+}
+
+int workPlaneArity(WorkPlaneMethod m) {
+  switch (m) {
+    case WorkPlaneMethod.midplaneOfTorus:
+      return 1;
+    case WorkPlaneMethod.parallelToPlaneThroughPoint:
+    case WorkPlaneMethod.twoCoplanarEdges:
+    case WorkPlaneMethod.normalToAxisThroughPoint:
+      return 2;
+    case WorkPlaneMethod.threePoints:
+      return 3;
+  }
+}
+
+String workPlanePrompt(WorkPlaneMethod m, int have) {
+  switch (m) {
+    case WorkPlaneMethod.midplaneOfTorus:
+      return 'Select a toroidal face.';
+    case WorkPlaneMethod.parallelToPlaneThroughPoint:
+      return have == 0
+          ? 'Select the plane or planar face to be parallel to.'
+          : 'Select the point the plane runs through.';
+    case WorkPlaneMethod.twoCoplanarEdges:
+      return have == 0
+          ? 'Select the first edge or line.'
+          : 'Select a second edge in the same plane.';
+    case WorkPlaneMethod.normalToAxisThroughPoint:
+      return have == 0
+          ? 'Select the axis, edge or line to be normal to.'
+          : 'Select the point the plane runs through.';
+    case WorkPlaneMethod.threePoints:
+      return switch (have) {
+        0 => 'Select the first point.',
+        1 => 'Select the second point.',
+        _ => 'Select the third point.',
+      };
+  }
+}
+
+/// A solved work plane: a point on it and a unit normal. The u/v basis is the
+/// caller's business — [faceFrame] already has the app's rule for that, and a
+/// second one here would be a second rule.
+class WorkPlaneSolution {
+  final Vec3 at;
+  final Vec3 n;
+  final String def;
+  const WorkPlaneSolution(this.at, this.n, this.def);
+}
+
+/// Feeds the ordered pick list [refs] to [m], exactly as [solveWorkAxis] does.
+WorkAttempt<WorkPlaneSolution> solveWorkPlane(
+    WorkPlaneMethod m, List<WorkRef> refs) {
+  if (refs.isEmpty) return WorkAttempt.more(workPlanePrompt(m, 0));
+  switch (m) {
+    case WorkPlaneMethod.midplaneOfTorus:
+      {
+        final r = refs.first;
+        if (r.source != WorkRefSource.torus) {
+          return WorkAttempt.no('${r.label} is not a toroidal face.');
+        }
+        // The torus record gives the centre and the axis; the midplane is the
+        // one the tube revolves in, so the axis IS its normal.
+        final def = 'Midplane of ${r.label}';
+        return WorkAttempt.ok(
+            WorkPlaneSolution(r.point!, r.lineDir!, def), def);
+      }
+
+    case WorkPlaneMethod.parallelToPlaneThroughPoint:
+      {
+        final plane =
+            refs.firstWhere((r) => r.hasPlane, orElse: () => refs.first);
+        if (!plane.hasPlane) {
+          return WorkAttempt.no(
+              '${refs.first.label} is not a plane or planar face.');
+        }
+        if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
+        final pt = refs.firstWhere(
+            (r) => !identical(r, plane) && r.hasPoint,
+            orElse: () => refs.last);
+        if (!pt.hasPoint || identical(pt, plane)) {
+          return WorkAttempt.no('Select a point for the plane to pass '
+              'through.');
+        }
+        final def = 'Parallel to ${plane.label} through ${pt.label}';
+        return WorkAttempt.ok(
+            WorkPlaneSolution(pt.point!, plane.planeNormal!, def), def);
+      }
+
+    case WorkPlaneMethod.normalToAxisThroughPoint:
+      {
+        final line =
+            refs.firstWhere((r) => r.hasLine, orElse: () => refs.first);
+        if (!line.hasLine) {
+          return WorkAttempt.no(
+              '${refs.first.label} is not an axis, edge or line.');
+        }
+        if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
+        final pt = refs.firstWhere(
+            (r) => !identical(r, line) && r.hasPoint,
+            orElse: () => refs.last);
+        if (!pt.hasPoint || identical(pt, line)) {
+          return WorkAttempt.no('Select a point for the plane to pass '
+              'through.');
+        }
+        final def = 'Normal to ${line.label} through ${pt.label}';
+        return WorkAttempt.ok(
+            WorkPlaneSolution(pt.point!, line.lineDir!, def), def);
+      }
+
+    case WorkPlaneMethod.threePoints:
+      {
+        for (final r in refs) {
+          if (!r.hasPoint) {
+            return WorkAttempt.no('${r.label} does not give a point.');
+          }
+        }
+        if (refs.length < 3) {
+          return WorkAttempt.more(workPlanePrompt(m, refs.length));
+        }
+        return _threePointPlane(refs[0], refs[1], refs[2]);
+      }
+
+    case WorkPlaneMethod.twoCoplanarEdges:
+      {
+        for (final r in refs) {
+          if (!r.hasLine) {
+            return WorkAttempt.no('${r.label} is not an edge or line.');
+          }
+        }
+        if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
+        return _twoEdgePlane(refs[0], refs[1]);
+      }
+  }
+}
+
+WorkAttempt<WorkPlaneSolution> _threePointPlane(WorkRef a, WorkRef b, WorkRef c) {
+  final n = (b.point! - a.point!).cross(c.point! - a.point!);
+  if (n.length < 1e-12) {
+    // Collinear (or two of them in the same place): an infinity of planes
+    // contains them, which is not an answer. Say which, and by how much, the
+    // way every other refusal in this file does.
+    return WorkAttempt.no('${a.label}, ${b.label} and ${c.label} are in a '
+        'line — three points must not be collinear.');
+  }
+  final def = 'Through ${a.label}, ${b.label} and ${c.label}';
+  return WorkAttempt.ok(
+      WorkPlaneSolution(a.point!, n.normalized(), def), def);
+}
+
+WorkAttempt<WorkPlaneSolution> _twoEdgePlane(WorkRef a, WorkRef b) {
+  final d1 = a.lineDir!, d2 = b.lineDir!;
+  final between = b.lineAt! - a.lineAt!;
+  final cross = d1.cross(d2);
+  if (cross.length < 1e-9) {
+    // Parallel: the plane is the one containing both, so its normal is
+    // perpendicular to the shared direction and to the gap between them.
+    final n = d1.cross(between);
+    if (n.length < 1e-9) {
+      return WorkAttempt.no('${a.label} and ${b.label} are the same line — '
+          'a plane needs two distinct edges.');
+    }
+    final def = 'Through ${a.label} and ${b.label}';
+    return WorkAttempt.ok(
+        WorkPlaneSolution(a.lineAt!, n.normalized(), def), def);
+  }
+  // Not parallel: they must MEET, or there is no plane containing both. The
+  // triple product is the volume of the box they span, i.e. their gap times
+  // the area of the direction parallelogram.
+  final gap = between.dot(cross) / cross.length;
+  if (gap.abs() > 1e-6) {
+    return WorkAttempt.no('${a.label} and ${b.label} are skew — they miss '
+        'each other by ${gap.abs().toStringAsFixed(3)} mm.');
+  }
+  final def = 'Through ${a.label} and ${b.label}';
+  return WorkAttempt.ok(
+      WorkPlaneSolution(a.lineAt!, cross.normalized(), def), def);
+}

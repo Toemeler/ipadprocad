@@ -12,7 +12,8 @@ import '../app_state.dart';
 import '../log.dart';
 import '../menus.dart';
 import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
-import '../work_features.dart' show WorkAxisMethod, WorkPointMethod;
+import '../work_features.dart'
+    show WorkAxisMethod, WorkPlaneMethod, WorkPointMethod;
 import '../svg_icons.dart';
 import '../tools.dart';
 import '../theme.dart';
@@ -246,6 +247,44 @@ class _RibbonState extends State<Ribbon> {
                   break;
                 case 'midplane2':
                   widget.app.startWorkPlane(WorkPlaneKind.midplane);
+                  break;
+                // M223 — the pick-only Plane methods, on M215's WorkRef
+                // machinery. The five that are missing are missing for a
+                // reason, and each says so rather than doing nothing:
+                // silence reads as broken (M157).
+                case 'parallelpt':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.parallelToPlaneThroughPoint);
+                  break;
+                case 'threepts':
+                  widget.app
+                      .startWorkPlaneMethod(WorkPlaneMethod.threePoints);
+                  break;
+                case 'twoedges':
+                  widget.app
+                      .startWorkPlaneMethod(WorkPlaneMethod.twoCoplanarEdges);
+                  break;
+                case 'normalaxis':
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.normalToAxisThroughPoint);
+                  break;
+                case 'midtorus':
+                  widget.app
+                      .startWorkPlaneMethod(WorkPlaneMethod.midplaneOfTorus);
+                  break;
+                case 'angleedge':
+                  widget.app.toast('Angle to Plane around Edge needs an angle '
+                      'to type — not built yet.');
+                  break;
+                case 'normalcurve':
+                  widget.app.toast('Normal to Curve at Point needs a curve '
+                      'tangent — not built yet.');
+                  break;
+                case 'tansurfedge':
+                case 'tansurfpt':
+                case 'tanparallel':
+                  widget.app.toast('Tangent planes need the side of the face '
+                      'you picked — not built yet.');
                   break;
                 // M217 — Direct Edit.
                 case 'deMove':

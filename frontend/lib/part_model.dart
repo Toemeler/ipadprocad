@@ -169,6 +169,16 @@ PlaneFrame faceFrame(Vec3 hit, Vec3 normal) {
   return PlaneFrame('face', u, v, n, origin);
 }
 
+/// M223 — the frame of a work plane built from picks: [at] lies on it, [n] is
+/// its normal, and u/v come from [faceFrame] — the app's ONE rule for turning
+/// a normal into a sketch basis. The origin is [at] itself rather than the
+/// plane's closest point to the world origin: for a plane through three picked
+/// points, "where is its origin" has an answer the user chose.
+PlaneFrame workPlaneFrameAt(Vec3 at, Vec3 n) {
+  final f = faceFrame(at, n);
+  return PlaneFrame(kWorkPlaneKey, f.u, f.v, f.n, at);
+}
+
 const kPlaneKeys = ['yz', 'xz', 'xy'];
 
 /// M151 — key carried by every user-created work plane's frame.
@@ -196,7 +206,14 @@ PlaneFrame? frameForPlaneKey(PartModel p, String key) {
 
 /// How a work plane was defined. Two kinds for now, both parametric only in
 /// the sense that the DEFINITION is recorded; the frame is baked at creation.
-enum WorkPlaneKind { offset, midplane }
+/// M223 — [constructed] covers every method that is BUILT FROM PICKS and
+/// carries no editable number: three points, two coplanar edges, normal to an
+/// axis, parallel through a point, the midplane of a torus. They differ only
+/// in the sentence they record, which is what `def` is for; what they share is
+/// that nothing about them can be re-typed afterwards. `fromJson` falls back
+/// to [offset] for a name it does not know, so adding this is safe for
+/// documents written before it.
+enum WorkPlaneKind { offset, midplane, constructed }
 
 /// A plane offset from [base] along its own normal by [d] mm.
 ///

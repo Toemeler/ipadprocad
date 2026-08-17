@@ -36,6 +36,64 @@ Token NIE in Dateien/.git/config schreiben.
 > STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
 > **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
 
+> **M223 — der Rest von Inventors Work-Plane-Liste, auf der Maschinerie von
+> M215.**
+>
+> Das Plane-Flyout traegt Inventors dreizehn Eintraege seit M56. Drei waren
+> echt: „Plane" und „Offset from Plane" (M151/M157, beide der Offset-Fluss)
+> und „Midplane between Two Planes". Die anderen zehn taten **nichts** — genau
+> die Form, die M216 im Teil-Ribbon gerade abgeraeumt hat, eine Ebene tiefer
+> stehengeblieben.
+>
+> **Fuenf sind jetzt gebaut**, und sie brauchten keine neue Maschinerie:
+> `WorkRef` aus M215 modelliert einen Pick nach dem, was er BEITRAEGT, und
+> genau das ist es, was diese Methoden lesen. Parallel to Plane through Point,
+> Three Points, Two Coplanar Edges, Normal to Axis through Point, Midplane of
+> Torus — `solveWorkPlane` ist der Zwilling von `solveWorkAxis`, mit demselben
+> `WorkAttempt`-Kontrakt (weiter / abgelehnt / fertig), derselben
+> Pick-Schleife in `workFeaturePick` und ohne eine einzige Zeile im Viewport:
+> der ruft `pickWorkGeometry` und `workFeaturePick`, beides schon generisch.
+>
+> **Was die Refusals sagen, ist der Punkt.** Drei kollineare Punkte werden
+> abgelehnt, weil eine Unendlichkeit von Ebenen sie enthaelt — das ist keine
+> Antwort. Zwei windschiefe Kanten melden, um WIEVIEL sie sich verfehlen
+> (`... miss each other by 7.000 mm`), dieselbe Regel wie bei den Achsen. Und
+> ein Fehlgriff kostet den Tipp und nicht den Befehl.
+>
+> **Fuenf sind NICHT gebaut, jede mit Grund** (im Code und im Flyout, das
+> jetzt sagt was fehlt, statt stumm zu bleiben — M157):
+>
+> * **Angle to Plane around Edge** braucht einen Winkel zum Eintippen. Das ist
+>   der Zwilling des Offset-Feldes (M169) und eine UI-Aufgabe, keine
+>   geometrische.
+> * **Normal to Curve at Point** braucht einen KURVEN-Beitrag (Tangente an
+>   einem Parameter), den `WorkRef` nicht fuehrt.
+> * **Tangent to Surface through Edge / through Point / and Parallel to
+>   Plane:** ein Zylinder hat ZWEI Tangentialebenen durch einen aeusseren
+>   Punkt bzw. parallel zu einer Ebene, und Inventor entscheidet das ueber die
+>   SEITE, die man angeklickt hat. `WorkRef` haelt fest, was ein Pick
+>   beitraegt, nicht wo auf der Flaeche er landete — das muesste zuerst dazu.
+>   Eine Seite zu raten hiesse, die Ebene in der Haelfte der Faelle auf die
+>   falsche Seite des Teils zu legen.
+>
+> **Nebenbei ein M155-Fehler, an der letzten Stelle, wo er ueberlebt hatte:**
+> `_commitWorkPlane` vergab `'Work Plane${p.workPlanes.length + 1}'` — ein
+> ZAEHLERSTAND. Loescht man Work Plane2 von dreien und baut eine neue, kommt
+> „Work Plane3" ein zweites Mal heraus. Arbeitsachsen und -punkte benutzen
+> `_freeWorkName` seit M215, Koerper seit M155; jetzt auch die Ebenen.
+>
+> Der Offset- und der Midplane-Fluss bleiben, wo sie sind: Offset ist ein ZUG
+> mit lebendiger Distanz (M174/M169) und traegt als einzige Ebene eine
+> nachtraeglich editierbare Zahl (M162), und beide sammeln `PlaneFrame`s statt
+> `WorkRef`s. Ein gemeinsames Feld haette einen der beiden Fluesse dazu
+> gebracht, den anderen zu spielen.
+>
+> **Ehrlicher Stand:** 20 neue Tests (`m223_work_plane_methods_test.dart`) —
+> je Methode die Geometrie (der Punkt liegt AUF der Ebene, nicht daneben), die
+> Refusals, die Pick-Reihenfolge, der Befehl im AppState und der
+> Namens-Fehler, der ohne den Fix wieder auftritt. **Am Geraet nicht
+> nachgeprueft.**
+
 > **M222 — ein Schnitt hat eine Kontur, ein Netz hat Kanten — und die
 > Schraffur unterscheidet die Koerper (ISO 128).**
 >
@@ -87,8 +145,9 @@ Token NIE in Dateien/.git/config schreiben.
 > EINE Schleife mit vier Punkten; Ring mit Loch → +100 und −4, also
 > gegenlaeufig; 1e-9-Versatz → immer noch eine Schleife). Eine bestehende
 > M168-Erwartung ist auf den neuen Kontrakt gezogen (`sectionSlices()` statt
-> `sectionTriangles()`). **Am Geraet nicht nachgeprueft** — und gerade hier
-> heisst das etwas: dass die Dreiecke weg sind, sieht man erst auf dem Schirm.
+> `sectionTriangles()`). CI-Lauf **32024481461**: **1831 gruen**, analyze 55
+> Issues / 0 Errors. **Am Geraet nicht nachgeprueft** — und gerade hier heisst
+> das etwas: dass die Dreiecke weg sind, sieht man erst auf dem Schirm.
 
 > **M221 — „I cant select the inner circle to also extrude somehow."**
 >
