@@ -95,8 +95,12 @@ Token NIE in Dateien/.git/config schreiben.
 >
 > **Ehrlicher Stand:** 16 neue Tests (`m221_profile_pick_test.dart`), die
 > beide Fehler einzeln festnageln — der Anker-Test haelt ausdruecklich fest,
-> dass die ALTE Regel fuer beide Regionen denselben Punkt liefert. **Am
-> Geraet nicht nachgeprueft.** Bewusste Abwaegung: die Flaechen-Vorliebe in
+> dass die ALTE Regel fuer beide Regionen denselben Punkt liefert. CI-Lauf
+> **32023838016** zu `b0e8d73`: **1821 gruen** (von 1805), analyze 55 Issues /
+> 0 Errors = Ausgangsstand. Der Lauf davor (`32023295745`) hatte genau zwei
+> rote, beide meine — siehe den Absatz ueber den Abstand; die Tangenten-Zeile
+> haette kein Nachdenken gefunden, nur die CI. **Am Geraet nicht
+> nachgeprueft.** Bewusste Abwaegung: die Flaechen-Vorliebe in
 > `regionForSel` kann eine stark GEAENDERTE Skizze theoretisch anders
 > zuordnen als die reine Naehe (eine andere Region liegt zufaellig naeher an
 > der alten Flaeche) — der Preis dafuer, dass keine gespeicherte Ringauswahl
