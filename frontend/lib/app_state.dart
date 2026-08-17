@@ -2034,7 +2034,7 @@ class AppState extends ChangeNotifier {
   void goHome() {
     final leaving = curTab;
     if (leaving != null && parts.containsKey(leaving)) {
-      cancelExtrude();
+      cancel3DCommands(); // M230 — not just the extrude one
       pickPlane = false;
       activeChild = null;
     }
@@ -2586,7 +2586,7 @@ class AppState extends ChangeNotifier {
   Future<void> closeTab(String name) async {
     if (parts.containsKey(name)) {
       if (curTab == name) {
-        cancelExtrude();
+        cancel3DCommands(); // M230
         pickPlane = false;
         activeChild = null;
         finishEdit(save: false);
@@ -3423,7 +3423,7 @@ class AppState extends ChangeNotifier {
     if (_docsDir == null) return;
     openTabs.remove(name);
     if (curTab == name) {
-      cancelExtrude();
+      cancel3DCommands(); // M230
       pickPlane = false;
       activeChild = null;
       curTab = openTabs.isNotEmpty ? openTabs.last : null;
@@ -5221,6 +5221,32 @@ class AppState extends ChangeNotifier {
     if (edgeChain != null) s.edgeChain = edgeChain;
     _updateEdgeFeaturePreview();
     notifyListeners();
+  }
+
+  /// M230 — every in-flight 3D command, cancelled together.
+  ///
+  /// They all hold references INTO the model: a sketch name, a body name, a
+  /// frame lifted off a face, a list of placements. Every caller of this is a
+  /// moment when that model is about to be replaced or left behind — going
+  /// home, closing or deleting a part, restoring an undo snapshot — and a
+  /// panel that survives one of those comes back pointing at geometry that is
+  /// no longer there.
+  ///
+  /// One list, so the NEXT command is cancelled by construction rather than by
+  /// remembering. All four sites used to name `cancelExtrude` alone, which was
+  /// right when it was the only 3D session and has been quietly wrong since
+  /// M136 added the second.
+  void cancel3DCommands() {
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    cancelCombine();
+    cancelSplit();
+    cancelWorkFeature();
+    cancelWorkPlane();
+    cancelPickBody();
+    cancelPickExtentFace();
   }
 
   void cancelEdgeFeature() {
@@ -7700,12 +7726,10 @@ class AppState extends ChangeNotifier {
     // 0. In-flight 3D sessions hold references into the model that is about
     //    to be replaced wholesale — cancel them first, exactly like the 2D
     //    undo cancels every in-flight pick before restoring.
-    cancelExtrude();
-    edgeSession?.disposePreview();
-    edgeSession = null;
-    cancelPickEdges();
-    cancelPickBody();
-    cancelPickExtentFace();
+    // M230 — every 3D session, not the three that happened to be listed. The
+    // comment above has been right since M182; the list under it went stale
+    // four commands ago.
+    cancel3DCommands();
     cancelPlanePick();
     pickingSweepPath = false;
     pickingLoftSections = false;

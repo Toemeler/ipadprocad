@@ -141,6 +141,36 @@ Token NIE in Dateien/.git/config schreiben.
 > testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
 > gruen**, analyze 55 Issues / 0 Errors.
 
+> **M230 — ein 3D-Panel darf die Modelle nicht ueberleben, auf die es zeigt.**
+>
+> Beim Nachsehen gefunden, nicht gemeldet — wie schon die beiden aus M226.
+> Jede 3D-Sitzung haelt Referenzen IN ein Teil hinein: einen Skizzennamen,
+> einen Koerpernamen, einen von einer Flaeche abgenommenen Frame, eine Liste
+> von Platzierungen. Vier Stellen in `app_state.dart` sind Momente, in denen
+> genau dieses Teil ersetzt oder verlassen wird — nach Hause gehen, Tab
+> schliessen, Teil loeschen, Undo-Schnappschuss zurueckspielen — und alle vier
+> riefen `cancelExtrude()` **allein**.
+>
+> Das war richtig, solange die Extrude-Sitzung die einzige war. Seit M136 (das
+> Fillet-Panel) ist es still falsch, und diese Sitzung hat vier weitere
+> hinzugefuegt (M212 Muster, M225 Hole, M227 Combine, M228 Split). Der Ablauf,
+> der es zeigt: in Teil A ein Loch anfangen, nach Hause gehen, Teil B oeffnen —
+> das Panel kam wieder und zeigte auf As Skizze.
+>
+> `cancel3DCommands()` ist die eine Liste, damit der NAECHSTE Befehl per
+> Konstruktion mit abgeraeumt wird statt per Erinnerung. Besonders bezeichnend
+> ist die vierte Stelle: `_restorePartSnap` traegt seit M182 den Kommentar
+> „In-flight 3D sessions hold references into the model that is about to be
+> replaced wholesale — cancel them first". Der Kommentar hatte recht; die
+> Liste darunter war vier Befehle alt.
+>
+> **Ehrlicher Stand:** 5 neue Tests
+> (`m230_sessions_do_not_outlive_their_part_test.dart`) — je Stelle einer, und
+> die Sammelabfrage prueft ALLE neun Sitzungsflags, sodass eine kuenftige
+> Sitzung, die jemand hier vergisst, hier auffliegt. **Am Geraet nicht
+> nachgeprueft** (aber diese Klasse faellt auf dem Host auf, nicht am Geraet —
+> deshalb steht sie hier).
+
 > **M229 — Angle to Plane around Edge: die zwoelfte Methode, und sie brauchte
 > kein zweites Feld.**
 >
@@ -180,7 +210,8 @@ Token NIE in Dateien/.git/config schreiben.
 > Millimeter spricht und eine konstruierte gar keine Zahl hat, der Roundtrip
 > mit Drehachse, und die Befehlsseite samt „das Feld geht auf". **Am Geraet
 > nicht nachgeprueft** — und hier heisst das vor allem: ob das Feld mit „deg"
-> an der richtigen Stelle steht.
+> an der richtigen Stelle steht. CI-Lauf **32046227338**: **1945 gruen**,
+> analyze 55 Issues / 0 Errors.
 
 > **M228 — Split: die Haelfte, die diese Architektur ehrlich tragen kann.**
 >
