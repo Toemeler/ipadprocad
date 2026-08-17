@@ -183,6 +183,21 @@ void main() {
       expect(f.computeError, isNull, reason: f.computeError ?? '');
     });
 
+    test('the browser can open it — editFeature knows a hole', () async {
+      // M226 — a feature you can build and cannot change is half a feature.
+      final app = await _app([const Offset(10, 10)]);
+      final sk = _lastSketch(app);
+      app.openHole();
+      app.holePointPicked(sk, const Offset(10, 10));
+      await app.applyHole();
+      final f = app.currentPart!.features.whereType<HoleFeature>().single;
+
+      app.editFeature(f);
+      expect(app.holeSession, isNotNull);
+      expect(app.holeSession!.editing, same(f));
+      expect(app.holeSession!.places.length, 1);
+    });
+
     test('editing an existing hole replaces it in place', () async {
       final app = await _app([const Offset(10, 10)]);
       final p = app.currentPart!;

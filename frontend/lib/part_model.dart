@@ -7557,6 +7557,28 @@ bool _recomputePattern(
         disposeOwned();
         return false;
       }
+      if (src.modifiesBody) {
+        // M226 — anything else that CHANGES the body instead of bringing a
+        // volume: a hole (M225), and the face edits of M217. Its own solid is
+        // the whole body with the change already in it, so the clone path
+        // below would place a copy of THAT at every occurrence and subtract
+        // the part from itself — silently, and the model would look eaten
+        // rather than patterned.
+        //
+        // Doing it properly means repeating the TOOL, the treatment M213 gave
+        // blends; a hole's tool is a cylinder and a face edit's is a swept
+        // slab, so each needs its own path. Until then this says so, and names
+        // the way round that already works.
+        //
+        // ORDER MATTERS: this sits below the two more specific refusals above,
+        // because a fillet and a pattern are both modifiesBody too and each
+        // has a better sentence to offer.
+        f.computeError = '"$name" changes the body rather than adding one and '
+            'cannot be patterned yet — for a hole, pattern the sketch points '
+            'it sits on instead';
+        disposeOwned();
+        return false;
+      }
       if (src is ExtrudeFeature && src.imported) {
         f.computeError = '"$name" is an imported body and has no feature to '
             'copy — pattern the solid instead';

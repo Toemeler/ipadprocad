@@ -5005,6 +5005,11 @@ class AppState extends ChangeNotifier {
       openCoil(f);
     } else if (f is PatternFeature) {
       _openPattern(f.mode, f);
+    } else if (f is HoleFeature) {
+      // M226 — without this a Hole row in the browser opened nothing at all:
+      // the feature was reachable to build and unreachable to change, which is
+      // the half-built state this file logs about below.
+      openHole(f);
     } else {
       // Revolve still has no panel; opening the extrude one instead would let
       // the user change a value that belongs to a different feature.

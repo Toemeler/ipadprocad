@@ -129,9 +129,32 @@ Token NIE in Dateien/.git/config schreiben.
 > geaenderte Senkung den gecachten Solid stehenlassen. Der Panel-Schalter
 > traegt vier UNTERSCHIEDLICHE Kurzlabels: „Counterbore" und „Countersink"
 > teilen sich sechs Anfangsbuchstaben, und zwei Knoepfe mit demselben Wort
-> sind keine Wahl. **Am Geraet nicht nachgeprueft** — und beim Kegel heisst
+> sind keine Wahl. CI-Lauf **32027556475**: **1896 gruen**, analyze zurueck auf
+> **55 Issues / 0 Errors** (der M225-Lauf stand kurzzeitig auf 59 — beide
+> Hole-Testdateien importierten `tools.dart show Tool`, und `Tool` kommt aus
+> `app_state.dart`; die Tests liefen trotzdem gruen, was genau der Grund ist,
+> die Zahl zu lesen). **Am Geraet nicht nachgeprueft** — und beim Kegel heisst
 > das ausdruecklich: dass das Taper-Vorzeichen stimmt, sagt der Shim-Kommentar,
 > nicht ein Bild.
+>
+> **Zwei Anschluss-Fehler, beim Nachsehen gefunden statt gemeldet:**
+>
+> * **Der Browser konnte ein Loch nicht oeffnen.** `editFeature` kannte
+>   `HoleFeature` nicht und landete im `else`-Zweig, der nur eine Logzeile
+>   schreibt. Ein Feature, das man bauen und nicht mehr aendern kann, ist ein
+>   halbes Feature.
+> * **Ein Muster haette das Teil aufgefressen.** Die Werkzeug-Einteilung in
+>   `_recomputePattern` fragt `src is BodyModifyFeature` — das ist die Klasse
+>   mit den KANTEN-Fingerabdruecken (Fillet/Chamfer). Ein Loch ist das nicht,
+>   also waere es in den Klon-Pfad gefallen: dort wird das Feature nachgebaut
+>   und sein SOLID als Werkzeug kopiert — und der Solid eines Lochs ist der
+>   ganze Koerper mit dem Loch drin. Jede Occurrence haette das Teil von sich
+>   selbst abgezogen, still. Neu wird jedes Feature mit `modifiesBody`
+>   abgelehnt (das trifft auch M217s Flaechen-Edits, die dieselbe Falle
+>   hatten), UNTER den beiden spezifischeren Ablehnungen darueber, weil Fillet
+>   und Muster ebenfalls `modifiesBody` sind und je einen besseren Satz haben.
+>   Der Weg, der wirklich funktioniert, steht in der Meldung: die SKIZZENPUNKTE
+>   mustern.
 
 > **M225 (2/2) — Hole: der Befehl.**
 >

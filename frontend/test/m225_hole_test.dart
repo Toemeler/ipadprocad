@@ -377,6 +377,34 @@ void main() {
       expect(p.bodyNames, ['Solid1'], reason: 'a hole makes no new body');
     });
 
+    test('a pattern refuses it rather than eating the part', () async {
+      // M226 — a hole's own solid is the whole body with the hole already in
+      // it. The pattern's clone path would place a copy of THAT at every
+      // occurrence and cut the part out of itself, silently.
+      final k = FakeKernel();
+      final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
+      final f = _hole(sk, [const Offset(10, 10)]);
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+      recomputeAllFeatures(p, app.partKernel);
+
+      final pat = PatternFeature(
+        name: 'Pattern1',
+        bodyName: 'Solid1',
+        mode: PatternKind.rectangular,
+        sources: [f.name],
+      );
+      pat.seq = p.nextSeq();
+      p.appendFeature(pat);
+      recomputeAllFeatures(p, app.partKernel);
+
+      expect(pat.solid, isNull);
+      expect(pat.computeError, contains('cannot be patterned yet'));
+      expect(pat.computeError, contains('changes the body'));
+      expect(pat.computeError, contains('sketch points'),
+          reason: 'the refusal names the way round that does work');
+    });
+
     test('round-trips through JSON', () {
       final f = _hole('Sketch2', [const Offset(1, 2), const Offset(3, 4)],
           dia: 8.5, depth: 3, extent: FeatureExtent.throughAll, flip: true);
