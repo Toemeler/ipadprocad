@@ -90,6 +90,56 @@ Token NIE in Dateien/.git/config schreiben.
 > testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
 > gruen**, analyze 55 Issues / 0 Errors.
 
+> **M227 — Combine: eine Boolesche zwischen KOERPERN — und das erste Feature,
+> das einen anderen Koerper liest.**
+>
+> Extrude traegt Join/Cut/Intersect seit M62, aber nur gegen den Koerper, in
+> den sein eigenes Profil baut. Sobald zwei Koerper da sind, gab es keinen Weg
+> zu sagen „nimm diesen aus jenem heraus" — genau der Fall, fuer den Inventor
+> Combine unter Modify fuehrt.
+>
+> **Die Boolesche selbst ist nichts Neues:** `combineSolids` bedient das
+> Extrude-Output seit M62 und nimmt dieselben drei Woerter. Neu ist die
+> ABHAENGIGKEIT. Ein Combine liest einen fremden Koerper, und der
+> Rebuild-Schluessel konnte das nicht sehen: er besteht aus den eigenen Zahlen
+> plus dem Upstream-Hash des EIGENEN Koerpers. Ein bearbeiteter Werkzeugkoerper
+> haette also einen Solid stehen lassen, der aus einem Koerper geschnitten ist,
+> den es so nicht mehr gibt.
+>
+> `PartFeature.inputBodies` ist der Haken — leer fuer alles andere, es aendert
+> sich also sonst nichts —, und der Fold mischt die Schluessel dieser Koerper
+> mit ein. Zwei Tests nageln genau das fest: ein geaenderter Werkzeugkoerper
+> laesst die Boolesche neu laufen, ein Leerlauf-Durchgang nichts.
+>
+> **Aufgeloest wird ueber SEQ, nicht ueber die Listenposition.**
+> `bodyFeatureBefore` liefert das lebende Feature dieses Koerpers, wie es
+> unmittelbar VOR diesem hier steht. Features des Werkzeugkoerpers, die spaeter
+> kommen, halten unter Umstaenden noch einen Solid aus dem vorigen Durchgang —
+> einen davon einzufalten hiesse, mit einem Koerper aus der Zukunft zu
+> verrechnen. Ein Werkzeug, das an dieser Stelle noch nichts gebaut hat, wird
+> beim Namen abgelehnt.
+>
+> **Keep Toolbody** ist Inventors, und es ist eine Zeile: ohne es wird das
+> Werkzeug-Feature `consumedByJoin` gesetzt, und genau das laesst den Koerper
+> aus Viewport, Koerperliste und STEP-Export zugleich verschwinden — alle drei
+> lesen dieselbe `solid`/`!consumedByJoin`-Regel (M214).
+>
+> **Bedienung (2/2):** erster Tipp = der Koerper, der BLEIBT (kein Toggle — ihn
+> noch einmal anzutippen liesse das Panel ohne Basis), danach die Werkzeuge,
+> die sich ein- und ausschalten lassen. Der Befehl oeffnet gar nicht erst,
+> wenn es weniger als zwei Koerper gibt. Im Ribbon bleibt Combine im
+> Klappmenue, jetzt aber mit echtem Callback: das ▼ ist laut M216 fuer
+> Befehle, die verfuegbar sind, aber keine dauerhafte Ribbon-Breite verdienen —
+> und Modifys sichtbare Spalte ist voll. Was gebaut von ungebaut trennt, ist
+> der Callback, nicht die Liste.
+>
+> **Ehrlicher Stand:** 20 Tests (`m227_combine_test.dart`) — die drei
+> Operationen, mehrere Werkzeuge nacheinander, Keep Toolbody, vier
+> Ablehnungen, der Roundtrip, der Rebuild-Schluessel von beiden Seiten, dass
+> ein Muster ein Combine wie jedes koerper-veraendernde Feature ablehnt (M226),
+> und die Befehlsseite: Basis, Werkzeuge, OK, Esc, Verdraengung, Browser-Edit.
+> **Am Geraet nicht nachgeprueft.**
+
 > **M226 — Senkungen: was ein Loch zu einem Schraubenloch macht.**
 >
 > M225 hat die vier Mundformen ausdruecklich weggelassen und den Grund

@@ -781,7 +781,13 @@ class _RibbonState extends State<Ribbon> {
             OverItem(MO['shell']!, 'Shell', null),
             OverItem(MO['draft']!, 'Draft', null),
             OverItem(MO['thread']!, 'Thread', null),
-            OverItem(MO['combine']!, 'Combine', null),
+            // M227 — built. It stays in the ▼ rather than moving out: the
+            // dropdown is for commands that are available but do not earn
+            // permanent ribbon width (M216's own words for the sketch side),
+            // and Modify's visible column is full. A live callback is what
+            // separates built from unbuilt here, not which list it is in.
+            OverItem(MO['combine']!, 'Combine', () => app.openCombine(),
+                active: app.combineSession != null),
             OverItem(MO['thicken']!, 'Thicken / Offset', null),
             OverItem(MO['split']!, 'Split', null),
           ],

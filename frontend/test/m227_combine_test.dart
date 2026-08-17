@@ -9,11 +9,13 @@
 // M62) but the DEPENDENCY: a Combine is the first feature that reads a body
 // other than its own, and the rebuild key had no way to see that. This file
 // pins the arithmetic and the key.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 
-import 'm56_part_test.dart' show FakeKernel;
+import 'm56_part_test.dart' show FakeKernel, addRectLines;
 
 /// A part with two independent bodies, each one extrusion, built.
 (PartModel, FakeKernel) _twoBodies() {
@@ -61,6 +63,9 @@ CombineFeature _combine(PartModel p,
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  _commandTests();
+
   group('M227 — the boolean', () {
     test('cut takes the tool body out of the base', () {
       final (p, k) = _twoBodies();
@@ -96,7 +101,11 @@ void main() {
       expect(f.computeError, isNull, reason: f.computeError ?? '');
       final tool = p.features.firstWhere((x) => x.bodyName == 'Solid2');
       expect(tool.consumedByJoin, isFalse);
-      expect(p.bodyNames, ['Solid1', 'Solid2']);
+      // Both survive. The ORDER is by the feature that carries each body, and
+      // Solid1's is now the Combine at the end of the timeline while Solid2's
+      // is still its own extrusion — so the set is the claim here, not the
+      // sequence.
+      expect(p.bodyNames.toSet(), {'Solid1', 'Solid2'});
     });
 
     test('several tools fold in one after another', () {
@@ -251,3 +260,122 @@ void main() {
   });
 }
 
+
+
+// ---------------------------------------------------------------------------
+// M227 (2/2) — the command
+// ---------------------------------------------------------------------------
+
+Future<AppState> _appTwoBodies() async {
+  final app = AppState()..partKernel = FakeKernel();
+  app.docsDirForTest = Directory.systemTemp.createTempSync('prototype_m227_');
+  await app.createNamedPart('P');
+  app.startPartSketch();
+  app.planePicked('xy');
+  addRectLines(app.activeChild!, 0, 0, 20, 10, layer: app.editingLayer!);
+  app.finishPartSketch();
+  final p = app.currentPart!;
+  for (final (name, body) in [('Extrusion1', 'Solid1'), ('Extrusion2', 'Solid2')]) {
+    final f = ExtrudeFeature(
+      name: name,
+      bodyName: body,
+      sketchName: p.childSketches.single.model.name,
+      profiles: [ProfileSel(10, 5, 200)],
+    )..output = 'new';
+    f.seq = p.nextSeq();
+    p.appendFeature(f);
+  }
+  recomputeAllFeatures(p, app.partKernel);
+  return app;
+}
+
+void _commandTests() {
+  group('M227 — the command', () {
+    test('it needs two bodies before it opens at all', () async {
+      final app = AppState()..partKernel = FakeKernel();
+      app.docsDirForTest = Directory.systemTemp.createTempSync('prototype_m227b_');
+      await app.createNamedPart('P');
+      app.openCombine();
+      expect(app.combineSession, isNull,
+          reason: 'one body has nothing to combine with');
+    });
+
+    test('the first pick is the base, the rest are tools', () async {
+      final app = await _appTwoBodies();
+      app.openCombine();
+      expect(app.combinePicking3D, isTrue);
+      app.combineBodyPicked('Solid1');
+      expect(app.combineSession!.baseBody, 'Solid1');
+      expect(app.combineSession!.tools, isEmpty);
+      app.combineBodyPicked('Solid2');
+      expect(app.combineSession!.tools, ['Solid2']);
+      // ... and a tool toggles off.
+      app.combineBodyPicked('Solid2');
+      expect(app.combineSession!.tools, isEmpty);
+    });
+
+    test('the base is not a toggle', () async {
+      final app = await _appTwoBodies();
+      app.openCombine();
+      app.combineBodyPicked('Solid1');
+      app.combineBodyPicked('Solid1');
+      expect(app.combineSession!.baseBody, 'Solid1',
+          reason: 'tapping it again must not leave the panel with no base');
+      expect(app.combineSession!.tools, isEmpty);
+    });
+
+    test('OK builds the feature and folds the tool away', () async {
+      final app = await _appTwoBodies();
+      final p = app.currentPart!;
+      app.openCombine();
+      app.combineBodyPicked('Solid1');
+      app.combineBodyPicked('Solid2');
+      app.setCombine(op: 'join');
+      expect(await app.applyCombine(), isTrue);
+
+      final f = p.features.whereType<CombineFeature>().single;
+      expect(f.name, 'Combine1');
+      expect(f.bodyName, 'Solid1');
+      expect(f.tools, ['Solid2']);
+      expect(f.op, 'join');
+      expect(f.computeError, isNull, reason: f.computeError ?? '');
+      expect(p.bodyNames, ['Solid1']);
+      expect(app.combineSession, isNull);
+    });
+
+    test('with nothing picked it refuses and stays open', () async {
+      final app = await _appTwoBodies();
+      app.openCombine();
+      expect(await app.applyCombine(), isFalse);
+      expect(app.combineSession, isNotNull);
+    });
+
+    test('Esc closes it, and another panel displaces it', () async {
+      final app = await _appTwoBodies();
+      app.openCombine();
+      app.escape3D();
+      expect(app.combineSession, isNull);
+
+      app.openCombine();
+      app.openExtrude();
+      expect(app.combineSession, isNull,
+          reason: 'two 3D panels competing for one tap is not a UI');
+    });
+
+    test('the browser can open it', () async {
+      final app = await _appTwoBodies();
+      final p = app.currentPart!;
+      app.openCombine();
+      app.combineBodyPicked('Solid1');
+      app.combineBodyPicked('Solid2');
+      await app.applyCombine();
+      final f = p.features.whereType<CombineFeature>().single;
+
+      app.editFeature(f);
+      expect(app.combineSession, isNotNull);
+      expect(app.combineSession!.editing, same(f));
+      expect(app.combineSession!.baseBody, 'Solid1');
+      expect(app.combineSession!.tools, ['Solid2']);
+    });
+  });
+}

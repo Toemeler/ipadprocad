@@ -857,6 +857,17 @@ class HoleSession {
   String exprCsAngle = '90 deg';
 }
 
+/// M227 — the live state of the Combine panel.
+class CombineSession {
+  CombineFeature? editing;
+
+  /// The body being kept. Inventor asks for it first, and so does this.
+  String? baseBody;
+  final List<String> tools = [];
+  String op = 'cut';
+  bool keepTool = false;
+}
+
 class ExtrudeSession {
   /// 'extrude' | 'revolve' | 'sweep' | 'loft' | 'coil'.
   ///
@@ -4946,6 +4957,7 @@ class AppState extends ChangeNotifier {
     if (p == null || cs == null) return;
     cancelExtrude();
     cancelHole(); // M225 — the same rule, the other way round
+    cancelCombine();
     // M211 — a sketch on a FACE or a work plane has no origin-plane key, and
     // `orientToPlane` answers every key it does not know with the XY target.
     // Reopening one from the browser therefore aimed the part camera at the
@@ -5005,6 +5017,8 @@ class AppState extends ChangeNotifier {
       openCoil(f);
     } else if (f is PatternFeature) {
       _openPattern(f.mode, f);
+    } else if (f is CombineFeature) {
+      openCombine(f);
     } else if (f is HoleFeature) {
       // M226 — without this a Hole row in the browser opened nothing at all:
       // the feature was reachable to build and unreachable to change, which is
@@ -5028,6 +5042,7 @@ class AppState extends ChangeNotifier {
     if (currentPart == null) return;
     cancelExtrude();
     cancelHole(); // M225 — one 3D panel at a time
+    cancelCombine(); // M227 — likewise
     _leaveSketchForCommand(); // M221 — an edge pick needs the 3D viewport
     final s = EdgeFeatureSession(kind, editing: edit);
     if (edit is FilletFeature) {
@@ -5492,6 +5507,128 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  // ---- M227 — Combine: a boolean between two bodies ---------------------
+
+  CombineSession? combineSession;
+
+  /// True while the combine panel wants a BODY.
+  bool get combinePicking3D => combineSession != null;
+
+  void openCombine([CombineFeature? edit]) {
+    final p = currentPart;
+    if (p == null) return;
+    if (edit == null &&
+        combineSession != null &&
+        combineSession!.editing == null) {
+      cancelCombine();
+      return;
+    }
+    if (edit == null && p.bodyNames.length < 2) {
+      toast('Combine needs two bodies — it joins, cuts or intersects one '
+          'with another.');
+      return;
+    }
+    cancelExtrude();
+    cancelEdgeFeature();
+    cancelPattern();
+    cancelHole();
+    cancelCombine();
+    _leaveSketchForCommand();
+    final s = CombineSession()..editing = edit;
+    if (edit != null) {
+      s
+        ..baseBody = edit.bodyName
+        ..op = edit.op
+        ..keepTool = edit.keepTool;
+      s.tools.addAll(edit.tools);
+    }
+    combineSession = s;
+    toast(s.baseBody == null
+        ? 'Tap the body to KEEP.'
+        : 'Tap the bodies to combine into ${s.baseBody}.');
+    notifyListeners();
+  }
+
+  /// A tap landed on [bodyName]. The FIRST pick is the base — Inventor asks
+  /// for it first, and it is the one thing here that is not a toggle: tapping
+  /// the base again would leave the panel with nothing to keep.
+  void combineBodyPicked(String bodyName) {
+    final s = combineSession;
+    if (s == null) return;
+    if (s.baseBody == null) {
+      s.baseBody = bodyName;
+      toast('Tap the bodies to combine into $bodyName.');
+      notifyListeners();
+      return;
+    }
+    if (bodyName == s.baseBody) {
+      toast('That is the base body — pick another one to combine with it.');
+      return;
+    }
+    if (!s.tools.remove(bodyName)) s.tools.add(bodyName);
+    notifyListeners();
+  }
+
+  void setCombine({String? op, bool? keepTool, String? baseBody}) {
+    final s = combineSession;
+    if (s == null) return;
+    if (op != null) s.op = op;
+    if (keepTool != null) s.keepTool = keepTool;
+    if (baseBody != null) {
+      s.baseBody = baseBody;
+      s.tools.remove(baseBody);
+    }
+    notifyListeners();
+  }
+
+  void cancelCombine() {
+    if (combineSession == null) return;
+    combineSession = null;
+    notifyListeners();
+  }
+
+  Future<bool> applyCombine() async {
+    final s = combineSession;
+    final p = currentPart;
+    if (s == null || p == null) return false;
+    if (s.baseBody == null || s.tools.isEmpty) {
+      toast('Pick the body to keep, then the bodies to combine into it.');
+      return false;
+    }
+    final edit = s.editing;
+    final f = CombineFeature(
+      name: edit?.name ?? p.nextFeatureName('Combine'),
+      bodyName: s.baseBody!,
+      tools: [...s.tools],
+      op: s.op,
+      keepTool: s.keepTool,
+    );
+    if (edit != null) {
+      final i = p.features.indexOf(edit);
+      if (i >= 0) {
+        f.seq = edit.seq;
+        edit.disposeSolid();
+        p.features[i] = f;
+      }
+    } else {
+      f.seq = p.nextSeq();
+      p.appendFeature(f);
+    }
+    combineSession = null;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    p.dirty = true;
+    Log.i('part',
+        'combine ${edit == null ? "created" : "edited"} ${f.name} '
+        '${f.op} ${f.tools.join(",")} -> ${f.bodyName}'
+        '${f.keepTool ? " (keep)" : ""}');
+    if (curTab != null) await savePart(curTab!);
+    notifyListeners();
+    return true;
+  }
+
   // ---- M212 — the PART patterns: Rectangular / Circular / Sketch Driven /
   //             Mirror. Inventor's Pattern panel, in 3D. ------------------
   //
@@ -5536,6 +5673,7 @@ class AppState extends ChangeNotifier {
     cancelEdgeFeature();
     cancelPattern();
     cancelHole(); // M225 — one 3D panel at a time
+    cancelCombine(); // M227 — likewise
     _leaveSketchForCommand(); // M221 — its picks are 3D picks too
     final s = PartPatternSession(kind, editing: edit);
     if (edit != null) {
@@ -6530,6 +6668,7 @@ class AppState extends ChangeNotifier {
     }
     cancelExtrude();
     cancelHole(); // M225 — one 3D panel at a time
+    cancelCombine(); // M227 — likewise
     final wasOpen = _leaveSketchForCommand();
     final s = ExtrudeSession();
     if (edit != null) {
@@ -7214,6 +7353,8 @@ class AppState extends ChangeNotifier {
     } else if (holeSession != null) {
       // M225 — the hole panel owns its point picking, so one Esc closes both.
       cancelHole();
+    } else if (combineSession != null) {
+      cancelCombine(); // M227 — same shape
     } else if (pickingEdges && edgeSession == null) {
       cancelPickEdges();
     } else if (edgeSession != null) {

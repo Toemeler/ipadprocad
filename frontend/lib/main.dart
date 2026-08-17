@@ -29,6 +29,7 @@ import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
+import 'widgets/combine_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
 
@@ -285,6 +286,9 @@ class PrototypeApp extends StatelessWidget {
                                           // M225 — Hole.
                                           if (app.holeSession != null)
                                             HoleDialog(app: app),
+                                          // M227 — Combine.
+                                          if (app.combineSession != null)
+                                            CombineDialog(app: app),
                                           // M169 — the work plane's dynamic
                                           // offset input. Anchored over the
                                           // viewport, never modal: the plane

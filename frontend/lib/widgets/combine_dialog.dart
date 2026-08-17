@@ -1,0 +1,192 @@
+// M227 — Inventor's Combine panel.
+//
+// The smallest of the property panels, because the command is: which body to
+// keep, which to combine into it, and how. Chrome from properties_panel.dart,
+// like every other one.
+import 'package:flutter/material.dart';
+
+import '../app_state.dart';
+import '../theme.dart';
+import 'dialog_dock.dart';
+import 'properties_panel.dart';
+
+class CombineDialog extends StatefulWidget {
+  final AppState app;
+  const CombineDialog({super.key, required this.app});
+
+  @override
+  State<CombineDialog> createState() => _CombineDialogState();
+}
+
+class _CombineDialogState extends State<CombineDialog> {
+  Offset? _pos;
+  bool _open = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = widget.app;
+    final s = app.combineSession;
+    if (s == null) return const SizedBox.shrink();
+
+    const w = 300.0, h = 300.0;
+    final vp = MediaQuery.sizeOf(context);
+    final pos = _pos ?? DialogDock.spot(vp, const Size(w, h));
+    return Positioned(
+      left: pos.dx,
+      top: pos.dy,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: w,
+          decoration: BoxDecoration(
+            color: T.panel,
+            border: Border.all(color: T.sep),
+            borderRadius: BorderRadius.circular(6),
+            boxShadow: const [
+              BoxShadow(
+                  color: Color(0x73000000),
+                  blurRadius: 24,
+                  offset: Offset(0, 6)),
+            ],
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            GestureDetector(
+              onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                decoration: const BoxDecoration(
+                  color: T.fly,
+                  border: Border(bottom: BorderSide(color: T.panelSep)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
+                ),
+                child: Row(children: [
+                  Text('Properties',
+                      style: ts(13, Colors.white, w: FontWeight.w600)),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: app.cancelCombine,
+                    child: Text('✕', style: ts(11.5, T.dim)),
+                  ),
+                  const Spacer(),
+                  Icon(Icons.menu, size: 14, color: T.dim),
+                ]),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Row(children: [
+                Text(s.editing?.name ?? 'Combine', style: ts(12.5, T.blue)),
+                const Spacer(),
+                Icon(Icons.visibility_outlined, size: 14, color: T.dim),
+              ]),
+            ),
+            panelSection('Bodies', _open, () => setState(() => _open = !_open), [
+              panelRow(
+                  'Base',
+                  panelPickField(
+                    icon: Icons.crop_square,
+                    active: s.baseBody == null,
+                    label: s.baseBody ?? 'Tap the body to KEEP…',
+                  )),
+              panelRow(
+                  'Toolbodies',
+                  panelPickField(
+                    icon: Icons.layers_outlined,
+                    active: s.baseBody != null,
+                    label: s.tools.isEmpty
+                        ? (s.baseBody == null
+                            ? 'Pick the base first'
+                            : 'Tap the bodies to combine…')
+                        : s.tools.join(', '),
+                  )),
+              panelRow(
+                  'Operation',
+                  Row(children: [
+                    for (final op in const ['join', 'cut', 'intersect']) ...[
+                      if (op != 'join') const SizedBox(width: 6),
+                      _seg(_opLabel(op), s.op == op,
+                          () => app.setCombine(op: op)),
+                    ],
+                  ])),
+              panelRow(
+                  'Keep tool',
+                  Row(children: [
+                    _seg('No', !s.keepTool,
+                        () => app.setCombine(keepTool: false)),
+                    const SizedBox(width: 6),
+                    _seg('Yes', s.keepTool,
+                        () => app.setCombine(keepTool: true)),
+                  ])),
+            ]),
+            _footer(app, s),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  static String _opLabel(String op) => switch (op) {
+        'join' => 'Join',
+        'intersect' => 'Intersect',
+        _ => 'Cut',
+      };
+
+  Widget _seg(String label, bool on, VoidCallback onTap) => Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: on ? T.blue : const Color(0xFF212429),
+              border:
+                  Border.all(color: on ? T.blue : const Color(0xFF3A3F45)),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child:
+                Text(label, style: ts(11.5, on ? Colors.white : T.text)),
+          ),
+        ),
+      );
+
+  Widget _footer(AppState app, CombineSession s) {
+    final ready = s.baseBody != null && s.tools.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: Row(children: [
+        Expanded(
+          child: Opacity(
+            opacity: ready ? 1 : 0.45,
+            child: GestureDetector(
+              onTap: ready ? () => app.applyCombine() : null,
+              child: Container(
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: T.blue, borderRadius: BorderRadius.circular(3)),
+                child: Text('OK',
+                    style: ts(12.5, Colors.white, w: FontWeight.w600)),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: GestureDetector(
+            onTap: app.cancelCombine,
+            child: Container(
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A2E33),
+                border: Border.all(color: const Color(0xFF3A3F45)),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text('Cancel', style: ts(12.5, T.text)),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}

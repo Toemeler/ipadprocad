@@ -1982,6 +1982,17 @@ class _Viewport3DState extends State<Viewport3D>
     // M225 — the hole panel wants sketch POINTS, and nothing else may consume
     // the tap while it is open: a pick field that looks dead is the failure
     // this file has fixed twice (M210's profile pick, M212's selectors).
+    // M227 — the combine panel wants BODIES, and owns the tap while it is up.
+    if (app.combinePicking3D) {
+      final solid = _pickSolidAny(cam, px);
+      final name = solid == null ? null : _bodyNameOf(p, solid);
+      if (name == null) {
+        app.toast('Tap a solid body.');
+        return;
+      }
+      app.combineBodyPicked(name);
+      return;
+    }
     if (app.holePicking3D) {
       final hit = _sketchPointAt(cam, px, p);
       if (hit == null) {
