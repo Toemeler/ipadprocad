@@ -16,6 +16,368 @@ Token NIE in Dateien/.git/config schreiben.
 
 ## Meilenstein-Status
 
+> **Stand der CI (nachgelesen, nicht am Haken abgezaehlt).**
+> Letzter Lauf auf `main`: **31970418590** zu `a6efbec` (M220), Core + C-API
+> Build (iOS) gruen — `ci-logs-dart/ci-dart-tests.log.gz` sagt **1805 Tests
+> bestanden**, `ci-dart-analyze.log` **55 Issues / 0 Errors** (das ist die
+> neue Ausgangszahl). Der OCCT-Kernel-Lauf **31820861588** zu `07e3790`
+> (M217) ist der letzte, der den Shim wirklich gebaut hat;
+> `ci-logs-occt/smoke.log` beginnt mit
+> `Prototype OCCT shim v20 (OCCT 7.9.3) (shim ABI v20)` und endet auf
+> `OCCT SMOKE: PASS`, mit `[33]` (STEP-Export) und `[34]` (Delete Face /
+> Direct Edit) darin. Der Workflow ignoriert `**.md`, ein reiner
+> Dokumentations-Push loest also KEINEN Lauf aus.
+>
+> **Nachtrag zur Nummerierung (M214–M216).** Diese drei entstanden auf einem
+> eigenen Branch als M212/M213/M214, waehrend `main` M212 und M213 bereits
+> fuer die 3D-Muster vergeben hatte. Zwei verschiedene M212 in einer
+> Codebasis, deren Kommentare alle an Meilensteinnummern haengen, sind eine
+> Falle — also ist die ungemergte Seite gewandert (`43a404c`):
+> STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
+> **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
+
+> **M220 — eine Schrift IST Geometrie: im DXF, und extrudierbar.**
+>
+> „schriften sollen tatsächlich linien sein wie in dxf üblich … und jede
+> schrift kann extrudiert werden". Sie konnte es nicht: eine Schrift war ein
+> ETIKETT — ein `TextPainter` malte Pixel und gab nur eine Groesse zurueck.
+> In keiner Datei, in keinem Profil, in keinem Koerper.
+>
+> Das System danach zu fragen geht nicht: `dart:ui` hat keine
+> Glyph-Umriss-API, CoreText gibt es nur auf dem Geraet — auf dem Host, also
+> in JEDEM Test, waere eine Schrift ein Etikett geblieben. Die Umrisse werden
+> darum EINMAL vorab extrahiert (`tool/make_vector_font.py`) und als Daten
+> ausgeliefert: jede Glyphe als move/line/quadratic in 1/1000 em, y nach
+> oben, Ursprung auf der Grundlinie. Drei Familien (CAD Sans / CAD Mono /
+> CAD Serif), ASCII plus Latin-1 — Umlaute und Eszett sind hier nicht
+> optional —, dazu Ø, °, µ und die typografischen Striche. Aus den
+> DejaVu-Fonts abgeleitet und umbenannt, wie deren Lizenz es verlangt.
+>
+> Die Kette: `vector_font.dart` flacht die Quadratiken adaptiv ab (0,002 em
+> Sehnentoleranz, 16 µm bei 8 mm Schrifthoehe) und setzt eine Zeile;
+> `text_geometry.dart` macht daraus Skizzengeometrie — eine GESCHLOSSENE
+> Polylinie je Kontur, auf der Ebene der Schrift. Die Punze eines „O" ist
+> eine eigene Kontur, `regionsFrom` verschachtelt sie also als Loch und der
+> Kernel bekommt Aussen + Loch statt einer vollen Platte.
+>
+> **Bewusst NICHT in `SketchModel.geometry`:** eine Schrift ist EIN Objekt
+> mit EINEM Anker (Inventors auch), ihr Umriss dagegen hunderte Punkte —
+> jeder davon waere eine Solver-Unbekannte, ein Griff unter dem Finger und
+> ein Eintrag in jedem Undo-Schnappschuss. Die Schrift bleibt parametrisch im
+> Sidecar, die Kurven werden abgeleitet und je Text gecacht. Aus demselben
+> Grund laufen Textschleifen nicht durch die planare Anordnung: eine
+> Glyphenkontur ist bereits geschlossen, und die Anordnung ist quadratisch in
+> der Segmentzahl (eine Textzeile hat einige tausend).
+>
+> **Ehrlich:** die Speicher-DXF der Skizze enthaelt weiterhin keinen Text (er
+> lebt parametrisch im Sidecar — nur der EXPORT bekommt die Kurven), ein
+> importiertes DXF mit TEXT-Entitaeten wird weiterhin kein Text, und eine
+> alte „Georgia"-Schrift behaelt ihre Groesse, ist aber jetzt CAD Serif.
+> 29 neue Tests, **1805 gruen** (CI-Lauf 31970418590). **Geraete-Test offen.**
+
+> **M219 — ein Trim an einer Spline schneidet die KURVE, und Splines sind
+> nicht mehr grobaufgeloest.**
+>
+> Zwei Geraete-Meldungen, zwei getrennte Ursachen.
+>
+> **1. „I can't trim splines. It's really fucked up."** Eine Spline ist hier
+> eine POLYLINIE aus Kontroll-/Stuetzpunkten plus einem Dart-seitigen Tag —
+> der vendorierte QCAD-Kern ist ohne OpenNURBS gebaut, es gibt also gar keine
+> Spline-Entitaet zu schneiden. Trim und Split fielen darum in den
+> Polylinien-Zweig und schnitten das KONTROLLPOLYGON: bei einer CV-Spline
+> beruehrt das gewaehlte Segment die Kurve nicht einmal. Zurueck kamen gerade
+> Stuecke, neu als Spline getaggt — eine andere Kurve, an einer anderen
+> Stelle, ohne die Form. Eine Ellipse traf es schlimmer: ihre drei Vertices
+> sind Mitte/Haupt-/Nebenachse, das „angeklickte Segment" war also ein
+> Radius.
+>
+> Jede Kurve, die diese App auf einer Polylinie traegt, ist stueckweise
+> KUBISCH — eine Kette kubischer Bezier-Segmente stellt sie also EXAKT dar,
+> und eine Bezierkette schneidet exakt, weil de Casteljau an jedem Parameter
+> ohne Naeherung teilt. `bezier.dart` rechnet um: geklemmte B-Spline per
+> Boehm-Knoteneinfuegung, periodische ueber den uniformen Basiswechsel,
+> Catmull-Rom in geschlossener Form, Ellipse als 16 Bogensegmente — alle vier
+> in den Tests gegen die bestehenden Sampler auf 1e-9 geprueft. Das Stueck
+> wird als `Geo.splineBez` zurueckgelegt: eine Polylinie, deren Vertices die
+> Kontrollpunkte der Kette SIND, also ohne neue Entitaet, ohne Knotenvektor
+> und mit unveraendertem Round-Trip durch DXF, Solver, Undo und
+> `.splines.json`. Ein Zahnrad hat keine kubische Form (Evolventen-Generator)
+> — es wird beim Schneiden GEBACKEN, denn ein halbes Zahnrad darf kein Tag
+> behalten, das „lies meine Punkte als Parameterblock" bedeutet.
+>
+> Zwei Folgefehler aus derselben Ecke: `_carry` reicht den Spline-Tag nur bei
+> gleicher Vertex-ZAHL weiter (das trennt „dieselbe Entitaet, neue Zahlen"
+> von „eine neue, daraus abgeleitete"), und `_transformGeoRaw` verlor den
+> Parameterblock eines Zahnrads — Move/Rotate/Mirror loeschten dessen Zaehne
+> still.
+>
+> **2. „Also splines are low resolution sometimes."** `splineCurveFor` gab
+> die Kurve auf echte Boegen dezimiert zurueck, mit fuenf Punkten je Bogen.
+> Diese Kette gehoert in den 3D-Pfad (dort macht `arcFitLoop` daraus wieder
+> exakte Bulges, damit eine extrudierte Spline zylindrische Flaechen bekommt)
+> — als ANZEIGE-Kurve ist sie schlecht, denn die eingehaltene Toleranz ist
+> die des BOGENS, nicht die der fuenf Sehnen darin: gemessen 25 Punkte und
+> 10-mm-Sehnen auf einer sanften 200-mm-S-Spline, 0,17 mm neben der Kurve.
+> Anzeige, Picking, Snap und Verschneidung bekommen jetzt die echte Kurve,
+> adaptiv unterteilt; der Painter reicht eine aus dem ZOOM abgeleitete
+> Toleranz durch (ein Fuenftel Pixel, auf Zweierpotenzen gerundet, damit eine
+> Pinch-Geste den Memo nicht zerreibt). Nur die Profilkette zum Kernel bleibt
+> auf Boegen — mit groesserem Budget, denn bei 64 war es vor dem Ende einer
+> langen Spline aufgebraucht und `_greedySpans` deckte den Rest mit EINEM
+> Bogen ab.
+>
+> Dichteres Abtasten kostet, also wurde derselbe Pfad billiger: `intersections()`
+> baut die Segmentkette der zweiten Entitaet nicht mehr je Segment der ersten
+> neu und verwirft nicht ueberlappende Paare per Bounding Box; die abgetastete
+> Kurve wird auf einem Hash der Zahlen memoisiert.
+>
+> 31 neue Tests, lokal **1774 gruen**. **Geraete-Test offen.**
+
+> **M218 — eine Skizze in 3D lange druecken und GENAU DIESE als DXF
+> exportieren.**
+>
+> „I also want to be able to long press a sketch in 3d mode and export as dxf
+> only this sketch from the context menu." Ein Teil verlaesst die App als
+> STEP, ganz. Was eine Maschine schneidet, ist EIN Profil — und das kam bis
+> hierher nur heraus, indem man es als eigenes 2D-Dokument neu zeichnete.
+>
+> **Der Export.** `childSketchExportPath(part, sketch)` ist der teil-seitige
+> Zwilling von `sketchExportPath` und ausdruecklich keine zweite
+> Implementierung davon: die M112-Regel — Konstruktions- und
+> Mittelliniengeometrie geht auf den nicht plottenden Layer „Defpoints",
+> weil der Stil-Tag in einem Sidecar reist, den das DXF nicht tragen kann —
+> ist jetzt `_writeExportDxf`, und beide Aufrufer gehen hindurch. Die Datei
+> haelt die EIGENEN 2D-Koordinaten der Skizze, nicht ihre Lage im Teil; sie
+> heisst „<Teil> - <Skizze>.dxf", weil eine Kindskizze nur durch beides
+> identifiziert ist. Ein offenes Teil wird vorher geschrieben, ein
+> geschlossenes kopflos geladen und wieder verworfen (M214: Exportieren ist
+> keine Navigation und darf keinen Tab aufmachen).
+>
+> **Das Menue.** `sketch3dMenuItems()` — Edit Sketch, Hide, Export DXF…,
+> Share DXF…. Kein „Show" (nur eine SICHTBARE Skizze kann unter dem Finger
+> liegen) und vor allem kein Delete: das steht im Browser, wo die Zeile
+> eindeutig ist; ein langer Druck im Viewport kann auf einer Kurve landen,
+> die man nicht gemeint hat, und das darf nie eine Skizze kosten.
+>
+> **Die Geste.** Ein Timer im rohen Listener, NICHT `onLongPress` — ein
+> Long-Press-Recognizer gewinnt in der Arena durch Stillhalten und nimmt den
+> Ein-Finger-Orbit mit; jede langsame Beruehrung auf leerer Flaeche haette
+> die Geste gekostet. Scharf geschaltet wird er nur, wenn der Druck AUF einer
+> Skizzenkurve beginnt. 600 ms und 8 px Abbruch, dieselben Zahlen wie im
+> 2D-Viewport seit M53. Der Druck verzehrt seinen Kontakt, der Tipp danach
+> laeuft also nicht zusaetzlich als Pick und der Finger orbitet das Modell
+> nicht hinter dem Menue weg.
+>
+> 17 neue Tests, **1745 gruen**, analyze 52 Issues / 0 Errors. **Ehrlich:**
+> die UIKit-Haelfte (Action Sheet, Files-Exporter, Share Sheet) laeuft auf
+> dem Host nicht und ist nur ueber ihren Kontrakt festgenagelt.
+> **Geraete-Test offen.**
+
+> **M217 — Delete Face und Direct Edit, Kernel bis Ribbon (Shim v20).**
+>
+> **Kernel (`b3d1f15`).** Delete Face bildet 1:1 auf
+> `BRepAlgoAPI_Defeaturing` ab — OCCTs eigene Beschreibung ist „removal of
+> features from a shape", und wie es die Wunde schliesst, IST Inventors Heal:
+> die Nachbarn werden verlaengert, bis sie sich schneiden. `heal = 0` wird
+> ABGELEHNT statt genaehert: Inventors ungeheilte Variante macht aus dem Teil
+> einen FLAECHEN-Koerper und sagt das im Browser, und diese App hat keine
+> Flaechenkoerper — jeder `KernelSolid` ist ein Volumen mit Booleschen und
+> einem STEP-Produkt. Nein ist die ehrliche Antwort, solange das so ist.
+>
+> Direct > Move/Size zieht jede gewaehlte Flaeche entlang des Deltas auf und
+> fuegt das aufgezogene Volumen hinzu oder schneidet es weg — je Flaeche
+> entschieden, am Vorzeichen gegen ihre eigene Aussennormale. Der Lehrbuchweg
+> (eine `BRepTools_Modification`, die die Flaeche verschiebt und die Nachbarn
+> nachtrimmt) zeigt seine Fehlerfaelle erst an echten Formen, und das
+> ungeprueft auszuliefern waere genau die tot-lebendige Bedienung, die dieser
+> Zweig gerade abgeraeumt hat. Der Prismenweg ist EXAKT, wo die angrenzenden
+> Waende parallel zur Bewegung stehen — also an jedem prismatischen Teil, und
+> fuer die greift man zu Direct Edit; an einem konischen Nachbarn weichen
+> beide ab, und dann wird es dem Aufrufer GESAGT statt still genaehert.
+> Direct > Scale bekommt einen eigenen Einstieg, weil `occt_transform`
+> nicht-starre Matrizen mit Absicht ablehnt (v2): eine Platzierung darf nie
+> skalieren, Skalieren ist ein Befehl fuer sich.
+>
+> `occt_mesh_face_ids` ist der Ermoeglicher und loest fuer Flaechen genau
+> das, was `occt_mesh_edge_ids` fuer Kanten geloest hat: `occt_mesh_create`
+> UEBERSPRINGT eine Flaeche, die es nicht triangulieren kann — Mesh-Index und
+> topologischer Index laufen also auseinander, sobald eine einzige ausfaellt.
+> Gepickt wird der Mesh-Index, gebraucht der topologische; ein Pick, der auf
+> -1 abbildet, wird abgewiesen statt an ein Loeschen mit falschem Index
+> weitergereicht. **v20 und nicht v18+1:** zwei Zweige hatten beide v17
+> beansprucht (main fuer `occt_mirror`, dieser fuer
+> `occt_export_step_named`), dieser hatte darauf schon v18 gebaut, der Merge
+> nahm v19.
+>
+> **Feature-Ebene (`c0ec375`).** `FacePick` ist der Flaechen-Zwilling von
+> `EdgeSel`, aus demselben Grund: ein topologischer Index ist ueber einen
+> Rebuild hinweg bedeutungslos. Der Anker ist der Mesh-SCHWERPUNKT der
+> Flaeche, nicht die `Location` ihrer Flaeche — zwei koplanare Flaechen eines
+> Koerpers teilen sich eine Location und waeren ununterscheidbar, ihre
+> Schwerpunkte liegen Meter auseinander. Er ist FLAECHENGEWICHTET, damit eine
+> in ein grosses Dreieck und zwanzig Splitter zerlegte Flaeche ihren Mittelpunkt
+> dort hat, wo das Material ist. Ein Typwechsel oder eine gekippte Normale
+> disqualifiziert, genau wie eine Linie, die ein Bogen wurde, es fuer
+> `EdgeSel` tut.
+>
+> Eine Flaechen-Aenderung wird ein echtes ZEITSTRAHL-Feature, kein Griff in
+> den Solid: alles in dieser App baut sich aus dem Zeitstrahl neu auf, eine
+> Aenderung daneben wuerde der naechste Rebuild verwerfen — das Modell sieht
+> richtig aus, bis es das nicht mehr tut. Eine Ablehnung entfernt das Feature
+> wieder, ein abgelehnter Edit laesst den Zeitstrahl also so, wie der
+> Benutzer ihn vorgefunden hat. Direct > Scale skaliert um die Mitte der
+> Bounding Box, nicht um den Weltursprung, sonst schleudert es ein
+> ausserhalb modelliertes Teil durch die Szene.
+>
+> **Nachtrag (`07e3790`).** Die CI fand drei echte Fehler: `FaceSel` gab es
+> schon (mains M213 fuer Skizze-auf-Flaeche und „To Face"), meine zweite
+> Klasse gleichen Namens heisst jetzt `FacePick` — der bessere Name, denn sie
+> ist, was ein PICK erzeugt hat. `viewport3d.dart` importiert die FFI-Ebene
+> mit Absicht nicht und braucht sie auch nicht. Und die vier Kernel-Fakes
+> ohne `noSuchMethod` brauchen jede neue Schnittstellen-Methode.
+>
+> **Im Ribbon** verlassen Delete Face und Direct das Klappmenue — die Regel
+> aus M216 gilt in beide Richtungen. Das Direct-Flyout traegt Inventors fuenf
+> Eintraege; **Rotate ist gelistet und inert**, weil das Drehen einer Flaeche
+> dieselbe `BRepTools_Modification` braucht.
+>
+> Tests: `m217_face_edit_test.dart` plus Smoke `[34]` gegen echte Geometrie —
+> ein 20-mm-Klotz mit 5-mm-Bohrung, Delete Face auf der Zylinderflaeche muss
+> das Volumen des vollen Klotzes exakt wiederherstellen (Log: `8000.0000`),
+> ein ungeheiltes Loeschen muss abgelehnt werden, eine Deckflaechen-
+> Verschiebung addiert genau die aufgezogene Platte abzueglich der Bohrung
+> darin (`8036.5046`), und x2 skaliert ist 8x Volumen (`51433.6294`).
+> **Am Geraet nicht nachgeprueft.**
+
+> **M216 — der 3D-Ribbon zeigt, was gebaut ist; der Rest ist einen Tipp
+> tiefer.**
+>
+> Zwei Drittel des Teil-Ribbons taten nichts: neun von zwoelf Modify-
+> Eintraegen, drei von sechs Create-Eintraegen und UCS waren Beschriftungen
+> mit `null`-Callback — und Hole war ein Knopf in voller Groesse, dessen
+> `onTap` `() {}` war, genau die leere Closure, die M157 am Plane-Knopf
+> angeprangert hat. Ein sichtbares Bedienelement muss etwas tun; Schweigen
+> liest sich als kaputt, und ein grosser, fertig aussehender Knopf ist die
+> teuerste Fassung dieser Luege.
+>
+> Sie stehen jetzt hinter dem ▼ des Panel-Titels, so wie es der SKIZZEN-
+> Ribbon seit M50 macht. Geloescht wird nichts: ein ungebautes `OverItem`
+> reicht `null` durch, `_OverRow` zeichnet es gedimmt und untippbar — die
+> Roadmap bleibt sichtbar und ehrlich, statt dass der Ribbon so tut, als
+> waeren diese Befehle nie geplant gewesen.
+>
+> **Die Regel ist jetzt ein TYP und keine Konvention mehr:** der Callback von
+> `col()` ist nicht mehr nullable und das `?? () {}` ist weg — ein ungebauter
+> Befehl kann gar nicht mehr in einer sichtbaren Spalte stehen, er MUSS in
+> die `over`-Liste. Genau dieses Fallback ist es, hinter dem hier neun tote
+> Knoepfe fertig aussahen.
+>
+> Stand nach dem Merge mit mains Muster-Befehlen — ungebaut und damit im
+> Klappmenue sind noch: **Create ▼** Emboss, Derive, Decal; **Modify ▼**
+> Hole, Shell, Draft, Thread, Combine, Thicken/Offset, Split; **Work ▼** UCS.
+> (Der Skizzen-Ribbon fuehrt dieselbe Liste fuer Points, Center Point,
+> Driven Dimension und Show Format.)
+
+> **M215 — Work Axis und Work Point, jede Inventor-Methode, aus dem Pick
+> erschlossen.**
+>
+> Das Work-Features-Panel hat Plane seit M151; Axis, Point und UCS waren
+> Symbol und Beschriftung mit `onTap: null`. Gebaut sind jetzt Axis und
+> Point — zuerst gegen die Autodesk-Hilfe recherchiert: Inventor dokumentiert
+> acht Achsen- und neun Punkt-Methoden, und die beiden wichtigsten sind die
+> ALTEN Eintraege „Axis" und „Point", die gar nicht fragen, welche Methode
+> gemeint ist, sondern es aus dem Angetippten erschliessen. Genau diese Form
+> hat das hier.
+>
+> `WorkRef` modelliert einen Pick danach, was er BEITRAEGT, nicht danach, was
+> er ist: eine kreisrunde Kante ist gleichzeitig ein Punkt (Mittelpunkt),
+> eine Achse und eine Ebene, und was davon zaehlt, entscheidet der jeweils
+> andere Pick. Nach Typ braeuchte es einen Fall je PAAR von Typen, nach
+> Beitrag einen Fall je Inventor-Methode — also genau die dokumentierte
+> Liste. Die Geometrie steht in `work_features.dart`: kein Flutter, kein
+> Kernel, kein AppState, also auf dem Host testbar.
+>
+> **Bedienung, mit Absicht so:** ein Pick, der die Antwort ALLEIN festlegt,
+> committet sofort (Kante antippen, Achse da); nur was nicht allein stehen
+> kann, wartet auf einen zweiten. Die Folge deckt sich mit Inventor — der
+> generische Befehl kann „Through Two Points" nicht aus zwei kreisrunden
+> Kanten bauen, weil die erste schon geantwortet hat, und genau darum gibt es
+> die benannten Methoden im Menue. Ein Pick, der nicht funktionieren kann,
+> wird VERWORFEN und der Befehl bleibt scharf: ein Fehlgriff kostet diesen
+> Tipp und sonst nichts. Ein Danebentippen auf leere Flaeche wiederholt die
+> Aufforderung, statt abzubrechen. Und eine Ablehnung traegt das Mass mit
+> sich: zwei windschiefe Kanten melden, um wieviel sie sich verfehlen.
+>
+> **Shim v18:** die Flaechen-Datensaetze fuer Kegel, Kugel und Torus sind
+> gefuellt. Sie trugen bisher nur ihren TYP, die Slots 1..10 blieben null —
+> „Through Revolved Face", „Center of Sphere" und „Center of Torus" haetten
+> also still ein Feature im WELTURSPRUNG erzeugt, ohne Fehler. Rein additiv.
+>
+> **Gezeichnet wird in BEIDEN Painters**, und das ist der Punkt: auf iOS ist
+> die Szene RealityKit, `_ScenePainter` laeuft dort nie — eine nur dort
+> gezeichnete Achse waere auf dem Host sichtbar und auf dem Geraet unsichtbar
+> gewesen. Im Bildschirmraum, also ohne Swift: eine Achse sind zwei
+> projizierte Punkte, ein Punkt ein kleines Kreuz. (Eine Arbeits-EBENE
+> braucht Tiefe und geht darum durch die Szenen-Payload.)
+>
+> **UCS bleibt bewusst inert.** Es ist ein Koordinaten-SYSTEM mit eigenem
+> Triad und eigenen Platzierungsgesten, keine dritte Variante dieser beiden —
+> und ein halb funktionierender Knopf ist schlimmer als einer, der sagt, dass
+> er nicht gebaut ist (M157).
+
+> **M214 — ein exportiertes Loch ist ein Loch, eine Verrundung eine
+> Verrundung, und Teilen ist kein Oeffnen.** (Ausfuehrliche Analyse:
+> `M214_STEP_EXPORT_ANALYSIS.md`.)
+>
+> Zwei gemeldete Fehler, beide in Dart, bevor der Kernel ueberhaupt erreicht
+> wird.
+>
+> **1. Loecher und Verrundungen fehlten in der STEP-Datei**, obwohl sie auf
+> dem Schirm zu sehen waren. Der Export sammelte `f.solid` von JEDEM Feature.
+> Jedes Feature haelt aber die laufende Anhaeufung an seiner eigenen Stelle —
+> ein Teil aus Klotz → Bohrung → Verrundung reichte dem Kernel also drei
+> Solids, und der VEREINIGTE sie. Vereinigung ist exakt die Umkehrung dessen,
+> was die spaeteren Features taten: `Klotz ∪ (Klotz − Bohrung)` ist der
+> Klotz. Der Export machte die Modellierung rueckgaengig. Additive Features
+> ueberlebten, weshalb es meistens zu funktionieren schien.
+> `partExportBodies()` ist jetzt die eine benannte Definition von „das Modell
+> als Liste von Koerpern", mit derselben Regel
+> (`solid` / `!consumedByJoin` / `!rolledBack`), die Viewport, RealityKit-
+> Szene und Galerie-Thumbnail laengst benutzen.
+>
+> **2. Ein Teil aus der Galerie zu teilen OEFFNETE es.** `partExportStep`
+> lief durch `openPart`, das einen Tab anlegt, das Teil aktuell macht, das
+> Werkzeug loescht und den Viewport neu baut; die lokale Variable `wasLoaded`,
+> die das rueckgaengig machen sollte, wurde berechnet und nie gelesen.
+> `openPart` ist jetzt geteilt: `_loadPartModel()` liest und faltet ein Teil
+> und fasst keinen UI-Zustand an, `openPart` ist das plus die Tab-Buchhaltung.
+> Der Export nimmt den kopflosen Weg und entsorgt die Kopie danach (sie
+> besitzt ein B-Rep je Koerper und eine Solver-Engine je Kindskizze).
+>
+> **Produktionshaertung der geschriebenen Datei (Shim-ABI → v17):**
+> `occt_export_step_named()` schreibt N Koerper als N BENANNTE Produkte —
+> kein Verschmelzen mehr (der alte Weg vereinigte den ersten Solid mit sich
+> selbst als „billige Kopie", verlor die Koerper-Identitaet und liess bei
+> einer fehlschlagenden Booleschen den ganzen Export scheitern). Einheiten
+> auf MM festgenagelt und ZURUECKGELESEN — der Export wird verweigert statt
+> geschrieben, wenn es nicht griff, denn `Interface_Static` ist
+> prozessglobal und die App liest STEP im selben Prozess: die Verliererseite
+> dieser Wette ist ein um 25,4 falsch gefraestes Teil. Schema auf AP214IS
+> (was der Header immer behauptet hat), Assembly aus, `surfacecurve` auf 1,
+> damit getrimmte Zylinderflaechen — also jedes Loch dieser App — Leser
+> ueberleben, die aus PCurves rekonstruieren. `FILE_NAME` traegt den
+> Dokumentnamen, ein Transferfehler NENNT den Koerper, veraltete Exporte
+> werden vorher geloescht, eine Null-Byte-Datei wird gemeldet statt geteilt.
+>
+> Tests: es gab **keinerlei** Abdeckung des Export-Pfads — so ist das
+> ausgeliefert worden. `m214_step_export_test.dart` nagelt die Koerpermenge
+> fest (Bohrung, Verrundung, beides, zwei Koerper, End of Part, versteckte
+> Koerper), was beim Kernel ankommt, den Veralteten- und den Leerdatei-Pfad
+> und dass Exportieren keine Navigation ist. Smoke `[33]` gegen echtes OCCT:
+> zwei getrennte Kaesten muessen als zwei Solids mit zusammen 1125 mm³
+> zurueckkommen, mit beiden Namen, dem Dokumentnamen und Millimetern in der
+> Datei (Log: `[33] total volume 1125.0000 (want 1125)`).
+
 > **M213 — die fuenf Dinge, die M212 ausdruecklich NICHT konnte. Jetzt
 > koennen sie es: Flaechen-Herkunft, gemusterte Verrundungen, Muster entlang
 > einer KURVE (mit Curve Length und Start), unregelmaessige Abstaende und
