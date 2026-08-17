@@ -8,7 +8,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
-import 'package:prototype/tools.dart' show Tool;
 
 import 'm56_part_test.dart' show FakeKernel, addRectLines;
 
