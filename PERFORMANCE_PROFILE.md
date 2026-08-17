@@ -1814,7 +1814,80 @@ could be one.
 
 ---
 
-## 14. What the next device run will answer
+## 14. Coverage of main's newer features (M212–M231)
+
+The branch was re-based on `main` after 33 further commits, the largest influx
+of new surface since it was created. This section states plainly what of that
+surface is measured, what is not, and why — so the coverage is not mistaken for
+being complete a second time.
+
+### 14.1 The pattern that repeated
+
+Four new kernel entry points arrived **unmeasured**: `occt_delete_faces`,
+`occt_move_faces`, `occt_scale_shape` and `occt_export_step_named` (shim
+v17 → v20). That is exactly what happened with `occt_mirror` at the previous
+merge, and for the same structural reason: `main` does not carry the
+measurement infrastructure, so nobody working there can be expected to think
+of it.
+
+All four are now wrapped at the native call site with counters beside them
+(`ffi.occt.{deleteFaces,moveFaces,scaleShape,exportStepNamed}`). Twice is a
+pattern, not an oversight: **every merge with `main` will bring unmeasured
+kernel operations**, and the kernel-op list in
+`m213_perf_coverage_test.dart` is the place that catches it.
+
+`occt_mesh_face_ids` needs no probe of its own — it runs inside `mesh()`,
+already split into `meshCreate` and `meshCopyOut`.
+
+### 14.2 Newly measured
+
+| Path | Feature it serves | Scenario | Axis |
+| --- | --- | --- | --- |
+| `facesOf` | Delete Face, Direct Edit (M217) | `app.facesOf.{24,120,360}` | triangles |
+| `catmullRomBezPath` | splines at real resolution (M219) | `tools.bezPath.{8,32,128}` | control points |
+| `BezPath.flatten` | the same, rendering side | `tools.bezPath.*`, `tools.bezTolerance` | tolerance |
+
+Construction and flattening are measured **apart**, for the same reason
+`meshCreate` and `meshCopyOut` are (§6.4): they scale on different axes and
+are fixed in different places. Construction follows the control-point count;
+flattening follows curvature and tolerance, and is capped at recursion depth 8
+(`bezier.dart:207`).
+
+`tools.bezTolerance` exists to price the knob a renderer would turn — the same
+chain flattened at 1.0, 0.25, 0.05 and 0.01. Its coverage test asserts that a
+hundredfold tighter tolerance still produces more points, which establishes
+that **the depth cap does not bind at the tolerances the app uses**. Had it
+bound, the sweep would have been measuring the cap rather than the tolerance,
+and the numbers would have looked flat and reassuring for the wrong reason.
+
+### 14.3 Present in the app, not yet measured
+
+Stated so the gap is visible rather than implied:
+
+| Area | What arrived | Why there is no scenario yet |
+| --- | --- | --- |
+| **Hole** (M225/M226) | `HoleFeature`, counterbore, spotface, countersink | A new feature KIND. `kernel.feature.<kind>` prices it automatically in any rebuild that contains one, but no fixture builds one, so there is no curve against hole count or depth. |
+| **Combine** (M227) | boolean between BODIES — the first feature that reads another one | Same: priced when it runs, no fixture drives it. Its cost is presumably `ffi.occt.{fuse,cut,common}`, already characterised in §6.2, but the *orchestration* around it is not. |
+| **Split** (M228) | trim a solid with a plane | Same. |
+| **Delete Face / Direct Edit** (M217) | `deleteFaces`, `moveFaces` | The FFI calls are now measured; no scenario drives them, because both need a valid topological face id and an operation the kernel will accept. A fixture that picked an unremovable face would report a fast null — the M212 failure. |
+| **Work planes / axes / points** (M213, M223, M224, M229, M231) | thirteen construction methods | Pure frame arithmetic, expected to be far below the instrument's floor (§1.2). Worth a counter if one ever appears on a frame path; not worth a timing today. |
+| **Sketch text as geometry** (M220) | `textLoops`, extrudable text | Needs a text-carrying fixture. Cheap to add once one exists. |
+| **Section outline + hatch** (M222) | `_hatch`, mesh section edges | On the paint path, so it would show up in `2d.paint.z` if it were expensive — and `z` is 0.2 % (§5.1). Not urgent, but that is an inference, not a measurement. |
+| **STEP export** (M212) | `exportStepNamed` | FFI now measured. Wall time is dominated by disk I/O, which §8.3 deliberately excludes from sweeps. |
+
+### 14.4 What this means for the ranking
+
+Nothing in §4 moves. Everything above is either newly instrumented and awaiting
+a device run, or a feature whose kernel cost is already characterised under a
+different name. The one entry that could plausibly join the scoreboard is
+**Combine**, because a boolean between two real bodies is the operand-complexity
+case of §6.2 at full size rather than at fixture size — and §6.2's own curve
+(k = 1.07, CI [1.03, 1.12]) says it will be linear but expensive in absolute
+terms.
+
+---
+
+## 15. What the next device run will answer
 
 Everything below is instrumented and shipping but has never been executed on a
 device. This section exists so the next capture is taken deliberately rather
@@ -1830,7 +1903,7 @@ than incidentally, and so its results have somewhere to land.
 | 6 | **How fast does the undo journal grow?** It is unbounded by design and has never been sized. | `app.journal.bytesPerEntry` (M221) — constant means linear growth in edits, rising means the snapshots themselves are growing. | §8.3, §9.1 item 7 |
 | 7 | **Does a patterned fillet really cost `allEdges` per occurrence?** Currently derived from source, not measured. | Any run that patterns a blend; or the stress tier if a rung reaches one. | §8.2 |
 
-### 14.1 How to take it
+### 15.1 How to take it
 
 1. Sideload a build from this branch **newer than `8a6690d`** — earlier
    binaries have no `Perf.note` and will answer nothing in row 1.
@@ -1844,7 +1917,7 @@ than incidentally, and so its results have somewhere to land.
    `stress`, to extend the longitudinal series of §12 under the conditions the
    existing runs used.
 
-### 14.2 How to read what comes back
+### 15.2 How to read what comes back
 
 ```
 python3 ci/perf_report.py  <bundle.zip>                 # is it trustworthy, then what changed
@@ -1859,7 +1932,7 @@ floor decides whether any difference means anything at all.
 
 ---
 
-## 15. Complete data appendix
+## 16. Complete data appendix
 
 Sections 1–12 are analysis: they select, rank and interpret. Selection is
 where bias enters — the spans nobody printed are the spans nobody questioned —
@@ -3176,5 +3249,5 @@ Ramps use fine steps so a **knee** is visible. A fit through three points assume
 
 *Source: `bug20260811T104745`, build `cd961ee`, iPadOS 27.0, single device.
 Sections 1–12 regenerable via `python3 ci/perf_report.py <bundle.zip>`;
-section 15 via `python3 ci/perf_profile.py <bundle.zip>`. Fit statistics
+section 16 via `python3 ci/perf_profile.py <bundle.zip>`. Fit statistics
 (R², CI) computed as specified in §1.5.*

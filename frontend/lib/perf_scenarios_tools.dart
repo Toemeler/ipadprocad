@@ -36,6 +36,7 @@ import 'package:flutter/widgets.dart' show Offset, Rect;
 import 'app_state.dart' show Tool;
 import 'constraints.dart';
 import 'ffi/qcad_engine.dart';
+import 'bezier.dart';
 import 'freehand.dart';
 import 'modify.dart';
 import 'perf.dart';
@@ -624,6 +625,78 @@ List<PerfScenario> buildToolScenarios() {
         'so this is the cost of LOSING — and a user who over-constrains by '
         'accident pays it on every subsequent edit',
     ));
+
+  // ---- M222: the Bezier path machinery (main's M219) ---------------------
+  //
+  // "Trimming a spline cuts the CURVE, and splines are no longer
+  // low-resolution" replaced the old polyline approximation with a real Bezier
+  // chain. That put two new costs on the 2D drawing path with no measurement
+  // on either.
+  //
+  // They are measured SEPARATELY because they scale on different axes and are
+  // fixed in different places — the same reason meshCreate and meshCopyOut are
+  // split (§6.4):
+  //
+  //   * CONSTRUCTION (catmullRomBezPath) is one pass over the control points,
+  //     so it should follow the CV count;
+  //   * FLATTENING is recursive subdivision against a chord tolerance, capped
+  //     at maxDepth 8 (bezier.dart:207). Its cost follows the TOLERANCE and
+  //     the curvature, not the CV count, and the depth cap means it cannot run
+  //     away — but it can silently stop refining, which is a correctness
+  //     question the timing alone would never raise.
+  for (final n in const [8, 32, 128]) {
+    out.add(PerfScenario(
+      'tools.bezPath.$n',
+      () {
+        final cvs = <Offset>[
+          for (var i = 0; i < n; i++)
+            Offset(i * 6.0, 30 * math.sin(i * 0.35) + 10 * math.cos(i * 0.9)),
+        ];
+        Perf.gauge('tools.bez.cvs.$n', cvs.length);
+        var segs = 0, pts = 0;
+        for (var i = 0; i < 20; i++) {
+          final path =
+              Perf.span('tools.bez.build', () => catmullRomBezPath(cvs));
+          segs = path.count;
+          pts = Perf.span('tools.bez.flatten', () => path.flatten(0.05).length);
+        }
+        // Both must be non-zero: an empty chain flattens to nothing in no
+        // time, and would read as the cheapest 2D operation in the app.
+        Perf.gauge('tools.bez.segs.$n', segs);
+        Perf.gauge('tools.bez.flatPts.$n', pts);
+      },
+      note: 'the Bezier chain behind a spline (main M219), construction and '
+          'flattening measured apart. Build should follow the CV count; '
+          'flatten follows curvature and tolerance and is capped at depth 8, '
+          'so watch flatPts per segment as much as the time — a flat count '
+          'that stops growing means the cap was hit, not that it got fast',
+    ));
+  }
+
+  // The flattening tolerance on its own, at a fixed shape. This is the knob a
+  // renderer would turn, and nothing in the app has ever priced it.
+  out.add(PerfScenario(
+    'tools.bezTolerance',
+    () {
+      final cvs = <Offset>[
+        for (var i = 0; i < 48; i++)
+          Offset(i * 6.0, 40 * math.sin(i * 0.4)),
+      ];
+      final path = catmullRomBezPath(cvs);
+      for (final tol in const [1.0, 0.25, 0.05, 0.01]) {
+        final key = tol.toString().replaceAll('.', '_');
+        var pts = 0;
+        for (var i = 0; i < 10; i++) {
+          pts = Perf.span('tools.bez.tol.$key', () => path.flatten(tol).length);
+        }
+        Perf.gauge('tools.bez.tolPts.$key', pts);
+      }
+    },
+    note: 'flattening the SAME chain at four tolerances. Halving the tolerance '
+        'should raise the point count until the depth-8 cap binds; the '
+        'tolerance at which tolPts stops rising is the resolution ceiling the '
+        'app actually has',
+  ));
 
   return out;
 }

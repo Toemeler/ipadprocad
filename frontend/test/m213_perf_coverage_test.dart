@@ -630,6 +630,53 @@ void main() {
           reason: 'one traversal per occurrence is the point');
     });
 
+    testWidgets('facesOf really decomposes a mesh', (tester) async {
+      if (!OcctFfi.available) return;
+      Perf.resetForTest();
+      resetAppFixturesForTest();
+      final s = buildAppScenarios()
+          .firstWhere((sc) => sc.name == 'app.facesOf.120');
+      Perf.scenario(s.name, s.run);
+      expect(Perf.gauges['app.facesOf.out.120'] ?? 0, greaterThan(0),
+          reason: 'facesOf returned nothing — a mesh without triFaces exits '
+              'on its second line, so the Delete Face / Direct Edit pick path '
+              'would be timing an early return');
+      expect(Perf.stats['app.facesOf']?.count, 10);
+    });
+
+    test('the Bezier chain is built and flattened, not skipped', () {
+      Perf.resetForTest();
+      final s = buildToolScenarios()
+          .firstWhere((sc) => sc.name == 'tools.bezPath.32');
+      Perf.scenario(s.name, s.run);
+      // 32 control points through Catmull-Rom must yield segments, and those
+      // must flatten to more points than they started with — otherwise the
+      // chain is empty and both halves timed nothing.
+      expect(Perf.gauges['tools.bez.segs.32'] ?? 0, greaterThan(0),
+          reason: 'an empty Bezier chain flattens instantly and would read as '
+              'the cheapest 2D operation in the app');
+      expect(Perf.gauges['tools.bez.flatPts.32'] ?? 0, greaterThan(32));
+      expect(Perf.stats['tools.bez.build']?.count, 20);
+      expect(Perf.stats['tools.bez.flatten']?.count, 20);
+    });
+
+    test('flattening tolerance actually changes the point count', () {
+      Perf.resetForTest();
+      final s = buildToolScenarios()
+          .firstWhere((sc) => sc.name == 'tools.bezTolerance');
+      Perf.scenario(s.name, s.run);
+      final coarse = Perf.gauges['tools.bez.tolPts.1_0'] ?? 0;
+      final fine = Perf.gauges['tools.bez.tolPts.0_01'] ?? 0;
+      expect(coarse, greaterThan(0));
+      // The whole point of the scenario: if a tighter tolerance produces no
+      // more points, the subdivision is capped and the sweep measures the cap
+      // rather than the tolerance.
+      expect(fine, greaterThan(coarse),
+          reason: 'a hundredfold tighter tolerance produced no extra points — '
+              'the depth-8 cap binds even at the coarse end, and the '
+              'resolution ceiling is lower than this scenario assumes');
+    });
+
     test('every pattern KIND has a scenario', () {
       // patternOccurrences switches on the kind, so each is separate code.
       // This is the list that fails when a fifth kind is added without a

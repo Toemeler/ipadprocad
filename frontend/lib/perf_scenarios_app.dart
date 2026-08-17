@@ -421,6 +421,41 @@ List<PerfScenario> buildAppScenarios() {
     ));
   }
 
+  // ---- M222: facesOf — the Delete Face / Direct Edit pick path ------------
+  //
+  // Arrived with main's M217 (shim v20) and had no measurement. It is the
+  // face-side twin of `faceSurfaces` (§8.1): one pass over every triangle,
+  // accumulating a centroid and area per face, and it stands between a tap on
+  // a face and the operation that acts on it.
+  //
+  // Measured against TRIANGLE count rather than face count, because that is
+  // what the loop actually walks — a mesh with few faces and a fine
+  // tessellation costs the same as one with many faces and a coarse one, and
+  // sweeping the wrong axis would hide that.
+  for (final pts in const [24, 120, 360]) {
+    out.add(PerfScenario(
+      'app.facesOf.$pts',
+      () {
+        final p = _part(1, pts);
+        if (p == null) return;
+        final solid = p.features.first.solid;
+        if (solid == null) return;
+        Perf.gauge('app.facesOf.tris.$pts', solid.mesh.triangleCount);
+        var found = 0;
+        for (var i = 0; i < 10; i++) {
+          found = Perf.span('app.facesOf', () => facesOf(solid.mesh).length);
+        }
+        // A mesh without triFaces makes facesOf return const [] on its second
+        // line. That is the fast, silent nothing this suite has been caught by
+        // three times now; published so it cannot pass as speed.
+        Perf.gauge('app.facesOf.out.$pts', found);
+      },
+      note: 'facesOf vs TRIANGLE count — the pick path for Delete Face and '
+          'Direct Edit (main M217, shim v20). Expected linear, like its twin '
+          'faceSurfaces; app.facesOf.out must be non-zero',
+    ));
+  }
+
   // ---- M221: the part pattern REBUILD, not just its arithmetic ------------
   //
   // §8.2 established that `patternOccurrences` — the placement maths — is
