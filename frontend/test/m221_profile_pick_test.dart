@@ -128,9 +128,19 @@ void main() {
       expect(pointInPolygon(a, ring.outer.pts), isTrue);
       expect(ring.holes.any((h) => pointInPolygon(a, h.pts)), isFalse,
           reason: 'an anchor inside the hole is not on the ring at all');
-      // ... and it is in the annulus, 5 < r < 15.
+      // ... and it is in the annulus, 5 < r < 15, with room on BOTH sides.
+      // The first version of regionAnchor answered (0, 5) here — exactly on
+      // the hole's rim: a scan row running tangent to the hole crosses it zero
+      // times, so the hole never split that row and the span looked like the
+      // whole chord. A point on a boundary is the one point whose
+      // inside/outside answer the next tessellation may reverse, so the rule
+      // is clearance, not width. (Caught by CI, not by reasoning.)
       expect(a.distance, greaterThan(5));
       expect(a.distance, lessThan(15));
+      expect((a.distance - 5).abs(), greaterThan(1),
+          reason: 'not hugging the hole');
+      expect((a.distance - 15).abs(), greaterThan(1),
+          reason: 'not hugging the outer edge either');
       // The disc keeps the cheap answer: nothing is cut out of it.
       expect((regionAnchor(_disc(rs)) - Offset.zero).distance, lessThan(1e-9));
     });

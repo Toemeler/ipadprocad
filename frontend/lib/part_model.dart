@@ -1446,24 +1446,32 @@ Offset interiorPointOf(ProfileLoop l) {
 Offset regionAnchor(ProfileRegion r) {
   final c = interiorPointOf(r.outer);
   if (!r.holes.any((h) => pointInPolygon(c, h.pts))) return c;
-  // The centre is in a hole. Cut the region with horizontal lines and take the
-  // middle of the WIDEST piece of material found — the widest and not the
-  // first, because a sliver between two nearly touching loops is where
-  // floating point decides inside from outside, and an anchor there would not
-  // survive the next tessellation.
+  // The centre is in a hole. Cut the region with horizontal lines, take the
+  // middle of each piece of material on them, and keep the one that sits
+  // FARTHEST from every boundary.
+  //
+  // Not the widest piece, which is the obvious rule and is wrong: a row that
+  // runs TANGENT to a hole crosses it zero times, so the hole does not split
+  // that row at all and the span looks like the whole chord — while its
+  // midpoint sits exactly on the hole's extreme vertex. That is how the first
+  // version of this put a ring's anchor precisely on the boundary of its own
+  // hole (a Ø30 ring around a Ø10 hole answered `(0, 5)`), and a point on a
+  // boundary is the one point whose inside/outside answer the next
+  // tessellation may well reverse. Clearance says what the anchor is FOR.
   var minY = double.infinity, maxY = -double.infinity;
   for (final p in r.outer.pts) {
     if (p.dy < minY) minY = p.dy;
     if (p.dy > maxY) maxY = p.dy;
   }
   if (!(maxY > minY)) return c;
+  final loops = [r.outer, ...r.holes];
   Offset? best;
-  var bestW = 0.0;
+  var bestClear = -1.0; // squared
   const rows = 9;
   for (var k = 1; k < rows; k++) {
     final y = minY + (maxY - minY) * k / rows;
     final xs = <double>[];
-    for (final loop in [r.outer, ...r.holes]) {
+    for (final loop in loops) {
       final pts = loop.pts;
       for (var i = 0; i < pts.length; i++) {
         final a = pts[i], b = pts[(i + 1) % pts.length];
@@ -1473,16 +1481,39 @@ Offset regionAnchor(ProfileRegion r) {
     }
     xs.sort();
     for (var i = 0; i + 1 < xs.length; i++) {
-      final w = xs[i + 1] - xs[i];
-      if (w <= bestW) continue;
       final mid = Offset((xs[i] + xs[i + 1]) / 2, y);
       if (!pointInPolygon(mid, r.outer.pts)) continue;
       if (r.holes.any((h) => pointInPolygon(mid, h.pts))) continue;
-      best = mid;
-      bestW = w;
+      var clear = double.infinity;
+      for (final loop in loops) {
+        final d = _distSqToLoop(mid, loop.pts);
+        if (d < clear) clear = d;
+      }
+      if (clear > bestClear) {
+        bestClear = clear;
+        best = mid;
+      }
     }
   }
   return best ?? c;
+}
+
+/// Squared distance from [p] to the closed polyline [pts] (its EDGES, not its
+/// vertices — a coarse polygon has long ones).
+double _distSqToLoop(Offset p, List<Offset> pts) {
+  var best = double.infinity;
+  for (var i = 0; i < pts.length; i++) {
+    final a = pts[i], b = pts[(i + 1) % pts.length];
+    final v = b - a, w = p - a;
+    final len2 = v.dx * v.dx + v.dy * v.dy;
+    var t = len2 <= 0 ? 0.0 : (w.dx * v.dx + w.dy * v.dy) / len2;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    final d = w - v * t;
+    final d2 = d.dx * d.dx + d.dy * d.dy;
+    if (d2 < best) best = d2;
+  }
+  return best;
 }
 
 /// The region a stored selection points at, or null if there are none.

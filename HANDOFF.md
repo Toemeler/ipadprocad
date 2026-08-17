@@ -60,10 +60,17 @@ Token NIE in Dateien/.git/config schreiben.
 > Neu ist `regionAnchor(region)`: der Innenpunkt der REGION, also innerhalb
 > der aeusseren Schleife und ausserhalb jedes Lochs. Liegt der Schwerpunkt
 > frei, bleibt es bei der billigen Antwort; sonst schneidet eine Handvoll
-> waagerechter Linien die Region und es gewinnt die Mitte des BREITESTEN
-> Materialstuecks — das breiteste und nicht das erste, weil ein Spalt
-> zwischen zwei fast beruehrenden Schleifen genau die Stelle ist, an der die
-> Gleitkomma-Arithmetik ueber innen und aussen entscheidet.
+> waagerechter Linien die Region, und von allen Materialmitten auf diesen
+> Linien gewinnt die mit dem groessten ABSTAND zu jeder Begrenzung.
+>
+> **Nicht die breiteste** — das war die erste Fassung, und die CI hat sie
+> widerlegt: eine Zeile, die TANGENTIAL an einem Loch entlanglaeuft, kreuzt
+> es null Mal, das Loch teilt diese Zeile also gar nicht und die Spanne sieht
+> aus wie die ganze Sehne — waehrend ihre Mitte exakt auf dem aeussersten
+> Punkt des Lochs sitzt. Der Ring Ø30 um ein Loch Ø10 bekam so den Anker
+> `(0, 5)`, also genau auf den Rand seines eigenen Lochs. Ein Punkt auf einer
+> Grenze ist der eine Punkt, dessen Innen/Aussen die naechste Tesselierung
+> umdrehen kann. Der Abstand sagt, wofuer der Anker da ist.
 >
 > **Alte Dokumente.** Deren Ring-Auswahl traegt weiter den Mittelpunkt, und
 > der ist von der Scheibe null entfernt — nach reiner Naehe wuerde die
