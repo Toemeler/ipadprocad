@@ -3970,6 +3970,12 @@ class AppState extends ChangeNotifier {
   /// thing to build than a Flip button.
   double workPlaneOffset = 10;
 
+  /// M229 — the angle a new [WorkPlaneMethod.angleToPlaneAroundEdge] plane is
+  /// built at, and what the value field writes back. 45 is a starting point,
+  /// not a destination: the field opens on the plane the moment it exists, the
+  /// same order M169 gave the offset (get close, then make it right).
+  double workPlaneAngle = 45;
+
   /// Inputs collected so far. Offset needs one, midplane two.
   final List<PlaneFrame> _wpPicks = [];
   final List<String> _wpNames = [];
@@ -4178,8 +4184,27 @@ class AppState extends ChangeNotifier {
     if (w == null) return false;
     final v = parseValueExpr(text); // the same grammar every dialog uses
     if (v == null || !v.isFinite) return false;
-    if (!setWorkPlaneOffset(w, v)) return false;
+    // M229 — the field edits the plane's ONE number, and which number that is
+    // depends on the plane. Asking the plane beats a second field and a second
+    // flag for what is the same gesture on the same widget.
+    final ok = w.kind == WorkPlaneKind.angle
+        ? setWorkPlaneAngle(w, v)
+        : setWorkPlaneOffset(w, v);
+    if (!ok) return false;
     workPlaneOffsetEditing = false;
+    notifyListeners();
+    return true;
+  }
+
+  /// M229 — the angle twin of [setWorkPlaneOffset].
+  bool setWorkPlaneAngle(WorkPlane wp, double deg) {
+    final p = currentPart;
+    if (p == null || !wp.angleEditable) return false;
+    if (!wp.setAngle(deg)) return false;
+    workPlaneAngle = deg; // the next one starts from what you last used
+    p.dirty = true;
+    Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
+    if (curTab != null) savePart(curTab!);
     notifyListeners();
     return true;
   }
@@ -4190,7 +4215,11 @@ class AppState extends ChangeNotifier {
   void updateWorkPlaneDragAbsolute(double mm) {
     final w = selectedWorkPlane;
     if (w == null || !mm.isFinite) return;
-    if (!w.setOffset(mm)) return;
+    // M229 — a scrub on the field moves whichever number the plane carries;
+    // on an angle plane those are degrees, which is also what the scrub steps
+    // in (the field passes the plane's own unit).
+    final ok = w.kind == WorkPlaneKind.angle ? w.setAngle(mm) : w.setOffset(mm);
+    if (!ok) return;
     final p = currentPart;
     if (p != null) p.dirty = true;
     notifyListeners();
@@ -4383,7 +4412,11 @@ class AppState extends ChangeNotifier {
 
   void _commitWorkPlane(
       PartModel p, WorkPlaneKind kind, PlaneFrame frame, String def,
-      {PlaneFrame? base, double? offset}) {
+      {PlaneFrame? base,
+      double? offset,
+      Vec3? axisAt,
+      Vec3? axisDir,
+      double? angle}) {
     final wp = WorkPlane(
         // M223 — a free name, not a COUNT. Deleting Work Plane2 of three and
         // making another handed out "Work Plane3" a second time; work axes and
@@ -4394,7 +4427,10 @@ class AppState extends ChangeNotifier {
         def,
         frame,
         base: base,
-        offset: offset);
+        offset: offset,
+        axisAt: axisAt,
+        axisDir: axisDir,
+        angle: angle);
     p.workPlanes.add(wp);
     p.dirty = true;
     workPlaneArm = null;
@@ -4734,9 +4770,9 @@ class AppState extends ChangeNotifier {
 
     _wfPicks.add(ref);
     if (planeM != null) {
-      final r = solveWorkPlane(planeM, _wfPicks);
+      final r = solveWorkPlane(planeM, _wfPicks, angleDeg: workPlaneAngle);
       if (r.outcome == WorkPickOutcome.complete) {
-        _commitConstructedWorkPlane(p, r.solution!);
+        _commitConstructedWorkPlane(p, r.solution!, planeM, _wfPicks);
         return true;
       }
       return _wfPending(r.outcome, r.message);
@@ -4775,7 +4811,35 @@ class AppState extends ChangeNotifier {
   /// M223 — a work plane built from picks. Goes through the same
   /// [_commitWorkPlane] as Offset and Midplane, so naming, the browser row,
   /// the log line and the save are one implementation.
-  void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s) {
+  void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s,
+      [WorkPlaneMethod? method, List<WorkRef> picks = const []]) {
+    // M229 — an ANGLE plane keeps what it was made from, so the one number it
+    // has stays editable. Every other method bakes, and says so: there is
+    // nothing to re-type on a plane through three points.
+    if (method == WorkPlaneMethod.angleToPlaneAroundEdge && picks.isNotEmpty) {
+      final base = picks.firstWhere((r) => r.hasPlane, orElse: () => picks.first);
+      final edge = picks.firstWhere(
+          (r) => !identical(r, base) && r.hasLine,
+          orElse: () => base);
+      if (base.hasPlane && edge.hasLine && !identical(base, edge)) {
+        _commitWorkPlane(
+          p,
+          WorkPlaneKind.angle,
+          workPlaneFrameAt(s.at, s.n),
+          s.def,
+          base: workPlaneFrameAt(base.planeAt!, base.planeNormal!),
+          axisAt: edge.lineAt!,
+          axisDir: edge.lineDir!,
+          angle: workPlaneAngle,
+        );
+        _finishWorkFeature(p);
+        // The field opens on it straight away — dynamic input, M169's order.
+        selectWorkPlane(p.workPlanes.last);
+        workPlaneOffsetEditing = true;
+        notifyListeners();
+        return;
+      }
+    }
     _commitWorkPlane(p, WorkPlaneKind.constructed,
         workPlaneFrameAt(s.at, s.n), s.def);
     _finishWorkFeature(p);

@@ -141,6 +141,47 @@ Token NIE in Dateien/.git/config schreiben.
 > testgebaute Punkte findet, bewiese nichts. CI-Lauf **32026444774**: **1877
 > gruen**, analyze 55 Issues / 0 Errors.
 
+> **M229 — Angle to Plane around Edge: die zwoelfte Methode, und sie brauchte
+> kein zweites Feld.**
+>
+> M223 hatte sie mit ihrer Begruendung liegen lassen: „braucht einen Winkel
+> zum Eintippen. Das ist der Zwilling des Offset-Feldes (M169), eine
+> UI-Aufgabe." Ein Zwilling war dann nicht noetig. Eine Arbeitsebene traegt
+> hoechstens EINE editierbare Zahl — Millimeter bei einer Offset-Ebene, Grad
+> bei einer gewinkelten —, also fragt das Feld die EBENE, welche es ist
+> (`WorkPlane.valueUnit`), und es bleibt bei einem Feld, einem Flag und einem
+> Commit-Weg. Eine dritte editierbare Art landet damit an einer Stelle statt
+> an dreien.
+>
+> **Die Geometrie:** die Normale dreht per Rodrigues um die Kante, und der
+> Ursprung ist ein Punkt AUF der Kante — das ist die eine Linie, die beide
+> Ebenen teilen, und die einzige Wahl, bei der der Winkel sichtbar bleibt.
+> `anglePlaneFrame` dreht den GANZEN Frame mit, nicht nur die Normale: sonst
+> stuende eine Skizze auf dem Ergebnis verdreht zu der Ebene, aus der sie
+> gewinkelt wurde (derselbe Grund, aus dem `offsetPlaneFrame` seine Achsen
+> erbt). Eine Kante, die nicht IN der Ebene liegt, wird abgelehnt — die
+> Drehung wuerde die Ebene von ihr wegschwenken, und Inventor verlangt sie aus
+> demselben Grund.
+>
+> **Die Ebene behaelt, woraus sie gemacht ist** (Basis, Kante, Winkel) — genau
+> das, was M162 fuer den Offset getan hat, und aus demselben Grund: sonst ist
+> die eine Zahl, in der der Nutzer denkt, beim Anlegen eingebacken und weg.
+> Das Feld geht auf, sobald die Ebene existiert (M169s Reihenfolge: erst
+> hinkommen, dann richtig machen), und der naechste Winkel startet bei dem,
+> den man zuletzt benutzt hat.
+>
+> Damit sind **zwoelf von dreizehn** Plane-Eintraegen echt. Offen bleibt nur
+> noch Normal to Curve at Point — es braucht einen KURVEN-Beitrag (Tangente an
+> einem Parameter), den `WorkRef` nicht fuehrt.
+>
+> **Ehrlicher Stand:** 14 neue Tests (`m229_angle_plane_test.dart`) — der
+> Drehwinkel, dass die Kante in der Ebene BLEIBT, 0 Grad als Identitaet, die
+> Ablehnung, der Frame als Ganzes, `setAngle`, dass eine Offset-Ebene weiter
+> Millimeter spricht und eine konstruierte gar keine Zahl hat, der Roundtrip
+> mit Drehachse, und die Befehlsseite samt „das Feld geht auf". **Am Geraet
+> nicht nachgeprueft** — und hier heisst das vor allem: ob das Feld mit „deg"
+> an der richtigen Stelle steht.
+
 > **M228 — Split: die Haelfte, die diese Architektur ehrlich tragen kann.**
 >
 > Inventors Split macht drei Dinge: eine FLAECHE mit einer Kurve teilen, einen

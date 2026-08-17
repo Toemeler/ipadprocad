@@ -1005,6 +1005,8 @@ enum WorkPlaneMethod {
   twoCoplanarEdges,
   normalToAxisThroughPoint,
   midplaneOfTorus,
+  // M229 — the one that needed a NUMBER as well as picks.
+  angleToPlaneAroundEdge,
   // M224 — the three that needed the side of the face you picked.
   tangentToSurfaceThroughPoint,
   tangentToSurfaceThroughEdge,
@@ -1029,6 +1031,8 @@ String workPlaneMethodLabel(WorkPlaneMethod m) {
       return 'Tangent to Surface through Edge';
     case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
       return 'Tangent to Surface and Parallel to Plane';
+    case WorkPlaneMethod.angleToPlaneAroundEdge:
+      return 'Angle to Plane around Edge';
   }
 }
 
@@ -1042,6 +1046,7 @@ int workPlaneArity(WorkPlaneMethod m) {
     case WorkPlaneMethod.tangentToSurfaceThroughPoint:
     case WorkPlaneMethod.tangentToSurfaceThroughEdge:
     case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
+    case WorkPlaneMethod.angleToPlaneAroundEdge:
       return 2;
     case WorkPlaneMethod.threePoints:
       return 3;
@@ -1082,6 +1087,10 @@ String workPlanePrompt(WorkPlaneMethod m, int have) {
       return have == 0
           ? 'Select a cylindrical face, on the side the plane goes.'
           : 'Select the plane to be parallel to.';
+    case WorkPlaneMethod.angleToPlaneAroundEdge:
+      return have == 0
+          ? 'Select the plane to angle from.'
+          : 'Select the edge to pivot about — it must lie in that plane.';
   }
 }
 
@@ -1096,8 +1105,13 @@ class WorkPlaneSolution {
 }
 
 /// Feeds the ordered pick list [refs] to [m], exactly as [solveWorkAxis] does.
+///
+/// [angleDeg] is only read by [WorkPlaneMethod.angleToPlaneAroundEdge] — the
+/// one method whose answer is not determined by the picks alone (M229). It is
+/// a parameter rather than state so this file stays what it is: arithmetic
+/// with no memory.
 WorkAttempt<WorkPlaneSolution> solveWorkPlane(
-    WorkPlaneMethod m, List<WorkRef> refs) {
+    WorkPlaneMethod m, List<WorkRef> refs, {double angleDeg = 45}) {
   if (refs.isEmpty) return WorkAttempt.more(workPlanePrompt(m, 0));
   switch (m) {
     case WorkPlaneMethod.midplaneOfTorus:
@@ -1177,6 +1191,46 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         return _twoEdgePlane(refs[0], refs[1]);
+      }
+
+    case WorkPlaneMethod.angleToPlaneAroundEdge:
+      {
+        final plane =
+            refs.firstWhere((r) => r.hasPlane, orElse: () => refs.first);
+        if (!plane.hasPlane) {
+          return WorkAttempt.no(
+              '${refs.first.label} is not a plane or planar face.');
+        }
+        if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
+        final edge = refs.firstWhere(
+            (r) => !identical(r, plane) && r.hasLine,
+            orElse: () => refs.last);
+        if (!edge.hasLine || identical(edge, plane)) {
+          return WorkAttempt.no('Select the edge the plane pivots about.');
+        }
+        // The edge has to LIE IN the plane, or the rotation would swing the
+        // plane off it and the result would not touch the edge at all.
+        // Inventor asks for an edge in the plane for the same reason.
+        final off = edge.lineDir!.dot(plane.planeNormal!).abs();
+        if (off > 1e-6) {
+          return WorkAttempt.no('${edge.label} is not parallel to '
+              '${plane.label} — the plane can only pivot about an edge lying '
+              'in it.');
+        }
+        if (!angleDeg.isFinite) {
+          return WorkAttempt.no('The angle is not a number.');
+        }
+        // The normal turns about the edge; a point ON the edge is the origin,
+        // because that is the line the two planes share.
+        final d = edge.lineDir!;
+        final n = plane.planeNormal!;
+        final r = angleDeg * math.pi / 180;
+        final turned =
+            (n * math.cos(r) + d.cross(n) * math.sin(r)).normalized();
+        final def = '${angleDeg.toStringAsFixed(2)} deg from ${plane.label} '
+            'about ${edge.label}';
+        return WorkAttempt.ok(
+            WorkPlaneSolution(edge.lineAt!, turned, def), def);
       }
 
     case WorkPlaneMethod.tangentToSurfaceThroughPoint:

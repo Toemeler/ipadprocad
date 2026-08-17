@@ -273,8 +273,8 @@ class _RibbonState extends State<Ribbon> {
                       .startWorkPlaneMethod(WorkPlaneMethod.midplaneOfTorus);
                   break;
                 case 'angleedge':
-                  widget.app.toast('Angle to Plane around Edge needs an angle '
-                      'to type — not built yet.');
+                  widget.app.startWorkPlaneMethod(
+                      WorkPlaneMethod.angleToPlaneAroundEdge);
                   break;
                 case 'normalcurve':
                   widget.app.toast('Normal to Curve at Point needs a curve '

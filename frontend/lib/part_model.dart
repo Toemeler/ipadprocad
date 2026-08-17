@@ -213,7 +213,7 @@ PlaneFrame? frameForPlaneKey(PartModel p, String key) {
 /// that nothing about them can be re-typed afterwards. `fromJson` falls back
 /// to [offset] for a name it does not know, so adding this is safe for
 /// documents written before it.
-enum WorkPlaneKind { offset, midplane, constructed }
+enum WorkPlaneKind { offset, midplane, constructed, angle }
 
 /// A plane offset from [base] along its own normal by [d] mm.
 ///
@@ -222,6 +222,24 @@ enum WorkPlaneKind { offset, midplane, constructed }
 /// sketch axes would be worse than useless.
 PlaneFrame offsetPlaneFrame(PlaneFrame base, double d) => PlaneFrame(
     kWorkPlaneKey, base.u, base.v, base.n, base.origin + base.n * d);
+
+/// M229 — [base] rotated by [deg] about the line ([axisAt], [axisDir]).
+///
+/// Rodrigues on the whole frame, not just the normal: u and v have to come
+/// along or a sketch on the result would be twisted relative to the plane it
+/// was angled from — the same reason [offsetPlaneFrame] inherits its axes.
+/// The origin is a point ON the axis, because that is the one line the two
+/// planes share and the only origin that keeps the angle visible.
+PlaneFrame anglePlaneFrame(
+    PlaneFrame base, Vec3 axisAt, Vec3 axisDir, double deg) {
+  final d = axisDir.normalized();
+  final r = deg * math.pi / 180;
+  final c = math.cos(r), sn = math.sin(r);
+  Vec3 rot(Vec3 v) =>
+      v * c + d.cross(v) * sn + d * (d.dot(v) * (1 - c));
+  return PlaneFrame(kWorkPlaneKey, rot(base.u).normalized(),
+      rot(base.v).normalized(), rot(base.n).normalized(), axisAt);
+}
 
 /// The plane halfway between [a] and [b], or null when they are not parallel.
 ///
@@ -264,11 +282,52 @@ class WorkPlane {
   PlaneFrame? base;
   double? offset;
 
+  /// M229 — the edge an [WorkPlaneKind.angle] plane pivots about, and by how
+  /// much. Stored for the same reason [base]/[offset] are: without them the
+  /// angle is baked into the frame at creation and the one number the user
+  /// actually thinks in is gone.
+  Vec3? axisAt;
+  Vec3? axisDir;
+  double? angle;
+
   WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
-      {this.visible = true, this.base, this.offset});
+      {this.visible = true,
+      this.base,
+      this.offset,
+      this.axisAt,
+      this.axisDir,
+      this.angle});
 
   /// Whether [setOffset] can move this plane.
   bool get offsetEditable => kind == WorkPlaneKind.offset && base != null;
+
+  /// M229 — the angle twin of [offsetEditable].
+  bool get angleEditable =>
+      kind == WorkPlaneKind.angle &&
+      base != null &&
+      axisAt != null &&
+      axisDir != null;
+
+  /// True when the plane carries ONE number the value field can edit — mm for
+  /// an offset, degrees for an angle. The field asks this rather than the kind,
+  /// so a third editable kind lands in one place.
+  bool get valueEditable => offsetEditable || angleEditable;
+
+  /// The unit of that number, for the field's suffix and its scrub steps.
+  String get valueUnit => kind == WorkPlaneKind.angle ? 'deg' : 'mm';
+
+  double? get value => kind == WorkPlaneKind.angle ? angle : offset;
+
+  /// M229 — re-angle an existing plane, the twin of [setOffset].
+  bool setAngle(double deg, {String? baseLabel}) {
+    final b = base, at = axisAt, dir = axisDir;
+    if (!angleEditable || b == null || at == null || dir == null) return false;
+    if (!deg.isFinite) return false;
+    angle = deg;
+    frame = anglePlaneFrame(b, at, dir, deg);
+    def = '${deg.toStringAsFixed(2)} deg from ${baseLabel ?? _defSource()}';
+    return true;
+  }
 
   /// Re-offsets the plane from its recorded base. Returns false when this
   /// plane has no base to measure from.
@@ -315,7 +374,13 @@ class WorkPlane {
           'bu': _v(base!.u),
           'bv': _v(base!.v),
           'bn': _v(base!.n),
-          'd': offset,
+          if (offset != null) 'd': offset,
+        },
+        // M229 — the pivot of an angle plane, written only when there is one.
+        if (axisAt != null && axisDir != null) ...{
+          'aa': _v(axisAt!),
+          'ad': _v(axisDir!),
+          'ang': angle,
         },
       };
 
@@ -337,6 +402,9 @@ class WorkPlane {
             : PlaneFrame(kWorkPlaneKey, _p(m['bu']), _p(m['bv']), _p(m['bn']),
                 _p(m['bo'])),
         offset: (m['d'] as num?)?.toDouble(),
+        axisAt: m['aa'] == null ? null : _p(m['aa']),
+        axisDir: m['ad'] == null ? null : _p(m['ad']),
+        angle: (m['ang'] as num?)?.toDouble(),
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.

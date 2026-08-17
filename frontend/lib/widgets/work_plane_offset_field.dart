@@ -1,4 +1,9 @@
-// M169 — the work plane's offset field: Inventor's dynamic input.
+// M169 — the work plane's VALUE field: Inventor's dynamic input.
+//
+// M229 — "offset" in the name is history. It edits the one number a work plane
+// carries, which is millimetres for an offset plane and degrees for an angled
+// one; the plane says which (WorkPlane.valueUnit), so a third editable kind
+// lands in one place rather than three.
 //
 // It appears WITH the drag, carries the live value, and a typed number wins
 // over wherever the finger stopped. That order is the whole point of dynamic
@@ -43,7 +48,8 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
   /// cannot overwrite what is being entered.
   void _syncFromModel() {
     final w = widget.app.selectedWorkPlane;
-    final v = w?.offset;
+    // M229 — the plane's ONE number: mm for an offset, degrees for an angle.
+    final v = w?.value;
     if (v == null || _focus.hasFocus) return;
     if (_shown != null && (_shown! - v).abs() < 1e-9) return;
     _shown = v;
@@ -169,7 +175,10 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
                 ),
               ),
               const SizedBox(width: 6),
-              Text('mm', style: TextStyle(color: T.dim, fontSize: 12)),
+              // M229 — the unit the PLANE says, not a constant: this one
+              // field now edits an offset in mm or an angle in degrees.
+              Text(w.valueUnit,
+                  style: const TextStyle(color: T.dim, fontSize: 12)),
               const SizedBox(width: 10),
               _btn('OK', _commit, primary: true),
               const SizedBox(width: 6),
