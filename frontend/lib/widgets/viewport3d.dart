@@ -2014,7 +2014,7 @@ class _Viewport3DState extends State<Viewport3D>
         final sp = frame.toSketch(w); // M175 — origin-aware, like the sketch
         final r = regionAt(app.sessionRegions(cs), sp);
         if (r != null) {
-          final ip = interiorPointOf(r.outer);
+          final ip = regionAnchor(r); // M221 — the region's, not its loop's
           app.toggleLoftSection(
               cs.model.name, ProfileSel(ip.dx, ip.dy, r.outer.area));
           return;
@@ -2584,7 +2584,7 @@ class _ScenePainter extends CustomPainter {
     final frame = sketchFrameOf(cs);
     for (final r in app.sessionRegions(cs)) {
       final selected = sess.sketchName == cs.model.name &&
-          sess.hasProfileAt(interiorPointOf(r.outer));
+          sess.hasProfileAt(regionAnchor(r));
       final hovered = hoverRegion == r.outer.id;
       if (!selected && !hovered) continue;
       final path = Path()..fillType = PathFillType.evenOdd;
@@ -2706,7 +2706,7 @@ class _OverlayPainter extends CustomPainter {
       final frame = sketchFrameOf(cs);
       for (final r in app.sessionRegions(cs)) {
         final selected = sess.sketchName == cs.model.name &&
-            sess.hasProfileAt(interiorPointOf(r.outer));
+            sess.hasProfileAt(regionAnchor(r));
         final hovered = hoverRegion == r.outer.id;
         if (!selected && !hovered) continue;
         final path = Path()..fillType = PathFillType.evenOdd;

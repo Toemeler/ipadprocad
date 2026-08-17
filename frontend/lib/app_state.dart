@@ -4899,6 +4899,7 @@ class AppState extends ChangeNotifier {
     if (_toggles3DOff(kind, edit)) return; // M210
     if (currentPart == null) return;
     cancelExtrude();
+    _leaveSketchForCommand(); // M221 — an edge pick needs the 3D viewport
     final s = EdgeFeatureSession(kind, editing: edit);
     if (edit is FilletFeature) {
       // One set per DISTINCT radius, preserving first-seen order, so
@@ -5212,6 +5213,7 @@ class AppState extends ChangeNotifier {
     cancelExtrude();
     cancelEdgeFeature();
     cancelPattern();
+    _leaveSketchForCommand(); // M221 — its picks are 3D picks too
     final s = PartPatternSession(kind, editing: edit);
     if (edit != null) {
       s.readFrom(edit);
@@ -6176,6 +6178,23 @@ class AppState extends ChangeNotifier {
     _openExtrudeCore(edit);
   }
 
+  /// A 3D command takes the viewport back from an open sketch, and returns the
+  /// name of the sketch it closed (M221).
+  ///
+  /// With a child sketch open, `Viewport2D` is laid over the whole viewport
+  /// (main.dart) and there is no path from a tap on it to a profile, an edge or
+  /// a face — it is the sketcher, and it knows nothing about them. So the panel
+  /// came up over a surface that swallowed every pick: not one profile could be
+  /// selected, which is half of the reported "I cant select the inner circle".
+  /// [openChildSketch] has always done the mirror of this (it cancels an open
+  /// extrude); only this direction was missing. Inventor finishes the sketch
+  /// the same way when a part command starts.
+  String? _leaveSketchForCommand() {
+    final open = activeChild?.name;
+    if (open != null) finishPartSketch();
+    return open;
+  }
+
   /// The opener without the toggle, for the panels that BUILD on the extrude
   /// session (revolve, sweep, loft, coil): they run their own toggle first and
   /// must not be closed by this one on the way in.
@@ -6187,6 +6206,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     cancelExtrude();
+    final wasOpen = _leaveSketchForCommand();
     final s = ExtrudeSession();
     if (edit != null) {
       s
@@ -6215,11 +6235,15 @@ class AppState extends ChangeNotifier {
         s.output = 'join';
         s.bodyName = bodies.last;
       }
-      final cs = p.childSketches.last;
+      // The sketch the command was started FROM, if there was one: that is the
+      // profile the user is looking at. Only with no sketch open does "the
+      // newest one" remain the best guess.
+      final cs = (wasOpen == null ? null : p.sketchByName(wasOpen)) ??
+          p.childSketches.last;
       s.sketchName = cs.model.name;
       final regs = sessionRegions(cs);
       if (regs.length == 1) {
-        final ip = interiorPointOf(regs.first.outer);
+        final ip = regionAnchor(regs.first);
         s.profiles.add(ProfileSel(ip.dx, ip.dy, regs.first.outer.area));
         s.autoPicked = true; // an explicit pick elsewhere replaces this
       }
@@ -6247,9 +6271,22 @@ class AppState extends ChangeNotifier {
     }
     s.autoPicked = false;
     s.sketchName = sketchName;
-    final ip = interiorPointOf(r.outer);
-    final i =
-        s.profiles.indexWhere((x) => (Offset(x.ax, x.ay) - ip).distance < 1e-6);
+    // M221 — the region's own anchor, not its outer loop's: for a ring the
+    // loop's interior point is the middle of the hole, which is also the disc's
+    // anchor, so "is this one already selected?" answered yes for the OTHER
+    // region and the second of the two could never be picked.
+    final ip = regionAnchor(r);
+    // A selection made before this rule (or loaded from such a document) still
+    // carries the old anchor, so compare through the region each one resolves
+    // to rather than through the stored numbers.
+    final cs = currentPart?.sketchByName(sketchName);
+    final regions = cs == null ? const <ProfileRegion>[] : sessionRegions(cs);
+    final i = s.profiles.indexWhere((x) {
+      final m = regions.isEmpty ? null : regionForSel(regions, x);
+      return m == null
+          ? (Offset(x.ax, x.ay) - ip).distance < 1e-6
+          : (regionAnchor(m) - ip).distance < 1e-6;
+    });
     if (remove) {
       if (i >= 0) s.profiles.removeAt(i);
     } else if (i < 0) {

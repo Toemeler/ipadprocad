@@ -1431,6 +1431,88 @@ Offset interiorPointOf(ProfileLoop l) {
   return l.centroid;
 }
 
+/// A point inside the region's MATERIAL — inside its outer loop and outside
+/// every hole. This is what IDENTIFIES a selected region (M221).
+///
+/// [interiorPointOf] answers for one loop and knows nothing of the holes cut
+/// out of it. For a ring — a circle, or a rectangle, with a concentric loop
+/// inside it — its answer is the centre, which is exactly the spot the HOLE
+/// occupies and exactly the spot the disc in that hole reports as its own.
+/// The ring and the disc then carry the SAME anchor, and nothing downstream
+/// can tell them apart: picking the disc reads as re-picking the ring (so the
+/// second one can never be added), the highlight paints the wrong one, and
+/// [resolveProfiles] matches whichever of the two it happens to meet first.
+/// That is the reported "I cant select the inner circle to also extrude".
+Offset regionAnchor(ProfileRegion r) {
+  final c = interiorPointOf(r.outer);
+  if (!r.holes.any((h) => pointInPolygon(c, h.pts))) return c;
+  // The centre is in a hole. Cut the region with horizontal lines and take the
+  // middle of the WIDEST piece of material found — the widest and not the
+  // first, because a sliver between two nearly touching loops is where
+  // floating point decides inside from outside, and an anchor there would not
+  // survive the next tessellation.
+  var minY = double.infinity, maxY = -double.infinity;
+  for (final p in r.outer.pts) {
+    if (p.dy < minY) minY = p.dy;
+    if (p.dy > maxY) maxY = p.dy;
+  }
+  if (!(maxY > minY)) return c;
+  Offset? best;
+  var bestW = 0.0;
+  const rows = 9;
+  for (var k = 1; k < rows; k++) {
+    final y = minY + (maxY - minY) * k / rows;
+    final xs = <double>[];
+    for (final loop in [r.outer, ...r.holes]) {
+      final pts = loop.pts;
+      for (var i = 0; i < pts.length; i++) {
+        final a = pts[i], b = pts[(i + 1) % pts.length];
+        if ((a.dy > y) == (b.dy > y)) continue;
+        xs.add(a.dx + (b.dx - a.dx) * (y - a.dy) / (b.dy - a.dy));
+      }
+    }
+    xs.sort();
+    for (var i = 0; i + 1 < xs.length; i++) {
+      final w = xs[i + 1] - xs[i];
+      if (w <= bestW) continue;
+      final mid = Offset((xs[i] + xs[i + 1]) / 2, y);
+      if (!pointInPolygon(mid, r.outer.pts)) continue;
+      if (r.holes.any((h) => pointInPolygon(mid, h.pts))) continue;
+      best = mid;
+      bestW = w;
+    }
+  }
+  return best ?? c;
+}
+
+/// The region a stored selection points at, or null if there are none.
+///
+/// Nearest anchor — but a region whose AREA still matches the selection beats
+/// a nearer one that does not. A document written before M221 stored the outer
+/// LOOP's interior point, so a ring's anchor sits in the middle of its own
+/// hole: the disc living there is zero away from it and would otherwise steal
+/// the selection the first time the part is rebuilt. [resolveProfiles] writes
+/// the new anchor back, so each document migrates on its next rebuild and the
+/// area only has to carry it across that one hop.
+ProfileRegion? regionForSel(List<ProfileRegion> regions, ProfileSel sel) {
+  final anchor = Offset(sel.ax, sel.ay);
+  ProfileRegion? best;
+  var bestFar = 2, bestD = double.infinity;
+  for (final r in regions) {
+    final rel = sel.area.abs() < 1e-12
+        ? 1.0
+        : (r.outer.area - sel.area).abs() / sel.area.abs();
+    final far = rel <= 0.05 ? 0 : 1;
+    final d = (regionAnchor(r) - anchor).distance;
+    if (far < bestFar || (far == bestFar && d < bestD)) {
+      bestFar = far;
+      bestD = d;
+      best = r;
+    }
+  }
+  return best;
+}
+
 bool _loopInside(ProfileLoop inner, ProfileLoop outer) {
   if (inner.area >= outer.area) return false;
   var votes = 0;
@@ -6180,15 +6262,7 @@ class OcctPartKernel implements PartKernel {
   final groups = <List<List<Offset>>>[];
   for (final sel in profiles) {
     final anchor = Offset(sel.ax, sel.ay);
-    ProfileRegion? best;
-    var bestD = double.infinity;
-    for (final r in regions) {
-      final d = (interiorPointOf(r.outer) - anchor).distance;
-      if (d < bestD) {
-        bestD = d;
-        best = r;
-      }
-    }
+    final best = regionForSel(regions, sel);
     // sanity: the anchor should still sit INSIDE the matched region, or at
     // least the region should not have changed beyond recognition
     if (best == null ||
@@ -6196,7 +6270,10 @@ class OcctPartKernel implements PartKernel {
             (best.outer.area - sel.area).abs() > 0.5 * sel.area)) {
       return (null, null, 'a picked profile could not be found any more');
     }
-    final ip = interiorPointOf(best.outer);
+    // M221 — the anchor is the region's, not its outer loop's, so a ring and
+    // the disc in its hole stay two different selections. Writing it back here
+    // is also what migrates a document saved before that rule.
+    final ip = regionAnchor(best);
     sel.ax = ip.dx;
     sel.ay = ip.dy;
     sel.area = best.outer.area;

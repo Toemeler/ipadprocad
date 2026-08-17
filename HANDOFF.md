@@ -36,6 +36,65 @@ Token NIE in Dateien/.git/config schreiben.
 > STEP-Export → **M214**, Work Axis/Point → **M215**, Ribbon-Klappmenues →
 > **M216**. Dateien und das Analyse-Dokument wurden mit umbenannt.
 
+> **M221 — „I cant select the inner circle to also extrude somehow."**
+>
+> Der eine offene Punkt aus M210, dort ausdruecklich NICHT behoben, weil nur
+> eine Vermutung vorlag. Es sind ZWEI Fehler, und keiner davon liegt in der
+> Regionen-Zerlegung — die war, wie M210 schon nachgewiesen hatte, richtig.
+>
+> **1. Der Anker.** Eine Auswahl wird als PUNKT plus Flaeche gespeichert, und
+> dieser Punkt war `interiorPointOf(region.outer)` — der Innenpunkt der
+> aeusseren SCHLEIFE, die von dem Loch in ihr nichts weiss. Bei einem Ring
+> liegt der Schwerpunkt innerhalb der aeusseren Schleife, also ist er die
+> Antwort: die Mitte des Lochs. Und exakt dieselbe Antwort gibt die Scheibe,
+> die in diesem Loch liegt. Beide Regionen standen damit unter EINEM Anker:
+>
+> * `toggleSessionProfile` fand den Anker der Scheibe schon in der Liste und
+>   tat nichts — das gemeldete Symptom, und zwar in BEIDER Reihenfolge;
+> * `hasProfileAt` malte den Ring als ausgewaehlt, wenn die Scheibe gewaehlt
+>   war;
+> * `resolveProfiles` suchte den naechsten Anker — bei Abstand 0 auf beiden
+>   Seiten entschied die Listenreihenfolge, ein Ring konnte also als volle
+>   Scheibe neu aufgebaut werden.
+>
+> Neu ist `regionAnchor(region)`: der Innenpunkt der REGION, also innerhalb
+> der aeusseren Schleife und ausserhalb jedes Lochs. Liegt der Schwerpunkt
+> frei, bleibt es bei der billigen Antwort; sonst schneidet eine Handvoll
+> waagerechter Linien die Region und es gewinnt die Mitte des BREITESTEN
+> Materialstuecks — das breiteste und nicht das erste, weil ein Spalt
+> zwischen zwei fast beruehrenden Schleifen genau die Stelle ist, an der die
+> Gleitkomma-Arithmetik ueber innen und aussen entscheidet.
+>
+> **Alte Dokumente.** Deren Ring-Auswahl traegt weiter den Mittelpunkt, und
+> der ist von der Scheibe null entfernt — nach reiner Naehe wuerde die
+> Scheibe die Auswahl beim ersten Rebuild stehlen. `regionForSel` (jetzt der
+> eine gemeinsame Zuordner) bevorzugt darum eine Region, deren FLAECHE noch
+> zur Auswahl passt, vor einer naeheren, die das nicht tut; die Flaeche ist
+> das, was Ring und Scheibe ueber diesen einen Sprung hinweg trennt.
+> `resolveProfiles` schreibt danach den neuen Anker zurueck, jedes Dokument
+> wandert also beim naechsten Rebuild von selbst mit.
+>
+> **2. Die Ueberlagerung.** Ist eine Kindskizze offen, liegt Viewport2D ueber
+> dem ganzen Viewport (`main.dart`) und reicht keinen Tipp an einen 3D-Pick
+> weiter — es IST der Sketcher und kennt weder Profile noch Kanten noch
+> Flaechen. Das Panel ging also ueber einer Flaeche auf, die jeden Pick
+> verschluckte: gar kein Profil war waehlbar. `openChildSketch` macht die
+> Gegenrichtung seit jeher (es bricht ein offenes Extrude ab); nur diese
+> Richtung fehlte. Genau das zeigt auch das Log zur Meldung — der Benutzer
+> war die ganze Zeit in Sketch7. Neu schliesst ein 3D-Befehl die offene
+> Skizze (`_leaveSketchForCommand`, wie Inventor es tut) und Extrude zielt
+> danach auf GENAU DIESE Skizze statt auf die neueste; Fillet/Chamfer und die
+> Muster-Panels gehen durch dieselbe Stelle, ihre Picks sind dieselben Picks.
+>
+> **Ehrlicher Stand:** 16 neue Tests (`m221_profile_pick_test.dart`), die
+> beide Fehler einzeln festnageln — der Anker-Test haelt ausdruecklich fest,
+> dass die ALTE Regel fuer beide Regionen denselben Punkt liefert. **Am
+> Geraet nicht nachgeprueft.** Bewusste Abwaegung: die Flaechen-Vorliebe in
+> `regionForSel` kann eine stark GEAENDERTE Skizze theoretisch anders
+> zuordnen als die reine Naehe (eine andere Region liegt zufaellig naeher an
+> der alten Flaeche) — der Preis dafuer, dass keine gespeicherte Ringauswahl
+> beim Laden auf die Scheibe kippt.
+
 > **M220 — eine Schrift IST Geometrie: im DXF, und extrudierbar.**
 >
 > „schriften sollen tatsächlich linien sein wie in dxf üblich … und jede
