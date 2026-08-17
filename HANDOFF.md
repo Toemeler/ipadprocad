@@ -120,7 +120,8 @@ Token NIE in Dateien/.git/config schreiben.
 > die Dauer heraus und verschwinden wieder, wie bei einer Skizze; Esc raeumt
 > beides zusammen weg.
 >
-> **Ehrlicher Stand:** 14 Tests (`m228_split_test.dart`) — der Schnitt und wo
+> **Ehrlicher Stand:** 13 Tests (`m228_split_test.dart`), CI-Lauf
+> **32029429683**: **1931 gruen**, analyze 55 Issues / 0 Errors — der Schnitt und wo
 > das Werkzeug liegt, beide Seiten (inklusive der Gleichung
 > `start + hoehe = Ebene`), die Ablehnungen, Roundtrip mit Frame, der
 > Rebuild-Schluessel, und die Befehlsseite: Vorbedingung, Pick, OK, Esc,
