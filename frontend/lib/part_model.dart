@@ -1971,6 +1971,14 @@ abstract class PartFeature {
   List<String> get sketchNames =>
       sketchName.isEmpty ? const [] : [sketchName];
 
+  /// M227 — OTHER bodies this feature reads, by name.
+  ///
+  /// Empty for everything that only ever touches its own chain, which is
+  /// everything except Combine. The fold mixes these bodies' rebuild keys into
+  /// this feature's own, because a feature that consumes another body has to
+  /// rebuild when THAT body changes — and nothing else in the key can see it.
+  List<String> get inputBodies => const [];
+
   /// True for features built FROM a sketch (extrude, revolve). False for
   /// features that MODIFY an existing body (fillet, chamfer) — those need an
   /// upstream solid as input and fail honestly without one, whereas a
@@ -2036,6 +2044,8 @@ abstract class PartFeature {
         return PatternFeature.fromJson(j);
       case 'hole':
         return HoleFeature.fromJson(j);
+      case 'combine':
+        return CombineFeature.fromJson(j);
       default:
         return null;
     }
@@ -2054,6 +2064,76 @@ class HolePlace {
   Map<String, dynamic> toJson() => {'x': x, 'y': y};
   static HolePlace fromJson(Map<String, dynamic> j) => HolePlace(
       (j['x'] as num?)?.toDouble() ?? 0, (j['y'] as num?)?.toDouble() ?? 0);
+}
+
+/// M227 — Inventor's **Modify > Combine**: a boolean between solid BODIES.
+///
+/// The one Inventor operation that works on bodies rather than on profiles or
+/// edges. Extrude has carried Join/Cut/Intersect since M62, but only against
+/// the body its own profile builds into — there was no way to say "take this
+/// body away from that one" once both existed.
+///
+/// The base is [bodyName], as for every other feature; [tools] are the bodies
+/// consumed. They are named rather than indexed for the same reason a profile
+/// is anchored rather than indexed: a body list re-orders the moment one is
+/// deleted.
+class CombineFeature extends PartFeature {
+  final List<String> tools;
+
+  /// 'join' | 'cut' | 'intersect' — Inventor's three, and the same words the
+  /// extrude Output uses, so [combineSolids] serves both.
+  String op;
+
+  /// Inventor's "Keep Toolbody": the tool survives as its own body instead of
+  /// being folded away.
+  bool keepTool;
+
+  CombineFeature({
+    required super.name,
+    required super.bodyName,
+    required this.tools,
+    this.op = 'cut',
+    this.keepTool = false,
+    super.visible,
+  }) : super(output: 'cut');
+
+  @override
+  String get kind => 'combine';
+  @override
+  String get typeLabel => 'Combine';
+
+  /// It consumes the body that reaches it and hands on the result.
+  @override
+  bool get modifiesBody => true;
+
+  @override
+  List<String> get inputBodies => tools;
+
+  @override
+  String ownSig() => 'cb|$op|$keepTool|${tools.join(",")}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'tools': tools,
+        'op': op,
+        'keepTool': keepTool,
+      };
+
+  static CombineFeature fromJson(Map<String, dynamic> j) {
+    final f = CombineFeature(
+      name: j['name'] as String? ?? 'Combine',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      tools: [
+        for (final t in (j['tools'] as List? ?? const [])) t.toString()
+      ],
+      op: j['op'] as String? ?? 'cut',
+      keepTool: j['keepTool'] as bool? ?? false,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
 }
 
 /// M226 — Inventor's four hole shapes.
@@ -6595,6 +6675,7 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   if (f is FaceModifyFeature) return _recomputeFaceModify(f, kernel, base);
   if (f is PatternFeature) return _recomputePattern(part, f, kernel, base);
   if (f is HoleFeature) return _recomputeHole(part, f, kernel, base);
+  if (f is CombineFeature) return _recomputeCombine(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
   if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
@@ -7077,6 +7158,71 @@ bool _recomputeHole(
     cut = done;
   }
   f.solid = cut;
+  return true;
+}
+
+/// M227 — the live feature of [body] as of just before [before] in the
+/// timeline, or null when that body has nothing built there.
+///
+/// "As of" is the whole point: features of the tool body that come LATER may
+/// still be holding a solid from the previous pass, and folding one of those
+/// in would combine with a body from the future.
+PartFeature? bodyFeatureBefore(PartModel part, String body, int before) {
+  PartFeature? best;
+  for (final f in part.features) {
+    // BEFORE is by seq, which is the timeline the browser shows and the
+    // marker walks — `features` is kept in that order but is not sorted by it,
+    // and the answer must be the one the user can see.
+    if (f.bodyName != body || f.rolledBack || f.seq >= before) continue;
+    if (f.solid == null) continue;
+    if (best == null || f.seq > best.seq) best = f;
+  }
+  return best;
+}
+
+bool _recomputeCombine(
+    PartModel part, CombineFeature f, PartKernel kernel, KernelSolid? base) {
+  if (base == null) {
+    f.computeError = 'a combine needs a base body';
+    return false;
+  }
+  if (f.tools.isEmpty) {
+    f.computeError = 'no tool body selected';
+    return false;
+  }
+  var acc = base;
+  var owned = false; // whether acc is ours to dispose
+  for (final name in f.tools) {
+    if (name == f.bodyName) {
+      if (owned) acc.dispose();
+      f.computeError = 'a body cannot be combined with itself';
+      return false;
+    }
+    final src = bodyFeatureBefore(part, name, f.seq);
+    if (src?.solid == null) {
+      if (owned) acc.dispose();
+      // A tool built LATER in the timeline is the commonest way to get here,
+      // and saying "not built yet at this point" is the difference between a
+      // fixable mistake and a mystery.
+      f.computeError = 'body "$name" has nothing built before this feature';
+      return false;
+    }
+    final out = combineSolids(kernel, f.op, acc, src!.solid!);
+    if (out == null) {
+      if (owned) acc.dispose();
+      f.computeError = kernel.lastError;
+      return false;
+    }
+    if (owned) acc.dispose();
+    acc = out;
+    owned = true;
+    // The tool is folded away unless Inventor's Keep Toolbody says otherwise.
+    // Marking it here is what makes it vanish from the viewport, the browser's
+    // body list and the STEP export in one move — they all read the same
+    // solid/!consumedByJoin rule (M214).
+    if (!f.keepTool) src.consumedByJoin = true;
+  }
+  f.solid = acc;
   return true;
 }
 
@@ -8223,7 +8369,13 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
       allOk = false;
       continue;
     }
-    final sig = '${upstream[f.bodyName] ?? ''}#${featureInputSig(part, f)}';
+    // M227 — a Combine reads another body, so that body's key is part of this
+    // feature's key. Empty for every other feature, so nothing else changes.
+    final cross = f.inputBodies.isEmpty
+        ? ''
+        : [for (final b in f.inputBodies) '$b=${upstream[b] ?? ''}'].join(',');
+    final sig =
+        '${upstream[f.bodyName] ?? ''}#$cross#${featureInputSig(part, f)}';
     if (!force &&
         f.solid != null &&
         f.computeError == null &&
