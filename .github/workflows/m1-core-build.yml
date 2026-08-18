@@ -47,6 +47,23 @@ jobs:
         working-directory: frontend
         run: flutter pub get
 
+      # M222a — the perf tooling verifies ITSELF.
+      #
+      # ci/perf_report.py and ci/perf_profile.py decide what every number in
+      # PERFORMANCE_PROFILE.md means: they fit the exponents, compute the
+      # confidence intervals, and decide which values sit below the
+      # instrument's 1 us resolution and must not be printed as digits. Until
+      # M222a neither had a test and neither ran in CI — the whole
+      # quantitative case rested on two unverified scripts, which is the exact
+      # defect the profile keeps finding in the app, applied to the apparatus.
+      #
+      # The tests check the statistics against ANALYTIC ground truth (an exact
+      # power law must recover its exponent; a CI must contain the true value;
+      # two points must yield no interval), so they cannot drift with the
+      # recorded output.
+      - name: Perf tooling tests
+        run: python3 -m unittest discover -s ci -p 'test_*.py' -v
+
       - name: Analyze Dart
         working-directory: frontend
         run: |

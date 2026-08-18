@@ -437,13 +437,15 @@ def header(data: dict) -> list[str]:
     return out
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("bundle", help="bug bundle zip, directory, or perf_suite.json")
-    ap.add_argument("--baseline", help="an earlier bundle to diff against")
-    ap.add_argument("--top", type=int, default=25, help="rows per table")
-    args = ap.parse_args()
+def main_for_test(bundle: str, baseline: str | None = None,
+                  top: int = 25) -> int:
+    """The whole program minus argv parsing.
+
+    Separated so the tests can drive it directly. A CLI entry point that can
+    only be exercised through the shell is one nobody tests, and this script
+    decides which cost curve the profile reports for every subsystem.
+    """
+    args = argparse.Namespace(bundle=bundle, baseline=baseline, top=top)
 
     if not os.path.exists(args.bundle):
         print(f"no such bundle: {args.bundle}", file=sys.stderr)
@@ -487,6 +489,29 @@ def main() -> int:
         print("\n".join(section_diff(data, old, args.top)))
     print()
     return 0
+
+
+def main() -> int:  # pragma: no cover - argv plumbing
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("bundle",
+                    help="bug bundle zip, directory, or perf_suite.json")
+    ap.add_argument("--baseline", help="an earlier bundle to diff against")
+    ap.add_argument("--top", type=int, default=25, help="rows per table")
+    a = ap.parse_args()
+    try:
+        return main_for_test(a.bundle, a.baseline, a.top)
+    except BrokenPipeError:
+        # `... | head` closes the pipe early. Without this the tool exits with
+        # a traceback, which looks like the ANALYSIS failed rather than the
+        # pager finishing. Redirect stdout to devnull so the interpreter's own
+        # flush at exit cannot raise again.
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except OSError:
+            pass
+        return 0
 
 
 if __name__ == "__main__":
