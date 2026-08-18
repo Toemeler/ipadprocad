@@ -9810,9 +9810,17 @@ analyze 0 errors, **573 gruen**.
 
 ## M210–M219 — Die Performance-Messinfrastruktur (NUR Analyse, nichts optimiert)
 
-**Branch:** `claude/perf-deep-analysis` · **Stand:** M220 (main zusammengefuehrt)
-**Volle Details:** `PERF_ANALYSIS.md` (Abschnitte 8–15), Messplan in
-`PERF_PLAN.md`. Dieser Eintrag ist der Einstiegspunkt.
+**Branch:** `claude/perf-deep-analysis` · **Stand:** M222a, auf main (M231)
+zusammengefuehrt · analyze 0 Fehler, **2050 Dart-Tests**, **17 Python-Tests**
+**Volle Details:** `PERFORMANCE_PROFILE.md` — was jeder Teil der App kostet,
+mit Methode, Konfidenzintervallen und dem vollstaendigen Datenanhang.
+`PERF_ANALYSIS.md` (Abschnitte 8–15) ist die chronologische Herleitung,
+`PERF_PLAN.md` der Messplan. Dieser Eintrag ist der Einstiegspunkt.
+
+> **WENN DU HIER NEU ANFAENGST, LIES ZUERST:** `PERFORMANCE_PROFILE.md`
+> Abschnitt 15 — was der naechste Geraetelauf beantwortet und wie er zu nehmen
+> ist. **Es gibt fuer M221/M222 noch keine einzige Geraetezahl.** Alles seit
+> M220a ist instrumentiert und ausgeliefert, aber nie auf Hardware gelaufen.
 
 ### Die stehende Regel
 
@@ -9954,14 +9962,72 @@ PatternFeature. Beide brauchen eine Fixture MIT Kernel; ohne OCCT auf der
 Entwicklungsmaschine liesse sich nicht pruefen, ob sie ihr Thema erreichen,
 und eine Fixture, die still nichts misst, ist schlimmer als eine fehlende.
 
+### M221–M222a — was seither dazukam (noch ohne Geraetezahlen)
+
+**M221 — der Grund reist im JSON.** `Perf.note(name, text)` traegt kurze
+Freitextbefunde in der Suite-eigenen JSON. Vorher ging ein Kernel-Grund ins
+Ereignislog, und der Geraetelauf vom 11.8. hat bewiesen, dass dieser Weg nicht
+funktionieren KANN: `log.txt` wird beim Druck auf den Bug-Knopf geschrieben
+(10:47:45), die Suite laeuft danach (10:48:10). Deshalb steht
+`kernel.sweepTwist.fail` seit drei Laeufen ohne Ursache da. Erster Eintrag
+gewinnt; `ci/perf_report.py` druckt den Grund unter den Zaehler.
+
+**M221 — die Simulator-Bahn hat einen Zustellweg.** `sim-perf` war seit Lauf
+32 gruen und KEINE seiner Zahlen je gelesen, weil Artefakte auf Blob-Storage
+liegen, den der Proxy verweigert. Jetzt committet der Workflow seine Aufnahme
+auf den Branch `ci-logs-perf`. Ergebnis der ersten Aufnahme: der Simulator ist
+KEIN skaliertes Geraet (Streuung Faktor 63 zwischen Operationen, CV 138 %,
+gegen 8.3 % beim Energiesparmodus). Es gibt keinen Umrechnungsfaktor. Bahn B
+ist damit ein Build- und Verlinkungstest, der nebenbei Zahlen produziert —
+keine Performance-Bahn. Siehe PERFORMANCE_PROFILE Abschnitt 13.
+
+**M221a — das Undo-Journal hat eine Groesse.** Es ist unbegrenzt per Design;
+gemessen war bisher nur die DAUER eines Checkpoints. Neu
+`app.journal.{depth,bytes,bytesPerEntry}`. Zu lesen ist bytesPerEntry.
+
+**M221b — das gemusterte Fillet.** `applyBlendOccurrence` ruft
+`kernel.edgesOf` und damit `allEdges` PRO VORKOMMEN auf — die zwei am
+schlechtesten skalierenden Verhalten der Codebasis komponieren. Aus gemessenen
+Zahlen ausmultipliziert: 9.4 s bei acht Vorkommen auf 360 Kanten. Zwei
+Szenarien machen daraus eine Messung statt einer Herleitung.
+
+**M222 — main (M212-M231) zusammengefuehrt.** Und zum ZWEITEN Mal kamen neue
+Kerneleinstiege ungemessen an: `occt_delete_faces`, `occt_move_faces`,
+`occt_scale_shape`, `occt_export_step_named` (Shim v17 → v20), spaeter noch
+`occt_export_step` und `occt_revolve_hits_face`. Zweimal ist ein Muster:
+**jede Zusammenfuehrung mit main bringt ungemessene Kerneloperationen mit.**
+Die Liste in `m213_perf_coverage_test.dart` ist die Stelle, an der das
+auffliegt. Neu gemessen ausserdem `facesOf` (Delete-Face-Pickpfad) und die
+Bezier-Kette (Konstruktion und Abflachung getrennt).
+
+**M222a — die Messwerkzeuge pruefen sich selbst.** `ci/perf_report.py` und
+`ci/perf_profile.py` entscheiden, was jede Zahl im Profil bedeutet, und hatten
+keinen einzigen Test. Jetzt 17, gegen ANALYTISCHE Wahrheit: ein exaktes
+Potenzgesetz muss seinen Exponenten exakt zurueckliefern, ein Intervall muss
+den wahren Wert enthalten, zwei Punkte duerfen nie ein Intervall liefern.
+Laufen in beiden Workflows vor `flutter analyze`.
+
 ### Wie man es benutzt
 
-1. Build 399 (oder neuer) sideloaden.
-2. Bug-Button druecken. ~30–60 s. Fuer die Grenzen: `stress` in die
-   Beschreibung tippen (dann Minuten — die Leiter faehrt absichtlich die
-   Operation, die die App schon umgebracht hat).
-3. `python3 ci/perf_report.py <bundle.zip>` — oder mit
-   `--baseline <alter.zip>` fuer den Diff.
+1. Einen Build **neuer als `6beb184`** sideloaden. Aeltere Binaries haben
+   kein `Perf.note` und beantworten die offene Frage nach
+   `kernel.sweepTwist` nicht. Die IPA kommt aus `m1-core-build.yml` per
+   `workflow_dispatch` auf diesem Branch — sie laeuft NICHT automatisch, weil
+   der Workflow nur auf Pushes nach main hoert.
+2. **Energiesparmodus AUS**, Geraet abkuehlen lassen bis der Thermalzustand
+   `nominal` meldet. Beide bisherigen Laeufe waren gedrosselt; es gibt noch
+   keinen sauberen Bestfall.
+3. Bug-Button druecken, Beschreibung **`stress`**. Dauert Minuten statt
+   Sekunden — die Leiter faehrt absichtlich die Operation, die die App schon
+   einmal umgebracht hat. Stirbt sie dabei, ist DAS die Antwort auf 'wie weit
+   geht es'; das Bundle trotzdem schicken.
+4. `python3 ci/perf_report.py <bundle.zip>` — oder mit
+   `--baseline <alter.zip>` fuer den Diff. Fuer den vollstaendigen Anhang:
+   `python3 ci/perf_profile.py <bundle.zip> > appendix.md`.
+
+Ein zweiter Lauf mit Energiesparmodus AN und ohne `stress` verlaengert die
+Laengsschnittreihe aus PERFORMANCE_PROFILE Abschnitt 12 unter denselben
+Bedingungen wie die bisherigen drei.
 
 **Beim Lesen zuerst pruefen:** `lowPowerMode` und den Thermalzustand. Der Lauf
 vom 6.8. abends lief im Energiesparmodus und war dadurch gleichmaessig ~2x
@@ -9977,15 +10043,29 @@ nicht gibt.
    Suite sagt, welche OPERATION was kostet; ein Profiler saegt, welche ZEILE.
    Fuer `analyzeSketch` ist das der Unterschied zwischen „die Ranganalyse ist
    kubisch" und „diese Schleife ist es".
-3. **`kernel.sweepTwist` liefert null** — der Waechter meldet es, und seit
-   M216 protokolliert er auch `lastError`. Beim naechsten Geraetelauf steht
-   der Grund im Log.
-4. **`footprintMB` 1397 gegen `residentMB` 241** — ein Faktor 5 ist bei
-   RealityKit/Metal plausibel, aber gross genug, dass er gegengeprueft
-   gehoert, bevor jemand darauf eine Entscheidung stuetzt.
+3. **`kernel.sweepTwist` liefert null** — der Grund war bis M221
+   unerreichbar, weil er ins Log ging, das VOR der Suite geschrieben wird.
+   Seit M221 traegt ihn `Perf.note` in der Suite-JSON. **Noch unbestaetigt:**
+   kein Geraetelauf hat den Pfad seither ausgeloest.
+4. **`footprintMB` gegen `residentMB`, Faktor 4–5** — in zwei Laeufen
+   reproduziert, was fuer echt und gegen einen Sondenfehler spricht, aber
+   weiterhin unerklaert. iOS killt auf den Footprint, nicht auf RSS.
 5. **Die Stress- und Rampen-Tiers sind noch nie auf dem Geraet gelaufen.**
-   Sie sind gruen in CI (1580 Tests) und im IPA 399 enthalten, aber die
-   Zahlen, die sie produzieren sollen, gibt es noch nicht.
+   Die Rampen laufen inzwischen automatisch mit; der Stress-Tier braucht
+   `stress` in der Beschreibung. **Jede Ausfallzahl in PERFORMANCE_PROFILE
+   ist bis dahin eine Hochrechnung.**
+6. **Ein Lauf ohne Energiesparmodus.** Beide Geraetelaeufe waren gedrosselt,
+   es gibt keinen sauberen Bestfall. Abschnitt 3.5 zeigt allerdings, dass der
+   gedrosselte Lauf fuer die Frage nach aelteren iPads der nuetzlichere ist —
+   beide aufheben, nicht einen durch den anderen ersetzen.
+7. **Ein speicherbeschraenktes Geraet.** Die Achse, die der Energiesparmodus
+   NICHT abdeckt, und die, auf der die App im Feld gestorben ist.
+8. **Vier Features ohne Fixture:** Hole, Combine, Split, Delete Face /
+   Direct Edit. Bei den Feature-Arten ist das milde (`kernel.feature.<kind>`
+   bepreist sie in jedem Rebuild), bei Delete Face und Direct Edit bewusst:
+   beide brauchen eine gueltige topologische Flaechen-ID und eine Operation,
+   die der Kernel annimmt, und eine Fixture, die daneben greift, meldet eine
+   schnelle Null. Siehe PERFORMANCE_PROFILE 14.4.
 
 ### Lehren aus dieser Sitzung
 
