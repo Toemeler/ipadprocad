@@ -9810,8 +9810,8 @@ analyze 0 errors, **573 gruen**.
 
 ## M210–M219 — Die Performance-Messinfrastruktur (NUR Analyse, nichts optimiert)
 
-**Branch:** `claude/perf-deep-analysis` · **Stand:** M223, auf main (M231)
-zusammengefuehrt · analyze 0 Fehler, **2050 Dart-Tests**, **19 Python-Tests**
+**Branch:** `claude/perf-deep-analysis` · **Stand:** M224, auf main (M231)
+zusammengefuehrt · analyze 0 Fehler, **2050 Dart-Tests**, **45 Python-Tests**
 **Volle Details:** `PERFORMANCE_PROFILE.md` — was jeder Teil der App kostet,
 mit Methode, Konfidenzintervallen und dem vollstaendigen Datenanhang.
 `PERF_ANALYSIS.md` (Abschnitte 8–15) ist die chronologische Herleitung,
@@ -10038,9 +10038,10 @@ Bezier-Kette (Konstruktion und Abflachung getrennt).
 
 **M222a — die Messwerkzeuge pruefen sich selbst.** `ci/perf_report.py` und
 `ci/perf_profile.py` entscheiden, was jede Zahl im Profil bedeutet, und hatten
-keinen einzigen Test. Jetzt 17, gegen ANALYTISCHE Wahrheit: ein exaktes
-Potenzgesetz muss seinen Exponenten exakt zurueckliefern, ein Intervall muss
-den wahren Wert enthalten, zwei Punkte duerfen nie ein Intervall liefern.
+keinen einzigen Test. Jetzt 19 (mit der Schranke aus M224 zusammen 45),
+gegen ANALYTISCHE Wahrheit: ein exaktes Potenzgesetz muss seinen
+Exponenten exakt zurueckliefern, ein Intervall muss den wahren Wert
+enthalten, zwei Punkte duerfen nie ein Intervall liefern.
 Laufen in beiden Workflows vor `flutter analyze`.
 
 ### M223 — der gepaarte Geraetelauf (18.08.2026, Build `230f179`)
@@ -10087,6 +10088,58 @@ differenzieren. (PERFORMANCE_PROFILE §2.2.)
   Entities (Referenzarm), 20.4 ms im Energiesparmodus. Gegen ein 16.7-ms-
   Budget heisst das: bei voller Taktrate innerhalb, gedrosselt darueber.
 
+### M224 — der Regressionswaechter (PERF_PLAN B4)
+
+Jede Zahl in PERFORMANCE_PROFILE ist eine Momentaufnahme. Bis M224 hat nichts
+eine Regression **erkannt** — die Werkzeuge konnten zwei Bundles vergleichen,
+wenn ein Mensch auf beide zeigt, und das ist ein Lesehilfsmittel, keine
+Schranke.
+
+```
+python3 ci/perf_gate.py --record <bundle.zip>   # Basislinie einfrieren
+python3 ci/perf_gate.py <bundle.zip>            # vergleichen; Exit 1 wenn schlechter
+```
+
+Die eingecheckte Basislinie ist der **Referenzarm** des gepaarten Laufs:
+Build `230f179`, Energiesparmodus AUS, thermisch `nominal` an beiden Enden,
+alle drei Runner — 273 Spans, 373 Szenario-Spans, 46 Zaehler, 195 Gauges.
+
+**Die Beweisreihenfolge ist die aus PERFORMANCE_PROFILE 1.1** und kehrt die
+Intuition um: **Zaehler zuerst** (exakt, prozessorunabhaengig — jede Aenderung
+ist ein Fehlschlag, null Fehlalarme), dann **Gauges** (Fixturegroessen und
+Leiterhoehen), erst zuletzt **Dauern** — gegen die vom Lauf selbst gemessene
+Rauschgrenze, nicht gegen eine geratene Prozentzahl.
+
+**Zwei Entscheidungen, die die Daten erzwungen haben:**
+
+- **Er VERWEIGERT den Dauervergleich ueber Taktzustaende hinweg.** Der
+  Energiesparmodus skaliert die App um 1.9253, und nicht uniform. Ein
+  gedrosselter Lauf gegen die ungedrosselte Basislinie meldete sonst ~93 %
+  Regression in allem. Zaehler und Gauges werden trotzdem geprueft — genau
+  dafuer sind sie die primaere Stufe.
+- **Er prueft PRO SZENARIO, nicht nur pro Span.** Nachgemessen, nicht
+  angenommen: eine injizierte 40-%-Regression in `ffi.occt.allEdges` in EINEM
+  Szenario bewegte den App-weiten Mittelwert dieses Spans um **6.9 %** — unter
+  jeder brauchbaren Schwelle, weil derselbe Span auch in Rampen, Fillet-
+  Szenarien und im Blend-Muster laeuft. Der Aggregatwert allein haette sie
+  durchgelassen.
+
+**Der Nachweis, dass es funktioniert:** gegen den gedrosselten Arm gefahren
+meldet die Schranke genau drei Dinge — die gefallene Leiterhoehe
+(`stress.allEdges.maxSize` 480 → 240), die daraus folgende Kantenzahl und den
+daraus folgenden Zaehler (−1440 `edgeInfo`-Aufrufe) — **und sonst nichts**, auf
+einem Lauf, dessen Dauern voellig unbrauchbar waren.
+
+**Die Ausschlussliste ist hergeleitet, nicht geraten.** Die zwei Arme liefen
+IDENTISCHE Fixtures auf demselben Build, also kann ein Gauge, der sich zwischen
+ihnen unterscheidet, keine Fixturegroesse beschreiben. 125 tun es; ihre
+Klassifikation ergibt genau vier Regeln (57 gefittete Exponenten, 48 kumulative
+Zaehler, 9 Native-Drain-Worsts, 5 abgeleitete `quality.*`, 4 Dokumentzustaende).
+
+**25 der 45 Python-Tests** decken die Schranke ab, etwa die Haelfte davon
+prueft, dass etwas NICHT ausloest: eine Schranke, die bei Rauschen anschlaegt,
+wird abgeschaltet und ist dann schlimmer als keine.
+
 ### Wie man es benutzt
 
 1. Einen Build **neuer als `6beb184`** sideloaden. Die IPA kommt aus
@@ -10107,6 +10160,11 @@ differenzieren. (PERFORMANCE_PROFILE §2.2.)
 5. `python3 ci/perf_report.py <bundle.zip>` — oder mit
    `--baseline <alter.zip>` fuer den Diff. Fuer den vollstaendigen Anhang:
    `python3 ci/perf_profile.py <bundle.zip> > appendix.md`.
+6. **`python3 ci/perf_gate.py <bundle.zip>`** — die Regressionsschranke gegen
+   `perf/baseline.json`. Exit 1 heisst schlechter geworden. Nach einer
+   BEABSICHTIGTEN Verbesserung die Basislinie neu aufnehmen
+   (`--record`) — aber nie, um einen Fehlschlag stillzulegen, den man nicht
+   erklaeren kann.
 
 Ein zweiter Lauf mit Energiesparmodus AN und ohne `stress` verlaengert die
 Laengsschnittreihe aus PERFORMANCE_PROFILE Abschnitt 12 unter denselben
@@ -10144,11 +10202,11 @@ nicht gibt.
    NICHT abdeckt — und M223 hat gezeigt, dass er sie sogar SYSTEMATISCH
    UNTERSCHAETZT (speichergebunden 1.62 gegen 2.27 bei Dart-Rechnung). Die
    Achse, auf der die App im Feld gestorben ist.
-7b. **Ein Regressionswaechter** — `perf/baseline.json` plus CI-Diff
-   (PERF_PLAN Phase 4/B4). **Das ist die empfohlene naechste Arbeit vor dem
-   Optimieren.** Der Datensatz ist jetzt gut genug, um als Basislinie
-   eingefroren zu werden; ohne Waechter faellt die naechste Regression genau
-   so auf wie die letzte — im Feld.
+7b. ~~**Ein Regressionswaechter**~~ **GEBAUT (M224)** — `perf/baseline.json`
+   plus `ci/perf_gate.py`. Siehe unten und PERFORMANCE_PROFILE 15.4. Offen
+   bleibt nur: er ist noch nie gegen ein ZWEITES Geraetebundle gelaufen (es
+   gibt nach der Basislinie keins), und er laeuft nicht bei jedem Push, weil
+   CI kein Geraetebundle erzeugen kann.
 8. **Vier Features ohne Fixture:** Hole, Combine, Split, Delete Face /
    Direct Edit. Bei den Feature-Arten ist das milde (`kernel.feature.<kind>`
    bepreist sie in jedem Rebuild), bei Delete Face und Direct Edit bewusst:

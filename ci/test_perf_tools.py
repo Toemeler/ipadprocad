@@ -41,6 +41,7 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import perf_profile as pp  # noqa: E402
+import perf_gate as pg  # noqa: E402
 import perf_report as pr  # noqa: E402
 
 
@@ -379,6 +380,343 @@ class TestEndToEnd(unittest.TestCase):
                 fn(empty)
             finally:
                 sys.stdout = old
+
+
+class TestGate(unittest.TestCase):
+    """The regression gate (PERF_PLAN B4).
+
+    A gate has one failure mode worse than missing a regression: crying wolf.
+    A gate that fires on noise gets switched off, and then it is worse than no
+    gate at all because everyone believes it is watching. So roughly half of
+    these tests check that something does NOT fail.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.dir = tempfile.mkdtemp()
+
+    def _base(self, **over):
+        b = {
+            "schema": pg.SCHEMA,
+            "conditions": {"build": "b0", "capturedAt": "t0",
+                           "lowPowerMode": False, "thermalPre": "nominal",
+                           "thermalPost": "nominal",
+                           "activeProcessorCount": 9,
+                           "physicalMemoryMB": 7374, "runners": ["r"]},
+            "noiseFloor": {"extrude": 0.04, "solve": 0.29},
+            "counters": {"kernel.calls": 100},
+            "gauges": {"analyze.entities": 1024, "stress.x.maxSize": 480},
+            "spans": {"ffi.occt.extrude": {"n": 10, "meanMs": 10.0}},
+            "scenarioSpans": {},
+        }
+        b.update(over)
+        return b
+
+    def _new(self, **over):
+        n = json.loads(json.dumps(self._base()))
+        n["conditions"]["capturedAt"] = "t1"
+        for k, v in over.items():
+            if k in ("counters", "gauges", "spans", "scenarioSpans",
+                     "conditions"):
+                n[k].update(v)
+            else:
+                n[k] = v
+        return n
+
+    # -- the things that must NOT fire ---------------------------------
+
+    def test_a_run_identical_to_the_baseline_passes(self):
+        f, gated = pg.compare(self._new(), self._base())
+        self.assertEqual(f.fail, [])
+        self.assertTrue(gated)
+
+    def test_a_slowdown_inside_the_measured_noise_floor_is_not_a_failure(self):
+        # extrude's floor is 4% here, but FLOOR_PCT (10%) is the hard minimum,
+        # so 8% must pass. Firing here would fire on every run.
+        f, _ = pg.compare(
+            self._new(spans={"ffi.occt.extrude": {"n": 10, "meanMs": 10.8}}),
+            self._base())
+        self.assertEqual(f.fail, [])
+
+    def test_the_floor_used_is_the_noisier_of_the_two_runs(self):
+        # solve's floor is 29%. A 20% move must not fail even though it clears
+        # the 10% hard minimum, because the operation's own dispersion is
+        # larger than the change.
+        base = self._base(spans={"solve.total": {"n": 10, "meanMs": 10.0}})
+        new = self._new(spans={"solve.total": {"n": 10, "meanMs": 12.0}})
+        f, _ = pg.compare(new, base)
+        self.assertEqual(f.fail, [])
+
+    def test_unresolved_spans_are_never_gated(self):
+        # Below MIN_GATED_MEAN_MS a ratio is quantization noise (profile 1.2).
+        # A 10x "regression" on a 1 us span must not fail the build.
+        base = self._base(spans={"app.tiny": {"n": 100, "meanMs": 0.001}})
+        new = self._new(spans={"app.tiny": {"n": 100, "meanMs": 0.010}})
+        f, _ = pg.compare(new, base)
+        self.assertEqual(f.fail, [])
+
+    def test_a_faster_run_is_a_note_and_not_a_failure(self):
+        f, _ = pg.compare(
+            self._new(spans={"ffi.occt.extrude": {"n": 10, "meanMs": 5.0}}),
+            self._base())
+        self.assertEqual(f.fail, [])
+        self.assertTrue(any("faster" in n for n in f.note))
+
+    def test_a_higher_ladder_ceiling_is_an_improvement_not_a_regression(self):
+        f, _ = pg.compare(self._new(gauges={"stress.x.maxSize": 960}),
+                          self._base())
+        self.assertEqual(f.fail, [])
+        self.assertTrue(any("improvement" in n for n in f.note))
+
+    # -- the things that MUST fire -------------------------------------
+
+    def test_a_slowdown_beyond_the_floor_fails(self):
+        f, _ = pg.compare(
+            self._new(spans={"ffi.occt.extrude": {"n": 10, "meanMs": 15.0}}),
+            self._base())
+        self.assertTrue(any(s.startswith("SLOWER") for s in f.fail))
+
+    def test_a_changed_counter_fails_even_though_nothing_got_slower(self):
+        # The strongest signal in the report: a counter is exact and
+        # processor-invariant (profile 1.1). Solving twice per frame instead
+        # of once shows up here and nowhere else.
+        f, _ = pg.compare(self._new(counters={"kernel.calls": 200}),
+                          self._base())
+        self.assertTrue(any(s.startswith("COUNTER") for s in f.fail))
+
+    def test_a_lower_ladder_ceiling_fails(self):
+        f, _ = pg.compare(self._new(gauges={"stress.x.maxSize": 240}),
+                          self._base())
+        self.assertTrue(any(s.startswith("CEILING") for s in f.fail))
+
+    def test_a_changed_fixture_size_fails(self):
+        f, _ = pg.compare(self._new(gauges={"analyze.entities": 512}),
+                          self._base())
+        self.assertTrue(any(s.startswith("GAUGE") for s in f.fail))
+
+    def test_a_different_call_count_fails_rather_than_comparing_means(self):
+        # Same mean over a different n is not the same measurement.
+        f, _ = pg.compare(
+            self._new(spans={"ffi.occt.extrude": {"n": 20, "meanMs": 10.0}}),
+            self._base())
+        self.assertTrue(any(s.startswith("CALLS") for s in f.fail))
+
+    # -- clock state: the correctness property that matters most --------
+
+    def test_durations_are_refused_across_low_power_mode(self):
+        new = self._new(spans={"ffi.occt.extrude": {"n": 10, "meanMs": 19.3}})
+        new["conditions"]["lowPowerMode"] = True
+        f, gated = pg.compare(new, self._base())
+        self.assertFalse(gated)
+        self.assertEqual([s for s in f.fail if s.startswith("SLOWER")], [])
+        self.assertTrue(f.skipped)
+
+    def test_counters_are_still_checked_across_low_power_mode(self):
+        # The whole reason counters are the primary tier: they survive the
+        # clock change that makes every duration incomparable.
+        new = self._new(counters={"kernel.calls": 200})
+        new["conditions"]["lowPowerMode"] = True
+        f, gated = pg.compare(new, self._base())
+        self.assertFalse(gated)
+        self.assertTrue(any(s.startswith("COUNTER") for s in f.fail))
+
+    def test_a_throttled_run_is_flagged(self):
+        new = self._new()
+        new["conditions"]["thermalPost"] = "serious"
+        f, _ = pg.compare(new, self._base())
+        self.assertTrue(any("throttled" in n for n in f.note))
+
+    # -- extraction: the two bugs found while building this -------------
+
+    def test_gauges_are_last_write_wins_not_max(self):
+        """Gauges are a snapshot of the global map at each scenario's end
+        (`perf.dart:685`), and the map is not cleared between suite runs. So a
+        stale value from an earlier pass sits in the EARLY scenarios. Reducing
+        with max() would adopt it — and on a ladder ceiling that means taking
+        the higher of a stale and a current maxSize, hiding the exact
+        regression this gate exists to catch."""
+        data = {"suites": [{"suite": "s", "at": "t", "build": "b",
+                            "scenarios": [
+                                {"scenario": "early", "spans": {},
+                                 "counters": {},
+                                 "gauges": {"stress.x.maxSize": 480}},
+                                {"scenario": "late", "spans": {},
+                                 "counters": {},
+                                 "gauges": {"stress.x.maxSize": 240}},
+                            ]}],
+                "snapshot": {"native": {}}}
+        _, _, _, gauges = pg._scenario_scope(data)
+        self.assertEqual(gauges["stress.x.maxSize"], 240)
+
+    def test_scenarios_are_read_in_execution_order_across_runners(self):
+        # Suites are stamped with `at`; last-write-wins is only correct if they
+        # are walked in that order rather than in whatever order they unzip.
+        data = {"suites": [
+            {"suite": "late", "at": "2026-01-02T00:00:00", "scenarios": [
+                {"scenario": "b", "spans": {}, "counters": {},
+                 "gauges": {"g": 2}}]},
+            {"suite": "early", "at": "2026-01-01T00:00:00", "scenarios": [
+                {"scenario": "a", "spans": {}, "counters": {},
+                 "gauges": {"g": 1}}]},
+        ], "snapshot": {"native": {}}}
+        _, _, _, gauges = pg._scenario_scope(data)
+        self.assertEqual(gauges["g"], 2)
+
+    def test_spans_and_counters_sum_because_they_are_per_scenario_deltas(self):
+        # `perf.dart:663` and `:676` both subtract a before-value, so the two
+        # channels are deltas and must be added. Getting this wrong the other
+        # way would silently halve every count.
+        data = {"suites": [{"suite": "s", "at": "t", "scenarios": [
+            {"scenario": "a", "counters": {"c": 3}, "gauges": {},
+             "spans": {"x": {"n": 2, "totalMs": 4.0}}},
+            {"scenario": "b", "counters": {"c": 4}, "gauges": {},
+             "spans": {"x": {"n": 3, "totalMs": 9.0}}},
+        ]}], "snapshot": {"native": {}}}
+        spans, _, counters, _ = pg._scenario_scope(data)
+        self.assertEqual(counters["c"], 7)
+        self.assertEqual(spans["x"]["n"], 5)
+        self.assertEqual(spans["x"]["meanMs"], 13.0 / 5)
+
+    # -- per-scenario granularity: why the aggregate is not enough ------
+
+    def test_a_regression_in_one_scenario_survives_aggregation(self):
+        """The reason `scenarioSpans` exists.
+
+        `ffi.occt.allEdges` runs inside ramps, stress ladders, fillet
+        scenarios and the blend pattern. Injecting a real 40 % regression into
+        one of them moved the whole-app mean by 6.9 % — under any floor worth
+        having. Gating the aggregate alone would have passed it.
+        """
+        base = self._base(
+            spans={"ffi.occt.allEdges": {"n": 10, "meanMs": 100.0}},
+            scenarioSpans={
+                "kernel.allEdges.sweep.120::ffi.occt.allEdges":
+                    {"n": 1, "meanMs": 600.0},
+                "kernel.fillet.edges.1::ffi.occt.allEdges":
+                    {"n": 9, "meanMs": 44.4},
+            })
+        new = json.loads(json.dumps(base))
+        new["conditions"]["capturedAt"] = "t1"
+        # One scenario 40 % worse; the aggregate barely moves.
+        new["scenarioSpans"]["kernel.allEdges.sweep.120::ffi.occt.allEdges"][
+            "meanMs"] = 840.0
+        new["spans"]["ffi.occt.allEdges"]["meanMs"] = 106.9
+        f, _ = pg.compare(new, base)
+        self.assertTrue(any("kernel.allEdges.sweep.120" in s for s in f.fail))
+        self.assertFalse(any(s.startswith("SLOWER   [all]") for s in f.fail),
+                         "the aggregate alone would not have caught this")
+
+    def test_scenario_spans_carry_the_family_for_the_noise_floor(self):
+        # The key is "scenario::span"; the FAMILY must come from the span half,
+        # or every per-scenario entry silently falls back to the default floor.
+        self.assertEqual(
+            pg.threshold_for("kernel.demo::solve.total".split("::")[-1],
+                             {"solve": 0.29}),
+            pg.threshold_for("solve.total", {"solve": 0.29}))
+        self.assertAlmostEqual(pg.threshold_for("solve.total", {"solve": 0.29}),
+                               0.29)
+
+    def test_scenario_spans_below_the_resolution_floor_are_not_recorded(self):
+        data = {"suites": [{"suite": "s", "at": "t", "scenarios": [
+            {"scenario": "a", "counters": {}, "gauges": {},
+             "spans": {"big": {"n": 1, "totalMs": 10.0},
+                       "tiny": {"n": 1, "totalMs": 0.001}}},
+        ]}], "snapshot": {"native": {}}}
+        b = pg.extract(data)
+        self.assertIn("a::big", b["scenarioSpans"])
+        self.assertNotIn("a::tiny", b["scenarioSpans"])
+
+    # -- the exclusion table --------------------------------------------
+
+    def test_measurements_disguised_as_gauges_are_not_gated(self):
+        """These four classes account for all 125 gauges that differ between
+        the two arms of the paired run — two captures of the SAME build running
+        the SAME fixtures, where a true fixture descriptor cannot differ."""
+        volatile = {
+            "ramp.analyze.k.64": 510,        # a fitted local exponent x100
+            "ramp.solve.path.slvs.16": 978,  # a cumulative counter
+            "ramp.solve.path.lm.16": 56,     # a cumulative counter
+            "quality.budget.entitiesAt60Hz": 384,   # a derived result
+            "quality.variance.solve.spreadPct": 29,  # the noise floor itself
+            "stress.analyze.rssDeltaMB": 105,       # GC scheduling
+            "stress.manySolids.rssMB": 489,         # session history
+            "rv.native.planes.worstUs": 419468,     # reset every capture
+            "features": 7,                          # the open document
+            "triangles": 54881,                     # the open document
+        }
+        kept = pg._gateable_gauges({**volatile, "analyze.entities": 1024})
+        self.assertEqual(kept, {"analyze.entities": 1024})
+
+    def test_the_noise_floor_is_still_read_from_an_excluded_gauge(self):
+        # quality.* is excluded from gating but IS the source of the
+        # thresholds, so it must survive extraction.
+        floors = pg._noise_floor({"quality.variance.solve.spreadPct": 29,
+                                  "quality.variance.extrude.spreadPct": 4})
+        self.assertAlmostEqual(floors["solve"], 0.29)
+        self.assertAlmostEqual(floors["extrude"], 0.04)
+
+    # -- refusing to answer ---------------------------------------------
+
+    def test_a_missing_baseline_is_refused_not_passed(self):
+        code, text = pg.main_for_test(
+            "irrelevant.zip", os.path.join(self.dir, "nope.json"))
+        self.assertEqual(code, pg.EXIT_REFUSED)
+        self.assertIn("--record", text)
+
+    def test_a_stale_schema_is_refused_not_guessed_at(self):
+        p = os.path.join(self.dir, "old.json")
+        with open(p, "w") as fh:
+            json.dump({"schema": 999}, fh)
+        code, _ = pg.main_for_test("irrelevant.zip", p)
+        self.assertEqual(code, pg.EXIT_REFUSED)
+
+    def test_the_committed_baseline_is_valid_and_was_recorded_uncapped(self):
+        """The baseline is a checked-in artefact that nothing else validates.
+
+        A hand-edited or half-written `perf/baseline.json` would not fail any
+        other test — it would simply make the gate refuse, or worse, pass. Two
+        properties matter beyond it parsing:
+
+        * it must have been recorded with Low Power Mode OFF. A capped baseline
+          would make every future uncapped run trip the clock-mismatch refusal,
+          and the gate would quietly stop checking durations forever.
+        * it must have been recorded at thermal nominal, or every duration in
+          it describes a throttled machine.
+        """
+        p = pg.DEFAULT_BASELINE
+        if not os.path.exists(p):
+            self.skipTest("no baseline recorded yet")
+        with open(p) as fh:
+            b = json.load(fh)
+        self.assertEqual(b.get("schema"), pg.SCHEMA)
+        for key in ("conditions", "noiseFloor", "counters", "gauges",
+                    "spans", "scenarioSpans"):
+            self.assertIn(key, b)
+            self.assertTrue(b[key], f"{key} is empty")
+        c = b["conditions"]
+        self.assertFalse(c["lowPowerMode"],
+                         "baseline recorded under Low Power Mode: every future "
+                         "uncapped run would refuse to compare durations")
+        self.assertEqual(c["thermalPre"], "nominal")
+        self.assertEqual(c["thermalPost"], "nominal")
+        # And it must agree with itself: a baseline that fails its own gate is
+        # corrupt in a way no other assertion here would catch.
+        f, gated = pg.compare(json.loads(json.dumps(b)), b)
+        self.assertTrue(gated)
+        self.assertEqual(f.fail, [])
+
+    def test_record_then_gate_round_trips_through_a_real_bundle(self):
+        bundle = synthetic_bundle(os.path.join(self.dir, "b.zip"))
+        base = os.path.join(self.dir, "baseline.json")
+        buf, old = io.StringIO(), sys.stdout
+        sys.stdout = buf
+        try:
+            pg.record(bundle, base)
+        finally:
+            sys.stdout = old
+        code, text = pg.main_for_test(bundle, base)
+        self.assertEqual(code, pg.EXIT_OK, text)
+        self.assertIn("No regression", text)
 
 
 if __name__ == "__main__":

@@ -2614,12 +2614,109 @@ of the seven questions this section previously listed.
 | 8 | **What happens on a device with less RAM?** | A capture on a 3–4 GB iPad. Low Power Mode cannot proxy this (§3.5). | The one unproxied axis, and the one the field crash lay on. |
 | 9 | **Does anything leak over an hour?** | A 30-minute continuous session (catalogue scenario 18). The paired run's 293 s is the longest yet. | A CAD session is an hour, not a click. |
 | 10 | **Is `applyBlendOccurrence` end to end more than its dominant term?** | A blend fixture whose edge fingerprints resolve against a live solid. | 97.6 % is measured; the remainder is bounded but not observed. |
-| 11 | **Is there a regression gate?** | `perf/baseline.json` plus a CI diff (PERF_PLAN Phase 4/B4). Not built. | Every number here is a snapshot. Nothing currently *detects* a regression; the tooling can only be pointed at two bundles by hand. |
+| 11 | ~~**Is there a regression gate?**~~ | **Built (M224).** `perf/baseline.json` + `ci/perf_gate.py`. See §15.4. | — |
 
-**Item 11 is the recommended next piece of work before optimisation begins.**
-The dataset is now complete enough to freeze as a baseline, and optimisation
-without a gate means the next regression is found the same way the last one was
-— in the field.
+### 15.4 The regression gate
+
+Every number in this document is a snapshot. Until M224 nothing *detected* a
+regression — the tooling could compare two bundles when a person pointed it at
+both, which is a reading aid, not a gate. `ci/perf_gate.py` is the gate:
+
+```
+python3 ci/perf_gate.py --record <bundle.zip>   # freeze a baseline
+python3 ci/perf_gate.py <bundle.zip>            # compare; exit 1 if worse
+```
+
+The committed baseline is the **reference arm** of the paired run — build
+`230f179`, Low Power Mode off, thermal nominal at both ends, all three runners:
+273 spans, 373 scenario-spans, 46 counters, 195 gauges.
+
+#### Where it departs from PERF_PLAN B4, and why
+
+B4 specified "one entry per scenario with p50/p95, red at >10 % worse". Two of
+those three would misfire against what has since been measured:
+
+| B4 said | The gate does | Because |
+| --- | --- | --- |
+| p50 / p95 | n, total, mean | Percentiles come from a 128-sample ring buffer (§1.1) and for `rv.native.*` are computed over synthesised copies of a mean (§7.2.1). Means are exact. |
+| flat 10 % | the run's **own measured** noise floor, per family | `quality.variance.*.spreadPct` gives 4 % for extrude but 29 % for solve and 200 % for splineEval *on the same run* (§3.2). One threshold cannot serve both. A 10 % gate misses real extrude regressions and fires constantly on solve. |
+| per scenario | **per scenario, kept** | This part was right — see below. |
+
+#### The evidence ordering, taken from §1.1
+
+The gate checks the strongest evidence first, which inverts the intuitive order:
+
+1. **Counters** — exact integers, invariant under a change of processor. Any
+   change fails. Zero false positives from noise. This is where "the painter
+   now solves twice per frame" would appear.
+2. **Gauges** — exact fixture sizes and ladder ceilings. A changed fixture size
+   fails, because it means the durations are not measuring the same work; a
+   *fallen* `maxSize` fails, because the app no longer reaches as far.
+3. **Durations** — gated last and most softly, against the measured floor,
+   and only for spans resolved above the quantization floor (§1.2).
+
+#### Two design decisions the data forced
+
+**It refuses to compare durations across clock states.** Low Power Mode scales
+this app by 1.9253, and not uniformly (§3.5). Comparing a capped run against
+the uncapped baseline would report a ~93 % regression in everything. The gate
+says so and checks counters and gauges anyway — which is exactly why those are
+the primary tier.
+
+**It gates per scenario, not only per span.** This was measured, not assumed: a
+40 % regression injected into `ffi.occt.allEdges` in one scenario moved the
+whole-app aggregate for that span by **6.9 %**, under any usable floor, because
+the span also runs inside ramps, fillet scenarios and the blend pattern. The
+aggregate alone would have passed it. Per scenario it shows at its full 40 %.
+
+#### What the exclusion list is, and how it was derived
+
+The hard tiers only work if a changed gauge really does mean the fixture
+changed. Many gauges are not fixture descriptors — some are measurements in
+disguise, some describe the open document, some are cumulative. These were not
+guessed at: **the two arms of the paired run executed identical fixtures on the
+same build**, so any gauge differing between them cannot be describing fixture
+size. 125 do, and classifying all of them yields exactly four rules:
+
+| Class | Count | Example |
+| --- | ---: | --- |
+| Fitted local exponents (`ramp.*.k.*`) | 57 | `ramp.analyze.k.64` = 510 — a measurement ×100 |
+| Cumulative solver-path counters | 48 | `ramp.solve.path.slvs.16` |
+| Native-drain worsts (reset per capture) | 9 | `rv.native.planes.worstUs` |
+| Derived `quality.*` results | 5 | `quality.budget.entitiesAt60Hz` |
+| The open document, not the fixtures | 4 | `features`, `triangles` |
+
+That leaves exactly two gateable gauges differing between the arms —
+`stress.allEdges.maxSize` (480 → 240) and `stress.allEdges.edges` (1440 → 720)
+— which differ because the ladder genuinely did not reach as far under the
+capped clock. Running the gate on the capped arm reports those two plus the
+counter that follows from them (`ffi.occt.edgeInfo.calls`, −1440) **and nothing
+else**, on a run whose durations were entirely unusable. That is the design
+working: a real capability regression caught through clock-invariant channels.
+
+#### Verification
+
+25 of the 45 tests in `ci/test_perf_tools.py` cover the gate, and roughly half
+of those assert that something does **not** fire — a gate that cries wolf gets
+switched off, and is then worse than no gate because everyone believes it is
+watching. The committed baseline is itself checked: it must parse, must
+round-trip against its own gate, and must have been recorded uncapped at
+thermal nominal, since a capped baseline would silently disable duration
+checking forever.
+
+#### What it does not yet do
+
+- **It has never run against a second device bundle**, because none exists
+  after the baseline. Its first real use is the next device capture.
+- **It does not run in CI on every push**, because CI cannot produce a device
+  bundle. The natural next step is to point the counter and gauge tiers at the
+  simulator capture on `ci-logs-perf` (§13.3 establishes counters *are*
+  legitimate to read from the simulator, and §13.8 that structural regression
+  detection is what Track B is good for). That needs a simulator baseline and
+  is not built.
+- **It does not gate exponents.** A change in *k* is the most transferable
+  regression of all, but fitting requires a whole family and the confidence
+  intervals are wide (§1.5); a naive comparison would fire on noise.
 
 ### 15.1 What the suite does NOT produce
 
@@ -2695,7 +2792,8 @@ capped condition already has three runs behind it; the uncapped one has none.
 ```
 python3 ci/perf_report.py  <bundle.zip>                 # is it trustworthy, then what changed
 python3 ci/perf_report.py  <bundle.zip> --baseline <old.zip>
-python3 ci/perf_profile.py <bundle.zip> > appendix.md   # every number, for §15
+python3 ci/perf_profile.py <bundle.zip> > appendix.md   # every number, for §16
+python3 ci/perf_gate.py    <bundle.zip>                 # regression gate; exit 1 if worse
 ```
 
 **Check first, before reading any timing:** `lowPowerMode`, thermal state at
