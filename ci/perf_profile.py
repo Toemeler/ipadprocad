@@ -50,14 +50,32 @@ Q_MS = 0.001  # one microsecond, the timer's quantum
 
 def load(path: str) -> dict:
     """Returns {snapshot, runners:[(name, data)], bundle}."""
-    out = {"snapshot": {}, "runners": [], "bundle": path.split("/")[-1]}
+    out = {"snapshot": {}, "runners": [], "errors": [],
+           "bundle": path.split("/")[-1]}
     with zipfile.ZipFile(path) as z:
         names = set(z.namelist())
         if "perf_snapshot.json" in names:
             out["snapshot"] = json.loads(z.read("perf_snapshot.json"))
-        for n in ("perf_suite.json", "perf_suite_ui.json"):
-            if n in names:
-                out["runners"].append((n, json.loads(z.read(n))))
+        # All THREE runners. Dropping the stress file here was a real bug:
+        # perf_report.py reads it, this did not, so the appendix that claims
+        # to print everything would have silently omitted the entire stress
+        # tier — the one thing that measures where the app actually fails
+        # rather than extrapolating to it. An appendix with a hole in it is
+        # worse than an obviously partial one, because nothing signals the
+        # hole.
+        for n in ("perf_suite.json", "perf_suite_ui.json",
+                  "perf_suite_stress.json"):
+            if n not in names:
+                continue
+            raw = z.read(n)
+            try:
+                out["runners"].append((n, json.loads(raw)))
+            except json.JSONDecodeError:
+                # bug_capture writes a plain error STRING into this slot when
+                # a suite throws. That is information, not corruption, so it
+                # is carried through rather than crashing the reader.
+                out["errors"].append(
+                    (n, raw.decode("utf-8", "replace")[:400]))
     return out
 
 
@@ -460,6 +478,17 @@ def main_for_test(bundle: str, label: str = "") -> int:
     print("Every number below is printed verbatim from the bundle. Nothing is "
           "selected, ranked away or rounded beyond the instrument's "
           "resolution.")
+    print()
+    if d["errors"]:
+        print("> **A suite did not complete.** These slots hold an error "
+              "string instead of results, so any subsystem they cover is "
+              "absent from every table below:")
+        print()
+        for name, msg in d["errors"]:
+            print(f"> * `{name}` — {msg}")
+        print()
+    runner_names = ", ".join(n for n, _ in d["runners"]) or "(none)"
+    print(f"Runners present: {runner_names}.")
     print()
 
     for title, body in (

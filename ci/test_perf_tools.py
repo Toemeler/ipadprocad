@@ -304,6 +304,66 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIn("kernel.sweepTwist.fail", out)
         self.assertIn("twist angle out of range", out)
 
+    def test_the_stress_tier_is_not_dropped_from_the_appendix(self):
+        """The appendix claims to print EVERYTHING. It must mean it.
+
+        perf_report.py has always read perf_suite_stress.json; perf_profile.py
+        did not, so the stress tier — the only thing that measures where the
+        app actually fails, rather than extrapolating to it — would have been
+        missing from the "complete" appendix with nothing to signal the hole.
+        """
+        b = os.path.join(self.dir, "stress.zip")
+        synthetic_bundle(b)
+        with zipfile.ZipFile(b, "a") as z:
+            z.writestr("perf_suite_stress.json", json.dumps({
+                "suite": "perf_scenarios_stress/v1", "build": "testbuild",
+                "wallMs": 900, "scenarios": [
+                    {"scenario": "stress.kernel.allEdges", "wallMs": 900.0,
+                     "spans": {"kernel.stressEdges": {
+                         "n": 1, "totalMs": 900.0, "avgMs": 900.0}},
+                     "counters": {"stress.rungReached": 1920},
+                     "gauges": {"stress.allEdges.lastRung": 1920}},
+                ]}))
+        d = pp.load(b)
+        names = [n for n, _ in d["runners"]]
+        self.assertIn("perf_suite_stress.json", names)
+
+        buf = io.StringIO()
+        old_out = sys.stdout
+        sys.stdout = buf
+        try:
+            pp.main_for_test(b)
+        finally:
+            sys.stdout = old_out
+        out = buf.getvalue()
+        self.assertIn("stress.kernel.allEdges", out)
+        self.assertIn("perf_suite_stress.json", out)
+
+    def test_a_failed_suite_is_reported_not_swallowed(self):
+        """bug_capture writes an error STRING when a suite throws.
+
+        That is the most important line in such a bundle: it says an entire
+        subsystem is missing. Crashing on it would hide the failure behind a
+        tool failure; ignoring it would hide it entirely.
+        """
+        b = os.path.join(self.dir, "broken.zip")
+        synthetic_bundle(b)
+        with zipfile.ZipFile(b, "a") as z:
+            z.writestr("perf_suite_stress.json",
+                       "stress suite failed: OcctFfi unavailable")
+        d = pp.load(b)
+        self.assertTrue(d["errors"])
+        buf = io.StringIO()
+        old_out = sys.stdout
+        sys.stdout = buf
+        try:
+            pp.main_for_test(b)
+        finally:
+            sys.stdout = old_out
+        out = buf.getvalue()
+        self.assertIn("A suite did not complete", out)
+        self.assertIn("OcctFfi unavailable", out)
+
     def test_tools_survive_a_bundle_with_nothing_in_it(self):
         # A run that died before Log.init produces exactly this. Both tools
         # must report the emptiness rather than raise, or a failed capture

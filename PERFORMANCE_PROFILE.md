@@ -1922,21 +1922,76 @@ than incidentally, and so its results have somewhere to land.
 | 6 | **How fast does the undo journal grow?** It is unbounded by design and has never been sized. | `app.journal.bytesPerEntry` (M221) — constant means linear growth in edits, rising means the snapshots themselves are growing. | §8.3, §9.1 item 7 |
 | 7 | **Does a patterned fillet really cost `allEdges` per occurrence?** Currently derived from source, not measured. | Any run that patterns a blend; or the stress tier if a rung reaches one. | §8.2 |
 
-### 15.1 How to take it
+### 15.1 What the suite does NOT produce
 
-1. Sideload a build from this branch **newer than `8a6690d`** — earlier
-   binaries have no `Perf.note` and will answer nothing in row 1.
-2. **Turn Low Power Mode off** and let the device sit until thermal state
-   reads `nominal`. That gives row 3 and makes every absolute number
-   comparable with the uncapped run of 6 August.
-3. Press the bug button with the description **`stress`** — that opts the
-   ladders in (rows 2 and 5). Expect minutes rather than seconds: the ladders
-   deliberately drive the operation that has already killed the app once.
-4. Then, ideally, a **second** capture with Low Power Mode **on** and no
-   `stress`, to extend the longitudinal series of §12 under the conditions the
-   existing runs used.
+The self-driving suite builds its own fixtures, so its ~110 scenarios fire
+regardless of what is on screen. **Forty spans do not come from the suite at
+all** — they only exist if the app was actually used before the bug button was
+pressed. In the 11 August run they were populated because the session happened
+to include that use; nothing guarantees it.
 
-### 15.2 How to read what comes back
+| To get these spans | Do this first |
+| --- | --- |
+| `rv.native.*` (11 spans — the entire RealityKit drain, §7.2), `rv.setScene/setOverlays/setCamera`, `3d.push`, `3d.payload` | **Open a part and look at it in 3D.** Orbit once. Without this the origin-plane finding cannot be re-checked at all. |
+| `menu.ribbon.part`, `browser.sig`, `toolbar.sig`, `tabbar.sig` | Switch to the Part tab, open the model browser, use the toolbar. |
+| `io.savePart` | Save a document. |
+| `2d.paint.*`, `2d.snap`, `2d.pickEntity`, `2d.displayGeometry` at REAL sizes | Draw a few entities and drag one. The suite measures these on fixtures; the session measures them on whatever you actually drew. |
+| `launch.toFirstFrame` and the 21 `step.*` spans | Automatic — but only from a **cold start**. Resuming a backgrounded app leaves them from the previous launch. |
+
+**Practical consequence:** a run where the bug button is pressed immediately
+after launch produces a complete *suite* and an almost empty *session*. Both
+halves matter — §4b of the report is the session, and it is the only place the
+app's real usage appears.
+
+### 15.2 How to take it — two runs, in this order
+
+Order matters: **the stress run can kill the app**, and an app killed by
+jetsam writes no bundle at all. Taking the safe run first guarantees at least
+one complete capture.
+
+**Build:** anything newer than `230f179`. Older binaries have no `Perf.note`,
+no journal gauges and none of the five new scenario families.
+
+---
+
+**Run 1 — Low Power Mode ON, with `stress`.**
+
+1. Turn Low Power Mode **on**. Let the device settle until it is cool.
+2. **Cold-start the app** (swipe it away first) — otherwise the 21 `step.*`
+   spans and `launch.toFirstFrame` carry over from a previous launch.
+3. **Use it for a minute:** open a part, look at it in 3D and orbit once,
+   switch to the Part tab, open the model browser, draw a few entities in a
+   sketch and drag one, save. This is what fills the forty session-only spans
+   of §15.1.
+4. Bug button, description **`stress`**. Minutes, not seconds.
+
+This run is the **older-hardware case** (§3.5): the cap is a clock scalar, so
+the stress ladders under it say where a slower iPad falls over. That is the
+more consequential of the two limits.
+
+---
+
+**Run 2 — Low Power Mode OFF, with `stress`.**
+
+Same three preparation steps, Low Power Mode **off**, device cool, thermal
+`nominal`. Bug button, description **`stress`**.
+
+This is the **first uncapped run in the branch's history** and becomes the
+reference baseline. Together the pair also gives a second, independent
+measurement of the LPM scalar — currently resting on four data points from
+6 August.
+
+---
+
+**If the app dies during either run:** that IS the answer to "how far does it
+go", and it is the question the stress tier exists to ask. Note which ladder
+was on screen if visible, relaunch, and press the bug button again *without*
+`stress` so the session and suite halves are still captured.
+
+**If you only have time for one:** take Run 2 (uncapped, with `stress`). The
+capped condition already has three runs behind it; the uncapped one has none.
+
+### 15.3 How to read what comes back
 
 ```
 python3 ci/perf_report.py  <bundle.zip>                 # is it trustworthy, then what changed
