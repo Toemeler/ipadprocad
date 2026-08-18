@@ -414,7 +414,9 @@ class OcctShape {
   bool exportStep(String path) {
     final p = path.toNativeUtf8();
     try {
-      return _ffi._exportStep(_handle, p) == 1;
+      return ffiSpan('ffi.occt.exportStep',
+              () => _ffi._exportStep(_handle, p)) ==
+          1;
     } finally {
       calloc.free(p);
     }
@@ -512,8 +514,10 @@ class OcctShape {
       {int maxHits = 32}) {
     final buf = calloc<Double>(maxHits);
     try {
-      final n = _ffi._revolveHitsFace(_handle, axPx, axPy, axPz, axDx, axDy,
-          axDz, px, py, pz, fx, fy, fz, buf, maxHits);
+      final n = ffiSpan(
+          'ffi.occt.revolveHitsFace',
+          () => _ffi._revolveHitsFace(_handle, axPx, axPy, axPz, axDx, axDy,
+              axDz, px, py, pz, fx, fy, fz, buf, maxHits));
       if (n <= 0) return const [];
       return List<double>.generate(n, (i) => buf[i], growable: false);
     } finally {
