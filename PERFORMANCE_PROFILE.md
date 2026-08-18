@@ -1821,7 +1821,26 @@ of new surface since it was created. This section states plainly what of that
 surface is measured, what is not, and why — so the coverage is not mistaken for
 being complete a second time.
 
-### 14.1 The pattern that repeated
+### 14.1 A note on milestone numbers
+
+Two independent tracks used the same numbers. `main`'s M212 is the part
+patterns; this branch's M212 is the three broken fixtures. The same holds for
+M213 and several neighbours.
+
+The practical extent is smaller than it sounds, and worth stating precisely
+rather than warning about vaguely: **`HANDOFF.md` has no colliding headings** —
+`main`'s recent commits modified existing content rather than adding M2xx
+sections, so the only perf entries there are `## M210–M219` and `### M220`.
+The overlap lives in commit messages and in code comments, where `// M212` in
+`app_state.dart` means the pattern panel while `M212` in the perf modules means
+the fixture repair.
+
+Renumbering was considered and rejected: it would touch dozens of files,
+contradict the commit history it refers to, and fix nothing that is actually
+ambiguous in context. When this branch is written up for `main`, its entries
+should continue from `main`'s highest number rather than restate these.
+
+### 14.2 The pattern that repeated
 
 Four new kernel entry points arrived **unmeasured**: `occt_delete_faces`,
 `occt_move_faces`, `occt_scale_shape` and `occt_export_step_named` (shim
@@ -1839,7 +1858,7 @@ kernel operations**, and the kernel-op list in
 `occt_mesh_face_ids` needs no probe of its own — it runs inside `mesh()`,
 already split into `meshCreate` and `meshCopyOut`.
 
-### 14.2 Newly measured
+### 14.3 Newly measured
 
 | Path | Feature it serves | Scenario | Axis |
 | --- | --- | --- | --- |
@@ -1860,7 +1879,7 @@ that **the depth cap does not bind at the tolerances the app uses**. Had it
 bound, the sweep would have been measuring the cap rather than the tolerance,
 and the numbers would have looked flat and reassuring for the wrong reason.
 
-### 14.3 Present in the app, not yet measured
+### 14.4 Present in the app, not yet measured
 
 Stated so the gap is visible rather than implied:
 
@@ -1875,7 +1894,7 @@ Stated so the gap is visible rather than implied:
 | **Section outline + hatch** (M222) | `_hatch`, mesh section edges | On the paint path, so it would show up in `2d.paint.z` if it were expensive — and `z` is 0.2 % (§5.1). Not urgent, but that is an inference, not a measurement. |
 | **STEP export** (M212) | `exportStepNamed` | FFI now measured. Wall time is dominated by disk I/O, which §8.3 deliberately excludes from sweeps. |
 
-### 14.4 What this means for the ranking
+### 14.5 What this means for the ranking
 
 Nothing in §4 moves. Everything above is either newly instrumented and awaiting
 a device run, or a feature whose kernel cost is already characterised under a
