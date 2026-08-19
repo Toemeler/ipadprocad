@@ -2451,7 +2451,6 @@ class AppState extends ChangeNotifier {
             'loaded "$name": layers=${s.layers} '
                 'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
                 'eos=${s.eosAfter}');
-        analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
       // Undo baseline: the freshly created/loaded state is entry ZERO of the
@@ -2471,7 +2470,8 @@ class AppState extends ChangeNotifier {
   /// would lock the wrong points. Recompute whenever the current sketch changes.
   void _reanalyze() {
     final s = current;
-    analysis = s == null ? null : analyzeSketch(s.geometry, s.constraints);
+    analysis =
+        s == null ? null : _analysisCache.of(s.geometry, s.constraints);
   }
 
   // ==== UNDO / REDO (M39): restore side ==================================
@@ -3160,6 +3160,12 @@ class AppState extends ChangeNotifier {
   bool showDof =
       false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
   SketchAnalysis? analysis; // DOF + which points may still move
+  /// Memo for [analysis]. The DOF analysis runs on every rebuild, every solve
+  /// and every tab switch (PERFORMANCE_PROFILE 5.5.3) on a quantity that only
+  /// changes when the geometry or the constraints do; this reuses the answer
+  /// when they have not. It cannot hit during a drag — see
+  /// [SketchAnalysisCache].
+  final _analysisCache = SketchAnalysisCache();
   String? message; // transient notice (over-constrained warnings)
 
   void toggleShowDof() {
@@ -8916,7 +8922,7 @@ class AppState extends ChangeNotifier {
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
-    analysis = analyzeSketch(s.geometry, s.constraints);
+    analysis = _analysisCache.of(s.geometry, s.constraints);
     // UNDO JOURNAL (M39): every committed mutation funnels through this
     // rebuild (the C-API is add-only), so this one call records the whole
     // app's edits — draw, drag, trim, fillet, patterns, dimensions,

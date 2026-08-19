@@ -939,6 +939,363 @@ right denominator:
 
 Agreement to 4e−6 and 2e−7. The arithmetic is sound.
 
+---
+
+## S3-1 — the gate will report counter and gauge changes from S3, and two of them are the win
+
+**Raised by:** Session 3 (2D solver).
+**Files:** none of anyone's — this is a note for whoever runs §8 step 3.
+**Blocked:** no.
+
+`ci/perf_gate.py` keys on counters and gauges before durations (§1.1's evidence
+order). Session 3's change will move three things in that output, and all three
+are expected:
+
+1. **Two counters that did not exist before:** `analyze.cache.hit` and
+   `analyze.cache.miss`, from the memo in front of the DOF analysis. On the
+   suite they should read **hit = 0** and miss = one per app-level analysis.
+   The stress and ramp tiers call `analyzeSketch` directly, not through the
+   memo, so their ladders are unaffected and remain comparable to the
+   baseline.
+
+2. **A NON-ZERO `analyze.cache.hit` during `ui.drag60` is a defect, not a
+   win.** It would mean the cache key failed to notice geometry that moved,
+   i.e. the memo is unsound and must come out. This is registered as
+   prediction P4 in `S3-solver.md` and is asserted by
+   `test/m232_analyze_cache_test.dart`; if the device run contradicts the
+   test, believe the device.
+
+3. **`sketch.analyze` span count drops by one on the sketch-open path.**
+   `openSketch` carried a dead `analysis = analyzeSketch(...)` whose value
+   `_reanalyze()` overwrote unconditionally four lines later. It is deleted,
+   not cached, so that one span disappears rather than becoming a hit.
+
+## S3-2 — §5.5.2's operation count is wrong by 69x and needs correcting when the findings are folded in
+
+**Raised by:** Session 3 (2D solver).
+**Files:** `PERFORMANCE_PROFILE.md` §5.5.2 — nobody's to edit before §8 step 5.
+**Blocked:** no. Recorded here so it is not lost between the findings file and
+the fold-in.
+
+§5.5.2 derives the RREF cost as `m · total · rank` = 2.35 × 10¹⁰ operations at
+1024 entities and reads an implied Dart throughput of 2.66 × 10⁹ op/s out of
+it. The bound assumes a dense matrix, but `_rankAndPivots` has always carried
+`if (f == 0) continue;` and therefore skips every row that is exactly zero in
+the pivot column — which, on a Jacobian with two nonzeros per row, is nearly
+all of them. **Counted: 3.40 × 10⁸ executed multiply-adds, not 2.35 × 10¹⁰.**
+The implied throughput is 3.85 × 10⁷ op/s.
+
+The exponent and the attribution both survive — the counted operations fit
+k = 2.933 against the device's measured 3.198 [2.835, 3.561] — so §5.5.1,
+§5.5.3, the §4 ranking and the verdict all stand unchanged. It is one
+paragraph of arithmetic inside §5.5.2 that needs replacing, and the derivation
+is in `S3-solver.md` §0.2.
+
+Same caution generally: a theoretical `O(...)` bound quoted as an operation
+count overstates any loop in this codebase that skips zeros, and several do.
+
+---
+
+## S3-3 — `frontend/pubspec.lock` has been re-resolved against a PRE-RELEASE Dart SDK, and CI builds on stable
+
+**Raised by:** Session 3 (2D solver), from a routine pull to see what the other
+sessions had done.
+**Files:** `frontend/pubspec.lock` — nobody's. Not in any session's ownership
+table, and shared by all five.
+**Blocked:** no. Session 3 is unaffected and has **not** touched the file
+(`git diff d87ac11 HEAD -- frontend/pubspec.lock` is empty). Not fixed here,
+per §7.
+
+**What happened.** Commit `2a92824` on
+`claude/optimization-plan-session-5-kb2gvz` — whose own message is
+"Vorhersagen registriert, bevor eine Zeile Code faellt", i.e. a
+pre-registration commit that changed no application code — also carries a
+rewritten `frontend/pubspec.lock`. This is the signature of a `flutter pub get`
+run with a different SDK than the one the lockfile was generated with, swept
+into the commit unnoticed. It is the same accident class as the
+`.flutter-plugins-dependencies` churn that `M221c` already had to clean up
+once.
+
+**Why it is worth more than a shrug.** The `sdks:` stamp moved:
+
+```
+-  dart: ">=3.8.0 <4.0.0"
++  dart: ">=3.11.0-0 <4.0.0"
+```
+
+The `-0` suffix is a **pre-release** constraint: the resolution was performed
+by a beta/master Dart, not by stable. `.github/workflows/m1-core-build.yml`
+installs Flutter with `channel: stable`. A lockfile that demands a
+pre-release Dart is at best re-resolved by CI (making the committed file
+decorative) and at worst rejected outright by any step that enforces it.
+
+Nine transitive packages moved with it, several of them SDK-pinned:
+
+| package | from | to |
+| --- | --- | --- |
+| `leak_tracker` | 10.0.9 | 11.0.2 |
+| `material_color_utilities` | 0.11.1 | 0.13.0 |
+| `meta` | 1.16.0 | 1.19.0 |
+| `vector_math` | 2.1.4 | 2.4.2 |
+| `test_api` | 0.7.4 | 0.7.12 |
+| `matcher` | 0.12.17 | 0.12.20 |
+| `characters`, `clock`, `fake_async` | (patch bumps) | |
+
+**Two consequences worth stating separately.**
+
+1. **For the merge:** if this lands on `claude/perf-opt`, every session's
+   toolchain changes, and the change was not anyone's to make. The standing
+   rule of this branch is that behaviour does not change, only cost does — a
+   dependency bump is a behaviour change with no cost argument behind it.
+2. **For the evidence:** it means S5's host test runs were made on a different
+   SDK than the one that produced the CI baseline. That does not invalidate
+   S5's *operation-count* reasoning (counts do not depend on the SDK), but any
+   host timing ratio quoted from that run is measured against a different
+   runtime than everyone else's.
+
+**Suggested remedy, for S5 or for integration — not applied here:** revert
+`frontend/pubspec.lock` to its state at `d87ac11`
+(`git checkout d87ac11 -- frontend/pubspec.lock`) and keep the rest of the
+commit. If the newer SDK is actually wanted, that is a decision for the
+integration step with CI's `channel: stable` in view, not a side effect of a
+pre-registration commit.
+
+**Also for whoever integrates:** S5 and S3 have both named their new tests
+`m232_*`. They do not collide as filenames (`m232_analyze_pin_test.dart`,
+`m232_analyze_cache_test.dart` from S3; `m232_blend_occurrence_test.dart`,
+`m232_provenance_index_test.dart` from S5), but the milestone number is now
+shared by two unrelated pieces of work and will need one of them renumbered
+when this is written up.
+
+---
+
+## S3-4 — operation counts predict EXPONENTS well and WALL-CLOCK RATIOS badly; I got this wrong by 2x and it is worth the other sessions knowing
+
+**Raised by:** Session 3 (2D solver).
+**Files:** none. A note on method, for §8 step 4 and for anyone still
+predicting.
+**Blocked:** no.
+
+Every session here works without a device, and the technique this branch has
+converged on — S3 §0, S2's findings, S1's whole reason for existing — is to
+reason from **counted operations**, which are exact, device-independent and
+noise-free. That technique is sound. But S3 has now run it twice with a
+measurement on the other side, and the two halves came out very differently:
+
+| | predicted from counts | measured | |
+| --- | --- | --- | --- |
+| exponent of `stress.analyze` | 2.0 ± 0.35 | **1.966** | right |
+| `JᵀJ` multiply-adds after the fix | 1 860 ± 150 | **1 810** | right, exactly |
+| wall-clock ratio of the LM fix | 4.6× | **2.33×** | **wrong by 2×** |
+
+The wall prediction failed for a reason that generalises. `JᵀJ` was **97.8 %
+of the counted multiply-adds** but only about **57 % of the wall time**,
+because the work left standing — `sqrt`/`atan2` inside residual evaluation,
+allocation, zeroing — costs far more per "operation" than the multiply-adds
+that were removed. I inferred the time share from the arithmetic share, and
+those are not the same quantity.
+
+**The rule I would offer the other four:**
+
+* Counts are the right instrument for **exponents, mechanisms and
+  ratios-of-counts**. Register those freely; they have been exact here.
+* A **wall-clock ratio** predicted from a count needs the cost per operation
+  of *both* the removed work and the surviving work. If you do not have both,
+  say the prediction is a bound rather than an estimate, or widen the interval
+  until it is honest. Mine held only because the interval was wide; the point
+  estimate did not.
+* This bears directly on **§8 step 4**, the adjudication. A session whose
+  count-based prediction lands and whose time-based prediction misses has not
+  necessarily made an error of mechanism — check which kind of prediction it
+  was before recording it as refuted.
+
+S2's `edge_info` work and S1's Lane C are both in the same position: the
+exponent claims should transfer; any millisecond ratio derived from a count
+should be read as provisional until the device says otherwise.
+
+---
+
+## S3-5 — to the INTEGRATOR: S3 arrives late, sits in the first branch of your rule, and brings clause (c) proven anyway
+
+**Raised by:** Session 3 (2D solver).
+**Files:** `solver.dart` and the three `analyzeSketch` call sites in
+`app_state.dart` — S3's own. Nothing of anyone else's.
+**Blocked:** no.
+
+**Why this is late.** The work was finished and green on
+`claude/optimization-plan-session-3-gc4s8m` and never merged up, so from this
+branch S3 looked like it had delivered nothing — and `solver.dart` on
+`claude/perf-opt` was still the dense implementation, with finding #1, the
+largest cost in the application, untouched. It is now on
+`claude/perf-opt-solver`, branched from `2921d3f` with S1, S2, S4 and S5 in it.
+The merge was clean everywhere except this file, where it was append-vs-append
+and both sides are kept.
+
+**Your rule, applied.** S3 **does not alter a numerical result**, so it lands
+in "bit-identical wherever the prior behaviour was well-defined" and never
+reaches (a), (b) or (c). The elimination performs exactly the operations the
+dense form performed on nonzeros, in the same order, with the same pivots, and
+skips only additions of exact zero — the identity in IEEE 754, both signed
+zeros included.
+
+Evidence, all recorded against `solver.dart` **as it stands on this branch**:
+
+| pin | scope | result |
+| --- | --- | --- |
+| `m232_analyze_pin_test` | dof, movable set, carrier colouring; 35 cases | identical |
+| `m232_lm_pin_test` | full solved parameter vector, digit for digit, all three LM paths | identical |
+| `m232_no_accumulation_test` | 100 drag+analyse cycles: geometry, analysis **and** residual | identical |
+
+No tolerances in any of them.
+
+**I wrote the (c) test even though it is redundant**, because determinism makes
+it a proof rather than a test and you asked for tests. It is the shape you
+specified for S4 — N successive drags, comparing final committed geometry and
+final residual — and it pins N = 10, 50 and 100 so a *growing* gap fails at the
+longest first. Clause (a) comes out in its strongest form: the residual is not
+"no worse", it is the same number, `3.070905054045597e-10`.
+
+**The one caveat**, since it is the load-bearing part: the argument is about
+exact zeros, not small ones. If anyone later makes the sparse path skip
+operations whose result is merely *near* zero, every clause comes back into
+force and none of these pins would still mean what they mean now.
+
+## S3-6 — S3-3 is no longer a prediction: a stable-channel `pub get` silently reverses the lockfile, and I reproduced it on this branch
+
+**Raised by:** Session 3.
+**Files:** `frontend/pubspec.lock` — nobody's, and still carrying the
+pre-release stamp on `claude/perf-opt` today.
+**Blocked:** no. Not fixed here, per §7 — but this is now a demonstration
+rather than the inference S3-3 recorded.
+
+S3-3 flagged that `pubspec.lock` had been re-resolved against a **pre-release**
+Dart (`dart: ">=3.11.0-0 <4.0.0"`) while CI installs Flutter with
+`channel: stable`. That entry reasoned about the consequence. I have now hit it:
+
+Running `flutter pub get` on this branch with **Flutter 3.32.0 / Dart 3.8**
+reports `Changed 9 dependencies!` and rewrites the file back down — every one
+of the nine bumps reversed and the SDK stamp with it:
+
+```
+  dart: ">=3.11.0-0 <4.0.0"   ->   dart: ">=3.8.0 <4.0.0"
+  leak_tracker 11.0.2 -> 10.0.9      material_color_utilities 0.13.0 -> 0.11.1
+  meta 1.19.0 -> 1.16.0              vector_math 2.4.2 -> 2.1.4
+  test_api 0.7.12 -> 0.7.4           matcher 0.12.20 -> 0.12.17
+  characters, clock, fake_async      (patch bumps, all reversed)
+```
+
+So the committed lockfile does not survive contact with the toolchain CI uses:
+any stable-channel run silently resolves a **different dependency set** from
+the one in the file, and the file is decorative rather than authoritative.
+
+I reverted my re-resolution rather than committing it — churning a file I do
+not own is exactly what §7 tells me not to do, and it would fight whoever
+committed the current one. **Every S3 test figure quoted on this branch was
+produced on the stable resolution**, which is what CI would also produce; I am
+flagging that rather than leaving it to be discovered.
+
+The remedy is unchanged from S3-3 and is one line, for you rather than for me:
+`git checkout <pre-S5> -- frontend/pubspec.lock`. If the newer SDK is genuinely
+wanted, that is a decision to take deliberately with `channel: stable` in view,
+before the device capture rather than after.
+
+---
+
+## 2026-08-19 — S2 — to S5: the follow-up you flagged is already done, so don't spend a change on it
+
+**Re:** "S2's bulk entry point is the fix for this path too, and it is worth
+`applyBlendOccurrence` adopting it as soon as it lands … adopting the bulk API
+there is a small follow-up against a stable call site."
+
+**There is nothing to adopt.** `OcctPartKernel.edgesOf` is
+`shape.allEdges()` — verified on `claude/perf-opt` at `part_model.dart:6592`,
+after your merge — and `allEdges()` is exactly what shim v21 rewired. It now
+makes **one** `occt_shape_edges_info` call per enumeration instead of one
+`occt_shape_edge_info` per edge. Every caller of `edgesOf` inherited that
+without a line changing in `part_model.dart`, `applyBlendOccurrence` included.
+
+So the composition you describe already holds on the integration branch: your
+factor of *N* is untouched (correctly — your §3 shows it must be), and each of
+those *N* enumerations now goes through the bulk path. No follow-up, no second
+call site, nothing for S5 to change. **Please don't add an adoption commit** —
+it would be a no-op that reads like a real change in the history.
+
+**One consequence worth pre-registering on your side**, because it is your
+scenario and your findings file that should carry it: `app.blendPattern.edgeQuery`
+is 97.6 % edge enumeration by your own measurement, so if S2's P1 holds it is
+the app-level span that should move furthest of anything in this branch. Its
+baseline is 285.98 / 571.68 / 1142.49 ms at 2 / 4 / 8 occurrences, k = 0.999,
+142.9 ms per occurrence. The per-occurrence term is one `allEdges()` on a body
+whose edge count the gauge `app.blendPattern.edgesFound` does not give (it
+counts *filletable* edges, 180, not total), so S2 has not predicted a number
+for it — the exponent should stay at 0.999 either way, because your *N* is
+still *N*. **If k moves here, something other than enumeration changed, and it
+is worth chasing.**
+
+**Re your second note** (collapsing *N* fillets into one `filletEdges`): S2
+agrees it is a behaviour change and out of scope, and adds one datum from the
+shim side. `occt_fillet_edges_ex` performs six whole-shape operations per call,
+none of them per-edge (`S2-shim.md` §5.1), which is *why* §10.2 measures
+k = 0.00 — so your arithmetic for the blend term collapsing is right for the
+right reason. But three of those six are the catastrophe guard, and one thing
+your proposal would lose is not just per-occurrence failure attribution: it is
+per-occurrence *salvage*. `blend_edges_subset` probes each edge alone and
+rebuilds the survivors when a set fails together, so N sequential fillets that
+each succeed can become one combined fillet that sheds edges. That is a
+behaviour difference visible in the resulting solid, not only in the error
+reporting, and it strengthens your case for leaving it alone.
+
+---
+
+## 2026-08-19 — S2 — correcting what I told S5 about the blend term, and what it changes for me
+
+**Corrects:** my own entry "to S5: the follow-up you flagged is already done"
+(same date, above), whose last paragraph told S5 that "your arithmetic for the
+blend term collapsing is right for the right reason". **It was not, and I
+should have checked before endorsing it.** Appending rather than editing, per
+the append-only rule — the wrong endorsement stays visible with this beside it.
+
+S5's own correction above gets there first and independently. Confirming it
+from `perf/baseline.json` at scenario scope, because two sessions agreeing is
+worth less than either of them agreeing with the data:
+
+| scenario | `ffi.occt.allEdges` | `ffi.occt.filletEdges` |
+| --- | ---: | ---: |
+| `kernel.fillet.edges.1` | 25.593 ms | 5.201 ms |
+| `kernel.fillet.edges.4` | 25.562 ms | 10.675 ms |
+| `kernel.fillet.edges.12` | 25.580 ms | 24.110 ms |
+
+The published family value of 25.54 / 25.57 / 25.83 ms is the **`allEdges`
+column**. The blend fits **k = 0.617** over that range — S1 read 0.62 off the
+device runs and Lane C measured 0.640, so three routes agree. §6.3 says it in
+words too: "the wall time does not move because candidate search dominates it."
+
+**What I got wrong, and it is worse than the endorsement.** My `S2-shim.md`
+§5.1 spent a whole subsection deriving why `occt_fillet_edges_ex` is flat, from
+six whole-shape operations in the shim, and declared the question closed. The
+blend is not flat. I read the plan's one-line framing of §6.3 instead of §6.3,
+and went looking for a fixed cost inside the blend when it was sitting one line
+above it in the Dart scenario. §5.1 is rewritten and says so at its head.
+
+**What it changes for S2, and it is not nothing.** §6.3's headline —
+"candidate search = 4.9× the rounding at one edge" — is a statement about
+`allEdges`. So **this session's change is already the fix for §6.3**, and the
+subsection I wrote saying "diagnosed, not changed" was describing a problem
+that my own diff had removed. Registered as `S2-shim.md` P6: the
+`kernel.fillet.edges` family should stop being flat and start reporting the
+blend, k 0.00 → 0.617 [0.55, 0.70], values 25.5 flat → ~5.2 / 10.7 / 24.1 ms.
+An exponent that stays at 0.00 refutes P1 and P5 together, since it would mean
+the enumeration still costs more than 24 ms on a 72-edge solid.
+
+**To S5, on the proposal specifically:** with the blend at k = 0.617 your
+revised saving of `N^0.38` (2.3× at N = 8) is the right shape, and I withdraw
+the endorsement of the flat-blend version. The shim-side reason not to do it
+that I offered still stands and is independent of the exponent:
+`blend_edges_subset` probes each edge alone and rebuilds the survivors when a
+set fails together, so *N* fillets that each succeed can become one combined
+fillet that sheds edges. That is a difference in the resulting solid, not only
+in the error message.
+
 ## S4-3 — (c) fails, and the shipped application fails it the same way
 
 **Raised by:** Session 4 (painter).
