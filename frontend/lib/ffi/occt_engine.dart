@@ -79,6 +79,12 @@ typedef _EdgeCountN = Int32 Function(Pointer<Void>);
 typedef _EdgeCountD = int Function(Pointer<Void>);
 typedef _EdgeInfoN = Int32 Function(Pointer<Void>, Int32, Pointer<Double>);
 typedef _EdgeInfoD = int Function(Pointer<Void>, int, Pointer<Double>);
+// v21 — occt_shape_edges_info: every edge's twelve doubles in ONE call, and
+// therefore ONE whole-shape traversal in the shim instead of one per edge.
+// Returns the number of records written, or -1; the third argument is the
+// buffer's capacity IN RECORDS, not in doubles.
+typedef _EdgesInfoN = Int32 Function(Pointer<Void>, Pointer<Double>, Int32);
+typedef _EdgesInfoD = int Function(Pointer<Void>, Pointer<Double>, int);
 // v16 — occt_fillet_edges / occt_chamfer_edges still exist in the shim and
 // still carry every guarantee, but Dart binds the _ex forms exclusively: they
 // are the same call and they also say which edges were skipped and what size
@@ -229,6 +235,40 @@ class OcctEdgeInfo {
   const OcctEdgeInfo(this.index, this.kind, this.mx, this.my, this.mz, this.tx,
       this.ty, this.tz, this.length, this.radius, this.faceCount,
       [this.dihedralDeg = 0, this.convexity = 0]);
+
+  /// Decode one twelve-double record of the shim's edge layout.
+  ///
+  /// The single-edge (`occt_shape_edge_info`) and bulk
+  /// (`occt_shape_edges_info`) entry points write the SAME twelve fields in
+  /// the same order — the shim computes them with literally the same code —
+  /// so exactly one decoder serves both. [rec] is the whole buffer and [at]
+  /// the record's first index in it, so the bulk path decodes straight out of
+  /// a Float64List view with no copy and no per-record allocation.
+  ///
+  /// Null means "this edge could not be read": the bulk path marks such a
+  /// record with a negative type, which is outside the documented 0..4 range
+  /// and is how it reports a per-edge failure without abandoning the rest of
+  /// the enumeration. A caller drops it, which is precisely what a loop over
+  /// the single-edge call did with a null return. Type 0 is NOT that case —
+  /// it is a degenerate edge, a legitimate record, and it is kept.
+  static OcctEdgeInfo? decodeRecord(int index, List<double> rec, [int at = 0]) {
+    if (at < 0 || at + 12 > rec.length) return null;
+    if (rec[at] < 0) return null;
+    return OcctEdgeInfo(
+        index,
+        rec[at].round(),
+        rec[at + 1],
+        rec[at + 2],
+        rec[at + 3],
+        rec[at + 4],
+        rec[at + 5],
+        rec[at + 6],
+        rec[at + 7],
+        rec[at + 8],
+        rec[at + 9].round(),
+        rec[at + 10],
+        rec[at + 11].round());
+  }
 
   /// An edge a fillet or chamfer can actually be applied to.
   bool get filletable => kind != 0 && length > 0 && faceCount == 2;
@@ -428,37 +468,67 @@ class OcctShape {
   int get edgeCount => _ffi._shapeEdgeCount(_handle);
 
   /// v12 — identity record of 1-based topological edge [index], or null.
+  ///
+  /// This is the SINGLE-edge door and it stays exactly as expensive as it has
+  /// always been: the shim rebuilds its whole-shape context per call. Do not
+  /// call it in a loop — that loop is the Θ(n²) that
+  /// `PERFORMANCE_PROFILE.md` §6.5 measures at ten seconds for one solid. Use
+  /// [allEdges].
   OcctEdgeInfo? edgeInfo(int index) {
     // 12 doubles since v13; the last two are the dihedral and the convexity.
     final buf = calloc<Double>(12);
     try {
+      ffiCount('ffi.occt.edgeInfo.calls', 1);
       if (_ffi._shapeEdgeInfo(_handle, index, buf) != 1) return null;
-      return OcctEdgeInfo(index, buf[0].round(), buf[1], buf[2], buf[3], buf[4],
-          buf[5], buf[6], buf[7], buf[8], buf[9].round(), buf[10],
-          buf[11].round());
+      return OcctEdgeInfo.decodeRecord(index, buf.asTypedList(12));
     } finally {
       calloc.free(buf);
     }
   }
 
-  /// v12 — every topological edge in one pass (one call per edge underneath,
-  /// but a single allocation). Degenerate edges come back with kind 0.
+  /// v21 — every topological edge, in ONE shim call and ONE traversal of the
+  /// shape. Degenerate edges come back with kind 0; an edge the kernel cannot
+  /// read is dropped, exactly as it was when this was a Dart-side loop.
   ///
-  /// MEASURE THIS ONE. The doc comment says "one call per edge underneath",
-  /// and each of those calls is a separate FFI crossing plus its own
-  /// calloc/free of 12 doubles. A gear face carries ~440 edges (M76/M77), so
-  /// one innocuous-looking `allEdges()` is ~440 round trips and ~440
-  /// allocation pairs. Whether that matters is exactly what the span answers.
+  /// It used to be that loop — one `occt_shape_edge_info` per edge, each a
+  /// separate FFI crossing with its own calloc/free — and the measurement said
+  /// the crossings were never the problem. Each of those calls rebuilt the
+  /// shape's edge map, its edge→face ancestor map, its bounding box and a
+  /// solid classifier, and threw all four away: n calls × Θ(n) work.
+  /// `PERFORMANCE_PROFILE.md` §6.5 measures the composite at **k = 2.012**
+  /// [1.910, 2.113], R² = 1.0000, against a control doing strictly more work
+  /// at k = 1.063 — 200.3× at 1440 edges, 10 017 ms for one enumeration, and
+  /// an extrapolated 56.4 s on the part that failed in the field.
+  ///
+  /// The fix is in the shim, where the quadratic is; see
+  /// `occt_shape_edges_info`. What is left here is one crossing and one
+  /// buffer, decoded through the same [OcctEdgeInfo.decodeRecord] the
+  /// single-edge path uses.
+  ///
+  /// TWO COUNTERS, deliberately. `ffi.occt.edgesInfo.calls` counts crossings
+  /// and `ffi.occt.edgesInfo.edges` counts edges enumerated, because the
+  /// regression gate keys on counters (§15.4) and collapsing n crossings into
+  /// one must not also make the amount of WORK invisible. Their sum with
+  /// `ffi.occt.edgeInfo.calls` is what the old counter recorded alone.
   List<OcctEdgeInfo> allEdges() => ffiSpan('ffi.occt.allEdges', () {
         final n = edgeCount;
         if (n <= 0) return const <OcctEdgeInfo>[];
-        ffiCount('ffi.occt.edgeInfo.calls', n);
-        final out = <OcctEdgeInfo>[];
-        for (var i = 1; i <= n; i++) {
-          final e = edgeInfo(i);
-          if (e != null) out.add(e);
+        ffiCount('ffi.occt.edgesInfo.calls', 1);
+        ffiCount('ffi.occt.edgesInfo.edges', n);
+        final buf = calloc<Double>(12 * n);
+        try {
+          final got = _ffi._shapeEdgesInfo(_handle, buf, n);
+          if (got <= 0) return const <OcctEdgeInfo>[];
+          final rec = buf.asTypedList(12 * got);
+          final out = <OcctEdgeInfo>[];
+          for (var i = 0; i < got; i++) {
+            final e = OcctEdgeInfo.decodeRecord(i + 1, rec, 12 * i);
+            if (e != null) out.add(e);
+          }
+          return out;
+        } finally {
+          calloc.free(buf);
         }
-        return out;
       });
 
   /// v12 — constant-radius edge fillet. [edgeIds] are 1-based TOPOLOGICAL
@@ -824,7 +894,8 @@ class OcctFfi {
       this._meshFaceIds,
       this._deleteFaces,
       this._moveFaces,
-      this._scaleShape);
+      this._scaleShape,
+      this._shapeEdgesInfo);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -851,6 +922,7 @@ class OcctFfi {
   final _FaceOpD _deleteFaces; // v20
   final _MoveFacesD _moveFaces; // v20
   final _ScaleD _scaleShape; // v20
+  final _EdgesInfoD _shapeEdgesInfo; // v21 (bulk edge enumeration)
   final _ImportD _importStep;
   final _SplitD _splitSolids;
   final _FreeD _free;
@@ -971,6 +1043,10 @@ class OcctFfi {
         lib.lookupFunction<_FaceOpN, _FaceOpD>('occt_delete_faces'),
         lib.lookupFunction<_MoveFacesN, _MoveFacesD>('occt_move_faces'),
         lib.lookupFunction<_ScaleN, _ScaleD>('occt_scale_shape'),
+        // v21 — the bulk edge enumeration. Eager, like everything else: a v20
+        // binary probes to null, i.e. "no 3D kernel", which is the documented
+        // policy above.
+        lib.lookupFunction<_EdgesInfoN, _EdgesInfoD>('occt_shape_edges_info'),
       );
     } catch (_) {
       _cached = null;
