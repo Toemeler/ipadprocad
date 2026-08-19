@@ -508,8 +508,11 @@ class OcctShape {
   /// TWO COUNTERS, deliberately. `ffi.occt.edgesInfo.calls` counts crossings
   /// and `ffi.occt.edgesInfo.edges` counts edges enumerated, because the
   /// regression gate keys on counters (§15.4) and collapsing n crossings into
-  /// one must not also make the amount of WORK invisible. Their sum with
-  /// `ffi.occt.edgeInfo.calls` is what the old counter recorded alone.
+  /// one must not also make the amount of WORK invisible. `edgesInfo.edges`
+  /// is the quantity the retired `ffi.occt.edgeInfo.calls` was really
+  /// recording — it was emitted only from here, once per call with by = n, so
+  /// it counted edges and never counted a single-edge call at all. That name
+  /// now counts what it says.
   List<OcctEdgeInfo> allEdges() => ffiSpan('ffi.occt.allEdges', () {
         final n = edgeCount;
         if (n <= 0) return const <OcctEdgeInfo>[];

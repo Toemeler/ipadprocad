@@ -1877,10 +1877,15 @@ int main(void)
         check((kinds_seen & (1 << 1)) != 0, "[35] no straight edge seen");
         check((kinds_seen & (1 << 2)) != 0, "[35] no circular edge seen");
 
-        /* Refusals: never a partial fill, never a crash. */
+        /* Refusals: never a partial fill, never a crash.
+         *
+         * The buffer is big enough for the WHOLE box even though cap says 1.
+         * If the refusal were broken this test must fail an assertion, not
+         * smash the stack — a crash here would be blamed on OCCT and the real
+         * fault would never be read out of the log. */
         if (k35[0] != NULL) {
-            double small[12];
-            check(occt_shape_edges_info(k35[0], small, 1) == -1,
+            double room[12 * 12];
+            check(occt_shape_edges_info(k35[0], room, 1) == -1,
                   "[35] an undersized buffer was not refused");
             check(occt_shape_edges_info(k35[0], NULL, 12) == -1,
                   "[35] a null buffer was not refused");

@@ -496,7 +496,7 @@ Nothing else. In particular: no file belonging to another session, no
 
 | Gate | Result |
 | --- | --- |
-| `flutter test` | **2050 passing**, including the 6 new ones |
+| `flutter test` | **2056 passing**, including the 6 new ones (2050 before them) |
 | `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | **0 errors**; 55 infos/warnings, all pre-existing and none in a file this session touched |
 | `python3 -m unittest discover -s ci -p 'test_*.py'` | **45 passing** |
 | C++ shim | **not compilable here** — see below |
