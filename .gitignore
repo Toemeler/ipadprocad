@@ -12,3 +12,11 @@ plugins/
 # Python bytecode from the ci/ tooling (M221 — committed by accident once)
 __pycache__/
 *.pyc
+
+# Lane C — local OCCT install/build trees and benchmark output
+backend/occt/install-host/
+backend/occt/build-occt-host/
+backend/occt/build*/
+build-bench/
+build-backend/
+bench-out/
