@@ -483,10 +483,45 @@ building it:
   device's 10.1; its `allEdges` at 1440 edges is 38.8 s against the device's
   10.0 s. These say nothing except that the two machines differ, which §13.3
   already said.
-- **Whether the exponents hold on arm64.** The macOS job exists for exactly
-  this and had not finished a cold OCCT build when this was written. The
-  exponents are scaling laws and should not care; that is a prediction, not a
-  result.
+- ~~**Whether the exponents hold on arm64.**~~ **Settled — see §3.8.**
 - **Any claim that an optimisation works.** Nothing has been optimised. That is
   Sessions 2–5's work, and this is the instrument they may now use between
   device captures.
+
+
+## 4. arm64 — the ISA the plan actually asked for
+
+§15.5 named a mac runner for one reason: the same ISA family as the iPad chip.
+The macOS job finished its cold OCCT build in CI run 32236240201 and published
+to `ci-logs-bench/macos/`. **It lands closer to the device than the x86_64 job
+does:**
+
+| op | device | Lane C arm64 | Lane C x86_64 |
+| --- | ---: | ---: | ---: |
+| `edgeInfo1` | 0.99 [0.970, 1.010] | **0.989** [0.889, 1.090] | 1.053 [0.996, 1.110] |
+| `allEdges` | 2.012 [1.910, 2.113] | **1.975** [1.930, 2.021] | 2.057 [1.999, 2.115] |
+| `buildOnly` | 1.063 [0.959, 1.167] | 0.982 [0.906, 1.058] | 0.978 [0.948, 1.007] |
+| **P2b** composition | — | **0.986** | 1.004 |
+
+`edgeInfo1` on arm64 reproduces the device's per-call exponent **to 0.001**.
+Both jobs are `HARNESS: VALIDATED`; the arm64 one is the number to quote.
+
+**This also resolves something the x86_64 run left open.** Its `edgeInfo1` sat
+at 1.05 with a tight interval — inside the device's when the interval was wide
+and only barely overlapping when it narrowed. That looked like it might be a
+defect in the harness. It is not: on arm64 the same code, the same fixture and
+the same fit give 0.989. The 1.05 is an x86_64 property, and the honest reading
+is that the *x86_64 job's* `edgeInfo1` exponent runs a few percent hot and
+should not be the one anyone quotes. It still gates, because a harness whose
+gate only bites where it is comfortable is not a gate — but the arm64 figure is
+the one that answers "does Lane C reproduce §6.5".
+
+**The allocation counters agree across the two platforms to the digit** — 14 152
+/ 27 714 / 54 838 / 109 092 allocations per `edgeInfo1` call, and 2 837 909 /
+11 116 356 / 44 080 127 for `allEdges`, identical on Linux under `ld --wrap` and
+on Darwin under the zone interposition. Two different interposition mechanisms,
+two different libc++/libstdc++, one number. That is the strongest available
+evidence that the counter measures the program rather than the machine, and it
+was not designed as a test — it fell out of running the same binary logic twice.
+Byte totals differ by 5–7 % between platforms, which is allocator granularity
+and is what should differ.
