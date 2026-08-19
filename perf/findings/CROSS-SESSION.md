@@ -611,6 +611,63 @@ so it is a fixed cost per fillet *feature*, not per edge — which is the same
 shape as the candidate search (S1-4) and pushes in the same direction: the price
 of a fillet is dominated by what happens around the blend, not by the blend.
 
+## 2026-08-19 — S5 — correcting my own proposal above: the blend term does NOT collapse, and the "≈ 168 ms" was unsound
+
+**Corrects:** my entry "a proposal that needs a device or Lane C to adjudicate"
+(same date, above). Appending rather than editing, per the append-only rule —
+the wrong number stays visible with this beside it.
+
+**What I got wrong.** I wrote that folding a patterned blend's *N*
+single-occurrence fillets into one call would collapse the blend term too,
+"per §10.2 `kernel.fillet.edges` is flat at k = 0.00 (25.5 ms for 1 edge or
+12)", and quoted a total of 1 170.65 ms → ≈ 168 ms.
+
+Session 1's entry above (S1-4, "the flat 25.5 ms fillet is the candidate
+search, not the blend") settles that the flat 25.5 ms is the
+`ffi.occt.allEdges` column — the Dart scenario's own candidate search, in
+`perf_scenarios.dart`'s `kernel.fillet` — and that `filletEdges` itself is
+**per-edge**: 10.1 / 20.8 / 46.7 ms at 1 / 4 / 12 edges, k = 0.62, reproduced
+across two device runs and independently by Lane C at k = 0.640. I confirmed
+the mechanism from the source before writing this: the shim's
+`occt_fillet_edges` does one `TopExp::MapShapes` for index validation, which is
+a single whole-shape edge map, **not** a per-edge `edge_info` loop. So a fillet
+does not hide a second Θ(n²) enumeration inside itself — I checked that
+specifically, and it does not.
+
+**Two errors, not one.**
+
+1. **The blend term does not collapse.** Folding *N* single-edge blends into
+   one *N*-edge blend turns `N · blend(1)` into `blend(N)` = `N^0.62 · blend(1)`
+   — a saving of `N^0.38`, which at N = 8 is **2.3×, not 8×**.
+2. **The total was assembled from three different fixtures.** 1 170.65 ms was
+   `app.blendPattern.edgeQuery.8` (1 142.49 ms, which measures *only* the
+   `edgesOf` calls) plus `app.patternRebuild.8` (28.16 ms, the boolean fold of a
+   different scenario), and I then subtracted a blend cost measured on §6.3's
+   ring(24, 40). §8.2 says so itself: "What is still not measured:
+   `applyBlendOccurrence` end to end." Mixing fixtures to make a headline number
+   is the error this branch keeps catching, and I made it.
+
+**What survives, stated only in terms it can be stated in.** The enumeration
+term still collapses by a clean factor of *N*, because that is a structural
+property of the loop and not a measured constant: on §8.2's 180-edge body,
+8 × 142.9 ms = **1 142.5 ms becomes 142.9 ms**. The blend term falls by ≈ 2.3×
+at N = 8 from a base that has never been measured on this fixture. **No single
+total should be quoted for the collapse until `applyBlendOccurrence` is measured
+end to end.**
+
+**And it is now more adjudicable than when I filed it.** `occt_bench` already
+reports `fillet.edges` (the blend alone) as its own operation, so the cost half
+of the proposal — does one *N*-edge fillet beat *N* one-edge fillets, and by
+how much — is a Lane C run, not a device run. The **identity** half is
+unchanged and still the reason not to do it: whether the resulting shape's face
+ids and edge indices match the sequential result, which feeds provenance and
+fingerprint reattachment. Session 2's identity pin (`S2-shim.md`) is the shape
+of test that would settle it.
+
+**Nothing in `part_model.dart` changes because of this.** The proposal was not
+implemented and still should not be. Only the arithmetic offered in support of
+it was wrong.
+
 ---
 
 ## 2026-08-19 — S2 — to S5: the follow-up you flagged is already done, so don't spend a change on it
