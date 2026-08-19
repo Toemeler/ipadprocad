@@ -1749,16 +1749,25 @@ int main(void)
      * exactly the kind of drift this test exists to catch, such as the ancestor
      * map handing back a different FIRST face and flipping a convexity sign.
      *
-     * Four fixtures, chosen to reach every branch of the per-edge code:
+     * Five fixtures, chosen to reach every branch of the per-edge code:
      *   box        12 straight edges, all exterior corners -> convexity +1
-     *   cylinder   circular edges and a seam -> the GeomAbs_Circle branch
+     *   cylinder   circular edges and a SEAM, which appears twice in its face
+     *              and is the case where "first occurrence wins" matters
      *   L-prism    a non-convex profile, so one INTERIOR corner -> the sign
      *              must come out -1 somewhere, or the test proves nothing
-     *   filleted   spline edges (the switch's default:) and the most edges
+     *   filleted   the blend faces, and the most edges of the four
+     *   24-gon     THE fixture the profile ladders over, in miniature: two end
+     *              faces bounded by 24 edges each and 24 side faces bounded by
+     *              four. It is the only one here with a face big enough for
+     *              the bulk path's face-edge orientation INDEX to differ in
+     *              cost from the per-edge path's linear SCAN — and since the
+     *              two paths must still agree bitwise, it is what pins the
+     *              index against the scan it replaces
      */
     {
-        occt_shape *k35[4] = {NULL, NULL, NULL, NULL};
-        const char *n35[4] = {"box", "cylinder", "L-prism", "filleted"};
+        occt_shape *k35[5] = {NULL, NULL, NULL, NULL, NULL};
+        const char *n35[5] = {"box", "cylinder", "L-prism", "filleted",
+                              "24-gon"};
         int concave_seen = 0, convex_seen = 0, kinds_seen = 0;
 
         k35[0] = occt_make_box(20.0, 20.0, 20.0);
@@ -1791,7 +1800,18 @@ int main(void)
             }
         }
 
-        for (int ci = 0; ci < 4; ++ci) {
+        {
+            /* A regular 24-gon of circumradius 40, extruded 10 mm. */
+            double poly[48];
+            for (int i = 0; i < 24; ++i) {
+                const double a = 2.0 * 3.14159265358979323846 * i / 24.0;
+                poly[2 * i] = 40.0 * cos(a);
+                poly[2 * i + 1] = 40.0 * sin(a);
+            }
+            k35[4] = occt_extrude_polygon(poly, 24, 10.0);
+        }
+
+        for (int ci = 0; ci < 5; ++ci) {
             occt_shape *s = k35[ci];
             char why[96];
             snprintf(why, sizeof(why), "[35] %s fixture is NULL",
@@ -1893,7 +1913,7 @@ int main(void)
         check(occt_shape_edges_info(NULL, NULL, 0) == -1,
               "[35] a null shape was not refused");
 
-        for (int ci = 0; ci < 4; ++ci)
+        for (int ci = 0; ci < 5; ++ci)
             occt_free_shape(k35[ci]);
     }
 
