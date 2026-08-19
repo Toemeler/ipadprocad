@@ -449,6 +449,41 @@ static void runLadder(const RunOpts &opts)
                   "per-edge enumeration — the quadratic");
         }
 
+        /*
+         * --- allEdgesBulk: the SAME enumeration through Session 2's single
+         * bulk call, on the SAME solid, in the same run.
+         *
+         * Requested as `CROSS-SESSION.md` S2-1, and it is the number that
+         * session cannot get any other way before the device run: two fitted
+         * exponents on identical solids is the isolation §6.5 evidence 4 built,
+         * and here it separates "the quadratic was the per-call whole-shape
+         * work" from "the quadratic was something else" with no iPad involved.
+         *
+         * Guarded on the shim version rather than at configure time, so a bench
+         * built against an older shim reports the op as absent instead of
+         * failing to link (S2-1 item 3).
+         */
+        if (occt_shim_version() >= 21) {
+            std::vector<double> buf(static_cast<size_t>(edges) * 12);
+            int got = 0;
+            stamp(measureOp(
+                      opts, "allEdgesBulk", "edges", edges, noop,
+                      [&]() {
+                          got = occt_shape_edges_info(s, buf.data(), edges);
+                      },
+                      noop, true),
+                  "the same enumeration through ONE occt_shape_edges_info call "
+                  "(shim v21+) — compare its exponent against allEdges");
+            if (got != edges)
+                std::printf("      WARNING: bulk call returned %d records for "
+                            "%d edges (%s)\n",
+                            got, edges, occt_last_error());
+        } else {
+            std::printf("      allEdgesBulk: skipped, shim v%d has no "
+                        "occt_shape_edges_info (needs v21)\n",
+                        occt_shim_version());
+        }
+
         /* --- buildOnly: the CONTROL, and it does strictly MORE work than the
          * subject (build + counts + full tessellation). §6.5 evidence 4. */
         {
@@ -660,6 +695,51 @@ static void runFilletSweeps(const RunOpts &opts)
                "offer a blend set");
     }
 
+    /*
+     * The CATASTROPHE GUARD, decomposed — `CROSS-SESSION.md` S2-2.
+     *
+     * Session 2 read occt_fillet_edges_ex and found six whole-shape operations
+     * per call, none of them per-edge, of which three are the guard that keeps
+     * a corrupt solid from reaching the mesher: solid_volume(base),
+     * solid_volume(out), and BRepCheck_Analyzer(out).IsValid(). Session 2 did
+     * not touch them — removing them would let corrupt solids through, which is
+     * a behaviour change and out of scope for this branch — and asked instead
+     * for the one number that decides whether a cheaper guard is worth
+     * designing: WHAT FRACTION OF THE FLAT COST IS THE GUARD?
+     *
+     * Both halves are benchable through entry points that already exist.
+     * `2 x volume + valid` on this same base solid bounds the guard FROM BELOW:
+     * the shim's second volume integration runs on the RESULT, which carries
+     * the blend and is a little larger than the base, so measuring it on the
+     * base under-states it. A lower bound is what settles the question in the
+     * direction it needs settling — if even the lower bound is large, the guard
+     * matters.
+     */
+    {
+        double v = 0.0;
+        Measured m = measureOp(
+            opts, "volume", "edges", edges, noop,
+            [&]() { v = occt_shape_volume(s); }, noop, true);
+        m.edges = edges;
+        m.faces = faces;
+        m.profile_pts = 24;
+        record(std::move(m),
+               "one occt_shape_volume — the guard runs TWO of these per fillet "
+               "(S2-2)");
+    }
+    {
+        int ok = 0;
+        Measured m = measureOp(
+            opts, "valid", "edges", edges, noop,
+            [&]() { ok = occt_shape_valid(s); }, noop, true);
+        m.edges = edges;
+        m.faces = faces;
+        m.profile_pts = 24;
+        record(std::move(m),
+               "one occt_shape_valid — BRepCheck_Analyzer, the third leg of the "
+               "guard (S2-2)");
+    }
+
     for (int k : {1, 4, 12}) {
         const std::vector<int> ids = filletableEdges(s, k);
         if (static_cast<int>(ids.size()) < k) {
@@ -739,6 +819,33 @@ static void runFilletSweeps(const RunOpts &opts)
         record(std::move(m),
                "§6.3: 10 ms at r=1.0 against 658 ms at r=4.0 on the device — a "
                "65x discontinuity, and it may be OCCT's own behaviour");
+    }
+
+    /*
+     * The answer S2-2 asked for, computed here rather than left for a reader to
+     * do with a calculator, because a number nobody works out is a number
+     * nobody reads.
+     */
+    {
+        const Measured *vol = nullptr, *val = nullptr, *blend = nullptr;
+        for (const Measured &m : g_results) {
+            if (m.op == "volume")
+                vol = &m;
+            else if (m.op == "valid")
+                val = &m;
+            else if (m.op == "fillet.edges" && m.x == 1.0)
+                blend = &m;
+        }
+        if (vol && val && blend && blend->t.mean > 0.0) {
+            const double guard = 2.0 * vol->t.mean + val->t.mean;
+            std::printf("\n  [S2-2] guard lower bound = 2 x volume (%.4f) + "
+                        "valid (%.4f) = %.4f ms\n",
+                        vol->t.mean, val->t.mean, guard);
+            std::printf("         whole fillet call at one edge = %.4f ms\n",
+                        blend->t.mean);
+            std::printf("         => the guard is AT LEAST %.1f %% of it\n",
+                        100.0 * guard / blend->t.mean);
+        }
     }
 
     occt_free_shape(s);
@@ -1217,9 +1324,9 @@ int main(int argc, char **argv)
 
     /* ---- fits ---- */
     std::vector<FitRow> fits;
-    for (const char *op : {"build", "edgeInfo1", "allEdges", "buildOnly",
-                           "counts", "bbox", "mesh", "fuse", "cut", "rayHits",
-                           "filletEx1"}) {
+    for (const char *op : {"build", "edgeInfo1", "allEdges", "allEdgesBulk",
+                           "buildOnly", "counts", "bbox", "mesh", "fuse", "cut",
+                           "rayHits", "filletEx1"}) {
         FitRow r;
         r.op = op;
         r.axis = "edges";
