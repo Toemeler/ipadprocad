@@ -71,6 +71,43 @@ Three consequences, all of which I measured rather than argued:
 Taken together: **the geometry a drag commits today depends on whether the user
 had constraint glyphs switched on.** That is a defect, and it is in my own file.
 
+### 2.1 A fourth solve the suite never counted, at a cursor the user had left
+
+The painter is not the only per-move caller, and this one is worse than a
+duplicate. `viewport.dart`'s pan handler, `grip` case, is:
+
+```dart
+app.updateGripDrag(_snapped(w, ...));
+```
+
+Dart evaluates the argument first, so `_snapped` → `_snapAt` →
+`app.displayGeometry` runs **while `dragPos` is still the previous value**, and
+only then does `updateGripDrag` move it. The real sequence per pointer-move was:
+
+| # | caller | cursor it solved for |
+| --- | --- | --- |
+| 1 | `_snapAt`, via `_snapped` | the **previous** position — already left |
+| 2 | paint, `ent.dofColour` phase | the new one |
+| 3 | paint, `constraints` phase | the new one, warm-started from 2 |
+
+So a point drag cost **three** solves per pointer-move, not two, and the first
+was spent on a cursor position the user had already moved off — its only
+lasting effect being that it wrote `_lastGoodDragGeo`, which is what the paint
+then warm-started from. A **body** drag cost two: the `body` case deliberately
+does not snap ("a body drag is a pure translation that follows the finger
+exactly"), which is one more way the count varied with what the user was doing.
+
+**`ui.drag60` never saw the third.** The scenario drives the painter directly
+rather than through the pointer pipeline, which is exactly why §5.2 counts 120
+and not 180. The suite's own apparatus notes the same blind spot from the other
+side — `2d.snap` "is a per-frame cost that never shows up anywhere in
+`2d.paint`". So the measured 2-per-frame is a floor on what the application
+actually did, not a full count of it.
+
+Pinned by the test *"the real pointer-move order costs one solve, not three"*,
+which reproduces the evaluation order rather than describing it: ten
+pointer-moves, ten solves, twenty hits.
+
 ---
 
 ## 3. Measurement — host-side, no device needed
@@ -144,6 +181,17 @@ call and `endGripDrag`'s call solving independently, so the answer would still
 depend on UI state — less than before, but still. The memo makes the quantity
 well-defined for every caller at once, including the snap path, and it is inside
 `displayGeometry`, which §3 of the plan assigns to me.
+
+**One disclosure about that.** A memo needs somewhere to live, so this adds five
+private fields to `AppState` next to `_lastGoodDragGeo` — outside the named
+function, which is the letter of what §3 grants me. The plan anticipated the
+memo ("Memoising inside `displayGeometry` would work too but touches
+`app_state.dart`") so I read it as within the spirit, but it is an addition
+beyond the one function and it should be seen rather than discovered. It is an
+insertion of new lines only, nothing existing reordered or reformatted. I
+dry-ran the merge against S3, the other session in this file
+(`git merge-tree`): **no conflict** — their `_analysisCache` field lands 16
+lines below mine and both survive.
 
 **Invalidation.** The cached answer is reused only when all four hold:
 
@@ -261,6 +309,17 @@ Risk          :
     - drag60's fixture is small. The solve is superlinear in sketch size, so the
       absolute saving on a real part is larger than 8.5 ms and must not be
       quoted from it.
+    - THE SUITE UNDERCOUNTS THE WIN, and the counters cannot show it. §2.1: a
+      real point drag ran three display solves per pointer-move, the third via
+      the snap path, and drag60 drives the painter directly so it only ever
+      recorded two. The predicted 120 -> 60 is therefore the honest figure for
+      what the suite measures; on the device, under a finger, the reduction is
+      3 -> 1 per pointer-move for a point drag and 2 -> 1 for a body drag.
+      Nothing in the bundle will demonstrate that — it needs an instrumented
+      pointer path, which is apparatus work and not mine. Do not quote 3 -> 1
+      as a measured result; it is a source-order argument pinned by a host
+      test, and it is stated here so the device figure is not mistaken for the
+      whole effect.
     - The baseline's 2d.paint spans aggregate 150 frames across scenarios, only
       60 of which drag. The -34.0 % is therefore a figure for the whole painting
       pass, not for a dragging frame; the dragging frame roughly halves.
@@ -321,6 +380,12 @@ adjudication in step 4 is written up.
   the same residual, and a 3e−4 perturbation is far too small to cross between
   solution branches (branches on this fixture are separated by whole
   millimetres). I believe the risk is negligible. I cannot prove it is zero.
+- **The snap path's share.** I have established the ORDER (source, plus a test
+  that reproduces it) but not the COST: `2d.snap`'s displayGeometry call is
+  inside the `2d.snap` span, and neither §5.3's 0.0079 ms nor the baseline
+  separates the solve from the geometry walk around it. The 3 -> 1 claim is
+  about a count, not about milliseconds, and I have deliberately not converted
+  it into any.
 - **Whether the coupled-slot case is representative.** It is the worst fixture I
   could build from the repo's own tests. A device part with hundreds of coupled
   constraints might behave differently, and I have no way to run one.
@@ -358,7 +423,7 @@ resolves in `m1-core-build.yml`), Dart 3.13.0.
 | Gate | Result |
 | --- | --- |
 | `flutter analyze --no-pub` | **0 errors.** 55 issues, all `info`/`warning`, all pre-existing — none in a line this session wrote. CI runs it `--no-fatal-infos --no-fatal-warnings`, so this is the same state it was in before. |
-| `flutter test` | **2065 passed, 0 failed**, including the 15 new ones. |
+| `flutter test` | **2072 passed, 0 failed**, including the 16 new ones. |
 | `python3 -m unittest discover -s ci -p 'test_*.py'` | **45 tests, OK.** |
 
 The new tests are in `frontend/test/s4_display_geometry_once_test.dart`, in four
@@ -366,7 +431,9 @@ groups:
 
 - *one solve per drag position* — every caller in a frame gets the **same list
   object**; the counters read one solve and three hits; sixty frames cost sixty
-  solves rather than a hundred and twenty; a cursor move solves again.
+  solves rather than a hundred and twenty; the real pointer-move order (snap at
+  the old cursor, then two paint calls at the new one) costs one solve rather
+  than three; a cursor move solves again.
 - *painted both ways — where collapsing is exact* — free line, body drag and
   unreachable cursor, each pinned at `maxDelta == 0.0` exactly.
 - *painted both ways — the coupled system* — the one case that moves, pinned

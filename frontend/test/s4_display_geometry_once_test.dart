@@ -166,6 +166,44 @@ void main() {
       expect(Perf.counters['2d.displayGeometry.cacheHit'], 60);
     });
 
+    test('the real pointer-move order costs one solve, not three', () {
+      // viewport.dart, the 'grip' case of the pan handler, is
+      //
+      //     app.updateGripDrag(_snapped(w, ...));
+      //
+      // and Dart evaluates the argument first. So _snapped -> _snapAt ->
+      // app.displayGeometry runs while dragPos is STILL THE PREVIOUS VALUE,
+      // and only then does updateGripDrag move it. The real per-move sequence
+      // is therefore: snap at the old position, then two paint calls at the
+      // new one.
+      //
+      // Before the memo that was THREE solves per pointer-move, and the first
+      // of them was at a stale cursor — it solved for a position the user had
+      // already left, and wrote the result into _lastGoodDragGeo, which is
+      // what the paint then warm-started from. `ui.drag60` never saw it: the
+      // scenario drives the painter directly rather than through the pointer
+      // pipeline, which is why PERFORMANCE_PROFILE §5.2 counts 120 and not 180.
+      final app = _twoCoupledSlots();
+      final s = app.current!;
+      var at = getPt(s.geometry[0], 1);
+      app.beginGripDrag(Grip(0, 1, at, 'end'));
+      app.updateGripDrag(at);
+      app.displayGeometry(s); // settle the first position
+
+      Perf.resetForTest();
+      for (var i = 1; i <= 10; i++) {
+        app.displayGeometry(s); // _snapped(), at the OLD dragPos — a hit
+        at = at + const Offset(0.4, 0.25);
+        app.updateGripDrag(at); // now the cursor moves
+        app.displayGeometry(s); // paint: ent.dofColour — the one solve
+        app.displayGeometry(s); // paint: constraints — a hit
+      }
+
+      expect(Perf.counters['2d.displayGeometry.solves'], 10,
+          reason: 'one solve per pointer-move, whatever asks for it');
+      expect(Perf.counters['2d.displayGeometry.cacheHit'], 20);
+    });
+
     test('a cursor move solves again', () {
       final app = _twoCoupledSlots();
       final s = app.current!;
