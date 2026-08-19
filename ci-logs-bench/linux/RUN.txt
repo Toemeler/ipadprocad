@@ -1,0 +1,10 @@
+platform:   linux
+run_id:     32238188197
+run_number: 2
+sha:        92ee1c5868cabc4a79137dd863d3330d97dee78c
+ref:        refs/heads/claude/perf-opt-bench
+captured:   2026-08-19T15:47:42Z
+
+ABSOLUTE MILLISECONDS IN THESE FILES ARE NOT iPad MILLISECONDS.
+Read relative costs, exponents, allocation and RSS behaviour.
+PERFORMANCE_PROFILE.md §13.3 says why.
