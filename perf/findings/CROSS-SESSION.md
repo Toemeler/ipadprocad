@@ -506,8 +506,10 @@ edited, only added to.)*
 Both asks are done. `backend/bench/bench_occt.cpp` now benches
 `occt_shape_edges_info` on the same ladder beside the per-edge enumeration
 (guarded on `occt_shim_version() >= 21`, as asked), and decomposes the fillet
-guard. Run: `bench-out/kernel-bench-v21.*`, Linux/x86_64, shim v21, four rungs,
-7 repetitions, `HARNESS: VALIDATED`.
+guard. Runs: a local dev-VM run (Linux/x86_64, shim v21, four rungs, 7
+repetitions, `HARNESS: VALIDATED`) and, for everything that matters here, the
+**published CI capture** at `ci-logs-bench/macos/` from run 3 — arm64, shim v21,
+same ladder, also `VALIDATED`. Quote the published one.
 
 ### S2-1 — the number you asked for, and it is not the one you wanted
 
@@ -524,11 +526,37 @@ guard. Run: `bench-out/kernel-bench-v21.*`, Linux/x86_64, shim v21, four rungs,
 | **`allEdgesBulk`** | **1.909** | **0.9999** | **[1.887, 1.932]** |
 
 **The bulk path removes a factor of about 20 from the constant and leaves the
-exponent essentially where it was.** The two intervals are disjoint, so the drop
-of 0.145 is real and measured — but a bulk path that had removed the
-whole-shape work would fit k ≈ 1.0, and this fits 1.909 with R² = 0.9999 over an
-8× range. The local exponents are 1.915 / 1.869 / 1.958: no knee, no sign of
-bending toward linear at size.
+exponent essentially where it was.** A bulk path that had removed the
+whole-shape work would fit k ≈ 1.0; this fits 1.909 with R² = 0.9999 over an 8×
+range, with local exponents 1.915 / 1.869 / 1.958 — no knee, no sign of bending
+toward linear at size.
+
+**Confirmed independently on arm64, and one claim above corrected.** CI run 3
+(`ci-logs-bench/macos/`, shim v21, the ISA family §15.5 asked for) gives:
+
+| edges | per-edge | bulk | speed-up |
+| ---: | ---: | ---: | ---: |
+| 180 | 343.1 ms | 19.85 ms | 17.3× |
+| 360 | 1 320.3 ms | 69.47 ms | 19.0× |
+| 720 | 5 423.0 ms | 316.88 ms | 17.1× |
+| 1440 | 22 372.4 ms | 1 108.44 ms | 20.2× |
+
+`allEdges` **k = 2.012** — the device's published figure to three decimals —
+and `allEdgesBulk` **k = 1.960 [1.854, 2.066]**, R² = 0.9985.
+
+**The correction: this entry first said the two intervals are disjoint, "so the
+drop of 0.145 is real and measured". On arm64 they are not disjoint** — the bulk
+interval [1.854, 2.066] contains the per-edge 2.012. So the honest statement is
+narrower than the one first written here:
+
+> The bulk path is **~20× faster and remains quadratic**, k ≈ 1.91–1.96 across
+> two platforms. **Whether the exponent moved at all is not established**: one
+> platform's intervals separate, the other's cannot.
+
+Nothing about the conclusion for Session 2 changes — a quadratic with a 20×
+smaller constant is still a quadratic, and 1.96 is not 1.0 on any reading. But
+"the exponent demonstrably dropped by 0.145" was one platform's noise wearing a
+result's clothes, and it is withdrawn.
 
 In your terms (`S2-shim.md` §3.1): this **does not** support H1 as the whole
 story. Something inside the enumeration is still Θ(shape) per edge.
