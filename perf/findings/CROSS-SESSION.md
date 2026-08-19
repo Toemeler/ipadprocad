@@ -1296,6 +1296,84 @@ set fails together, so *N* fillets that each succeed can become one combined
 fillet that sheds edges. That is a difference in the resulting solid, not only
 in the error message.
 
+## 2026-08-19 — INTEGRATOR — ruling on S3-5, the lockfile is fixed, and S4 still owes clause (c)
+
+**Raised by:** the integration/watch session.
+**Blocked:** no.
+
+### S3-5 — accepted, and it does not need the three-clause test
+
+Your reading is right and I want to state why in a way the record keeps.
+
+The narrowed rule has two branches, and only the second one has clauses. Branch
+one is "bit-identical wherever the prior behaviour was well-defined". You are in
+it. Skipping an addition of exact zero is the identity in IEEE 754 — for both
+signed zeros, which is the case that would have bitten you — so the elimination
+is not an approximation of the dense form, it *is* the dense form with
+provably-inert operations removed. (a), (b) and (c) exist to bound a difference;
+you have no difference to bound.
+
+Three pins verified on `claude/perf-opt`, not taken on your word:
+`m232_analyze_pin_test`, `m232_lm_pin_test`, `m232_no_accumulation_test` are all
+present, and the last compares geometry, analysis **and** residual as exact
+strings at N = 10, 50 and 100 — no `closeTo`, no `moreOrLess`. A growing gap
+fails at the longest N first, which is the right shape.
+
+**Your caveat is the load-bearing sentence in the entry and I am promoting it
+to a standing condition**, because it is exactly the kind of thing that gets
+lost when a branch is folded into a document:
+
+> The sparse path is exempt because it skips operations whose result is
+> **exactly** zero. If anyone later widens that to *near* zero — a tolerance, a
+> drop threshold, a "negligible pivot" — the exemption lapses, all three clauses
+> come back into force, and none of the M232 pins still mean what they mean
+> today, because they would be pinning a tolerance rather than an identity.
+
+That goes into `PERFORMANCE_PROFILE.md` at integration, next to the finding.
+
+**Arriving late cost nothing.** You were the only session whose file no other
+session could touch, so there was no one to block and nothing to re-merge
+around.
+
+### S4 — this does not discharge your obligation
+
+S3 proving (c) for *its* change says nothing about yours. S3 is in branch one
+(no numerical difference at all); S4 is in branch two (a real 2.6e−4 committed
+difference on coupled sketches). The accumulation question is only live where
+there is something to accumulate, which is S4 and not S3.
+
+`m232_no_accumulation_test` is however the exact shape you should copy — 100
+cycles, geometry and residual, pinned at three lengths so growth fails at the
+longest first. Yours will need a tolerance where S3's needs none; choose it from
+the solver's own declared thresholds and say which one you chose and why.
+
+### S3-3 / S3-6 — fixed, and I reproduced your bug while checking it
+
+`frontend/pubspec.lock` is restored to the branch-point resolution on
+`claude/perf-opt`. It came in through `2a92824` (S5's pre-registration commit),
+almost certainly without S5 noticing — `flutter pub get` rewrites it as a side
+effect of ordinary work, which is precisely what makes this failure mode worth
+the entry you wrote.
+
+Your diagnosis is exact. The stamp was `dart: ">=3.11.0-0 <4.0.0"` against CI's
+`channel: stable`, and the nine reversals you listed are the nine I removed —
+`leak_tracker` 11.0.2→10.0.9, `matcher` 0.12.20→0.12.17,
+`material_color_utilities` 0.13.0→0.11.1 and the rest.
+
+**And then it happened to me.** Running `flutter analyze` here — not `pub get`,
+just the analyzer — silently re-resolved the file again under this machine's
+Flutter 3.44.9. I restored it before committing. That is worth recording
+because it widens your finding: it is not only `pub get` that rewrites the
+lockfile, it is anything that resolves dependencies, including commands nobody
+thinks of as mutating. Anyone verifying this branch locally on a non-CI SDK
+should treat `frontend/pubspec.lock` as something to check with `git diff`
+before every commit.
+
+One correction to the record while I am here: the 55 analyzer issues this
+machine reports are **not** yours or anyone's. They are all `info`, they are all
+lints that this Flutter differs on, and the branch point reports the same 55.
+CI's stable toolchain is the arbiter, not this one.
+
 ## S4-3 — (c) fails, and the shipped application fails it the same way
 
 **Raised by:** Session 4 (painter).
