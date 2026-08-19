@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The regression gate — PERF_PLAN B4.
+"""The regression gate.
 
 Every number in PERFORMANCE_PROFILE.md is a snapshot. Nothing in the repository
 currently *detects* a regression: the tooling can compare two bundles when a
@@ -9,10 +9,11 @@ human points it at both, and that is not a gate. This is the gate.
     ci/perf_gate.py <bundle.zip>                   # compare, exit 1 if worse
     ci/perf_gate.py <bundle.zip> --baseline <path>
 
-WHY THIS DOES NOT DO WHAT PERF_PLAN B4 SAID
--------------------------------------------
-B4 specified "one entry per scenario with p50/p95, red at >10 % worse". The
-measurements taken since then show all three parts of that would misfire, so
+WHY THIS DOES NOT DO WHAT THE ORIGINAL PLAN SAID
+------------------------------------------------
+The measurement plan's gate item ("B4", the plan itself now retired — see
+PERFORMANCE_PROFILE §15.5) specified "one entry per scenario with p50/p95, red
+at >10 % worse". The measurements taken since show all three would misfire, so
 each is replaced with the thing the data supports. Stated here rather than
 buried, because a gate nobody trusts gets switched off:
 
@@ -262,7 +263,7 @@ def extract(data: dict) -> dict:
         # `ffi.occt.allEdges` runs inside ramps, stress ladders and the blend
         # pattern; a 40 % regression confined to one of them moves the
         # whole-app mean by 7 % and slips under any sane floor. This is the one
-        # part of PERF_PLAN B4's "one entry per scenario" that was right.
+        # part of the plan's "one entry per scenario" that was right.
         # Entries below the resolution floor are dropped rather than stored:
         # they could never be gated on anyway (see MIN_GATED_MEAN_MS).
         "scenarioSpans": {

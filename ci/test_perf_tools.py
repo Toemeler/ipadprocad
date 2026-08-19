@@ -383,7 +383,7 @@ class TestEndToEnd(unittest.TestCase):
 
 
 class TestGate(unittest.TestCase):
-    """The regression gate (PERF_PLAN B4).
+    """The regression gate (PERFORMANCE_PROFILE 15.4).
 
     A gate has one failure mode worse than missing a regression: crying wolf.
     A gate that fires on noise gets switched off, and then it is worse than no

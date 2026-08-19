@@ -21,8 +21,10 @@ and are marked where they appear: Low Power Mode is not a uniform scalar (§3.5)
 and the 3D push path costs 0.097 ms rather than the 8.8 ms its round-trip span
 reports (§7.2.4).
 
-Companion documents: `PERF_PLAN.md` (experimental design), `PERF_ANALYSIS.md`
-(§8–15, chronological derivation of each finding), `HANDOFF.md` (entry point).
+Companion documents: `PERF_ANALYSIS.md` (§8–15, chronological derivation of
+each finding), `HANDOFF.md` (entry point). The original experimental design,
+`PERF_PLAN.md`, has been retired now that the measurements supersede it; what
+remains live from it is §15.5.
 
 ---
 
@@ -1775,7 +1777,7 @@ Under Low Power Mode; the uncapped figures are correspondingly higher.
 3. **No sampling profiler.** The suite attributes cost to *operations*; a
    profiler attributes it to *lines*. For `analyzeSketch` this is the
    difference between “rank reduction is cubic” and “this loop is”. Specified
-   as Track A4 in `PERF_PLAN.md`; not built.
+   as Track A4 of the retired measurement plan; see §15.5. Not built.
 4. **`applyBlendOccurrence` end to end.** Its dominant term is now measured
    (`app.blendPattern.edgeQuery.*`, M221); the function as a whole is not,
    because a blend fixture that failed to resolve its edges would report a
@@ -2631,9 +2633,9 @@ The committed baseline is the **reference arm** of the paired run — build
 `230f179`, Low Power Mode off, thermal nominal at both ends, all three runners:
 273 spans, 373 scenario-spans, 46 counters, 195 gauges.
 
-#### Where it departs from PERF_PLAN B4, and why
+#### Where it departs from the original plan, and why
 
-B4 specified "one entry per scenario with p50/p95, red at >10 % worse". Two of
+The measurement plan's gate item ("B4", now retired — §15.5) specified "one entry per scenario with p50/p95, red at >10 % worse". Two of
 those three would misfire against what has since been measured:
 
 | B4 said | The gate does | Because |
@@ -2717,6 +2719,63 @@ checking forever.
 - **It does not gate exponents.** A change in *k* is the most transferable
   regression of all, but fitting requires a whole family and the confidence
   intervals are wide (§1.5); a naive comparison would fire on noise.
+
+### 15.5 The measurement plan, retired — what survives it
+
+`PERF_PLAN.md` was the experimental design written before any of this was
+measured. Its Phase 1 is built and its findings are this document; Phase 4's
+gate is §15.4. The rest was superseded by what the measurements actually found,
+and the file has been retired rather than left to rot as a plan that no longer
+describes the work. Four things in it are still live and are recorded here so
+they survive the deletion.
+
+#### The optimisation discipline
+
+Written after M75, where three rounds of optimisation went into the wrong layer
+while the stutter was in the 2D painter. It is worth more now than when it was
+written, because optimisation is about to start:
+
+1. **Never optimise without a scenario name.** "Feels slow" is not admissible;
+   "`stress.analyze` at 1024 entities, 8 837 ms" is.
+2. **Walk the attribution ladder in order:** `frame.total` → build (Dart) or
+   raster (GPU)? → which named span holds the largest share of the wall clock?
+   → is the leaf Dart or native?
+3. **Record a baseline before every change** — now mechanised (§15.4), at
+   thermal `nominal`, with Low Power Mode off.
+4. **One change, then the same measurement again**, confirmed on the device.
+   A win that does not appear on-device was not on the critical path.
+5. **The delta goes in the milestone note**, as `HANDOFF.md` carries everything
+   else.
+
+#### Two instruments specified and never built
+
+- **The sampling profiler** (VM Service `getCpuSamples` → Perfetto), plan item
+  A4. The suite says which *operation* costs what; a profiler says which
+  *line*. For `analyzeSketch` that is the difference between "rank reduction is
+  cubic" (§5.5.2, established) and "this loop is". Still the largest unbuilt
+  piece of apparatus.
+- **Headless kernel benchmarks** (plan Lane C). The C++ under `backend/` needs
+  no iOS: a `bench` target against the C-ABI shim with fixed fixtures, run on
+  `macos-14` for the same ISA family, gives minutes-per-loop iteration on
+  exactly the operations §6.5 indicts. This is the fastest loop available for
+  the `occt_shape_edge_info` work specifically, and it does not exist.
+
+#### The scenario the catalogue always skips
+
+The plan's catalogue had 18 entries; 17 are covered by the suite. **Number 18
+is the 30-minute continuous session**, and it is the only one that can detect a
+leak. A CAD session is an hour, not a click. The paired run's 293 s is the
+longest yet (§3.4) and is not a substitute.
+
+#### What is genuinely not obtainable, so nobody spends a week on it
+
+| Wanted | Why not |
+| --- | --- |
+| GPU utilisation as a percentage | No iOS API exposes it to a sandboxed app. `frame.raster` and the presented cadence are the honest proxies. |
+| Metal frame capture / per-draw GPU time on device | Requires Xcode attached. |
+| Instruments against the physical iPad | Requires a Mac. Simulator only, in CI. |
+| Xcode Organizer field data | Requires App Store / TestFlight distribution; sideloaded builds never report. |
+| Energy per subsystem | Not exposed. Thermal state plus CPU time per thread is the closest available. |
 
 ### 15.1 What the suite does NOT produce
 

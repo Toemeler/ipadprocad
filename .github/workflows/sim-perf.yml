@@ -1,6 +1,6 @@
 name: Simulator app + perf capture
 
-# Lane B from PERF_PLAN.md: rent a Mac for twenty minutes, get files back.
+# Lane B of the measurement plan: rent a Mac for twenty minutes, get files back.
 #
 # What this produces:
 #   * Runner.app for the iOS Simulator, zipped as an artifact

@@ -9814,8 +9814,10 @@ analyze 0 errors, **573 gruen**.
 zusammengefuehrt · analyze 0 Fehler, **2050 Dart-Tests**, **45 Python-Tests**
 **Volle Details:** `PERFORMANCE_PROFILE.md` — was jeder Teil der App kostet,
 mit Methode, Konfidenzintervallen und dem vollstaendigen Datenanhang.
-`PERF_ANALYSIS.md` (Abschnitte 8–15) ist die chronologische Herleitung,
-`PERF_PLAN.md` der Messplan. Dieser Eintrag ist der Einstiegspunkt.
+`PERF_ANALYSIS.md` (Abschnitte 8–15) ist die chronologische Herleitung.
+Der urspruengliche Messplan `PERF_PLAN.md` ist zurueckgezogen — die Messungen
+haben ihn ueberholt; was von ihm noch gilt, steht in PERFORMANCE_PROFILE 15.5.
+Dieser Eintrag ist der Einstiegspunkt.
 
 > **DER DATENSATZ IST VOLLSTAENDIG (18.08.2026).** Der gepaarte Geraetelauf
 > auf Build `230f179` liegt vor: **zwei Aufnahmen, eine Sitzung, Low Power
@@ -10088,7 +10090,7 @@ differenzieren. (PERFORMANCE_PROFILE §2.2.)
   Entities (Referenzarm), 20.4 ms im Energiesparmodus. Gegen ein 16.7-ms-
   Budget heisst das: bei voller Taktrate innerhalb, gedrosselt darueber.
 
-### M224 — der Regressionswaechter (PERF_PLAN B4)
+### M224 — der Regressionswaechter
 
 Jede Zahl in PERFORMANCE_PROFILE ist eine Momentaufnahme. Bis M224 hat nichts
 eine Regression **erkannt** — die Werkzeuge konnten zwei Bundles vergleichen,

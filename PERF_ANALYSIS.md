@@ -1,6 +1,7 @@
 # Performance-Analyse — Runde 1: das Messnetz
 
-Umsetzung von PERF_PLAN.md, Phase 1, plus die Bahn-B-Infrastruktur.
+Umsetzung von Phase 1 des (inzwischen zurueckgezogenen) Messplans, plus die
+Bahn-B-Infrastruktur.
 
 **Hier wird nichts optimiert.** Kein Algorithmus, kein Cache, kein Layout ist
 angefasst. Was sich geaendert hat: die App misst sich jetzt selbst, und zwar
@@ -63,7 +64,7 @@ verschwunden, den sie gemessen haben. Das ist der Normalfall, nicht die
 Ausnahme — deshalb sitzt die FFI-Messung jetzt so, dass sie **nicht** verfallen
 kann (Abschnitt 2, Prinzip 2).
 
-> **Korrektur zu PERF_PLAN.md, Abschnitt 2.** Dort steht, der Perf-Log fehle im
+> **Korrektur zum Messplan, Abschnitt 2.** Dort stand, der Perf-Log fehle im
 > Bug-Bundle, weil `bug_report.dart` `Perf.path` nicht kennt. Das stimmt fuer
 > jene Datei, aber `bug_capture.dart` reicht `perfText: Perf.path…` sehr wohl
 > durch — der Text-Log war schon drin. Was wirklich fehlte, war die
@@ -319,16 +320,22 @@ M75-Fehler in neuem Kostuem. Die Absolutwerte kommen aus Bahn A, vom Geraet.
 
 ## 7. Als naechstes
 
-1. `sim-perf.yml` einmal laufen lassen, `perf-capture` ziehen — das ist der
-   erste echte Datensatz, und er sagt sofort, welche Kernel-Operationen und
-   welche Aufrufzahlen aus dem Rahmen fallen.
-2. Einen Release-Build aufs iPad, fuenf Minuten normal arbeiten,
-   `performance_logs.txt` per Bug-Bundle exportieren — das sind die
-   Absolutwerte, gegen die alles andere kalibriert wird.
-3. Erst dann Abschnitt 5 schliessen (Menue, Platform-Views, modify/tools).
-4. Erst dann `perf/baseline.json` festschreiben und die Schranke ziehen.
-5. **Danach** optimieren. Nicht vorher — Regel 1 aus PERF_PLAN.md Abschnitt 5:
-   nie ohne Szenarionummer.
+Stand M224 — vier der fuenf Punkte sind abgearbeitet:
+
+1. ~~`sim-perf.yml` einmal laufen lassen, `perf-capture` ziehen.~~
+   **Erledigt (M221).** Ergebnis: der Simulator ist KEIN skaliertes Geraet
+   (Streuung Faktor 63, CV 138 %). Bahn B ist ein Build- und Verlinkungstest,
+   keine Performance-Bahn — PERFORMANCE_PROFILE Abschnitt 13.
+2. ~~Einen Release-Build aufs iPad, normal arbeiten, Bundle exportieren.~~
+   **Erledigt.** Sechs Geraetelaeufe, zuletzt der gepaarte Lauf vom 18.08.2026
+   mit allen drei Suite-Stufen — PERFORMANCE_PROFILE Abschnitt 2.1 und 12.
+3. Abschnitt 5 schliessen (Menue, Platform-Views, modify/tools) — **offen**,
+   und der letzte bekannte Messluecke von Bedeutung.
+4. ~~`perf/baseline.json` festschreiben und die Schranke ziehen.~~
+   **Erledigt (M224).** `ci/perf_gate.py` — PERFORMANCE_PROFILE 15.4.
+5. **Danach** optimieren. Nicht vorher — Regel 1 der Messdisziplin
+   (PERFORMANCE_PROFILE 15.5): nie ohne Szenarionummer. Die Rangliste, gegen
+   die zu optimieren ist, steht in PERFORMANCE_PROFILE Abschnitt 4.
 
 ---
 
