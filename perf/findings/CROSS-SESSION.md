@@ -1111,3 +1111,89 @@ those are not the same quantity.
 S2's `edge_info` work and S1's Lane C are both in the same position: the
 exponent claims should transfer; any millisecond ratio derived from a count
 should be read as provisional until the device says otherwise.
+
+---
+
+## S3-5 — to the INTEGRATOR: S3 arrives late, sits in the first branch of your rule, and brings clause (c) proven anyway
+
+**Raised by:** Session 3 (2D solver).
+**Files:** `solver.dart` and the three `analyzeSketch` call sites in
+`app_state.dart` — S3's own. Nothing of anyone else's.
+**Blocked:** no.
+
+**Why this is late.** The work was finished and green on
+`claude/optimization-plan-session-3-gc4s8m` and never merged up, so from this
+branch S3 looked like it had delivered nothing — and `solver.dart` on
+`claude/perf-opt` was still the dense implementation, with finding #1, the
+largest cost in the application, untouched. It is now on
+`claude/perf-opt-solver`, branched from `2921d3f` with S1, S2, S4 and S5 in it.
+The merge was clean everywhere except this file, where it was append-vs-append
+and both sides are kept.
+
+**Your rule, applied.** S3 **does not alter a numerical result**, so it lands
+in "bit-identical wherever the prior behaviour was well-defined" and never
+reaches (a), (b) or (c). The elimination performs exactly the operations the
+dense form performed on nonzeros, in the same order, with the same pivots, and
+skips only additions of exact zero — the identity in IEEE 754, both signed
+zeros included.
+
+Evidence, all recorded against `solver.dart` **as it stands on this branch**:
+
+| pin | scope | result |
+| --- | --- | --- |
+| `m232_analyze_pin_test` | dof, movable set, carrier colouring; 35 cases | identical |
+| `m232_lm_pin_test` | full solved parameter vector, digit for digit, all three LM paths | identical |
+| `m232_no_accumulation_test` | 100 drag+analyse cycles: geometry, analysis **and** residual | identical |
+
+No tolerances in any of them.
+
+**I wrote the (c) test even though it is redundant**, because determinism makes
+it a proof rather than a test and you asked for tests. It is the shape you
+specified for S4 — N successive drags, comparing final committed geometry and
+final residual — and it pins N = 10, 50 and 100 so a *growing* gap fails at the
+longest first. Clause (a) comes out in its strongest form: the residual is not
+"no worse", it is the same number, `3.070905054045597e-10`.
+
+**The one caveat**, since it is the load-bearing part: the argument is about
+exact zeros, not small ones. If anyone later makes the sparse path skip
+operations whose result is merely *near* zero, every clause comes back into
+force and none of these pins would still mean what they mean now.
+
+## S3-6 — S3-3 is no longer a prediction: a stable-channel `pub get` silently reverses the lockfile, and I reproduced it on this branch
+
+**Raised by:** Session 3.
+**Files:** `frontend/pubspec.lock` — nobody's, and still carrying the
+pre-release stamp on `claude/perf-opt` today.
+**Blocked:** no. Not fixed here, per §7 — but this is now a demonstration
+rather than the inference S3-3 recorded.
+
+S3-3 flagged that `pubspec.lock` had been re-resolved against a **pre-release**
+Dart (`dart: ">=3.11.0-0 <4.0.0"`) while CI installs Flutter with
+`channel: stable`. That entry reasoned about the consequence. I have now hit it:
+
+Running `flutter pub get` on this branch with **Flutter 3.32.0 / Dart 3.8**
+reports `Changed 9 dependencies!` and rewrites the file back down — every one
+of the nine bumps reversed and the SDK stamp with it:
+
+```
+  dart: ">=3.11.0-0 <4.0.0"   ->   dart: ">=3.8.0 <4.0.0"
+  leak_tracker 11.0.2 -> 10.0.9      material_color_utilities 0.13.0 -> 0.11.1
+  meta 1.19.0 -> 1.16.0              vector_math 2.4.2 -> 2.1.4
+  test_api 0.7.12 -> 0.7.4           matcher 0.12.20 -> 0.12.17
+  characters, clock, fake_async      (patch bumps, all reversed)
+```
+
+So the committed lockfile does not survive contact with the toolchain CI uses:
+any stable-channel run silently resolves a **different dependency set** from
+the one in the file, and the file is decorative rather than authoritative.
+
+I reverted my re-resolution rather than committing it — churning a file I do
+not own is exactly what §7 tells me not to do, and it would fight whoever
+committed the current one. **Every S3 test figure quoted on this branch was
+produced on the stable resolution**, which is what CI would also produce; I am
+flagging that rather than leaving it to be discovered.
+
+The remedy is unchanged from S3-3 and is one line, for you rather than for me:
+`git checkout <pre-S5> -- frontend/pubspec.lock`. If the newer SDK is genuinely
+wanted, that is a decision to take deliberately with `channel: stable` in view,
+before the device capture rather than after.

@@ -653,3 +653,72 @@ is read as a surprise afterwards:
    §1.1's stated evidence order. `analyze.cache.hit`/`miss` and the
    `sketch.analyze` span count are exact; the `JᵀJ` count is exact. If the
    device durations come back muddy, those still adjudicate the mechanism.
+
+---
+
+## 11. The integrator's narrowed rule, and where S3 sits under it
+
+The integrator's ruling on S4-2 replaces plan §1's literal "bit-identical"
+with:
+
+> Bit-identical wherever the prior behaviour was well-defined. Where a change
+> **alters a numerical result**, it is in scope only if all three hold, each
+> proven by test: (a) the residual is no worse; (b) the difference is inside
+> the tolerance the code declares for that data path; (c) it does not
+> accumulate under repetition.
+
+**S3 does not alter a numerical result, so it never reaches (a), (b) or (c).**
+It sits in the first branch, and the reason is structural rather than
+fortunate: the sparse elimination performs exactly the operations the dense
+form performed on nonzeros, in the same order, with the same pivots, and skips
+only additions of exact zero. `a − f·0.0` is `a` for every finite `a` and `f`
+in IEEE 754, both signed zeros included. The same holds for the LM's normal
+equations: for a fixed (a, b) the surviving products still arrive in ascending
+i, so the accumulation sequence is untouched.
+
+That is an argument. Here is the evidence, all of it recorded against the
+implementation as it stands on `claude/perf-opt` @ `2921d3f` — the dense one:
+
+| test | what it pins | result |
+| --- | --- | --- |
+| `m232_analyze_pin_test` | dof, movable set, carrier colouring — 35 cases, exact strings | unchanged |
+| `m232_lm_pin_test` | the full solved parameter vector, digit for digit, all three LM paths | unchanged |
+| `m232_no_accumulation_test` | 100 successive drag+analyse cycles: final geometry, final analysis, final residual | unchanged |
+
+No tolerances appear in any of them.
+
+### Why I wrote the (c) test anyway
+
+Determinism makes it redundant: if one call is bit-identical then any sequence
+of calls is, and the single-call goldens already prove the former. I wrote it
+for two reasons the ruling itself implies.
+
+First, the integrator asked for **tests**, and "it follows by determinism" is a
+proof. Proofs about floating point are the ones that turn out to have an
+unconsidered case, and the cheapest way to find out is to run it.
+
+Second, S3 is the change with the most to lose from drift that only appears
+late. `freePoints` gates whether a point can be dragged at all and
+`looseCarriers` drives the colouring users read to decide whether a sketch is
+finished. A divergence that showed up only after fifty edits would be invisible
+to every other test in this branch — and it is exactly the failure mode
+plan §9 warns about: "a change that looks obviously correct, that all the tests
+pass, and that quietly alters geometry on one part in fifty."
+
+The test therefore reports **three** quantities at N = 100 — geometry,
+analysis and residual — and pins geometry at N = 10, 50 and 100 as well, so
+that a *growing* gap fails at the longest N first and a constant offset fails
+at all three. All land exactly. Clause (a) is satisfied trivially in the
+strongest possible form: the residual is not merely "no worse", it is the same
+number, `3.070905054045597e-10`.
+
+### One caveat I want on the record
+
+The bit-identity argument is about **arithmetic**, not about iteration counts.
+It holds because no comparison in either routine changes outcome: the pivot
+test `|v| < 1e-7`, the LM's `e2 < err`, the null-space thresholds `1e-9` and
+`1e-6` all see the same values they saw before. If a future change made the
+sparse path skip an operation whose result was *near* zero rather than exactly
+zero, none of that would hold and all three clauses would come back into
+force. The distinction is exact zero versus small, and it is the whole
+foundation of this session's correctness claim.
