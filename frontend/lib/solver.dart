@@ -2527,9 +2527,13 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
   var budget = iterations;
   for (var pass = 0;; pass++) {
     for (var it = 0; it < budget && err > 1e-9; it++) {
-      // numeric Jacobian
+      // Numeric Jacobian, stored by ROW as (column, value) pairs — same
+      // discovery-based sparsity as _jacobian: an entry exists iff perturbing
+      // that parameter actually moved that residual, so no table of which
+      // constraint depends on which parameter is consulted or needed.
       final m = r.length, n = free.length;
-      final j = List.generate(m, (_) => List<double>.filled(n, 0.0));
+      final jc = List.generate(m, (_) => <int>[]);
+      final jv = List.generate(m, (_) => <double>[]);
       for (var k = 0; k < n; k++) {
         final idx = free[k];
         final h = 1e-6 * (1 + x[idx].abs());
@@ -2538,26 +2542,50 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
         final r2 = _residuals(gs, off, x, cs, ctx);
         x[idx] = save;
         for (var i = 0; i < m; i++) {
-          j[i][k] = (r2[i] - r[i]) / h;
+          final d = (r2[i] - r[i]) / h;
+          if (d != 0.0) {
+            jc[i].add(k); // k ascends, so the row stays sorted
+            jv[i].add(d);
+          }
         }
       }
-      // normal equations (JtJ + lambda*I) dx = -Jt r
+      // Normal equations (JtJ + lambda*I) dx = -Jt r.
+      //
+      // Accumulated ROW-MAJOR over the Jacobian's nonzeros rather than by
+      // evaluating sum_i j[i][a]*j[i][b] for every (a, b) pair. On the
+      // profile's own solve.overConstrained fixture (n = 168, m = 124) the
+      // pair form executes 8 801 520 multiply-adds of which 1 810 have two
+      // nonzero factors — the Jacobian is 1.2 % occupied, so 99.98 % of that
+      // arithmetic multiplies a zero.
+      //
+      // Identical results, not merely equivalent ones: for a fixed (a, b) the
+      // surviving terms still arrive in ascending i, so the accumulation
+      // sequence is unchanged and only exact-zero addends are dropped. Both
+      // triangles are filled here rather than mirrored afterwards, because a
+      // mirror pass would reintroduce an O(n^2) sweep larger than the sum it
+      // was copying.
       final jtj = List.generate(n, (_) => List<double>.filled(n, 0.0));
+      final jtrPos = List<double>.filled(n, 0.0);
+      for (var i = 0; i < m; i++) {
+        final cols = jc[i], vals = jv[i];
+        final ri = r[i];
+        for (var p = 0; p < cols.length; p++) {
+          final a = cols[p], va = vals[p];
+          final rowA = jtj[a];
+          rowA[a] += va * va;
+          for (var q = p + 1; q < cols.length; q++) {
+            final t = va * vals[q];
+            rowA[cols[q]] += t;
+            jtj[cols[q]][a] += t;
+          }
+          jtrPos[a] += va * ri;
+        }
+      }
+      // negated once at the end, exactly as the pair form did: an all-zero
+      // column must still yield -0.0 and not +0.0
       final jtr = List<double>.filled(n, 0.0);
       for (var a = 0; a < n; a++) {
-        for (var b = a; b < n; b++) {
-          var s = 0.0;
-          for (var i = 0; i < m; i++) {
-            s += j[i][a] * j[i][b];
-          }
-          jtj[a][b] = s;
-          jtj[b][a] = s;
-        }
-        var s = 0.0;
-        for (var i = 0; i < m; i++) {
-          s += j[i][a] * r[i];
-        }
-        jtr[a] = -s;
+        jtr[a] = -jtrPos[a];
       }
       for (var a = 0; a < n; a++) {
         jtj[a][a] += lambda * (1 + jtj[a][a].abs());

@@ -213,3 +213,49 @@ pre-registration commit.
 `m232_provenance_index_test.dart` from S5), but the milestone number is now
 shared by two unrelated pieces of work and will need one of them renumbered
 when this is written up.
+
+---
+
+## S3-4 — operation counts predict EXPONENTS well and WALL-CLOCK RATIOS badly; I got this wrong by 2x and it is worth the other sessions knowing
+
+**Raised by:** Session 3 (2D solver).
+**Files:** none. A note on method, for §8 step 4 and for anyone still
+predicting.
+**Blocked:** no.
+
+Every session here works without a device, and the technique this branch has
+converged on — S3 §0, S2's findings, S1's whole reason for existing — is to
+reason from **counted operations**, which are exact, device-independent and
+noise-free. That technique is sound. But S3 has now run it twice with a
+measurement on the other side, and the two halves came out very differently:
+
+| | predicted from counts | measured | |
+| --- | --- | --- | --- |
+| exponent of `stress.analyze` | 2.0 ± 0.35 | **1.966** | right |
+| `JᵀJ` multiply-adds after the fix | 1 860 ± 150 | **1 810** | right, exactly |
+| wall-clock ratio of the LM fix | 4.6× | **2.33×** | **wrong by 2×** |
+
+The wall prediction failed for a reason that generalises. `JᵀJ` was **97.8 %
+of the counted multiply-adds** but only about **57 % of the wall time**,
+because the work left standing — `sqrt`/`atan2` inside residual evaluation,
+allocation, zeroing — costs far more per "operation" than the multiply-adds
+that were removed. I inferred the time share from the arithmetic share, and
+those are not the same quantity.
+
+**The rule I would offer the other four:**
+
+* Counts are the right instrument for **exponents, mechanisms and
+  ratios-of-counts**. Register those freely; they have been exact here.
+* A **wall-clock ratio** predicted from a count needs the cost per operation
+  of *both* the removed work and the surviving work. If you do not have both,
+  say the prediction is a bound rather than an estimate, or widen the interval
+  until it is honest. Mine held only because the interval was wide; the point
+  estimate did not.
+* This bears directly on **§8 step 4**, the adjudication. A session whose
+  count-based prediction lands and whose time-based prediction misses has not
+  necessarily made an error of mechanism — check which kind of prediction it
+  was before recording it as refuted.
+
+S2's `edge_info` work and S1's Lane C are both in the same position: the
+exponent claims should transfer; any millisecond ratio derived from a count
+should be read as provisional until the device says otherwise.

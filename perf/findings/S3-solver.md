@@ -419,7 +419,8 @@ change to `solveConstraints` in the same session as this one, and a merge into
 - `flutter test`: **2116 green**, against 2050 before this session — the 66
   added are this session's two files. Run twice: once on S3 alone, once after
   merging `claude/perf-opt` at `d87ac11` (S1's bench branch and S2's shim v21),
-  where it is **2122 green** — the same 2116 plus S2's six. The merge had no
+  where it is **2122 green** — the same 2116 plus S2's six; and **2128** once
+  §9's LM work and its six pin cases landed. The merge had no
   conflict: S2 changes `occt_capi`/`occt_engine.dart`, S3 `solver.dart` and
   twelve lines of `app_state.dart`.
 - `python3 -m unittest discover -s ci -p 'test_*.py'`: 45 green.
@@ -544,3 +545,111 @@ and for a tangency; plus `debugRank`'s triple. No tolerances anywhere — `_lm`
 moves geometry, and after eighty damped iterations a difference in the
 fifteenth decimal is not guaranteed to stay in the fifteenth decimal, because
 the λ schedule branches on `e2 < err`.
+
+### 9.3 Adjudication of P5 — one prediction exact, one nearly refuted
+
+Measured on the same harness with the same warm-up on both sides (the 557 ms
+quoted in §9.1 had no warm-up; re-measured with one it is 575 ms, so the two
+figures are the same number and the warm-up was not what moved).
+
+| | before | after | |
+| --- | ---: | ---: | ---: |
+| `JᵀJ` multiply-adds | 8 801 520 | **1 810** | **4 863×** |
+| host wall, `solve.overConstrained` | 575 ms | **247 ms** | **2.33×** |
+| solved geometry | — | — | **bit-identical** |
+
+**P5(a): exact, and better evidence than "inside the interval" suggests.**
+Predicted 1 860 ± 150 from the row occupancy; measured **1 810**. That number
+is not merely close to the prediction — it is *identical to the independently
+counted 1 810 products that had two nonzero factors* in the before-run. The
+new formulation performs precisely the multiplications that were doing work
+and not one more. There is nothing left to remove from that loop.
+
+**P5(b): met only at the ceiling of its interval, and the point estimate was
+wrong by a factor of two.** Predicted 120 ms [60, 250]; measured **247 ms**.
+I will not dress that up: the interval held, the estimate did not, and the
+reason is a methodological error worth more than the prediction.
+
+I inferred the wall-time share from the *arithmetic* share. `JᵀJ` was 97.8 %
+of the counted multiply-adds, so I charged the surviving work only what was
+left over. Solving backwards from the measurement, `JᵀJ` was in fact about
+**57 %** of the wall time:
+
+&nbsp;&nbsp;&nbsp;&nbsp;575 × (1 − f) = 247 → f ≈ 0.57
+
+**A counted multiply-add is not a unit of time.** What survives here — 845
+`_residuals` evaluations carrying `sqrt` and `atan2`, the per-iteration
+allocation and zeroing of an n × n matrix, `_solveDense` — costs far more per
+"operation" than the multiply-adds that were removed. §9.2's derivation named
+this caveat and then under-weighted it by about half.
+
+This matters beyond S3, because reasoning from operation counts is the
+technique this whole branch has adopted in the absence of a device (§0, and
+S2's findings do the same). The counts remain the right tool for **exponents
+and mechanisms** — they are exact, device-independent and noise-free, and
+they were exactly right about both here. They are a **poor proxy for
+wall-clock ratios** whenever the work left standing is transcendental-heavy or
+allocation-heavy. Predicting a *ratio* from a count requires knowing the cost
+per operation of both the removed work and the surviving work, and I knew
+neither.
+
+**P5(c) is untouched by this** — it was a device prediction and only a device
+run adjudicates it. But it was derived from P5(b)'s point estimate, so it
+should be read down accordingly: with the measured 2.33× rather than the
+predicted 4.6×, `solve.overConstrained` projects to 66.4 / 2.33 ≈ **28.5 ms**
+rather than 20 ms, and `solve.lm` to 50.4 / 2.33 ≈ **21.6 ms** rather than
+15 ms. Both are still inside their registered intervals ([10, 40] and [7, 30]).
+I am recording the revision rather than quietly reusing the intervals.
+
+### 9.4 What is left in the LM, and why I am stopping here
+
+The remaining 247 ms is dominated by the `_residuals` calls that build the
+Jacobian — n + 1 of them per iteration, each O(m), each carrying real
+trigonometry. That is **the same problem as §6**: making it cheaper needs a
+constraint → parameter dependency map, and the same two hazards apply
+(`ctx.onCurve`'s frozen frame, `CType.pattern`). The boundary is drawn in the
+same place for the same reason, and drawing it consistently is the point: both
+Jacobian builders in this file discover their sparsity by perturbing, so
+neither can miss a dependency nobody declared.
+
+The other survivor is the per-iteration `List.generate(n, ...)` for `JᵀJ` —
+O(n²) allocated and zeroed five times here. It could be hoisted and
+selectively re-zeroed from the sparsity pattern, since `_solveDense` destroys
+it in place. I have not done it: it is a smaller term than the residuals, and
+it would trade a clearly-correct allocation for a reuse whose invalidation I
+would then have to argue. If the device run shows the LM still hot after this
+change, that is the next thing to take, and it is cheap.
+
+---
+
+## 10. Against the noise floor (§3.2), which is the worst in the app
+
+The S3 brief points at §3.2 specifically: `analyze` has a 13 % IQR and a 17 %
+full spread, `solve` 4 % and 18 %. **A change below ~17 % in either is not a
+signal.** That is the bar every claim here has to clear before a device run
+can even see it.
+
+| quantity | change | noise floor | readable? |
+| --- | ---: | ---: | --- |
+| `stress.analyze` @ 1024 | **−95.2 %** (20.7×) | ~17 % | yes — 5.6× the floor |
+| `stress.analyze` @ 512 | −86.4 % (7.35×) | ~17 % | yes |
+| `stress.analyze` @ 256 | −64.5 % (2.82×) | ~17 % | yes |
+| `stress.analyze` @ 128 | −33.0 % (1.49×) | ~17 % | yes, but not comfortably |
+| `stress.analyze` @ 64 | −11.7 % (1.14×) | ~17 % | **no — inside the noise** |
+| `solve.overConstrained` | −57.0 % (2.33×) | ~18 % | yes |
+| `JᵀJ` multiply-adds | −99.98 % | none (exact count) | yes |
+| `stress.analyze.rssDeltaMB` | −99 % predicted | not characterised | probably |
+
+Two consequences I want on the record before the device run, so that neither
+is read as a surprise afterwards:
+
+1. **The 64-entity rung will not show this change**, and may come back either
+   side of its baseline. That is not a regression and not a failure of P1 — it
+   is an 11.7 % move against a 17 % floor, on a rung the device records as
+   1 ms against a 1 µs quantum (§5.5.1's own footnote declines to use it in
+   any ratio). The exponent fit is what carries P1, and §5 fits it over the
+   top three rungs for exactly this reason.
+2. **The counters carry more weight than the durations here**, which is also
+   §1.1's stated evidence order. `analyze.cache.hit`/`miss` and the
+   `sketch.analyze` span count are exact; the `JᵀJ` count is exact. If the
+   device durations come back muddy, those still adjudicate the mechanism.
