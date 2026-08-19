@@ -146,13 +146,16 @@ static occt_shape *buildRing(int n, double r, double h)
     return occt_extrude_profile_arcs(xyb.data(), counts, 1, h, 0.0);
 }
 
-/* Facet edge length of a regular n-gon of circumradius r. The ladder's fillet
- * radius has to fit inside the smallest facet on the LARGEST rung, or the
- * blend fails there and the sweep loses its top point. */
+/* Facet edge length of a regular n-gon of circumradius r — what limits how
+ * large a fillet the ladder's solids can hold. */
 static double facetLength(int n, double r)
 {
     return 2.0 * r * std::sin(M_PI / n);
 }
+
+/* The ladder's fillet radius, in model units. Fixed on purpose; see the note
+ * at its use site. */
+static constexpr double kLadderFilletRadius = 0.1;
 
 /* ------------------------------------------------------------------------ */
 /* Process memory                                                            */
@@ -201,6 +204,7 @@ struct RunOpts {
     int reps = 7;
     double budget_ms = 20000.0; /* per operation, per rung */
     bool validate = false;
+    bool no_alloc = false;
     std::string json_path;
     std::string md_path;
 };
@@ -389,8 +393,9 @@ static void runLadder(const RunOpts &opts)
         }
         int faces = 0, edges = 0, verts = 0;
         occt_shape_counts(s, &faces, &edges, &verts);
-        std::printf("\n[rung] profilePts=%d  edges=%d  faces=%d\n", n, edges,
-                    faces);
+        std::printf("\n[rung] profilePts=%d  edges=%d  faces=%d  facet=%.4f mm "
+                    "(ladder fillet radius %.4f)\n",
+                    n, edges, faces, facetLength(n, 40.0), kLadderFilletRadius);
 
         auto stamp = [&](Measured m, const char *note) {
             m.profile_pts = n;
@@ -541,19 +546,23 @@ static void runLadder(const RunOpts &opts)
         }
 
         /* --- fillet against SHAPE SIZE.
-         * The radius is held constant across the whole ladder at a quarter of
-         * the SMALLEST facet the ladder reaches, so one geometric size is
-         * feasible on every rung. A radius that varied with n would confound
-         * the sweep: the exponent would then mix shape size with blend size,
-         * and §6.3's separate radius sweep below exists precisely because
-         * those two are not the same axis. */
+         * The radius is a FIXED CONSTANT, not derived from the ladder. It was
+         * derived from the ladder at first — a quarter of the smallest facet
+         * the ladder reached — and that was wrong in a way worth recording:
+         * it made the radius depend on --sizes, so a three-rung run and a
+         * four-rung run measured different operations at the same rung and
+         * their numbers could not be compared. A benchmark whose fixture moves
+         * with its arguments cannot be used to compare two runs, which is the
+         * only thing anyone wants a benchmark for.
+         *
+         * kLadderFilletRadius is small enough to fit inside the facet of every
+         * rung the ladder can reach: a ring(n, 40) prism has facet length
+         * 80*sin(pi/n), which is 0.209 mm at n = 1200, so 0.1 mm stays under
+         * half a facet up to sizes far beyond anything measurable here. If a
+         * future ladder goes past that, change the constant deliberately and
+         * re-derive, rather than letting it drift. */
         {
-            int largest_n = n;
-            for (int cand : opts.sizes)
-                largest_n = std::max(largest_n, cand);
-            /* The largest rung has the SMALLEST facet, so sizing the radius
-             * from it keeps one geometric size feasible everywhere. */
-            const double r = 0.25 * facetLength(largest_n, 40.0);
+            const double r = kLadderFilletRadius;
             const std::vector<int> ids = verticalEdges(s, 10.0, 1);
             if (!ids.empty()) {
                 const double radii[1] = {r};
@@ -569,8 +578,8 @@ static void runLadder(const RunOpts &opts)
                               occt_free_shape(out);
                               out = nullptr;
                           }),
-                      "occt_fillet_edges_ex, ONE vertical corner edge, radius "
-                      "constant across the whole ladder");
+                      "occt_fillet_edges_ex, ONE vertical corner edge, at a "
+                      "radius fixed independently of the ladder");
             } else {
                 std::printf("  [rung %d] no vertical corner edge found\n", n);
             }
@@ -1054,6 +1063,11 @@ static void usage()
         "  --md PATH         write the human-readable report\n"
         "  --validate        exit non-zero unless the gating exponents agree\n"
         "                    with PERFORMANCE_PROFILE.md §6.5\n"
+        "  --no-alloc        skip allocation accounting. It costs three atomic\n"
+        "                    increments per malloc, and allEdges makes tens of\n"
+        "                    millions of them — use this when comparing the\n"
+        "                    RELATIVE cost of allocation-heavy against\n"
+        "                    allocation-light operations\n"
         "  --quick           a fast shape-only run (sizes 60,120,240, reps 3)\n"
         "  --help\n");
 }
@@ -1100,6 +1114,8 @@ int main(int argc, char **argv)
             opts.md_path = next("--md");
         else if (a == "--validate")
             opts.validate = true;
+        else if (a == "--no-alloc")
+            opts.no_alloc = true;
         else if (a == "--quick") {
             opts.sizes = {60, 120, 240};
             opts.reps = 3;
@@ -1128,10 +1144,24 @@ int main(int argc, char **argv)
     std::printf("kernel : %s (shim v%d)\n", occt_version(), occt_shim_version());
     std::printf("host   : %s / %s\n", hostOs(), hostArch());
 
-    /* The allocation counters are proved before they are used, never after —
-     * a column of silent zeroes is the failure mode this guards against. */
-    bench::allocSelfTest();
-    std::printf("alloc  : %s\n", bench::allocCountingMechanism());
+    /*
+     * The allocation counters are proved before they are used, never after — a
+     * column of silent zeroes is the failure mode this guards against.
+     *
+     * They are not free. Every malloc gains three relaxed atomic increments,
+     * and `allEdges` at the top rung makes them by the hundred million, so an
+     * allocation-heavy operation is penalised relative to an allocation-light
+     * one. It does NOT move an exponent — a constant cost per allocation, on a
+     * quantity that grows with the same exponent as the time, is a change of
+     * constant — but it does distort cost RATIOS between operations. Use
+     * --no-alloc when the ratio is what you are reading.
+     */
+    if (opts.no_alloc)
+        std::printf("alloc  : disabled (--no-alloc)\n");
+    else {
+        bench::allocSelfTest();
+        std::printf("alloc  : %s\n", bench::allocCountingMechanism());
+    }
     std::printf("rungs  :");
     for (int n : opts.sizes)
         std::printf(" %d", n);
