@@ -159,38 +159,63 @@ control — which is the cleanest possible statement of "the exponents now
 match". A `maxSize` that stops short of 1920 bounds the true cost from below:
 whatever rung it stops at, that rung exceeded 4000 ms.
 
-## Prediction P2 — the counters, and a conservation law
+## Prediction P2 — the counters, exactly
 
 `allEdges()` stops calling `occt_shape_edge_info`, so the counter that names
-that call must stop counting for it. It is replaced by two: one crossing
-counter and one work counter.
+that call must stop counting for it.
+
+**What the baseline counter actually was.** `ffi.occt.edgeInfo.calls` = 8316 was
+emitted *only* from `allEdges()`, once per call with `by = n`. The direct
+single-edge callers — `kernel.edgeInfo1` and `kernel.edgeInfoScale.*` — emitted
+nothing. So 8316 is **edges enumerated**, not calls made, and the name was
+already wrong before this change.
+
+After the change the name is made true and the work is counted separately:
+
+| Counter | Baseline | Predicted | Source of the number |
+| --- | ---: | ---: | --- |
+| `ffi.occt.edgeInfo.calls` | 8316 | **100** | `kernel.edgeInfo1` n = 20 plus `kernel.edgeInfoScale.{24,60,120,240}` n = 20 each — the only direct callers left |
+| `ffi.occt.edgesInfo.calls` | — | **44** | `ffi.occt.allEdges` n = 42, plus two stress rungs (below) |
+| `ffi.occt.edgesInfo.edges` | — | **16 956** | 8316 + 2880 + 5760 |
 
 ```
-Target        : ffi.occt.edgeInfo.calls, and two new counters
-Baseline      : ffi.occt.edgeInfo.calls = 8316   (perf/baseline.json)
-                ffi.occt.allEdges       n = 42   (span)
-Mechanism     : 8316 = 100 single-edge calls + 8216 edges enumerated across
-                42 allEdges() calls. The 100: kernel.edgeInfo1 (n=20) and
-                kernel.edgeInfoScale.{24,60,120,240} (n=20 each).
-Change        : allEdges() makes ONE crossing and reports the edge count
-                separately.
-Predicted     : ffi.occt.edgeInfo.calls   8316 -> 100   (exact)
-                ffi.occt.edgesInfo.calls  new  ->  42   (exact)
-                ffi.occt.edgesInfo.edges  new  -> 8216  (exact)
-Derivation    : 100 + 8216 = 8316. The SUM IS INVARIANT. Work was regrouped,
-                not dropped.
-Falsifiable by: any of the three integers coming out different. These are
-                counters — exact, invariant under a change of processor,
-                zero false positives from noise (§15.4 tier 1). If
-                edgesInfo.edges + edgeInfo.calls != 8316, either a scenario
-                changed or the enumeration lost edges, and BOTH are defects.
-Risk          : none to behaviour; this is a bookkeeping prediction whose
-                only purpose is to be exactly right or exactly wrong.
+Falsifiable by: any of the three integers coming out different. Counters are
+                exact, processor-invariant and noise-free (§15.4 tier 1), so
+                these are the sharpest predictions in this file.
+Risk          : the last two are CONDITIONAL ON P1, and deliberately so.
 ```
 
-**This will be reported by the gate as a counter regression.** Saying so in
-advance is the plan's §5 Session 4 instruction and it applies here identically:
-a counter that changes is a finding, and this one is the win.
+**Why the last two depend on P1, and what that buys.** `stress.kernel.allEdges`
+is a ladder over `[120, 240, 480, 960, 1920]` profile points that stops when a
+rung exceeds 4000 ms; it has been stopping at 480. If P1 holds, the last two
+rungs run and enumerate 2880 and 5760 more edges. So the counter *reports how
+far the ladder got*, which makes the three-way outcome exactly readable:
+
+| `edgesInfo.edges` | `edgesInfo.calls` | Means |
+| ---: | ---: | --- |
+| 16 956 | 44 | the ladder reached 1920 points — P1 holds |
+| 11 196 | 43 | it reached 960 and stopped — a partial win |
+| 8 316 | 42 | it still stops at 480 — P1 refuted |
+| anything else | — | **a scenario changed, which is a defect, not a result** |
+
+The last row is the point of writing this down: any fourth value means the
+suite is not running the work the baseline recorded, and the durations under it
+are not comparable to anything.
+
+**Two more gate entries follow from the same cause**, both expected:
+
+- `stress.allEdges.edges` (gauge, the last completed rung): 1440 → **5760**.
+  The gate calls a changed gauge a failure — "the fixture changed size" — and
+  here it is right that it does, and right that the change is deliberate.
+- `stress.allEdges.maxSize` (ceiling gauge): 480 → **1920**, reported as
+  "ceiling up (improvement)".
+- `ffi.occt.allEdges` span: n 42 → 44, which the gate reports as a CALLS
+  failure because the means are then not comparable. They are not; the span is
+  now averaging over two rungs the baseline never reached.
+
+**All of this will be reported by the gate as failures.** Saying so in advance
+is what the plan asks of Session 4 for the same reason, and it applies here
+identically: a counter that changes is a finding, and these are the win.
 
 ## Prediction P3 — the single-edge path is a control and must NOT improve
 
@@ -202,7 +227,11 @@ Change        : none to its cost — the refactor moves code, not work.
 Predicted     : unchanged, within the run's own noise floor. k = 0.985
                 stays 0.985.
 Falsifiable by: any of these five means moving by more than the measured
-                floor for the family.
+                floor for the family. And, at counter level and exactly:
+                ffi.occt.edgeInfo.calls must be 100 (P2) — five spans of
+                n = 20, all of them still going through the single-edge
+                door. A smaller number means something quietly stopped
+                calling it.
 Risk          : if they IMPROVE, the refactor changed the single-edge path's
                 cost, which means the lazy context is not reproducing the
                 original order of operations. That is a defect, not a bonus:
@@ -350,3 +379,153 @@ a tolerance would hide precisely the reordering this test exists to catch.
   without anyone editing it.
 - **Re-recording `perf/baseline.json`.** Plan §0 rule 3.
 
+---
+
+## 5. The other two findings in §6.3, and why neither produced a code change
+
+### 5.1 Fillet and chamfer cost the same for 1, 4 or 12 edges
+
+Measured (§10.2, uncapped reference arm, and reproduced on an earlier capped
+run at 49.3–49.5 ms):
+
+| | 1 edge | 4 edges | 12 edges | fit |
+| --- | ---: | ---: | ---: | --- |
+| `kernel.fillet.edges` | 25.54 ms | 25.57 ms | 25.83 ms | **k = 0.00**, R² = 0.0025 |
+| `kernel.chamfer.edges` | 25.54 ms | 25.57 ms | 25.83 ms | **k = 0.00** |
+
+The plan asks: "flat cost against a swept axis means the work is not per-edge;
+find what the fixed cost is." Reading `occt_fillet_edges_ex` and the helpers it
+calls, the happy path — where `blend_ladder` succeeds on its first rung, which
+is what the fixture does — performs **six whole-shape operations, none of which
+depends on how many edges are in the set**:
+
+| # | Operation | Where | Scales with |
+| --- | --- | --- | --- |
+| 1 | `TopExp::MapShapes(EDGE)` | `occt_fillet_edges_ex` entry | edges |
+| 2 | `solid_volume(base)` → `BRepGProp::VolumeProperties` | `c.base_vol` | faces |
+| 3 | `BRepFilletAPI_MakeFillet mk(base, ChFi3d_Rational)` | `try_fillet_build` | the shape |
+| 4 | `mk.Build()` | `try_fillet_build` | the shape |
+| 5 | `solid_volume(out)` | `blend_result_ok` | faces of the result |
+| 6 | `BRepCheck_Analyzer(out).IsValid()` | `blend_result_ok` | the whole result |
+
+Only `mk.Add(radius, edge)` — step 4's input — is per-edge, and it is a
+constant-time registration, not a build. **k = 0.00 is therefore not a
+surprise; it is what this control flow predicts.** The measurement and the
+source agree, which is the useful part: it means there is no hidden per-edge
+cost to go looking for.
+
+**Nothing here can be removed without changing behaviour, and behaviour does
+not change.** Steps 3 and 4 are OCCT's own blend and are irreducible. Steps 2,
+5 and 6 are the catastrophe guard, and its history is in the source: OCCT's
+`BRepFilletAPI` reports `IsDone()` and still hands back solids that fail
+`BRepCheck_Analyzer` — self-intersecting wires, invalid pcurves on the blend
+faces. Dropping the guard would make blends that currently fail cleanly start
+succeeding with a corrupt solid. That is a behaviour change of the worst kind:
+invisible until the part is reopened.
+
+So this is recorded as a **closed question, not an unfixed defect**. What would
+change it is not shim work but a cheaper guard, and evaluating one needs a
+measurement of the guard alone — which Lane C can produce and this session
+cannot (see `CROSS-SESSION.md`, S2-2).
+
+One thing that *is* worth stating, because §6.3 states its converse: at one
+filleted edge the profile measures the candidate search (`allEdges`) at 4.9× the
+blending itself. That ratio is a statement about `allEdges`, and it is this
+session's main change that moves it. If P1 holds, candidate search stops being
+the dominant half of "fillet one edge" and the flat 25.5 ms becomes the whole
+of it.
+
+### 5.2 The 65× radius discontinuity
+
+| Quantity | Value |
+| --- | ---: |
+| `filletEdges` at r = 1.0, one solid | ≈ 10 ms |
+| `filletEdges` at r = 4.0, same solid | **658 ms** |
+| Ratio | **≈ 65×** |
+
+n = 3. The profile is explicit that this is "a demonstration of magnitude, not
+a characterised curve", and it says why: "a radius large enough to reach
+neighbouring geometry is not a slower instance of the same operation; it is a
+different operation."
+
+The plan's instruction was "understand it before touching it; this may be
+OCCT's own behaviour and not fixable in the shim, which is a legitimate result
+to record." **That is the result.** The shim's contribution to a fillet at
+r = 4.0 is identical to its contribution at r = 1.0 — the same six operations
+of §5.1, on the same solid, with one number different in one `mk.Add` call.
+Everything that differs happens inside `BRepFilletAPI_MakeFillet::Build()`,
+where a blend surface that intersects neighbouring faces forces the walking
+algorithm to trim and re-intersect against geometry a small radius never
+touches.
+
+There is one shim-side amplifier worth naming, and it is not the cause but it
+multiplies the cost when the radius is *just* too large: `blend_ladder` retries
+a failed build at five relative sizes (1.0, 1−10⁻⁶, 1−10⁻⁵, …), and
+`blend_edges_subset` will then probe each edge alone and rebuild the survivors.
+A radius that fails on the first four rungs pays for five whole builds. That is
+deliberate — it is what makes a 2 mm fillet on a 2 mm wall work at all, and the
+source records the OCCT issue behind it — and the 658 ms figure is a *success*,
+so it did not walk the ladder. But it means the tail of this distribution is
+far worse than 65×, and anyone measuring it should count builds, not only
+milliseconds.
+
+**No change made.** Changing the ladder changes which fillets build, which is a
+behaviour change, and it would be one made against n = 3.
+
+---
+
+## 6. Results — host-side, which is all this session can produce
+
+No device measurement exists yet. Everything below is verification, not
+measurement, and the distinction is the whole point of §2 of the plan.
+
+### 6.1 What was actually changed
+
+| File | Change |
+| --- | --- |
+| `backend/occt/shim/occt_capi.cpp` | `edge_info_ctx` + `edge_info_one()` factored out of `occt_shape_edge_info`; new `occt_shape_edges_info`; shim version 20 → 21 |
+| `backend/occt/shim/occt_capi.h` | the new entry point and its contract |
+| `backend/occt/tests/smoke_occt.c` | scenario **[35]**, the bitwise identity pin |
+| `frontend/lib/ffi/occt_engine.dart` | `_EdgesInfoN/D`, the eager lookup, `OcctEdgeInfo.decodeRecord`, `allEdges()` rewritten to one call, counters |
+| `frontend/test/bulk_edge_info_test.dart` | new — the Dart half of the decode, pinned |
+
+Nothing else. In particular: no file belonging to another session, no
+`PERFORMANCE_PROFILE.md`, no `perf/baseline.json`, no `frontend/lib/perf*.dart`.
+
+### 6.2 Verification actually run
+
+| Gate | Result |
+| --- | --- |
+| `flutter test` | **2050 passing**, including the 6 new ones |
+| `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | **0 errors**; 55 infos/warnings, all pre-existing and none in a file this session touched |
+| `python3 -m unittest discover -s ci -p 'test_*.py'` | **45 passing** |
+| C++ shim | **not compilable here** — see below |
+| `smoke_occt.c` | `gcc -fsyntax-only -Wall -Wextra -std=c99` against the real `occt_capi.h`: clean |
+
+**The C++ could not be compiled in this session and that is a real gap.**
+`backend/occt/CMakeLists.txt` consumes an OCCT *install tree* built from the
+submodule in `backend/occt/upstream`, and that submodule is not checked out
+here. What was done instead: the new block — `edge_info_ctx`, `edge_info_one`,
+both entry points — was extracted and compiled in isolation under
+`g++ -std=c++17 -fsyntax-only -Wall -Wextra` against hand-written stand-ins for
+the OCCT types it touches. Clean, no warnings. That proves syntax and type
+usage; it does **not** prove that `BRepClass3d_SolidClassifier` behaves as
+assumed when one instance answers many `Perform` calls. The `occt-build.yml`
+job is what actually compiles this, and smoke scenario [35] is what actually
+checks the assumption.
+
+### 6.3 The two things a reader should be most sceptical of
+
+1. **Reusing one `BRepClass3d_SolidClassifier` across every edge.** This is the
+   assumption the whole change rests on and the one nothing here can verify.
+   Constructing once and calling `Perform` many times is the class's documented
+   usage, and scenario [35] compares the resulting convexity flags bitwise
+   against the per-edge path on four solids — but it is CI that will run that,
+   not this session. If it fails, the fix is a fresh classifier per edge, which
+   keeps three of the four hoists and most of the win.
+2. **The per-edge failure marker.** The old path could fail one edge and carry
+   on; a positional array cannot return null. Type −1 reproduces the old
+   semantics, and `bulk_edge_info_test.dart` pins the distinction between −1
+   (drop) and 0 (degenerate, keep) — because getting *that* backwards would
+   renumber every edge after a degenerate one, which is exactly the silent
+   corruption §3.2 is about.
