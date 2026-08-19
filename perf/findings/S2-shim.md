@@ -367,9 +367,11 @@ fixtures turned out not to reach.
 
 ## 4. Deliberately not done
 
-- **`kernel.fillet.edges` flatness (§6.3, §10.2, k = 0.00).** Diagnosed, not
-  changed — see §5. The finding is that the flat cost is OCCT's, not the
-  shim's.
+- **`kernel.fillet.edges` flatness (§6.3, §10.2, k = 0.00).** Nothing was
+  changed *for* it, and §5.1 explains why that turned out to be right for a
+  reason this session got wrong twice before getting it right: the flat cost is
+  the scenario's own `allEdges` candidate search, so the change this session
+  already made **is** the fix. The blend itself is not flat (k = 0.617).
 - **Fillet radius sensitivity (10 ms at r = 1.0 against 658 ms at r = 4.0).**
   See §5.2. Recorded as OCCT behaviour, not a shim defect.
 - **`sweepProfile` (§6.1).** Not touched — an absolute cost with a two-point
@@ -385,57 +387,89 @@ fixtures turned out not to reach.
 
 ## 5. The other two findings in §6.3, and why neither produced a code change
 
-### 5.1 Fillet and chamfer cost the same for 1, 4 or 12 edges
+### 5.1 Fillet and chamfer "cost the same for 1, 4 or 12 edges" — WRONG, and the correction matters
 
-Measured (§10.2, uncapped reference arm, and reproduced on an earlier capped
-run at 49.3–49.5 ms):
+**This subsection originally claimed that the flat 25.5 ms was
+`occt_fillet_edges_ex` performing six whole-shape operations per call, none of
+them per-edge, and concluded the question was closed. Both halves are wrong.**
+The claim is left described rather than deleted so the record shows what was
+believed; what follows replaces it.
 
-| | 1 edge | 4 edges | 12 edges | fit |
-| --- | ---: | ---: | ---: | --- |
-| `kernel.fillet.edges` | 25.54 ms | 25.57 ms | 25.83 ms | **k = 0.00**, R² = 0.0025 |
-| `kernel.chamfer.edges` | 25.54 ms | 25.57 ms | 25.83 ms | **k = 0.00** |
+**What `kernel.fillet.edges` actually measures.** The fitted family value is the
+scenario's *dominant span*, and reading `perf/baseline.json` at scenario scope
+shows which span that is:
 
-The plan asks: "flat cost against a swept axis means the work is not per-edge;
-find what the fixed cost is." Reading `occt_fillet_edges_ex` and the helpers it
-calls, the happy path — where `blend_ladder` succeeds on its first rung, which
-is what the fixture does — performs **six whole-shape operations, none of which
-depends on how many edges are in the set**:
+| scenario | `ffi.occt.allEdges` | `ffi.occt.filletEdges` |
+| --- | ---: | ---: |
+| `kernel.fillet.edges.1` | 25.593 ms | **5.201 ms** |
+| `kernel.fillet.edges.4` | 25.562 ms | **10.675 ms** |
+| `kernel.fillet.edges.12` | 25.580 ms | **24.110 ms** |
 
-| # | Operation | Where | Scales with |
-| --- | --- | --- | --- |
-| 1 | `TopExp::MapShapes(EDGE)` | `occt_fillet_edges_ex` entry | edges |
-| 2 | `solid_volume(base)` → `BRepGProp::VolumeProperties` | `c.base_vol` | faces |
-| 3 | `BRepFilletAPI_MakeFillet mk(base, ChFi3d_Rational)` | `try_fillet_build` | the shape |
-| 4 | `mk.Build()` | `try_fillet_build` | the shape |
-| 5 | `solid_volume(out)` | `blend_result_ok` | faces of the result |
-| 6 | `BRepCheck_Analyzer(out).IsValid()` | `blend_result_ok` | the whole result |
+The family's published 25.54 / 25.57 / 25.83 ms is the **`allEdges` column** —
+`perf_scenarios_kernel.dart` opens each rung with
+`s.allEdges().where((e) => e.filletable)` to pick the edges to blend, and that
+candidate search is what dominates the scenario. **The blend itself is not
+flat at all:** 5.201 → 24.110 ms over a 12× range fits **k = 0.617**, which
+matches Session 1's independent reading of the device runs (k = 0.62) and Lane
+C's own measurement (k = 0.640).
 
-Only `mk.Add(radius, edge)` — step 4's input — is per-edge, and it is a
-constant-time registration, not a build. **k = 0.00 is therefore not a
-surprise; it is what this control flow predicts.** The measurement and the
-source agree, which is the useful part: it means there is no hidden per-edge
-cost to go looking for.
+§6.3 of the profile says this in plain words — "the wall time does not move
+because candidate search dominates it" — and its own table lists `filletEdges`
+at 10.1 / 20.8 / 46.7 ms, visibly rising. This session read the *plan's*
+one-line framing ("fillet and chamfer cost the same for 1, 4 or 12 edges — flat
+cost against a swept axis means the work is not per-edge; find what the fixed
+cost is") and went looking for a fixed cost inside the shim's blend. There
+isn't one. The fixed cost was `allEdges`, sitting one line above the blend in
+the Dart scenario.
 
-**Nothing here can be removed without changing behaviour, and behaviour does
-not change.** Steps 3 and 4 are OCCT's own blend and are irreducible. Steps 2,
-5 and 6 are the catastrophe guard, and its history is in the source: OCCT's
-`BRepFilletAPI` reports `IsDone()` and still hands back solids that fail
-`BRepCheck_Analyzer` — self-intersecting wires, invalid pcurves on the blend
-faces. Dropping the guard would make blends that currently fail cleanly start
-succeeding with a corrupt solid. That is a behaviour change of the worst kind:
-invisible until the part is reopened.
+**The consequence is not a footnote: the flat cost is this session's own
+quadratic.** §6.3's headline — "candidate search = 4.9× the rounding at one
+edge" — is a statement about `allEdges`, so the change this session made *is*
+the fix for §6.3, and nothing separate was needed. Having looked for it in the
+wrong place cost this session an analysis, not a change.
 
-So this is recorded as a **closed question, not an unfixed defect**. What would
-change it is not shim work but a cheaper guard, and evaluating one needs a
-measurement of the guard alone — which Lane C can produce and this session
-cannot (see `CROSS-SESSION.md`, S2-2).
+**What survives of the original subsection.** The source reading itself was
+accurate as far as it went: `occt_fillet_edges_ex` on the happy path performs
+`TopExp::MapShapes(EDGE)` for index validation, `solid_volume(base)`,
+`BRepFilletAPI_MakeFillet` construction and `Build()`, then `solid_volume(out)`
+and `BRepCheck_Analyzer(out).IsValid()`. What was wrong was calling that set
+"the flat cost": it is a fixed cost per *call*, and it sits underneath a blend
+term that grows with edge count. Session 1 has since measured the split — see
+§7.5, where the fixed part comes to **≥ 45.2 %** of a one-edge blend, and the
+"closed question" verdict is withdrawn.
 
-One thing that *is* worth stating, because §6.3 states its converse: at one
-filleted edge the profile measures the candidate search (`allEdges`) at 4.9× the
-blending itself. That ratio is a statement about `allEdges`, and it is this
-session's main change that moves it. If P1 holds, candidate search stops being
-the dominant half of "fillet one edge" and the flat 25.5 ms becomes the whole
-of it.
+**Nothing here is changed in code, and that part of the original verdict
+stands.** The guard is why a blend that would hand back a self-intersecting
+solid fails cleanly instead. That is behaviour, and behaviour does not change.
+
+## Prediction P6 — `kernel.fillet.edges` stops being flat
+
+Registered because it follows from the correction above and is sharp: an
+exponent that flips from 0.00 to a specific non-zero value.
+
+```
+Target        : the kernel.fillet.edges and kernel.chamfer.edges families
+Baseline      : 25.54 / 25.57 / 25.83 ms at 1 / 4 / 12 edges, k = 0.00,
+                R^2 = 0.0025 (section 10.2) — i.e. the allEdges column
+Mechanism     : the family value is the scenario's DOMINANT span, and that
+                span is the candidate search, not the blend.
+Change        : allEdges collapses, so it stops dominating.
+Predicted     : the dominant span becomes ffi.occt.filletEdges and the
+                family reads ~5.2 / 10.7 / 24.1 ms with k -> 0.617
+                [0.55, 0.70]. Same for chamfer: 5.122 / 10.025 / 24.186 ms,
+                k -> 0.626.
+Derivation    : straight from the scenario-scope spans above; the blend
+                column is unchanged by this session and the search column
+                is what falls.
+Falsifiable by: k staying at 0.00. That would mean allEdges still dominates
+                a scenario whose blend costs 24 ms at twelve edges, i.e.
+                the enumeration is still above 24 ms on a 72-edge solid,
+                which would refute P1 and P5 together.
+Risk          : the family label may switch span underneath the name, so
+                the gate will report this as a large duration change on
+                kernel.fillet.edges.* rather than as a new family. Read it
+                as the span it now tracks, not as a regression.
+```
 
 ### 5.2 The 65× radius discontinuity
 
@@ -771,10 +805,13 @@ larger one, and it is **not** this session's to make on the evidence available:
 
 Recorded for §8 rather than acted on.
 
-### 7.5 One correction to §5.1, from Session 1's measurement
+### 7.5 The fillet guard, measured — and §5.1's threshold not met
 
-§5.1 offered a threshold: "if it comes out small — say under 15 % — the
-question is closed for good." Lane C measured it, and **it is not closed**:
+The original §5.1 offered a threshold: "if it comes out small — say under 15 % —
+the question is closed for good." (That subsection has since been corrected on
+a larger point; see §5.1. The threshold survives the correction, because it was
+always about `occt_fillet_edges_ex` and not about the family value.) Lane C
+measured it, and **it is not closed**:
 
 | | ms |
 | --- | ---: |
