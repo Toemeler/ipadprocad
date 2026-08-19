@@ -311,6 +311,12 @@ one's.
 
 ### 5. Host result
 
+> **Superseded by §12.** The figures below were taken on the OLD base
+> (`claude/perf-opt` @ `d87ac11`). §12 re-measures both sides on the
+> integration base with the same harness and reports 13.53x rather than
+> 20.69x. The exponents agree; the ratio does not. Read §12 first.
+
+
 Same machine, same test, uninstrumented, `analyzeSketch` on the
 `stress.analyze` ladder. The "before" column is the implementation as it stood
 at `4890f06`, measured the same way (not the instrumented copy of §0, whose
@@ -722,3 +728,94 @@ sparse path skip an operation whose result was *near* zero rather than exactly
 zero, none of that would hold and all three clauses would come back into
 force. The distinction is exact zero versus small, and it is the whole
 foundation of this session's correctness claim.
+
+---
+
+## 12. Re-measured on the integration base — the ratio moved, and this is the authoritative table
+
+§5's host figures were taken on the **old** base
+(`claude/perf-opt` @ `d87ac11`). After landing on `claude/perf-opt-solver`
+(@ `2921d3f`, with S1, S2, S4 and S5 in it) the same rung measured about twice
+as long. That was not CPU contention — I checked, and it reproduces on an idle
+machine — so I re-ran **both sides** here: same base, same harness, same
+warm-up ladder, nothing else running. This table supersedes §5's.
+
+| n (entities) | dense | sparse | speedup |
+| ---: | ---: | ---: | ---: |
+| 64 | 41.3 ms | 35.3 ms | 1.17x |
+| 128 | 111.1 ms | 60.4 ms | 1.84x |
+| 256 | 266.2 ms | 76.4 ms | 3.49x |
+| 512 | 1 618.8 ms | 239.6 ms | 6.76x |
+| **1024** | **25 593.1 ms** | **1 891.6 ms** | **13.53x** |
+
+Fitted over the top three rungs:
+
+| | *k* | R² |
+| --- | ---: | ---: |
+| dense | **3.293** | 0.9856 |
+| sparse | **2.315** | 0.9732 |
+
+### What moved, and what did not
+
+| | old base | this base |
+| --- | ---: | ---: |
+| dense @ 1024 | 20 701 ms | 25 593 ms (×1.24) |
+| sparse @ 1024 | 1 001 ms | 1 892 ms (×1.89) |
+| speedup | 20.69x | **13.53x** |
+| dense *k* (top three) | 3.404 | 3.293 |
+| sparse *k* (top three) | 1.966 | 2.315 |
+
+**The exponents held; the ratio did not.** Both runs reproduce the device's
+cubic on the dense side (3.404 and 3.293 against the measured 3.198
+[2.835, 3.561]), and both put the sparse side firmly between quadratic and
+cubic-excluded. The *ratio*, which is the quantity §5 led with, moved by a
+third between two runs of identical code.
+
+**The sparse side is the host-sensitive one** — it moved 1.89× between runs
+while the dense side moved 1.24×. That is the expected direction and worth
+stating as a finding rather than an annoyance: the dense form is
+compute-bound, a long arithmetic loop over a resident array; the sparse form
+is allocation- and pointer-chasing-bound, and those are what a shared container
+starves first. On a device with a fixed clock and no neighbours the spread
+should be narrower, but I cannot show that from here.
+
+### Consequences for the registered predictions
+
+**P1 holds on both runs, but less comfortably than §5 implied.** Predicted
+k = 2.0 ± 0.35, i.e. [1.65, 2.35]. Measured 1.966 (old base) and **2.315**
+(this base) — the second is inside, with 0.035 to spare. The claim that
+survives without qualification is the weaker and more important one: **both
+intervals exclude 3, and the cubic is gone.**
+
+**P2 is better supported by this run than by the last.** Registered:
+700 ms [400, 1600] for the device's top rung.
+
+&nbsp;&nbsp;&nbsp;&nbsp;8 837 / 13.53 = **653 ms** (this base)
+&nbsp;&nbsp;&nbsp;&nbsp;8 837 / 20.69 = 427 ms (old base)
+
+The point estimate of 700 ms was derived before either measurement, and 653 ms
+is within 7 % of it. §5 reported 427 ms and called the estimate "too optimistic
+by ~2×"; on this evidence that self-criticism was itself wrong, and the
+original derivation was closer to right than the first measurement suggested.
+Both figures are inside the registered interval, which is the only thing a
+device run will adjudicate.
+
+**This is S3-4's own lesson landing on S3.** That entry warned the other
+sessions that a wall-clock ratio predicted from an operation count is a bound,
+not an estimate. The same caution applies to a wall-clock ratio *measured* on
+a shared host: 20.69× and 13.53× are the same code. The exponent is the claim
+to carry into §8; the ratio is an indication, and I have now quoted it two
+ways.
+
+### §10's table, corrected to this run
+
+| quantity | change | noise floor | readable? |
+| --- | ---: | ---: | --- |
+| `stress.analyze` @ 1024 | −92.6 % | ~17 % | yes |
+| @ 512 | −85.2 % | ~17 % | yes |
+| @ 256 | −71.3 % | ~17 % | yes |
+| @ 128 | −45.6 % | ~17 % | yes |
+| @ 64 | −14.5 % | ~17 % | **no — still inside the noise** |
+
+The conclusion §10 drew is unchanged, including the one that matters: **the
+64-entity rung remains unreadable** and may land either side of its baseline.
