@@ -310,12 +310,34 @@ desktop-class machine are not iPad milliseconds and are not quoted.
 Session 2 merged into `claude/perf-opt` while this session was running, and
 their change rewires `OcctShape.allEdges()` itself to go through the new bulk
 `occt_shape_edges_info`. `OcctPartKernel.edgesOf` **is** `shape.allEdges()`, so
-the patterned-blend path of §3 inherits the fix with no change on this side —
-which is exactly the composition §8.2 describes, seen from the other end: the
-factor of *N* stays *N*, and every one of those *N* enumerations got cheaper.
-S5's own code is unchanged by this and no prediction is registered for it; it
-belongs to S2's ledger, not this one. Recorded here only so that integration
-does not attribute the same movement twice.
+the patterned-blend path of §3 inherits the fix with no change on this side.
+
+**Session 1's Lane C then measured what that inheritance is worth, and it is
+not what "the bulk path fixes it" would suggest.** `occt_shape_edges_info` fits
+**k = 1.909** [1.887, 1.932], R² = 0.9999, against the per-edge loop's 2.054
+[1.984, 2.123] on identical solids in the same run (`S1-bench.md` §5). The
+intervals are disjoint, so the exponent did move — but a bulk path that had
+removed the whole-shape work would fit ≈ 1.0, and this does not. **It is a ~20×
+win on the constant and the quadratic survives.**
+
+For §3's finding that composes as follows, and the two factors are independent:
+
+| | before | after S2 |
+| --- | ---: | ---: |
+| enumerations per patterned blend | *N* | *N* (unchanged — §3) |
+| cost of one, 180-edge body (§8.2) | 142.9 ms | ~20× less on the constant |
+| growth of one, in edge count | k ≈ 2.01 | **k = 1.909 — still quadratic** |
+
+So a patterned blend on the §8.2 fixture gets roughly 20× cheaper without S5
+touching anything, and a patterned blend on a body four times the size still
+costs roughly sixteen times as much as one on that fixture. The factor of *N*
+is not removable in Dart (§3); the exponent is not removed by the bulk path
+either. Both statements are now measured rather than argued.
+
+S5's own code is unchanged by any of this and no prediction is registered for
+it — it belongs to S1's and S2's ledgers. Recorded here only so that
+integration does not attribute the same movement twice, and so that §3's
+finding is read against what the kernel work actually delivered.
 
 ## 3. The finding: a patterned blend cannot share one edge enumeration
 
@@ -380,18 +402,38 @@ warned about, and it is not a hypothetical: it follows from three lines of code.
 
 The cost does not go away; it moves.
 
-- **The fix belongs where §6.5 puts it.** One `allEdges` costs Θ(n²) because
-  each `occt_shape_edge_info` does whole-shape work (profile §6.5). Session 2's
-  bulk entry point makes each of the N enumerations cheap; N stays N. At the
-  measured 180-edge body that turns 8 × 142.9 ms into 8 × (whatever the bulk
-  path costs), which is the whole of the 97.6 %.
+- **The fix belongs where §6.5 puts it**, and it has now partly landed. One
+  `allEdges` costs Θ(n²) because each `occt_shape_edge_info` does whole-shape
+  work (profile §6.5). Session 2's bulk entry point makes each of the *N*
+  enumerations **~20× cheaper on the constant while leaving them quadratic**
+  (Lane C: k = 1.909 [1.887, 1.932] against the per-edge loop's 2.054 —
+  `S1-bench.md` §5). *N* stays *N* regardless, for the reason in §3.1. So on the
+  measured 180-edge body, 8 × 142.9 ms becomes roughly 8 × 7 ms — and on a body
+  twice the size it is still four times that, which is the part the bulk path
+  did not fix and nobody should expect it to have.
 - **Collapsing N fillets into one is the only way to remove the factor of N**,
   and it is a behaviour change, not an optimisation. Resolving every
   occurrence's fingerprints against one enumeration of the *base* body and
-  issuing a single `filletEdges` with all the ids would cost one enumeration and
-  — per §10.2, where `kernel.fillet.edges` is flat at k = 0.00, 25.5 ms for 1 or
-  12 edges — one blend. It is registered in `CROSS-SESSION.md` as a proposal and
-  **not implemented**, because:
+  issuing a single `filletEdges` with all the ids would cost one enumeration
+  instead of *N*.
+
+  **Correction, after Session 1's S1-4.** When this was first registered in
+  `CROSS-SESSION.md` it also claimed the blend term collapsed, on the strength
+  of §10.2's `kernel.fillet.edges` being flat at k = 0.00, and quoted a total of
+  1 170.65 ms → ≈ 168 ms. Both halves of that were wrong and the correction is
+  appended to `CROSS-SESSION.md` rather than edited over the original. The flat
+  25.5 ms is the `ffi.occt.allEdges` **candidate search** in the Dart scenario,
+  not the blend; `filletEdges` itself is per-edge at k = 0.62 (10.1 / 20.8 /
+  46.7 ms for 1 / 4 / 12 edges), so folding *N* one-edge blends into one saves
+  `N^0.38` — **2.3× at N = 8, not 8×**. And the 1 170.65 ms total added two
+  different scenarios and then subtracted a blend measured on a third fixture,
+  which §8.2 warns against in as many words ("what is still not measured:
+  `applyBlendOccurrence` end to end"). What survives is the structural half: the
+  enumeration term falls from 8 × 142.9 ms to 142.9 ms on the §8.2 body. No
+  single total should be quoted for the collapse.
+
+  It is registered in `CROSS-SESSION.md` as a proposal and **not implemented**,
+  because:
   - a multi-edge fillet is not the same OCCT operation as a sequence of
     single-edge fillets where blends interact;
   - the face ids and edge indices of the result would differ from the sequential
@@ -399,8 +441,14 @@ The cost does not go away; it moves.
     rebuilds;
   - per-occurrence failure attribution ("occurrence 3: … could not be applied")
     would be lost;
-  - and none of that can be settled on a host with no OCCT. It needs either
-    Lane C (S1) or a device run.
+  - and the identity half cannot be settled on a host with no OCCT.
+
+  The **cost** half is no longer blocked: Lane C landed while this session was
+  running and `occt_bench` already reports `fillet.edges` (the blend alone) as
+  its own operation, so "does one N-edge fillet beat N one-edge fillets" is a
+  desktop run of minutes. The **identity** half — whether the resulting shape's
+  face ids and edge indices match the sequential result — is what still needs a
+  real comparison, and Session 2's identity pin is the shape of test for it.
 
 That last point is the honest summary: **this is unprovable from where S5
 sits**, which the plan's §7 anticipates.
@@ -425,6 +473,15 @@ sits**, which the plan's §7 anticipates.
   √B resolution was modelled and is *worse* below 1440 faces (9.6× at 360
   against 22.0×) and better above it. If a device run ever shows bodies past
   ~1500 faces mattering, that is the crossover to revisit.
+- **Sizing the cell array to the base list.** The index allocates two
+  `Int32List`s of 2 × 655 + 1 entries whatever `B` is — ~10 kB per call, which
+  at `B` just over the threshold is a lot of fixed cost for a little work.
+  Making the cell count `clamp(B, 16, 655)` would be exact (a *wider* cell never
+  loses a match, it only adds candidates) and would make the fixed term O(B).
+  Not done, because the host check above shows 6.5× already at 122 faces — the
+  fixed cost is not where the time is going, and a second exactness argument for
+  a saving the evidence says is not needed is complexity for its own sake. If a
+  device run shows the small-body case mattering, this is the lever.
 - **Any change to `edgesOf` itself.** It is one line — `shape.allEdges()` — and
   the cost is behind the FFI boundary in S2's file.
 
