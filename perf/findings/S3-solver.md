@@ -416,7 +416,12 @@ change to `solveConstraints` in the same session as this one, and a merge into
 
 - `flutter analyze`: 0 errors, 55 issues — the count `HANDOFF.md` records as
   the standing baseline since M220, and none of them in the changed code.
-- `flutter test`: green.
+- `flutter test`: **2116 green**, against 2050 before this session — the 66
+  added are this session's two files. Run twice: once on S3 alone, once after
+  merging `claude/perf-opt` at `d87ac11` (S1's bench branch and S2's shim v21),
+  where it is **2122 green** — the same 2116 plus S2's six. The merge had no
+  conflict: S2 changes `occt_capi`/`occt_engine.dart`, S3 `solver.dart` and
+  twelve lines of `app_state.dart`.
 - `python3 -m unittest discover -s ci -p 'test_*.py'`: 45 green.
 - Behaviour pinned by `m232_analyze_pin_test.dart` (35 golden cases + purity +
   no-mutation) recorded against the OLD implementation and unchanged by the

@@ -19,7 +19,6 @@
 // the hit rate during a drag must be ZERO. A hit there would not be a win, it
 // would be the proof that the key had missed something that moved. The last
 // group asserts exactly that.
-import 'package:flutter/painting.dart' show Offset;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';

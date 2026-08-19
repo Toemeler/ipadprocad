@@ -85,3 +85,58 @@ solid, bounds the guard from below and settles it. No new fixture is needed.
 If it comes out small — say under 15 % — the question is closed for good and
 should be written into the profile as closed. If it comes out large, that is a
 finding for integration (§8) to route, not something to act on mid-flight.
+
+---
+
+## S3-1 — the gate will report counter and gauge changes from S3, and two of them are the win
+
+**Raised by:** Session 3 (2D solver).
+**Files:** none of anyone's — this is a note for whoever runs §8 step 3.
+**Blocked:** no.
+
+`ci/perf_gate.py` keys on counters and gauges before durations (§1.1's evidence
+order). Session 3's change will move three things in that output, and all three
+are expected:
+
+1. **Two counters that did not exist before:** `analyze.cache.hit` and
+   `analyze.cache.miss`, from the memo in front of the DOF analysis. On the
+   suite they should read **hit = 0** and miss = one per app-level analysis.
+   The stress and ramp tiers call `analyzeSketch` directly, not through the
+   memo, so their ladders are unaffected and remain comparable to the
+   baseline.
+
+2. **A NON-ZERO `analyze.cache.hit` during `ui.drag60` is a defect, not a
+   win.** It would mean the cache key failed to notice geometry that moved,
+   i.e. the memo is unsound and must come out. This is registered as
+   prediction P4 in `S3-solver.md` and is asserted by
+   `test/m232_analyze_cache_test.dart`; if the device run contradicts the
+   test, believe the device.
+
+3. **`sketch.analyze` span count drops by one on the sketch-open path.**
+   `openSketch` carried a dead `analysis = analyzeSketch(...)` whose value
+   `_reanalyze()` overwrote unconditionally four lines later. It is deleted,
+   not cached, so that one span disappears rather than becoming a hit.
+
+## S3-2 — §5.5.2's operation count is wrong by 69x and needs correcting when the findings are folded in
+
+**Raised by:** Session 3 (2D solver).
+**Files:** `PERFORMANCE_PROFILE.md` §5.5.2 — nobody's to edit before §8 step 5.
+**Blocked:** no. Recorded here so it is not lost between the findings file and
+the fold-in.
+
+§5.5.2 derives the RREF cost as `m · total · rank` = 2.35 × 10¹⁰ operations at
+1024 entities and reads an implied Dart throughput of 2.66 × 10⁹ op/s out of
+it. The bound assumes a dense matrix, but `_rankAndPivots` has always carried
+`if (f == 0) continue;` and therefore skips every row that is exactly zero in
+the pivot column — which, on a Jacobian with two nonzeros per row, is nearly
+all of them. **Counted: 3.40 × 10⁸ executed multiply-adds, not 2.35 × 10¹⁰.**
+The implied throughput is 3.85 × 10⁷ op/s.
+
+The exponent and the attribution both survive — the counted operations fit
+k = 2.933 against the device's measured 3.198 [2.835, 3.561] — so §5.5.1,
+§5.5.3, the §4 ranking and the verdict all stand unchanged. It is one
+paragraph of arithmetic inside §5.5.2 that needs replacing, and the derivation
+is in `S3-solver.md` §0.2.
+
+Same caution generally: a theoretical `O(...)` bound quoted as an operation
+count overstates any loop in this codebase that skips zeros, and several do.
