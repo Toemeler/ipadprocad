@@ -191,10 +191,23 @@ List<PerfScenario> buildQualityScenarios() {
         solveConstraints(gs, cs, iterations: 25);
         sw.stop();
         final ms = sw.elapsedMicroseconds / 1000.0;
-        // TWO solves per painted frame — that is what the painter actually
-        // does today (viewport.dart:2088 and :2683), so a budget computed on
-        // one solve would be optimistic by exactly a factor of two.
-        final perFrame = ms * 2;
+        // ONE solve per painted frame. It was two until M233: the painter
+        // called displayGeometry from both the dofColour and the constraints
+        // phase, and each call solved (120 solves per 60 frames, counted
+        // exactly in PERFORMANCE_PROFILE 5.2). S4 memoised it on the drag
+        // position, so every caller within one position — both paint phases,
+        // the tool preview, the snap path and endGripDrag — now shares one
+        // solve.
+        //
+        // Corrected at integration rather than by S4, because lib/perf*.dart
+        // is the measurement apparatus and a session changing it mid-flight
+        // would invalidate the baseline every other session was gated
+        // against. Safe to change here: the two gauges below are excluded
+        // from the regression gate (ci/perf_gate.py skips `quality.` — they
+        // are derived results, not fixture sizes), and no span timing moves,
+        // because the scenario measures the same solve and only multiplies
+        // it differently.
+        final perFrame = ms;
         if (perFrame <= budget120) last120 = n;
         if (perFrame <= budget60) last60 = n;
         if (perFrame > budget60 * 4) break;
@@ -203,9 +216,11 @@ List<PerfScenario> buildQualityScenarios() {
       Perf.gauge('quality.budget.entitiesAt60Hz', last60);
     },
     note: 'the largest sketch that still solves inside one frame, counting the '
-        'TWO solves per frame the painter really does. These two numbers are '
-        'the design limit: past them, dragging cannot be smooth however good '
-        'the rest of the frame is',
+        'ONE solve per frame the painter does since M233 (it was two until '
+        'S4 memoised displayGeometry on the drag position). These two numbers '
+        'are the design limit: past them, dragging cannot be smooth however '
+        'good the rest of the frame is. A run against a build older than M233 '
+        'reports a budget twice as generous as that build can actually meet',
   ));
 
   // ---- 4. caches ---------------------------------------------------------
