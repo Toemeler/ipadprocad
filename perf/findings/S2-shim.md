@@ -345,11 +345,13 @@ time.
 
 Pinned by test `[35]` in `backend/occt/tests/smoke_occt.c`: bulk against
 per-edge, **all twelve doubles compared for exact bitwise equality**, on four
-solids chosen to exercise every branch — a box (12 straight edges, all convex),
-a cylinder (circular edges, a seam), a solid with a concave edge (so the
-convexity sign is exercised in both directions), and a filleted solid (spline
-edges, i.e. the `default:` curve-type branch). Exact equality, not a tolerance:
-a tolerance would hide precisely the reordering this test exists to catch.
+solids — a box (12 straight edges, all convex), a cylinder (circular edges, a
+seam), an L-prism (a reflex profile vertex, so the convexity sign is exercised
+in both directions), and a filleted solid. Exact equality, not a tolerance: a
+tolerance would hide precisely the reordering this test exists to catch.
+
+**This has now run** — see §6.4 for the result, and for the one branch the
+fixtures turned out not to reach.
 
 ### 3.3 What this session cannot establish
 
@@ -557,15 +559,58 @@ checks the assumption.
 ### 6.3 The two things a reader should be most sceptical of
 
 1. **Reusing one `BRepClass3d_SolidClassifier` across every edge.** This is the
-   assumption the whole change rests on and the one nothing here can verify.
-   Constructing once and calling `Perform` many times is the class's documented
-   usage, and scenario [35] compares the resulting convexity flags bitwise
-   against the per-edge path on four solids — but it is CI that will run that,
-   not this session. If it fails, the fix is a fresh classifier per edge, which
-   keeps three of the four hoists and most of the win.
+   assumption the whole change rests on and the one nothing on this host can
+   verify. Constructing once and calling `Perform` many times is the class's
+   documented usage, and scenario [35] compares the resulting convexity flags
+   bitwise against the per-edge path on four solids — but only CI runs that.
+   **It has now been run and it passed; §6.4.** Had it failed, the fix was a
+   fresh classifier per edge, which keeps three of the four hoists and most of
+   the win.
 2. **The per-edge failure marker.** The old path could fail one edge and carry
    on; a positional array cannot return null. Type −1 reproduces the old
    semantics, and `bulk_edge_info_test.dart` pins the distinction between −1
    (drop) and 0 (degenerate, keep) — because getting *that* backwards would
    renumber every edge after a degenerate one, which is exactly the silent
    corruption §3.2 is about.
+
+### 6.4 The identity pin, run on real OCCT
+
+`occt-build.yml` does not fire on a branch — it triggers on `main` and on
+manual dispatch — so it was dispatched by hand against
+`claude/perf-opt-shim` @ `a37a18d`. Run
+[32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271),
+both jobs green, log committed to `ci-logs-occt/smoke.log` on
+`ci-debug-logs-occt`. Reading the log rather than the checkmark, per the
+HANDOFF rule:
+
+```
+Prototype OCCT shim v21 (OCCT 7.9.3) (shim ABI v21)
+[35] box:      12 edges, bulk wrote 12 — 0 of 12 records differ
+[35] cylinder:  3 edges, bulk wrote  3 — 0 of  3 records differ
+[35] L-prism:  18 edges, bulk wrote 18 — 0 of 18 records differ
+[35] filleted: 15 edges, bulk wrote 15 — 0 of 15 records differ
+[35] coverage: convex edges 44, concave edges 1, curve-kind mask 0x6
+OCCT SMOKE: PASS
+```
+
+**48 edges across four solids, every one of twelve doubles bitwise equal
+between the shared-context path and the per-call path.** That settles the
+question §3.1 and §6.3 flagged as the largest risk in this change: one
+`BRepClass3d_SolidClassifier`, loaded once and asked 48 times, returns exactly
+what 48 freshly constructed ones returned — including the 1 concave edge, where
+a stale classifier would have flipped a sign and reattached a fillet as a
+round. The hoist is sound.
+
+The iOS job also passed, so the new symbol links into the device archive and
+`nm` still finds the full `_occt_*` surface.
+
+**One thing the run refutes, and it is mine.** §3.2 claimed the filleted solid
+would reach the curve-type `switch`'s `default:` branch with spline edges. The
+coverage mask came back **0x6** — bits 1 and 2, straight and circular, and
+nothing else. OCCT's `ChFi3d_Rational` blend on a box edge produces lines and
+arcs, not B-splines, so **the `default:` branch is not exercised by any fixture
+in [35]**. The exposure is small — that branch writes `out10[0] = 4` and falls
+through to the same shared code every other kind uses, so it cannot diverge
+between the two paths on its own — but the claim was wrong and the branch is
+untested rather than tested. A fixture that would reach it is a lofted or swept
+solid; adding one is a follow-up, not a blocker.
