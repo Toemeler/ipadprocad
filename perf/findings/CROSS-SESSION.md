@@ -98,3 +98,96 @@ Session 1's exclusive ownership without argument.
 §7 names both files but neither existed. Session 1 created them with their
 append-only rule at the top. Nothing else is in them; the entries above are
 Session 1's own.
+
+---
+
+## S1-4 — the "flat 25.5 ms fillet" is the candidate search, not the blend
+
+**Found by:** Session 1, when the Lane C harness reproduced §6.3's numbers but
+not §10.2's.
+**For:** **Session 2** — this changes what your §6.3 brief sends you to look for.
+**Files:** `PERFORMANCE_PROFILE.md` §6.3 / §10.2 / §16 (nobody edits it),
+`OPTIMIZATION_PLAN.md` §5 Session 2 (nobody edits it).
+**Blocked:** no. Session 1 measured both halves separately so the ambiguity
+cannot repeat.
+
+`OPTIMIZATION_PLAN.md` §5 tells Session 2:
+
+> **Fillet and chamfer cost the same for 1, 4 or 12 edges** — 25.5 ms flat,
+> k = 0.00, reproduced under both clocks and across two builds (§10.2). Flat
+> cost against a swept axis means the work is not per-edge; find what the fixed
+> cost is.
+
+**There is no mysterious fixed cost to find. The blend is per-edge, and the
+flat quantity is `allEdges` — the same enumeration that is already your main
+target.** Three independent things say so.
+
+**1. The profile's own §6.3 table** gives `filletEdges` alone as
+
+| edges blended | 1 | 4 | 12 |
+| --- | ---: | ---: | ---: |
+| `filletEdges` | 10.1 ms | 20.8 ms | 46.7 ms |
+
+which fits k = 0.62 — a 4.6× rise over a 12× range. That is not flat.
+
+**2. §12.2 reproduces it across two runs** (10.17 / 20.76 / 47.07 in run 3,
+10.10 / 20.76 / 46.66 in run 4 — "runs 3 and 4 agree to within 1 % on every
+fillet quantity"). Whatever is flat, `filletEdges` is not.
+
+**3. The appendix settles what the flat number is.** §10.2's row reads
+`kernel.fillet.edges | 1:25.54 4:25.57 12:25.83 | 0.00`, and §16 lists the
+same family with its columns labelled:
+
+```
+| kernel.chamfer.edges.1  | ui | 31.413 | ffi.occt.allEdges | 25.536 | 3 |
+| kernel.chamfer.edges.4  | ui | 36.353 | ffi.occt.allEdges | 25.571 | 3 |
+| kernel.chamfer.edges.12 | ui | 50.775 | ffi.occt.allEdges | 25.829 | 3 |
+```
+
+25.54 / 25.57 / 25.83 is the **`ffi.occt.allEdges` column** — the candidate
+search. The scenario's own wall time is the `ui` column, 31.4 / 36.4 / 50.8,
+and that grows. §10.2's row carries the scenario's name against the child
+span's numbers, and §6.3's prose ("the wall time does not move because
+candidate search dominates it") states the mechanism correctly while the
+summary table at §4 item 6 compresses it into "Fillet / chamfer fixed cost —
+25.5 ms regardless of edge count", which is where the plan's brief picked it up.
+
+The flatness is real and it is trivial: enumerating a fixed solid costs the
+same however many of its edges you afterwards blend.
+
+**Lane C reproduces both halves independently, on a desktop, in minutes**
+(ring(24, 40) × 10, the device's own fillet fixture, `--quick` run,
+2026-08-19):
+
+| quantity | device | Lane C (linux/x86_64) |
+| --- | ---: | ---: |
+| blend, 1 / 4 / 12 edges | 10.1 / 20.8 / 46.7 ms | 19.3 / 40.3 / 94.7 ms |
+| implied exponent | **0.616** | **0.640** |
+| candidate search | 49.3 ms | 95.9 ms |
+| **search : blend at 1 edge** | **4.9×** (runs 3 and 4) | **4.97×** |
+| radius r=1 → r=4 on the same solid | **65×** | **24×** |
+
+Absolute milliseconds are not comparable and are not offered as such (§13.3);
+the exponent and the ratio are, and they land on top of each other.
+
+**What this means for Session 2's work:**
+
+1. The `filletEdges` brief's premise is wrong, but its conclusion points the
+   right way — §6.3 already says "the candidate search costs 4.9× the actual
+   blending at one edge, which points back at your main finding". It does not
+   point back at it; it **is** it. Fixing the enumeration fixes ~83 % of what a
+   one-edge fillet costs, with nothing else to do.
+2. The per-edge blend cost is OCCT's own `BRepFilletAPI` and there is no
+   evidence here that the shim can improve it.
+3. The **radius discontinuity is the real second finding** and it is not a
+   clock artefact: Lane C reproduces a 24× step at r = 4.0 on a solid where
+   r = 0.5, 1.0 and 2.0 are indistinguishable from each other. A 24× step on a
+   desktop against 65× on the device is the same phenomenon at a different
+   ratio of fixed to scaling cost. It is now iterable in minutes.
+4. `occt_bench` reports `filletCandidateSearch`, `fillet.edges` (blend alone)
+   and `fillet.scenario` (their sum, which is what the device span covers) as
+   three separate operations, so no future reader has to work out which one a
+   number means.
+
+**What integration (§8) should decide:** whether §4 item 6 and §10.2's row
+label are corrected. Session 1 did not touch either file.

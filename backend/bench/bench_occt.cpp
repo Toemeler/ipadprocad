@@ -354,6 +354,31 @@ static std::vector<int> filletableEdges(const occt_shape *s, int want)
     return ids;
 }
 
+/*
+ * The ladder needs the SAME GEOMETRIC SITUATION on every rung, and index order
+ * does not give it: which kind of edge lands at index 1 varies with n, so a
+ * ladder built on "the first filletable edge" was measuring a cap edge on one
+ * rung and a vertical corner on the next, and its cost went DOWN as the shape
+ * grew. A prism's vertical corner edges are the n edges whose arc length is
+ * exactly the extrusion height; blending one of those is one comparable
+ * operation at every size. `height` is the fixture's own extrusion height.
+ */
+static std::vector<int> verticalEdges(const occt_shape *s, double height,
+                                      int want)
+{
+    std::vector<int> ids;
+    const int n = occt_shape_edge_count(s);
+    double info[12];
+    for (int i = 1; i <= n && static_cast<int>(ids.size()) < want; ++i) {
+        if (!occt_shape_edge_info(s, i, info))
+            continue;
+        if (info[0] != 0.0 && info[9] == 2.0 &&
+            std::fabs(info[7] - height) < 1.0e-9)
+            ids.push_back(i);
+    }
+    return ids;
+}
+
 static void runLadder(const RunOpts &opts)
 {
     for (int n : opts.sizes) {
@@ -529,7 +554,7 @@ static void runLadder(const RunOpts &opts)
             /* The largest rung has the SMALLEST facet, so sizing the radius
              * from it keeps one geometric size feasible everywhere. */
             const double r = 0.25 * facetLength(largest_n, 40.0);
-            const std::vector<int> ids = filletableEdges(s, 1);
+            const std::vector<int> ids = verticalEdges(s, 10.0, 1);
             if (!ids.empty()) {
                 const double radii[1] = {r};
                 occt_shape *out = nullptr;
@@ -544,10 +569,10 @@ static void runLadder(const RunOpts &opts)
                               occt_free_shape(out);
                               out = nullptr;
                           }),
-                      "occt_fillet_edges_ex, ONE edge, radius constant across "
-                      "the whole ladder");
+                      "occt_fillet_edges_ex, ONE vertical corner edge, radius "
+                      "constant across the whole ladder");
             } else {
-                std::printf("  [rung %d] no filletable edge found\n", n);
+                std::printf("  [rung %d] no vertical corner edge found\n", n);
             }
         }
 
@@ -561,13 +586,25 @@ static void runLadder(const RunOpts &opts)
 
 /*
  * Both use ringProfile(24, 40) extruded 10, which is the device fixture for
- * kernel.fillet.edges.N and kernel.fillet.radius. §6.3 reports:
- *   - 25.5 ms flat for 1, 4 and 12 edges (k = 0.00) — the work is not
- *     per-edge, and the candidate search costs 4.9x the blending at one edge;
- *   - 10 ms at r=1.0 against 658 ms at r=4.0 on the same solid, a 65x
- *     discontinuity.
- * Session 2 owns both. The harness's job is to make them observable in
- * minutes instead of waiting for a device capture.
+ * kernel.fillet.edges.N and kernel.fillet.radius.
+ *
+ * THREE OPERATIONS, NOT TWO, AND THE REASON MATTERS. The device's fillet
+ * scenario does two things inside one span: it enumerates the solid's edges to
+ * find blend candidates, and then it blends. Reading them apart is the
+ * difference between two opposite conclusions —
+ *
+ *   §6.3's table   `filletEdges` alone   10.1 / 20.8 / 46.7 ms at 1 / 4 / 12
+ *                                        edges: k ~ 0.62, plainly per-edge
+ *   §10.2's row    "kernel.fillet.edges" 25.54 / 25.57 / 25.83, k = 0.00
+ *
+ * — and the appendix (§16, `kernel.chamfer.edges.*`) settles it: those 25.5 ms
+ * are the row's `ffi.occt.allEdges` column, i.e. the CANDIDATE SEARCH, whose
+ * flatness is trivial because it enumerates the same solid however many edges
+ * you then blend. See perf/findings/CROSS-SESSION.md S1-4.
+ *
+ * So the harness measures all three separately — search, blend, and the
+ * scenario that is their sum — and nobody has to guess which one a number
+ * refers to again.
  */
 static void runFilletSweeps(const RunOpts &opts)
 {
@@ -621,7 +658,39 @@ static void runFilletSweeps(const RunOpts &opts)
         m.faces = faces;
         m.profile_pts = 24;
         record(std::move(m),
-               "§6.3: the device measured this FLAT at 25.5 ms for 1, 4 and 12");
+               "the BLEND alone. §6.3's table measured 10.1 / 20.8 / 46.7 ms "
+               "at 1 / 4 / 12 on the device — per-edge, not flat");
+    }
+
+    /* The SCENARIO: what the device's kernel.fillet.edges.N span covers —
+     * candidate search plus blend, in one timed body. Reported beside the two
+     * halves so the flat reading and the per-edge reading can both be seen to
+     * come from the same run. */
+    for (int k : {1, 4, 12}) {
+        const std::vector<int> ids = filletableEdges(s, k);
+        if (static_cast<int>(ids.size()) < k)
+            continue;
+        const std::vector<double> radii(ids.size(), 1.0);
+        occt_shape *out = nullptr;
+        std::vector<int> cands;
+        Measured m = measureOp(
+            opts, "fillet.scenario", "edgesBlended", static_cast<double>(k),
+            noop,
+            [&]() {
+                cands = filletableEdges(s, 1 << 30);
+                out = occt_fillet_edges_ex(s, ids.data(), radii.data(), nullptr,
+                                           k, nullptr, nullptr);
+            },
+            [&]() {
+                occt_free_shape(out);
+                out = nullptr;
+            });
+        m.edges = edges;
+        m.faces = faces;
+        m.profile_pts = 24;
+        record(std::move(m),
+               "search + blend, as the device scenario span covers them — this "
+               "is the one §10.2's flat row describes");
     }
 
     for (double r : {0.5, 1.0, 2.0, 4.0}) {
@@ -1114,12 +1183,14 @@ int main(int argc, char **argv)
             fits.push_back(r);
     }
     {
-        FitRow r;
-        r.op = "fillet.edges";
-        r.axis = "edgesBlended";
-        r.fit = fitOp("fillet.edges", "edgesBlended");
-        if (r.fit.ok)
-            fits.push_back(r);
+        for (const char *op : {"fillet.edges", "fillet.scenario"}) {
+            FitRow r;
+            r.op = op;
+            r.axis = "edgesBlended";
+            r.fit = fitOp(op, "edgesBlended");
+            if (r.fit.ok)
+                fits.push_back(r);
+        }
         FitRow r2;
         r2.op = "fillet.radius";
         r2.axis = "radius";
