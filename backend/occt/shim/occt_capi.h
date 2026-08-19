@@ -354,6 +354,40 @@ int occt_shape_edge_count(const occt_shape *shape);
 int occt_shape_edge_info(const occt_shape *shape, int index, double *out12);
 
 /*
+ * v21 — the record of EVERY topological edge, in ONE traversal of the shape.
+ *
+ * Same twelve doubles per edge, same order, same meaning as
+ * occt_shape_edge_info; record i (0-based) describes edge i+1, so
+ * out12n[12*i + f] is field f of edge i+1. `cap` is the number of RECORDS the
+ * buffer holds — pass occt_shape_edge_count(shape); a buffer smaller than the
+ * edge count is refused rather than partially filled. Returns the number of
+ * records written, or -1 on failure.
+ *
+ * WHY THIS EXISTS, and it is not stylistic. occt_shape_edge_info derives four
+ * things from the WHOLE shape — the edge map, the edge->face ancestor map, the
+ * bounding box, and a solid classifier — and discards all four when it
+ * returns. Calling it once per edge is therefore n x Θ(n).
+ * PERFORMANCE_PROFILE.md §6.5 measures that on a device as k = 2.012
+ * [1.910, 2.113], R² = 1.0000, against a control performing strictly more work
+ * at k = 1.063: a ratio of 200.3x at 1440 edges, ten seconds for one
+ * enumeration, and an extrapolated 56.4 s on the part that failed in the
+ * field. This entry point builds those four once and answers every edge from
+ * them.
+ *
+ * The per-edge computation is literally the same code (see edge_info_ctx in
+ * the .cpp), so the two paths agree bit for bit; smoke scenario [35] pins
+ * that on four solids across all twelve fields.
+ *
+ * One departure from the single-edge contract, and it is deliberate: an edge
+ * the kernel cannot read does not abandon the enumeration. It comes back with
+ * type -1 — outside the documented 0..4 range — and callers drop it. That
+ * reproduces exactly what a Dart-side loop over occt_shape_edge_info did with
+ * a failing edge. Type 0 remains "degenerate edge, legitimately empty" and is
+ * still a valid record.
+ */
+int occt_shape_edges_info(const occt_shape *shape, double *out12n, int cap);
+
+/*
  * v12 — For every DISPLAY edge of the mesh (same order and count as
  * occt_mesh_edges), its 1-based topological index in the owning shape.
  * `out` must hold nedges ints. This is the bridge from "the user tapped this
