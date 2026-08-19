@@ -1,9 +1,9 @@
 platform:   linux
-run_id:     32278299747
-run_number: 4
-sha:        605a6f6cbfbbe5fb38b96c0f5991efc5ed88b6ce
-ref:        refs/heads/claude/perf-opt
-captured:   2026-08-19T17:26:20Z
+run_id:     32279321792
+run_number: 7
+sha:        4a2cb973325f48cb383e50baf010d810128201b4
+ref:        refs/heads/claude/perf-opt-partmodel
+captured:   2026-08-19T17:37:11Z
 
 ABSOLUTE MILLISECONDS IN THESE FILES ARE NOT iPad MILLISECONDS.
 Read relative costs, exponents, allocation and RSS behaviour.
