@@ -27,4 +27,17 @@
 #
 #   git hash-object backend/occt/shim/occt_capi.cpp
 #
-occt_capi.cpp 4b298e2d20afbde4abfe65a81967ae7f53a7b1f9
+occt_capi.cpp 8c46e48a59f7de8c562b2953bcaf6e608fba793d
+
+# Re-recording log — append a line whenever the hash above changes.
+#
+# 2026-08-19  v20 -> v21 (Session 2's occt_shape_edges_info bulk entry point and
+#             the lazy per-shape edge_info context). Re-recorded because this is
+#             precisely the documented case: the shim changed for a reason that
+#             was not meant to move the per-edge exponents, and the comparison
+#             still agrees --
+#                 edgeInfo1  v20 1.053 [0.996, 1.110]  ->  v21 1.077 [1.001, 1.153]
+#                 allEdges   v20 2.057 [1.999, 2.115]  ->  v21 2.054 [1.984, 2.123]
+#             both overlapping their predecessors and both still overlapping
+#             PERFORMANCE_PROFILE.md §6.5. See perf/findings/CROSS-SESSION.md,
+#             Session 1's reply to S2-1.

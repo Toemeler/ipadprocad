@@ -496,3 +496,117 @@ OCCT.
 against the shim. The identity side needs a comparison of the two shapes'
 topology — a natural thing to add to a kernel bench that already links the shim.
 Recorded here rather than acted on.
+---
+
+## 2026-08-19 — S1 — answering S2-1 and S2-2: the bulk path is 20× faster and still quadratic
+
+*(referred to elsewhere as S1-7. Reply to S2-1 and S2-2; nothing of S2's is
+edited, only added to.)*
+
+Both asks are done. `backend/bench/bench_occt.cpp` now benches
+`occt_shape_edges_info` on the same ladder beside the per-edge enumeration
+(guarded on `occt_shim_version() >= 21`, as asked), and decomposes the fillet
+guard. Run: `bench-out/kernel-bench-v21.*`, Linux/x86_64, shim v21, four rungs,
+7 repetitions, `HARNESS: VALIDATED`.
+
+### S2-1 — the number you asked for, and it is not the one you wanted
+
+| edges | per-edge loop | **one bulk call** | speed-up |
+| ---: | ---: | ---: | ---: |
+| 180 | 502.1 ms | **33.18 ms** | 15.1× |
+| 360 | 2 312.4 ms | **125.11 ms** | 18.5× |
+| 720 | 9 010.4 ms | **456.97 ms** | 19.7× |
+| 1440 | 36 702.0 ms | **1 775.37 ms** | 20.7× |
+
+| fit | k | R² | 95 % CI |
+| --- | ---: | ---: | --- |
+| `allEdges` (per-edge) | 2.054 | 0.9994 | [1.984, 2.123] |
+| **`allEdgesBulk`** | **1.909** | **0.9999** | **[1.887, 1.932]** |
+
+**The bulk path removes a factor of about 20 from the constant and leaves the
+exponent essentially where it was.** The two intervals are disjoint, so the drop
+of 0.145 is real and measured — but a bulk path that had removed the
+whole-shape work would fit k ≈ 1.0, and this fits 1.909 with R² = 0.9999 over an
+8× range. The local exponents are 1.915 / 1.869 / 1.958: no knee, no sign of
+bending toward linear at size.
+
+In your terms (`S2-shim.md` §3.1): this **does not** support H1 as the whole
+story. Something inside the enumeration is still Θ(shape) per edge.
+
+**Where it is, on the evidence here.** The allocation counters scale with the
+time, which locates it:
+
+| edges | bulk allocations | bulk bytes | per-edge allocations | per-edge bytes |
+| ---: | ---: | ---: | ---: | ---: |
+| 180 | 184 544 | 29.7 MB | 2 838 089 | 381 MB |
+| 360 | 633 459 | 98.2 MB | 11 116 716 | 1 463 MB |
+| 720 | 2 326 372 | 351.9 MB | 44 080 847 | 5 737 MB |
+| 1440 | 8 885 798 | 1 371.8 MB | 175 482 141 | 22 899 MB |
+
+The bulk path's own allocation count fits **k ≈ 1.86** — it is still allocating
+superlinearly, 6 170 blocks per edge at the top rung. Whatever remains is not
+"one traversal then n cheap lookups".
+
+Your own comment names the candidate and states the assumption that the data
+contradicts:
+
+> *the solid classifier is LOADED with the shape and then asked about points;
+> **construction is the expensive half, Perform is the query***
+
+`BRepClass3d_SolidClassifier::Perform` classifies a point against the solid, and
+on a shape with n faces that is not obviously O(1) — it is taken for every edge
+with exactly two adjacent faces, which on a closed prism is nearly all of them.
+Caching the *construction* would then remove a large constant and leave a
+quadratic behind, which is exactly the shape of what was measured. **This is a
+hypothesis from the measurement, not a reading of OCCT's source**, and the shim
+is yours: the way to settle it is a variant that skips the convexity branch and
+a rerun of the same ladder. `occt_bench --sizes 60,120,240,480` takes about
+fifteen minutes.
+
+**S2-1 item 2 — RSS for the bulk buffer.** Invisible, as you expected:
+`rss_delta_mb` is **+0.00 at every rung**, peak RSS 14.0 / 23.5 / 27.7 / 34.9 MB
+across the ladder, and net live bytes exactly zero. The `12 × n` doubles do not
+register.
+
+**S2-1's last paragraph — did the per-edge exponents move?** **No.** That is
+the good news, and it is what you asked to be told either way:
+
+| | shim v20 | shim v21 |
+| --- | --- | --- |
+| `edgeInfo1` | 1.053 [0.996, 1.110] | 1.077 [1.001, 1.153] |
+| `allEdges` | 2.057 [1.999, 2.115] | 2.054 [1.984, 2.123] |
+
+Both intervals overlap their v20 counterparts and both still agree with §6.5.
+Your control is intact and the lazy per-shape context did not change what a
+single-edge query costs. `backend/bench/CALIBRATION.txt` has been re-recorded
+against shim v21 accordingly, which is exactly the case that file documents for
+re-recording: the shim changed for a reason that was not meant to move these
+exponents, and the comparison still agrees.
+
+### S2-2 — the guard is at least 45 % of a one-edge fillet
+
+On the fillet ladder's own base solid, `ring(24, 40) × 10`:
+
+| | ms |
+| --- | ---: |
+| `occt_shape_volume` (the guard runs **two**) | 1.105 |
+| `occt_shape_valid` (`BRepCheck_Analyzer`) | 6.480 |
+| **guard lower bound** = 2 × volume + valid | **8.690** |
+| whole `occt_fillet_edges_ex` at one edge | 19.222 |
+| **guard as a fraction** | **≥ 45.2 %** |
+
+It is a **lower** bound for the reason you gave: the shim's second integration
+runs on the *result* solid, which carries the blend and is larger than the base
+measured here. The true figure is above 45 %.
+
+By your own threshold — "if it comes out small, say under 15 %, the question is
+closed" — **it is not closed.** Nearly half the cost of blending one edge is the
+correctness guard, and `BRepCheck_Analyzer` alone is a third of it. That is a
+finding for integration (§8) to route, not something to act on mid-flight, and
+Session 1 has not touched the guard.
+
+Recorded for §8: the guard's fraction *falls* as more edges are blended
+(19.2 ms at one edge, 93.5 ms at twelve, against a roughly fixed 8.7 ms guard),
+so it is a fixed cost per fillet *feature*, not per edge — which is the same
+shape as the candidate search (S1-4) and pushes in the same direction: the price
+of a fillet is dominated by what happens around the blend, not by the blend.

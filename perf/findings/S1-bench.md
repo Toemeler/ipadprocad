@@ -525,3 +525,35 @@ evidence that the counter measures the program rather than the machine, and it
 was not designed as a test — it fell out of running the same binary logic twice.
 Byte totals differ by 5–7 % between platforms, which is allocator granularity
 and is what should differ.
+
+## 5. What Lane C was asked for by another session, and what it answered
+
+Session 2 raised two requests against `backend/bench/**` in
+`CROSS-SESSION.md` (S2-1, S2-2). Both are implemented and answered; the full
+reply is that file's last entry. The two numbers, because they are the point of
+the whole instrument existing:
+
+**The bulk enumeration is ~20× faster and still quadratic.**
+`occt_shape_edges_info` fits **k = 1.909 [1.887, 1.932]**, R² = 0.9999, against
+the per-edge loop's 2.054 [1.984, 2.123] on identical solids in the same run.
+The exponent moved — the intervals are disjoint — but a bulk path that had
+removed the whole-shape work would fit ≈ 1.0. The bulk path's own allocation
+count still scales at k ≈ 1.86, 6 170 blocks per edge at the top rung, which
+says the remaining cost is still per-edge whole-shape work rather than
+bookkeeping.
+
+**This is the single thing Lane C was built to be able to say.** Session 2's
+change is a real 20× win on the constant and it is not the fix for the
+exponent; without this harness that could not have been known until the user
+took a device capture, and the capture would have shown a large improvement and
+concealed that the asymptotics survived.
+
+**The fillet correctness guard is at least 45 % of a one-edge fillet** —
+2 × `occt_shape_volume` (1.105 ms) + `occt_shape_valid` (6.480 ms) = 8.690 ms
+against a whole call of 19.222 ms, and it is a lower bound because the shim's
+second integration runs on the larger result solid. Session 2's own threshold
+for closing the question was 15 %.
+
+Both were measured on a desktop, in minutes, with no iPad involved. That is the
+constraint §2 of the plan describes, lifted for the kernel work — which was the
+assignment.
