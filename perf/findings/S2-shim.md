@@ -10,6 +10,89 @@ simulator numbers as iPad milliseconds.
 
 ---
 
+## 0. STATUS FOR THE INTEGRATOR — read this first
+
+**Merged into `claude/perf-opt`.** All of Session 2's work is on the
+integration branch. Nothing is held back on the session branch.
+
+**Complete, and safe to integrate:**
+
+| | |
+| --- | --- |
+| `occt_shape_edges_info` (shim v21) + its Dart binding | done, merged |
+| The face-edge orientation index (the second quadratic) | done, merged |
+| Behaviour pinned by test | smoke `[35]`, bitwise, five solids; `bulk_edge_info_test.dart` for the Dart decode |
+| `flutter analyze` | **0 errors** (55 pre-existing infos/warnings, none in a file this session touched) |
+| `flutter test` | **2084 passing** |
+| `python3 -m unittest discover -s ci` | **45 passing** |
+| Predictions registered with arithmetic | P1–P6 |
+| Files touched outside this session's ownership | **none** |
+
+**TWO THINGS ARE OPEN, and the second one may mean reverting a commit.**
+
+> **The second change — the face-edge orientation index — has not yet been
+> compiled or run anywhere.** This container has no OCCT install tree
+> (`backend/occt/upstream` is not checked out), so the C++ was verified only by
+> extracting the new block and compiling it under `-Wall -Wextra` against
+> hand-written stand-ins for the OCCT types. That proves syntax and type usage.
+> It does **not** prove the index reproduces the scan it replaces.
+
+Two dispatched CI runs settle it, both against commit `1c4735f`, both
+**in progress** as this is written:
+
+| Run | What it decides | Where to read it |
+| --- | --- | --- |
+| [32279262220](https://github.com/Toemeler/ipadprocad/actions/runs/32279262220) `occt-build.yml` | **correctness.** Builds the shim and runs smoke `[35]`, which compares index against scan bitwise on five solids | `ci-logs-occt/smoke.log` on `ci-debug-logs-occt`; look for `[35] ... 0 of N records differ` on all five, then `OCCT SMOKE: PASS` |
+| [32279237755](https://github.com/Toemeler/ipadprocad/actions/runs/32279237755) `kernel-bench.yml` | **effect.** Adjudicates P5 — whether the exponent falls from 1.909 to ~1.0 | Lane C's published bench output |
+
+**What to do with that, concretely:**
+
+- `occt-build.yml` **green** → the change is verified; integrate as normal.
+- `occt-build.yml` **red on `[35]`** → **do not ship the second change.** The
+  first change (v21 bulk enumeration) is independently verified — it passed
+  `[35]` on real OCCT in run
+  [32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271),
+  five solids, 48 edges, zero differing records — so the safe fallback is to
+  revert commit `1c4735f` alone and keep shim v21. §7.3 lists the three
+  correctness details the index turns on, which is where a failure would be.
+- The bench result changes no code either way. A refuted P5 is a *finding*
+  (§7.4 says what it would mean and why this session does not act on it).
+
+**Second open item — the index may not be worth keeping.** The first Lane C
+run on it (macOS/arm64, commit `1c4735f`) came back with the allocation counter
+**unmoved** and the exponent at 1.982, and §7.6 explains why that counter could
+never have adjudicated it: `TopExp_Explorer` does not allocate per step, so
+§7.2's inference from it was unsupported. The measurement that decides is a
+like-for-like timing comparison on one platform, and it is still running.
+**§7.7 gives Session 2's recommendation for each outcome, and on "no material
+change" the recommendation is to revert commit `1c4735f` and ship shim v21
+alone.** The two changes are separate commits precisely so that is a clean
+one-line operation.
+
+**Needs: integrator** — two judgement calls, and per your own note they are the
+kind this session should not carry alone:
+
+1. If `[35]` has not reported by the time integration runs, shipping the index
+   means shipping kernel code that has never been compiled. Session 2's
+   recommendation: revert `1c4735f`, ship v21, which *is* verified.
+2. If the like-for-like timing shows no material change, Session 2 recommends
+   reverting `1c4735f` on the reasoning in §7.7 — an unmeasured improvement at
+   the geometry kernel boundary is what this branch exists to not do. If you
+   disagree, the change is sound and pinned; this is a judgement about risk,
+   not about correctness.
+
+Either way **P1, P2, P4 and P6 do not depend on the index** — they are all
+about the v21 bulk entry point, which is verified and which nothing here
+proposes to revert.
+
+**Corrections this session made to its own record**, so they are not read as
+new claims: P1 is **refuted** (§7.1); §5.1's "closed question" verdict is
+**withdrawn twice over** (§5.1 for attributing the flat cost to the wrong
+call, §7.5 for the threshold Lane C did not meet); and the endorsement given
+to Session 5 about the blend term is withdrawn in `CROSS-SESSION.md`.
+
+---
+
 ## 1. What the profile establishes, restated so the arithmetic below is checkable
 
 `PERFORMANCE_PROFILE.md` §6.5. Four independent lines of evidence, of which two
@@ -367,9 +450,11 @@ fixtures turned out not to reach.
 
 ## 4. Deliberately not done
 
-- **`kernel.fillet.edges` flatness (§6.3, §10.2, k = 0.00).** Diagnosed, not
-  changed — see §5. The finding is that the flat cost is OCCT's, not the
-  shim's.
+- **`kernel.fillet.edges` flatness (§6.3, §10.2, k = 0.00).** Nothing was
+  changed *for* it, and §5.1 explains why that turned out to be right for a
+  reason this session got wrong twice before getting it right: the flat cost is
+  the scenario's own `allEdges` candidate search, so the change this session
+  already made **is** the fix. The blend itself is not flat (k = 0.617).
 - **Fillet radius sensitivity (10 ms at r = 1.0 against 658 ms at r = 4.0).**
   See §5.2. Recorded as OCCT behaviour, not a shim defect.
 - **`sweepProfile` (§6.1).** Not touched — an absolute cost with a two-point
@@ -385,57 +470,89 @@ fixtures turned out not to reach.
 
 ## 5. The other two findings in §6.3, and why neither produced a code change
 
-### 5.1 Fillet and chamfer cost the same for 1, 4 or 12 edges
+### 5.1 Fillet and chamfer "cost the same for 1, 4 or 12 edges" — WRONG, and the correction matters
 
-Measured (§10.2, uncapped reference arm, and reproduced on an earlier capped
-run at 49.3–49.5 ms):
+**This subsection originally claimed that the flat 25.5 ms was
+`occt_fillet_edges_ex` performing six whole-shape operations per call, none of
+them per-edge, and concluded the question was closed. Both halves are wrong.**
+The claim is left described rather than deleted so the record shows what was
+believed; what follows replaces it.
 
-| | 1 edge | 4 edges | 12 edges | fit |
-| --- | ---: | ---: | ---: | --- |
-| `kernel.fillet.edges` | 25.54 ms | 25.57 ms | 25.83 ms | **k = 0.00**, R² = 0.0025 |
-| `kernel.chamfer.edges` | 25.54 ms | 25.57 ms | 25.83 ms | **k = 0.00** |
+**What `kernel.fillet.edges` actually measures.** The fitted family value is the
+scenario's *dominant span*, and reading `perf/baseline.json` at scenario scope
+shows which span that is:
 
-The plan asks: "flat cost against a swept axis means the work is not per-edge;
-find what the fixed cost is." Reading `occt_fillet_edges_ex` and the helpers it
-calls, the happy path — where `blend_ladder` succeeds on its first rung, which
-is what the fixture does — performs **six whole-shape operations, none of which
-depends on how many edges are in the set**:
+| scenario | `ffi.occt.allEdges` | `ffi.occt.filletEdges` |
+| --- | ---: | ---: |
+| `kernel.fillet.edges.1` | 25.593 ms | **5.201 ms** |
+| `kernel.fillet.edges.4` | 25.562 ms | **10.675 ms** |
+| `kernel.fillet.edges.12` | 25.580 ms | **24.110 ms** |
 
-| # | Operation | Where | Scales with |
-| --- | --- | --- | --- |
-| 1 | `TopExp::MapShapes(EDGE)` | `occt_fillet_edges_ex` entry | edges |
-| 2 | `solid_volume(base)` → `BRepGProp::VolumeProperties` | `c.base_vol` | faces |
-| 3 | `BRepFilletAPI_MakeFillet mk(base, ChFi3d_Rational)` | `try_fillet_build` | the shape |
-| 4 | `mk.Build()` | `try_fillet_build` | the shape |
-| 5 | `solid_volume(out)` | `blend_result_ok` | faces of the result |
-| 6 | `BRepCheck_Analyzer(out).IsValid()` | `blend_result_ok` | the whole result |
+The family's published 25.54 / 25.57 / 25.83 ms is the **`allEdges` column** —
+`perf_scenarios_kernel.dart` opens each rung with
+`s.allEdges().where((e) => e.filletable)` to pick the edges to blend, and that
+candidate search is what dominates the scenario. **The blend itself is not
+flat at all:** 5.201 → 24.110 ms over a 12× range fits **k = 0.617**, which
+matches Session 1's independent reading of the device runs (k = 0.62) and Lane
+C's own measurement (k = 0.640).
 
-Only `mk.Add(radius, edge)` — step 4's input — is per-edge, and it is a
-constant-time registration, not a build. **k = 0.00 is therefore not a
-surprise; it is what this control flow predicts.** The measurement and the
-source agree, which is the useful part: it means there is no hidden per-edge
-cost to go looking for.
+§6.3 of the profile says this in plain words — "the wall time does not move
+because candidate search dominates it" — and its own table lists `filletEdges`
+at 10.1 / 20.8 / 46.7 ms, visibly rising. This session read the *plan's*
+one-line framing ("fillet and chamfer cost the same for 1, 4 or 12 edges — flat
+cost against a swept axis means the work is not per-edge; find what the fixed
+cost is") and went looking for a fixed cost inside the shim's blend. There
+isn't one. The fixed cost was `allEdges`, sitting one line above the blend in
+the Dart scenario.
 
-**Nothing here can be removed without changing behaviour, and behaviour does
-not change.** Steps 3 and 4 are OCCT's own blend and are irreducible. Steps 2,
-5 and 6 are the catastrophe guard, and its history is in the source: OCCT's
-`BRepFilletAPI` reports `IsDone()` and still hands back solids that fail
-`BRepCheck_Analyzer` — self-intersecting wires, invalid pcurves on the blend
-faces. Dropping the guard would make blends that currently fail cleanly start
-succeeding with a corrupt solid. That is a behaviour change of the worst kind:
-invisible until the part is reopened.
+**The consequence is not a footnote: the flat cost is this session's own
+quadratic.** §6.3's headline — "candidate search = 4.9× the rounding at one
+edge" — is a statement about `allEdges`, so the change this session made *is*
+the fix for §6.3, and nothing separate was needed. Having looked for it in the
+wrong place cost this session an analysis, not a change.
 
-So this is recorded as a **closed question, not an unfixed defect**. What would
-change it is not shim work but a cheaper guard, and evaluating one needs a
-measurement of the guard alone — which Lane C can produce and this session
-cannot (see `CROSS-SESSION.md`, S2-2).
+**What survives of the original subsection.** The source reading itself was
+accurate as far as it went: `occt_fillet_edges_ex` on the happy path performs
+`TopExp::MapShapes(EDGE)` for index validation, `solid_volume(base)`,
+`BRepFilletAPI_MakeFillet` construction and `Build()`, then `solid_volume(out)`
+and `BRepCheck_Analyzer(out).IsValid()`. What was wrong was calling that set
+"the flat cost": it is a fixed cost per *call*, and it sits underneath a blend
+term that grows with edge count. Session 1 has since measured the split — see
+§7.5, where the fixed part comes to **≥ 45.2 %** of a one-edge blend, and the
+"closed question" verdict is withdrawn.
 
-One thing that *is* worth stating, because §6.3 states its converse: at one
-filleted edge the profile measures the candidate search (`allEdges`) at 4.9× the
-blending itself. That ratio is a statement about `allEdges`, and it is this
-session's main change that moves it. If P1 holds, candidate search stops being
-the dominant half of "fillet one edge" and the flat 25.5 ms becomes the whole
-of it.
+**Nothing here is changed in code, and that part of the original verdict
+stands.** The guard is why a blend that would hand back a self-intersecting
+solid fails cleanly instead. That is behaviour, and behaviour does not change.
+
+## Prediction P6 — `kernel.fillet.edges` stops being flat
+
+Registered because it follows from the correction above and is sharp: an
+exponent that flips from 0.00 to a specific non-zero value.
+
+```
+Target        : the kernel.fillet.edges and kernel.chamfer.edges families
+Baseline      : 25.54 / 25.57 / 25.83 ms at 1 / 4 / 12 edges, k = 0.00,
+                R^2 = 0.0025 (section 10.2) — i.e. the allEdges column
+Mechanism     : the family value is the scenario's DOMINANT span, and that
+                span is the candidate search, not the blend.
+Change        : allEdges collapses, so it stops dominating.
+Predicted     : the dominant span becomes ffi.occt.filletEdges and the
+                family reads ~5.2 / 10.7 / 24.1 ms with k -> 0.617
+                [0.55, 0.70]. Same for chamfer: 5.122 / 10.025 / 24.186 ms,
+                k -> 0.626.
+Derivation    : straight from the scenario-scope spans above; the blend
+                column is unchanged by this session and the search column
+                is what falls.
+Falsifiable by: k staying at 0.00. That would mean allEdges still dominates
+                a scenario whose blend costs 24 ms at twelve edges, i.e.
+                the enumeration is still above 24 ms on a 72-edge solid,
+                which would refute P1 and P5 together.
+Risk          : the family label may switch span underneath the name, so
+                the gate will report this as a large duration change on
+                kernel.fillet.edges.* rather than as a new family. Read it
+                as the span it now tracks, not as a regression.
+```
 
 ### 5.2 The 65× radius discontinuity
 
@@ -614,3 +731,262 @@ through to the same shared code every other kind uses, so it cannot diverge
 between the two paths on its own — but the claim was wrong and the branch is
 untested rather than tested. A fixture that would reach it is a lofted or swept
 solid; adding one is a follow-up, not a blocker.
+
+---
+
+## 7. Adjudication — P1 is refuted on its central claim, and that is the useful part
+
+Session 1's Lane C landed while this session was still open and measured the
+bulk path directly. The full reply is `CROSS-SESSION.md` S1-7; the numbers,
+Linux/x86_64, shim v21, four rungs, 7 repetitions, `HARNESS: VALIDATED`:
+
+| edges | per-edge loop | one bulk call | speed-up |
+| ---: | ---: | ---: | ---: |
+| 180 | 502.1 ms | 33.18 ms | 15.1× |
+| 360 | 2 312.4 ms | 125.11 ms | 18.5× |
+| 720 | 9 010.4 ms | 456.97 ms | 19.7× |
+| 1440 | 36 702.0 ms | **1 775.37 ms** | **20.7×** |
+
+| fit | k | R² | 95 % CI |
+| --- | ---: | ---: | --- |
+| per-edge | 2.054 | 0.9994 | [1.984, 2.123] |
+| **bulk** | **1.909** | **0.9999** | **[1.887, 1.932]** |
+
+### 7.1 What each prediction did
+
+| | Claim | Outcome |
+| --- | --- | --- |
+| **P1** | `stress.allEdges` k → [0.95, 1.10] | **REFUTED.** k = 1.909 [1.887, 1.932]. The interval excludes the prediction by a mile, R² = 0.9999 over an 8× range, local exponents 1.915 / 1.869 / 1.958 — no knee, no bending toward linear. |
+| **P1, direction** | the quadratic's *cost* collapses | Partly upheld: a factor of 20 out of the constant, and the drop of 0.145 in the exponent is real (the two intervals are disjoint). But a constant is not what P1 predicted. |
+| **P3** | the single-edge path must NOT improve | **UPHELD, and this is what makes the rest readable.** `edgeInfo1` 1.053 → 1.077 and per-edge `allEdges` 2.057 → 2.054, both intervals overlapping their v20 counterparts and both still agreeing with §6.5. The control did not move. |
+| **P1, RSS** | the `12 × n` buffer is invisible | **UPHELD.** `rss_delta_mb` +0.00 at every rung, net live bytes exactly zero. |
+| **P2, P4** | counters; the 8.1 % residual | **Not yet adjudicable** — both need the device run. Note that P4 now looks *more* likely, not less: a residual attributed to per-edge boundary cost cannot be what the exponent shows. |
+
+**P1 was wrong about the mechanism being fully accounted for, and §3.1 said in
+advance which of two hypotheses that would mean.** H2 — "something inside the
+enumeration is still Θ(shape) per edge" — is what the data support.
+
+### 7.2 What the residual quadratic actually was
+
+Not the classifier. Session 1 raised `BRepClass3d_SolidClassifier::Perform` as
+the candidate and was explicit that it was "a hypothesis from the measurement,
+not a reading of OCCT's source". Reading the source, in this session's own
+file, finds a plainer culprit:
+
+```c
+for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next())
+    if (ex.Current().IsSame(edge)) { ori = ...; break; }
+```
+
+`into_face_dir` **scanned the face to find the edge it had just been handed**.
+O(edges of the face), asked twice per edge. On an n-gon prism — the fixture
+both the profile and Lane C ladder over — the solid has two end faces bounded
+by n edges each and n side faces bounded by four, so two thirds of all edges
+touch an end face and an enumeration performs **2n × O(n)** explorer steps.
+
+**Lane C's allocation counters settle it, and they were not collected for this
+purpose**, which is what makes them good evidence:
+
+| n (profile pts) | edges | allocations | per edge |
+| ---: | ---: | ---: | ---: |
+| 60 | 180 | 184 544 | 1 025.2 |
+| 120 | 360 | 633 459 | 1 759.6 |
+| 240 | 720 | 2 326 372 | 3 231.1 |
+| 480 | 1 440 | 8 885 798 | 6 170.7 |
+
+Fitting allocations per edge against n:
+
+```
+alloc/edge = 12.252·n + 290.0      residuals below 0.1 % at all four rungs
+```
+
+**Exactly linear in n.** A per-edge cost proportional to the *face being
+scanned* produces that; a fixed cost per edge produces a constant. The slope
+implies ≈ 18.4 allocations per explorer step once the two-thirds fraction is
+taken out, which is what a `TopExp_Explorer` costs per step.
+
+The classifier hypothesis fits the totals too — 12.252·n allocations per call
+would be ≈ 12 per face — so the counters alone do not exclude it. What excludes
+it as *the* explanation is that the scan is a visible O(n) loop in the shim's
+own source with no reason to exist, and removing it is free. If the exponent
+does not fall after removing it, the classifier is next, and §7.4 says what
+that would look like.
+
+### 7.3 The fix
+
+The bulk path builds a **face-edge orientation index**: one explorer pass per
+face, on first request, keyed `(face index, edge index)`, first occurrence
+winning exactly as the scan's `break` did. Θ(face-edge incidences) = Θ(E) on a
+manifold solid, against the Θ(E·F) it replaces.
+
+Three details that are about correctness, not speed:
+
+- The index for a face is built **from the very `TopoDS_Face` object the caller
+  passed**, not from a separate `MapShapes(FACE)` pass. A face reached through
+  the ancestor map and one reached through `MapShapes` could differ in
+  orientation, and every edge orientation an explorer reports is composed with
+  its face's. Exploring the caller's own object removes that question instead
+  of answering it.
+- A second face that is `IsSame` to an indexed one but oriented the other way
+  **falls back to the scan**. In a valid solid this never fires; it costs one
+  byte per face to be sure.
+- `emplace`, not assignment, so the first occurrence wins. A **seam edge
+  appears twice in its face**, once each way, and the scan took the first.
+
+The single-edge entry point keeps the scan. Building an E-sized index to answer
+one question is waste, and that path is P3's control.
+
+`into_face_dir` is split into `edge_ori_in_face` (the scan) and
+`into_face_dir_with_ori` (the geometry), so index and scan feed **identical**
+downstream code. Smoke `[35]` compares the two paths bitwise and is therefore
+now a direct pin of the index against the scan it replaces — with a 24-gon
+prism added, because it is the only fixture there with a face big enough for
+the two to differ in cost.
+
+### 7.6 INTERIM — the first Lane C run on the index, and an inference of mine that was wrong
+
+Run [32279237755](https://github.com/Toemeler/ipadprocad/actions/runs/32279237755),
+macOS / arm64, **at commit `1c4735f` (the index)**. Published to
+`ci-logs-bench/macos/`. `allEdgesBulk`:
+
+| edges | mean ms | **allocations/call, WITH the index** | allocations/call, WITHOUT it (S1's Linux capture) | Δ |
+| ---: | ---: | ---: | ---: | ---: |
+| 180 | 22.72 | 184 680 | 184 544 | **+136** |
+| 360 | 95.52 | 633 718 | 633 459 | **+259** |
+| 720 | 410.62 | 2 326 872 | 2 326 372 | **+500** |
+| 1440 | 1 362.47 | 8 886 779 | 8 885 798 | **+981** |
+
+Fitted `allEdgesBulk` k = **1.982** [1.862, 2.102].
+
+**The allocation counter did not move — and P5 named that counter as its own
+falsification criterion.** On its face that refutes P5. But the honest reading
+is narrower and worse for me:
+
+> **The allocation counter was never evidence about the scan, and §7.2 was
+> wrong to treat it as such.** `TopExp_Explorer` walks a face through
+> `TopoDS_Iterator` over lists that already exist; it does not allocate per
+> step. §7.2 inferred "≈ 18.4 allocations per explorer step" from the fit
+> `alloc/edge = 12.252·n + 290`, and that inference is unsupported. The fit is
+> real and still needs explaining — something *is* proportional to n per edge —
+> but the scan is not what it was measuring, so removing the scan was never
+> going to move it. The small positive deltas above are this session's own
+> `unordered_map`, which is the index paying for itself in allocations.
+
+**What this does and does not settle.** The scan cost *time* without allocating,
+so the counter cannot adjudicate P5 in either direction. The measurement that
+can is a **like-for-like timing comparison on one platform**: the same run's
+ubuntu/x86_64 job, at the same commit, against Session 1's earlier Linux
+capture of 33.18 / 125.11 / 456.97 / 1775.37 ms. That job is still running.
+Comparing the macOS numbers above against those Linux numbers would be the
+cross-platform error this branch exists to avoid (§13.3), so no ratio is
+quoted here.
+
+**Prior, stated before that number arrives:** the exponent came back at 1.982,
+which is *not* lower than the 1.909 measured without the index. Different
+platform, so it is not a comparison — but it is not encouraging either, and
+`S2-shim.md` should not be read as expecting a win. See §7.7 for what happens
+either way.
+
+### 7.7 What Session 2 recommends for the index, on each outcome
+
+The two shim changes are **independent commits** and can be shipped
+separately. That was not an accident; it is why the second one is its own
+commit on top of a first one that had already passed `[35]` on real OCCT.
+
+| Linux rung says | Recommendation |
+| --- | --- |
+| a clear drop (say ≥ 20 % at 1440 edges, or k below 1.7) | **keep the index**, and record the size of the win |
+| no material change | **revert commit `1c4735f`, keep shim v21.** See below |
+| `[35]` red, whatever the timing | **revert `1c4735f`**, unconditionally |
+
+**Why "no material change" should mean revert, and not "keep it, it is
+algorithmically better".** It *is* algorithmically better — Θ(E) against
+Θ(E·F) — and that is exactly the argument this branch was built to distrust.
+The change sits at the geometry kernel boundary, on the path that decides
+convex from concave, which the plan names as "the single most likely way to
+break a real part". §6 of the plan says the definition of done does not
+include "it is faster"; the converse binds equally, and keeping a change on
+the belief that it must be faster, when the harness built to measure it says
+it is not, is the same error wearing different clothes.
+
+If the dominant term is fixed later — see §7.4, the classifier — the scan may
+well surface as the next one, and it can be removed *then*, with a measurement
+in hand. Nothing is lost by waiting: the commit stays in the history and is one
+`git revert` away in either direction.
+
+## Prediction P5 — the second quadratic, registered before Lane C reruns
+
+```
+Target        : Lane C's allEdgesBulk ladder, 60/120/240/480 profile points
+Baseline      : 33.18 / 125.11 / 456.97 / 1775.37 ms, k = 1.909 [1.887, 1.932]
+Mechanism     : into_face_dir's O(edges of face) scan, twice per edge, over
+                end faces carrying n edges each — 2n x O(n) per enumeration.
+Change        : a per-shape face-edge orientation index in the bulk path.
+Derivation    : fitting the measured ladder as bulk(E) = aE^2 + bE gives
+                  a = 8.198e-4 ms/edge^2   b = 0.0524 ms/edge
+                (model reproduces 360 and 1440 exactly by construction, 720
+                to +1.3 % and 180 to +8.5 %). If the scan IS the aE^2 term,
+                removing it leaves bE plus a Theta(E) setup.
+Predicted     : 9.4 / 18.9 / 37.7 / 75.5 ms   (interval [0.8x, 1.5x])
+                k -> 1.00, predicted interval [0.95, 1.15]
+                a further 23.5x at the 1440 rung, 490x against the per-edge
+                loop it started as
+Falsifiable by: [SUPERSEDED — see §7.6. The allocation counter cannot
+                adjudicate this, because TopExp_Explorer does not allocate
+                per step, so removing the scan was never going to move it.
+                The criterion below is left as written, and it is wrong.
+                The measurement that can decide is a like-for-like TIMING
+                comparison on one platform.]
+                THE ALLOCATION COUNTER, which is sharper than the timings.
+                alloc/edge = 12.252*n + 290.0 fits to better than 0.1 %. If
+                the scan is the whole n-dependent term, alloc/edge becomes
+                ~290 CONSTANT and total allocations at 1440 edges fall from
+                8.886e6 to ~4.2e5 — a factor of 21. A counter that stays
+                proportional to n refutes this outright and hands the finding
+                straight to BRepClass3d_SolidClassifier::Perform.
+Risk          : see §7.4.
+```
+
+### 7.4 If P5 is refuted too
+
+Then `Perform` is Θ(faces) and the convexity branch is inherently quadratic
+over an enumeration. That is not a dead end, but it is a different fix and a
+larger one, and it is **not** this session's to make on the evidence available:
+
+- The classifier exists to decide convex from concave, and the source records
+  that the cross-product formulations were tried first and reported *every*
+  edge convex. Replacing it is a correctness change with a known failure mode.
+- The cheap alternative is to classify once per **face pair** rather than once
+  per edge — edges sharing the same two faces on a prism's rim have the same
+  answer only when the faces meet the same way along their whole length, which
+  is not true in general.
+- Either way it wants a device or Lane C run to justify, and an identity pin
+  wider than `[35]`.
+
+Recorded for §8 rather than acted on.
+
+### 7.5 The fillet guard, measured — and §5.1's threshold not met
+
+The original §5.1 offered a threshold: "if it comes out small — say under 15 % —
+the question is closed for good." (That subsection has since been corrected on
+a larger point; see §5.1. The threshold survives the correction, because it was
+always about `occt_fillet_edges_ex` and not about the family value.) Lane C
+measured it, and **it is not closed**:
+
+| | ms |
+| --- | ---: |
+| `occt_shape_volume` (the guard runs two) | 1.105 |
+| `occt_shape_valid` (`BRepCheck_Analyzer`) | 6.480 |
+| guard lower bound = 2 × volume + valid | **8.690** |
+| whole `occt_fillet_edges_ex` at one edge | 19.222 |
+| **guard as a fraction** | **≥ 45.2 %** |
+
+A lower bound, because the second integration runs on the *result* solid, which
+carries the blend. **Nearly half the cost of blending one edge is the
+correctness guard, and `BRepCheck_Analyzer` alone is a third of it.**
+
+This session still does not change it — the guard is why a blend that would
+hand back a self-intersecting solid fails cleanly instead, and that is
+behaviour. But §5.1's verdict of "closed question" was written against a
+threshold that the measurement did not meet, and it is withdrawn: **it is an
+open question for §8**, with the number attached.
