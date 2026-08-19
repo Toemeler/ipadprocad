@@ -614,3 +614,182 @@ through to the same shared code every other kind uses, so it cannot diverge
 between the two paths on its own — but the claim was wrong and the branch is
 untested rather than tested. A fixture that would reach it is a lofted or swept
 solid; adding one is a follow-up, not a blocker.
+
+---
+
+## 7. Adjudication — P1 is refuted on its central claim, and that is the useful part
+
+Session 1's Lane C landed while this session was still open and measured the
+bulk path directly. The full reply is `CROSS-SESSION.md` S1-7; the numbers,
+Linux/x86_64, shim v21, four rungs, 7 repetitions, `HARNESS: VALIDATED`:
+
+| edges | per-edge loop | one bulk call | speed-up |
+| ---: | ---: | ---: | ---: |
+| 180 | 502.1 ms | 33.18 ms | 15.1× |
+| 360 | 2 312.4 ms | 125.11 ms | 18.5× |
+| 720 | 9 010.4 ms | 456.97 ms | 19.7× |
+| 1440 | 36 702.0 ms | **1 775.37 ms** | **20.7×** |
+
+| fit | k | R² | 95 % CI |
+| --- | ---: | ---: | --- |
+| per-edge | 2.054 | 0.9994 | [1.984, 2.123] |
+| **bulk** | **1.909** | **0.9999** | **[1.887, 1.932]** |
+
+### 7.1 What each prediction did
+
+| | Claim | Outcome |
+| --- | --- | --- |
+| **P1** | `stress.allEdges` k → [0.95, 1.10] | **REFUTED.** k = 1.909 [1.887, 1.932]. The interval excludes the prediction by a mile, R² = 0.9999 over an 8× range, local exponents 1.915 / 1.869 / 1.958 — no knee, no bending toward linear. |
+| **P1, direction** | the quadratic's *cost* collapses | Partly upheld: a factor of 20 out of the constant, and the drop of 0.145 in the exponent is real (the two intervals are disjoint). But a constant is not what P1 predicted. |
+| **P3** | the single-edge path must NOT improve | **UPHELD, and this is what makes the rest readable.** `edgeInfo1` 1.053 → 1.077 and per-edge `allEdges` 2.057 → 2.054, both intervals overlapping their v20 counterparts and both still agreeing with §6.5. The control did not move. |
+| **P1, RSS** | the `12 × n` buffer is invisible | **UPHELD.** `rss_delta_mb` +0.00 at every rung, net live bytes exactly zero. |
+| **P2, P4** | counters; the 8.1 % residual | **Not yet adjudicable** — both need the device run. Note that P4 now looks *more* likely, not less: a residual attributed to per-edge boundary cost cannot be what the exponent shows. |
+
+**P1 was wrong about the mechanism being fully accounted for, and §3.1 said in
+advance which of two hypotheses that would mean.** H2 — "something inside the
+enumeration is still Θ(shape) per edge" — is what the data support.
+
+### 7.2 What the residual quadratic actually was
+
+Not the classifier. Session 1 raised `BRepClass3d_SolidClassifier::Perform` as
+the candidate and was explicit that it was "a hypothesis from the measurement,
+not a reading of OCCT's source". Reading the source, in this session's own
+file, finds a plainer culprit:
+
+```c
+for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next())
+    if (ex.Current().IsSame(edge)) { ori = ...; break; }
+```
+
+`into_face_dir` **scanned the face to find the edge it had just been handed**.
+O(edges of the face), asked twice per edge. On an n-gon prism — the fixture
+both the profile and Lane C ladder over — the solid has two end faces bounded
+by n edges each and n side faces bounded by four, so two thirds of all edges
+touch an end face and an enumeration performs **2n × O(n)** explorer steps.
+
+**Lane C's allocation counters settle it, and they were not collected for this
+purpose**, which is what makes them good evidence:
+
+| n (profile pts) | edges | allocations | per edge |
+| ---: | ---: | ---: | ---: |
+| 60 | 180 | 184 544 | 1 025.2 |
+| 120 | 360 | 633 459 | 1 759.6 |
+| 240 | 720 | 2 326 372 | 3 231.1 |
+| 480 | 1 440 | 8 885 798 | 6 170.7 |
+
+Fitting allocations per edge against n:
+
+```
+alloc/edge = 12.252·n + 290.0      residuals below 0.1 % at all four rungs
+```
+
+**Exactly linear in n.** A per-edge cost proportional to the *face being
+scanned* produces that; a fixed cost per edge produces a constant. The slope
+implies ≈ 18.4 allocations per explorer step once the two-thirds fraction is
+taken out, which is what a `TopExp_Explorer` costs per step.
+
+The classifier hypothesis fits the totals too — 12.252·n allocations per call
+would be ≈ 12 per face — so the counters alone do not exclude it. What excludes
+it as *the* explanation is that the scan is a visible O(n) loop in the shim's
+own source with no reason to exist, and removing it is free. If the exponent
+does not fall after removing it, the classifier is next, and §7.4 says what
+that would look like.
+
+### 7.3 The fix
+
+The bulk path builds a **face-edge orientation index**: one explorer pass per
+face, on first request, keyed `(face index, edge index)`, first occurrence
+winning exactly as the scan's `break` did. Θ(face-edge incidences) = Θ(E) on a
+manifold solid, against the Θ(E·F) it replaces.
+
+Three details that are about correctness, not speed:
+
+- The index for a face is built **from the very `TopoDS_Face` object the caller
+  passed**, not from a separate `MapShapes(FACE)` pass. A face reached through
+  the ancestor map and one reached through `MapShapes` could differ in
+  orientation, and every edge orientation an explorer reports is composed with
+  its face's. Exploring the caller's own object removes that question instead
+  of answering it.
+- A second face that is `IsSame` to an indexed one but oriented the other way
+  **falls back to the scan**. In a valid solid this never fires; it costs one
+  byte per face to be sure.
+- `emplace`, not assignment, so the first occurrence wins. A **seam edge
+  appears twice in its face**, once each way, and the scan took the first.
+
+The single-edge entry point keeps the scan. Building an E-sized index to answer
+one question is waste, and that path is P3's control.
+
+`into_face_dir` is split into `edge_ori_in_face` (the scan) and
+`into_face_dir_with_ori` (the geometry), so index and scan feed **identical**
+downstream code. Smoke `[35]` compares the two paths bitwise and is therefore
+now a direct pin of the index against the scan it replaces — with a 24-gon
+prism added, because it is the only fixture there with a face big enough for
+the two to differ in cost.
+
+## Prediction P5 — the second quadratic, registered before Lane C reruns
+
+```
+Target        : Lane C's allEdgesBulk ladder, 60/120/240/480 profile points
+Baseline      : 33.18 / 125.11 / 456.97 / 1775.37 ms, k = 1.909 [1.887, 1.932]
+Mechanism     : into_face_dir's O(edges of face) scan, twice per edge, over
+                end faces carrying n edges each — 2n x O(n) per enumeration.
+Change        : a per-shape face-edge orientation index in the bulk path.
+Derivation    : fitting the measured ladder as bulk(E) = aE^2 + bE gives
+                  a = 8.198e-4 ms/edge^2   b = 0.0524 ms/edge
+                (model reproduces 360 and 1440 exactly by construction, 720
+                to +1.3 % and 180 to +8.5 %). If the scan IS the aE^2 term,
+                removing it leaves bE plus a Theta(E) setup.
+Predicted     : 9.4 / 18.9 / 37.7 / 75.5 ms   (interval [0.8x, 1.5x])
+                k -> 1.00, predicted interval [0.95, 1.15]
+                a further 23.5x at the 1440 rung, 490x against the per-edge
+                loop it started as
+Falsifiable by: THE ALLOCATION COUNTER, which is sharper than the timings.
+                alloc/edge = 12.252*n + 290.0 fits to better than 0.1 %. If
+                the scan is the whole n-dependent term, alloc/edge becomes
+                ~290 CONSTANT and total allocations at 1440 edges fall from
+                8.886e6 to ~4.2e5 — a factor of 21. A counter that stays
+                proportional to n refutes this outright and hands the finding
+                straight to BRepClass3d_SolidClassifier::Perform.
+Risk          : see §7.4.
+```
+
+### 7.4 If P5 is refuted too
+
+Then `Perform` is Θ(faces) and the convexity branch is inherently quadratic
+over an enumeration. That is not a dead end, but it is a different fix and a
+larger one, and it is **not** this session's to make on the evidence available:
+
+- The classifier exists to decide convex from concave, and the source records
+  that the cross-product formulations were tried first and reported *every*
+  edge convex. Replacing it is a correctness change with a known failure mode.
+- The cheap alternative is to classify once per **face pair** rather than once
+  per edge — edges sharing the same two faces on a prism's rim have the same
+  answer only when the faces meet the same way along their whole length, which
+  is not true in general.
+- Either way it wants a device or Lane C run to justify, and an identity pin
+  wider than `[35]`.
+
+Recorded for §8 rather than acted on.
+
+### 7.5 One correction to §5.1, from Session 1's measurement
+
+§5.1 offered a threshold: "if it comes out small — say under 15 % — the
+question is closed for good." Lane C measured it, and **it is not closed**:
+
+| | ms |
+| --- | ---: |
+| `occt_shape_volume` (the guard runs two) | 1.105 |
+| `occt_shape_valid` (`BRepCheck_Analyzer`) | 6.480 |
+| guard lower bound = 2 × volume + valid | **8.690** |
+| whole `occt_fillet_edges_ex` at one edge | 19.222 |
+| **guard as a fraction** | **≥ 45.2 %** |
+
+A lower bound, because the second integration runs on the *result* solid, which
+carries the blend. **Nearly half the cost of blending one edge is the
+correctness guard, and `BRepCheck_Analyzer` alone is a third of it.**
+
+This session still does not change it — the guard is why a blend that would
+hand back a self-intersecting solid fails cleanly instead, and that is
+behaviour. But §5.1's verdict of "closed question" was written against a
+threshold that the measurement did not meet, and it is withdrawn: **it is an
+open question for §8**, with the number attached.
