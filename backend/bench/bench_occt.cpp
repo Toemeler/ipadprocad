@@ -397,6 +397,32 @@ static void runLadder(const RunOpts &opts)
                     "(ladder fillet radius %.4f)\n",
                     n, edges, faces, facetLength(n, 40.0), kLadderFilletRadius);
 
+        /*
+         * THE FIXTURE IS PINNED HERE, not merely described in a comment.
+         *
+         * Every number this harness produces is comparable to §6.5 only
+         * because the solid is the device's solid: ringProfile(n, 40) has
+         * every bulge zero, so extruding it gives an n-gon prism — n lateral
+         * faces plus two caps, and 3n edges (n on each cap, n vertical). The
+         * device's own gauges agree: 120 profile points reported 360 edges and
+         * 122 faces.
+         *
+         * If a kernel change ever merges coplanar faces, or the profile grows
+         * a bulge, or someone "improves" ringProfile, the exponents would shift
+         * and the calibration gate would fail — but it would fail pointing at
+         * the exponent, and the next person would spend a day on the fit
+         * before finding the fixture. This says so in one line instead.
+         *
+         * Loud, not fatal: a changed fixture still produces a self-consistent
+         * ladder worth looking at, and the report carries the warning.
+         */
+        if (edges != 3 * n || faces != n + 2)
+            std::printf("      WARNING: fixture is not the device fixture — "
+                        "expected %d edges and %d faces for an n-gon prism, "
+                        "got %d and %d. Comparisons to PERFORMANCE_PROFILE.md "
+                        "§6.5 are NOT valid for this rung.\n",
+                        3 * n, n + 2, edges, faces);
+
         auto stamp = [&](Measured m, const char *note) {
             m.profile_pts = n;
             m.edges = edges;

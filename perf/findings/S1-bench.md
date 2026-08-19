@@ -221,6 +221,44 @@ Risk          : this harness times only the blend call, whereas the device
 
 ---
 
+## 1a. §6's checklist, item by item
+
+The plan's definition of done, audited rather than assumed:
+
+| | | |
+| --- | --- | --- |
+| 1 | `flutter analyze` — zero issues | **green.** sim-perf run 56 on this branch, `Dart analyze + host tests (fast)` job. Session 1 changed **no Dart at all** (`git diff --name-only origin/claude/perf-deep-analysis...` matches no `.dart`), so this is unaffected by construction as well as by test. |
+| 2 | `flutter test` — green | **green**, same job, same run. |
+| 3 | `python3 -m unittest discover -s ci -p 'test_*.py'` | **green, 45 tests**, run locally after every merge and by the workflow's fast job. |
+| 4 | Behaviour pinned by a test that would fail if you changed it | **three pins**, see below. |
+| 5 | Predictions with arithmetic, before the change | §1, committed before the first run against a built OCCT. |
+| 6 | Merges cleanly into `claude/perf-opt`, and merged | done, repeatedly, keeping both sides at every conflict. |
+| 7 | Findings explain what, what predicted, what uncertain, what not done | §2, §3, §5. |
+
+**Item 4, spelled out.** Session 1 ships no product behaviour, so what has to be
+pinned is the instrument:
+
+- **The arithmetic** — `bench_stats_test.cpp` checks the fit and the summary
+  statistics against analytic ground truth (an exact power law must recover its
+  exponent; a 95 % interval must contain the truth; N = 2 must yield no
+  interval; a degenerate axis must be refused). It cannot drift with the code
+  because nothing in it is a recorded output.
+- **The agreement with the tooling** — the fast CI job feeds the C++ fit and
+  `ci/perf_profile.py`'s the profile's own published rungs and fails on any
+  difference in the ninth decimal. Every calibration verdict compares one
+  against the other, so a divergence there invalidates all of them.
+- **The fixture** — each rung asserts that the solid really is an n-gon prism:
+  `3n` edges and `n + 2` faces, which is what the device's gauges reported
+  (120 profile points → 360 edges, 122 faces). A kernel change that merged
+  coplanar faces, or a "tidied" `ringProfile`, would shift the exponents and
+  trip the calibration gate — but pointing at the exponent, and the next person
+  would spend a day on the fit before finding the fixture. This says so in one
+  line instead.
+
+And the gate itself is the fourth: `--validate` fails the job when the fitted
+exponents stop agreeing with §6.5, keyed on `CALIBRATION.txt` so it bites while
+the shim is the one it was calibrated against.
+
 ## 2. What Session 1 deliberately did not do
 
 - **Did not touch `backend/occt/shim/**` or `frontend/lib/ffi/occt_engine.dart`.**
@@ -251,9 +289,17 @@ Risk          : this harness times only the blend call, whereas the device
 
 ## 3. Adjudication
 
-**Capture:** `bench-out/kernel-bench-linux.*`, published to the `ci-logs-bench`
-branch. Linux / x86_64, 4 cores, OCCT 7.9.3 static Release with the repository's
-own `OCCT_COMMON_FLAGS`, shim v20 unmodified (`CALIBRATION.txt` hash matches, so
+**Capture provenance, stated precisely because §4 corrects this section and a
+reader needs to know which machine each number came from.** The numbers in §3
+are from a **local run on this development VM** — four shared cores, contended,
+not published anywhere. The authoritative captures are the CI ones in
+`ci-logs-bench/`, and they are in §4. The dev-VM run is reported here because it
+is what the predictions were adjudicated against as they were written, and
+because two independent runs of it are a repeatability statement; it is *not*
+the capture to quote.
+
+Linux / x86_64, 4 cores, OCCT 7.9.3 static Release with the repository's own
+`OCCT_COMMON_FLAGS`, shim v20 unmodified (`CALIBRATION.txt` hash matches, so
 the gate was live). Ladder 60 / 120 / 240 / 480 profile points = 180 / 360 / 720
 / 1440 edges; 7 repetitions per operation per rung, one warm-up discarded, a
 30 s wall budget per operation per rung.
@@ -544,14 +590,23 @@ Session 2 raised two requests against `backend/bench/**` in
 reply is that file's last entry. The two numbers, because they are the point of
 the whole instrument existing:
 
-**The bulk enumeration is ~20× faster and still quadratic.**
-`occt_shape_edges_info` fits **k = 1.909 [1.887, 1.932]**, R² = 0.9999, against
-the per-edge loop's 2.054 [1.984, 2.123] on identical solids in the same run.
-The exponent moved — the intervals are disjoint — but a bulk path that had
-removed the whole-shape work would fit ≈ 1.0. The bulk path's own allocation
-count still scales at k ≈ 1.86, 6 170 blocks per edge at the top rung, which
-says the remaining cost is still per-edge whole-shape work rather than
-bookkeeping.
+**The bulk enumeration is ~20× faster and still quadratic.** On the published
+arm64 capture (`ci-logs-bench/macos/`, run 3, shim v21): `allEdges`
+**k = 2.012** — the device's published figure to three decimals — and
+`allEdgesBulk` **k = 1.960 [1.854, 2.066]**, R² = 0.9985, 17–20× faster across
+the ladder. The dev VM agrees on the shape: 1.909 [1.887, 1.932] against 2.054.
+A bulk path that had removed the whole-shape work would fit ≈ 1.0. The bulk
+path's own allocation count still scales at k ≈ 1.86, 6 170 blocks per edge at
+the top rung, which says the remaining cost is still per-edge whole-shape work
+rather than bookkeeping.
+
+**One thing I told Session 2 and then withdrew.** The first version of that
+reply said the bulk and per-edge intervals were disjoint, "so the drop of 0.145
+is real and measured" — true on the dev VM, false on arm64, where the bulk
+interval contains the per-edge point estimate. The claim that survives both is:
+~20× faster, still quadratic, and **whether the exponent moved at all is not
+established**. I wrote a two-platform conclusion from one platform's numbers,
+which is the same error §4 of this file records me making about the ISA.
 
 **This is the single thing Lane C was built to be able to say.** Session 2's
 change is a real 20× win on the constant and it is not the fix for the
