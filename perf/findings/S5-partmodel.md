@@ -229,35 +229,93 @@ made.
 
 ## 2. Results
 
-*(written after the changes; the device run adjudicates the numbers)*
+The device run adjudicates the numbers. What follows is what was changed, what
+was verified on the host, and one correction to P1's arithmetic that was found
+during implementation and is recorded rather than folded silently into the
+prediction.
 
 ### 2.1 What was changed
 
 | Change | File | Predicted | Pinned by |
 | --- | --- | --- | --- |
 | direction index in `newSurfacesOf` | `part_model.dart` | P1 | `m232_provenance_index_test.dart` |
-| allocation-free `faceSurfaces` loop | `part_model.dart` | P2 | `m232_provenance_index_test.dart` |
-| *(nothing — see §3)* | `applyBlendOccurrence` | — | `m232_blend_occurrence_test.dart` |
+| flat accumulators in `faceSurfaces` | `part_model.dart` | P2 | `m232_provenance_index_test.dart` |
+| **nothing** — see §3 | `applyBlendOccurrence` | — | `m232_blend_occurrence_test.dart` |
 
-### 2.2 Host-side verification
+### 2.2 Correction to P1's overhead term
 
-Host-side is all that S5 can produce (§2 of the plan). What was run:
+The registered prediction costed the index build at "655-cell zero-fill + 2
+passes over 362 ~ 1 379 int ops". The implementation needs **two** arrays of
+`2 x 655 + 1 = 1311` entries — one for the cell starts, one for the fill cursor
+during the counting sort — because planes and cylinders get separate blocks of
+cells. The fixed term is therefore ~ 2 622 int ops, not 655, and the build is
+**~ 3.3 us, not 1.4 us**.
 
-- `flutter analyze` — no issue introduced (see §5 for the environment caveat).
-- `flutter test` — full suite green, including the new tests.
-- `python3 -m unittest discover -s ci -p 'test_*.py'` — 45 tests green.
-- An **exhaustive equivalence test** for the index: the indexed
-  `newSurfacesOf` is compared element-by-element against a reference
-  implementation of the original `base.any(...)` loop, over randomised face
-  sets that include all four `sameSurfaceAs` branches, degenerate normals,
-  faces sitting exactly on the cell boundaries of the direction key, and pairs
-  separated by exactly the parallelism threshold. This is the test that would
-  fail if the filter were not a superset.
+That moves the predicted total for the 360 rung from 27.3 us to **29.2 us**,
+i.e. from 14.6x to **13.6x**. Both sit inside the registered interval
+(0.027 ms +- 0.008), so **the registered prediction stands as registered** —
+this is a refinement of the arithmetic behind it, written down because a
+prediction quietly re-derived after the fact is not a prediction.
 
-No timing claim is made from the host. Per §2 of the plan, host timings on a
-desktop-class machine are not iPad milliseconds and are not quoted here.
+It also sets where the `B >= 64` threshold pays for itself. At B = 64 exactly:
+E0 ~ 4 096 evaluations = 12.9 us against an indexed ~ 2.8 us build + ~ 1.3 us
+predicate + ~ 1.3 us probe = 5.4 us. A 2.4x win at the threshold itself, which
+is the right place for it to be.
 
----
+### 2.3 Host-side verification
+
+Host-side is all S5 can produce (plan §2). What was actually run:
+
+- **`flutter analyze`** — the diagnostic set is *identical* before and after,
+  55 entries either way, the only textual difference being the line number of a
+  pre-existing `unnecessary_cast` warning that moved because code was inserted
+  above it. See §5 for why "55" and not "0".
+- **`flutter test`** — 2 062 tests green, against 2 050 before this session
+  (the 12 new ones are this session's); and **2 068 green** after merging
+  `claude/perf-opt`, the extra 6 being Session 2's.
+- **`python3 -m unittest discover -s ci -p 'test_*.py'`** — 45 green.
+- **An equivalence test with a reference implementation.** Both changed
+  functions are compared against a copy of the algorithm as it stood before,
+  living in the test file. `newSurfacesOf` is checked element-by-element **by
+  object identity**, and `faceSurfaces` field-by-field with `expect(a, b)` on
+  raw doubles — exact equality, not `closeTo`. The generator is asserted to
+  produce matches for at least 5 % of its result faces, because two functions
+  agreeing that nothing matches proves nothing.
+- **Mutation testing of those pins.** A test that cannot fail is not a pin, so
+  five deliberate breakages were introduced and the suite re-run:
+
+  | mutation | caught by |
+  | --- | --- |
+  | probe only the centre cell, drop the +-1 | the cell-boundary sweep |
+  | put cylinders in the planes' block of cells | the plane/cylinder test |
+  | `* w / 3` instead of `* (w/3)` in the centroid | the bit-exact field check |
+  | drop the always-scanned tail | *nothing* — see below |
+  | hoist `edgesOf` out of `applyBlendOccurrence` | all four blend tests |
+
+  The fourth is the interesting one. It initially survived, and the reason is
+  worth recording: for every input the *production* code can produce, the tail
+  is genuinely redundant — a base face outside the cells is either of an
+  unmatchable type or has a normal so short it fails the parallelism test
+  regardless. It only becomes load-bearing for a normal that is *near* unit but
+  outside the +-1e-9 band the index accepts, which `Vec3.normalized()` never
+  produces (it is accurate to a couple of ulp). A case was added that
+  constructs one directly, and the mutation now fails. The tail stays: it is
+  the difference between "cannot break" and "does not happen to break".
+
+No timing claim is made from the host. Per plan §2, host timings on a
+desktop-class machine are not iPad milliseconds and are not quoted.
+
+### 2.4 What S2's bulk path did to this session's other finding
+
+Session 2 merged into `claude/perf-opt` while this session was running, and
+their change rewires `OcctShape.allEdges()` itself to go through the new bulk
+`occt_shape_edges_info`. `OcctPartKernel.edgesOf` **is** `shape.allEdges()`, so
+the patterned-blend path of §3 inherits the fix with no change on this side —
+which is exactly the composition §8.2 describes, seen from the other end: the
+factor of *N* stays *N*, and every one of those *N* enumerations got cheaper.
+S5's own code is unchanged by this and no prediction is registered for it; it
+belongs to S2's ledger, not this one. Recorded here only so that integration
+does not attribute the same movement twice.
 
 ## 3. The finding: a patterned blend cannot share one edge enumeration
 
