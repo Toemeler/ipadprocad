@@ -17,7 +17,6 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 
 #include <Standard_Failure.hxx>
@@ -2146,45 +2145,28 @@ static bool face_outward_normal(const TopoDS_Face &face, const TopoDS_Edge &edge
     return true;
 }
 
-/* Orientation of `edge` where it sits in `face`'s own boundary traversal, by
- * SCANNING the face. The first occurrence wins — a seam edge appears twice,
- * once each way, and taking the first is what this has always done.
+/* Unit direction that leaves [edge] and runs INTO [face], tangent to it.
  *
- * v21 note: this scan is O(edges of the face) and is asked twice per edge.
- * On an n-gon prism — the profile's own fixture — the two end faces carry n
- * edges each and two thirds of all edges touch one, so an enumeration pays
- * 2n x O(n). See edge_info_ctx::edge_orientation_in for the index that
- * replaces it when the whole shape is being enumerated, and §6.5 of the
- * profile for why that matters. */
-static bool edge_ori_in_face(const TopoDS_Face &face, const TopoDS_Edge &edge,
-                             TopAbs_Orientation &out)
+ * Built from the edge tangent oriented along the face's own boundary
+ * traversal: with an outward normal and a CCW outer loop seen from outside,
+ * the interior lies to the left, i.e. along nOut x T. Taking the orientation
+ * from the face's explorer (rather than assuming FORWARD) is what makes this
+ * work for the second face of the pair, where the shared edge is traversed
+ * the other way. */
+static bool into_face_dir(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                         double t, const gp_Dir &nOut, gp_Dir &out)
 {
+    TopAbs_Orientation ori = TopAbs_FORWARD;
+    bool found = false;
     for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
         if (ex.Current().IsSame(edge)) {
-            out = ex.Current().Orientation();
-            return true;
+            ori = ex.Current().Orientation();
+            found = true;
+            break;
         }
     }
-    return false;
-}
-
-/* Unit direction that leaves [edge] and runs INTO [face], tangent to it, given
- * the edge's orientation in that face's own boundary traversal.
- *
- * Built from the edge tangent oriented along that traversal: with an outward
- * normal and a CCW outer loop seen from outside, the interior lies to the
- * left, i.e. along nOut x T. Taking the orientation from the face (rather than
- * assuming FORWARD) is what makes this work for the second face of the pair,
- * where the shared edge is traversed the other way.
- *
- * The orientation arrives as an argument rather than being looked up here, so
- * that the bulk path can serve it from a per-shape index and the single-edge
- * path from a scan, with not one line of the geometry duplicated between
- * them. */
-static bool into_face_dir_with_ori(const TopoDS_Edge &edge, double t,
-                                   const gp_Dir &nOut, TopAbs_Orientation ori,
-                                   gp_Dir &out)
-{
+    if (!found)
+        return false;
     BRepAdaptor_Curve c(edge);
     gp_Pnt p;
     gp_Vec d1;
@@ -2236,12 +2218,7 @@ struct edge_info_ctx
     const TopoDS_Shape &s;
     TopTools_IndexedMapOfShape edges;
 
-    /* `shared` = this context will serve EVERY edge of the shape, so indices
-     * whose build cost is Θ(shape) pay for themselves. A context built for one
-     * query leaves them alone: that path is this branch's control and must
-     * cost exactly what it always did. */
-    explicit edge_info_ctx(const TopoDS_Shape &sh, bool shared = false)
-        : s(sh), m_shared(shared)
+    explicit edge_info_ctx(const TopoDS_Shape &sh) : s(sh)
     {
         TopExp::MapShapes(s, TopAbs_EDGE, edges);
     }
@@ -2277,78 +2254,6 @@ struct edge_info_ctx
         return *m_cls;
     }
 
-    /* Orientation of `edge` where it sits in `face`'s boundary traversal.
-     *
-     * THE SECOND QUADRATIC. Hoisting the four whole-shape objects took a
-     * factor of ~20 out of the constant and left the exponent at k = 1.909
-     * [1.887, 1.932] (Lane C, shim v21, four rungs, R² = 0.9999) — measured,
-     * not guessed, and it refuted the prediction that the exponent would fall
-     * to 1. What remained is this: `edge_ori_in_face` scans the face's edges
-     * to find the one it was asked about, and is asked twice per edge. On the
-     * fixture the profile ladders over — an n-gon prism, two end faces of n
-     * edges each and n side faces of four — two thirds of all edges touch an
-     * end face, so an enumeration performs 2n × O(n) explorer steps.
-     *
-     * Lane C's allocation counters fit that arithmetic and not much else:
-     * allocations per edge come to 12.25·n + 290 over four rungs, exactly
-     * linear in n, which is a per-edge cost proportional to the FACE being
-     * scanned. The classifier hypothesis Session 1 raised fits the totals too
-     * — the discriminator is that this scan is a plain O(n) loop visible in
-     * the source, and removing it is free.
-     *
-     * The index is built PER FACE, on first request, by exploring the very
-     * TopoDS_Face object the caller passed. Not from a separate MapShapes
-     * pass: a face reached through the ancestor map and a face reached through
-     * MapShapes could in principle differ in orientation, and every edge
-     * orientation the explorer reports is composed with the face's. Exploring
-     * the caller's own object removes that question rather than answering it.
-     * The guard below covers the remaining case — a second face that is IsSame
-     * to an indexed one but oriented the other way falls back to the scan.
-     *
-     * Total build cost is one explorer pass per face, i.e. Θ(face-edge
-     * incidences) = Θ(E) on a manifold solid, against the Θ(E·F) it replaces.
-     */
-    bool edge_orientation_in(const TopoDS_Face &face, const TopoDS_Edge &edge,
-                             TopAbs_Orientation &out)
-    {
-        if (!m_shared)
-            return edge_ori_in_face(face, edge, out);
-        if (m_face_idx.Extent() == 0)
-            TopExp::MapShapes(s, TopAbs_FACE, m_face_idx);
-        const int fi = m_face_idx.FindIndex(face);
-        const int ei = edges.FindIndex(edge);
-        if (fi < 1 || ei < 1)
-            return edge_ori_in_face(face, edge, out);
-        if (m_row_ori.size() < (size_t)m_face_idx.Extent() + 1) {
-            m_row_ori.assign((size_t)m_face_idx.Extent() + 1,
-                             (signed char)-1);
-        }
-        const signed char have = m_row_ori[(size_t)fi];
-        if (have < 0) {
-            /* First question about this face: index it, from THIS object. */
-            for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
-                const int k = edges.FindIndex(ex.Current());
-                if (k < 1)
-                    continue;
-                /* emplace, not assignment: the FIRST occurrence wins, which is
-                 * what the scan's `break` did. A seam edge appears twice. */
-                m_ori.emplace(ori_key(fi, k),
-                              (int)ex.Current().Orientation());
-            }
-            m_row_ori[(size_t)fi] = (signed char)face.Orientation();
-        } else if (have != (signed char)face.Orientation()) {
-            /* Same face by IsSame, opposite orientation: its edges would come
-             * back composed the other way. Do not serve those from the index. */
-            return edge_ori_in_face(face, edge, out);
-        }
-        const std::unordered_map<unsigned long long, int>::const_iterator it =
-            m_ori.find(ori_key(fi, ei));
-        if (it == m_ori.end())
-            return false; /* not on this face — same answer the scan gives */
-        out = (TopAbs_Orientation)it->second;
-        return true;
-    }
-
     /* Throw the shared classifier away after a failed query. The per-edge path
      * this replaces built a fresh one every time, so a classifier left in a
      * bad state by one edge could not affect the next; sharing one across an
@@ -2358,24 +2263,11 @@ struct edge_info_ctx
     void forget_classifier() { m_cls.reset(); }
 
   private:
-    static unsigned long long ori_key(int face_idx, int edge_idx)
-    {
-        return ((unsigned long long)(unsigned)face_idx << 32) |
-               (unsigned long long)(unsigned)edge_idx;
-    }
-
-    const bool m_shared;
     bool m_faces_done = false;
     TopTools_IndexedDataMapOfShapeListOfShape m_edge_faces;
     bool m_step_done = false;
     double m_step = 0.0;
     std::unique_ptr<BRepClass3d_SolidClassifier> m_cls;
-    /* Face-edge orientation index, shared path only. m_row_ori[i] is -1 until
-     * face i has been indexed, then holds the orientation of the face object
-     * it was indexed from. */
-    TopTools_IndexedMapOfShape m_face_idx;
-    std::vector<signed char> m_row_ori;
-    std::unordered_map<unsigned long long, int> m_ori;
 };
 
 /*
@@ -2468,12 +2360,9 @@ static int edge_info_one(edge_info_ctx &ctx, int index, double *out12)
              * for an exterior corner the bisector points into the solid, for
              * an interior corner it points into the void the corner opens
              * onto. */
-            TopAbs_Orientation o1 = TopAbs_FORWARD, o2 = TopAbs_FORWARD;
             if (out12[10] > 1.0e-3 &&
-                ctx.edge_orientation_in(f1, edge, o1) &&
-                into_face_dir_with_ori(edge, tmid, n1, o1, u1) &&
-                ctx.edge_orientation_in(f2, edge, o2) &&
-                into_face_dir_with_ori(edge, tmid, n2, o2, u2)) {
+                into_face_dir(f1, edge, tmid, n1, u1) &&
+                into_face_dir(f2, edge, tmid, n2, u2)) {
                 gp_Vec m(u1.XYZ() + u2.XYZ());
                 if (m.Magnitude() > 1e-9) {
                     m.Normalize();
@@ -2526,7 +2415,7 @@ extern "C" int occt_shape_edges_info(const occt_shape *shape, double *out12n,
         set_err("occt_shape_edges_info", "null argument");
         return -1;
     }
-    edge_info_ctx ctx(shape->s, /*shared=*/true);
+    edge_info_ctx ctx(shape->s);
     const int n = ctx.edges.Extent();
     if (cap < n) {
         set_err("occt_shape_edges_info", "output buffer too small");

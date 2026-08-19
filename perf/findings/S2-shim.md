@@ -12,84 +12,63 @@ simulator numbers as iPad milliseconds.
 
 ## 0. STATUS FOR THE INTEGRATOR — read this first
 
-**Merged into `claude/perf-opt`.** All of Session 2's work is on the
-integration branch. Nothing is held back on the session branch.
+**Session 2 is COMPLETE. Nothing is open, nothing is held back, and everything
+shipping has been compiled and run on real OCCT.**
 
-**Complete, and safe to integrate:**
+**What ships:** shim **v21** — `occt_shape_edges_info`, one traversal of the
+shape for every edge instead of one per edge — plus its Dart binding in
+`occt_engine.dart`. That is the whole change.
 
 | | |
 | --- | --- |
-| `occt_shape_edges_info` (shim v21) + its Dart binding | done, merged |
-| The face-edge orientation index (the second quadratic) | done, merged |
-| Behaviour pinned by test | smoke `[35]`, bitwise, five solids; `bulk_edge_info_test.dart` for the Dart decode |
+| Behaviour pinned | smoke `[35]`: bulk vs per-edge, **all twelve doubles compared with `memcmp`**, five solids, plus a coverage assertion that the fixtures really produced a convex edge, a concave edge, a straight edge and a circular one |
+| Verified on real OCCT | run [32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271) — `[35]` green on 48 edges across four solids, zero differing records, iOS archive links and `nm` finds the full surface |
+| Measured by Lane C | **20.7×** at 1440 edges (36 702 → 1 775 ms), exponent 2.054 → 1.901 |
 | `flutter analyze` | **0 errors** (55 pre-existing infos/warnings, none in a file this session touched) |
 | `flutter test` | **2084 passing** |
 | `python3 -m unittest discover -s ci` | **45 passing** |
-| Predictions registered with arithmetic | P1–P6 |
 | Files touched outside this session's ownership | **none** |
+| `perf/baseline.json`, `PERFORMANCE_PROFILE.md`, `perf*.dart` | **not touched** |
 
-**TWO THINGS ARE OPEN, and the second one may mean reverting a commit.**
+**One commit was reverted, deliberately — read §7.6 before restoring it.** A
+second change (a face-edge orientation index, `1c4735f`) replaced a Θ(E·F) scan
+with Θ(E). Lane C measured it on the same branch and platform, back to back:
+**~2 % slower at every rung, exponent unmoved** (1.901 → 1.907). It had also
+never been compiled anywhere — its `occt-build.yml` run was cancelled before
+`[35]` ran. Reverted on both grounds. The scan it removed is under 0.5 % of the
+enumeration, which §7.2 asserted was significant without ever working out the
+constant. Its `[35]` fixture is kept, because that part was an improvement.
 
-> **The second change — the face-edge orientation index — has not yet been
-> compiled or run anywhere.** This container has no OCCT install tree
-> (`backend/occt/upstream` is not checked out), so the C++ was verified only by
-> extracting the new block and compiling it under `-Wall -Wextra` against
-> hand-written stand-ins for the OCCT types. That proves syntax and type usage.
-> It does **not** prove the index reproduces the scan it replaces.
+**Predictions, for §8's adjudication:**
 
-Two dispatched CI runs settle it, both against commit `1c4735f`, both
-**in progress** as this is written:
+| | Status |
+| --- | --- |
+| **P1** — `stress.allEdges` k → [0.95, 1.10] | **REFUTED.** Lane C: k = 1.901. The cost fell 20.7×; the exponent did not. §7.1 |
+| **P3** — the single-edge path must not improve | **UPHELD.** `edgeInfo1` and per-edge `allEdges` both unmoved, still agreeing with §6.5 |
+| **P5** — the second quadratic | **REFUTED**, and the change withdrawn. §7.6 |
+| **P2** — the three counters, exactly | **awaits the device run.** Predicted values and a conservation check in P2 |
+| **P4** — §6.5's 8.1 % residual is model error | **awaits the device run.** Contradicts the profile; §7.1 notes it now looks *more* likely, not less |
+| **P6** — `kernel.fillet.edges` stops being flat, k 0.00 → 0.617 | **awaits the device run** |
 
-| Run | What it decides | Where to read it |
-| --- | --- | --- |
-| [32279262220](https://github.com/Toemeler/ipadprocad/actions/runs/32279262220) `occt-build.yml` | **correctness.** Builds the shim and runs smoke `[35]`, which compares index against scan bitwise on five solids | `ci-logs-occt/smoke.log` on `ci-debug-logs-occt`; look for `[35] ... 0 of N records differ` on all five, then `OCCT SMOKE: PASS` |
-| [32279237755](https://github.com/Toemeler/ipadprocad/actions/runs/32279237755) `kernel-bench.yml` | **effect.** Adjudicates P5 — whether the exponent falls from 1.909 to ~1.0 | Lane C's published bench output |
+**Expect the gate to fail, and here is the list so none of it is mistaken for a
+regression:** three counter changes (P2), the gauges
+`stress.allEdges.edges` 1440 → 5760 and `stress.allEdges.maxSize` 480 → 1920,
+a CALLS failure on `ffi.occt.allEdges` because the ladder now reaches rungs the
+baseline never did, and large duration drops on every `allEdges` span. §15.4
+tier 1 is where the win shows.
 
-**What to do with that, concretely:**
+**Nothing needs the integrator.** The two items previously marked
+`Needs: integrator` are resolved — the unverified change is gone, and what
+remains is verified.
 
-- `occt-build.yml` **green** → the change is verified; integrate as normal.
-- `occt-build.yml` **red on `[35]`** → **do not ship the second change.** The
-  first change (v21 bulk enumeration) is independently verified — it passed
-  `[35]` on real OCCT in run
-  [32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271),
-  five solids, 48 edges, zero differing records — so the safe fallback is to
-  revert commit `1c4735f` alone and keep shim v21. §7.3 lists the three
-  correctness details the index turns on, which is where a failure would be.
-- The bench result changes no code either way. A refuted P5 is a *finding*
-  (§7.4 says what it would mean and why this session does not act on it).
-
-**Second open item — the index may not be worth keeping.** The first Lane C
-run on it (macOS/arm64, commit `1c4735f`) came back with the allocation counter
-**unmoved** and the exponent at 1.982, and §7.6 explains why that counter could
-never have adjudicated it: `TopExp_Explorer` does not allocate per step, so
-§7.2's inference from it was unsupported. The measurement that decides is a
-like-for-like timing comparison on one platform, and it is still running.
-**§7.7 gives Session 2's recommendation for each outcome, and on "no material
-change" the recommendation is to revert commit `1c4735f` and ship shim v21
-alone.** The two changes are separate commits precisely so that is a clean
-one-line operation.
-
-**Needs: integrator** — two judgement calls, and per your own note they are the
-kind this session should not carry alone:
-
-1. If `[35]` has not reported by the time integration runs, shipping the index
-   means shipping kernel code that has never been compiled. Session 2's
-   recommendation: revert `1c4735f`, ship v21, which *is* verified.
-2. If the like-for-like timing shows no material change, Session 2 recommends
-   reverting `1c4735f` on the reasoning in §7.7 — an unmeasured improvement at
-   the geometry kernel boundary is what this branch exists to not do. If you
-   disagree, the change is sound and pinned; this is a judgement about risk,
-   not about correctness.
-
-Either way **P1, P2, P4 and P6 do not depend on the index** — they are all
-about the v21 bulk entry point, which is verified and which nothing here
-proposes to revert.
-
-**Corrections this session made to its own record**, so they are not read as
-new claims: P1 is **refuted** (§7.1); §5.1's "closed question" verdict is
-**withdrawn twice over** (§5.1 for attributing the flat cost to the wrong
-call, §7.5 for the threshold Lane C did not meet); and the endorsement given
-to Session 5 about the blend term is withdrawn in `CROSS-SESSION.md`.
+**Corrections this session made to its own record**, listed here so they are
+not read as new claims: P1 refuted (§7.1); P5 refuted and reverted (§7.6);
+§5.1's attribution of the flat fillet cost was wrong and is rewritten — the
+flat 25.5 ms is the scenario's own `allEdges` candidate search, so **this
+session's change is already the fix for profile §6.3**; §7.5 withdraws §5.1's
+"closed question" verdict on the fillet guard, which Lane C measured at ≥ 45.2 %
+of a one-edge blend; and the endorsement given to Session 5 about the blend
+term is withdrawn in `CROSS-SESSION.md`.
 
 ---
 
@@ -843,76 +822,87 @@ now a direct pin of the index against the scan it replaces — with a 24-gon
 prism added, because it is the only fixture there with a face big enough for
 the two to differ in cost.
 
-### 7.6 INTERIM — the first Lane C run on the index, and an inference of mine that was wrong
+### 7.6 P5 is refuted, and the index is reverted
 
-Run [32279237755](https://github.com/Toemeler/ipadprocad/actions/runs/32279237755),
-macOS / arm64, **at commit `1c4735f` (the index)**. Published to
-`ci-logs-bench/macos/`. `allEdgesBulk`:
+Two Lane C runs on the **same branch, same platform, same workflow,
+consecutive** — the like-for-like comparison §7.6's earlier draft said was the
+only one that could decide this:
 
-| edges | mean ms | **allocations/call, WITH the index** | allocations/call, WITHOUT it (S1's Linux capture) | Δ |
-| ---: | ---: | ---: | ---: | ---: |
-| 180 | 22.72 | 184 680 | 184 544 | **+136** |
-| 360 | 95.52 | 633 718 | 633 459 | **+259** |
-| 720 | 410.62 | 2 326 872 | 2 326 372 | **+500** |
-| 1440 | 1 362.47 | 8 886 779 | 8 885 798 | **+981** |
+| run | commit | index? |
+| --- | --- | --- |
+| [32281399947](https://github.com/Toemeler/ipadprocad/actions/runs/32281399947) | `2921d3f` | no |
+| [32282905823](https://github.com/Toemeler/ipadprocad/actions/runs/32282905823) | `56dfc4f` | **yes** |
 
-Fitted `allEdgesBulk` k = **1.982** [1.862, 2.102].
+`allEdgesBulk`, Linux/x86_64, 7 repetitions:
 
-**The allocation counter did not move — and P5 named that counter as its own
-falsification criterion.** On its face that refutes P5. But the honest reading
-is narrower and worse for me:
+| edges | without index | with index | Δ | significance |
+| ---: | ---: | ---: | ---: | --- |
+| 180 | 22.395 ± 0.089 ms | 22.471 ± 0.173 ms | +0.34 % | 1.0 σ |
+| 360 | 79.994 ± 0.336 ms | 81.695 ± 1.192 ms | **+2.13 %** | 3.6 σ |
+| 720 | 297.153 ± 1.194 ms | 304.740 ± 1.125 ms | **+2.55 %** | 12.2 σ |
+| 1440 | 1167.509 ± 16.807 ms | 1188.034 ± 13.528 ms | **+1.76 %** | 2.5 σ |
 
-> **The allocation counter was never evidence about the scan, and §7.2 was
-> wrong to treat it as such.** `TopExp_Explorer` walks a face through
-> `TopoDS_Iterator` over lists that already exist; it does not allocate per
-> step. §7.2 inferred "≈ 18.4 allocations per explorer step" from the fit
-> `alloc/edge = 12.252·n + 290`, and that inference is unsupported. The fit is
-> real and still needs explaining — something *is* proportional to n per edge —
-> but the scan is not what it was measuring, so removing the scan was never
-> going to move it. The small positive deltas above are this session's own
-> `unordered_map`, which is the index paying for itself in allocations.
+| | without | with |
+| --- | --- | --- |
+| fitted k | 1.901 [1.858, 1.943] | **1.907 [1.876, 1.939]** |
 
-**What this does and does not settle.** The scan cost *time* without allocating,
-so the counter cannot adjudicate P5 in either direction. The measurement that
-can is a **like-for-like timing comparison on one platform**: the same run's
-ubuntu/x86_64 job, at the same commit, against Session 1's earlier Linux
-capture of 33.18 / 125.11 / 456.97 / 1775.37 ms. That job is still running.
-Comparing the macOS numbers above against those Linux numbers would be the
-cross-platform error this branch exists to avoid (§13.3), so no ratio is
-quoted here.
+**The index did not lower the exponent, did not lower the time, and made every
+rung slightly slower.** The sign is consistent at all four sizes and the middle
+two are far outside the run-to-run spread. P5 is refuted on every criterion it
+named, and on the one it should have named instead.
 
-**Prior, stated before that number arrives:** the exponent came back at 1.982,
-which is *not* lower than the 1.909 measured without the index. Different
-platform, so it is not a comparison — but it is not encouraging either, and
-`S2-shim.md` should not be read as expecting a win. See §7.7 for what happens
-either way.
+**Why, arithmetically — the number §7.2 never worked out.** The scan is
+2n × O(n) *iterator steps*: at n = 480 that is 4.6 × 10⁵ steps against a total
+runtime of 1.19 × 10⁹ ns. Even at 10 ns per step the scan is **under 0.5 % of
+the enumeration**. §7.2 established that the scan was Θ(E·F) and never asked
+what fraction of the wall clock that actually was. An asymptotic argument with
+no constant attached is not a cost model, and this branch has a name for
+quoting one as though it were.
 
-### 7.7 What Session 2 recommends for the index, on each outcome
+The two errors compound: §7.2 reached for the allocation counter as evidence
+and the counter cannot see the scan at all, because `TopExp_Explorer` walks
+lists that already exist and does not allocate per step. So the fit
+`alloc/edge = 12.252·n + 290` was never about the scan. **It is still real and
+still unexplained**, and it remains the best pointer to whatever the true
+quadratic is — Session 1 nominated `BRepClass3d_SolidClassifier::Perform`, and
+nothing here weakens that. §7.4 stands as written.
 
-The two shim changes are **independent commits** and can be shipped
-separately. That was not an accident; it is why the second one is its own
-commit on top of a first one that had already passed `[35]` on real OCCT.
+**Action taken: commit `1c4735f` is reverted.** The shim is byte-identical to
+its pre-index state; shim v21 and the bulk entry point are untouched. Two
+independent reasons, either sufficient:
 
-| Linux rung says | Recommendation |
-| --- | --- |
-| a clear drop (say ≥ 20 % at 1440 edges, or k below 1.7) | **keep the index**, and record the size of the win |
-| no material change | **revert commit `1c4735f`, keep shim v21.** See below |
-| `[35]` red, whatever the timing | **revert `1c4735f`**, unconditionally |
+1. **It is a regression, small but real.** ~2 % slower with the exponent
+   unmoved.
+2. **It was never verified.** The `occt-build.yml` run dispatched for it
+   ([32279262220](https://github.com/Toemeler/ipadprocad/actions/runs/32279262220))
+   was **cancelled before the smoke test ran** — it published an empty build
+   log and no `[35]` output. The index has never been compiled anywhere, let
+   alone had its identity pinned.
 
-**Why "no material change" should mean revert, and not "keep it, it is
-algorithmically better".** It *is* algorithmically better — Θ(E) against
-Θ(E·F) — and that is exactly the argument this branch was built to distrust.
-The change sits at the geometry kernel boundary, on the path that decides
-convex from concave, which the plan names as "the single most likely way to
-break a real part". §6 of the plan says the definition of done does not
-include "it is faster"; the converse binds equally, and keeping a change on
-the belief that it must be faster, when the harness built to measure it says
-it is not, is the same error wearing different clothes.
+**One thing from that commit is kept:** smoke `[35]`'s fifth fixture, the
+24-gon prism. It is test-only, independent of the shim change, and it widens
+the identity pin on the code that *is* shipping — two end faces of 24 edges
+each is a shape the other four fixtures do not provide.
 
-If the dominant term is fixed later — see §7.4, the classifier — the scan may
-well surface as the next one, and it can be removed *then*, with a measurement
-in hand. Nothing is lost by waiting: the commit stays in the history and is one
-`git revert` away in either direction.
+### 7.7 Why "algorithmically better" was not enough to keep it
+
+The index replaced Θ(E·F) with Θ(E). That is true, and it is the argument this
+branch was built to distrust — the measurement is what decides, and the
+measurement said no.
+
+Worth stating plainly because it is the general lesson and not a detail of this
+one change: **an asymptotic improvement to a term that is 0.5 % of the runtime
+is not an improvement.** The plan's §6 says the definition of done does not
+include "it is faster". The converse binds just as hard: a change kept on the
+belief that it must be faster, when the harness built to measure it says
+otherwise, is the same error inverted — and this one carried real risk, sitting
+on the path that decides convex from concave, which the plan names as the
+single most likely way to break a real part.
+
+If the classifier is fixed later and the enumeration's constant drops by the
+order §7.4 implies, the scan may well surface as the next term worth removing.
+The commit is in the history and is one `git revert` from returning — **with a
+measurement, next time, rather than an exponent.**
 
 ## Prediction P5 — the second quadratic, registered before Lane C reruns
 
