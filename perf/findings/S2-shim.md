@@ -22,7 +22,7 @@ shape for every edge instead of one per edge — plus its Dart binding in
 | | |
 | --- | --- |
 | Behaviour pinned | smoke `[35]`: bulk vs per-edge, **all twelve doubles compared with `memcmp`**, five solids, plus a coverage assertion that the fixtures really produced a convex edge, a concave edge, a straight edge and a circular one |
-| Verified on real OCCT | run [32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271) — `[35]` green on 48 edges across four solids, zero differing records, iOS archive links and `nm` finds the full surface |
+| Verified on real OCCT | run [32311911720](https://github.com/Toemeler/ipadprocad/actions/runs/32311911720), **on the exact commit that ships** — `[35]` green on **120 edges across five solids, zero differing records**; iOS archive links and `nm` finds the full surface. (Also green earlier at [32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271), four solids, before the fifth fixture was added.) |
 | Measured by Lane C | **20.7×** at 1440 edges (36 702 → 1 775 ms), exponent 2.054 → 1.901 |
 | `flutter analyze` | **0 errors** (55 pre-existing infos/warnings, none in a file this session touched) |
 | `flutter test` | **2084 passing** |
@@ -699,6 +699,27 @@ round. The hoist is sound.
 
 The iOS job also passed, so the new symbol links into the device archive and
 `nm` still finds the full `_occt_*` surface.
+
+**Re-run on the shipping commit, after the index was reverted** — run
+[32311911720](https://github.com/Toemeler/ipadprocad/actions/runs/32311911720)
+at `c5f7e21`, with `[35]`'s fifth fixture in place:
+
+```
+Prototype OCCT shim v21 (OCCT 7.9.3) (shim ABI v21)
+[35] box:      12 edges — 0 of 12 records differ
+[35] cylinder:  3 edges — 0 of  3 records differ
+[35] L-prism:  18 edges — 0 of 18 records differ
+[35] filleted: 15 edges — 0 of 15 records differ
+[35] 24-gon:   72 edges — 0 of 72 records differ
+[35] coverage: convex edges 116, concave edges 1, curve-kind mask 0x6
+OCCT SMOKE: PASS
+```
+
+**120 edges across five solids, every one of twelve doubles bitwise equal.**
+The 24-gon prism is the fixture that matters most for the shipping code: two
+end faces of 24 edges each is the shape whose *ancestor map* the bulk path
+builds once and the per-edge path rebuilds per call, so it is where a shared
+map handing back a different first face would show. It does not.
 
 **One thing the run refutes, and it is mine.** §3.2 claimed the filleted solid
 would reach the curve-type `switch`'s `default:` branch with spline edges. The
