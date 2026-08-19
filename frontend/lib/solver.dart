@@ -1065,10 +1065,206 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
 }
 
 // ---------------------------------------------------------------------------
-// linear algebra (dense, small systems)
+// linear algebra
 // ---------------------------------------------------------------------------
-/// Rank of [m] (rows x cols) by Gaussian elimination with partial pivoting.
-/// Also returns the pivot columns.
+// The DOF analysis reduces a finite-difference Jacobian to RREF. That matrix
+// is not a general one: a constraint touches two or three entities, so a row
+// carries a handful of nonzeros out of `total` columns — on the profile's own
+// stress fixture at 1024 entities, 5121 nonzeros in 2562 x 3584 cells, an
+// average of TWO per row, and the reduction adds none (measured: the widest
+// RREF row on every rung of that ladder is also 2). Stored densely, the
+// elimination's inner loop walks up to 3584 columns to perform those two
+// multiply-adds, which is where PERFORMANCE_PROFILE 5.5's cubic comes from.
+//
+// So the matrix is stored by rows of (column, value). Every arithmetic
+// operation the dense form performs on a NONZERO is performed here
+// identically, in the same order, with the same pivots; only the operations
+// on zeros are skipped, and skipping them is exact rather than approximate —
+// `a - f * 0.0` is `a` for every finite `a` and `f`, both signed zeros
+// included. The rank, the pivot columns and the reduced values are therefore
+// bit-for-bit what the dense code produced (pinned by
+// test/m232_analyze_pin_test.dart).
+
+/// A sparse matrix by rows. `ic[r]` holds the occupied column indices of row
+/// `r` in STRICTLY ASCENDING order, `v[r]` the values beside them.
+///
+/// An entry that cancels to zero is KEPT rather than dropped. That costs a
+/// slot and buys an invariant worth more than the slot: `ic` is exactly the
+/// set of columns a row has ever occupied, so the column index below never
+/// goes stale and never needs a removal path.
+class _SpMat {
+  final int rows, cols;
+  final List<List<int>> ic;
+  final List<List<double>> v;
+
+  _SpMat(this.rows, this.cols)
+      : ic = List.generate(rows, (_) => <int>[]),
+        v = List.generate(rows, (_) => <double>[]);
+
+  /// Value at (r, c) — 0.0 where the row has no entry, as the dense form had.
+  double at(int r, int c) {
+    final row = ic[r];
+    var lo = 0, hi = row.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final m = row[mid];
+      if (m == c) return v[r][mid];
+      if (m < c) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return 0.0;
+  }
+}
+
+/// Column -> the rows occupying it. Kept exact (see [_SpMat]), which is what
+/// lets the elimination find the rows it must touch without scanning all of
+/// them: that scan is the other half of the dense form's cost.
+List<Set<int>> _columnIndex(_SpMat a) {
+  final byCol = List.generate(a.cols, (_) => <int>{});
+  for (var i = 0; i < a.rows; i++) {
+    for (final c in a.ic[i]) {
+      byCol[c].add(i);
+    }
+  }
+  return byCol;
+}
+
+void _spSwapRows(_SpMat a, int ra, int rb, List<Set<int>> byCol) {
+  for (final c in a.ic[ra]) {
+    byCol[c].remove(ra);
+  }
+  for (final c in a.ic[rb]) {
+    byCol[c].remove(rb);
+  }
+  final ti = a.ic[ra];
+  a.ic[ra] = a.ic[rb];
+  a.ic[rb] = ti;
+  final tv = a.v[ra];
+  a.v[ra] = a.v[rb];
+  a.v[rb] = tv;
+  for (final c in a.ic[ra]) {
+    byCol[c].add(ra);
+  }
+  for (final c in a.ic[rb]) {
+    byCol[c].add(rb);
+  }
+}
+
+/// `row[j] -= f * piv[j]` for every j >= [from] — the dense inner loop's exact
+/// range, over the pivot row's occupied columns only.
+void _spAxpy(_SpMat a, int row, int piv, double f, int from,
+    List<Set<int>> byCol) {
+  final tc = a.ic[row], tv = a.v[row];
+  final pc = a.ic[piv], pv = a.v[piv];
+  var q = 0;
+  while (q < pc.length && pc[q] < from) {
+    q++;
+  }
+  if (q == pc.length) return;
+  final nc = <int>[];
+  final nv = <double>[];
+  var p = 0;
+  while (p < tc.length || q < pc.length) {
+    if (q >= pc.length || (p < tc.length && tc[p] < pc[q])) {
+      nc.add(tc[p]);
+      nv.add(tv[p]);
+      p++;
+    } else if (p >= tc.length || pc[q] < tc[p]) {
+      // fill-in: the dense form held 0.0 here and subtracted into it
+      nc.add(pc[q]);
+      nv.add(0.0 - f * pv[q]);
+      byCol[pc[q]].add(row);
+      q++;
+    } else {
+      nc.add(tc[p]);
+      nv.add(tv[p] - f * pv[q]);
+      p++;
+      q++;
+    }
+  }
+  a.ic[row] = nc;
+  a.v[row] = nv;
+}
+
+/// Reduces [a] to RREF in place and returns (rank, pivot columns).
+///
+/// Pivot choice reproduces the dense form exactly: start at the diagonal row
+/// and take the FIRST strictly-larger magnitude scanning upward. Rows with no
+/// entry in the column hold an exact zero, so they can never win and are not
+/// scanned.
+(int, List<int>) _rankAndPivots(_SpMat a) {
+  final byCol = _columnIndex(a);
+  final pivots = <int>[];
+  var row = 0;
+  for (var col = 0; col < a.cols && row < a.rows; col++) {
+    var best = row;
+    var bestAbs = a.at(row, col).abs();
+    final cand = <int>[];
+    for (final i in byCol[col]) {
+      if (i > row) cand.add(i);
+    }
+    cand.sort();
+    for (final i in cand) {
+      final t = a.at(i, col).abs();
+      if (t > bestAbs) {
+        best = i;
+        bestAbs = t;
+      }
+    }
+    if (bestAbs < 1e-7) continue;
+    if (best != row) _spSwapRows(a, row, best, byCol);
+    final piv = a.at(row, col);
+    final pc = a.ic[row], pv = a.v[row];
+    for (var t = 0; t < pc.length; t++) {
+      if (pc[t] >= col) pv[t] /= piv;
+    }
+    // Snapshot: _spAxpy may add rows to LATER columns, never to this one (the
+    // target's entry here cancels to an exact zero and the slot already exists).
+    final targets = byCol[col].toList()..sort();
+    for (final i in targets) {
+      if (i == row) continue;
+      final f = a.at(i, col);
+      if (f == 0) continue;
+      _spAxpy(a, i, row, f, col, byCol);
+    }
+    pivots.add(col);
+    row++;
+  }
+  return (row, pivots);
+}
+
+/// The finite-difference Jacobian of [cs] at [x]: one full residual
+/// evaluation per parameter, differenced against [r0], stored sparsely.
+///
+/// The zero STRUCTURE is discovered, not declared — an entry is recorded iff
+/// the perturbation actually moved that residual. No table of which constraint
+/// depends on which parameter is consulted or needed, so a constraint that
+/// reaches geometry it does not name (the point-on-curve frame, a pattern's
+/// source) cannot be missed here.
+_SpMat _jacobian(List<Geo> gs, List<int> off, List<double> x,
+    List<Constraint> cs, _Ctx ctx, List<double> r0, int total) {
+  final m = r0.length;
+  final j = _SpMat(m, total);
+  for (var k = 0; k < total; k++) {
+    final h = 1e-6 * (1 + x[k].abs());
+    final save = x[k];
+    x[k] = save + h;
+    final r2 = _residuals(gs, off, x, cs, ctx);
+    x[k] = save;
+    for (var i = 0; i < m; i++) {
+      final d = (r2[i] - r0[i]) / h;
+      if (d != 0.0) {
+        j.ic[i].add(k); // k ascends, so the row stays sorted
+        j.v[i].add(d);
+      }
+    }
+  }
+  return j;
+}
+
 /// (rank, equations, params) of the ACTIVE constraint system at the current
 /// geometry — the ground truth for redundancy checks in tests and diagnostics:
 /// `equations - rank` is the number of redundant rows (must be 0 for every
@@ -1082,48 +1278,8 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
   _prepare(gs, off, x, cs, ctx);
   final r = _residuals(gs, off, x, cs, ctx);
   if (r.isEmpty || total == 0) return (0, r.length, total);
-  final j = List.generate(r.length, (_) => List<double>.filled(total, 0.0));
-  for (var k = 0; k < total; k++) {
-    final h = 1e-6 * (1 + x[k].abs());
-    final save = x[k];
-    x[k] = save + h;
-    final r2 = _residuals(gs, off, x, cs, ctx);
-    x[k] = save;
-    for (var i = 0; i < r.length; i++) {
-      j[i][k] = (r2[i] - r[i]) / h;
-    }
-  }
-  return (_rankAndPivots(j, r.length, total).$1, r.length, total);
-}
-
-(int, List<int>) _rankAndPivots(List<List<double>> m, int rows, int cols) {
-  var row = 0;
-  final pivots = <int>[];
-  for (var col = 0; col < cols && row < rows; col++) {
-    var best = row;
-    for (var i = row + 1; i < rows; i++) {
-      if (m[i][col].abs() > m[best][col].abs()) best = i;
-    }
-    if (m[best][col].abs() < 1e-7) continue;
-    final t = m[row];
-    m[row] = m[best];
-    m[best] = t;
-    final piv = m[row][col];
-    for (var j = col; j < cols; j++) {
-      m[row][j] /= piv;
-    }
-    for (var i = 0; i < rows; i++) {
-      if (i == row) continue;
-      final f = m[i][col];
-      if (f == 0) continue;
-      for (var j = col; j < cols; j++) {
-        m[i][j] -= f * m[row][j];
-      }
-    }
-    pivots.add(col);
-    row++;
-  }
-  return (row, pivots);
+  final j = _jacobian(gs, off, x, cs, ctx, r, total);
+  return (_rankAndPivots(j).$1, r.length, total);
 }
 
 /// Solves A x = b in place (A is n x n, symmetric positive semi-definite).
@@ -2467,6 +2623,142 @@ SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
   return r;
 }
 
+/// Every value [analyzeSketch] can read, as one string.
+///
+/// Deliberately EXHAUSTIVE rather than selective. It carries fields that
+/// cannot affect the analysis — a dimension's text position, its parameter
+/// name, its expression — because leaving one out is precisely how a cache
+/// returns a stale answer, and being right about which fields matter is not
+/// worth what being wrong costs. `Constraint` is the reason this cannot be an
+/// identity check: `value`, `driven`, `tanBranch` (captured on the first solve
+/// after creation) and `expr` are all MUTABLE, so the same objects hold
+/// different numbers from one call to the next.
+///
+/// Doubles go in through `toString`, which round-trips exactly in Dart: two
+/// different doubles never print the same, and the same double always prints
+/// the same.
+String analysisKey(List<Geo> gs, List<Constraint> cs) {
+  final b = StringBuffer();
+  for (final g in gs) {
+    b
+      ..write(g.type)
+      ..write(':')
+      ..write(g.layer)
+      ..write(':')
+      ..write(g.spline)
+      ..write(':')
+      ..write(g.style)
+      ..write(':')
+      ..write(g.proj)
+      ..write(':')
+      ..write(g.projSeg)
+      ..write(':');
+    for (final d in g.data) {
+      b
+        ..write(d)
+        ..write(',');
+    }
+    b.write(';');
+  }
+  b.write('|');
+  for (final c in cs) {
+    b
+      ..write(c.type.index)
+      ..write(':')
+      ..write(c.dimKind)
+      ..write(':')
+      ..write(c.value)
+      ..write(':')
+      ..write(c.driven)
+      ..write(':')
+      ..write(c.tanBranch)
+      ..write(':')
+      ..write(c.paramName)
+      ..write(':')
+      ..write(c.expr)
+      ..write(':')
+      ..write(c.textPos)
+      ..write(':');
+    for (final q in c.pts) {
+      b
+        ..write(q.ent)
+        ..write('.')
+        ..write(q.pt)
+        ..write(',');
+    }
+    b.write('/');
+    for (final e in c.ents) {
+      b
+        ..write(e)
+        ..write(',');
+    }
+    b.write('/');
+    for (final a in c.anchors) {
+      b
+        ..write(a)
+        ..write(',');
+    }
+    b.write(';');
+  }
+  return b.toString();
+}
+
+/// A bounded memo for [analyzeSketch].
+///
+/// [analyzeSketch] is a pure function of (geometry, constraints) — everything
+/// it reads arrives through those two lists — so a call whose inputs are
+/// value-for-value the ones behind a stored result may reuse it. That is the
+/// entire soundness argument, and it is why the key is a full value snapshot
+/// compared for EQUALITY: not a hash, which can collide, and not identity,
+/// because a sketch is edited in place.
+///
+/// It exists because the analysis runs on every rebuild, every solve and every
+/// tab switch (PERFORMANCE_PROFILE 5.5.3) on a quantity that only changes when
+/// the geometry or the constraints do.
+///
+/// **It cannot help a drag, and must not.** Geometry moves every frame, so the
+/// key differs every frame. A hit DURING a drag would not be a win; it would be
+/// proof that the key had missed something that changed.
+///
+/// Capacity is 4 so that switching between a few open tabs still hits — a
+/// single entry would be thrown away by any A → B → A switch, which is the
+/// case the profile names.
+class SketchAnalysisCache {
+  static const _capacity = 4;
+  final _keys = <String>[];
+  final _vals = <SketchAnalysis>[];
+
+  /// The analysis of (gs, cs), computed or reused. The returned object may be
+  /// SHARED with an earlier caller — sound because `SketchAnalysis` is read
+  /// only (its two sets are never mutated anywhere in the app).
+  SketchAnalysis of(List<Geo> gs, List<Constraint> cs) {
+    final k = analysisKey(gs, cs);
+    final i = _keys.indexOf(k);
+    if (i >= 0) {
+      Perf.count('analyze.cache.hit');
+      final v = _vals.removeAt(i); // move to the most-recent end
+      _keys.removeAt(i);
+      _keys.add(k);
+      _vals.add(v);
+      return v;
+    }
+    Perf.count('analyze.cache.miss');
+    final v = analyzeSketch(gs, cs);
+    _keys.add(k);
+    _vals.add(v);
+    if (_keys.length > _capacity) {
+      _keys.removeAt(0);
+      _vals.removeAt(0);
+    }
+    return v;
+  }
+
+  void clear() {
+    _keys.clear();
+    _vals.clear();
+  }
+}
+
 SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
   // projected geometry is pinned reference geometry: the same implicit fixes
   // the solver uses, so projections count as fully defined (white/yellow,
@@ -2502,19 +2794,8 @@ SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
 
   if (r.isEmpty) return SketchAnalysis(total, allPoints(), allCarriers());
 
-  final m = r.length;
-  final j = List.generate(m, (_) => List<double>.filled(total, 0.0));
-  for (var k = 0; k < total; k++) {
-    final h = 1e-6 * (1 + x[k].abs());
-    final save = x[k];
-    x[k] = save + h;
-    final r2 = _residuals(gs, off, x, cs, ctx);
-    x[k] = save;
-    for (var i = 0; i < m; i++) {
-      j[i][k] = (r2[i] - r[i]) / h;
-    }
-  }
-  final (rank, pivots) = _rankAndPivots(j, m, total); // j is now RREF
+  final j = _jacobian(gs, off, x, cs, ctx, r, total);
+  final (rank, pivots) = _rankAndPivots(j); // j is now RREF
   final dof = total - rank;
   if (dof <= 0) return const SketchAnalysis(0, {}, {});
 
@@ -2524,24 +2805,44 @@ SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
   // DIRECTION a point can move in, not merely that it can move — a movable
   // endpoint that only slides ALONG its own line is a free length, and
   // Inventor still paints that line fully constrained.
-  final pivotSet = pivots.toSet();
+  //
+  // Built by walking the RREF's OCCUPIED entries rather than by asking each
+  // vector for each pivot row's coefficient. Same vectors, same order; the
+  // difference is that the question "which (row, free column) pairs are
+  // nonzero" is answered by reading the nonzeros instead of by probing
+  // (total - rank) x rank cells, which on the profile's top rung is 2.6
+  // million probes against 2044 answers.
+  final isPivot = List<bool>.filled(total, false);
+  for (final c in pivots) {
+    isPivot[c] = true;
+  }
   final movable = List<bool>.filled(total, false);
-  final basis = <List<double>>[];
-  for (var freeCol = 0; freeCol < total; freeCol++) {
-    if (pivotSet.contains(freeCol)) continue;
-    movable[freeCol] = true;
-    // RREF row: x_pivot + sum(j[row][c] * x_c) = 0 over the free columns c,
-    // so the basis vector for freeCol carries -j[row][freeCol] at each pivot.
-    final v = List<double>.filled(total, 0.0);
-    v[freeCol] = 1.0;
-    for (var row = 0; row < pivots.length; row++) {
-      final coeff = j[row][freeCol];
+  final freeCols = <int>[]; // ascending, one basis vector each
+  final slotOf = List<int>.filled(total, -1);
+  for (var c = 0; c < total; c++) {
+    if (isPivot[c]) continue;
+    slotOf[c] = freeCols.length;
+    freeCols.add(c);
+    movable[c] = true;
+  }
+  // basis vector k: support columns bCol[k] with values bVal[k]
+  final bCol = List.generate(freeCols.length, (k) => <int>[freeCols[k]]);
+  final bVal = List.generate(freeCols.length, (_) => <double>[1.0]);
+  for (var row = 0; row < pivots.length; row++) {
+    final rc = j.ic[row], rv = j.v[row];
+    for (var t = 0; t < rc.length; t++) {
+      final c = rc[t];
+      if (isPivot[c]) continue;
+      // RREF row: x_pivot + sum(j[row][c] * x_c) = 0 over the free columns c,
+      // so the basis vector for c carries -j[row][c] at this row's pivot.
+      final coeff = rv[t];
       if (coeff.abs() > 1e-9) {
-        v[pivots[row]] = -coeff;
+        final k = slotOf[c];
+        bCol[k].add(pivots[row]);
+        bVal[k].add(-coeff);
         if (coeff.abs() > 1e-6) movable[pivots[row]] = true;
       }
     }
-    basis.add(v);
   }
   final pts = <(int, int)>{};
   for (var e = 0; e < gs.length; e++) {
@@ -2578,14 +2879,39 @@ SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
     return pa.abs() > t || pb.abs() > t;
   }
 
+  // The vectors are sparse, but the tests below read them by parameter index
+  // (v[o], v[oa + 1], ...), so each is scattered into ONE reusable dense
+  // buffer rather than materialised as its own full-width array: the reads
+  // stay exactly what they were, and the (total - rank) x total allocation —
+  // 29.3 MB on the profile's top rung, per PERFORMANCE_PROFILE 5.5.2 — goes.
+  //
+  // Only the entities the vector actually touches are examined. An untouched
+  // entity reads all-zero, and every test here is `|component| > tol * vmax`
+  // with vmax > 0 (guarded below), so it can never come back loose. Skipping
+  // it is a proof, not a heuristic.
+  final entOf = List<int>.filled(total, 0);
+  for (var e = 0; e < gs.length; e++) {
+    for (var q = off[e]; q < off[e + 1]; q++) {
+      entOf[q] = e;
+    }
+  }
+  final v = List<double>.filled(total, 0.0);
+  final touched = <int>{};
   final loose = <(int, int)>{};
-  for (final v in basis) {
+  for (var k = 0; k < bCol.length; k++) {
+    final vc = bCol[k], vv = bVal[k];
     var vmax = 0.0;
-    for (final c in v) {
+    for (final c in vv) {
       if (c.abs() > vmax) vmax = c.abs();
     }
     if (vmax < 1e-12) continue;
-    for (var e = 0; e < gs.length; e++) {
+    touched.clear();
+    for (var t = 0; t < vc.length; t++) {
+      v[vc[t]] = vv[t];
+      touched.add(entOf[vc[t]]);
+    }
+    final ents = touched.toList()..sort();
+    for (final e in ents) {
       final g = gs[e];
       final o = off[e];
       switch (g.type) {
@@ -2626,6 +2952,9 @@ SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
           break;
       }
     }
+    for (var t = 0; t < vc.length; t++) {
+      v[vc[t]] = 0.0; // hand the buffer back clean for the next vector
+    }
   }
   return SketchAnalysis(dof, pts, loose);
 }
@@ -2644,18 +2973,7 @@ bool wouldOverconstrain(
     _prepare(gs, off, x, list, ctx);
     final r = _residuals(gs, off, x, list, ctx);
     if (r.isEmpty || total == 0) return 0;
-    final j = List.generate(r.length, (_) => List<double>.filled(total, 0.0));
-    for (var k = 0; k < total; k++) {
-      final h = 1e-6 * (1 + x[k].abs());
-      final save = x[k];
-      x[k] = save + h;
-      final r2 = _residuals(gs, off, x, list, ctx);
-      x[k] = save;
-      for (var i = 0; i < r.length; i++) {
-        j[i][k] = (r2[i] - r[i]) / h;
-      }
-    }
-    return _rankAndPivots(j, r.length, total).$1;
+    return _rankAndPivots(_jacobian(gs, off, x, list, ctx, r, total)).$1;
   }
 
   final before = rankOf(cs);

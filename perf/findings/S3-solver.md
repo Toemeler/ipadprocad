@@ -268,4 +268,158 @@ fixtures and asserts them unchanged.
 
 ## IMPLEMENTATION
 
-*(filled in below as the work lands)*
+### 4. What changed
+
+Three changes, in `solver.dart` except where noted.
+
+**(a) The elimination is sparse.** `_SpMat` stores rows as ascending
+(column, value) pairs; `_rankAndPivots` takes one and reduces it in place.
+Pivot choice, pivot order, normalisation range and the elimination range are
+the dense algorithm's, unchanged — the only difference is that operations on
+zeros are not performed. A column index (column → occupying rows) replaces the
+full-row scan; it is kept exact by never dropping an entry that cancels to
+zero, which removes the need for a removal path and any risk of it going
+stale.
+
+**(b) The null-space basis and the carrier test are sparse.** The basis is
+built by walking the RREF's occupied entries instead of probing
+(total − rank) × rank cells for them — 2 044 answers behind 2.6 million probes
+at the top rung. The vectors are then scattered one at a time into a single
+reusable full-width buffer, so the carrier test's reads (`v[oa]`, `v[o + 2]`,
+…) are the same expressions on the same values, while the
+(total − rank) × total allocation is gone. Only the entities a vector actually
+touches are examined; an untouched entity reads all-zero, and every test is
+`|component| > tol · vmax` with `vmax > 0` guaranteed by the guard above it, so
+it can never come back loose. That skip is a proof, not a heuristic.
+
+`debugRank` and `wouldOverconstrain` built the same dense Jacobian and called
+the same reducer; both now share `_jacobian` and the sparse reducer.
+
+**(c) The memo, and one dead store.** `SketchAnalysisCache` (capacity 4, LRU)
+keyed on `analysisKey` — a full value snapshot of geometry and constraints,
+compared for equality. `app_state.dart` gains the field and two call sites
+route through it.
+
+The third call site is **deleted**: `openSketch` computed
+`analysis = analyzeSketch(...)` on the load path, and `_reanalyze()` at the end
+of the same function overwrote it unconditionally a few lines later. Nothing
+between the two reads `analysis`, and nothing mutates the sketch, so the
+value never reached anything. It was not a cache candidate; it was dead. When
+a part's child sketch is open it was worse than dead — `current` is the child,
+so the call analysed a sketch whose result was then replaced by a different
+one's.
+
+### 5. Host result
+
+Same machine, same test, uninstrumented, `analyzeSketch` on the
+`stress.analyze` ladder. The "before" column is the implementation as it stood
+at `4890f06`, measured the same way (not the instrumented copy of §0, whose
+counters inflated it).
+
+| n (entities) | before | after | speedup |
+| ---: | ---: | ---: | ---: |
+| 64 | 31.5 ms | 27.8 ms | 1.14x |
+| 128 | 73.6 ms | 49.3 ms | 1.49x |
+| 256 | 184.7 ms | 65.6 ms | 2.82x |
+| 512 | 1 229.2 ms | 167.3 ms | 7.35x |
+| **1024** | **20 701.4 ms** | **1 000.6 ms** | **20.69x** |
+
+Fitted over the top three rungs — the range where the ladder is out of the
+fixed-cost floor that dominates n = 64 (both columns are ~30 ms there, which is
+JIT warm-up, not the algorithm):
+
+| | *k* | R² |
+| --- | ---: | ---: |
+| before | **3.404** | 0.9873 |
+| after | **1.966** | 0.9684 |
+
+The "before" exponent is the device's finding reproduced on a different CPU
+and a different runtime: 3.404 against the measured 3.198 [2.835, 3.561]. That
+agreement is what licenses reading the "after" column at all.
+
+**P1 is met on the host.** k = 1.966 against a predicted 2.0 ± 0.35. It is not
+yet met on the *device* — that is what the §8 capture adjudicates, and nothing
+here substitutes for it.
+
+**P2 projects to 8837 / 20.69 = 427 ms**, inside the registered
+[400, 1600] but near its floor: I charged sparse indexing 4x the dense
+per-operation cost and it evidently costs less than that. **This is a
+projection from a host ratio, not a device measurement**, and the ratio need
+not transfer exactly: this container runs the Dart VM in JIT, the iPad runs
+AOT, and the two phases that remain need not shift by the same factor between
+them.
+
+**P3 is met by construction**, though not yet by measurement. Both structures
+§5.5.2 identified — the `m × total` Jacobian (73.5 MB) and the
+`(total − rank) × total` basis (29.3 MB) — are gone from every one of the three
+sites that built them. What replaces them is nnz-proportional plus one
+full-width scratch buffer of `total` doubles (28 KB at the top rung). Only
+`rssDeltaMB` from a device run can close it.
+
+**P4 stands as registered.** The memo is not in the perf suite's path — the
+stress and ramp scenarios call `analyzeSketch` directly — so the ladder numbers
+above are the raw path, unaffected. `analysisKey` costs about 2 ms at 1024
+entities against the ~956 ms it may avoid (0.2 %), and is linear in sketch
+size.
+
+### 6. What is now the bottleneck, and what I deliberately left
+
+At n = 1024 the remaining second is almost entirely **step 1**, the
+finite-difference Jacobian: `total` = 3584 calls to `_residuals`, each O(m).
+That is quadratic by construction and it is what the fitted 1.966 is
+measuring.
+
+It could be made near-linear — for parameter *k*, only the constraints
+referencing *k*'s entity can change — and **I did not do it.** The reason is
+specific rather than general: that optimisation needs a map from constraint to
+the parameters it can depend on, and a residual here can reach geometry its
+own `ents`/`pts` do not name. Two cases in this file do: the point-on-curve
+branch reads a frame frozen in `_prepare` (`ctx.onCurve[i]`, indexing a
+carrier's vertex block), and `CType.pattern` ties a copy to a source. A map
+that misses one of those records a zero where a nonzero belongs, which lowers
+the rank, which raises the reported DOF, which paints a constrained sketch as
+free and lets the user drag what should be pinned. Nothing throws.
+
+The present code takes no such risk: `_jacobian` *discovers* the zero
+structure by perturbing and observing, so a dependency it does not know about
+cannot be missed. Anyone taking the next step should pin the sparse Jacobian
+against the dense one, entry for entry, on every constraint type before
+trusting it — and the 35 cases of `m232_analyze_pin_test.dart` are the fixture
+set for that.
+
+I also did not touch the **LM fallback** (§5.4), the second item in the S3
+brief. It is untouched and unmeasured by me, and it remains what §5.4 says it
+is: 3.9 % of solves, 0.4 % of that time inside libslvs, all the rest Dart-side.
+Sizing it properly needs the counter `solve.path.lm` from a device run, and
+the fixture-dependence the profile warns about (the ratio has been 186x, 245x
+and 334x on different runs) means the *share*, not the ratio, is the quantity —
+which is a device measurement. Doing it would also have meant a second, larger
+change to `solveConstraints` in the same session as this one, and a merge into
+`claude/perf-opt` that mixed the two.
+
+### 7. What I am uncertain about
+
+- **Whether the device shows the host's 20.7x.** The exponent should transfer;
+  the constant may not.
+- **Whether a real sketch's Jacobian fills in.** The measured zero fill-in is
+  the profile's fixture, which is one connected component of coincidences and
+  radii. A sketch whose constraint graph is denser could fill in under
+  elimination, and there the exponent would climb back toward 3. Nothing in
+  this change is *wrong* in that case — the output is identical either way —
+  but the win would shrink.
+- **The n = 64 and n = 128 rungs barely move** (1.14x, 1.49x). Both are ~30 ms
+  of fixed cost on this host, and the fixed cost is not the elimination. On a
+  device, where §5.5.1 records 1 ms and 10 ms for those rungs, the fixed cost
+  is a different fraction and these two rungs may behave differently.
+
+### 8. Verification
+
+- `flutter analyze`: 0 errors, 55 issues — the count `HANDOFF.md` records as
+  the standing baseline since M220, and none of them in the changed code.
+- `flutter test`: green.
+- `python3 -m unittest discover -s ci -p 'test_*.py'`: 45 green.
+- Behaviour pinned by `m232_analyze_pin_test.dart` (35 golden cases + purity +
+  no-mutation) recorded against the OLD implementation and unchanged by the
+  new one, and by `m232_analyze_cache_test.dart` (the key's field coverage by
+  mutation, the memo's equivalence and eviction, and P4's must-never-hit).
+- `perf/baseline.json` untouched. `PERFORMANCE_PROFILE.md` untouched.
