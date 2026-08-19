@@ -77,7 +77,7 @@ terminal rung, 3 profile-arc rungs at 120/240/480 profile points):
 | 720 | 2 508 ms | 4.838e-3 |
 | 1440 | 10 017 ms | 4.831e-3 |
 
-**α_stress = 4.807e-3 ms/edge², constant to 0.9 % over a 4× range.** It exceeds
+**α_stress = 4.807e-3 ms/edge², constant to 1.1 % over a 4× range.** It exceeds
 the `edgeInfoScale` α by 11 %, and that gap is itself constant across the
 ladder — i.e. it is a difference in the *fixture* (faces per edge), not a
 missing E² term. See §3.3 for why this matters.
@@ -370,10 +370,10 @@ a tolerance would hide precisely the reordering this test exists to catch.
   shim's.
 - **Fillet radius sensitivity (10 ms at r = 1.0 against 658 ms at r = 4.0).**
   See §5.2. Recorded as OCCT behaviour, not a shim defect.
-- **`sweepProfile` (§6.1, 81.9 ms mean, 392 ms worst).** Not touched. It is an
-  absolute cost with a two-point slope behind it and no scaling claim; there is
-  no cost model to optimise against, and §7 of the plan says an exponent whose
-  interval spans nothing is not something to optimise against.
+- **`sweepProfile` (§6.1).** Not touched — an absolute cost with a two-point
+  slope behind it and no scaling claim, so there is no cost model to optimise
+  against. Reading it did produce one testable claim about a cost axis the
+  suite does not sweep; see §5.3.
 - **Adopting the bulk path inside `part_model.dart`'s `edgesOf`.** That file is
   Session 5's. `edgesOf` is `shape.allEdges()`, so it inherits the change
   without anyone editing it.
@@ -471,6 +471,46 @@ milliseconds.
 
 **No change made.** Changing the ladder changes which fillets build, which is a
 behaviour change, and it would be one made against n = 3.
+
+### 5.3 `sweepProfile` — read, not changed, and one structural claim worth testing
+
+§6.1 measures `sweepProfile` at 160 ms mean / 396 ms max over n = 16, with
+`kernel.sweep.path` at 205 ms per sweep on a 96-point path. Its fitted exponent
+is a two-point slope (N = 2) and the profile makes no scaling claim from it. The
+plan's own rule — do not optimise against an exponent whose interval supports
+nothing — applies, so no change was made.
+
+Reading the source did produce one thing the profile does not have, and it is
+falsifiable:
+
+**A swept profile with holes costs (1 + h) whole sweeps, not one.**
+`finish_pipe` builds the outer section with one `BRepOffsetAPI_MakePipeShell`,
+and then, for each hole wire, constructs **another complete
+`MakePipeShell`**, builds it, solidifies it, and cuts it out with a
+`BRepAlgoAPI_Cut` — followed by one `ShapeUpgrade_UnifySameDomain` over the
+result. The source says why (a multi-wire section is not reliable through
+`MakePipeShell`), so this is a deliberate choice, not an oversight.
+
+The consequence for cost is not recorded anywhere: **`sweepProfile` should be
+linear in hole count with a slope of roughly one whole sweep per hole, plus a
+boolean.** The suite's sweep fixtures appear to have no holes, so nothing
+measured touches this axis, and the 160 ms mean is the *cheapest* case.
+
+```
+Predicted     : sweepProfile(h holes) ≈ (1 + h) × sweepProfile(0) + h × cut
+Derivation    : one MakePipeShell Build + MakeSolid per hole, plus one
+                BRepAlgoAPI_Cut per hole, from finish_pipe's loop.
+                §6.2 puts a boolean cut at 17.3 ms mean, so at 160 ms per
+                sweep the cut is ~10 % of each additional hole.
+Falsifiable by: a sweep ladder over HOLE COUNT — 0, 1, 2, 4 holes, one
+                fixed path and section. A flat result refutes this outright.
+Risk          : none taken — no code changed. This is a claim about cost
+                that the suite cannot currently see, offered so it can be
+                measured rather than assumed.
+```
+
+A ladder over hole count belongs in the perf suite, which nobody may edit in
+this split (§3), so this stays a registered claim rather than a measurement.
 
 ---
 
