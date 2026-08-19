@@ -428,3 +428,119 @@ change to `solveConstraints` in the same session as this one, and a merge into
   new one, and by `m232_analyze_cache_test.dart` (the key's field coverage by
   mutation, the memo's equivalence and eviction, and P4's must-never-hit).
 - `perf/baseline.json` untouched. `PERFORMANCE_PROFILE.md` untouched.
+
+---
+
+## 9. Addendum — the LM fallback, reopened
+
+**Registered after the analysis change had already landed (`15dc9ae`), and
+before any line of `_lm` moved.** §2 asks for pre-registration; this is
+pre-registration of the *second* change, not of the first, and saying so is
+part of the record. §6 above deferred this item, and the deferral was wrong on
+the merits — the reason it gave ("sizing it needs a device counter") is a
+reason not to quote a speedup share, not a reason not to look. §0 of this same
+file argues that operation counts need no device. I did not apply my own
+argument to the second half of my own brief until asked whether the session
+was finished.
+
+### 9.1 What the count says
+
+Instrumented copy of `_lm`, reverted before implementation, on the profile's
+own `solve.overConstrained` fixture (`sketchFixture(24)` +
+`constraintFixture(24)` + a conflicting `fix` — the 168-parameter system §5.4
+names):
+
+| | |
+| --- | ---: |
+| parameters *n* / residuals *m* | 168 / 124 |
+| LM iterations actually run | 5 |
+| Jacobian nonzeros, summed over iterations | 1 215 (≈243 of 20 832 cells, **1.2 %**) |
+| **`JᵀJ` multiply-adds executed** | **8 801 520** |
+| …of which both factors are nonzero | **1 810** |
+| **waste factor** | **4 863×** |
+| `_solveDense` multiply-adds | 91 475 |
+| Jacobian construction (residual evaluations) | 104 160 |
+| host wall | 557 ms |
+
+**`JᵀJ` formation is 97.8 % of the LM's arithmetic, and 99.98 % of it
+multiplies at least one zero.** It is the same defect as §0.3 — a dense triple
+loop over a sparse matrix — with a worse ratio than the one already fixed
+(4 863× against 1 278×).
+
+Two things this also settles, both negative and both worth recording:
+
+* **The second LM run is not a duplicate.** §5.4 describes "twice while
+  dragging". Reading `_solveConstraintsInner`, the relaxed run is
+  `else`-guarded: it happens only when the frozen run fails. There is no
+  double call to collapse, and the two-stage strategy is deliberate — a drag
+  is a wish, not a command. Nothing to do here.
+* **`_solveDense` is not the problem.** At 91 475 operations it is 1.0 % of
+  the total, and it already skips exact zeros. It becomes the largest
+  *arithmetic* term after the fix and is still an order of magnitude below the
+  residual evaluations.
+
+### 9.2 Prediction P5
+
+```
+Target        : (a) JtJ multiply-adds at solve.overConstrained  [host-verifiable]
+                (b) host wall for that scenario                 [host-measurable]
+                (c) device solve.lm mean, and solve.overConstrained total
+Baseline      : (a) 8 801 520 executed, 1 810 useful   (measured above)
+                (b) 557 ms                             (this container)
+                (c) solve.lm mean 50.4 ms, n = 28; solve.overConstrained
+                    solve.total 66.4 ms of which solve.lm 64.2 ms  (§5.4)
+Mechanism     : jtj[a][b] = sum_i j[i][a]*j[i][b] is computed by iterating
+                every (a, b, i) triple: n*(n+1)/2 * m per iteration. The
+                Jacobian is 1.2 % occupied, so nearly every product has a zero
+                factor and contributes exactly 0.0.
+Change        : accumulate row-major over the Jacobian's NONZEROS instead —
+                for each residual row i, for each pair (a, b) of columns
+                occupied in that row, jtj[a][b] += j[i][a]*j[i][b].
+Predicted     : (a) 1 860 +/- 150     (b) 120 ms [60, 250]
+                (c) solve.lm mean 15 ms [7, 30]; solve.overConstrained
+                    solve.total 20 ms [10, 40]
+Derivation    : (a) cost becomes sum over rows of nnz_i*(nnz_i+1)/2. Measured
+                    nnz is ~243 per iteration over m = 124 rows, i.e. ~2 per
+                    row, giving 124 * (2*3/2) = 372 per iteration and 1 860
+                    over the 5 iterations. That the independently counted
+                    "useful" figure is 1 810 is the cross-check: the two agree
+                    to 2.7 %.
+                (b) total counted arithmetic 8 997 155 -> 197 495, a factor
+                    45.6. Wall cannot follow that, because what REMAINS is
+                    dominated by the 845 _residuals calls, which carry sqrt
+                    and atan2 rather than plain multiply-adds and were never
+                    part of the 45.6x. Charging the surviving work the whole
+                    557 ms minus the JtJ share, and allowing that the JtJ
+                    share is not measured separately, gives a wide interval
+                    around ~120 ms.
+                (c) 66.4 / (557/120) = 14.3 ms, rounded up to 20 ms because
+                    the device's mix of the surviving terms need not match
+                    this container's.
+Falsifiable by: (a) a count outside [1710, 2010] — that would mean the
+                    sparsity model of the LM Jacobian is wrong, and (b) and
+                    (c) should not then be believed either.
+                (c) a device solve.lm mean above 35 ms.
+Risk          : the win scales with how sparse the Jacobian rows are. A sketch
+                coupling many entities per constraint — patterns, chains of
+                tangency — has wider rows, and nnz_i^2 grows faster than the
+                dense form falls. The fix can never be SLOWER than a
+                fully-dense row (it degenerates to the same triple loop), but
+                on such a sketch the factor could be single digits rather
+                than thousands.
+Correctness   : bit-identical, and by a stricter argument than §1's. For a
+                fixed (a, b) the surviving terms arrive in ascending i, the
+                same order as the original inner loop, so the accumulation
+                sequence is unchanged and only exact-zero addends are dropped.
+                `jtr` keeps its original shape — accumulate positively, negate
+                once at the end — so that an all-zero column still produces
+                -0.0 rather than +0.0, which the row-major form would
+                otherwise change.
+```
+
+**The pin, written before the change:** `m232_lm_pin_test.dart` records the
+full solved parameter vector, digit for digit, for all three LM entry paths
+(`lm`, `lm-frozen`, `lm-relaxed`), for the profile's unsatisfiable fixture,
+and for a tangency; plus `debugRank`'s triple. No tolerances anywhere — `_lm`
+moves geometry, and after eighty damped iterations a difference in the
+fifteenth decimal is not guaranteed to stay in the fifteenth decimal, because
+the λ schedule branches on `e2 < err`.
