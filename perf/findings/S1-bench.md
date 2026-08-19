@@ -251,9 +251,17 @@ Risk          : this harness times only the blend call, whereas the device
 
 ## 3. Adjudication
 
-**Capture:** `bench-out/kernel-bench-linux.*`, published to the `ci-logs-bench`
-branch. Linux / x86_64, 4 cores, OCCT 7.9.3 static Release with the repository's
-own `OCCT_COMMON_FLAGS`, shim v20 unmodified (`CALIBRATION.txt` hash matches, so
+**Capture provenance, stated precisely because §4 corrects this section and a
+reader needs to know which machine each number came from.** The numbers in §3
+are from a **local run on this development VM** — four shared cores, contended,
+not published anywhere. The authoritative captures are the CI ones in
+`ci-logs-bench/`, and they are in §4. The dev-VM run is reported here because it
+is what the predictions were adjudicated against as they were written, and
+because two independent runs of it are a repeatability statement; it is *not*
+the capture to quote.
+
+Linux / x86_64, 4 cores, OCCT 7.9.3 static Release with the repository's own
+`OCCT_COMMON_FLAGS`, shim v20 unmodified (`CALIBRATION.txt` hash matches, so
 the gate was live). Ladder 60 / 120 / 240 / 480 profile points = 180 / 360 / 720
 / 1440 edges; 7 repetitions per operation per rung, one warm-up discarded, a
 30 s wall budget per operation per rung.
