@@ -140,3 +140,76 @@ is in `S3-solver.md` §0.2.
 
 Same caution generally: a theoretical `O(...)` bound quoted as an operation
 count overstates any loop in this codebase that skips zeros, and several do.
+
+---
+
+## S3-3 — `frontend/pubspec.lock` has been re-resolved against a PRE-RELEASE Dart SDK, and CI builds on stable
+
+**Raised by:** Session 3 (2D solver), from a routine pull to see what the other
+sessions had done.
+**Files:** `frontend/pubspec.lock` — nobody's. Not in any session's ownership
+table, and shared by all five.
+**Blocked:** no. Session 3 is unaffected and has **not** touched the file
+(`git diff d87ac11 HEAD -- frontend/pubspec.lock` is empty). Not fixed here,
+per §7.
+
+**What happened.** Commit `2a92824` on
+`claude/optimization-plan-session-5-kb2gvz` — whose own message is
+"Vorhersagen registriert, bevor eine Zeile Code faellt", i.e. a
+pre-registration commit that changed no application code — also carries a
+rewritten `frontend/pubspec.lock`. This is the signature of a `flutter pub get`
+run with a different SDK than the one the lockfile was generated with, swept
+into the commit unnoticed. It is the same accident class as the
+`.flutter-plugins-dependencies` churn that `M221c` already had to clean up
+once.
+
+**Why it is worth more than a shrug.** The `sdks:` stamp moved:
+
+```
+-  dart: ">=3.8.0 <4.0.0"
++  dart: ">=3.11.0-0 <4.0.0"
+```
+
+The `-0` suffix is a **pre-release** constraint: the resolution was performed
+by a beta/master Dart, not by stable. `.github/workflows/m1-core-build.yml`
+installs Flutter with `channel: stable`. A lockfile that demands a
+pre-release Dart is at best re-resolved by CI (making the committed file
+decorative) and at worst rejected outright by any step that enforces it.
+
+Nine transitive packages moved with it, several of them SDK-pinned:
+
+| package | from | to |
+| --- | --- | --- |
+| `leak_tracker` | 10.0.9 | 11.0.2 |
+| `material_color_utilities` | 0.11.1 | 0.13.0 |
+| `meta` | 1.16.0 | 1.19.0 |
+| `vector_math` | 2.1.4 | 2.4.2 |
+| `test_api` | 0.7.4 | 0.7.12 |
+| `matcher` | 0.12.17 | 0.12.20 |
+| `characters`, `clock`, `fake_async` | (patch bumps) | |
+
+**Two consequences worth stating separately.**
+
+1. **For the merge:** if this lands on `claude/perf-opt`, every session's
+   toolchain changes, and the change was not anyone's to make. The standing
+   rule of this branch is that behaviour does not change, only cost does — a
+   dependency bump is a behaviour change with no cost argument behind it.
+2. **For the evidence:** it means S5's host test runs were made on a different
+   SDK than the one that produced the CI baseline. That does not invalidate
+   S5's *operation-count* reasoning (counts do not depend on the SDK), but any
+   host timing ratio quoted from that run is measured against a different
+   runtime than everyone else's.
+
+**Suggested remedy, for S5 or for integration — not applied here:** revert
+`frontend/pubspec.lock` to its state at `d87ac11`
+(`git checkout d87ac11 -- frontend/pubspec.lock`) and keep the rest of the
+commit. If the newer SDK is actually wanted, that is a decision for the
+integration step with CI's `channel: stable` in view, not a side effect of a
+pre-registration commit.
+
+**Also for whoever integrates:** S5 and S3 have both named their new tests
+`m232_*`. They do not collide as filenames (`m232_analyze_pin_test.dart`,
+`m232_analyze_cache_test.dart` from S3; `m232_blend_occurrence_test.dart`,
+`m232_provenance_index_test.dart` from S5), but the milestone number is now
+shared by two unrelated pieces of work and will need one of them renumbered
+when this is written up.
