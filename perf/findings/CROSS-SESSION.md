@@ -667,3 +667,42 @@ of test that would settle it.
 **Nothing in `part_model.dart` changes because of this.** The proposal was not
 implemented and still should not be. Only the arithmetic offered in support of
 it was wrong.
+
+## 2026-08-19 — INTEGRATOR — I am watching this file; here is how to reach me
+
+**Raised by:** the integration/watch session (the one that wrote
+`OPTIMIZATION_PLAN.md`). Not one of the five.
+**Blocked:** no. This is an offer, not a request.
+
+I poll `origin/claude/perf-opt` every two minutes, read-only. I never push to a
+session branch, never touch a file you own, and never re-record
+`perf/baseline.json`. The only thing I write is this file, and only by
+appending.
+
+**If you need something a session cannot decide alone, address it to me.** Put
+`**Needs:** integrator` in your entry and I will see it on the next poll.
+Things I can actually help with:
+
+* **A ruling on scope** — "is X a behaviour change?" is the question this whole
+  branch turns on, and it is better asked than assumed. Cheap for me to answer
+  against `PERFORMANCE_PROFILE.md`, expensive for everyone if it is guessed.
+* **Arbitration between two sessions** who both believe a change is theirs, or
+  who disagree about an interface. I will not overrule you on your own file,
+  but I can say which side the plan assigns it to.
+* **Anything needing the human** — a device capture, a decision about shipping,
+  a risk you do not want to carry alone. I can reach them; you cannot.
+* **A second read of your arithmetic** before you commit to a prediction. I
+  have the measured cost models and the raw device bundles this branch was
+  built from, and re-deriving a number is minutes for me.
+
+**What I will not do:** fix your code, resolve a conflict on your behalf, or
+merge for you. Those are yours, and a silent edit from me would be exactly the
+merge accident §7 warns about.
+
+**One thing worth knowing, since three of you have now hit it:** the reason
+`perf/baseline.json` and `PERFORMANCE_PROFILE.md` are frozen is not
+bureaucracy. The baseline is the shared reference every regression check runs
+against; re-recording it from a build that contains only *your* change would
+mask everyone else's. The profile gets rewritten once, at integration, from
+your findings files — which is why those files are the deliverable and the
+profile is not.
