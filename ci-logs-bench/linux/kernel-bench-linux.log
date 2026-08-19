@@ -2,90 +2,100 @@
 RELATIVE costs, exponents, allocation and RSS may be read from this table.
 ABSOLUTE milliseconds may NOT be quoted as iPad milliseconds (PERFORMANCE_PROFILE.md §13.3).
 
-kernel : Prototype OCCT shim v20 (OCCT 7.9.3) (shim v20)
+kernel : Prototype OCCT shim v21 (OCCT 7.9.3) (shim v21)
 host   : Linux / x86_64
 alloc  : ld --wrap + operator new
 rungs  : 60 120 240 480  (profile points; edges are 3x)
 reps   : 7, budget 20000 ms per op per rung
 
 [rung] profilePts=60  edges=180  faces=62  facet=4.1869 mm (ladder fillet radius 0.1000)
-  build                  x=180        n=7   x1       mean=   4.10584 ms  sd= 0.13706  p95=   4.40584  cv=  3.3%
-  edgeInfo1              x=180        n=7   x2       mean=   1.86940 ms  sd= 0.19612  p95=   2.31061  cv= 10.5%
-  allEdges               x=180        n=7   x1       mean= 353.96329 ms  sd= 0.45069  p95= 354.76488  cv=  0.1%
-  buildOnly              x=180        n=7   x1       mean=  11.34258 ms  sd= 0.22234  p95=  11.80528  cv=  2.0%
-  counts                 x=180        n=7   x32      mean=   0.08199 ms  sd= 0.00029  p95=   0.08235  cv=  0.4%
-  bbox                   x=180        n=7   x64      mean=   0.05683 ms  sd= 0.00014  p95=   0.05704  cv=  0.2%
-  mesh                   x=180        n=7   x1       mean=   4.55269 ms  sd= 0.05044  p95=   4.62239  cv=  1.1%
-  fuse                   x=180        n=7   x1       mean=  51.34200 ms  sd= 0.12838  p95=  51.55604  cv=  0.3%
-  cut                    x=180        n=7   x1       mean=  47.20668 ms  sd= 0.17384  p95=  47.39918  cv=  0.4%
-  rayHits                x=180        n=7   x8       mean=   0.26243 ms  sd= 0.00309  p95=   0.26696  cv=  1.2%
-  filletEx1              x=180        n=7   x1       mean=  29.51225 ms  sd= 0.34971  p95=  30.10153  cv=  1.2%
+  build                  x=180        n=7   x1       mean=   3.71689 ms  sd= 0.02415  p95=   3.74821  cv=  0.6%
+  edgeInfo1              x=180        n=7   x2       mean=   1.61121 ms  sd= 0.01164  p95=   1.62980  cv=  0.7%
+  allEdges               x=180        n=7   x1       mean= 323.04101 ms  sd= 6.75966  p95= 337.34909  cv=  2.1%
+  allEdgesBulk           x=180        n=7   x1       mean=  21.83096 ms  sd= 0.09921  p95=  21.94619  cv=  0.5%
+  buildOnly              x=180        n=7   x1       mean=  10.93005 ms  sd= 0.12443  p95=  11.18259  cv=  1.1%
+  counts                 x=180        n=7   x32      mean=   0.07529 ms  sd= 0.00063  p95=   0.07658  cv=  0.8%
+  bbox                   x=180        n=7   x64      mean=   0.05608 ms  sd= 0.00069  p95=   0.05763  cv=  1.2%
+  mesh                   x=180        n=7   x1       mean=   4.36581 ms  sd= 0.07184  p95=   4.51689  cv=  1.6%
+  fuse                   x=180        n=7   x1       mean=  53.91182 ms  sd= 0.40118  p95=  54.57959  cv=  0.7%
+  cut                    x=180        n=7   x1       mean=  49.14976 ms  sd= 0.38597  p95=  49.83128  cv=  0.8%
+  rayHits                x=180        n=7   x16      mean=   0.22158 ms  sd= 0.00129  p95=   0.22425  cv=  0.6%
+  filletEx1              x=180        n=7   x1       mean=  28.69811 ms  sd= 0.11642  p95=  28.85953  cv=  0.4%
       fillet report: dropped=0 scale=1.000000
 
 [rung] profilePts=120  edges=360  faces=122  facet=2.0942 mm (ladder fillet radius 0.1000)
-  build                  x=360        n=7   x1       mean=   8.23495 ms  sd= 0.02982  p95=   8.27738  cv=  0.4%
-  edgeInfo1              x=360        n=7   x1       mean=   3.64795 ms  sd= 0.02363  p95=   3.68041  cv=  0.6%
-  allEdges               x=360        n=7   x1       mean=1448.96520 ms  sd= 6.25454  p95=1459.79594  cv=  0.4%
-  buildOnly              x=360        n=7   x1       mean=  21.83210 ms  sd= 0.21260  p95=  22.18068  cv=  1.0%
-  counts                 x=360        n=7   x16      mean=   0.16296 ms  sd= 0.00124  p95=   0.16552  cv=  0.8%
-  bbox                   x=360        n=7   x32      mean=   0.11426 ms  sd= 0.00025  p95=   0.11465  cv=  0.2%
-  mesh                   x=360        n=7   x1       mean=   8.62633 ms  sd= 0.07814  p95=   8.77933  cv=  0.9%
-  fuse                   x=360        n=7   x1       mean= 112.40420 ms  sd= 0.25663  p95= 112.69664  cv=  0.2%
-  cut                    x=360        n=7   x1       mean= 103.98395 ms  sd= 0.37651  p95= 104.51042  cv=  0.4%
-  rayHits                x=360        n=7   x8       mean=   0.29735 ms  sd= 0.00264  p95=   0.30286  cv=  0.9%
-  filletEx1              x=360        n=7   x1       mean=   9.63510 ms  sd= 0.03569  p95=   9.70347  cv=  0.4%
+  build                  x=360        n=7   x1       mean=   7.75577 ms  sd= 0.01510  p95=   7.78129  cv=  0.2%
+  edgeInfo1              x=360        n=7   x1       mean=   3.34971 ms  sd= 0.02075  p95=   3.38065  cv=  0.6%
+  allEdges               x=360        n=7   x1       mean=1333.21527 ms  sd= 2.82606  p95=1338.29225  cv=  0.2%
+  allEdgesBulk           x=360        n=7   x1       mean=  76.13760 ms  sd= 0.23063  p95=  76.49795  cv=  0.3%
+  buildOnly              x=360        n=7   x1       mean=  21.31881 ms  sd= 0.13381  p95=  21.50654  cv=  0.6%
+  counts                 x=360        n=7   x16      mean=   0.15144 ms  sd= 0.00128  p95=   0.15399  cv=  0.8%
+  bbox                   x=360        n=7   x32      mean=   0.11688 ms  sd= 0.00476  p95=   0.12560  cv=  4.1%
+  mesh                   x=360        n=7   x1       mean=   8.39418 ms  sd= 0.07933  p95=   8.53950  cv=  0.9%
+  fuse                   x=360        n=7   x1       mean= 122.13049 ms  sd= 9.12509  p95= 142.71503  cv=  7.5%
+  cut                    x=360        n=7   x1       mean= 108.08106 ms  sd= 0.45237  p95= 108.76347  cv=  0.4%
+  rayHits                x=360        n=7   x8       mean=   0.25259 ms  sd= 0.00246  p95=   0.25700  cv=  1.0%
+  filletEx1              x=360        n=7   x1       mean=   9.41931 ms  sd= 0.08842  p95=   9.57567  cv=  0.9%
       fillet report: dropped=0 scale=1.000000
 
 [rung] profilePts=240  edges=720  faces=242  facet=1.0472 mm (ladder fillet radius 0.1000)
-  build                  x=720        n=7   x1       mean=  16.92923 ms  sd= 0.07968  p95=  17.08688  cv=  0.5%
-  edgeInfo1              x=720        n=7   x1       mean=   7.40577 ms  sd= 0.04478  p95=   7.49065  cv=  0.6%
-  allEdges               x=720        n=4   x1       mean=5869.45179 ms  sd=12.74421  p95=5886.17510  cv=  0.2%
-  buildOnly              x=720        n=7   x1       mean=  44.16546 ms  sd= 0.38200  p95=  45.00961  cv=  0.9%
-  counts                 x=720        n=7   x8       mean=   0.36703 ms  sd= 0.00303  p95=   0.37135  cv=  0.8%
-  bbox                   x=720        n=7   x8       mean=   0.25302 ms  sd= 0.00220  p95=   0.25695  cv=  0.9%
-  mesh                   x=720        n=7   x1       mean=  17.16999 ms  sd= 0.11934  p95=  17.34773  cv=  0.7%
-  fuse                   x=720        n=7   x1       mean= 270.27374 ms  sd= 0.62989  p95= 271.08931  cv=  0.2%
-  cut                    x=720        n=7   x1       mean= 251.01625 ms  sd= 0.95925  p95= 252.31471  cv=  0.4%
-  rayHits                x=720        n=7   x8       mean=   0.36385 ms  sd= 0.00250  p95=   0.36712  cv=  0.7%
-  filletEx1              x=720        n=7   x1       mean=  19.46420 ms  sd= 0.01985  p95=  19.48718  cv=  0.1%
+  build                  x=720        n=7   x1       mean=  15.59382 ms  sd= 0.04451  p95=  15.66911  cv=  0.3%
+  edgeInfo1              x=720        n=7   x1       mean=   6.69457 ms  sd= 0.02076  p95=   6.72410  cv=  0.3%
+  allEdges               x=720        n=4   x1       mean=5314.33179 ms  sd=15.37392  p95=5329.67804  cv=  0.3%
+  allEdgesBulk           x=720        n=7   x1       mean= 286.15356 ms  sd= 1.19049  p95= 287.72756  cv=  0.4%
+  buildOnly              x=720        n=7   x1       mean=  43.79916 ms  sd= 0.34691  p95=  44.15419  cv=  0.8%
+  counts                 x=720        n=7   x8       mean=   0.29531 ms  sd= 0.00234  p95=   0.29829  cv=  0.8%
+  bbox                   x=720        n=7   x16      mean=   0.22807 ms  sd= 0.00230  p95=   0.23056  cv=  1.0%
+  mesh                   x=720        n=7   x1       mean=  17.43558 ms  sd= 0.20033  p95=  17.68518  cv=  1.1%
+  fuse                   x=720        n=7   x1       mean= 288.28346 ms  sd= 1.86560  p95= 290.39891  cv=  0.6%
+  cut                    x=720        n=7   x1       mean= 268.43602 ms  sd= 2.89776  p95= 271.63195  cv=  1.1%
+  rayHits                x=720        n=7   x8       mean=   0.32119 ms  sd= 0.01200  p95=   0.34816  cv=  3.7%
+  filletEx1              x=720        n=7   x1       mean=  18.57941 ms  sd= 0.33105  p95=  19.31199  cv=  1.8%
       fillet report: dropped=0 scale=1.000000
 
 [rung] profilePts=480  edges=1440  faces=482  facet=0.5236 mm (ladder fillet radius 0.1000)
-  build                  x=1440       n=7   x1       mean=  35.94515 ms  sd= 0.19981  p95=  36.33326  cv=  0.6%
-  edgeInfo1              x=1440       n=7   x1       mean=  14.81639 ms  sd= 0.07315  p95=  14.91845  cv=  0.5%
-  allEdges               x=1440       n=3   x1       mean=23417.32534 ms  sd=10.41984  p95=23426.20379  cv=  0.0%
-  buildOnly              x=1440       n=7   x1       mean=  90.06174 ms  sd= 1.88411  p95=  93.91094  cv=  2.1%
-  counts                 x=1440       n=7   x4       mean=   0.72497 ms  sd= 0.00959  p95=   0.73597  cv=  1.3%
-  bbox                   x=1440       n=7   x8       mean=   0.47541 ms  sd= 0.00421  p95=   0.48189  cv=  0.9%
-  mesh                   x=1440       n=7   x1       mean=  33.98216 ms  sd= 0.17349  p95=  34.31887  cv=  0.5%
-  fuse                   x=1440       n=7   x1       mean= 740.35226 ms  sd= 3.41668  p95= 744.54610  cv=  0.5%
-  cut                    x=1440       n=7   x1       mean= 701.49289 ms  sd=17.71240  p95= 739.46338  cv=  2.5%
-  rayHits                x=1440       n=7   x8       mean=   0.46576 ms  sd= 0.00314  p95=   0.47213  cv=  0.7%
-  filletEx1              x=1440       n=7   x1       mean=  38.17302 ms  sd= 0.07491  p95=  38.29984  cv=  0.2%
+  build                  x=1440       n=7   x1       mean=  34.43974 ms  sd= 0.14462  p95=  34.62039  cv=  0.4%
+  edgeInfo1              x=1440       n=7   x1       mean=  13.83892 ms  sd= 0.06220  p95=  13.94884  cv=  0.4%
+  allEdges               x=1440       n=3   x1       mean=22244.32038 ms  sd=377.19685  p95=22523.54395  cv=  1.7%
+  allEdgesBulk           x=1440       n=7   x1       mean=1165.16415 ms  sd= 5.00861  p95=1172.13883  cv=  0.4%
+  buildOnly              x=1440       n=7   x1       mean=  88.89896 ms  sd= 0.70685  p95=  89.85801  cv=  0.8%
+  counts                 x=1440       n=7   x4       mean=   0.66297 ms  sd= 0.02073  p95=   0.68603  cv=  3.1%
+  bbox                   x=1440       n=7   x8       mean=   0.45697 ms  sd= 0.00160  p95=   0.45891  cv=  0.3%
+  mesh                   x=1440       n=7   x1       mean=  31.73985 ms  sd= 0.51720  p95=  32.90225  cv=  1.6%
+  fuse                   x=1440       n=7   x1       mean= 772.98824 ms  sd= 2.96956  p95= 778.05304  cv=  0.4%
+  cut                    x=1440       n=7   x1       mean= 734.28546 ms  sd= 5.40594  p95= 741.37774  cv=  0.7%
+  rayHits                x=1440       n=7   x8       mean=   0.43360 ms  sd= 0.00598  p95=   0.44665  cv=  1.4%
+  filletEx1              x=1440       n=7   x1       mean=  37.80588 ms  sd= 0.17894  p95=  38.03573  cv=  0.5%
       fillet report: dropped=0 scale=1.000000
 
 [fillet sweeps] base = ring(24, 40) x 10  edges=72 faces=26
-  filletCandidateSearch  x=72         n=7   x1       mean=  62.89603 ms  sd= 0.17150  p95=  63.16163  cv=  0.3%
-  fillet.edges           x=1          n=7   x1       mean=  13.03028 ms  sd= 0.03606  p95=  13.08359  cv=  0.3%
-  fillet.edges           x=4          n=7   x1       mean=  27.33546 ms  sd= 0.21437  p95=  27.80556  cv=  0.8%
-  fillet.edges           x=12         n=7   x1       mean=  61.52516 ms  sd= 0.28112  p95=  61.96537  cv=  0.5%
-  fillet.scenario        x=1          n=7   x1       mean=  76.61153 ms  sd= 1.60349  p95=  80.22045  cv=  2.1%
-  fillet.scenario        x=4          n=7   x1       mean=  90.56141 ms  sd= 0.12001  p95=  90.70689  cv=  0.1%
-  fillet.scenario        x=12         n=7   x1       mean= 124.85816 ms  sd= 0.19824  p95= 125.19481  cv=  0.2%
-  fillet.radius          x=0.5        n=7   x1       mean=  27.83041 ms  sd= 0.71236  p95=  29.37565  cv=  2.6%
-  fillet.radius          x=1          n=7   x1       mean=  27.30349 ms  sd= 0.07027  p95=  27.37333  cv=  0.3%
-  fillet.radius          x=2          n=7   x1       mean=  27.23486 ms  sd= 0.09078  p95=  27.35109  cv=  0.3%
-  fillet.radius          x=4          n=7   x1       mean= 798.79401 ms  sd= 1.32129  p95= 800.72631  cv=  0.2%
+  filletCandidateSearch  x=72         n=7   x1       mean=  58.01737 ms  sd= 0.06775  p95=  58.10114  cv=  0.1%
+  volume                 x=72         n=7   x4       mean=   0.75239 ms  sd= 0.00393  p95=   0.76117  cv=  0.5%
+  valid                  x=72         n=7   x1       mean=   4.27260 ms  sd= 0.05870  p95=   4.39043  cv=  1.4%
+  fillet.edges           x=1          n=7   x1       mean=  12.60466 ms  sd= 0.11172  p95=  12.78294  cv=  0.9%
+  fillet.edges           x=4          n=7   x1       mean=  25.74270 ms  sd= 0.08050  p95=  25.87894  cv=  0.3%
+  fillet.edges           x=12         n=7   x1       mean=  57.48441 ms  sd= 0.57413  p95=  58.59306  cv=  1.0%
+  fillet.scenario        x=1          n=7   x1       mean=  71.50490 ms  sd= 0.31463  p95=  72.01685  cv=  0.4%
+  fillet.scenario        x=4          n=7   x1       mean=  84.81630 ms  sd= 0.22105  p95=  85.09123  cv=  0.3%
+  fillet.scenario        x=12         n=7   x1       mean= 115.68539 ms  sd= 0.27710  p95= 116.08605  cv=  0.2%
+  fillet.radius          x=0.5        n=7   x1       mean=  25.84252 ms  sd= 0.15423  p95=  26.09726  cv=  0.6%
+  fillet.radius          x=1          n=7   x1       mean=  25.83665 ms  sd= 0.10779  p95=  26.04056  cv=  0.4%
+  fillet.radius          x=2          n=7   x1       mean=  26.00220 ms  sd= 0.13969  p95=  26.26822  cv=  0.5%
+  fillet.radius          x=4          n=7   x1       mean= 780.70213 ms  sd= 5.57299  p95= 791.77540  cv=  0.7%
+
+  [S2-2] guard lower bound = 2 x volume (0.7524) + valid (4.2726) = 5.7774 ms
+         whole fillet call at one edge = 12.6047 ms
+         => the guard is AT LEAST 45.8 % of it
 
 === Calibration against PERFORMANCE_PROFILE.md §6.5 ===
-  edgeInfo1    device k=0.990 [0.970, 1.010]  bench k=0.998 [0.983, 1.014]  R2=0.9999  AGREES
-  allEdges     device k=2.012 [1.910, 2.113]  bench k=2.016 [2.005, 2.028]  R2=1.0000  AGREES
+  edgeInfo1    device k=0.990 [0.970, 1.010]  bench k=1.031 [1.016, 1.046]  R2=0.9999  DISAGREES
+  allEdges     device k=2.012 [1.910, 2.113]  bench k=2.031 [2.013, 2.049]  R2=1.0000  AGREES
                  also vs the tool-convention interval [1.996, 2.027] (ci/perf_profile.py's 1.96): AGREES  (informational — see CROSS-SESSION.md S1-1)
-  buildOnly    device k=1.063 [0.959, 1.167]  bench k=0.998 [0.971, 1.026]  R2=0.9996  AGREES  (informational)
-  separation : allEdges k=2.016 vs buildOnly k=0.998 (device: 2.012 vs 1.063)
+  buildOnly    device k=1.063 [0.959, 1.167]  bench k=1.011 [0.989, 1.033]  R2=0.9998  AGREES  (informational)
+  separation : allEdges k=2.031 vs buildOnly k=1.011 (device: 2.012 vs 1.063)
 
-HARNESS: VALIDATED
+HARNESS: NOT VALIDATED
 wrote bench-out/kernel-bench-linux.json
 wrote bench-out/kernel-bench-linux.md
 
-LANE C: PASS
+LANE C: FAIL (a gating exponent does not agree with §6.5 — the harness is wrong, not the device)
