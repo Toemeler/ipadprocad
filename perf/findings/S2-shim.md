@@ -28,7 +28,7 @@ integration branch. Nothing is held back on the session branch.
 | Predictions registered with arithmetic | P1–P6 |
 | Files touched outside this session's ownership | **none** |
 
-**ONE THING IS STILL OPEN, and it is the only reason to hesitate.**
+**TWO THINGS ARE OPEN, and the second one may mean reverting a commit.**
 
 > **The second change — the face-edge orientation index — has not yet been
 > compiled or run anywhere.** This container has no OCCT install tree
@@ -58,11 +58,32 @@ Two dispatched CI runs settle it, both against commit `1c4735f`, both
 - The bench result changes no code either way. A refuted P5 is a *finding*
   (§7.4 says what it would mean and why this session does not act on it).
 
-**Needs: integrator** — if `[35]` has not reported by the time integration
-runs, that is a judgement call about shipping unverified kernel code, and per
-your own note it is the kind of risk this session should not carry alone.
-Session 2's recommendation: hold the second change, ship v21, and let the
-device capture adjudicate P1/P2/P4 which do not depend on it.
+**Second open item — the index may not be worth keeping.** The first Lane C
+run on it (macOS/arm64, commit `1c4735f`) came back with the allocation counter
+**unmoved** and the exponent at 1.982, and §7.6 explains why that counter could
+never have adjudicated it: `TopExp_Explorer` does not allocate per step, so
+§7.2's inference from it was unsupported. The measurement that decides is a
+like-for-like timing comparison on one platform, and it is still running.
+**§7.7 gives Session 2's recommendation for each outcome, and on "no material
+change" the recommendation is to revert commit `1c4735f` and ship shim v21
+alone.** The two changes are separate commits precisely so that is a clean
+one-line operation.
+
+**Needs: integrator** — two judgement calls, and per your own note they are the
+kind this session should not carry alone:
+
+1. If `[35]` has not reported by the time integration runs, shipping the index
+   means shipping kernel code that has never been compiled. Session 2's
+   recommendation: revert `1c4735f`, ship v21, which *is* verified.
+2. If the like-for-like timing shows no material change, Session 2 recommends
+   reverting `1c4735f` on the reasoning in §7.7 — an unmeasured improvement at
+   the geometry kernel boundary is what this branch exists to not do. If you
+   disagree, the change is sound and pinned; this is a judgement about risk,
+   not about correctness.
+
+Either way **P1, P2, P4 and P6 do not depend on the index** — they are all
+about the v21 bulk entry point, which is verified and which nothing here
+proposes to revert.
 
 **Corrections this session made to its own record**, so they are not read as
 new claims: P1 is **refuted** (§7.1); §5.1's "closed question" verdict is
@@ -822,6 +843,77 @@ now a direct pin of the index against the scan it replaces — with a 24-gon
 prism added, because it is the only fixture there with a face big enough for
 the two to differ in cost.
 
+### 7.6 INTERIM — the first Lane C run on the index, and an inference of mine that was wrong
+
+Run [32279237755](https://github.com/Toemeler/ipadprocad/actions/runs/32279237755),
+macOS / arm64, **at commit `1c4735f` (the index)**. Published to
+`ci-logs-bench/macos/`. `allEdgesBulk`:
+
+| edges | mean ms | **allocations/call, WITH the index** | allocations/call, WITHOUT it (S1's Linux capture) | Δ |
+| ---: | ---: | ---: | ---: | ---: |
+| 180 | 22.72 | 184 680 | 184 544 | **+136** |
+| 360 | 95.52 | 633 718 | 633 459 | **+259** |
+| 720 | 410.62 | 2 326 872 | 2 326 372 | **+500** |
+| 1440 | 1 362.47 | 8 886 779 | 8 885 798 | **+981** |
+
+Fitted `allEdgesBulk` k = **1.982** [1.862, 2.102].
+
+**The allocation counter did not move — and P5 named that counter as its own
+falsification criterion.** On its face that refutes P5. But the honest reading
+is narrower and worse for me:
+
+> **The allocation counter was never evidence about the scan, and §7.2 was
+> wrong to treat it as such.** `TopExp_Explorer` walks a face through
+> `TopoDS_Iterator` over lists that already exist; it does not allocate per
+> step. §7.2 inferred "≈ 18.4 allocations per explorer step" from the fit
+> `alloc/edge = 12.252·n + 290`, and that inference is unsupported. The fit is
+> real and still needs explaining — something *is* proportional to n per edge —
+> but the scan is not what it was measuring, so removing the scan was never
+> going to move it. The small positive deltas above are this session's own
+> `unordered_map`, which is the index paying for itself in allocations.
+
+**What this does and does not settle.** The scan cost *time* without allocating,
+so the counter cannot adjudicate P5 in either direction. The measurement that
+can is a **like-for-like timing comparison on one platform**: the same run's
+ubuntu/x86_64 job, at the same commit, against Session 1's earlier Linux
+capture of 33.18 / 125.11 / 456.97 / 1775.37 ms. That job is still running.
+Comparing the macOS numbers above against those Linux numbers would be the
+cross-platform error this branch exists to avoid (§13.3), so no ratio is
+quoted here.
+
+**Prior, stated before that number arrives:** the exponent came back at 1.982,
+which is *not* lower than the 1.909 measured without the index. Different
+platform, so it is not a comparison — but it is not encouraging either, and
+`S2-shim.md` should not be read as expecting a win. See §7.7 for what happens
+either way.
+
+### 7.7 What Session 2 recommends for the index, on each outcome
+
+The two shim changes are **independent commits** and can be shipped
+separately. That was not an accident; it is why the second one is its own
+commit on top of a first one that had already passed `[35]` on real OCCT.
+
+| Linux rung says | Recommendation |
+| --- | --- |
+| a clear drop (say ≥ 20 % at 1440 edges, or k below 1.7) | **keep the index**, and record the size of the win |
+| no material change | **revert commit `1c4735f`, keep shim v21.** See below |
+| `[35]` red, whatever the timing | **revert `1c4735f`**, unconditionally |
+
+**Why "no material change" should mean revert, and not "keep it, it is
+algorithmically better".** It *is* algorithmically better — Θ(E) against
+Θ(E·F) — and that is exactly the argument this branch was built to distrust.
+The change sits at the geometry kernel boundary, on the path that decides
+convex from concave, which the plan names as "the single most likely way to
+break a real part". §6 of the plan says the definition of done does not
+include "it is faster"; the converse binds equally, and keeping a change on
+the belief that it must be faster, when the harness built to measure it says
+it is not, is the same error wearing different clothes.
+
+If the dominant term is fixed later — see §7.4, the classifier — the scan may
+well surface as the next one, and it can be removed *then*, with a measurement
+in hand. Nothing is lost by waiting: the commit stays in the history and is one
+`git revert` away in either direction.
+
 ## Prediction P5 — the second quadratic, registered before Lane C reruns
 
 ```
@@ -839,7 +931,13 @@ Predicted     : 9.4 / 18.9 / 37.7 / 75.5 ms   (interval [0.8x, 1.5x])
                 k -> 1.00, predicted interval [0.95, 1.15]
                 a further 23.5x at the 1440 rung, 490x against the per-edge
                 loop it started as
-Falsifiable by: THE ALLOCATION COUNTER, which is sharper than the timings.
+Falsifiable by: [SUPERSEDED — see §7.6. The allocation counter cannot
+                adjudicate this, because TopExp_Explorer does not allocate
+                per step, so removing the scan was never going to move it.
+                The criterion below is left as written, and it is wrong.
+                The measurement that can decide is a like-for-like TIMING
+                comparison on one platform.]
+                THE ALLOCATION COUNTER, which is sharper than the timings.
                 alloc/edge = 12.252*n + 290.0 fits to better than 0.1 %. If
                 the scan is the whole n-dependent term, alloc/edge becomes
                 ~290 CONSTANT and total allocations at 1440 edges fall from
