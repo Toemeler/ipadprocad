@@ -9819,6 +9819,14 @@ Der urspruengliche Messplan `PERF_PLAN.md` ist zurueckgezogen — die Messungen
 haben ihn ueberholt; was von ihm noch gilt, steht in PERFORMANCE_PROFILE 15.5.
 Dieser Eintrag ist der Einstiegspunkt.
 
+> **WENN DU HIER BIST, UM ZU OPTIMIEREN: LIES ZUERST `OPTIMIZATION_PLAN.md`.**
+> Die Messphase ist abgeschlossen. Die Arbeit ist auf **fuenf parallele
+> Sessions** aufgeteilt, mit **verbindlicher Dateizustaendigkeit**. Dort steht,
+> welche Befunde dir gehoeren, welche Dateien du anfassen darfst — und vor
+> allem, wie du die Arbeit der anderen vier nicht zerstoerst. **Kein
+> Force-Push, keine fremden Dateien, `perf/baseline.json` und
+> `PERFORMANCE_PROFILE.md` fasst niemand an.**
+
 > **DER DATENSATZ IST VOLLSTAENDIG (18.08.2026).** Der gepaarte Geraetelauf
 > auf Build `230f179` liegt vor: **zwei Aufnahmen, eine Sitzung, Low Power
 > Mode als kontrollierte Variable** — und zum ersten Mal **alle drei
