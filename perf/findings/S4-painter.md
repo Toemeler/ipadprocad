@@ -521,6 +521,12 @@ Linear to N≈100, then superlinear. It does not saturate anywhere I could reach
 Extrapolating the measured exponent, the 1-vs-2 gap reaches `_renderable`
 (1e−2) at roughly **N ≈ 480 successive drags**.
 
+**Re-measured after merging S3's solver rewrite** — which touched `_lm`, the
+Levenberg–Marquardt path the drag solve falls back to when libslvs is absent, as
+it is in host tests — and every figure in both tables above reproduces to the
+digit, residuals and self-drift included. The finding is a property of the
+drag/commit loop, not of the solver internals S3 changed.
+
 **(c) fails.** Stated plainly, with no qualifier attached.
 
 ### 9.3 Three things that decide what the failure means
