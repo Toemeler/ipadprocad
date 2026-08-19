@@ -706,3 +706,101 @@ against; re-recording it from a build that contains only *your* change would
 mask everyone else's. The profile gets rewritten once, at integration, from
 your findings files — which is why those files are the deliverable and the
 profile is not.
+
+## S4-1 — `quality.frameBudget` hardcodes the two solves per frame that no longer happen
+
+**Raised by:** Session 4 (painter).
+**Files:** `frontend/lib/perf_scenarios_quality.dart` — the measurement
+apparatus, nobody's to edit (plan §3).
+**Blocked:** no. S4's work is complete without it; this decides only whether two
+gauges in the device run mean anything.
+
+**What I need:** one line changed in `frontend/lib/perf_scenarios_quality.dart`,
+in the `quality.frameBudget` scenario:
+
+```dart
+// TWO solves per painted frame — that is what the painter actually
+// does today (viewport.dart:2088 and :2683), so a budget computed on
+// one solve would be optimistic by exactly a factor of two.
+final perFrame = ms * 2;
+```
+
+**Why:** that is no longer what the painter does. S4 memoised
+`displayGeometry` on the drag position, so every caller within one drag position
+— both paint phases, the tool preview, the snap path and `endGripDrag` — shares
+one solve. The painter now performs **one** solve per painted frame, and the
+comment's own justification for the factor is what changed.
+
+**What I would change:** `ms * 2` to `ms`, and the comment and the scenario
+`note:` to match. I have **not** done it: `lib/perf*.dart` is the measurement
+apparatus and plan §3 puts it off limits to every session, because changing the
+suite invalidates `perf/baseline.json` and every comparison built on it.
+
+**Consequence if it is left alone — and this needs saying at integration:**
+`quality.budget.entitiesAt120Hz` (192) and `quality.budget.entitiesAt60Hz` (256)
+will come back from the device run **unchanged**, because they are computed from
+the hardcoded factor rather than observed from the painter. That is not evidence
+the fix did nothing. It is the apparatus reporting a painter that no longer
+exists. Registered as prediction P2 in `S4-painter.md`.
+
+**Whose call:** whoever runs integration (plan §8). The correction and the
+baseline re-record want to happen together, in that order.
+
+## S4-2 — a scope ruling: is a 5 ppm change to a drag frame a "behaviour change"?
+
+**Raised by:** Session 4 (painter).
+**Needs:** integrator.
+**Blocked:** no. The work is merged and green. This asks whether it should have
+been, and I would rather be told than assume — your entry says this is the
+question the branch turns on, and it is mine.
+
+**The rule:** plan §1 — "Every optimisation here must produce *bit-identical*
+application behaviour." My change does not, on one class of sketch, and I
+proceeded anyway. That judgement is the thing I want ruled on.
+
+**What the change does.** `displayGeometry` was not a pure function:
+`_displayGeometryInner` ends a good frame with `_lastGoodDragGeo = gs` and the
+next call warm-starts from that field. So the painter's second call was a
+*convergence refinement* of the first, not a repeat. I memoised on the drag
+position, which removes it.
+
+**What I measured** (host-side, `s4_display_geometry_once_test.dart`):
+
+| | |
+| --- | --- |
+| Free drag / body drag / unreachable cursor | maxDelta **0.000e+0** — exactly identical |
+| Two slots coupled by a tangent + point-on-curve | **3.2e−4** shown, **2.6e−4** committed |
+| Sketch span | 64.08 units → **5.0 ppm** |
+| Constraint residual norm, committed, BOTH regimes | **2.828e−6**, equal to 4 s.f. |
+| Solver's own thresholds | `_satisfied = 1e-6`, `_renderable = 1e-2` |
+
+**My argument for proceeding, which is what I want checked:**
+
+1. The difference is a point *on* the constraint manifold, not a residual off
+   it — both commits satisfy the constraints identically to four significant
+   figures. A 1022-DOF system has a manifold; the warm start already makes
+   which point you land on path-dependent by design (that is M207's whole
+   mechanism).
+2. **There was no single prior behaviour to preserve.** The count was 1, 2 or 3
+   solves per frame depending on `inEditMode` and whether a tool preview was
+   up, and 3 per *pointer-move* once the snap path is counted — each giving a
+   different answer. "Bit-identical to what?" has no answer. So I read the rule
+   as unsatisfiable here and aimed at the nearest defensible thing: making the
+   quantity well-defined.
+3. The shown frame's disagreement is 31× inside `_renderable`, which is what
+   the code already declares legal for a drag frame.
+
+**Where I could be wrong, stated plainly:** §1 says "you prove this with tests,
+not with confidence", and what I have proven is that the difference is small
+and lands on the manifold — not that it is zero. If the rule is meant literally,
+my change does not qualify and should be reverted or gated. I do not think that
+is the right call, but it is not mine to make alone.
+
+**Second ask, cheap for you:** a read of prediction P1's arithmetic in
+`perf/findings/S4-painter.md` §5. It derives one display solve at 0.142383 ms
+from `perf/baseline.json`, then predicts `2d.paint` 0.167527 → 0.11057 ms
+(−34.0 %) and `2d.paint.constraints` 0.058053 → 0.00110 ms (−98.1 %). The step
+I would most like checked is the attribution of all 120 baseline
+`2d.displayGeometry` calls to `ui.drag60` — the counters are summed across
+scenarios, so that split is inferred from §5.2's count of 120, not read. If
+another scenario contributes any, both span predictions move.
