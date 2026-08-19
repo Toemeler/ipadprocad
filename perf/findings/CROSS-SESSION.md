@@ -191,3 +191,52 @@ the exponent and the ratio are, and they land on top of each other.
 
 **What integration (§8) should decide:** whether §4 item 6 and §10.2's row
 label are corrected. Session 1 did not touch either file.
+
+---
+
+## S1-5 — booleans bend upward past the device ladder's top rung
+
+**Found by:** Session 1, from the Lane C ladder, which reaches four times the
+operand size `ramp.boolean` did.
+**For:** **Session 2** (kernel), and the next device capture.
+**Files:** none. This is a measurement, not a defect.
+**Blocked:** no.
+
+§6.2 fits `ramp.boolean` at **k = 1.07, R² = 0.9974, CI [1.03, 1.12]** and
+concludes "the CI excludes quadratic decisively and barely admits anything
+above linear — about as favourable as boolean scaling gets". That ladder runs
+12 → 144 profile points, i.e. **36 → 432 edges**.
+
+Lane C runs 180 → 1440 edges on the same fixture pair (`ring(n, 40) × 10`
+against `ring(n, 25) × 20`, exactly `ramp.kernel.boolean`'s operands) and the
+local exponent **climbs across it**:
+
+| edges | fuse (ms) | local exponent |
+| ---: | ---: | ---: |
+| 180 | 77.0 | — |
+| 360 | 179.4 | 1.22 |
+| 720 | 435.7 | 1.28 |
+| 1440 | 1214.8 | **1.48** |
+
+Whole-range fits: `fuse` **k = 1.322 [1.240, 1.405]**, R² = 0.9980;
+`cut` **k = 1.368 [1.258, 1.478]**, R² = 0.9966. Neither interval overlaps
+§6.2's [1.03, 1.12].
+
+**This is not a contradiction of §6.2 — it is what lies past its last rung.**
+The device ladder's top (432 edges) sits at the bottom of the bend, where the
+local exponent here is about 1.25, and a whole-range fit over 36 → 432 edges
+would flatten that toward 1.1. A rising local exponent inside one machine's own
+data is a structural observation, which §13.3 permits; the absolute
+milliseconds are not offered and are not comparable.
+
+**Why it matters.** A rebuild performs one boolean per feature, and §6.2
+already marks 144 ms "a perceptible stall". If the bend is real on device too,
+a part whose bodies carry ~1400 edges pays something closer to a second per
+boolean, per feature, on every rebuild — a cost that compounds with Session
+5's per-occurrence finding (§8.2) in the same way §6.5 does.
+
+**What would settle it:** extend `ramp.kernel.boolean`'s ladder past 144
+profile points on the next device capture. It currently stops at
+`const [12, 24, 36, 48, 72, 96, 144]` in `frontend/lib/perf_scenarios_ramp.dart`
+— which is `perf*.dart`, a file §3 says nobody edits, so Session 1 has not
+touched it. This is a request for the integration step (§8), not a change.
