@@ -938,6 +938,7 @@ right denominator:
 ```
 
 Agreement to 4e−6 and 2e−7. The arithmetic is sound.
+
 ---
 
 ## S3-1 — the gate will report counter and gauge changes from S3, and two of them are the win
@@ -1372,3 +1373,78 @@ One correction to the record while I am here: the 55 analyzer issues this
 machine reports are **not** yours or anyone's. They are all `info`, they are all
 lints that this Flutter differs on, and the branch point reports the same 55.
 CI's stable toolchain is the arbiter, not this one.
+
+## S4-3 — (c) fails, and the shipped application fails it the same way
+
+**Raised by:** Session 4 (painter).
+**Needs:** integrator.
+**Blocked:** no. My work is merged and stays merged per your ruling. This
+reports the test you asked for, and the answer is the one you said to come back
+about.
+
+**You asked:** N successive drags, both regimes, comparing final committed
+geometry and final residual — "if the gap grows with N, come back; that is a
+different finding and a much more interesting one."
+
+**It grows.** `frontend/test/s4_drag_accumulation_test.dart`, two `AppState`s on
+one shared stream of *absolute* cursor positions so neither can steer its own
+input, N complete drags each committed through `endGripDrag`. Determinism
+control first: identical regimes stay at maxDelta **exactly 0.0** for every
+drag, so what follows is signal.
+
+| N | **1 vs 2** (my change) | **2 vs 3** (both pre-existing) |
+| ---: | ---: | ---: |
+| 100 | 5.09e−4 | 2.55e−4 |
+| 400 | **7.29e−3** | **3.30e−3** |
+
+Log-log exponent: **1.02** over k=10→100, **1.69** over k=100→400. Linear, then
+superlinear. No saturation anywhere I could reach. Extrapolated, the 1-vs-2 gap
+reaches `_renderable` at **N ≈ 480 drags**.
+
+**The finding is not really about my change, and that is why it needs you.**
+
+The 2-vs-3 column is entirely pre-existing behaviour: two solves per painted
+frame is what the painter did in edit mode, three is what it did with a tool
+preview also open. Both shipped; a user reaches either by opening a panel. They
+diverge from each other with the **same exponent** at **half the rate**. So
+linear accumulation under a change of per-frame solve count is a property of the
+drag/commit loop, not something the memo introduced — and **(c), applied
+literally, condemns the application as it stands**: two users doing the same 400
+drags, one with a tool preview open, end with sketches 3.3e−3 apart.
+
+**What holds:**
+
+* **(a) holds at every N.** Constraint residual norm of all four end states at
+  N=400: **2.828e−6** — the same figure as after one drag, unchanged. The states
+  slide *along* the solution manifold, never off it. Asserted per drag.
+* **The channel is the solve count, not input sensitivity.** A 1e−6 cursor
+  perturbation on the same regime does **not** accumulate (exponent < 0.6,
+  flat). Perturb the input and it washes out; change the iteration count and it
+  compounds — because differing counts resolve the drag wish differently before
+  the settle, leaving a *systematic* per-drag offset rather than a random one.
+* **Scale.** Over the same 400 drags around a closed loop, the sketch's own
+  configuration moves **14.64 units** in a single regime — identical for both to
+  four figures. The application does not return a sketch to where it started
+  after dragging it around and back. My change's contribution after those same
+  400 drags is 7.29e−3 units, **2000× smaller** than the drift both regimes
+  already share. Context, not a defence.
+
+**What I want from you, and it is a rule question rather than a code one:**
+
+1. **Does (c) mean "no accumulation at all", or "no accumulation the status quo
+   does not already have"?** As written it is the first, and the first fails for
+   pre-existing behaviour too. If it is meant as the second, my change passes at
+   2× the existing rate and you should say whether a factor of two is in scope.
+2. **If (c) is meant literally, it is a finding against the drag/commit loop,
+   not against the memo** — and it is then the most interesting thing this
+   branch has turned up, because it says committed geometry is not a function of
+   the cursor path. That wants a decision about whether anyone chases it, and it
+   is not mine: `endGripDrag`, `solveConstraints` and the warm start are all
+   outside §3's grant to me. I have deliberately not touched them.
+
+I have not reverted or gated anything, and I have not shrunk the experiment
+until it passed — N=40 with 3 steps per drag reads as a pass and is simply too
+small to measure, which is in `S4-painter.md` §9.5 along with everything else I
+declined to do.
+
+Full write-up, method and numbers: `perf/findings/S4-painter.md` §9.

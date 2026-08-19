@@ -4,8 +4,12 @@ Session 4 of `OPTIMIZATION_PLAN.md` §5. Owns `frontend/lib/widgets/viewport.dar
 and, in `app_state.dart`, `displayGeometry` and nothing else.
 
 **Status at time of writing:** predictions registered, mechanism established,
-implementation and pinning tests done. No device measurement exists yet — see
-§2 of the plan. Nothing below claims the application is faster.
+implementation and pinning tests done, merged into `claude/perf-opt`. The
+integrator's ruling on S4-2 accepted the change and set a three-part test in
+place of plan §1's "bit-identical"; **§9 below reports that part (c) FAILS**,
+and that the shipped application fails it the same way. No device measurement
+exists yet — see §2 of the plan. Nothing below claims the application is
+faster.
 
 ---
 
@@ -454,3 +458,134 @@ second call computed.
 
 What none of this establishes: that the application is faster. That needs the
 device capture in plan §8, and until then the numbers in §5 are predictions.
+
+---
+
+## 9. Test (c) — accumulation under repetition. It accumulates.
+
+The integrator's ruling on S4-2 replaced plan §1's unsatisfiable "bit-identical"
+with three parts, each to be proven by test: **(a)** residual no worse,
+**(b)** inside the tolerance the code declares for that data path, **(c)** does
+not accumulate under repetition. It accepted (a) and (b) as proven and asked for
+(c):
+
+> One drag differs by 2.6e−4; nothing yet says a hundred drags differ by 2.6e−4
+> rather than by 2.6e−2. […] If the gap grows with N, come back — that is a
+> different finding and a much more interesting one.
+
+**It grows.** This section is that finding. Nothing here works around it, and
+the experiment was not shrunk until it stopped showing (I tried N=40; the signal
+becomes unmeasurable, which is not the same as absent, so I put it back).
+
+### 9.1 The experiment
+
+`frontend/test/s4_drag_accumulation_test.dart`. Two `AppState`s built from the
+same two-coupled-slots fixture, driven through N successive complete drags —
+`beginGripDrag` → frames → `endGripDrag`, so every drag *commits* and the next
+starts from the committed geometry. That is the accumulation channel.
+
+Both regimes receive **one shared stream of absolute cursor positions**, walking
+a circle of radius 3 about the grip's start, 12 drags to the lap. Absolute, not
+relative, so neither regime's own state can steer its own input and any
+divergence is accumulated internal state alone.
+
+`solvesPerFrame` selects the regime: **1** = the memo as shipped, **2** = the
+painter before it in edit mode, **3** = the painter before it with a tool
+preview up as well. `endGripDrag`'s own `displayGeometry` call is reproduced
+faithfully in each (a hit under the memo, a further solve before it).
+
+**Determinism control first:** two identical regimes over the same stream stay
+at maxDelta **exactly 0.0** for every drag. Without that, every number below
+would be noise rather than signal.
+
+### 9.2 The result
+
+Committed-geometry gap between regimes, fixture span 64 units:
+
+| N drags | **1 vs 2** (my change) | **2 vs 3** (both pre-existing) |
+| ---: | ---: | ---: |
+| 20 | 1.02e−4 | 6.00e−5 |
+| 60 | 3.09e−4 | 1.72e−4 |
+| 100 | 5.09e−4 | 2.55e−4 |
+| 200 | 1.15e−3 | 5.36e−4 |
+| 400 | **7.29e−3** | **3.30e−3** |
+
+Log-log growth exponent (1.0 = linear, 0.5 = random walk, 0 = saturated):
+
+| range | 1 vs 2 | 2 vs 3 |
+| --- | ---: | ---: |
+| k = 10 → 100 | **1.022** | 0.914 |
+| k = 100 → 400 | **1.686** | 1.617 |
+
+Linear to N≈100, then superlinear. It does not saturate anywhere I could reach.
+Extrapolating the measured exponent, the 1-vs-2 gap reaches `_renderable`
+(1e−2) at roughly **N ≈ 480 successive drags**.
+
+**Re-measured after merging S3's solver rewrite** — which touched `_lm`, the
+Levenberg–Marquardt path the drag solve falls back to when libslvs is absent, as
+it is in host tests — and every figure in both tables above reproduces to the
+digit, residuals and self-drift included. The finding is a property of the
+drag/commit loop, not of the solver internals S3 changed.
+
+**(c) fails.** Stated plainly, with no qualifier attached.
+
+### 9.3 Three things that decide what the failure means
+
+**1. The shipped application already does this.** The 2-vs-3 column is not my
+change. Two solves per painted frame is what the painter did in edit mode;
+three is what it did with a tool preview open. Both shipped, both reachable by
+a user, and they diverge from each other with the *same exponent* at *half the
+rate*. So linear accumulation under a change of solve count is a property of
+the drag/commit loop, not something the memo introduced. Applied literally to
+the status quo, (c) condemns it: two users doing the same 400 drags, one with a
+tool preview open, end with sketches 3.3e−3 apart.
+
+**2. (a) holds at every N — the drift is along the manifold, never off it.**
+Constraint residual norm, all four end states at N=400: **2.828e−6**. The same
+figure the single-drag experiment gave in §3.2, unchanged after four hundred
+drags, in every regime. The states are not degrading; they are sliding along the
+solution set. Asserted per-drag in the test, not just at the end.
+
+**3. The channel is the solve count, not input sensitivity.** A cursor
+perturbation of 1e−6 applied to the same regime does **not** accumulate —
+exponent below 0.6, flat across the run. So the loop is not generically chaotic:
+perturb the *input* and it washes out; change the *number of refinement
+iterations* and it compounds. The mechanism follows: identical iteration counts
+land both commits on the same manifold point, while differing counts resolve the
+drag wish differently before `endGripDrag`'s settle, leaving a *systematic*
+per-drag offset — which is why it grows linearly rather than as a random walk.
+
+### 9.4 The scale it has to be read against
+
+Over the same 400 drags around a closed circular path, in a **single** regime,
+the sketch's own configuration moves by **14.64 units** — measured between the
+same phase of lap 1 and lap 33. Identical for both regimes to four figures
+(1.464e+1 each), so this is the loop's own path-dependence, not anything to do
+with the memo.
+
+The application, unmodified, does not return a sketch to where it started after
+dragging it around a loop and back. It ends 14.64 units away. Against that, the
+difference my change makes after the same 400 drags is **7.29e−3 units** —
+**2000× smaller than the drift both regimes share.**
+
+That is context, not a defence. (c) still fails.
+
+### 9.5 What I did not do
+
+- **Did not shrink the experiment until it passed.** N=40 with 3 steps per drag
+  gives a growth ratio of 1.9 and an exponent of 0.77 — below the thresholds,
+  and it would have read as a pass. It is not one; it is too small to measure.
+  The committed test runs the smallest configuration where the exponent comes
+  out clean, and costs ~35 s.
+- **Did not revert or gate my change.** The ruling says it stands and stays
+  merged; unwinding it on my own reading of a test I was asked to run would be
+  the wrong direction of initiative.
+- **Did not touch the drag/commit loop** to try to fix the accumulation.
+  `endGripDrag`, `solveConstraints` and the warm start are not mine, and this is
+  a finding to route, not a defect to patch mid-flight.
+- **Did not weaken the assertions to "documents current behaviour" without
+  saying so.** The test's header says in its first lines that it pins measured,
+  not desired, behaviour, and that a future fix will make it fail.
+
+Raised as **S4-3** in `CROSS-SESSION.md`, addressed to the integrator, because
+the rule it fails is one the integrator wrote and it binds all five sessions.
