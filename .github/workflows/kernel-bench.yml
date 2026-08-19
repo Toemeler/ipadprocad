@@ -165,6 +165,9 @@ jobs:
     name: Bench — ubuntu / x86_64 (gating)
     runs-on: ubuntu-latest
     needs: bench-selftest
+    # A cold OCCT build is ~2 h and the bench itself ~20 min. Anything past
+    # this is wedged, and a wedged job should end rather than idle.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -175,8 +178,30 @@ jobs:
             || git submodule update --init -- backend/occt/upstream
           git -C backend/occt/upstream log --oneline -1
 
+      # timeout + retry, because run 3 sat here for 25 minutes on a wedged
+      # apt mirror while the job's only other bound was the OCCT build step's
+      # 150. An unbounded `apt-get update` turns a transient mirror problem
+      # into a run that neither passes nor fails — which is the shape of
+      # failure §13.1 warns about: not a red build, just no result.
+      #
+      # Ninja is a convenience, not a requirement: if both attempts fail the
+      # job continues and CMake falls back to Make (see the generator logic in
+      # the build step). A slow build beats no build.
       - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        id: ninja
+        timeout-minutes: 8
+        continue-on-error: true
+        run: |
+          set -e
+          for attempt in 1 2; do
+            if sudo apt-get update && sudo apt-get install -y ninja-build; then
+              exit 0
+            fi
+            echo "apt attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "ninja unavailable — the build will fall back to Make"
+          exit 1
 
       # The SAME key occt-build.yml uses. Sharing it is deliberate: the whole
       # point of Lane C is a loop measured in minutes, and a two-hour kernel
@@ -196,7 +221,10 @@ jobs:
         run: |
           set -e
           set -o pipefail
-          cmake -S upstream -B build-occt-host -G Ninja \
+          # Whatever the ninja step managed; -G "" lets CMake pick its default.
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          echo "generator: $GEN"
+          cmake -S upstream -B build-occt-host -G "$GEN" \
             -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-host" \
             $OCCT_COMMON_FLAGS 2>&1 | tee occt-cfg-host.log | tail -20
           cmake --build build-occt-host -j 2>&1 | tail -20
@@ -206,7 +234,8 @@ jobs:
         run: |
           set -e
           set -o pipefail
-          cmake -S backend/bench -B build-bench -G Ninja \
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          cmake -S backend/bench -B build-bench -G "$GEN" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-host" \
             2>&1 | tee cfg-bench-linux.log
@@ -279,6 +308,7 @@ jobs:
     name: Bench — macos / arm64 (the ISA that matters)
     runs-on: macos-26
     needs: bench-selftest
+    timeout-minutes: 240
     if: >-
       github.event_name != 'workflow_dispatch'
       || github.event.inputs.run_macos == 'true'
@@ -311,7 +341,9 @@ jobs:
           set -e
           set -o pipefail
           brew install ninja || true
-          cmake -S upstream -B build-occt-macos -G Ninja \
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          echo "generator: $GEN"
+          cmake -S upstream -B build-occt-macos -G "$GEN" \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-macos" \
             $OCCT_COMMON_FLAGS 2>&1 | tee occt-cfg-macos.log | tail -20
@@ -323,7 +355,8 @@ jobs:
           set -e
           set -o pipefail
           brew install ninja || true
-          cmake -S backend/bench -B build-bench -G Ninja \
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          cmake -S backend/bench -B build-bench -G "$GEN" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-macos" \
