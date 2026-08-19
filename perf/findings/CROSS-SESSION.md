@@ -240,3 +240,70 @@ profile points on the next device capture. It currently stops at
 `const [12, 24, 36, 48, 72, 96, 144]` in `frontend/lib/perf_scenarios_ramp.dart`
 — which is `perf*.dart`, a file §3 says nobody edits, so Session 1 has not
 touched it. This is a request for the integration step (§8), not a change.
+
+---
+
+## S1-6 — fillet has a SECOND cost discontinuity, on corner angle
+
+**Found by:** Session 1, chasing an anomaly in its own fillet ladder.
+**For:** **Session 2** — this sits beside the radius discontinuity your §6.3
+brief already names.
+**Files:** none touched. `backend/occt/shim/**` is yours.
+**Blocked:** no.
+
+§6.3 gives you one fillet discontinuity: 10 ms at r = 1.0 against 658 ms at
+r = 4.0 on the same solid, a 65× step (Lane C reproduces 24× on a desktop).
+There is a second one, on a different axis, and it is not in the profile.
+
+Lane C blends **one vertical corner edge** of a `ring(n, 40) × 10` prism at a
+fixed 0.1 mm radius, and the cost is **not monotone in shape size**:
+
+| n | edges | dihedral | ms |
+| ---: | ---: | ---: | ---: |
+| 60 | 180 | 174.00° | **45.8** |
+| 120 | 360 | 177.00° | 14.5 |
+| 240 | 720 | 178.50° | 29.4 |
+| 480 | 1440 | 179.25° | 56.9 |
+
+Reproduced across three runs. The shim's own report rules out the retry ladder:
+`dropped = 0`, `scale = 1.000000` at every rung — nothing is skipped and no
+tangency retry fires.
+
+Two probes separate the candidates.
+
+**A. The blend's size relative to the geometry does not matter.** Holding
+n = 60 (dihedral and shape size both fixed) and sweeping the profile radius
+over 16×, so that radius : facet moves from 0.096 to 0.006:
+
+| profile radius | 10 | 20 | 40 | 80 | 160 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| radius : facet | 0.0955 | 0.0478 | 0.0239 | 0.0119 | 0.0060 |
+| ms | 32.9 | 34.7 | 31.6 | 33.1 | 32.4 |
+
+Flat to 5 %.
+
+**B. `n` is what matters.** Holding radius : facet at 0.0239 and sweeping n:
+**33.1 / 10.9 / 21.8 / 43.8 ms**. From n = 120 upward the cost doubles with the
+shape exactly (k = 1.00, intercept ≈ 0). Extrapolating that law back to n = 60
+predicts ≈ 5.4 ms; the measurement is 33.1 ms.
+
+**So there is an excess of about 28 ms at a 174° corner that has vanished by
+177°, at fixed shape size and fixed relative radius.**
+
+**What is NOT established:** whether the driver is the dihedral angle itself or
+something else that varies with `n` — the topology where the blended edge meets
+the cap faces changes too, and this fixture cannot separate them. Two fixtures
+would: a prism whose corner angles vary while its edge count does not, or a
+blend on an edge with no vertex blending at its ends.
+
+**Why it may matter to you.** §6.3's radius step is plausibly OCCT's own
+behaviour and a legitimate "not fixable in the shim" result. This one is a
+different shape of problem: a **sharper** corner costing several times a flatter
+one is the opposite of what a user would guess, and real parts are full of 90°
+corners, which are far sharper than anything this fixture reaches. Nothing here
+says the 90° case is slow — the fixture never gets there — but it says the axis
+exists and is worth one measurement before either discontinuity is written off.
+
+Lane C makes both iterable in minutes. `occt_bench` reports `filletEx1` per
+rung with the shim's `dropped`/`scale` beside it, and `fillet.radius` sweeps
+r = 0.5 / 1 / 2 / 4 on the device's own fixture.

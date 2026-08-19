@@ -241,4 +241,242 @@ Risk          : this harness times only the blend call, whereas the device
 
 ## 3. Adjudication
 
-*(filled in below, after the first run against a built OCCT)*
+**Capture:** `bench-out/kernel-bench-linux.*`, published to the `ci-logs-bench`
+branch. Linux / x86_64, 4 cores, OCCT 7.9.3 static Release with the repository's
+own `OCCT_COMMON_FLAGS`, shim v20 unmodified (`CALIBRATION.txt` hash matches, so
+the gate was live). Ladder 60 / 120 / 240 / 480 profile points = 180 / 360 / 720
+/ 1440 edges; 7 repetitions per operation per rung, one warm-up discarded, a
+30 s wall budget per operation per rung.
+
+**Run with `--validate`. Exit code 0. `HARNESS: VALIDATED`.**
+
+**Two full runs were taken, and the second is the published one.** The first is
+reported here as a repeatability check, because an instrument that has been run
+once has not been shown to repeat — §3.2 of the profile spends a section on
+exactly that, and it would be a poor joke to build a calibrated benchmark and
+then quote a single run of it.
+
+| op | run 1 k | run 2 k | R² (run 2) |
+| --- | ---: | ---: | ---: |
+| `build` | 1.058 | 1.079 | 0.9984 |
+| `edgeInfo1` | 1.052 | **1.053** | 0.9985 |
+| `allEdges` | 2.070 | **2.057** | 0.9996 |
+| `buildOnly` | 0.938 | 0.978 | 0.9995 |
+| `counts` | 1.006 | 1.040 | 0.9989 |
+| `bbox` | 0.985 | 0.984 | 0.9972 |
+| `mesh` | 0.950 | 0.945 | 0.9964 |
+| `fuse` | 1.322 | 1.362 | 0.9987 |
+| `cut` | 1.368 | 1.359 | 0.9969 |
+| `rayHits` | 0.263 | 0.318 | 0.9591 |
+
+The two gating exponents repeat to **0.001 and 0.013**. Nothing in the table
+moves by more than 0.055, and the two that do (`rayHits`, `buildOnly`) are the
+smallest and the noisiest quantities in the run.
+
+### 3.1 The calibration — the thing the plan asks for
+
+| op | device k | device CI (as printed) | bench k | bench CI | R² | verdict |
+| --- | ---: | --- | ---: | --- | ---: | --- |
+| `edgeInfo1` | 0.99 | [0.970, 1.010] | **1.053** | [0.996, 1.110] | 0.9985 | **AGREES** |
+| `allEdges` | 2.012 | [1.910, 2.113] | **2.057** | [1.999, 2.115] | 0.9996 | **AGREES** |
+| `buildOnly` (control) | 1.063 | [0.959, 1.167] | **0.978** | [0.948, 1.007] | 0.9995 | **AGREES** |
+
+`allEdges` also overlaps the *tool-convention* interval [1.996, 2.027] — the
+narrower of the two readings of §6.5 evidence 4 (`CROSS-SESSION.md` S1-1), so
+the agreement does not depend on which convention is chosen.
+
+**The subject and the control separate cleanly**: [1.999, 2.115] against
+[0.948, 1.007], disjoint by a factor the device also found (2.012 against
+1.063). §6.5 evidence 4's central claim — that this is a difference of
+*exponent*, not of constant — reproduces on a machine that shares nothing with
+the iPad but the source code.
+
+### 3.2 Prediction by prediction
+
+| | Predicted | Measured | |
+| --- | --- | --- | --- |
+| **P1** per-call exponent | k ∈ [0.95, 1.05], interval overlaps device | **1.053** [0.996, 1.110], R² 0.9985 | **HELD** on its falsification criterion (k outside [0.9, 1.1] or R² < 0.99 — neither); the point estimate sits **0.003 above** the narrower band quoted, in both runs, which is a fifth of the fit's own standard error (0.029) and is not a resolvable difference. |
+| **P2** enumeration exponent | k ∈ [1.90, 2.10] | **2.057** [1.999, 2.115], R² 0.9996 | **HELD** |
+| **P2b** composition | k(allEdges) − k(edgeInfo1) = 1.00 ± 0.08 | **1.004** (run 1: 1.018) | **HELD** — and this is the sharpest result in the run. |
+| **P3** control separates | k ∈ [0.95, 1.30], interval disjoint from `allEdges` | **0.978** [0.948, 1.007], disjoint | **HELD** in run 2, **narrowly refuted on the point estimate in run 1** (0.938, twelve thousandths below the band's floor). The disjointness — the whole point — holds in both. The near-miss is worth recording rather than quietly dropping: my own reasoning said a desktop "should sit at or below" the device's 1.063, and I then wrote a band that was asymmetric *upward*. It went down, as my sentence said it would, past a floor I had no reason to set. |
+| **P4** ratio growth | 3.2×–4.6× over a 4× size range | **4.02×** (64.8× at 360 edges → 260.3× at 1440) | **HELD**, near the centre. Device: 4.23× over the same range. |
+| **P5** allocation | count per call linear, k ∈ [0.85, 1.15]; live bytes within ±1 kB of zero | **k = 0.9824**, R² = **0.99997**, CI [0.975, 0.989]; live delta **exactly 0** at all four rungs, in both runs | **HELD**, and more precisely than predicted. The *constant* was a guess (~12 per shape-edge) and was wrong by 6×: the real figure is **76 allocations and 10.1 kB per shape-edge, per call**. I said the constant was a guess and the exponent was the prediction; that is how it turned out. |
+| **P6** fillet flat against edge count | \|k\| < 0.15, R² < 0.5 | **k = 0.636**, R² = 0.9941 | **REFUTED AS WRITTEN.** The Risk clause registered with it says why, and it was the right risk: I aimed the prediction at the plan's *summary* of §6.3 rather than at §6.3's own table. See below — the mechanism is confirmed, the target was mis-stated. |
+
+**P2b deserves the emphasis.** §6.5 closes its mechanism by arithmetic:
+0.985 + 1 = 1.985 against a measured 2.012, agreeing to 1.3 %. On this machine
+the same closure gives 1.053 + 1 = 2.053 against a measured 2.057, agreeing to
+**0.2 %** (run 1: 0.9 %). Two machines, two clocks, two instruction sets, one
+arithmetic. That is what makes the diagnosis a property of the code rather than
+of the iPad.
+
+### 3.3 P6, in full, because a refuted prediction is a result
+
+I predicted `fillet.edges` would be flat because `OPTIMIZATION_PLAN.md` §5 told
+Session 2 it was: *"Fillet and chamfer cost the same for 1, 4 or 12 edges —
+25.5 ms flat, k = 0.00 … Flat cost against a swept axis means the work is not
+per-edge; find what the fixed cost is."*
+
+It is not flat, and there is no fixed cost to find. §6.3's own table gives
+`filletEdges` at 10.1 / 20.8 / 46.7 ms for 1 / 4 / 12 edges; §10.2's flat row
+carries the scenario's *name* against its `ffi.occt.allEdges` child span's
+*numbers*, which the appendix makes explicit. The full write-up is
+`CROSS-SESSION.md` S1-4. What Lane C reproduces:
+
+| quantity | device | Lane C |
+| --- | ---: | ---: |
+| blend alone, exponent over 1 → 12 edges | 0.616 | **0.639** |
+| candidate search : blend at one edge | 4.9× | **5.02×** |
+| search + blend (what the device span covers), exponent | — | **0.198**, R² 0.93 |
+| radius r = 1 → r = 4 on the same solid | 65× | **24.3×** |
+
+Two readings of the same run, reported as two operations, so the ambiguity that
+produced the plan's brief cannot recur.
+
+### 3.4 What the harness found that nobody asked it to
+
+**The transient allocation traffic, which is the mechanism made concrete.**
+§6.5 argues that each `edge_info` call builds four whole-shape structures and
+throws them away, and supports it with `rssDeltaMB` = 0 — consistent with the
+claim but equally consistent with doing nothing at all with memory. Lane C
+measures the discarded work directly:
+
+| edges | one `edgeInfo1` call | | `allEdges` over the whole solid | |
+| ---: | ---: | ---: | ---: | ---: |
+| | allocations | bytes | allocations | transient bytes |
+| 180 | 14 152 | 1.99 MB | 2 837 909 | 0.38 GB |
+| 360 | 27 714 | 3.82 MB | 11 116 356 | 1.46 GB |
+| 720 | 54 838 | 7.48 MB | 44 080 127 | 5.74 GB |
+| 1440 | 109 092 | 14.94 MB | **175 480 701** | **22.90 GB** |
+
+Net heap change: **zero, at every rung, for both, in both runs.** Enumerating
+the edges of a 1440-edge solid moves **22.9 GB through the allocator and keeps
+none of it** — 175 million malloc/free pairs to answer 1440 questions. Per
+shape-edge per call: 76 allocations, 10.1 kB, constant to 4 % across an 8×
+range of size. The counts are identical to the digit between the two runs,
+which is what a deterministic quantity should look like and a useful check that
+the counter is measuring the program rather than the machine.
+
+That is the same finding as §6.5's, in a currency where it is not arguable.
+
+**The closure check, with the FFI boundary removed.** §6.5 evidence 3 multiplies
+the per-call cost by the edge count and accounts for **91.9 %** of `allEdges`,
+attributing the residual 8.1 % to "boundary crossings and Dart-side list
+construction". Lane C is native throughout — there is no boundary and no Dart —
+and still shows a residual:
+
+| edges | accounted by per-call cost |
+| ---: | ---: |
+| 180 | 91.5 % |
+| 360 | 91.1 % |
+| 720 | 89.8 % |
+| 1440 | 91.2 % |
+
+**91.9 % on the device, 89.8–91.5 % here — and here there is no boundary to
+cross and no Dart list to build.** The residual is therefore not the FFI
+boundary. It is what happens when n such calls run back to back: allocator and
+cache state, which a single isolated call does not pay. That the two numbers
+land on top of each other while one of them has an FFI boundary and the other
+has none is the strongest form the argument can take.
+
+**This strengthens the plan's own advice.** §5 warns Session 2 that batching
+from Dart "would save the boundary crossings, which are 8.1 % of the cost, and
+leave the quadratic entirely intact". The saving available at the boundary is
+smaller than 8.1 % — most of that residual is present without a boundary at
+all. The argument for fixing this in the shim rather than in Dart is stronger
+than the profile states, not weaker.
+
+**Ray casting is clean.** `rayHits` fits **k = 0.318** [0.146, 0.489] against
+shape size (0.263 in run 1) — nearly flat, and nothing like `edgeInfo1`'s 1.05 on the same
+solids. Whatever `occt_shape_edge_info` does that makes it Θ(shape),
+`occt_ray_hits` does not do. A useful control: the defect is not "any query on
+an OCCT solid is linear in the solid".
+
+**Booleans bend upward past the device ladder's last rung** — `fuse`
+k = 1.362 [1.283, 1.441], `cut` k = 1.359 [1.245, 1.474], with the local
+exponent climbing 1.22 → 1.28 → 1.48 across the ladder, against §6.2's
+1.07 [1.03, 1.12] measured over a range that stops at 432 edges. Written up as
+`CROSS-SESSION.md` S1-5, with a request to extend `ramp.kernel.boolean` on the
+next device capture.
+
+### 3.5 A second discontinuity in fillet, found by chasing an anomaly
+
+`filletEx1` — one vertical corner edge, fixed 0.1 mm radius — came out at
+**45.8 ms at the smallest rung against 14.5 / 29.4 / 56.9 ms at the three
+larger ones**, reproducibly, across three runs. The three larger rungs double
+cleanly with size (k = 1.00); the smallest is 3× its own trend.
+
+The shim's own report rules out the obvious cause: `dropped = 0`,
+`scale = 1.000000` at every rung, so no edge is being skipped and the tangency
+retry ladder never fires. Two probes then separate the remaining candidates:
+
+**A — hold `n` at 60 (the corner angle fixed at 174°, the shape fixed at 180
+edges) and sweep the profile radius over 16×:**
+
+| profile radius | facet | radius : facet | ms |
+| ---: | ---: | ---: | ---: |
+| 10 | 1.05 mm | 0.0955 | 32.9 |
+| 20 | 2.09 mm | 0.0478 | 34.7 |
+| 40 | 4.19 mm | 0.0239 | 31.6 |
+| 80 | 8.37 mm | 0.0119 | 33.1 |
+| 160 | 16.75 mm | 0.0060 | 32.4 |
+
+**Flat.** The blend's size relative to the geometry it sits in does not matter.
+
+**B — hold radius : facet at 0.0239 and sweep `n`:**
+
+| n | edges | dihedral | ms |
+| ---: | ---: | ---: | ---: |
+| 60 | 180 | 174.00° | **33.1** |
+| 120 | 360 | 177.00° | 10.9 |
+| 240 | 720 | 178.50° | 21.8 |
+| 480 | 1440 | 179.25° | 43.8 |
+
+From `n` = 120 up the cost doubles with the shape, exactly (10.9 → 21.8 →
+43.8, k = 1.00, intercept ≈ 0). Extrapolating that law back to `n` = 60 gives
+≈ 5.4 ms. The observed 33.1 ms carries **an excess of about 28 ms that has
+vanished by `n` = 120** — i.e. between a 174° corner and a 177° one.
+
+So `occt_fillet_edges_ex` has a **second** cost discontinuity beside §6.3's
+radius one: at fixed shape size and fixed relative radius, a blend on a
+slightly-sharper corner costs several times a blend on a flatter one. It is a
+function of `n` and not of the radius-to-facet ratio; whether the mechanism is
+the dihedral angle itself or the topology at the blended edge's ends is not
+established here, and Session 2 owns the shim. Written up for them in
+`CROSS-SESSION.md` S1-6. The point for Lane C is that the question went from
+"an unexplained number" to "two probes and a bounded answer" in five minutes,
+which is what the instrument is for.
+
+### 3.6 Two defects found in the harness, by running it
+
+Both were found by the instrument being used, which is the argument for
+building it:
+
+1. **The ladder's fillet radius was derived from the ladder itself** (a quarter
+   of the smallest facet it reached), so `--sizes 60,120,240` and
+   `--sizes 60,120,240,480` measured different operations at the same rung. A
+   benchmark whose fixture moves with its arguments cannot compare two runs,
+   which is the only thing anyone wants a benchmark for. Now a fixed 0.1 mm.
+2. **The ladder selected "the first filletable edge"**, whose *kind* varied with
+   the rung — so the sweep measured a cap edge on one rung and a vertical corner
+   on the next, and its cost went *down* as the shape grew. Now selected by arc
+   length, which picks a prism's vertical corner edge at every size.
+
+### 3.7 What is still not established
+
+- **Whether the `filletEx1` corner-angle excess (§3.5) is caused by the
+  dihedral angle specifically.** It is established that the excess depends on
+  `n` and not on the radius-to-facet ratio; `n` also changes the topology at the
+  blended edge's two ends, and this run cannot separate the two.
+- **Absolute cost against the device.** Not established, not establishable, and
+  not attempted. Lane C's `fillet.edges` at one edge is 26.5 ms against the
+  device's 10.1; its `allEdges` at 1440 edges is 38.8 s against the device's
+  10.0 s. These say nothing except that the two machines differ, which §13.3
+  already said.
+- **Whether the exponents hold on arm64.** The macOS job exists for exactly
+  this and had not finished a cold OCCT build when this was written. The
+  exponents are scaling laws and should not care; that is a prediction, not a
+  result.
+- **Any claim that an optimisation works.** Nothing has been optimised. That is
+  Sessions 2–5's work, and this is the instrument they may now use between
+  device captures.

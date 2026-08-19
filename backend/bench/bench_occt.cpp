@@ -567,12 +567,22 @@ static void runLadder(const RunOpts &opts)
             if (!ids.empty()) {
                 const double radii[1] = {r};
                 occt_shape *out = nullptr;
+                /* The _ex form reports what the plain form cannot: which input
+                 * edges got no blend, and the relative size actually built
+                 * (below 1.0 means the asked-for radius landed on a tangency
+                 * and the shim retried a hair smaller — see occt_capi.h). A
+                 * rung that quietly took the retry ladder would otherwise look
+                 * like an unexplained cost, and the ladder HAS one such rung.
+                 * Collecting the diagnostic the shim already offers costs
+                 * nothing and turns "unexplained" into "explained or not". */
+                int dropped = 0;
+                double scale = 1.0;
                 stamp(measureOp(
                           opts, "filletEx1", "edges", edges, noop,
                           [&]() {
                               out = occt_fillet_edges_ex(s, ids.data(), radii,
-                                                         nullptr, 1, nullptr,
-                                                         nullptr);
+                                                         nullptr, 1, &dropped,
+                                                         &scale);
                           },
                           [&]() {
                               occt_free_shape(out);
@@ -580,6 +590,11 @@ static void runLadder(const RunOpts &opts)
                           }),
                       "occt_fillet_edges_ex, ONE vertical corner edge, at a "
                       "radius fixed independently of the ladder");
+                std::printf("      fillet report: dropped=%d scale=%.6f%s\n",
+                            dropped, scale,
+                            (dropped || scale < 1.0)
+                                ? "  <-- NOT the plain case"
+                                : "");
             } else {
                 std::printf("  [rung %d] no vertical corner edge found\n", n);
             }
