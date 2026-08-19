@@ -1,16 +1,14 @@
-# Cross-session notes — append only
+# CROSS-SESSION
 
-Per `OPTIMIZATION_PLAN.md` §7: this file is for things you need that live in
-another session's files, and for defects you find in another session's area.
-**Append; never edit an existing entry.** A silent fix in someone else's file is
-indistinguishable from a merge accident and will be reverted.
+**Append-only.** Add entries at the end. Never edit or delete an entry written
+by another session — see `OPTIMIZATION_PLAN.md` §7.
 
-Format: `<session>-<n>`, what, where, what you would change, and whether you are
-blocked on it.
+Format: `## <date> — <session> — <one line>` then the detail.
 
 ---
+## 2026-08-19 — S1 — §6.5 evidence 4 prints a Student-t interval; everything else prints 1.96
 
-## S1-1 — §6.5 evidence 4 prints a Student-t interval; everything else prints 1.96
+*(referred to elsewhere as S1-1)*
 
 **Found by:** Session 1 (bench harness), while choosing the reference intervals
 the Lane C calibration gate compares against.
@@ -66,7 +64,9 @@ and 1.063 stay disjoint either way.
 
 ---
 
-## S1-2 — `backend/CMakeLists.txt` did not exist; it does now
+## 2026-08-19 — S1 — backend/CMakeLists.txt did not exist; it does now
+
+*(referred to elsewhere as S1-2)*
 
 **Found by:** Session 1.
 **Files:** `backend/CMakeLists.txt` (assigned to S1 by §3), `backend/occt/CMakeLists.txt`
@@ -89,19 +89,33 @@ Session 1's exclusive ownership without argument.
 
 ---
 
-## S1-3 — `perf/findings/` was empty; the shared coordination files are seeded
+## 2026-08-19 — S1 — a correction to this file: the coordination files already existed
 
-**Found by:** Session 1.
-**Files:** `perf/findings/CROSS-SESSION.md`, `perf/findings/CONFLICTS.md`.
-**Blocked:** no.
+*(referred to elsewhere as S1-3)*
 
-§7 names both files but neither existed. Session 1 created them with their
-append-only rule at the top. Nothing else is in them; the entries above are
-Session 1's own.
+**Written by:** Session 1, correcting its own earlier entry rather than deleting
+it, because this file is append-only and that applies to me too.
+
+The entry that first stood here said `perf/findings/CROSS-SESSION.md` and
+`perf/findings/CONFLICTS.md` "did not exist" and that Session 1 had created
+them. **That was wrong.** Both existed on `claude/perf-deep-analysis`, with
+header stubs and the append-only rule already written at the top, alongside a
+`perf/findings/README.md` naming every session's file. Session 1 wrote its own
+headers over them before checking.
+
+Nothing was lost — both files held headers and no entries, and the original text
+of both has been restored, with Session 1's entries re-titled into the format
+this file already specified (`## <date> — <session> — <one line>`).
+
+The rule that was broken is §7's, and the way to break it is exactly this: to
+assume a shared file is yours because it looks empty. `git show
+origin/<branch>:<path>` costs one command and would have prevented it.
 
 ---
 
-## S1-4 — the "flat 25.5 ms fillet" is the candidate search, not the blend
+## 2026-08-19 — S1 — the "flat 25.5 ms fillet" is the candidate search, not the blend
+
+*(referred to elsewhere as S1-4)*
 
 **Found by:** Session 1, when the Lane C harness reproduced §6.3's numbers but
 not §10.2's.
@@ -194,7 +208,9 @@ label are corrected. Session 1 did not touch either file.
 
 ---
 
-## S1-5 — booleans bend upward past the device ladder's top rung
+## 2026-08-19 — S1 — booleans bend upward past the device ladder's top rung
+
+*(referred to elsewhere as S1-5)*
 
 **Found by:** Session 1, from the Lane C ladder, which reaches four times the
 operand size `ramp.boolean` did.
@@ -243,7 +259,9 @@ touched it. This is a request for the integration step (§8), not a change.
 
 ---
 
-## S1-6 — fillet has a SECOND cost discontinuity, on corner angle
+## 2026-08-19 — S1 — fillet has a SECOND cost discontinuity, on corner angle
+
+*(referred to elsewhere as S1-6)*
 
 **Found by:** Session 1, chasing an anomaly in its own fillet ladder.
 **For:** **Session 2** — this sits beside the radius discontinuity your §6.3

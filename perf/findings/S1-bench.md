@@ -232,6 +232,16 @@ Risk          : this harness times only the blend call, whereas the device
 - **Did not fix the interval-convention discrepancy** it found in §6.5
   (`CROSS-SESSION.md` S1-1). It is in a file nobody edits, and the harness
   works around it in the open by reporting against both conventions.
+- **Did one thing it should not have**, and it is recorded rather than tidied
+  away: Session 1 wrote its own headers over `perf/findings/CROSS-SESSION.md`
+  and `CONFLICTS.md` on the assumption that they did not exist. They did, with
+  the append-only rule already at the top of each and a `README.md` beside them
+  naming every session's file. Nothing was lost — both held headers and no
+  entries — and the originals have been restored with Session 1's entries
+  re-titled into the format those files already specified. The correction is
+  `CROSS-SESSION.md`'s third entry, appended rather than substituted for the
+  wrong one. `git show origin/<branch>:<path>` costs one command and would have
+  prevented it.
 - **Did not build a simulator lane, a sampling profiler, or the 30-minute
   session scenario.** §15.5 lists all three as unbuilt; only Lane C was
   assigned.

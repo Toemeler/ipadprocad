@@ -1,14 +1,8 @@
-# Merge conflicts that could not be resolved by keeping both sides
+# CONFLICTS
 
-Per `OPTIMIZATION_PLAN.md` §7: resolve every merge conflict by keeping both
-sides. When the two changes are genuinely incompatible, **do not choose** —
-describe both sides here and leave the conflict for the humans.
+**Append-only.** Add entries at the end. Never edit or delete an entry written
+by another session — see `OPTIMIZATION_PLAN.md` §7.
 
-**Append only. Never edit another session's entry.**
-
-Format: session, branch, file, what each side does, and why they cannot both
-stand.
+Format: `## <date> — <session> — <one line>` then the detail.
 
 ---
-
-*(no entries)*
