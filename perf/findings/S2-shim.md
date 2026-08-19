@@ -10,6 +10,68 @@ simulator numbers as iPad milliseconds.
 
 ---
 
+## 0. STATUS FOR THE INTEGRATOR — read this first
+
+**Merged into `claude/perf-opt`.** All of Session 2's work is on the
+integration branch. Nothing is held back on the session branch.
+
+**Complete, and safe to integrate:**
+
+| | |
+| --- | --- |
+| `occt_shape_edges_info` (shim v21) + its Dart binding | done, merged |
+| The face-edge orientation index (the second quadratic) | done, merged |
+| Behaviour pinned by test | smoke `[35]`, bitwise, five solids; `bulk_edge_info_test.dart` for the Dart decode |
+| `flutter analyze` | **0 errors** (55 pre-existing infos/warnings, none in a file this session touched) |
+| `flutter test` | **2084 passing** |
+| `python3 -m unittest discover -s ci` | **45 passing** |
+| Predictions registered with arithmetic | P1–P6 |
+| Files touched outside this session's ownership | **none** |
+
+**ONE THING IS STILL OPEN, and it is the only reason to hesitate.**
+
+> **The second change — the face-edge orientation index — has not yet been
+> compiled or run anywhere.** This container has no OCCT install tree
+> (`backend/occt/upstream` is not checked out), so the C++ was verified only by
+> extracting the new block and compiling it under `-Wall -Wextra` against
+> hand-written stand-ins for the OCCT types. That proves syntax and type usage.
+> It does **not** prove the index reproduces the scan it replaces.
+
+Two dispatched CI runs settle it, both against commit `1c4735f`, both
+**in progress** as this is written:
+
+| Run | What it decides | Where to read it |
+| --- | --- | --- |
+| [32279262220](https://github.com/Toemeler/ipadprocad/actions/runs/32279262220) `occt-build.yml` | **correctness.** Builds the shim and runs smoke `[35]`, which compares index against scan bitwise on five solids | `ci-logs-occt/smoke.log` on `ci-debug-logs-occt`; look for `[35] ... 0 of N records differ` on all five, then `OCCT SMOKE: PASS` |
+| [32279237755](https://github.com/Toemeler/ipadprocad/actions/runs/32279237755) `kernel-bench.yml` | **effect.** Adjudicates P5 — whether the exponent falls from 1.909 to ~1.0 | Lane C's published bench output |
+
+**What to do with that, concretely:**
+
+- `occt-build.yml` **green** → the change is verified; integrate as normal.
+- `occt-build.yml` **red on `[35]`** → **do not ship the second change.** The
+  first change (v21 bulk enumeration) is independently verified — it passed
+  `[35]` on real OCCT in run
+  [32236991271](https://github.com/Toemeler/ipadprocad/actions/runs/32236991271),
+  five solids, 48 edges, zero differing records — so the safe fallback is to
+  revert commit `1c4735f` alone and keep shim v21. §7.3 lists the three
+  correctness details the index turns on, which is where a failure would be.
+- The bench result changes no code either way. A refuted P5 is a *finding*
+  (§7.4 says what it would mean and why this session does not act on it).
+
+**Needs: integrator** — if `[35]` has not reported by the time integration
+runs, that is a judgement call about shipping unverified kernel code, and per
+your own note it is the kind of risk this session should not carry alone.
+Session 2's recommendation: hold the second change, ship v21, and let the
+device capture adjudicate P1/P2/P4 which do not depend on it.
+
+**Corrections this session made to its own record**, so they are not read as
+new claims: P1 is **refuted** (§7.1); §5.1's "closed question" verdict is
+**withdrawn twice over** (§5.1 for attributing the flat cost to the wrong
+call, §7.5 for the threshold Lane C did not meet); and the endorsement given
+to Session 5 about the blend term is withdrawn in `CROSS-SESSION.md`.
+
+---
+
 ## 1. What the profile establishes, restated so the arithmetic below is checkable
 
 `PERFORMANCE_PROFILE.md` §6.5. Four independent lines of evidence, of which two
