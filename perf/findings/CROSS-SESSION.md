@@ -1448,3 +1448,86 @@ small to measure, which is in `S4-painter.md` §9.5 along with everything else I
 declined to do.
 
 Full write-up, method and numbers: `perf/findings/S4-painter.md` §9.
+
+## 2026-08-19 — INTEGRATOR — ruling on S4-3: (c) was my ambiguity, your change stands, and the real finding gets routed not chased
+
+**Raised by:** the integration/watch session.
+**Blocked:** no.
+
+### First, the rule was mine and it was ambiguous. That is my error, not yours.
+
+You asked whether (c) means "no accumulation at all" or "none the status quo
+does not already have". I wrote it without deciding, and you were right to
+refuse to guess. **It is differential**, and here is the corrected wording:
+
+> **(c)** the change must not introduce accumulation of a *kind* the status quo
+> lacks, and must not increase its *rate* by a factor the reviewer has not
+> accepted explicitly, with both measured against the unmodified application on
+> the same fixture.
+
+Absolute non-accumulation was never satisfiable by an iterative solver with a
+warm start, and a clause that condemns the shipped application is not
+discriminating between the change and the baseline — it is measuring the
+system. Your 2-vs-3 column is what exposed that, and it is the most useful
+thing in the entry.
+
+### Your change passes, and stays merged
+
+Same kind (exponent 1.02 → 1.69 in both columns), rate 2×, against a
+pre-existing single-regime drift of **14.64 units** that your change contributes
+**7.29e−3** to — 2000× smaller. I am accepting the factor of two explicitly, as
+the corrected clause requires, and recording why:
+
+* **(a) holds at every N**, which is the clause that matters for correctness.
+  Residual 2.828e−6 at N=400, the same as after one drag. The states move
+  *along* the manifold; nothing degrades.
+* **Reverting would be a bad trade in both directions.** It would restore a
+  measured cost — the double solve is 86.8 % of paint time during a drag
+  (§5.2) — to buy a 0.05 % reduction in an accumulation that is invisible
+  beneath the drift both regimes already share. And it would not remove the
+  property, only move it from 2× to 1× on a spectrum the application already
+  spans by opening a panel.
+* **Your N≈480-to-`_renderable` extrapolation is the strongest argument
+  against**, and I considered it. It loses to the fact that at N=400 the sketch
+  has already walked 14.64 units in a *single* regime — 1464× `_renderable`.
+  Your contribution becomes visible only long after the thing it sits on has
+  swamped it.
+
+If the drift below is ever fixed, your 2× becomes the leading term and this
+ruling should be re-taken. Recorded so that it is.
+
+### The real finding: routed, and nobody chases it here
+
+**Committed geometry is not a function of the cursor path.** Dragging a sketch
+around a closed loop and back leaves it 14.64 units from where it started, in
+the unmodified application, with no regime change involved.
+
+That is a **behaviour** finding, not a performance one, and it is out of scope
+for this entire branch in the most literal way: the standing rule is that
+behaviour does not change, and this is a proposal that behaviour is already
+wrong. It also lives in `endGripDrag`, `solveConstraints` and the warm start,
+which §3 grants to nobody. You were right not to touch it, right not to revert
+on your own reading, and right to route it.
+
+I am escalating it to the human as a separate item from the optimisation work.
+
+**One number I want before anyone calls it a defect, and it is yours to
+supply cheaply:** the fixture's **DOF after `analyzeSketch`**, and the sketch's
+bounding-box extent. Two slots coupled by a tangent and a coincident is
+under-constrained, and on an under-constrained system a warm-started solver
+*not* retracing its path is expected behaviour rather than a bug — the free
+parameters have somewhere to go. What decides whether 14.64 units is alarming
+is whether it is proportionate to the freedom the sketch actually has. A system
+with 20 free parameters wandering 14.64 units across a ~60-unit sketch is one
+story; a nearly-determined system doing it is a different and much worse one. I
+cannot tell which from here, and neither the finding nor the escalation should
+harden until that number exists.
+
+Add it to `S4-painter.md` §9.4 when convenient. Nothing waits on it.
+
+### On method
+
+You ran the test that made your own merged work look bad, reported that it
+failed, declined to shrink it until it passed — and wrote down that N=40 would
+have read as a pass. That is the standard this branch was built to hold and it
+is worth saying so plainly.
