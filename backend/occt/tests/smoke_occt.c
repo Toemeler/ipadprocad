@@ -47,6 +47,15 @@
  *        across the chord (volume cannot — a mirror preserves area), and
  *        the reverse traversal gives the identical solid
  *
+ * v21 scenario:
+ *   [35] bulk edge enumeration — occt_shape_edges_info against
+ *        occt_shape_edge_info on four solids, all twelve doubles compared
+ *        BITWISE (memcmp, not a tolerance), plus a coverage assertion that
+ *        the fixtures really did produce a convex edge, a concave edge, a
+ *        straight edge and a circular one. The bulk path is the fix for the
+ *        Theta(n^2) of PERFORMANCE_PROFILE.md section 6.5; its only real risk
+ *        is a silently different record, so that is what is pinned
+ *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
  *   and exits non-zero on any failure.
@@ -1722,6 +1731,165 @@ int main(void)
               "[34] null move was not refused");
         check(occt_scale_shape(NULL, 0, 0, 0, 2) == NULL,
               "[34] null scale was not refused");
+    }
+
+    /* [35] v21 BULK EDGE ENUMERATION — the identity pin.
+     *
+     * occt_shape_edges_info exists because occt_shape_edge_info rebuilt four
+     * whole-shape structures per call and discarded them, making enumeration
+     * n x Theta(n): PERFORMANCE_PROFILE.md section 6.5 measures k = 2.012
+     * [1.910, 2.113], R^2 = 1.0000, ten seconds for one solid at 1440 edges.
+     * The bulk path builds those four once.
+     *
+     * THE RISK IS NOT SPEED, IT IS SILENCE. Edge indices, adjacency counts,
+     * dihedral angles and the convexity sign feed the fingerprint a fillet is
+     * re-matched against after a rebuild. One field wrong and a part reattaches
+     * its blends to the wrong edges on load, with no error anywhere. So this
+     * compares BITWISE, with memcmp and not a tolerance: a tolerance would hide
+     * exactly the kind of drift this test exists to catch, such as the ancestor
+     * map handing back a different FIRST face and flipping a convexity sign.
+     *
+     * Four fixtures, chosen to reach every branch of the per-edge code:
+     *   box        12 straight edges, all exterior corners -> convexity +1
+     *   cylinder   circular edges and a seam -> the GeomAbs_Circle branch
+     *   L-prism    a non-convex profile, so one INTERIOR corner -> the sign
+     *              must come out -1 somewhere, or the test proves nothing
+     *   filleted   spline edges (the switch's default:) and the most edges
+     */
+    {
+        occt_shape *k35[4] = {NULL, NULL, NULL, NULL};
+        const char *n35[4] = {"box", "cylinder", "L-prism", "filleted"};
+        int concave_seen = 0, convex_seen = 0, kinds_seen = 0;
+
+        k35[0] = occt_make_box(20.0, 20.0, 20.0);
+        k35[1] = occt_make_cylinder(0.0, 0.0, 0.0, 6.0, 10.0);
+        {
+            const double L35[] = {0, 0, 40, 0, 40, 10, 10, 10, 10, 30, 0, 30};
+            k35[2] = occt_extrude_polygon(L35, 6, 5.0);
+        }
+        if (k35[0] != NULL) {
+            /* Round one vertical edge of a fresh cube — the same construction
+             * scenario [21] uses, so the fixture is one the suite already
+             * trusts. */
+            occt_shape *b = occt_make_box(20.0, 20.0, 20.0);
+            if (b != NULL) {
+                const int nb = occt_shape_edge_count(b);
+                int vert = -1;
+                for (int i = 1; i <= nb && vert < 0; ++i) {
+                    double info[12] = {0};
+                    if (!occt_shape_edge_info(b, i, info))
+                        continue;
+                    if (info[0] == 1.0 && fabs(fabs(info[6]) - 1.0) < 1e-9)
+                        vert = i;
+                }
+                if (vert > 0) {
+                    const int ids[1] = {vert};
+                    const double rad[1] = {5.0};
+                    k35[3] = occt_fillet_edges(b, ids, rad, NULL, 1);
+                }
+                occt_free_shape(b);
+            }
+        }
+
+        for (int ci = 0; ci < 4; ++ci) {
+            occt_shape *s = k35[ci];
+            char why[96];
+            snprintf(why, sizeof(why), "[35] %s fixture is NULL",
+                              n35[ci]);
+            if (!check(s != NULL, why))
+                continue;
+            const int ne = occt_shape_edge_count(s);
+            snprintf(why, sizeof(why), "[35] %s has no edges",
+                              n35[ci]);
+            if (!check(ne > 0, why))
+                continue;
+            double *bulk = (double *)malloc(sizeof(double) * 12 * (size_t)ne);
+            if (!check(bulk != NULL, "[35] out of memory"))
+                continue;
+            /* Poison every slot. A field the bulk path forgets to write shows
+             * up as a difference rather than as an accidental zero that
+             * happens to match. */
+            for (int i = 0; i < 12 * ne; ++i)
+                bulk[i] = -12345.0;
+
+            const int got = occt_shape_edges_info(s, bulk, ne);
+            printf("[35] %s: %d edges, bulk wrote %d\n", n35[ci], ne, got);
+            snprintf(why, sizeof(why),
+                              "[35] %s: bulk did not write one record per edge",
+                              n35[ci]);
+            check(got == ne, why);
+
+            int diffs = 0;
+            for (int i = 1; i <= ne && i <= got; ++i) {
+                double one[12];
+                const double *bp = bulk + 12 * (i - 1);
+                for (int k = 0; k < 12; ++k)
+                    one[k] = -54321.0;
+                if (!occt_shape_edge_info(s, i, one)) {
+                    /* The per-edge path refused this edge. The bulk path must
+                     * have said so too, with the type -1 marker, and must not
+                     * have invented a record. */
+                    if (bp[0] != -1.0) {
+                        ++diffs;
+                        printf("[35] %s edge %d: per-edge failed, bulk "
+                               "reported type %.17g\n",
+                               n35[ci], i, bp[0]);
+                    }
+                    continue;
+                }
+                if (memcmp(one, bp, sizeof(one)) != 0) {
+                    ++diffs;
+                    if (diffs <= 3) {
+                        for (int k = 0; k < 12; ++k) {
+                            if (memcmp(&one[k], &bp[k], sizeof(double)) == 0)
+                                continue;
+                            printf("[35] %s edge %d field %d: per-edge %.17g "
+                                   "bulk %.17g\n",
+                                   n35[ci], i, k, one[k], bp[k]);
+                        }
+                    }
+                }
+                if (one[11] > 0.0)
+                    ++convex_seen;
+                if (one[11] < 0.0)
+                    ++concave_seen;
+                kinds_seen |= 1 << ((int)(one[0] + 0.5) & 7);
+            }
+            printf("[35] %s: %d of %d records differ\n", n35[ci], diffs, ne);
+            snprintf(why, sizeof(why),
+                              "[35] %s: bulk and per-edge records differ",
+                              n35[ci]);
+            check(diffs == 0, why);
+            free(bulk);
+        }
+
+        /* The fixtures must actually have exercised what they were chosen for.
+         * Without this, a bulk path that returned all-zeros for every edge
+         * would compare equal to a per-edge path that did the same, and the
+         * test above would pass while proving nothing. */
+        printf("[35] coverage: convex edges %d, concave edges %d, "
+               "curve-kind mask 0x%x\n",
+               convex_seen, concave_seen, kinds_seen);
+        check(convex_seen > 0, "[35] no CONVEX edge in any fixture");
+        check(concave_seen > 0,
+              "[35] no CONCAVE edge — the L-prism's interior corner is the "
+              "only place the sign can be refuted, and it did not appear");
+        check((kinds_seen & (1 << 1)) != 0, "[35] no straight edge seen");
+        check((kinds_seen & (1 << 2)) != 0, "[35] no circular edge seen");
+
+        /* Refusals: never a partial fill, never a crash. */
+        if (k35[0] != NULL) {
+            double small[12];
+            check(occt_shape_edges_info(k35[0], small, 1) == -1,
+                  "[35] an undersized buffer was not refused");
+            check(occt_shape_edges_info(k35[0], NULL, 12) == -1,
+                  "[35] a null buffer was not refused");
+        }
+        check(occt_shape_edges_info(NULL, NULL, 0) == -1,
+              "[35] a null shape was not refused");
+
+        for (int ci = 0; ci < 4; ++ci)
+            occt_free_shape(k35[ci]);
     }
 
     if (g_failures == 0) {

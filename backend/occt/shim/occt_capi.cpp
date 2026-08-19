@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include <Standard_Failure.hxx>
@@ -190,7 +191,7 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v20 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v21 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -202,7 +203,12 @@ extern "C" const char *occt_version(void)
  * either, so it takes the next free number rather than pretending one of the
  * two v17s did not happen. A version that means different things in two
  * binaries is worse than a gap in the sequence. */
-extern "C" int occt_shim_version(void) { return 20; }
+/* v21 (S2 of the optimisation split): occt_shape_edges_info. Five sessions
+ * are editing this repository in parallel, and the v17 collision above is
+ * what happens when two of them pick the same number — this one is taken by
+ * the session that owns backend/occt/shim/**, which is the only one adding
+ * shim surface. */
+extern "C" int occt_shim_version(void) { return 21; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -2177,22 +2183,104 @@ static bool into_face_dir(const TopoDS_Face &face, const TopoDS_Edge &edge,
     return true;
 }
 
-extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
-                                    double *out12)
+/*
+ * v21 — everything one edge query derives from the WHOLE SHAPE rather than
+ * from the edge it was asked about.
+ *
+ * This struct exists because of a measurement. `occt_shape_edge_info` used to
+ * build all four of these inline, per call, and throw them away; enumerating
+ * every edge of a solid therefore cost n x Θ(n). PERFORMANCE_PROFILE.md §6.5
+ * measures that as k = 2.012 [1.910, 2.113], R² = 1.0000, against a control
+ * doing strictly more work at k = 1.063 — 200.3x at 1440 edges, and an
+ * extrapolated 56.4 s on the part that died in the field.
+ *
+ * None of the four depends on `index`:
+ *   - MapShapes(EDGE)                is a pure function of the shape
+ *   - MapShapesAndAncestors(E, F)    is a pure function of the shape
+ *   - the bounding box, hence `step`, is a pure function of the shape
+ *   - the solid classifier is LOADED with the shape and then asked about
+ *     points; construction is the expensive half, Perform is the query
+ *
+ * So one context per SHAPE serves every edge, and edge_info_one below cannot
+ * tell whether it was handed a context built for it alone (the single-edge
+ * entry point, whose cost is therefore exactly what it always was) or one
+ * shared across an enumeration (the bulk entry point). That is what makes the
+ * two paths bit-identical by construction rather than by testing — though
+ * smoke scenario [35] tests it anyway, on all twelve doubles, exactly.
+ *
+ * Each member is built LAZILY, so the single-edge path still performs exactly
+ * the operations it performed before, in the same order, and no others: a
+ * degenerate edge returns before the ancestor map is ever needed, and an edge
+ * with other than two adjacent faces never reaches the classifier.
+ */
+struct edge_info_ctx
 {
-    OCCT_TRY("occt_shape_edge_info")
+    const TopoDS_Shape &s;
+    TopTools_IndexedMapOfShape edges;
+
+    explicit edge_info_ctx(const TopoDS_Shape &sh) : s(sh)
+    {
+        TopExp::MapShapes(s, TopAbs_EDGE, edges);
+    }
+
+    const TopTools_IndexedDataMapOfShapeListOfShape &faces()
+    {
+        if (!m_faces_done) {
+            TopExp::MapShapesAndAncestors(s, TopAbs_EDGE, TopAbs_FACE,
+                                          m_edge_faces);
+            m_faces_done = true;
+        }
+        return m_edge_faces;
+    }
+
+    /* The distance to step off the edge before asking the solid where we
+     * landed: 1/1000 of the shape's diagonal, exactly as the per-call code
+     * computed it. */
+    double classifier_step()
+    {
+        if (!m_step_done) {
+            Bnd_Box bb;
+            BRepBndLib::Add(s, bb);
+            m_step = 1.0e-3 * (bb.IsVoid() ? 1.0 : sqrt(bb.SquareExtent()));
+            m_step_done = true;
+        }
+        return m_step;
+    }
+
+    BRepClass3d_SolidClassifier &classifier()
+    {
+        if (!m_cls)
+            m_cls.reset(new BRepClass3d_SolidClassifier(s));
+        return *m_cls;
+    }
+
+    /* Throw the shared classifier away after a failed query. The per-edge path
+     * this replaces built a fresh one every time, so a classifier left in a
+     * bad state by one edge could not affect the next; sharing one across an
+     * enumeration would break that, and a WRONG convexity is far worse than a
+     * slow one — it is what decides fillet from round, and it is persisted
+     * into the fingerprint a blend is reattached by. */
+    void forget_classifier() { m_cls.reset(); }
+
+  private:
+    bool m_faces_done = false;
+    TopTools_IndexedDataMapOfShapeListOfShape m_edge_faces;
+    bool m_step_done = false;
+    double m_step = 0.0;
+    std::unique_ptr<BRepClass3d_SolidClassifier> m_cls;
+};
+
+/*
+ * The twelve doubles for ONE edge, 1-based `index` into ctx.edges.
+ *
+ * This is the body `occt_shape_edge_info` has always had, moved verbatim so
+ * that the single-edge and bulk entry points cannot drift apart. Returns 1 on
+ * success, 0 if the edge could not be read at all.
+ */
+static int edge_info_one(edge_info_ctx &ctx, int index, double *out12)
+{
     double *out10 = out12; /* first ten fields are unchanged since v12 */
-    if (!shape || !out12) {
-        set_err("occt_shape_edge_info", "null argument");
-        return 0;
-    }
-    TopTools_IndexedMapOfShape m;
-    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
-    if (index < 1 || index > m.Extent()) {
-        set_err("occt_shape_edge_info", "edge index out of range");
-        return 0;
-    }
-    const TopoDS_Edge edge = TopoDS::Edge(m.FindKey(index));
+    const TopoDS_Edge edge = TopoDS::Edge(ctx.edges.FindKey(index));
     for (int i = 0; i < 12; ++i)
         out12[i] = 0.0;
     if (BRep_Tool::Degenerated(edge))
@@ -2240,9 +2328,7 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
     out10[6] = d1.Z();
     out10[7] = len;
 
-    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
-    TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
-                                  edgeFaces);
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces = ctx.faces();
     out10[9] = edgeFaces.Contains(edge)
                    ? (double)edgeFaces.FindFromKey(edge).Extent()
                    : 0.0;
@@ -2280,11 +2366,8 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
                 gp_Vec m(u1.XYZ() + u2.XYZ());
                 if (m.Magnitude() > 1e-9) {
                     m.Normalize();
-                    Bnd_Box bb;
-                    BRepBndLib::Add(shape->s, bb);
-                    const double step =
-                        1.0e-3 * (bb.IsVoid() ? 1.0 : sqrt(bb.SquareExtent()));
-                    BRepClass3d_SolidClassifier cls(shape->s);
+                    const double step = ctx.classifier_step();
+                    BRepClass3d_SolidClassifier &cls = ctx.classifier();
                     cls.Perform(pm.Translated(m * step), 1.0e-7);
                     out12[11] = (cls.State() == TopAbs_IN) ? 1.0 : -1.0;
                 }
@@ -2292,7 +2375,71 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
         }
     }
     return 1;
+}
+
+extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
+                                    double *out12)
+{
+    OCCT_TRY("occt_shape_edge_info")
+    if (!shape || !out12) {
+        set_err("occt_shape_edge_info", "null argument");
+        return 0;
+    }
+    edge_info_ctx ctx(shape->s);
+    if (index < 1 || index > ctx.edges.Extent()) {
+        set_err("occt_shape_edge_info", "edge index out of range");
+        return 0;
+    }
+    return edge_info_one(ctx, index, out12);
     OCCT_CATCH("occt_shape_edge_info", 0)
+}
+
+/*
+ * v21 — every edge's record in ONE traversal. See occt_capi.h for the
+ * contract and edge_info_ctx above for why this is not merely a convenience
+ * wrapper around the call above.
+ *
+ * A failure on ONE edge does not abandon the enumeration. The per-edge path it
+ * replaces was called from Dart in a loop that dropped a null result and
+ * carried on, so abandoning the whole array here would be a behaviour change
+ * on exactly the malformed shapes where behaviour matters most. Such an edge
+ * gets type -1 — outside the documented 0..4 range — and the caller drops it,
+ * which reproduces the old loop exactly. Type 0 still means "degenerate edge,
+ * legitimately empty" and is still KEPT.
+ */
+extern "C" int occt_shape_edges_info(const occt_shape *shape, double *out12n,
+                                     int cap)
+{
+    OCCT_TRY("occt_shape_edges_info")
+    if (!shape || !out12n) {
+        set_err("occt_shape_edges_info", "null argument");
+        return -1;
+    }
+    edge_info_ctx ctx(shape->s);
+    const int n = ctx.edges.Extent();
+    if (cap < n) {
+        set_err("occt_shape_edges_info", "output buffer too small");
+        return -1;
+    }
+    for (int i = 1; i <= n; ++i) {
+        double *rec = out12n + 12 * (i - 1);
+        try {
+            if (!edge_info_one(ctx, i, rec))
+                rec[0] = -1.0;
+        } catch (const Standard_Failure &) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        } catch (...) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        }
+    }
+    return n;
+    OCCT_CATCH("occt_shape_edges_info", -1)
 }
 
 extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)
