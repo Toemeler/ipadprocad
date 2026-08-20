@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/l10n/fmt.dart';
 import 'package:prototype/widgets/viewport.dart';
 
 AppState makeApp({bool editing = true}) {
@@ -99,7 +100,9 @@ void main() {
     await t.tapAt(origin + first.$2.center); // open editor on dim d0
     await t.pump();
     final tf = t.widget<TextField>(find.byType(TextField));
-    expect(tf.controller!.text, '80.00');
+    // M234 — decimal comma in German, point in English. Fmt.fixed is what
+    // the widget itself formats with, so this stays a value assertion.
+    expect(tf.controller!.text, Fmt.fixed(80, 2));
     await t.tapAt(origin + second.$2.center); // tap the OTHER label
     await t.pump();
     expect(find.byType(TextField), findsOneWidget,
