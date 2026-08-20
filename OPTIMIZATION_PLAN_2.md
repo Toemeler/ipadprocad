@@ -144,8 +144,8 @@ claude/perf-opt                     ← round one; pinned by branch perf-capture
       └── claude/perf-opt2-memory      (S10)
 ```
 
-First session to start creates the integration branch from the **tag**, not the
-branch tip, so late round-one commits cannot slide in unmeasured:
+First session to start creates the integration branch from the **pin**, not from
+`claude/perf-opt`'s tip, so late round-one commits cannot slide in unmeasured:
 
 ```bash
 git fetch origin
