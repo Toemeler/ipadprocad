@@ -11,6 +11,7 @@ once, at integration (plan §8).
 | `S3-solver.md` | 2D solver | `solver.dart` |
 | `S4-painter.md` | Painter | `widgets/viewport.dart` |
 | `S5-partmodel.md` | Part model | `part_model.dart` |
+| `S8-display.md` | Display path + Track B (round 2) | `widgets/viewport3d.dart`, `packages/reality_view/**`, `.github/workflows/sim-perf.yml` |
 
 `CROSS-SESSION.md` and `CONFLICTS.md` are **append-only**. Never edit an entry
 you did not write.
