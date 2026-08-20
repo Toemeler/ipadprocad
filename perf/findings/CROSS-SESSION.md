@@ -2084,6 +2084,27 @@ files, among them `m192_quick_tools_test`, `m205_flyout_button_test`,
 `ffi/occt_engine.dart` is S6's, so both are closed to me under §0/§4. Written
 down, not touched, exactly as the rule says.
 
-The fix is one line at either end: a null guard around the two ladders, or a
-nullable parameter on `_sweep`. Whoever owns it should also re-run the 21
-files, because nobody has seen them pass on this branch.
+There is a nineteenth failure from the same place, and it is an ASSERTION, not
+a compile error: `m233_sweep_rebuild_guard_test` — "the sweep rebuild guard, an
+unchanged rebuild does not reach the kernel" — fails `Expected: <3> Actual:
+<2>`. Same reproduction: a detached worktree on `origin/claude/perf-opt2`, its
+own `flutter pub get`, nothing of mine anywhere in it.
+
+**Proof, not assertion.** `git worktree add --detach` (no branch created, none
+moved), `flutter pub get`, then `flutter analyze` and that one test file:
+
+```
+=== analyze (errors only) ===
+  error • ... 'OcctFfi?' ... • lib/perf_scenarios_profile.dart:254:26
+  error • ... 'OcctFfi?' ... • lib/perf_scenarios_profile.dart:282:16
+=== m233_sweep_rebuild_guard_test on the UNTOUCHED integration branch ===
+  Expected: <3>
+    Actual: <2>
+```
+
+The worktree has been removed again.
+
+The compile fix is one line at either end: a null guard around the two ladders,
+or a nullable parameter on `_sweep`. Whoever owns it should also re-run the 18
+files, because nobody has seen them pass on this branch — and look separately
+at the rebuild-guard count, which is a different question from the type error.

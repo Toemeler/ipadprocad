@@ -184,7 +184,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
               const SizedBox(width: 10),
               _btn('OK', _commit, primary: true),
               const SizedBox(width: 6),
-              _btn('Cancel', app.cancelWorkPlaneOffset),
+              _btn(L.of(context).cancel, app.cancelWorkPlaneOffset),
             ]),
           ),
         ),

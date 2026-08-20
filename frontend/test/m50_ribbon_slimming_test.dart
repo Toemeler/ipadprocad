@@ -87,14 +87,18 @@ void main() {
     testWidgets('they are NOT on the panel face', (t) async {
       await pump(t, Ribbon(app: makeApp()));
       // the grid is icon-only, so tooltips are the probe
-      for (final label in const [
-        'Smooth (G2)',
-        'Constraint Settings',
-        'Show Constraints',
+      for (final label in [
+        L.current.btnSmoothG2,
+        L.current.btnConstraintSettings,
+        L.current.btnShowConstraints,
       ]) {
         expect(find.byTooltip(label), findsNothing, reason: label);
       }
-      for (final label in const ['Coincident', 'Parallel', 'Equal']) {
+      for (final label in [
+        L.current.conCoincident,
+        L.current.conParallel,
+        L.current.conEqual,
+      ]) {
         expect(find.byTooltip(label), findsOneWidget, reason: label);
       }
     });

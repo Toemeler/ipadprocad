@@ -75,31 +75,31 @@ class _SplitDialogState extends State<SplitDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ?? 'Split', style: ts(12.5, T.blue)),
+                Text(s.editing?.name ?? L.of(context).btnSplit, style: ts(12.5, T.blue)),
                 const Spacer(),
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
             ),
-            panelSection('Trim', _open, () => setState(() => _open = !_open), [
+            panelSection(L.of(context).lblTrim, _open, () => setState(() => _open = !_open), [
               panelRow(
-                  'Plane',
+                  L.of(context).lblPlaneField,
                   GestureDetector(
                     onTap: app.repickSplitPlane,
                     child: panelPickField(
                       icon: Icons.crop_din,
                       active: s.frame == null,
                       label: s.frame == null
-                          ? 'Tap a plane or planar face…'
+                          ? L.of(context).hintTapPlaneOrFace
                           : s.label,
                     ),
                   )),
               panelRow(
-                  'Keep',
+                  L.of(context).lblKeep,
                   Row(children: [
-                    _seg('This side', !s.flip,
+                    _seg(L.of(context).lblThisSide, !s.flip,
                         () => app.setSplit(flip: false)),
                     const SizedBox(width: 6),
-                    _seg('Other side', s.flip,
+                    _seg(L.of(context).lblOtherSide, s.flip,
                         () => app.setSplit(flip: true)),
                   ])),
             ]),

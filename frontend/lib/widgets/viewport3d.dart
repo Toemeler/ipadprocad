@@ -1947,8 +1947,8 @@ class _Viewport3DState extends State<Viewport3D>
         }
         if (!app.patternToggleFeature(owner)) return;
         app.toast(app.patternHasFeature(owner.name)
-            ? 'Added ${owner.name}.'
-            : 'Removed ${owner.name}.');
+            ? L.current.msgAddedNamed(owner.name)
+            : L.current.msgRemovedNamed(owner.name));
       case PatternField.none:
         break;
     }

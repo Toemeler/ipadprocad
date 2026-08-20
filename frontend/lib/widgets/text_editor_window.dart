@@ -157,8 +157,8 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
               children: [
                 Text(
                     _tplF.hasFocus
-                        ? 'Tap a dimension in the sketch to insert it as "name"'
-                        : 'Text — embed parameters as <Width> or "d0"',
+                        ? L.of(context).hintTapDimensionToInsert
+                        : L.of(context).hintTextEmbedParams,
                     style: const TextStyle(color: T.dim, fontSize: 10)),
                 const SizedBox(height: 4),
                 Container(

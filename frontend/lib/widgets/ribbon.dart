@@ -1687,18 +1687,22 @@ class _ConGrid extends StatelessWidget {
   /// Smooth / Constraint Settings / Show Constraints live behind the panel
   /// title's ▼ (see the Constrain panel). 11 cells over 4 columns = 3 rows,
   /// which is both shorter and NARROWER than the old 5-column grid.
-  static const cons = [
-    ('coincident', 'Coincident'),
-    ('collinear', 'Collinear'),
-    ('concentric', 'Concentric'),
-    ('lock', 'Lock'),
-    ('parallel', 'Parallel'),
-    ('perp', 'Perpendicular'),
-    ('horiz', 'Horizontal'),
-    ('vert', 'Vertical'),
-    ('tangent', 'Tangent'),
-    ('symmetric', 'Symmetric'),
-    ('equal', 'Equal'),
+  //
+  // M234 — a FUNCTION of the strings now, not a const list. The ids on the
+  // left are what the grid dispatches on and they never move; only the labels
+  // change with the language.
+  static List<(String, String)> consOf(AppL10n t) => [
+    ('coincident', t.conCoincident),
+    ('collinear', t.conCollinear),
+    ('concentric', t.conConcentric),
+    ('lock', t.conLock),
+    ('parallel', t.conParallel),
+    ('perp', t.conPerpendicular),
+    ('horiz', t.conHorizontal),
+    ('vert', t.conVertical),
+    ('tangent', t.conTangent),
+    ('symmetric', t.conSymmetric),
+    ('equal', t.conEqual),
   ];
   bool _isActive(String key) {
     if (key == 'autodim') return app.autoConstrain;
@@ -1748,6 +1752,7 @@ class _ConGrid extends StatelessWidget {
     // ErrorWidget expanded to the full viewport height and pushed the model
     // browser, the viewport and the tab bar off screen. Never index a fixed
     // grid into a variable-length list again.)
+    final cons = consOf(L.of(context));
     final rows = (cons.length + _cols - 1) ~/ _cols;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,

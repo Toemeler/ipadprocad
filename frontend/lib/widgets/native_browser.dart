@@ -131,14 +131,14 @@ List<GlassRow> _buildRows(
       expanded: expanded.contains('origin'),
     ));
     if (expanded.contains('origin')) {
-      for (final (key, label, sym) in const [
-        ('yz', 'YZ Plane', 'square.on.square'),
-        ('xz', 'XZ Plane', 'square.on.square'),
-        ('xy', 'XY Plane', 'square.on.square'),
-        ('x', 'X Axis', 'line.diagonal'),
-        ('y', 'Y Axis', 'line.diagonal'),
-        ('z', 'Z Axis', 'line.diagonal'),
-        ('cp', 'Center Point', 'smallcircle.filled.circle'),
+      for (final (key, label, sym) in [
+        ('yz', t.nodeYzPlane, 'square.on.square'),
+        ('xz', t.nodeXzPlane, 'square.on.square'),
+        ('xy', t.nodeXyPlane, 'square.on.square'),
+        ('x', t.nodeXAxis, 'line.diagonal'),
+        ('y', t.nodeYAxis, 'line.diagonal'),
+        ('z', t.nodeZAxis, 'line.diagonal'),
+        ('cp', t.nodeCenterPoint, 'smallcircle.filled.circle'),
       ]) {
         final on = part.vis[key] == true;
         rows.add(GlassRow(
@@ -281,7 +281,7 @@ List<GlassRow> _buildRows(
                 [
                   GlassMenuItem(
                       id: off ? 'ocRestore' : 'ocSuppress',
-                      title: off ? 'Restore Occurrence' : 'Suppress Occurrence',
+                      title: off ? t.ctxRestoreOccurrence : t.ctxSuppressOccurrence,
                       symbol: off ? 'eye' : 'eye.slash'),
                 ]
               ],
@@ -405,7 +405,7 @@ List<List<GlassMenuItem>> _bodyMenu(AppState app, bool on) => [
               id: 'bdPick', title: t.ctxUseAsTargetBody, symbol: 'scope'),
         GlassMenuItem(
             id: 'bdVisible',
-            title: on ? 'Hide' : 'Show',
+            title: on ? t.hide : t.ctxShow,
             symbol: on ? 'eye.slash' : 'eye'),
         GlassMenuItem(id: 'bdRename', title: t.rename, symbol: 'pencil'),
       ],
@@ -435,7 +435,7 @@ List<List<GlassMenuItem>> _featureMenu(PartFeature f) => [
             symbol: 'slider.horizontal.3'),
         GlassMenuItem(
             id: 'ftVisible',
-            title: f.visible ? 'Hide' : 'Show',
+            title: f.visible ? t.hide : t.ctxShow,
             symbol: f.visible ? 'eye.slash' : 'eye'),
         GlassMenuItem(id: 'ftRename', title: t.rename, symbol: 'pencil'),
       ],
@@ -465,7 +465,7 @@ List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
               id: 'wpOffset', title: t.ctxEditOffset, symbol: 'ruler'),
         GlassMenuItem(
             id: 'wpVis',
-            title: w.visible ? 'Hide' : 'Show',
+            title: w.visible ? t.hide : t.ctxShow,
             symbol: w.visible ? 'eye.slash' : 'eye'),
       ],
       [
@@ -484,7 +484,7 @@ List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a) => [
       [
         GlassMenuItem(
             id: 'waVis',
-            title: a.visible ? 'Hide' : 'Show',
+            title: a.visible ? t.hide : t.ctxShow,
             symbol: a.visible ? 'eye.slash' : 'eye'),
         // The axis carries a SIGN that revolve and pattern directions inherit
         // (see WorkAxis.flip), and re-picking two points in the other order to
@@ -507,7 +507,7 @@ List<List<GlassMenuItem>> _workPointMenu(WorkPoint pt) => [
       [
         GlassMenuItem(
             id: 'wptVis',
-            title: pt.visible ? 'Hide' : 'Show',
+            title: pt.visible ? t.hide : t.ctxShow,
             symbol: pt.visible ? 'eye.slash' : 'eye'),
       ],
       [
@@ -527,7 +527,7 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
           id: 'skEdit', title: t.ctxEditSketch, symbol: 'pencil.tip'),
       GlassMenuItem(
           id: 'skVisible',
-          title: cs.visible ? 'Hide' : 'Show',
+          title: cs.visible ? t.hide : t.ctxShow,
           symbol: cs.visible ? 'eye.slash' : 'eye'),
     ],
     [

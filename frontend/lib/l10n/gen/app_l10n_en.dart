@@ -2170,4 +2170,807 @@ class AppL10nEn extends AppL10n {
   String wfSkewEdges(String a, String b, String gap) {
     return '$a and $b are skew — they miss each other by $gap mm.';
   }
+
+  @override
+  String get secInputGeometry => 'Input Geometry';
+
+  @override
+  String get secOutputGeometry => 'Output Geometry';
+
+  @override
+  String get secBehavior => 'Behavior';
+
+  @override
+  String get secPlacement => 'Placement';
+
+  @override
+  String get secOutput => 'Output';
+
+  @override
+  String get secExtents => 'Extents';
+
+  @override
+  String get lblDirection => 'Direction';
+
+  @override
+  String get lblOrientation => 'Orientation';
+
+  @override
+  String get lblMethod => 'Method';
+
+  @override
+  String get lblDistance => 'Distance';
+
+  @override
+  String get lblAngle => 'Angle';
+
+  @override
+  String get lblDepth => 'Depth';
+
+  @override
+  String get lblDiameter => 'Diameter';
+
+  @override
+  String get lblType => 'Type';
+
+  @override
+  String get lblCount => 'Count';
+
+  @override
+  String get lblNumber => 'Number';
+
+  @override
+  String get lblSpacing => 'Spacing';
+
+  @override
+  String get lblDistribution => 'Distribution';
+
+  @override
+  String get lblFlip => 'Flip';
+
+  @override
+  String get lblKeep => 'Keep';
+
+  @override
+  String get lblPlaneField => 'Plane';
+
+  @override
+  String get lblFaceField => 'Face';
+
+  @override
+  String get lblEdges => 'Edges';
+
+  @override
+  String get lblRadius => 'Radius';
+
+  @override
+  String lblRadiusN(String n) {
+    return 'Radius $n';
+  }
+
+  @override
+  String get lblDistance1 => 'Distance 1';
+
+  @override
+  String get lblDistance2 => 'Distance 2';
+
+  @override
+  String get lblTwoDistances => 'Two Distances';
+
+  @override
+  String get lblDistanceAndAngle => 'Distance and Angle';
+
+  @override
+  String get lblEqualDistance => 'Equal distance';
+
+  @override
+  String get lblAllFillets => 'All Fillets';
+
+  @override
+  String get lblAllRounds => 'All Rounds';
+
+  @override
+  String get hintTapEdgesIn3d => 'Tap edges in 3D…';
+
+  @override
+  String get lblSelectEdges => 'Select edges';
+
+  @override
+  String get lblBodies => 'Bodies';
+
+  @override
+  String get lblBase => 'Base';
+
+  @override
+  String get lblToolbodies => 'Toolbodies';
+
+  @override
+  String get hintTapBodyToKeep => 'Tap the body to KEEP…';
+
+  @override
+  String get hintPickBaseFirst => 'Pick the base first';
+
+  @override
+  String get hintTapBodiesToCombine => 'Tap the bodies to combine…';
+
+  @override
+  String get lblOperation => 'Operation';
+
+  @override
+  String get lblKeepTool => 'Keep tool';
+
+  @override
+  String get lblYes => 'Yes';
+
+  @override
+  String get opJoin => 'Join';
+
+  @override
+  String get opCut => 'Cut';
+
+  @override
+  String get opIntersect => 'Intersect';
+
+  @override
+  String get opNewSolid => 'New Solid';
+
+  @override
+  String get lblBoolean => 'Boolean';
+
+  @override
+  String get lblTargetBody => 'Target Body';
+
+  @override
+  String get lblTrim => 'Trim';
+
+  @override
+  String get hintTapPlaneOrFace => 'Tap a plane or planar face…';
+
+  @override
+  String get lblThisSide => 'This side';
+
+  @override
+  String get lblOtherSide => 'Other side';
+
+  @override
+  String get lblProfiles => 'Profiles';
+
+  @override
+  String get hintSelectProfile => 'Select a profile in the viewport';
+
+  @override
+  String get lblFrom => 'From';
+
+  @override
+  String get lblPath => 'Path';
+
+  @override
+  String get hintTapCurveIn3d => 'Tap a curve in 3D…';
+
+  @override
+  String get lblSelectCurveOrEdge => 'Select Curve or Edge';
+
+  @override
+  String get lblPathSelected => 'Path selected';
+
+  @override
+  String get lblFollowPath => 'Follow Path';
+
+  @override
+  String get lblFixed => 'Fixed';
+
+  @override
+  String get lblGuide => 'Guide';
+
+  @override
+  String get lblTaper => 'Taper';
+
+  @override
+  String get lblTwist => 'Twist';
+
+  @override
+  String get lblSections => 'Sections';
+
+  @override
+  String get hintTapProfilesIn3d => 'Tap profiles in 3D…';
+
+  @override
+  String get hintClickToAdd => 'Click to add';
+
+  @override
+  String get lblTransition => 'Transition';
+
+  @override
+  String get lblSmooth => 'Smooth';
+
+  @override
+  String get lblRuled => 'Ruled';
+
+  @override
+  String get lblClosedLoop => 'Closed Loop';
+
+  @override
+  String get lblMergeTangentFaces => 'Merge Tangent Faces';
+
+  @override
+  String get lblRevolutionCount => 'Revolution';
+
+  @override
+  String get lblHeight => 'Height';
+
+  @override
+  String get lblPitch => 'Pitch';
+
+  @override
+  String get lblRotationAngle => 'Rotation';
+
+  @override
+  String get hintTapLineOrAxis => 'Tap a line or origin axis…';
+
+  @override
+  String get lblSelectAxis => 'Select Axis';
+
+  @override
+  String get lblFull => 'Full';
+
+  @override
+  String get lblAngleA => 'Angle A';
+
+  @override
+  String get lblAngleB => 'Angle B';
+
+  @override
+  String get lblDistanceA => 'Distance A';
+
+  @override
+  String get lblDistanceB => 'Distance B';
+
+  @override
+  String get lblTerminateOn => 'Terminate on';
+
+  @override
+  String get hintTapFaceIn3d => 'Tap a face in 3D…';
+
+  @override
+  String get lblSelectFace => 'Select face';
+
+  @override
+  String get lblFaceSelected => 'Face selected — tap to change';
+
+  @override
+  String get lblDefault => 'Default';
+
+  @override
+  String get lblFlipped => 'Flipped';
+
+  @override
+  String get lblSymmetric => 'Symmetric';
+
+  @override
+  String get lblAsymmetric => 'Asymmetric';
+
+  @override
+  String get coilRevAndHeight => 'Revolution and Height';
+
+  @override
+  String get coilPitchAndRev => 'Pitch and Revolution';
+
+  @override
+  String get coilPitchAndHeight => 'Pitch and Height';
+
+  @override
+  String get coilSpiral => 'Spiral';
+
+  @override
+  String get hintTapSketchPointsIn3d => 'Tap sketch points in 3D…';
+
+  @override
+  String get lblCountersinkDia => 'Countersink ⌀';
+
+  @override
+  String get lblTermination => 'Termination';
+
+  @override
+  String get lblIntoPart => 'Into part';
+
+  @override
+  String get ctxShow => 'Show';
+
+  @override
+  String get ctxLock => 'Lock';
+
+  @override
+  String get ctxUnlock => 'Unlock';
+
+  @override
+  String get ctxRenameEllipsis => 'Rename…';
+
+  @override
+  String ctxMoveNHere(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Move $count here',
+      one: 'Move one here',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ctxSuppressOccurrence => 'Suppress Occurrence';
+
+  @override
+  String get ctxRestoreOccurrence => 'Restore Occurrence';
+
+  @override
+  String get nodeYzPlane => 'YZ Plane';
+
+  @override
+  String get nodeXzPlane => 'XZ Plane';
+
+  @override
+  String get nodeXyPlane => 'XY Plane';
+
+  @override
+  String get nodeZAxis => 'Z Axis';
+
+  @override
+  String get msgLayerEmptyRemoved => 'This layer is empty and will be removed.';
+
+  @override
+  String msgRemovesLayerAndEntities(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'This removes the layer and its $count entities.',
+      one: 'This removes the layer and its one entity.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get secModelParameters => 'Model Parameters';
+
+  @override
+  String get secUserParameters => 'User Parameters';
+
+  @override
+  String lblLineN(String n) {
+    return 'Line $n';
+  }
+
+  @override
+  String get lblSingleOpenSplineOnly => '(single open spline only)';
+
+  @override
+  String get lblSolid => 'Solid';
+
+  @override
+  String get lblSelectSolid => 'Select Solid';
+
+  @override
+  String get lblFeature => 'Feature';
+
+  @override
+  String get lblSelectFeatures => 'Select Features';
+
+  @override
+  String get lblDirectionA => 'Direction A';
+
+  @override
+  String get lblDirectionB => 'Direction B';
+
+  @override
+  String get lblStartA => 'Start A';
+
+  @override
+  String get lblStartB => 'Start B';
+
+  @override
+  String get lblCurveStart => 'Curve start';
+
+  @override
+  String lblMmAlong(String value) {
+    return '$value mm along';
+  }
+
+  @override
+  String get lblAddIrregularAngle => '+ Irregular Angle';
+
+  @override
+  String get lblAddIrregularDistance => '+ Irregular Distance';
+
+  @override
+  String get lblSelectDir => 'Select Dir...';
+
+  @override
+  String get lblMidplane => 'Midplane';
+
+  @override
+  String get lblCurveLength => 'Curve Length';
+
+  @override
+  String get lblIdentical => 'Identical';
+
+  @override
+  String get lblIncremental => 'Incremental';
+
+  @override
+  String get lblRotational => 'Rotational';
+
+  @override
+  String get lblSketchPoint => 'Sketch Point';
+
+  @override
+  String get lblSelectPoint => 'Select Point';
+
+  @override
+  String get lblBasePoint => 'Base Point';
+
+  @override
+  String get lblFollowFace => 'Follow Face';
+
+  @override
+  String get lblMirrorPlane => 'Mirror Plane';
+
+  @override
+  String get lblCreationMethod => 'Creation Method';
+
+  @override
+  String get lblAdjust => 'Adjust';
+
+  @override
+  String get lblRemoveOriginal => 'Remove Original';
+
+  @override
+  String get lblKeepMirroredHalf => 'Keep only the mirrored half';
+
+  @override
+  String get lblPatternFeatures => 'Pattern individual features';
+
+  @override
+  String get lblPatternSolid => 'Pattern a solid';
+
+  @override
+  String get lblPick => 'Pick';
+
+  @override
+  String lblPointCount(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name ($count points)',
+      one: '$name (one point)',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String lblCoords(String x, String y) {
+    return '($x, $y)';
+  }
+
+  @override
+  String get conCoincident => 'Coincident';
+
+  @override
+  String get conCollinear => 'Collinear';
+
+  @override
+  String get conConcentric => 'Concentric';
+
+  @override
+  String get conLock => 'Lock';
+
+  @override
+  String get conParallel => 'Parallel';
+
+  @override
+  String get conPerpendicular => 'Perpendicular';
+
+  @override
+  String get conHorizontal => 'Horizontal';
+
+  @override
+  String get conVertical => 'Vertical';
+
+  @override
+  String get conTangent => 'Tangent';
+
+  @override
+  String get conSymmetric => 'Symmetric';
+
+  @override
+  String get conEqual => 'Equal';
+
+  @override
+  String get lblModuleMm => 'Module (mm)';
+
+  @override
+  String get lblTeeth => 'Teeth';
+
+  @override
+  String get lblCornerRadiusMm => 'Corner radius (mm)';
+
+  @override
+  String get lblSunTeeth => 'Sun teeth';
+
+  @override
+  String get lblPlanetTeeth => 'Planet teeth';
+
+  @override
+  String get lblPlanets => 'Planets';
+
+  @override
+  String get lblPressureAngle => 'Pressure angle (°)';
+
+  @override
+  String get lblProfileShift => 'Profile shift';
+
+  @override
+  String get lblBoreDia => 'Bore Ø (mm)';
+
+  @override
+  String get btnInsert => 'Insert';
+
+  @override
+  String get gearExternal => 'External';
+
+  @override
+  String get gearInternal => 'Internal';
+
+  @override
+  String get gearPlanetary => 'Planetary';
+
+  @override
+  String gearRingInfo(String teeth, String dist) {
+    return 'Ring ${teeth}T · centre dist $dist';
+  }
+
+  @override
+  String get hudFullyConstrained => 'Fully Constrained';
+
+  @override
+  String get hudCancelEsc => 'Cancel (Esc)';
+
+  @override
+  String hudDeleteN(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count objects',
+      one: 'Delete one object',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hudLineKey => 'Line (L)';
+
+  @override
+  String get hudCircleKey => 'Circle (C)';
+
+  @override
+  String get hudRectKey => 'Rectangle (R)';
+
+  @override
+  String get hudDimensionKey => 'Dimension (D)';
+
+  @override
+  String get hintTapDimensionToInsert =>
+      'Tap a dimension in the sketch to insert it as \"name\"';
+
+  @override
+  String get hintTextEmbedParams =>
+      'Text — embed parameters as <Width> or \"d0\"';
+
+  @override
+  String get msgReportSaved => 'Report saved';
+
+  @override
+  String get msgReportFailed => 'Report FAILED';
+
+  @override
+  String get msgBugSaved =>
+      'Files app > On My iPad > prototype > bugreports\nSend the .zip — it contains everything needed; no explanation has to travel with it.';
+
+  @override
+  String get msgBugBundleFailed =>
+      'The bundle could not be written. The log still has the description, so the session is not lost — see the \"bug\" lines in prototype_log.txt.';
+
+  @override
+  String get hintPickBodyTapCancel => 'Pick a body… (tap to cancel)';
+
+  @override
+  String get lblSelectBodyIn3d => 'Select body in 3D / browser';
+
+  @override
+  String get secAdvancedProperties => 'Advanced Properties';
+
+  @override
+  String get lblTaperA => 'Taper A';
+
+  @override
+  String get lblMatchShape => 'Match Shape';
+
+  @override
+  String get lblSelectFaceBtn => 'Select Face';
+
+  @override
+  String gearRingLine(String teeth, String dist, String warn) {
+    return 'Ring ${teeth}T · centre dist $dist mm$warn';
+  }
+
+  @override
+  String get gearUnevenWarn => ' · ⚠ planets not evenly spaced';
+
+  @override
+  String gearPitchLine(String pitch, String tip, String root) {
+    return 'Pitch Ø $pitch · tip Ø $tip · root Ø $root mm';
+  }
+
+  @override
+  String msgRemovesLayerAndEntitiesUndo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'This removes the layer and its $count entities. This can’t be undone.',
+      one: 'This removes the layer and its one entity. This can’t be undone.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get valNameEmpty => 'Name must not be empty';
+
+  @override
+  String get valNameTooLong => 'Name is too long';
+
+  @override
+  String get valNameBadChars => 'Name cannot contain / \\ or :';
+
+  @override
+  String get valNameLeadingDot => 'Name cannot start with a dot';
+
+  @override
+  String valBodyNameTaken(String name) {
+    return 'A body named “$name” already exists';
+  }
+
+  @override
+  String valFeatureNameTaken(String name) {
+    return 'A feature named “$name” already exists';
+  }
+
+  @override
+  String get valSelectOneEdge => 'Select at least one edge.';
+
+  @override
+  String get valRadiusPositive => 'Radius must be > 0.';
+
+  @override
+  String valRadiusOfSetPositive(String n) {
+    return 'Radius of set $n must be > 0.';
+  }
+
+  @override
+  String get valEndRadiusPositive => 'End radius must be > 0.';
+
+  @override
+  String valEndRadiusOfSetPositive(String n) {
+    return 'End radius of set $n must be > 0.';
+  }
+
+  @override
+  String get valDistancePositive => 'Distance must be > 0.';
+
+  @override
+  String get valDistance2Positive => 'Distance 2 must be > 0.';
+
+  @override
+  String get valAngle0to90 => 'Angle must be between 0 and 90 deg.';
+
+  @override
+  String get valSelectOneFeature => 'Select at least one feature to pattern.';
+
+  @override
+  String get valSelectDirectionA =>
+      'Select a direction or a curve for Direction A.';
+
+  @override
+  String get valCountAAtLeastOne => 'Number in Direction A must be 1 or more.';
+
+  @override
+  String get valDistanceAPositive =>
+      'Distance in Direction A must be greater than 0.';
+
+  @override
+  String get valCountBAtLeastOne => 'Number in Direction B must be 1 or more.';
+
+  @override
+  String get valDistanceBPositive =>
+      'Distance in Direction B must be greater than 0.';
+
+  @override
+  String get valPatternNeedsTwo => 'A pattern needs more than one occurrence.';
+
+  @override
+  String get valSelectRotationAxis => 'Select the rotation axis.';
+
+  @override
+  String get valCountAtLeastOne => 'Count must be 1 or more.';
+
+  @override
+  String get valAngleNotZero => 'Angle must not be 0.';
+
+  @override
+  String get valSelectPointSketch => 'Select the sketch that holds the points.';
+
+  @override
+  String get valSelectMirrorPlane => 'Select the mirror plane.';
+
+  @override
+  String get valNoSolidToPattern => 'There is no solid to pattern yet.';
+
+  @override
+  String get valSelectPathCurve => 'Select a path curve.';
+
+  @override
+  String get valTwistUnsupported =>
+      'Twist is not supported yet — leave it at 0.';
+
+  @override
+  String get valSelectTwoSections => 'Select at least two sections.';
+
+  @override
+  String get valSelectAxis => 'Select an axis.';
+
+  @override
+  String get valPitchPositive => 'Pitch must be > 0.';
+
+  @override
+  String get valRevolutionPositive => 'Revolution must be > 0.';
+
+  @override
+  String get valHeightPositive => 'Height must be > 0.';
+
+  @override
+  String get valSelectRevolveAxis => 'Select an axis of revolution.';
+
+  @override
+  String get valAxisNoDirection => 'The axis has no direction.';
+
+  @override
+  String get valAngleA0to360 => 'Angle A must be between 0 and 360 degrees.';
+
+  @override
+  String get valAngleBPositive => 'Angle B must be > 0.';
+
+  @override
+  String get valAngleABMax360 => 'Angle A + B cannot exceed 360 degrees.';
+
+  @override
+  String get valDistanceAPositiveShort => 'Distance A must be > 0.';
+
+  @override
+  String get valDistanceBPositiveShort => 'Distance B must be > 0.';
+
+  @override
+  String get valTaperRange => 'Taper must be inside (-90, 90) degrees.';
+
+  @override
+  String get lblSelectDirPlaceholder => 'Select Dir...';
+
+  @override
+  String get lblMirrorPlanePlaceholder => 'Mirror Plane';
+
+  @override
+  String get lblCenterlineGeo => 'Centerline';
+
+  @override
+  String get lblConstructionLineGeo => 'Construction line';
+
+  @override
+  String get lblLineGeo => 'Line';
 }

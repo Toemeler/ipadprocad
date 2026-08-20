@@ -143,7 +143,7 @@ class _ResultDialog extends StatelessWidget {
     }
     return AlertDialog(
       backgroundColor: T.panel,
-      title: Text(ok ? 'Report saved' : 'Report FAILED',
+      title: Text(ok ? L.of(context).msgReportSaved : L.of(context).msgReportFailed,
           style: ts(16, Colors.white)),
       content: SizedBox(
         width: 460,
@@ -153,12 +153,8 @@ class _ResultDialog extends StatelessWidget {
           children: [
             Text(
               ok
-                  ? 'Files app > On My iPad > prototype > bugreports\n'
-                      'Send the .zip — it contains everything needed; no '
-                      'explanation has to travel with it.'
-                  : 'The bundle could not be written. The log still has the '
-                      'description, so the session is not lost — see the '
-                      '"bug" lines in prototype_log.txt.',
+                  ? L.of(context).msgBugSaved
+                  : L.of(context).msgBugBundleFailed,
               style: ts(12, Colors.white70),
             ),
             if (ok) ...[

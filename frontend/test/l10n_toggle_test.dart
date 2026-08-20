@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
-import 'package:prototype/ffi/qcad_engine.dart' show SketchModel, kDefaultLayer;
+import 'package:prototype/ffi/qcad_engine.dart' show kDefaultLayer;
 import 'package:prototype/l10n/fmt.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/l10n/locale_store.dart';

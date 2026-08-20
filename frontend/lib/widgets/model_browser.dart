@@ -113,7 +113,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
               symbol: 'scope'),
         NativeMenuItem(
             id: 'bdVisible',
-            title: on ? 'Hide' : 'Show',
+            title: on ? L.of(context).hide : L.of(context).ctxShow,
             symbol: on ? 'eye.slash' : 'eye'),
         NativeMenuItem(
             id: 'bdRename', title: L.of(context).rename, symbol: 'pencil'),
@@ -141,7 +141,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
             id: 'skEdit', title: L.of(context).ctxEditSketch, symbol: 'pencil.tip'),
         NativeMenuItem(
             id: 'skVisible',
-            title: cs.visible ? 'Hide' : 'Show',
+            title: cs.visible ? L.of(context).hide : L.of(context).ctxShow,
             symbol: cs.visible ? 'eye.slash' : 'eye'),
       ],
       [
@@ -166,7 +166,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
               id: 'ftEdit', title: L.of(context).ctxEditFeature, symbol: 'slider.horizontal.3'),
           NativeMenuItem(
               id: 'ftVisible',
-              title: f.visible ? 'Hide' : 'Show',
+              title: f.visible ? L.of(context).hide : L.of(context).ctxShow,
               symbol: f.visible ? 'eye.slash' : 'eye'),
           NativeMenuItem(
               id: 'ftRename', title: L.of(context).rename, symbol: 'pencil'),
@@ -228,18 +228,20 @@ class _ModelBrowserState extends State<ModelBrowser> {
           NativeMenuItem(id: 'edit', title: L.of(context).edit, symbol: 'pencil.tip'),
         NativeMenuItem(
             id: 'visible',
-            title: app.layerVisible(layer) ? 'Hide' : 'Show',
+            title: app.layerVisible(layer) ? L.of(context).hide : L.of(context).ctxShow,
             symbol: app.layerVisible(layer) ? 'eye.slash' : 'eye'),
         NativeMenuItem(
             id: 'lock',
-            title: locked ? 'Unlock' : 'Lock',
+            title: locked ? L.of(context).ctxUnlock : L.of(context).ctxLock,
             symbol: locked ? 'lock.open' : 'lock'),
         if (!base)
           NativeMenuItem(id: 'rename', title: L.of(context).rename, symbol: 'pencil'),
         NativeMenuItem(
             id: 'move',
             title:
-                selCount == 0 ? 'Move selection here' : 'Move $selCount here',
+                selCount == 0
+                    ? L.of(context).ctxMoveSelectionHere
+                    : L.of(context).ctxMoveNHere(selCount),
             symbol: 'arrow.right.doc.on.clipboard'),
         NativeMenuItem(
             id: 'eophere',
@@ -554,21 +556,23 @@ class _ModelBrowserState extends State<ModelBrowser> {
             _closeCtx();
             app.enterEdit(layer);
           }),
-        _ctxItem(app.layerVisible(layer) ? 'Hide' : 'Show', () {
+        _ctxItem(app.layerVisible(layer) ? L.of(context).hide : L.of(context).ctxShow, () {
           _closeCtx();
           app.toggleLayerVisible(layer);
         }),
-        _ctxItem(locked ? 'Unlock' : 'Lock', () {
+        _ctxItem(locked ? L.of(context).ctxUnlock : L.of(context).ctxLock, () {
           _closeCtx();
           app.toggleLayerLocked(layer);
         }),
         if (!base)
-          _ctxItem('Rename…', () {
+          _ctxItem(L.of(context).ctxRenameEllipsis, () {
             _closeCtx();
             _promptRename(layer);
           }),
-        _ctxItem(selCount == 0 ? 'Move selection here' : 'Move $selCount here',
-            () {
+        _ctxItem(
+            selCount == 0
+                ? L.of(context).ctxMoveSelectionHere
+                : L.of(context).ctxMoveNHere(selCount), () {
           _closeCtx();
           app.moveSelectionToLayer(layer);
         }),
@@ -1063,9 +1067,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
       context,
       title: L.of(context).dlgDeleteNamed(layer),
       message: count == 0
-          ? 'This layer is empty and will be removed.'
-          : 'This removes the layer and its $count '
-              '${count == 1 ? "entity" : "entities"}. This can’t be undone.',
+          ? L.of(context).msgLayerEmptyRemoved
+          : L.of(context).msgRemovesLayerAndEntitiesUndo(count),
       confirmLabel: L.of(context).delete,
     );
     if (ok) app.deleteLayer(layer);
@@ -1182,14 +1185,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   // and the centre point, each with its own visibility eye
                   // wired straight into the 3D scene (M56).
                   if (part != null) ...[
-                    for (final o in const [
-                      ('YZ Plane', 'yz'),
-                      ('XZ Plane', 'xz'),
-                      ('XY Plane', 'xy'),
-                      ('X Axis', 'x'),
-                      ('Y Axis', 'y'),
-                      ('Z Axis', 'z'),
-                      ('Center Point', 'cp'),
+                    for (final o in [
+                      (L.of(context).nodeYzPlane, 'yz'),
+                      (L.of(context).nodeXzPlane, 'xz'),
+                      (L.of(context).nodeXyPlane, 'xy'),
+                      (L.of(context).nodeXAxis, 'x'),
+                      (L.of(context).nodeYAxis, 'y'),
+                      (L.of(context).nodeZAxis, 'z'),
+                      (L.of(context).nodeCenterPoint, 'cp'),
                     ])
                       _originRow(app, part, o.$1, o.$2),
                   ] else ...[
