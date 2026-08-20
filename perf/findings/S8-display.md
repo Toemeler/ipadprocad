@@ -420,51 +420,109 @@ retry can be added once there is something to retry *around*.
 Honestly: **partly, and the part I could not fix is named.**
 
 * The failure that hid everything else — a Dart pin aborting the job before the
-  smoke test — cannot happen again. (c)
+  smoke test — cannot happen again. (c) **Verified: runs 78 and 79 both built,
+  launched, captured and published, and then failed on the pins.** (§2.7)
 * The failure that matters — the app dying before `Log.init()` — is now
-  diagnosable for the first time. (a), (b)
-* The job will still go **red** while the four M232 pins are red, because they
-  are still red and this session did not weaken them. Track B will build,
-  launch, capture and publish, and then fail on the pins. That is the correct
-  behaviour, and it is a different red from the one it has been showing.
+  diagnosable for the first time. (a), (b) **Half-verified: the console capture
+  exists and carries 683 lines, but the death did not recur, so it has not yet
+  been shown to carry a diagnosis.** (§2.7)
+* The job still goes **red** while the four M232 pins are red, because they are
+  still red and this session did not weaken them. That is the correct behaviour,
+  and it is a different red from the one it has been showing.
 
 Track B will be green when S9 or the integrator makes the pins differential.
 Until then the redness has exactly one cause, it is named, it is escalated, and
 it no longer blinds the smoke test.
 
-### 2.7 The verification run — what it has shown so far
+### 2.7 The verification run — what it showed
 
-Run **78** (`13f58af`) and run **79** (`c070f6b`) on
-`claude/first-scene-track-b-perf-qap2a2`. **Neither has finished**, and the
-paragraphs above are still a claim about what the workflow will do rather than a
-report of it doing so. What is established at 07:31 UTC:
+Two complete runs on `claude/first-scene-track-b-perf-qap2a2`:
 
-**Confirmed.**
+| | Run 78 (`13f58af`) | Run 79 (`c070f6b`) |
+| --- | --- | --- |
+| `dart-checks` (ubuntu) | **success** | **success** |
+| 20 `Build app for the simulator` | **success** | **success** |
+| 21 `Boot simulator, launch, pull the perf log` | **success** | **success** |
+| 22 `Analyze Dart (macOS host)` | **success** | **success** |
+| 23 `Host tests (macOS host)` | **failure** | **failure** |
+| 24–28 report, zip, upload, publish | **success** | **success** |
+| `sim-app` wall clock | 51 m 01 s | 19 m 45 s |
 
-* **`dart-checks` is green on ubuntu** — `Perf tooling tests`, `Analyze Dart` and
-  `Host tests` all pass at `13f58af`. No Dart changed this session and nothing
-  in it regressed. It also re-demonstrates the platform split the whole M232
-  problem rests on: the same suite that passes here fails on the macOS runner.
-* **The reordering is live in the job definition.** `sim-app`'s steps now read
-  20 `Build app for the simulator`, 21 `Boot simulator, launch the app, pull the
-  perf log`, 22 `Analyze Dart (macOS host)`, 23 `Host tests (macOS host)`,
-  24 `Which tests failed (macOS host)`, then the zip/upload/publish steps. The
-  smoke test can no longer be aborted by a Dart pin.
+**(1) The reordering works, and it is the whole result.** Step 21 executed in
+both runs. Track B has done the thing §13.8 says it is for — build the native
+stack, link it, launch it — for the first time since 2026-08-19, *on a run that
+is still red on the same four pins that used to abort it*. That is exactly the
+separation the change was for.
 
-**Not yet answered.** Whether the launch succeeds, whether `PERF CAPTURE` passes
-or fails, whether the new console stream carries anything, and whether the Swift
-compiles. Run 78 is in `Build OpenCASCADE (simulator, x86_64, cache miss only)`
-and expects up to 150 minutes there.
+**(2) `PERF CAPTURE: PASS`.** From `ci-sim-run.log`, published on
+`ci-logs-perf`:
 
-**And an operational fact worth recording, because it will bite the next
-session.** That step is a **cold** build: `Restore OpenCASCADE simulator install
-tree` returned in under a second with nothing. GitHub Actions caches are scoped
-to the branch that wrote them plus the default branch — a run on
-`claude/first-scene-…` cannot read a cache written by `claude/perf-opt`, because
-they are siblings and neither is `main`. So **any session that runs Track B from
-its own branch pays one cold OCCT build first**, whatever the perf branches have
-cached. That is a property of the cache scope, not of anything round one did,
-and it is the difference between a 26-minute job and a two-and-a-half-hour one.
+```
+created sim 'iPad Pro (12.9-inch) (6th generation)' -> DC9B34DB-…
+sim booted (~5s)
+== launch ==
+launch rc=0: com.prototype.prototype: 25363
+…
+PERF CAPTURE: PASS
+```
+
+**Run 68's failure did not reproduce.** That is four healthy launches (67, 74,
+78, 79) against one death (68) — consistent with §2.3's non-determinism, and
+evidence of nothing about its cause. Nothing here explains run 68; it only
+fails to repeat it.
+
+**(3) The Swift compiles.** `Build app for the simulator` is green in both runs
+on macos-26 / Xcode 26 / `iphonesimulator` x86_64, so `RealityWarmup` and the
+`DispatchQueue.main.async` call site build against the real SDK. That is the
+only claim about §1.4 this track can support — see the caveat below.
+
+**(4) The only red is the four M232 pins.** The `Which tests failed (macOS
+host)` step now surfaces them at the tail, where the Actions log API reaches:
+
+```
+❌ m232_lm_pin_test.dart: the LM fallback moves geometry to exactly where it did
+   Expected: ... 999999999986,51.9615 ...
+     Actual: ... 99999999999,51.96152 ...
+❌ m232_lm_pin_test.dart (second case)
+❌ m232_no_accumulation_test.dart: clause (c) … over a long drag
+❌ m232_no_accumulation_test.dart (second case)
+```
+
+Last-digit floating point against a hardcoded golden, exactly as the integrator
+diagnosed. No production code failed. Nothing else in either job is red.
+
+**And the capture is delivered.** `ci-logs-perf` now carries
+`logs/performance_logs.txt`, `logs/prototype_log.txt`, `ci-sim-run.log` and
+**`ci-sim-console.log`** — 683 lines, the first launch console this workflow has
+ever produced (§2.4). Run 75's publish carried five build logs and no `logs/`
+directory at all.
+
+#### What this run does *not* establish, stated plainly
+
+* **The console capture is proven to work, not proven to diagnose.** On a
+  healthy launch only two of its 683 lines come from the app's own process; the
+  rest is LaunchServices and `appstored` chatter. Whether it carries an abort
+  message on a run-68-style death is still untested, because the death did not
+  recur. It is the right instrument pointed at the right place at the right
+  time — that is all that can be said until it catches one.
+* **Track B says nothing about the warm-up.** The published capture contains
+  **zero `rv.*` spans**. The job launches the app and holds it at rest; the 3D
+  viewport is never opened (§13.4, and §15.3 lists "open a part and look at it
+  in 3D" as the precondition for those spans). So P8-1, P8-2 and P8-3 remain
+  entirely for the device capture, and **no number in §1 comes from here.**
+  Consistent with §13.3, no simulator millisecond appears anywhere in this file.
+
+#### The cache-scope cost, now measured
+
+Run 78 spent **24 m 22 s** in a cold `Build OpenCASCADE`; run 79 skipped it on a
+cache hit. Same branch, same workflow: **51 m 01 s against 19 m 45 s.**
+
+Actions caches are readable only from the branch that wrote them plus the
+default branch, so a run on `claude/first-scene-…` cannot see one written by
+`claude/perf-opt` — siblings, and neither is `main`. **Any session that runs
+Track B from its own branch pays one cold OCCT build first, then goes warm.**
+That is a property of the cache scope, not of anything round one did, and it is
+worth knowing before anyone concludes the job has got slower.
 
 ---
 
