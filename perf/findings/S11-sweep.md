@@ -292,10 +292,11 @@ Two properties were deliberate:
   ~100 s. Putting that in the ordinary suite would make every capture
   unusable, and would change what every existing number means.
 - **Additive only.** `OPTIMIZATION_PLAN_2.md` §5 (S10): "Adding scenarios is
-  allowed; changing existing ones is not." I did not touch
-  `kernel.sweep.12`/`.48`, and the one edit to `perf_scenarios_kernel.dart` is
-  a single `out.addAll(...)` that appends the new ladders — no existing
-  scenario's name, body or note changes, so no past number changes meaning.
+  allowed; changing existing ones is not." **`perf_scenarios_kernel.dart` is
+  unmodified** — I imported `arcRing`, `arcPath` and `identityMat34` from it
+  and changed nothing, so `kernel.sweep.12`/`.48` and every other existing
+  scenario mean exactly what they meant before. The new tier reaches the
+  runner through its own entry point instead (§8.1).
 
 ---
 
