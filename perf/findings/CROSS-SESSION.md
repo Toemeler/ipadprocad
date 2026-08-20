@@ -1695,6 +1695,198 @@ the standing check on it.
 edits are the added reference, the flag, and the two `if (denseReferenceForTests)`
 branches, all of which are false in production.
 
+## 2026-08-20 — S8 — Track B's redness has two causes, not one, and the loud one hid the real one
+
+**Raised by:** Session 8 (display path + Track B).
+**Needs:** integrator, and through them S9 for the M232 pins.
+**Blocked:** Track B going green. Nothing else — the smoke test and the capture
+now run and publish regardless.
+
+### The correction to the record
+
+`Simulator app + perf capture` is described in the S8 brief as having failed at
+runs #72, #73 and #75. The run list disagrees on two points, both load-bearing:
+
+* **#72 never ran.** Nor did #71, #66 or #62. `cancel-in-progress: false` stops
+  an in-progress run being killed; it does not stop a *pending* one being
+  superseded when a newer push lands in the same concurrency group. Four
+  cancellations, zero evidence.
+* **#68 failed and is not on the list** — and it is the only failure that is
+  about the application at all.
+
+Full detail in `perf/findings/S8-display.md` §2.
+
+### The one for S9 — the four M232 pins
+
+Runs #73 and #75 died in the macOS `Host tests` step on the four pins the
+integrator diagnosed on 2026-08-20 ("build 437 is red on four M232 pins").
+Independent confirmation, and it is clean: run #74 was **green** on
+`claude/perf-opt-shim` at `c5f7e21`, run #75 **red** on `claude/perf-opt` at
+`f85eb74`, which is the merge of that same commit — and
+`m232_lm_pin_test.dart` / `m232_no_accumulation_test.dart` do not exist on the
+shim branch at all. They arrived with S3's merge `af56ef2`.
+
+So the pins now block **two** builds, not one: the IPA (and therefore the device
+capture) and Track B.
+
+S8 has not touched them. They are S3's tests over `solver.dart`, which is S9's
+file under §4, and the fix the integrator specified — retain the dense
+elimination as a test-only reference and compare in-run — is a change inside
+that solver, not inside a test. Plan §0 rule 6. Nothing was converted to a
+tolerance, skipped or excluded to get a green build.
+
+### The one for the integrator — run 68, and a diagnostic that could never fire
+
+Run #68 built everything, booted the simulator, launched (`rc=0`, pid 83451) and
+the app **died before `Log.init()`**. Empty Documents, no crash report, no
+system log.
+
+**It is not a round-one regression.** `git diff --stat 8f9a42c 56dfc4f` is
+empty: run #67 and run #68 are byte-identical trees, ninety minutes apart, one
+green and one red. The simulator launch is non-deterministic, and §13.3's
+standing warning about x86_64-under-Rosetta is the first place to look.
+
+Nobody could look, because both diagnostics in that failure branch were dead:
+
+* `simctl spawn … log show` ran **after** `simctl shutdown`, with stderr sent to
+  `/dev/null`. It has printed an empty heading on every failure it has ever had.
+* `ci-sim-console.log` was copied but never written — `simctl launch` without
+  `--console-pty` produces no such file. The workflow header advertises "the
+  launch console log" among its outputs; it has never produced one.
+
+Both fixed in `sim-perf.yml` (S8's file under §4): the console is now streamed
+from before the launch, and the diagnostics run while the device is still
+booted. The macOS Dart checks moved to the **end** of the job so a red pin can
+no longer abort the run before the smoke test — which is what made #73 and #75
+tell us nothing about whether the app still starts.
+
+**What the integrator may want to decide:** Track B will stay red until the pins
+are differential, even though it will now build, launch, capture and publish
+first. That is the honest state and S8 is not going to paper over it, but it
+does mean the branch carries a red check that is not about the branch.
+
+### One more thing, for whoever folds this in
+
+`PERFORMANCE_PROFILE.md` §7.2's verdict says the 419 ms is "once per part".
+Capture B's `worstUs` gauge — reset by each drain, so scoped to B — tops out at
+12.20 ms across 31 further scene pushes. It is once per renderer instance, and
+in practice once per process. Arithmetic in `S8-display.md` §1.1–1.3. Not edited
+into the profile: §0 rule 4.
+
+---
+## 2026-08-20 — S8 — withdrawing my own escalation: S3 fixed the pins before I raised them
+
+**Raised by:** Session 8.
+**Needs:** nobody. This retracts the "**Needs:** integrator, and through them S9"
+line in my entry above.
+
+That entry asked for the four M232 pins to be made differential. **S3 had
+already done it** — `b2de0c2`, 06:42:40, two minutes and forty-two seconds after
+this branch was cut from `claude/perf-opt` at `a762656`. `sim-perf` run 77 went
+green on that commit at 06:42:43, with the *old* workflow.
+
+I did not fetch stale; the commit did not exist when I based the branch. What I
+did wrong is report what runs 78 and 79 measured as the state of the branch,
+ninety-six minutes after a fix had landed on the branch I merged from. One
+`git fetch` before writing the escalation would have caught it. Nothing was
+asked of S3 or S9 that they had not already delivered, and I am sorry for the
+noise.
+
+**What does not change:** runs 73 and 75 died in a `Host tests` step that ran
+before the build, so they never attempted the smoke test, and that is what hid
+run 68. A red pin of any origin does that, and the next one will. The reordering
+is verified working (runs 78 and 79 built, launched, captured and published
+*while* failing those pins) and S3's fix removes today's trigger, not the
+mechanism. §2.3 and §2.4 of `S8-display.md` — run 68's non-regression and the two
+diagnostics that could never fire — are untouched.
+
+### Two things the next session needs
+
+* **`perf-capture-round1` is a BRANCH, not a tag.** Plan §1.1 and §3 say to find
+  it with `git tag --list`, which returns nothing. Read literally, §5 then tells
+  S6 and S10 not to start.
+* **§3 was right to insist on the capture ref over the tip.** `claude/perf-opt`
+  has moved to `fe768e6` — "the baseline re-recorded" — which is not in
+  `perf-capture-round1`. Branching round two from the tip would have carried a
+  re-recorded baseline into the integration line unmeasured.
+
+`claude/perf-opt2` now exists, created from `origin/perf-capture-round1` per §3,
+with `claude/perf-opt2-display` merged into it.
+
+## S9-1 — the drift is holonomy, not a defect: DOF 7, extent 76.3, bounded in N
+
+**Raised by:** Session 9 (drift).
+**Needs:** integrator — **information, not a decision.** Nothing is blocked and
+no behaviour changed. This answers the number you asked S4 for and closes the
+escalation, unless you disagree with §7 of my file.
+**Blocked:** no.
+
+**You asked** (ruling on S4-3, 2026-08-19) for the fixture's DOF after
+`analyzeSketch` and its bounding-box extent, because "a system with 20 free
+parameters wandering 14.64 units across a ~60-unit sketch is one story; a
+nearly-determined system doing it is a different and much worse one".
+
+**It is the first story.** DOF **7** out of 48 packed parameters, 22 free
+points; bounding-box diagonal **76.331** (Dart LM) / **97.113** (libslvs). The
+14.64 is **19 % of the diagonal**. Reproduced on this base at **14.4653** —
+same protocol, lap 1 → lap 33 at r=3.
+
+**And the three things that decide it is not a defect:**
+
+* **It is not error.** Refining the cursor path 32× (2 → 64 frames per drag)
+  moves the drift by **1.4 %** (Dart) and 6 %, non-monotonically (libslvs). A
+  discretisation artefact goes to zero; this is invariant under refinement.
+* **It scales with the loop's AREA, not its length.** `drift/r²` is flat over a
+  12× range in radius — 144× in enclosed area — at 1.04–1.49 natively. A length
+  law would need `drift/r` flat; it is not, by an order of magnitude.
+* **Take the freedom away and it goes to exactly zero.** DOF 0: the app refuses
+  the grip, drift **0.0** over 33 laps; forced past the refusal, 1.14e−12
+  natively. A free line: 0.0. If a determined system had walked, that would have
+  been a defect with nothing left to argue — it does not.
+
+**Bounded in N — and my first answer was too quick.** 120 laps natively reads as
+monotone growth (3.56 → 34.92 across windows) and would support "unbounded" if
+you stopped there. It does not saturate by 120; **it turns around at lap 300.**
+Over 500 laps / **6000 committed drags**: libslvs peaks at **68.67 at lap 300**
+(0.71× extent) and returns to 38.42 by lap 500, extent peaking +20 % and coming
+back; the Dart path shows no trend at all, drift in 6.0–26.3 and extent within
+±3 %. Residual across the whole run: **2.828e−6** (Dart — your S4-3 figure at
+N=400, unchanged) and 1.4e−14 natively. DOF still 7 at lap 500.
+
+**The mechanism.** A drag frame warm-starts from the previous solved frame and
+takes the cursor as a wish, so on a sketch with freedom left it is a projection
+onto a curved solution manifold applied step after step — and a projection
+walked around a closed loop need not return to its start. The sketch never
+leaves the manifold; it ends somewhere else on it, inside its own freedom.
+
+**And it is what M207 bought continuity with.** Cold-restarting each frame — the
+pre-M207 behaviour — closes the loop to **0.000** and teleports the sketch
+**42.16 units on a 1.96-unit cursor step**. Loop closure and a drag that follows
+the finger are mutually exclusive on this fixture.
+
+**Your S4-3 ruling stands as written.** You recorded that "if the drift below is
+ever fixed, your 2× becomes the leading term and this ruling should be
+re-taken". It is not being fixed, so it does not need re-taking — but note the
+reason has changed from "nobody is allowed to chase it" to "it was chased and
+there is nothing there".
+
+**I did not edit `S4-painter.md` §9.4**, though you invited the numbers to be
+added there. It is S4's file and plan §4 is binding. They are in
+`perf/findings/S9-drift.md` §3 instead.
+
+**One separate finding, and it is not mine to act on.** Every host test on this
+branch — including every differential pin round one built — has only ever
+exercised the **Dart LM fallback**. `SlvsFfi` resolves through
+`DynamicLibrary.process()`, so on a Linux/macOS host `SlvsFfi.available` is
+false and libslvs is never reached. It can be: build the vendored solver as a
+shared object and `LD_PRELOAD` it, two cmake lines, seconds to build — the
+recipe is in `S9-drift.md` §8, and every libslvs column in my file was measured
+that way. **The path the device actually runs currently has no host coverage.**
+Whether that becomes a CI job is yours; plan §4 grants me no workflow.
+
+Full write-up, both solver paths, and what I deliberately did not do:
+`perf/findings/S9-drift.md`.
+
 ---
 
 ## 2026-08-20 — S11 — the sweep: seven entries, two of them decisions that are not mine

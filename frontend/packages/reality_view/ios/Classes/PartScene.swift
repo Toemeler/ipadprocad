@@ -691,3 +691,109 @@ enum TubeBuilder {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// S8 — RealityKit first-use warm-up.
+//
+// THE MEASUREMENT THIS EXISTS FOR
+// -------------------------------
+// PERFORMANCE_PROFILE.md §7.2.2: the most expensive scene push of a 293-second
+// session took 419.67 ms, of which 419.47 ms — 99.95 % — was recorded under
+// `rv.native.planes`. §7.2.3 measures the SAME phase, doing the SAME work, at
+// 2.373 ms in steady state.
+//
+// Those two numbers together settle what the 419 ms is. `rebuildPlanes`
+// destroys and rebuilds every PlaneEntity on every setScene — three quads,
+// three outline tubes, three axes — and it does that 1 698 more times for
+// 2.373 ms each. Work that costs 2.373 ms when repeated cannot cost 419 ms
+// because of what it is; at most 2.4 ms of that first call is plane
+// construction. The remaining ~417 ms is RealityKit's own first use of the
+// process — shader library, Metal pipeline state, resource subsystem — which
+// the origin planes only PAY because they are the first geometry the app ever
+// builds. (They are: `rebuildSolids` runs first in setScene and its worst
+// observation is 10.02 ms, so the first scene had no solids in it.)
+//
+// So making plane construction cheaper cannot recover more than ~2.4 ms, and
+// §7.2.2's reading — "RealityKit entity and material construction for the
+// origin planes is [the cost]" — is right about the trigger and wrong about
+// the cause.
+//
+// WHAT THIS DOES ABOUT IT
+// -----------------------
+// Pays that first use somewhere the user is not waiting for a part: one
+// runloop turn after the platform view is created, which is at least one
+// Flutter frame before the first setScene can arrive (viewport3d.dart's
+// onCreated schedules a post-frame setState, and the push happens in the
+// build after that).
+//
+// RealityThumbRenderer builds a PartRenderer of its own per gallery thumbnail,
+// so in a session that saves before it opens the 3D viewport the warm-up is
+// paid there instead. That is harmless — a thumbnail is written on save, not
+// while someone waits for a viewport — and by the second property below it
+// cannot cost the save anything either.
+//
+// It builds one throwaway mesh and one of every material the scene uses, and
+// adds NOTHING to the scene graph. That is deliberate: an entity that is added
+// and removed can be caught by a frame, and this must not be able to change a
+// pixel. The cost of it is therefore bounded by what resource construction
+// touches; if RealityKit defers some of its first-use work to the first DRAW,
+// that part stays on the first setScene and will still show up there.
+//
+// It also cannot make anything slower. If the warm-up somehow runs after the
+// first setScene, the scene has already paid the first-use cost and the
+// warm-up is then the cheap case — the same ~1 ms it costs on any later call.
+//
+// AND IT IS ITS OWN MEASUREMENT
+// -----------------------------
+// `rv.native.warmup` splits a number that has never been split. Until now
+// "first-use initialisation" and "plane construction" were one span and could
+// only be told apart by inference. On the next paired capture they are two,
+// and the inference above is falsifiable: if `rv.native.warmup` comes back
+// small and `rv.native.planes` is still ~419 ms on its first call, this
+// reasoning is wrong and the cost really is in the planes.
+// ---------------------------------------------------------------------------
+@available(iOS 15.0, *)
+enum RealityWarmup {
+    private static var done = false
+
+    /// Constructs — and immediately discards — one of each resource kind the
+    /// scene builders use. Main thread only, like everything else that touches
+    /// RealityKit here. Idempotent: a second platform view in the same process
+    /// would find the work already done, and saying so is cheaper than
+    /// measuring it again.
+    static func run() {
+        guard !done else { return }
+        done = true
+        RvPerf.time("rv.native.warmup") {
+            // Materials first — the shader library is what the first material
+            // of each kind is expected to pull in.
+            let unlit = Materials.unlit(Colors.orangeEdge)
+            let transparent = Materials.unlitTransparent(Colors.orange, 0.28)
+            let soft = Materials.unlitSoft(Colors.highlight)   // also builds RampTexture
+            let steel = Materials.steel()
+            let preview = Materials.preview()
+
+            // A quad with the same descriptor shape the plane fill uses.
+            let quad: [SIMD3<Float>] = [
+                SIMD3(-1, 0, -1), SIMD3(1, 0, -1), SIMD3(1, 0, 1), SIMD3(-1, 0, 1),
+            ]
+            var d = MeshDescriptor(name: "warmup")
+            d.positions = MeshBuffers.Positions(quad)
+            d.normals = MeshBuffers.Normals([SIMD3<Float>](repeating: SIMD3(0, 1, 0), count: 4))
+            d.primitives = .triangles([0, 1, 2, 0, 2, 3])
+            if let mesh = try? MeshResource.generate(from: [d]) {
+                // ModelEntity construction itself, one entity per material —
+                // one entity carrying five materials against a single-submesh
+                // mesh is a count mismatch RealityKit need not accept. None is
+                // ever parented, so all of them are unreachable from the scene
+                // and released at the end of this closure.
+                for m in [unlit, transparent, soft, steel, preview] {
+                    _ = ModelEntity(mesh: mesh, materials: [m])
+                }
+            }
+            // The swept-tube path the plane outlines and every edge use.
+            _ = TubeBuilder.polyline([SIMD3(0, 0, 0), SIMD3(1, 0, 0)],
+                                     radius: 0.06, material: unlit)
+        }
+    }
+}
