@@ -2123,6 +2123,14 @@ class _ViewportPainter extends CustomPainter {
         ..color = const Color(0xFF5C6066)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
+      // S4 — the FIRST of this paint's displayGeometry calls, and the only one
+      // that solves. During a grip drag this is a live 25-iteration constraint
+      // solve; the tool preview and the constraints phase further down ask the
+      // same question about the same cursor position and are answered from the
+      // memo in displayGeometry. Do not "optimise" this into a field or hoist
+      // it out of the phase: the memo is keyed on the drag position, so the
+      // sharing already happens, and this call is what pins the geometry every
+      // entity, grip and halo in this phase is drawn from.
       final gs = app.displayGeometry(s);
       final hasAnalysis = app.analysis != null;
       // Inventor colours each entity by ITS OWN carrier (confirmed Inventor
@@ -2731,6 +2739,12 @@ class _ViewportPainter extends CustomPainter {
       // like Inventor hides them when the sketch is not being edited.
       if (!app.inEditMode) app.dimLabelRects.clear();
       if (s != null && app.inEditMode) {
+        // S4 — the SAME list the entities above were drawn from, not a second
+        // solve. It used to be one: displayGeometry warm-starts from the frame
+        // it last returned, so this call ran 25 more iterations on that result
+        // and every glyph below was placed against geometry one refinement
+        // ahead of the entity drawn under it. Measured at 60 painted frames /
+        // 120 solves (PERFORMANCE_PROFILE.md §5.2); now 60 / 60.
         final gs2 = app.displayGeometry(s);
         if (app.showConstraints) {
           final seen = <String, int>{};

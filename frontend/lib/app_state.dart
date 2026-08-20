@@ -2451,7 +2451,6 @@ class AppState extends ChangeNotifier {
             'loaded "$name": layers=${s.layers} '
                 'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
                 'eos=${s.eosAfter}');
-        analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
       // Undo baseline: the freshly created/loaded state is entry ZERO of the
@@ -2471,7 +2470,8 @@ class AppState extends ChangeNotifier {
   /// would lock the wrong points. Recompute whenever the current sketch changes.
   void _reanalyze() {
     final s = current;
-    analysis = s == null ? null : analyzeSketch(s.geometry, s.constraints);
+    analysis =
+        s == null ? null : _analysisCache.of(s.geometry, s.constraints);
   }
 
   // ==== UNDO / REDO (M39): restore side ==================================
@@ -3123,6 +3123,33 @@ class AppState extends ChangeNotifier {
   /// hundred frames, because no single step of that is a break. Against the
   /// start of the gesture it is one.
   List<Geo>? _dragStartGeo;
+
+  // ---- the display-geometry memo (S4) ----
+  //
+  // ONE SOLVE PER DRAG POSITION. See [displayGeometry] for why this exists.
+  // Four guards and the answer they protect; each guard closes one way the
+  // answer could change underneath the cache:
+  //
+  //   _dgSketch  identity — a tab switch puts a different sketch in play
+  //   _dgGrip    identity — beginGripDrag allocates a NEW Grip, so a second
+  //                         drag never inherits the first one's frame
+  //   _dgPos     value    — the cursor moving is the whole point (Offset has
+  //                         value equality, so this compares coordinates)
+  //   _dgSource  identity — SketchModel.geometry is ASSIGNED wholesale by the
+  //                         rebuild path and by undo, never patched in place,
+  //                         so identity catches both
+  //
+  // What would slip past all four: an in-place mutation of the same list, at
+  // the same cursor position, during the same drag. No such path exists while
+  // a grip drag is live — drag frames work on copies, and the only writer is
+  // the commit in endGripDrag, which runs AFTER its own displayGeometry call
+  // and then nulls dragGrip. Pinned by s4_display_geometry_once_test.dart
+  // rather than left as an argument.
+  SketchModel? _dgSketch;
+  Grip? _dgGrip;
+  Offset? _dgPos;
+  List<Geo>? _dgSource;
+  List<Geo>? _dgResult;
   Offset? boxStart, boxEnd; // world coords while box-selecting
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
@@ -3133,6 +3160,12 @@ class AppState extends ChangeNotifier {
   bool showDof =
       false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
   SketchAnalysis? analysis; // DOF + which points may still move
+  /// Memo for [analysis]. The DOF analysis runs on every rebuild, every solve
+  /// and every tab switch (PERFORMANCE_PROFILE 5.5.3) on a quantity that only
+  /// changes when the geometry or the constraints do; this reuses the answer
+  /// when they have not. It cannot hit during a drag — see
+  /// [SketchAnalysisCache].
+  final _analysisCache = SketchAnalysisCache();
   String? message; // transient notice (over-constrained warnings)
 
   void toggleShowDof() {
@@ -8106,16 +8139,82 @@ class AppState extends ChangeNotifier {
   /// result of a live 25-iteration constraint solve.
   ///
   /// Measure it, because of where it runs. This is called from
-  /// `CustomPainter.paint` (the comment below says so) and from six other
-  /// sites including the snap path, so a single pointer-move can pay for the
-  /// solve more than once. `2d.displayGeometry.solves` counts the calls that
-  /// actually solved; divide by frames to see how many solves one frame bought.
+  /// `CustomPainter.paint` (the comment below says so) and from five other
+  /// sites including the snap path and the drag commit, so a single
+  /// pointer-move used to pay for the solve more than once —
+  /// `PERFORMANCE_PROFILE.md` §5.2 counted 120 solves against 60 painted
+  /// frames. It no longer does: the answer is memoised on the drag position,
+  /// so every caller within one position shares one solve.
+  ///
+  /// `2d.displayGeometry.solves` counts the calls that actually solved and
+  /// `2d.displayGeometry.cacheHit` the ones answered from the memo; the two
+  /// together are the call count, and the first divided by frames is now 1.
   /// The early return is left uncounted on purpose — a non-drag frame does no
   /// work here and should not dilute the average.
   List<Geo> displayGeometry(SketchModel s) {
-    if (dragGrip == null || dragPos == null) return s.geometry;
+    if (dragGrip == null || dragPos == null) {
+      // No drag in flight, so nothing cached can ever be returned again — the
+      // guards below would all miss anyway. Dropping the references here rather
+      // than relying on that keeps a finished drag's geometry list from
+      // outliving the drag; this is the first paint after every release.
+      if (_dgResult != null) {
+        _dgSketch = null;
+        _dgGrip = null;
+        _dgPos = null;
+        _dgSource = null;
+        _dgResult = null;
+      }
+      return s.geometry;
+    }
+    // S4 — ONE SOLVE PER DRAG POSITION, NOT PER CALLER.
+    //
+    // Measured: 60 painted frames of `ui.drag60` issued 120 calls and 120
+    // solves. Two call sites in the painter (the `ent.dofColour` phase and the
+    // `constraints` phase) each asked this question about the same cursor
+    // position, and a third (the tool preview) and a fourth (endGripDrag's
+    // commit) ask it again whenever they are live.
+    //
+    // They were not duplicates, which is the part worth reading carefully.
+    // _displayGeometryInner ENDS a good frame with `_lastGoodDragGeo = gs` and
+    // OPENS the next call by warm-starting from that field, so the second call
+    // re-pulled the grip to the cursor and ran 25 more solver iterations on the
+    // first call's output. Consequences, all measured rather than argued:
+    //
+    //   - entities were drawn from the first call's list and constraint glyphs
+    //     from the second's, so a glyph sat where its entity was about to be
+    //     rather than where it was drawn;
+    //   - the count varied with UI state (1, 2 or 3 solves per frame depending
+    //     on edit mode and whether a tool preview was up), so the geometry a
+    //     drag COMMITTED depended on whether glyphs were switched on.
+    //
+    // Collapsing them is exactly identical for free drags, body drags and
+    // drags whose cursor the constraints cannot reach (maxDelta 0.000e+0 on
+    // all three). On a genuinely coupled system — two slots joined by a
+    // tangent and a point-on-curve — it moves the answer by 3.2e-4 on a 64-unit
+    // sketch, 5 ppm, and that difference is a point on the constraint manifold
+    // and not a residual off it: both regimes commit at residual norm 2.828e-6,
+    // equal to four significant figures, against a satisfaction threshold of
+    // 1e-6 and a renderable threshold of 1e-2.
+    //
+    // The full write-up, with the arithmetic and the pre-registered
+    // predictions, is perf/findings/S4-painter.md.
+    if (identical(_dgSketch, s) &&
+        identical(_dgGrip, dragGrip) &&
+        identical(_dgSource, s.geometry) &&
+        _dgPos == dragPos &&
+        _dgResult != null) {
+      Perf.count('2d.displayGeometry.cacheHit');
+      return _dgResult!;
+    }
     Perf.count('2d.displayGeometry.solves');
-    return Perf.span('2d.displayGeometry', () => _displayGeometryInner(s));
+    final out =
+        Perf.span('2d.displayGeometry', () => _displayGeometryInner(s));
+    _dgSketch = s;
+    _dgGrip = dragGrip;
+    _dgPos = dragPos;
+    _dgSource = s.geometry;
+    _dgResult = out;
+    return out;
   }
 
   List<Geo> _displayGeometryInner(SketchModel s) {
@@ -8823,7 +8922,7 @@ class AppState extends ChangeNotifier {
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
-    analysis = analyzeSketch(s.geometry, s.constraints);
+    analysis = _analysisCache.of(s.geometry, s.constraints);
     // UNDO JOURNAL (M39): every committed mutation funnels through this
     // rebuild (the C-API is add-only), so this one call records the whole
     // app's edits — draw, drag, trim, fillet, patterns, dimensions,

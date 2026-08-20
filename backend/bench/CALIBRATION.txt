@@ -1,0 +1,43 @@
+# Lane C calibration point
+#
+# WHAT THIS FILE DECIDES
+#
+# The harness is checked against PERFORMANCE_PROFILE.md §6.5: it must fit
+# edge_info at k ~ 0.99 and the per-edge enumeration at k ~ 2.012 before
+# anything it says about an optimisation may be believed. .github/workflows/
+# kernel-bench.yml turns that check into a job failure — but ONLY while the
+# shim is the one the check was calibrated against.
+#
+# The reason is the whole point of the exercise. OPTIMIZATION_PLAN.md §5 sends
+# Session 2 to remove that quadratic. The moment it succeeds, `allEdges` stops
+# fitting 2.012, and a permanent gate on the exponent would go red forever for
+# the best possible reason. So the gate keys on the content hash below: while
+# it matches, a disagreement means the HARNESS is wrong (the plan says so in as
+# many words) and the job fails. Once it stops matching, the same comparison
+# becomes a report of how far the exponent moved, which is the number Session 2
+# is actually working for.
+#
+# WHEN TO UPDATE IT
+#
+# When the shim changes for a reason that is NOT meant to move these
+# exponents — a refactor, an unrelated entry point, a comment — and the
+# comparison still agrees. Re-record the hash then, so the gate keeps biting.
+# Never update it to silence a disagreement: a disagreement is the instrument
+# telling you something, and §9 of the plan is about exactly this temptation.
+#
+#   git hash-object backend/occt/shim/occt_capi.cpp
+#
+occt_capi.cpp 8c46e48a59f7de8c562b2953bcaf6e608fba793d
+
+# Re-recording log — append a line whenever the hash above changes.
+#
+# 2026-08-19  v20 -> v21 (Session 2's occt_shape_edges_info bulk entry point and
+#             the lazy per-shape edge_info context). Re-recorded because this is
+#             precisely the documented case: the shim changed for a reason that
+#             was not meant to move the per-edge exponents, and the comparison
+#             still agrees --
+#                 edgeInfo1  v20 1.053 [0.996, 1.110]  ->  v21 1.077 [1.001, 1.153]
+#                 allEdges   v20 2.057 [1.999, 2.115]  ->  v21 2.054 [1.984, 2.123]
+#             both overlapping their predecessors and both still overlapping
+#             PERFORMANCE_PROFILE.md §6.5. See perf/findings/CROSS-SESSION.md,
+#             Session 1's reply to S2-1.
