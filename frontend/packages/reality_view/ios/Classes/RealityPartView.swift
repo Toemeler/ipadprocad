@@ -15,6 +15,7 @@
 //              only affects near/far, not projected size
 //   vertical world extent on screen = 2·halfH          // ⇒ ortho scale
 import Flutter
+import Foundation
 import UIKit
 import simd
 
@@ -198,6 +199,21 @@ final class PartRenderer: NSObject {
         root.addChild(cameraEntity)
         root.addChild(sketchRoot)
         arView.scene.anchors.append(root)
+
+        // S8 — pay RealityKit's first-use cost here rather than on the first
+        // scene. See RealityWarmup in PartScene.swift for why ~417 of the
+        // 419.47 ms §7.2.2 attributes to the origin planes is not the planes.
+        //
+        // `async`, not inline: inline would simply move the stall into
+        // platform-view creation, where the user is equally waiting and the
+        // viewport has not even painted its background yet. One runloop turn
+        // later the surface is up, and the first setScene is still at least a
+        // Flutter frame away (viewport3d.dart pushes from the build that
+        // follows onCreated's post-frame setState).
+        //
+        // No capture of self: the warm-up owns nothing and must not keep this
+        // renderer alive if the view is torn down before it runs.
+        DispatchQueue.main.async { RealityWarmup.run() }
     }
 
     // MARK: - Camera

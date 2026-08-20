@@ -28,6 +28,7 @@ import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
+import 'perf_scenarios_profile.dart';
 import 'perf_scenarios_stress.dart';
 import 'perf_scenarios_ui.dart';
 import 'reality_scene.dart';
@@ -292,6 +293,25 @@ Future<File?> captureBugReport(AppState app, String description) async {
             .convert(runStressSuite());
       } catch (e) {
         files['perf_suite_stress.json'] = 'stress suite failed: $e';
+      }
+    }
+
+    // The PROFILE-COMPLEXITY tier (S11) — opt-in, by typing `profile`.
+    //
+    // Separate from `stress` and not implied by it. The stress ladders climb
+    // entity and edge counts; these climb PROFILE complexity — segment count,
+    // path resolution, loop count, self-intersections — which is the axis no
+    // tier has ever covered and the one a real drawing grows along. It is
+    // opt-in for the stress tier's reason and then some: a single rung of
+    // profile.sweep.segments reproduces the field's 1200-segment sweep, and
+    // that sweep cost 102 seconds.
+    if (description.toLowerCase().contains('profile')) {
+      Log.i('bug', 'profile tier requested — the top rungs cost minutes');
+      try {
+        files['perf_suite_profile.json'] = const JsonEncoder.withIndent('  ')
+            .convert(runProfileSuite());
+      } catch (e) {
+        files['perf_suite_profile.json'] = 'profile suite failed: $e';
       }
     }
 
