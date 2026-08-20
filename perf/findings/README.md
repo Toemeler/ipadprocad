@@ -11,6 +11,7 @@ once, at integration (plan §8).
 | `S3-solver.md` | 2D solver | `solver.dart` |
 | `S4-painter.md` | Painter | `widgets/viewport.dart` |
 | `S5-partmodel.md` | Part model | `part_model.dart` |
+| `S9-drift.md` | Sketch drag drift (round 2) | `solver.dart`, `endGripDrag` + warm start |
 
 `CROSS-SESSION.md` and `CONFLICTS.md` are **append-only**. Never edit an entry
 you did not write.

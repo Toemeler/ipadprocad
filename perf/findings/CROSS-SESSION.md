@@ -1694,3 +1694,77 @@ the standing check on it.
 **No production behaviour changed in this round** — the only `solver.dart`
 edits are the added reference, the flag, and the two `if (denseReferenceForTests)`
 branches, all of which are false in production.
+
+## S9-1 — the drift is holonomy, not a defect: DOF 7, extent 76.3, bounded in N
+
+**Raised by:** Session 9 (drift).
+**Needs:** integrator — **information, not a decision.** Nothing is blocked and
+no behaviour changed. This answers the number you asked S4 for and closes the
+escalation, unless you disagree with §7 of my file.
+**Blocked:** no.
+
+**You asked** (ruling on S4-3, 2026-08-19) for the fixture's DOF after
+`analyzeSketch` and its bounding-box extent, because "a system with 20 free
+parameters wandering 14.64 units across a ~60-unit sketch is one story; a
+nearly-determined system doing it is a different and much worse one".
+
+**It is the first story.** DOF **7** out of 48 packed parameters, 22 free
+points; bounding-box diagonal **76.331** (Dart LM) / **97.113** (libslvs). The
+14.64 is **19 % of the diagonal**. Reproduced on this base at **14.4653** —
+same protocol, lap 1 → lap 33 at r=3.
+
+**And the three things that decide it is not a defect:**
+
+* **It is not error.** Refining the cursor path 32× (2 → 64 frames per drag)
+  moves the drift by **1.4 %** (Dart) and 6 %, non-monotonically (libslvs). A
+  discretisation artefact goes to zero; this is invariant under refinement.
+* **It scales with the loop's AREA, not its length.** `drift/r²` is flat over a
+  12× range in radius — 144× in enclosed area — at 1.04–1.49 natively. A length
+  law would need `drift/r` flat; it is not, by an order of magnitude.
+* **Take the freedom away and it goes to exactly zero.** DOF 0: the app refuses
+  the grip, drift **0.0** over 33 laps; forced past the refusal, 1.14e−12
+  natively. A free line: 0.0. If a determined system had walked, that would have
+  been a defect with nothing left to argue — it does not.
+
+**Bounded in N — and my first answer was too quick.** 120 laps natively reads as
+monotone growth (3.56 → 34.92 across windows) and would support "unbounded" if
+you stopped there. It does not saturate by 120; **it turns around at lap 300.**
+Over 500 laps / **6000 committed drags**: libslvs peaks at **68.67 at lap 300**
+(0.71× extent) and returns to 38.42 by lap 500, extent peaking +20 % and coming
+back; the Dart path shows no trend at all, drift in 6.0–26.3 and extent within
+±3 %. Residual across the whole run: **2.828e−6** (Dart — your S4-3 figure at
+N=400, unchanged) and 1.4e−14 natively. DOF still 7 at lap 500.
+
+**The mechanism.** A drag frame warm-starts from the previous solved frame and
+takes the cursor as a wish, so on a sketch with freedom left it is a projection
+onto a curved solution manifold applied step after step — and a projection
+walked around a closed loop need not return to its start. The sketch never
+leaves the manifold; it ends somewhere else on it, inside its own freedom.
+
+**And it is what M207 bought continuity with.** Cold-restarting each frame — the
+pre-M207 behaviour — closes the loop to **0.000** and teleports the sketch
+**42.16 units on a 1.96-unit cursor step**. Loop closure and a drag that follows
+the finger are mutually exclusive on this fixture.
+
+**Your S4-3 ruling stands as written.** You recorded that "if the drift below is
+ever fixed, your 2× becomes the leading term and this ruling should be
+re-taken". It is not being fixed, so it does not need re-taking — but note the
+reason has changed from "nobody is allowed to chase it" to "it was chased and
+there is nothing there".
+
+**I did not edit `S4-painter.md` §9.4**, though you invited the numbers to be
+added there. It is S4's file and plan §4 is binding. They are in
+`perf/findings/S9-drift.md` §3 instead.
+
+**One separate finding, and it is not mine to act on.** Every host test on this
+branch — including every differential pin round one built — has only ever
+exercised the **Dart LM fallback**. `SlvsFfi` resolves through
+`DynamicLibrary.process()`, so on a Linux/macOS host `SlvsFfi.available` is
+false and libslvs is never reached. It can be: build the vendored solver as a
+shared object and `LD_PRELOAD` it, two cmake lines, seconds to build — the
+recipe is in `S9-drift.md` §8, and every libslvs column in my file was measured
+that way. **The path the device actually runs currently has no host coverage.**
+Whether that becomes a CI job is yours; plan §4 grants me no workflow.
+
+Full write-up, both solver paths, and what I deliberately did not do:
+`perf/findings/S9-drift.md`.
