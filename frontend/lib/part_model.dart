@@ -2703,6 +2703,23 @@ class SweepFeature extends PartFeature {
   double taperDeg, twistDeg;
   String exprTaper, exprTwist;
 
+  /// S11 — the KERNEL ARGUMENTS [solid] was last swept from. Runtime only,
+  /// never serialised.
+  ///
+  /// [PartFeature.builtSig] is the chain-aware key, and only
+  /// [recomputeAllFeatures] maintains it: a feature built through the
+  /// single-feature entry point [recomputeFeature] leaves it null, so the next
+  /// fold always rebuilds. On a sweep that costs whatever the sweep costs, and in
+  /// the field capture that was 103 seconds — the third of three identical
+  /// runs.
+  ///
+  /// This key is narrower on purpose. It is the resolved argument list handed
+  /// to the kernel, so it says exactly the thing the guard needs: identical
+  /// arguments, identical output. It deliberately does NOT include the boolean
+  /// base, because [_recomputeSweep] does not take one — the fold happens
+  /// outside this function and is unaffected by reusing the swept solid.
+  String? sweptFrom;
+
   SweepFeature({
     required super.name,
     required super.bodyName,
@@ -2728,6 +2745,15 @@ class SweepFeature extends PartFeature {
   String get kind => 'sweep';
   @override
   String get typeLabel => 'Sweep';
+
+  /// Clears [sweptFrom] with the solid it described. Without this a disposed
+  /// solid would still look "already swept" and the guard would return true
+  /// with nothing built.
+  @override
+  void disposeSolid() {
+    sweptFrom = null;
+    super.disposeSolid();
+  }
 
   @override
   String ownSig() => 'sw|$sketchName|$orientation,$taperDeg,$twistDeg|'
@@ -6988,6 +7014,23 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   // 'cannot break' guarantees live elsewhere — visibility never reaches the
   // fold, a failure poisons its own body instead of spawning a phantom, and
   // a failed pass is not settled/projection-synced or treated as good.
+  // S11 — the SWEEP decides for itself whether its solid must be thrown away.
+  //
+  // This unconditional dispose is why the field's sweep ran three times. Every
+  // path into a rebuild lands here and destroys the result before the feature
+  // that owns it is ever asked whether the inputs changed, so a guard further
+  // down could never fire — it would always be looking at a null solid. Only
+  // recomputeAllFeatures escapes it, and only because its own builtSig check
+  // sits BEFORE the call.
+  //
+  // Scoped to sweep deliberately. Every other kind keeps the exact behaviour
+  // it had, and [_recomputeSweep] disposes on every path that does not reuse,
+  // so the M182 contract above ("a failing recompute leaves the feature SICK")
+  // holds unchanged for it too.
+  if (f is SweepFeature) {
+    f.computeError = null;
+    return _recomputeSweep(part, f, kernel);
+  }
   f.disposeSolid();
   f.computeError = null;
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
@@ -7000,7 +7043,6 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   if (f is SplitFeature) return _recomputeSplit(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
-  if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
   if (f is LoftFeature) return _recomputeLoft(part, f, kernel);
   if (f is CoilFeature) return _recomputeCoil(part, f, kernel);
   f.computeError = 'unknown feature kind "${f.kind}"';
@@ -7310,24 +7352,93 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
   return (out, null);
 }
 
+/// S11 — the exact argument list [_recomputeSweep] hands the kernel.
+///
+/// Every value the swept solid depends on and nothing else. Written as digits
+/// rather than hashed: a hash collision here would silently reuse the WRONG
+/// solid, and a sweep is exactly the operation whose result nobody would look
+/// at closely enough to notice. Full precision (a double's `toString()`
+/// round-trips exactly in Dart), so two profiles differing in the last bit are
+/// two different keys.
+///
+/// The cost is bounded by the profile size — the field's 1218-segment loop
+/// produces a key of some tens of kilobytes, built in milliseconds, against a
+/// sweep that took 102 seconds.
+String _sweepArgSig(List<List<List<Offset>>> groups, List<double> mat34,
+    List<double> pathPts, SweepFeature f) {
+  final b = StringBuffer()
+    ..write(f.orientation)
+    ..write(',')
+    ..write(f.taperDeg)
+    ..write(',')
+    ..write(f.twistDeg)
+    ..write('|');
+  for (final m in mat34) {
+    b..write(m)..write(' ');
+  }
+  b.write('|');
+  for (final p in pathPts) {
+    b..write(p)..write(' ');
+  }
+  for (final g in groups) {
+    b.write('|G');
+    for (final loop in g) {
+      b.write(';');
+      for (final q in loop) {
+        b..write(q.dx)..write(',')..write(q.dy)..write(' ');
+      }
+    }
+  }
+  return b.toString();
+}
+
 bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
   final (groups, frame, err) =
       resolveProfiles(part, f.sketchName, f.profiles);
   if (groups == null || frame == null) {
+    f.disposeSolid();
     f.computeError = err ?? 'profile resolution failed';
     return false;
   }
   final sel = f.path;
   if (sel == null) {
+    f.disposeSolid();
     f.computeError = 'no path selected';
     return false;
   }
   final (pts, perr) = resolvePath(part, sel);
   if (pts == null) {
+    f.disposeSolid();
     f.computeError = perr ?? 'path resolution failed';
     return false;
   }
-  final solid = kernel.sweep(groups, frame.mat34(0), pts,
+  final mat34 = frame.mat34(0);
+  // S11 — THE REBUILD GUARD.
+  //
+  // A user swept a 1218-segment profile and the same sweep ran three times,
+  // identically: the preview, the commit, and recomputeAllFeatures folding the
+  // part afterwards. All three logged tris=91646 and together they were 310.75
+  // seconds, 53 % of the session. This removes the third.
+  //
+  // The claim it rests on is narrow and checkable: the swept solid is a pure
+  // function of these arguments. resolveProfiles and resolvePath have just
+  // re-read the sketches, so a changed profile, a moved path, a different
+  // plane, orientation, taper or twist all produce a different key and rebuild
+  // as before. The boolean base is absent from the key because it is absent
+  // from the computation — the fold that consumes this solid runs outside.
+  //
+  // Resolution still happens on every call. It is the cheap half (reading two
+  // sketches) and it is what makes the key trustworthy; skipping it would mean
+  // guarding on the feature's parameters while the geometry moved underneath.
+  final sig = _sweepArgSig(groups, mat34, pts, f);
+  if (f.solid != null && f.sweptFrom == sig) {
+    Perf.count('kernel.sweep.reuse');
+    return true;
+  }
+  // Not reusable: the old solid goes now, exactly as the shared entry point
+  // would have done, and before the new one is built so the two never coexist.
+  f.disposeSolid();
+  final solid = kernel.sweep(groups, mat34, pts,
       orientation: f.orientation,
       taperDeg: f.taperDeg,
       twistDeg: f.twistDeg);
@@ -7336,6 +7447,7 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
     return false;
   }
   f.solid = solid;
+  f.sweptFrom = sig;
   return true;
 }
 
