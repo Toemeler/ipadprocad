@@ -349,6 +349,37 @@ of arguments — and 3 × 103 584.7 ms = **310.75 s**, which is the recorded
 `kernel.feature.sweep` total to the millisecond. All three logged `tris=91646`
 because all three did identical work.
 
+### 4.1 And the reason no guard was ever going to help — found while implementing
+
+A rebuild guard **already exists** in this codebase. `PartFeature.builtSig` is
+documented as "input signature `solid` was last built from; null = must
+rebuild", `featureInputSig` computes a complete key, and `recomputeAllFeatures`
+checks it. It did not fire, and there are two independent reasons:
+
+1. **`builtSig` is written in exactly one place** — inside
+   `recomputeAllFeatures`. A feature built through the single-feature entry
+   point `recomputeFeature` (run 2, the commit) leaves it null, so the fold
+   that follows always rebuilds.
+2. **And this, which is the deeper one.** `_recomputeFeature` opens with:
+
+```dart
+  f.disposeSolid();
+  f.computeError = null;
+  if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
+```
+
+   Unconditional, for every kind, before any dispatch. **Every path into a
+   rebuild destroys the result before the feature that owns it is asked whether
+   anything changed**, so a guard placed anywhere downstream would always be
+   looking at a null solid. `recomputeAllFeatures` escapes only because its own
+   `builtSig` check sits *before* the call and `continue`s past it.
+
+That is the structural finding, and it is bigger than this one sweep: **no
+feature kind can ever reuse its solid through `recomputeFeature`.** For cheap
+features that costs nothing worth measuring. For a 103-second sweep it costs
+103 seconds, every time anything in the part is committed — because
+`applyExtrude` ends in `recomputeAllFeatures` whatever the user was editing.
+
 ---
 
 ## 5. Job 3 — the preview premise is REFUTED. The preview was displayed.
@@ -430,6 +461,31 @@ defect S2 and S6 found in `edge_info`, in a different operation.
 `backend/occt/shim/**` is S6's and I have not touched it. Recorded as §8.4,
 with the ladder as the evidence S6 would need.
 
+### 6.1 The other Dart-side lever, and why taking it would be the wrong answer
+
+`sweep()` hands the kernel `encodeLoopSegs(arcFitLoop(loop))`, and `arcFitLoop`
+collapses runs of a polyline into true arcs — which would cut 1200 straight
+segments to a few dozen arc edges. It does not fire here. Its guard is
+near-exact arc recognition:
+
+> every run vertex lies on the fitted circle within `max(1e-9, 1e-6 r)`
+
+and it is deliberately so: the doc comment explains that a rectangle whose
+corners happen to be concyclic must not become an arc, and closes
+"conservative: anything else passes through as lines." A DXF polyline
+approximating a spline or an offset curve does not sit on one circle to
+1e-6·r, so **all ~1200 segments reach the kernel as lines.**
+
+Loosening that tolerance is the single largest Dart-side lever available, and
+**I am not proposing it.** It makes the sweep cheap by making the profile
+coarser, which is precisely what the brief rules out:
+
+> "You are not making complex profiles cheaper by making them simpler. A
+> 1200-segment sweep must become fast."
+
+Recorded in §8.5 so the lever is documented and the decision to leave it is on
+the record, not so that anyone takes it.
+
 **What I deliberately did not do:** guess at the shim. The brief's own framing —
 "a 1200-segment sweep must become fast" — is not served by a Dart-side
 workaround that makes the profile simpler. P1 has to be measured first, and the
@@ -443,10 +499,10 @@ ladder is what measures it.
 | --- | --- |
 | 1. `flutter analyze` zero issues | **NOT RUN** — no SDK in this container (§0.2) |
 | 2. `flutter test` green | **NOT RUN** — no SDK; tests written, unexecuted |
-| 3. `python3 -m unittest discover -s ci` | see §7.1 |
+| 3. `python3 -m unittest discover -s ci` | **GREEN** — 45 tests |
 | 4. Behaviour pinned by a **differential** test | Written: `m233_sweep_memo_test.dart`, old path vs new path, same run, same machine, no recorded constants (§1.4) |
 | 5. Predictions with arithmetic, before the change | Yes — §2, committed before the code |
-| 6. Merged into `claude/perf-opt2` | see §7.1 |
+| 6. Merged into `claude/perf-opt2` | Yes |
 | 7. What I did / predicted / am unsure of / did not do | This file |
 
 **Requirements 1 and 2 are not met and I cannot meet them here.** That is a
@@ -463,3 +519,101 @@ Filed in `CROSS-SESSION.md`; summarised here.
 3. **`sampleEntity(arcSamples: 64)` is angle-independent** (§1.1, §6).
 4. **The sweep's cost is inside the shim** — S6's area, with the ladder as the
    instrument (§6).
+5. **The arc-fit tolerance is a lever I declined to pull** (§6.1).
+6. **`recomputeFeature` can never reuse ANY feature's solid** (§4.1) — the
+   generalisation of my fix, which I scoped to sweep rather than take on four
+   other feature kinds unmeasured.
+7. **Handing the preview's solid to the commit needs `app_state.dart`** (§9.2),
+   which plan-2 §4 does not give me.
+
+### 8.1 One file I touched that nobody was given
+
+`frontend/lib/bug_capture.dart`, +19 lines: the `if (description...contains
+('profile'))` block that runs the new tier, exactly parallel to the existing
+`stress` one, plus its import.
+
+It is not in any round-two ownership row and not in the frozen
+`frontend/lib/perf*.dart` zone. I took it because without it the tier is
+unreachable code and job 1 delivers nothing — "a measurement with no delivery
+path is not a measurement" is quoted in both plans. The change is additive and
+gated behind a keyword no past capture used, so it cannot alter any recorded
+number. Flagged here rather than buried.
+
+---
+
+## 9. What implementation changed about the predictions
+
+Registered predictions are not edited (§2 stands as written). This is the
+adjudication of what could be adjudicated without a device.
+
+### 9.1 P2 is REVISED DOWNWARD BEFORE MEASUREMENT — I can reach one of the two redundant runs, not both
+
+P2 predicted 310.75 s → 106.4 s by memoising at the kernel-argument boundary.
+Implementation refuted the *mechanism*, and with it half the saving:
+
+**A kernel-boundary memo cannot be made safe from where I sit.** It would have
+to hand the same shape to three callers that each dispose what they are given.
+The only copy available is `OcctShape.transformed(identity)`, and the shim
+implements that as `BRepBuilderAPI_Transform(shape, t, Standard_True /* copy */)`
+— a full deep copy of a 20 290-face B-Rep, whose sub-shape ordering I would be
+*assuming* is preserved. Edge indices feed the fingerprints that reattach
+features across rebuilds; the plan says that is the single most likely way to
+break a real part. An unverifiable assumption about OCCT's sub-shape ordering,
+in a container with no OCCT, is not a basis for that.
+
+**So the fix went where it needs no copy at all**: the feature reuses *its own*
+solid. That reaches run 3 and nothing else, because runs 1 and 2 operate on
+different `SweepFeature` objects.
+
+```
+registered P2 : 310.75 s -> 106.4 s   (-204.3 s)   [kernel-boundary memo]
+delivered     : 310.75 s -> 207.2 s   (-103.6 s)   [feature-level guard]
+                  = 2 x 103 584.7 ms
+still on the table (§9.2)             (-103.6 s)   [needs app_state.dart]
+```
+
+**And the delivered half generalises further than the registered one did**,
+which the arithmetic above understates. `applyExtrude` ends in
+`recomputeAllFeatures` **whatever feature the user just committed**. With a
+103-second sweep in the tree, every subsequent commit anywhere in the part paid
+that 103 seconds again. The guard removes it from all of them, not only from
+the sweep's own commit. Nothing in the field capture measures that — it holds
+one sweep and one commit — so it is a prediction for the next capture:
+**`kernel.feature.sweep` should read n = 2 per sweep commit and n = 0 for
+commits of unrelated features, where today it is 3 and 1.**
+
+### 9.2 The other 103.6 s — `**Needs:** integrator`
+
+Runs 1 and 2 build the same solid from the same session into two different
+feature objects, and the preview's result is alive in `s.preview` the whole
+time. Handing it over at commit is a *move*, not a copy: no double free, no
+sub-shape reordering, no new assumption. It needs two changes in
+`app_state.dart`:
+
+- `_updateExtrudePreview` records the argument signature its preview was built
+  from;
+- `applyExtrude` adopts `s.preview` into `f.solid` when that signature matches
+  the parsed feature and `previewReplacesBody == null` (for a boolean output
+  the preview holds the *combined* solid, not the feature's own, so it is not
+  adoptable and that case keeps recomputing).
+
+Plan-2 §4 gives `app_state.dart` to S9 by named function and gives me none of
+it, and plan §3 is explicit: "If you need `app_state.dart` outside your named
+functions: **stop and write to the coordination file.** Do not proceed." So I
+stopped. Filed.
+
+### 9.3 One behavioural difference I judged safe, stated so it is not found later
+
+On a guard hit `disposeSolid()` does not run, so `f.ownSurfaces` keeps its
+previous value where it would previously have been cleared to `const []`. The
+solid is the identical object, so the surfaces describing it are still correct
+— and `recomputeAllFeatures` recomputes them straight after a successful call
+regardless. I consider this strictly more correct than clearing them, but it is
+a difference and it is not covered by the differential test, which compares
+geometry rather than provenance.
+
+### 9.4 The gate will report a counter change
+
+`kernel.sweep.reuse` is new, and `ffi.occt.sweepProfile`'s invocation count
+falls. Per plan §6 that shows up as a *counter finding* at integration. Saying
+so in advance, as S4 was told to: it is the win, not a regression.
