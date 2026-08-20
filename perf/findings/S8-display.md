@@ -54,6 +54,59 @@ RealityKit's first use of the process — shader library, Metal pipeline state,
 the resource subsystem — which the origin planes pay only because they are the
 first geometry the app ever builds.
 
+### 1.1a The same result from the appendix, without the differencing
+
+§1.1 leans on §7.2.3, which recovers the steady state by subtracting capture A
+from capture B. That subtraction is sound but it is a step, and a step is
+something to check. §16 A gives the same answer with no subtraction at all —
+one row, session scope, reference arm, printed verbatim from the bundle:
+
+| span | n | total ms | mean ms |
+| --- | ---: | ---: | ---: |
+| `rv.native.planes` | 66 | 641.52 | 9.720 |
+
+The session accumulator contains capture A (§2.2), so the 419.47 ms first call
+is inside that 641.52. Take it out:
+
+```
+rest       = 641.52 − 419.47 = 222.05 ms over 65 calls
+mean(rest) =                     3.416 ms
+first / mean(rest)             = 122.8×
+C_once     = 419.47 − 3.416   = 416.05 ms  =  99.19 % of the first call
+```
+
+**416.05 ms against §1.1's 417.10 ms** — two routes through different parts of
+the bundle, agreeing to 1.05 ms. The gap is exactly what it should be: 3.416 ms
+is the mean over 65 calls including the earliest and coldest ones, 2.373 ms is
+the mean over the later ones only.
+
+Either way the conclusion is the same and it does not depend on which figure you
+prefer: **99.2 % of the first call is not work the planes do.**
+
+### 1.1b One row that does not add up, and it is worth someone's attention
+
+In the table above `rv.native.planes` has **n = 66** while `rv.native.setScene`
+has **n = 63**. The planes phase is timed *inside* `setScene`
+(`RealityPartView.swift:415`), so those counts should be equal.
+
+They are not, and the three extra calls are real: `RealityThumbRenderer.render`
+(`RealityViewPlugin.swift:86`) builds a **fresh `PartRenderer`** per gallery
+thumbnail and calls `renderer.setScene(scene)` directly, outside the
+`RvPerf.time("rv.native.setScene")` wrapper the platform view goes through. So
+three of the session's 66 plane rebuilds were thumbnails, not viewport pushes,
+and no `rv.native.setScene` observation covers them.
+
+Not a defect in the app, but it does mean `rv.native.setScene` is **not** the
+whole of what happens past the boundary, and anyone reading the two rows as
+parent and child — as §7.2.2's "└─" tree does — is off by three. Flagged for
+whoever folds this in; `bug_capture.dart` and the profile are not mine to edit.
+
+It also has one consequence for §1.4: a thumbnail render can be the first thing
+in a process to build RealityKit geometry, so the warm-up may be paid there
+instead. That is harmless and slightly preferable — a thumbnail is written on
+save, not while the user waits for a viewport — and by §1.4's second property it
+cannot cost the save anything either way.
+
 This changes what is worth doing. Optimising `PlaneEntity` — caching the quad
 mesh, not rebuilding on `setHot`, sharing the outline tube — is a real
 inefficiency and it is worth **at most 2.4 ms**, once. It is not where the 419

@@ -726,6 +726,12 @@ enum TubeBuilder {
 // onCreated schedules a post-frame setState, and the push happens in the
 // build after that).
 //
+// RealityThumbRenderer builds a PartRenderer of its own per gallery thumbnail,
+// so in a session that saves before it opens the 3D viewport the warm-up is
+// paid there instead. That is harmless — a thumbnail is written on save, not
+// while someone waits for a viewport — and by the second property below it
+// cannot cost the save anything either.
+//
 // It builds one throwaway mesh and one of every material the scene uses, and
 // adds NOTHING to the scene graph. That is deliberate: an entity that is added
 // and removed can be caught by a frame, and this must not be able to change a
