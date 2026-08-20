@@ -430,9 +430,9 @@ Honestly: **partly, and the part I could not fix is named.**
   diagnosable for the first time. (a), (b) **Half-verified: the console capture
   exists and carries 683 lines, but the death did not recur, so it has not yet
   been shown to carry a diagnosis.** (§2.7)
-* The job still goes **red** while the four M232 pins are red, because they are
-  still red and this session did not weaken them. That is the correct behaviour,
-  and it is a different red from the one it has been showing.
+* ~~The job still goes **red** while the four M232 pins are red.~~ **Superseded:
+  run 82 is fully green — S3's differential pins fixed the suite, S8's
+  reordering fixed the masking. §2.9.**
 
 ~~Track B will be green when S9 or the integrator makes the pins differential.
 Until then the redness has exactly one cause, it is named, it is escalated, and
@@ -597,17 +597,62 @@ never have fired).
   Branching round two from the tip would have pulled a re-recorded baseline into
   the integration line unmeasured — precisely the accident §3 exists to prevent.
 
-### 2.9 The re-test
+### 2.9 The re-test: Track B is fully green
 
-`claude/perf-opt2-display` and `claude/perf-opt2` carry the **identical tree**
-(`ca2368c`): S3's differential pins, S8's warm-up, S8's workflow repairs.
-`sim-perf` **run 82** (`fea8250`, `claude/perf-opt2`) is the run that settles
-whether Track B is now fully green with all of it together. Result recorded
-below when it lands.
+**`sim-perf` run 82** — `fea8250`, `claude/perf-opt2`, the tree carrying S3's
+differential pins *and* S8's warm-up *and* S8's workflow repairs together
+(`claude/perf-opt2-display` is byte-identical, tree `ca2368c`).
 
-*(The push to `claude/perf-opt2-display` did not itself start a run; the push to
-`claude/perf-opt2` did. Since the two trees are byte-identical, run 82 answers
-for both, and a second cold OCCT build on identical content would buy nothing.)*
+**Both jobs succeeded. Every step green.**
+
+| Job / step | |
+| --- | --- |
+| `Dart analyze + host tests (fast)` (ubuntu) | **success** |
+| 20 `Build app for the simulator` | **success** |
+| 21 `Boot simulator, launch, pull the perf log` | **success** |
+| 22 `Analyze Dart (macOS host)` | **success** |
+| **23 `Host tests (macOS host)`** | **success** |
+| 24 `Which tests failed (macOS host)` | **skipped** — nothing to report |
+| 25–28 zip, upload, publish | **success** |
+| `sim-app` conclusion | **success** |
+
+Step 23 is the one that matters: the macOS host tests, the step that had been
+red since 2026-08-19, now pass. Step 24 being *skipped* is the corroborating
+detail — that step only runs `if: failure()`, so its absence is independent
+confirmation that nothing failed.
+
+From `ci-sim-run.log`, published to `ci-logs-perf` under `run_number: 82`:
+
+```
+sim booted (~5s)
+launch rc=0: com.prototype.prototype: 79924
+PERF CAPTURE: PASS
+```
+
+`ci-sim-console.log` carries 1 855 lines. **Track B is closed.**
+
+#### What each change is actually responsible for
+
+Worth separating, because it would be easy to take credit for the wrong thing:
+
+* **S3's differential pins are what turned the suite green.** Run 77 already
+  proved that on `b2de0c2` with the *old* workflow ordering. Nothing S8 did was
+  needed for it.
+* **S8's reordering is what stops the next red pin from costing the smoke
+  test.** Verified independently, and under the harder condition: runs 78 and 79
+  built, launched, captured and published *while failing four tests*. Run 82
+  shows the same job green; runs 78/79 showed it useful when red. Both halves
+  were needed to establish it.
+* **S8's diagnostics remain unexercised by a real failure.** Run 68 has not
+  recurred across runs 77, 78, 79 and 82. The console stream works and now
+  carries 1 855 lines of a healthy launch — that is a calibration baseline, not
+  a diagnosis. §2.7's caveat stands unchanged.
+
+*(Footnote on mechanics: the push to `claude/perf-opt2-display` did not itself
+start a run; the push to `claude/perf-opt2` did. The trees are byte-identical,
+so run 82 answers for both, and a second cold OCCT build on identical content
+would have bought nothing. I do not know why the first push did not trigger and
+am not going to invent a reason.)*
 
 ---
 
