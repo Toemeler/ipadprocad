@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class SplitDialog extends StatefulWidget {
   final AppState app;
@@ -59,7 +60,7 @@ class _SplitDialogState extends State<SplitDialog> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
                 ),
                 child: Row(children: [
-                  Text('Properties',
+                  Text(L.of(context).dlgProperties,
                       style: ts(13, Colors.white, w: FontWeight.w600)),
                   const SizedBox(width: 6),
                   GestureDetector(
@@ -74,39 +75,37 @@ class _SplitDialogState extends State<SplitDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ?? 'Split', style: ts(12.5, T.blue)),
+                Text(s.editing?.name ?? L.of(context).btnSplit, style: ts(12.5, T.blue)),
                 const Spacer(),
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
             ),
-            panelSection('Trim', _open, () => setState(() => _open = !_open), [
+            panelSection(L.of(context).lblTrim, _open, () => setState(() => _open = !_open), [
               panelRow(
-                  'Plane',
+                  L.of(context).lblPlaneField,
                   GestureDetector(
                     onTap: app.repickSplitPlane,
                     child: panelPickField(
                       icon: Icons.crop_din,
                       active: s.frame == null,
                       label: s.frame == null
-                          ? 'Tap a plane or planar face…'
+                          ? L.of(context).hintTapPlaneOrFace
                           : s.label,
                     ),
                   )),
               panelRow(
-                  'Keep',
+                  L.of(context).lblKeep,
                   Row(children: [
-                    _seg('This side', !s.flip,
+                    _seg(L.of(context).lblThisSide, !s.flip,
                         () => app.setSplit(flip: false)),
                     const SizedBox(width: 6),
-                    _seg('Other side', s.flip,
+                    _seg(L.of(context).lblOtherSide, s.flip,
                         () => app.setSplit(flip: true)),
                   ])),
             ]),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-              child: Text(
-                  'Everything on the other side of the plane is removed. '
-                  'Splitting into two bodies is not built.',
+              child: Text(L.of(context).msgSplitRemovesOtherSide,
                   style: ts(11, T.dim)),
             ),
             _footer(app, s),
@@ -148,7 +147,7 @@ class _SplitDialogState extends State<SplitDialog> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -166,7 +165,7 @@ class _SplitDialogState extends State<SplitDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),

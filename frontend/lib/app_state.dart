@@ -21,6 +21,10 @@ import 'ffi/qcad_engine.dart';
 import 'freehand.dart';
 import 'gear.dart';
 import 'hud.dart';
+import 'l10n/cad_terms.dart';
+import 'l10n/fmt.dart';
+import 'l10n/l.dart';
+import 'l10n/locale_store.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'modify.dart';
@@ -854,10 +858,11 @@ class PartPatternSession {
   }
 
   /// Label for the Direction/Axis/Plane pick fields.
-  String get dirALabel => dirA?.label ?? 'Select Dir...';
-  String get dirBLabel => dirB?.label ?? 'Select Dir...';
-  String get axisLabel => axis?.label ?? 'Select Dir...';
-  String get planeLabel => plane?.label ?? 'Mirror Plane';
+  String get dirALabel => dirA?.label ?? L.current.lblSelectDirPlaceholder;
+  String get dirBLabel => dirB?.label ?? L.current.lblSelectDirPlaceholder;
+  String get axisLabel => axis?.label ?? L.current.lblSelectDirPlaceholder;
+  String get planeLabel =>
+      plane?.label ?? L.current.lblMirrorPlanePlaceholder;
 
   void disposePreview() {
     preview?.dispose();
@@ -1080,7 +1085,7 @@ class AppState extends ChangeNotifier {
   /// before Tab — exactly like Inventor).
   Map<int, double> get _hudEffectiveLocks {
     final m = Map<int, double>.from(hudLocked);
-    final typed = double.tryParse(hudInput.trim());
+    final typed = Fmt.num(hudInput);
     if (typed != null) m[hudFocus] = typed;
     return m;
   }
@@ -1167,7 +1172,7 @@ class AppState extends ChangeNotifier {
     if (!hudActive) return;
     final fields = hudFieldsFor(tool, toolPoints.length);
     if (fields.isEmpty) return;
-    final typed = double.tryParse(hudInput.trim());
+    final typed = Fmt.num(hudInput);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     hudFocus = (hudFocus + 1) % fields.length;
@@ -1179,7 +1184,7 @@ class AppState extends ChangeNotifier {
     if (!hudActive) return;
     final fields = hudFieldsFor(tool, toolPoints.length);
     if (fields.isEmpty) return;
-    final typed = double.tryParse(hudInput.trim());
+    final typed = Fmt.num(hudInput);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     hudFocus = (hudFocus - 1 + fields.length) % fields.length;
@@ -1190,7 +1195,7 @@ class AppState extends ChangeNotifier {
   /// (the same as clicking there). Commits the shape if it completes it.
   void hudEnter() {
     if (!hudActive) return;
-    final typed = double.tryParse(hudInput.trim());
+    final typed = Fmt.num(hudInput);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     final raw = hoverWorld ?? (toolPoints.isNotEmpty ? toolPoints.last : null);
@@ -1267,6 +1272,15 @@ class AppState extends ChangeNotifier {
     // logger uses $HOME (empty on some iOS builds -> temp dir, not file-shared).
     Log.retarget(_docsDir!.path);
     Perf.retarget(_docsDir!.path);
+    // M234 — adopt the remembered language.
+    //
+    // HERE and not in main(): init() is fired and deliberately not awaited so
+    // the first frame does not wait on a platform channel, and putting a
+    // settings read in front of runApp would undo that. The cost is that an
+    // English user can see one German frame at launch; the alternative is a
+    // measurable launch regression in an app whose launch time is a tracked
+    // number, and one frame is the cheaper of the two.
+    L.attachStore(LocaleStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
@@ -1883,10 +1897,10 @@ class AppState extends ChangeNotifier {
   /// directory has to be refused here.
   String? validateSketchName(String raw) {
     final n = raw.trim();
-    if (n.isEmpty) return 'Name must not be empty';
-    if (n.length > 60) return 'Name is too long';
-    if (RegExp(r'[/\\:]').hasMatch(n)) return 'Name cannot contain / \\ or :';
-    if (n.startsWith('.')) return 'Name cannot start with a dot';
+    if (n.isEmpty) return L.current.valNameEmpty;
+    if (n.length > 60) return L.current.valNameTooLong;
+    if (RegExp(r'[/\\:]').hasMatch(n)) return L.current.valNameBadChars;
+    if (n.startsWith('.')) return L.current.valNameLeadingDot;
     return null;
   }
 
@@ -2124,13 +2138,13 @@ class AppState extends ChangeNotifier {
             ? await saveSketch(name)
             : false;
     if (!ok) {
-      toast('Could not save "$name".');
+      toast(L.current.msgCouldNotSave(name));
       return;
     }
     final saved = library[name] ?? ref;
     toast(saved != null && saved.source == DocSource.external
-        ? 'Saved to ${_folderLabel(saved.path)}'
-        : 'Saved "$name"');
+        ? L.current.msgSavedTo(_folderLabel(saved.path))
+        : L.current.msgSavedNamed(name));
   }
 
   // ---- M177: Open ----
@@ -2148,7 +2162,7 @@ class AppState extends ChangeNotifier {
     Log.i('doc', 'open "$path" -> ${action.name}');
     switch (action) {
       case OpenAction.unsupported:
-        toast('Prototype cannot open that kind of file.');
+        toast(L.current.msgCannotOpenKind);
         return null;
       case OpenAction.import:
         return importAsNewDocument(path);
@@ -2156,7 +2170,7 @@ class AppState extends ChangeNotifier {
         return adoptDocument(path);
       case OpenAction.openExternal:
         if (readDocHeader(path) == null) {
-          toast('That file is not a Prototype document (or is damaged).');
+          toast(L.current.msgNotAPrototypeDoc);
           return null;
         }
         final ref = DocRef(docNameOf(path)!, isPartPath(path) ? 'part' : 'sketch',
@@ -2170,7 +2184,7 @@ class AppState extends ChangeNotifier {
         await refreshSaved();
         final label = _labelForPath(path);
         if (label == null) {
-          toast('Could not open that document.');
+          toast(L.current.msgCouldNotOpenDoc);
           return null;
         }
         // The file on disk may have changed since it was last staged — it is
@@ -2207,7 +2221,7 @@ class AppState extends ChangeNotifier {
   /// there. Returns the name it landed under.
   Future<String?> adoptDocument(String path) async {
     if (readDocHeader(path) == null) {
-      toast('That file is not a Prototype document (or is damaged).');
+      toast(L.current.msgNotAPrototypeDoc);
       return null;
     }
     final ext = isPartPath(path) ? kPartExt : kSketchExt;
@@ -2220,7 +2234,7 @@ class AppState extends ChangeNotifier {
       File(path).copySync('${_docsDir!.path}/$name.$ext');
     } catch (e, st) {
       Log.e('doc', 'could not take "$path" into the app folder', e, st);
-      toast('Could not open that document.');
+      toast(L.current.msgCouldNotOpenDoc);
       return null;
     }
     Log.i('doc', 'adopted "$path" as "$name"');
@@ -2261,12 +2275,12 @@ class AppState extends ChangeNotifier {
         importDxf(path);
         await saveSketch(name);
       } else {
-        toast('Prototype cannot open that kind of file.');
+        toast(L.current.msgCannotOpenKind);
         return null;
       }
     } catch (e, st) {
       Log.e('import', 'import of "$path" failed', e, st);
-      toast('Could not import that file.');
+      toast(L.current.msgCouldNotImportFile);
       return null;
     }
     Log.i('doc', 'imported "$path" as "$name"');
@@ -2538,7 +2552,9 @@ class AppState extends ChangeNotifier {
     if (dragGrip != null) return; // never rip the state out from under a drag
     final snap = step(s);
     if (snap == null) {
-      toast(what == 'undo' ? 'Nothing to undo.' : 'Nothing to redo.');
+      toast(what == 'undo'
+          ? L.current.msgNothingToUndo
+          : L.current.msgNothingToRedo);
       return;
     }
     Log.i(
@@ -2782,12 +2798,11 @@ class AppState extends ChangeNotifier {
     if (layerRolledBack(layerName)) {
       // Inventor: features below the EOP are unavailable until the marker is
       // dragged back down past them.
-      toast('“$layerName” is below End of Sketch — drag the marker down '
-          'to bring it back.');
+      toast(L.current.msgLayerBelowEos(layerName));
       return;
     }
     if (layerLocked(layerName)) {
-      toast('“$layerName” is locked — unlock it to edit.');
+      toast(L.current.msgLayerLockedEdit(layerName));
       return;
     }
     // Entering a layer that is switched off would let you draw into something
@@ -2845,18 +2860,18 @@ class AppState extends ChangeNotifier {
     if (s == null) return false;
     newName = newName.trim();
     if (isBaseLayer(oldName)) {
-      toast('The default layer “0” can’t be renamed.');
+      toast(L.current.msgDefaultLayerNoRename);
       return false;
     }
     if (isBaseLayer(newName)) {
-      toast('“0” is reserved for the default layer.');
+      toast(L.current.msgZeroReserved);
       return false;
     }
     if (!s.layers.contains(oldName)) return false;
     if (newName.isEmpty) return false;
     if (newName == oldName) return true;
     if (s.layers.contains(newName)) {
-      toast('A layer named “$newName” already exists.');
+      toast(L.current.msgLayerExists(newName));
       return false;
     }
     final gs = [
@@ -2881,7 +2896,7 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null) return 0;
     if (isBaseLayer(name)) {
-      toast('The default layer “0” can’t be deleted.');
+      toast(L.current.msgDefaultLayerNoDelete);
       return 0;
     }
     if (!s.layers.contains(name)) return 0;
@@ -2939,7 +2954,7 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null) return 0;
     if (!inEditMode) {
-      toast('Enter a layer to edit: double-tap it in the model browser.');
+      toast(L.current.msgEnterLayerToEdit);
       return 0;
     }
     final victims = <int>[
@@ -2947,7 +2962,7 @@ class AppState extends ChangeNotifier {
         if (i >= 0 && i < s.geometry.length && geoEditable(s.geometry[i])) i
     ]..sort((a, b) => b.compareTo(a));
     if (victims.isEmpty) {
-      toast('Select geometry first, then delete it.');
+      toast(L.current.msgSelectThenDelete);
       return 0;
     }
     final gs = List<Geo>.from(s.geometry);
@@ -2988,15 +3003,15 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null || !s.layers.contains(target)) return 0;
     if (selection.isEmpty) {
-      toast('Select geometry first, then move it to a layer.');
+      toast(L.current.msgSelectThenMoveToLayer);
       return 0;
     }
     if (layerLocked(target)) {
-      toast('“$target” is locked.');
+      toast(L.current.msgLayerLocked(target));
       return 0;
     }
     if (layerRolledBack(target)) {
-      toast('“$target” is below End of Sketch.');
+      toast(L.current.msgTargetBelowEos(target));
       return 0;
     }
     final sel = selection.where((i) => i >= 0 && i < s.geometry.length).toSet();
@@ -3065,7 +3080,7 @@ class AppState extends ChangeNotifier {
     final eos = s.eosAfter.clamp(0, s.layers.length);
     final below = s.layers.sublist(eos);
     if (below.isEmpty) {
-      toast('Nothing below End of Sketch.');
+      toast(L.current.msgNothingBelowEos);
       return 0;
     }
     final names = below.toSet();
@@ -3607,7 +3622,7 @@ class AppState extends ChangeNotifier {
     // to export no matter what the document holds, so reading it off disk and
     // folding its features would be pure waste before saying so.
     if (!partKernel.available) {
-      toast('No 3D kernel linked — STEP export needs the device build.');
+      toast(L.current.msgNoKernelStep);
       return null;
     }
     final wasLoaded = parts.containsKey(name);
@@ -3631,7 +3646,7 @@ class AppState extends ChangeNotifier {
       // on screen.
       final bodies = partExportBodies(p);
       if (bodies.isEmpty) {
-        toast('Nothing to export yet — extrude a profile first.');
+        toast(L.current.msgNothingToExportYet);
         return null;
       }
       // A feature that failed to build is not in `bodies` at all, so an export
@@ -3658,13 +3673,13 @@ class AppState extends ChangeNotifier {
         }
       }
       if (!partKernel.exportStepBodies(bodies, path, product: name)) {
-        toast('STEP export failed: ${partKernel.lastError}');
+        toast(L.current.msgStepExportFailed(partKernel.lastError));
         return null;
       }
       if (!out.existsSync() || out.lengthSync() == 0) {
         // The kernel said yes and produced nothing. Sharing a zero-byte file
         // is worse than reporting the failure.
-        toast('STEP export produced an empty file.');
+        toast(L.current.msgStepExportEmpty);
         Log.w('export', 'kernel reported success but $path is empty/missing');
         return null;
       }
@@ -3675,8 +3690,8 @@ class AppState extends ChangeNotifier {
               'bytes=${out.lengthSync()}'
               '${broken.isEmpty ? "" : " SKIPPED=${broken.join(", ")}"}');
       if (broken.isNotEmpty) {
-        toast('Exported without ${broken.join(", ")} — '
-            '${broken.length == 1 ? "it" : "they"} could not be built.');
+        toast(L.current
+            .msgExportedWithout(broken.length, broken.join(', ')));
       }
       return path;
     } finally {
@@ -3718,7 +3733,7 @@ class AppState extends ChangeNotifier {
         return null;
       }
       if (cs.model.geometry.isEmpty) {
-        toast('Nothing to export — “$sketchName” is empty.');
+        toast(L.current.msgNothingToExportEmpty(sketchName));
         return null;
       }
       final exportDir = Directory('${_cacheRoot.path}/export');
@@ -3742,7 +3757,7 @@ class AppState extends ChangeNotifier {
       final path = _writeExportDxf(cs.model, out,
           storage: storage.existsSync() ? storage : null);
       if (path == null || !out.existsSync() || out.lengthSync() == 0) {
-        toast('DXF export failed.');
+        toast(L.current.msgDxfExportFailed);
         Log.w('export', 'DXF "$partName/$sketchName" produced nothing');
         return null;
       }
@@ -3753,7 +3768,7 @@ class AppState extends ChangeNotifier {
       return path;
     } catch (e, st) {
       Log.e('export', 'DXF "$partName/$sketchName" failed', e, st);
-      toast('DXF export failed.');
+      toast(L.current.msgDxfExportFailed);
       return null;
     } finally {
       if (!wasLoaded) p.dispose();
@@ -3785,7 +3800,7 @@ class AppState extends ChangeNotifier {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
     }
     pickPlane = true;
-    toast('Select a plane to create the sketch on.');
+    toast(L.current.msgSelectPlaneForSketch);
     notifyListeners();
   }
 
@@ -3993,7 +4008,7 @@ class AppState extends ChangeNotifier {
     if (p == null) return 0;
     final victims = [for (final f in p.features) if (f.rolledBack) f];
     if (victims.isEmpty) {
-      toast('Nothing below End of Part.');
+      toast(L.current.msgNothingBelowEop);
       return 0;
     }
     _partCheckpoint(p); // M182 — deleting below EOP must be undoable
@@ -4034,7 +4049,7 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (p == null) return false;
     if (sketchIsConsumed(p, cs)) {
-      toast('${cs.model.name} is used by a feature — delete that first.');
+      toast(L.current.msgUsedByFeature(cs.model.name));
       return false;
     }
     _partCheckpoint(p); // M182 — deleting a sketch must be undoable
@@ -4113,8 +4128,8 @@ class AppState extends ChangeNotifier {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
     }
     toast(kind == WorkPlaneKind.offset
-        ? 'Select a plane or face to offset from.'
-        : 'Select the first of two parallel planes or faces.');
+        ? L.current.msgSelectPlaneToOffsetFrom
+        : L.current.msgSelectFirstParallel);
     notifyListeners();
   }
 
@@ -4261,7 +4276,7 @@ class AppState extends ChangeNotifier {
     if (!w.offsetEditable) {
       // A plane with no recorded base (a midplane, or one saved before M162)
       // has nothing to measure from — say so instead of moving nothing.
-      toast('${w.name}: this plane has no offset to drag.');
+      toast(L.current.msgPlaneHasNoOffset(w.name));
       return;
     }
     selectedWorkPlane = w;
@@ -4448,7 +4463,7 @@ class AppState extends ChangeNotifier {
     if (base == null) return;
     if (d.abs() < 1e-6) {
       cancelWorkPlane();
-      toast('Drag away from the plane to set the offset.');
+      toast(L.current.msgDragAwayToSetOffset);
       return;
     }
     final p = currentPart;
@@ -4507,7 +4522,7 @@ class AppState extends ChangeNotifier {
     }
 
     if (_wpPicks.length < 2) {
-      toast('Select the second parallel plane or face.');
+      toast(L.current.msgSelectSecondParallel);
       notifyListeners();
       return;
     }
@@ -4518,7 +4533,7 @@ class AppState extends ChangeNotifier {
       // that makes a tool feel hostile.
       _wpPicks.removeLast();
       _wpNames.removeLast();
-      toast('Those two are not parallel — pick a parallel plane or face.');
+      toast(L.current.msgNotParallel);
       notifyListeners();
       return;
     }
@@ -4554,7 +4569,7 @@ class AppState extends ChangeNotifier {
     _wpPicks.clear();
     _wpNames.clear();
     _planesAutoShown = false;
-    toast('${wp.name}: $def');
+    toast(L.current.msgNameColonDef(wp.name, def));
     Log.i('part', 'work plane "${wp.name}" — $def');
     if (curTab != null) savePart(curTab!);
     notifyListeners();
@@ -4622,14 +4637,13 @@ class AppState extends ChangeNotifier {
     cancelWorkPlane();
     cancelWorkFeature();
     if (!p.hasSolid) {
-      toast('${faceEditLabel(kind)} needs a solid body first.');
+      toast(L.current.msgFaceEditNeedsBody(faceEditName(L.current, kind)));
       return;
     }
     faceEdit = FaceEditSession(kind);
-    final verb = kind == FaceEditKind.delete ? 'delete' : 'move';
     toast(kind == FaceEditKind.scale
-        ? 'Set the scale factor, then apply.'
-        : 'Select the faces to $verb.');
+        ? L.current.msgSetScaleThenApply
+        : L.current.msgSelectFacesTo(faceEditVerb(L.current, kind)));
     notifyListeners();
   }
 
@@ -4679,12 +4693,12 @@ class AppState extends ChangeNotifier {
     if (p == null || s == null) return false;
     final scale = s.kind == FaceEditKind.scale;
     if (s.faces.isEmpty && !scale) {
-      toast('Select at least one face.');
+      toast(L.current.msgSelectAtLeastOneFace);
       return false;
     }
     final host = lastSolidFeature(p);
     if (host == null) {
-      toast('Nothing to edit — build a body first.');
+      toast(L.current.msgNothingToEditBuildBody);
       return false;
     }
     final f = s.kind == FaceEditKind.delete
@@ -4713,7 +4727,8 @@ class AppState extends ChangeNotifier {
       // asked for an edit and did not get one, so the timeline should look
       // exactly as it did before they asked.
       p.features.remove(f);
-      toast('${f.typeLabel}: ${f.computeError ?? partKernel.lastError}');
+      toast(L.current.msgFeatureError(featureTypeName(L.current, f),
+          f.computeError ?? partKernel.lastError));
       notifyListeners();
       return false;
     }
@@ -4721,7 +4736,7 @@ class AppState extends ChangeNotifier {
     p.dirty = true;
     if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
     if (f.lostFaces > 0) {
-      toast('${f.name}: ${f.lostFaces} selected face(s) no longer exist.');
+      toast(L.current.msgLostFaces(f.name, f.lostFaces));
     }
     if (curTab != null) await savePart(curTab!);
     notifyListeners();
@@ -4973,7 +4988,7 @@ class AppState extends ChangeNotifier {
     workAxisArm = null;
     _finishWorkFeature(p);
     selectedWorkAxis = a;
-    toast('${a.name}: ${a.def}');
+    toast(L.current.msgNameColonDef(a.name, a.def));
     Log.i('part', 'work axis "${a.name}" — ${a.def} '
         'at=(${a.at.x.toStringAsFixed(2)},${a.at.y.toStringAsFixed(2)},'
         '${a.at.z.toStringAsFixed(2)}) '
@@ -4996,7 +5011,7 @@ class AppState extends ChangeNotifier {
     workPointArm = null;
     _finishWorkFeature(p);
     selectedWorkPoint = pt;
-    toast('${pt.name}: ${pt.def}');
+    toast(L.current.msgNameColonDef(pt.name, pt.def));
     Log.i('part', 'work point "${pt.name}" — ${pt.def} '
         'at=(${pt.at.x.toStringAsFixed(2)},${pt.at.y.toStringAsFixed(2)},'
         '${pt.at.z.toStringAsFixed(2)})');
@@ -5142,7 +5157,7 @@ class AppState extends ChangeNotifier {
       recomputeAllFeatures(p, partKernel);
       for (final f in p.features) {
         if (f.computeError != null) {
-          toast('${f.name}: ${f.computeError}');
+          toast(L.current.msgFeatureError(f.name, f.computeError!));
         }
       }
     }
@@ -5377,7 +5392,7 @@ class AppState extends ChangeNotifier {
     final s = edgeSession;
     final p = currentPart;
     if (s == null || p == null) return (null, 'no session');
-    if (pickedEdges.isEmpty) return (null, 'Select at least one edge.');
+    if (pickedEdges.isEmpty) return (null, L.current.valSelectOneEdge);
     final body = pickedEdgeSolid == null
         ? (s.editing?.bodyName ?? 'Solid1')
         : (_bodyNameOfSolid(pickedEdgeSolid!) ?? 'Solid1');
@@ -5389,12 +5404,12 @@ class AppState extends ChangeNotifier {
         final v = parseValueExpr(s.exprRadii[i]);
         if (v == null || !(v > 0)) {
           return (null, s.exprRadii.length == 1
-              ? 'Radius must be > 0.'
-              : 'Radius of set ${i + 1} must be > 0.');
+              ? L.current.valRadiusPositive
+              : L.current.valRadiusOfSetPositive('${i + 1}'));
         }
         rs.add(v);
       }
-      if (rs.isEmpty) return (null, 'Radius must be > 0.');
+      if (rs.isEmpty) return (null, L.current.valRadiusPositive);
       // End radii: blank means constant (0). A non-blank value that does not
       // parse is an error, not a silent fallback to constant.
       final rs2 = <double>[];
@@ -5407,8 +5422,8 @@ class AppState extends ChangeNotifier {
         final v = parseValueExpr(t);
         if (v == null || !(v > 0)) {
           return (null, rs.length == 1
-              ? 'End radius must be > 0.'
-              : 'End radius of set ${i + 1} must be > 0.');
+              ? L.current.valEndRadiusPositive
+              : L.current.valEndRadiusOfSetPositive('${i + 1}'));
         }
         rs2.add(v);
       }
@@ -5438,16 +5453,16 @@ class AppState extends ChangeNotifier {
       );
     }
     final d1 = parseValueExpr(s.exprD1);
-    if (d1 == null || !(d1 > 0)) return (null, 'Distance must be > 0.');
+    if (d1 == null || !(d1 > 0)) return (null, L.current.valDistancePositive);
     var d2 = d1, ang = 45.0;
     if (s.mode == 1) {
       final v = parseValueExpr(s.exprD2);
-      if (v == null || !(v > 0)) return (null, 'Distance 2 must be > 0.');
+      if (v == null || !(v > 0)) return (null, L.current.valDistance2Positive);
       d2 = v;
     } else if (s.mode == 2) {
       final v = parseValueExpr(s.exprAngle);
       if (v == null || !(v > 0) || v >= 90) {
-        return (null, 'Angle must be between 0 and 90 deg.');
+        return (null, L.current.valAngle0to90);
       }
       ang = v;
     }
@@ -5492,7 +5507,7 @@ class AppState extends ChangeNotifier {
     }
     final base = pickedEdgeSolid;
     if (base == null) {
-      s.previewError = 'Select at least one edge.';
+      s.previewError = L.current.valSelectOneEdge;
       return;
     }
     // The throwaway feature owns the solid it builds; hand it straight to the
@@ -5512,7 +5527,7 @@ class AppState extends ChangeNotifier {
     if (s == null || p == null) return false;
     final (f, err) = _edgeSessionFeature();
     if (f == null) {
-      toast(err ?? 'Cannot create the feature.');
+      toast(err ?? L.current.msgCannotCreateFeature);
       return false;
     }
     final edit = s.editing;
@@ -5561,11 +5576,11 @@ class AppState extends ChangeNotifier {
       return;
     }
     if (p.childSketches.isEmpty) {
-      toast('A hole is placed on sketch points — create a sketch first.');
+      toast(L.current.msgHoleNeedsSketch);
       return;
     }
     if (edit == null && !p.hasSolid) {
-      toast('A hole needs a body to drill into.');
+      toast(L.current.msgHoleNeedsBody);
       return;
     }
     cancelExtrude();
@@ -5592,8 +5607,8 @@ class AppState extends ChangeNotifier {
     }
     holeSession = s;
     toast(s.places.isEmpty
-        ? 'Tap the sketch points the holes go on.'
-        : '${s.places.length} hole(s) — tap a point to add or remove one.');
+        ? L.current.msgTapSketchPointsForHoles
+        : L.current.msgHoleCount(s.places.length));
     notifyListeners();
   }
 
@@ -5605,7 +5620,7 @@ class AppState extends ChangeNotifier {
     if (s == null) return;
     if (s.sketchName != null && s.sketchName != sketchName) {
       if (s.places.isNotEmpty) {
-        toast('All holes of one feature come from the same sketch.');
+        toast(L.current.msgHolesSameSketch);
         return;
       }
     }
@@ -5657,17 +5672,17 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (s == null || p == null) return false;
     if (s.places.isEmpty || s.sketchName == null) {
-      toast('Tap the sketch points the holes go on.');
+      toast(L.current.msgTapSketchPointsForHoles);
       return false;
     }
     final dia = parseValueExpr(s.exprDia);
     if (dia == null || !(dia > 0)) {
-      toast('Diameter must be a number greater than 0.');
+      toast(L.current.msgDiameterPositive);
       return false;
     }
     final depth = parseValueExpr(s.exprDepth) ?? 0;
     if (s.extent == FeatureExtent.distance && !(depth > 0)) {
-      toast('Depth must be a number greater than 0.');
+      toast(L.current.msgDepthPositive);
       return false;
     }
     final edit = s.editing;
@@ -5679,14 +5694,13 @@ class AppState extends ChangeNotifier {
     final csAngle = parseValueExpr(s.exprCsAngle) ?? 0;
     if ((s.type == HoleType.counterbore || s.type == HoleType.spotface) &&
         !(cbDia > dia && cbDepth > 0)) {
-      toast('The ${holeTypeLabel(s.type).toLowerCase()} must be wider than '
-          'the hole and deeper than 0.');
+      toast(L.current
+          .msgCboreWiderThanHole(holeTypeDisplay(L.current, s.type)));
       return false;
     }
     if (s.type == HoleType.countersink &&
         !(csDia > dia && csAngle > 0 && csAngle < 180)) {
-      toast('The countersink must be wider than the hole, with an angle '
-          'between 0 and 180 deg.');
+      toast(L.current.msgCsinkAngle);
       return false;
     }
     final f = HoleFeature(
@@ -5726,7 +5740,9 @@ class AppState extends ChangeNotifier {
     if (partKernel.available) {
       if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
     }
-    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    if (f.computeError != null) {
+      toast(L.current.msgFeatureError(f.name, f.computeError!));
+    }
     p.dirty = true;
     Log.i('part',
         'hole ${edit == null ? "created" : "edited"} ${f.name} '
@@ -5753,7 +5769,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     if (edit == null && !p.hasSolid) {
-      toast('Split trims a body — there is none yet.');
+      toast(L.current.msgSplitNeedsBody);
       return;
     }
     cancelExtrude();
@@ -5778,7 +5794,7 @@ class AppState extends ChangeNotifier {
       pickPlane = true;
       _planesAutoShown = true;
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
-      toast('Select the plane to trim with.');
+      toast(L.current.msgSelectTrimPlane);
     }
     notifyListeners();
   }
@@ -5796,7 +5812,7 @@ class AppState extends ChangeNotifier {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
     }
     _planesAutoShown = false;
-    toast('Trimming with $label. OK keeps the side that is left.');
+    toast(L.current.msgTrimmingWith(label));
     notifyListeners();
   }
 
@@ -5808,7 +5824,7 @@ class AppState extends ChangeNotifier {
     pickPlane = true;
     _planesAutoShown = true;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
-    toast('Select the plane to trim with.');
+    toast(L.current.msgSelectTrimPlane);
     notifyListeners();
   }
 
@@ -5840,7 +5856,7 @@ class AppState extends ChangeNotifier {
     if (s == null || p == null) return false;
     final fr = s.frame;
     if (fr == null) {
-      toast('Select the plane to trim with.');
+      toast(L.current.msgSelectTrimPlane);
       return false;
     }
     final edit = s.editing;
@@ -5869,7 +5885,9 @@ class AppState extends ChangeNotifier {
     if (partKernel.available) {
       if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
     }
-    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    if (f.computeError != null) {
+      toast(L.current.msgFeatureError(f.name, f.computeError!));
+    }
     p.dirty = true;
     Log.i('part',
         'split ${edit == null ? "created" : "edited"} ${f.name} '
@@ -5896,8 +5914,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     if (edit == null && p.bodyNames.length < 2) {
-      toast('Combine needs two bodies — it joins, cuts or intersects one '
-          'with another.');
+      toast(L.current.msgCombineNeedsTwoBodies);
       return;
     }
     cancelExtrude();
@@ -5916,8 +5933,8 @@ class AppState extends ChangeNotifier {
     }
     combineSession = s;
     toast(s.baseBody == null
-        ? 'Tap the body to KEEP.'
-        : 'Tap the bodies to combine into ${s.baseBody}.');
+        ? L.current.msgTapBodyToKeep
+        : L.current.msgTapBodiesToCombine(s.baseBody!));
     notifyListeners();
   }
 
@@ -5929,12 +5946,12 @@ class AppState extends ChangeNotifier {
     if (s == null) return;
     if (s.baseBody == null) {
       s.baseBody = bodyName;
-      toast('Tap the bodies to combine into $bodyName.');
+      toast(L.current.msgTapBodiesToCombine(bodyName));
       notifyListeners();
       return;
     }
     if (bodyName == s.baseBody) {
-      toast('That is the base body — pick another one to combine with it.');
+      toast(L.current.msgThatIsBaseBody);
       return;
     }
     if (!s.tools.remove(bodyName)) s.tools.add(bodyName);
@@ -5964,7 +5981,7 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (s == null || p == null) return false;
     if (s.baseBody == null || s.tools.isEmpty) {
-      toast('Pick the body to keep, then the bodies to combine into it.');
+      toast(L.current.msgPickKeepThenCombine);
       return false;
     }
     final edit = s.editing;
@@ -5990,7 +6007,9 @@ class AppState extends ChangeNotifier {
     if (partKernel.available) {
       if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
     }
-    if (f.computeError != null) toast('${f.name}: ${f.computeError}');
+    if (f.computeError != null) {
+      toast(L.current.msgFeatureError(f.name, f.computeError!));
+    }
     p.dirty = true;
     Log.i('part',
         'combine ${edit == null ? "created" : "edited"} ${f.name} '
@@ -6037,8 +6056,8 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (p == null) return;
     if (p.features.isEmpty) {
-      toast('${patternKindLabel(kind)} needs a feature to copy — build one '
-          'first.');
+      toast(L.current
+          .msgPatternNeedsFeature(patternKindDisplay(L.current, kind)));
       return;
     }
     cancelExtrude();
@@ -6121,25 +6140,25 @@ class AppState extends ChangeNotifier {
     s.active = s.active == field ? PatternField.none : field;
     switch (s.active) {
       case PatternField.features:
-        toast('Select features — tap a face in 3D, or a row in the browser.');
+        toast(L.current.msgSelectFeatures);
       case PatternField.dirA:
       case PatternField.dirB:
-        toast('Tap a straight edge, a circular edge, or an origin axis.');
+        toast(L.current.msgTapStraightOrCircularEdge);
       case PatternField.axis:
-        toast('Tap a circular edge, a straight edge, or an origin axis.');
+        toast(L.current.msgTapCircularOrStraightEdge);
       case PatternField.plane:
-        toast('Tap a planar face, a work plane, or an origin plane.');
+        toast(L.current.msgTapPlanarFace);
       case PatternField.pointSketch:
-        toast('Tap the sketch whose points place the occurrences.');
+        toast(L.current.msgTapSketchForOccurrences);
       case PatternField.basePoint:
-        toast('Tap the sketch point the original sits on.');
+        toast(L.current.msgTapSketchPointOfOriginal);
       case PatternField.startA:
       case PatternField.startB:
-        toast('Tap the point on the curve where the pattern starts.');
+        toast(L.current.msgTapCurveStart);
       case PatternField.orientFace:
-        toast('Tap the face the occurrences should follow.');
+        toast(L.current.msgTapFaceToFollow);
       case PatternField.solid:
-        toast('Tap the solid body to pattern.');
+        toast(L.current.msgTapSolidBodyToPattern);
       case PatternField.none:
         break;
     }
@@ -6188,8 +6207,7 @@ class AppState extends ChangeNotifier {
       for (final g in p.features) {
         if (identical(g, edit)) seenPattern = true;
         if (identical(g, f) && seenPattern) {
-          toast('"${f.name}" is built after this pattern, so the pattern '
-              'cannot copy it.');
+          toast(L.current.msgBuiltAfterPattern(f.name));
           return true;
         }
       }
@@ -6268,7 +6286,7 @@ class AppState extends ChangeNotifier {
     final s = patternSession;
     if (s == null) return;
     if (dir.length < 1e-9) {
-      toast('That edge has no direction.');
+      toast(L.current.msgEdgeNoDirection);
       return;
     }
     final ref = AxisRef(point.x, point.y, point.z, dir.x, dir.y, dir.z, label);
@@ -6333,12 +6351,12 @@ class AppState extends ChangeNotifier {
     if (s == null || p == null) return;
     final sel = first ? s.pathA : s.pathB;
     if (sel == null) {
-      toast('Pick the curve for this direction first.');
+      toast(L.current.msgPickCurveFirst);
       return;
     }
     final (pts, err) = resolvePath(p, sel);
     if (pts == null) {
-      toast(err ?? 'That curve is no longer available.');
+      toast(err ?? L.current.msgCurveGone);
       return;
     }
     final poly = <Vec3>[
@@ -6411,8 +6429,7 @@ class AppState extends ChangeNotifier {
     if (cs == null) return;
     final pts = sketchPatternPoints(cs.model);
     if (pts.isEmpty) {
-      toast('"$sketchName" holds no sketch points — a sketch-driven pattern '
-          'places one occurrence per point.');
+      toast(L.current.msgSketchHasNoPoints(sketchName));
       return;
     }
     s.pointSketch = sketchName;
@@ -6430,7 +6447,7 @@ class AppState extends ChangeNotifier {
     if (s == null) return;
     if (s.pointSketch.isEmpty) s.pointSketch = sketchName;
     if (s.pointSketch != sketchName) {
-      toast('The base point must be a point of "${s.pointSketch}".');
+      toast(L.current.msgBasePointMustBeOf(s.pointSketch));
       return;
     }
     s.basePicked = true;
@@ -6487,7 +6504,7 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (s == null || p == null) return (null, 'no session');
     if (!s.patternSolid && s.features.isEmpty) {
-      return (null, 'Select at least one feature to pattern.');
+      return (null, L.current.valSelectOneFeature);
     }
     final f = PatternFeature(
       name: s.editing?.name ?? p.nextFeatureName(patternTypeLabel(s.mode)),
@@ -6502,13 +6519,13 @@ class AppState extends ChangeNotifier {
     switch (s.mode) {
       case PatternKind.rectangular:
         if (s.dirA == null && s.pathA == null) {
-          return (null, 'Select a direction or a curve for Direction A.');
+          return (null, L.current.valSelectDirectionA);
         }
         final ca = _patternCount(s.exprCountA);
-        if (ca == null) return (null, 'Number in Direction A must be 1 or more.');
+        if (ca == null) return (null, L.current.valCountAAtLeastOne);
         final da = parseValueExpr(s.exprDistanceA);
         if (da == null || !(da > 0)) {
-          return (null, 'Distance in Direction A must be greater than 0.');
+          return (null, L.current.valDistanceAPositive);
         }
         f
           ..dirA = s.dirA?.copy()
@@ -6526,11 +6543,11 @@ class AppState extends ChangeNotifier {
         if (s.dirB != null || s.pathB != null) {
           final cb = _patternCount(s.exprCountB);
           if (cb == null) {
-            return (null, 'Number in Direction B must be 1 or more.');
+            return (null, L.current.valCountBAtLeastOne);
           }
           final db = parseValueExpr(s.exprDistanceB);
           if (db == null || !(db > 0)) {
-            return (null, 'Distance in Direction B must be greater than 0.');
+            return (null, L.current.valDistanceBPositive);
           }
           f
             ..dirB = s.dirB?.copy()
@@ -6550,16 +6567,16 @@ class AppState extends ChangeNotifier {
         // leftover count let a one-occurrence pattern through the panel to
         // fail in the kernel instead.
         if (f.occurrenceCount <= 1) {
-          return (null, 'A pattern needs more than one occurrence.');
+          return (null, L.current.valPatternNeedsTwo);
         }
       case PatternKind.circular:
-        if (s.axis == null) return (null, 'Select the rotation axis.');
+        if (s.axis == null) return (null, L.current.valSelectRotationAxis);
         final n = _patternCount(s.exprCountC);
-        if (n == null) return (null, 'Count must be 1 or more.');
-        if (n <= 1) return (null, 'A pattern needs more than one occurrence.');
+        if (n == null) return (null, L.current.valCountAtLeastOne);
+        if (n <= 1) return (null, L.current.valPatternNeedsTwo);
         final ang = parseValueExpr(s.exprAngleC);
         if (ang == null || ang == 0) {
-          return (null, 'Angle must not be 0.');
+          return (null, L.current.valAngleNotZero);
         }
         f
           ..axis = s.axis!.copy()
@@ -6573,7 +6590,7 @@ class AppState extends ChangeNotifier {
         f.irregularC.addAll(s.irregularC);
       case PatternKind.sketchDriven:
         if (s.pointSketch.isEmpty) {
-          return (null, 'Select the sketch that holds the points.');
+          return (null, L.current.valSelectPointSketch);
         }
         f
           ..pointSketch = s.pointSketch
@@ -6582,7 +6599,7 @@ class AppState extends ChangeNotifier {
           ..baseY = s.baseY
           ..orientFace = s.orientFace;
       case PatternKind.mirror:
-        if (s.plane == null) return (null, 'Select the mirror plane.');
+        if (s.plane == null) return (null, L.current.valSelectMirrorPlane);
         f
           ..mirrorPlane = s.plane!.copy()
           ..removeOriginal = s.removeOriginal && s.patternSolid;
@@ -6625,7 +6642,7 @@ class AppState extends ChangeNotifier {
         ? currentBodySolid(p, f.bodyName)
         : bodyBaseBefore(p, f.bodyName, edit);
     if (base == null) {
-      s.previewError = 'There is no solid to pattern yet.';
+      s.previewError = L.current.valNoSolidToPattern;
       return;
     }
     if (!recomputeFeature(p, f, partKernel, base: base)) {
@@ -6643,7 +6660,7 @@ class AppState extends ChangeNotifier {
     if (s == null || p == null) return false;
     final (f, err) = _patternSessionFeature();
     if (f == null) {
-      toast(err ?? 'Cannot create the pattern.');
+      toast(err ?? L.current.msgCannotCreatePattern);
       return false;
     }
     final edit = s.editing;
@@ -6698,7 +6715,7 @@ class AppState extends ChangeNotifier {
       s.axDx = edit.axDx;
       s.axDy = edit.axDy;
       s.axisPicked = true;
-      s.axisLabel = 'Axis';
+      s.axisLabel = L.current.lblAxis;
       s.profiles
         ..clear()
         ..addAll(
@@ -6758,7 +6775,7 @@ class AppState extends ChangeNotifier {
       s.axDx = edit.axDx;
       s.axDy = edit.axDy;
       s.axisPicked = true;
-      s.axisLabel = 'Axis';
+      s.axisLabel = L.current.lblAxis;
       s.coilMethod = edit.method;
       s.exprRevolutions = edit.exprRevolutions;
       s.exprHeight = edit.exprHeight;
@@ -6782,7 +6799,7 @@ class AppState extends ChangeNotifier {
   void beginPickSweepPath() {
     if (extrudeSession == null) return;
     pickingSweepPath = true;
-    toast('Tap the curve to sweep along.');
+    toast(L.current.msgTapCurveToSweep);
     notifyListeners();
   }
 
@@ -6804,13 +6821,13 @@ class AppState extends ChangeNotifier {
     }
     final cs = p.sketchByName(sketchName);
     if (cs == null || geoIndex < 0 || geoIndex >= cs.model.geometry.length) {
-      toast('That curve is no longer available.');
+      toast(L.current.msgCurveGone);
       notifyListeners();
       return;
     }
     final pts = sketchCurve(cs.model.geometry[geoIndex]);
     if (pts.length < 2) {
-      toast('That curve has no length.');
+      toast(L.current.msgCurveNoLength);
       notifyListeners();
       return;
     }
@@ -6830,7 +6847,7 @@ class AppState extends ChangeNotifier {
   void beginPickLoftSections() {
     if (extrudeSession == null) return;
     pickingLoftSections = true;
-    toast('Tap each section in order.');
+    toast(L.current.msgTapSectionsInOrder);
     notifyListeners();
   }
 
@@ -6868,7 +6885,7 @@ class AppState extends ChangeNotifier {
   void beginPickRevolveAxis() {
     if (extrudeSession == null) return;
     pickingRevolveAxis = true;
-    toast('Tap a sketch line or an origin axis to use as the axis.');
+    toast(L.current.msgTapAxisLine);
     notifyListeners();
   }
 
@@ -6907,20 +6924,20 @@ class AppState extends ChangeNotifier {
     };
     final cs = s.sketchName == null ? null : p.sketchByName(s.sketchName!);
     if (dir == null || cs == null) {
-      toast('Pick a sketch line or an origin axis.');
+      toast(L.current.msgPickAxisLine);
       notifyListeners();
       return;
     }
     final frame = sketchFrameOf(cs);
     // world origin on the plane?
     if ((Vec3.zero - frame.origin).dot(frame.n).abs() > 1e-7) {
-      toast('That axis is not in the sketch plane.');
+      toast(L.current.msgAxisNotInSketchPlane);
       notifyListeners();
       return;
     }
     // direction parallel to the plane?
     if (dir.dot(frame.n).abs() > 1e-7) {
-      toast('That axis is not in the sketch plane.');
+      toast(L.current.msgAxisNotInSketchPlane);
       notifyListeners();
       return;
     }
@@ -6949,19 +6966,19 @@ class AppState extends ChangeNotifier {
     }
     final cs = p.sketchByName(sketchName);
     if (cs == null || geoIndex < 0 || geoIndex >= cs.model.geometry.length) {
-      toast('That line is no longer available.');
+      toast(L.current.msgLineGone);
       notifyListeners();
       return;
     }
     final g = cs.model.geometry[geoIndex];
     if (g.type != Geo.line || g.data.length < 4) {
-      toast('The axis must be a straight line.');
+      toast(L.current.msgAxisMustBeStraight);
       notifyListeners();
       return;
     }
     final dx = g.data[2] - g.data[0], dy = g.data[3] - g.data[1];
     if (dx.abs() < 1e-9 && dy.abs() < 1e-9) {
-      toast('That line has no length.');
+      toast(L.current.msgLineNoLength);
       notifyListeners();
       return;
     }
@@ -6971,8 +6988,10 @@ class AppState extends ChangeNotifier {
     s.axDy = dy;
     s.axisPicked = true;
     s.axisLabel = g.isCenterline
-        ? 'Centerline'
-        : (g.isConstruction ? 'Construction line' : 'Line');
+        ? L.current.lblCenterlineGeo
+        : (g.isConstruction
+            ? L.current.lblConstructionLineGeo
+            : L.current.lblLineGeo);
     _updateExtrudePreview();
     notifyListeners();
   }
@@ -7036,7 +7055,7 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (p == null) return;
     if (p.childSketches.isEmpty) {
-      toast('Create a 2D sketch first — Extrude needs a closed profile.');
+      toast(L.current.msgCreateSketchFirstExtrude);
       return;
     }
     cancelExtrude();
@@ -7102,7 +7121,7 @@ class AppState extends ChangeNotifier {
         // pick decides which sketch this extrusion belongs to
         s.profiles.clear();
       } else if (s.profiles.isNotEmpty) {
-        toast('All profiles of one extrusion must come from the same sketch.');
+        toast(L.current.msgProfilesSameSketch);
         return;
       }
     }
@@ -7213,13 +7232,13 @@ class AppState extends ChangeNotifier {
 
   /// Parses the session values into a throwaway feature (also used for the
   (PartFeature?, String?) _sweepSessionFeature(ExtrudeSession s) {
-    if (s.path == null) return (null, 'Select a path curve.');
+    if (s.path == null) return (null, L.current.valSelectPathCurve);
     final taper = parseValueExpr(s.exprTaperSweep) ?? 0;
     final twist = parseValueExpr(s.exprTwist) ?? 0;
     if (twist.abs() > 1e-9) {
       // The kernel refuses a non-zero twist rather than producing an
       // untwisted solid; say so here instead of failing at the shim.
-      return (null, 'Twist is not supported yet — leave it at 0.');
+      return (null, L.current.valTwistUnsupported);
     }
     return (
       SweepFeature(
@@ -7241,7 +7260,7 @@ class AppState extends ChangeNotifier {
 
   (PartFeature?, String?) _loftSessionFeature(ExtrudeSession s) {
     if (s.loftSections.length < 2) {
-      return (null, 'Select at least two sections.');
+      return (null, L.current.valSelectTwoSections);
     }
     return (
       LoftFeature(
@@ -7262,7 +7281,7 @@ class AppState extends ChangeNotifier {
   }
 
   (PartFeature?, String?) _coilSessionFeature(ExtrudeSession s) {
-    if (!s.axisPicked) return (null, 'Select an axis.');
+    if (!s.axisPicked) return (null, L.current.valSelectAxis);
     final rev = parseValueExpr(s.exprRevolutions) ?? 0;
     final h = parseValueExpr(s.exprHeight) ?? 0;
     final pitch = parseValueExpr(s.exprPitch) ?? 0;
@@ -7270,19 +7289,19 @@ class AppState extends ChangeNotifier {
     // field left at nonsense does not block a perfectly good coil.
     switch (s.coilMethod) {
       case 1: // pitch and revolution
-        if (!(pitch > 0)) return (null, 'Pitch must be > 0.');
-        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        if (!(pitch > 0)) return (null, L.current.valPitchPositive);
+        if (!(rev > 0)) return (null, L.current.valRevolutionPositive);
         break;
       case 2: // pitch and height
-        if (!(pitch > 0)) return (null, 'Pitch must be > 0.');
-        if (!(h > 0)) return (null, 'Height must be > 0.');
+        if (!(pitch > 0)) return (null, L.current.valPitchPositive);
+        if (!(h > 0)) return (null, L.current.valHeightPositive);
         break;
       case 3: // spiral
-        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        if (!(rev > 0)) return (null, L.current.valRevolutionPositive);
         break;
       default: // revolution and height
-        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
-        if (!(h > 0)) return (null, 'Height must be > 0.');
+        if (!(rev > 0)) return (null, L.current.valRevolutionPositive);
+        if (!(h > 0)) return (null, L.current.valHeightPositive);
     }
     return (
       CoilFeature(
@@ -7318,31 +7337,31 @@ class AppState extends ChangeNotifier {
     // M144 — all three extents are resolved by resolveRevolveSweep now;
     // occt_revolve_hits_face answers the picked-face question.
     if (s.extent == FeatureExtent.toFace && s.extentFace == null) {
-      return (null, 'Select the face to terminate on.');
+      return (null, L.current.msgSelectTerminateFace);
     }
     // axisPicked is the ONLY gate. Testing the direction instead let the
     // default (0, 1) through — a non-degenerate vector — so a revolve could
     // be committed about a Y axis the user never chose.
     if (!s.axisPicked) {
-      return (null, 'Select an axis of revolution.');
+      return (null, L.current.valSelectRevolveAxis);
     }
     if (s.axDx == 0 && s.axDy == 0) {
-      return (null, 'The axis has no direction.');
+      return (null, L.current.valAxisNoDirection);
     }
     var a = 360.0, b = 0.0;
     if (!s.full) {
       final pa = parseValueExpr(s.exprA);
       if (pa == null || !(pa > 0) || pa > 360) {
-        return (null, 'Angle A must be between 0 and 360 degrees.');
+        return (null, L.current.valAngleA0to360);
       }
       a = pa;
       if (s.direction == ExtrudeDirection.asymmetric) {
         final pb = parseValueExpr(s.exprB);
-        if (pb == null || !(pb > 0)) return (null, 'Angle B must be > 0.');
+        if (pb == null || !(pb > 0)) return (null, L.current.valAngleBPositive);
         b = pb;
       }
       if (a + b > 360.0 + 1e-9) {
-        return (null, 'Angle A + B cannot exceed 360 degrees.');
+        return (null, L.current.valAngleABMax360);
       }
     }
     return (
@@ -7380,16 +7399,16 @@ class AppState extends ChangeNotifier {
     // Only a plain Distance is driven by the typed value; To Next / To /
     // Through All resolve against the model, so an empty or nonsense field
     // must not block them.
-    if (usesDistance && !(a > 0)) return (null, 'Distance A must be > 0.');
+    if (usesDistance && !(a > 0)) return (null, L.current.valDistanceAPositiveShort);
     var b = 0.0;
     if (usesDistance && s.direction == ExtrudeDirection.asymmetric) {
       final pb = parseValueExpr(s.exprB);
-      if (pb == null || !(pb > 0)) return (null, 'Distance B must be > 0.');
+      if (pb == null || !(pb > 0)) return (null, L.current.valDistanceBPositiveShort);
       b = pb;
     }
     final t = parseValueExpr(s.exprTaper);
     if (t == null || t.abs() >= 90) {
-      return (null, 'Taper must be inside (-90, 90) degrees.');
+      return (null, L.current.valTaperRange);
     }
     final f = ExtrudeFeature(
       name: s.editing?.name ?? '(preview)',
@@ -7508,7 +7527,7 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (s == null || p == null) return false;
     if (s.profiles.isEmpty || s.sketchName == null) {
-      toast('Pick at least one profile to extrude.');
+      toast(L.current.msgPickProfile);
       return false;
     }
     final (parsed, err) = _sessionFeature(s);
@@ -7595,11 +7614,12 @@ class AppState extends ChangeNotifier {
     final ok = recomputeFeature(p, f, partKernel, base: commitBase);
     if (!ok) {
       if (partKernel.available || f.computeError != 'no 3D kernel linked') {
-        toast('${f.name}: ${f.computeError ?? partKernel.lastError}');
+        toast(L.current.msgFeatureError(
+            f.name, f.computeError ?? partKernel.lastError));
       }
       if (!partKernel.available) {
         // parameters are stored honestly; the solid waits for the device
-        toast('No 3D kernel linked — feature stored, solid pending.');
+        toast(L.current.msgNoKernelFeatureStored);
       } else if (s.editing == null) {
         return false; // a NEW feature that cannot compute is not created
       }
@@ -7759,7 +7779,7 @@ class AppState extends ChangeNotifier {
     final n = name.trim();
     if (p == null || n.isEmpty || n == f.name) return false;
     if (p.features.any((o) => !identical(o, f) && o.name == n)) {
-      message = 'A feature named "$n" already exists';
+      message = L.current.valFeatureNameTaken(n);
       notifyListeners();
       return false;
     }
@@ -7814,25 +7834,25 @@ class AppState extends ChangeNotifier {
   Future<void> undoPart() async {
     final p = currentPart;
     if (p == null || _partUndo.isEmpty) {
-      toast('Nothing to undo.');
+      toast(L.current.msgNothingToUndo);
       return;
     }
     _partRedo.add(_partUndo.removeLast());
     await _restorePartSnap(p, _partRedo.last);
-    toast('Undo');
+    toast(L.current.msgUndone);
   }
 
   /// Ctrl+Shift+Z in a part: re-applies the last undone destructive op.
   Future<void> redoPart() async {
     final p = currentPart;
     if (p == null || _partRedo.isEmpty) {
-      toast('Nothing to redo.');
+      toast(L.current.msgNothingToRedo);
       return;
     }
     final s = _partRedo.removeLast();
     _partUndo.add(s);
     await _restorePartSnap(p, s);
-    toast('Redo');
+    toast(L.current.msgRedone);
   }
 
   /// Rebuilds [p] from a snapshot: features, counters, End of Part, work
@@ -7961,9 +7981,8 @@ class AppState extends ChangeNotifier {
     f.disposeSolid();
     p.features.remove(f);
     if (orphaned.isNotEmpty) {
-      toast('"${f.name}" was patterned by ${orphaned.join(", ")} — '
-          '${orphaned.length == 1 ? "that pattern is" : "those patterns are"} '
-          'now broken. Undo restores it.');
+      toast(L.current.msgPatternedByBroken(
+          f.name, orphaned.join(', '), orphaned.length));
     }
     Log.i('part', 'feature "${f.name}" deleted from "${p.name}"');
     p.dirty = true;
@@ -8951,7 +8970,7 @@ class AppState extends ChangeNotifier {
     // instead of by hope.
     if (t != Tool.none && !inEditMode) {
       Log.i('tool', 'BLOCKED $t — not editing a layer');
-      toast('Enter a layer to sketch: double-tap it in the model browser.');
+      toast(L.current.msgEnterLayerToSketch);
       return;
     }
     tool = t;
@@ -9045,7 +9064,7 @@ class AppState extends ChangeNotifier {
     final n = to.trim();
     if (p == null || n.isEmpty || n == from) return false;
     if (p.features.any((f) => f.bodyName == n)) {
-      message = 'A body named "$n" already exists';
+      message = L.current.valBodyNameTaken(n);
       notifyListeners();
       return false;
     }
@@ -9091,7 +9110,7 @@ class AppState extends ChangeNotifier {
   void beginPickExtentFace() {
     if (extrudeSession == null) return;
     pickingExtentFace = true;
-    toast('Select the face to terminate on.');
+    toast(L.current.msgSelectTerminateFace);
     notifyListeners();
   }
 
@@ -9190,12 +9209,12 @@ class AppState extends ChangeNotifier {
     final base = pickedEdgeSolid;
     if (s == null || !s.isFillet) return;
     if (base == null) {
-      toast('Pick one edge first, so the body is known.');
+      toast(L.current.msgPickOneEdgeFirst);
       return;
     }
     final live = partKernel.edgesOf(base);
     if (live.isEmpty) {
-      toast('That body has no selectable edges.');
+      toast(L.current.msgBodyHasNoEdges);
       return;
     }
     var added = 0;
@@ -9217,8 +9236,12 @@ class AppState extends ChangeNotifier {
       s.allRounds = true;
     }
     toast(added == 0
-        ? 'No ${concave ? 'interior' : 'exterior'} edges left to add.'
-        : 'Added $added ${concave ? 'fillet' : 'round'} edges.');
+        ? (concave
+            ? L.current.msgNoInteriorEdgesLeft
+            : L.current.msgNoExteriorEdgesLeft)
+        : (concave
+            ? L.current.msgAddedInteriorEdges(added)
+            : L.current.msgAddedExteriorEdges(added)));
     _updateEdgeFeaturePreview();
     notifyListeners();
   }
@@ -9266,7 +9289,7 @@ class AppState extends ChangeNotifier {
 
   void beginPickEdges() {
     pickingEdges = true;
-    toast('Select edges — tap to add, tap again to remove.');
+    toast(L.current.msgSelectEdges);
     notifyListeners();
   }
 
@@ -9351,7 +9374,7 @@ class AppState extends ChangeNotifier {
     if (extrudeSession == null) return;
     pickingBody = true;
     hoverBody = null;
-    toast('Select the target body — tap it in 3D or in the browser.');
+    toast(L.current.msgSelectTargetBody);
     notifyListeners();
   }
 
@@ -9556,7 +9579,7 @@ class AppState extends ChangeNotifier {
     final lay = editingLayer;
     if (s == null || g == null || lay == null) return false;
     if (!g.placedOnce) {
-      toast('Tap in the sketch to place the gear.');
+      toast(L.current.msgTapToPlaceGear);
       return false;
     }
     final ok = g.kind == GearKind.planetary
@@ -9592,8 +9615,8 @@ class AppState extends ChangeNotifier {
     final p = g.params.copy()..internal = g.kind == GearKind.internal;
     if (!p.valid) {
       toast(p.internal
-          ? 'Internal gear needs at least 3 teeth and a valid module.'
-          : 'Gear needs at least 4 teeth and a valid module.');
+          ? L.current.msgInternalGearTeeth
+          : L.current.msgGearTeeth);
       return false;
     }
     final center = g.center;
@@ -9656,14 +9679,15 @@ class AppState extends ChangeNotifier {
 
     if (!_solveAndRebuild(s, gs)) {
       s.constraints.removeRange(consBefore, s.constraints.length);
-      toast('Could not place the gear here.');
+      toast(L.current.msgCouldNotPlaceGear);
       notifyListeners();
       return false;
     }
     Log.i('gear',
         '${p.internal ? "internal" : "external"} gear z${p.teeth} m${p.module} on "$lay"');
-    toast('${p.internal ? "Internal" : "External"} gear placed — '
-        'dimension the centre and one angle to fully constrain it.');
+    toast(p.internal
+        ? L.current.msgInternalGearPlaced
+        : L.current.msgExternalGearPlaced);
     return true;
   }
 
@@ -9675,7 +9699,7 @@ class AppState extends ChangeNotifier {
   /// user gets geometry rather than nothing.
   bool _commitPlanetaryGear(SketchModel s, GearSession g, String lay) {
     if (g.planetTeeth < 4 || g.sunTeeth < 4 || g.planetCount < 2) {
-      toast('Planetary needs sun and planet teeth ≥ 4 and ≥ 2 planets.');
+      toast(L.current.msgPlanetaryNeeds);
       return false;
     }
     final layout = buildPlanetaryLayout(
@@ -9686,7 +9710,7 @@ class AppState extends ChangeNotifier {
       systemAngle: g.angleRad,
     );
     if (!layout.sun.params.valid || !layout.ring.params.valid) {
-      toast('These planetary parameters cannot be drawn.');
+      toast(L.current.msgPlanetaryUndrawable);
       return false;
     }
     final center = g.center;
@@ -9818,17 +9842,15 @@ class AppState extends ChangeNotifier {
       _rebuildEngine(s, gs);
       Log.w('gear', 'planetary constraints unsatisfied — placed unconstrained');
       toast(layout.assemblyOk
-          ? 'Planetary set placed (as free geometry).'
-          : 'Planetary set placed. Note: ${g.planetCount} planets do not '
-              'evenly divide for exact meshing.');
+          ? L.current.msgPlanetaryPlacedFree
+          : L.current.msgPlanetaryUneven(g.planetCount));
       return true;
     }
     Log.i('gear',
         'planetary sun${g.sunTeeth} planet${g.planetTeeth}x${g.planetCount} ring${layout.ringTeeth}');
     toast(layout.assemblyOk
-        ? 'Planetary set placed — dimension the centre and one angle.'
-        : 'Planetary set placed (${g.planetCount} planets are not evenly '
-            'spaced for exact meshing).');
+        ? L.current.msgPlanetaryPlacedDimension
+        : L.current.msgPlanetaryUnevenSpacing(g.planetCount));
     return true;
   }
 
@@ -9990,7 +10012,7 @@ class AppState extends ChangeNotifier {
     // phase's locked quantities for the commit-time dimensions, snap the point
     // to honour the locks, then clear the per-phase input for the next point.
     if (hudActive) {
-      final typed = double.tryParse(hudInput.trim());
+      final typed = Fmt.num(hudInput);
       if (typed != null) hudLocked[hudFocus] = typed;
       hudInput = '';
       _hudAccumulate();
@@ -10206,8 +10228,8 @@ class AppState extends ChangeNotifier {
       final g = s.geometry[picked];
       if (g.layer == lay) {
         toast(g.isProjection
-            ? 'Already projected onto this layer.'
-            : 'Project picks geometry from OTHER layers.');
+            ? L.current.msgAlreadyProjected
+            : L.current.msgProjectPicksOtherLayers);
         return;
       }
       src = picked;
@@ -10216,7 +10238,7 @@ class AppState extends ChangeNotifier {
         // the clicked edge, not the loop) — resolved at the click (M34)
         final e = polySegmentAt(s, picked, w);
         if (e == null) {
-          toast('Tap an edge of the polygon to project it.');
+          toast(L.current.msgTapPolygonEdge);
           return;
         }
         seg = e.$1.pt;
@@ -10239,7 +10261,7 @@ class AppState extends ChangeNotifier {
         src = Geo.projAxisY;
         proto = Geo(Geo.line, const [0, -kProjAxisSpan, 0, kProjAxisSpan]);
       } else {
-        toast('Tap geometry on another layer, or the X/Y axis.');
+        toast(L.current.msgTapGeometryOtherLayer);
         return;
       }
     }
@@ -10248,7 +10270,7 @@ class AppState extends ChangeNotifier {
           g.proj == src &&
           g.projSeg == seg &&
           g.layer == lay) {
-        toast('Already projected onto this layer.');
+        toast(L.current.msgAlreadyProjected);
         return;
       }
     }
@@ -10290,7 +10312,7 @@ class AppState extends ChangeNotifier {
       if (g.proj == Geo.projSolid &&
           g.projSeg == edgeIndex &&
           g.layer == lay) {
-        toast('Already projected onto this layer.');
+        toast(L.current.msgAlreadyProjected);
         return;
       }
     }
@@ -10391,7 +10413,7 @@ class AppState extends ChangeNotifier {
         final i = _pickEntity(s, w);
         if (i == null) return;
         if (s.geometry[i].isProjection) {
-          toast('Projected geometry cannot be patterned.');
+          toast(L.current.msgProjectedNoPattern);
           return;
         }
         if (!ps.geo.remove(i)) ps.geo.add(i); // tap toggles
@@ -10400,7 +10422,7 @@ class AppState extends ChangeNotifier {
       case PatField.dir2:
         final i = _pickEntity(s, w);
         if (i == null || s.geometry[i].type != Geo.line) {
-          toast('Pick a line to define the direction.');
+          toast(L.current.msgPickDirectionLine);
           return;
         }
         if (ps.active == PatField.dir1) {
@@ -10413,7 +10435,7 @@ class AppState extends ChangeNotifier {
         // a point, vertex, circle/arc center — or the projected center point
         final p = _nearestPointRef(s, w);
         if (p == null) {
-          toast('Pick a point or center to define the axis.');
+          toast(L.current.msgPickAxisPoint);
           return;
         }
         ps.axisPt = p;
@@ -10421,11 +10443,11 @@ class AppState extends ChangeNotifier {
       case PatField.mirrorLine:
         final i = _pickEntity(s, w);
         if (i == null || s.geometry[i].type != Geo.line) {
-          toast('Pick a line to mirror about.');
+          toast(L.current.msgPickMirrorLine);
           return;
         }
         if (ps.geo.contains(i)) {
-          toast('The mirror line cannot be part of the selection.');
+          toast(L.current.msgMirrorLineInSelection);
           return;
         }
         ps.mirrorEnt = i;
@@ -10557,19 +10579,19 @@ class AppState extends ChangeNotifier {
     if (s == null || ps == null || lay == null) return false;
     ps.geo.removeWhere((i) => i < 0 || i >= s.geometry.length);
     if (ps.geo.isEmpty) {
-      toast('Select geometry to pattern.');
+      toast(L.current.msgSelectGeometryToPattern);
       return false;
     }
     if (ps.kind == Tool.patRect && _patDir(s, ps.dir1Ent, false) == null) {
-      toast('Pick a line under Direction 1.');
+      toast(L.current.msgPickLineDirection1);
       return false;
     }
     if (ps.kind == Tool.patCirc && ps.axisPt == null) {
-      toast('Pick the pattern axis.');
+      toast(L.current.msgPickPatternAxis);
       return false;
     }
     if (ps.kind == Tool.mirror && _mirrorFn(s, ps.mirrorEnt) == null) {
-      toast('Pick the mirror line.');
+      toast(L.current.msgPickTheMirrorLine);
       return false;
     }
     if (ps.kind == Tool.mirror && ps.selfSym) {
@@ -10577,7 +10599,7 @@ class AppState extends ChangeNotifier {
     }
     final fs = _patTransforms(s);
     if (fs.isEmpty) {
-      toast('The pattern has nothing to create.');
+      toast(L.current.msgPatternNothingToCreate);
       return false;
     }
     final srcs = ps.geo.toList()..sort();
@@ -10611,11 +10633,11 @@ class AppState extends ChangeNotifier {
       // roll back the constraints this commit appended; the geometry copies
       // were never adopted (gs is local), so the sketch is untouched
       s.constraints.removeRange(consBefore, s.constraints.length);
-      toast('Pattern cannot be satisfied with the current constraints.');
+      toast(L.current.msgPatternUnsatisfiable);
       notifyListeners();
       return false;
     }
-    toast('Pattern created ($made new elements).');
+    toast(L.current.msgPatternCreated(made));
     if (keepOpen) {
       ps.geo.clear(); // Apply: ready for the next mirror pick set
       ps.active = PatField.geometry;
@@ -10671,7 +10693,7 @@ class AppState extends ChangeNotifier {
   /// symmetric constraint, and the middle point is pinned onto the line.
   bool _commitSelfSymmetric(SketchModel s, PatternSession ps, bool keepOpen) {
     if (ps.geo.length != 1) {
-      toast('Self Symmetric needs exactly one spline.');
+      toast(L.current.msgSelfSymNeedsOneSpline);
       return false;
     }
     final e = ps.geo.first;
@@ -10680,7 +10702,7 @@ class AppState extends ChangeNotifier {
         (g.spline == Geo.splineCv || g.spline == Geo.splineFit) &&
         g.data[0] == 0;
     if (!isOpenSpline) {
-      toast('Self Symmetric needs an open spline.');
+      toast(L.current.msgSelfSymNeedsOpenSpline);
       return false;
     }
     final axis = ps.mirrorEnt!;
@@ -10693,7 +10715,7 @@ class AppState extends ChangeNotifier {
     final endOn = (pt(n - 1) - f(pt(n - 1))).distance <= tol;
     final startOn = (pt(0) - f(pt(0))).distance <= tol;
     if (!endOn && !startOn) {
-      toast('The spline must end on the mirror line for Self Symmetric.');
+      toast(L.current.msgSelfSymEndOnMirror);
       return false;
     }
     // normalize so the ON-LINE point is LAST
@@ -10721,11 +10743,11 @@ class AppState extends ChangeNotifier {
         'self-symmetric spline e$e: $n -> ${ext.length} defining points');
     if (!_solveAndRebuild(s, gs)) {
       s.constraints.removeRange(consBefore, s.constraints.length);
-      toast('Self Symmetric cannot be satisfied with the current constraints.');
+      toast(L.current.msgSelfSymUnsatisfiable);
       notifyListeners();
       return false;
     }
-    toast('Spline made self-symmetric.');
+    toast(L.current.msgSelfSymDone);
     if (keepOpen) {
       ps.geo.clear();
       ps.active = PatField.geometry;
@@ -10760,7 +10782,7 @@ class AppState extends ChangeNotifier {
     if (guard != null && s.geometry[guard].isProjection) {
       // projected geometry is pinned reference geometry — Inventor does not
       // let Move/Trim/etc. touch it in the layer it was projected into
-      toast('Projected geometry cannot be modified here.');
+      toast(L.current.msgProjectedNoModify);
       return;
     }
     switch (tool) {
@@ -10816,7 +10838,7 @@ class AppState extends ChangeNotifier {
         // must not scramble the sketch — it is refused instead.
         if (!solveConstraints(gs, remapped)) {
           Log.w('modify', 'trim e$i REJECTED — result cannot be satisfied');
-          toast('This trim would break the sketch constraints.');
+          toast(L.current.msgTrimBreaksConstraints);
           return;
         }
         Log.i('modify',
@@ -10857,7 +10879,7 @@ class AppState extends ChangeNotifier {
         _bindCutPoints(gs, old, piecesStart, remapped);
         if (!solveConstraints(gs, remapped)) {
           Log.w('modify', 'split e$i REJECTED — result cannot be satisfied');
-          toast('This split would break the sketch constraints.');
+          toast(L.current.msgSplitBreaksConstraints);
           return;
         }
         Log.i('modify',
@@ -10981,7 +11003,7 @@ class AppState extends ChangeNotifier {
   void _commitOffset(SketchModel s, int seed, Offset w) {
     final chain = offsetChainAt(s.geometry, seed, w, _chainEligible(s));
     if (chain == null) {
-      toast('Nothing to offset here.');
+      toast(L.current.msgNothingToOffset);
       return;
     }
     final n = chain.offsets.length;
@@ -11150,12 +11172,12 @@ class AppState extends ChangeNotifier {
       // I cannot apply Locked" bug.
       if (_alreadyFixed(s, c)) {
         Log.i('constraint', 'REJECTED ${conStr(-1, c)} — already locked');
-        toast('This geometry is already locked.');
+        toast(L.current.msgAlreadyLocked);
         return false;
       }
     } else if (wouldOverconstrain(s.geometry, s.constraints, c)) {
       Log.i('constraint', 'REJECTED ${conStr(-1, c)} — would over-constrain');
-      toast('Adding this constraint will over-constrain the sketch.');
+      toast(L.current.msgWouldOverConstrainC);
       return false;
     }
     Log.i('constraint', 'ADD ${conStr(s.constraints.length, c)}');
@@ -11168,7 +11190,7 @@ class AppState extends ChangeNotifier {
     if (!_solveAndRebuild(s)) {
       s.constraints.remove(c);
       Log.i('constraint', 'REJECTED ${conStr(-1, c)} — cannot be satisfied');
-      toast('This constraint cannot be satisfied with the current geometry.');
+      toast(L.current.msgConstraintUnsatisfiable);
       return false;
     }
     Log.i('constraint', 'after solve: dof=${analysis?.dof}');
@@ -11322,13 +11344,13 @@ class AppState extends ChangeNotifier {
             bool plainPoly(Geo g) =>
                 g.type == Geo.polyline && g.spline == Geo.straight;
             if (!round(g1.type) && !round(g2.type) && !spl(g1) && !spl(g2)) {
-              toast('Tangent needs at least one curved entity.');
+              toast(L.current.msgTangentNeedsCurve);
               conEnts.clear();
               conEntClicks.clear();
               return;
             }
             if ((spl(g1) && g1.data[0] != 0) || (spl(g2) && g2.data[0] != 0)) {
-              toast('Tangent to a CLOSED spline is not supported.');
+              toast(L.current.msgTangentClosedSpline);
               conEnts.clear();
               conEntClicks.clear();
               return;
@@ -11376,7 +11398,7 @@ class AppState extends ChangeNotifier {
                         : getPt(s.geometry[conEnts[1 - k]], 0);
                 final seg = polySegmentAt(s, conEnts[k], at);
                 if (seg == null) {
-                  toast('Tangent needs at least one curved entity.');
+                  toast(L.current.msgTangentNeedsCurve);
                   conEnts.clear();
                   conEntClicks.clear();
                   return;
@@ -11399,7 +11421,7 @@ class AppState extends ChangeNotifier {
             final t2 = s.geometry[conEnts[1]].type;
             bool curved(int t) => t == Geo.arc || t == Geo.circle;
             if (!curved(t1) || !curved(t2)) {
-              toast('Smooth (G2) needs two curved entities.');
+              toast(L.current.msgSmoothNeedsTwoCurves);
               conEnts.clear();
               conEntClicks.clear();
               return;
@@ -11927,7 +11949,7 @@ class AppState extends ChangeNotifier {
       // A driving dimension whose value the geometry cannot reach must not
       // stay in the sketch half-satisfied. Take it back out.
       s.constraints.remove(d);
-      toast('This value cannot be satisfied with the current constraints.');
+      toast(L.current.msgValueUnsatisfiable);
     }
     notifyListeners();
   }
@@ -11981,7 +12003,7 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null) return;
     if (c.driven) {
-      toast('This is a driven (reference) dimension — it cannot be edited.');
+      toast(L.current.msgDrivenDimension);
       return;
     }
     // M41: an explicit numeric set clears any stored expression (Inventor:
@@ -11996,7 +12018,7 @@ class AppState extends ChangeNotifier {
     // subtly displaced.)
     if (!_solveOnceThenChase(s)) {
       _restoreDims(snap);
-      toast('Value cannot be satisfied with the current constraints.');
+      toast(L.current.msgValueUnsatisfiableShort);
     }
     notifyListeners();
   }
@@ -12188,7 +12210,7 @@ class AppState extends ChangeNotifier {
     final s = current;
     if (s == null) return false;
     if (c.driven) {
-      toast('This is a driven (reference) dimension — it cannot be edited.');
+      toast(L.current.msgDrivenDimension);
       return false;
     }
     ensureParamNames(s);
@@ -12196,13 +12218,13 @@ class AppState extends ChangeNotifier {
     if (body.trim().isEmpty) return false;
     if (name != null) {
       if (!isValidParamName(name)) {
-        toast('Invalid parameter name.');
+        toast(L.current.msgInvalidParamName);
         return false;
       }
       final other = _dimByName(s, name);
       if ((other != null && !identical(other, c)) ||
           _userByName(s, name) != null) {
-        toast('Parameter name "$name" is already in use.');
+        toast(L.current.msgParamNameInUse(name));
         return false;
       }
     }
@@ -12210,17 +12232,17 @@ class AppState extends ChangeNotifier {
     final refs = exprRefs(body);
     for (final r in refs) {
       if (!_nameTaken(s, r)) {
-        toast('Unknown parameter "$r".');
+        toast(L.current.msgUnknownParam(r));
         return false;
       }
       if (r == c.paramName || _wouldCycle(s, c, r)) {
-        toast('Circular reference: "$r" depends on this dimension.');
+        toast(L.current.msgCircularRefDimension(r));
         return false;
       }
     }
     final v = evalExpr(body, paramTable(s), angle: angle);
     if (v == null) {
-      toast('Invalid expression.');
+      toast(L.current.msgInvalidExpression);
       return false;
     }
     final snap = _snapshotDims(s);
@@ -12239,7 +12261,7 @@ class AppState extends ChangeNotifier {
       if (name != null && oldName != null && oldName != name) {
         _renameRefs(s, name, oldName);
       }
-      toast('Value cannot be satisfied with the current constraints.');
+      toast(L.current.msgValueUnsatisfiableShort);
       notifyListeners();
       return false;
     }
@@ -12359,24 +12381,24 @@ class AppState extends ChangeNotifier {
     if (body.trim().isEmpty) return false;
     if (name != null && name != u.name) {
       if (!isValidParamName(name) || _nameTaken(s, name)) {
-        toast('Invalid or duplicate parameter name.');
+        toast(L.current.msgInvalidOrDuplicateParamName);
         return false;
       }
     }
     final refs = exprRefs(body);
     for (final r in refs) {
       if (!_nameTaken(s, r)) {
-        toast('Unknown parameter "$r".');
+        toast(L.current.msgUnknownParam(r));
         return false;
       }
       if (r == u.name || _cycleIfRefs(s, u.name, {r})) {
-        toast('Circular reference: "$r" depends on this parameter.');
+        toast(L.current.msgCircularRefParam(r));
         return false;
       }
     }
     final v = evalExpr(body, paramTable(s));
     if (v == null) {
-      toast('Invalid expression.');
+      toast(L.current.msgInvalidExpression);
       return false;
     }
     final snap = _snapshotDims(s);
@@ -12395,7 +12417,7 @@ class AppState extends ChangeNotifier {
         u.name = oldName;
         _renameRefs(s, name, oldName);
       }
-      toast('Value cannot be satisfied with the current constraints.');
+      toast(L.current.msgValueUnsatisfiableShort);
       notifyListeners();
       return false;
     }
@@ -12411,7 +12433,7 @@ class AppState extends ChangeNotifier {
     name = name.trim();
     if (name == u.name) return true;
     if (!isValidParamName(name) || _nameTaken(s, name)) {
-      toast('Invalid or duplicate parameter name.');
+      toast(L.current.msgInvalidOrDuplicateParamName);
       return false;
     }
     final old = u.name;
@@ -12430,8 +12452,7 @@ class AppState extends ChangeNotifier {
     final g = _depGraph(s);
     for (final e in g.entries) {
       if (e.key != u.name && e.value.contains(u.name)) {
-        toast('"${u.name}" is used by "${e.key}" — remove the reference '
-            'first.');
+        toast(L.current.msgParamUsedBy(u.name, e.key));
         return false;
       }
     }
@@ -12574,7 +12595,7 @@ class AppState extends ChangeNotifier {
       File(srcPath).copySync('${dir.path}/$name');
     } catch (e) {
       Log.w('insert', 'image copy failed: $e');
-      toast('Could not import the image.');
+      toast(L.current.msgCouldNotImportImage);
       rethrow;
     }
     final img = SketchImage(
@@ -12645,12 +12666,12 @@ class AppState extends ChangeNotifier {
   Future<int> importStepIntoPart(String path) async {
     final p = currentPart;
     if (p == null) {
-      toast('Open a part first — STEP imports arrive as solid bodies.');
+      toast(L.current.msgOpenPartForStep);
       return 0;
     }
     final solids = partKernel.importStepSolids(path);
     if (solids.isEmpty) {
-      toast('No solids in that STEP file (${partKernel.lastError}).');
+      toast(L.current.msgNoSolidsInStep(partKernel.lastError));
       return 0;
     }
     // Keep the source next to the part so it can be re-read on open.
@@ -12684,8 +12705,7 @@ class AppState extends ChangeNotifier {
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);
     Log.i('import', 'STEP: ${solids.length} solid(s) from $path');
-    toast('Imported ${solids.length} '
-        'bod${solids.length == 1 ? 'y' : 'ies'}.');
+    toast(L.current.msgImportedBodies(solids.length));
     notifyListeners();
     return solids.length;
   }
@@ -12697,7 +12717,7 @@ class AppState extends ChangeNotifier {
     List<Geo> incoming;
     try {
       if (!tmp.engine.loadDxf(path)) {
-        toast('Could not read the DXF file.');
+        toast(L.current.msgCouldNotReadDxf);
         return false;
       }
       tmp.refresh();
@@ -12706,7 +12726,7 @@ class AppState extends ChangeNotifier {
       tmp.dispose();
     }
     if (incoming.isEmpty) {
-      toast('The DXF file contains no supported entities.');
+      toast(L.current.msgDxfNoSupportedEntities);
       return false;
     }
     final layer = editingLayer ?? kDefaultLayer;
@@ -12761,7 +12781,7 @@ class AppState extends ChangeNotifier {
     _rebuildEngine(s, next);
     _reanalyze();
     s.dirty = true;
-    toast('Imported ${incoming.length} entities.');
+    toast(L.current.msgImportedEntities(incoming.length));
     Log.i(
         'insert',
         'DXF import: ${incoming.length} entities onto "$layer", '
@@ -12778,7 +12798,7 @@ class AppState extends ChangeNotifier {
     name = name.trim();
     if (name == c.paramName) return true;
     if (!isValidParamName(name) || _nameTaken(s, name)) {
-      toast('Invalid or duplicate parameter name.');
+      toast(L.current.msgInvalidOrDuplicateParamName);
       return false;
     }
     final old = c.paramName!;
@@ -12822,16 +12842,15 @@ class AppState extends ChangeNotifier {
         if (tool == Tool.fillet && picks.length >= 2) {
           final most = filletMaxRadius(s.geometry, picks[0], picks[1], f.radius);
           if (most != null && most > 1e-6) {
-            toast('R${f.radius.toStringAsFixed(2)} runs past the end of that '
-                'edge. This corner takes at most '
-                'R${most.toStringAsFixed(2)}.');
+            toast(L.current.msgRadiusPastEdge(
+                Fmt.fixed(f.radius, 2), Fmt.fixed(most, 2)));
             notifyListeners();
             return;
           }
         }
         toast(tool == Tool.fillet
-            ? 'Pick two lines, arcs or circles that can meet.'
-            : 'Pick two non-parallel lines.');
+            ? L.current.msgPickTwoThatMeet
+            : L.current.msgPickTwoNonParallel);
         return;
       }
       // Build the result on LOCAL copies so a fillet/chamfer that cannot be
@@ -13033,10 +13052,8 @@ class AppState extends ChangeNotifier {
         // it showed both fillet arcs glued to the same endpoint.
         Log.block('modify', '${tool.name} refused this', sketchDump(gs, cons));
         toast(tool == Tool.fillet
-            ? 'That fillet would break the sketch — pick a valid corner or a '
-                'smaller radius.'
-            : 'That chamfer would break the sketch — pick a valid corner or '
-                'smaller distances.');
+            ? L.current.msgFilletBreaksSketch
+            : L.current.msgChamferBreaksSketch);
         return; // s.geometry / s.constraints untouched
       }
       Log.i('modify', '${tool.name} at e$e1/e$e2 -> e$newIdx (dimensioned)');
@@ -13098,7 +13115,7 @@ class AppState extends ChangeNotifier {
             'tool $tool produced DEGENERATE geometry (zero-length line, '
                 'zero-radius/zero-sweep arc) — REFUSED: '
                 '${placed.asMap().entries.map((e) => geoStr(e.key, e.value)).join('; ')}');
-        toast('That shape has no size — draw it again.');
+        toast(L.current.msgShapeHasNoSize);
         toolPoints.clear();
         _hudResetAll();
         notifyListeners();
@@ -13608,7 +13625,7 @@ class AppState extends ChangeNotifier {
   void _toggleStyleSelected(int style, String what) {
     final s = current;
     if (s == null || selection.isEmpty) {
-      toast('Select geometry first, then toggle $what.');
+      toast(L.current.msgSelectThenToggle(what));
       return;
     }
     final gs = List<Geo>.from(s.geometry);

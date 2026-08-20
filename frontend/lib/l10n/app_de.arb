@@ -1,0 +1,2275 @@
+{
+  "@@locale": "de",
+  "languageName": "Deutsch",
+  "@languageName": {
+    "description": "Name dieser Sprache, in dieser Sprache geschrieben. Erscheint im Sprachumschalter."
+  },
+  "languageMenuItem": "Sprache: Deutsch",
+  "@languageMenuItem": {
+    "description": "Eintrag im \"+\"-Menue der Galerie. Zeigt die Sprache, in die er umschaltet — der Eintrag ist eine Aktion, keine Statuszeile."
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Bestaetigen. In beiden Sprachen OK — im Deutschen ebenso ueblich wie im Englischen.",
+    "x-maxChars": 8
+  },
+  "cancel": "Abbrechen",
+  "@cancel": {
+    "description": "Abbrechen. Nicht \"Stornieren\" (Handel) und nicht \"Absagen\" (Termin).",
+    "x-maxChars": 12
+  },
+  "done": "Fertig",
+  "@done": {
+    "description": "Vorgang abschliessen. Kurz gehalten; \"Fertigstellen\" waere hier doppelt so lang.",
+    "x-maxChars": 12
+  },
+  "apply": "Übernehmen",
+  "@apply": {
+    "description": "Werte anwenden, Dialog bleibt offen. Inventor sagt \"Übernehmen\".",
+    "x-maxChars": 12
+  },
+  "close": "Schließen",
+  "@close": {
+    "x-maxChars": 12
+  },
+  "delete": "Löschen",
+  "@delete": {
+    "x-maxChars": 12
+  },
+  "rename": "Umbenennen",
+  "@rename": {
+    "x-maxChars": 14
+  },
+  "duplicate": "Duplizieren",
+  "@duplicate": {
+    "x-maxChars": 14
+  },
+  "create": "Erstellen",
+  "@create": {
+    "x-maxChars": 12
+  },
+  "select": "Auswählen",
+  "@select": {
+    "x-maxChars": 12
+  },
+  "finish": "Fertig",
+  "@finish": {
+    "x-maxChars": 12
+  },
+  "discard": "Verwerfen",
+  "@discard": {
+    "x-maxChars": 12
+  },
+  "edit": "Bearbeiten",
+  "@edit": {
+    "x-maxChars": 14
+  },
+  "hide": "Ausblenden",
+  "@hide": {
+    "x-maxChars": 14
+  },
+  "openEllipsis": "Öffnen…",
+  "@openEllipsis": {
+    "x-maxChars": 12
+  },
+  "exportEllipsis": "Exportieren…",
+  "@exportEllipsis": {
+    "x-maxChars": 16
+  },
+  "shareEllipsis": "Teilen…",
+  "@shareEllipsis": {
+    "x-maxChars": 14
+  },
+  "undo": "Rückgängig",
+  "@undo": {
+    "description": "Werkzeugleiste. \"Rückgängig\" ist der Begriff, den jede deutsche Oberflaeche benutzt; die Leiste laesst 12 Zeichen zu.",
+    "x-maxChars": 12
+  },
+  "redo": "Wiederholen",
+  "@redo": {
+    "description": "Werkzeugleiste. NICHT \"Wiederherstellen\" (16 Zeichen, sprengt die Leiste) — \"Wiederholen\" ist die kurze Form, die auch Office benutzt.",
+    "x-maxChars": 12
+  },
+  "panelSketch": "Skizze",
+  "@panelSketch": {
+    "description": "Ribbon-Gruppe. die Skizze."
+  },
+  "panelCreate": "Erstellen",
+  "panelModify": "Ändern",
+  "@panelModify": {
+    "description": "Ribbon-Gruppe. Inventor DE: \"Ändern\"."
+  },
+  "panelWorkFeatures": "Arbeitselemente",
+  "@panelWorkFeatures": {
+    "description": "Ribbon-Gruppe. Inventor DE: \"Arbeitselemente\" (Arbeitsebene, -achse, -punkt)."
+  },
+  "panelPattern": "Anordnung",
+  "@panelPattern": {
+    "description": "Ribbon-Gruppe. Inventor DE: \"Anordnung\", nicht \"Muster\"."
+  },
+  "panelLayer": "Layer",
+  "@panelLayer": {
+    "description": "Ribbon-Gruppe. \"Layer\" bleibt englisch — AutoCAD DE und die gesamte deutsche CAD-Praxis sagen Layer, nicht Ebene, weil Ebene in 3D die Plane ist."
+  },
+  "panelConstrain": "Abhängigkeit",
+  "@panelConstrain": {
+    "description": "Ribbon-Gruppe. Inventor DE nennt Zwangsbedingungen \"Abhängigkeiten\"; dieser Sprachgebrauch ist bei den Anwendern eingeuebt."
+  },
+  "panelInsert": "Einfügen",
+  "panelView": "Ansicht",
+  "panelExit": "Beenden",
+  "panelProjectGeometry": "Projizieren",
+  "@panelProjectGeometry": {
+    "description": "Ribbon-Gruppe. Kurzform von \"Geometrie projizieren\"; der volle Inventor-Begriff steht auf der Schaltflaeche darunter."
+  },
+  "btnCreateNewSketch": "Neue\nSkizze",
+  "@btnCreateNewSketch": {
+    "description": "Grosse Schaltflaeche auf der Startseite, zweizeilig. Englisch braucht drei Woerter fuer das, was \"Neue Skizze\" sagt.",
+    "x-maxChars": 12
+  },
+  "btnStart2dSketch": "2D-Skizze\nbeginnen",
+  "@btnStart2dSketch": {
+    "description": "Bauteil-Ribbon: startet eine Skizze auf einer gewaehlten Ebene.",
+    "x-maxChars": 12
+  },
+  "btnStartNewLayer": "Neuer\nLayer",
+  "@btnStartNewLayer": {
+    "x-maxChars": 12
+  },
+  "btnExtrude": "Extrusion",
+  "@btnExtrude": {
+    "description": "Inventor DE: \"Extrusion\". Substantiv, wie alle Feature-Befehle dort.",
+    "x-maxChars": 12
+  },
+  "btnRevolve": "Drehung",
+  "@btnRevolve": {
+    "description": "Inventor DE: \"Drehung\" — das Feature, nicht die Ansichtsdrehung (das ist \"Orbit\").",
+    "x-maxChars": 12
+  },
+  "btnSweep": "Sweeping",
+  "@btnSweep": {
+    "description": "Inventor DE laesst Sweep als \"Sweeping\" stehen. \"Ziehen\" oder \"Austragung\" wuerde kein Inventor-Anwender wiedererkennen.",
+    "x-maxChars": 12
+  },
+  "btnLoft": "Erhebung",
+  "@btnLoft": {
+    "description": "Inventor DE: \"Erhebung\".",
+    "x-maxChars": 12
+  },
+  "btnCoil": "Spirale",
+  "@btnCoil": {
+    "description": "Inventor DE: \"Spirale\".",
+    "x-maxChars": 12
+  },
+  "btnEmboss": "Prägen",
+  "@btnEmboss": {
+    "x-maxChars": 14
+  },
+  "btnDerive": "Ableiten",
+  "@btnDerive": {
+    "x-maxChars": 14
+  },
+  "btnDecal": "Aufkleber",
+  "@btnDecal": {
+    "x-maxChars": 14
+  },
+  "btnFillet": "Verrundung",
+  "@btnFillet": {
+    "description": "Inventor DE: \"Verrundung\". NICHT \"Filet\" — das ist Fleisch.",
+    "x-maxChars": 12
+  },
+  "btnChamfer": "Fase",
+  "@btnChamfer": {
+    "x-maxChars": 12
+  },
+  "btnShell": "Wandung",
+  "@btnShell": {
+    "description": "Inventor DE: \"Wandung\" — den Koerper auf eine Wandstaerke aushoehlen.",
+    "x-maxChars": 14
+  },
+  "btnDraft": "Formschräge",
+  "@btnDraft": {
+    "x-maxChars": 14
+  },
+  "btnThread": "Gewinde",
+  "@btnThread": {
+    "x-maxChars": 14
+  },
+  "btnHole": "Bohrung",
+  "@btnHole": {
+    "x-maxChars": 12
+  },
+  "btnSplit": "Trennen",
+  "@btnSplit": {
+    "x-maxChars": 12
+  },
+  "btnCombine": "Kombinieren",
+  "@btnCombine": {
+    "x-maxChars": 14
+  },
+  "btnPlane": "Ebene",
+  "@btnPlane": {
+    "x-maxChars": 12
+  },
+  "btnAxis": "Achse",
+  "@btnAxis": {
+    "x-maxChars": 12
+  },
+  "btnPoint": "Punkt",
+  "@btnPoint": {
+    "x-maxChars": 12
+  },
+  "btnLine": "Linie",
+  "@btnLine": {
+    "x-maxChars": 12
+  },
+  "btnCircle": "Kreis",
+  "@btnCircle": {
+    "x-maxChars": 12
+  },
+  "btnArc": "Bogen",
+  "@btnArc": {
+    "x-maxChars": 12
+  },
+  "btnRectangle": "Rechteck",
+  "@btnRectangle": {
+    "x-maxChars": 12
+  },
+  "btnText": "Text",
+  "@btnText": {
+    "x-maxChars": 12
+  },
+  "btnDimension": "Bemaßung",
+  "@btnDimension": {
+    "description": "Inventor DE: \"Bemaßung\". Mit ß — nach langem a steht ß, nicht ss.",
+    "x-maxChars": 12
+  },
+  "btnRectangular": "Rechteckig",
+  "@btnRectangular": {
+    "x-maxChars": 12
+  },
+  "btnCircular": "Rund",
+  "@btnCircular": {
+    "description": "Inventor DE: \"Runde Anordnung\". Hier steht das Adjektiv allein unter dem Symbol.",
+    "x-maxChars": 12
+  },
+  "btnMirror": "Spiegeln",
+  "@btnMirror": {
+    "x-maxChars": 12
+  },
+  "btnImage": "Bild",
+  "@btnImage": {
+    "x-maxChars": 12
+  },
+  "btnAcad": "ACAD",
+  "@btnAcad": {
+    "description": "DXF-Import. Kuerzel des Fremdformats, bleibt in beiden Sprachen stehen.",
+    "x-maxChars": 12
+  },
+  "btnConstruction": "Konstruktion",
+  "@btnConstruction": {
+    "description": "Konstruktionsgeometrie ein-/ausschalten. Inventor DE: \"Konstruktion\".",
+    "x-maxChars": 14
+  },
+  "btnParameters": "Parameter",
+  "@btnParameters": {
+    "description": "Plural von \"der Parameter\" ist \"die Parameter\" — kein -n.",
+    "x-maxChars": 12
+  },
+  "btnGear": "Zahnrad",
+  "@btnGear": {
+    "x-maxChars": 12
+  },
+  "btnProjectGeometry": "Geometrie\nprojizieren",
+  "@btnProjectGeometry": {
+    "description": "Zweizeilig. Inventor DE: \"Geometrie projizieren\".",
+    "x-maxChars": 12
+  },
+  "btnSliceGraphics": "Grafik\nschneiden",
+  "@btnSliceGraphics": {
+    "description": "Inventor DE: \"Grafik schneiden\" — blendet das Material vor der Skizzierebene aus.",
+    "x-maxChars": 12
+  },
+  "btnTrim": "Stutzen",
+  "@btnTrim": {
+    "description": "Inventor DE: \"Stutzen\".",
+    "x-maxChars": 12
+  },
+  "btnSelfSymmetric": "Selbstsymmetrisch",
+  "@btnSelfSymmetric": {
+    "description": "Spline auf sich selbst spiegeln. Langes Wort, sitzt aber in einer Zeile mit voller Breite."
+  },
+  "btnAssociative": "Assoziativ",
+  "btnFitted": "Angepasst",
+  "flyLineB": "Linie",
+  "flyLineSub": "Linie",
+  "flyMidlineSub": "Mittellinie",
+  "@flyMidlineSub": {
+    "description": "Linie durch den Mittelpunkt. Inventor DE: \"Mittellinie\"."
+  },
+  "flySplineB": "Spline",
+  "@flySplineB": {
+    "description": "\"Spline\" ist auch im Deutschen der Fachbegriff; es gibt kein gebraeuchliches deutsches Wort dafuer."
+  },
+  "flySplineCvSub": "Steuerpunkt",
+  "@flySplineCvSub": {
+    "description": "Inventor DE: Spline ueber Steuerpunkte."
+  },
+  "flySplineInterpSub": "Interpolation",
+  "flySplineFreeSub": "Freihand",
+  "flyEqCurveB": "Gleichungskurve",
+  "@flyEqCurveB": {
+    "description": "Inventor DE: \"Gleichungskurve\"."
+  },
+  "flyBridgeB": "Übergangskurve",
+  "@flyBridgeB": {
+    "description": "Inventor DE: \"Übergangskurve\" — verbindet zwei Kurven tangenten- oder kruemmungsstetig."
+  },
+  "flyCircleB": "Kreis",
+  "flyCenterPointSub": "Mittelpunkt",
+  "flyTangentSub": "Tangential",
+  "@flyTangentSub": {
+    "description": "Konstruktionsmethode: tangential an vorhandene Geometrie."
+  },
+  "flyEllipseB": "Ellipse",
+  "flyArcB": "Bogen",
+  "@flyArcB": {
+    "description": "Inventor DE: \"Bogen\". Nicht \"Kreisbogen\" — die Gruppe sagt schon, dass es ein Kreisbogen ist."
+  },
+  "flyThreePointSub": "Drei Punkte",
+  "flyRectB": "Rechteck",
+  "flyTwoPointSub": "Zwei Punkte",
+  "flyTwoPointCenterSub": "Zwei Punkte, mittig",
+  "flyThreePointCenterSub": "Drei Punkte, mittig",
+  "flySlotB": "Langloch",
+  "@flySlotB": {
+    "description": "Inventor DE: \"Langloch\"."
+  },
+  "flySlotCcSub": "Mitte zu Mitte",
+  "flySlotOverallSub": "Gesamtlänge",
+  "@flySlotOverallSub": {
+    "description": "Langloch ueber die Gesamtlaenge bemasst, nicht ueber den Mittenabstand."
+  },
+  "flySlot3aSub": "Bogen, drei Punkte",
+  "flySlotCpaSub": "Bogen, Mittelpunkt",
+  "flyPolygonB": "Polygon",
+  "flyFilletB": "Verrundung",
+  "flyChamferB": "Fase",
+  "flyTextB": "Text",
+  "flyGeomTextB": "Geometrietext",
+  "@flyGeomTextB": {
+    "description": "Text, der als Geometrie und nicht als Schriftobjekt entsteht."
+  },
+  "flyMoveB": "Verschieben",
+  "flySizeB": "Größe",
+  "@flySizeB": {
+    "description": "Direktbearbeitung: Flaeche vergroessern/verkleinern. Inventor DE: \"Größe\"."
+  },
+  "flyScaleB": "Skalieren",
+  "flyRotateB": "Drehen",
+  "flyDeleteB": "Löschen",
+  "flyAxisB": "Achse",
+  "flyAxisOnLineB": "Auf Linie oder Kante",
+  "flyAxisParPtB": "Parallel zu Linie durch Punkt",
+  "flyAxisTwoPtB": "Durch zwei Punkte",
+  "flyAxisTwoPlB": "Schnitt zweier Ebenen",
+  "flyAxisNormPtB": "Normal zu Ebene durch Punkt",
+  "flyAxisCircB": "Durch Mittelpunkt einer Rundkante",
+  "flyAxisRevB": "Durch Drehfläche oder -element",
+  "flyPointB": "Punkt",
+  "flyPointGroundB": "Fixierter Punkt",
+  "@flyPointGroundB": {
+    "description": "Inventor DE: \"Fixierter Punkt\" — haengt an keiner Geometrie."
+  },
+  "flyPointVertexB": "Auf Eckpunkt, Skizzenpunkt oder Mittelpunkt",
+  "flyPointThreePlB": "Schnitt dreier Ebenen",
+  "flyPointTwoLnB": "Schnitt zweier Linien",
+  "flyPointPlLnB": "Schnitt Ebene/Fläche und Linie",
+  "flyPointLoopB": "Mittelpunkt einer Kantenschleife",
+  "flyPointTorusB": "Mittelpunkt eines Torus",
+  "flyPointSphereB": "Mittelpunkt einer Kugel",
+  "flyPlaneB": "Ebene",
+  "flyPlaneOffsetB": "Versatz von Ebene",
+  "@flyPlaneOffsetB": {
+    "description": "Inventor DE: \"Versatz\". Nicht \"Offset\" — Inventor uebersetzt es."
+  },
+  "flyPlaneParallelPtB": "Parallel zu Ebene durch Punkt",
+  "flyPlaneMid2B": "Mittelebene zwischen zwei Ebenen",
+  "flyPlaneMidTorusB": "Mittelebene eines Torus",
+  "flyPlaneAngleEdgeB": "Winkel zu Ebene um Kante",
+  "flyPlaneThreePtsB": "Drei Punkte",
+  "flyPlaneTwoEdgesB": "Zwei koplanare Kanten",
+  "flyPlaneTanSurfEdgeB": "Tangential zu Fläche durch Kante",
+  "flyPlaneTanSurfPtB": "Tangential zu Fläche durch Punkt",
+  "flyPlaneTanParallelB": "Tangential zu Fläche und parallel zu Ebene",
+  "flyPlaneNormalAxisB": "Normal zu Achse durch Punkt",
+  "flyPlaneNormalCurveB": "Normal zu Kurve im Punkt",
+  "browserTitle": "Modell",
+  "@browserTitle": {
+    "description": "Kopfzeile des Modellbrowsers. Inventor DE: \"Modell\"."
+  },
+  "nodeOrigin": "Ursprung",
+  "@nodeOrigin": {
+    "description": "Browser-Knoten mit den drei Ursprungsebenen, -achsen und dem Mittelpunkt."
+  },
+  "nodeXAxis": "X-Achse",
+  "@nodeXAxis": {
+    "description": "Mit Bindestrich: im Deutschen wird die Buchstaben-Wort-Fuegung durchgekoppelt."
+  },
+  "nodeYAxis": "Y-Achse",
+  "nodeCenterPoint": "Mittelpunkt",
+  "nodeEndOfPart": "Ende des Bauteils",
+  "@nodeEndOfPart": {
+    "description": "Inventor DE: \"Ende des Bauteils\". das Bauteil, deshalb \"des\"."
+  },
+  "nodeEndOfSketch": "Ende der Skizze",
+  "@nodeEndOfSketch": {
+    "description": "die Skizze, deshalb \"der\"."
+  },
+  "nodeSolidBodies": "Volumenkörper ({count})",
+  "@nodeSolidBodies": {
+    "description": "Browser-Knoten. \"Volumenkörper\" ist im Plural formgleich mit dem Singular, deshalb kein plural-Block.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "nodeOccurrence": "Exemplar {index}",
+  "@nodeOccurrence": {
+    "description": "Ein Exemplar einer Anordnung. Inventor DE nennt die Kopien einer Anordnung \"Exemplare\".",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "nodeAutoProjected": "Automatisch projiziert",
+  "ctxUseAsTargetBody": "Als Zielkörper verwenden",
+  "ctxDeleteBody": "Körper löschen",
+  "ctxEditSketch": "Skizze bearbeiten",
+  "ctxShareSketch": "Skizze freigeben",
+  "@ctxShareSketch": {
+    "description": "Skizze fuer andere Elemente sichtbar machen. \"Freigeben\" im Sinne von Inventors \"gemeinsam verwenden\", nicht im Sinne von Teilen/Versenden."
+  },
+  "ctxUnshare": "Freigabe aufheben",
+  "ctxEditFeature": "Element bearbeiten",
+  "@ctxEditFeature": {
+    "description": "Inventor DE nennt ein Feature \"Element\"."
+  },
+  "ctxMoveEosHere": "Ende der Skizze hierher",
+  "ctxDeleteLayer": "Layer löschen",
+  "ctxMoveToTop": "An den Anfang",
+  "ctxMoveToEnd": "Ans Ende",
+  "ctxDeleteAllLayersBelow": "Alle Layer darunter löschen",
+  "ctxDeleteAllFeaturesBelow": "Alle Elemente darunter löschen",
+  "ctxDeleteAllFeaturesBelowEop": "Alle Elemente unterhalb EOP löschen",
+  "@ctxDeleteAllFeaturesBelowEop": {
+    "description": "EOP bleibt als Kuerzel stehen — es steht so schon im englischen UI und der Browser-Knoten daneben schreibt es aus."
+  },
+  "ctxCreateSketch": "Skizze erstellen",
+  "ctxEditOffset": "Versatz bearbeiten",
+  "ctxFlipDirection": "Richtung umkehren",
+  "ctxEditLayer": "Layer bearbeiten",
+  "ctxMoveSelectionHere": "Auswahl hierher verschieben",
+  "ctxExportDxf": "DXF exportieren…",
+  "@ctxExportDxf": {
+    "description": "DXF bleibt DXF — Dateiformat, kein uebersetzbares Wort."
+  },
+  "ctxShareDxf": "DXF teilen…",
+  "dlgRenameBody": "Körper umbenennen",
+  "dlgRenameFeature": "Element umbenennen",
+  "dlgRenameLayer": "Layer umbenennen",
+  "dlgRenameSketch": "Skizze umbenennen",
+  "phBodyName": "Körpername",
+  "@phBodyName": {
+    "description": "Platzhaltertext im Eingabefeld."
+  },
+  "phFeatureName": "Elementname",
+  "phLayerName": "Layername",
+  "phSketchName": "Skizzenname",
+  "@phSketchName": {
+    "description": "Fugen-n: Skizze + Name = Skizzenname."
+  },
+  "phPartName": "Bauteilname",
+  "dlgNewSketch": "Neue Skizze",
+  "dlgNewPart": "Neues Bauteil",
+  "@dlgNewPart": {
+    "description": "das Bauteil -> neues."
+  },
+  "dlgDeleteAllFeaturesBelowEop": "Alle Elemente unterhalb EOP löschen?",
+  "dlgDeleteEverythingBelowEos": "Alles unterhalb des Skizzenendes löschen?",
+  "dlgDeleteNamed": "„{name}“ löschen?",
+  "@dlgDeleteNamed": {
+    "description": "Deutsche Anfuehrungszeichen: „unten-oben“, nicht die englischen “oben-oben”.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgFeaturesRemoved": "{count, plural, =1{Ein Element wird aus dem Bauteil entfernt.} other{{count} Elemente werden aus dem Bauteil entfernt.}}",
+  "@msgFeaturesRemoved": {
+    "description": "Explizite Ein-/Mehrzahl statt zusammengesetzter Fragmente. Im Singular steht \"Ein Element\", nicht \"1 Element\".",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgBodyFeaturesRemoved": "{count, plural, =1{Sein einziges Element wird aus dem Bauteil entfernt.} other{Seine {count} Elemente werden aus dem Bauteil entfernt.}}",
+  "@msgBodyFeaturesRemoved": {
+    "description": "Bezug ist \"der Körper\", deshalb \"sein/seine\".",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgLayersAndEntitiesRemoved": "{layers, plural, =1{Ein Layer wird entfernt} other{{layers} Layer werden entfernt}}, {entities, plural, =0{ohne Objekte darin.} =1{mit einem Objekt darin.} other{mit {entities} Objekten darin.}}",
+  "@msgLayersAndEntitiesRemoved": {
+    "description": "Zwei Zaehlungen in einem Satz, beide mit eigener Ein-/Mehrzahl. \"Layer\" ist im Deutschen im Plural formgleich; der Unterschied steckt im Verb (wird/werden), was die plural-Bloecke mit abdecken.",
+    "placeholders": {
+      "layers": {
+        "type": "int"
+      },
+      "entities": {
+        "type": "int"
+      }
+    }
+  },
+  "msgFeatureAndSolidRemoved": "Das Element und sein Volumenkörper werden aus dem Bauteil entfernt.",
+  "msgSketchDeleted": "Die Skizze und alles darin werden von diesem iPad entfernt. Das lässt sich nicht rückgängig machen.",
+  "galleryNew2dSketch": "Neue 2D-Skizze",
+  "@galleryNew2dSketch": {
+    "x-maxChars": 20
+  },
+  "galleryNew3dPart": "Neues 3D-Bauteil",
+  "@galleryNew3dPart": {
+    "x-maxChars": 20
+  },
+  "galleryEmpty": "Auf  +  tippen für eine neue Skizze oder ein Bauteil",
+  "errNameTaken": "Eine Skizze oder ein Bauteil mit diesem Namen existiert bereits.",
+  "qtReportBug": "Fehler melden",
+  "@qtReportBug": {
+    "x-maxChars": 16
+  },
+  "hudOverConstrained": "Überbestimmt",
+  "@hudOverConstrained": {
+    "description": "Inventor DE: eine Skizze ist \"überbestimmt\", wenn eine Abhaengigkeit zu viel gesetzt ist."
+  },
+  "hudDriven": "Abhängig",
+  "@hudDriven": {
+    "description": "Referenzmass: wird von der Geometrie getrieben, treibt sie nicht. Inventor DE: \"abhängige Bemaßung\"."
+  },
+  "msgWouldOverConstrain": "Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung (Referenzmaß) behalten?",
+  "menuHomeView": "Startansicht",
+  "@menuHomeView": {
+    "description": "Zurueck in die Ausgangsansicht des 3D-Fensters."
+  },
+  "msgCouldNotSave": "„{name}“ ließ sich nicht speichern.",
+  "@msgCouldNotSave": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSavedTo": "Gespeichert in {folder}",
+  "@msgSavedTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSavedNamed": "„{name}“ gespeichert",
+  "@msgSavedNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCannotOpenKind": "Prototype kann diese Art von Datei nicht öffnen.",
+  "msgNotAPrototypeDoc": "Diese Datei ist kein Prototype-Dokument (oder ist beschädigt).",
+  "msgCouldNotOpenDoc": "Dieses Dokument ließ sich nicht öffnen.",
+  "msgCouldNotOpenFile": "Diese Datei ließ sich nicht öffnen.",
+  "msgCouldNotImportFile": "Diese Datei ließ sich nicht importieren.",
+  "msgCouldNotImportImage": "Das Bild ließ sich nicht importieren.",
+  "msgCouldNotImportDxf": "Die DXF-Datei ließ sich nicht importieren.",
+  "msgCouldNotReadDxf": "Die DXF-Datei ließ sich nicht lesen.",
+  "msgDxfNoSupportedEntities": "Die DXF-Datei enthält keine unterstützten Objekte.",
+  "msgLayerBelowEos": "„{layer}“ liegt unter dem Skizzenende — die Marke nach unten ziehen, um ihn zurückzuholen.",
+  "@msgLayerBelowEos": {
+    "description": "der Layer -> \"ihn\".",
+    "placeholders": {
+      "layer": {
+        "type": "String"
+      }
+    }
+  },
+  "msgLayerLockedEdit": "„{layer}“ ist gesperrt — zum Bearbeiten entsperren.",
+  "@msgLayerLockedEdit": {
+    "placeholders": {
+      "layer": {
+        "type": "String"
+      }
+    }
+  },
+  "msgLayerLocked": "„{layer}“ ist gesperrt.",
+  "@msgLayerLocked": {
+    "placeholders": {
+      "layer": {
+        "type": "String"
+      }
+    }
+  },
+  "msgTargetBelowEos": "„{layer}“ liegt unter dem Skizzenende.",
+  "@msgTargetBelowEos": {
+    "placeholders": {
+      "layer": {
+        "type": "String"
+      }
+    }
+  },
+  "msgDefaultLayerNoRename": "Der Standardlayer „0“ kann nicht umbenannt werden.",
+  "msgZeroReserved": "„0“ ist für den Standardlayer reserviert.",
+  "msgLayerExists": "Ein Layer namens „{name}“ existiert bereits.",
+  "@msgLayerExists": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgDefaultLayerNoDelete": "Der Standardlayer „0“ kann nicht gelöscht werden.",
+  "msgEnterLayerToEdit": "Layer betreten: im Modellbrowser doppelt antippen.",
+  "msgEnterLayerToSketch": "Layer betreten, um zu zeichnen: im Modellbrowser doppelt antippen.",
+  "msgSelectThenDelete": "Erst Geometrie wählen, dann löschen.",
+  "msgSelectThenMoveToLayer": "Erst Geometrie wählen, dann auf einen Layer verschieben.",
+  "msgSelectThenToggle": "Erst Geometrie wählen, dann {what} umschalten.",
+  "@msgSelectThenToggle": {
+    "placeholders": {
+      "what": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNothingBelowEos": "Unter dem Skizzenende liegt nichts.",
+  "msgNothingBelowEop": "Unter dem Bauteilende liegt nichts.",
+  "msgNoKernelStep": "Kein 3D-Kern verbunden — der STEP-Export braucht den Gerätebuild.",
+  "@msgNoKernelStep": {
+    "description": "STEP bleibt STEP: Dateiformat."
+  },
+  "msgNothingToExportYet": "Noch nichts zu exportieren — zuerst ein Profil extrudieren.",
+  "msgStepExportFailed": "STEP-Export fehlgeschlagen: {error}",
+  "@msgStepExportFailed": {
+    "description": "{error} kommt aus dem Kernel und bleibt in dessen Sprache — er wird nicht uebersetzt.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "msgStepExportEmpty": "Der STEP-Export hat eine leere Datei erzeugt.",
+  "msgExportedWithout": "{count, plural, =1{Ohne {names} exportiert — es ließ sich nicht bauen.} other{Ohne {names} exportiert — sie ließen sich nicht bauen.}}",
+  "@msgExportedWithout": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNothingToExportEmpty": "Nichts zu exportieren — „{name}“ ist leer.",
+  "@msgNothingToExportEmpty": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgDxfExportFailed": "DXF-Export fehlgeschlagen.",
+  "msgOpenPartForStep": "Zuerst ein Bauteil öffnen — STEP-Importe kommen als Volumenkörper an.",
+  "msgNoSolidsInStep": "Keine Volumenkörper in dieser STEP-Datei ({error}).",
+  "@msgNoSolidsInStep": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "msgImportedBodies": "{count, plural, =1{Ein Körper importiert.} other{{count} Körper importiert.}}",
+  "@msgImportedBodies": {
+    "description": "\"Körper\" ist im Plural formgleich; der Unterschied steckt im Zahlwort, deshalb trotzdem zwei Formen.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgImportedEntities": "{count, plural, =1{Ein Objekt importiert.} other{{count} Objekte importiert.}}",
+  "@msgImportedEntities": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgNothingToUndo": "Nichts rückgängig zu machen.",
+  "msgNothingToRedo": "Nichts zu wiederholen.",
+  "msgSelectPlaneForSketch": "Ebene wählen, auf der die Skizze entstehen soll.",
+  "msgUsedByFeature": "{name} wird von einem Element verwendet — dieses zuerst löschen.",
+  "@msgUsedByFeature": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSelectPlaneToOffsetFrom": "Ebene oder Fläche wählen, von der aus versetzt wird.",
+  "msgSelectFirstParallel": "Erste von zwei parallelen Ebenen oder Flächen wählen.",
+  "msgSelectSecondParallel": "Zweite parallele Ebene oder Fläche wählen.",
+  "msgNotParallel": "Diese beiden sind nicht parallel — eine parallele Ebene oder Fläche wählen.",
+  "msgPlaneHasNoOffset": "{name}: Diese Ebene hat keinen Versatz zum Ziehen.",
+  "@msgPlaneHasNoOffset": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgDragAwayToSetOffset": "Von der Ebene wegziehen, um den Versatz zu setzen.",
+  "msgNameColonDef": "{name}: {definition}",
+  "@msgNameColonDef": {
+    "description": "Nur ein Doppelpunkt-Muster. {definition} ist der GESPEICHERTE Definitionssatz eines Arbeitselements (\"Through X Axis and Y Axis\") und bleibt englisch — er steht so in der .ptp-Datei und darf nicht uebersetzt werden, sonst aendert sich das Dateiformat. Siehe S12-i18n.md.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "definition": {
+        "type": "String"
+      }
+    }
+  },
+  "msgFaceEditNeedsBody": "{command} braucht zuerst einen Volumenkörper.",
+  "@msgFaceEditNeedsBody": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSetScaleThenApply": "Skalierungsfaktor setzen, dann übernehmen.",
+  "msgSelectFacesTo": "Flächen zum {verb} wählen.",
+  "@msgSelectFacesTo": {
+    "description": "{verb} steht hier als substantiviertes Verb (\"zum Verschieben\"), deshalb gross und mit \"zum\".",
+    "placeholders": {
+      "verb": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSelectAtLeastOneFace": "Mindestens eine Fläche wählen.",
+  "msgNothingToEditBuildBody": "Nichts zu bearbeiten — zuerst einen Körper bauen.",
+  "msgFeatureError": "{name}: {error}",
+  "@msgFeatureError": {
+    "description": "{error} ist die Kernel-Meldung und bleibt in deren Sprache.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "msgLostFaces": "{count, plural, =1{{name}: Eine gewählte Fläche existiert nicht mehr.} other{{name}: {count} gewählte Flächen existieren nicht mehr.}}",
+  "@msgLostFaces": {
+    "description": "Ersetzt das englische \"face(s)\" mit Klammer-s, das im Deutschen gar nicht erst funktioniert.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgCannotCreateFeature": "Das Element lässt sich nicht erstellen.",
+  "msgNoKernelFeatureStored": "Kein 3D-Kern verbunden — Element gespeichert, Volumenkörper steht aus.",
+  "msgHoleNeedsSketch": "Eine Bohrung sitzt auf Skizzenpunkten — zuerst eine Skizze anlegen.",
+  "msgHoleNeedsBody": "Eine Bohrung braucht einen Körper zum Bohren.",
+  "msgTapSketchPointsForHoles": "Skizzenpunkte für die Bohrungen antippen.",
+  "msgHoleCount": "{count, plural, =1{Eine Bohrung — Punkt antippen zum Hinzufügen oder Entfernen.} other{{count} Bohrungen — Punkt antippen zum Hinzufügen oder Entfernen.}}",
+  "@msgHoleCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgHolesSameSketch": "Alle Bohrungen eines Elements stammen aus derselben Skizze.",
+  "msgDiameterPositive": "Der Durchmesser muss eine Zahl größer als 0 sein.",
+  "msgDepthPositive": "Die Tiefe muss eine Zahl größer als 0 sein.",
+  "msgCboreWiderThanHole": "Die {kind} muss weiter als die Bohrung und tiefer als 0 sein.",
+  "@msgCboreWiderThanHole": {
+    "description": "{kind} ist \"Senkung\"/\"Plansenkung\" — weiblich, deshalb \"die … muss\".",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCsinkAngle": "Die Senkung muss weiter als die Bohrung sein, mit einem Winkel zwischen 0 und 180 Grad.",
+  "msgSplitNeedsBody": "Trennen schneidet einen Körper — es gibt noch keinen.",
+  "msgSelectTrimPlane": "Ebene wählen, mit der geschnitten wird.",
+  "msgTrimmingWith": "Schnitt mit {label}. OK behält die Seite, die stehen bleibt.",
+  "@msgTrimmingWith": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCombineNeedsTwoBodies": "Kombinieren braucht zwei Körper — es vereinigt, schneidet oder verschneidet einen mit einem anderen.",
+  "@msgCombineNeedsTwoBodies": {
+    "description": "Vereinigen / Differenz / Schnittmenge sind Inventors drei Kombinationsarten."
+  },
+  "msgTapBodyToKeep": "Körper antippen, der BLEIBT.",
+  "msgTapBodiesToCombine": "Körper antippen, die in {name} eingehen.",
+  "@msgTapBodiesToCombine": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgThatIsBaseBody": "Das ist der Basiskörper — einen anderen zum Kombinieren wählen.",
+  "msgPickKeepThenCombine": "Erst den Körper wählen, der bleibt, dann die Körper, die hineingerechnet werden.",
+  "msgSelectTargetBody": "Zielkörper wählen — in 3D oder im Browser antippen.",
+  "msgPatternNeedsFeature": "{kind} braucht ein Element zum Kopieren — zuerst eines bauen.",
+  "@msgPatternNeedsFeature": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSelectFeatures": "Elemente wählen — eine Fläche in 3D oder eine Zeile im Browser antippen.",
+  "msgTapStraightOrCircularEdge": "Gerade Kante, Rundkante oder Ursprungsachse antippen.",
+  "msgTapCircularOrStraightEdge": "Rundkante, gerade Kante oder Ursprungsachse antippen.",
+  "msgTapPlanarFace": "Planare Fläche, Arbeitsebene oder Ursprungsebene antippen.",
+  "msgTapSketchForOccurrences": "Die Skizze antippen, deren Punkte die Exemplare setzen.",
+  "msgTapSketchPointOfOriginal": "Den Skizzenpunkt antippen, auf dem das Original sitzt.",
+  "msgTapCurveStart": "Den Punkt auf der Kurve antippen, an dem die Anordnung beginnt.",
+  "msgTapFaceToFollow": "Die Fläche antippen, der die Exemplare folgen sollen.",
+  "msgTapSolidBodyToPattern": "Volumenkörper antippen, der angeordnet wird.",
+  "msgPickSolidBodyToPattern": "Volumenkörper wählen, der angeordnet wird.",
+  "msgBuiltAfterPattern": "„{name}“ entsteht nach dieser Anordnung, deshalb kann sie es nicht kopieren.",
+  "@msgBuiltAfterPattern": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgEdgeNoDirection": "Diese Kante gibt keine Richtung vor.",
+  "msgPickCurveFirst": "Zuerst die Kurve für diese Richtung wählen.",
+  "msgCurveGone": "Diese Kurve ist nicht mehr vorhanden.",
+  "msgSketchHasNoPoints": "„{name}“ enthält keine Skizzenpunkte — eine skizzengesteuerte Anordnung setzt je Punkt ein Exemplar.",
+  "@msgSketchHasNoPoints": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgBasePointMustBeOf": "Der Basispunkt muss ein Punkt von „{name}“ sein.",
+  "@msgBasePointMustBeOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCannotCreatePattern": "Die Anordnung lässt sich nicht erstellen.",
+  "msgPatternedByBroken": "{count, plural, =1{„{name}“ wurde von {names} angeordnet — diese Anordnung ist jetzt defekt. Rückgängig stellt sie wieder her.} other{„{name}“ wurde von {names} angeordnet — diese Anordnungen sind jetzt defekt. Rückgängig stellt sie wieder her.}}",
+  "@msgPatternedByBroken": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgTapCurveToSweep": "Kurve antippen, entlang der gezogen wird.",
+  "msgCurveNoLength": "Diese Kurve hat keine Länge.",
+  "msgTapSectionsInOrder": "Querschnitte der Reihe nach antippen.",
+  "msgTapAxisLine": "Skizzenlinie oder Ursprungsachse antippen, die als Achse dient.",
+  "msgPickAxisLine": "Skizzenlinie oder Ursprungsachse wählen.",
+  "msgAxisNotInSketchPlane": "Diese Achse liegt nicht in der Skizzenebene.",
+  "msgLineGone": "Diese Linie ist nicht mehr vorhanden.",
+  "msgAxisMustBeStraight": "Die Achse muss eine gerade Linie sein.",
+  "msgLineNoLength": "Diese Linie hat keine Länge.",
+  "msgCreateSketchFirstExtrude": "Zuerst eine 2D-Skizze anlegen — die Extrusion braucht ein geschlossenes Profil.",
+  "msgProfilesSameSketch": "Alle Profile einer Extrusion stammen aus derselben Skizze.",
+  "msgPickProfile": "Mindestens ein Profil zum Extrudieren wählen.",
+  "msgSelectTerminateFace": "Die Fläche wählen, auf der es enden soll.",
+  "msgPickOneEdgeFirst": "Zuerst eine Kante wählen, damit der Körper feststeht.",
+  "msgBodyHasNoEdges": "Dieser Körper hat keine wählbaren Kanten.",
+  "msgSelectEdges": "Kanten wählen — antippen fügt hinzu, nochmals antippen entfernt.",
+  "msgTapToPlaceGear": "In die Skizze tippen, um das Zahnrad zu setzen.",
+  "msgCouldNotPlaceGear": "Das Zahnrad lässt sich hier nicht setzen.",
+  "msgInternalGearTeeth": "Ein Hohlrad braucht mindestens 3 Zähne und einen gültigen Modul.",
+  "@msgInternalGearTeeth": {
+    "description": "Innenverzahntes Rad = Hohlrad. \"der Modul\" (Verzahnungsgroesse), nicht \"das Modul\" (Baugruppe)."
+  },
+  "msgGearTeeth": "Ein Zahnrad braucht mindestens 4 Zähne und einen gültigen Modul.",
+  "msgInternalGearPlaced": "Hohlrad gesetzt — Mittelpunkt und einen Winkel bemaßen, um es vollständig zu bestimmen.",
+  "msgExternalGearPlaced": "Stirnrad gesetzt — Mittelpunkt und einen Winkel bemaßen, um es vollständig zu bestimmen.",
+  "@msgExternalGearPlaced": {
+    "description": "Aussenverzahntes Stirnrad. \"Extern\" waere die Uebersetzung, \"Stirnrad\" ist das Bauteil."
+  },
+  "msgPlanetaryNeeds": "Ein Planetensatz braucht Sonnen- und Planetenzähne ≥ 4 und ≥ 2 Planeten.",
+  "msgPlanetaryUndrawable": "Diese Planetenparameter lassen sich nicht zeichnen.",
+  "msgPlanetaryPlacedFree": "Planetensatz gesetzt (als freie Geometrie).",
+  "msgPlanetaryPlacedDimension": "Planetensatz gesetzt — Mittelpunkt und einen Winkel bemaßen.",
+  "msgPlanetaryUneven": "Planetensatz gesetzt. Hinweis: {count} Planeten teilen sich nicht gleichmäßig für exakten Eingriff.",
+  "@msgPlanetaryUneven": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgPlanetaryUnevenSpacing": "Planetensatz gesetzt ({count} Planeten stehen für exakten Eingriff nicht gleichmäßig verteilt).",
+  "@msgPlanetaryUnevenSpacing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgAlreadyProjected": "Auf diesen Layer bereits projiziert.",
+  "msgProjectPicksOtherLayers": "Projizieren holt Geometrie von ANDEREN Layern.",
+  "msgTapPolygonEdge": "Eine Kante des Polygons antippen, um es zu projizieren.",
+  "msgTapGeometryOtherLayer": "Geometrie auf einem anderen Layer oder die X-/Y-Achse antippen.",
+  "msgProjectedNoPattern": "Projizierte Geometrie lässt sich nicht anordnen.",
+  "msgProjectedNoModify": "Projizierte Geometrie lässt sich hier nicht ändern.",
+  "msgPickDirectionLine": "Eine Linie wählen, die die Richtung vorgibt.",
+  "msgPickAxisPoint": "Punkt oder Mittelpunkt wählen, der die Achse vorgibt.",
+  "msgPickMirrorLine": "Eine Linie wählen, an der gespiegelt wird.",
+  "msgMirrorLineInSelection": "Die Spiegelachse darf nicht Teil der Auswahl sein.",
+  "msgSelectGeometryToPattern": "Geometrie zum Anordnen wählen.",
+  "msgPickLineDirection1": "Unter Richtung 1 eine Linie wählen.",
+  "msgPickPatternAxis": "Die Anordnungsachse wählen.",
+  "msgPickTheMirrorLine": "Die Spiegelachse wählen.",
+  "msgPatternNothingToCreate": "Die Anordnung hat nichts zu erzeugen.",
+  "msgPatternUnsatisfiable": "Die Anordnung lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.",
+  "msgPatternCreated": "{count, plural, =1{Anordnung erstellt (ein neues Objekt).} other{Anordnung erstellt ({count} neue Objekte).}}",
+  "@msgPatternCreated": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgSelfSymNeedsOneSpline": "Selbstsymmetrisch braucht genau einen Spline.",
+  "msgSelfSymNeedsOpenSpline": "Selbstsymmetrisch braucht einen offenen Spline.",
+  "msgSelfSymEndOnMirror": "Für Selbstsymmetrisch muss der Spline auf der Spiegelachse enden.",
+  "msgSelfSymUnsatisfiable": "Selbstsymmetrisch lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.",
+  "msgSelfSymDone": "Spline selbstsymmetrisch gemacht.",
+  "msgTrimBreaksConstraints": "Dieses Stutzen würde die Abhängigkeiten der Skizze zerstören.",
+  "msgSplitBreaksConstraints": "Dieses Teilen würde die Abhängigkeiten der Skizze zerstören.",
+  "msgNothingToOffset": "Hier gibt es nichts zu versetzen.",
+  "msgRadiusPastEdge": "R{radius} läuft über das Ende dieser Kante hinaus. Diese Ecke nimmt höchstens R{most}.",
+  "@msgRadiusPastEdge": {
+    "description": "Die Radien kommen bereits formatiert an — im Deutschen mit Dezimalkomma, siehe Fmt.num.",
+    "placeholders": {
+      "radius": {
+        "type": "String"
+      },
+      "most": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPickTwoThatMeet": "Zwei Linien, Bögen oder Kreise wählen, die sich treffen können.",
+  "msgPickTwoNonParallel": "Zwei nicht parallele Linien wählen.",
+  "msgFilletBreaksSketch": "Diese Verrundung würde die Skizze zerstören — eine gültige Ecke oder einen kleineren Radius wählen.",
+  "msgChamferBreaksSketch": "Diese Fase würde die Skizze zerstören — eine gültige Ecke oder kleinere Abstände wählen.",
+  "msgShapeHasNoSize": "Diese Form hat keine Größe — noch einmal zeichnen.",
+  "msgAlreadyLocked": "Diese Geometrie ist bereits fixiert.",
+  "msgWouldOverConstrainC": "Diese Abhängigkeit würde die Skizze überbestimmen.",
+  "msgConstraintUnsatisfiable": "Diese Abhängigkeit lässt sich mit der vorhandenen Geometrie nicht erfüllen.",
+  "msgTangentNeedsCurve": "Tangential braucht mindestens ein gekrümmtes Objekt.",
+  "msgTangentClosedSpline": "Tangential an einen GESCHLOSSENEN Spline geht nicht.",
+  "msgSmoothNeedsTwoCurves": "Stetig (G2) braucht zwei gekrümmte Objekte.",
+  "@msgSmoothNeedsTwoCurves": {
+    "description": "G2 = kruemmungsstetig. Inventor DE: \"Stetig (G2)\"."
+  },
+  "msgValueUnsatisfiable": "Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.",
+  "msgValueUnsatisfiableShort": "Der Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.",
+  "msgDrivenDimension": "Das ist eine abhängige Bemaßung (Referenzmaß) — sie lässt sich nicht bearbeiten.",
+  "msgInvalidParamName": "Ungültiger Parametername.",
+  "msgInvalidOrDuplicateParamName": "Ungültiger oder bereits vergebener Parametername.",
+  "msgParamNameInUse": "Der Parametername „{name}“ ist bereits vergeben.",
+  "@msgParamNameInUse": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgUnknownParam": "Unbekannter Parameter „{name}“.",
+  "@msgUnknownParam": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCircularRefDimension": "Zirkelbezug: „{name}“ hängt von dieser Bemaßung ab.",
+  "@msgCircularRefDimension": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCircularRefParam": "Zirkelbezug: „{name}“ hängt von diesem Parameter ab.",
+  "@msgCircularRefParam": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgInvalidExpression": "Ungültiger Ausdruck.",
+  "msgParamUsedBy": "„{name}“ wird von „{user}“ verwendet — zuerst den Bezug entfernen.",
+  "@msgParamUsedBy": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "msgEdgeIsSpline": "Diese Kante ist ein Spline — sie gibt keine eindeutige Richtung vor.",
+  "msgRotationAxisStraight": "Eine Drehachse muss eine gerade Linie oder eine Achse sein.",
+  "msgPickEdgeOrCurve": "Gerade Kante, Rundkante, Skizzenkurve oder Ursprungsachse wählen.",
+  "msgTapOnTheCurve": "Auf die Kurve tippen.",
+  "msgPickPlanarFace": "Planare Fläche, Arbeitsebene oder Ursprungsebene wählen.",
+  "msgPickSketchPointOccurrences": "Einen Skizzen-PUNKT wählen — die Exemplare entstehen dort, wo die Punkte sind.",
+  "msgTapFaceOfFeature": "Eine Fläche des anzuordnenden Elements antippen oder es im Browser wählen.",
+  "msgFaceNoSingleFeature": "Diese Fläche lässt sich nicht auf ein einzelnes Element zurückführen — das Element im Browser wählen.",
+  "msgAddedNamed": "{name} hinzugefügt.",
+  "@msgAddedNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgRemovedNamed": "{name} entfernt.",
+  "@msgRemovedNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgTapSolidBody": "Volumenkörper antippen.",
+  "msgTapSketchPointForHole": "Einen Skizzen-PUNKT antippen — dorthin kommt die Bohrung.",
+  "msgNotBuiltYet": "{command}: noch nicht gebaut — Versatz von Ebene oder Mittelebene verwenden.",
+  "@msgNotBuiltYet": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "dlgEquationCurve": "Gleichungskurve",
+  "lblEquationHint": "y = f(x)   (sin, cos, sqrt, ^, pi, …)",
+  "@lblEquationHint": {
+    "description": "Die Funktionsnamen sind Bezeichner des Ausdrucks-Parsers und bleiben englisch — sie werden so EINGEGEBEN."
+  },
+  "lblXMin": "x min",
+  "lblXMax": "x max",
+  "dlgProperties": "Eigenschaften",
+  "@dlgProperties": {
+    "description": "Kopfzeile aller Element-Dialoge. Inventor DE: \"Eigenschaften\"."
+  },
+  "dlgParameters": "Parameter",
+  "dlgGear": "Zahnrad",
+  "dlgText": "Text",
+  "dlgFreehandSpline": "Freihand-Spline",
+  "dlgPolygon": "Polygon",
+  "lblDirectionN": "Richtung {n}",
+  "@lblDirectionN": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "lblAxis": "Achse",
+  "lblMirrorLine": "Spiegelachse",
+  "lblGeometry": "Geometrie",
+  "lblExtents": "Ausdehnung",
+  "@lblExtents": {
+    "description": "Inventor DE: \"Ausdehnung\" — wie weit die Anordnung reicht."
+  },
+  "lblBoundary": "Begrenzung",
+  "lblIncludeGeometry": "Geometrie einschließen",
+  "lblSuppress": "Unterdrücken",
+  "@lblSuppress": {
+    "description": "Inventor DE: ein Element \"unterdrücken\" heisst, es aus der Berechnung nehmen."
+  },
+  "tipCancel": "Abbrechen",
+  "tipSelectDirectionLine": "Richtungslinie wählen",
+  "tipFlipDirection": "Richtung umkehren",
+  "tipPatternAlongPath": "Anordnung entlang eines Pfades — noch nicht verfügbar",
+  "tipSelectRotationAxisPoint": "Drehachsenpunkt wählen",
+  "tipFlipRotation": "Drehrichtung umkehren",
+  "tipSelectGeometryToMirror": "Zu spiegelnde Geometrie wählen",
+  "tipSelectMirrorLine": "Spiegelachse wählen",
+  "tipSelectGeometryToPattern": "Anzuordnende Geometrie wählen",
+  "msgBoundaryFillNotYet": "Begrenzungsfüllung — noch nicht verfügbar",
+  "msgSuppressNotYet": "Exemplare unterdrücken — noch nicht verfügbar",
+  "msgPickWhileSelectorBlue": "Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter aktiv ist. OK / Fertig erzeugt die Anordnung.",
+  "msgFilletPickTwo": "Zwei Linien, Bögen oder Kreise wählen.\nDie erste Verrundung wird bemaßt; die folgenden übernehmen den Radius.",
+  "msgDistance1FirstLine": "Abstand 1 gilt für die zuerst gewählte Linie.",
+  "msgPolygonSides": "Seiten. Erst den Mittelpunkt, dann eine Ecke wählen.",
+  "hintTapBodyIn3d": "Körper in 3D antippen…",
+  "hintTapFeaturesInBrowser": "Elemente im Browser antippen…",
+  "hintTapPointOnCurve": "Punkt auf der Kurve antippen…",
+  "hintTapEdgeOrAxis": "Kante oder Achse antippen…",
+  "hintTapCircularEdge": "Rundkante oder Achse antippen…",
+  "hintTapSketchPoint": "Skizzenpunkt antippen…",
+  "hintTapOriginalPoint": "Punkt antippen, auf dem das Original sitzt…",
+  "hintTapFaceToFollow": "Zu folgende Fläche antippen…",
+  "hintTapFaceOrPlane": "Fläche oder Ebene antippen…",
+  "msgNoDimensionsInSketch": "Keine Bemaßungen in dieser Skizze.",
+  "btnAddNumericParameter": "Numerischen Parameter hinzufügen",
+  "colParameterName": "Parametername",
+  "colEquation": "Gleichung",
+  "colValue": "Wert",
+  "lblReference": "(Referenz)",
+  "lblPoints": "Punkte",
+  "lblSmoothing": "Glättung",
+  "lblFitPoints": "{count, plural, =1{Ein Stützpunkt} other{{count} Stützpunkte}}",
+  "@lblFitPoints": {
+    "description": "Stuetzpunkte, durch die der Spline laeuft.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tipFinishEnter": "Fertig (Eingabe)",
+  "tipDiscardEsc": "Verwerfen (Esc)",
+  "lblFont": "Schrift",
+  "lblSize": "Größe",
+  "lblPreview": "Vorschau",
+  "lblEdgeCount": "{count, plural, =1{Eine Kante} other{{count} Kanten}}",
+  "@lblEdgeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "btnAddEdgeSet": "+ Kantengruppe",
+  "@btnAddEdgeSet": {
+    "description": "Kurz gehalten: die Schaltflaeche sitzt in der Dialogspalte. \"+ Kantengruppe hinzufügen\" waere doppelt so lang wie das Original."
+  },
+  "lblSwapFaces": "Die beiden Flächen tauschen",
+  "lblWorkPlaneOffset": "{name}  Versatz",
+  "@lblWorkPlaneOffset": {
+    "description": "Zwei Leerzeichen wie im Original — sie trennen den Namen der Arbeitsebene vom Feldtitel.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "lblSketchPlaneN": "{n} Skizzenebene",
+  "@lblSketchPlaneN": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "lblNeedsExistingBody": "{label} (braucht einen vorhandenen Körper)",
+  "@lblNeedsExistingBody": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "tipApplyAndStartAnother": "Übernehmen und das nächste beginnen",
+  "msgSplitRemovesOtherSide": "Alles auf der anderen Seite der Ebene wird entfernt. Das Teilen in zwei Körper ist nicht gebaut.",
+  "msgGearTapToPlace": "In die Skizze tippen, um es zu setzen; dann Mittelpunkt und einen Winkel bemaßen.",
+  "lblAutoRootTip": "Fuß- und Kopfkreisradien automatisch",
+  "@lblAutoRootTip": {
+    "description": "Fusskreis und Kopfkreis sind die Verzahnungsbegriffe fuer root und tip."
+  },
+  "dlgReportBug": "Fehler melden",
+  "msgBugPrompt": "Was haben Sie erwartet, und was ist stattdessen passiert?\nDas Modell, der Zustand jedes Elements und das vollständige Protokoll werden automatisch angehängt — beschreiben Sie nur, was Sie GESEHEN haben.",
+  "@msgBugPrompt": {
+    "description": "Der Zeilenumbruch in der Mitte gehoert zum Layout des Dialogs und steht in beiden Sprachen."
+  },
+  "hintBugExample": "z. B. die obere Kante mit 2 mm verrundet, und die Wand ist verschwunden statt abgerundet zu werden",
+  "btnSaveReport": "Bericht sichern",
+  "btnCopyPath": "Pfad kopieren",
+  "btnDirect": "Direkt",
+  "@btnDirect": {
+    "description": "Inventor DE: \"Direktbearbeitung\"; auf der Schaltflaeche steht die Kurzform, wie im Englischen auch.",
+    "x-maxChars": 12
+  },
+  "btnDeleteFace": "Fläche löschen",
+  "@btnDeleteFace": {
+    "x-maxChars": 16
+  },
+  "btnThickenOffset": "Verdicken / Versatz",
+  "btnUcs": "BKS",
+  "@btnUcs": {
+    "description": "Benutzerkoordinatensystem. \"BKS\" ist das Kuerzel, das AutoCAD DE und Inventor DE benutzen — die deutschen Anwender kennen UCS nicht."
+  },
+  "btnSketchDriven": "Skizzengesteuert",
+  "btnCenterline": "Mittellinie",
+  "btnConstraintSettings": "Abhängigkeitseinstellungen",
+  "btnCopy": "Kopieren",
+  "@btnCopy": {
+    "x-maxChars": 12
+  },
+  "btnDrivenDimension": "Abhängige Bemaßung",
+  "btnExtend": "Dehnen",
+  "@btnExtend": {
+    "description": "Inventor DE: \"Dehnen\" — das Gegenstueck zu \"Stutzen\".",
+    "x-maxChars": 12
+  },
+  "btnPointsTool": "Punkte",
+  "@btnPointsTool": {
+    "x-maxChars": 12
+  },
+  "btnShowConstraints": "Abhängigkeiten einblenden",
+  "btnShowFormat": "Format einblenden",
+  "btnSmoothG2": "Stetig (G2)",
+  "btnStretch": "Strecken",
+  "@btnStretch": {
+    "x-maxChars": 12
+  },
+  "btnCenterPoint": "Mittelpunkt",
+  "@btnCenterPoint": {
+    "x-maxChars": 14
+  },
+  "btnSplitCurve": "Teilen",
+  "@btnSplitCurve": {
+    "description": "Skizzenbefehl: eine Kurve an einem Schnittpunkt teilen. Inventor DE: \"Teilen\" — bewusst NICHT \"Trennen\", das ist der 3D-Befehl, der einen Körper schneidet.",
+    "x-maxChars": 12
+  },
+  "btnOffsetCurve": "Versatz",
+  "@btnOffsetCurve": {
+    "description": "Skizzenbefehl: Parallelkurve. Inventor DE: \"Versatz\".",
+    "x-maxChars": 12
+  },
+  "btnFinish": "Fertig",
+  "@btnFinish": {
+    "x-maxChars": 12
+  },
+  "btnFinishSketch": "Skizze\nfertig",
+  "@btnFinishSketch": {
+    "description": "Zweizeilig, 64 px breit. Inventor DE sagt \"Skizze beenden\"; das passt hier nicht in eine Zeile und \"fertig\" ist die Form, die auf der Schnellwerkzeugleiste daneben schon steht.",
+    "x-maxChars": 12
+  },
+  "featExtrusion": "Extrusion",
+  "featRevolution": "Drehung",
+  "featSweep": "Sweeping",
+  "featLoft": "Erhebung",
+  "featCoil": "Spirale",
+  "featFillet": "Verrundung",
+  "featChamfer": "Fase",
+  "featHole": "Bohrung",
+  "featSplit": "Trennen",
+  "featCombine": "Kombinieren",
+  "featDeleteFace": "Fläche löschen",
+  "cmdDeleteFace": "Fläche löschen",
+  "cmdMoveFaces": "Flächen verschieben",
+  "cmdSizeFaces": "Flächengröße ändern",
+  "cmdScaleBody": "Körper skalieren",
+  "verbDelete": "Löschen",
+  "@verbDelete": {
+    "description": "Steht in \"Flächen zum {verb} wählen.\" — im Deutschen ein substantiviertes Verb und deshalb GROSS, im Englischen klein. Genau die Stelle, an der ein maschinelles toLowerCase() falsch wird."
+  },
+  "verbMove": "Verschieben",
+  "patRectangular": "Rechteckige Anordnung",
+  "@patRectangular": {
+    "description": "Inventor DE: \"Rechteckige Anordnung\"."
+  },
+  "patCircular": "Runde Anordnung",
+  "patSketchDriven": "Skizzengesteuerte Anordnung",
+  "patMirror": "Spiegeln",
+  "holeSimple": "Einfach",
+  "holeCounterbore": "Senkung",
+  "@holeCounterbore": {
+    "description": "Zylindrische Senkung. Inventor DE: \"Senkung\"."
+  },
+  "holeSpotface": "Plansenkung",
+  "holeCountersink": "Kegelsenkung",
+  "holeSimpleShort": "Einfach",
+  "@holeSimpleShort": {
+    "x-maxChars": 10
+  },
+  "holeCounterboreShort": "Senkung",
+  "@holeCounterboreShort": {
+    "x-maxChars": 10
+  },
+  "holeSpotfaceShort": "Plan",
+  "@holeSpotfaceShort": {
+    "x-maxChars": 10
+  },
+  "holeCountersinkShort": "Kegel",
+  "@holeCountersinkShort": {
+    "x-maxChars": 10
+  },
+  "msgNoInteriorEdgesLeft": "Keine Innenkanten mehr zum Hinzufügen.",
+  "msgNoExteriorEdgesLeft": "Keine Außenkanten mehr zum Hinzufügen.",
+  "msgAddedInteriorEdges": "{count, plural, =1{Eine Innenkante hinzugefügt.} other{{count} Innenkanten hinzugefügt.}}",
+  "@msgAddedInteriorEdges": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgAddedExteriorEdges": "{count, plural, =1{Eine Außenkante hinzugefügt.} other{{count} Außenkanten hinzugefügt.}}",
+  "@msgAddedExteriorEdges": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgUndone": "Rückgängig",
+  "msgRedone": "Wiederholt",
+  "msgShow": "Einblenden",
+  "extToNext": "Bis zum Nächsten",
+  "@extToNext": {
+    "description": "Inventor DE: \"Bis zum Nächsten\"."
+  },
+  "extToFace": "Bis",
+  "@extToFace": {
+    "description": "Inventor DE: \"Bis\" — bis zu einer gewaehlten Flaeche."
+  },
+  "extThroughAll": "Durch alle",
+  "extDistance": "Abstand",
+  "wfPickEdgeFacePlanesPoints": "Kante, Fläche, zwei Ebenen oder zwei Punkte wählen.",
+  "wfPickLinearEdge": "Gerade Kante oder Skizzenlinie wählen.",
+  "wfPickCircularEdge": "Kreis- oder Ellipsenkante wählen.",
+  "wfPickCylConeFace": "Zylinder- oder Kegelfläche wählen.",
+  "wfPickPoint": "Punkt wählen.",
+  "wfPickParallelLine": "Linie wählen, zu der parallel gebaut wird.",
+  "wfPickFirstPoint": "Ersten Punkt wählen.",
+  "wfPickSecondPoint": "Zweiten Punkt wählen.",
+  "wfPickThirdPoint": "Dritten Punkt wählen.",
+  "wfPickFirstPlane": "Erste Ebene oder planare Fläche wählen.",
+  "wfPickSecondNonParallelPlane": "Zweite, nicht parallele Ebene oder Fläche wählen.",
+  "wfPickPlane": "Ebene oder planare Fläche wählen.",
+  "wfPickAxisThroughPoint": "Punkt wählen, durch den die Achse läuft.",
+  "wfPickVertexCircleOrMeeting": "Eckpunkt, Kreiskante oder sich treffende Geometrie wählen.",
+  "wfPickVertexToGround": "Eckpunkt oder Mittelpunkt wählen, an dem fixiert wird.",
+  "wfPickVertexSketchPointMid": "Eckpunkt, Skizzenpunkt oder Kantenmittelpunkt wählen.",
+  "wfPickTorusFace": "Torusfläche wählen.",
+  "wfPickSphereFace": "Kugelfläche wählen.",
+  "wfPickFirstLine": "Erste Linie, Kante oder Achse wählen.",
+  "wfPickSecondCrossingLine": "Zweite Linie wählen, die sie schneidet.",
+  "wfPickCrossingLine": "Linie, Kante oder Achse wählen, die sie schneidet.",
+  "wfPickSecondPlane": "Zweite Ebene wählen.",
+  "wfPickThirdPlane": "Dritte Ebene wählen.",
+  "wfPickLineOrTwoPlanes": "Linie wählen, die sie kreuzt, oder zwei weitere Ebenen.",
+  "wfPickSecondLineOrPlane": "Zweite Linie wählen, oder eine Ebene zum Kreuzen.",
+  "wfPickSecondPlaneOrPoint": "Zweite Ebene zum Schneiden wählen, oder einen Punkt für die Normale hindurch.",
+  "wfPickSecondPointPlaneOrLine": "Zweiten Punkt, eine Ebene oder eine Linie wählen.",
+  "wfPickParallelPlane": "Ebene oder planare Fläche wählen, zu der parallel gebaut wird.",
+  "wfPickPlaneThroughPoint": "Punkt wählen, durch den die Ebene läuft.",
+  "wfPickFirstEdge": "Erste Kante oder Linie wählen.",
+  "wfPickSecondCoplanarEdge": "Zweite Kante in derselben Ebene wählen.",
+  "wfPickNormalAxis": "Achse, Kante oder Linie wählen, zu der normal gebaut wird.",
+  "wfPickCylFaceSide": "Zylinderfläche wählen, auf der Seite, wo die Ebene liegen soll.",
+  "wfPickCylFace": "Zylinderfläche wählen.",
+  "wfPickEdgeAlongIt": "Kante wählen, die darauf liegt.",
+  "wfPickPlaneToParallel": "Ebene wählen, zu der parallel gebaut wird.",
+  "wfPickPlaneToAngleFrom": "Ebene wählen, von der aus gewinkelt wird.",
+  "wfPickPivotEdgeInPlane": "Kante zum Schwenken wählen — sie muss in dieser Ebene liegen.",
+  "wfTapCurveToCross": "Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.",
+  "wfNotStraightEdge": "{ref} ist keine gerade Kante oder Linie.",
+  "@wfNotStraightEdge": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotCircularEdge": "{ref} ist keine Kreis- oder Ellipsenkante.",
+  "@wfNotCircularEdge": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotRevolvedFace": "{ref} ist keine Drehfläche — Zylinder, Kegel oder Torus wählen.",
+  "@wfNotRevolvedFace": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoPoint": "{ref} ergibt keinen Punkt.",
+  "@wfNoPoint": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotPlane": "{ref} ist keine Ebene und keine planare Fläche.",
+  "@wfNotPlane": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNeitherPointNorLine": "{ref} ist weder ein Punkt noch eine Linie.",
+  "@wfNeitherPointNorLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNeitherPlaneNorLine": "{ref} ist weder eine Ebene noch eine Linie.",
+  "@wfNeitherPlaneNorLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoParallelLinePicked": "Keine der beiden Auswahlen ist eine Linie.",
+  "wfPickPointForAxis": "Punkt wählen, durch den die Achse gehen soll.",
+  "wfPickPointForPlane": "Punkt wählen, durch den die Ebene gehen soll.",
+  "wfSamePlace": "Diese beiden Punkte liegen an derselben Stelle.",
+  "wfParallelNeverMeet": "{a} und {b} sind parallel — sie treffen sich nie.",
+  "@wfParallelNeverMeet": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfParallelNeverCross": "{a} und {b} sind parallel — sie kreuzen sich nie.",
+  "@wfParallelNeverCross": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfCannotDefineAxis": "{ref} kann keine Achse festlegen.",
+  "@wfCannotDefineAxis": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfCannotDefinePoint": "{ref} kann keinen Punkt festlegen.",
+  "@wfCannotDefinePoint": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfParallelPickTwoMeeting": "{a} und {b} sind parallel — zwei Ebenen wählen, die sich schneiden.",
+  "@wfParallelPickTwoMeeting": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoAxisFromTwo": "{a} und {b} legen keine Achse fest.",
+  "@wfNoAxisFromTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoPointFromTwo": "{a} und {b} legen keinen Punkt fest.",
+  "@wfNoPointFromTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotClosedCircle": "{ref} ist keine geschlossene Kreiskante.",
+  "@wfNotClosedCircle": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotSphere": "{ref} ist keine Kugelfläche.",
+  "@wfNotSphere": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotTorus": "{ref} ist keine Torusfläche.",
+  "@wfNotTorus": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotLineEdgeAxis": "{ref} ist keine Linie, Kante oder Achse.",
+  "@wfNotLineEdgeAxis": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotAxisEdgeLine": "{ref} ist keine Achse, Kante oder Linie.",
+  "@wfNotAxisEdgeLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotEdgeOrLine": "{ref} ist keine Kante und keine Linie.",
+  "@wfNotEdgeOrLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPickOnePlaneOneLine": "Eine Ebene und eine Linie wählen.",
+  "wfSkewByGap": "{a} und {b} treffen sich nicht — {gap} Abstand.",
+  "@wfSkewByGap": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "wfLineParallelToPlane": "{line} ist parallel zu {plane} — sie schneidet sie nie.",
+  "@wfLineParallelToPlane": {
+    "placeholders": {
+      "line": {
+        "type": "String"
+      },
+      "plane": {
+        "type": "String"
+      }
+    }
+  },
+  "wfThreeNoCommonPoint": "{a}, {b} und {c} treffen sich nicht in einem Punkt — zwei davon sind parallel, oder alle drei teilen sich eine Gerade.",
+  "@wfThreeNoCommonPoint": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "c": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotACurve": "{ref} ist keine Kurve — Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.",
+  "@wfNotACurve": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPickPivotEdge": "Kante wählen, um die die Ebene schwenkt.",
+  "wfEdgeNotInPlane": "{edge} ist nicht parallel zu {plane} — die Ebene kann nur um eine Kante schwenken, die darin liegt.",
+  "@wfEdgeNotInPlane": {
+    "placeholders": {
+      "edge": {
+        "type": "String"
+      },
+      "plane": {
+        "type": "String"
+      }
+    }
+  },
+  "wfAngleNotANumber": "Der Winkel ist keine Zahl.",
+  "wfNotCylForTangent": "{ref} ist keine Zylinderfläche — eine Tangentialebene braucht eine.",
+  "@wfNotCylForTangent": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPointInsideCyl": "{pt} liegt in {cyl} — dadurch geht keine Tangentialebene.",
+  "@wfPointInsideCyl": {
+    "placeholders": {
+      "pt": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      }
+    }
+  },
+  "wfTwoTangentThroughPoint": "Zwei Ebenen sind tangential an {cyl} durch {pt} — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.",
+  "@wfTwoTangentThroughPoint": {
+    "placeholders": {
+      "cyl": {
+        "type": "String"
+      },
+      "pt": {
+        "type": "String"
+      }
+    }
+  },
+  "wfTwoTangentParallel": "Zwei Ebenen sind tangential an {cyl} und parallel zu {plane} — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.",
+  "@wfTwoTangentParallel": {
+    "placeholders": {
+      "cyl": {
+        "type": "String"
+      },
+      "plane": {
+        "type": "String"
+      }
+    }
+  },
+  "wfEdgeNotParallelToAxis": "{edge} ist nicht parallel zur Achse von {cyl}.",
+  "@wfEdgeNotParallelToAxis": {
+    "placeholders": {
+      "edge": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      }
+    }
+  },
+  "wfEdgeOffCylinder": "{edge} liegt nicht auf {cyl} — sie ist {gap} mm daneben.",
+  "@wfEdgeOffCylinder": {
+    "placeholders": {
+      "edge": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPlaneNotParallelToAxis": "{plane} ist nicht parallel zur Achse von {cyl} — dazu ist keine Tangentialebene parallel.",
+  "@wfPlaneNotParallelToAxis": {
+    "placeholders": {
+      "plane": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      }
+    }
+  },
+  "wfCollinearThreePoints": "{a}, {b} und {c} liegen auf einer Geraden — drei Punkte dürfen nicht kollinear sein.",
+  "@wfCollinearThreePoints": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "c": {
+        "type": "String"
+      }
+    }
+  },
+  "wfSameLineTwice": "{a} und {b} sind dieselbe Linie — eine Ebene braucht zwei verschiedene Kanten.",
+  "@wfSameLineTwice": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfSkewEdges": "{a} und {b} sind windschief — sie verfehlen sich um {gap} mm.",
+  "@wfSkewEdges": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "secInputGeometry": "Eingabegeometrie",
+  "secOutputGeometry": "Ausgabegeometrie",
+  "secBehavior": "Verhalten",
+  "secPlacement": "Platzierung",
+  "secOutput": "Ausgabe",
+  "secExtents": "Ausdehnung",
+  "lblDirection": "Richtung",
+  "lblOrientation": "Ausrichtung",
+  "lblMethod": "Methode",
+  "lblDistance": "Abstand",
+  "lblAngle": "Winkel",
+  "lblDepth": "Tiefe",
+  "lblDiameter": "Durchmesser",
+  "lblType": "Typ",
+  "lblCount": "Anzahl",
+  "lblNumber": "Anzahl",
+  "lblSpacing": "Abstand",
+  "lblDistribution": "Verteilung",
+  "lblFlip": "Umkehren",
+  "@lblFlip": {
+    "x-maxChars": 12
+  },
+  "lblKeep": "Behalten",
+  "lblPlaneField": "Ebene",
+  "lblFaceField": "Fläche",
+  "lblEdges": "Kanten",
+  "lblRadius": "Radius",
+  "lblRadiusN": "Radius {n}",
+  "@lblRadiusN": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "lblDistance1": "Abstand 1",
+  "lblDistance2": "Abstand 2",
+  "lblTwoDistances": "Zwei Abstände",
+  "lblDistanceAndAngle": "Abstand und Winkel",
+  "lblEqualDistance": "Gleicher Abstand",
+  "lblAllFillets": "Alle Innenkanten",
+  "lblAllRounds": "Alle Außenkanten",
+  "hintTapEdgesIn3d": "Kanten in 3D antippen…",
+  "lblSelectEdges": "Kanten wählen",
+  "lblBodies": "Körper",
+  "lblBase": "Basis",
+  "lblToolbodies": "Werkzeugkörper",
+  "hintTapBodyToKeep": "Körper antippen, der BLEIBT…",
+  "hintPickBaseFirst": "Erst die Basis wählen",
+  "hintTapBodiesToCombine": "Körper zum Kombinieren antippen…",
+  "lblOperation": "Operation",
+  "lblKeepTool": "Werkzeug behalten",
+  "lblYes": "Ja",
+  "@lblYes": {
+    "x-maxChars": 8
+  },
+  "opJoin": "Vereinigen",
+  "@opJoin": {
+    "description": "Inventor DE: die boolesche Vereinigung.",
+    "x-maxChars": 14
+  },
+  "opCut": "Differenz",
+  "@opCut": {
+    "description": "Inventor DE nennt den Abzug \"Differenz\", nicht \"Schneiden\".",
+    "x-maxChars": 14
+  },
+  "opIntersect": "Schnittmenge",
+  "@opIntersect": {
+    "x-maxChars": 14
+  },
+  "opNewSolid": "Neuer Körper",
+  "@opNewSolid": {
+    "x-maxChars": 14
+  },
+  "lblBoolean": "Boolesch",
+  "lblTargetBody": "Zielkörper",
+  "lblTrim": "Beschneiden",
+  "hintTapPlaneOrFace": "Ebene oder planare Fläche antippen…",
+  "lblThisSide": "Diese Seite",
+  "lblOtherSide": "Andere Seite",
+  "lblProfiles": "Profile",
+  "hintSelectProfile": "Profil im Ansichtsfenster wählen",
+  "lblFrom": "Von",
+  "lblPath": "Pfad",
+  "hintTapCurveIn3d": "Kurve in 3D antippen…",
+  "lblSelectCurveOrEdge": "Kurve oder Kante wählen",
+  "lblPathSelected": "Pfad gewählt",
+  "lblFollowPath": "Pfad folgen",
+  "lblFixed": "Fest",
+  "@lblFixed": {
+    "x-maxChars": 12
+  },
+  "lblGuide": "Führung",
+  "lblTaper": "Verjüngung",
+  "lblTwist": "Verdrehung",
+  "lblSections": "Querschnitte",
+  "hintTapProfilesIn3d": "Profile in 3D antippen…",
+  "hintClickToAdd": "Zum Hinzufügen tippen",
+  "lblTransition": "Übergang",
+  "lblSmooth": "Stetig",
+  "@lblSmooth": {
+    "x-maxChars": 12
+  },
+  "lblRuled": "Geradlinig",
+  "@lblRuled": {
+    "description": "Inventor DE: \"Geradlinig\" — die Erhebung verbindet die Querschnitte mit Geraden statt tangentenstetig.",
+    "x-maxChars": 14
+  },
+  "lblClosedLoop": "Geschlossene Schleife",
+  "lblMergeTangentFaces": "Tangentiale Flächen zusammenfassen",
+  "lblRevolutionCount": "Umdrehungen",
+  "@lblRevolutionCount": {
+    "description": "Wendel-Parameter: die ANZAHL der Umdrehungen, nicht das Feature \"Drehung\"."
+  },
+  "lblHeight": "Höhe",
+  "lblPitch": "Steigung",
+  "@lblPitch": {
+    "description": "Steigung einer Wendel. Nicht \"Neigung\"."
+  },
+  "lblRotationAngle": "Drehwinkel",
+  "hintTapLineOrAxis": "Linie oder Ursprungsachse antippen…",
+  "lblSelectAxis": "Achse wählen",
+  "lblFull": "Voll",
+  "@lblFull": {
+    "x-maxChars": 12
+  },
+  "lblAngleA": "Winkel A",
+  "lblAngleB": "Winkel B",
+  "lblDistanceA": "Abstand A",
+  "lblDistanceB": "Abstand B",
+  "lblTerminateOn": "Enden auf",
+  "hintTapFaceIn3d": "Fläche in 3D antippen…",
+  "lblSelectFace": "Fläche wählen",
+  "lblFaceSelected": "Fläche gewählt — antippen zum Ändern",
+  "lblDefault": "Standard",
+  "@lblDefault": {
+    "x-maxChars": 14
+  },
+  "lblFlipped": "Umgekehrt",
+  "@lblFlipped": {
+    "x-maxChars": 14
+  },
+  "lblSymmetric": "Symmetrisch",
+  "@lblSymmetric": {
+    "x-maxChars": 14
+  },
+  "lblAsymmetric": "Asymmetrisch",
+  "@lblAsymmetric": {
+    "x-maxChars": 14
+  },
+  "coilRevAndHeight": "Umdrehungen und Höhe",
+  "coilPitchAndRev": "Steigung und Umdrehungen",
+  "coilPitchAndHeight": "Steigung und Höhe",
+  "coilSpiral": "Spirale",
+  "hintTapSketchPointsIn3d": "Skizzenpunkte in 3D antippen…",
+  "lblCountersinkDia": "Senkung ⌀",
+  "lblTermination": "Endbedingung",
+  "@lblTermination": {
+    "description": "Inventor DE: \"Endbedingung\" — wo das Element aufhört."
+  },
+  "lblIntoPart": "Ins Bauteil",
+  "ctxShow": "Einblenden",
+  "ctxLock": "Sperren",
+  "ctxUnlock": "Entsperren",
+  "ctxRenameEllipsis": "Umbenennen…",
+  "ctxMoveNHere": "{count, plural, =1{Eines hierher verschieben} other{{count} hierher verschieben}}",
+  "@ctxMoveNHere": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ctxSuppressOccurrence": "Exemplar unterdrücken",
+  "ctxRestoreOccurrence": "Exemplar wiederherstellen",
+  "nodeYzPlane": "YZ-Ebene",
+  "nodeXzPlane": "XZ-Ebene",
+  "nodeXyPlane": "XY-Ebene",
+  "nodeZAxis": "Z-Achse",
+  "msgLayerEmptyRemoved": "Dieser Layer ist leer und wird entfernt.",
+  "msgRemovesLayerAndEntities": "{count, plural, =1{Damit werden der Layer und sein einziges Objekt entfernt.} other{Damit werden der Layer und seine {count} Objekte entfernt.}}",
+  "@msgRemovesLayerAndEntities": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "secModelParameters": "Modellparameter",
+  "secUserParameters": "Benutzerparameter",
+  "lblLineN": "Linie {n}",
+  "@lblLineN": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "lblSingleOpenSplineOnly": "(nur ein offener Spline)",
+  "lblSolid": "Volumenkörper",
+  "lblSelectSolid": "Volumenkörper wählen",
+  "lblFeature": "Element",
+  "lblSelectFeatures": "Elemente wählen",
+  "lblDirectionA": "Richtung A",
+  "lblDirectionB": "Richtung B",
+  "lblStartA": "Start A",
+  "lblStartB": "Start B",
+  "lblCurveStart": "Kurvenanfang",
+  "lblMmAlong": "{value} mm entlang",
+  "@lblMmAlong": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "lblAddIrregularAngle": "+ Abweichender Winkel",
+  "lblAddIrregularDistance": "+ Abweichender Abstand",
+  "lblSelectDir": "Richtung…",
+  "lblMidplane": "Mittelebene",
+  "lblCurveLength": "Kurvenlänge",
+  "lblIdentical": "Identisch",
+  "lblIncremental": "Schrittweise",
+  "lblRotational": "Mitdrehend",
+  "lblSketchPoint": "Skizzenpunkt",
+  "lblSelectPoint": "Punkt wählen",
+  "lblBasePoint": "Basispunkt",
+  "lblFollowFace": "Fläche folgen",
+  "lblMirrorPlane": "Spiegelebene",
+  "lblCreationMethod": "Erzeugungsmethode",
+  "lblAdjust": "Anpassen",
+  "lblRemoveOriginal": "Original entfernen",
+  "lblKeepMirroredHalf": "Nur die gespiegelte Hälfte behalten",
+  "lblPatternFeatures": "Einzelne Elemente anordnen",
+  "lblPatternSolid": "Einen Volumenkörper anordnen",
+  "lblPick": "Wählen",
+  "@lblPick": {
+    "x-maxChars": 12
+  },
+  "lblPointCount": "{count, plural, =1{{name} (ein Punkt)} other{{name} ({count} Punkte)}}",
+  "@lblPointCount": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "lblCoords": "({x}, {y})",
+  "@lblCoords": {
+    "placeholders": {
+      "x": {
+        "type": "String"
+      },
+      "y": {
+        "type": "String"
+      }
+    }
+  },
+  "conCoincident": "Koinzident",
+  "@conCoincident": {
+    "x-maxChars": 14
+  },
+  "conCollinear": "Kollinear",
+  "@conCollinear": {
+    "x-maxChars": 14
+  },
+  "conConcentric": "Konzentrisch",
+  "@conConcentric": {
+    "x-maxChars": 14
+  },
+  "conLock": "Fixieren",
+  "@conLock": {
+    "description": "Inventor DE: \"Fixieren\" — die Abhaengigkeit, die Geometrie festnagelt.",
+    "x-maxChars": 14
+  },
+  "conParallel": "Parallel",
+  "@conParallel": {
+    "x-maxChars": 14
+  },
+  "conPerpendicular": "Lotrecht",
+  "@conPerpendicular": {
+    "description": "Inventor DE: \"Lotrecht\", nicht \"Senkrecht\" — senkrecht heisst dort vertikal.",
+    "x-maxChars": 14
+  },
+  "conHorizontal": "Horizontal",
+  "@conHorizontal": {
+    "x-maxChars": 14
+  },
+  "conVertical": "Vertikal",
+  "@conVertical": {
+    "x-maxChars": 14
+  },
+  "conTangent": "Tangential",
+  "@conTangent": {
+    "x-maxChars": 14
+  },
+  "conSymmetric": "Symmetrisch",
+  "@conSymmetric": {
+    "x-maxChars": 14
+  },
+  "conEqual": "Gleich",
+  "@conEqual": {
+    "x-maxChars": 14
+  },
+  "lblModuleMm": "Modul (mm)",
+  "lblTeeth": "Zähne",
+  "lblCornerRadiusMm": "Eckenradius (mm)",
+  "lblSunTeeth": "Sonnenzähne",
+  "lblPlanetTeeth": "Planetenzähne",
+  "lblPlanets": "Planeten",
+  "lblPressureAngle": "Eingriffswinkel (°)",
+  "@lblPressureAngle": {
+    "description": "Verzahnungsbegriff: der Eingriffswinkel, nicht der \"Druckwinkel\"."
+  },
+  "lblProfileShift": "Profilverschiebung",
+  "lblBoreDia": "Bohrung Ø (mm)",
+  "btnInsert": "Einfügen",
+  "@btnInsert": {
+    "x-maxChars": 12
+  },
+  "gearExternal": "Stirnrad",
+  "@gearExternal": {
+    "x-maxChars": 14
+  },
+  "gearInternal": "Hohlrad",
+  "@gearInternal": {
+    "x-maxChars": 14
+  },
+  "gearPlanetary": "Planetensatz",
+  "@gearPlanetary": {
+    "x-maxChars": 14
+  },
+  "gearRingInfo": "Hohlrad {teeth}Z · Achsabstand {dist}",
+  "@gearRingInfo": {
+    "description": "Z fuer Zaehnezahl, wie auf einer deutschen Zeichnung.",
+    "placeholders": {
+      "teeth": {
+        "type": "String"
+      },
+      "dist": {
+        "type": "String"
+      }
+    }
+  },
+  "hudFullyConstrained": "Vollständig bestimmt",
+  "@hudFullyConstrained": {
+    "description": "Inventor DE: eine Skizze ist \"vollständig bestimmt\", wenn sie keine Freiheitsgrade mehr hat."
+  },
+  "hudCancelEsc": "Abbrechen (Esc)",
+  "hudDeleteN": "{count, plural, =1{Ein Objekt löschen} other{{count} Objekte löschen}}",
+  "@hudDeleteN": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hudLineKey": "Linie (L)",
+  "@hudLineKey": {
+    "description": "Der Buchstabe ist das TASTENKUERZEL und bleibt, wie es auf der Tastatur liegt."
+  },
+  "hudCircleKey": "Kreis (C)",
+  "hudRectKey": "Rechteck (R)",
+  "hudDimensionKey": "Bemaßung (D)",
+  "hintTapDimensionToInsert": "Eine Bemaßung in der Skizze antippen, um sie als „Name“ einzufügen",
+  "hintTextEmbedParams": "Text — Parameter als <Breite> oder „d0“ einbetten",
+  "msgReportSaved": "Bericht gesichert",
+  "msgReportFailed": "Bericht FEHLGESCHLAGEN",
+  "msgBugSaved": "Dateien-App > Auf meinem iPad > prototype > bugreports\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.",
+  "@msgBugSaved": {
+    "description": "Der Pfad ist der, den iPadOS auf Deutsch anzeigt — die Dateien-App heisst so. \"prototype\" und \"bugreports\" sind Ordnernamen auf der Platte und bleiben."
+  },
+  "msgBugBundleFailed": "Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.",
+  "@msgBugBundleFailed": {
+    "description": "prototype_log.txt und die Logmarke \"bug\" sind Dateiname und Logmarke — sie bleiben, wie sie auf der Platte stehen."
+  },
+  "hintPickBodyTapCancel": "Körper wählen… (zum Abbrechen tippen)",
+  "lblSelectBodyIn3d": "Körper in 3D / im Browser wählen",
+  "secAdvancedProperties": "Erweiterte Eigenschaften",
+  "lblTaperA": "Verjüngung A",
+  "lblMatchShape": "Form angleichen",
+  "lblSelectFaceBtn": "Fläche wählen",
+  "gearRingLine": "Hohlrad {teeth}Z · Achsabstand {dist} mm{warn}",
+  "@gearRingLine": {
+    "description": "Z = Zaehnezahl, wie auf einer deutschen Zeichnung. {warn} ist leer oder der Hinweis unten.",
+    "placeholders": {
+      "teeth": {
+        "type": "String"
+      },
+      "dist": {
+        "type": "String"
+      },
+      "warn": {
+        "type": "String"
+      }
+    }
+  },
+  "gearUnevenWarn": " · ⚠ Planeten nicht gleichmäßig verteilt",
+  "gearPitchLine": "Teilkreis Ø {pitch} · Kopf Ø {tip} · Fuß Ø {root} mm",
+  "@gearPitchLine": {
+    "description": "Teilkreis / Kopfkreis / Fusskreis — die drei Verzahnungsdurchmesser.",
+    "placeholders": {
+      "pitch": {
+        "type": "String"
+      },
+      "tip": {
+        "type": "String"
+      },
+      "root": {
+        "type": "String"
+      }
+    }
+  },
+  "msgRemovesLayerAndEntitiesUndo": "{count, plural, =1{Entfernt den Layer und sein einziges Objekt. Nicht rückgängig zu machen.} other{Entfernt den Layer und seine {count} Objekte. Nicht rückgängig zu machen.}}",
+  "@msgRemovesLayerAndEntitiesUndo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "valNameEmpty": "Der Name darf nicht leer sein",
+  "valNameTooLong": "Der Name ist zu lang",
+  "valNameBadChars": "Der Name darf / \\ und : nicht enthalten",
+  "valNameLeadingDot": "Der Name darf nicht mit einem Punkt beginnen",
+  "valBodyNameTaken": "Ein Körper namens „{name}“ existiert bereits",
+  "@valBodyNameTaken": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "valFeatureNameTaken": "Ein Element namens „{name}“ existiert bereits",
+  "@valFeatureNameTaken": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "valSelectOneEdge": "Mindestens eine Kante wählen.",
+  "valRadiusPositive": "Radius muss größer als 0 sein.",
+  "valRadiusOfSetPositive": "Radius von Gruppe {n} muss größer als 0 sein.",
+  "@valRadiusOfSetPositive": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "valEndRadiusPositive": "Endradius muss größer als 0 sein.",
+  "valEndRadiusOfSetPositive": "Endradius von Gruppe {n} muss größer als 0 sein.",
+  "@valEndRadiusOfSetPositive": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "valDistancePositive": "Abstand muss größer als 0 sein.",
+  "valDistance2Positive": "Abstand 2 muss größer als 0 sein.",
+  "valAngle0to90": "Der Winkel muss zwischen 0 und 90 Grad liegen.",
+  "valSelectOneFeature": "Mindestens ein Element zum Anordnen wählen.",
+  "valSelectDirectionA": "Richtung oder Kurve für Richtung A wählen.",
+  "valCountAAtLeastOne": "Die Anzahl in Richtung A muss mindestens 1 sein.",
+  "valDistanceAPositive": "Der Abstand in Richtung A muss größer als 0 sein.",
+  "valCountBAtLeastOne": "Die Anzahl in Richtung B muss mindestens 1 sein.",
+  "valDistanceBPositive": "Der Abstand in Richtung B muss größer als 0 sein.",
+  "valPatternNeedsTwo": "Eine Anordnung braucht mehr als ein Exemplar.",
+  "valSelectRotationAxis": "Drehachse wählen.",
+  "valCountAtLeastOne": "Die Anzahl muss mindestens 1 sein.",
+  "valAngleNotZero": "Der Winkel darf nicht 0 sein.",
+  "valSelectPointSketch": "Die Skizze mit den Punkten wählen.",
+  "valSelectMirrorPlane": "Spiegelebene wählen.",
+  "valNoSolidToPattern": "Es gibt noch keinen Volumenkörper zum Anordnen.",
+  "valSelectPathCurve": "Pfadkurve wählen.",
+  "valTwistUnsupported": "Verdrehung wird noch nicht unterstützt — auf 0 lassen.",
+  "valSelectTwoSections": "Mindestens zwei Querschnitte wählen.",
+  "valSelectAxis": "Achse wählen.",
+  "valPitchPositive": "Steigung muss größer als 0 sein.",
+  "valRevolutionPositive": "Umdrehungen müssen größer als 0 sein.",
+  "valHeightPositive": "Höhe muss größer als 0 sein.",
+  "valSelectRevolveAxis": "Drehachse wählen.",
+  "valAxisNoDirection": "Die Achse gibt keine Richtung vor.",
+  "valAngleA0to360": "Winkel A muss zwischen 0 und 360 Grad liegen.",
+  "valAngleBPositive": "Winkel B muss größer als 0 sein.",
+  "valAngleABMax360": "Winkel A + B dürfen 360 Grad nicht überschreiten.",
+  "valDistanceAPositiveShort": "Abstand A muss größer als 0 sein.",
+  "valDistanceBPositiveShort": "Abstand B muss größer als 0 sein.",
+  "valTaperRange": "Die Verjüngung muss zwischen -90 und 90 Grad liegen.",
+  "lblSelectDirPlaceholder": "Richtung…",
+  "lblMirrorPlanePlaceholder": "Spiegelebene",
+  "lblCenterlineGeo": "Mittellinie",
+  "lblConstructionLineGeo": "Konstruktionslinie",
+  "lblLineGeo": "Linie"
+}

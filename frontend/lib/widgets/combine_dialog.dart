@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class CombineDialog extends StatefulWidget {
   final AppState app;
@@ -60,7 +61,7 @@ class _CombineDialogState extends State<CombineDialog> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
                 ),
                 child: Row(children: [
-                  Text('Properties',
+                  Text(L.of(context).dlgProperties,
                       style: ts(13, Colors.white, w: FontWeight.w600)),
                   const SizedBox(width: 6),
                   GestureDetector(
@@ -75,46 +76,46 @@ class _CombineDialogState extends State<CombineDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ?? 'Combine', style: ts(12.5, T.blue)),
+                Text(s.editing?.name ?? L.of(context).btnCombine, style: ts(12.5, T.blue)),
                 const Spacer(),
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
             ),
-            panelSection('Bodies', _open, () => setState(() => _open = !_open), [
+            panelSection(L.of(context).lblBodies, _open, () => setState(() => _open = !_open), [
               panelRow(
-                  'Base',
+                  L.of(context).lblBase,
                   panelPickField(
                     icon: Icons.crop_square,
                     active: s.baseBody == null,
-                    label: s.baseBody ?? 'Tap the body to KEEP…',
+                    label: s.baseBody ?? L.of(context).hintTapBodyToKeep,
                   )),
               panelRow(
-                  'Toolbodies',
+                  L.of(context).lblToolbodies,
                   panelPickField(
                     icon: Icons.layers_outlined,
                     active: s.baseBody != null,
                     label: s.tools.isEmpty
                         ? (s.baseBody == null
-                            ? 'Pick the base first'
-                            : 'Tap the bodies to combine…')
+                            ? L.of(context).hintPickBaseFirst
+                            : L.of(context).hintTapBodiesToCombine)
                         : s.tools.join(', '),
                   )),
               panelRow(
-                  'Operation',
+                  L.of(context).lblOperation,
                   Row(children: [
                     for (final op in const ['join', 'cut', 'intersect']) ...[
                       if (op != 'join') const SizedBox(width: 6),
-                      _seg(_opLabel(op), s.op == op,
+                      _seg(_opLabel(L.of(context), op), s.op == op,
                           () => app.setCombine(op: op)),
                     ],
                   ])),
               panelRow(
-                  'Keep tool',
+                  L.of(context).lblKeepTool,
                   Row(children: [
                     _seg('No', !s.keepTool,
                         () => app.setCombine(keepTool: false)),
                     const SizedBox(width: 6),
-                    _seg('Yes', s.keepTool,
+                    _seg(L.of(context).lblYes, s.keepTool,
                         () => app.setCombine(keepTool: true)),
                   ])),
             ]),
@@ -125,10 +126,10 @@ class _CombineDialogState extends State<CombineDialog> {
     );
   }
 
-  static String _opLabel(String op) => switch (op) {
-        'join' => 'Join',
-        'intersect' => 'Intersect',
-        _ => 'Cut',
+  static String _opLabel(AppL10n t, String op) => switch (op) {
+        'join' => t.opJoin,
+        'intersect' => t.opIntersect,
+        _ => t.opCut,
       };
 
   Widget _seg(String label, bool on, VoidCallback onTap) => Expanded(
@@ -164,7 +165,7 @@ class _CombineDialogState extends State<CombineDialog> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -182,7 +183,7 @@ class _CombineDialogState extends State<CombineDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),

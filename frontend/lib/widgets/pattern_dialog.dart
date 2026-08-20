@@ -22,6 +22,7 @@ import '../scrub.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
+import '../l10n/l.dart';
 
 const _fieldBg = Color(0xFF212429);
 const _fieldBorder = Color(0xFF3A3F45);
@@ -93,9 +94,9 @@ class _PatternDialogState extends State<PatternDialog> {
 
   Widget _header(AppState app) {
     final title = switch (ps.kind) {
-      Tool.patRect => 'Rectangular Pattern',
-      Tool.patCirc => 'Circular Pattern',
-      _ => 'Mirror',
+      Tool.patRect => L.of(context).patRectangular,
+      Tool.patCirc => L.of(context).patCircular,
+      _ => L.of(context).patMirror,
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -108,7 +109,7 @@ class _PatternDialogState extends State<PatternDialog> {
         Expanded(
             child: Text(title, style: ts(13.5, T.text, w: FontWeight.w600))),
         _IconTap(
-          tooltip: 'Cancel',
+          tooltip: L.of(context).cancel,
           onTap: app.cancelTool,
           child: const Icon(Icons.close, size: 17, color: T.dim),
         ),
@@ -150,7 +151,8 @@ class _PatternDialogState extends State<PatternDialog> {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Direction $which', style: ts(10.5, enabled ? T.dim : _disabledText)),
+        Text(L.of(context).lblDirectionN('$which'),
+            style: ts(10.5, enabled ? T.dim : _disabledText)),
         const SizedBox(height: 6),
         Row(children: [
           _PickBtn(
@@ -158,7 +160,7 @@ class _PatternDialogState extends State<PatternDialog> {
             active: enabled && ps.active == field,
             done: ent != null,
             enabled: enabled,
-            tooltip: 'Select the direction line',
+            tooltip: L.of(context).tipSelectDirectionLine,
             onTap: () {
               ps.active = field;
               app.patNotify();
@@ -168,7 +170,7 @@ class _PatternDialogState extends State<PatternDialog> {
           _SquareBtn(
             icon: PD['flip']!,
             enabled: enabled && ent != null,
-            tooltip: 'Flip direction',
+            tooltip: L.of(context).tipFlipDirection,
             onTap: () {
               if (which == 1) {
                 ps.flip1 = !flip;
@@ -182,7 +184,7 @@ class _PatternDialogState extends State<PatternDialog> {
           _SquareBtn(
             icon: IC['patrect']!,
             enabled: false, // path mode — Inventor's 3rd toggle, future work
-            tooltip: 'Pattern along a path — not yet available',
+            tooltip: L.of(context).tipPatternAlongPath,
             onTap: () {},
           ),
         ]),
@@ -233,19 +235,19 @@ class _PatternDialogState extends State<PatternDialog> {
           icon: PD['selAxis']!,
           active: ps.active == PatField.axis,
           done: ps.axisPt != null,
-          tooltip: 'Select the rotation axis point',
+          tooltip: L.of(context).tipSelectRotationAxisPoint,
           onTap: () {
             ps.active = PatField.axis;
             app.patNotify();
           },
         ),
         const SizedBox(width: 5),
-        Text('Axis', style: ts(12.5, T.text)),
+        Text(L.of(context).lblAxis, style: ts(12.5, T.text)),
         const Spacer(),
         _SquareBtn(
           icon: PD['flip']!,
           enabled: ps.axisPt != null,
-          tooltip: 'Flip rotation direction',
+          tooltip: L.of(context).tipFlipRotation,
           onTap: () {
             ps.flipC = !ps.flipC;
             app.patNotify();
@@ -311,14 +313,14 @@ class _PatternDialogState extends State<PatternDialog> {
           icon: PD['sel']!,
           active: ps.active == PatField.geometry,
           done: ps.geo.isNotEmpty,
-          tooltip: 'Select the geometry to mirror',
+          tooltip: L.of(context).tipSelectGeometryToMirror,
           onTap: () {
             ps.active = PatField.geometry;
             app.patNotify();
           },
         ),
         const SizedBox(width: 7),
-        Text('Select', style: ts(12.5, T.text)),
+        Text(L.of(context).select, style: ts(12.5, T.text)),
         const Spacer(),
         Text(
             ps.geo.isEmpty ? 'nothing selected' : '${ps.geo.length} selected',
@@ -330,22 +332,22 @@ class _PatternDialogState extends State<PatternDialog> {
           icon: PD['mirLine']!,
           active: ps.active == PatField.mirrorLine,
           done: ps.mirrorEnt != null,
-          tooltip: 'Select the mirror line',
+          tooltip: L.of(context).tipSelectMirrorLine,
           onTap: () {
             ps.active = PatField.mirrorLine;
             app.patNotify();
           },
         ),
         const SizedBox(width: 7),
-        Text('Mirror line', style: ts(12.5, T.text)),
+        Text(L.of(context).lblMirrorLine, style: ts(12.5, T.text)),
         const Spacer(),
-        Text(ps.mirrorEnt == null ? '—' : 'Line ${ps.mirrorEnt}',
+        Text(ps.mirrorEnt == null ? '—' : L.of(context).lblLineN('${ps.mirrorEnt}'),
             style: ts(11.5, T.dim)),
       ]),
       const SizedBox(height: 8),
       _CheckRow(
-        label: 'Self Symmetric',
-        hint: selfSymOk ? null : '(single open spline only)',
+        label: L.of(context).btnSelfSymmetric,
+        hint: selfSymOk ? null : L.of(context).lblSingleOpenSplineOnly,
         value: ps.selfSym,
         enabled: selfSymOk,
         onChanged: (v) {
@@ -358,13 +360,13 @@ class _PatternDialogState extends State<PatternDialog> {
         _HelpBadge(),
         const Spacer(),
         _DlgBtn(
-            label: 'Apply',
+            label: L.of(context).apply,
             outline: true,
             onTap: () => app.commitPattern(keepOpen: true)),
         const SizedBox(width: 8),
-        _DlgBtn(label: 'Done', primary: true, onTap: () => app.commitPattern()),
+        _DlgBtn(label: L.of(context).done, primary: true, onTap: () => app.commitPattern()),
         const SizedBox(width: 8),
-        _DlgBtn(label: 'Cancel', onTap: app.cancelTool),
+        _DlgBtn(label: L.of(context).cancel, onTap: app.cancelTool),
       ]),
     ]);
   }
@@ -376,14 +378,14 @@ class _PatternDialogState extends State<PatternDialog> {
         icon: PD['sel']!,
         active: ps.active == PatField.geometry,
         done: ps.geo.isNotEmpty,
-        tooltip: 'Select the geometry to pattern',
+        tooltip: L.of(context).tipSelectGeometryToPattern,
         onTap: () {
           ps.active = PatField.geometry;
           app.patNotify();
         },
       ),
       const SizedBox(width: 7),
-      Text('Geometry', style: ts(12.5, T.text)),
+      Text(L.of(context).lblGeometry, style: ts(12.5, T.text)),
       const SizedBox(width: 8),
       Text(ps.geo.isEmpty ? '' : '${ps.geo.length} selected',
           style: ts(11.5, T.dim)),
@@ -405,7 +407,7 @@ class _PatternDialogState extends State<PatternDialog> {
           child: Opacity(opacity: .35, child: Center(child: svgi(icon, 14))),
         );
     return Tooltip(
-      message: 'Boundary fill — not yet available',
+      message: L.of(context).msgBoundaryFillNotYet,
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
@@ -414,18 +416,18 @@ class _PatternDialogState extends State<PatternDialog> {
         ),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Extents', style: ts(10.5, _disabledText)),
+          Text(L.of(context).lblExtents, style: ts(10.5, _disabledText)),
           const SizedBox(height: 6),
           Row(children: [
             dis(PD['sel']!),
-            Text('Boundary', style: ts(12, _disabledText)),
+            Text(L.of(context).lblBoundary, style: ts(12, _disabledText)),
           ]),
           const SizedBox(height: 6),
           Row(children: [
             dis(IC['patrect']!),
             dis(PD['countC']!),
             dis(PD['sel']!),
-            Text('Include geometry', style: ts(12, _disabledText)),
+            Text(L.of(context).lblIncludeGeometry, style: ts(12, _disabledText)),
           ]),
         ]),
       ),
@@ -436,9 +438,9 @@ class _PatternDialogState extends State<PatternDialog> {
     return Row(children: [
       _HelpBadge(),
       const Spacer(),
-      _DlgBtn(label: 'OK', primary: true, onTap: () => app.commitPattern()),
+      _DlgBtn(label: L.of(context).ok, primary: true, onTap: () => app.commitPattern()),
       const SizedBox(width: 8),
-      _DlgBtn(label: 'Cancel', onTap: app.cancelTool),
+      _DlgBtn(label: L.of(context).cancel, onTap: app.cancelTool),
       const SizedBox(width: 8),
       _DlgBtn(
         label: ps.expanded ? '\u00ab' : '\u00bb',
@@ -456,19 +458,19 @@ class _PatternDialogState extends State<PatternDialog> {
       padding: const EdgeInsets.only(top: 10),
       child: Row(children: [
         Tooltip(
-          message: 'Suppress instances — not yet available',
+          message: L.of(context).msgSuppressNotYet,
           child: Opacity(
             opacity: .4,
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               svgi(PD['sel']!, 14),
               const SizedBox(width: 4),
-              Text('Suppress', style: ts(12, T.dim)),
+              Text(L.of(context).lblSuppress, style: ts(12, T.dim)),
             ]),
           ),
         ),
         const Spacer(),
         _CheckRow(
-          label: 'Associative',
+          label: L.of(context).btnAssociative,
           value: ps.associative,
           onChanged: (v) {
             ps.associative = v;
@@ -477,7 +479,7 @@ class _PatternDialogState extends State<PatternDialog> {
         ),
         const SizedBox(width: 10),
         _CheckRow(
-          label: 'Fitted',
+          label: L.of(context).btnFitted,
           value: ps.fitted,
           onChanged: (v) {
             ps.fitted = v;
@@ -719,8 +721,7 @@ class _HelpBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Pick geometry in the viewport while the blue selector is '
-          'active. OK / Done creates the pattern.',
+      message: L.of(context).msgPickWhileSelectorBlue,
       child: Container(
         width: 22,
         height: 22,
@@ -837,8 +838,7 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         app.filletNotify();
       }, suffix: 'mm'),
       const SizedBox(height: 8),
-      Text('Pick two lines, arcs or circles.\nFirst fillet is dimensioned; '
-          'the rest chain equal.', style: ts(10.5, T.dim)),
+      Text(L.of(context).msgFilletPickTwo, style: ts(10.5, T.dim)),
     ]);
   }
 
@@ -858,9 +858,9 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         );
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        modeBtn(0, PD['chamEq']!, 'Equal distance'),
-        modeBtn(1, PD['cham2d']!, 'Two distances'),
-        modeBtn(2, PD['chamAng']!, 'Distance and angle'),
+        modeBtn(0, PD['chamEq']!, L.of(context).lblEqualDistance),
+        modeBtn(1, PD['cham2d']!, L.of(context).lblTwoDistances),
+        modeBtn(2, PD['chamAng']!, L.of(context).lblDistanceAndAngle),
       ]),
       const SizedBox(height: 8),
       _num(PD['spacing']!, _d1, min: 0.1, (v) {
@@ -882,7 +882,7 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         }, suffix: 'deg'),
       ],
       const SizedBox(height: 8),
-      Text('Distance 1 applies to the first picked line.',
+      Text(L.of(context).msgDistance1FirstLine,
           style: ts(10.5, T.dim)),
     ]);
   }
@@ -1060,7 +1060,7 @@ class _PolygonDialogState extends State<PolygonDialog> {
           ),
           child: Row(children: [
             Expanded(
-                child: Text('Polygon',
+                child: Text(L.of(context).dlgPolygon,
                     style: ts(13.5, T.text, w: FontWeight.w600))),
           ]),
         ),
@@ -1077,7 +1077,7 @@ class _PolygonDialogState extends State<PolygonDialog> {
               integer: true,
             ),
             const SizedBox(height: 8),
-            Text('Sides. Pick the centre, then a corner.',
+            Text(L.of(context).msgPolygonSides,
                 style: ts(10.5, T.dim)),
           ]),
         ),

@@ -900,3 +900,54 @@ Nothing about the result, and something about how well it is evidenced. The
 bit-identity claim now rests on a comparison that can be re-run on any machine
 and that is demonstrated to fail when the two paths differ. Before, it rested
 on an argument plus a comparison that existed only in my shell history.
+
+---
+
+## 13. The device capture: every S3 prediction adjudicated
+
+Round one's paired capture (run 7, build `b2de0c2`, uncapped, thermal nominal)
+settled all five. `PERFORMANCE_PROFILE.md` §17 carries the branch-level
+scoreboard; this is S3's own row-by-row reckoning, including the two the
+scoreboard did not print.
+
+| | registered | measured | |
+| --- | --- | --- | --- |
+| **P1** exponent | 2.0 ± 0.35, interval must exclude 3 | **2.285** [2.076, 2.495] | **held** |
+| **P2** 1024 entities | 700 ms [400, 1600] | **562 ms** | **held** |
+| **P3** `stress.analyze.rssDeltaMB` | < 15 MB (structural < 1 MB) | **−13 MB** | **held** |
+| **P4** cache hit rate in the suite | 0 %, and a drag hit = defect | 1 hit / 16 calls, **no drag hit possible** | **held** |
+| **P5(a)** `JᵀJ` multiply-adds | 1 860 ± 150 | 1 810 (host, exact) | **held** |
+| **P5(b)** host wall | 120 ms [60, 250] | 247 ms | held at the ceiling |
+| **P5(c)** device `solve.lm` | 15 ms [7, 30], revised to 21.6 ms | not separately printed | **unadjudicated** |
+
+**P1 is the result of the branch.** The intervals do not overlap: 3.198
+[2.835, 3.561] against 2.285 [2.076, 2.495]. §17.1 records it as the only
+change of complexity class in either round, and the speed-up growing with size
+— 2.5× at 128 entities to 15.7× at 1024 — is the signature of an exponent
+moving rather than a constant. `sketch.analyze` fell from **15.6 % of measured
+suite time to 2.6 %**.
+
+**P2 landed at 562 ms** against a registered 700 ms and a mid-session revision
+to 653 ms. The revision was closer, which is the right lesson from §9.3: the
+host ratio was the unreliable input, and widening the interval rather than
+trusting the point estimate is what saved it.
+
+**P3 is the sharpest.** §5.5.2 predicted the 105 MB structurally, to 2.2 %,
+from the dense Jacobian (73.5 MB) and the dense null-space basis (29.3 MB).
+Both are gone; the rung now records **−13 MB**, i.e. the analysis returns more
+memory than it takes. The mechanism §5.5.2 identified was correct and removing
+those two structures removed the whole of it.
+
+**P4 held, and the argument is arithmetic rather than assertion.** The suite
+recorded `analyze.cache.miss = 15`, `analyze.cache.hit = 1` — 16 calls through
+the memo in the entire device session. `ui.drag60` paints 60 frames. Had the
+drag entered the memo there would be at least 60 calls, so **the single hit
+cannot be a drag frame**, and the falsification condition I registered — a hit
+during `ui.drag60` proving the key had missed something that moved — did not
+occur. The 16 are the app's own `_reanalyze`/rebuild calls; the perf scenarios
+call `analyzeSketch` directly and never touch the memo, exactly as registered.
+
+**P5(c) is the one I cannot close.** `solve.lm` is not printed separately in
+§17, and the LM fallback is entered only when libslvs declines — which the
+suite's scenarios mostly do not do. It stays open rather than being quietly
+counted as held.

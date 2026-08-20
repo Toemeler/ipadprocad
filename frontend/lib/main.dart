@@ -13,6 +13,7 @@ import 'ffi/perf_hook.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'app_state.dart';
+import 'l10n/l.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
 import 'gesture_trace.dart';
@@ -156,8 +157,26 @@ class PrototypeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // M234 — the language switch applies HERE and nowhere else.
+    //
+    // `L.locale` is a ValueNotifier, so switching rebuilds exactly this
+    // subtree: MaterialApp gets a new locale, Localizations reloads the
+    // delegate (synchronously — our delegate returns a SynchronousFuture) and
+    // every `L.of(context)` below it reads the other language on the very next
+    // frame. Nothing is torn down, no state is lost, the open sketch stays
+    // open. That is the difference between a language switch and a restart.
+    return ValueListenableBuilder<Locale>(
+      valueListenable: L.locale,
+      builder: (context, locale, _) => _app(locale),
+    );
+  }
+
+  Widget _app(Locale locale) {
     return MaterialApp(
       title: 'Prototype',
+      locale: locale,
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,

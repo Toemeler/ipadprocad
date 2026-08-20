@@ -1,0 +1,25 @@
+# M234 — the localisation layer.
+#
+# The TEMPLATE IS GERMAN. That is the whole point of this configuration and it
+# is not a detail: gen-l10n reads placeholders, plural forms and descriptions
+# from the template, so whichever file is named here is the one the app is
+# actually written in. `app_en.arb` is the translation, not the source.
+#
+# The generated code is written into `lib/l10n/gen/` and COMMITTED, rather than
+# into the synthetic package. Two reasons: `flutter analyze` and `flutter test`
+# then work on a fresh checkout without anyone having remembered to run the
+# generator first, and a reviewer can see in the diff what the ARB actually
+# produced.
+arb-dir: lib/l10n
+template-arb-file: app_de.arb
+output-localization-file: app_l10n.dart
+output-class: AppL10n
+output-dir: lib/l10n/gen
+nullable-getter: true
+# A key missing from app_en.arb must be a BUILD failure, not a silent fallback
+# to German text in an English UI. l10n_completeness_test.dart is the belt to
+# this brace — it also fails when a key is missing the other way round.
+# Written into .dart_tool/, which is not versioned: it is a build report,
+# not a source. It comes out `{}` today, and l10n_completeness_test is
+# what actually fails the build if it ever would not.
+untranslated-messages-file: .dart_tool/l10n_untranslated.json

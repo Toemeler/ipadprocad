@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/l10n/fmt.dart';
 import 'package:prototype/widgets/viewport.dart';
 
 AppState makeApp() {
@@ -43,7 +44,7 @@ void main() {
     expect(app.dimLabelRects, hasLength(1));
     final (c, r) = app.dimLabelRects.single;
     expect(c.dimKind, 'dist');
-    // the label must be wide enough for "80.00 mm" — a 14px disc around the
+    // the label must be wide enough for "80,00 mm" — a 14px disc around the
     // anchor (the old test) could never cover it
     expect(r.width, greaterThan(40));
     expect(r.height, greaterThan(10));
@@ -60,9 +61,12 @@ void main() {
     await t.pump();
     expect(find.byType(TextField), findsOneWidget,
         reason: 'inline editor must open on a label tap');
+    // M234 — the editor shows the value the way the current language writes
+    // it: "80,00" in German, "80.00" in English. Fmt.fixed is the same call
+    // the widget makes, so this asserts the VALUE without pinning a language.
     expect(
         (t.widget<TextField>(find.byType(TextField)).controller!).text,
-        '80.00');
+        Fmt.fixed(80, 2));
   });
 
   testWidgets('second tap of a double tap keeps the editor open', (t) async {

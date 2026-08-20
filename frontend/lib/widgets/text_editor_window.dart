@@ -16,6 +16,7 @@ import '../inserts.dart';
 import '../theme.dart';
 import '../vector_font.dart';
 import 'scrub_field.dart';
+import '../l10n/l.dart';
 
 /// Font families offered in the dropdown.
 ///
@@ -135,8 +136,8 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
             child: Row(children: [
               const Icon(Icons.text_fields, size: 15, color: T.blue),
               const SizedBox(width: 6),
-              const Expanded(
-                  child: Text('Text',
+              Expanded(
+                  child: Text(L.of(context).dlgText,
                       style: TextStyle(color: T.text, fontSize: 12))),
               InkWell(
                 onTap: () => app.endTextEdit(keep: false),
@@ -156,8 +157,8 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
               children: [
                 Text(
                     _tplF.hasFocus
-                        ? 'Tap a dimension in the sketch to insert it as "name"'
-                        : 'Text — embed parameters as <Width> or "d0"',
+                        ? L.of(context).hintTapDimensionToInsert
+                        : L.of(context).hintTextEmbedParams,
                     style: const TextStyle(color: T.dim, fontSize: 10)),
                 const SizedBox(height: 4),
                 Container(
@@ -182,7 +183,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                 ),
                 const SizedBox(height: 8),
                 Row(children: [
-                  const Text('Font',
+                  Text(L.of(context).lblFont,
                       style: TextStyle(color: T.dim, fontSize: 11)),
                   const SizedBox(width: 6),
                   DropdownButton<String>(
@@ -202,7 +203,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                     onChanged: (v) => setState(() => _font = v ?? _font),
                   ),
                   const Spacer(),
-                  const Text('Size',
+                  Text(L.of(context).lblSize,
                       style: TextStyle(color: T.dim, fontSize: 11)),
                   const SizedBox(width: 6),
                   // M180 — the text height drags like every other length.
@@ -234,7 +235,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                 ]),
                 if (preview.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  const Text('Preview',
+                  Text(L.of(context).lblPreview,
                       style: TextStyle(color: T.dim, fontSize: 10)),
                   const SizedBox(height: 2),
                   // M220 — the preview is drawn from the OUTLINE, so what the
@@ -255,11 +256,11 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                           app.deleteText(t!);
                           app.endTextEdit(keep: true);
                         },
-                        child: const Text('Delete',
+                        child: Text(L.of(context).delete,
                             style: TextStyle(color: Color(0xFFE05A5A)))),
                   TextButton(
                       onPressed: () => app.endTextEdit(keep: false),
-                      child: const Text('Cancel')),
+                      child: Text(L.of(context).cancel)),
                   const SizedBox(width: 4),
                   ElevatedButton(
                     onPressed: _apply,
@@ -267,7 +268,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                         backgroundColor: T.blue,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 6)),
-                    child: const Text('OK',
+                    child: Text(L.of(context).ok,
                         style: TextStyle(color: Colors.white)),
                   ),
                 ]),

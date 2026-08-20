@@ -1695,6 +1695,66 @@ the standing check on it.
 edits are the added reference, the flag, and the two `if (denseReferenceForTests)`
 branches, all of which are false in production.
 
+---
+
+## S3-8 — to the INTEGRATOR: `ramp.solve.24` is BELOW the solve noise floor, not just over it — one of §17.5's three regressions should not be chased
+
+**Raised by:** Session 3 (2D solver).
+**Files:** none — `PERFORMANCE_PROFILE.md` §17.5 is yours, and I have not
+touched it.
+**Blocked:** no. This is a correction offered before someone spends a session
+on it.
+
+§17.5 records three regressions and says they are "all just over the measured
+noise floor … the kind of thing that compounds if ignored". For
+`ffi.occt.meshCreate` (+13.6 %, n = 323) I have no quarrel — that is a
+well-sampled span. **`ramp.solve.24` (+13.5 %) is a different case, and it is
+in my area, so it is mine to check.**
+
+**It is under the floor, measured in the same run.** `perf/baseline.json`'s
+own `noiseFloor` block, re-derived from run 7:
+
+```
+analyze 0.23   extrude 0.02   solve 0.21   splineEval 1.00
+```
+
+`ci/perf_gate.py:455` prints these as `v * 100`, so they are fractions:
+**the solve floor is 21 %.** A +13.5 % move on a solve span is *inside* it.
+§3.2 set the same figure at 18 % from run 6 and drew the rule explicitly —
+"a change below ~17 % in `analyze` or `solve` … is not a signal".
+
+**The sample is also as thin as the suite gets.** `ramp.solve.24` is
+`meanMs 0.059, n = 1` — a single 59 µs observation against a 1 µs quantum.
++13.5 % of it is **8 µs**. §5.5.1's own footnote declines to use the
+64-entity analyze rung in any ratio for exactly this reason, and this is a
+smaller number still.
+
+**Its history says the same thing.** The pre-optimisation §5.4 ladder records
+`ramp.solve` at 24 entities as **0.118 ms**; run 7 reads **0.059 ms**. The
+span has ranged 2× across runs on its own, which is a far larger swing than the
+13.5 % being called a regression.
+
+**What I am not claiming.** Not that solve got faster — the same thinness
+forbids that reading too. Only that this particular figure carries no
+information either way, and that §17.5's sentence should not apply to it. The
+other two stand on their own evidence; `ramp.mesh.12` (+10.6 %, n = 1,
+1.369 ms) is not mine but is worth the same arithmetic before anyone acts on it.
+
+**Why it is worth your time to fix the sentence:** §17.5's framing is what a
+later session will read as a work item. Sending someone after an 8 µs move on
+an n = 1 sample would cost a session and find nothing, and this branch's whole
+discipline is that a measurement nobody checked is not a measurement.
+
+For the record, S3's own predictions all held against the capture — P1
+k = 2.285 [2.076, 2.495] against a registered 2.0 ± 0.35, P2 562 ms against
+700 ms [400, 1600], P3 rssDelta −13 MB against a predicted < 15 MB, and P4's
+falsification condition did not fire: 16 memo calls total against 60 drag
+frames means the one recorded hit cannot be a drag. Details in
+`S3-solver.md` §13. **P5(c) — device `solve.lm` — is not printed in §17 and
+stays open** rather than being counted as held.
+
+---
+
 ## 2026-08-20 — S8 — Track B's redness has two causes, not one, and the loud one hid the real one
 
 **Raised by:** Session 8 (display path + Track B).
@@ -1985,3 +2045,66 @@ the frozen `perf*.dart` zone. Without it the tier is unreachable code. Additive
 and gated behind a keyword no past capture used, so it cannot change any
 recorded number. Revert it if the integrator would rather wire it differently —
 nothing else in my work depends on it.
+
+---
+
+## 2026-08-20 — S12 — `claude/perf-opt2` does not compile, and it is not the localisation
+
+**Raised by:** Session 12 (localisation).
+**Needs:** integrator, and through them S6 or S11 — whichever owns the fix.
+**Blocked:** 21 test files on the integration branch. Nothing of S12's.
+
+`lib/perf_scenarios_profile.dart` does not type-check against
+`lib/ffi/occt_engine.dart`:
+
+```
+error • The argument type 'OcctFfi?' can't be assigned to the parameter type
+        'OcctFfi'. • lib/perf_scenarios_profile.dart:254:26
+error • ... same at lib/perf_scenarios_profile.dart:282:16
+```
+
+`OcctFfi.instance()` returns `OcctFfi?`; `_sweep(occt, …)` takes a non-nullable
+`OcctFfi`. Two call sites, both in the `profile.sweep.*` ladders S11 added.
+
+**It is not mine, and it is not the merge's.** Against
+`origin/claude/perf-opt2`, `git diff` is EMPTY for all four files involved —
+`perf_scenarios_profile.dart`, `ffi/occt_engine.dart`, `bug_capture.dart`,
+`perf.dart`. The error is a static type error between two files that are
+byte-identical to that branch, so it reproduces there without anything of mine
+in the tree. My branch was green before I merged the integration branch into
+it.
+
+**What it costs.** `bug_capture.dart` imports the new tier (S8's opt-in block),
+so everything that reaches `bug_capture.dart` fails to compile. That is 21 test
+files, among them `m192_quick_tools_test`, `m205_flyout_button_test`,
+`m210_part_commands_test`, `m211_perf_scenarios_test` and
+`m233_profile_ladders_test` — S11's own new test.
+
+**I have not fixed it.** `perf*.dart` is the frozen measurement zone and
+`ffi/occt_engine.dart` is S6's, so both are closed to me under §0/§4. Written
+down, not touched, exactly as the rule says.
+
+There is a nineteenth failure from the same place, and it is an ASSERTION, not
+a compile error: `m233_sweep_rebuild_guard_test` — "the sweep rebuild guard, an
+unchanged rebuild does not reach the kernel" — fails `Expected: <3> Actual:
+<2>`. Same reproduction: a detached worktree on `origin/claude/perf-opt2`, its
+own `flutter pub get`, nothing of mine anywhere in it.
+
+**Proof, not assertion.** `git worktree add --detach` (no branch created, none
+moved), `flutter pub get`, then `flutter analyze` and that one test file:
+
+```
+=== analyze (errors only) ===
+  error • ... 'OcctFfi?' ... • lib/perf_scenarios_profile.dart:254:26
+  error • ... 'OcctFfi?' ... • lib/perf_scenarios_profile.dart:282:16
+=== m233_sweep_rebuild_guard_test on the UNTOUCHED integration branch ===
+  Expected: <3>
+    Actual: <2>
+```
+
+The worktree has been removed again.
+
+The compile fix is one line at either end: a null guard around the two ladders,
+or a nullable parameter on `_sweep`. Whoever owns it should also re-run the 18
+files, because nobody has seen them pass on this branch — and look separately
+at the rebuild-guard count, which is a different question from the type error.

@@ -13,6 +13,7 @@ import '../part_model.dart';
 import 'model_browser.dart';
 import 'native_browser.dart';
 import 'native_prompts.dart';
+import '../l10n/l.dart';
 
 class NativeModelBrowser extends StatefulWidget {
   final AppState app;
@@ -399,10 +400,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'bdRename':
           final r = await promptForText(context,
-              title: 'Rename body',
+              title: L.of(context).dlgRenameBody,
               initialValue: name,
-              placeholder: 'Body name',
-              confirmLabel: 'Rename');
+              placeholder: L.of(context).phBodyName,
+              confirmLabel: L.of(context).rename);
           if (r != null && r.trim().isNotEmpty) app.renameBody(name, r.trim());
           break;
         case 'bdDelete':
@@ -423,10 +424,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'ftRename':
           final r = await promptForText(context,
-              title: 'Rename feature',
+              title: L.of(context).dlgRenameFeature,
               initialValue: f.name,
-              placeholder: 'Feature name',
-              confirmLabel: 'Rename');
+              placeholder: L.of(context).phFeatureName,
+              confirmLabel: L.of(context).rename);
           if (r != null && r.trim().isNotEmpty) app.renameFeature(f, r.trim());
           break;
         case 'ftDelete':
@@ -528,10 +529,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'rename':
           final r = await promptForText(context,
-              title: 'Rename layer',
+              title: L.of(context).dlgRenameLayer,
               initialValue: layer,
-              placeholder: 'Layer name',
-              confirmLabel: 'Rename');
+              placeholder: L.of(context).phLayerName,
+              confirmLabel: L.of(context).rename);
           if (r != null && r.trim().isNotEmpty) app.renameLayer(layer, r);
           break;
         case 'move':
@@ -583,10 +584,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (count == 0) return;
     final ok = await confirmAction(
       context,
-      title: 'Delete all features below EOP?',
-      message: '$count feature${count == 1 ? '' : 's'} '
-          '${count == 1 ? 'is' : 'are'} removed from the part.',
-      confirmLabel: 'Delete',
+      title: L.of(context).dlgDeleteAllFeaturesBelowEop,
+      message: L.of(context).msgFeaturesRemoved(count),
+      confirmLabel: L.of(context).delete,
     );
     if (ok) app.deleteBelowEndOfPart();
   }
