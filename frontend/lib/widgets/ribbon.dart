@@ -1184,7 +1184,8 @@ class _RibbonState extends State<Ribbon> {
                 active: app.tool == Tool.mstretch),
           ],
           child: Row(children: [
-            _modCol(['trim', 'split', 'moffset'], ['Trim', 'Split', 'Offset'],
+            _modCol(['trim', 'split', 'moffset'],
+                [t.btnTrim, t.btnSplitCurve, t.btnOffsetCurve],
                 leftPad: 2),
           ]),
         ),
@@ -1214,7 +1215,9 @@ class _RibbonState extends State<Ribbon> {
             child: _BigWide(
                 width: 64,
                 icon: finishIcon,
-                label: app.activeChild != null ? 'Finish\nSketch' : 'Finish',
+                label: app.activeChild != null
+                    ? t.btnFinishSketch
+                    : t.btnFinish,
                 onTap: () => app.activeChild != null
                     ? app.finishPartSketch()
                     : app.finishEdit()),

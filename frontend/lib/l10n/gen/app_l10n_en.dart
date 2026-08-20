@@ -1689,6 +1689,18 @@ class AppL10nEn extends AppL10n {
   String get btnCenterPoint => 'Center Point';
 
   @override
+  String get btnSplitCurve => 'Split';
+
+  @override
+  String get btnOffsetCurve => 'Offset';
+
+  @override
+  String get btnFinish => 'Finish';
+
+  @override
+  String get btnFinishSketch => 'Finish\nSketch';
+
+  @override
   String get featExtrusion => 'Extrusion';
 
   @override
@@ -1823,4 +1835,339 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get extDistance => 'Distance';
+
+  @override
+  String get wfPickEdgeFacePlanesPoints =>
+      'Select an edge, a face, two planes, or two points.';
+
+  @override
+  String get wfPickLinearEdge => 'Select a linear edge or sketch line.';
+
+  @override
+  String get wfPickCircularEdge => 'Select a circular or elliptical edge.';
+
+  @override
+  String get wfPickCylConeFace => 'Select a cylindrical or conical face.';
+
+  @override
+  String get wfPickPoint => 'Select a point.';
+
+  @override
+  String get wfPickParallelLine => 'Select the line to be parallel to.';
+
+  @override
+  String get wfPickFirstPoint => 'Select the first point.';
+
+  @override
+  String get wfPickSecondPoint => 'Select the second point.';
+
+  @override
+  String get wfPickThirdPoint => 'Select the third point.';
+
+  @override
+  String get wfPickFirstPlane => 'Select the first plane or planar face.';
+
+  @override
+  String get wfPickSecondNonParallelPlane =>
+      'Select a second, non-parallel plane or face.';
+
+  @override
+  String get wfPickPlane => 'Select a plane or planar face.';
+
+  @override
+  String get wfPickAxisThroughPoint =>
+      'Select the point the axis runs through.';
+
+  @override
+  String get wfPickVertexCircleOrMeeting =>
+      'Select a vertex, a circular edge, or geometry that meets.';
+
+  @override
+  String get wfPickVertexToGround =>
+      'Select a vertex or midpoint to ground a point at.';
+
+  @override
+  String get wfPickVertexSketchPointMid =>
+      'Select a vertex, sketch point, or edge midpoint.';
+
+  @override
+  String get wfPickTorusFace => 'Select a toroidal face.';
+
+  @override
+  String get wfPickSphereFace => 'Select a spherical face.';
+
+  @override
+  String get wfPickFirstLine => 'Select the first line, edge or axis.';
+
+  @override
+  String get wfPickSecondCrossingLine =>
+      'Select a second line that crosses it.';
+
+  @override
+  String get wfPickCrossingLine =>
+      'Select a line, edge or axis that crosses it.';
+
+  @override
+  String get wfPickSecondPlane => 'Select the second plane.';
+
+  @override
+  String get wfPickThirdPlane => 'Select the third plane.';
+
+  @override
+  String get wfPickLineOrTwoPlanes =>
+      'Select a line to cross it, or two more planes.';
+
+  @override
+  String get wfPickSecondLineOrPlane =>
+      'Select a second line, or a plane to cross.';
+
+  @override
+  String get wfPickSecondPlaneOrPoint =>
+      'Select a second plane to intersect with, or a point for the normal through it.';
+
+  @override
+  String get wfPickSecondPointPlaneOrLine =>
+      'Select a second point, a plane, or a line.';
+
+  @override
+  String get wfPickParallelPlane =>
+      'Select the plane or planar face to be parallel to.';
+
+  @override
+  String get wfPickPlaneThroughPoint =>
+      'Select the point the plane runs through.';
+
+  @override
+  String get wfPickFirstEdge => 'Select the first edge or line.';
+
+  @override
+  String get wfPickSecondCoplanarEdge =>
+      'Select a second edge in the same plane.';
+
+  @override
+  String get wfPickNormalAxis =>
+      'Select the axis, edge or line to be normal to.';
+
+  @override
+  String get wfPickCylFaceSide =>
+      'Select a cylindrical face, on the side the plane goes.';
+
+  @override
+  String get wfPickCylFace => 'Select a cylindrical face.';
+
+  @override
+  String get wfPickEdgeAlongIt => 'Select an edge lying along it.';
+
+  @override
+  String get wfPickPlaneToParallel => 'Select the plane to be parallel to.';
+
+  @override
+  String get wfPickPlaneToAngleFrom => 'Select the plane to angle from.';
+
+  @override
+  String get wfPickPivotEdgeInPlane =>
+      'Select the edge to pivot about — it must lie in that plane.';
+
+  @override
+  String get wfTapCurveToCross =>
+      'Tap a sketch curve where the plane should cross it.';
+
+  @override
+  String wfNotStraightEdge(String ref) {
+    return '$ref is not a straight edge or line.';
+  }
+
+  @override
+  String wfNotCircularEdge(String ref) {
+    return '$ref is not a circular or elliptical edge.';
+  }
+
+  @override
+  String wfNotRevolvedFace(String ref) {
+    return '$ref is not a revolved face — pick a cylinder, cone or torus.';
+  }
+
+  @override
+  String wfNoPoint(String ref) {
+    return '$ref does not give a point.';
+  }
+
+  @override
+  String wfNotPlane(String ref) {
+    return '$ref is not a plane or planar face.';
+  }
+
+  @override
+  String wfNeitherPointNorLine(String ref) {
+    return '$ref is neither a point nor a line.';
+  }
+
+  @override
+  String wfNeitherPlaneNorLine(String ref) {
+    return '$ref is neither a plane nor a line.';
+  }
+
+  @override
+  String get wfNoParallelLinePicked =>
+      'Neither pick is a line to be parallel to.';
+
+  @override
+  String get wfPickPointForAxis =>
+      'Select a point for the axis to pass through.';
+
+  @override
+  String get wfPickPointForPlane =>
+      'Select a point for the plane to pass through.';
+
+  @override
+  String get wfSamePlace => 'Those two points are in the same place.';
+
+  @override
+  String wfParallelNeverMeet(String a, String b) {
+    return '$a and $b are parallel — they never meet.';
+  }
+
+  @override
+  String wfParallelNeverCross(String a, String b) {
+    return '$a and $b are parallel — they never cross.';
+  }
+
+  @override
+  String wfCannotDefineAxis(String ref) {
+    return '$ref cannot define an axis.';
+  }
+
+  @override
+  String wfCannotDefinePoint(String ref) {
+    return '$ref cannot define a point.';
+  }
+
+  @override
+  String wfParallelPickTwoMeeting(String a, String b) {
+    return '$a and $b are parallel — pick two planes that meet.';
+  }
+
+  @override
+  String wfNoAxisFromTwo(String a, String b) {
+    return '$a and $b do not define an axis.';
+  }
+
+  @override
+  String wfNoPointFromTwo(String a, String b) {
+    return '$a and $b do not define a point.';
+  }
+
+  @override
+  String wfNotClosedCircle(String ref) {
+    return '$ref is not a closed circular edge.';
+  }
+
+  @override
+  String wfNotSphere(String ref) {
+    return '$ref is not a spherical face.';
+  }
+
+  @override
+  String wfNotTorus(String ref) {
+    return '$ref is not a toroidal face.';
+  }
+
+  @override
+  String wfNotLineEdgeAxis(String ref) {
+    return '$ref is not a line, edge or axis.';
+  }
+
+  @override
+  String wfNotAxisEdgeLine(String ref) {
+    return '$ref is not an axis, edge or line.';
+  }
+
+  @override
+  String wfNotEdgeOrLine(String ref) {
+    return '$ref is not an edge or line.';
+  }
+
+  @override
+  String get wfPickOnePlaneOneLine => 'Select one plane and one line.';
+
+  @override
+  String wfSkewByGap(String a, String b, String gap) {
+    return '$a and $b do not meet — they pass $gap apart.';
+  }
+
+  @override
+  String wfLineParallelToPlane(String line, String plane) {
+    return '$line is parallel to $plane — it never crosses it.';
+  }
+
+  @override
+  String wfThreeNoCommonPoint(String a, String b, String c) {
+    return '$a, $b and $c do not meet at one point — two of them are parallel, or all three share a line.';
+  }
+
+  @override
+  String wfNotACurve(String ref) {
+    return '$ref is not a curve — tap a sketch curve where the plane should cross it.';
+  }
+
+  @override
+  String get wfPickPivotEdge => 'Select the edge the plane pivots about.';
+
+  @override
+  String wfEdgeNotInPlane(String edge, String plane) {
+    return '$edge is not parallel to $plane — the plane can only pivot about an edge lying in it.';
+  }
+
+  @override
+  String get wfAngleNotANumber => 'The angle is not a number.';
+
+  @override
+  String wfNotCylForTangent(String ref) {
+    return '$ref is not a cylindrical face — a tangent plane needs one.';
+  }
+
+  @override
+  String wfPointInsideCyl(String pt, String cyl) {
+    return '$pt is inside $cyl — no tangent plane passes through it.';
+  }
+
+  @override
+  String wfTwoTangentThroughPoint(String cyl, String pt) {
+    return 'Two planes are tangent to $cyl through $pt — tap the face on the side the plane should go.';
+  }
+
+  @override
+  String wfTwoTangentParallel(String cyl, String plane) {
+    return 'Two planes are tangent to $cyl parallel to $plane — tap the face on the side the plane should go.';
+  }
+
+  @override
+  String wfEdgeNotParallelToAxis(String edge, String cyl) {
+    return '$edge is not parallel to the axis of $cyl.';
+  }
+
+  @override
+  String wfEdgeOffCylinder(String edge, String cyl, String gap) {
+    return '$edge does not lie on $cyl — it is $gap mm off it.';
+  }
+
+  @override
+  String wfPlaneNotParallelToAxis(String plane, String cyl) {
+    return '$plane is not parallel to the axis of $cyl — no tangent plane is parallel to it.';
+  }
+
+  @override
+  String wfCollinearThreePoints(String a, String b, String c) {
+    return '$a, $b and $c are in a line — three points must not be collinear.';
+  }
+
+  @override
+  String wfSameLineTwice(String a, String b) {
+    return '$a and $b are the same line — a plane needs two distinct edges.';
+  }
+
+  @override
+  String wfSkewEdges(String a, String b, String gap) {
+    return '$a and $b are skew — they miss each other by $gap mm.';
+  }
 }

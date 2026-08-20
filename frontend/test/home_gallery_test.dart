@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/widgets/home_view.dart';
+import 'package:prototype/l10n/l.dart';
 
 AppState makeApp() {
   final app = AppState();
@@ -35,7 +36,7 @@ void main() {
 
     // Empty state is ONE line of text and nothing else — the cube glyph and
     // the "No sketches yet" heading were decoration.
-    expect(find.text('Tap  +  to create a new sketch or part'),
+    expect(find.text(L.current.galleryEmpty),
         findsOneWidget);
     expect(find.text('No sketches yet'), findsNothing);
     // None of the old design-dummy names leak through.
@@ -79,17 +80,17 @@ void main() {
 
     await t.tap(find.byIcon(Icons.add));
     await t.pumpAndSettle();
-    await t.tap(find.text('New 2D Sketch'));
+    await t.tap(find.text(L.current.galleryNew2dSketch));
     await t.pumpAndSettle();
 
     // Nothing exists yet — the prompt comes FIRST.
-    expect(find.text('New sketch'), findsOneWidget);
+    expect(find.text(L.current.dlgNewSketch), findsOneWidget);
     expect(app.openTabs, isEmpty);
     // Pre-filled with the next free name so Create alone is enough.
     expect(find.text(app.suggestedSketchName()), findsOneWidget);
 
     await t.enterText(find.byType(TextField), 'Bracket');
-    await t.tap(find.text('Create'));
+    await t.tap(find.text(L.current.create));
     await t.pumpAndSettle();
 
     expect(app.isHome, isFalse);
@@ -105,9 +106,9 @@ void main() {
 
     await t.tap(find.byIcon(Icons.add));
     await t.pumpAndSettle();
-    await t.tap(find.text('New 2D Sketch'));
+    await t.tap(find.text(L.current.galleryNew2dSketch));
     await t.pumpAndSettle();
-    await t.tap(find.text('Cancel'));
+    await t.tap(find.text(L.current.cancel));
     await t.pumpAndSettle();
 
     expect(app.openTabs, isEmpty);
@@ -123,13 +124,13 @@ void main() {
 
     await t.tap(find.byIcon(Icons.add));
     await t.pumpAndSettle();
-    await t.tap(find.text('New 2D Sketch'));
+    await t.tap(find.text(L.current.galleryNew2dSketch));
     await t.pumpAndSettle();
     await t.enterText(find.byType(TextField), 'Taken');
-    await t.tap(find.text('Create'));
+    await t.tap(find.text(L.current.create));
     await t.pumpAndSettle();
 
-    expect(find.text('A sketch or part with that name already exists'),
+    expect(find.text(L.current.errNameTaken),
         findsOneWidget);
   });
 }

@@ -620,7 +620,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get galleryEmpty =>
-      'Auf  +  tippen, um eine Skizze oder ein Bauteil anzulegen';
+      'Auf  +  tippen für eine neue Skizze oder ein Bauteil';
 
   @override
   String get errNameTaken =>
@@ -644,7 +644,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String msgCouldNotSave(String name) {
-    return '„$name“ konnte nicht gespeichert werden.';
+    return '„$name“ ließ sich nicht speichern.';
   }
 
   @override
@@ -666,25 +666,24 @@ class AppL10nDe extends AppL10n {
       'Diese Datei ist kein Prototype-Dokument (oder ist beschädigt).';
 
   @override
-  String get msgCouldNotOpenDoc => 'Das Dokument konnte nicht geöffnet werden.';
+  String get msgCouldNotOpenDoc => 'Dieses Dokument ließ sich nicht öffnen.';
 
   @override
-  String get msgCouldNotOpenFile => 'Die Datei konnte nicht geöffnet werden.';
+  String get msgCouldNotOpenFile => 'Diese Datei ließ sich nicht öffnen.';
 
   @override
   String get msgCouldNotImportFile =>
-      'Die Datei konnte nicht importiert werden.';
+      'Diese Datei ließ sich nicht importieren.';
 
   @override
-  String get msgCouldNotImportImage =>
-      'Das Bild konnte nicht importiert werden.';
+  String get msgCouldNotImportImage => 'Das Bild ließ sich nicht importieren.';
 
   @override
   String get msgCouldNotImportDxf =>
-      'Die DXF-Datei konnte nicht importiert werden.';
+      'Die DXF-Datei ließ sich nicht importieren.';
 
   @override
-  String get msgCouldNotReadDxf => 'Die DXF-Datei konnte nicht gelesen werden.';
+  String get msgCouldNotReadDxf => 'Die DXF-Datei ließ sich nicht lesen.';
 
   @override
   String get msgDxfNoSupportedEntities =>
@@ -919,17 +918,15 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgTapSketchPointsForHoles =>
-      'Die Skizzenpunkte antippen, auf die die Bohrungen kommen.';
+      'Skizzenpunkte für die Bohrungen antippen.';
 
   @override
   String msgHoleCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other:
-          '$count Bohrungen — Punkt antippen, um eine hinzuzufügen oder zu entfernen.',
-      one:
-          'Eine Bohrung — Punkt antippen, um eine hinzuzufügen oder zu entfernen.',
+      other: '$count Bohrungen — Punkt antippen zum Hinzufügen oder Entfernen.',
+      one: 'Eine Bohrung — Punkt antippen zum Hinzufügen oder Entfernen.',
     );
     return '$_temp0';
   }
@@ -971,11 +968,11 @@ class AppL10nDe extends AppL10n {
       'Kombinieren braucht zwei Körper — es vereinigt, schneidet oder verschneidet einen mit einem anderen.';
 
   @override
-  String get msgTapBodyToKeep => 'Den Körper antippen, der BLEIBEN soll.';
+  String get msgTapBodyToKeep => 'Körper antippen, der BLEIBT.';
 
   @override
   String msgTapBodiesToCombine(String name) {
-    return 'Die Körper antippen, die in $name eingerechnet werden.';
+    return 'Körper antippen, die in $name eingehen.';
   }
 
   @override
@@ -1029,11 +1026,11 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgTapSolidBodyToPattern =>
-      'Den Volumenkörper antippen, der angeordnet wird.';
+      'Volumenkörper antippen, der angeordnet wird.';
 
   @override
   String get msgPickSolidBodyToPattern =>
-      'Den Volumenkörper wählen, der angeordnet wird.';
+      'Volumenkörper wählen, der angeordnet wird.';
 
   @override
   String msgBuiltAfterPattern(String name) {
@@ -1077,15 +1074,13 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get msgTapCurveToSweep =>
-      'Die Kurve antippen, entlang der gezogen wird.';
+  String get msgTapCurveToSweep => 'Kurve antippen, entlang der gezogen wird.';
 
   @override
   String get msgCurveNoLength => 'Diese Kurve hat keine Länge.';
 
   @override
-  String get msgTapSectionsInOrder =>
-      'Die Querschnitte der Reihe nach antippen.';
+  String get msgTapSectionsInOrder => 'Querschnitte der Reihe nach antippen.';
 
   @override
   String get msgTapAxisLine =>
@@ -1323,7 +1318,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgTangentClosedSpline =>
-      'Tangential an einen GESCHLOSSENEN Spline wird nicht unterstützt.';
+      'Tangential an einen GESCHLOSSENEN Spline geht nicht.';
 
   @override
   String get msgSmoothNeedsTwoCurves =>
@@ -1418,7 +1413,7 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get msgTapSolidBody => 'Einen Volumenkörper antippen.';
+  String get msgTapSolidBody => 'Volumenkörper antippen.';
 
   @override
   String get msgTapSketchPointForHole =>
@@ -1727,6 +1722,18 @@ class AppL10nDe extends AppL10n {
   String get btnCenterPoint => 'Mittelpunkt';
 
   @override
+  String get btnSplitCurve => 'Teilen';
+
+  @override
+  String get btnOffsetCurve => 'Versatz';
+
+  @override
+  String get btnFinish => 'Fertig';
+
+  @override
+  String get btnFinishSketch => 'Skizze\nfertig';
+
+  @override
   String get featExtrusion => 'Extrusion';
 
   @override
@@ -1842,10 +1849,10 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get msgUndone => 'Rückgängig gemacht';
+  String get msgUndone => 'Rückgängig';
 
   @override
-  String get msgRedone => 'Wiederhergestellt';
+  String get msgRedone => 'Wiederholt';
 
   @override
   String get msgShow => 'Einblenden';
@@ -1861,4 +1868,341 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get extDistance => 'Abstand';
+
+  @override
+  String get wfPickEdgeFacePlanesPoints =>
+      'Kante, Fläche, zwei Ebenen oder zwei Punkte wählen.';
+
+  @override
+  String get wfPickLinearEdge => 'Gerade Kante oder Skizzenlinie wählen.';
+
+  @override
+  String get wfPickCircularEdge => 'Kreis- oder Ellipsenkante wählen.';
+
+  @override
+  String get wfPickCylConeFace => 'Zylinder- oder Kegelfläche wählen.';
+
+  @override
+  String get wfPickPoint => 'Punkt wählen.';
+
+  @override
+  String get wfPickParallelLine => 'Linie wählen, zu der parallel gebaut wird.';
+
+  @override
+  String get wfPickFirstPoint => 'Ersten Punkt wählen.';
+
+  @override
+  String get wfPickSecondPoint => 'Zweiten Punkt wählen.';
+
+  @override
+  String get wfPickThirdPoint => 'Dritten Punkt wählen.';
+
+  @override
+  String get wfPickFirstPlane => 'Erste Ebene oder planare Fläche wählen.';
+
+  @override
+  String get wfPickSecondNonParallelPlane =>
+      'Zweite, nicht parallele Ebene oder Fläche wählen.';
+
+  @override
+  String get wfPickPlane => 'Ebene oder planare Fläche wählen.';
+
+  @override
+  String get wfPickAxisThroughPoint =>
+      'Punkt wählen, durch den die Achse läuft.';
+
+  @override
+  String get wfPickVertexCircleOrMeeting =>
+      'Eckpunkt, Kreiskante oder sich treffende Geometrie wählen.';
+
+  @override
+  String get wfPickVertexToGround =>
+      'Eckpunkt oder Mittelpunkt wählen, an dem fixiert wird.';
+
+  @override
+  String get wfPickVertexSketchPointMid =>
+      'Eckpunkt, Skizzenpunkt oder Kantenmittelpunkt wählen.';
+
+  @override
+  String get wfPickTorusFace => 'Torusfläche wählen.';
+
+  @override
+  String get wfPickSphereFace => 'Kugelfläche wählen.';
+
+  @override
+  String get wfPickFirstLine => 'Erste Linie, Kante oder Achse wählen.';
+
+  @override
+  String get wfPickSecondCrossingLine =>
+      'Zweite Linie wählen, die sie schneidet.';
+
+  @override
+  String get wfPickCrossingLine =>
+      'Linie, Kante oder Achse wählen, die sie schneidet.';
+
+  @override
+  String get wfPickSecondPlane => 'Zweite Ebene wählen.';
+
+  @override
+  String get wfPickThirdPlane => 'Dritte Ebene wählen.';
+
+  @override
+  String get wfPickLineOrTwoPlanes =>
+      'Linie wählen, die sie kreuzt, oder zwei weitere Ebenen.';
+
+  @override
+  String get wfPickSecondLineOrPlane =>
+      'Zweite Linie wählen, oder eine Ebene zum Kreuzen.';
+
+  @override
+  String get wfPickSecondPlaneOrPoint =>
+      'Zweite Ebene zum Schneiden wählen, oder einen Punkt für die Normale hindurch.';
+
+  @override
+  String get wfPickSecondPointPlaneOrLine =>
+      'Zweiten Punkt, eine Ebene oder eine Linie wählen.';
+
+  @override
+  String get wfPickParallelPlane =>
+      'Ebene oder planare Fläche wählen, zu der parallel gebaut wird.';
+
+  @override
+  String get wfPickPlaneThroughPoint =>
+      'Punkt wählen, durch den die Ebene läuft.';
+
+  @override
+  String get wfPickFirstEdge => 'Erste Kante oder Linie wählen.';
+
+  @override
+  String get wfPickSecondCoplanarEdge =>
+      'Zweite Kante in derselben Ebene wählen.';
+
+  @override
+  String get wfPickNormalAxis =>
+      'Achse, Kante oder Linie wählen, zu der normal gebaut wird.';
+
+  @override
+  String get wfPickCylFaceSide =>
+      'Zylinderfläche wählen, auf der Seite, wo die Ebene liegen soll.';
+
+  @override
+  String get wfPickCylFace => 'Zylinderfläche wählen.';
+
+  @override
+  String get wfPickEdgeAlongIt => 'Kante wählen, die darauf liegt.';
+
+  @override
+  String get wfPickPlaneToParallel =>
+      'Ebene wählen, zu der parallel gebaut wird.';
+
+  @override
+  String get wfPickPlaneToAngleFrom =>
+      'Ebene wählen, von der aus gewinkelt wird.';
+
+  @override
+  String get wfPickPivotEdgeInPlane =>
+      'Kante zum Schwenken wählen — sie muss in dieser Ebene liegen.';
+
+  @override
+  String get wfTapCurveToCross =>
+      'Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.';
+
+  @override
+  String wfNotStraightEdge(String ref) {
+    return '$ref ist keine gerade Kante oder Linie.';
+  }
+
+  @override
+  String wfNotCircularEdge(String ref) {
+    return '$ref ist keine Kreis- oder Ellipsenkante.';
+  }
+
+  @override
+  String wfNotRevolvedFace(String ref) {
+    return '$ref ist keine Drehfläche — Zylinder, Kegel oder Torus wählen.';
+  }
+
+  @override
+  String wfNoPoint(String ref) {
+    return '$ref ergibt keinen Punkt.';
+  }
+
+  @override
+  String wfNotPlane(String ref) {
+    return '$ref ist keine Ebene und keine planare Fläche.';
+  }
+
+  @override
+  String wfNeitherPointNorLine(String ref) {
+    return '$ref ist weder ein Punkt noch eine Linie.';
+  }
+
+  @override
+  String wfNeitherPlaneNorLine(String ref) {
+    return '$ref ist weder eine Ebene noch eine Linie.';
+  }
+
+  @override
+  String get wfNoParallelLinePicked =>
+      'Keine der beiden Auswahlen ist eine Linie.';
+
+  @override
+  String get wfPickPointForAxis =>
+      'Punkt wählen, durch den die Achse gehen soll.';
+
+  @override
+  String get wfPickPointForPlane =>
+      'Punkt wählen, durch den die Ebene gehen soll.';
+
+  @override
+  String get wfSamePlace => 'Diese beiden Punkte liegen an derselben Stelle.';
+
+  @override
+  String wfParallelNeverMeet(String a, String b) {
+    return '$a und $b sind parallel — sie treffen sich nie.';
+  }
+
+  @override
+  String wfParallelNeverCross(String a, String b) {
+    return '$a und $b sind parallel — sie kreuzen sich nie.';
+  }
+
+  @override
+  String wfCannotDefineAxis(String ref) {
+    return '$ref kann keine Achse festlegen.';
+  }
+
+  @override
+  String wfCannotDefinePoint(String ref) {
+    return '$ref kann keinen Punkt festlegen.';
+  }
+
+  @override
+  String wfParallelPickTwoMeeting(String a, String b) {
+    return '$a und $b sind parallel — zwei Ebenen wählen, die sich schneiden.';
+  }
+
+  @override
+  String wfNoAxisFromTwo(String a, String b) {
+    return '$a und $b legen keine Achse fest.';
+  }
+
+  @override
+  String wfNoPointFromTwo(String a, String b) {
+    return '$a und $b legen keinen Punkt fest.';
+  }
+
+  @override
+  String wfNotClosedCircle(String ref) {
+    return '$ref ist keine geschlossene Kreiskante.';
+  }
+
+  @override
+  String wfNotSphere(String ref) {
+    return '$ref ist keine Kugelfläche.';
+  }
+
+  @override
+  String wfNotTorus(String ref) {
+    return '$ref ist keine Torusfläche.';
+  }
+
+  @override
+  String wfNotLineEdgeAxis(String ref) {
+    return '$ref ist keine Linie, Kante oder Achse.';
+  }
+
+  @override
+  String wfNotAxisEdgeLine(String ref) {
+    return '$ref ist keine Achse, Kante oder Linie.';
+  }
+
+  @override
+  String wfNotEdgeOrLine(String ref) {
+    return '$ref ist keine Kante und keine Linie.';
+  }
+
+  @override
+  String get wfPickOnePlaneOneLine => 'Eine Ebene und eine Linie wählen.';
+
+  @override
+  String wfSkewByGap(String a, String b, String gap) {
+    return '$a und $b treffen sich nicht — $gap Abstand.';
+  }
+
+  @override
+  String wfLineParallelToPlane(String line, String plane) {
+    return '$line ist parallel zu $plane — sie schneidet sie nie.';
+  }
+
+  @override
+  String wfThreeNoCommonPoint(String a, String b, String c) {
+    return '$a, $b und $c treffen sich nicht in einem Punkt — zwei davon sind parallel, oder alle drei teilen sich eine Gerade.';
+  }
+
+  @override
+  String wfNotACurve(String ref) {
+    return '$ref ist keine Kurve — Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.';
+  }
+
+  @override
+  String get wfPickPivotEdge => 'Kante wählen, um die die Ebene schwenkt.';
+
+  @override
+  String wfEdgeNotInPlane(String edge, String plane) {
+    return '$edge ist nicht parallel zu $plane — die Ebene kann nur um eine Kante schwenken, die darin liegt.';
+  }
+
+  @override
+  String get wfAngleNotANumber => 'Der Winkel ist keine Zahl.';
+
+  @override
+  String wfNotCylForTangent(String ref) {
+    return '$ref ist keine Zylinderfläche — eine Tangentialebene braucht eine.';
+  }
+
+  @override
+  String wfPointInsideCyl(String pt, String cyl) {
+    return '$pt liegt in $cyl — dadurch geht keine Tangentialebene.';
+  }
+
+  @override
+  String wfTwoTangentThroughPoint(String cyl, String pt) {
+    return 'Zwei Ebenen sind tangential an $cyl durch $pt — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.';
+  }
+
+  @override
+  String wfTwoTangentParallel(String cyl, String plane) {
+    return 'Zwei Ebenen sind tangential an $cyl und parallel zu $plane — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.';
+  }
+
+  @override
+  String wfEdgeNotParallelToAxis(String edge, String cyl) {
+    return '$edge ist nicht parallel zur Achse von $cyl.';
+  }
+
+  @override
+  String wfEdgeOffCylinder(String edge, String cyl, String gap) {
+    return '$edge liegt nicht auf $cyl — sie ist $gap mm daneben.';
+  }
+
+  @override
+  String wfPlaneNotParallelToAxis(String plane, String cyl) {
+    return '$plane ist nicht parallel zur Achse von $cyl — dazu ist keine Tangentialebene parallel.';
+  }
+
+  @override
+  String wfCollinearThreePoints(String a, String b, String c) {
+    return '$a, $b und $c liegen auf einer Geraden — drei Punkte dürfen nicht kollinear sein.';
+  }
+
+  @override
+  String wfSameLineTwice(String a, String b) {
+    return '$a und $b sind dieselbe Linie — eine Ebene braucht zwei verschiedene Kanten.';
+  }
+
+  @override
+  String wfSkewEdges(String a, String b, String gap) {
+    return '$a und $b sind windschief — sie verfehlen sich um $gap mm.';
+  }
 }

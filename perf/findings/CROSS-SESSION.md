@@ -2045,3 +2045,45 @@ the frozen `perf*.dart` zone. Without it the tier is unreachable code. Additive
 and gated behind a keyword no past capture used, so it cannot change any
 recorded number. Revert it if the integrator would rather wire it differently —
 nothing else in my work depends on it.
+
+---
+
+## 2026-08-20 — S12 — `claude/perf-opt2` does not compile, and it is not the localisation
+
+**Raised by:** Session 12 (localisation).
+**Needs:** integrator, and through them S6 or S11 — whichever owns the fix.
+**Blocked:** 21 test files on the integration branch. Nothing of S12's.
+
+`lib/perf_scenarios_profile.dart` does not type-check against
+`lib/ffi/occt_engine.dart`:
+
+```
+error • The argument type 'OcctFfi?' can't be assigned to the parameter type
+        'OcctFfi'. • lib/perf_scenarios_profile.dart:254:26
+error • ... same at lib/perf_scenarios_profile.dart:282:16
+```
+
+`OcctFfi.instance()` returns `OcctFfi?`; `_sweep(occt, …)` takes a non-nullable
+`OcctFfi`. Two call sites, both in the `profile.sweep.*` ladders S11 added.
+
+**It is not mine, and it is not the merge's.** Against
+`origin/claude/perf-opt2`, `git diff` is EMPTY for all four files involved —
+`perf_scenarios_profile.dart`, `ffi/occt_engine.dart`, `bug_capture.dart`,
+`perf.dart`. The error is a static type error between two files that are
+byte-identical to that branch, so it reproduces there without anything of mine
+in the tree. My branch was green before I merged the integration branch into
+it.
+
+**What it costs.** `bug_capture.dart` imports the new tier (S8's opt-in block),
+so everything that reaches `bug_capture.dart` fails to compile. That is 21 test
+files, among them `m192_quick_tools_test`, `m205_flyout_button_test`,
+`m210_part_commands_test`, `m211_perf_scenarios_test` and
+`m233_profile_ladders_test` — S11's own new test.
+
+**I have not fixed it.** `perf*.dart` is the frozen measurement zone and
+`ffi/occt_engine.dart` is S6's, so both are closed to me under §0/§4. Written
+down, not touched, exactly as the rule says.
+
+The fix is one line at either end: a null guard around the two ladders, or a
+nullable parameter on `_sweep`. Whoever owns it should also re-run the 21
+files, because nobody has seen them pass on this branch.
