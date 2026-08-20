@@ -316,6 +316,10 @@ retaining the dense elimination as a test-only reference, which is a change
 inside that solver, not inside a test I own. Plan §0 rule 6: write it down, do
 not fix it. Escalated in `CROSS-SESSION.md`.
 
+> **SUPERSEDED — see §2.8. S3 fixed these two minutes and forty-two seconds
+> after this branch was cut, and everything above about their *present* state
+> is stale.** The diagnosis of runs 73 and 75 stands; the escalation does not.
+
 **And explicitly not weakened.** No golden was converted to a tolerance, no test
 was skipped, marked flaky or excluded, and there is no `continue-on-error`
 anywhere in this workflow.
@@ -430,9 +434,15 @@ Honestly: **partly, and the part I could not fix is named.**
   still red and this session did not weaken them. That is the correct behaviour,
   and it is a different red from the one it has been showing.
 
-Track B will be green when S9 or the integrator makes the pins differential.
+~~Track B will be green when S9 or the integrator makes the pins differential.
 Until then the redness has exactly one cause, it is named, it is escalated, and
-it no longer blinds the smoke test.
+it no longer blinds the smoke test.~~
+
+**Retracted. S3 made the pins differential at 06:42:40 on 2026-08-20, and
+`sim-perf` run 77 went green on that commit forty-three seconds later.** The
+sentence was written at 08:18, ninety-six minutes after the thing it says is
+needed had already been done. §2.8 has the timeline and what it costs the rest
+of this file.
 
 ### 2.7 The verification run — what it showed
 
@@ -523,6 +533,81 @@ default branch, so a run on `claude/first-scene-…` cannot see one written by
 Track B from its own branch pays one cold OCCT build first, then goes warm.**
 That is a property of the cache scope, not of anything round one did, and it is
 worth knowing before anyone concludes the job has got slower.
+
+### 2.8 The correction: I lost a race by two minutes and forty-two seconds, and then did not re-check
+
+The conclusion in §2.2 and §2.6 — that the four M232 pins are still red and
+belong to S9 — was **already false when I wrote it**. The timeline, from the
+commit dates:
+
+| UTC, 2026-08-20 | |
+| --- | --- |
+| 2026-08-19 23:41:28 | `a762656` — tip of `claude/perf-opt`, the commit this branch was cut from |
+| **06:39:58** | `dd1f115` — S8 merges `claude/perf-opt` at `a762656` |
+| **06:42:40** | `b2de0c2` — **S3 lands the differential M232 pins**, 2 m 42 s later |
+| 06:42:43 | `sim-perf` run 77 starts on `b2de0c2` → **success** |
+| 06:55 / 06:57 | S8 runs 78 and 79 start, from a tree that predates `b2de0c2` |
+| ~08:18 | S8 writes "Track B will be green when S9 makes the pins differential" |
+
+**I did not fetch stale.** `b2de0c2` did not exist when this branch was based;
+it landed two minutes and forty-two seconds afterwards. Runs 78 and 79 really
+did fail on those four pins, and the log excerpts in §2.7 are real.
+
+**What I got wrong is the tense.** Runs 78 and 79 measured a tree, and I
+reported what they measured as the state of the *branch* — ninety-six minutes
+after a fix for it had landed on the very branch I had merged from. Re-fetching
+the base before writing an escalation would have caught it in one command. That
+is the lesson, and it is a close relative of the one this whole report keeps
+finding: a measurement is scoped to what it measured, and saying more than that
+is where the error enters.
+
+**Run 77 is the independent proof.** `b2de0c2` on `claude/perf-opt`, with the
+**old** workflow — Host tests still ahead of the build — went green end to end
+at 06:42:43. So with S3's pins differential, the suite passes on macOS, the job
+proceeds to build, launch and capture, and Track B is green. Nothing in §2.5's
+repairs was needed to achieve that, and I should not claim otherwise.
+
+#### What survives, and it is the part that matters
+
+The masking finding is **untouched**, and it never depended on the pins:
+
+> Runs 73 and 75 died in a `Host tests` step that ran *before* the build, so
+> they never attempted the smoke test, and that is what hid run 68.
+
+A red pin of *any* origin would have done that, and the next one will. Moving
+the macOS checks to the end is what stops a Dart failure from costing the
+linkage smoke test, and §2.7 verified it works: runs 78 and 79 built, launched,
+captured and published *while still failing those four pins*. That is the
+result, and S3's fix does not make it redundant — it removes today's trigger,
+not the mechanism.
+
+Also untouched: §2.3 (run 68 is not a round-one regression — identical trees,
+one green and one dead) and §2.4 (both diagnostics in that failure branch could
+never have fired).
+
+#### Two notes for the integrator
+
+* **`perf-capture-round1` is a branch, not a tag.** Plan §1.1 and §3 both say to
+  look for it with `git tag --list 'perf-capture-round1'`, which finds nothing.
+  A session following the plan literally would conclude the capture point does
+  not exist and, per §5, would refuse to start.
+* **§3's "branch from the ref, not the tip" earned its keep.** `claude/perf-opt`
+  has since moved to `fe768e6`, *"Integration: round one's results, and the
+  baseline re-recorded"* (08:37:35), which is **not** in `perf-capture-round1`.
+  Branching round two from the tip would have pulled a re-recorded baseline into
+  the integration line unmeasured — precisely the accident §3 exists to prevent.
+
+### 2.9 The re-test
+
+`claude/perf-opt2-display` and `claude/perf-opt2` carry the **identical tree**
+(`ca2368c`): S3's differential pins, S8's warm-up, S8's workflow repairs.
+`sim-perf` **run 82** (`fea8250`, `claude/perf-opt2`) is the run that settles
+whether Track B is now fully green with all of it together. Result recorded
+below when it lands.
+
+*(The push to `claude/perf-opt2-display` did not itself start a run; the push to
+`claude/perf-opt2` did. Since the two trees are byte-identical, run 82 answers
+for both, and a second cold OCCT build on identical content would buy nothing.)*
 
 ---
 

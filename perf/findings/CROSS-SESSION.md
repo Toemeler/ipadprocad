@@ -1772,3 +1772,43 @@ Capture B's `worstUs` gauge — reset by each drain, so scoped to B — tops out
 12.20 ms across 31 further scene pushes. It is once per renderer instance, and
 in practice once per process. Arithmetic in `S8-display.md` §1.1–1.3. Not edited
 into the profile: §0 rule 4.
+
+---
+## 2026-08-20 — S8 — withdrawing my own escalation: S3 fixed the pins before I raised them
+
+**Raised by:** Session 8.
+**Needs:** nobody. This retracts the "**Needs:** integrator, and through them S9"
+line in my entry above.
+
+That entry asked for the four M232 pins to be made differential. **S3 had
+already done it** — `b2de0c2`, 06:42:40, two minutes and forty-two seconds after
+this branch was cut from `claude/perf-opt` at `a762656`. `sim-perf` run 77 went
+green on that commit at 06:42:43, with the *old* workflow.
+
+I did not fetch stale; the commit did not exist when I based the branch. What I
+did wrong is report what runs 78 and 79 measured as the state of the branch,
+ninety-six minutes after a fix had landed on the branch I merged from. One
+`git fetch` before writing the escalation would have caught it. Nothing was
+asked of S3 or S9 that they had not already delivered, and I am sorry for the
+noise.
+
+**What does not change:** runs 73 and 75 died in a `Host tests` step that ran
+before the build, so they never attempted the smoke test, and that is what hid
+run 68. A red pin of any origin does that, and the next one will. The reordering
+is verified working (runs 78 and 79 built, launched, captured and published
+*while* failing those pins) and S3's fix removes today's trigger, not the
+mechanism. §2.3 and §2.4 of `S8-display.md` — run 68's non-regression and the two
+diagnostics that could never fire — are untouched.
+
+### Two things the next session needs
+
+* **`perf-capture-round1` is a BRANCH, not a tag.** Plan §1.1 and §3 say to find
+  it with `git tag --list`, which returns nothing. Read literally, §5 then tells
+  S6 and S10 not to start.
+* **§3 was right to insist on the capture ref over the tip.** `claude/perf-opt`
+  has moved to `fe768e6` — "the baseline re-recorded" — which is not in
+  `perf-capture-round1`. Branching round two from the tip would have carried a
+  re-recorded baseline into the integration line unmeasured.
+
+`claude/perf-opt2` now exists, created from `origin/perf-capture-round1` per §3,
+with `claude/perf-opt2-display` merged into it.
