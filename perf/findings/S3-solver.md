@@ -819,3 +819,84 @@ ways.
 
 The conclusion §10 drew is unchanged, including the one that matters: **the
 64-entity rung remains unreadable** and may land either side of its baseline.
+
+---
+
+## 12. Build 437: the goldens were the wrong instrument, and what replaced them
+
+The first IPA build of `claude/perf-opt` (run 32306091799) failed on four of
+S3's own pins — `m232_lm_pin_test` ×2, `m232_no_accumulation_test` ×2. No
+production code failed. They were last-digit differences on macOS arm64 +
+Flutter 3.47.1 against strings recorded on Linux + Flutter 3.44.9.
+
+The integrator's diagnosis is correct and I accept it: **a golden recorded on
+one machine pins "this machine produced these digits", not "the sparse path
+equals the dense path".** The second is the claim; the first is an accident of
+where it ran.
+
+One point of precision, offered as record rather than defence. The *procedure*
+I ran was differential — I generated the goldens from the dense implementation
+on this machine, then ran the same cases against the sparse one and compared.
+That did test dense-against-sparse, once. What it did not do was **encode the
+comparison in the artifact**: the committed file kept one side's digits and
+discarded the reference, so it could never be re-run anywhere else, and it
+broke on the first machine that rounded differently. The fix is the same
+either way, and the integrator's "nothing in that file could detect a
+divergence" is right about the file as committed.
+
+### What replaced them
+
+`solver.dart` now retains the dense implementation as a **frozen, test-only
+reference** — `_analyzeSketchDenseReference` and
+`_rankAndPivotsDenseReference`, copied verbatim from `2921d3f`, selected by
+`denseReferenceForTests`, plus the same treatment for the LM's pair-form
+normal equations. All three pins run both paths in one process on the same
+inputs and require equality. Nothing is a tolerance.
+
+While wiring the LM reference I wrote `if (lambda > 1e12) break;` where the
+original is `1e9`. That would have made the reference diverge from the
+original in its λ schedule, and a differential built on it would have reported
+a difference that was mine rather than the code's. Caught by diffing the
+branch against `2921d3f` line by line, which is now the standing check on that
+block.
+
+### The pins are mutation-tested, and one of them started out useless
+
+The integrator's complaint was a test that could not fail for the right
+reason. Rather than assume the new ones can, I injected one-ULP errors and
+measured:
+
+| | Mutation A: sparse elimination (`_spAxpy`) | Mutation B: LM normal equations |
+| --- | --- | --- |
+| `m232_analyze_pin_test` | **RED** — 17 cases | green (does not run the LM) |
+| `m232_lm_pin_test` | green (does not run the elimination) | **RED** — 3 cases |
+| `m232_no_accumulation_test` | **RED** — 3 cases | green — see below |
+
+**The first version of the differential caught neither.** Comparing only what
+`analyzeSketch` returns is comparing *quantised* output — a DOF count and two
+sets gated on 1e-7, 1e-9, 1e-6 and 1e-5 — so a sub-threshold difference is
+invisible by construction. That is why `debugReducedSignature` exists: it
+compares the reduced matrix itself, every stored value, before anything rounds
+into a decision. Adding it took the analyze pin from 0 failures under mutation
+A to 17.
+
+The accumulation test also began blind, for a second and different reason: it
+compared only the *endpoint* of the drag, and a converging solve pulls both
+paths onto the same attractor. Comparing the whole trajectory fixed that for
+mutation A.
+
+**The one gap I did not close, stated rather than engineered around.** The
+accumulation test still does not detect mutation B. It is not that the LM goes
+unexercised — instrumented, the over-constrained variant calls `_lm` 40 times
+per 20 steps and executes the mutated line 26 724 times. It is that the LM
+*iterates to convergence*, so a last-bit difference in `JᵀJ` is damped out
+before the step commits. That is evidence **for** clause (c) rather than a
+hole in it — differences of this size do not accumulate here, they disappear —
+and LM sensitivity is carried by `m232_lm_pin_test`, which does catch it.
+
+### What this changes about the claim
+
+Nothing about the result, and something about how well it is evidenced. The
+bit-identity claim now rests on a comparison that can be re-run on any machine
+and that is demonstrated to fail when the two paths differ. Before, it rested
+on an argument plus a comparison that existed only in my shell history.

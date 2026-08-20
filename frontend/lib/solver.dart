@@ -13,6 +13,8 @@
 //   * a rank test on a candidate constraint detects over-constraining before
 //     it is applied — Inventor rejects redundant geometric constraints and
 //     offers to keep a redundant dimension as a driven (reference) one.
+import 'package:meta/meta.dart';
+
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -2532,22 +2534,86 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
       // that parameter actually moved that residual, so no table of which
       // constraint depends on which parameter is consulted or needed.
       final m = r.length, n = free.length;
-      final jc = List.generate(m, (_) => <int>[]);
-      final jv = List.generate(m, (_) => <double>[]);
-      for (var k = 0; k < n; k++) {
-        final idx = free[k];
-        final h = 1e-6 * (1 + x[idx].abs());
-        final save = x[idx];
-        x[idx] = save + h;
-        final r2 = _residuals(gs, off, x, cs, ctx);
-        x[idx] = save;
-        for (var i = 0; i < m; i++) {
-          final d = (r2[i] - r[i]) / h;
-          if (d != 0.0) {
-            jc[i].add(k); // k ascends, so the row stays sorted
-            jv[i].add(d);
+      // THE DENSE REFERENCE, frozen from 2921d3f. Selected only by
+      // `denseReferenceForTests`, so that m232_lm_pin_test can run the same
+      // solve down both paths in one process and compare — see the block at
+      // the end of this file for why that replaced a set of goldens.
+      List<List<double>>? jDense;
+      if (denseReferenceForTests) {
+        jDense = List.generate(m, (_) => List<double>.filled(n, 0.0));
+        for (var k = 0; k < n; k++) {
+          final idx = free[k];
+          final h = 1e-6 * (1 + x[idx].abs());
+          final save = x[idx];
+          x[idx] = save + h;
+          final r2 = _residuals(gs, off, x, cs, ctx);
+          x[idx] = save;
+          for (var i = 0; i < m; i++) {
+            jDense[i][k] = (r2[i] - r[i]) / h;
           }
         }
+      }
+      final jc = List.generate(m, (_) => <int>[]);
+      final jv = List.generate(m, (_) => <double>[]);
+      if (jDense == null) {
+        for (var k = 0; k < n; k++) {
+          final idx = free[k];
+          final h = 1e-6 * (1 + x[idx].abs());
+          final save = x[idx];
+          x[idx] = save + h;
+          final r2 = _residuals(gs, off, x, cs, ctx);
+          x[idx] = save;
+          for (var i = 0; i < m; i++) {
+            final d = (r2[i] - r[i]) / h;
+            if (d != 0.0) {
+              jc[i].add(k); // k ascends, so the row stays sorted
+              jv[i].add(d);
+            }
+          }
+        }
+      }
+      if (jDense != null) {
+        // the pair form, verbatim from 2921d3f
+        final jtj = List.generate(n, (_) => List<double>.filled(n, 0.0));
+        final jtr = List<double>.filled(n, 0.0);
+        for (var a = 0; a < n; a++) {
+          for (var b = a; b < n; b++) {
+            var s = 0.0;
+            for (var i = 0; i < m; i++) {
+              s += jDense[i][a] * jDense[i][b];
+            }
+            jtj[a][b] = s;
+            jtj[b][a] = s;
+          }
+          var s = 0.0;
+          for (var i = 0; i < m; i++) {
+            s += jDense[i][a] * r[i];
+          }
+          jtr[a] = -s;
+        }
+        for (var a = 0; a < n; a++) {
+          jtj[a][a] += lambda * (1 + jtj[a][a].abs());
+        }
+        final dx = _solveDense(jtj, jtr, n);
+        if (dx == null) break;
+        final saved = List<double>.from(x);
+        for (var k = 0; k < n; k++) {
+          x[free[k]] += dx[k];
+        }
+        final r2 = _residuals(gs, off, x, cs, ctx);
+        final e2 = _norm(r2);
+        if (e2 < err) {
+          r = r2;
+          err = e2;
+          lambda = math.max(1e-9, lambda * 0.4);
+        } else {
+          for (var i = 0; i < total; i++) {
+            x[i] = saved[i];
+          }
+          lambda *= 6;
+          if (lambda > 1e9) break;
+        }
+        continue;
       }
       // Normal equations (JtJ + lambda*I) dx = -Jt r.
       //
@@ -2788,6 +2854,9 @@ class SketchAnalysisCache {
 }
 
 SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
+  // The differential pin (m232_*) runs every case through BOTH paths in one
+  // process and compares. See the frozen reference at the end of this file.
+  if (denseReferenceForTests) return _analyzeSketchDenseReference(gs, cs);
   // projected geometry is pinned reference geometry: the same implicit fixes
   // the solver uses, so projections count as fully defined (white/yellow,
   // never draggable — the drag block runs on freePoints from this analysis)
@@ -3007,4 +3076,302 @@ bool wouldOverconstrain(
   final before = rankOf(cs);
   final after = rankOf([...cs, candidate]);
   return after - before < added;
+}
+
+
+// ===========================================================================
+// THE DENSE REFERENCE — test-only, and deliberately a FROZEN COPY
+// ===========================================================================
+//
+// What follows is `_analyzeSketch` and `_rankAndPivots` exactly as they stood
+// at `2921d3f`, before S3 replaced the dense reduction with a sparse one. It
+// is dead weight in production — `denseReferenceForTests` is false and never
+// written outside a test — and it exists to make one claim CHECKABLE rather
+// than merely argued: that the sparse path returns what the dense path
+// returned.
+//
+// It replaces a set of hardcoded golden strings that did not do that job. A
+// golden recorded on one machine pins "this machine produced these digits";
+// the claim is "these two code paths agree", and only running both on the
+// same machine in the same process can test it. The goldens went red on
+// CI (build 437, macOS arm64 + Flutter 3.47.1) for exactly that reason —
+// they were measuring the runtime, not the change.
+//
+// **Do not refactor this to share code with the sparse path.** A reference
+// implementation that shares the machinery it is checking cannot see a bug in
+// that machinery. The duplication is the point. The one thing it may share is
+// code S3 never touched (`_withProjectionPins`, `_offsets`, `_pack`,
+// `_prepare`, `_residuals`), and it does not even share that — this is a
+// verbatim copy from the commit, so the comparison covers the whole routine.
+//
+// If this ever has to change to keep compiling, that is a signal worth
+// stopping for: the reference is supposed to be frozen, and an API change
+// underneath it means the comparison is no longer against the original.
+
+/// The reduced matrix itself, canonicalised — rank, pivot columns and every
+/// stored value, through whichever path [denseReferenceForTests] selects.
+///
+/// This exists because `SketchAnalysis` is **quantised**: it exposes a DOF
+/// count and two sets gated on thresholds (1e-7 for a pivot, 1e-9 and 1e-6 in
+/// the null space, 1e-5 in the carrier test). Comparing only that hides any
+/// numeric difference smaller than a threshold — a differential pin built on
+/// it alone passes a deliberately injected one-ULP error, which was measured,
+/// not assumed.
+///
+/// So the differential compares this too: the RREF's actual numbers, before
+/// anything rounds them into a decision. It is the level S3 changed, and it is
+/// the level at which "the sparse path equals the dense path" is a statement
+/// about arithmetic rather than about thresholds.
+@visibleForTesting
+String debugReducedSignature(List<Geo> gs, List<Constraint> cs) {
+  cs = _withProjectionPins(gs, cs);
+  final off = _offsets(gs);
+  final total = off.last;
+  if (total == 0) return 'empty';
+  final x = _pack(gs);
+  final ctx = _Ctx();
+  _prepare(gs, off, x, cs, ctx);
+  final r = _residuals(gs, off, x, cs, ctx);
+  if (r.isEmpty) return 'no-residuals';
+  final m = r.length;
+  final b = StringBuffer();
+
+  if (denseReferenceForTests) {
+    final j = List.generate(m, (_) => List<double>.filled(total, 0.0));
+    for (var k = 0; k < total; k++) {
+      final h = 1e-6 * (1 + x[k].abs());
+      final save = x[k];
+      x[k] = save + h;
+      final r2 = _residuals(gs, off, x, cs, ctx);
+      x[k] = save;
+      for (var i = 0; i < m; i++) {
+        j[i][k] = (r2[i] - r[i]) / h;
+      }
+    }
+    final (rank, pivots) = _rankAndPivotsDenseReference(j, m, total);
+    b.write('rank=$rank pivots=${pivots.join(",")}');
+    for (var i = 0; i < m; i++) {
+      b.write(';$i:');
+      for (var c = 0; c < total; c++) {
+        if (j[i][c] != 0.0) b.write('$c=${j[i][c]},');
+      }
+    }
+    return b.toString();
+  }
+
+  final j = _jacobian(gs, off, x, cs, ctx, r, total);
+  final (rank, pivots) = _rankAndPivots(j);
+  b.write('rank=$rank pivots=${pivots.join(",")}');
+  for (var i = 0; i < m; i++) {
+    b.write(';$i:');
+    final ic = j.ic[i], v = j.v[i];
+    for (var t = 0; t < ic.length; t++) {
+      // the sparse form KEEPS entries that cancelled to zero; the dense form
+      // simply holds 0.0 there. Skip them on both sides so the two are
+      // comparable as mathematics rather than as storage layout.
+      if (v[t] != 0.0) b.write('${ic[t]}=${v[t]},');
+    }
+  }
+  return b.toString();
+}
+
+/// Selects the frozen dense reduction instead of the sparse one. Test-only;
+/// production never reads anything but `false`. Always restore it in a
+/// `finally`, or every later test in the same process runs the slow path.
+@visibleForTesting
+bool denseReferenceForTests = false;
+
+(int, List<int>) _rankAndPivotsDenseReference(
+    List<List<double>> m, int rows, int cols) {
+  var row = 0;
+  final pivots = <int>[];
+  for (var col = 0; col < cols && row < rows; col++) {
+    var best = row;
+    for (var i = row + 1; i < rows; i++) {
+      if (m[i][col].abs() > m[best][col].abs()) best = i;
+    }
+    if (m[best][col].abs() < 1e-7) continue;
+    final t = m[row];
+    m[row] = m[best];
+    m[best] = t;
+    final piv = m[row][col];
+    for (var j = col; j < cols; j++) {
+      m[row][j] /= piv;
+    }
+    for (var i = 0; i < rows; i++) {
+      if (i == row) continue;
+      final f = m[i][col];
+      if (f == 0) continue;
+      for (var j = col; j < cols; j++) {
+        m[i][j] -= f * m[row][j];
+      }
+    }
+    pivots.add(col);
+    row++;
+  }
+  return (row, pivots);
+}
+
+SketchAnalysis _analyzeSketchDenseReference(
+    List<Geo> gs, List<Constraint> cs) {
+  // projected geometry is pinned reference geometry: the same implicit fixes
+  // the solver uses, so projections count as fully defined (white/yellow,
+  // never draggable — the drag block runs on freePoints from this analysis)
+  cs = _withProjectionPins(gs, cs);
+  final off = _offsets(gs);
+  final total = off.last;
+  if (total == 0) return const SketchAnalysis(0, {});
+  final x = _pack(gs);
+  final ctx = _Ctx();
+  _prepare(gs, off, x, cs, ctx);
+  final r = _residuals(gs, off, x, cs, ctx);
+
+  Set<(int, int)> allPoints() {
+    final s = <(int, int)>{};
+    for (var e = 0; e < gs.length; e++) {
+      for (var p = 0; p < ptCount(gs[e]); p++) {
+        s.add((e, p));
+      }
+    }
+    return s;
+  }
+
+  Set<(int, int)> allCarriers() {
+    final s = <(int, int)>{};
+    for (var e = 0; e < gs.length; e++) {
+      for (var seg = 0; seg < carrierSegCount(gs[e]); seg++) {
+        s.add((e, seg));
+      }
+    }
+    return s;
+  }
+
+  if (r.isEmpty) return SketchAnalysis(total, allPoints(), allCarriers());
+
+  final m = r.length;
+  final j = List.generate(m, (_) => List<double>.filled(total, 0.0));
+  for (var k = 0; k < total; k++) {
+    final h = 1e-6 * (1 + x[k].abs());
+    final save = x[k];
+    x[k] = save + h;
+    final r2 = _residuals(gs, off, x, cs, ctx);
+    x[k] = save;
+    for (var i = 0; i < m; i++) {
+      j[i][k] = (r2[i] - r[i]) / h;
+    }
+  }
+  final (rank, pivots) = _rankAndPivotsDenseReference(j, m, total); // j is now RREF
+  final dof = total - rank;
+  if (dof <= 0) return const SketchAnalysis(0, {}, {});
+
+  // null space: every non-pivot column spawns a basis vector; a parameter is
+  // still movable if it appears in one of them. The basis vectors themselves
+  // are kept (not just the booleans): the carrier test below needs the
+  // DIRECTION a point can move in, not merely that it can move — a movable
+  // endpoint that only slides ALONG its own line is a free length, and
+  // Inventor still paints that line fully constrained.
+  final pivotSet = pivots.toSet();
+  final movable = List<bool>.filled(total, false);
+  final basis = <List<double>>[];
+  for (var freeCol = 0; freeCol < total; freeCol++) {
+    if (pivotSet.contains(freeCol)) continue;
+    movable[freeCol] = true;
+    // RREF row: x_pivot + sum(j[row][c] * x_c) = 0 over the free columns c,
+    // so the basis vector for freeCol carries -j[row][freeCol] at each pivot.
+    final v = List<double>.filled(total, 0.0);
+    v[freeCol] = 1.0;
+    for (var row = 0; row < pivots.length; row++) {
+      final coeff = j[row][freeCol];
+      if (coeff.abs() > 1e-9) {
+        v[pivots[row]] = -coeff;
+        if (coeff.abs() > 1e-6) movable[pivots[row]] = true;
+      }
+    }
+    basis.add(v);
+  }
+  final pts = <(int, int)>{};
+  for (var e = 0; e < gs.length; e++) {
+    for (var p = 0; p < ptCount(gs[e]); p++) {
+      if (paramsOfPoint(gs, off, e, p).any((i) => movable[i])) {
+        pts.add((e, p));
+      }
+    }
+  }
+
+  // ---- carrier analysis (Inventor's entity colouring) --------------------
+  // Every null-space vector is one first-order motion the sketch can still
+  // make. A carrier is loose iff SOME motion changes it:
+  //   line/edge a->b : loose iff an endpoint moves PERPENDICULAR to the edge
+  //                    (that changes direction and/or offset; motion purely
+  //                    along the edge is a free length and stays white),
+  //   circle/arc     : loose iff center or radius moves (free arc sweep
+  //                    angles are the arc's endpoints, separate entities),
+  //   spline/ellipse : loose iff any defining point moves (the curve IS its
+  //                    control/fit points).
+  const tol = 1e-5;
+  bool edgeMoves(List<double> v, double vmax, int oa, int ob) {
+    final ax = x[oa], ay = x[oa + 1], bx = x[ob], by = x[ob + 1];
+    final dx = bx - ax, dy = by - ay;
+    final len = math.sqrt(dx * dx + dy * dy);
+    final t = tol * vmax;
+    if (len < 1e-9) {
+      // degenerate edge: any motion of either endpoint counts
+      return v[oa].abs() > t || v[oa + 1].abs() > t ||
+          v[ob].abs() > t || v[ob + 1].abs() > t;
+    }
+    final pa = (dx * v[oa + 1] - dy * v[oa]) / len; // perp displacement of a
+    final pb = (dx * v[ob + 1] - dy * v[ob]) / len; // perp displacement of b
+    return pa.abs() > t || pb.abs() > t;
+  }
+
+  final loose = <(int, int)>{};
+  for (final v in basis) {
+    var vmax = 0.0;
+    for (final c in v) {
+      if (c.abs() > vmax) vmax = c.abs();
+    }
+    if (vmax < 1e-12) continue;
+    for (var e = 0; e < gs.length; e++) {
+      final g = gs[e];
+      final o = off[e];
+      switch (g.type) {
+        case Geo.line:
+          if (!loose.contains((e, 0)) && edgeMoves(v, vmax, o, o + 2)) {
+            loose.add((e, 0));
+          }
+          break;
+        case Geo.circle:
+        case Geo.arc: // carrier = (cx, cy, r); params o..o+2
+          if (!loose.contains((e, 0)) &&
+              (v[o].abs() > tol * vmax ||
+                  v[o + 1].abs() > tol * vmax ||
+                  v[o + 2].abs() > tol * vmax)) {
+            loose.add((e, 0));
+          }
+          break;
+        case Geo.polyline:
+          final n = g.data[1].toInt();
+          if (n < 2) break;
+          if (g.isSpline) {
+            if (loose.contains((e, 0))) break;
+            for (var i = 0; i < 2 * n; i++) {
+              if (v[o + i].abs() > tol * vmax) {
+                loose.add((e, 0));
+                break;
+              }
+            }
+            break;
+          }
+          final edges = g.data[0] != 0 ? n : n - 1;
+          for (var seg = 0; seg < edges; seg++) {
+            if (loose.contains((e, seg))) continue;
+            final oa = o + 2 * seg;
+            final ob = o + 2 * ((seg + 1) % n);
+            if (edgeMoves(v, vmax, oa, ob)) loose.add((e, seg));
+          }
+          break;
+      }
+    }
+  }
+  return SketchAnalysis(dof, pts, loose);
 }
