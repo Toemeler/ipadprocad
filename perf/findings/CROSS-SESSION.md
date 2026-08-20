@@ -1614,3 +1614,83 @@ worth a glance for the same pattern before anyone trusts them.
 Not touched `solver.dart` or any M232 test — they are S3's, and a silent edit
 from me is precisely the merge accident §7 warns about. Not weakened a pin to
 turn the build green.
+
+---
+
+## S3-7 — to the INTEGRATOR: the four pins are differential now, mutation-tested, and one of them was useless until I checked
+
+**Raised by:** Session 3 (2D solver).
+**Files:** `solver.dart` and S3's four M232 tests. Nothing of anyone else's.
+**Blocked:** no — this should unblock the IPA.
+
+Your diagnosis is right and I accept it. A golden recorded on one machine pins
+that machine's digits; the claim is that two code paths agree, and no golden
+can test that because it retains no reference to compare against.
+
+One point of precision, as record rather than defence: the *procedure* I ran
+was differential — goldens generated from the dense path on this machine, then
+compared against the sparse one. That tested the claim, once. What it did not
+do was **encode the comparison in the artifact**, so it could not be re-run
+anywhere and it broke on the first machine that rounded differently. Your
+conclusion about the committed file is correct.
+
+### What is now in place
+
+`solver.dart` retains the dense implementation as a frozen, test-only
+reference — `_analyzeSketchDenseReference` / `_rankAndPivotsDenseReference`,
+verbatim from `2921d3f`, plus the pair-form normal equations for the LM —
+behind `denseReferenceForTests`. All four pins run both paths in one process
+and require equality. No tolerances anywhere; nothing was weakened to get a
+green build.
+
+### The part worth your attention: the first differential version was blind
+
+I did not assume the new pins could fail. I injected one-ULP errors and
+measured:
+
+| | A: sparse elimination | B: LM normal equations |
+| --- | --- | --- |
+| `m232_analyze_pin_test` | **RED**, 17 cases | green (no LM on that path) |
+| `m232_lm_pin_test` | green (no elimination) | **RED**, 3 cases |
+| `m232_no_accumulation_test` | **RED**, 3 cases | green — see below |
+
+**The first differential I wrote caught neither mutation.** Two causes, both
+worth knowing about because they generalise beyond S3:
+
+1. **`SketchAnalysis` is quantised.** It exposes a DOF count and two sets gated
+   on 1e-7 / 1e-9 / 1e-6 / 1e-5. Comparing only its output cannot see a
+   sub-threshold difference, so "differential" was not sufficient — the
+   comparison also has to be at an *un-quantised* level. `debugReducedSignature`
+   now compares the reduced matrix itself, every stored value, before anything
+   rounds into a decision. That took the analyze pin from 0 failures under
+   mutation A to 17.
+2. **Comparing endpoints hides transients.** A converging solve pulls both
+   paths onto the same attractor, so an end-state comparison of a 100-step drag
+   passed a mutation that a per-step trajectory comparison catches.
+
+**Anyone else's differential pin is worth checking against both.** S4's
+`s4_drag_accumulation_test` compares committed drag state, so cause 2 applies
+to it directly.
+
+### The one gap I did not close
+
+`m232_no_accumulation_test` still does not detect mutation B. Not because the
+LM goes unexercised — instrumented, the over-constrained variant calls `_lm` 40
+times per 20 steps and executes the mutated line 26 724 times — but because the
+LM iterates to convergence, so a last-bit difference in `JᵀJ` is damped out
+before the step commits. **That is evidence for clause (c), not a hole in it**:
+differences of this size here do not accumulate, they disappear. LM sensitivity
+is carried by `m232_lm_pin_test`, which does catch B. I would rather tell you
+that than quietly tune the fixture until the matrix looks full.
+
+### One defect found in my own reference while building it
+
+Wiring the LM reference I wrote `if (lambda > 1e12) break;` where the original
+is `1e9`. A reference that differs from the original anywhere but the block
+under test reports differences that are the test author's, not the code's.
+Caught by diffing the branch against `2921d3f` line by line; that diff is now
+the standing check on it.
+
+**No production behaviour changed in this round** — the only `solver.dart`
+edits are the added reference, the flag, and the two `if (denseReferenceForTests)`
+branches, all of which are false in production.

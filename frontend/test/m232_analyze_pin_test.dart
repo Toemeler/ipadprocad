@@ -1,28 +1,39 @@
-// M232 — the DOF analysis, pinned exactly, BEFORE its algorithm was changed.
+// M232 — the DOF analysis, pinned DIFFERENTIALLY against the dense original.
 //
 // `analyzeSketch` returns three things and the UI reads every one of them:
 //   * `dof`           — the gauge, the browser text, "fully constrained"
 //   * `freePoints`    — gates dragging (a point not in here will not move)
 //   * `looseCarriers` — the violet/white colouring of every entity
 //
-// OPTIMIZATION_PLAN §5 (Session 3) asks for all three to be pinned across a
-// range of fixtures before the algorithm underneath them moves, because a rank
-// computed differently is a sketch that looks wrong or refuses to drag — and
-// neither failure throws. This file is that pin.
+// OPTIMIZATION_PLAN §5 (Session 3) asks for all three to be pinned before the
+// algorithm underneath them moves, because a rank computed differently is a
+// sketch that looks wrong or refuses to drag — and neither failure throws.
 //
-// It is deliberately a GOLDEN test, not a set of hand-reasoned expectations:
-// the point is not that these numbers are right (M26 and the other DOF tests
-// argue that), it is that they are UNCHANGED. Each case is reduced to one
-// canonical string covering all three fields, so a single character of drift
-// anywhere fails the case that produced it.
+// **This file used to hold hardcoded golden strings and that was the wrong
+// instrument.** A golden recorded on one machine pins "this machine produced
+// these digits". The claim being made is "the sparse path returns what the
+// dense path returned", and no golden can test that: it retains no dense
+// implementation to compare against. Build 437 proved the point the
+// embarrassing way — the goldens went red on macOS arm64 + Flutter 3.47.1
+// while the code was fine, because they were measuring the runtime.
 //
-// The cases are chosen to reach every branch the analysis has:
+// So every case below now runs through BOTH implementations, on the same
+// machine, in the same process, on the same inputs, and requires the results
+// to be equal. `denseReferenceForTests` selects the frozen copy of
+// `_analyzeSketch` as it stood at `2921d3f` (see the end of `solver.dart`).
+//
+// Nothing here is a tolerance. `expect(a, b)` on the canonical string is exact
+// equality, and that is deliberate: bit-identity is the strongest claim on
+// this branch and the reason S3 never has to argue clauses (a)/(b)/(c) of the
+// integrator's rule. Weakening it to `closeTo` to get a green build would
+// trade that claim away and hide the divergence the test exists to find.
+//
+// The cases reach every branch the analysis has:
 //   - every CType that contributes residuals
 //   - each carrier kind (line, circle, arc, plain polyline per edge, spline)
 //   - projections, which enter through _withProjectionPins and not through cs
-//   - the rank edge cases: no constraints, over-constrained, degenerate,
-//     empty sketch
-//   - the perf ladder's own fixture at four sizes, which is the system
+//   - the rank edge cases: no constraints, over-constrained, degenerate, empty
+//   - the perf ladder's own fixture at five sizes, which is the system
 //     PERFORMANCE_PROFILE §5.5 measured
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/constraints.dart';
@@ -258,56 +269,67 @@ final cases = <String, (List<Geo>, List<Constraint>)>{
   'perf fixture n=128': (sketchFixture(64), constraintFixture(64)),
 };
 
-/// Recorded from the implementation as it stood at the head of
-/// `claude/perf-opt` (commit 4890f06), before Session 3 touched it.
-const golden = <String, String>{
-  'empty': r'dof=0 free=[] loose=[]',
-  'single line, no constraints': r'dof=4 free=[0.0,0.1] loose=[0.0]',
-  'line: fixed start + horizontal (free length)': r'dof=1 free=[0.1] loose=[]',
-  'line: length dimension only': r'dof=3 free=[0.0,0.1] loose=[0.0]',
-  'line fully ground': r'dof=0 free=[] loose=[]',
-  'two lines: parallel': r'dof=7 free=[0.0,0.1,1.0,1.1] loose=[0.0,1.0]',
-  'two lines: perpendicular + coincident corner': r'dof=5 free=[0.0,0.1,1.0,1.1] loose=[0.0,1.0]',
-  'two lines: collinear': r'dof=6 free=[0.0,0.1,1.0,1.1] loose=[0.0,1.0]',
-  'two lines: vertical + equal': r'dof=6 free=[0.0,0.1,1.0,1.1] loose=[0.0,1.0]',
-  'symmetric about a line': r'dof=8 free=[0.0,0.1,1.0,2.0] loose=[0.0,1.0,2.0]',
-  'midpoint': r'dof=1 free=[] loose=[1.0]',
-  'two circles: concentric + equal': r'dof=3 free=[0.0,1.0] loose=[0.0,1.0]',
-  'circle: radius dimension + fixed centre': r'dof=0 free=[] loose=[]',
-  'line tangent to circle': r'dof=6 free=[0.0,1.0,1.1] loose=[0.0,1.0]',
-  'arc + line smooth (G1)': r'dof=6 free=[0.0,0.1,0.2,1.0,1.1] loose=[0.0,1.0]',
-  'arc alone': r'dof=5 free=[0.0,0.1,0.2] loose=[0.0]',
-  'rectangle, unconstrained (per-edge carriers)': r'dof=8 free=[0.0,0.1,0.2,0.3] loose=[0.0,0.1,0.2,0.3]',
-  'rectangle, one corner ground + two directions': r'dof=4 free=[0.1,0.2,0.3] loose=[0.1,0.2,0.3]',
-  'open polyline': r'dof=6 free=[0.0,0.1,0.2] loose=[0.0,0.1]',
-  'spline-tagged polyline': r'dof=6 free=[0.0,0.1,0.2] loose=[0.0]',
-  'point on circle (coincident, one pt)': r'dof=5 free=[0.0,1.0] loose=[0.0,1.0]',
-  'point on polyline carrier': r'dof=10 free=[0.0,0.1,0.2,0.3,1.0] loose=[0.0,0.1,0.2,0.3,1.0]',
-  'projection: a projected line pins itself': r'dof=4 free=[0.0,0.1] loose=[0.0]',
-  'projection: a projected circle pins its radius too': r'dof=0 free=[] loose=[]',
-  'pattern constraint (rect copy)': r'dof=0 free=[] loose=[]',
-  'over-constrained: two identical fixes': r'dof=0 free=[] loose=[]',
-  'redundant horizontals on one line': r'dof=1 free=[0.1] loose=[]',
-  'degenerate: zero-length line': r'dof=2 free=[0.1] loose=[0.0]',
-  'degenerate: zero-radius circle': r'dof=3 free=[0.0] loose=[0.0]',
-  'mixed sketch, partially constrained': r'dof=16 free=[0.1,1.0,1.1,2.0,3.0,3.1,3.2,4.0,4.1,4.2,4.3] loose=[1.0,2.0,3.0,4.0,4.1,4.2,4.3]',
-  'perf fixture n=8': r'dof=6 free=[1.0,2.0,3.0,4.1,5.0,5.1,6.0,6.1,7.0] loose=[1.0,2.0,3.0,4.0,5.0,6.0,7.0]',
-  'perf fixture n=16': r'dof=14 free=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.1,9.0,9.1,10.0,10.1,11.0,11.1,12.0,12.1,13.0,13.1,14.0,14.1,15.0] loose=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0]',
-  'perf fixture n=32': r'dof=30 free=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.1,17.0,17.1,18.0,18.1,19.0,19.1,20.0,20.1,21.0,21.1,22.0,22.1,23.0,23.1,24.0,24.1,25.0,25.1,26.0,26.1,27.0,27.1,28.0,28.1,29.0,29.1,30.0,30.1,31.0] loose=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0]',
-  'perf fixture n=64': r'dof=62 free=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0,32.1,33.0,33.1,34.0,34.1,35.0,35.1,36.0,36.1,37.0,37.1,38.0,38.1,39.0,39.1,40.0,40.1,41.0,41.1,42.0,42.1,43.0,43.1,44.0,44.1,45.0,45.1,46.0,46.1,47.0,47.1,48.0,48.1,49.0,49.1,50.0,50.1,51.0,51.1,52.0,52.1,53.0,53.1,54.0,54.1,55.0,55.1,56.0,56.1,57.0,57.1,58.0,58.1,59.0,59.1,60.0,60.1,61.0,61.1,62.0,62.1,63.0] loose=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0,32.0,33.0,34.0,35.0,36.0,37.0,38.0,39.0,40.0,41.0,42.0,43.0,44.0,45.0,46.0,47.0,48.0,49.0,50.0,51.0,52.0,53.0,54.0,55.0,56.0,57.0,58.0,59.0,60.0,61.0,62.0,63.0]',
-  'perf fixture n=128': r'dof=126 free=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0,32.0,33.0,34.0,35.0,36.0,37.0,38.0,39.0,40.0,41.0,42.0,43.0,44.0,45.0,46.0,47.0,48.0,49.0,50.0,51.0,52.0,53.0,54.0,55.0,56.0,57.0,58.0,59.0,60.0,61.0,62.0,63.0,64.1,65.0,65.1,66.0,66.1,67.0,67.1,68.0,68.1,69.0,69.1,70.0,70.1,71.0,71.1,72.0,72.1,73.0,73.1,74.0,74.1,75.0,75.1,76.0,76.1,77.0,77.1,78.0,78.1,79.0,79.1,80.0,80.1,81.0,81.1,82.0,82.1,83.0,83.1,84.0,84.1,85.0,85.1,86.0,86.1,87.0,87.1,88.0,88.1,89.0,89.1,90.0,90.1,91.0,91.1,92.0,92.1,93.0,93.1,94.0,94.1,95.0,95.1,96.0,96.1,97.0,97.1,98.0,98.1,99.0,99.1,100.0,100.1,101.0,101.1,102.0,102.1,103.0,103.1,104.0,104.1,105.0,105.1,106.0,106.1,107.0,107.1,108.0,108.1,109.0,109.1,110.0,110.1,111.0,111.1,112.0,112.1,113.0,113.1,114.0,114.1,115.0,115.1,116.0,116.1,117.0,117.1,118.0,118.1,119.0,119.1,120.0,120.1,121.0,121.1,122.0,122.1,123.0,123.1,124.0,124.1,125.0,125.1,126.0,126.1,127.0] loose=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0,32.0,33.0,34.0,35.0,36.0,37.0,38.0,39.0,40.0,41.0,42.0,43.0,44.0,45.0,46.0,47.0,48.0,49.0,50.0,51.0,52.0,53.0,54.0,55.0,56.0,57.0,58.0,59.0,60.0,61.0,62.0,63.0,64.0,65.0,66.0,67.0,68.0,69.0,70.0,71.0,72.0,73.0,74.0,75.0,76.0,77.0,78.0,79.0,80.0,81.0,82.0,83.0,84.0,85.0,86.0,87.0,88.0,89.0,90.0,91.0,92.0,93.0,94.0,95.0,96.0,97.0,98.0,99.0,100.0,101.0,102.0,103.0,104.0,105.0,106.0,107.0,108.0,109.0,110.0,111.0,112.0,113.0,114.0,115.0,116.0,117.0,118.0,119.0,120.0,121.0,122.0,123.0,124.0,125.0,126.0,127.0]',
-};
+/// Runs [body] with the frozen dense reduction selected, and restores the
+/// flag whatever happens — a leaked `true` would silently put every later
+/// test in this process on the slow path and quietly stop testing anything.
+T withDenseReference<T>(T Function() body) {
+  denseReferenceForTests = true;
+  try {
+    return body();
+  } finally {
+    denseReferenceForTests = false;
+  }
+}
 
 void main() {
-  group('analyzeSketch is unchanged (M232 pin)', () {
+  tearDown(() => denseReferenceForTests = false);
+
+  group('sparse and dense DOF analysis agree exactly (M232 differential pin)',
+      () {
     cases.forEach((name, fx) {
       test(name, () {
-        final want = golden[name];
-        expect(want, isNotNull, reason: 'no golden recorded for "$name"');
-        expect(sig(analyzeSketch(fx.$1, fx.$2)), want,
-            reason: 'the DOF analysis changed for "$name" — dof, the movable '
-                'set or the carrier colouring is no longer what it was');
+        // (1) the REDUCED MATRIX, before anything is rounded into a
+        // decision. `SketchAnalysis` is quantised — a DOF count and two sets
+        // gated on 1e-7 / 1e-9 / 1e-6 / 1e-5 — so comparing only its output
+        // cannot see a difference smaller than a threshold. Measured, not
+        // assumed: an injected one-ULP error in the sparse elimination passes
+        // the output comparison and fails this one.
+        final sparseRref = debugReducedSignature(fx.$1, fx.$2);
+        final denseRref =
+            withDenseReference(() => debugReducedSignature(fx.$1, fx.$2));
+        expect(sparseRref, denseRref,
+            reason: 'the sparse reduction produced different NUMBERS from the '
+                'frozen dense original for "$name". Per the integrator, a real '
+                'difference here outweighs everything else on the branch — '
+                'report it, do not tune it away.');
+
+        // (2) and the analysis the UI actually reads, which is what a user
+        // would see go wrong.
+        final sparse = sig(analyzeSketch(fx.$1, fx.$2));
+        final dense = withDenseReference(() => sig(analyzeSketch(fx.$1, fx.$2)));
+        expect(sparse, dense,
+            reason: 'dof, the movable set or the carrier colouring differs '
+                'for "$name"');
       });
+    });
+
+    test('the dense reference is actually reached', () {
+      // Guards the guard: if the flag were ignored, every comparison above
+      // would be sparse-against-sparse and could never fail. The dense path
+      // is knowably slower on the ladder's upper rungs, so a large fixture
+      // separates them by wall time — the one property the two paths do NOT
+      // share.
+      final gs = sketchFixture(128), cs = constraintFixture(128);
+      final t0 = Stopwatch()..start();
+      analyzeSketch(gs, cs);
+      t0.stop();
+      final t1 = Stopwatch()..start();
+      withDenseReference(() => analyzeSketch(gs, cs));
+      t1.stop();
+      expect(t1.elapsedMicroseconds, greaterThan(t0.elapsedMicroseconds),
+          reason: 'the dense reference should be the slower of the two at 256 '
+              'entities; if it is not, the flag is not selecting it and every '
+              'differential assertion in this file is vacuous');
     });
 
     test('the analysis is a pure function of its inputs', () {
