@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class SplitDialog extends StatefulWidget {
   final AppState app;
@@ -59,7 +60,7 @@ class _SplitDialogState extends State<SplitDialog> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
                 ),
                 child: Row(children: [
-                  Text('Properties',
+                  Text(L.of(context).dlgProperties,
                       style: ts(13, Colors.white, w: FontWeight.w600)),
                   const SizedBox(width: 6),
                   GestureDetector(
@@ -104,9 +105,7 @@ class _SplitDialogState extends State<SplitDialog> {
             ]),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-              child: Text(
-                  'Everything on the other side of the plane is removed. '
-                  'Splitting into two bodies is not built.',
+              child: Text(L.of(context).msgSplitRemovesOtherSide,
                   style: ts(11, T.dim)),
             ),
             _footer(app, s),
@@ -148,7 +147,7 @@ class _SplitDialogState extends State<SplitDialog> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -166,7 +165,7 @@ class _SplitDialogState extends State<SplitDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),

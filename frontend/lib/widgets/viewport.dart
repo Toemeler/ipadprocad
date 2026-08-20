@@ -51,6 +51,8 @@ import 'text_editor_window.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import '../inserts.dart';
+import '../l10n/fmt.dart';
+import '../l10n/l.dart';
 import '../text_geometry.dart' show textLayoutOf;
 import '../vector_font.dart' show measureText;
 
@@ -710,23 +712,21 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
         context: context,
         builder: (ctx) => AlertDialog(
           backgroundColor: T.fly,
-          title: const Text('Over-constrained',
+          title: Text(L.of(context).hudOverConstrained,
               style: TextStyle(
                   fontSize: 14,
                   color: Colors.white,
                   fontWeight: FontWeight.w600)),
-          content: const Text(
-              'Adding this dimension will over-constrain the sketch. '
-              'Keep it as a driven (reference) dimension?',
-              style: TextStyle(fontSize: 13, color: T.text)),
+          content: Text(L.of(ctx).msgWouldOverConstrain,
+              style: const TextStyle(fontSize: 13, color: T.text)),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel',
+                child: Text(L.of(context).cancel,
                     style: TextStyle(fontSize: 12.5, color: T.dim))),
             TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Driven',
+                child: Text(L.of(context).hudDriven,
                     style: TextStyle(fontSize: 12.5, color: T.blue))),
           ],
         ),
@@ -838,10 +838,14 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
       // M41: the box shows the RAW expression when the dimension is driven
       // by one (Inventor: value collapses on screen, equation reappears on
       // edit); a plain-value dimension shows its number.
+      // M234 — the field is seeded in the UI's convention (decimal comma in
+      // German), which is safe because every reader of it goes through
+      // parseValueExpr / Fmt.num, and both accept ',' and '.' whatever the
+      // language. An expression (d.expr) is user text and is shown verbatim.
       _dimCtrl.text = d.expr ??
           (_isAngleKind(d)
-              ? (d.value ?? 0).toStringAsFixed(1)
-              : (d.value ?? 0).toStringAsFixed(2));
+              ? Fmt.fixed(d.value ?? 0, 1)
+              : Fmt.fixed(d.value ?? 0, 2));
       _dimCtrl.selection =
           TextSelection(baseOffset: 0, extentOffset: _dimCtrl.text.length);
     });
@@ -3034,7 +3038,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       canvas.drawLine(da, db, p); // dimension line
       _arrow(canvas, da, u, p);
       _arrow(canvas, db, -u, p);
-      label = '${v.toStringAsFixed(2)} mm';
+      label = Fmt.mm(v);
       if (c.driven) label = '($label)';
       t = (da + db) / 2 + n * (off >= 0 ? 10 : -10);
       break;
@@ -3046,7 +3050,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       final d = t - ce;
       if (d.distance < 1e-6) return;
       canvas.drawLine(ce, t, p);
-      label = (c.dimKind == 'rad' ? 'R' : '⌀') + '${v.toStringAsFixed(2)} mm';
+      label = (c.dimKind == 'rad' ? 'R' : '⌀') + Fmt.mm(v);
       if (c.driven) label = '($label)';
       break;
     case 'gap':
@@ -3073,7 +3077,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       canvas.drawLine(pa, pb, p);
       _arrow(canvas, pa, dir, p);
       _arrow(canvas, pb, -dir, p);
-      label = '${v.toStringAsFixed(2)} mm';
+      label = Fmt.mm(v);
       if (c.driven) label = '($label)';
       t = (pa + pb) / 2 + Offset(-dir.dy, dir.dx) * 10;
       break;
@@ -3140,7 +3144,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       canvas.drawLine(dp, df, p); // dimension line
       _arrow(canvas, dp, uP, p);
       _arrow(canvas, df, -uP, p);
-      label = '${v.toStringAsFixed(2)} mm';
+      label = Fmt.mm(v);
       if (c.driven) label = '($label)';
       t = (dp + df) / 2 + nP * (offP >= 0 ? 10 : -10);
       break;
@@ -3162,7 +3166,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
         final lb = (l2a - ix).distance >= (l2b - ix).distance ? l2a : l2b;
         t = _angleArc(canvas, map, ix, la, lb, t, v, p);
       }
-      label = '${v.toStringAsFixed(1)}\u00b0';
+      label = Fmt.deg(v);
       if (c.driven) label = '($label)';
       break;
     case 'ang3':
@@ -3197,7 +3201,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
         t = sv +
             Offset(math.cos(a0 + sweep / 2), math.sin(a0 + sweep / 2)) * rr;
       }
-      label = '${v.toStringAsFixed(1)}\u00b0';
+      label = Fmt.deg(v);
       if (c.driven) label = '($label)';
       break;
     case 'ang4':
@@ -3215,7 +3219,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
         final lb4 = (qb1 - ix4).distance >= (qb2 - ix4).distance ? qb1 : qb2;
         t = _angleArc(canvas, map, ix4, la4, lb4, t, v, p);
       }
-      label = '${v.toStringAsFixed(1)}\u00b0';
+      label = Fmt.deg(v);
       if (c.driven) label = '($label)';
       break;
     default:

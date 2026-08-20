@@ -1264,7 +1264,7 @@ abstract class AppL10n {
   /// No description provided for @msgWouldOverConstrain.
   ///
   /// In de, this message translates to:
-  /// **'Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung einfügen?'**
+  /// **'Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung (Referenzmaß) behalten?'**
   String get msgWouldOverConstrain;
 
   /// Zurueck in die Ausgangsansicht des 3D-Fensters.
@@ -1939,30 +1939,6 @@ abstract class AppL10n {
   /// **'Kanten wählen — antippen fügt hinzu, nochmals antippen entfernt.'**
   String get msgSelectEdges;
 
-  /// No description provided for @msgNoConcaveEdgesLeft.
-  ///
-  /// In de, this message translates to:
-  /// **'Keine konkaven Kanten mehr zum Hinzufügen.'**
-  String get msgNoConcaveEdgesLeft;
-
-  /// No description provided for @msgNoConvexEdgesLeft.
-  ///
-  /// In de, this message translates to:
-  /// **'Keine konvexen Kanten mehr zum Hinzufügen.'**
-  String get msgNoConvexEdgesLeft;
-
-  /// No description provided for @msgAddedConcaveEdges.
-  ///
-  /// In de, this message translates to:
-  /// **'{count, plural, =1{Eine konkave Kante hinzugefügt.} other{{count} konkave Kanten hinzugefügt.}}'**
-  String msgAddedConcaveEdges(int count);
-
-  /// No description provided for @msgAddedConvexEdges.
-  ///
-  /// In de, this message translates to:
-  /// **'{count, plural, =1{Eine konvexe Kante hinzugefügt.} other{{count} konvexe Kanten hinzugefügt.}}'**
-  String msgAddedConvexEdges(int count);
-
   /// No description provided for @msgTapToPlaceGear.
   ///
   /// In de, this message translates to:
@@ -2578,7 +2554,7 @@ abstract class AppL10n {
   /// No description provided for @msgPickWhileSelectorBlue.
   ///
   /// In de, this message translates to:
-  /// **'Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter leuchtet.'**
+  /// **'Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter aktiv ist. OK / Fertig erzeugt die Anordnung.'**
   String get msgPickWhileSelectorBlue;
 
   /// No description provided for @msgFilletPickTwo.
@@ -2755,6 +2731,12 @@ abstract class AppL10n {
   /// **'Die beiden Flächen tauschen'**
   String get lblSwapFaces;
 
+  /// Zwei Leerzeichen wie im Original — sie trennen den Namen der Arbeitsebene vom Feldtitel.
+  ///
+  /// In de, this message translates to:
+  /// **'{name}  Versatz'**
+  String lblWorkPlaneOffset(String name);
+
   /// No description provided for @lblSketchPlaneN.
   ///
   /// In de, this message translates to:
@@ -2776,7 +2758,7 @@ abstract class AppL10n {
   /// No description provided for @msgSplitRemovesOtherSide.
   ///
   /// In de, this message translates to:
-  /// **'Alles auf der anderen Seite der Ebene wird entfernt. Die Richtung lässt sich umkehren.'**
+  /// **'Alles auf der anderen Seite der Ebene wird entfernt. Das Teilen in zwei Körper ist nicht gebaut.'**
   String get msgSplitRemovesOtherSide;
 
   /// No description provided for @msgGearTapToPlace.
@@ -2797,16 +2779,16 @@ abstract class AppL10n {
   /// **'Fehler melden'**
   String get dlgReportBug;
 
-  /// No description provided for @msgBugPrompt.
+  /// Der Zeilenumbruch in der Mitte gehoert zum Layout des Dialogs und steht in beiden Sprachen.
   ///
   /// In de, this message translates to:
-  /// **'Was haben Sie erwartet, und was ist stattdessen passiert?'**
+  /// **'Was haben Sie erwartet, und was ist stattdessen passiert?\nDas Modell, der Zustand jedes Elements und das vollständige Protokoll werden automatisch angehängt — beschreiben Sie nur, was Sie GESEHEN haben.'**
   String get msgBugPrompt;
 
   /// No description provided for @hintBugExample.
   ///
   /// In de, this message translates to:
-  /// **'z. B. die obere Kante mit 2 mm verrundet und die Wandstärke ist danach falsch'**
+  /// **'z. B. die obere Kante mit 2 mm verrundet, und die Wand ist verschwunden statt abgerundet zu werden'**
   String get hintBugExample;
 
   /// No description provided for @btnSaveReport.
@@ -2916,6 +2898,246 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Mittelpunkt'**
   String get btnCenterPoint;
+
+  /// No description provided for @featExtrusion.
+  ///
+  /// In de, this message translates to:
+  /// **'Extrusion'**
+  String get featExtrusion;
+
+  /// No description provided for @featRevolution.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehung'**
+  String get featRevolution;
+
+  /// No description provided for @featSweep.
+  ///
+  /// In de, this message translates to:
+  /// **'Sweeping'**
+  String get featSweep;
+
+  /// No description provided for @featLoft.
+  ///
+  /// In de, this message translates to:
+  /// **'Erhebung'**
+  String get featLoft;
+
+  /// No description provided for @featCoil.
+  ///
+  /// In de, this message translates to:
+  /// **'Spirale'**
+  String get featCoil;
+
+  /// No description provided for @featFillet.
+  ///
+  /// In de, this message translates to:
+  /// **'Verrundung'**
+  String get featFillet;
+
+  /// No description provided for @featChamfer.
+  ///
+  /// In de, this message translates to:
+  /// **'Fase'**
+  String get featChamfer;
+
+  /// No description provided for @featHole.
+  ///
+  /// In de, this message translates to:
+  /// **'Bohrung'**
+  String get featHole;
+
+  /// No description provided for @featSplit.
+  ///
+  /// In de, this message translates to:
+  /// **'Trennen'**
+  String get featSplit;
+
+  /// No description provided for @featCombine.
+  ///
+  /// In de, this message translates to:
+  /// **'Kombinieren'**
+  String get featCombine;
+
+  /// No description provided for @featDeleteFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche löschen'**
+  String get featDeleteFace;
+
+  /// No description provided for @cmdDeleteFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche löschen'**
+  String get cmdDeleteFace;
+
+  /// No description provided for @cmdMoveFaces.
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen verschieben'**
+  String get cmdMoveFaces;
+
+  /// No description provided for @cmdSizeFaces.
+  ///
+  /// In de, this message translates to:
+  /// **'Flächengröße ändern'**
+  String get cmdSizeFaces;
+
+  /// No description provided for @cmdScaleBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper skalieren'**
+  String get cmdScaleBody;
+
+  /// Steht in "Flächen zum {verb} wählen." — im Deutschen ein substantiviertes Verb und deshalb GROSS, im Englischen klein. Genau die Stelle, an der ein maschinelles toLowerCase() falsch wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Löschen'**
+  String get verbDelete;
+
+  /// No description provided for @verbMove.
+  ///
+  /// In de, this message translates to:
+  /// **'Verschieben'**
+  String get verbMove;
+
+  /// Inventor DE: "Rechteckige Anordnung".
+  ///
+  /// In de, this message translates to:
+  /// **'Rechteckige Anordnung'**
+  String get patRectangular;
+
+  /// No description provided for @patCircular.
+  ///
+  /// In de, this message translates to:
+  /// **'Runde Anordnung'**
+  String get patCircular;
+
+  /// No description provided for @patSketchDriven.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzengesteuerte Anordnung'**
+  String get patSketchDriven;
+
+  /// No description provided for @patMirror.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegeln'**
+  String get patMirror;
+
+  /// No description provided for @holeSimple.
+  ///
+  /// In de, this message translates to:
+  /// **'Einfach'**
+  String get holeSimple;
+
+  /// Zylindrische Senkung. Inventor DE: "Senkung".
+  ///
+  /// In de, this message translates to:
+  /// **'Senkung'**
+  String get holeCounterbore;
+
+  /// No description provided for @holeSpotface.
+  ///
+  /// In de, this message translates to:
+  /// **'Plansenkung'**
+  String get holeSpotface;
+
+  /// No description provided for @holeCountersink.
+  ///
+  /// In de, this message translates to:
+  /// **'Kegelsenkung'**
+  String get holeCountersink;
+
+  /// No description provided for @holeSimpleShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Einfach'**
+  String get holeSimpleShort;
+
+  /// No description provided for @holeCounterboreShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Senkung'**
+  String get holeCounterboreShort;
+
+  /// No description provided for @holeSpotfaceShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Plan'**
+  String get holeSpotfaceShort;
+
+  /// No description provided for @holeCountersinkShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Kegel'**
+  String get holeCountersinkShort;
+
+  /// No description provided for @msgNoInteriorEdgesLeft.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Innenkanten mehr zum Hinzufügen.'**
+  String get msgNoInteriorEdgesLeft;
+
+  /// No description provided for @msgNoExteriorEdgesLeft.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Außenkanten mehr zum Hinzufügen.'**
+  String get msgNoExteriorEdgesLeft;
+
+  /// No description provided for @msgAddedInteriorEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine Innenkante hinzugefügt.} other{{count} Innenkanten hinzugefügt.}}'**
+  String msgAddedInteriorEdges(int count);
+
+  /// No description provided for @msgAddedExteriorEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine Außenkante hinzugefügt.} other{{count} Außenkanten hinzugefügt.}}'**
+  String msgAddedExteriorEdges(int count);
+
+  /// No description provided for @msgUndone.
+  ///
+  /// In de, this message translates to:
+  /// **'Rückgängig gemacht'**
+  String get msgUndone;
+
+  /// No description provided for @msgRedone.
+  ///
+  /// In de, this message translates to:
+  /// **'Wiederhergestellt'**
+  String get msgRedone;
+
+  /// No description provided for @msgShow.
+  ///
+  /// In de, this message translates to:
+  /// **'Einblenden'**
+  String get msgShow;
+
+  /// Inventor DE: "Bis zum Nächsten".
+  ///
+  /// In de, this message translates to:
+  /// **'Bis zum Nächsten'**
+  String get extToNext;
+
+  /// Inventor DE: "Bis" — bis zu einer gewaehlten Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'Bis'**
+  String get extToFace;
+
+  /// No description provided for @extThroughAll.
+  ///
+  /// In de, this message translates to:
+  /// **'Durch alle'**
+  String get extThroughAll;
+
+  /// No description provided for @extDistance.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand'**
+  String get extDistance;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

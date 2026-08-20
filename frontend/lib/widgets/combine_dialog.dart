@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class CombineDialog extends StatefulWidget {
   final AppState app;
@@ -60,7 +61,7 @@ class _CombineDialogState extends State<CombineDialog> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
                 ),
                 child: Row(children: [
-                  Text('Properties',
+                  Text(L.of(context).dlgProperties,
                       style: ts(13, Colors.white, w: FontWeight.w600)),
                   const SizedBox(width: 6),
                   GestureDetector(
@@ -164,7 +165,7 @@ class _CombineDialogState extends State<CombineDialog> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -182,7 +183,7 @@ class _CombineDialogState extends State<CombineDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),

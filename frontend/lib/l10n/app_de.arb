@@ -562,7 +562,7 @@
   "@hudDriven": {
     "description": "Referenzmass: wird von der Geometrie getrieben, treibt sie nicht. Inventor DE: \"abhängige Bemaßung\"."
   },
-  "msgWouldOverConstrain": "Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung einfügen?",
+  "msgWouldOverConstrain": "Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung (Referenzmaß) behalten?",
   "menuHomeView": "Startansicht",
   "@menuHomeView": {
     "description": "Zurueck in die Ausgangsansicht des 3D-Fensters."
@@ -927,24 +927,6 @@
   "msgPickOneEdgeFirst": "Zuerst eine Kante wählen, damit der Körper feststeht.",
   "msgBodyHasNoEdges": "Dieser Körper hat keine wählbaren Kanten.",
   "msgSelectEdges": "Kanten wählen — antippen fügt hinzu, nochmals antippen entfernt.",
-  "msgNoConcaveEdgesLeft": "Keine konkaven Kanten mehr zum Hinzufügen.",
-  "msgNoConvexEdgesLeft": "Keine konvexen Kanten mehr zum Hinzufügen.",
-  "msgAddedConcaveEdges": "{count, plural, =1{Eine konkave Kante hinzugefügt.} other{{count} konkave Kanten hinzugefügt.}}",
-  "@msgAddedConcaveEdges": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "msgAddedConvexEdges": "{count, plural, =1{Eine konvexe Kante hinzugefügt.} other{{count} konvexe Kanten hinzugefügt.}}",
-  "@msgAddedConvexEdges": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "msgTapToPlaceGear": "In die Skizze tippen, um das Zahnrad zu setzen.",
   "msgCouldNotPlaceGear": "Das Zahnrad lässt sich hier nicht setzen.",
   "msgInternalGearTeeth": "Ein Hohlrad braucht mindestens 3 Zähne und einen gültigen Modul.",
@@ -1166,7 +1148,7 @@
   "tipSelectGeometryToPattern": "Anzuordnende Geometrie wählen",
   "msgBoundaryFillNotYet": "Begrenzungsfüllung — noch nicht verfügbar",
   "msgSuppressNotYet": "Exemplare unterdrücken — noch nicht verfügbar",
-  "msgPickWhileSelectorBlue": "Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter leuchtet.",
+  "msgPickWhileSelectorBlue": "Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter aktiv ist. OK / Fertig erzeugt die Anordnung.",
   "msgFilletPickTwo": "Zwei Linien, Bögen oder Kreise wählen.\nDie erste Verrundung wird bemaßt; die folgenden übernehmen den Radius.",
   "msgDistance1FirstLine": "Abstand 1 gilt für die zuerst gewählte Linie.",
   "msgPolygonSides": "Seiten. Erst den Mittelpunkt, dann eine Ecke wählen.",
@@ -1214,6 +1196,15 @@
     "description": "Kurz gehalten: die Schaltflaeche sitzt in der Dialogspalte. \"+ Kantengruppe hinzufügen\" waere doppelt so lang wie das Original."
   },
   "lblSwapFaces": "Die beiden Flächen tauschen",
+  "lblWorkPlaneOffset": "{name}  Versatz",
+  "@lblWorkPlaneOffset": {
+    "description": "Zwei Leerzeichen wie im Original — sie trennen den Namen der Arbeitsebene vom Feldtitel.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "lblSketchPlaneN": "{n} Skizzenebene",
   "@lblSketchPlaneN": {
     "placeholders": {
@@ -1231,15 +1222,18 @@
     }
   },
   "tipApplyAndStartAnother": "Übernehmen und das nächste beginnen",
-  "msgSplitRemovesOtherSide": "Alles auf der anderen Seite der Ebene wird entfernt. Die Richtung lässt sich umkehren.",
+  "msgSplitRemovesOtherSide": "Alles auf der anderen Seite der Ebene wird entfernt. Das Teilen in zwei Körper ist nicht gebaut.",
   "msgGearTapToPlace": "In die Skizze tippen, um es zu setzen; dann Mittelpunkt und einen Winkel bemaßen.",
   "lblAutoRootTip": "Fuß- und Kopfkreisradius automatisch",
   "@lblAutoRootTip": {
     "description": "Fusskreis und Kopfkreis sind die Verzahnungsbegriffe fuer root und tip."
   },
   "dlgReportBug": "Fehler melden",
-  "msgBugPrompt": "Was haben Sie erwartet, und was ist stattdessen passiert?",
-  "hintBugExample": "z. B. die obere Kante mit 2 mm verrundet und die Wandstärke ist danach falsch",
+  "msgBugPrompt": "Was haben Sie erwartet, und was ist stattdessen passiert?\nDas Modell, der Zustand jedes Elements und das vollständige Protokoll werden automatisch angehängt — beschreiben Sie nur, was Sie GESEHEN haben.",
+  "@msgBugPrompt": {
+    "description": "Der Zeilenumbruch in der Mitte gehoert zum Layout des Dialogs und steht in beiden Sprachen."
+  },
+  "hintBugExample": "z. B. die obere Kante mit 2 mm verrundet, und die Wand ist verschwunden statt abgerundet zu werden",
   "btnSaveReport": "Bericht sichern",
   "btnCopyPath": "Pfad kopieren",
   "btnDirect": "Direkt",
@@ -1283,5 +1277,86 @@
   "btnCenterPoint": "Mittelpunkt",
   "@btnCenterPoint": {
     "x-maxChars": 14
-  }
+  },
+  "featExtrusion": "Extrusion",
+  "featRevolution": "Drehung",
+  "featSweep": "Sweeping",
+  "featLoft": "Erhebung",
+  "featCoil": "Spirale",
+  "featFillet": "Verrundung",
+  "featChamfer": "Fase",
+  "featHole": "Bohrung",
+  "featSplit": "Trennen",
+  "featCombine": "Kombinieren",
+  "featDeleteFace": "Fläche löschen",
+  "cmdDeleteFace": "Fläche löschen",
+  "cmdMoveFaces": "Flächen verschieben",
+  "cmdSizeFaces": "Flächengröße ändern",
+  "cmdScaleBody": "Körper skalieren",
+  "verbDelete": "Löschen",
+  "@verbDelete": {
+    "description": "Steht in \"Flächen zum {verb} wählen.\" — im Deutschen ein substantiviertes Verb und deshalb GROSS, im Englischen klein. Genau die Stelle, an der ein maschinelles toLowerCase() falsch wird."
+  },
+  "verbMove": "Verschieben",
+  "patRectangular": "Rechteckige Anordnung",
+  "@patRectangular": {
+    "description": "Inventor DE: \"Rechteckige Anordnung\"."
+  },
+  "patCircular": "Runde Anordnung",
+  "patSketchDriven": "Skizzengesteuerte Anordnung",
+  "patMirror": "Spiegeln",
+  "holeSimple": "Einfach",
+  "holeCounterbore": "Senkung",
+  "@holeCounterbore": {
+    "description": "Zylindrische Senkung. Inventor DE: \"Senkung\"."
+  },
+  "holeSpotface": "Plansenkung",
+  "holeCountersink": "Kegelsenkung",
+  "holeSimpleShort": "Einfach",
+  "@holeSimpleShort": {
+    "x-maxChars": 10
+  },
+  "holeCounterboreShort": "Senkung",
+  "@holeCounterboreShort": {
+    "x-maxChars": 10
+  },
+  "holeSpotfaceShort": "Plan",
+  "@holeSpotfaceShort": {
+    "x-maxChars": 10
+  },
+  "holeCountersinkShort": "Kegel",
+  "@holeCountersinkShort": {
+    "x-maxChars": 10
+  },
+  "msgNoInteriorEdgesLeft": "Keine Innenkanten mehr zum Hinzufügen.",
+  "msgNoExteriorEdgesLeft": "Keine Außenkanten mehr zum Hinzufügen.",
+  "msgAddedInteriorEdges": "{count, plural, =1{Eine Innenkante hinzugefügt.} other{{count} Innenkanten hinzugefügt.}}",
+  "@msgAddedInteriorEdges": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgAddedExteriorEdges": "{count, plural, =1{Eine Außenkante hinzugefügt.} other{{count} Außenkanten hinzugefügt.}}",
+  "@msgAddedExteriorEdges": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgUndone": "Rückgängig gemacht",
+  "msgRedone": "Wiederhergestellt",
+  "msgShow": "Einblenden",
+  "extToNext": "Bis zum Nächsten",
+  "@extToNext": {
+    "description": "Inventor DE: \"Bis zum Nächsten\"."
+  },
+  "extToFace": "Bis",
+  "@extToFace": {
+    "description": "Inventor DE: \"Bis\" — bis zu einer gewaehlten Flaeche."
+  },
+  "extThroughAll": "Durch alle",
+  "extDistance": "Abstand"
 }

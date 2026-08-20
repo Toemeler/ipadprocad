@@ -13,6 +13,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class EdgeFeatureDialog extends StatefulWidget {
   final AppState app;
@@ -112,7 +113,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
               ),
               child: Row(children: [
-                Text('Properties',
+                Text(L.of(context).dlgProperties,
                     style: ts(13, Colors.white, w: FontWeight.w600)),
                 const SizedBox(width: 6),
                 GestureDetector(
@@ -229,8 +230,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                             : const Color(0xFF3A3F45)),
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: Text('${app.edgesInSet(i)} edge'
-                      '${app.edgesInSet(i) == 1 ? '' : 's'}',
+                  child: Text(L.of(context).lblEdgeCount(app.edgesInSet(i)),
                       style: ts(11.5, T.text)),
                 ),
               ),
@@ -273,7 +273,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('+ Add edge set', style: ts(11.5, T.dim)),
+              child: Text(L.of(context).btnAddEdgeSet, style: ts(11.5, T.dim)),
             ),
           )),
     ];
@@ -322,7 +322,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                       color: s.flip ? T.blue : const Color(0xFF3A3F45)),
                   borderRadius: BorderRadius.circular(3),
                 ),
-                child: Text('Swap the two faces', style: ts(12, T.text)),
+                child: Text(L.of(context).lblSwapFaces, style: ts(12, T.text)),
               ),
             )),
     ];
@@ -389,7 +389,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                   color: T.blue,
                   borderRadius: BorderRadius.circular(3),
                 ),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -407,7 +407,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),
