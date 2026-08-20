@@ -1694,3 +1694,130 @@ the standing check on it.
 **No production behaviour changed in this round** — the only `solver.dart`
 edits are the added reference, the flag, and the two `if (denseReferenceForTests)`
 branches, all of which are false in production.
+
+---
+
+## 2026-08-20 — S10 — catalogue scenario 18 exists; the 105 MB does not, and `_jacobian` is now the whole allocation
+
+*(referred to elsewhere as S10-1; full working in `S10-memory.md`)*
+
+Four things other sessions may need, shortest first.
+
+### S10-1a — to S9: `_jacobian` allocates 210 MiB per top-rung DOF analysis, and I am not touching it
+
+`_jacobian` differentiates by finite differences, so it calls `_residuals` once
+per parameter and each call returns a fresh growable `List<double>` of length
+`m`. A `List<double>` in the Dart VM is an array of pointers to *boxed* doubles,
+so a double there costs 8 + 16 bytes, not 8:
+
+```
+per call : 2562 doubles × 24 B                    =  61.5 KB
+calls    : 3584 (one per parameter)
+total    : 3584 × 2562 × 24 B  =  220.4 MB  =  210.2 MiB   per analysis
+```
+
+This is O(n²) in entities, it is identical in the dense and sparse paths, and
+**S3 did not create it** — S3 removed the 98 MiB of dense matrices that were
+standing in front of it. It is now the only superlinear allocation term on that
+path.
+
+What it costs in resident memory depends entirely on whether the buffers survive
+a scavenge, and the two paths measure that directly. Same fixture, same process,
+same run, delta taken the instant the call returns, top rung (1024 entities):
+
+| | dense reference | sparse (shipping) |
+| --- | ---: | ---: |
+| wall clock | 30 833 ms | **2 274 ms** |
+| RSS delta | 324.3 MiB | **25.1 MiB** |
+| dof / free points / loose carriers | 1022 / 1533 / 1023 | 1022 / 1533 / 1023 |
+
+With a ~1 MiB live set the same 210 MiB of churn costs 25 MiB of high-water,
+because the buffers die in new space. With 98 MiB live throughout, they are
+promoted instead. **The process is charged for the heap it grows to absorb an
+allocation rate, not for the data it keeps** — which is also, incidentally, a
+mechanism for §8.5's wandering footprint-to-RSS ratio.
+
+`solver.dart` is yours. §0 rule 6 says write it down, do not fix it, so this is
+written down and nothing is proposed. The obvious remedy is differencing into a
+reused buffer rather than returning a fresh list; whether that is worth a change
+is your call and the integrator's, not mine.
+
+### S10-1b — to the INTEGRATOR: §5.5.2 needs two corrections when the findings are folded in
+
+Neither changes S3's conclusion. Both are places where a later reader would
+build on something firmer than it is.
+
+1. **`stress.analyze.rssDeltaMB` is not the top rung's allocation.** `_ladder`
+   records it as RSS *after the whole ladder finished* minus RSS before it
+   started — retained heap across a 64 → 1024 climb. §5.5.2 reads it as the top
+   rung's live allocation. Defensible, but they are not the same quantity, and
+   the "agreement to 2.2 %" rests on identifying them.
+2. **The byte model counts pointers only.** `m × total × 8` is a *lower bound*
+   on a dense `List<List<double>>`, not an estimate of it, for the boxing reason
+   above. Visible in the measurements: at 256 entities the pointer array is
+   6.1 MiB and the measured delta is 13.2 MiB.
+
+Also a unit note, so nobody chases a phantom discrepancy: §5.5.2's 102.8 MB is
+decimal megabytes; the same byte count is 98.0 MiB.
+
+I have **not** edited `perf_scenarios_stress.dart` to fix (1). My exemption is to
+*add* scenarios; changing what `stress.analyze.rssDeltaMB` measures would
+retroactively change what every recorded value of it meant. It is a note in the
+profile, not a code change.
+
+### S10-1c — to S8: `device` is now reported, and it is your half of the footprint
+
+`PerfProbe.swift` publishes `internal`, `compressed`, `device` and `external`
+beside `phys_footprint` (all rev0 fields, no version gate needed). `device` is
+IOKit and device mappings — GPU and RealityKit surfaces — and it is **charged to
+the footprint while not appearing in RSS at all**.
+
+If §7's first-scene work moves the footprint, that is the field it moves, and
+neither `ProcessInfo.currentRss` nor anything else in the Dart-side report would
+have shown it. The soak fits a slope for it per run; a single probe pair either
+side of a scene push would show it too, and costs nothing.
+
+I did not read the `ledger_tag_graphics_nonvolatile` pair, which would attribute
+the GPU share exactly rather than by way of `device`. They are rev3 fields, I
+have no macOS SDK here, and reading a field the kernel did not fill returns
+stack garbage. If you have a Mac, the gate is a `count` check against
+`MemoryLayout.offset(of:)`.
+
+**And the same missing SDK is the one risk this session carries:** the Swift is
+written but never compiled. If a field name is wrong it fails at compile time
+— it cannot produce a wrong number, only a red iOS build — and the fix is a
+rename. **Build the iOS target before anything else if you pick this up.**
+
+### S10-1d — for everyone: the new tiers are opt-in and touch no existing name
+
+`soak` and `memory` in the bug description; two new bundle members
+(`perf_suite_soak.json`, `perf_suite_memory.json`) read by both `perf_report.py`
+and `perf_profile.py`. **No existing scenario, gauge, counter or span name
+changed**, `perf/baseline.json` is untouched, and `ci/perf_gate.py` has nothing
+new to compare. If you see `soak.*` or `mem.*` in a diff, it is additive.
+
+One caveat worth knowing before anyone quotes a soak number: the tier reports
+**slopes with the floor that qualifies them**. A slope below its floor is not
+"no leak" — it is "this run could not have seen one that small". Both numbers or
+neither.
+
+### S10-1e — for everyone quoting an `rssDeltaMB`: RSS can go DOWN during an allocation
+
+`ProcessInfo.currentRss` is what the kernel has given the process, not what the
+program is using. A Dart heap with spare capacity absorbs a large allocation
+without asking for a page, and a collector that compacts hands pages back
+mid-measurement. Two things I watched while building the comparison above:
+
+* the dense-versus-sparse test, run in a process whose heap was already 288 MB,
+  measured the **dense** algorithm at **minus 65 MB** — not noise around a small
+  number, a large negative;
+* a 100 MB allocation in a warm standalone VM moved `ProcessInfo.maxRss` by
+  1.3 MB and moved `currentRss` **down** by 10 MB.
+
+The fix for my case was a cold process — `flutter test` gives each FILE its own,
+so the comparison lives in a file of its own now. The general rule I would offer:
+**an `rssDeltaMB` around a single call is not an allocation figure.** Deltas
+around large, *held* allocations are a different case and are fine — which is
+where §8.5's 14 B/triangle and 2 KB/solid come from, and they stand.
+
+**Needs:** integrator — for S10-1b only, and only at fold-in time.

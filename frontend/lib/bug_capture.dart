@@ -28,6 +28,7 @@ import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart';
+import 'perf_scenarios_soak.dart';
 import 'perf_scenarios_stress.dart';
 import 'perf_scenarios_ui.dart';
 import 'reality_scene.dart';
@@ -292,6 +293,49 @@ Future<File?> captureBugReport(AppState app, String description) async {
             .convert(runStressSuite());
       } catch (e) {
         files['perf_suite_stress.json'] = 'stress suite failed: $e';
+      }
+    }
+
+    // The MEMORY family — opt-in, by typing `memory`. Short: it re-derives
+    // what a DOF analysis allocates now that S3 has made it sparse, and it
+    // leaves a known number of triangles in the heap for the native probe
+    // either side of it to be read against. Separate from the soak because
+    // the footprint question does not need half an hour; the leak question
+    // does.
+    if (description.toLowerCase().contains('memory')) {
+      try {
+        files['perf_suite_memory.json'] = const JsonEncoder.withIndent('  ')
+            .convert(runMemorySuite());
+      } catch (e) {
+        files['perf_suite_memory.json'] = 'memory suite failed: $e';
+      }
+    }
+
+    // CATALOGUE SCENARIO 18 — the soak. Opt-in, by typing `soak`, and it
+    // takes THIRTY MINUTES.
+    //
+    // It is the only instrument in the suite that can detect a leak, because
+    // a leak is a slope and every other tier takes one point. It samples the
+    // machine on a fixed cadence while repeating a fixed cycle of work, and
+    // reports the slope of the footprint, of RSS, of the jank rate and of the
+    // event loop's lateness, each beside the smallest slope that run could
+    // have resolved.
+    //
+    // `requestFrame` is what makes the jank half of that real: the app is
+    // idle behind this dialog and an idle Flutter app schedules no frames at
+    // all, so without a nudge per cycle the frame counters would sit still
+    // for half an hour and a jank trend fitted through them would be
+    // fabricated. The probe is the same one the pre/post pair uses.
+    if (description.toLowerCase().contains('soak')) {
+      Log.i('bug', 'soak requested — this takes half an hour');
+      try {
+        files['perf_suite_soak.json'] = const JsonEncoder.withIndent('  ')
+            .convert(await runSoakSuite(
+          probe: NativeMenu.perfProbe,
+          requestFrame: WidgetsBinding.instance.scheduleFrame,
+        ));
+      } catch (e) {
+        files['perf_suite_soak.json'] = 'soak suite failed: $e';
       }
     }
 

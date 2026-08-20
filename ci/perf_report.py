@@ -42,7 +42,8 @@ import zipfile
 # Members a bundle may carry. Missing ones are skipped, never fatal: a bundle
 # from an older build is still worth reading.
 SUITE_MEMBERS = ("perf_suite.json", "perf_suite_ui.json",
-                 "perf_suite_stress.json")
+                 "perf_suite_stress.json", "perf_suite_memory.json",
+                 "perf_suite_soak.json")
 SNAPSHOT_MEMBER = "perf_snapshot.json"
 
 # Counter suffixes that mean "this scenario did not measure its subject".
@@ -375,6 +376,195 @@ def section_stress(data: dict) -> list[str]:
     return out
 
 
+def soak_suite(data: dict) -> dict | None:
+    """The soak writes a series and a set of fits, not a list of scenarios, so
+    it is found by its own suite name rather than through `scenarios()`."""
+    for suite in data["suites"]:
+        if str(suite.get("suite", "")).startswith("perf_scenarios_soak/"):
+            return suite
+    return None
+
+
+def _trend_row(label: str, t: dict | None, unit: str, per: float) -> str:
+    """One fitted slope, with the smallest slope the run could have resolved.
+
+    A slope printed without its floor is unreadable in the only direction that
+    matters: "no leak" and "no sensitivity" look identical. So both are always
+    printed, and the verdict column says which of the two this is.
+    """
+    if not t or not t.get("n"):
+        return f"  {label:22s} {'—':>12s} {'—':>12s}   not sampled"
+    slope = t["slope"] * per
+    floor = t["halfWidth"] * per
+    if t.get("resolved"):
+        verdict = f"RESOLVED (R2 {t.get('r2', 0):.3f}, n={t['n']})"
+    elif floor > 0:
+        verdict = f"below its own floor (n={t['n']})"
+    else:
+        verdict = f"no interval — exact fit or n<3 (n={t['n']})"
+    return (f"  {label:22s} {slope:>12.2f} {floor:>12.2f} {unit:6s} {verdict}")
+
+
+def section_soak(data: dict) -> list[str]:
+    """Catalogue scenario 18: the half-hour session.
+
+    THE SLOPE IS THE RESULT. Every other section of this report prints costs;
+    this one prints rates, because the question it answers — does anything
+    leak — is not a question about any single value. A footprint of 1233 MB
+    means nothing; a footprint rising 40 MB per hour under fixed work, that
+    the settle phase does not give back, means the app cannot survive the
+    afternoon.
+    """
+    suite = soak_suite(data)
+    if not suite:
+        return ["  (no soak in this bundle — type `soak` in the bug "
+                "description to include it; it takes 30 minutes)"]
+    tr = suite.get("trends") or {}
+    did = suite.get("did") or {}
+    samples = suite.get("samples") or []
+    work = [s for s in samples if s.get("phase") == "work"]
+    rest = [s for s in samples if s.get("phase") == "settle"]
+
+    mins = suite.get("wallMs", 0) / 60000.0
+    out = [f"  ran {mins:.1f} min, {suite.get('cycles', 0)} cycles, "
+           f"{len(samples)} samples ({len(work)} work / {len(rest)} settle), "
+           f"{suite.get('cycleThrew', 0)} threw"]
+    out.append("  did: " + "  ".join(f"{k}={v}" for k, v in sorted(did.items())))
+    if not work:
+        out.append("  no work samples — the soak reached nothing")
+        return out
+
+    out.append("")
+    out.append(f"  {'trend':22s} {'per hour':>12s} {'floor/h':>12s} {'unit':6s} "
+               f"verdict")
+    for label, key, unit, per in (
+            ("phys_footprint", "footprintMBPerMin", "MB", 60.0),
+            ("  of which internal", "internalMBPerMin", "MB", 60.0),
+            ("  of which compressed", "compressedMBPerMin", "MB", 60.0),
+            ("  of which device", "deviceMBPerMin", "MB", 60.0),
+            ("resident (native)", "residentMBPerMin", "MB", 60.0),
+            ("resident (Dart RSS)", "dartRssMBPerMin", "MB", 60.0),
+            ("headroom to jetsam", "availableMBPerMin", "MB", 60.0),
+            ("jank rate", "jankPerKFramePerMin", "/1k fr", 60.0),
+            ("event-loop lateness", "lagP95MsPerMin", "ms", 60.0),
+            ("event log on disk", "logKBPerMin", "KB", 60.0),
+    ):
+        out.append(_trend_row(label, tr.get(key), unit, per))
+
+    # Thermal, at both ends and at its worst. A jank trend that rose while the
+    # iPad went from nominal to serious is a measurement of the weather.
+    th = [s.get("thermal") for s in samples if s.get("thermal", -1) >= 0]
+    if th:
+        out.append("")
+        out.append(f"  thermal {THERMAL_NAMES.get(th[0], th[0])} -> "
+                   f"{THERMAL_NAMES.get(th[-1], th[-1])}, "
+                   f"worst {THERMAL_NAMES.get(max(th), max(th))}")
+        if max(th) > th[0]:
+            out.append("  NOTE: the device heated up during the run. A rising "
+                       "jank or lateness trend above may be the silicon, not "
+                       "the code (PERFORMANCE_PROFILE 3.1).")
+
+    # The settle phase, which is what separates a leak from a heap reaching its
+    # working size.
+    fp = [s["footprintMB"] for s in work if s.get("footprintMB", -1) >= 0]
+    fps = [s["footprintMB"] for s in rest if s.get("footprintMB", -1) >= 0]
+    if fp and fps:
+        out.append(f"  settle: footprint peaked at {max(fp)} MB, "
+                   f"ended at {fps[-1]} MB "
+                   f"({max(fp) - fps[-1]:+d} MB returned)")
+    rs = [s["dartRssMB"] for s in work if s.get("dartRssMB", -1) >= 0]
+    rss = [s["dartRssMB"] for s in rest if s.get("dartRssMB", -1) >= 0]
+    if rs and rss:
+        out.append(f"          Dart RSS peaked at {max(rs)} MB, "
+                   f"ended at {rss[-1]} MB "
+                   f"({max(rs) - rss[-1]:+d} MB returned)")
+
+    # PERFORMANCE_PROFILE 8.5's open question, over a run rather than at four
+    # moments.
+    ratios = [s["footprintMB"] / s["residentMB"] for s in samples
+              if s.get("footprintMB", -1) > 0 and s.get("residentMB", -1) > 0]
+    if ratios:
+        out.append(f"  footprint / RSS: {min(ratios):.2f} .. {max(ratios):.2f} "
+                   f"over {len(ratios)} samples "
+                   f"(8.5 recorded 2.47 .. 4.00 over four)")
+    unexplained = [s for s in samples
+                   if s.get("footprintMB", -1) >= 0
+                   and s.get("internalMB", -1) >= 0]
+    if unexplained:
+        last = unexplained[-1]
+        parts = last["internalMB"] + last["compressedMB"] + last["deviceMB"]
+        out.append(f"  footprint decomposition at the end: "
+                   f"internal {last['internalMB']} + "
+                   f"compressed {last['compressedMB']} + "
+                   f"device {last['deviceMB']} = {parts} MB "
+                   f"against a reported {last['footprintMB']} MB")
+
+    out.append("")
+    out.append("  READ IT THIS WAY: a slope is a leak only if it exceeds its "
+               "own floor AND the")
+    out.append("  settle phase did not give it back. A slope below its floor "
+               "is not 'no leak' —")
+    out.append("  it is 'this run could not have seen one that small'.")
+    return out
+
+
+def section_memory(data: dict) -> list[str]:
+    """The memory family: what a DOF analysis actually allocates.
+
+    PERFORMANCE_PROFILE 5.5.2 costed the DENSE Jacobian and null-space basis
+    at 102.8 MB and matched a measured 105 MB. Round one replaced both with
+    sparse structures, so the figure is a property of code that no longer
+    ships and the table below is where its replacement comes from.
+    """
+    g = {}
+    for s in scenarios(data):
+        for k, v in (s.get("gauges") or {}).items():
+            if k.startswith("mem."):
+                g[k] = v
+    if not g:
+        return ["  (no memory family in this bundle — type `memory` in the "
+                "bug description to include it)"]
+    sizes = sorted({int(k.split(".")[2]) for k in g
+                    if k.startswith("mem.analyze.") and k.endswith(".params")})
+    out = []
+    if sizes:
+        out.append(f"  {'entities':>9s} {'params':>8s} {'resid':>8s} "
+                   f"{'rank':>8s} {'dof':>8s} {'rss d MB':>9s} "
+                   f"{'settled MB':>11s} {'churn MB':>9s}")
+        for n in sizes:
+            out.append(f"  {n:9d} {g.get(f'mem.analyze.{n}.params', 0):8d} "
+                       f"{g.get(f'mem.analyze.{n}.residuals', 0):8d} "
+                       f"{g.get(f'mem.analyze.{n}.rank', 0):8d} "
+                       f"{g.get(f'mem.analyze.{n}.dof', 0):8d} "
+                       f"{g.get(f'mem.analyze.{n}.rssDeltaMB', 0):9d} "
+                       f"{g.get(f'mem.analyze.{n}.settledDeltaMB', 0):11d} "
+                       f"{g.get(f'mem.analyze.{n}.churnMB', 0):9d}")
+        out.append("  churn MB is ARITHMETIC, not measurement: params x "
+                   "residuals x 24 B, the")
+        out.append("  residual vectors the finite-difference Jacobian "
+                   "allocates and drops. A growable")
+        out.append("  List<double> in the Dart VM is an array of pointers to "
+                   "BOXED doubles, so a")
+        out.append("  double costs 8 + 16 bytes there, not 8. It is the exact "
+                   "column.")
+        out.append("  The two RSS columns are NOT allocation figures: a warm "
+                   "heap absorbs the whole")
+        out.append("  analysis without asking the kernel for a page, and a "
+                   "collector that compacts")
+        out.append("  mid-call makes the delta negative. Both have been "
+                   "observed. The decisive")
+        out.append("  dense-vs-sparse comparison runs in a cold process, in "
+                   "s10_analyze_memory_test.")
+    if "mem.footprint.tris" in g:
+        out.append("")
+        out.append(f"  marker: {g.get('mem.footprint.solids', 0)} solids / "
+                   f"{g.get('mem.footprint.tris', 0)} triangles held, "
+                   f"{g.get('mem.footprint.heldRssDeltaMB', 0)} MB held, "
+                   f"{g.get('mem.footprint.releasedRssDeltaMB', 0)} MB still "
+                   f"held after release")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 5. what changed
 # ---------------------------------------------------------------------------
@@ -470,6 +660,13 @@ def main_for_test(bundle: str, baseline: str | None = None,
 
     banner("2. HOW FAR IT GOES — the stress ladders, if this bundle has them")
     print("\n".join(section_stress(data)))
+
+    banner("2b. DOES ANYTHING LEAK — catalogue scenario 18, if this bundle "
+           "has it")
+    print("\n".join(section_soak(data)))
+
+    banner("2c. WHAT ALLOCATES — the memory family, if this bundle has it")
+    print("\n".join(section_memory(data)))
 
     banner("3. COST CURVES — the exponent is what survives a change of chip")
     print("\n".join(section_curves(data)))

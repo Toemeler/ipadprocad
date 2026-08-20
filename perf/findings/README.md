@@ -12,6 +12,16 @@ once, at integration (plan §8).
 | `S4-painter.md` | Painter | `widgets/viewport.dart` |
 | `S5-partmodel.md` | Part model | `part_model.dart` |
 
+Round two (`OPTIMIZATION_PLAN_2.md` §2) adds five more:
+
+| File | Session | Owns |
+| --- | --- | --- |
+| `S6-shim2.md` | OCCT shim, round 2 | `backend/occt/shim/**`, `ffi/occt_engine.dart` |
+| `S7-profiler.md` | Sampling profiler | `tools/profiler/**` — no app code at all |
+| `S8-display.md` | Display path, Track B | `widgets/viewport3d.dart`, `reality_view/**` |
+| `S9-drift.md` | The drag drift | `solver.dart`, two functions in `app_state.dart` |
+| `S10-memory.md` | Memory, the soak | `perf_scenarios_stress.dart` + one new scenario file |
+
 `CROSS-SESSION.md` and `CONFLICTS.md` are **append-only**. Never edit an entry
 you did not write.
 

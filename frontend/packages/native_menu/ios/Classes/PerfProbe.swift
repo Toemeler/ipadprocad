@@ -23,6 +23,32 @@ import UIKit
 ///     that actually mattered was never captured. `os_proc_available_memory`
 ///     is the other half: how much headroom is left before jetsam.
 ///
+///     ...and, since S10, WHAT THE FOOTPRINT IS MADE OF. Reporting the total
+///     alone left the report able to say the ratio to RSS was 3.60, 2.52,
+///     4.00 and 2.47 at four moments and unable to say why any of them, which
+///     is PERFORMANCE_PROFILE 8.5's open question in one sentence. The same
+///     `task_vm_info` that carries `phys_footprint` carries its parts, so
+///     they are published beside it:
+///
+///       internal    dirty anonymous pages — the heap, in one word. Charged
+///                   to the footprint, and the only part the app allocates
+///                   directly.
+///       compressed  pages the memory compressor has taken out of residency.
+///                   STILL CHARGED, which is the single largest reason a
+///                   footprint can exceed RSS: this is memory the app is
+///                   paying for and cannot see in `currentRss`.
+///       device      IOKit/device mappings — GPU and RealityKit surfaces.
+///                   Charged to the footprint; not the app's heap.
+///       external    file-backed pages. Resident, NOT charged. This is the
+///                   other direction, and it is why RSS can exceed the
+///                   footprint's internal part: an 8 MB log file being
+///                   appended to is external, not footprint.
+///
+///     internal + compressed + device is the footprint to within the ledger
+///     adjustments this struct does not expose, so a soak that watches all
+///     four says which one is moving. A single total says only that
+///     something is.
+///
 ///  3. PER-THREAD CPU. Flutter splits work across the platform, UI, raster and
 ///     IO threads. "The app used 180% CPU" says nothing about which one to
 ///     fix; a per-thread breakdown says whether a stall is Dart, the
@@ -59,6 +85,20 @@ enum PerfProbe {
             out["footprintMB"] = m.footprint / (1024 * 1024)
             out["residentMB"] = m.resident / (1024 * 1024)
             out["peakResidentMB"] = m.peakResident / (1024 * 1024)
+            // The decomposition. Same units as the total beside them, so a
+            // reader can subtract without converting.
+            out["internalMB"] = m.internalBytes / (1024 * 1024)
+            out["compressedMB"] = m.compressed / (1024 * 1024)
+            out["deviceMB"] = m.device / (1024 * 1024)
+            out["externalMB"] = m.external / (1024 * 1024)
+            // internal + compressed + device against the footprint the kernel
+            // reports. A large residual means the ledger adjustments this
+            // struct does not expose are carrying real weight, and the
+            // decomposition above should not be read as complete.
+            let parts = Int64(m.internalBytes) + Int64(m.compressed) + Int64(m.device)
+            out["footprintUnexplainedMB"] =
+                (Int64(m.footprint) - parts) / (1024 * 1024)
+            out["vmInfoCount"] = Int(m.infoCount)
         }
         if #available(iOS 13.0, *) {
             // Headroom before jetsam. A part that opens with 40 MB left is one
@@ -96,10 +136,22 @@ enum PerfProbe {
         let footprint: UInt64
         let resident: UInt64
         let peakResident: UInt64
+        /// The parts. See the note at the top of this file — all four are
+        /// rev0 fields of `task_vm_info`, i.e. present in every revision that
+        /// carries `phys_footprint` at all, so no version gate is needed
+        /// beyond the KERN_SUCCESS the caller already requires.
+        let internalBytes: UInt64
+        let compressed: UInt64
+        let device: UInt64
+        let external: UInt64
+        /// What the kernel actually filled, in `natural_t` units. Published so
+        /// a reader can tell a struct revision apart from a zero.
+        let infoCount: UInt32
     }
 
     /// `task_vm_info` carries `phys_footprint` — the figure iOS enforces its
-    /// memory limit against, and the one RSS does not equal.
+    /// memory limit against, and the one RSS does not equal — and, beside it,
+    /// the parts that add up to it.
     private static func memoryFootprint() -> Mem? {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(
@@ -110,9 +162,16 @@ enum PerfProbe {
             }
         }
         guard kr == KERN_SUCCESS else { return nil }
+        // `internal` is a Swift keyword; backticks are how a declaration whose
+        // name collides with one is referred to. The others need no escape.
         return Mem(footprint: UInt64(info.phys_footprint),
                    resident: UInt64(info.resident_size),
-                   peakResident: UInt64(info.resident_size_peak))
+                   peakResident: UInt64(info.resident_size_peak),
+                   internalBytes: UInt64(info.`internal`),
+                   compressed: UInt64(info.compressed),
+                   device: UInt64(info.device),
+                   external: UInt64(info.external),
+                   infoCount: UInt32(count))
     }
 
     // MARK: - CPU
