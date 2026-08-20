@@ -36,16 +36,22 @@ capture is meant to adjudicate all of them at once.** If round two changes the
 same code before that capture is taken, the attribution is destroyed: a number
 that moved could belong to either round.
 
-So the capture point is **tagged**, and round two branches from the tag:
+So the capture point is pinned, and round two branches from the pin:
 
 ```
-git fetch origin --tags
-git tag --list 'perf-capture-round1'      # must exist before you start
+git fetch origin
+git ls-remote --heads origin perf-capture-round1     # must exist before you start
 ```
 
-If that tag does not exist yet, **the integrator has not taken the capture
-point**. Sessions 7, 8 and 9 may still start (§5 says why each is safe); **S6
-and S10 must not** — see §5 for the reason in each brief.
+**`perf-capture-round1` exists and points at `b2de0c2`** — the commit of IPA
+build 438, which is green on all four jobs. It is a **branch, not a tag**: this
+environment's proxy refuses tag pushes (`send-pack: unexpected disconnect`)
+while accepting branch pushes. Treat it as immovable regardless — nobody
+commits to it, and nothing about the sequencing changes.
+
+Sessions 7, 8 and 9 were always safe to start (§5 says why each). **S6 and S10
+are now unblocked** as far as this pin goes; S10 additionally waits on the
+baseline re-record.
 
 ### 1.2 One session may change behaviour. Four may not.
 
@@ -129,7 +135,7 @@ session that watches this branch and can reach the human.
 ## 3. Branches
 
 ```
-claude/perf-opt                     ← round one, tagged perf-capture-round1
+claude/perf-opt                     ← round one; pinned by branch perf-capture-round1
  └── claude/perf-opt2               ← INTEGRATION branch for round two
       ├── claude/perf-opt2-shim2       (S6)
       ├── claude/perf-opt2-profiler    (S7)
@@ -142,8 +148,8 @@ First session to start creates the integration branch from the **tag**, not the
 branch tip, so late round-one commits cannot slide in unmeasured:
 
 ```bash
-git fetch origin --tags
-git checkout -b claude/perf-opt2 perf-capture-round1
+git fetch origin
+git checkout -b claude/perf-opt2 origin/perf-capture-round1
 git push -u origin claude/perf-opt2
 ```
 
@@ -184,8 +190,9 @@ a conflict.
 
 ### Session 6 — The quadratic that survived
 
-**Wait for `perf-capture-round1`.** You are changing code round one changed;
-starting before the capture destroys its attribution.
+**`perf-capture-round1` now exists (`b2de0c2`), so you are unblocked** — branch
+from it, not from `claude/perf-opt`'s tip. You are changing code round one
+changed, and the pin is what keeps its attribution intact.
 
 **Read:** `perf/findings/S2-shim.md` in full — especially §7.1 and §7.2 —
 then `PERFORMANCE_PROFILE.md` §6.5, §10.1.
@@ -340,9 +347,10 @@ yours and not mine.
 
 ### Session 10 — Memory, and the session nobody has ever run
 
-**Wait for `perf-capture-round1` AND for the baseline re-record.** You are the
-one session permitted into the frozen apparatus, and that permission only
-exists once the baseline has been re-taken.
+**`perf-capture-round1` exists, but you must still wait for the baseline
+re-record.** You are the one session permitted into the frozen apparatus, and
+that permission only exists once the baseline has been re-taken from the new
+device capture.
 
 **Read:** `PERFORMANCE_PROFILE.md` §8.5, §9.3, §12.4, §3.5's closing section.
 
