@@ -9827,6 +9827,16 @@ Dieser Eintrag ist der Einstiegspunkt.
 > Force-Push, keine fremden Dateien, `perf/baseline.json` und
 > `PERFORMANCE_PROFILE.md` fasst niemand an.**
 
+> **RUNDE 1 IST GEMESSEN (20.08.2026).** Fuenf parallele Sessions haben
+> optimiert, ein gepaarter Geraetelauf auf Build `b2de0c2` hat jede
+> vorregistrierte Vorhersage entschieden. **Die Kubik der DOF-Analyse ist
+> weg** — k = 3.198 -> 2.285, Intervalle ohne Ueberlappung, 8837 ms -> 562 ms
+> bei 1024 Entities. **Die Kantenaufzaehlung ist 21x billiger und immer noch
+> quadratisch** (k = 1.930): der Konstantenfaktor faellt, der Exponent nicht —
+> vorhergesagt von Lane C, Tage bevor das Geraet lief. Details in
+> PERFORMANCE_PROFILE Abschnitt 17. Runde 2 (Sessions 6-10) steht in
+> `OPTIMIZATION_PLAN_2.md`.
+
 > **DER DATENSATZ IST VOLLSTAENDIG (18.08.2026).** Der gepaarte Geraetelauf
 > auf Build `230f179` liegt vor: **zwei Aufnahmen, eine Sitzung, Low Power
 > Mode als kontrollierte Variable** — und zum ersten Mal **alle drei
