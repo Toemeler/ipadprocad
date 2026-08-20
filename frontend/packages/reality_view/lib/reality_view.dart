@@ -20,6 +20,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'perf_hook.dart';
+
 const String _viewType = 'prototype/reality_view';
 const String _channelName = 'prototype/reality_view';
 
@@ -51,8 +53,55 @@ class RealityViewController {
   Future<void> setCamera(Map<String, dynamic> camera) =>
       _invoke('setCamera', camera);
 
+  /// The single funnel for every push to native — and therefore the one place
+  /// worth measuring.
+  ///
+  /// Timed with a Stopwatch across the await, not around the call, because the
+  /// method is async: measuring only the synchronous part would time how long
+  /// it took to CREATE the future and report that a scene upload of several
+  /// megabytes was free. What this captures is the full round trip — encoding
+  /// the payload with the standard message codec, the platform hop, and the
+  /// native handler — which is the number that matters when a push lands on
+  /// the frame path.
+  ///
+  /// The counter is the other half. `setCamera` is documented as per-frame and
+  /// `setOverlays` as safe on every pointer move, so their COUNT is expected
+  /// to be large; `setScene` is gated behind a mesh signature and its count
+  /// should stay small. A setScene count that tracks the frame count means the
+  /// gate has stopped working — exactly the class of bug M204 was (a resize
+  /// per frame instead of one per state change), and it is invisible in any
+  /// duration.
+  /// Pulls the NATIVE timing table and forgets it on the native side.
+  ///
+  /// `rv.setScene` above measures how long the channel call takes to RETURN,
+  /// which on an asynchronous channel is not how long RealityKit took to apply
+  /// the payload — a Dart reading of 0.4 ms can sit in front of thirty
+  /// milliseconds of mesh upload. Everything past that boundary was
+  /// unmeasurable from Dart by construction; this is the seam that closes it.
+  ///
+  /// PULL, not push: a callback per measurement would put a channel round trip
+  /// inside the very thing being measured. Draining resets the native table,
+  /// so two consecutive drains describe two disjoint intervals rather than
+  /// overlapping totals.
+  ///
+  /// Keys are `rv.native.*` with `{n, totalMs, worstMs}` — the same shape as a
+  /// Dart span, so a reader does not have to learn a second format.
+  Future<Map<String, dynamic>> drainNativePerf() async {
+    if (_disposed) return const {};
+    try {
+      final r = await _channel.invokeMapMethod<String, dynamic>('perfDrain');
+      return r ?? const {};
+    } on MissingPluginException {
+      return const {}; // host test / non-iOS
+    } catch (_) {
+      return const {}; // a diagnostic must never take down a frame
+    }
+  }
+
   Future<void> _invoke(String method, Map<String, dynamic> args) async {
     if (_disposed) return;
+    rvCount('rv.$method.calls', 1);
+    final sw = Stopwatch()..start();
     try {
       await _channel.invokeMethod<void>(method, args);
     } on MissingPluginException {
@@ -60,6 +109,9 @@ class RealityViewController {
     } catch (e) {
       // Never let a rendering push crash the app; the CPU fallback still runs.
       if (kDebugMode) debugPrint('RealityView.$method failed: $e');
+    } finally {
+      sw.stop();
+      rvRecord('rv.$method', sw.elapsedMicroseconds / 1000.0);
     }
   }
 

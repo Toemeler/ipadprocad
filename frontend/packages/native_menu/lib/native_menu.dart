@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
 
 export 'glass_browser.dart';
+export 'perf_hook.dart';
 export 'glass_tabbar.dart';
 export 'glass_toolbar.dart';
 export 'native_touches.dart';
@@ -281,6 +282,29 @@ class NativeMenu {
           'anchor': NativeMenuTarget._rect(anchor),
         }) ??
         false;
+  }
+
+  /// M214 — thermal state, physical footprint, memory headroom and per-thread
+  /// CPU, straight from the OS. Empty map when the host cannot answer.
+  ///
+  /// These are the facts that decide whether an M4 measurement says anything
+  /// about an M2 or an A-series chip, and every one of them is invisible from
+  /// Dart. Above all THERMAL STATE: a fanless iPad throttles under a sustained
+  /// benchmark, and a report that does not say the device was in `.serious`
+  /// invites the conclusion that the code got slower when the silicon got
+  /// hotter. See PerfProbe.swift for what each key means and why it is here.
+  ///
+  /// Returns raw values rather than recording them, so the caller decides
+  /// whether this is a scenario sample, a bundle snapshot or a live gauge.
+  static Future<Map<String, Object?>> perfProbe() async {
+    try {
+      final r = await _ch.invokeMapMethod<String, Object?>('perfProbe');
+      return r ?? const {};
+    } on PlatformException {
+      return const {};
+    } on MissingPluginException {
+      return const {}; // host without the plugin — a probe is never critical
+    }
   }
 
   static Future<T?> _invoke<T>(String method, Map<String, Object?> args) async {

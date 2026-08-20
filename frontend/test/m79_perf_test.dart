@@ -46,6 +46,57 @@ void main() {
       expect(s.p95Ms, greaterThan(9800),
           reason: 'p95 reflects the RECENT window, not all history');
     });
+
+    // M209 — the window is a RING now. It used to be a List with removeAt(0)
+    // per sample past the 128th, i.e. an O(n) memmove inside the measuring
+    // code, on the per-frame paint path.
+    test('the ring keeps exactly the last 128 samples, in order', () {
+      final s = PerfStat();
+      // 128 zeros, then 128 ascending values that fully lap the ring.
+      for (var i = 0; i < 128; i++) {
+        s.add(0);
+      }
+      for (var i = 1; i <= 128; i++) {
+        s.add(i.toDouble());
+      }
+      expect(s.p50Ms, closeTo(64, 1),
+          reason: 'the zeros must have been overwritten, not appended');
+      expect(s.p95Ms, closeTo(122, 2));
+    });
+
+    test('p50 and p95 separate "uniformly slow" from "fine with a tail"', () {
+      final flat = PerfStat();
+      for (var i = 0; i < 100; i++) {
+        flat.add(20);
+      }
+      final spiky = PerfStat();
+      for (var i = 0; i < 90; i++) {
+        spiky.add(1);
+      }
+      for (var i = 0; i < 10; i++) {
+        spiky.add(400);
+      }
+      expect(flat.p50Ms, 20);
+      expect(flat.p95Ms, 20, reason: 'uniformly slow: p50 == p95');
+      expect(spiky.p50Ms, 1);
+      expect(spiky.p95Ms, greaterThan(100),
+          reason: 'usually fine with a tail: p50 << p95');
+    });
+
+    test('adding samples stays cheap once the ring is full', () {
+      final s = PerfStat();
+      for (var i = 0; i < 128; i++) {
+        s.add(1);
+      }
+      final sw = Stopwatch()..start();
+      for (var i = 0; i < 200000; i++) {
+        s.add(1);
+      }
+      sw.stop();
+      // The old removeAt(0) made this O(n) per call. Sub-microsecond per add
+      // is the property; the exact number is CI-hardware dependent.
+      expect(sw.elapsedMicroseconds / 200000, lessThan(1.0));
+    });
   });
 
   group('spans', () {
@@ -79,8 +130,141 @@ void main() {
       Perf.count('unit.hits');
       Perf.count('unit.hits');
       Perf.gauge('unit.tris', 34236);
-      expect(Perf.stats['unit.hits']!.count, 2);
+      expect(Perf.counters['unit.hits'], 2);
       expect(Perf.gauges['unit.tris'], 34236);
+    });
+
+    // M209 — a counter used to be stored as a 0 ms sample in the SAME table as
+    // durations. Two things went wrong with that, and both are pinned here:
+    // the counter's own row claimed avg 0 ms as if the work were free, and a
+    // name used for both a duration and a count had its average dragged toward
+    // zero by every count.
+    test('a count never lands in the duration table', () {
+      Perf.count('unit.pure');
+      expect(Perf.stats['unit.pure'], isNull,
+          reason: 'a count is not a fast measurement, it is no measurement');
+    });
+
+    test('a count cannot dilute a duration recorded under the same name', () {
+      Perf.record('unit.both', 10);
+      Perf.count('unit.both');
+      Perf.count('unit.both');
+      expect(Perf.stats['unit.both']!.count, 1);
+      expect(Perf.stats['unit.both']!.avgMs, 10);
+      expect(Perf.counters['unit.both'], 2);
+    });
+
+    test('count takes a bulk increment', () {
+      Perf.count('unit.bulk', 440);
+      Perf.count('unit.bulk', 60);
+      expect(Perf.counters['unit.bulk'], 500);
+    });
+
+    test('cache() records hit and miss under one name', () {
+      Perf.cache('unit.cache', true);
+      Perf.cache('unit.cache', true);
+      Perf.cache('unit.cache', false);
+      expect(Perf.counters['unit.cache.hit'], 2);
+      expect(Perf.counters['unit.cache.miss'], 1);
+    });
+  });
+
+  group('phases', () {
+    test('each mark records the time since the previous one', () {
+      final ph = PerfPhases('unit.ph');
+      ph
+        ..begin()
+        ..mark('a')
+        ..mark('b')
+        ..end();
+      expect(Perf.stats['unit.ph.a']!.count, 1);
+      expect(Perf.stats['unit.ph.b']!.count, 1);
+      expect(Perf.stats['unit.ph.z']!.count, 1,
+          reason: 'end() closes the tail, so a missing phase shows up');
+    });
+
+    test('a mark outside begin/end is ignored rather than corrupting', () {
+      final ph = PerfPhases('unit.stray');
+      ph.mark('nope');
+      expect(Perf.stats['unit.stray.nope'], isNull);
+    });
+
+    test('phases are reusable across runs and accumulate', () {
+      final ph = PerfPhases('unit.reuse');
+      for (var i = 0; i < 3; i++) {
+        ph
+          ..begin()
+          ..mark('a')
+          ..end();
+      }
+      expect(Perf.stats['unit.reuse.a']!.count, 3);
+    });
+
+    test('a phase mark allocates nothing per call', () {
+      // The reason PerfPhases exists at all: the 2D painter runs up to 120
+      // times a second with 18 phases, and Perf.span would cost one closure
+      // allocation each. This does not prove zero allocation directly — Dart
+      // gives no such hook — but it pins the cost at the same order as a span,
+      // which is the property that matters.
+      final ph = PerfPhases('unit.cost');
+      final sw = Stopwatch()..start();
+      for (var i = 0; i < 20000; i++) {
+        ph
+          ..begin()
+          ..mark('x');
+      }
+      sw.stop();
+      expect(sw.elapsedMicroseconds / 20000, lessThan(20));
+    });
+  });
+
+  // M210 — the bug that made every number in this file worthless on the
+  // device from M79 until now.
+  //
+  // `Perf.init()` is the second statement of main(), before any binding
+  // exists, because the log file has to be open before anything can be
+  // measured. It also called `SchedulerBinding.instance` there, which is a
+  // null check on a binding that does not exist yet, so it threw. The catch
+  // set `_broken`, and a broken Perf makes EVERY span, record, count and gauge
+  // a silent no-op — while the only evidence was one line in the other log
+  // file. The registration now lives in `attachToBinding`, called after
+  // `ensureInitialized`, and its failure is not allowed to break the rest.
+  group('binding attachment (M210)', () {
+    test('attachToBinding is idempotent', () {
+      Perf.attachToBinding();
+      Perf.attachToBinding();
+      // No throw, and recording still works afterwards.
+      Perf.record('unit.afterAttach', 5);
+      expect(Perf.stats['unit.afterAttach']!.count, 1);
+    });
+
+    test('spans record whether or not frame timings are attached', () {
+      // The property that matters: losing frame.* must not cost the subsystem
+      // breakdown. That was the whole failure — one missing binding took the
+      // entire instrument down with it.
+      Perf.span('unit.noBinding', () => 1);
+      Perf.count('unit.noBindingCount');
+      Perf.gauge('unit.noBindingGauge', 3);
+      expect(Perf.stats['unit.noBinding']!.count, 1);
+      expect(Perf.counters['unit.noBindingCount'], 1);
+      expect(Perf.gauges['unit.noBindingGauge'], 3);
+    });
+  });
+
+  group('json snapshot', () {
+    test('carries spans, counters and gauges under stable keys', () {
+      Perf.record('unit.j', 3);
+      Perf.count('unit.k');
+      Perf.gauge('unit.g', 7);
+      final j = Perf.jsonSnapshot();
+      expect((j['spans'] as Map)['unit.j'], isA<Map>());
+      expect(((j['spans'] as Map)['unit.j'] as Map)['p95Ms'], 3);
+      expect((j['counters'] as Map)['unit.k'], 1);
+      expect((j['gauges'] as Map)['unit.g'], 7);
+      // The regression gate diffs these keys, so a rename is a breaking
+      // change and should fail here first.
+      expect(j.keys,
+          containsAll(['at', 'build', 'wallMs', 'frames', 'memory', 'spans']));
     });
   });
 

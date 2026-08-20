@@ -96,6 +96,13 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         case "isSupported":
             result(true)
 
+        // M214 — the numbers Dart cannot see: thermal state, physical
+        // footprint (which is what iOS kills on, not RSS), memory headroom and
+        // per-thread CPU. Pull-only, so a scenario runner and the bug bundle
+        // can each take a snapshot whenever they need one. See PerfProbe.
+        case "perfProbe":
+            result(PerfProbe.snapshot())
+
         case "setTargets":
             let raw = args["targets"] as? [[String: Any]] ?? []
             targets = raw.compactMap { NativeMenuPlugin.parseTarget($0) }

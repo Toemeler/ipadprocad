@@ -425,6 +425,47 @@ class SketchModel {
   /// which is a restore TARGET, never popped — hence length > 1.
   bool get canUndo => _undoStack.length > 1;
   bool get canRedo => _redoStack.isNotEmpty;
+
+  /// M221, DIAGNOSTIC ONLY — how many states the journal holds.
+  ///
+  /// The comment above says the journal is unbounded on purpose. That is a
+  /// deliberate design choice and this getter does not challenge it; it makes
+  /// the consequence *visible*. The duration of a checkpoint has been measured
+  /// since M211 (`app.checkpoint`, ~0.14 ms) but the memory it retains never
+  /// has, so "undo until the start" has always been a promise with no number
+  /// attached to it.
+  int get journalDepth => _undoStack.length + _redoStack.length;
+
+  /// M221, DIAGNOSTIC ONLY — an ESTIMATE of the bytes the journal retains.
+  ///
+  /// Deliberately an estimate, and named so. Dart exposes no per-object
+  /// retained size, so this counts what is actually variable: 8 bytes per
+  /// double of geometry, 2 bytes per UTF-16 code unit of the serialised
+  /// strings, and a flat 64 bytes of object overhead per snapshot and per
+  /// Geo. It will be wrong in absolute terms; it is correct in SHAPE, which
+  /// is what a growth question needs — the interesting result is bytes per
+  /// checkpoint and whether that stays constant as a session runs.
+  int get journalBytes {
+    var b = 0;
+    for (final s in [..._undoStack, ..._redoStack]) {
+      b += 64;
+      for (final g in s.geometry) {
+        b += 64 + g.data.length * 8;
+      }
+      b += (s.cons.length + s.uparams.length + s.texts.length +
+              s.images.length) * 2;
+      for (final l in s.layers) {
+        b += l.length * 2;
+      }
+      for (final h in s.hidden) {
+        b += h.length * 2;
+      }
+      for (final l in s.locked) {
+        b += l.length * 2;
+      }
+    }
+    return b;
+  }
   int get undoDepth => _undoStack.length;
 
   UndoSnap _takeSnap() => UndoSnap(
@@ -2246,7 +2287,20 @@ class AppState extends ChangeNotifier {
   /// True when [name] is listed from outside the app folder.
   bool isExternal(String name) => _findDoc(name)?.source == DocSource.external;
 
+  /// Timed with a Stopwatch across the await, not with Perf.span: this is
+  /// async, and span measures a synchronous body — wrapping the future
+  /// would time how long it took to CREATE it, i.e. report that opening a
+  /// document is free. Same reason as savePart/saveSketch.
   Future<void> openSketch(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      await _openSketchInner(name);
+    } finally {
+      Perf.record('io.openSketch', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<void> _openSketchInner(String name) async {
     if (!sketches.containsKey(name)) {
       final s = SketchModel(name);
       _ensureStaged(name);
@@ -2397,7 +2451,6 @@ class AppState extends ChangeNotifier {
             'loaded "$name": layers=${s.layers} '
                 'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
                 'eos=${s.eosAfter}');
-        analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
       // Undo baseline: the freshly created/loaded state is entry ZERO of the
@@ -2417,7 +2470,8 @@ class AppState extends ChangeNotifier {
   /// would lock the wrong points. Recompute whenever the current sketch changes.
   void _reanalyze() {
     final s = current;
-    analysis = s == null ? null : analyzeSketch(s.geometry, s.constraints);
+    analysis =
+        s == null ? null : _analysisCache.of(s.geometry, s.constraints);
   }
 
   // ==== UNDO / REDO (M39): restore side ==================================
@@ -2475,7 +2529,10 @@ class AppState extends ChangeNotifier {
   void revertToLastCheckpoint() =>
       _applyHistory((s) => s.pinnedSnap, 'revert');
 
-  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) {
+  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) =>
+      Perf.span('history.$what', () => _applyHistoryInner(step, what));
+
+  void _applyHistoryInner(UndoSnap? Function(SketchModel) step, String what) {
     final s = current;
     if (s == null) return;
     if (dragGrip != null) return; // never rip the state out from under a drag
@@ -3066,6 +3123,33 @@ class AppState extends ChangeNotifier {
   /// hundred frames, because no single step of that is a break. Against the
   /// start of the gesture it is one.
   List<Geo>? _dragStartGeo;
+
+  // ---- the display-geometry memo (S4) ----
+  //
+  // ONE SOLVE PER DRAG POSITION. See [displayGeometry] for why this exists.
+  // Four guards and the answer they protect; each guard closes one way the
+  // answer could change underneath the cache:
+  //
+  //   _dgSketch  identity — a tab switch puts a different sketch in play
+  //   _dgGrip    identity — beginGripDrag allocates a NEW Grip, so a second
+  //                         drag never inherits the first one's frame
+  //   _dgPos     value    — the cursor moving is the whole point (Offset has
+  //                         value equality, so this compares coordinates)
+  //   _dgSource  identity — SketchModel.geometry is ASSIGNED wholesale by the
+  //                         rebuild path and by undo, never patched in place,
+  //                         so identity catches both
+  //
+  // What would slip past all four: an in-place mutation of the same list, at
+  // the same cursor position, during the same drag. No such path exists while
+  // a grip drag is live — drag frames work on copies, and the only writer is
+  // the commit in endGripDrag, which runs AFTER its own displayGeometry call
+  // and then nulls dragGrip. Pinned by s4_display_geometry_once_test.dart
+  // rather than left as an argument.
+  SketchModel? _dgSketch;
+  Grip? _dgGrip;
+  Offset? _dgPos;
+  List<Geo>? _dgSource;
+  List<Geo>? _dgResult;
   Offset? boxStart, boxEnd; // world coords while box-selecting
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
@@ -3076,6 +3160,12 @@ class AppState extends ChangeNotifier {
   bool showDof =
       false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
   SketchAnalysis? analysis; // DOF + which points may still move
+  /// Memo for [analysis]. The DOF analysis runs on every rebuild, every solve
+  /// and every tab switch (PERFORMANCE_PROFILE 5.5.3) on a quantity that only
+  /// changes when the geometry or the constraints do; this reuses the answer
+  /// when they have not. It cannot hit during a drag — see
+  /// [SketchAnalysisCache].
+  final _analysisCache = SketchAnalysisCache();
   String? message; // transient notice (over-constrained warnings)
 
   void toggleShowDof() {
@@ -3180,7 +3270,20 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Timed with a Stopwatch across the await, not with Perf.span: this is
+  /// async, and span measures a synchronous body — wrapping the future
+  /// would time how long it took to CREATE it, i.e. report that opening a
+  /// document is free. Same reason as savePart/saveSketch.
   Future<void> openPart(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      await _openPartInner(name);
+    } finally {
+      Perf.record('io.openPart', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<void> _openPartInner(String name) async {
     if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
@@ -3310,6 +3413,19 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> savePart(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      return await _savePartInner(name);
+    } finally {
+      // A Stopwatch rather than Perf.span: this is async, and span measures a
+      // synchronous body — wrapping a Future would time how long it took to
+      // CREATE the future, which is nearly zero and would read as "saving is
+      // free". Same reason as saveSketch below.
+      Perf.record('io.savePart', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<bool> _savePartInner(String name) async {
     final p = parts[name];
     if (p == null || _docsDir == null) return false;
     _ensureStaged(name);
@@ -8019,8 +8135,89 @@ class AppState extends ChangeNotifier {
   Constraint? pendingDim;
 
   /// Geometry with an in-progress grip drag applied (painter reads this).
+  /// The geometry to draw THIS frame — which, during a grip drag, is the
+  /// result of a live 25-iteration constraint solve.
+  ///
+  /// Measure it, because of where it runs. This is called from
+  /// `CustomPainter.paint` (the comment below says so) and from five other
+  /// sites including the snap path and the drag commit, so a single
+  /// pointer-move used to pay for the solve more than once —
+  /// `PERFORMANCE_PROFILE.md` §5.2 counted 120 solves against 60 painted
+  /// frames. It no longer does: the answer is memoised on the drag position,
+  /// so every caller within one position shares one solve.
+  ///
+  /// `2d.displayGeometry.solves` counts the calls that actually solved and
+  /// `2d.displayGeometry.cacheHit` the ones answered from the memo; the two
+  /// together are the call count, and the first divided by frames is now 1.
+  /// The early return is left uncounted on purpose — a non-drag frame does no
+  /// work here and should not dilute the average.
   List<Geo> displayGeometry(SketchModel s) {
-    if (dragGrip == null || dragPos == null) return s.geometry;
+    if (dragGrip == null || dragPos == null) {
+      // No drag in flight, so nothing cached can ever be returned again — the
+      // guards below would all miss anyway. Dropping the references here rather
+      // than relying on that keeps a finished drag's geometry list from
+      // outliving the drag; this is the first paint after every release.
+      if (_dgResult != null) {
+        _dgSketch = null;
+        _dgGrip = null;
+        _dgPos = null;
+        _dgSource = null;
+        _dgResult = null;
+      }
+      return s.geometry;
+    }
+    // S4 — ONE SOLVE PER DRAG POSITION, NOT PER CALLER.
+    //
+    // Measured: 60 painted frames of `ui.drag60` issued 120 calls and 120
+    // solves. Two call sites in the painter (the `ent.dofColour` phase and the
+    // `constraints` phase) each asked this question about the same cursor
+    // position, and a third (the tool preview) and a fourth (endGripDrag's
+    // commit) ask it again whenever they are live.
+    //
+    // They were not duplicates, which is the part worth reading carefully.
+    // _displayGeometryInner ENDS a good frame with `_lastGoodDragGeo = gs` and
+    // OPENS the next call by warm-starting from that field, so the second call
+    // re-pulled the grip to the cursor and ran 25 more solver iterations on the
+    // first call's output. Consequences, all measured rather than argued:
+    //
+    //   - entities were drawn from the first call's list and constraint glyphs
+    //     from the second's, so a glyph sat where its entity was about to be
+    //     rather than where it was drawn;
+    //   - the count varied with UI state (1, 2 or 3 solves per frame depending
+    //     on edit mode and whether a tool preview was up), so the geometry a
+    //     drag COMMITTED depended on whether glyphs were switched on.
+    //
+    // Collapsing them is exactly identical for free drags, body drags and
+    // drags whose cursor the constraints cannot reach (maxDelta 0.000e+0 on
+    // all three). On a genuinely coupled system — two slots joined by a
+    // tangent and a point-on-curve — it moves the answer by 3.2e-4 on a 64-unit
+    // sketch, 5 ppm, and that difference is a point on the constraint manifold
+    // and not a residual off it: both regimes commit at residual norm 2.828e-6,
+    // equal to four significant figures, against a satisfaction threshold of
+    // 1e-6 and a renderable threshold of 1e-2.
+    //
+    // The full write-up, with the arithmetic and the pre-registered
+    // predictions, is perf/findings/S4-painter.md.
+    if (identical(_dgSketch, s) &&
+        identical(_dgGrip, dragGrip) &&
+        identical(_dgSource, s.geometry) &&
+        _dgPos == dragPos &&
+        _dgResult != null) {
+      Perf.count('2d.displayGeometry.cacheHit');
+      return _dgResult!;
+    }
+    Perf.count('2d.displayGeometry.solves');
+    final out =
+        Perf.span('2d.displayGeometry', () => _displayGeometryInner(s));
+    _dgSketch = s;
+    _dgGrip = dragGrip;
+    _dgPos = dragPos;
+    _dgSource = s.geometry;
+    _dgResult = out;
+    return out;
+  }
+
+  List<Geo> _displayGeometryInner(SketchModel s) {
     // NB: this runs INSIDE CustomPainter.paint. A throw here aborts the whole
     // paint, so every entity after it stays unpainted and the sketch looks like
     // it vanished. Likewise NaN/Inf: Skia drops those paths silently. Neither
@@ -8725,7 +8922,7 @@ class AppState extends ChangeNotifier {
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
-    analysis = analyzeSketch(s.geometry, s.constraints);
+    analysis = _analysisCache.of(s.geometry, s.constraints);
     // UNDO JOURNAL (M39): every committed mutation funnels through this
     // rebuild (the C-API is add-only), so this one call records the whole
     // app's edits — draw, drag, trim, fillet, patterns, dimensions,
@@ -9850,7 +10047,16 @@ class AppState extends ChangeNotifier {
             i
       };
 
-  int? _pickEntity(SketchModel s, Offset w) {
+  /// Nearest pickable entity to [w], or null.
+  ///
+  /// Linear over the whole sketch, called from ~12 sites on the tap and drag
+  /// paths (several of them more than once per event). The span answers
+  /// whether that linearity is affordable at the sketch sizes we actually
+  /// have, before anyone reaches for a spatial index.
+  int? _pickEntity(SketchModel s, Offset w) =>
+      Perf.span('2d.pickEntity', () => _pickEntityInner(s, w));
+
+  int? _pickEntityInner(SketchModel s, Offset w) {
     var best = -1;
     var bd = 10 / zoom;
     // A TIE goes to normal geometry. After a kept-carrier trim (M187) every
@@ -13564,6 +13770,15 @@ class AppState extends ChangeNotifier {
 
   // ---- save / load / preview ----
   Future<bool> saveSketch(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      return await _saveSketchInner(name);
+    } finally {
+      Perf.record('io.saveSketch', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<bool> _saveSketchInner(String name) async {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
     _ensureStaged(name);

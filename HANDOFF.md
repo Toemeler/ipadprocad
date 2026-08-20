@@ -9805,3 +9805,446 @@ analyze 0 errors, **573 gruen**.
   `forSketch(...)`. Das ist ungefaehrlich (kein Ueberschreiben der
   Ebenenausrichtung), aber die Eingabe erreicht die 3D-Ebene ohnehin nicht,
   weil das 2D-Overlay darueber liegt.
+
+---
+
+## M210–M219 — Die Performance-Messinfrastruktur (NUR Analyse, nichts optimiert)
+
+**Branch:** `claude/perf-deep-analysis` · **Stand:** M224, auf main (M231)
+zusammengefuehrt · analyze 0 Fehler, **2050 Dart-Tests**, **45 Python-Tests**
+**Volle Details:** `PERFORMANCE_PROFILE.md` — was jeder Teil der App kostet,
+mit Methode, Konfidenzintervallen und dem vollstaendigen Datenanhang.
+`PERF_ANALYSIS.md` (Abschnitte 8–15) ist die chronologische Herleitung.
+Der urspruengliche Messplan `PERF_PLAN.md` ist zurueckgezogen — die Messungen
+haben ihn ueberholt; was von ihm noch gilt, steht in PERFORMANCE_PROFILE 15.5.
+Dieser Eintrag ist der Einstiegspunkt.
+
+> **WENN DU HIER BIST, UM ZU OPTIMIEREN: LIES ZUERST `OPTIMIZATION_PLAN.md`.**
+> Die Messphase ist abgeschlossen. Die Arbeit ist auf **fuenf parallele
+> Sessions** aufgeteilt, mit **verbindlicher Dateizustaendigkeit**. Dort steht,
+> welche Befunde dir gehoeren, welche Dateien du anfassen darfst — und vor
+> allem, wie du die Arbeit der anderen vier nicht zerstoerst. **Kein
+> Force-Push, keine fremden Dateien, `perf/baseline.json` und
+> `PERFORMANCE_PROFILE.md` fasst niemand an.**
+
+> **DER DATENSATZ IST VOLLSTAENDIG (18.08.2026).** Der gepaarte Geraetelauf
+> auf Build `230f179` liegt vor: **zwei Aufnahmen, eine Sitzung, Low Power
+> Mode als kontrollierte Variable** — und zum ersten Mal **alle drei
+> Suite-Stufen inklusive Stress** auf echter Hardware. Es gibt keine offene
+> Messluecke mehr, die vor dem Optimieren geschlossen werden muesste.
+> Einstieg: `PERFORMANCE_PROFILE.md` Abschnitt 4 (Rangliste) und 15 (was
+> beantwortet ist, was offen bleibt).
+
+### Die stehende Regel
+
+Der Auftrag war ausdruecklich: *„Don't optimize anything, only analyse."*
+Daran wurde sich gehalten — **am Verhalten der App ist nichts geaendert**.
+Alles unten ist Messtechnik. Die Reparaturen sind noch zu machen und stehen
+unter „Rangliste".
+
+### Was gebaut wurde
+
+**Die Selbstfahr-Suite** — die App misst sich selbst mit festen Eingaben, ohne
+dass jemand tippt. Ausgeloest vom Bug-Button, ein JSON pro Lauf:
+
+| Datei | Inhalt |
+| --- | --- |
+| `perf_scenarios.dart` | Kern: Solver, DOF-Analyse, Zahnraeder, Fixtures (`sketchFixture`, `constraintFixture`), Runner |
+| `perf_scenarios_tools.dart` | JEDES Zeichenwerkzeug (generisch aus `toolMeta`), Modify, 2D-Fillet, Constraint-Inferenz, alle 12 Constraint-Typen, Freihand |
+| `perf_scenarios_kernel.dart` | Jede OCCT-Operation, gegen die richtige Achse gesweept |
+| `perf_scenarios_ui.dart` | Malen (phasenweise), Zug, Snap — durch den ECHTEN Painter |
+| `perf_scenarios_app.dart` | Muster, Projektion, Szenen-Payload, Undo, 3D-Picken, Feature-Rebuild |
+| `perf_scenarios_ramp.dart` | **Rampen**: feine Schritte statt drei Punkte, mit LOKALEM Exponent pro Schritt |
+| `perf_scenarios_quality.dart` | Rauschgrenze, Speicher pro Entity/Solid, Frame-Budget-Grenzen, Cache-Wirksamkeit |
+| `perf_scenarios_stress.dart` | **Opt-in** (`stress` in die Beschreibung tippen): Leitern bis zur Wand |
+
+**Native Sonden** — was Dart nicht sehen kann:
+
+* `packages/native_menu/ios/Classes/PerfProbe.swift` — Thermalzustand,
+  `phys_footprint` (iOS killt darauf, nicht auf RSS), Restspeicher,
+  CPU pro Thread. Gezogen vor UND nach der Suite.
+* `packages/reality_view/ios/Classes/RvPerf.swift` — die Zeit JENSEITS der
+  Platform-View-Grenze, phasenweise. Dart ZIEHT die Tabelle (`perfDrain`).
+
+**Auswertung** — `ci/perf_report.py <bundle.zip>`:
+1. Ist der Lauf vertrauenswuerdig (Thermik, Energiesparmodus, tote Sonden)
+2. Wie weit geht es (Stress-Leitern)
+3. Kostenkurven mit gefittetem n^k
+4. Wo die Zeit hinging — Suite und echte Sitzung getrennt
+5. `--baseline <alt.zip>` fuer den Diff
+
+**Neu instrumentiert** (vorher unsichtbar): `sketch.analyze`, `2d.snap`,
+`part.rebuildAll`, `part.rebuild.passes`, `kernel.feature.<kind>`,
+`solve.slvs`, `solve.lm`, `solve.path.*`, `solve.slvs.rejected.*`.
+
+### Rangliste der Befunde — das ist die To-do-Liste
+
+> **Aktualisiert nach dem gepaarten Geraetelauf vom 18.08.2026 (M223).** Die
+> Reihenfolge hat sich geaendert: **`analyzeSketch` steht jetzt vor
+> `allEdges`**, weil es kubisch ist (k = 3.198) und bei jedem Rebuild laeuft.
+> Punkt 5 unten ist ausserdem korrigiert — die Ursprungsebenen kosten 419 ms
+> beim ERSTEN Aufbau, danach 2.4 ms. Details in `PERFORMANCE_PROFILE.md` §4.
+
+**0. `analyzeSketch` ist KUBISCH — der schwerste Befund der App.**
+k = 3.198 [2.835, 3.561], R² = 0.9962, unabhaengig unter Low Power Mode
+k = 3.071. **8 837 ms bei 1024 Entities**, +105 MB RSS. Der Mechanismus steht
+im Quelltext: `solver.dart:2517` reduziert eine dichte `m × total`-Matrix per
+Gauss-Elimination auf RREF — O(m·total·rank). Die Algebra schliesst exakt
+(3584 Parameter, 2562 Residuen, dof = 1022 = gemessene Gauge), und der
+vorhergesagte Speicher (102.8 MB) trifft den gemessenen (105 MB) auf 2.2 %.
+Laeuft bei jedem Rebuild, jedem Solve, jedem Tab-Wechsel
+(`app_state.dart:2454`, `:2474`, `:8826`). Bei 1024 Entities kostet die
+Analyse **221x** so viel wie der Solve, den sie begleitet.
+
+**1. `occt_shape_edge_info` ist O(n²).** Zweifach belegt: im Quelltext
+(`backend/occt/shim/occt_capi.cpp:1679` und `:1733` — ZWEI vollstaendige
+Topologie-Durchlaeufe pro Aufruf, danach weggeworfen) und in der Messung (EIN
+`edgeInfo` = 3.014 ms erklaert 92.7 % der 1171 ms fuer 360 Kanten; die
+Kontrollen `counts()`/`bbox()` auf demselben Solid kosten 0.2 ms).
+Hochgerechnet ~48 s auf dem Teil, das abgestuerzt ist.
+**Reparatur gehoert in den Shim** — ein Durchlauf, der ein Array fuellt, als
+Bulk-Einstiegspunkt. Dart-seitiges Batching wuerde nur die Grenzuebergaenge
+sparen (7 %) und die Quadratik unberuehrt lassen.
+
+**2. Der Solver faellt vom schnellen Pfad — Faktor 334.** Normaler Zug
+0.277 ms pro Solve, davon 81 % in libslvs. Ueberbestimmt: 92.5 ms, davon
+0.4 % in libslvs. Mechanismus in `solver.dart:2172`: libslvs rechnet, Dart
+verifiziert gegen die eigenen Residuen, verwirft bei Residuum > 1e-4, und dann
+laeuft der Dart-LM — beim Ziehen zweimal (`lm-frozen`, dann `lm-relaxed`), je
+80 Iterationen ueber ein 168-Parameter-System. Bei zwei Solves pro Frame sind
+das ~185 ms/Frame ≈ 5 fps. Erklaert auch die 3.92-s-Spitze aus der ersten
+Sitzung: `solve.total` Schlechtestwert 178.7 ms bei p50 0.275 ms, waehrend
+`ffi.slvs.solve` bei 4.1 ms bleibt.
+
+**3. Der Painter loest ZWEIMAL pro Frame.** `viewport.dart:2088` (Segment
+`ent.dofColour`) und `:2683` (Segment `constraints`) rufen beide
+`displayGeometry`. 60 gemalte Frames → 120 Solves. Zusammen 87 % der Malzeit
+im Zug; das eigentliche Zeichnen ist 12.5 %.
+
+**4. → nach oben verschoben, siehe Punkt 0.** (Die alte Schaetzung n^2.33 kam
+aus der Rampe, die bei 256 Entities endete. Die Stress-Leiter bis 1024 hat
+sie als kubisch entlarvt.)
+
+**4b. Gemustertes Fillet: 142.9 ms PRO Vorkommen — jetzt gemessen.**
+`applyBlendOccurrence` (`part_model.dart:6179`) ruft `edgesOf` → `allEdges`
+je Vorkommen. `app.blendPattern.edgeQuery`: k = 0.999, R² = 1.0000, exakt
+linear in der Vorkommenszahl. **97.6 % der Kosten eines gemusterten Fillets
+sind die Kantenaufzaehlung**, nur 2.4 % die Bool'sche Faltung. Acht Vorkommen
+auf einem 180-Kanten-Koerper = 1.14 s.
+
+**5. RealityKit: die Ursprungsebenen — aber nur beim ERSTEN Mal.**
+Der teuerste Szenen-Push der Sitzung: **419.67 ms, davon 419.47 ms (99.95 %)
+Ursprungsebenen**. Im eingeschwungenen Zustand danach: **2.4 ms**. Faktor 177.
+Der Mesh-Upload ist in beiden Faellen praktisch kostenlos. Die alte Zahl
+(55.44 ms) war eine Einzelbeobachtung und um eine Groessenordnung zu klein.
+
+**5b. Der 3D-Push-Pfad ist NICHT teuer — fruehere Lesart korrigiert.**
+`3d.push` kostet **0.0973 ms** im Mittel ueber 1 699 Pushes (165 ms in einer
+293-s-Sitzung). Die 8.8 ms, die `rv.setCamera` meldet, sind
+**Warteschlangen-Latenz** einer asynchronen Kanalantwort (p50 1.58 ms,
+skaliert 5.4x wenn die Uhr nur 1.93x langsamer wird) — ein SYMPTOM der
+blockierenden FFI aus Punkt 1, kein eigener Kostenposten.
+
+**6. Fillet:** die Kandidatensuche (`allEdges`) kostet bei EINER Kante 4.9x das
+Verrunden. Und der Radius zaehlt massiv: r=1.0 ≈ 10 ms, r=4.0 ≈ 664 ms auf
+demselben Solid — Faktor 66.
+
+**Mit Zahlen entlastet:** Zahnradgenerierung (linear, Cache traegt), Snapping
+(0.0044 ms/Event, 5x billiger als Picken), DOF-Faerbung, Booleans,
+Tessellierung, `allGeometry`, Ribbon-Rebuilds, Start (76 ms), 3D-Picken,
+Projektion, Szenen-Payload, Dokument-Codec.
+
+### M220 — nach der Zusammenfuehrung mit main (PERF_ANALYSIS Abschnitt 15)
+
+main brachte M209-M213 mit, darunter die Partmuster und die Flaechen-Provenienz
+— Pfade, fuer die es keine einzige Messung gab. Vier Quelltextbefunde kommen
+in die Rangliste, einer davon schaerft Befund 1:
+
+**1 (praezisiert). `occt_shape_edge_info` macht VIER Ganzform-Operationen pro
+Aufruf, nicht zwei.** Zusaetzlich zu den beiden `TopExp::MapShapes*`: eine
+Bounding Box der ganzen Form (`:1832`) und ein `BRepClass3d_SolidClassifier`
+ueber die ganze Form (`:1836`). Beide stehen im Konvexitaetszweig, der nur bei
+Kanten mit **genau zwei** Nachbarflaechen laeuft — auf einem geschlossenen
+Solid also bei der Mehrheit. **Folge fuer die Reparatur:** der
+Bulk-Einstiegspunkt muss alle vier aus der Schleife heben. Wer nur die zwei
+Karten hebt, laesst den Klassifizierer pro Kante stehen und die Quadratik
+bleibt.
+
+**7. `newSurfacesOf` ist quadratisch in der Flaechenzahl** —
+`base.any(...)` in einer Schleife ueber `result` (`part_model.dart:3701`), pro
+koerpermodifizierendem Feature bei **jedem Rebuild** (`:6990`), mit
+`faceSurfaces` gleich zweimal daneben. Steckt heute unaufgetrennt in
+`part.rebuildAll`.
+
+**8. `attributeFaces` ist ein dreifaches Produkt** — Flaechen x Features x
+Flaechen-je-Feature, mit `sameSurfaceAs` im Innersten
+(`part_model.dart:3721`). Haengt am Flaechenpicken (`app_state.dart:4859`),
+gecacht pro Mesh-Identitaet.
+
+**9. `faceSurfaces` laeuft ein zweites Mal fuer eine Log-Zeile**
+(`app_state.dart:4864`) — direkt nachdem `attributeFaces` dieselbe Zerlegung
+intern berechnet hat, nur um eine Anzahl in einen Text zu schreiben. Dieselbe
+Art wie Befund 3, aber hinter dem Cache und damit milder.
+
+**Neu gemessen, damit der naechste Geraetelauf das alles beantwortet:** zehn
+Szenariofamilien, 26 Einzelmessungen, alle im automatischen Tier (kein `stress`
+noetig), dazu zwoelf Abdeckungstests:
+
+* `kernel.query.edgeInfoScale.{24,60,120,240}` — EIN `edgeInfo` auf Kante 1,
+  auf wachsender Form. Macht den O(n)-pro-Aufruf **von aussen falsifizierbar**:
+  steigt die Kurve, ist Befund 1 doppelt belegt; bleibt sie flach, ist der
+  Quelltextbefund falsch.
+* `kernel.mirror.{24,120}` — das neue `occt_mirror`, gegen `transform` auf
+  DEMSELBEN Solid. Die Differenz ist der Preis der Spiegelung.
+* `app.provenance.{faceSurfaces,newSurfaces,attribute}.*` — Rebuild-Pfad und
+  Pick-Pfad getrennt, weil es verschiedene Budgets sind.
+* `app.pattern.occurrences.*` — **alle vier Musterarten**: rechteckig, entlang
+  einer Kurve, kreisfoermig, skizzengetrieben (mit `sketchPatternPoints`
+  davor, weil die App sie zusammen faehrt) und gespiegelt.
+
+**Noch offen und bewusst nicht auf Verdacht gebaut:** `applyBlendOccurrence`
+(gemusterte Fillets) und der Ende-zu-Ende-Rebuild eines echten
+PatternFeature. Beide brauchen eine Fixture MIT Kernel; ohne OCCT auf der
+Entwicklungsmaschine liesse sich nicht pruefen, ob sie ihr Thema erreichen,
+und eine Fixture, die still nichts misst, ist schlimmer als eine fehlende.
+
+### M221–M222a — was seither dazukam (noch ohne Geraetezahlen)
+
+**M221 — der Grund reist im JSON.** `Perf.note(name, text)` traegt kurze
+Freitextbefunde in der Suite-eigenen JSON. Vorher ging ein Kernel-Grund ins
+Ereignislog, und der Geraetelauf vom 11.8. hat bewiesen, dass dieser Weg nicht
+funktionieren KANN: `log.txt` wird beim Druck auf den Bug-Knopf geschrieben
+(10:47:45), die Suite laeuft danach (10:48:10). Deshalb steht
+`kernel.sweepTwist.fail` seit drei Laeufen ohne Ursache da. Erster Eintrag
+gewinnt; `ci/perf_report.py` druckt den Grund unter den Zaehler.
+
+**M221 — die Simulator-Bahn hat einen Zustellweg.** `sim-perf` war seit Lauf
+32 gruen und KEINE seiner Zahlen je gelesen, weil Artefakte auf Blob-Storage
+liegen, den der Proxy verweigert. Jetzt committet der Workflow seine Aufnahme
+auf den Branch `ci-logs-perf`. Ergebnis der ersten Aufnahme: der Simulator ist
+KEIN skaliertes Geraet (Streuung Faktor 63 zwischen Operationen, CV 138 %,
+gegen 8.3 % beim Energiesparmodus). Es gibt keinen Umrechnungsfaktor. Bahn B
+ist damit ein Build- und Verlinkungstest, der nebenbei Zahlen produziert —
+keine Performance-Bahn. Siehe PERFORMANCE_PROFILE Abschnitt 13.
+
+**M221a — das Undo-Journal hat eine Groesse.** Es ist unbegrenzt per Design;
+gemessen war bisher nur die DAUER eines Checkpoints. Neu
+`app.journal.{depth,bytes,bytesPerEntry}`. Zu lesen ist bytesPerEntry.
+
+**M221b — das gemusterte Fillet.** `applyBlendOccurrence` ruft
+`kernel.edgesOf` und damit `allEdges` PRO VORKOMMEN auf — die zwei am
+schlechtesten skalierenden Verhalten der Codebasis komponieren. Aus gemessenen
+Zahlen ausmultipliziert: 9.4 s bei acht Vorkommen auf 360 Kanten. Zwei
+Szenarien machen daraus eine Messung statt einer Herleitung.
+
+**M222 — main (M212-M231) zusammengefuehrt.** Und zum ZWEITEN Mal kamen neue
+Kerneleinstiege ungemessen an: `occt_delete_faces`, `occt_move_faces`,
+`occt_scale_shape`, `occt_export_step_named` (Shim v17 → v20), spaeter noch
+`occt_export_step` und `occt_revolve_hits_face`. Zweimal ist ein Muster:
+**jede Zusammenfuehrung mit main bringt ungemessene Kerneloperationen mit.**
+Die Liste in `m213_perf_coverage_test.dart` ist die Stelle, an der das
+auffliegt. Neu gemessen ausserdem `facesOf` (Delete-Face-Pickpfad) und die
+Bezier-Kette (Konstruktion und Abflachung getrennt).
+
+**M222a — die Messwerkzeuge pruefen sich selbst.** `ci/perf_report.py` und
+`ci/perf_profile.py` entscheiden, was jede Zahl im Profil bedeutet, und hatten
+keinen einzigen Test. Jetzt 19 (mit der Schranke aus M224 zusammen 45),
+gegen ANALYTISCHE Wahrheit: ein exaktes Potenzgesetz muss seinen
+Exponenten exakt zurueckliefern, ein Intervall muss den wahren Wert
+enthalten, zwei Punkte duerfen nie ein Intervall liefern.
+Laufen in beiden Workflows vor `flutter analyze`.
+
+### M223 — der gepaarte Geraetelauf (18.08.2026, Build `230f179`)
+
+**Der Datensatz ist damit vollstaendig.** Zwei Aufnahmen, **eine durchgehende
+App-Sitzung**, 170 s auseinander, Low Power Mode als aufgezeichnete
+Behandlung — und zum ersten Mal **alle drei Suite-Stufen auf Hardware**.
+
+| | Aufnahme A | Aufnahme B |
+| --- | --- | --- |
+| Low Power Mode | **AN** | **AUS** (Referenzarm) |
+| Stress-Stufe | ja | ja |
+| Sitzungsdauer | 142 428 ms | 292 797 ms (kumulativ, enthaelt A) |
+
+**Wichtig fuer jede Auswertung:** die Suite-JSONs sind unabhaengig und
+vergleichbar, der Sitzungs-Snapshot in B ist KUMULATIV und enthaelt A. Nie
+differenzieren. (PERFORMANCE_PROFILE §2.2.)
+
+**Was neu ist:**
+
+- **`analyzeSketch` ist kubisch** — siehe Punkt 0 der Rangliste.
+- **Die Isolation von `allEdges` ist vollstaendig.** Kontroll-Leiter
+  `buildOnly` auf IDENTISCHEN Solids, die sogar MEHR tut (volle
+  Tessellierung): **200.3x billiger** bei gleicher Groesse, k = 1.063 gegen
+  2.012, Intervalle ohne Ueberlappung. `buildOnly` erreicht die VIERFACHE
+  Groesse (1920 Punkte, 5760 Kanten) in 245 ms. Und die Exponenten
+  komponieren quantitativ: 0.985 (Kosten pro `edgeInfo`) + 1 = 1.985 gegen
+  gemessene 2.012 — 1.3 % Abweichung.
+- **`Perf.note` hat beim ersten Einsatz geliefert.** `kernel.sweepTwist` gibt
+  null zurueck, weil `occt_sweep_profile: twist is not implemented yet` — drei
+  Laeufe offen, kein Defekt. Punkt erledigt.
+- **Der Energiesparmodus-Faktor ist 1.9253 [1.8979, 1.9531]** aus 142
+  gepaarten Spans (vorher: 4 Punkte, 1.893 — Abweichung 1.7 %). Aufwaermen
+  als Alternativerklaerung ausgeschlossen (Steigung ueber die
+  Ausfuehrungsreihenfolge: +0.000095, R² = 0.0006).
+- **KORREKTUR: der Faktor ist NICHT uniform.** Speichergebundene Arbeit 1.624,
+  native FFI 1.910, Dart-Rechnung 2.273 (Welch t = 3.86, p ≈ 0.002). Die
+  fruehere Uniformitaetsbehauptung stammte aus vier Punkten. Fuer
+  Hochrechnungen auf aeltere Geraete gilt der klassenspezifische Wert.
+- **Keine Leiter endete am Speicher.** Spitzen-RSS 850 MB gegen 7374 MB
+  physisch. 64 Solids gleichzeitig gehalten: k = 0.984, **0 MB Netto-Delta**
+  nach Freigabe — kein Leck.
+- **Die 2D-Grenze ist eine Zahl:** Ziehen kostet 10.7 ms/Frame bei 512
+  Entities (Referenzarm), 20.4 ms im Energiesparmodus. Gegen ein 16.7-ms-
+  Budget heisst das: bei voller Taktrate innerhalb, gedrosselt darueber.
+
+### M224 — der Regressionswaechter
+
+Jede Zahl in PERFORMANCE_PROFILE ist eine Momentaufnahme. Bis M224 hat nichts
+eine Regression **erkannt** — die Werkzeuge konnten zwei Bundles vergleichen,
+wenn ein Mensch auf beide zeigt, und das ist ein Lesehilfsmittel, keine
+Schranke.
+
+```
+python3 ci/perf_gate.py --record <bundle.zip>   # Basislinie einfrieren
+python3 ci/perf_gate.py <bundle.zip>            # vergleichen; Exit 1 wenn schlechter
+```
+
+Die eingecheckte Basislinie ist der **Referenzarm** des gepaarten Laufs:
+Build `230f179`, Energiesparmodus AUS, thermisch `nominal` an beiden Enden,
+alle drei Runner — 273 Spans, 373 Szenario-Spans, 46 Zaehler, 195 Gauges.
+
+**Die Beweisreihenfolge ist die aus PERFORMANCE_PROFILE 1.1** und kehrt die
+Intuition um: **Zaehler zuerst** (exakt, prozessorunabhaengig — jede Aenderung
+ist ein Fehlschlag, null Fehlalarme), dann **Gauges** (Fixturegroessen und
+Leiterhoehen), erst zuletzt **Dauern** — gegen die vom Lauf selbst gemessene
+Rauschgrenze, nicht gegen eine geratene Prozentzahl.
+
+**Zwei Entscheidungen, die die Daten erzwungen haben:**
+
+- **Er VERWEIGERT den Dauervergleich ueber Taktzustaende hinweg.** Der
+  Energiesparmodus skaliert die App um 1.9253, und nicht uniform. Ein
+  gedrosselter Lauf gegen die ungedrosselte Basislinie meldete sonst ~93 %
+  Regression in allem. Zaehler und Gauges werden trotzdem geprueft — genau
+  dafuer sind sie die primaere Stufe.
+- **Er prueft PRO SZENARIO, nicht nur pro Span.** Nachgemessen, nicht
+  angenommen: eine injizierte 40-%-Regression in `ffi.occt.allEdges` in EINEM
+  Szenario bewegte den App-weiten Mittelwert dieses Spans um **6.9 %** — unter
+  jeder brauchbaren Schwelle, weil derselbe Span auch in Rampen, Fillet-
+  Szenarien und im Blend-Muster laeuft. Der Aggregatwert allein haette sie
+  durchgelassen.
+
+**Der Nachweis, dass es funktioniert:** gegen den gedrosselten Arm gefahren
+meldet die Schranke genau drei Dinge — die gefallene Leiterhoehe
+(`stress.allEdges.maxSize` 480 → 240), die daraus folgende Kantenzahl und den
+daraus folgenden Zaehler (−1440 `edgeInfo`-Aufrufe) — **und sonst nichts**, auf
+einem Lauf, dessen Dauern voellig unbrauchbar waren.
+
+**Die Ausschlussliste ist hergeleitet, nicht geraten.** Die zwei Arme liefen
+IDENTISCHE Fixtures auf demselben Build, also kann ein Gauge, der sich zwischen
+ihnen unterscheidet, keine Fixturegroesse beschreiben. 125 tun es; ihre
+Klassifikation ergibt genau vier Regeln (57 gefittete Exponenten, 48 kumulative
+Zaehler, 9 Native-Drain-Worsts, 5 abgeleitete `quality.*`, 4 Dokumentzustaende).
+
+**25 der 45 Python-Tests** decken die Schranke ab, etwa die Haelfte davon
+prueft, dass etwas NICHT ausloest: eine Schranke, die bei Rauschen anschlaegt,
+wird abgeschaltet und ist dann schlimmer als keine.
+
+### Wie man es benutzt
+
+1. Einen Build **neuer als `6beb184`** sideloaden. Die IPA kommt aus
+   `m1-core-build.yml` per `workflow_dispatch` auf diesem Branch — sie laeuft
+   NICHT automatisch, weil der Workflow nur auf Pushes nach main hoert.
+2. **Das gepaarte Protokoll** (validiert in M223, PERFORMANCE_PROFILE §15.2):
+   erst Energiesparmodus AN mit `stress`, dann AUS mit `stress`, in
+   DERSELBEN Sitzung, Geraet kuehl, Thermalzustand `nominal`. Der Paarlauf
+   liefert den Taktfaktor mit einem 1.4-%-Intervall und schliesst Aufwaermen
+   als Erklaerung aus — beides geht mit Einzellaeufen nicht.
+3. Vorher **eine Minute lang benutzen**: Teil oeffnen, in 3D umkreisen, Part-
+   Tab, Modellbrowser, ein paar Entities zeichnen und eine ziehen, speichern.
+   Sonst bleiben die 40 sitzungsabhaengigen Spans leer (PERFORMANCE_PROFILE
+   §15.2).
+4. Bug-Button, Beschreibung **`stress`**. Dauert Minuten statt Sekunden.
+   Stirbt die App dabei, ist DAS die Antwort auf 'wie weit geht es'; das
+   Bundle trotzdem schicken.
+5. `python3 ci/perf_report.py <bundle.zip>` — oder mit
+   `--baseline <alter.zip>` fuer den Diff. Fuer den vollstaendigen Anhang:
+   `python3 ci/perf_profile.py <bundle.zip> > appendix.md`.
+6. **`python3 ci/perf_gate.py <bundle.zip>`** — die Regressionsschranke gegen
+   `perf/baseline.json`. Exit 1 heisst schlechter geworden. Nach einer
+   BEABSICHTIGTEN Verbesserung die Basislinie neu aufnehmen
+   (`--record`) — aber nie, um einen Fehlschlag stillzulegen, den man nicht
+   erklaeren kann.
+
+Ein zweiter Lauf mit Energiesparmodus AN und ohne `stress` verlaengert die
+Laengsschnittreihe aus PERFORMANCE_PROFILE Abschnitt 12 unter denselben
+Bedingungen wie die bisherigen drei.
+
+**Beim Lesen zuerst pruefen:** `lowPowerMode` und den Thermalzustand. Der Lauf
+vom 6.8. abends lief im Energiesparmodus und war dadurch gleichmaessig ~2x
+langsamer als der davor — ohne die native Sonde haette der Bericht „alles
+doppelt so langsam" gemeldet und eine Regressionssuche ausgeloest, die es
+nicht gibt.
+
+### Was noch fehlt
+
+1. **RealityKits eigener Renderloop.** `RvPerf` misst bis zur Uebergabe; was
+   der Renderer danach auf seinem eigenen Zeitplan tut, gehoert dem OS.
+2. **Ein Sampling-Profiler** (VM-Service `getCpuSamples` → Perfetto). Die
+   Suite sagt, welche OPERATION was kostet; ein Profiler saegt, welche ZEILE.
+   Fuer `analyzeSketch` ist das der Unterschied zwischen „die Ranganalyse ist
+   kubisch" und „diese Schleife ist es".
+3. ~~**`kernel.sweepTwist` liefert null**~~ **ERLEDIGT (M223):**
+   `occt_sweep_profile: twist is not implemented yet`. Kein Defekt.
+4. **`footprintMB` gegen `residentMB`** — **eingegrenzt (M223), nicht
+   erklaert.** Das Verhaeltnis ist keine Konstante: 3.60 / 2.52 / 4.00 / 2.47
+   ueber die vier Sondenpunkte, also ≈ 4 VOR und ≈ 2.5 NACH der Suite. Die
+   fruehere Zahl „4–5" war eine Einzelmessung. Was den Footprint belegt,
+   bleibt unbekannt. iOS killt auf den Footprint, nicht auf RSS.
+5. ~~**Die Stress- und Rampen-Tiers sind noch nie auf dem Geraet gelaufen.**~~
+   **ERLEDIGT (M223):** alle sieben Leitern in beiden Armen. Die Ausfallzahlen
+   in PERFORMANCE_PROFILE sind keine Hochrechnungen mehr — `allEdges` ist bis
+   an seine Wand gefahren (480 Profilpunkte / 10 017 ms).
+6. ~~**Ein Lauf ohne Energiesparmodus.**~~ **ERLEDIGT (M223):** Aufnahme B ist
+   ungedrosselt und der Referenzarm des Berichts. Beide Arme sind aufgehoben,
+   wie Abschnitt 3.5 empfiehlt.
+7. **Ein speicherbeschraenktes Geraet.** Die Achse, die der Energiesparmodus
+   NICHT abdeckt — und M223 hat gezeigt, dass er sie sogar SYSTEMATISCH
+   UNTERSCHAETZT (speichergebunden 1.62 gegen 2.27 bei Dart-Rechnung). Die
+   Achse, auf der die App im Feld gestorben ist.
+7b. ~~**Ein Regressionswaechter**~~ **GEBAUT (M224)** — `perf/baseline.json`
+   plus `ci/perf_gate.py`. Siehe unten und PERFORMANCE_PROFILE 15.4. Offen
+   bleibt nur: er ist noch nie gegen ein ZWEITES Geraetebundle gelaufen (es
+   gibt nach der Basislinie keins), und er laeuft nicht bei jedem Push, weil
+   CI kein Geraetebundle erzeugen kann.
+8. **Vier Features ohne Fixture:** Hole, Combine, Split, Delete Face /
+   Direct Edit. Bei den Feature-Arten ist das milde (`kernel.feature.<kind>`
+   bepreist sie in jedem Rebuild), bei Delete Face und Direct Edit bewusst:
+   beide brauchen eine gueltige topologische Flaechen-ID und eine Operation,
+   die der Kernel annimmt, und eine Fixture, die daneben greift, meldet eine
+   schnelle Null. Siehe PERFORMANCE_PROFILE 14.4.
+
+### Lehren aus dieser Sitzung
+
+* **Ein Szenario, das nichts misst, liefert trotzdem eine Zahl — und die ist
+  von einer schnellen nicht zu unterscheiden.** Drei Fixtures waren kaputt
+  (`gear.curve` mass den Memo, `dofColour` eine Skizze ohne Constraints,
+  `2d.snap` existierte gar nicht), und spaeter drei Werkzeuge (`eqCurve`,
+  `circleTangent`, `slotOverall` gaben null zurueck). Deshalb pruefen die
+  Tests in `m213_perf_coverage_test.dart` keine Zeiten, sondern **dass jedes
+  Szenario sein Thema erreicht**.
+* **Test und Benchmark muessen durch DENSELBEN Einstiegspunkt laufen**
+  (`buildToolForPerf`). Den Aufruf im Test nachzubauen ist der Weg, auf dem
+  ein Test gruen bleibt, waehrend der Benchmark etwas anderes misst.
+* **`group()` nimmt in flutter_test kein `timeout:`** — nur `test()` und
+  `testWidgets()`. Diesen Fehler habe ich in dieser Sitzung ZWEIMAL gemacht.
+  Library-Annotation `@Timeout(...)` benutzen.
+* **Swift importiert nur Makros, die schlichte Konstanten sind.**
+  `THREAD_BASIC_INFO_COUNT` und Verwandte sind aus `sizeof` gebaut und muessen
+  als `MemoryLayout<...>.size / MemoryLayout<natural_t>.size` gerechnet werden.
+* **Vor dem Warten pruefen, ob der CI-Lauf zum HEAD gehoert.** Ich habe einen
+  veralteten Lauf beobachtet und ein Ergebnis vom falschen Commit gemeldet.
+* **Der Shim hat zwei Profilkodierungen:** `extrudeProfile`/`extrudePolygon`
+  nehmen (x,y)-PAARE, `extrudeProfileArcs`/`revolve`/`sweep`/`loft`/`coil`
+  nehmen (x,y,bulge)-TRIPEL. Die falsche wirft nicht — sie gibt null zurueck,
+  und die Operation liest sich als kostenlos.

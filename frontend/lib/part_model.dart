@@ -14,6 +14,7 @@
 // fake to exercise the state machinery on host.
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'app_state.dart' show SketchModel;
@@ -4740,36 +4741,52 @@ List<FaceSurface> faceSurfaces(OcctMeshData m) {
   }
   final n = m.faceCount;
   if (n <= 0) return const [];
-  final lo = List<Vec3>.filled(n, const Vec3(1e30, 1e30, 1e30));
-  final hi = List<Vec3>.filled(n, const Vec3(-1e30, -1e30, -1e30));
-  final cx = List<Vec3>.filled(n, Vec3.zero);
-  final ar = List<double>.filled(n, 0);
-  for (var t = 0; t + 2 < m.indices.length; t += 3) {
-    final f = m.triFaces[t ~/ 3];
+  // Flat accumulators rather than lists of Vec3. This loop runs once per
+  // triangle of every mesh on every rebuild, and the Vec3 form allocated
+  // roughly sixteen short-lived objects per triangle — about 23 000 of them
+  // for the 1436-triangle body of §8.1. The arithmetic below is the same
+  // arithmetic in the same order, so the values are bit-identical to the
+  // version this replaces; only the allocations are gone.
+  final lo = Float64List(n * 3)..fillRange(0, n * 3, 1e30);
+  final hi = Float64List(n * 3)..fillRange(0, n * 3, -1e30);
+  final cen = Float64List(n * 3);
+  final ar = Float64List(n);
+  final pos = m.positions, idx = m.indices, tri = m.triFaces;
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    final f = tri[t ~/ 3];
     if (f < 0 || f >= n) continue;
-    final i0 = m.indices[t] * 3,
-        i1 = m.indices[t + 1] * 3,
-        i2 = m.indices[t + 2] * 3;
-    final a = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
-    final b = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
-    final c = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
-    final w = (b - a).cross(c - a).length * 0.5;
+    final i0 = idx[t] * 3, i1 = idx[t + 1] * 3, i2 = idx[t + 2] * 3;
+    final ax = pos[i0], ay = pos[i0 + 1], az = pos[i0 + 2];
+    final bx = pos[i1], by = pos[i1 + 1], bz = pos[i1 + 2];
+    final cx = pos[i2], cy = pos[i2 + 1], cz = pos[i2 + 2];
+    // (b - a) cross (c - a), half its length: the triangle's area.
+    final ux = bx - ax, uy = by - ay, uz = bz - az;
+    final vx = cx - ax, vy = cy - ay, vz = cz - az;
+    final nx = uy * vz - uz * vy;
+    final ny = uz * vx - ux * vz;
+    final nz = ux * vy - uy * vx;
+    final w = math.sqrt(nx * nx + ny * ny + nz * nz) * 0.5;
     // Area-weighted, like planarFaceRecs: a face tessellated into one big
     // triangle and twenty slivers still reports its true centre.
-    cx[f] = cx[f] + (a + b + c) * (w / 3);
+    final w3 = w / 3;
+    final o = f * 3;
+    cen[o] = cen[o] + (ax + bx + cx) * w3;
+    cen[o + 1] = cen[o + 1] + (ay + by + cy) * w3;
+    cen[o + 2] = cen[o + 2] + (az + bz + cz) * w3;
     ar[f] += w;
-    for (final q in [a, b, c]) {
-      lo[f] = Vec3(math.min(lo[f].x, q.x), math.min(lo[f].y, q.y),
-          math.min(lo[f].z, q.z));
-      hi[f] = Vec3(math.max(hi[f].x, q.x), math.max(hi[f].y, q.y),
-          math.max(hi[f].z, q.z));
-    }
+    lo[o] = math.min(math.min(math.min(lo[o], ax), bx), cx);
+    lo[o + 1] = math.min(math.min(math.min(lo[o + 1], ay), by), cy);
+    lo[o + 2] = math.min(math.min(math.min(lo[o + 2], az), bz), cz);
+    hi[o] = math.max(math.max(math.max(hi[o], ax), bx), cx);
+    hi[o + 1] = math.max(math.max(math.max(hi[o + 1], ay), by), cy);
+    hi[o + 2] = math.max(math.max(math.max(hi[o + 2], az), bz), cz);
   }
   final out = <FaceSurface>[];
   for (var f = 0; f < n; f++) {
     if (ar[f] <= 0) continue;
     final r = 15 * f;
     if (r + 15 > m.faceInfos.length) break;
+    final o = f * 3;
     out.add(FaceSurface(
       f,
       m.faceInfos[r].round(),
@@ -4777,9 +4794,9 @@ List<FaceSurface> faceSurfaces(OcctMeshData m) {
       Vec3(m.faceInfos[r + 4], m.faceInfos[r + 5], m.faceInfos[r + 6])
           .normalized(),
       m.faceInfos[r + 10],
-      lo[f],
-      hi[f],
-      cx[f] * (1 / ar[f]),
+      Vec3(lo[o], lo[o + 1], lo[o + 2]),
+      Vec3(hi[o], hi[o + 1], hi[o + 2]),
+      Vec3(cen[o], cen[o + 1], cen[o + 2]) * (1 / ar[f]),
       ar[f],
     ));
   }
@@ -4792,18 +4809,170 @@ List<FaceSurface> faceSurfaces(OcctMeshData m) {
 /// 99% of the time and admits the rest beats one that is silently wrong.
 const double kFaceMatchTol = 0.05;
 
+/// Cell width of the direction index [newSurfacesOf] builds over its base
+/// list, and the number of cells the key's range needs at that width.
+///
+/// [FaceSurface.sameSurfaceAs] can only answer true when the two faces have
+/// the same `type`, and for a plane (0) or a cylinder (1) only when their axes
+/// are parallel to within `|d·o.d| >= 1 - 1e-6`. Both are NECESSARY conditions,
+/// so an index built on them and followed by the original predicate returns
+/// the identical boolean — it only skips pairs that could never have matched.
+///
+/// The key is `|d.x| + 2|d.y| + 4|d.z|`. Absolute values, because the match
+/// deliberately ignores which way a normal points; componentwise `|.|` is
+/// continuous, where flipping a normal into a canonical hemisphere is not and
+/// would drop two nearly-parallel faces into distant cells.
+///
+/// Why probing one cell either side cannot miss a match: for unit u, v with
+/// `|u·v| >= 1 - 1e-6`, and s = sign(u·v),
+///
+///     |u - s.v|^2 = |u|^2 + |v|^2 - 2|u·v| <= 2 - 2(1 - 1e-6) = 2e-6
+///     |u - s.v|   <= 1.4143e-3
+///
+/// hence `||u_i| - |v_i|| <= 1.4143e-3` for each component, hence by
+/// Cauchy-Schwarz
+///
+///     |key(u) - key(v)| <= sqrt(1 + 4 + 16) * 1.4143e-3 = 6.4808e-3
+///
+/// A cell at least that wide therefore holds any matching pair in the same
+/// cell or in one of its neighbours. 7e-3 leaves 8 % of margin over the bound.
+const double _kDirCell = 7e-3;
+
+/// ceil(sqrt(21) / [_kDirCell]) — sqrt(21) = 4.5826 is the key's maximum.
+const int _kDirCells = 655;
+
+/// Below this many base faces the index costs more to build than the scan it
+/// replaces, so [newSurfacesOf] keeps the straight loop. The answer is the
+/// same either way; only the arithmetic that produces it differs.
+const int _kDirIndexMin = 64;
+
+double _dirKey(Vec3 d) => d.x.abs() + 2 * d.y.abs() + 4 * d.z.abs();
+
+/// Whether [d] is a unit vector, which the bound above assumes.
+///
+/// `Vec3.normalized()` hands back its input unchanged when the length is below
+/// 1e-12, so a face with a degenerate normal reaches here un-normalised. Such
+/// a face can never match anything (the dot product against any unit vector is
+/// far below the threshold), but rather than rely on that it is kept out of
+/// the index and scanned every time. NaN fails these comparisons too, which is
+/// the wanted answer for the same reason.
+bool _isUnitDir(Vec3 d) {
+  final q = d.dot(d);
+  return q > 1 - 1e-9 && q < 1 + 1e-9;
+}
+
+/// The cell a face belongs in, or -1 for one the index cannot place: a cone,
+/// sphere, torus or spline (type >= 2), which matches by bounding box and so
+/// has no direction condition at all, or a degenerate normal.
+int _dirCellOf(FaceSurface f) {
+  if (f.type != 0 && f.type != 1) return -1;
+  if (!_isUnitDir(f.d)) return -1;
+  var q = (_dirKey(f.d) / _kDirCell).floor();
+  if (q < 0) q = 0;
+  if (q >= _kDirCells) q = _kDirCells - 1;
+  return (f.type == 0 ? 0 : _kDirCells) + q;
+}
+
+/// A base face list arranged so that [anyMatch] only has to test the faces
+/// that could possibly match — a counting sort into [_kDirCells] cells per
+/// matchable type, plus a tail of faces the index cannot place.
+///
+/// Purely an accelerator: [anyMatch] returns exactly what
+/// `base.any((b) => b.sameSurfaceAs(f, tol))` returns, for every input. The
+/// predicate has no side effects, so short-circuiting on a different element
+/// of the list cannot change the answer.
+class _DirIndex {
+  _DirIndex._(this._base, this._cellStart, this._order, this._loose);
+
+  final List<FaceSurface> _base;
+  final Int32List _cellStart; // 2 * _kDirCells + 1 entries: cell c is
+  final Int32List _order; //     _order[_cellStart[c] .. _cellStart[c+1])
+  final List<FaceSurface> _loose;
+
+  factory _DirIndex.of(List<FaceSurface> base) {
+    final n = base.length;
+    final start = Int32List(2 * _kDirCells + 1);
+    final cell = Int32List(n);
+    final loose = <FaceSurface>[];
+    var placed = 0;
+    for (var i = 0; i < n; i++) {
+      final c = _dirCellOf(base[i]);
+      cell[i] = c;
+      if (c < 0) {
+        loose.add(base[i]);
+        continue;
+      }
+      start[c + 1]++;
+      placed++;
+    }
+    for (var c = 0; c < 2 * _kDirCells; c++) {
+      start[c + 1] += start[c];
+    }
+    final order = Int32List(placed);
+    final cursor = Int32List.fromList(start);
+    for (var i = 0; i < n; i++) {
+      final c = cell[i];
+      if (c >= 0) order[cursor[c]++] = i;
+    }
+    return _DirIndex._(base, start, order, loose);
+  }
+
+  bool anyMatch(FaceSurface f, double tol) {
+    // The tail first: it holds every base face the cells cannot speak for.
+    for (final b in _loose) {
+      if (b.sameSurfaceAs(f, tol)) return true;
+    }
+    final c = _dirCellOf(f);
+    if (c < 0) {
+      // A query the index cannot place. Its own type could only match faces
+      // already in the tail, and a degenerate normal matches nothing at all —
+      // but scanning everything is what makes the answer provably the same,
+      // and this path is reached only by degenerate or non-analytic faces.
+      for (final b in _base) {
+        if (b.sameSurfaceAs(f, tol)) return true;
+      }
+      return false;
+    }
+    // The three cells are adjacent in `_order`, so one walk covers them. The
+    // clamp keeps the probe inside this type's own block of cells.
+    final tb = f.type == 0 ? 0 : _kDirCells;
+    final q = c - tb;
+    final from = tb + (q > 0 ? q - 1 : 0);
+    final to = tb + (q < _kDirCells - 1 ? q + 1 : _kDirCells - 1);
+    for (var k = _cellStart[from]; k < _cellStart[to + 1]; k++) {
+      if (_base[_order[k]].sameSurfaceAs(f, tol)) return true;
+    }
+    return false;
+  }
+}
+
 /// The faces of [result] that [base] did not already have — what a
 /// body-modifying feature (a fillet, a pattern) actually ADDED.
 ///
 /// Without this a fillet would claim every face of the body it modified,
 /// which is worse than claiming none: clicking the front face of a block
 /// would select the fillet at the far corner.
+///
+/// Measured quadratic — k = 1.96, R^2 = 1.0000, face count x13.9 giving time
+/// x144 (§8.1) — because the plain form asks every base face about every
+/// result face. [_DirIndex] cuts the pairs actually tested by about 22x on the
+/// profile's fixture without changing a single answer; see its doc comment for
+/// why the filter cannot drop a match. It does NOT change the exponent, which
+/// stays at 2: any scalar key on the unit sphere has stationary points, and
+/// cell occupancy near one grows as sqrt(n).
 List<FaceSurface> newSurfacesOf(
     List<FaceSurface> result, List<FaceSurface> base) {
   if (base.isEmpty) return result;
+  if (base.length < _kDirIndexMin) {
+    return [
+      for (final f in result)
+        if (!base.any((b) => b.sameSurfaceAs(f, kFaceMatchTol))) f
+    ];
+  }
+  final index = _DirIndex.of(base);
   return [
     for (final f in result)
-      if (!base.any((b) => b.sameSurfaceAs(f, kFaceMatchTol))) f
+      if (!index.anyMatch(f, kFaceMatchTol)) f
   ];
 }
 
@@ -6772,8 +6941,16 @@ class OcctPartKernel implements PartKernel {
 /// case) builds the feature on its own sketch plane.
 bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
     {KernelSolid? base, OccurrenceAt? at}) {
+  // Two spans, one nested inside the other. The aggregate answers "what does a
+  // feature rebuild cost"; the per-KIND one answers "which kind", and that is
+  // the question an optimisation actually needs — an extrude and a loft on the
+  // same part differ by more than an order of magnitude, and a single average
+  // over both is a number that describes neither (M75, again).
   final ok = Perf.span(
-      'kernel.feature', () => _recomputeFeature(part, f, kernel, base, at));
+      'kernel.feature',
+      () => Perf.span('kernel.feature.${f.kind}',
+          () => _recomputeFeature(part, f, kernel, base, at)));
+  Perf.count('kernel.feature.${ok ? 'ok' : 'fail'}');
   // M164 — every feature rebuild, named, with its outcome. A part that comes
   // back different after a reopen is a SEQUENCE of these going wrong, and
   // until now the log showed only the ones that happened to toast.
@@ -8455,6 +8632,20 @@ String featureInputSig(PartModel part, PartFeature f) {
 /// whose feature moves the very face it is anchored to — terminates with a
 /// complaint instead of hanging the app.
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
+        {bool force = false}) =>
+    Perf.span('part.rebuildAll', () {
+      Perf.gauge('part.features', part.features.length);
+      return _recomputeAllFeatures(part, kernel, force: force);
+    });
+
+/// The whole-part rebuild, wrapped above so its cost is one number.
+///
+/// This is what the user waits for after editing a parameter, and it was
+/// unmeasured as a WHOLE: `kernel.feature` gave the per-feature cost, but a
+/// part rebuilds every feature and may run the loop again when a face-anchored
+/// sketch moves. `part.rebuildAll` is the wall the user hits; the `passes`
+/// counter says whether a second pass is what made it long.
+bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
   if (!ok) {
@@ -8495,6 +8686,11 @@ const int _kMaxFaceSettlePasses = 3;
 
 bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     {bool force = false}) {
+  // Counted HERE, not in the caller: the caller runs this once and then again
+  // for every pass a moved face-anchored sketch forces. Counting the caller
+  // would report 1 for a rebuild that actually ran three times, which is the
+  // opposite of what the counter exists to reveal.
+  Perf.count('part.rebuild.passes');
   var allOk = true;
   // M128 — DERIVE the End of Part flags here, first, unconditionally.
   //

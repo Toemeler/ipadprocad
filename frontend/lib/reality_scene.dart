@@ -378,6 +378,27 @@ class RealityPush {
     cameraCount++;
   }
 
+  /// Pulls the NATIVE timing table from the live RealityKit view, or an empty
+  /// map when there is no view.
+  ///
+  /// The controller belongs to the 3D viewport's widget State, which the bug
+  /// bundle has no business reaching into — and a global reference to it would
+  /// outlive the view and push into a dead channel. So the viewport REGISTERS
+  /// a drain closure while it is mounted and clears it on dispose, and this is
+  /// the one place that knows the closure exists. Same shape as [dump]: the
+  /// bundle asks RealityPush, not the widget tree.
+  static Future<Map<String, dynamic>> Function()? nativeDrain;
+
+  static Future<Map<String, dynamic>> drainNative() async {
+    final f = nativeDrain;
+    if (f == null) return const {};
+    try {
+      return await f();
+    } catch (_) {
+      return const {};
+    }
+  }
+
   static List<String> dump() => [
         'RealityKit is a PLATFORM VIEW: it composites outside Flutter, so it',
         'never appears in a screenshot and Dart cannot read back what it drew.',

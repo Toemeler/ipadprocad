@@ -1,0 +1,794 @@
+name: Simulator app + perf capture
+
+# Lane B of the measurement plan: rent a Mac for twenty minutes, get files back.
+#
+# What this produces:
+#   * Runner.app for the iOS Simulator, zipped as an artifact
+#   * the app's own performance_logs.txt / performance_snapshot.json, pulled
+#     back out of the simulator's data container after a real launch
+#   * the launch console log
+#
+# WHAT THIS IS NOT, stated up front so no number from here is ever quoted as
+# an iPad number:
+#
+#   Flutter refuses --profile and --release for the simulator ("release/profile
+#   builds are only supported for physical devices"): the simulator engine is
+#   JIT/debug only. So the DART side of this build is unoptimised and its frame
+#   times are meaningless — typically several times slower than the device.
+#
+#   The NATIVE side is not. qcad-core, libslvs and OCCT are all compiled
+#   -DCMAKE_BUILD_TYPE=Release here, exactly as for the device. That makes the
+#   `ffi.occt.*` / `ffi.slvs.*` / `ffi.qcad.*` spans and every COUNTER
+#   (call counts, entity counts, cache hit rates, solves per frame) genuinely
+#   informative, because those measure release-compiled C++ and structural
+#   behaviour rather than Dart execution speed.
+#
+#   Read this job for: which kernel op costs what relative to the others, how
+#   many times something is called, whether a cache works, whether a regression
+#   appeared. Do NOT read it for: fps, frame.build, frame.raster, jank.
+#
+# ARCHITECTURE — x86_64, not arm64. The Qt-for-iOS package ships universal
+# archives whose only simulator slice is x86_64 (see the probe step in
+# m1-core-build.yml's m3 job: arm64 -> platform 2 = device, x86_64 ->
+# platform 7 = simulator). There is no arm64-simulator Qt, so the whole stack
+# has to be x86_64 and runs under Rosetta on the arm64 runner. That is also
+# why this cannot share the m5 OCCT cache: different sysroot, different slice.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hold_seconds:
+        description: 'Seconds to let the app run before pulling the perf log'
+        required: false
+        default: '25'
+  push:
+    branches: [ 'claude/perf-**' ]
+    paths-ignore: [ '**.md' ]
+
+# write, because the perf capture is published to the ci-logs-perf branch
+# (see the last step) — an artifact alone is not reachable from every
+# environment that needs to read these numbers.
+permissions:
+  contents: write
+
+# M221 — do NOT cancel a run in progress.
+#
+# `cancel-in-progress: true` is the right default for a fast check, where the
+# newest commit is the only one worth testing. It is the wrong one here: this
+# job takes 26–48 minutes, and every push during that window killed it. Runs
+# 35, 36 and 37 all died that way, which is how the workflow came to be
+# "green since run 32" while producing no usable capture at all — the failure
+# was invisible because a cancelled run is not a red one.
+#
+# A superseded capture is still a capture, and the branch it publishes to is
+# force-pushed anyway, so the last finisher wins. Letting runs complete costs
+# runner minutes; cancelling them cost a week of nobody noticing there were no
+# numbers.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # FAST FEEDBACK, and not optional. The heavy job below can spend 150 minutes
+  # in a cold OCCT build BEFORE it ever reaches `flutter analyze`. Without this
+  # gate a Dart typo costs two and a half hours to find out about — the same
+  # mistake m1-core-build.yml records having made at twenty minutes, only worse.
+  # Cheap ubuntu runner, no iOS scaffolding needed: analyze/test only want
+  # `pub get`, and the in-repo plugin pods are path dependencies with a pure
+  # Dart interface that resolves on Linux.
+  dart-checks:
+    name: Dart analyze + host tests (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      # M222a — the perf tooling verifies ITSELF.
+      #
+      # ci/perf_report.py and ci/perf_profile.py decide what every number in
+      # PERFORMANCE_PROFILE.md means: they fit the exponents, compute the
+      # confidence intervals, and decide which values sit below the
+      # instrument's 1 us resolution and must not be printed as digits. Until
+      # M222a neither had a test and neither ran in CI — the whole
+      # quantitative case rested on two unverified scripts, which is the exact
+      # defect the profile keeps finding in the app, applied to the apparatus.
+      #
+      # The tests check the statistics against ANALYTIC ground truth (an exact
+      # power law must recover its exponent; a CI must contain the true value;
+      # two points must yield no interval), so they cannot drift with the
+      # recorded output.
+      - name: Perf tooling tests
+        run: python3 -m unittest discover -s ci -p 'test_*.py' -v
+
+      - name: Analyze Dart
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 \
+            | tee ../ci-perf-analyze.log
+
+      - name: Host tests
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # Covers the new perf machinery: ring buffer, PerfPhases, the
+          # separated counter table, jsonSnapshot key stability.
+          flutter test 2>&1 | tee ../ci-perf-tests.log
+
+      # WHY THIS STEP EXISTS
+      #
+      # `flutter test` under CI uses the GitHub reporter, which emits one log
+      # GROUP per test. With ~1600 tests that is a log tens of thousands of
+      # lines long, and a failure detail sits wherever that test happened to
+      # run — which in practice was unreachable: the Actions log API returns
+      # only a bounded TAIL, and the artifact lives on blob storage that is not
+      # always reachable either. The result was a red build reporting "2 failed"
+      # with no way to learn WHICH two without pushing another commit to
+      # bisect.
+      #
+      # So the failures are re-printed HERE, at the very end, where any tail
+      # reaches them. Costs nothing on a green run (the step is skipped).
+      - name: Which tests failed
+        if: failure()
+        run: |
+          echo "=== failing tests, extracted from the full log ==="
+          grep -nE '❌|Expected:|Actual:|Which:|TestFailure|^\s+package:prototype' \
+            ci-perf-tests.log | head -200 || echo "(no failure markers found)"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-checks-logs
+          path: ci-perf-*.log
+          if-no-files-found: ignore
+
+  sim-app:
+    needs: dart-checks
+    name: Build + run the app in the iOS Simulator
+    # macos-26, same as m5 — and the reason is worth recording, because the
+    # first attempt at this job got it wrong.
+    #
+    # This started on macos-14, chosen to match m3, which is where the
+    # iphonesimulator/x86_64 CMake recipe below is proven. That reasoning had a
+    # hole in it: m3 only ever compiles the C++ smoke. It never compiles the
+    # app's Swift plugins, and this job does. Run 3 built the entire native
+    # stack — qcad-core, libslvs, a cold OCCT, the shim, the xcconfig — and
+    # then died in 43 seconds of Xcode with:
+    #
+    #   Value of type 'UnlitMaterial' has no member 'faceCulling'
+    #   reality_view/ios/Classes/PartScene.swift:132
+    #
+    # That line is ALREADY guarded with `#available(iOS 18.0, *)`. An
+    # availability guard is a RUNTIME check; the symbol still has to exist in
+    # the SDK to compile, and macos-14 ships the iOS 17 SDK. So the app cannot
+    # be built on macos-14 at all, with or without the guard.
+    #
+    # m5 builds the same Swift on macos-26 and is green, so Qt 6.7 + the
+    # Xcode 26 toolchain is known to work for qcad-core there.
+    #
+    # STILL UNPROVEN, and the next thing likely to break: whether an x86_64
+    # simulator binary still launches under Rosetta on this image. x86_64 is
+    # forced by Qt (no arm64-simulator slice, see the header). If the launch
+    # step fails, the fallback is NOT to chase Rosetta — it is to drop Qt and
+    # qcad-core from the SIMULATOR build only and go arm64: neither OCCT nor
+    # libslvs needs Qt, `qcad_engine.dart` already falls back to its pure-Dart
+    # engine when the symbols are absent, and OCCT is where the kernel cost
+    # actually is. That trades the `ffi.qcad.*` spans for a pipeline with no
+    # Rosetta dependency at all.
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain report
+        run: |
+          sw_vers
+          xcodebuild -version
+          echo "simulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+
+      - name: Install ccache
+        run: brew list ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: Cache ccache tree
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-sim-${{ hashFiles('backend/**/*.cpp', 'backend/**/*.h', 'backend/**/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-sim-
+
+      - name: Install Qt6 (host, for tools)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'desktop'
+          dir: '${{ github.workspace }}/qt-host'
+          cache: true
+
+      - name: Capture host Qt path
+        id: qt_host
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Qt6 (iOS)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          target: 'ios'
+          dir: '${{ github.workspace }}/qt-ios'
+          cache: true
+
+      - name: Capture iOS Qt path
+        id: qt_ios
+        run: echo "path=${QT_ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      # ---- native stack, all for iphonesimulator/x86_64 --------------------
+
+      - name: Build qcad core + C-API (simulator, x86_64)
+        working-directory: backend/qcad-core
+        run: |
+          set -o pipefail
+          {
+          # Same recipe as m3-ios-sim-logic, which is the proven one. Qt's
+          # prebuilt resource objects carry minos 14.0, so the deployment
+          # target cannot go below that.
+          cmake -B build-sim -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="${{ steps.qt_host.outputs.path }}" \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_QT6=ON \
+            -DQCAD_CAPI_SMOKE=ON
+          cmake --build build-sim -j -- -k 0
+          libtool -static -o release/libprototype-sim.a \
+            release/libqcadcapi.a \
+            release/libqcadcore.a \
+            release/libqcadentity.a \
+            release/libqcadoperations.a \
+            plugins/libqcaddxf.a \
+            release/libdxflib.a
+          lipo -info release/libprototype-sim.a
+          } 2>&1 | tee ../../ci-sim-core.log
+
+      - name: Build libslvs (simulator, x86_64)
+        working-directory: backend/slvs
+        run: |
+          set -o pipefail
+          cmake -S . -B build-sim \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sim -j
+          test -f build-sim/libslvs.a || { echo "MISSING build-sim/libslvs.a"; exit 1; }
+          lipo -info build-sim/libslvs.a
+
+      # OCCT for the simulator is its OWN cache: different sysroot and a
+      # different architecture slice than the device tree in m5, so the two can
+      # never be shared. Cold build is the expensive one (~40-60 min); after
+      # that this restores in seconds. Bump -r1 when the flags change.
+      # RESTORE and SAVE are split on purpose. `actions/cache` declares
+      # `post-if: success()`, so it only writes the cache when the whole job
+      # succeeds — and this job has failed at the link check every time. The
+      # result was that the ~35-minute OCCT build ran on EVERY attempt and
+      # nothing was ever stored, which made each diagnostic round cost forty
+      # minutes instead of five. An explicit save with `if: always()` keeps the
+      # expensive tree even when a later step fails.
+      - name: Restore OpenCASCADE simulator install tree
+        id: occt-sim-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: backend/occt/install-sim
+          key: occt-sim-x86_64-V7_9_3-r1
+
+      - name: Build OpenCASCADE (simulator, x86_64, cache miss only)
+        if: steps.occt-sim-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -o pipefail
+          git -C "$GITHUB_WORKSPACE" submodule update --init --depth 1 \
+            -- backend/occt/upstream \
+            || git -C "$GITHUB_WORKSPACE" submodule update --init \
+                 -- backend/occt/upstream
+          git -C upstream log --oneline -1
+          cmake -S upstream -B build-occt-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-sim" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_LIBRARY_TYPE=Static \
+            -DBUILD_MODULE_FoundationClasses=ON \
+            -DBUILD_MODULE_ModelingData=ON \
+            -DBUILD_MODULE_ModelingAlgorithms=ON \
+            -DBUILD_MODULE_DataExchange=ON \
+            -DBUILD_MODULE_ApplicationFramework=OFF \
+            -DBUILD_MODULE_Visualization=OFF \
+            -DBUILD_MODULE_Draw=OFF \
+            -DBUILD_MODULE_DETools=OFF \
+            -DBUILD_DOC_Overview=OFF \
+            -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_XLIB=OFF \
+            -DUSE_FREEIMAGE=OFF -DUSE_OPENVR=OFF -DUSE_FFMPEG=OFF \
+            -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF \
+            2>&1 | tail -25
+          cmake --build build-occt-sim -j 2>&1 | tail -25
+          cmake --install build-occt-sim > /dev/null
+
+      # Immediately after the build, before anything else can fail.
+      - name: Save OpenCASCADE simulator install tree
+        if: always() && steps.occt-sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: backend/occt/install-sim
+          key: occt-sim-x86_64-V7_9_3-r1
+
+      - name: Build OCCT C shim (simulator, x86_64)
+        working-directory: backend/occt
+        run: |
+          set -o pipefail
+          ls "$GITHUB_WORKSPACE/backend/occt/install-sim/lib/cmake/opencascade/"
+          # MODE_PACKAGE=BOTH — iOS cross-compiles re-root find_package into the
+          # SDK sysroot, so without it the prefix path is invisible (the same
+          # lesson m5 records for the device tree).
+          cmake -S . -B build-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-sim"
+          cmake --build build-sim -j
+          test -f build-sim/libocct_capi.a || { echo "MISSING build-sim/libocct_capi.a"; exit 1; }
+          lipo -info build-sim/libocct_capi.a
+
+      # ---- Flutter -----------------------------------------------------------
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Scaffold iOS project + pub get
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          flutter --version
+          flutter create --platforms=ios --org com.prototype --project-name prototype .
+          # File sharing, so the perf log lands somewhere we can read it back
+          # out of the data container.
+          /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
+          rm -f test/widget_test.dart
+          flutter pub get
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/Runner.xcodeproj/project.pbxproj
+          flutter build ios --config-only --simulator --debug \
+            --build-name=0.1.${{ github.run_number }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7}
+          if [ -f ios/Podfile ]; then
+            sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+            sed -i '' "s/^platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+          fi
+          } 2>&1 | tee ../ci-sim-scaffold.log
+
+      - name: Inject FFI link flags (simulator xcconfig)
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          QTIOS="${{ steps.qt_ios.outputs.path }}"
+          CORE="$GITHUB_WORKSPACE/backend/qcad-core/release"
+          BUILD="$GITHUB_WORKSPACE/backend/qcad-core/build-sim"
+          SLVS="$GITHUB_WORKSPACE/backend/slvs/build-sim"
+          OCCT="$GITHUB_WORKSPACE/backend/occt"
+          OCCTLIBS="$(ls "$OCCT/install-sim/lib"/libTK*.a | tr '\n' ' ')"
+          echo "OCCT archives on the link line: $(echo "$OCCTLIBS" | wc -w)"
+          # Same trick as m5: ask ninja for the smoke executable's exact link
+          # line, because it is the only place the finalizer-GENERATED Qml
+          # type-registration objects appear.
+          LINKCMD="$(mktemp)"
+          ninja -C "$BUILD" -t commands | grep -E -- "-o [^ ]*qcad_capi_smoke( |$)" | tail -1 > "$LINKCMD"
+          [ -s "$LINKCMD" ] || { echo "smoke link command not found via ninja -t commands"; exit 1; }
+          QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
+          echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens)"
+          # NO exported_symbols_list on the simulator build. Single-variable
+          # experiment, and the reasoning is narrow enough to be worth stating.
+          #
+          # Runs 4-8: ld runs for Runner (its warnings are in the log), emits
+          # no "ignoring file", the resolved OTHER_LDFLAGS carries all three
+          # -force_load, and the output still has 70 symbols and zero
+          # occt_/qcad_. Of everything we pass, -exported_symbols_list is the
+          # ONLY flag that can remove code that was already loaded: it hides
+          # every symbol not listed, and hidden + unreferenced is exactly what
+          # dead-stripping collects. Nothing in the app references these
+          # symbols statically — Dart resolves them at RUNTIME via
+          # DynamicLibrary.process() + dlsym — so being an export root is the
+          # only thing keeping them alive. If that list is not doing its job
+          # here, force_load loads the members and the linker drops them again,
+          # which fits every observation we have.
+          #
+          # Dropping it costs nothing on this lane: without a list ld exports
+          # all global symbols, so dlsym still finds them (a larger binary is
+          # irrelevant for a CI simulator build). If the symbols appear, that
+          # was the cause; if they do not, the cause is upstream of the link
+          # and the arm64 fallback is next.
+          printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
+          echo "symbols file (written but NOT passed to ld on this lane):"
+          cat ios/Flutter/qcad_symbols.exp
+          cat > ios/Flutter/ffi.xcconfig <<XC
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype-sim.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-sim/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -weak_framework RealityKit -weak_framework ARKit -lz -lc++
+          IPHONEOS_DEPLOYMENT_TARGET = 14.0
+          ARCHS = x86_64
+          VALID_ARCHS = x86_64
+          ONLY_ACTIVE_ARCH = NO
+          EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
+          XC
+          sed -i '' 's/^          //' ios/Flutter/ffi.xcconfig
+          for f in ios/Flutter/Debug.xcconfig ios/Flutter/Release.xcconfig ios/Flutter/Profile.xcconfig; do
+            [ -f "$f" ] && printf '\n#include "ffi.xcconfig"\n' >> "$f" && echo "patched $f"
+          done
+          cat ios/Flutter/ffi.xcconfig
+          # BELT AND BRACES — the same flags straight onto the app target.
+          # The xcconfig route demonstrably does not reach the link on this
+          # lane (ten runs; the full argument is in ci/patch_ldflags.py). A
+          # target-level setting cannot be inherited away, so this is the path
+          # that should win. The xcconfig include stays too — whichever wins,
+          # the flags are there, and that redundancy is deliberate.
+          python3 "$GITHUB_WORKSPACE/ci/patch_ldflags.py" \
+            ios/Runner.xcodeproj/project.pbxproj ios/Flutter/ffi.xcconfig
+          } 2>&1 | tee ../ci-sim-xcconfig.log
+
+      - name: Analyze Dart
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../ci-sim-analyze.log
+
+      - name: Host tests
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee ../ci-sim-tests.log
+
+      - name: Build app for the simulator
+        timeout-minutes: 45
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # --debug is not a choice. Flutter rejects --profile/--release for
+          # the simulator; see the header of this file.
+          # -v so Xcode's own output — above all `ld: warning: ignoring file`
+          # — reaches ci-sim-appbuild.log. Without it Flutter prints a one-line
+          # summary and the reason a force_load silently did nothing is lost.
+          flutter build ios --simulator --debug -v \
+            --build-name=0.1.${{ github.run_number }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7} 2>&1 | tee ../ci-sim-appbuild.log
+          APP="build/ios/iphonesimulator/Runner.app"
+          [ -d "$APP" ] || { echo "SIM BUILD: FAIL (Runner.app missing)"; exit 1; }
+          lipo -info "$APP/Runner" || true
+          # LINKAGE PROOF — by SYMBOL, not by string literal.
+          #
+          # m5 greps the binary for the "Prototype C-API" literal and that
+          # works for its release/device build. It does NOT work here, and run
+          # 5 proved why by elimination: the archives are all x86_64, the
+          # marker IS inside libprototype-sim.a, the member objects carry
+          # platform 7 / sdk 26.5, ld emitted no "ignoring file" warning, and
+          # Xcode resolved OTHER_LDFLAGS with all three -force_load flags and
+          # every OCCT archive intact. The link was never the problem — the
+          # assertion was. macOS `strings` does not scan a whole Mach-O by
+          # default, and a debug simulator binary lays its sections out
+          # differently from the release device binary m5 checks.
+          #
+          # `nm` asks the question we actually mean: are the C-API entry points
+          # in this binary? The exported_symbols_list keeps _qcad_*/_slvs_*/
+          # _occt_* in the export trie precisely so Dart's
+          # DynamicLibrary.process() can dlsym them, so their absence here
+          # would be the real failure — and unlike a string, a symbol cannot
+          # be present for a decorative reason.
+          # Scan EVERY Mach-O in the bundle, not just $APP/Runner.
+          #
+          # This is the whole finding of runs 4-12, and it is worth stating
+          # plainly because it cost eight of them. Under Xcode 26 the app is
+          # built into `Runner.debug.dylib` (~64 MB) and `Runner` is a ~52 KB
+          # launcher stub that loads it. Our native stack was linked correctly
+          # the entire time — qcad=17, occt=46, 4538 OCCT C++ symbols, all in
+          # the dylib — while this check kept interrogating the stub and
+          # reporting a failure that never existed.
+          #
+          # The lesson is not "use nm instead of strings", which is what run 6
+          # concluded and which was too small a correction. It is: verify WHERE
+          # you are looking before hardening HOW you look. m5's check greps
+          # $APP/Runner because on its release device build that is the whole
+          # binary; carrying that assumption to a debug simulator build under a
+          # newer Xcode is what broke.
+          scan() {
+            local pat="$1" total=0
+            while read -r bin; do
+              file "$bin" 2>/dev/null | grep -q Mach-O || continue
+              local n
+              n=$(nm -a "$bin" 2>/dev/null | grep -c "$pat" || true)
+              total=$((total + n))
+            done < <(find "$APP" -type f -perm +111 2>/dev/null)
+            echo "$total"
+          }
+          QCAD_N="$(scan ' _qcad_')"
+          OCCT_N="$(scan ' _occt_')"
+          SLVS_N="$(scan ' _slvs_')"
+          echo "symbols across the whole bundle: qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N"
+          # Belt and braces: -a makes strings scan the entire file, which is
+          # what the m5-style check should have said all along.
+          HITS="$(find "$APP" -type f -perm +111 -exec strings -a {} + 2>/dev/null \
+            | grep -c "Prototype C-API" || true)"
+          echo "marker hits (strings -a, whole bundle): $HITS"
+          if [ "${QCAD_N:-0}" -gt 0 ] && [ "${OCCT_N:-0}" -gt 0 ] && [ "${SLVS_N:-0}" -gt 0 ]; then
+            echo "SIM LINK CHECK: PASS (qcad=$QCAD_N occt=$OCCT_N slvs=$SLVS_N exported)"
+            exit 0
+          fi
+          # ---- the check failed: DIAGNOSE, do not just die -----------------
+          #
+          # Run 4 got here. The app built, and `ARCHS = x86_64` from
+          # ffi.xcconfig demonstrably took effect (the binary is x86_64), so
+          # the xcconfig IS being read — yet -force_load did not bring the core
+          # in. Flutter summarises Xcode's output, so the one line that would
+          # explain it ("ld: warning: ignoring file ... built for ...") never
+          # reached the log. Everything below exists to put it there, because a
+          # second guess costs another 40-minute round trip.
+          echo "SIM LINK CHECK: FAIL (qcad core not linked) — diagnostics follow"
+          # THE DISCRIMINATOR, added after run 6. `nm -gU` lists only EXPORTED
+          # symbols; `nm -a` lists every symbol including local ones. That
+          # difference separates the two remaining explanations, which need
+          # opposite fixes:
+          #   local symbols present, exported absent -> the archives ARE being
+          #     linked and -exported_symbols_list is what is dropping them.
+          #   nothing at all                          -> -force_load never ran;
+          #     the flags reach `xcodebuild -showBuildSettings` but not the
+          #     actual link, i.e. something overrides OTHER_LDFLAGS at target
+          #     level (the trap m5 documents for IPHONEOS_DEPLOYMENT_TARGET).
+          # FIRST: check the assumption every previous run rested on.
+          #
+          # Eleven runs have asked "are the symbols in Runner?" and never asked
+          # "is Runner where they would be?". That is the same class of mistake
+          # this lane already made once, when `strings` without -a was trusted
+          # to have scanned the whole file. So scan EVERY Mach-O in the bundle
+          # and print sizes: if the archives landed in a framework instead of
+          # the executable, the link was fine all along and the check has been
+          # looking in the wrong place since run 4.
+          echo "== 0-. every Mach-O in the .app, with size and our symbols =="
+          find "$APP" -type f -perm +111 2>/dev/null | while read -r bin; do
+            file "$bin" 2>/dev/null | grep -q Mach-O || continue
+            sz=$(stat -f%z "$bin" 2>/dev/null || echo '?')
+            q=$(nm -a "$bin" 2>/dev/null | grep -c ' _qcad_' || true)
+            o=$(nm -a "$bin" 2>/dev/null | grep -c ' _occt_' || true)
+            c=$(nm -a "$bin" 2>/dev/null | grep -c 'TopoDS\|BRepBuilderAPI' || true)
+            printf '  %-58s %10s bytes  qcad=%s occt=%s occtC++=%s\n' \
+              "${bin#$APP/}" "$sz" "$q" "$o" "$c"
+          done
+          echo "== 0. ALL symbols (nm -a), not just exported =="
+          echo "  total symbols:  $(nm -a "$APP/Runner" 2>/dev/null | wc -l)"
+          echo "  any occt_:      $(nm -a "$APP/Runner" 2>/dev/null | grep -c occt_ || true)"
+          echo "  any qcad_:      $(nm -a "$APP/Runner" 2>/dev/null | grep -c qcad_ || true)"
+          echo "  any OCCT C++:   $(nm -a "$APP/Runner" 2>/dev/null | grep -c 'BRepBuilderAPI\|TopoDS\|Standard_' || true)"
+          echo "== 0b. is our include still in Debug.xcconfig at build time? =="
+          cat ios/Flutter/Debug.xcconfig || true
+          echo "== 0c. does the TARGET override OTHER_LDFLAGS in the pbxproj? =="
+          grep -n "OTHER_LDFLAGS" ios/Runner.xcodeproj/project.pbxproj || \
+            echo "(no target-level OTHER_LDFLAGS — the xcconfig should win)"
+          echo "== 1. do the archives exist, and for which architecture? =="
+          for a in "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" \
+                   "$GITHUB_WORKSPACE/backend/slvs/build-sim/libslvs.a" \
+                   "$GITHUB_WORKSPACE/backend/occt/build-sim/libocct_capi.a"; do
+            if [ -f "$a" ]; then printf '%s: ' "$a"; lipo -info "$a" 2>&1 || true
+            else echo "MISSING $a"; fi
+          done
+          echo "== 2. is the marker even IN the archive we force_load? =="
+          strings "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" \
+            | grep -c "Prototype C-API" || echo "(marker absent from the archive itself)"
+          echo "== 3. platform of a member object (expect platform 7 = iOS Simulator) =="
+          otool -l "$GITHUB_WORKSPACE/backend/qcad-core/release/libprototype-sim.a" 2>/dev/null \
+            | grep -A4 -i 'LC_BUILD_VERSION' | head -20 || true
+          # STEP 1 of the parked-lane plan: get the REAL link command.
+          #
+          # `flutter build -v` does not emit it — run 6 proved that, the only
+          # force_load occurrences in the whole log were our own echoes. So ask
+          # xcodebuild directly. The objects are already compiled by the build
+          # above, so this relinks and little else; `-quiet` is deliberately
+          # NOT passed, and the Ld line is what the whole lane now hinges on:
+          # if it carries -force_load, the archives are being offered and
+          # something later discards them; if it does not, the setting never
+          # reaches the link and the fix is to write the flags somewhere
+          # xcodebuild cannot lose them (Pods-Runner.debug.xcconfig, pbxproj).
+          echo "== 3b. THE REAL LINK COMMAND (xcodebuild, unfiltered) =="
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Debug -sdk iphonesimulator -arch x86_64 \
+            build 2>&1 | tee /tmp/xcb.log | grep -A30 -E '^\s+Ld ' | head -60 \
+            || echo "(no Ld line matched)"
+          echo "-- last 25 lines of the direct xcodebuild, so a failure of the"
+          echo "-- DIAGNOSTIC is never mistaken for a finding about the build --"
+          tail -25 /tmp/xcb.log 2>/dev/null || true
+          echo "== 4. what did the linker actually say? =="
+          grep -iE "ignoring file|ld: warning|was built for newer|不兼容|incompatible" \
+            ../ci-sim-appbuild.log | head -40 || echo "(no linker warnings captured)"
+          echo "== 5. the xcconfig we wrote =="
+          cat ios/Flutter/ffi.xcconfig || true
+          echo "== 6. OTHER_LDFLAGS as Xcode RESOLVED it (target settings can override xcconfig) =="
+          xcodebuild -showBuildSettings -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Debug -sdk iphonesimulator 2>/dev/null \
+            | grep -E "OTHER_LDFLAGS|ARCHS|EXCLUDED_ARCHS" | head -20 \
+            || echo "(showBuildSettings unavailable)"
+          exit 1
+
+      - name: Boot simulator, launch the app, pull the perf log
+        timeout-minutes: 30
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+          APP="build/ios/iphonesimulator/Runner.app"
+          BID="com.prototype.prototype"
+          HOLD="${{ github.event.inputs.hold_seconds || '25' }}"
+          # x86_64 app on an arm64 runner.
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          UDID=""
+          for name in "iPad Pro (12.9-inch) (6th generation)" "iPad Pro (11-inch) (4th generation)" "iPad (10th generation)" "iPhone 15"; do
+            if UDID="$(xcrun simctl create perf-sim "$name" 2>/dev/null)"; then
+              echo "created sim '$name' -> $UDID"; break
+            fi
+            UDID=""
+          done
+          [ -n "$UDID" ] || { echo "could not create a simulator"; xcrun simctl list devicetypes; exit 1; }
+          xcrun simctl boot "$UDID"
+          for i in $(seq 1 24); do
+            xcrun simctl list devices | grep "$UDID" | grep -q 'Booted' && { echo "sim booted (~$((i*5))s)"; break; }
+            sleep 5
+          done
+          xcrun simctl install "$UDID" "$APP"
+          # Launch SYNCHRONOUSLY and keep the exit code.
+          #
+          # Run 13 backgrounded this and killed it after the hold, which threw
+          # away both the exit code and the error text — so the step reported
+          # success while the app had never run and Documents was empty. That
+          # is the same false-green that let the link check lie for eight runs,
+          # and it is not repeated here: `simctl launch` without --console-pty
+          # returns as soon as the app is up and tells us whether it started.
+          echo "== launch =="
+          set +e
+          OUT="$(xcrun simctl launch --terminate-running-process "$UDID" "$BID" 2>&1)"; RC=$?
+          set -e
+          echo "launch rc=$RC: $OUT"
+          # Perf flushes every 5 s, so anything shorter pulls an empty file and
+          # looks like the app records nothing.
+          sleep "$HOLD"
+          echo "== app Documents container =="
+          DATA="$(xcrun simctl get_app_container "$UDID" "$BID" data)"
+          echo "container: $DATA"
+          ls -la "$DATA/Documents" || true
+          mkdir -p "$GITHUB_WORKSPACE/perf-out"
+          cp -R "$DATA/Documents/logs" "$GITHUB_WORKSPACE/perf-out/" 2>/dev/null || \
+            echo "NOTE: no logs/ directory — the app did not reach Log.init()"
+          cp ../ci-sim-console.log "$GITHUB_WORKSPACE/perf-out/" 2>/dev/null || true
+          SIMUDID="$UDID"
+          xcrun simctl shutdown "$UDID" || true
+          echo "== what we got back =="
+          find "$GITHUB_WORKSPACE/perf-out" -type f -exec ls -la {} \;
+          echo "== performance_logs.txt (tail) =="
+          if [ -s "$GITHUB_WORKSPACE/perf-out/logs/performance_logs.txt" ]; then
+            tail -80 "$GITHUB_WORKSPACE/perf-out/logs/performance_logs.txt"
+            echo "PERF CAPTURE: PASS"
+          else
+            # FAIL, loudly. Run 13 printed "(no performance log)" and exited 0,
+            # so the job went green having produced nothing at all. A capture
+            # step that cannot fail is not a capture step.
+            echo "PERF CAPTURE: FAIL (no performance log was produced)"
+            # Diagnostics belong HERE, not behind `launch rc != 0`.
+            #
+            # Run 14: rc was 0 and the app got a pid — and then died before
+            # Log.init(), so Documents stayed empty and the crash dump never
+            # ran because it was gated on the launch return code. `simctl
+            # launch` returns as soon as the process spawns; it says nothing
+            # about whether it survived. The condition that actually means
+            # "something went wrong" is this one: no log came out.
+            echo "== recent crash reports =="
+            find ~/Library/Logs/DiagnosticReports -name '*.ips' \
+              -newermt '-10 minutes' 2>/dev/null | head -3 | while read -r c; do
+              echo "--- $c"; head -60 "$c"; done || true
+            echo "== simulator system log for our bundle =="
+            xcrun simctl spawn "$SIMUDID" log show --last 5m --style compact \
+              --predicate 'senderImagePath CONTAINS "prototype" OR processImagePath CONTAINS "prototype"' \
+              2>/dev/null | tail -60 || true
+            xcrun simctl delete "$SIMUDID" 2>/dev/null || true
+            exit 1
+          fi
+          xcrun simctl delete "$SIMUDID" 2>/dev/null || true
+          } 2>&1 | tee ../ci-sim-run.log
+
+      - name: Zip the simulator app
+        if: always()
+        working-directory: frontend
+        run: |
+          if [ -d build/ios/iphonesimulator/Runner.app ]; then
+            ditto -c -k --sequesterRsrc --keepParent \
+              build/ios/iphonesimulator/Runner.app \
+              "$GITHUB_WORKSPACE/Runner-sim-${{ github.run_number }}.app.zip"
+            ls -la "$GITHUB_WORKSPACE/Runner-sim-${{ github.run_number }}.app.zip"
+          fi
+
+      - name: Upload the simulator app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: simulator-app
+          path: Runner-sim-*.app.zip
+          if-no-files-found: warn
+
+      - name: Upload the perf capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: perf-capture
+          path: |
+            perf-out/**
+            ci-sim-*.log
+          if-no-files-found: warn
+
+      # M221 — the capture on a BRANCH, not only as an artifact.
+      #
+      # An artifact is delivered from Azure blob storage, which the agent proxy
+      # refuses (403 on the CONNECT tunnel). The consequence was concrete and
+      # lasted the whole branch: sim-perf has been green since run 32 and NOT
+      # ONE of its numbers has ever been read by anyone. The measurement
+      # existed, the delivery did not.
+      #
+      # Same belt as ci-debug-logs-dart/-m3/-m5: commit it where git can reach
+      # it. The perf files are small (a text log plus two JSON), so a branch is
+      # the cheap and durable channel. `|| exit 0` keeps a no-change run green,
+      # exactly as the other log branches do.
+      - name: Publish the perf capture to ci-logs-perf
+        if: always()
+        run: |
+          mkdir -p ci-logs-perf
+          cp -R perf-out/. ci-logs-perf/ 2>/dev/null || true
+          cp ci-sim-*.log ci-logs-perf/ 2>/dev/null || true
+          # Stamp the run so a reader knows which commit produced the numbers
+          # without opening the Actions UI. Simulator captures are otherwise
+          # indistinguishable from one another.
+          {
+            echo "run_id:     ${{ github.run_id }}"
+            echo "run_number: ${{ github.run_number }}"
+            echo "sha:        ${{ github.sha }}"
+            echo "ref:        ${{ github.ref }}"
+            echo "captured:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > ci-logs-perf/RUN.txt
+          find ci-logs-perf -type f -exec ls -la {} \;
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
+          git add -f ci-logs-perf
+          git commit -m "CI(perf): simulator capture from run ${{ github.run_id }} (${{ github.sha }})" \
+            || exit 0
+          git push origin HEAD:ci-logs-perf --force

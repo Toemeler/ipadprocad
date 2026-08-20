@@ -1,0 +1,405 @@
+name: Kernel Bench (Lane C)  # headless OCCT benchmark — no iOS, no device
+
+# WHY THIS WORKFLOW EXISTS
+#
+# PERFORMANCE_PROFILE.md §15.5 lists this as one of two instruments that were
+# specified and never built: "the C++ under backend/ needs no iOS: a `bench`
+# target against the C-ABI shim with fixed fixtures, run on macos for the same
+# ISA family, gives minutes-per-loop iteration on exactly the operations §6.5
+# indicts. This is the fastest loop available for the occt_shape_edge_info work
+# specifically, and it does not exist."
+#
+# OPTIMIZATION_PLAN.md §2 says why it matters now: no session can produce a
+# device measurement, so between one iPad capture and the next everybody
+# optimising the kernel is flying blind. This lifts that for the kernel work.
+#
+# WHAT MAY BE READ FROM ITS OUTPUT (§13.3, and it is binding)
+#   May     : relative cost between operations, exponents and their intervals,
+#             allocation and RSS behaviour, structural change.
+#   May NOT : any absolute millisecond as an iPad millisecond. A desktop runs
+#             at a higher clock with no thermal ceiling. Quoting one as the
+#             other is the M75 error in new clothing.
+#
+# TWO JOBS, ON PURPOSE
+#   linux : ubuntu, x86_64. Cheap, and it shares occt-build.yml's EXISTING
+#           host install cache key, so it is usually warm. An exponent is a
+#           scaling law and does not care about the ISA, so this job is the
+#           one that gates.
+#   macos : arm64, the same ISA family as the iPad chip — which is the whole
+#           reason §15.5 named a mac runner. Its numbers are the ones worth
+#           comparing across operations. macos-26, not the plan's macos-14:
+#           macos-14 entered deprecation on 2026-07-06 and occt-build.yml
+#           already moved off it for that reason.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sizes:
+        description: 'Ring profile-point rungs (comma separated)'
+        required: false
+        default: '60,120,240,480'
+      reps:
+        description: 'Repetitions per operation per rung'
+        required: false
+        default: '7'
+      run_macos:
+        description: 'Also run the arm64 job (slow on a cold cache)'
+        type: boolean
+        required: false
+        default: true
+  push:
+    branches: [ 'claude/perf-opt**' ]
+    paths:
+      - 'backend/bench/**'
+      - 'backend/CMakeLists.txt'
+      - 'backend/occt/**'
+      - '.github/workflows/kernel-bench.yml'
+
+# contents: write, because the results are published to the ci-logs-bench
+# BRANCH and not only as an artifact. §13.1 is the cautionary tale this copies
+# from: sim-perf.yml was green from run 32 onward and not one of its numbers
+# was ever read, because artifacts come from blob storage that the restricted
+# network refuses. A measurement with no delivery path is not a measurement.
+permissions:
+  contents: write
+
+# Never cancel a run in progress — the same reasoning sim-perf.yml records at
+# M221. A cold OCCT build is long, every push during that window would kill it,
+# and a cancelled run is not a red one, so the failure would be invisible.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Identical to occt-build.yml's OCCT_COMMON_FLAGS. It must stay identical:
+  # the benchmark measures the kernel the app ships, and a differently
+  # configured OCCT is a different kernel.
+  OCCT_COMMON_FLAGS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_LIBRARY_TYPE=Static
+    -DBUILD_MODULE_FoundationClasses=ON
+    -DBUILD_MODULE_ModelingData=ON
+    -DBUILD_MODULE_ModelingAlgorithms=ON
+    -DBUILD_MODULE_DataExchange=ON
+    -DBUILD_MODULE_ApplicationFramework=OFF
+    -DBUILD_MODULE_Visualization=OFF
+    -DBUILD_MODULE_Draw=OFF
+    -DBUILD_MODULE_DETools=OFF
+    -DBUILD_DOC_Overview=OFF
+    -DUSE_FREETYPE=OFF
+    -DUSE_TK=OFF
+    -DUSE_XLIB=OFF
+    -DUSE_FREEIMAGE=OFF
+    -DUSE_OPENVR=OFF
+    -DUSE_FFMPEG=OFF
+    -DUSE_RAPIDJSON=OFF
+    -DUSE_DRACO=OFF
+    -DUSE_TBB=OFF
+    -DUSE_VTK=OFF
+
+jobs:
+  # FAST FEEDBACK, and not optional — the same argument sim-perf.yml makes for
+  # its dart-checks job. The heavy jobs below can spend two hours in a cold
+  # OCCT build before they reach a line of bench code. The harness's own
+  # arithmetic needs none of that.
+  bench-selftest:
+    name: Harness arithmetic (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the statistics self-test
+        run: |
+          set -o pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra \
+            -o bench_stats_test \
+            backend/bench/bench_stats_test.cpp backend/bench/bench_stats.cpp
+          ./bench_stats_test | tee bench-stats-test.log
+          grep -q "BENCH STATS: PASS" bench-stats-test.log \
+            || { echo "LANE C: FAIL (statistics self-test)"; exit 1; }
+
+      # The claim that this harness and PERFORMANCE_PROFILE.md compute the same
+      # exponent is load-bearing: every calibration verdict compares one
+      # against the other. Verify it rather than assert it — feed both
+      # implementations the profile's own published rungs and require they
+      # agree to nine decimals.
+      - name: C++ and Python fits must agree
+        run: |
+          set -o pipefail
+          cat > xcheck.cpp <<'EOF'
+          #include <cstdio>
+          #include "bench_stats.h"
+          int main() {
+              auto f = bench::fitPowerLaw(
+                  {{360, 616.0}, {720, 2508.0}, {1440, 10017.0}});
+              std::printf("%.9f %.9f %.9f\n", f.k, f.r2, f.se);
+              auto g = bench::fitPowerLaw(
+                  {{72, 0.6252}, {180, 1.5080}, {360, 3.0383}, {720, 6.0729}});
+              std::printf("%.9f %.9f %.9f\n", g.k, g.r2, g.se);
+              return 0;
+          }
+          EOF
+          g++ -std=c++17 -O2 -I backend/bench -o xcheck \
+            xcheck.cpp backend/bench/bench_stats.cpp
+          ./xcheck > cpp.txt
+          python3 - > py.txt <<'EOF'
+          import sys
+          sys.path.insert(0, "ci")
+          import perf_profile as pp
+          for pts in ([(360, 616.0), (720, 2508.0), (1440, 10017.0)],
+                      [(72, 0.6252), (180, 1.5080), (360, 3.0383),
+                       (720, 6.0729)]):
+              f = pp.fit(pts)
+              print("%.9f %.9f %.9f" % (f["k"], f["r2"], f["se"]))
+          EOF
+          echo "--- C++ ---"; cat cpp.txt
+          echo "--- Python (ci/perf_profile.py) ---"; cat py.txt
+          if ! diff cpp.txt py.txt; then
+            echo "LANE C: FAIL — the C++ and Python fits disagree. Every"
+            echo "calibration verdict compares one against the other, so a"
+            echo "difference here invalidates all of them."
+            exit 1
+          fi
+          echo "fits agree to nine decimals"
+
+  bench-linux:
+    name: Bench — ubuntu / x86_64 (gating)
+    runs-on: ubuntu-latest
+    needs: bench-selftest
+    # A cold OCCT build is ~2 h and the bench itself ~20 min. Anything past
+    # this is wedged, and a wedged job should end rather than idle.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch OCCT submodule (shallow, pinned commit)
+        run: |
+          set -o pipefail
+          git submodule update --init --depth 1 -- backend/occt/upstream \
+            || git submodule update --init -- backend/occt/upstream
+          git -C backend/occt/upstream log --oneline -1
+
+      # timeout + retry, because run 3 sat here for 25 minutes on a wedged
+      # apt mirror while the job's only other bound was the OCCT build step's
+      # 150. An unbounded `apt-get update` turns a transient mirror problem
+      # into a run that neither passes nor fails — which is the shape of
+      # failure §13.1 warns about: not a red build, just no result.
+      #
+      # Ninja is a convenience, not a requirement: if both attempts fail the
+      # job continues and CMake falls back to Make (see the generator logic in
+      # the build step). A slow build beats no build.
+      - name: Install Ninja
+        id: ninja
+        timeout-minutes: 8
+        continue-on-error: true
+        run: |
+          set -e
+          for attempt in 1 2; do
+            if sudo apt-get update && sudo apt-get install -y ninja-build; then
+              exit 0
+            fi
+            echo "apt attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "ninja unavailable — the build will fall back to Make"
+          exit 1
+
+      # The SAME key occt-build.yml uses. Sharing it is deliberate: the whole
+      # point of Lane C is a loop measured in minutes, and a two-hour kernel
+      # build in front of it would defeat that. Bump both files together if the
+      # configure flags ever change.
+      - name: Cache OCCT host install tree
+        id: occt-host-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-host
+          key: occt-host-V7_9_3-r1
+
+      - name: Build OpenCASCADE static (host, cache miss only)
+        if: steps.occt-host-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -e
+          set -o pipefail
+          # Whatever the ninja step managed; -G "" lets CMake pick its default.
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          echo "generator: $GEN"
+          cmake -S upstream -B build-occt-host -G "$GEN" \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-host" \
+            $OCCT_COMMON_FLAGS 2>&1 | tee occt-cfg-host.log | tail -20
+          cmake --build build-occt-host -j 2>&1 | tail -20
+          cmake --install build-occt-host > occt-install-host.log 2>&1
+
+      - name: Build the bench
+        run: |
+          set -e
+          set -o pipefail
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          cmake -S backend/bench -B build-bench -G "$GEN" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-host" \
+            2>&1 | tee cfg-bench-linux.log
+          cmake --build build-bench -j 2>&1 | tee build-bench-linux.log | tail -20
+          ./build-bench/bench_stats_test
+
+      # Whether the exponent check is allowed to FAIL the job depends on
+      # whether the shim is still the one the calibration was taken against.
+      #
+      # This is the crux of the harness's design. Session 2's whole job is to
+      # remove the quadratic — and the moment it succeeds, `allEdges` stops
+      # fitting k = 2.012 and a permanent gate on that exponent would go red
+      # forever, for the best possible reason. So the gate keys on the SHA of
+      # occt_capi.cpp recorded in backend/bench/CALIBRATION.txt: while the shim
+      # is unchanged the harness must reproduce the device, and once the shim
+      # changes the same comparison becomes a report of what moved.
+      - name: Decide whether the calibration gate applies
+        id: cal
+        run: |
+          set -e
+          have="$(git hash-object backend/occt/shim/occt_capi.cpp)"
+          want="$(sed -n 's/^occt_capi.cpp[[:space:]]*//p' \
+                    backend/bench/CALIBRATION.txt | tr -d '[:space:]')"
+          echo "shim now       : $have"
+          echo "calibrated at  : $want"
+          if [ "$have" = "$want" ]; then
+            echo "strict=--validate" >> "$GITHUB_OUTPUT"
+            echo "The shim is unchanged since calibration: the exponent check"
+            echo "GATES this job."
+          else
+            echo "strict=" >> "$GITHUB_OUTPUT"
+            echo "The shim has changed since calibration: the exponent check is"
+            echo "INFORMATIONAL. A dropped allEdges exponent is the intended"
+            echo "outcome of Session 2's work, not a broken harness."
+          fi
+
+      - name: Run the bench
+        run: |
+          set -e
+          set -o pipefail
+          mkdir -p bench-out
+          ./build-bench/occt_bench \
+            --sizes "${{ github.event.inputs.sizes || '60,120,240,480' }}" \
+            --reps "${{ github.event.inputs.reps || '7' }}" \
+            --json bench-out/kernel-bench-linux.json \
+            --md   bench-out/kernel-bench-linux.md \
+            ${{ steps.cal.outputs.strict }} \
+            2>&1 | tee bench-out/kernel-bench-linux.log
+          grep -q "LANE C: PASS" bench-out/kernel-bench-linux.log \
+            || { echo "LANE C: FAIL (see the log above)"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          retention-days: 14
+          name: kernel-bench-linux
+          path: bench-out/**
+          if-no-files-found: warn
+
+      - name: Publish to ci-logs-bench
+        if: always()
+        run: bash backend/bench/publish-bench.sh linux
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+
+  bench-macos:
+    name: Bench — macos / arm64 (the ISA that matters)
+    runs-on: macos-26
+    needs: bench-selftest
+    timeout-minutes: 240
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || github.event.inputs.run_macos == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch OCCT submodule (shallow, pinned commit)
+        run: |
+          set -o pipefail
+          git submodule update --init --depth 1 -- backend/occt/upstream \
+            || git submodule update --init -- backend/occt/upstream
+          git -C backend/occt/upstream log --oneline -1
+
+      # Its OWN key: this is a macOS HOST (arm64, macosx sysroot) tree, which
+      # is neither occt-build.yml's ubuntu host tree nor its iOS one. The v2
+      # lesson in occt-build.yml is what happens when trees that are not the
+      # same are treated as if they were.
+      - name: Cache OCCT macOS host install tree
+        id: occt-mac-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-macos
+          key: occt-macos-arm64-V7_9_3-r1
+
+      - name: Build OpenCASCADE static (macOS host, cache miss only)
+        if: steps.occt-mac-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 150
+        working-directory: backend/occt
+        run: |
+          set -e
+          set -o pipefail
+          brew install ninja || true
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          echo "generator: $GEN"
+          cmake -S upstream -B build-occt-macos -G "$GEN" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-macos" \
+            $OCCT_COMMON_FLAGS 2>&1 | tee occt-cfg-macos.log | tail -20
+          cmake --build build-occt-macos -j 2>&1 | tail -20
+          cmake --install build-occt-macos > occt-install-macos.log 2>&1
+
+      - name: Build the bench
+        run: |
+          set -e
+          set -o pipefail
+          brew install ninja || true
+          GEN="$(command -v ninja >/dev/null && echo Ninja || echo 'Unix Makefiles')"
+          cmake -S backend/bench -B build-bench -G "$GEN" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/backend/occt/install-macos" \
+            2>&1 | tee cfg-bench-macos.log
+          cmake --build build-bench -j 2>&1 | tee build-bench-macos.log | tail -20
+          ./build-bench/bench_stats_test
+          # The plan asks for the iPad's ISA family, so prove we got it rather
+          # than trust the runner label.
+          file ./build-bench/occt_bench
+          file ./build-bench/occt_bench | grep -q arm64 \
+            || { echo "LANE C: FAIL (not an arm64 binary)"; exit 1; }
+
+      # The macOS job never gates on the exponent even when the shim is
+      # unchanged. It runs a different allocator interposition (ld64 has no
+      # --wrap) and a different libc++, and the gating decision should be made
+      # once, in one place, by the cheap job. This one is here for the ISA.
+      - name: Run the bench
+        run: |
+          set -e
+          set -o pipefail
+          mkdir -p bench-out
+          ./build-bench/occt_bench \
+            --sizes "${{ github.event.inputs.sizes || '60,120,240,480' }}" \
+            --reps "${{ github.event.inputs.reps || '7' }}" \
+            --json bench-out/kernel-bench-macos.json \
+            --md   bench-out/kernel-bench-macos.md \
+            2>&1 | tee bench-out/kernel-bench-macos.log
+          grep -q "LANE C: PASS" bench-out/kernel-bench-macos.log \
+            || { echo "LANE C: FAIL (see the log above)"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          retention-days: 14
+          name: kernel-bench-macos
+          path: bench-out/**
+          if-no-files-found: warn
+
+      - name: Publish to ci-logs-bench
+        if: always()
+        run: bash backend/bench/publish-bench.sh macos
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}

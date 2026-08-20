@@ -9,6 +9,9 @@
 // is null and callers must not pretend a 3D kernel exists — there is NO
 // Dart fallback for B-Rep. This module depends only on dart:ffi /
 // package:ffi so it can never drag the rest of the app into a compile error.
+// (perf_hook.dart is the one further import, and it is deliberately empty of
+// imports itself — see the note there. Timing goes through those hooks rather
+// than through perf.dart precisely so this invariant survives.)
 //
 // ABI contract (mirrors the header comments — keep in sync):
 //   - int-returning functions: 1 = success, 0 = failure (unless noted).
@@ -21,6 +24,8 @@ import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+
+import 'perf_hook.dart';
 
 // ---- native signatures (14 functions, order of occt_capi.h) -------------
 
@@ -74,6 +79,12 @@ typedef _EdgeCountN = Int32 Function(Pointer<Void>);
 typedef _EdgeCountD = int Function(Pointer<Void>);
 typedef _EdgeInfoN = Int32 Function(Pointer<Void>, Int32, Pointer<Double>);
 typedef _EdgeInfoD = int Function(Pointer<Void>, int, Pointer<Double>);
+// v21 — occt_shape_edges_info: every edge's twelve doubles in ONE call, and
+// therefore ONE whole-shape traversal in the shim instead of one per edge.
+// Returns the number of records written, or -1; the third argument is the
+// buffer's capacity IN RECORDS, not in doubles.
+typedef _EdgesInfoN = Int32 Function(Pointer<Void>, Pointer<Double>, Int32);
+typedef _EdgesInfoD = int Function(Pointer<Void>, Pointer<Double>, int);
 // v16 — occt_fillet_edges / occt_chamfer_edges still exist in the shim and
 // still carry every guarantee, but Dart binds the _ex forms exclusively: they
 // are the same call and they also say which edges were skipped and what size
@@ -224,6 +235,40 @@ class OcctEdgeInfo {
   const OcctEdgeInfo(this.index, this.kind, this.mx, this.my, this.mz, this.tx,
       this.ty, this.tz, this.length, this.radius, this.faceCount,
       [this.dihedralDeg = 0, this.convexity = 0]);
+
+  /// Decode one twelve-double record of the shim's edge layout.
+  ///
+  /// The single-edge (`occt_shape_edge_info`) and bulk
+  /// (`occt_shape_edges_info`) entry points write the SAME twelve fields in
+  /// the same order — the shim computes them with literally the same code —
+  /// so exactly one decoder serves both. [rec] is the whole buffer and [at]
+  /// the record's first index in it, so the bulk path decodes straight out of
+  /// a Float64List view with no copy and no per-record allocation.
+  ///
+  /// Null means "this edge could not be read": the bulk path marks such a
+  /// record with a negative type, which is outside the documented 0..4 range
+  /// and is how it reports a per-edge failure without abandoning the rest of
+  /// the enumeration. A caller drops it, which is precisely what a loop over
+  /// the single-edge call did with a null return. Type 0 is NOT that case —
+  /// it is a degenerate edge, a legitimate record, and it is kept.
+  static OcctEdgeInfo? decodeRecord(int index, List<double> rec, [int at = 0]) {
+    if (at < 0 || at + 12 > rec.length) return null;
+    if (rec[at] < 0) return null;
+    return OcctEdgeInfo(
+        index,
+        rec[at].round(),
+        rec[at + 1],
+        rec[at + 2],
+        rec[at + 3],
+        rec[at + 4],
+        rec[at + 5],
+        rec[at + 6],
+        rec[at + 7],
+        rec[at + 8],
+        rec[at + 9].round(),
+        rec[at + 10],
+        rec[at + 11].round());
+  }
 
   /// An edge a fillet or chamfer can actually be applied to.
   bool get filletable => kind != 0 && length > 0 && faceCount == 2;
@@ -409,7 +454,9 @@ class OcctShape {
   bool exportStep(String path) {
     final p = path.toNativeUtf8();
     try {
-      return _ffi._exportStep(_handle, p) == 1;
+      return ffiSpan('ffi.occt.exportStep',
+              () => _ffi._exportStep(_handle, p)) ==
+          1;
     } finally {
       calloc.free(p);
     }
@@ -421,31 +468,71 @@ class OcctShape {
   int get edgeCount => _ffi._shapeEdgeCount(_handle);
 
   /// v12 — identity record of 1-based topological edge [index], or null.
+  ///
+  /// This is the SINGLE-edge door and it stays exactly as expensive as it has
+  /// always been: the shim rebuilds its whole-shape context per call. Do not
+  /// call it in a loop — that loop is the Θ(n²) that
+  /// `PERFORMANCE_PROFILE.md` §6.5 measures at ten seconds for one solid. Use
+  /// [allEdges].
   OcctEdgeInfo? edgeInfo(int index) {
     // 12 doubles since v13; the last two are the dihedral and the convexity.
     final buf = calloc<Double>(12);
     try {
+      ffiCount('ffi.occt.edgeInfo.calls', 1);
       if (_ffi._shapeEdgeInfo(_handle, index, buf) != 1) return null;
-      return OcctEdgeInfo(index, buf[0].round(), buf[1], buf[2], buf[3], buf[4],
-          buf[5], buf[6], buf[7], buf[8], buf[9].round(), buf[10],
-          buf[11].round());
+      return OcctEdgeInfo.decodeRecord(index, buf.asTypedList(12));
     } finally {
       calloc.free(buf);
     }
   }
 
-  /// v12 — every topological edge in one pass (one call per edge underneath,
-  /// but a single allocation). Degenerate edges come back with kind 0.
-  List<OcctEdgeInfo> allEdges() {
-    final n = edgeCount;
-    if (n <= 0) return const [];
-    final out = <OcctEdgeInfo>[];
-    for (var i = 1; i <= n; i++) {
-      final e = edgeInfo(i);
-      if (e != null) out.add(e);
-    }
-    return out;
-  }
+  /// v21 — every topological edge, in ONE shim call and ONE traversal of the
+  /// shape. Degenerate edges come back with kind 0; an edge the kernel cannot
+  /// read is dropped, exactly as it was when this was a Dart-side loop.
+  ///
+  /// It used to be that loop — one `occt_shape_edge_info` per edge, each a
+  /// separate FFI crossing with its own calloc/free — and the measurement said
+  /// the crossings were never the problem. Each of those calls rebuilt the
+  /// shape's edge map, its edge→face ancestor map, its bounding box and a
+  /// solid classifier, and threw all four away: n calls × Θ(n) work.
+  /// `PERFORMANCE_PROFILE.md` §6.5 measures the composite at **k = 2.012**
+  /// [1.910, 2.113], R² = 1.0000, against a control doing strictly more work
+  /// at k = 1.063 — 200.3× at 1440 edges, 10 017 ms for one enumeration, and
+  /// an extrapolated 56.4 s on the part that failed in the field.
+  ///
+  /// The fix is in the shim, where the quadratic is; see
+  /// `occt_shape_edges_info`. What is left here is one crossing and one
+  /// buffer, decoded through the same [OcctEdgeInfo.decodeRecord] the
+  /// single-edge path uses.
+  ///
+  /// TWO COUNTERS, deliberately. `ffi.occt.edgesInfo.calls` counts crossings
+  /// and `ffi.occt.edgesInfo.edges` counts edges enumerated, because the
+  /// regression gate keys on counters (§15.4) and collapsing n crossings into
+  /// one must not also make the amount of WORK invisible. `edgesInfo.edges`
+  /// is the quantity the retired `ffi.occt.edgeInfo.calls` was really
+  /// recording — it was emitted only from here, once per call with by = n, so
+  /// it counted edges and never counted a single-edge call at all. That name
+  /// now counts what it says.
+  List<OcctEdgeInfo> allEdges() => ffiSpan('ffi.occt.allEdges', () {
+        final n = edgeCount;
+        if (n <= 0) return const <OcctEdgeInfo>[];
+        ffiCount('ffi.occt.edgesInfo.calls', 1);
+        ffiCount('ffi.occt.edgesInfo.edges', n);
+        final buf = calloc<Double>(12 * n);
+        try {
+          final got = _ffi._shapeEdgesInfo(_handle, buf, n);
+          if (got <= 0) return const <OcctEdgeInfo>[];
+          final rec = buf.asTypedList(12 * got);
+          final out = <OcctEdgeInfo>[];
+          for (var i = 0; i < got; i++) {
+            final e = OcctEdgeInfo.decodeRecord(i + 1, rec, 12 * i);
+            if (e != null) out.add(e);
+          }
+          return out;
+        } finally {
+          calloc.free(buf);
+        }
+      });
 
   /// v12 — constant-radius edge fillet. [edgeIds] are 1-based TOPOLOGICAL
   /// indices (translate a picked display edge through
@@ -473,8 +560,11 @@ class OcctShape {
         rs[i] = radii[i];
         if (rs2 != nullptr) rs2[i] = radii2[i];
       }
-      final out =
-          _ffi._wrap(_ffi._filletEdgesEx(_handle, ids, rs, rs2, n, drop, scale));
+      final out = ffiSpan(
+          'ffi.occt.filletEdges',
+          () => _ffi._wrap(
+              _ffi._filletEdgesEx(_handle, ids, rs, rs2, n, drop, scale)));
+      ffiCount('ffi.occt.filletEdges.edges', n);
       report?._read(drop, scale, n);
       return out;
     } finally {
@@ -497,8 +587,10 @@ class OcctShape {
       {int maxHits = 32}) {
     final buf = calloc<Double>(maxHits);
     try {
-      final n = _ffi._revolveHitsFace(_handle, axPx, axPy, axPz, axDx, axDy,
-          axDz, px, py, pz, fx, fy, fz, buf, maxHits);
+      final n = ffiSpan(
+          'ffi.occt.revolveHitsFace',
+          () => _ffi._revolveHitsFace(_handle, axPx, axPy, axPz, axDx, axDy,
+              axDz, px, py, pz, fx, fy, fz, buf, maxHits));
       if (n <= 0) return const [];
       return List<double>.generate(n, (i) => buf[i], growable: false);
     } finally {
@@ -534,8 +626,11 @@ class OcctShape {
         if (p2 != nullptr) p2[i] = d2[i];
         if (pa != nullptr) pa[i] = angleDeg[i];
       }
-      final out = _ffi._wrap(
-          _ffi._chamferEdgesEx(_handle, ids, md, p1, p2, pa, n, drop, scale));
+      final out = ffiSpan(
+          'ffi.occt.chamferEdges',
+          () => _ffi._wrap(_ffi._chamferEdgesEx(
+              _handle, ids, md, p1, p2, pa, n, drop, scale)));
+      ffiCount('ffi.occt.chamferEdges.edges', n);
       report?._read(drop, scale, n);
       return out;
     } finally {
@@ -559,9 +654,10 @@ class OcctShape {
       {int maxHits = 32}) {
     final buf = calloc<Double>(maxHits);
     try {
-      final n = _ffi._revolveHits(
-          _handle, axPx, axPy, axPz, axDx, axDy, axDz, px, py, pz, buf,
-          maxHits);
+      final n = ffiSpan(
+          'ffi.occt.revolveHits',
+          () => _ffi._revolveHits(_handle, axPx, axPy, axPz, axDx, axDy, axDz,
+              px, py, pz, buf, maxHits));
       if (n <= 0) return const [];
       return List<double>.generate(n, (i) => buf[i], growable: false);
     } finally {
@@ -578,7 +674,8 @@ class OcctShape {
       {int maxHits = 32}) {
     final buf = calloc<Double>(maxHits);
     try {
-      final n = _ffi._rayHits(_handle, ox, oy, oz, dx, dy, dz, buf, maxHits);
+      final n = ffiSpan('ffi.occt.rayHits',
+          () => _ffi._rayHits(_handle, ox, oy, oz, dx, dy, dz, buf, maxHits));
       if (n <= 0) return const [];
       return List<double>.generate(n, (i) => buf[i], growable: false);
     } finally {
@@ -598,7 +695,8 @@ class OcctShape {
       for (var i = 0; i < 12; i++) {
         p[i] = mat34[i];
       }
-      return _ffi._wrap(_ffi._transform(_handle, p));
+      return ffiSpan(
+          'ffi.occt.transform', () => _ffi._wrap(_ffi._transform(_handle, p)));
     } finally {
       calloc.free(p);
     }
@@ -623,7 +721,8 @@ class OcctShape {
       p[3] = nx;
       p[4] = ny;
       p[5] = nz;
-      return _ffi._wrap(_ffi._mirror(_handle, p));
+      return ffiSpan(
+          'ffi.occt.mirror', () => _ffi._wrap(_ffi._mirror(_handle, p)));
     } finally {
       calloc.free(p);
     }
@@ -636,8 +735,16 @@ class OcctShape {
   OcctMeshData? mesh(
       {double linDeflection = 0.2, double angDeflection = 0.35}) {
     final f = _ffi;
-    final mp = f._meshCreate(_handle, linDeflection, angDeflection);
+    // Two spans, deliberately: `meshCreate` is OCCT tessellating (native,
+    // scales with the B-Rep), `meshCopyOut` is Dart copying the result across
+    // the FFI boundary (scales with triangle count — nine typed-list copies
+    // of up to several hundred thousand doubles). They grow for different
+    // reasons and are fixed in different places, so one number covering both
+    // would point at the wrong layer. That is the M75 mistake in miniature.
+    final mp = ffiSpan('ffi.occt.meshCreate',
+        () => f._meshCreate(_handle, linDeflection, angDeflection));
     if (mp == nullptr) return null;
+    ffiCount('ffi.occt.meshCreate.calls', 1);
     try {
       final nv = calloc<Int32>(),
           nt = calloc<Int32>(),
@@ -679,24 +786,32 @@ class OcctShape {
             // the same reason: losing it must cost Delete Face and Direct Edit
             // and nothing else.
             final v20ok = fN > 0 && f._meshFaceIds(mp, fidBuf) == 1;
-            return OcctMeshData(
-              Float64List.fromList(vBuf.asTypedList(3 * vN)),
-              Float64List.fromList(nBuf.asTypedList(3 * vN)),
-              Int32List.fromList(tBuf.asTypedList(3 * tN)),
-              Int32List.fromList(sBuf.asTypedList(eN + 1)),
-              Float64List.fromList(eBuf.asTypedList(3 * epN)),
-              triFaces: v4ok ? Int32List.fromList(tfBuf.asTypedList(tN)) : null,
-              faceInfos: v4ok
-                  ? Float64List.fromList(fiBuf.asTypedList(15 * fN))
-                  : null,
-              edgeCurves: v4ok
-                  ? Float64List.fromList(ecBuf.asTypedList(16 * eN))
-                  : null,
-              edgeIds:
-                  v12ok ? Int32List.fromList(eiBuf.asTypedList(eN)) : null,
-              faceIds:
-                  v20ok ? Int32List.fromList(fidBuf.asTypedList(fN)) : null,
-            );
+            ffiCount('ffi.occt.meshCopyOut.tris', tN);
+            ffiCount('ffi.occt.meshCopyOut.verts', vN);
+            return ffiSpan(
+                'ffi.occt.meshCopyOut',
+                () => OcctMeshData(
+                      Float64List.fromList(vBuf.asTypedList(3 * vN)),
+                      Float64List.fromList(nBuf.asTypedList(3 * vN)),
+                      Int32List.fromList(tBuf.asTypedList(3 * tN)),
+                      Int32List.fromList(sBuf.asTypedList(eN + 1)),
+                      Float64List.fromList(eBuf.asTypedList(3 * epN)),
+                      triFaces: v4ok
+                          ? Int32List.fromList(tfBuf.asTypedList(tN))
+                          : null,
+                      faceInfos: v4ok
+                          ? Float64List.fromList(fiBuf.asTypedList(15 * fN))
+                          : null,
+                      edgeCurves: v4ok
+                          ? Float64List.fromList(ecBuf.asTypedList(16 * eN))
+                          : null,
+                      edgeIds: v12ok
+                          ? Int32List.fromList(eiBuf.asTypedList(eN))
+                          : null,
+                      faceIds: v20ok
+                          ? Int32List.fromList(fidBuf.asTypedList(fN))
+                          : null,
+                    ));
           } finally {
             calloc.free(tfBuf);
             calloc.free(fiBuf);
@@ -782,7 +897,8 @@ class OcctFfi {
       this._meshFaceIds,
       this._deleteFaces,
       this._moveFaces,
-      this._scaleShape);
+      this._scaleShape,
+      this._shapeEdgesInfo);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -809,6 +925,7 @@ class OcctFfi {
   final _FaceOpD _deleteFaces; // v20
   final _MoveFacesD _moveFaces; // v20
   final _ScaleD _scaleShape; // v20
+  final _EdgesInfoD _shapeEdgesInfo; // v21 (bulk edge enumeration)
   final _ImportD _importStep;
   final _SplitD _splitSolids;
   final _FreeD _free;
@@ -929,6 +1046,10 @@ class OcctFfi {
         lib.lookupFunction<_FaceOpN, _FaceOpD>('occt_delete_faces'),
         lib.lookupFunction<_MoveFacesN, _MoveFacesD>('occt_move_faces'),
         lib.lookupFunction<_ScaleN, _ScaleD>('occt_scale_shape'),
+        // v21 — the bulk edge enumeration. Eager, like everything else: a v20
+        // binary probes to null, i.e. "no 3D kernel", which is the documented
+        // policy above.
+        lib.lookupFunction<_EdgesInfoN, _EdgesInfoD>('occt_shape_edges_info'),
       );
     } catch (_) {
       _cached = null;
@@ -952,13 +1073,14 @@ class OcctFfi {
 
   /// Axis-aligned box with one corner at the origin. Null on failure
   /// (see [lastError]).
-  OcctShape? makeBox(double dx, double dy, double dz) =>
-      _wrap(_makeBox(dx, dy, dz));
+  OcctShape? makeBox(double dx, double dy, double dz) => ffiSpan(
+      'ffi.occt.makeBox', () => _wrap(_makeBox(dx, dy, dz)));
 
   /// Solid cylinder: base centre (cx,cy,cz), axis +Z, radius r, height h.
   OcctShape? makeCylinder(
           double cx, double cy, double cz, double r, double h) =>
-      _wrap(_makeCylinder(cx, cy, cz, r, h));
+      ffiSpan('ffi.occt.makeCylinder',
+          () => _wrap(_makeCylinder(cx, cy, cz, r, h)));
 
   /// Extrude a closed simple polygon in z=0 along +Z. [xy] is (x,y) pairs
   /// WITHOUT repeating the first point; needs >= 3 points, even length.
@@ -969,7 +1091,8 @@ class OcctFfi {
       for (var i = 0; i < xy.length; i++) {
         p[i] = xy[i];
       }
-      return _wrap(_extrude(p, xy.length ~/ 2, height));
+      return ffiSpan('ffi.occt.extrudePolygon',
+          () => _wrap(_extrude(p, xy.length ~/ 2, height)));
     } finally {
       calloc.free(p);
     }
@@ -1000,7 +1123,10 @@ class OcctFfi {
           xy[k++] = v;
         }
       }
-      return _wrap(_extrudeProfile(xy, counts, loops.length, height, taperDeg));
+      return ffiSpan(
+          'ffi.occt.extrudeProfile',
+          () => _wrap(
+              _extrudeProfile(xy, counts, loops.length, height, taperDeg)));
     } finally {
       calloc.free(xy);
       calloc.free(counts);
@@ -1029,8 +1155,10 @@ class OcctFfi {
           xyb[k++] = v;
         }
       }
-      return _wrap(
-          _extrudeProfileArcs(xyb, counts, loops.length, height, taperDeg));
+      return ffiSpan(
+          'ffi.occt.extrudeProfileArcs',
+          () => _wrap(_extrudeProfileArcs(
+              xyb, counts, loops.length, height, taperDeg)));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);
@@ -1069,8 +1197,10 @@ class OcctFfi {
       for (var i = 0; i < pathPts.length; i++) {
         pp[i] = pathPts[i];
       }
-      return _wrap(_sweepProfile(xyb, counts, loops.length, m, pp,
-          pathPts.length ~/ 3, orientation, taperDeg, twistDeg));
+      return ffiSpan(
+          'ffi.occt.sweepProfile',
+          () => _wrap(_sweepProfile(xyb, counts, loops.length, m, pp,
+              pathPts.length ~/ 3, orientation, taperDeg, twistDeg)));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);
@@ -1106,8 +1236,10 @@ class OcctFfi {
           mm[12 * i + j] = mats[i][j];
         }
       }
-      return _wrap(_loftSections(xyb, counts, mm, sections.length,
-          solid ? 1 : 0, ruled ? 1 : 0, closed ? 1 : 0));
+      return ffiSpan(
+          'ffi.occt.loftSections',
+          () => _wrap(_loftSections(xyb, counts, mm, sections.length,
+              solid ? 1 : 0, ruled ? 1 : 0, closed ? 1 : 0)));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);
@@ -1147,23 +1279,25 @@ class OcctFfi {
       for (var i = 0; i < 12; i++) {
         m[i] = mat34[i];
       }
-      return _wrap(_coilProfile(
-          xyb,
-          counts,
-          loops.length,
-          m,
-          axP[0],
-          axP[1],
-          axP[2],
-          axD[0],
-          axD[1],
-          axD[2],
-          revolutions,
-          height,
-          taperDeg,
-          clockwise ? 1 : 0,
-          closeStart ? 1 : 0,
-          closeEnd ? 1 : 0));
+      return ffiSpan(
+          'ffi.occt.coilProfile',
+          () => _wrap(_coilProfile(
+              xyb,
+              counts,
+              loops.length,
+              m,
+              axP[0],
+              axP[1],
+              axP[2],
+              axD[0],
+              axD[1],
+              axD[2],
+              revolutions,
+              height,
+              taperDeg,
+              clockwise ? 1 : 0,
+              closeStart ? 1 : 0,
+              closeEnd ? 1 : 0)));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);
@@ -1199,8 +1333,10 @@ class OcctFfi {
           xyb[k++] = v;
         }
       }
-      return _wrap(_revolveProfile(
-          xyb, counts, loops.length, axPx, axPy, axDx, axDy, angleDeg));
+      return ffiSpan(
+          'ffi.occt.revolveProfile',
+          () => _wrap(_revolveProfile(
+              xyb, counts, loops.length, axPx, axPy, axDx, axDy, angleDeg)));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);
@@ -1208,22 +1344,23 @@ class OcctFfi {
   }
 
   /// Boolean union. Inputs remain owned/valid; result is a NEW shape.
-  OcctShape? fuse(OcctShape a, OcctShape b) =>
-      _wrap(_fuse(a._handle, b._handle));
+  OcctShape? fuse(OcctShape a, OcctShape b) => ffiSpan(
+      'ffi.occt.fuse', () => _wrap(_fuse(a._handle, b._handle)));
 
   /// v5 boolean cut (a \ b, Inventor's Cut). Inputs remain owned/valid;
   /// result is a NEW shape. Null on failure incl. an empty result.
-  OcctShape? cut(OcctShape a, OcctShape b) =>
-      _wrap(_cut(a._handle, b._handle));
+  OcctShape? cut(OcctShape a, OcctShape b) => ffiSpan(
+      'ffi.occt.cut', () => _wrap(_cut(a._handle, b._handle)));
 
   /// v5 boolean common (a ∩ b, Inventor's Intersect). Inputs remain
   /// owned/valid; result is a NEW shape. Null on failure incl. an empty result.
-  OcctShape? common(OcctShape a, OcctShape b) =>
-      _wrap(_common(a._handle, b._handle));
+  OcctShape? common(OcctShape a, OcctShape b) => ffiSpan(
+      'ffi.occt.common', () => _wrap(_common(a._handle, b._handle)));
 
   /// v4: merge same-domain faces/edges (cleans boolean results so no
   /// spurious split lines render). Input stays owned; result is NEW.
-  OcctShape? unify(OcctShape a) => _wrap(_unify(a._handle));
+  OcctShape? unify(OcctShape a) =>
+      ffiSpan('ffi.occt.unify', () => _wrap(_unify(a._handle)));
 
   /// M214 — writes [shapes] to one STEP file as one NAMED product each.
   ///
@@ -1251,7 +1388,12 @@ class OcctFfi {
         owned.add(np);
         nameArr[i] = np;
       }
-      return _exportStepNamed(arr, nameArr, shapes.length, p, prod) == 1;
+      ffiCount('ffi.occt.exportStepNamed.shapes', shapes.length);
+      return ffiSpan(
+              'ffi.occt.exportStepNamed',
+              () => _exportStepNamed(
+                  arr, nameArr, shapes.length, p, prod)) ==
+          1;
     } finally {
       for (final np in owned) {
         calloc.free(np);
@@ -1273,7 +1415,9 @@ class OcctFfi {
       for (var i = 0; i < faceIds.length; i++) {
         ids[i] = faceIds[i];
       }
-      return _wrap(_deleteFaces(s._handle, ids, faceIds.length, 1));
+      ffiCount('ffi.occt.deleteFaces.faces', faceIds.length);
+      return ffiSpan('ffi.occt.deleteFaces',
+          () => _wrap(_deleteFaces(s._handle, ids, faceIds.length, 1)));
     } finally {
       calloc.free(ids);
     }
@@ -1288,7 +1432,11 @@ class OcctFfi {
       for (var i = 0; i < faceIds.length; i++) {
         ids[i] = faceIds[i];
       }
-      return _wrap(_moveFaces(s._handle, ids, faceIds.length, dx, dy, dz));
+      ffiCount('ffi.occt.moveFaces.faces', faceIds.length);
+      return ffiSpan(
+          'ffi.occt.moveFaces',
+          () => _wrap(
+              _moveFaces(s._handle, ids, faceIds.length, dx, dy, dz)));
     } finally {
       calloc.free(ids);
     }
@@ -1301,13 +1449,14 @@ class OcctFfi {
   /// the tree into a compile error.
   OcctShape? scaleShape(
           OcctShape s, double cx, double cy, double cz, double factor) =>
-      _wrap(_scaleShape(s._handle, cx, cy, cz, factor));
+      ffiSpan('ffi.occt.scaleShape',
+          () => _wrap(_scaleShape(s._handle, cx, cy, cz, factor)));
 
   /// Read a STEP file (all roots, compound if several). Null on failure.
   OcctShape? importStep(String path) {
     final p = path.toNativeUtf8();
     try {
-      return _wrap(_importStep(p));
+      return ffiSpan('ffi.occt.importStep', () => _wrap(_importStep(p)));
     } finally {
       calloc.free(p);
     }
@@ -1326,7 +1475,8 @@ class OcctFfi {
     if (whole == null) return const [];
     final out = calloc<Pointer<Void>>(max);
     try {
-      final n = _splitSolids(whole._handle, out, max);
+      final n = ffiSpan(
+          'ffi.occt.splitSolids', () => _splitSolids(whole._handle, out, max));
       return [
         for (var i = 0; i < n; i++)
           if (out[i] != nullptr) OcctShape._(this, out[i])

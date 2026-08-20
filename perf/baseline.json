@@ -1,0 +1,2858 @@
+{
+  "conditions": {
+    "activeProcessorCount": 9,
+    "build": "230f179",
+    "capturedAt": "2026-08-18T18:48:14.340496",
+    "lowPowerMode": false,
+    "physicalMemoryMB": 7374,
+    "runners": [
+      "perf_scenarios/v1",
+      "perf_scenarios_stress/v1",
+      "perf_scenarios_ui/v1"
+    ],
+    "thermalPost": "nominal",
+    "thermalPre": "nominal"
+  },
+  "counters": {
+    "2d.displayGeometry.solves": 120,
+    "constraints.unsupportedInFixture.pattern": 1,
+    "ffi.occt.chamferEdges.edges": 17,
+    "ffi.occt.edgeInfo.calls": 8316,
+    "ffi.occt.filletEdges.edges": 33,
+    "ffi.occt.meshCopyOut.tris": 80916,
+    "ffi.occt.meshCopyOut.verts": 110998,
+    "ffi.occt.meshCreate.calls": 323,
+    "ffi.qcad.allGeometry.entities": 760,
+    "ffi.slvs.solve.constraints": 48071,
+    "ffi.slvs.solve.points": 46032,
+    "kernel.feature.ok": 48,
+    "kernel.sweepTwist.fail": 2,
+    "part.rebuild.passes": 15,
+    "solve.iterationsRequested": 11300,
+    "solve.ok": 405,
+    "solve.path.lm": 14,
+    "solve.path.slvs": 394,
+    "solve.slvs.rejected.residual": 12,
+    "solve.unsatisfied": 3,
+    "tool.build.arcCenter.entities": 1,
+    "tool.build.arcTangent.entities": 1,
+    "tool.build.arcThreePoint.entities": 1,
+    "tool.build.bridge.entities": 1,
+    "tool.build.chamfer.null": 1,
+    "tool.build.circleCenter.entities": 1,
+    "tool.build.circleTangent.entities": 1,
+    "tool.build.ellipse.entities": 1,
+    "tool.build.eqCurve.entities": 1,
+    "tool.build.fillet.null": 1,
+    "tool.build.line.entities": 1,
+    "tool.build.lineMid.entities": 1,
+    "tool.build.point.entities": 1,
+    "tool.build.polygon.entities": 7,
+    "tool.build.rect2PC.entities": 6,
+    "tool.build.rect3P.entities": 4,
+    "tool.build.rect3PC.entities": 6,
+    "tool.build.rectTwoPoint.entities": 4,
+    "tool.build.slot3A.entities": 6,
+    "tool.build.slotCC.entities": 5,
+    "tool.build.slotCP.entities": 5,
+    "tool.build.slotCPA.entities": 6,
+    "tool.build.slotOverall.entities": 5,
+    "tool.build.splineCV.entities": 1,
+    "tool.build.splineFree.entities": 1,
+    "tool.build.splineInterp.entities": 1
+  },
+  "gauges": {
+    "analyze.constraints": 1537,
+    "analyze.dof": 1022,
+    "analyze.entities": 1024,
+    "app.blendPattern.edgesFound.2": 180,
+    "app.blendPattern.edgesFound.4": 180,
+    "app.blendPattern.edgesFound.8": 180,
+    "app.blendPattern.occurrences.2": 2,
+    "app.blendPattern.occurrences.4": 4,
+    "app.blendPattern.occurrences.8": 8,
+    "app.codec.entities": 128,
+    "app.engineEntities": 128,
+    "app.facesOf.out.120": 122,
+    "app.facesOf.out.24": 26,
+    "app.facesOf.out.360": 362,
+    "app.facesOf.tris.120": 476,
+    "app.facesOf.tris.24": 92,
+    "app.facesOf.tris.360": 1436,
+    "app.history.entities": 128,
+    "app.journal.bytes": 601860,
+    "app.journal.bytesPerEntry": 28660,
+    "app.journal.depth": 21,
+    "app.patternCopies": 315,
+    "app.patternCount": 64,
+    "app.patternRebuild.count.2": 2,
+    "app.patternRebuild.count.4": 4,
+    "app.patternRebuild.count.8": 8,
+    "app.patternRebuild.ok.2": 1,
+    "app.patternRebuild.ok.4": 1,
+    "app.patternRebuild.ok.8": 1,
+    "app.pick3d.edges": 1440,
+    "app.project.edges": 1440,
+    "app.project.tris": 2856,
+    "app.rebuild.features": 6,
+    "app.scene.features": 6,
+    "app.scene.tris": 2856,
+    "constraints.encoded": 193,
+    "fillet.candidates": 72,
+    "freehand.rawSamples": 1024,
+    "gear.curve.points": 2160,
+    "infer.existing": 128,
+    "infer.found": 29,
+    "kernel.blendEdges": 12,
+    "kernel.boolOperandEdges": 360,
+    "kernel.chainEdges": 128,
+    "kernel.coilRevs": 12,
+    "kernel.edgeInfoScale.edges.120": 360,
+    "kernel.edgeInfoScale.edges.24": 72,
+    "kernel.edgeInfoScale.edges.240": 720,
+    "kernel.edgeInfoScale.edges.60": 180,
+    "kernel.edgeInfoScale.faces.120": 122,
+    "kernel.edgeInfoScale.faces.24": 26,
+    "kernel.edgeInfoScale.faces.240": 242,
+    "kernel.edgeInfoScale.faces.60": 62,
+    "kernel.holes": 12,
+    "kernel.loftSections": 8,
+    "kernel.mesh.srcEdges": 360,
+    "kernel.mesh.tris": 476,
+    "kernel.pathPts": 96,
+    "kernel.profilePts": 48,
+    "kernel.query.edges": 360,
+    "kernel.unify.facesAfter": 6,
+    "kernel.unify.facesBefore": 6,
+    "mesh.tris.last": 188,
+    "modify.entities": 128,
+    "modify.intersectionsFound": 800,
+    "pattern.occurrences.circular.out.16": 15,
+    "pattern.occurrences.circular.out.4": 3,
+    "pattern.occurrences.circular.out.64": 63,
+    "pattern.occurrences.curve.out": 15,
+    "pattern.occurrences.curve.pathPts": 120,
+    "pattern.occurrences.mirror.out": 1,
+    "pattern.occurrences.out.16": 15,
+    "pattern.occurrences.out.4": 3,
+    "pattern.occurrences.out.64": 63,
+    "pattern.occurrences.points.out.16": 16,
+    "pattern.occurrences.points.out.4": 4,
+    "pattern.occurrences.points.out.64": 64,
+    "pattern.sketchPoints.out.16": 16,
+    "pattern.sketchPoints.out.4": 4,
+    "pattern.sketchPoints.out.64": 64,
+    "provenance.attribute.features.12": 12,
+    "provenance.attribute.features.2": 2,
+    "provenance.attribute.features.6": 6,
+    "provenance.attribute.out.12": 62,
+    "provenance.attribute.out.2": 62,
+    "provenance.attribute.out.6": 62,
+    "provenance.faceSurfaces.out.120": 122,
+    "provenance.faceSurfaces.out.24": 26,
+    "provenance.faceSurfaces.out.360": 362,
+    "provenance.faces.120": 122,
+    "provenance.faces.24": 26,
+    "provenance.faces.360": 362,
+    "provenance.newSurfaces.in.120": 122,
+    "provenance.newSurfaces.in.24": 26,
+    "provenance.newSurfaces.in.360": 362,
+    "provenance.newSurfaces.out.120": 120,
+    "provenance.newSurfaces.out.24": 24,
+    "provenance.newSurfaces.out.360": 360,
+    "provenance.tris.120": 476,
+    "provenance.tris.24": 92,
+    "provenance.tris.360": 1436,
+    "ramp.allEdges.edges.12": 36,
+    "ramp.allEdges.edges.144": 432,
+    "ramp.allEdges.edges.24": 72,
+    "ramp.allEdges.edges.36": 108,
+    "ramp.allEdges.edges.48": 144,
+    "ramp.allEdges.edges.72": 216,
+    "ramp.allEdges.edges.96": 288,
+    "ramp.allEdges.rungs": 7,
+    "ramp.analyze.rungs": 10,
+    "ramp.boolean.rungs": 7,
+    "ramp.build.edges.12": 36,
+    "ramp.build.edges.144": 432,
+    "ramp.build.edges.192": 576,
+    "ramp.build.edges.24": 72,
+    "ramp.build.edges.288": 864,
+    "ramp.build.edges.36": 108,
+    "ramp.build.edges.48": 144,
+    "ramp.build.edges.72": 216,
+    "ramp.build.edges.96": 288,
+    "ramp.build.rungs": 9,
+    "ramp.density.cons.1": 97,
+    "ramp.density.cons.2": 194,
+    "ramp.density.cons.3": 291,
+    "ramp.density.cons.4": 388,
+    "ramp.density.cons.6": 582,
+    "ramp.density.cons.8": 776,
+    "ramp.density.rungs": 6,
+    "ramp.drag.rungs": 8,
+    "ramp.mesh.rungs": 9,
+    "ramp.mesh.tris.12": 44,
+    "ramp.mesh.tris.144": 572,
+    "ramp.mesh.tris.192": 764,
+    "ramp.mesh.tris.24": 92,
+    "ramp.mesh.tris.288": 1148,
+    "ramp.mesh.tris.36": 140,
+    "ramp.mesh.tris.48": 188,
+    "ramp.mesh.tris.72": 284,
+    "ramp.mesh.tris.96": 380,
+    "ramp.solids.rungs": 7,
+    "ramp.solids.tris.1": 188,
+    "ramp.solids.tris.12": 2256,
+    "ramp.solids.tris.16": 3008,
+    "ramp.solids.tris.2": 376,
+    "ramp.solids.tris.4": 752,
+    "ramp.solids.tris.6": 1128,
+    "ramp.solids.tris.8": 1504,
+    "ramp.solve.cons.128": 193,
+    "ramp.solve.cons.16": 25,
+    "ramp.solve.cons.192": 289,
+    "ramp.solve.cons.24": 37,
+    "ramp.solve.cons.256": 385,
+    "ramp.solve.cons.32": 49,
+    "ramp.solve.cons.48": 73,
+    "ramp.solve.cons.64": 97,
+    "ramp.solve.cons.8": 13,
+    "ramp.solve.cons.96": 145,
+    "ramp.solve.rungs": 10,
+    "solve.constraints": 769,
+    "solve.dragged": 1,
+    "solve.entities": 512,
+    "stress.allEdges.edges": 1440,
+    "stress.allEdges.maxSize": 480,
+    "stress.analyze.entities": 1024,
+    "stress.analyze.maxSize": 1024,
+    "stress.boolChain.edges": 108,
+    "stress.boolChain.maxSize": 32,
+    "stress.buildOnly.edges": 5760,
+    "stress.buildOnly.maxSize": 1920,
+    "stress.drag.maxSize": 512,
+    "stress.manySolids.held": 64,
+    "stress.manySolids.maxSize": 64,
+    "stress.manySolids.tris": 12032,
+    "stress.solve.maxSize": 1024,
+    "sweep.edgeCount": 360,
+    "sweep.profilePts": 120,
+    "tools.bez.cvs.128": 128,
+    "tools.bez.cvs.32": 32,
+    "tools.bez.cvs.8": 8,
+    "tools.bez.flatPts.128": 647,
+    "tools.bez.flatPts.32": 154,
+    "tools.bez.flatPts.8": 37,
+    "tools.bez.segs.128": 127,
+    "tools.bez.segs.32": 31,
+    "tools.bez.segs.8": 7,
+    "tools.bez.tolPts.0_01": 441,
+    "tools.bez.tolPts.0_05": 203,
+    "tools.bez.tolPts.0_25": 88,
+    "tools.bez.tolPts.1_0": 52,
+    "tools.built": 24,
+    "tools.nullResult": 2,
+    "tools.splineCVs": 64,
+    "tools.splinePolyPts": 3905,
+    "ui.paint.constraints": 193,
+    "ui.paint.entities": 128
+  },
+  "noiseFloor": {
+    "analyze": 0.24,
+    "extrude": 0.04,
+    "solve": 0.29,
+    "splineEval": 2.0
+  },
+  "note": "Recorded by ci/perf_gate.py --record. Scenario scope only (the measured pass); session scope is excluded because it depends on what the person did before pressing the button. Re-record deliberately, never to silence a failure you have not explained.",
+  "scenarioSpans": {
+    "analysis.sweep.24::sketch.analyze": {
+      "meanMs": 0.891,
+      "n": 1
+    },
+    "analysis.sweep.64::sketch.analyze": {
+      "meanMs": 11.079,
+      "n": 1
+    },
+    "analysis.sweep.8::sketch.analyze": {
+      "meanMs": 0.102,
+      "n": 1
+    },
+    "app.blendPattern.edgeQuery.2::app.blendPattern.edgesOf": {
+      "meanMs": 142.991,
+      "n": 2
+    },
+    "app.blendPattern.edgeQuery.2::ffi.occt.allEdges": {
+      "meanMs": 142.9905,
+      "n": 2
+    },
+    "app.blendPattern.edgeQuery.4::app.blendPattern.edgesOf": {
+      "meanMs": 142.91975,
+      "n": 4
+    },
+    "app.blendPattern.edgeQuery.4::ffi.occt.allEdges": {
+      "meanMs": 142.9195,
+      "n": 4
+    },
+    "app.blendPattern.edgeQuery.8::app.blendPattern.edgesOf": {
+      "meanMs": 142.810625,
+      "n": 8
+    },
+    "app.blendPattern.edgeQuery.8::ffi.occt.allEdges": {
+      "meanMs": 142.810625,
+      "n": 8
+    },
+    "app.engineFill.128::app.engineFill": {
+      "meanMs": 0.3968,
+      "n": 5
+    },
+    "app.engineFill.128::ffi.qcad.allGeometry": {
+      "meanMs": 0.0854,
+      "n": 5
+    },
+    "app.engineFill.24::app.engineFill": {
+      "meanMs": 0.1226,
+      "n": 5
+    },
+    "app.history.24::app.checkpoint": {
+      "meanMs": 0.05075,
+      "n": 20
+    },
+    "app.history.64::app.checkpoint": {
+      "meanMs": 0.143,
+      "n": 20
+    },
+    "app.meshDiagnostics::app.meshSelfReport": {
+      "meanMs": 0.062333,
+      "n": 3
+    },
+    "app.patternRebuild.2::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.19575,
+      "n": 4
+    },
+    "app.patternRebuild.2::ffi.occt.fuse": {
+      "meanMs": 2.654,
+      "n": 4
+    },
+    "app.patternRebuild.2::ffi.occt.meshCreate": {
+      "meanMs": 0.2827,
+      "n": 10
+    },
+    "app.patternRebuild.2::ffi.occt.unify": {
+      "meanMs": 0.15,
+      "n": 4
+    },
+    "app.patternRebuild.2::kernel.feature": {
+      "meanMs": 1.896833,
+      "n": 6
+    },
+    "app.patternRebuild.2::kernel.feature.extrude": {
+      "meanMs": 0.631,
+      "n": 4
+    },
+    "app.patternRebuild.2::kernel.feature.pattern": {
+      "meanMs": 4.428,
+      "n": 2
+    },
+    "app.patternRebuild.2::part.rebuildAll": {
+      "meanMs": 8.1015,
+      "n": 2
+    },
+    "app.patternRebuild.2::sketch.profileLoops": {
+      "meanMs": 0.10275,
+      "n": 4
+    },
+    "app.patternRebuild.4::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.19175,
+      "n": 4
+    },
+    "app.patternRebuild.4::ffi.occt.fuse": {
+      "meanMs": 0.63375,
+      "n": 8
+    },
+    "app.patternRebuild.4::ffi.occt.meshCreate": {
+      "meanMs": 0.274167,
+      "n": 18
+    },
+    "app.patternRebuild.4::ffi.occt.unify": {
+      "meanMs": 0.064875,
+      "n": 8
+    },
+    "app.patternRebuild.4::kernel.feature": {
+      "meanMs": 1.474333,
+      "n": 6
+    },
+    "app.patternRebuild.4::kernel.feature.extrude": {
+      "meanMs": 0.60375,
+      "n": 4
+    },
+    "app.patternRebuild.4::kernel.feature.pattern": {
+      "meanMs": 3.214,
+      "n": 2
+    },
+    "app.patternRebuild.4::part.rebuildAll": {
+      "meanMs": 6.8525,
+      "n": 2
+    },
+    "app.patternRebuild.4::sketch.profileLoops": {
+      "meanMs": 0.098,
+      "n": 4
+    },
+    "app.patternRebuild.8::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.2025,
+      "n": 4
+    },
+    "app.patternRebuild.8::ffi.occt.fuse": {
+      "meanMs": 0.484,
+      "n": 16
+    },
+    "app.patternRebuild.8::ffi.occt.meshCreate": {
+      "meanMs": 0.336088,
+      "n": 34
+    },
+    "app.patternRebuild.8::ffi.occt.unify": {
+      "meanMs": 0.109438,
+      "n": 16
+    },
+    "app.patternRebuild.8::kernel.feature": {
+      "meanMs": 3.878,
+      "n": 6
+    },
+    "app.patternRebuild.8::kernel.feature.extrude": {
+      "meanMs": 0.64325,
+      "n": 4
+    },
+    "app.patternRebuild.8::kernel.feature.pattern": {
+      "meanMs": 10.3465,
+      "n": 2
+    },
+    "app.patternRebuild.8::part.rebuildAll": {
+      "meanMs": 14.0825,
+      "n": 2
+    },
+    "app.patternRebuild.8::sketch.profileLoops": {
+      "meanMs": 0.12625,
+      "n": 4
+    },
+    "app.pick.sweep::2d.pickEntity": {
+      "meanMs": 0.064442,
+      "n": 120
+    },
+    "app.projectEdges.6x120::app.partEdges": {
+      "meanMs": 0.1204,
+      "n": 10
+    },
+    "app.projectEdges.6x120::project.partEdges": {
+      "meanMs": 0.1204,
+      "n": 10
+    },
+    "app.provenance.attribute.12::provenance.attributeFaces": {
+      "meanMs": 0.2964,
+      "n": 5
+    },
+    "app.provenance.attribute.6::provenance.attributeFaces": {
+      "meanMs": 0.1452,
+      "n": 5
+    },
+    "app.provenance.faceSurfaces.360::provenance.faceSurfaces": {
+      "meanMs": 0.0704,
+      "n": 10
+    },
+    "app.provenance.newSurfaces.360::provenance.newSurfaces": {
+      "meanMs": 0.3986,
+      "n": 10
+    },
+    "app.rebuildPart.1::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.195333,
+      "n": 3
+    },
+    "app.rebuildPart.1::ffi.occt.meshCreate": {
+      "meanMs": 0.279,
+      "n": 3
+    },
+    "app.rebuildPart.1::kernel.feature": {
+      "meanMs": 0.644333,
+      "n": 3
+    },
+    "app.rebuildPart.1::kernel.feature.extrude": {
+      "meanMs": 0.644,
+      "n": 3
+    },
+    "app.rebuildPart.1::part.rebuildAll": {
+      "meanMs": 0.664,
+      "n": 3
+    },
+    "app.rebuildPart.1::sketch.profileLoops": {
+      "meanMs": 0.098667,
+      "n": 3
+    },
+    "app.rebuildPart.3::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.184667,
+      "n": 9
+    },
+    "app.rebuildPart.3::ffi.occt.fuse": {
+      "meanMs": 2.1095,
+      "n": 6
+    },
+    "app.rebuildPart.3::ffi.occt.meshCreate": {
+      "meanMs": 0.232267,
+      "n": 15
+    },
+    "app.rebuildPart.3::kernel.feature": {
+      "meanMs": 0.625778,
+      "n": 9
+    },
+    "app.rebuildPart.3::kernel.feature.extrude": {
+      "meanMs": 0.625667,
+      "n": 9
+    },
+    "app.rebuildPart.3::part.rebuildAll": {
+      "meanMs": 6.752667,
+      "n": 3
+    },
+    "app.rebuildPart.3::sketch.profileLoops": {
+      "meanMs": 0.113778,
+      "n": 9
+    },
+    "app.rebuildPart.6::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.184111,
+      "n": 18
+    },
+    "app.rebuildPart.6::ffi.occt.fuse": {
+      "meanMs": 1.448,
+      "n": 15
+    },
+    "app.rebuildPart.6::ffi.occt.meshCreate": {
+      "meanMs": 0.222152,
+      "n": 33
+    },
+    "app.rebuildPart.6::kernel.feature": {
+      "meanMs": 0.606222,
+      "n": 18
+    },
+    "app.rebuildPart.6::kernel.feature.extrude": {
+      "meanMs": 0.606056,
+      "n": 18
+    },
+    "app.rebuildPart.6::part.rebuildAll": {
+      "meanMs": 12.436,
+      "n": 3
+    },
+    "app.rebuildPart.6::sketch.profileLoops": {
+      "meanMs": 0.101778,
+      "n": 18
+    },
+    "app.sketchCodec::app.sketch.decodeCons": {
+      "meanMs": 0.0887,
+      "n": 20
+    },
+    "app.sketchCodec::app.sketch.encodeCons": {
+      "meanMs": 0.13535,
+      "n": 20
+    },
+    "constraints.addEachType::constraints.add.coincident": {
+      "meanMs": 0.299,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.collinear": {
+      "meanMs": 0.386,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.concentric": {
+      "meanMs": 0.295,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.dimension": {
+      "meanMs": 22.787,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.equal": {
+      "meanMs": 0.273,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.fix": {
+      "meanMs": 5.799,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.horizontal": {
+      "meanMs": 0.274,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.midpoint": {
+      "meanMs": 0.308,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.parallel": {
+      "meanMs": 0.287,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.perpendicular": {
+      "meanMs": 2.17,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.smooth": {
+      "meanMs": 0.23,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.symmetric": {
+      "meanMs": 0.312,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.tangent": {
+      "meanMs": 6.427,
+      "n": 1
+    },
+    "constraints.addEachType::constraints.add.vertical": {
+      "meanMs": 0.271,
+      "n": 1
+    },
+    "constraints.addEachType::ffi.slvs.solve": {
+      "meanMs": 0.201417,
+      "n": 12
+    },
+    "constraints.addEachType::sketch.analyze": {
+      "meanMs": 0.230857,
+      "n": 14
+    },
+    "constraints.addEachType::solve.lm": {
+      "meanMs": 8.2265,
+      "n": 4
+    },
+    "constraints.addEachType::solve.slvs": {
+      "meanMs": 0.278857,
+      "n": 14
+    },
+    "constraints.addEachType::solve.total": {
+      "meanMs": 2.633643,
+      "n": 14
+    },
+    "constraints.encode::constraints.decode": {
+      "meanMs": 0.08745,
+      "n": 20
+    },
+    "constraints.encode::constraints.encode": {
+      "meanMs": 0.14335,
+      "n": 20
+    },
+    "gear.curve.10::gear.curve": {
+      "meanMs": 0.1382,
+      "n": 20
+    },
+    "gear.curve.20::gear.curve": {
+      "meanMs": 0.27405,
+      "n": 20
+    },
+    "gear.curve.40::gear.curve": {
+      "meanMs": 0.54545,
+      "n": 20
+    },
+    "kernel.allEdges.repeat::ffi.occt.allEdges": {
+      "meanMs": 99.9728,
+      "n": 5
+    },
+    "kernel.allEdges.repeat::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.543,
+      "n": 1
+    },
+    "kernel.allEdges.sweep.120::ffi.occt.allEdges": {
+      "meanMs": 612.361,
+      "n": 1
+    },
+    "kernel.allEdges.sweep.120::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.773,
+      "n": 1
+    },
+    "kernel.allEdges.sweep.12::ffi.occt.allEdges": {
+      "meanMs": 6.927,
+      "n": 1
+    },
+    "kernel.allEdges.sweep.12::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.373,
+      "n": 1
+    },
+    "kernel.allEdges.sweep.48::ffi.occt.allEdges": {
+      "meanMs": 99.427,
+      "n": 1
+    },
+    "kernel.allEdges.sweep.48::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.472,
+      "n": 1
+    },
+    "kernel.boolean.chain::ffi.occt.fuse": {
+      "meanMs": 4.139,
+      "n": 8
+    },
+    "kernel.boolean.complex.120::ffi.occt.common": {
+      "meanMs": 44.651,
+      "n": 1
+    },
+    "kernel.boolean.complex.120::ffi.occt.cut": {
+      "meanMs": 46.647,
+      "n": 1
+    },
+    "kernel.boolean.complex.120::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.6885,
+      "n": 2
+    },
+    "kernel.boolean.complex.120::ffi.occt.fuse": {
+      "meanMs": 52.822,
+      "n": 1
+    },
+    "kernel.boolean.complex.12::ffi.occt.common": {
+      "meanMs": 3.504,
+      "n": 1
+    },
+    "kernel.boolean.complex.12::ffi.occt.cut": {
+      "meanMs": 3.673,
+      "n": 1
+    },
+    "kernel.boolean.complex.12::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.3755,
+      "n": 2
+    },
+    "kernel.boolean.complex.12::ffi.occt.fuse": {
+      "meanMs": 4.162,
+      "n": 1
+    },
+    "kernel.boolean.complex.48::ffi.occt.common": {
+      "meanMs": 14.836,
+      "n": 1
+    },
+    "kernel.boolean.complex.48::ffi.occt.cut": {
+      "meanMs": 15.58,
+      "n": 1
+    },
+    "kernel.boolean.complex.48::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.4675,
+      "n": 2
+    },
+    "kernel.boolean.complex.48::ffi.occt.fuse": {
+      "meanMs": 17.485,
+      "n": 1
+    },
+    "kernel.boolean::ffi.occt.common": {
+      "meanMs": 1.0072,
+      "n": 5
+    },
+    "kernel.boolean::ffi.occt.cut": {
+      "meanMs": 1.0426,
+      "n": 5
+    },
+    "kernel.boolean::ffi.occt.fuse": {
+      "meanMs": 1.1308,
+      "n": 5
+    },
+    "kernel.chamfer.edges.12::ffi.occt.allEdges": {
+      "meanMs": 25.829,
+      "n": 1
+    },
+    "kernel.chamfer.edges.12::ffi.occt.chamferEdges": {
+      "meanMs": 24.186,
+      "n": 1
+    },
+    "kernel.chamfer.edges.12::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.738,
+      "n": 1
+    },
+    "kernel.chamfer.edges.1::ffi.occt.allEdges": {
+      "meanMs": 25.536,
+      "n": 1
+    },
+    "kernel.chamfer.edges.1::ffi.occt.chamferEdges": {
+      "meanMs": 5.122,
+      "n": 1
+    },
+    "kernel.chamfer.edges.1::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.741,
+      "n": 1
+    },
+    "kernel.chamfer.edges.4::ffi.occt.allEdges": {
+      "meanMs": 25.571,
+      "n": 1
+    },
+    "kernel.chamfer.edges.4::ffi.occt.chamferEdges": {
+      "meanMs": 10.025,
+      "n": 1
+    },
+    "kernel.chamfer.edges.4::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.742,
+      "n": 1
+    },
+    "kernel.coil.12::ffi.occt.coilProfile": {
+      "meanMs": 24.604,
+      "n": 1
+    },
+    "kernel.coil.1::ffi.occt.coilProfile": {
+      "meanMs": 7.89,
+      "n": 1
+    },
+    "kernel.coil.4::ffi.occt.coilProfile": {
+      "meanMs": 12.164,
+      "n": 1
+    },
+    "kernel.extrude.arcs.120::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.7,
+      "n": 1
+    },
+    "kernel.extrude.arcs.12::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.366,
+      "n": 1
+    },
+    "kernel.extrude.arcs.48::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.442,
+      "n": 1
+    },
+    "kernel.extrude.holes::ffi.occt.extrudeProfile": {
+      "meanMs": 0.569,
+      "n": 3
+    },
+    "kernel.extrude.plain::ffi.occt.extrudeProfile": {
+      "meanMs": 0.381667,
+      "n": 3
+    },
+    "kernel.extrude.sweep::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.7465,
+      "n": 4
+    },
+    "kernel.extrude.taper::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 20.403333,
+      "n": 3
+    },
+    "kernel.fillet.edges.12::ffi.occt.allEdges": {
+      "meanMs": 25.58,
+      "n": 1
+    },
+    "kernel.fillet.edges.12::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.74,
+      "n": 1
+    },
+    "kernel.fillet.edges.12::ffi.occt.filletEdges": {
+      "meanMs": 24.11,
+      "n": 1
+    },
+    "kernel.fillet.edges.1::ffi.occt.allEdges": {
+      "meanMs": 25.593,
+      "n": 1
+    },
+    "kernel.fillet.edges.1::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.742,
+      "n": 1
+    },
+    "kernel.fillet.edges.1::ffi.occt.filletEdges": {
+      "meanMs": 5.201,
+      "n": 1
+    },
+    "kernel.fillet.edges.4::ffi.occt.allEdges": {
+      "meanMs": 25.562,
+      "n": 1
+    },
+    "kernel.fillet.edges.4::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.742,
+      "n": 1
+    },
+    "kernel.fillet.edges.4::ffi.occt.filletEdges": {
+      "meanMs": 10.675,
+      "n": 1
+    },
+    "kernel.fillet.radius::ffi.occt.allEdges": {
+      "meanMs": 25.636333,
+      "n": 3
+    },
+    "kernel.fillet.radius::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.742667,
+      "n": 3
+    },
+    "kernel.fillet.radius::ffi.occt.filletEdges": {
+      "meanMs": 119.928333,
+      "n": 3
+    },
+    "kernel.fillet::ffi.occt.allEdges": {
+      "meanMs": 25.765,
+      "n": 1
+    },
+    "kernel.fillet::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.746,
+      "n": 1
+    },
+    "kernel.fillet::ffi.occt.filletEdges": {
+      "meanMs": 10.723,
+      "n": 1
+    },
+    "kernel.loft.2::ffi.occt.loftSections": {
+      "meanMs": 3.072,
+      "n": 1
+    },
+    "kernel.loft.4::ffi.occt.loftSections": {
+      "meanMs": 4.164,
+      "n": 1
+    },
+    "kernel.loft.8::ffi.occt.loftSections": {
+      "meanMs": 5.282,
+      "n": 1
+    },
+    "kernel.loft.ruled::ffi.occt.loftSections": {
+      "meanMs": 10.8405,
+      "n": 2
+    },
+    "kernel.mesh.complexity.120::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.62,
+      "n": 1
+    },
+    "kernel.mesh.complexity.120::ffi.occt.meshCreate": {
+      "meanMs": 7.717,
+      "n": 1
+    },
+    "kernel.mesh.complexity.12::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.37,
+      "n": 1
+    },
+    "kernel.mesh.complexity.12::ffi.occt.meshCreate": {
+      "meanMs": 0.959,
+      "n": 1
+    },
+    "kernel.mesh.complexity.48::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.373,
+      "n": 1
+    },
+    "kernel.mesh.complexity.48::ffi.occt.meshCreate": {
+      "meanMs": 3.202,
+      "n": 1
+    },
+    "kernel.mesh.repeat::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.412,
+      "n": 1
+    },
+    "kernel.mesh.repeat::ffi.occt.meshCreate": {
+      "meanMs": 2.3604,
+      "n": 5
+    },
+    "kernel.mesh.sweep::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.393333,
+      "n": 3
+    },
+    "kernel.mesh.sweep::ffi.occt.meshCreate": {
+      "meanMs": 3.192667,
+      "n": 3
+    },
+    "kernel.mirror.120::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.688,
+      "n": 1
+    },
+    "kernel.mirror.120::ffi.occt.mirror": {
+      "meanMs": 2.2904,
+      "n": 10
+    },
+    "kernel.mirror.120::ffi.occt.transform": {
+      "meanMs": 0.7628,
+      "n": 10
+    },
+    "kernel.mirror.24::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.733,
+      "n": 1
+    },
+    "kernel.mirror.24::ffi.occt.mirror": {
+      "meanMs": 0.454,
+      "n": 10
+    },
+    "kernel.mirror.24::ffi.occt.transform": {
+      "meanMs": 0.1476,
+      "n": 10
+    },
+    "kernel.query.cheap::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.679,
+      "n": 1
+    },
+    "kernel.query.cheap::kernel.bbox": {
+      "meanMs": 0.08515,
+      "n": 20
+    },
+    "kernel.query.cheap::kernel.counts": {
+      "meanMs": 0.1044,
+      "n": 20
+    },
+    "kernel.query.edgeInfoOne::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.681,
+      "n": 1
+    },
+    "kernel.query.edgeInfoOne::kernel.edgeInfo1": {
+      "meanMs": 1.5394,
+      "n": 20
+    },
+    "kernel.query.edgeInfoScale.120::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.679,
+      "n": 1
+    },
+    "kernel.query.edgeInfoScale.120::kernel.edgeInfoScale.120": {
+      "meanMs": 1.5429,
+      "n": 20
+    },
+    "kernel.query.edgeInfoScale.240::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 7.47,
+      "n": 1
+    },
+    "kernel.query.edgeInfoScale.240::kernel.edgeInfoScale.240": {
+      "meanMs": 3.1248,
+      "n": 20
+    },
+    "kernel.query.edgeInfoScale.24::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 0.731,
+      "n": 1
+    },
+    "kernel.query.edgeInfoScale.24::kernel.edgeInfoScale.24": {
+      "meanMs": 0.323,
+      "n": 20
+    },
+    "kernel.query.edgeInfoScale.60::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.831,
+      "n": 1
+    },
+    "kernel.query.edgeInfoScale.60::kernel.edgeInfoScale.60": {
+      "meanMs": 0.7765,
+      "n": 20
+    },
+    "kernel.rayHits::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.461,
+      "n": 1
+    },
+    "kernel.rayHits::ffi.occt.rayHits": {
+      "meanMs": 0.120967,
+      "n": 60
+    },
+    "kernel.rayHits::kernel.rayHit": {
+      "meanMs": 0.121117,
+      "n": 60
+    },
+    "kernel.revolve.120::ffi.occt.revolveProfile": {
+      "meanMs": 2.832,
+      "n": 1
+    },
+    "kernel.revolve.12::ffi.occt.revolveProfile": {
+      "meanMs": 0.282,
+      "n": 1
+    },
+    "kernel.revolve.48::ffi.occt.revolveProfile": {
+      "meanMs": 1.123,
+      "n": 1
+    },
+    "kernel.revolve.angle::ffi.occt.revolveProfile": {
+      "meanMs": 1.606667,
+      "n": 3
+    },
+    "kernel.sweep.12::ffi.occt.sweepProfile": {
+      "meanMs": 46.307,
+      "n": 1
+    },
+    "kernel.sweep.48::ffi.occt.sweepProfile": {
+      "meanMs": 201.692,
+      "n": 1
+    },
+    "kernel.sweep.path::ffi.occt.sweepProfile": {
+      "meanMs": 105.378,
+      "n": 3
+    },
+    "kernel.sweep.twist::ffi.occt.sweepProfile": {
+      "meanMs": 30.281667,
+      "n": 3
+    },
+    "kernel.transform::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.462,
+      "n": 1
+    },
+    "kernel.transform::ffi.occt.transform": {
+      "meanMs": 0.299,
+      "n": 20
+    },
+    "kernel.unify::ffi.occt.fuse": {
+      "meanMs": 0.749,
+      "n": 1
+    },
+    "kernel.unify::ffi.occt.unify": {
+      "meanMs": 0.067,
+      "n": 1
+    },
+    "quality.frameBudget::ffi.slvs.solve": {
+      "meanMs": 1.371,
+      "n": 8
+    },
+    "quality.frameBudget::solve.slvs": {
+      "meanMs": 1.43975,
+      "n": 8
+    },
+    "quality.frameBudget::solve.total": {
+      "meanMs": 1.458875,
+      "n": 8
+    },
+    "quality.memoryPerSolid::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.43475,
+      "n": 12
+    },
+    "quality.memoryPerSolid::ffi.occt.meshCreate": {
+      "meanMs": 3.061417,
+      "n": 12
+    },
+    "quality.variance::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.458333,
+      "n": 9
+    },
+    "quality.variance::ffi.slvs.solve": {
+      "meanMs": 0.117667,
+      "n": 15
+    },
+    "quality.variance::sketch.analyze": {
+      "meanMs": 0.969778,
+      "n": 9
+    },
+    "quality.variance::solve.slvs": {
+      "meanMs": 0.137733,
+      "n": 15
+    },
+    "quality.variance::solve.total": {
+      "meanMs": 0.144467,
+      "n": 15
+    },
+    "ramp.analyze.entities::ramp.analyze.128": {
+      "meanMs": 10.06,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.16": {
+      "meanMs": 0.095,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.192": {
+      "meanMs": 35.626,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.24": {
+      "meanMs": 0.202,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.256": {
+      "meanMs": 75.719,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.32": {
+      "meanMs": 0.409,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.48": {
+      "meanMs": 0.918,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.64": {
+      "meanMs": 3.976,
+      "n": 1
+    },
+    "ramp.analyze.entities::ramp.analyze.96": {
+      "meanMs": 5.243,
+      "n": 1
+    },
+    "ramp.analyze.entities::sketch.analyze": {
+      "meanMs": 13.2236,
+      "n": 10
+    },
+    "ramp.drag.entities::ffi.slvs.solve": {
+      "meanMs": 0.19695,
+      "n": 80
+    },
+    "ramp.drag.entities::ramp.drag.128": {
+      "meanMs": 10.027,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.16": {
+      "meanMs": 0.282,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.24": {
+      "meanMs": 0.497,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.32": {
+      "meanMs": 0.746,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.48": {
+      "meanMs": 1.421,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.64": {
+      "meanMs": 2.325,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.8": {
+      "meanMs": 0.135,
+      "n": 1
+    },
+    "ramp.drag.entities::ramp.drag.96": {
+      "meanMs": 4.732,
+      "n": 1
+    },
+    "ramp.drag.entities::solve.slvs": {
+      "meanMs": 0.217562,
+      "n": 80
+    },
+    "ramp.drag.entities::solve.total": {
+      "meanMs": 0.251,
+      "n": 80
+    },
+    "ramp.kernel.allEdges::ffi.occt.allEdges": {
+      "meanMs": 242.197286,
+      "n": 7
+    },
+    "ramp.kernel.allEdges::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.905429,
+      "n": 7
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.12": {
+      "meanMs": 7.33,
+      "n": 1
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.144": {
+      "meanMs": 889.376,
+      "n": 1
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.24": {
+      "meanMs": 26.556,
+      "n": 1
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.36": {
+      "meanMs": 57.558,
+      "n": 1
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.48": {
+      "meanMs": 101.605,
+      "n": 1
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.72": {
+      "meanMs": 226.098,
+      "n": 1
+    },
+    "ramp.kernel.allEdges::ramp.allEdges.96": {
+      "meanMs": 400.444,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.896929,
+      "n": 14
+    },
+    "ramp.kernel.boolean::ffi.occt.fuse": {
+      "meanMs": 25.309,
+      "n": 7
+    },
+    "ramp.kernel.boolean::ramp.boolean.12": {
+      "meanMs": 5.122,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ramp.boolean.144": {
+      "meanMs": 74.772,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ramp.boolean.24": {
+      "meanMs": 10.023,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ramp.boolean.36": {
+      "meanMs": 15.223,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ramp.boolean.48": {
+      "meanMs": 20.807,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ramp.boolean.72": {
+      "meanMs": 32.605,
+      "n": 1
+    },
+    "ramp.kernel.boolean::ramp.boolean.96": {
+      "meanMs": 45.673,
+      "n": 1
+    },
+    "ramp.kernel.build::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.140667,
+      "n": 9
+    },
+    "ramp.kernel.build::ramp.build.12": {
+      "meanMs": 0.386,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.144": {
+      "meanMs": 4.485,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.192": {
+      "meanMs": 6.068,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.24": {
+      "meanMs": 0.74,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.288": {
+      "meanMs": 9.212,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.36": {
+      "meanMs": 1.119,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.48": {
+      "meanMs": 1.484,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.72": {
+      "meanMs": 2.23,
+      "n": 1
+    },
+    "ramp.kernel.build::ramp.build.96": {
+      "meanMs": 3.008,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 3.125222,
+      "n": 9
+    },
+    "ramp.kernel.mesh::ffi.occt.meshCreate": {
+      "meanMs": 6.683,
+      "n": 9
+    },
+    "ramp.kernel.mesh::ramp.mesh.12": {
+      "meanMs": 1.238,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.144": {
+      "meanMs": 13.9,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.192": {
+      "meanMs": 18.694,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.24": {
+      "meanMs": 2.409,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.288": {
+      "meanMs": 29.612,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.36": {
+      "meanMs": 3.442,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.48": {
+      "meanMs": 4.427,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.72": {
+      "meanMs": 6.797,
+      "n": 1
+    },
+    "ramp.kernel.mesh::ramp.mesh.96": {
+      "meanMs": 8.729,
+      "n": 1
+    },
+    "ramp.solids::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.436469,
+      "n": 49
+    },
+    "ramp.solids::ffi.occt.meshCreate": {
+      "meanMs": 3.031959,
+      "n": 49
+    },
+    "ramp.solids::ramp.solids.1": {
+      "meanMs": 4.416,
+      "n": 1
+    },
+    "ramp.solids::ramp.solids.12": {
+      "meanMs": 53.934,
+      "n": 1
+    },
+    "ramp.solids::ramp.solids.16": {
+      "meanMs": 72.956,
+      "n": 1
+    },
+    "ramp.solids::ramp.solids.2": {
+      "meanMs": 8.916,
+      "n": 1
+    },
+    "ramp.solids::ramp.solids.4": {
+      "meanMs": 18.089,
+      "n": 1
+    },
+    "ramp.solids::ramp.solids.6": {
+      "meanMs": 26.958,
+      "n": 1
+    },
+    "ramp.solids::ramp.solids.8": {
+      "meanMs": 35.779,
+      "n": 1
+    },
+    "ramp.solve.density::ffi.slvs.solve": {
+      "meanMs": 3.304167,
+      "n": 6
+    },
+    "ramp.solve.density::ramp.density.1": {
+      "meanMs": 0.236,
+      "n": 1
+    },
+    "ramp.solve.density::ramp.density.2": {
+      "meanMs": 0.717,
+      "n": 1
+    },
+    "ramp.solve.density::ramp.density.3": {
+      "meanMs": 1.481,
+      "n": 1
+    },
+    "ramp.solve.density::ramp.density.4": {
+      "meanMs": 2.55,
+      "n": 1
+    },
+    "ramp.solve.density::ramp.density.6": {
+      "meanMs": 5.588,
+      "n": 1
+    },
+    "ramp.solve.density::ramp.density.8": {
+      "meanMs": 9.743,
+      "n": 1
+    },
+    "ramp.solve.density::solve.slvs": {
+      "meanMs": 3.355167,
+      "n": 6
+    },
+    "ramp.solve.density::solve.total": {
+      "meanMs": 3.3765,
+      "n": 6
+    },
+    "ramp.solve.entities::ffi.slvs.solve": {
+      "meanMs": 0.5775,
+      "n": 10
+    },
+    "ramp.solve.entities::ramp.solve.128": {
+      "meanMs": 0.768,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.192": {
+      "meanMs": 1.725,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.24": {
+      "meanMs": 0.052,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.256": {
+      "meanMs": 2.77,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.32": {
+      "meanMs": 0.078,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.48": {
+      "meanMs": 0.152,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.64": {
+      "meanMs": 0.238,
+      "n": 1
+    },
+    "ramp.solve.entities::ramp.solve.96": {
+      "meanMs": 0.476,
+      "n": 1
+    },
+    "ramp.solve.entities::solve.slvs": {
+      "meanMs": 0.613,
+      "n": 10
+    },
+    "ramp.solve.entities::solve.total": {
+      "meanMs": 0.6251,
+      "n": 10
+    },
+    "solve.drag60::ffi.slvs.solve": {
+      "meanMs": 0.114117,
+      "n": 60
+    },
+    "solve.drag60::solve.slvs": {
+      "meanMs": 0.1354,
+      "n": 60
+    },
+    "solve.drag60::solve.total": {
+      "meanMs": 0.14175,
+      "n": 60
+    },
+    "solve.fromViolated::ffi.slvs.solve": {
+      "meanMs": 0.1137,
+      "n": 10
+    },
+    "solve.fromViolated::solve.slvs": {
+      "meanMs": 0.1326,
+      "n": 10
+    },
+    "solve.fromViolated::solve.total": {
+      "meanMs": 0.1388,
+      "n": 10
+    },
+    "solve.overConstrained::ffi.slvs.solve": {
+      "meanMs": 0.1162,
+      "n": 10
+    },
+    "solve.overConstrained::solve.lm": {
+      "meanMs": 33.0907,
+      "n": 10
+    },
+    "solve.overConstrained::solve.slvs": {
+      "meanMs": 1.0663,
+      "n": 10
+    },
+    "solve.overConstrained::solve.total": {
+      "meanMs": 34.1687,
+      "n": 10
+    },
+    "solve.sweep.24::ffi.slvs.solve": {
+      "meanMs": 0.1132,
+      "n": 10
+    },
+    "solve.sweep.24::solve.slvs": {
+      "meanMs": 0.1365,
+      "n": 10
+    },
+    "solve.sweep.24::solve.total": {
+      "meanMs": 0.1446,
+      "n": 10
+    },
+    "solve.sweep.64::ffi.slvs.solve": {
+      "meanMs": 0.6953,
+      "n": 10
+    },
+    "solve.sweep.64::solve.slvs": {
+      "meanMs": 0.7727,
+      "n": 10
+    },
+    "solve.sweep.64::solve.total": {
+      "meanMs": 0.7929,
+      "n": 10
+    },
+    "stress.booleanChain::ffi.occt.fuse": {
+      "meanMs": 0.603683,
+      "n": 60
+    },
+    "stress.booleanChain::stress.boolChain.16": {
+      "meanMs": 7.0,
+      "n": 1
+    },
+    "stress.booleanChain::stress.boolChain.32": {
+      "meanMs": 25.0,
+      "n": 1
+    },
+    "stress.booleanChain::stress.boolChain.4": {
+      "meanMs": 1.0,
+      "n": 1
+    },
+    "stress.booleanChain::stress.boolChain.8": {
+      "meanMs": 2.0,
+      "n": 1
+    },
+    "stress.kernel.allEdges::ffi.occt.allEdges": {
+      "meanMs": 4371.272,
+      "n": 3
+    },
+    "stress.kernel.allEdges::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 9.071,
+      "n": 3
+    },
+    "stress.kernel.allEdges::stress.allEdges.120": {
+      "meanMs": 616.0,
+      "n": 1
+    },
+    "stress.kernel.allEdges::stress.allEdges.240": {
+      "meanMs": 2508.0,
+      "n": 1
+    },
+    "stress.kernel.allEdges::stress.allEdges.480": {
+      "meanMs": 10017.0,
+      "n": 1
+    },
+    "stress.kernel.buildOnly::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 27.2464,
+      "n": 5
+    },
+    "stress.kernel.buildOnly::ffi.occt.meshCopyOut": {
+      "meanMs": 0.0614,
+      "n": 5
+    },
+    "stress.kernel.buildOnly::ffi.occt.meshCreate": {
+      "meanMs": 59.5114,
+      "n": 5
+    },
+    "stress.kernel.buildOnly::stress.buildOnly.120": {
+      "meanMs": 13.0,
+      "n": 1
+    },
+    "stress.kernel.buildOnly::stress.buildOnly.1920": {
+      "meanMs": 245.0,
+      "n": 1
+    },
+    "stress.kernel.buildOnly::stress.buildOnly.240": {
+      "meanMs": 24.0,
+      "n": 1
+    },
+    "stress.kernel.buildOnly::stress.buildOnly.480": {
+      "meanMs": 50.0,
+      "n": 1
+    },
+    "stress.kernel.buildOnly::stress.buildOnly.960": {
+      "meanMs": 107.0,
+      "n": 1
+    },
+    "stress.manySolids::ffi.occt.extrudeProfileArcs": {
+      "meanMs": 1.474298,
+      "n": 124
+    },
+    "stress.manySolids::ffi.occt.meshCreate": {
+      "meanMs": 3.016081,
+      "n": 124
+    },
+    "stress.manySolids::stress.manySolids.16": {
+      "meanMs": 72.0,
+      "n": 1
+    },
+    "stress.manySolids::stress.manySolids.32": {
+      "meanMs": 145.0,
+      "n": 1
+    },
+    "stress.manySolids::stress.manySolids.4": {
+      "meanMs": 19.0,
+      "n": 1
+    },
+    "stress.manySolids::stress.manySolids.64": {
+      "meanMs": 287.0,
+      "n": 1
+    },
+    "stress.manySolids::stress.manySolids.8": {
+      "meanMs": 36.0,
+      "n": 1
+    },
+    "stress.sketch.analyze::sketch.analyze": {
+      "meanMs": 1893.5458,
+      "n": 5
+    },
+    "stress.sketch.analyze::stress.analyze.1024": {
+      "meanMs": 8837.0,
+      "n": 1
+    },
+    "stress.sketch.analyze::stress.analyze.128": {
+      "meanMs": 10.0,
+      "n": 1
+    },
+    "stress.sketch.analyze::stress.analyze.256": {
+      "meanMs": 76.0,
+      "n": 1
+    },
+    "stress.sketch.analyze::stress.analyze.512": {
+      "meanMs": 542.0,
+      "n": 1
+    },
+    "stress.sketch.analyze::stress.analyze.64": {
+      "meanMs": 1.0,
+      "n": 1
+    },
+    "stress.sketch.drag::ffi.slvs.solve": {
+      "meanMs": 3.531125,
+      "n": 40
+    },
+    "stress.sketch.drag::solve.slvs": {
+      "meanMs": 3.624275,
+      "n": 40
+    },
+    "stress.sketch.drag::solve.total": {
+      "meanMs": 3.65625,
+      "n": 40
+    },
+    "stress.sketch.drag::stress.drag.128": {
+      "meanMs": 7.0,
+      "n": 1
+    },
+    "stress.sketch.drag::stress.drag.256": {
+      "meanMs": 28.0,
+      "n": 1
+    },
+    "stress.sketch.drag::stress.drag.512": {
+      "meanMs": 107.0,
+      "n": 1
+    },
+    "stress.sketch.drag::stress.drag.64": {
+      "meanMs": 2.0,
+      "n": 1
+    },
+    "stress.sketch.solve::ffi.slvs.solve": {
+      "meanMs": 10.695,
+      "n": 5
+    },
+    "stress.sketch.solve::solve.slvs": {
+      "meanMs": 10.8884,
+      "n": 5
+    },
+    "stress.sketch.solve::solve.total": {
+      "meanMs": 10.946,
+      "n": 5
+    },
+    "stress.sketch.solve::stress.solve.1024": {
+      "meanMs": 40.0,
+      "n": 1
+    },
+    "stress.sketch.solve::stress.solve.256": {
+      "meanMs": 3.0,
+      "n": 1
+    },
+    "stress.sketch.solve::stress.solve.512": {
+      "meanMs": 10.0,
+      "n": 1
+    },
+    "tools.bezPath.128::tools.bez.flatten": {
+      "meanMs": 0.0925,
+      "n": 20
+    },
+    "tools.bezTolerance::tools.bez.tol.0_01": {
+      "meanMs": 0.062,
+      "n": 10
+    },
+    "tools.freehand.1024::freehand.fit": {
+      "meanMs": 0.1178,
+      "n": 10
+    },
+    "tools.freehand.1024::freehand.smooth": {
+      "meanMs": 0.1082,
+      "n": 10
+    },
+    "ui.drag60::2d.displayGeometry": {
+      "meanMs": 0.142383,
+      "n": 120
+    },
+    "ui.drag60::2d.paint": {
+      "meanMs": 0.33045,
+      "n": 60
+    },
+    "ui.drag60::2d.paint.constraints": {
+      "meanMs": 0.144383,
+      "n": 60
+    },
+    "ui.drag60::2d.paint.ent.dofColour": {
+      "meanMs": 0.141917,
+      "n": 60
+    },
+    "ui.drag60::ffi.slvs.solve": {
+      "meanMs": 0.1143,
+      "n": 120
+    },
+    "ui.drag60::solve.slvs": {
+      "meanMs": 0.134283,
+      "n": 120
+    },
+    "ui.drag60::solve.total": {
+      "meanMs": 0.140642,
+      "n": 120
+    },
+    "ui.paint.sweep.64::2d.paint": {
+      "meanMs": 0.1163,
+      "n": 30
+    },
+    "ui.paint.sweep.64::2d.paint.entities": {
+      "meanMs": 0.1135,
+      "n": 30
+    }
+  },
+  "schema": 1,
+  "source": "d14d3230-bug20260818T184733.zip",
+  "spans": {
+    "2d.displayGeometry": {
+      "meanMs": 0.142383,
+      "n": 120
+    },
+    "2d.paint": {
+      "meanMs": 0.167527,
+      "n": 150
+    },
+    "2d.paint.bg": {
+      "meanMs": 0.0,
+      "n": 150
+    },
+    "2d.paint.boxSelect": {
+      "meanMs": 4.7e-05,
+      "n": 150
+    },
+    "2d.paint.constraints": {
+      "meanMs": 0.058053,
+      "n": 150
+    },
+    "2d.paint.cursorHints": {
+      "meanMs": 4e-05,
+      "n": 150
+    },
+    "2d.paint.editRef": {
+      "meanMs": 0.000553,
+      "n": 150
+    },
+    "2d.paint.ent.dofColour": {
+      "meanMs": 0.057173,
+      "n": 150
+    },
+    "2d.paint.ent.halo": {
+      "meanMs": 7.3e-05,
+      "n": 150
+    },
+    "2d.paint.ent.images": {
+      "meanMs": 2.7e-05,
+      "n": 150
+    },
+    "2d.paint.ent.projectEdges": {
+      "meanMs": 2e-05,
+      "n": 150
+    },
+    "2d.paint.entities": {
+      "meanMs": 0.050433,
+      "n": 150
+    },
+    "2d.paint.freehand": {
+      "meanMs": 3.3e-05,
+      "n": 150
+    },
+    "2d.paint.gearGhost": {
+      "meanMs": 5.3e-05,
+      "n": 150
+    },
+    "2d.paint.modifyGhost": {
+      "meanMs": 3.3e-05,
+      "n": 150
+    },
+    "2d.paint.notice": {
+      "meanMs": 4e-05,
+      "n": 150
+    },
+    "2d.paint.pattern": {
+      "meanMs": 5.3e-05,
+      "n": 150
+    },
+    "2d.paint.slice": {
+      "meanMs": 0.0,
+      "n": 150
+    },
+    "2d.paint.snap": {
+      "meanMs": 0.000347,
+      "n": 150
+    },
+    "2d.paint.toolPreview": {
+      "meanMs": 2.7e-05,
+      "n": 150
+    },
+    "2d.paint.z": {
+      "meanMs": 0.00044,
+      "n": 150
+    },
+    "2d.pickEntity": {
+      "meanMs": 0.044508,
+      "n": 240
+    },
+    "2d.snap": {
+      "meanMs": 0.00365,
+      "n": 120
+    },
+    "app.blendPattern.edgesOf": {
+      "meanMs": 142.867571,
+      "n": 14
+    },
+    "app.buildOverlaysPayload": {
+      "meanMs": 0.0,
+      "n": 30
+    },
+    "app.buildScenePayload": {
+      "meanMs": 0.004333,
+      "n": 30
+    },
+    "app.checkpoint": {
+      "meanMs": 0.07075,
+      "n": 60
+    },
+    "app.engineFill": {
+      "meanMs": 0.2597,
+      "n": 10
+    },
+    "app.facesOf": {
+      "meanMs": 0.010233,
+      "n": 30
+    },
+    "app.meshAnomalies": {
+      "meanMs": 0.0,
+      "n": 3
+    },
+    "app.meshSelfReport": {
+      "meanMs": 0.062333,
+      "n": 3
+    },
+    "app.part.toJson": {
+      "meanMs": 0.003,
+      "n": 20
+    },
+    "app.partEdges": {
+      "meanMs": 0.050267,
+      "n": 30
+    },
+    "app.patternPreview": {
+      "meanMs": 0.00988,
+      "n": 100
+    },
+    "app.pickEdge3d": {
+      "meanMs": 0.012244,
+      "n": 90
+    },
+    "app.redoStep": {
+      "meanMs": 0.0,
+      "n": 60
+    },
+    "app.sceneRevs": {
+      "meanMs": 0.0,
+      "n": 60
+    },
+    "app.sceneSignature": {
+      "meanMs": 0.0,
+      "n": 180
+    },
+    "app.sketch.decodeCons": {
+      "meanMs": 0.0887,
+      "n": 20
+    },
+    "app.sketch.encodeCons": {
+      "meanMs": 0.13535,
+      "n": 20
+    },
+    "app.undoStep": {
+      "meanMs": 0.0,
+      "n": 60
+    },
+    "constraints.add.coincident": {
+      "meanMs": 0.299,
+      "n": 1
+    },
+    "constraints.add.collinear": {
+      "meanMs": 0.386,
+      "n": 1
+    },
+    "constraints.add.concentric": {
+      "meanMs": 0.295,
+      "n": 1
+    },
+    "constraints.add.dimension": {
+      "meanMs": 22.787,
+      "n": 1
+    },
+    "constraints.add.equal": {
+      "meanMs": 0.273,
+      "n": 1
+    },
+    "constraints.add.fix": {
+      "meanMs": 5.799,
+      "n": 1
+    },
+    "constraints.add.horizontal": {
+      "meanMs": 0.274,
+      "n": 1
+    },
+    "constraints.add.midpoint": {
+      "meanMs": 0.308,
+      "n": 1
+    },
+    "constraints.add.parallel": {
+      "meanMs": 0.287,
+      "n": 1
+    },
+    "constraints.add.perpendicular": {
+      "meanMs": 2.17,
+      "n": 1
+    },
+    "constraints.add.smooth": {
+      "meanMs": 0.23,
+      "n": 1
+    },
+    "constraints.add.symmetric": {
+      "meanMs": 0.312,
+      "n": 1
+    },
+    "constraints.add.tangent": {
+      "meanMs": 6.427,
+      "n": 1
+    },
+    "constraints.add.vertical": {
+      "meanMs": 0.271,
+      "n": 1
+    },
+    "constraints.decode": {
+      "meanMs": 0.08745,
+      "n": 20
+    },
+    "constraints.encode": {
+      "meanMs": 0.14335,
+      "n": 20
+    },
+    "constraints.inferConstraints": {
+      "meanMs": 0.00125,
+      "n": 40
+    },
+    "constraints.inferPointBindings": {
+      "meanMs": 0.00105,
+      "n": 40
+    },
+    "ellipse.curve": {
+      "meanMs": 0.00022,
+      "n": 100
+    },
+    "ffi.occt.allEdges": {
+      "meanMs": 435.339643,
+      "n": 42
+    },
+    "ffi.occt.chamferEdges": {
+      "meanMs": 13.111,
+      "n": 3
+    },
+    "ffi.occt.coilProfile": {
+      "meanMs": 14.886,
+      "n": 3
+    },
+    "ffi.occt.common": {
+      "meanMs": 8.503375,
+      "n": 8
+    },
+    "ffi.occt.cut": {
+      "meanMs": 8.889125,
+      "n": 8
+    },
+    "ffi.occt.extrudeProfile": {
+      "meanMs": 0.475333,
+      "n": 6
+    },
+    "ffi.occt.extrudeProfileArcs": {
+      "meanMs": 2.114891,
+      "n": 330
+    },
+    "ffi.occt.filletEdges": {
+      "meanMs": 58.642,
+      "n": 7
+    },
+    "ffi.occt.fuse": {
+      "meanMs": 2.896053,
+      "n": 133
+    },
+    "ffi.occt.loftSections": {
+      "meanMs": 6.8398,
+      "n": 5
+    },
+    "ffi.occt.makeBox": {
+      "meanMs": 0.013375,
+      "n": 8
+    },
+    "ffi.occt.makeCylinder": {
+      "meanMs": 0.003507,
+      "n": 69
+    },
+    "ffi.occt.meshCopyOut": {
+      "meanMs": 0.00261,
+      "n": 323
+    },
+    "ffi.occt.meshCreate": {
+      "meanMs": 3.037461,
+      "n": 323
+    },
+    "ffi.occt.mirror": {
+      "meanMs": 1.3722,
+      "n": 20
+    },
+    "ffi.occt.rayHits": {
+      "meanMs": 0.120967,
+      "n": 60
+    },
+    "ffi.occt.revolveProfile": {
+      "meanMs": 1.5095,
+      "n": 6
+    },
+    "ffi.occt.sweepProfile": {
+      "meanMs": 81.87225,
+      "n": 8
+    },
+    "ffi.occt.transform": {
+      "meanMs": 0.152019,
+      "n": 104
+    },
+    "ffi.occt.unify": {
+      "meanMs": 0.07474,
+      "n": 50
+    },
+    "ffi.qcad.addCircle": {
+      "meanMs": 0.001195,
+      "n": 380
+    },
+    "ffi.qcad.addLine": {
+      "meanMs": 0.001445,
+      "n": 380
+    },
+    "ffi.qcad.allGeometry": {
+      "meanMs": 0.0338,
+      "n": 15
+    },
+    "ffi.slvs.solve": {
+      "meanMs": 0.6955,
+      "n": 406
+    },
+    "freehand.dedupe": {
+      "meanMs": 0.002033,
+      "n": 30
+    },
+    "freehand.fit": {
+      "meanMs": 0.042833,
+      "n": 30
+    },
+    "freehand.resample": {
+      "meanMs": 0.0006,
+      "n": 30
+    },
+    "freehand.smooth": {
+      "meanMs": 0.039,
+      "n": 30
+    },
+    "gear.curve": {
+      "meanMs": 0.319233,
+      "n": 60
+    },
+    "gear.curve.cached": {
+      "meanMs": 0.0,
+      "n": 600
+    },
+    "kernel.bbox": {
+      "meanMs": 0.08515,
+      "n": 20
+    },
+    "kernel.counts": {
+      "meanMs": 0.1044,
+      "n": 20
+    },
+    "kernel.edgeInfo1": {
+      "meanMs": 1.5394,
+      "n": 20
+    },
+    "kernel.edgeInfoScale.120": {
+      "meanMs": 1.5429,
+      "n": 20
+    },
+    "kernel.edgeInfoScale.24": {
+      "meanMs": 0.323,
+      "n": 20
+    },
+    "kernel.edgeInfoScale.240": {
+      "meanMs": 3.1248,
+      "n": 20
+    },
+    "kernel.edgeInfoScale.60": {
+      "meanMs": 0.7765,
+      "n": 20
+    },
+    "kernel.feature": {
+      "meanMs": 1.291083,
+      "n": 48
+    },
+    "kernel.feature.extrude": {
+      "meanMs": 0.618667,
+      "n": 42
+    },
+    "kernel.feature.pattern": {
+      "meanMs": 5.996167,
+      "n": 6
+    },
+    "kernel.rayHit": {
+      "meanMs": 0.121117,
+      "n": 60
+    },
+    "modify.extend": {
+      "meanMs": 0.002,
+      "n": 20
+    },
+    "modify.extendEntity": {
+      "meanMs": 0.002,
+      "n": 20
+    },
+    "modify.intersectionsWithOthers": {
+      "meanMs": 0.002971,
+      "n": 68
+    },
+    "modify.offset": {
+      "meanMs": 0.0,
+      "n": 400
+    },
+    "modify.offsetChainAt": {
+      "meanMs": 0.00102,
+      "n": 50
+    },
+    "modify.offsetEntity": {
+      "meanMs": 0.0,
+      "n": 400
+    },
+    "modify.splitEntity": {
+      "meanMs": 0.0021,
+      "n": 10
+    },
+    "modify.stretchGeo": {
+      "meanMs": 0.00205,
+      "n": 20
+    },
+    "modify.transformGeo": {
+      "meanMs": 0.0021,
+      "n": 40
+    },
+    "modify.trim": {
+      "meanMs": 0.003676,
+      "n": 34
+    },
+    "modify.trimCutAway": {
+      "meanMs": 0.0024,
+      "n": 10
+    },
+    "modify.trimEntity": {
+      "meanMs": 0.003735,
+      "n": 34
+    },
+    "part.rebuildAll": {
+      "meanMs": 7.842067,
+      "n": 15
+    },
+    "pattern.occurrences": {
+      "meanMs": 0.000367,
+      "n": 60
+    },
+    "pattern.occurrences.circular": {
+      "meanMs": 0.003967,
+      "n": 60
+    },
+    "pattern.occurrences.curve": {
+      "meanMs": 0.0102,
+      "n": 20
+    },
+    "pattern.occurrences.mirror": {
+      "meanMs": 0.0,
+      "n": 20
+    },
+    "pattern.occurrences.points": {
+      "meanMs": 0.000383,
+      "n": 60
+    },
+    "pattern.sketchPoints": {
+      "meanMs": 1.7e-05,
+      "n": 60
+    },
+    "project.partEdges": {
+      "meanMs": 0.050233,
+      "n": 30
+    },
+    "provenance.attributeFaces": {
+      "meanMs": 0.163667,
+      "n": 15
+    },
+    "provenance.faceSurfaces": {
+      "meanMs": 0.032433,
+      "n": 30
+    },
+    "provenance.newSurfaces": {
+      "meanMs": 0.149967,
+      "n": 30
+    },
+    "ramp.allEdges.12": {
+      "meanMs": 7.33,
+      "n": 1
+    },
+    "ramp.allEdges.144": {
+      "meanMs": 889.376,
+      "n": 1
+    },
+    "ramp.allEdges.24": {
+      "meanMs": 26.556,
+      "n": 1
+    },
+    "ramp.allEdges.36": {
+      "meanMs": 57.558,
+      "n": 1
+    },
+    "ramp.allEdges.48": {
+      "meanMs": 101.605,
+      "n": 1
+    },
+    "ramp.allEdges.72": {
+      "meanMs": 226.098,
+      "n": 1
+    },
+    "ramp.allEdges.96": {
+      "meanMs": 400.444,
+      "n": 1
+    },
+    "ramp.analyze.128": {
+      "meanMs": 10.06,
+      "n": 1
+    },
+    "ramp.analyze.16": {
+      "meanMs": 0.095,
+      "n": 1
+    },
+    "ramp.analyze.192": {
+      "meanMs": 35.626,
+      "n": 1
+    },
+    "ramp.analyze.24": {
+      "meanMs": 0.202,
+      "n": 1
+    },
+    "ramp.analyze.256": {
+      "meanMs": 75.719,
+      "n": 1
+    },
+    "ramp.analyze.32": {
+      "meanMs": 0.409,
+      "n": 1
+    },
+    "ramp.analyze.48": {
+      "meanMs": 0.918,
+      "n": 1
+    },
+    "ramp.analyze.64": {
+      "meanMs": 3.976,
+      "n": 1
+    },
+    "ramp.analyze.8": {
+      "meanMs": 0.036,
+      "n": 1
+    },
+    "ramp.analyze.96": {
+      "meanMs": 5.243,
+      "n": 1
+    },
+    "ramp.boolean.12": {
+      "meanMs": 5.122,
+      "n": 1
+    },
+    "ramp.boolean.144": {
+      "meanMs": 74.772,
+      "n": 1
+    },
+    "ramp.boolean.24": {
+      "meanMs": 10.023,
+      "n": 1
+    },
+    "ramp.boolean.36": {
+      "meanMs": 15.223,
+      "n": 1
+    },
+    "ramp.boolean.48": {
+      "meanMs": 20.807,
+      "n": 1
+    },
+    "ramp.boolean.72": {
+      "meanMs": 32.605,
+      "n": 1
+    },
+    "ramp.boolean.96": {
+      "meanMs": 45.673,
+      "n": 1
+    },
+    "ramp.build.12": {
+      "meanMs": 0.386,
+      "n": 1
+    },
+    "ramp.build.144": {
+      "meanMs": 4.485,
+      "n": 1
+    },
+    "ramp.build.192": {
+      "meanMs": 6.068,
+      "n": 1
+    },
+    "ramp.build.24": {
+      "meanMs": 0.74,
+      "n": 1
+    },
+    "ramp.build.288": {
+      "meanMs": 9.212,
+      "n": 1
+    },
+    "ramp.build.36": {
+      "meanMs": 1.119,
+      "n": 1
+    },
+    "ramp.build.48": {
+      "meanMs": 1.484,
+      "n": 1
+    },
+    "ramp.build.72": {
+      "meanMs": 2.23,
+      "n": 1
+    },
+    "ramp.build.96": {
+      "meanMs": 3.008,
+      "n": 1
+    },
+    "ramp.density.1": {
+      "meanMs": 0.236,
+      "n": 1
+    },
+    "ramp.density.2": {
+      "meanMs": 0.717,
+      "n": 1
+    },
+    "ramp.density.3": {
+      "meanMs": 1.481,
+      "n": 1
+    },
+    "ramp.density.4": {
+      "meanMs": 2.55,
+      "n": 1
+    },
+    "ramp.density.6": {
+      "meanMs": 5.588,
+      "n": 1
+    },
+    "ramp.density.8": {
+      "meanMs": 9.743,
+      "n": 1
+    },
+    "ramp.drag.128": {
+      "meanMs": 10.027,
+      "n": 1
+    },
+    "ramp.drag.16": {
+      "meanMs": 0.282,
+      "n": 1
+    },
+    "ramp.drag.24": {
+      "meanMs": 0.497,
+      "n": 1
+    },
+    "ramp.drag.32": {
+      "meanMs": 0.746,
+      "n": 1
+    },
+    "ramp.drag.48": {
+      "meanMs": 1.421,
+      "n": 1
+    },
+    "ramp.drag.64": {
+      "meanMs": 2.325,
+      "n": 1
+    },
+    "ramp.drag.8": {
+      "meanMs": 0.135,
+      "n": 1
+    },
+    "ramp.drag.96": {
+      "meanMs": 4.732,
+      "n": 1
+    },
+    "ramp.mesh.12": {
+      "meanMs": 1.238,
+      "n": 1
+    },
+    "ramp.mesh.144": {
+      "meanMs": 13.9,
+      "n": 1
+    },
+    "ramp.mesh.192": {
+      "meanMs": 18.694,
+      "n": 1
+    },
+    "ramp.mesh.24": {
+      "meanMs": 2.409,
+      "n": 1
+    },
+    "ramp.mesh.288": {
+      "meanMs": 29.612,
+      "n": 1
+    },
+    "ramp.mesh.36": {
+      "meanMs": 3.442,
+      "n": 1
+    },
+    "ramp.mesh.48": {
+      "meanMs": 4.427,
+      "n": 1
+    },
+    "ramp.mesh.72": {
+      "meanMs": 6.797,
+      "n": 1
+    },
+    "ramp.mesh.96": {
+      "meanMs": 8.729,
+      "n": 1
+    },
+    "ramp.solids.1": {
+      "meanMs": 4.416,
+      "n": 1
+    },
+    "ramp.solids.12": {
+      "meanMs": 53.934,
+      "n": 1
+    },
+    "ramp.solids.16": {
+      "meanMs": 72.956,
+      "n": 1
+    },
+    "ramp.solids.2": {
+      "meanMs": 8.916,
+      "n": 1
+    },
+    "ramp.solids.4": {
+      "meanMs": 18.089,
+      "n": 1
+    },
+    "ramp.solids.6": {
+      "meanMs": 26.958,
+      "n": 1
+    },
+    "ramp.solids.8": {
+      "meanMs": 35.779,
+      "n": 1
+    },
+    "ramp.solve.128": {
+      "meanMs": 0.768,
+      "n": 1
+    },
+    "ramp.solve.16": {
+      "meanMs": 0.032,
+      "n": 1
+    },
+    "ramp.solve.192": {
+      "meanMs": 1.725,
+      "n": 1
+    },
+    "ramp.solve.24": {
+      "meanMs": 0.052,
+      "n": 1
+    },
+    "ramp.solve.256": {
+      "meanMs": 2.77,
+      "n": 1
+    },
+    "ramp.solve.32": {
+      "meanMs": 0.078,
+      "n": 1
+    },
+    "ramp.solve.48": {
+      "meanMs": 0.152,
+      "n": 1
+    },
+    "ramp.solve.64": {
+      "meanMs": 0.238,
+      "n": 1
+    },
+    "ramp.solve.8": {
+      "meanMs": 0.02,
+      "n": 1
+    },
+    "ramp.solve.96": {
+      "meanMs": 0.476,
+      "n": 1
+    },
+    "sketch.analyze": {
+      "meanMs": 234.731634,
+      "n": 41
+    },
+    "sketch.profileLoops": {
+      "meanMs": 0.10619,
+      "n": 42
+    },
+    "sketch.syncProjections": {
+      "meanMs": 1e-06,
+      "n": 816
+    },
+    "solve.lm": {
+      "meanMs": 25.986643,
+      "n": 14
+    },
+    "solve.slvs": {
+      "meanMs": 0.750831,
+      "n": 408
+    },
+    "solve.total": {
+      "meanMs": 1.658341,
+      "n": 408
+    },
+    "spline.curveFor": {
+      "meanMs": 0.000487,
+      "n": 300
+    },
+    "stress.allEdges.120": {
+      "meanMs": 616.0,
+      "n": 1
+    },
+    "stress.allEdges.240": {
+      "meanMs": 2508.0,
+      "n": 1
+    },
+    "stress.allEdges.480": {
+      "meanMs": 10017.0,
+      "n": 1
+    },
+    "stress.analyze.1024": {
+      "meanMs": 8837.0,
+      "n": 1
+    },
+    "stress.analyze.128": {
+      "meanMs": 10.0,
+      "n": 1
+    },
+    "stress.analyze.256": {
+      "meanMs": 76.0,
+      "n": 1
+    },
+    "stress.analyze.512": {
+      "meanMs": 542.0,
+      "n": 1
+    },
+    "stress.analyze.64": {
+      "meanMs": 1.0,
+      "n": 1
+    },
+    "stress.boolChain.16": {
+      "meanMs": 7.0,
+      "n": 1
+    },
+    "stress.boolChain.32": {
+      "meanMs": 25.0,
+      "n": 1
+    },
+    "stress.boolChain.4": {
+      "meanMs": 1.0,
+      "n": 1
+    },
+    "stress.boolChain.8": {
+      "meanMs": 2.0,
+      "n": 1
+    },
+    "stress.buildOnly.120": {
+      "meanMs": 13.0,
+      "n": 1
+    },
+    "stress.buildOnly.1920": {
+      "meanMs": 245.0,
+      "n": 1
+    },
+    "stress.buildOnly.240": {
+      "meanMs": 24.0,
+      "n": 1
+    },
+    "stress.buildOnly.480": {
+      "meanMs": 50.0,
+      "n": 1
+    },
+    "stress.buildOnly.960": {
+      "meanMs": 107.0,
+      "n": 1
+    },
+    "stress.drag.128": {
+      "meanMs": 7.0,
+      "n": 1
+    },
+    "stress.drag.256": {
+      "meanMs": 28.0,
+      "n": 1
+    },
+    "stress.drag.512": {
+      "meanMs": 107.0,
+      "n": 1
+    },
+    "stress.drag.64": {
+      "meanMs": 2.0,
+      "n": 1
+    },
+    "stress.manySolids.16": {
+      "meanMs": 72.0,
+      "n": 1
+    },
+    "stress.manySolids.32": {
+      "meanMs": 145.0,
+      "n": 1
+    },
+    "stress.manySolids.4": {
+      "meanMs": 19.0,
+      "n": 1
+    },
+    "stress.manySolids.64": {
+      "meanMs": 287.0,
+      "n": 1
+    },
+    "stress.manySolids.8": {
+      "meanMs": 36.0,
+      "n": 1
+    },
+    "stress.solve.1024": {
+      "meanMs": 40.0,
+      "n": 1
+    },
+    "stress.solve.128": {
+      "meanMs": 0.0,
+      "n": 1
+    },
+    "stress.solve.256": {
+      "meanMs": 3.0,
+      "n": 1
+    },
+    "stress.solve.512": {
+      "meanMs": 10.0,
+      "n": 1
+    },
+    "stress.solve.64": {
+      "meanMs": 0.0,
+      "n": 1
+    },
+    "tool.build.arcCenter": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.arcTangent": {
+      "meanMs": 0.001,
+      "n": 50
+    },
+    "tool.build.arcThreePoint": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.bridge": {
+      "meanMs": 0.00396,
+      "n": 50
+    },
+    "tool.build.chamfer": {
+      "meanMs": 0.02182,
+      "n": 50
+    },
+    "tool.build.circleCenter": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.circleTangent": {
+      "meanMs": 0.002,
+      "n": 50
+    },
+    "tool.build.ellipse": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.eqCurve": {
+      "meanMs": 0.00612,
+      "n": 50
+    },
+    "tool.build.fillet": {
+      "meanMs": 0.00136,
+      "n": 50
+    },
+    "tool.build.line": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.lineMid": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.point": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.polygon": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.rect2PC": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.rect3P": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.rect3PC": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.rectTwoPoint": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.slot3A": {
+      "meanMs": 2e-05,
+      "n": 50
+    },
+    "tool.build.slotCC": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.slotCP": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.slotCPA": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.slotOverall": {
+      "meanMs": 2e-05,
+      "n": 50
+    },
+    "tool.build.splineCV": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.splineFree": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.build.splineInterp": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tool.spline.cv": {
+      "meanMs": 0.000633,
+      "n": 60
+    },
+    "tool.spline.interp": {
+      "meanMs": 0.004183,
+      "n": 60
+    },
+    "tools.bez.build": {
+      "meanMs": 0.000667,
+      "n": 60
+    },
+    "tools.bez.flatten": {
+      "meanMs": 0.03965,
+      "n": 60
+    },
+    "tools.bez.tol.0_01": {
+      "meanMs": 0.062,
+      "n": 10
+    },
+    "tools.bez.tol.0_05": {
+      "meanMs": 0.0261,
+      "n": 10
+    },
+    "tools.bez.tol.0_25": {
+      "meanMs": 0.0079,
+      "n": 10
+    },
+    "tools.bez.tol.1_0": {
+      "meanMs": 0.0021,
+      "n": 10
+    },
+    "tools.chamferInventor": {
+      "meanMs": 0.0,
+      "n": 50
+    },
+    "tools.filletInventor": {
+      "meanMs": 2e-05,
+      "n": 50
+    },
+    "tools.filletMaxRadius": {
+      "meanMs": 0.0246,
+      "n": 10
+    },
+    "ui.allGeometry": {
+      "meanMs": 0.0,
+      "n": 5
+    }
+  }
+}
