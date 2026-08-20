@@ -432,6 +432,40 @@ Track B will be green when S9 or the integrator makes the pins differential.
 Until then the redness has exactly one cause, it is named, it is escalated, and
 it no longer blinds the smoke test.
 
+### 2.7 The verification run — what it has shown so far
+
+Run **78** (`13f58af`) and run **79** (`c070f6b`) on
+`claude/first-scene-track-b-perf-qap2a2`. **Neither has finished**, and the
+paragraphs above are still a claim about what the workflow will do rather than a
+report of it doing so. What is established at 07:31 UTC:
+
+**Confirmed.**
+
+* **`dart-checks` is green on ubuntu** — `Perf tooling tests`, `Analyze Dart` and
+  `Host tests` all pass at `13f58af`. No Dart changed this session and nothing
+  in it regressed. It also re-demonstrates the platform split the whole M232
+  problem rests on: the same suite that passes here fails on the macOS runner.
+* **The reordering is live in the job definition.** `sim-app`'s steps now read
+  20 `Build app for the simulator`, 21 `Boot simulator, launch the app, pull the
+  perf log`, 22 `Analyze Dart (macOS host)`, 23 `Host tests (macOS host)`,
+  24 `Which tests failed (macOS host)`, then the zip/upload/publish steps. The
+  smoke test can no longer be aborted by a Dart pin.
+
+**Not yet answered.** Whether the launch succeeds, whether `PERF CAPTURE` passes
+or fails, whether the new console stream carries anything, and whether the Swift
+compiles. Run 78 is in `Build OpenCASCADE (simulator, x86_64, cache miss only)`
+and expects up to 150 minutes there.
+
+**And an operational fact worth recording, because it will bite the next
+session.** That step is a **cold** build: `Restore OpenCASCADE simulator install
+tree` returned in under a second with nothing. GitHub Actions caches are scoped
+to the branch that wrote them plus the default branch — a run on
+`claude/first-scene-…` cannot read a cache written by `claude/perf-opt`, because
+they are siblings and neither is `main`. So **any session that runs Track B from
+its own branch pays one cold OCCT build first**, whatever the perf branches have
+cached. That is a property of the cache scope, not of anything round one did,
+and it is the difference between a 26-minute job and a two-and-a-half-hour one.
+
 ---
 
 ## 3. Definition of done (plan §6)
