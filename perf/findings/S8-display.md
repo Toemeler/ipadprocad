@@ -218,10 +218,26 @@ value; P8-1's 25 ms bound does.
 
 ### 1.8 What I deliberately did not do
 
-* **Did not optimise `PlaneEntity`.** §1.1 caps the prize at 2.4 ms. It rebuilds
-  its quad mesh and both materials on every `setHot`, and `setHot` arrives on
-  every pointer move — that is real churn and it is worth writing down, but it
-  is a steady-state question and the steady state is already SMOOTH (§7.1).
+* **Did not make `rebuildPlanes` incremental, and this one is a real number.**
+  It tears down all three planes, their outline tubes, the three axes and the
+  centre point and rebuilds them on every `setScene`, whether the payload
+  changed or not. §1.1a's arithmetic prices that: **222.05 ms across the
+  session**, 3.416 ms per push on the platform thread — more, per push, than
+  `rv.native.solids` spends on the actual part (2.457 ms mean). Skipping a plane
+  whose payload is unchanged would recover most of it.
+
+  I did not do it, and the reason is clause 4 rather than the size of the prize.
+  The planes are sized to the part's bounding box (M83), so they genuinely do
+  change as the model changes; the gate would have to key on `frame`, `origin`,
+  `uMin/uMax/vMin/vMax`, `hot` and `visible`, and **missing one field is a
+  rendering bug that nothing in this repository could catch** — no Swift test
+  target, and Track B cannot exercise RealityKit. Shipping an unverifiable
+  behaviour change to the render path to save 3.4 ms a push, on a path §7.1
+  already calls SMOOTH, is the wrong trade. Written down for whoever can measure
+  it.
+
+* **Did not optimise `PlaneEntity` construction itself.** §1.1 caps that prize
+  at 2.4 ms.
 * **Did not touch `rv.native.*` recording.** §7.2.1's `n`-copies-of-a-mean
   synthesis is an apparatus defect (p50/p95 are meaningless for these spans),
   but `bug_capture.dart` is in the frozen zone and fixing it would invalidate
