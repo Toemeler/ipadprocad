@@ -1,0 +1,315 @@
+name: Sampling profiler (A4)  # VM Service getCpuSamples -> Perfetto
+
+# PERFORMANCE_PROFILE.md §15.5 lists this as plan item A4, "still the largest
+# unbuilt piece of apparatus". OPTIMIZATION_PLAN_2.md §5-S7 attaches two
+# conditions to it, and the shape of this workflow is those two conditions:
+#
+#   1. A DELIVERY PATH, or it does not count. §13.1 is the cautionary tale —
+#      sim-perf.yml ran green for a dozen runs while not one of its numbers was
+#      ever read, because GitHub artifacts are served from a host the agent
+#      proxy refuses with a 403 on the CONNECT tunnel. Every job here publishes
+#      to the `ci-logs-profile` branch as well as uploading an artifact, the
+#      same belt sim-perf.yml adopted in M221.
+#
+#   2. IT MUST REPRODUCE A KNOWN ATTRIBUTION BEFORE IT IS BELIEVED ON AN
+#      UNKNOWN ONE. The `calibrate` job below is that check and it GATES: it
+#      profiles a fixture that measures its own phase split with a Stopwatch
+#      while being profiled, and fails if the sampler cannot recover that split
+#      to within five percentage points, at three different true splits.
+#      Nothing downstream may be quoted if it goes red.
+#
+# Three jobs, cheapest first:
+#
+#   calibrate   ubuntu, ~4 min   the gate. Plain Dart VM, profile_vm=false.
+#   analyze     ubuntu, ~8 min   the app's own analyzeSketch under flutter test.
+#                                REPORTED, NOT GATED — see the job's own note:
+#                                the Flutter engine forces --profile-vm on the
+#                                test VM and that degrades attribution in a way
+#                                perf/findings/S7-profiler.md §4 measures.
+#   simulator   macos, ~40 min   the iOS simulator lane §5-S7 asks for.
+#                                MANUAL ONLY and never gating: it was written
+#                                without a macOS host to try it on, so it is
+#                                built to fail loudly rather than go green
+#                                having produced nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_simulator:
+        description: 'Also run the iOS Simulator lane (slow, unproven)'
+        required: false
+        default: 'false'
+      hold_seconds:
+        description: 'Seconds to sample the simulator app for'
+        required: false
+        default: '120'
+      sim_perf_run_id:
+        description: 'Run id of the sim-perf.yml run whose simulator-app to profile'
+        required: false
+        default: ''
+  push:
+    branches: [ 'claude/perf-opt2**', 'claude/a4-sampling-profiler**' ]
+    paths:
+      - 'tools/profiler/**'
+      - '.github/workflows/profiler.yml'
+      - 'frontend/lib/solver.dart'
+      - 'frontend/lib/perf_scenarios.dart'
+
+# write, because every capture is published to the ci-logs-profile branch.
+permissions:
+  contents: write
+
+# A profiler run is minutes to an hour. Killing it on the next push is how
+# sim-perf.yml came to be "green since run 32" with no usable capture at all
+# (M221). Do not cancel in progress.
+concurrency:
+  group: profiler-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # -------------------------------------------------------------------------
+  calibrate:
+    name: Calibration — the profiler against a ground truth it did not produce
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: The profiler's own unit tests
+        run: python3 -m unittest discover -s tools/profiler/tests -p 'test_*.py' -v
+
+      - name: The perf tooling's tests, unchanged
+        run: python3 -m unittest discover -s ci -p 'test_*.py'
+
+      - name: Analyze the fixture
+        run: dart analyze tools/profiler/scenarios/known_split.dart
+
+      # The gate. Three captures at three different true splits; each compares
+      # the sampler's share against the Stopwatch split the SAME RUN printed,
+      # which is what makes the check differential in the sense
+      # OPTIMIZATION_PLAN_2.md §1.4 requires — no constant recorded on another
+      # machine, so no platform-locked golden.
+      - name: Calibrate
+        run: |
+          set -o pipefail
+          python3 tools/profiler/profile.py validate \
+            --expectation tools/profiler/expectations/known_split.json \
+            --out profiler-out/calibration 2>&1 | tee ci-profiler-calibration.log
+
+      - name: Publish
+        if: always()
+        run: |
+          tools/profiler/publish.sh calibration "${{ github.run_id }}" \
+            "${{ github.run_number }}" "${{ github.sha }}" "${{ github.ref }}"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: profiler-calibration
+          path: |
+            profiler-out/**
+            ci-profiler-*.log
+          if-no-files-found: warn
+
+  # -------------------------------------------------------------------------
+  analyze:
+    name: analyzeSketch — the app's own hot path, on the host
+    needs: calibrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The dense/sparse comparison checks out a second worktree at
+          # 4890f06, round one's branch point, so the full history is needed.
+          fetch-depth: 0
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: pub get (this tree)
+        working-directory: frontend
+        run: flutter pub get
+
+      # The pre-round-one solver, for the case whose split is published.
+      # PERFORMANCE_PROFILE.md §5.5.2's numbers were taken on build 230f179,
+      # whose solver.dart is bit-identical to 4890f06's — the workflow checks
+      # that rather than assuming it.
+      - name: Check out round one's branch point as a second worktree
+        run: |
+          set -e
+          git worktree add /tmp/dense 4890f06
+          a="$(git rev-parse 230f179:frontend/lib/solver.dart)"
+          b="$(git rev-parse 4890f06:frontend/lib/solver.dart)"
+          echo "solver.dart @230f179 = $a"
+          echo "solver.dart @4890f06 = $b"
+          if [ "$a" != "$b" ]; then
+            echo "The dense case no longer runs the solver the profile measured."
+            exit 1
+          fi
+          cd /tmp/dense/frontend && flutter pub get
+
+      - name: Profile analyzeSketch, before and after round one
+        env:
+          PROFILER_DENSE_PROJECT: /tmp/dense/frontend
+          PROFILER_SPARSE_PROJECT: ${{ github.workspace }}/frontend
+        run: |
+          set -o pipefail
+          # `|| true`: this lane REPORTS, it does not gate. The registered
+          # expectations are S3's published wall-clock split, and the host
+          # engine's forced --profile-vm means the sampler cannot be expected to
+          # reproduce them — perf/findings/S7-profiler.md §4 measures by how
+          # much and why. A red X here would say "the profiler is broken", which
+          # is not what a disagreement in this lane means.
+          python3 tools/profiler/profile.py validate \
+            --expectation tools/profiler/expectations/analyze_split.json \
+            --out profiler-out/analyze 2>&1 | tee ci-profiler-analyze.log || true
+          echo "== the flat profile is the deliverable of this job =="
+          sed -n '/Flat profile/,/^$/p' profiler-out/analyze/sparse-1024/attribution.md || true
+
+      - name: Publish
+        if: always()
+        run: |
+          tools/profiler/publish.sh analyze "${{ github.run_id }}" \
+            "${{ github.run_number }}" "${{ github.sha }}" "${{ github.ref }}"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: profiler-analyze
+          path: |
+            profiler-out/**
+            ci-profiler-*.log
+          if-no-files-found: warn
+
+  # -------------------------------------------------------------------------
+  simulator:
+    name: iOS Simulator — a trace of the real app
+    if: github.event.inputs.run_simulator == 'true'
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # This lane needs Runner.app for the simulator, which `sim-perf.yml`
+      # already knows how to build and which takes most of an hour. Rather than
+      # duplicate that build — and duplicate its breakage; Track B is red as of
+      # runs #72, #73 and #75 and is Session 8's job — it consumes the artifact
+      # sim-perf.yml publishes. If there is none, the job says so and stops.
+      - name: Fetch the simulator app built by sim-perf.yml
+        id: fetch
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: simulator-app
+          path: simapp
+          run-id: ${{ github.event.inputs.sim_perf_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse to continue without an app
+        run: |
+          if ! ls simapp/*.zip >/dev/null 2>&1; then
+            echo "No simulator-app artifact."
+            echo ""
+            echo "This job profiles the app sim-perf.yml builds; it does not"
+            echo "build one of its own — that build is 26-48 minutes and is"
+            echo "currently red (runs #72, #73, #75), which is Session 8's job."
+            echo "Pass sim_perf_run_id when dispatching: the run id of a"
+            echo "sim-perf.yml run that produced a simulator-app artifact."
+            echo ""
+            echo "Failing rather than publishing an empty capture: §13.1."
+            exit 1
+          fi
+          ditto -x -k simapp/*.zip simapp/extracted
+          ls -la simapp/extracted
+
+      - name: Boot a simulator and install the app
+        id: sim
+        run: |
+          set -e
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          UDID=""
+          for name in "iPad Pro (12.9-inch) (6th generation)" \
+                      "iPad Pro (11-inch) (4th generation)" \
+                      "iPad (10th generation)" "iPhone 15"; do
+            if UDID="$(xcrun simctl create prof-sim "$name" 2>/dev/null)"; then
+              echo "created '$name' -> $UDID"; break
+            fi
+            UDID=""
+          done
+          [ -n "$UDID" ] || { xcrun simctl list devicetypes; exit 1; }
+          xcrun simctl boot "$UDID"
+          for i in $(seq 1 24); do
+            xcrun simctl list devices | grep "$UDID" | grep -q 'Booted' && break
+            sleep 5
+          done
+          xcrun simctl install "$UDID" simapp/extracted/Runner.app
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      # NOT VERIFIED BY THE SESSION THAT WROTE IT — no macOS host was
+      # available. What is known: a debug Flutter engine prints its VM Service
+      # URI on stdout, `simctl launch --console-pty` streams that stdout, and
+      # the simulator shares the host's loopback so the URI is directly
+      # dialable. What is not known is whether the iOS engine forces
+      # --profile-vm the way flutter_tester does. The capture prints the flag
+      # either way, so the FIRST run of this job answers that question, and the
+      # attribution report refuses to be quoted if the answer is the bad one.
+      - name: Attach and capture
+        run: |
+          set -o pipefail
+          python3 tools/profiler/profile.py capture \
+            --target simulator \
+            --udid "${{ steps.sim.outputs.udid }}" \
+            --bundle-id com.prototype.prototype \
+            --duration "${{ github.event.inputs.hold_seconds || 120 }}" \
+            --poll-interval 0.1 --period-us 500 \
+            --tag '' --top 40 \
+            --out profiler-out/simulator 2>&1 | tee ci-profiler-simulator.log
+
+      - name: A capture with nothing in it is a failure, loudly
+        run: |
+          n=$(python3 -c "import json,sys; d=json.load(open('profiler-out/simulator/attribution.json')); print(d.get('census',{}).get('withDartFrames',0))")
+          echo "samples with a Dart frame: $n"
+          if [ "$n" -lt 500 ]; then
+            echo "PROFILE CAPTURE: FAIL (fewer than 500 usable samples)."
+            echo "A green job that published nothing readable is the exact"
+            echo "failure PERFORMANCE_PROFILE.md §13.1 records. Not repeating it."
+            exit 1
+          fi
+          echo "PROFILE CAPTURE: PASS"
+
+      - name: Shut the simulator down
+        if: always()
+        run: |
+          xcrun simctl shutdown "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl delete "${{ steps.sim.outputs.udid }}" || true
+
+      - name: Publish
+        if: always()
+        run: |
+          tools/profiler/publish.sh simulator "${{ github.run_id }}" \
+            "${{ github.run_number }}" "${{ github.sha }}" "${{ github.ref }}"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 14
+          name: profiler-simulator
+          path: |
+            profiler-out/**
+            ci-profiler-*.log
+          if-no-files-found: warn

@@ -1,0 +1,133 @@
+{
+  "name": "profiler calibration against a ground truth measured in the same run",
+  "source": "tools/profiler/scenarios/known_split.dart \u2014 a Stopwatch around each phase, printed by the run itself",
+  "why": "OPTIMIZATION_PLAN_2.md \u00a71.4 requires an equivalence test to be DIFFERENTIAL: old against new, on the same machine, in the same run, never a constant recorded elsewhere. Applied to an instrument rather than to an optimisation, that means the profiler must recover a split that the profiled process measured for itself, while it was being profiled. The fixture is the shape of PERFORMANCE_PROFILE.md \u00a75.5.2 \u2014 a dense finite-difference Jacobian at total = 3584, m = 2562, then a Gauss-Jordan reduction of it, the same dimensions stress.sketch.analyze's top rung produces. The two phases are run different numbers of times so the true share sweeps low, middling and high: a single point can be hit by an instrument with a constant bias, a three-point sweep cannot. Storage is Float64List rather than List<double> deliberately \u2014 boxed doubles make the collector, which the Dart sampler cannot see at all, the dominant confound, and calibrating an instrument against a confound measures the confound. Two confounds are removed rather than argued about: the phase functions carry @pragma('vm:never-inline'), because getCpuSamples reports the PHYSICAL code object and an inlined callee is charged to its caller; and the matrix copies each repeat needs are made outside both timed regions, so no untimed work can be mistaken for a profiler error. `maxOther` caps the samples inside the root that fall in neither phase \u2014 a split may not be quoted from a capture where a fifth of the root is unaccounted for.",
+  "cases": [
+    {
+      "id": "low-share",
+      "what": "elimination should be a small minority of the two phases",
+      "root": "main",
+      "minSamples": 2000,
+      "buckets": {
+        "elimination": [
+          "phaseElimination",
+          "elimCopy"
+        ],
+        "jacobian": [
+          "phaseJacobian"
+        ]
+      },
+      "capture": {
+        "target": "dart",
+        "scenario": "known_split",
+        "dart_args": [
+          "3584",
+          "2562",
+          "5",
+          "1",
+          "2",
+          "4000",
+          "typed"
+        ],
+        "poll_interval": 0.05,
+        "period_us": 250,
+        "tag": ""
+      },
+      "expectMeasured": {
+        "elimination": {
+          "field": "elimShare",
+          "normaliseAgainst": [
+            "elimination",
+            "jacobian"
+          ],
+          "absTolerance": 0.05
+        }
+      },
+      "maxOther": 0.15
+    },
+    {
+      "id": "even-share",
+      "what": "the two phases roughly equal",
+      "root": "main",
+      "minSamples": 2000,
+      "buckets": {
+        "elimination": [
+          "phaseElimination",
+          "elimCopy"
+        ],
+        "jacobian": [
+          "phaseJacobian"
+        ]
+      },
+      "capture": {
+        "target": "dart",
+        "scenario": "known_split",
+        "dart_args": [
+          "3584",
+          "2562",
+          "2",
+          "2",
+          "2",
+          "4000",
+          "typed"
+        ],
+        "poll_interval": 0.05,
+        "period_us": 250,
+        "tag": ""
+      },
+      "expectMeasured": {
+        "elimination": {
+          "field": "elimShare",
+          "normaliseAgainst": [
+            "elimination",
+            "jacobian"
+          ],
+          "absTolerance": 0.05
+        }
+      },
+      "maxOther": 0.15
+    },
+    {
+      "id": "high-share",
+      "what": "elimination dominant, the regime PERFORMANCE_PROFILE.md \u00a75.5.2 describes",
+      "root": "main",
+      "minSamples": 2000,
+      "buckets": {
+        "elimination": [
+          "phaseElimination",
+          "elimCopy"
+        ],
+        "jacobian": [
+          "phaseJacobian"
+        ]
+      },
+      "capture": {
+        "target": "dart",
+        "scenario": "known_split",
+        "dart_args": [
+          "3584",
+          "3500",
+          "1",
+          "3",
+          "2",
+          "4000",
+          "typed"
+        ],
+        "poll_interval": 0.05,
+        "period_us": 250,
+        "tag": ""
+      },
+      "expectMeasured": {
+        "elimination": {
+          "field": "elimShare",
+          "normaliseAgainst": [
+            "elimination",
+            "jacobian"
+          ],
+          "absTolerance": 0.05
+        }
+      },
+      "maxOther": 0.15
+    }
+  ]
+}

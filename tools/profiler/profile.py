@@ -28,7 +28,6 @@ import argparse
 import gzip
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -104,9 +103,14 @@ def build_target(args) -> tgt.Target:
         return tgt.SimulatorTarget(args.udid, args.bundle_id,
                                    args=args.app_args or [])
     if args.target == "dart":
-        if not args.dart_file:
-            raise SystemExit("--target dart needs --dart-file")
-        return tgt.DartTarget(args.dart_file, cwd=args.project)
+        dart_file = args.dart_file
+        if not dart_file and args.scenario:
+            dart_file = os.path.join(HERE, "scenarios", f"{args.scenario}.dart")
+        if not dart_file:
+            raise SystemExit("--target dart needs --dart-file or --scenario")
+        return tgt.DartTarget(dart_file, cwd=args.project,
+                              dart=args.dart_bin or "dart",
+                              args=[str(a) for a in (args.dart_args or [])])
     raise SystemExit(f"unknown target {args.target}")
 
 
@@ -128,6 +132,9 @@ def capture(args) -> tuple[SampleSet, tgt.Target]:
             until=_stop_predicate(args, target),
             verbose=args.verbose,
             resume=not args.no_resume,
+            profile_vm=args.profile_vm,
+            buffer_seconds=args.buffer_seconds,
+            max_wall_s=args.max_wall,
         )
     finally:
         try:
@@ -145,6 +152,16 @@ def capture(args) -> tuple[SampleSet, tgt.Target]:
     for line in target.log.splitlines():
         if line.startswith("PROFILER_SCENARIO_RESULT"):
             ss.meta["scenarioResult"] = line.strip()
+            fields: dict[str, float | str] = {}
+            for tok in line.split()[1:]:
+                if "=" not in tok:
+                    continue
+                k, v = tok.split("=", 1)
+                try:
+                    fields[k] = float(v)
+                except ValueError:
+                    fields[k] = v
+            ss.meta["scenarioFields"] = fields
     return ss, target
 
 
@@ -214,7 +231,7 @@ def write_outputs(ss: SampleSet, outdir: str, args, target_log: str = "") -> dic
                         else ss.samples)
 
     report: list[str] = []
-    report.append(f"# CPU sample attribution")
+    report.append("# CPU sample attribution")
     report.append("")
     report.append(f"* capture: `{ss.meta.get('capturedAtUtc','')}` "
                   f"target `{ss.meta.get('target','')}` "
@@ -229,14 +246,36 @@ def write_outputs(ss: SampleSet, outdir: str, args, target_log: str = "") -> dic
         report.append(f"* scenario: `{ss.meta['scenarioResult']}`")
     flags = ss.meta.get("profilerFlags", {})
     if flags:
-        report.append(f"* VM profiler: `profiler={flags.get('profiler')}` "
-                      f"`profile_period={flags.get('profile_period')}`"
-                      + ("" if flags.get("period_applied")
-                         else " (requested period NOT applied)"))
+        report.append(
+            f"* VM profiler: `profiler={flags.get('profiler')}` "
+            f"`profile_period={flags.get('profile_period')}` "
+            f"`profile_vm={flags.get('profile_vm')}` "
+            f"`sample_buffer_duration={flags.get('sample_buffer_duration')}` "
+            f"`max_profile_depth={flags.get('max_profile_depth')}`")
+        if str(flags.get("profile_vm", "")).lower() == "true":
+            report.append("* **WARNING: `profile_vm=true`.** The profiler is "
+                          "collecting native stacks; on an engine built "
+                          "without frame pointers most samples come back one "
+                          "frame deep and cannot be attributed to any Dart "
+                          "function. Shares below are not trustworthy.")
     report.append("")
     report.append("A sampling profiler measures a **share**, not a duration. "
                   "Milliseconds below are `samples x period` and are an "
                   "estimate; the sample counts are the measurement.")
+    cov = ss.coverage()
+    report.append(
+        f"* coverage: the sampler observed **{100*cov['observedFraction']:.1f} %** "
+        f"of the {cov['spanUs']/1e6:.2f} s it was attached for "
+        f"({cov['gaps']} gaps wider than 3 periods, "
+        f"{cov['unobservedUs']/1e6:.2f} s unobserved); "
+        f"effective period {cov['effectivePeriodUs']} us against a nominal "
+        f"{cov['nominalPeriodUs']} us")
+    if cov["observedFraction"] < 0.75:
+        report.append("* **WARNING: under a quarter of the elapsed time is "
+                      "missing from this capture.** Poll more often "
+                      "(`--poll-interval`); the VM's sample ring is dropping "
+                      "samples between calls and the shares below are shares "
+                      "of what survived, not of what ran.")
     report.append("")
     report.append(attrib.census_markdown(cen))
     report.append(attrib.markdown(
@@ -246,7 +285,8 @@ def write_outputs(ss: SampleSet, outdir: str, args, target_log: str = "") -> dic
 
     machine: dict = {"meta": ss.meta, "samplesSelected": len(sel),
                      "samplePeriodUs": ss.sample_period_us,
-                     "census": cen, "dartOnly": dart_only}
+                     "census": cen, "dartOnly": dart_only,
+                     "coverage": cov}
     buckets = _load_buckets(args.bucket)
     if args.root:
         res = attrib.within(ss, args.root, buckets, sel)
@@ -325,7 +365,52 @@ def run_validate(args) -> int:
             checks.append({"check": "sample count", "ok": True,
                            "detail": f"{n_root} samples inside {case['root']}"})
 
-        for name, exp in case["expect"].items():
+        # The ground truth the profiled run printed for itself.
+        measured = ss.meta.get("scenarioFields", {})
+        if "maxOther" in case:
+            ob = within.get("buckets", {}).get("other", {})
+            oshare = ob.get("share", 1.0)
+            good = oshare <= float(case["maxOther"])
+            case_ok = case_ok and good
+            checks.append({
+                "check": "unattributed share", "ok": good,
+                "detail": (f"`other` is {100*oshare:.2f} % of the root "
+                           f"(cap {100*float(case['maxOther']):.0f} %) — a split "
+                           f"is not quotable from a capture with a large "
+                           f"unattributed remainder")})
+
+        for name, exp in case.get("expectMeasured", {}).items():
+            b = within.get("buckets", {}).get(name)
+            field = exp["field"]
+            if b is None or field not in measured:
+                case_ok = False
+                checks.append({"check": f"{name} vs measured {field}",
+                               "ok": False,
+                               "detail": "bucket or ground-truth field missing"})
+                continue
+            truth = float(measured[field])
+            got = b["share"]
+            # A ground truth stated as "elimination as a fraction of the two
+            # timed phases" has to be compared against the same fraction, not
+            # against a share of every sample in the root — the root also holds
+            # the fixture's own setup, which neither Stopwatch was running for.
+            norm = exp.get("normaliseAgainst")
+            if norm:
+                denom = sum(within["buckets"].get(x, {}).get("samples", 0)
+                            for x in norm)
+                got = (b["samples"] / denom) if denom else 0.0
+            tol = float(exp.get("absTolerance", 0.05))
+            good = abs(got - truth) <= tol
+            case_ok = case_ok and good
+            checks.append({
+                "check": f"{name} vs measured {field}", "ok": good,
+                "detail": (f"profiler {100*got:.2f} % "
+                           f"[{100*b['ci95'][0]:.2f}, {100*b['ci95'][1]:.2f}] "
+                           f"vs the run's own Stopwatch {100*truth:.2f} % "
+                           f"(|delta| {100*abs(got-truth):.2f} pp, "
+                           f"tolerance {100*tol:.1f} pp)")})
+
+        for name, exp in case.get("expect", {}).items():
             b = within.get("buckets", {}).get(name)
             if b is None:
                 case_ok = False
@@ -391,7 +476,8 @@ def add_capture_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--uri", help="VM Service URI for --target attach")
     p.add_argument("--project", default=os.path.join(REPO, "frontend"))
     p.add_argument("--dart-file")
-    p.add_argument("--scenario", choices=["analyze", "solve"])
+    p.add_argument("--scenario",
+                   choices=["analyze", "solve", "known_split"])
     p.add_argument("--n", type=int, default=1024)
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--warmups", type=int, default=2)
@@ -401,18 +487,32 @@ def add_capture_args(p: argparse.ArgumentParser) -> None:
                    help="how long the generated driver stays alive after the "
                         "measured region, so the final sweep has a live VM")
     p.add_argument("--flutter-bin")
+    p.add_argument("--dart-bin")
+    p.add_argument("--dart-args", nargs="*",
+                   help="arguments passed to the --target dart script")
     p.add_argument("--udid", help="simulator UDID for --target simulator")
     p.add_argument("--bundle-id")
     p.add_argument("--app-args", nargs="*")
     p.add_argument("--duration", type=float, default=None,
                    help="seconds; ceiling for a self-terminating target, "
                         "and the whole capture for one that is not")
-    p.add_argument("--poll-interval", type=float, default=1.0)
+    p.add_argument("--poll-interval", type=float, default=0.2,
+                   help="seconds between getCpuSamples calls. The VM's sample "
+                        "ring is small and cannot be resized at runtime, so a "
+                        "slow poll loses whole seconds — see SampleSet.coverage")
     p.add_argument("--period-us", type=int, default=250,
                    help="requested VM profile_period; the VM may refuse")
     p.add_argument("--connect-timeout", type=float, default=240.0)
     p.add_argument("--rpc-timeout", type=float, default=180.0)
     p.add_argument("--no-resume", action="store_true")
+    p.add_argument("--profile-vm", action="store_true",
+                   help="collect NATIVE stacks instead of Dart ones. Off by "
+                        "default and it should stay off on any engine built "
+                        "without frame pointers — see samples.py's note.")
+    p.add_argument("--max-wall", type=float, default=1800.0,
+                   help="hard ceiling on a capture, in seconds")
+    p.add_argument("--buffer-seconds", type=int, default=60,
+                   help="seconds of samples the VM keeps (sample_buffer_duration)")
     p.add_argument("--tag", default="profiler.measure",
                    help="restrict attribution to samples carrying this userTag")
     p.add_argument("--root", help="attribute the time spent inside this function")

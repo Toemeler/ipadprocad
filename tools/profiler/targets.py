@@ -166,9 +166,18 @@ class DartTarget(ProcessTarget):
     name = "dart"
 
     def __init__(self, script: str, *, cwd: str | None = None,
-                 dart: str = "dart", args: list[str] | None = None):
-        argv = [dart, "run", "--observe=0/127.0.0.1",
-                "--pause-isolates-on-start", "--no-serve-devtools",
+                 dart: str = "dart", args: list[str] | None = None,
+                 vm_args: list[str] | None = None):
+        # `sample_buffer_duration` cannot be set once the VM is up, and its
+        # default keeps only a small ring. On the standalone VM — unlike under
+        # `flutter test` — the command line is ours, so it is set here.
+        # `dart <flags> file.dart`, not `dart run file.dart`: only the direct
+        # form forwards arbitrary VM flags, and two of them decide whether the
+        # capture is usable at all (see samples.Profiler.configure).
+        argv = [dart, "--observe=0/127.0.0.1", "--pause-isolates-on-start",
+                "--no-serve-devtools",
+                *(vm_args or ["--sample-buffer-duration=600",
+                              "--no-profile-vm"]),
                 script, *(args or [])]
         super().__init__(argv, cwd=cwd, name="dart")
 

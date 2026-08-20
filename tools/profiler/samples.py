@@ -73,6 +73,53 @@ class SampleSet:
     dropped_duplicates: int = 0
     meta: dict = field(default_factory=dict)
 
+    def coverage(self, samples: list["Sample"] | None = None,
+                 gap_factor: float = 3.0) -> dict:
+        """How much of the elapsed time the sampler actually observed.
+
+        A sampling profiler is only unbiased over the intervals it sampled. The
+        VM keeps its samples in a ring whose size is fixed at startup
+        (`sample_buffer_duration` cannot be changed at runtime), so a caller
+        that polls too slowly loses whole seconds between polls — and loses
+        them silently, because what comes back still looks like a profile.
+
+        This measures it: any gap larger than `gap_factor` sample periods is
+        counted as unobserved. The first capture taken with this tool had
+        **19.8 s of a 31.0 s span** with no samples in it at all, and nothing in
+        the output said so. It says so now, and `report`/`capture` print it
+        above every table.
+        """
+        samples = self.samples if samples is None else samples
+        by_track: dict[tuple[str, int], list[int]] = {}
+        for s in samples:
+            by_track.setdefault((s.isolate, s.tid), []).append(s.timestamp)
+        period = self.sample_period_us or 1000
+        span = 0
+        gapped = 0
+        gaps = 0
+        eff: list[int] = []
+        for ts in by_track.values():
+            if len(ts) < 2:
+                continue
+            ts.sort()
+            span += ts[-1] - ts[0]
+            for a, b in zip(ts, ts[1:]):
+                g = b - a
+                if g > gap_factor * period:
+                    gapped += g
+                    gaps += 1
+                else:
+                    eff.append(g)
+        eff.sort()
+        return {
+            "spanUs": span,
+            "unobservedUs": gapped,
+            "gaps": gaps,
+            "observedFraction": (span - gapped) / span if span else 0.0,
+            "effectivePeriodUs": eff[len(eff) // 2] if eff else 0,
+            "nominalPeriodUs": period,
+        }
+
     def sorted_samples(self) -> list[Sample]:
         return sorted(self.samples, key=lambda s: (s.isolate, s.tid, s.timestamp))
 
@@ -157,7 +204,7 @@ class Profiler:
         self.verbose = verbose
         self.set = SampleSet()
         self._frame_index: dict[str, int] = {}
-        self._seen: set[tuple[str, int, int, int]] = set()
+        self._seen: set[tuple[str, int, int]] = set()
         self._scripts: dict[tuple[str, str], _ScriptLines] = {}
         self._script_uri: dict[tuple[str, str], str] = {}
 
@@ -184,31 +231,74 @@ class Profiler:
         return {f.get("name", ""): f.get("valueAsString", "")
                 for f in fl.get("flags", [])}
 
-    def configure(self, period_us: int | None) -> dict:
-        """Report the profiler's state, and narrow the sample period if asked.
+    # Three VM flags decide whether a capture is worth anything, and two of
+    # them are wrong by default under `flutter test`. This was found the hard
+    # way — see perf/findings/S7-profiler.md §4 — and it is the single most
+    # important thing in this file.
+    #
+    #   profile_vm            Flutter's test harness starts the VM with
+    #                         --profile-vm, which makes the profiler collect
+    #                         NATIVE stacks. The engine is built without frame
+    #                         pointers, so the native unwinder gives up after
+    #                         one frame: 47 % of the samples in the first real
+    #                         capture came back as depth-1 `[Native]` stacks
+    #                         with no Dart frame at all, and every one of them
+    #                         was time the routine under test had actually
+    #                         spent. Setting it false makes the profiler walk
+    #                         the DART stack, which is the one being asked
+    #                         about.
+    #   profile_period        microseconds between samples.
+    #   sample_buffer_duration  seconds of samples the VM keeps. It defaults to
+    #                         0, which means a fixed small ring: a scenario
+    #                         that runs for 30 s at 250 us overruns it between
+    #                         polls and the capture silently loses most of what
+    #                         it sampled.
+    def configure(self, period_us: int | None, *, profile_vm: bool = False,
+                  buffer_seconds: int | None = 60) -> dict:
+        """Report the profiler's state, and set it up for a usable capture.
 
-        `profile_period` is settable at runtime; `profiler` itself usually is
-        not, so a VM started with the profiler off is a hard failure that must
-        be reported rather than worked around. A capture taken with the sampler
-        disabled is not a slow capture, it is an empty one.
+        `profiler` itself is usually not settable at runtime, so a VM started
+        with the profiler off is a hard failure that must be reported rather
+        than worked around. A capture taken with the sampler disabled is not a
+        slow capture, it is an empty one.
         """
         before = self.flags()
-        applied = None
+        applied: dict[str, str] = {}
+        refused: dict[str, str] = {}
+        wanted = [("profile_vm", "true" if profile_vm else "false")]
         if period_us:
+            wanted.append(("profile_period", str(int(period_us))))
+        if buffer_seconds:
+            wanted.append(("sample_buffer_duration", str(int(buffer_seconds))))
+        for name, value in wanted:
+            if before.get(name) == value:
+                applied[name] = value
+                continue
             try:
-                self.vm.call("setFlag", {"name": "profile_period",
-                                         "value": str(int(period_us))})
-                applied = int(period_us)
+                # setFlag answers a REFUSAL with a successful RPC carrying an
+                # Error object, not with a JSON-RPC error. Reading only the
+                # transport result therefore reports every refusal as a
+                # success, which is how the first two captures taken with this
+                # tool came out believing they had turned profile_vm off.
+                res = self.vm.call("setFlag", {"name": name, "value": value})
+                if str(res.get("type", "")) == "Success":
+                    applied[name] = value
+                else:
+                    refused[name] = str(res.get("message", res))
             except VmServiceError as exc:
-                if self.verbose:
-                    print(f"[profiler] could not set profile_period: {exc}")
-        after = self.flags() if applied else before
+                refused[name] = str(exc)
+        after = self.flags()
         state = {
-            "profiler": after.get("profiler", before.get("profiler", "unknown")),
-            "profile_period": after.get("profile_period",
-                                        before.get("profile_period", "unknown")),
-            "requested_period_us": period_us,
-            "period_applied": applied is not None,
+            "profiler": after.get("profiler", "unknown"),
+            "profile_period": after.get("profile_period", "unknown"),
+            "profile_vm": after.get("profile_vm", "unknown"),
+            "sample_buffer_duration": after.get("sample_buffer_duration",
+                                                "unknown"),
+            "max_profile_depth": after.get("max_profile_depth", "unknown"),
+            "requested": dict(wanted),
+            "applied": applied,
+            "refused": refused,
+            "before": {k: before.get(k, "unknown") for k, _ in wanted},
         }
         self.set.meta["profilerFlags"] = state
         return state
@@ -223,6 +313,37 @@ class Profiler:
 
     def now_micros(self) -> int:
         return self.vm.call("getVMTimelineMicros").get("timestamp", 0)
+
+    def wait_runnable(self, isolate_ids: list[str], timeout_s: float = 60.0) -> list[str]:
+        """Block until each isolate is RUNNABLE, then hand the ids back.
+
+        A VM started with `--pause-isolates-on-start` answers `getVM` with
+        isolates that exist but are not yet runnable, and every request against
+        one of those — `clearCpuSamples`, `resume` — comes back
+        "Isolate must be runnable before this request is made". The resume
+        therefore never lands, the program never starts, and the capture waits
+        for a scenario that is not running. Poll `getIsolate().runnable` first.
+        """
+        deadline = time.monotonic() + timeout_s
+        ready: list[str] = []
+        pending = list(isolate_ids)
+        while pending and time.monotonic() < deadline:
+            still: list[str] = []
+            for iid in pending:
+                try:
+                    iso = self.vm.call("getIsolate", {"isolateId": iid})
+                except VmServiceError:
+                    continue          # gone; nothing to wait for
+                if iso.get("runnable"):
+                    ready.append(iid)
+                else:
+                    still.append(iid)
+            pending = still
+            if pending:
+                time.sleep(0.05)
+        if pending and self.verbose:
+            print(f"[profiler] isolates never became runnable: {pending}")
+        return ready + pending
 
     def resume_all(self, isolate_ids: list[str]) -> None:
         """Resume anything sitting at a pause, which is how `--start-paused`
@@ -271,8 +392,21 @@ class Profiler:
         for s in res.get("samples", []):
             stack = tuple(local[i] for i in s.get("stack", [])
                           if 0 <= i < len(local))
-            key = (isolate_id, s.get("tid", -1), s.get("timestamp", -1),
-                   hash(stack))
+            # Identity is (isolate, thread, timestamp) and NOTHING ELSE.
+            #
+            # The stack must not be part of the key. Re-fetching a window that
+            # has already been fetched can return the SAME sample with a WORSE
+            # stack: a code object that has since been deoptimised or collected
+            # comes back as `<unknown Dart function>` (kind `Collected`), and a
+            # key that included the stack would admit that degraded copy as a
+            # second, independent sample. It happened — 2257 samples in one
+            # calibration run — and it moved a measured share by tens of points
+            # in a direction that looked like unattributable overhead.
+            #
+            # First fetch wins, because the earliest fetch is the one taken
+            # closest in time to the sample, when the VM still knew what the
+            # code was.
+            key = (isolate_id, s.get("tid", -1), s.get("timestamp", -1))
             if key in self._seen:
                 self.set.dropped_duplicates += 1
                 continue
@@ -339,8 +473,9 @@ class Profiler:
 
 def collect(service: VmService, *, duration_s: float | None,
             poll_interval_s: float = 1.0, period_us: int | None = None,
-            until=None, verbose: bool = False,
-            resume: bool = True) -> SampleSet:
+            until=None, verbose: bool = False, resume: bool = True,
+            profile_vm: bool = False, buffer_seconds: int | None = 60,
+            max_wall_s: float = 1800.0) -> SampleSet:
     """Run one capture.
 
     `until` is a zero-argument predicate; when it returns True the capture
@@ -351,12 +486,15 @@ def collect(service: VmService, *, duration_s: float | None,
     p = Profiler(service, verbose=verbose)
     isolates = p.isolates()
     ids = [i["id"] for i in isolates]
-    state = p.configure(period_us)
+    state = p.configure(period_us, profile_vm=profile_vm,
+                        buffer_seconds=buffer_seconds)
     if str(state.get("profiler", "")).lower() in ("false", "0"):
         raise VmServiceError(
             "the VM's CPU profiler is DISABLED (--no-profiler). Nothing can be "
             "sampled from this process; relaunch it with the profiler on.")
 
+    if resume:
+        ids = p.wait_runnable(ids)
     p.clear(ids)
     t0 = p.now_micros()
     p.set.meta["captureStartMicros"] = t0
@@ -390,13 +528,24 @@ def collect(service: VmService, *, duration_s: float | None,
 
         done = bool(until and until())
         elapsed = time.monotonic() - started
+        # A hard ceiling even when neither a duration nor a predicate fires.
+        # Without one, a target that never announces and never exits leaves the
+        # capture spinning until something outside kills it, and the samples
+        # already merged are lost with it.
+        if elapsed >= max_wall_s:
+            reason = "max-wall"
+            break
         if done or (duration_s is not None and elapsed >= duration_s):
-            # One last sweep of the whole window. The final poll is the one
-            # that matters most — it holds the tail of the scenario — and a
-            # target that exits between polls would otherwise lose it.
+            # One last INCREMENTAL sweep. The final poll is the one that
+            # matters most — it holds the tail of the scenario — but it must
+            # cover only what the previous poll could not reach: re-fetching
+            # the whole run at the end would pull back thousands of samples
+            # whose code objects have since been collected, and the merge is
+            # right to reject them but should not have to.
             try:
                 now = p.now_micros()
-                p.poll(ids, t0, now - t0 + 1)
+                origin = max(t0, last_origin - overlap_us)
+                p.poll(ids, origin, now - origin + 1)
                 p.set.meta["captureEndMicros"] = now
             except VmServiceError:
                 pass
