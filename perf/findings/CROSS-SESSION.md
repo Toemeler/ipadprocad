@@ -1886,3 +1886,102 @@ Whether that becomes a CI job is yours; plan §4 grants me no workflow.
 
 Full write-up, both solver paths, and what I deliberately did not do:
 `perf/findings/S9-drift.md`.
+
+---
+
+## 2026-08-20 — S11 — the sweep: seven entries, two of them decisions that are not mine
+
+Full working in `perf/findings/S11-sweep.md`. Summarised here because five of
+these reach past my own file.
+
+### S11-1 — `OPTIMIZATION_PLAN_2.md` is not on any round-two branch. **Needs:** integrator
+
+It exists only on `origin/claude/perf-deep-analysis` (`4f1112d`). It is absent
+from `claude/perf-opt`, `claude/perf-opt2`, `perf-capture-round1`,
+`claude/perf-opt2-display` and `claude/perf-opt2-drift`. Every round-two session
+that branched from the pin has been working without its own rules file in the
+tree — I found mine only by searching every ref for the filename. Not my file to
+move.
+
+### S11-2 — the brief's fault (b) is REFUTED: the preview was displayed
+
+`setScene #20: 0 solid(s)` was read as "the 103-second preview was discarded".
+The count comes from `visibleSolids(app, p)` in `viewport3d.dart`, which
+enumerates **committed feature solids only**; the preview travels in the same
+payload by a different route, `scene['preview']` in `buildScenePayload`. And
+`reality_scene.dart` hides the body a preview stands in for, so a **successful**
+preview with nothing else committed prints `0 solid(s)` by design.
+
+Consequence: **do not cheapen the preview.** It is the one run whose result the
+user actually looked at, for the two minutes before they pressed OK. The right
+fix is to have the commit reuse it (S11-3), which costs no fidelity at all. I am
+therefore *not* raising a preview-fidelity decision — recorded so nobody spends
+a session on one.
+
+### S11-3 — the preview's solid could be handed to the commit, but that is `app_state.dart`. **Needs:** integrator
+
+Runs 1 and 2 of the triple computation build the same solid from the same
+session into two different feature objects, while the preview's result sits
+alive in `s.preview` until `disposePreview()` throws it away. Handing it over is
+a *move*: no copy, no double free, no assumption about OCCT sub-shape ordering.
+Worth **103.6 s** on the field capture.
+
+It needs `_updateExtrudePreview` to record its argument signature and
+`applyExtrude` to adopt `s.preview` when that signature matches and
+`previewReplacesBody == null`. Plan-2 §4 gives `app_state.dart` to S9 by named
+function and gives me none of it, and plan §3 says to stop rather than proceed.
+Stopped. The other half of the triple computation I did fix, inside
+`part_model.dart`'s sweep path.
+
+### S11-4 — `recomputeFeature` can never reuse ANY feature's solid
+
+`_recomputeFeature` opens with an unconditional `f.disposeSolid()` before it
+dispatches on kind. Every path into a rebuild destroys the result before the
+feature is asked whether anything changed, which is why the existing
+`builtSig` machinery could never fire there — only `recomputeAllFeatures`
+escapes it, and only because its check sits before the call.
+
+I scoped my fix to `SweepFeature` and left the other kinds exactly as they were.
+Generalising it is a real win for anything expensive (loft and coil are the
+obvious next two) but it is four more kinds' worth of correctness argument, and
+none of them has a measured cost that justifies my making it unmeasured. Not a
+defect in anyone's area — a structural note for whoever picks up feature
+rebuild cost next.
+
+### S11-5 — `sampleEntity(arcSamples: 64)` is independent of the arc's angle
+
+`resolvePath` emits every point of `sketchCurve()`, so sweep spans are chosen in
+Dart before OCCT sees anything, and faces ≈ segments × spans. `sampleEntity`
+flattens an arc into 64 spans whatever its sweep angle, so a 5° arc used as a
+sweep path costs the same as a full circle — against a 1200-segment profile that
+is 76 800 faces where a handful would do. The field case dodged it only by not
+using an arc path. Making it angle-proportional changes displayed geometry, so
+it is a behaviour change and I did not take it.
+
+### S11-6 — the sweep's remaining ~103 s is inside the shim. For S6
+
+After the redundant runs are gone, one honest sweep of the field's profile still
+costs ~103 s, and that is inside `ffi.occt.sweepProfile`. The decomposition:
+`sweepProfile` ran 35 times for 309.88 s; three calls at the recorded worst of
+102 244.4 ms account for 306.73 s, leaving 3.15 s across the other 32 — **98 ms
+each**. One loop out of ~11 per feature run is the entire cost.
+
+`backend/occt/shim/**` is S6's and I have not touched it. What I have added is
+the instrument: `profile.sweep.segments` climbs 32 / 128 / 512 / 1200 / 2048 and
+fits the exponent. My pre-registered P1 is **k = 2.0 ± 0.3**, bracketed
+[1.72, 2.20] by two-point fits from the suite's mean and worst. If it holds, the
+cost is not in the output faces — 19 200 faces at the suite's implied per-face
+rate is seconds, not 102 — and something inside the pipe-shell is doing
+whole-wire work per segment. That is the same *shape* of defect S2 and S6 found
+in `edge_info`, in a different operation. Lane C can adjudicate it without a
+device.
+
+### S11-7 — one file I touched that nobody was given
+
+`frontend/lib/bug_capture.dart`, +19 lines: an opt-in block that runs the new
+tier when the bug description contains `profile`, exactly parallel to the
+existing `stress` block, plus its import. Not in any ownership row and not in
+the frozen `perf*.dart` zone. Without it the tier is unreachable code. Additive
+and gated behind a keyword no past capture used, so it cannot change any
+recorded number. Revert it if the integrator would rather wire it differently —
+nothing else in my work depends on it.

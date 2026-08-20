@@ -16,6 +16,14 @@ its mechanism identified in source and its memory footprint predicted to 2.2 %
 that does strictly more work and is 200× cheaper (§6.5). A patterned fillet
 costs **142.9 ms per occurrence**, of which 97.6 % is edge enumeration (§8.2).
 
+> **§17 supersedes parts of the above.** A round of optimisation has since been
+> measured on the device. The cubic is gone — `analyzeSketch` now fits
+> **k = 2.285** [2.076, 2.495], non-overlapping with 3.198, and costs 562 ms
+> where it cost 8 837. Edge enumeration is **21× cheaper but still quadratic**
+> (k = 1.930), and a patterned fillet costs **9.4 ms** per occurrence. Sections
+> 1–16 are deliberately left as the pre-optimisation measurement — they are the
+> derivation, and §17 reports what changed against them.
+
 **Two claims in earlier revisions of this document were overturned by this run**
 and are marked where they appear: Low Power Mode is not a uniform scalar (§3.5),
 and the 3D push path costs 0.097 ms rather than the 8.8 ms its round-trip span
@@ -611,6 +619,11 @@ evidence, in §5–§8.
 | 16 | Many solids held at once | 287 ms / 12 032 tris / **+0 MB** at 64 solids | **0.984** [0.956, 1.013] | 0.994 | **OK — linear, no leak** |
 | 17 | Build + tessellate (control) | 245 ms at 5 760 edges | **1.063** [0.959, 1.167] | 1.081 | **OK — linear** |
 | 18 | 3D push path (`3d.push`) | **0.097 ms mean** over 1 699 pushes | — | — | **OK — see §7, a correction** |
+
+> **Every row of this scoreboard is a PRE-optimisation measurement.** §17 gives
+> the post-optimisation figure for each one that moved. In short: rows 1, 2, 3,
+> 6 and 13 have all improved by factors of 10–21×, row 1 has changed complexity
+> class, and rows 2 and 6 are the ones with work still outstanding.
 
 **The three findings that changed with this run.** Row 1 is new and displaces
 `allEdges` from the top: DOF analysis is *cubic*, mechanistically explained, and
@@ -2020,7 +2033,7 @@ assumptions, and a suite that only ever confirmed them — including its author'
 
 ## 12. Longitudinal record — every device run of the suite
 
-Six device runs exist. This section reports all of them, including the one
+Eight device runs exist. This section reports all of them, including the one
 whose numbers are known-invalid, because a superseded measurement that is
 quietly dropped cannot be re-examined when the reason for dropping it turns
 out to be wrong.
@@ -2033,6 +2046,8 @@ out to be wrong.
 | 4 | `bug20260811T104745` | `cd961ee` | 11 Aug | on | headless + UI | Valid |
 | **5** | `bug20260818T184443` | `230f179` | **18 Aug** | **on** | **all three** | Valid; reduced-clock arm of the paired run |
 | **6** | `bug20260818T184733` | `230f179` | **18 Aug** | **off** | **all three** | Valid; **reference arm — the basis of §1–§11** |
+| **7** | `bug20260820T101045` | `b2de0c2` | **20 Aug** | **off** | **all three** | Valid; **post-optimisation reference arm — the basis of §17** |
+| **8** | `bug20260820T101240` | `b2de0c2` | **20 Aug** | **on** | **all three** | Valid; post-optimisation reduced-clock arm |
 
 Runs 5 and 6 are two captures of **one continuous app session** (§2.2), which is
 what makes them a matched pair rather than two runs that happen to differ.
@@ -2869,14 +2884,175 @@ floor decides whether any difference means anything at all.
 
 ---
 
+## 17. Round one optimisation — measured
+
+Sections 1–16 measure the application **before** any optimisation. This section
+reports what five parallel sessions changed, adjudicated against predictions
+each of them registered **before writing code**, by a paired device capture on
+build `b2de0c2` (runs 7 and 8, §12.6).
+
+**Sections 1–16 are not rewritten.** They are the derivation, and a superseded
+number that is quietly overwritten cannot be re-examined when the reason for
+superseding it turns out to be wrong. Where §17 supersedes a figure, both are
+shown.
+
+### 17.1 The two results that matter
+
+#### `analyzeSketch` — the cubic is gone
+
+| | Before (run 6) | After (run 7) |
+| --- | ---: | ---: |
+| Fitted exponent | **3.198** [2.835, 3.561] | **2.285** [2.076, 2.495] |
+| R² | 0.9962 | 0.9975 |
+| 1024 entities | 8 837 ms | **562 ms** (15.7×) |
+| 512 entities | 542 ms | 96 ms (5.6×) |
+| 256 entities | 76 ms | 18 ms (4.2×) |
+| 128 entities | 10 ms | 4 ms (2.5×) |
+
+**The confidence intervals do not overlap.** This is a change of complexity
+class, not a constant factor — the only such change in either round. §5.5.2
+identified the cubic as `_rankAndPivots` reducing a dense `m × total` matrix by
+Gaussian elimination, O(m·total·rank); a sparse elimination replaced it. The
+speed-up growing with size (2.5× → 15.7×) is the signature of the exponent
+moving rather than the constant.
+
+Dropping the 64-entity rung, which sits at the 1 µs quantum and cannot be
+resolved, gives k = 2.382 [2.121, 2.642] — the same conclusion.
+
+#### `allEdges` — 21× cheaper, and still quadratic
+
+| | Before (run 6) | After (run 7) |
+| --- | ---: | ---: |
+| Fitted exponent | 2.012 [1.910, 2.113] | **1.930** [1.876, 1.984] |
+| 480 profile points | 10 017 ms | **474 ms** (21.1×) |
+| 240 profile points | 2 508 ms | 125 ms (20.1×) |
+| 120 profile points | 616 ms | 35 ms (17.6×) |
+| Ladder reach | 480 pts (1 440 edges) | **1 920 pts (5 760 edges)** |
+| 960 / 1920 points | unreachable | 1 845 ms / 7 320 ms |
+
+**The intervals overlap, so the exponent did not move.** The bulk entry point
+`occt_shape_edges_info` replaced one FFI call per edge with one per shape —
+`ffi.occt.edgeInfo.calls` **8 316 → 100**, with 44 bulk calls covering 16 956
+edges — and bought a factor of 21 on the constant and **four times the reachable
+model size**. It did not remove the Θ(n²).
+
+This was **predicted before the device ran**. Lane C, the headless kernel bench
+built by another session in the same round, measured k = 1.909 on CI hardware
+and refuted the prediction days early; the device returned 1.930. §6.5's
+mechanism was also refined: the residual quadratic is not the solid classifier
+but a `TopExp_Explorer` over each adjacent face's edges, run once per edge.
+
+**The capped arm confirms both, so neither is a clock artefact:** 17.2× at 120
+points and 19.7× at 240, with reach going **240 → 1920 points, an 8× increase**.
+
+### 17.2 The rest of the scoreboard
+
+| Finding | Before | After | Factor |
+| --- | ---: | ---: | ---: |
+| Patterned fillet, per occurrence (§8.2) | 142.9 ms | **9.4 ms** | 15.2× |
+| Fillet/chamfer candidate search | 25.5 ms | **2.1 ms** | 12× |
+| `newSurfacesOf` at 360 faces (§8.1) | 3.99 ms | **0.39 ms** | 10.3× |
+| Painter solves per 60 dragged frames (§5.2) | 120 | **60** | 2× fewer |
+| `2d.paint` mean | 0.1675 ms | **0.1129 ms** | 1.48× |
+| `2d.paint.constraints` | 0.0581 ms | **0.00043 ms** | 134× |
+| Headless suite wall | 12 611 ms | 5 843 ms | 2.16× |
+| UI suite wall | 4 370 ms | 994 ms | 4.40× |
+| Stress suite wall | 23 852 ms | 11 743 ms | 2.03× *while doing 4× more work* |
+
+`sketch.analyze` fell from **15.6 %** of measured suite time to **2.6 %**.
+
+Unchanged, as expected: `app.patternRebuild` (0.97×, the boolean fold nobody
+touched) and `ffi.occt.filletEdges` itself (1.00×) — see 17.4.
+
+### 17.3 The predictions, adjudicated
+
+Every session registered its predictions with the arithmetic deriving them,
+before changing code. One capture settled all of them.
+
+| Prediction | Outcome |
+| --- | --- |
+| **`2d.paint` 0.167527 → 0.11057 ms** | **HELD to 2.1 %.** Measured 0.112900. |
+| `2d.displayGeometry.solves` 120 → 60 | **HELD exactly.** Plus a new `cacheHit = 60`. |
+| `2d.paint.constraints` → 0.00110 ms | **Direction right, magnitude 2.5× out** — measured 0.000433, i.e. cheaper than predicted. |
+| **`stress.allEdges` k → [0.95, 1.10]** | **REFUTED**, on device as on Lane C. k = 1.930. |
+| `allEdges` cost collapses | Held: 21.1× at matched size. |
+| Single-edge path must NOT improve (control) | **HELD** — `filletEdges` 5.20 → 5.21 ms, unmoved. |
+| Bulk buffer RSS invisible | **HELD** — no measurable delta. |
+
+**A prediction that comes out wrong is the most valuable kind**, and the
+`allEdges` exponent is the clearest example this project has produced: it was
+refuted by a bench built in the same round, *before* the device capture, which
+is exactly what that bench was built to be able to do. Without it, a 21× cost
+drop would have been reported as success and the surviving quadratic missed.
+
+### 17.4 An optimisation that revealed a cost it had been hiding
+
+§6.3 and §10.2 recorded `kernel.fillet.edges` as **independent of edge count** —
+25.5 ms whether one edge was filleted or twelve, k = 0.00, reproduced under both
+clocks and across two builds. That was true, and it was an artefact.
+
+The flat total was the candidate search (`allEdges`) dominating. With the search
+12× cheaper, the blend's own cost is visible for the first time:
+
+| Edges filleted | 1 | 4 | 12 | fitted *k* |
+| --- | ---: | ---: | ---: | ---: |
+| Before — whole scenario | 25.59 | 25.56 | 25.58 | **0.00**, R² 0.15 |
+| After — `ffi.occt.filletEdges` | **5.21** | **10.67** | **24.14** | **0.613**, R² 0.9892 |
+
+**It was never flat; it was masked.** A measurement that reproduces perfectly
+across builds and clock states can still be measuring the wrong thing, and the
+only reason this surfaced is that something upstream of it got faster. Worth
+holding against every other flat line in §10.
+
+### 17.5 Validity
+
+**The device did not change.** The Low Power Mode scalar, re-derived from 135
+matched spans in this run, is **1.888** [1.870, 1.907] against round one's
+1.925 [1.898, 1.953] over 142 spans — overlapping intervals. A scalar that had
+moved would mean the hardware, not the code, explained the results.
+
+Thermal `nominal` at all four probe points across both arms. Both captures on
+build `b2de0c2`, the commit pinned as `perf-capture-round1` and the exact commit
+of the green IPA build 438.
+
+**Three genuine regressions**, all just over the measured noise floor and all
+recorded rather than dismissed: `ffi.occt.meshCreate` +13.6 %, `ramp.mesh.12`
++10.6 %, `ramp.solve.24` +13.5 %. None is explained. They are small, they are
+above the floor, and they are the kind of thing that compounds if ignored.
+
+**`ffi.occt.allEdges` is still the largest single line item at 35.1 % of suite
+time** — but only because the ladder now climbs to 1 920 profile points. At
+matched size it is 21× cheaper. Reading that table without the reach change
+would invert its meaning.
+
+### 17.6 What round one did not fix
+
+- **The quadratic itself** (§17.1). Cheaper by 21×, same exponent. This is the
+  single largest piece of unfinished work and it has a session assigned.
+- **The drift**: dragging a sketch around a closed loop leaves it **14.64 units**
+  from where it started, in the unmodified application. Found incidentally while
+  proving something else, and out of scope for a branch whose rule was that
+  behaviour does not change. It is a correctness question, not a performance one.
+- **The display path**: 419.67 ms first scene push, 99.95 % origin planes.
+  Untouched.
+- **Memory**: still the unproxied axis, still where the app died in the field.
+
+---
+
 ## 16. Complete data appendix
 
 Sections 1–15 are analysis: they select, rank and interpret. Selection is
 where bias enters — the spans nobody printed are the spans nobody questioned —
 so this appendix prints **everything the bundle contains**, unranked and
-untruncated: **321 spans, 62 counters, 357 gauges and 187 scenario executions
-across all three runners**, from the reference arm (capture B, Low Power Mode
-off) of the paired run.
+untruncated, **from the post-optimisation reference arm (run 7, build
+`b2de0c2`, Low Power Mode off)** — the same bundle `perf/baseline.json` is now
+recorded from. The counts are in the appendix's own header line below.
+
+Note this appendix is therefore the state of the application **after** round one
+(§17), while §1–§16 describe it before. That is deliberate: the appendix exists
+so any table can be audited against raw data, and the raw data worth auditing is
+the current one. The pre-optimisation appendix is recoverable from git history
+at the commit that recorded it.
 
 It is **generated, not transcribed**:
 
@@ -2897,9 +3073,9 @@ be regenerated with the same command against
 
 <!-- BEGIN GENERATED APPENDIX — do not edit by hand; regenerate with ci/perf_profile.py -->
 
-<!-- generated by ci/perf_profile.py from d14d3230-bug20260818T184733.zip -->
+<!-- generated by ci/perf_profile.py from 9cd59922-bug20260820T101045.zip -->
 
-Source bundle `d14d3230-bug20260818T184733.zip`, build `230f179`, captured 2026-08-18T18:48:14.340496.
+Source bundle `9cd59922-bug20260820T101045.zip`, build `b2de0c2`, captured 2026-08-20T10:11:04.906253.
 
 Every number below is printed verbatim from the bundle. Nothing is selected, ranked away or rounded beyond the instrument's resolution.
 
@@ -2907,7 +3083,7 @@ Runners present: perf_suite.json, perf_suite_ui.json, perf_suite_stress.json.
 
 ### A. Complete span inventory
 
-Complete inventory: **321 spans**, session scope (includes the warm-up pass). Resolution classes: **293 resolved**, 7 marginal, **21 unresolved** (mean below the 1 µs quantization floor — printed as `< 1 µs`, never as digits).
+Complete inventory: **323 spans**, session scope (includes the warm-up pass). Resolution classes: **283 resolved**, 7 marginal, **33 unresolved** (mean below the 1 µs quantization floor — printed as `< 1 µs`, never as digits).
 
 **Two different windows in one row.** `n`, `total` and `mean` cover every observation. `p50`, `p95` and `max` are computed over a **128-sample ring buffer** (`perf.dart:41`), i.e. the most recent ≤128 observations only. Where a span ran more than 128 times under changing conditions the two disagree legitimately — `2d.paint` has a mean of 0.3362 ms and a p50 of 0.6400 ms because its last 128 paints were drag frames while the earlier ones were static. Neither figure is wrong; they answer different questions, and comparing them across spans without noticing the window is an error.
 
@@ -2915,614 +3091,626 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `ffi.qcad.saveDxf` | 11 | 149.09 | 13.55 | 13.94 | 23.07 | 23.07 | resolved |
-| `ffi.qcad.addLine` | 1527 | 4.19 | 0.0027 | 0.0010 | 0.0030 | 0.5830 | resolved |
-| `ffi.qcad.allGeometry` | 65 | 3.59 | 0.0552 | 0.0250 | 0.1860 | 0.3200 | resolved |
-| `ffi.qcad.addCircle` | 1522 | 3.56 | 0.0023 | 0.0010 | 0.0020 | 0.0570 | resolved |
+| `ffi.qcad.saveDxf` | 8 | 218.00 | 27.25 | 32.58 | 38.30 | 38.30 | resolved |
+| `ffi.qcad.addPolyline` | 12 | 5.91 | 0.4925 | 0.4160 | 0.6380 | 1.625 | resolved |
+| `ffi.qcad.addCircle` | 761 | 1.94 | 0.0025 | 0.0010 | 0.0020 | 1.032 | resolved |
+| `ffi.qcad.addLine` | 888 | 1.93 | 0.0022 | 0.0010 | 0.0030 | 0.2990 | resolved |
+| `ffi.qcad.allGeometry` | 45 | 1.86 | 0.0412 | 0.0280 | 0.0900 | 0.1800 | resolved |
+| `ffi.qcad.addArc` | 61 | 0.35 | 0.0057 | 0.0040 | 0.0140 | 0.0440 | resolved |
 
 #### 2D — interaction
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `2d.displayGeometry` | 480 | 100.75 | 0.2099 | 0.1430 | 0.1470 | 0.4050 | resolved |
-| `2d.pickEntity` | 1060 | 64.23 | 0.0606 | 0.0640 | 0.0660 | 0.2530 | resolved |
-| `2d.snap` | 586 | 3.40 | 0.0058 | 0.0040 | 0.0050 | 0.0220 | resolved |
+| `2d.displayGeometry` | 459 | 3664.26 | 7.983 | 0.1430 | 4.216 | 26.81 | resolved |
+| `2d.snap` | 2720 | 1577.43 | 0.5799 | 0.0040 | 0.0050 | 26.82 | resolved |
+| `2d.pickEntity` | 1927 | 122.64 | 0.0636 | 0.0650 | 0.0670 | 2.365 | resolved |
 
 #### 2D — painter phases
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `2d.paint` | 702 | 176.21 | 0.2510 | 0.3320 | 0.4270 | 3.257 | resolved |
-| `2d.paint.constraints` | 702 | 51.21 | 0.0730 | 0.1440 | 0.1540 | 0.3150 | resolved |
-| `2d.paint.ent.dofColour` | 702 | 51.17 | 0.0729 | 0.1430 | 0.1540 | 0.4050 | resolved |
-| `2d.paint.entities` | 702 | 45.23 | 0.0644 | 0.0420 | 0.1040 | 0.4610 | resolved |
-| `2d.paint.toolPreview` | 702 | 13.39 | 0.0191 | < 1 µs | 0.0010 | 3.155 | resolved |
-| `2d.paint.notice` | 702 | 7.03 | 0.0100 | < 1 µs | 0.0010 | 0.4030 | resolved |
-| `2d.paint.cursorHints` | 702 | 3.76 | 0.0054 | < 1 µs | < 1 µs | 1.404 | resolved |
-| `2d.paint.editRef` | 702 | 1.38 | 0.0020 | 0.0010 | 0.0010 | 0.2340 | resolved |
-| `2d.paint.bg` | 702 | 0.69 | 0.0010 | < 1 µs | < 1 µs | 0.0270 | resolved |
-| `2d.paint.z` | 702 | 0.61 | 0.0009 | < 1 µs | 0.0010 | 0.0070 | resolved |
-| `2d.paint.ent.halo` | 702 | 0.44 | 0.0006 | < 1 µs | 0.0010 | 0.2260 | resolved |
-| `2d.paint.snap` | 702 | 0.32 | 0.0005 | 0.0010 | 0.0010 | 0.0190 | resolved |
-| `2d.paint.modifyGhost` | 702 | 0.14 | 0.0002 | < 1 µs | 0.0010 | 0.0030 | resolved |
-| `2d.paint.slice` | 702 | 0.13 | 0.0002 | < 1 µs | < 1 µs | 0.0040 | resolved |
-| `2d.paint.gearGhost` | 702 | 0.10 | 0.0001 | < 1 µs | 0.0010 | 0.0020 | resolved |
-| `2d.paint.boxSelect` | 702 | 0.10 | 0.0001 | < 1 µs | < 1 µs | 0.0010 | resolved |
-| `2d.paint.pattern` | 702 | 0.10 | 0.0001 | < 1 µs | 0.0010 | 0.0010 | resolved |
-| `2d.paint.ent.projectEdges` | 702 | 0.09 | 0.0001 | < 1 µs | 0.0010 | 0.0050 | resolved |
-| `2d.paint.ent.images` | 702 | 0.08 | 0.0001 | < 1 µs | 0.0010 | 0.0020 | resolved |
-| `2d.paint.freehand` | 702 | 0.08 | 0.0001 | < 1 µs | < 1 µs | 0.0020 | marginal |
+| `2d.paint` | 1764 | 2768.97 | 1.570 | 0.1880 | 0.1980 | 22.76 | resolved |
+| `2d.paint.ent.dofColour` | 1764 | 2149.56 | 1.219 | 0.1440 | 0.1490 | 22.45 | resolved |
+| `2d.paint.entities` | 1764 | 259.08 | 0.1469 | 0.0420 | 0.1090 | 1.364 | resolved |
+| `2d.paint.constraints` | 1764 | 136.10 | 0.0772 | < 1 µs | 0.0010 | 1.260 | resolved |
+| `2d.paint.cursorHints` | 1764 | 75.01 | 0.0425 | < 1 µs | < 1 µs | 17.54 | resolved |
+| `2d.paint.gearGhost` | 1764 | 55.19 | 0.0313 | < 1 µs | 0.0010 | 1.587 | resolved |
+| `2d.paint.toolPreview` | 1764 | 51.91 | 0.0294 | < 1 µs | 0.0010 | 1.232 | resolved |
+| `2d.paint.bg` | 1764 | 9.13 | 0.0052 | < 1 µs | < 1 µs | 0.0390 | resolved |
+| `2d.paint.editRef` | 1764 | 7.93 | 0.0045 | 0.0010 | 0.0010 | 0.0360 | resolved |
+| `2d.paint.snap` | 1764 | 6.76 | 0.0038 | < 1 µs | < 1 µs | 0.0610 | resolved |
+| `2d.paint.notice` | 1764 | 4.53 | 0.0026 | < 1 µs | < 1 µs | 0.3310 | resolved |
+| `2d.paint.z` | 1764 | 2.58 | 0.0015 | < 1 µs | 0.0010 | 0.0220 | resolved |
+| `2d.paint.ent.halo` | 1764 | 2.47 | 0.0014 | < 1 µs | 0.0010 | 0.0650 | resolved |
+| `2d.paint.ent.projectEdges` | 1764 | 2.44 | 0.0014 | < 1 µs | < 1 µs | 0.1400 | resolved |
+| `2d.paint.modifyGhost` | 1764 | 1.68 | 0.0010 | < 1 µs | < 1 µs | 0.0210 | resolved |
+| `2d.paint.slice` | 1764 | 1.09 | 0.0006 | < 1 µs | < 1 µs | 0.0080 | resolved |
+| `2d.paint.ent.images` | 1764 | 0.64 | 0.0004 | < 1 µs | < 1 µs | 0.0210 | resolved |
+| `2d.paint.boxSelect` | 1764 | 0.62 | 0.0003 | < 1 µs | 0.0010 | 0.0060 | resolved |
+| `2d.paint.pattern` | 1764 | 0.59 | 0.0003 | < 1 µs | < 1 µs | 0.0140 | resolved |
+| `2d.paint.freehand` | 1764 | 0.59 | 0.0003 | < 1 µs | < 1 µs | 0.0070 | resolved |
 
 #### 3D kernel — OCCT entry points
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `ffi.occt.allEdges` | 189 | 50960.23 | 269.6 | 142.7 | 621.3 | 10001.2 | resolved |
-| `ffi.occt.filletEdges` | 54 | 8953.95 | 165.8 | 50.90 | 675.6 | 1252.9 | resolved |
-| `ffi.occt.meshCreate` | 1124 | 6217.70 | 5.532 | 2.995 | 3.403 | 559.4 | resolved |
-| `ffi.occt.sweepProfile` | 35 | 3861.41 | 110.3 | 88.88 | 390.4 | 392.3 | resolved |
-| `ffi.occt.extrudeProfileArcs` | 1099 | 3318.48 | 3.020 | 1.477 | 1.513 | 146.8 | resolved |
-| `ffi.occt.fuse` | 413 | 2278.45 | 5.517 | 0.4320 | 2.132 | 126.8 | resolved |
-| `ffi.occt.cut` | 34 | 538.17 | 15.83 | 2.381 | 59.04 | 90.90 | resolved |
-| `ffi.occt.common` | 32 | 405.03 | 12.66 | 2.299 | 44.94 | 87.36 | resolved |
-| `ffi.occt.chamferEdges` | 14 | 289.74 | 20.70 | 19.72 | 46.08 | 47.04 | resolved |
-| `ffi.occt.coilProfile` | 12 | 265.52 | 22.13 | 23.45 | 47.60 | 48.12 | resolved |
-| `ffi.occt.loftSections` | 20 | 207.80 | 10.39 | 8.048 | 34.56 | 36.70 | resolved |
-| `ffi.occt.mirror` | 80 | 162.48 | 2.031 | 2.279 | 4.539 | 4.623 | resolved |
-| `ffi.occt.transform` | 421 | 95.27 | 0.2263 | 0.0110 | 0.0140 | 1.537 | resolved |
-| `ffi.occt.revolveProfile` | 24 | 53.32 | 2.222 | 2.153 | 5.464 | 5.480 | resolved |
-| `ffi.occt.rayHits` | 240 | 42.50 | 0.1771 | 0.1210 | 0.2330 | 0.2490 | resolved |
-| `ffi.occt.unify` | 203 | 27.96 | 0.1378 | 0.0700 | 0.3870 | 1.683 | resolved |
-| `ffi.occt.extrudeProfile` | 24 | 16.87 | 0.7027 | 0.5920 | 1.753 | 1.781 | resolved |
-| `ffi.occt.meshCopyOut` | 1124 | 8.46 | 0.0075 | 0.0020 | 0.0040 | 0.4630 | resolved |
-| `ffi.occt.makeBox` | 25 | 4.81 | 0.1923 | 0.0210 | 0.0340 | 4.325 | resolved |
-| `ffi.occt.makeCylinder` | 156 | 0.90 | 0.0058 | 0.0040 | 0.0070 | 0.0170 | resolved |
+| `ffi.occt.sweepProfile` | 19 | 307310.58 | 16174.2 | 91.61 | 102006.2 | 102244.4 | resolved |
+| `ffi.occt.allEdges` | 83 | 10301.62 | 124.1 | 6.558 | 45.65 | 7243.3 | resolved |
+| `ffi.occt.meshCreate` | 559 | 5156.39 | 9.224 | 3.085 | 3.367 | 1234.2 | resolved |
+| `ffi.occt.extrudeProfileArcs` | 569 | 1293.07 | 2.273 | 1.483 | 1.505 | 76.49 | resolved |
+| `ffi.occt.filletEdges` | 14 | 837.52 | 59.82 | 10.81 | 342.4 | 344.0 | resolved |
+| `ffi.occt.fuse` | 206 | 750.82 | 3.645 | 0.4450 | 2.310 | 66.37 | resolved |
+| `ffi.occt.cut` | 16 | 143.78 | 8.986 | 1.074 | 46.81 | 47.04 | resolved |
+| `ffi.occt.common` | 16 | 137.40 | 8.587 | 1.043 | 45.05 | 45.17 | resolved |
+| `ffi.occt.coilProfile` | 6 | 93.27 | 15.54 | 12.83 | 25.58 | 25.58 | resolved |
+| `ffi.occt.loftSections` | 10 | 79.84 | 7.984 | 5.518 | 21.46 | 21.46 | resolved |
+| `ffi.occt.chamferEdges` | 6 | 79.11 | 13.19 | 10.26 | 24.06 | 24.06 | resolved |
+| `ffi.occt.mirror` | 40 | 55.00 | 1.375 | 2.282 | 2.304 | 2.332 | resolved |
+| `ffi.occt.transform` | 208 | 31.89 | 0.1533 | 0.0120 | 0.0150 | 0.7790 | resolved |
+| `ffi.occt.revolveProfile` | 12 | 18.20 | 1.517 | 1.861 | 2.828 | 2.837 | resolved |
+| `ffi.occt.rayHits` | 120 | 14.57 | 0.1214 | 0.1210 | 0.1240 | 0.1300 | resolved |
+| `ffi.occt.meshCopyOut` | 559 | 11.46 | 0.0205 | 0.0020 | 0.0040 | 4.440 | resolved |
+| `ffi.occt.unify` | 100 | 8.54 | 0.0854 | 0.0430 | 0.2040 | 0.6580 | resolved |
+| `ffi.occt.extrudeProfile` | 12 | 5.72 | 0.4770 | 0.5030 | 0.9040 | 0.9230 | resolved |
+| `ffi.occt.makeBox` | 13 | 2.65 | 0.2042 | 0.0120 | 0.0250 | 2.493 | resolved |
+| `ffi.occt.makeCylinder` | 78 | 0.27 | 0.0034 | 0.0030 | 0.0050 | 0.0080 | resolved |
 
 #### 3D kernel — scenarios
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `kernel.feature` | 228 | 9411.08 | 41.28 | 0.6360 | 326.4 | 1371.8 | resolved |
-| `kernel.feature.fillet` | 26 | 8888.25 | 341.9 | 192.9 | 1366.9 | 1371.8 | resolved |
-| `kernel.remesh` | 24 | 2204.13 | 91.84 | 51.50 | 306.0 | 560.0 | resolved |
-| `kernel.edgeInfoScale.240` | 80 | 368.56 | 4.607 | 6.041 | 6.167 | 6.275 | resolved |
-| `kernel.feature.pattern` | 24 | 207.30 | 8.638 | 8.452 | 19.10 | 19.37 | resolved |
-| `kernel.feature.extrude` | 173 | 182.89 | 1.057 | 0.6350 | 1.411 | 20.60 | resolved |
-| `kernel.edgeInfo1` | 80 | 182.10 | 2.276 | 2.977 | 3.030 | 3.141 | resolved |
-| `kernel.edgeInfoScale.120` | 80 | 181.54 | 2.269 | 2.964 | 3.000 | 3.062 | resolved |
-| `kernel.feature.chamfer` | 2 | 108.78 | 54.39 | 56.60 | 56.60 | 56.60 | resolved |
-| `kernel.edgeInfoScale.60` | 80 | 91.32 | 1.142 | 1.492 | 1.519 | 1.567 | resolved |
-| `kernel.rayHit` | 240 | 42.58 | 0.1774 | 0.1210 | 0.2340 | 0.2550 | resolved |
-| `kernel.edgeInfoScale.24` | 80 | 38.17 | 0.4771 | 0.6210 | 0.6410 | 0.6760 | resolved |
-| `kernel.feature.sweep` | 3 | 23.69 | 7.897 | 5.282 | 14.58 | 14.58 | resolved |
-| `kernel.counts` | 80 | 12.33 | 0.1541 | 0.2020 | 0.2050 | 0.2160 | resolved |
-| `kernel.bbox` | 80 | 10.11 | 0.1264 | 0.1650 | 0.1700 | 0.1790 | resolved |
+| `kernel.feature` | 99 | 310884.24 | 3140.2 | 0.6270 | 10.66 | 103761.8 | resolved |
+| `kernel.feature.sweep` | 3 | 310754.19 | 103584.7 | 103515.9 | 103761.7 | 103761.7 | resolved |
+| `kernel.edgeInfoScale.240` | 40 | 126.73 | 3.168 | 3.147 | 3.202 | 3.841 | resolved |
+| `kernel.feature.pattern` | 12 | 75.03 | 6.252 | 4.660 | 10.67 | 10.69 | resolved |
+| `kernel.edgeInfo1` | 40 | 62.03 | 1.551 | 1.547 | 1.566 | 1.618 | resolved |
+| `kernel.edgeInfoScale.120` | 40 | 62.03 | 1.551 | 1.550 | 1.564 | 1.588 | resolved |
+| `kernel.feature.extrude` | 84 | 54.98 | 0.6545 | 0.6240 | 0.7190 | 1.868 | resolved |
+| `kernel.edgeInfoScale.60` | 40 | 31.17 | 0.7793 | 0.7770 | 0.7920 | 0.8110 | resolved |
+| `kernel.rayHit` | 120 | 14.59 | 0.1216 | 0.1210 | 0.1240 | 0.1300 | resolved |
+| `kernel.edgeInfoScale.24` | 40 | 12.94 | 0.3234 | 0.3220 | 0.3290 | 0.3470 | resolved |
+| `kernel.counts` | 40 | 4.19 | 0.1049 | 0.1040 | 0.1080 | 0.1150 | resolved |
+| `kernel.bbox` | 40 | 3.42 | 0.0854 | 0.0850 | 0.0860 | 0.0900 | resolved |
 
 #### 3D — face provenance
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `provenance.newSurfaces` | 120 | 25.98 | 0.2165 | 0.0900 | 0.7690 | 0.8080 | resolved |
-| `provenance.attributeFaces` | 60 | 14.40 | 0.2400 | 0.2730 | 0.5820 | 0.6000 | resolved |
-| `provenance.faceSurfaces` | 120 | 6.02 | 0.0502 | 0.0450 | 0.1400 | 0.2370 | resolved |
+| `provenance.attributeFaces` | 30 | 4.65 | 0.1549 | 0.1320 | 0.2900 | 0.3000 | resolved |
+| `provenance.newSurfaces` | 60 | 1.04 | 0.0173 | 0.0100 | 0.0400 | 0.0490 | resolved |
+| `provenance.faceSurfaces` | 60 | 0.53 | 0.0088 | 0.0060 | 0.0190 | 0.0200 | resolved |
 
 #### 3D — feature rebuild
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `part.rebuildAll` | 70 | 2944.14 | 42.06 | 12.98 | 185.6 | 1359.5 | resolved |
+| `part.rebuildAll` | 34 | 103730.51 | 3050.9 | 7.372 | 14.48 | 103481.2 | resolved |
 
 #### 3D — scene push
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `3d.push` | 1699 | 165.32 | 0.0973 | 0.0580 | 0.1070 | 5.530 | resolved |
-| `3d.payload` | 63 | 24.26 | 0.3850 | 0.2710 | 0.9580 | 2.617 | resolved |
-| `3d.hitTest` | 1211 | 5.12 | 0.0042 | 0.0010 | 0.0030 | 0.1070 | resolved |
+| `3d.push` | 2346 | 166.38 | 0.0709 | 0.0710 | 0.1910 | 9.161 | resolved |
+| `3d.hitTest` | 1172 | 19.46 | 0.0166 | 0.0010 | 0.0030 | 0.2730 | resolved |
+| `3d.payload` | 21 | 12.21 | 0.5816 | 0.2580 | 1.113 | 6.063 | resolved |
 
 #### Application paths
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `app.blendPattern.edgesOf` | 56 | 11769.22 | 210.2 | 276.1 | 278.4 | 281.8 | resolved |
-| `app.checkpoint` | 240 | 25.56 | 0.1065 | 0.0530 | 0.2720 | 0.5280 | resolved |
-| `app.sketch.encodeCons` | 80 | 16.09 | 0.2011 | 0.2600 | 0.2740 | 0.2930 | resolved |
-| `app.engineFill` | 40 | 15.82 | 0.3956 | 0.3580 | 0.8250 | 0.8810 | resolved |
-| `app.sketch.decodeCons` | 80 | 10.61 | 0.1327 | 0.1650 | 0.1830 | 0.3450 | resolved |
-| `app.partEdges` | 120 | 9.80 | 0.0817 | 0.0470 | 0.2510 | 0.6570 | resolved |
-| `app.pickEdge3d` | 360 | 6.46 | 0.0180 | 0.0060 | 0.0290 | 0.2260 | resolved |
-| `app.patternPreview` | 400 | 6.16 | 0.0154 | 0.0110 | 0.0310 | 0.1280 | resolved |
-| `app.facesOf` | 120 | 1.52 | 0.0127 | 0.0110 | 0.0360 | 0.0800 | resolved |
-| `app.buildScenePayload` | 120 | 1.22 | 0.0101 | 0.0060 | 0.0130 | 0.3160 | resolved |
-| `app.meshSelfReport` | 12 | 1.16 | 0.0963 | 0.1210 | 0.1270 | 0.1410 | resolved |
-| `app.part.toJson` | 80 | 0.44 | 0.0055 | 0.0070 | 0.0080 | 0.0170 | resolved |
-| `app.sceneSignature` | 720 | 0.30 | 0.0004 | < 1 µs | < 1 µs | 0.0040 | resolved |
-| `app.buildOverlaysPayload` | 120 | 0.06 | 0.0005 | 0.0010 | 0.0010 | 0.0020 | resolved |
-| `app.meshAnomalies` | 12 | 0.00 | < 1 µs | < 1 µs | 0.0010 | 0.0010 | unresolved |
-| `app.redoStep` | 240 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
-| `app.sceneRevs` | 240 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
-| `app.undoStep` | 240 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `app.blendPattern.edgesOf` | 28 | 264.87 | 9.460 | 9.458 | 9.567 | 9.733 | resolved |
+| `app.checkpoint` | 120 | 8.74 | 0.0728 | 0.0530 | 0.1400 | 0.3250 | resolved |
+| `app.engineFill` | 20 | 6.24 | 0.3122 | 0.3810 | 0.4460 | 1.173 | resolved |
+| `app.sketch.encodeCons` | 40 | 5.62 | 0.1406 | 0.1360 | 0.1510 | 0.2510 | resolved |
+| `app.sketch.decodeCons` | 40 | 3.47 | 0.0868 | 0.0860 | 0.0890 | 0.0950 | resolved |
+| `app.partEdges` | 60 | 3.45 | 0.0574 | 0.0240 | 0.1220 | 0.3360 | resolved |
+| `app.pickEdge3d` | 180 | 2.31 | 0.0129 | 0.0060 | 0.0290 | 0.1260 | resolved |
+| `app.patternPreview` | 200 | 2.06 | 0.0103 | 0.0110 | 0.0310 | 0.0890 | resolved |
+| `app.facesOf` | 60 | 0.60 | 0.0100 | 0.0060 | 0.0180 | 0.1210 | resolved |
+| `app.buildScenePayload` | 60 | 0.46 | 0.0076 | 0.0040 | 0.0070 | 0.1540 | resolved |
+| `app.meshSelfReport` | 6 | 0.38 | 0.0628 | 0.0630 | 0.0690 | 0.0690 | resolved |
+| `app.part.toJson` | 40 | 0.16 | 0.0039 | 0.0040 | 0.0040 | 0.0070 | resolved |
+| `app.undoStep` | 120 | 0.01 | 0.0001 | < 1 µs | < 1 µs | 0.0130 | marginal |
+| `app.sceneSignature` | 360 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `app.buildOverlaysPayload` | 60 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `app.meshAnomalies` | 6 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `app.redoStep` | 120 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `app.sceneRevs` | 120 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
 
 #### Constraint solver
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `solve.total` | 1545 | 3518.70 | 2.277 | 0.1420 | 10.65 | 107.6 | resolved |
-| `solve.lm` | 56 | 2243.12 | 40.06 | 33.22 | 65.04 | 103.0 | resolved |
-| `solve.slvs` | 1545 | 1249.84 | 0.8090 | 0.1350 | 10.58 | 80.23 | resolved |
+| `solve.total` | 1003 | 4207.31 | 4.195 | 0.1420 | 10.45 | 38.32 | resolved |
+| `solve.lm` | 266 | 3221.77 | 12.11 | 12.02 | 19.09 | 26.71 | resolved |
+| `solve.slvs` | 1003 | 964.98 | 0.9621 | 0.1350 | 10.38 | 38.19 | resolved |
 
 #### Constraint solver (native)
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `ffi.slvs.solve` | 1537 | 1086.78 | 0.7071 | 0.1160 | 10.40 | 79.53 | resolved |
+| `ffi.slvs.solve` | 761 | 912.59 | 1.199 | 0.1150 | 10.20 | 37.85 | resolved |
 
 #### Constraints
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `constraints.add.dimension` | 4 | 158.37 | 39.59 | 46.32 | 66.40 | 66.40 | resolved |
-| `constraints.add.tangent` | 4 | 41.99 | 10.50 | 13.87 | 15.23 | 15.23 | resolved |
-| `constraints.add.fix` | 4 | 37.63 | 9.408 | 12.26 | 13.57 | 13.57 | resolved |
-| `constraints.encode` | 80 | 20.67 | 0.2584 | 0.3570 | 0.3730 | 0.6130 | resolved |
-| `constraints.add.perpendicular` | 4 | 14.50 | 3.625 | 4.900 | 5.033 | 5.033 | resolved |
-| `constraints.decode` | 80 | 12.77 | 0.1596 | 0.2260 | 0.2340 | 0.2620 | resolved |
-| `constraints.add.coincident` | 4 | 2.29 | 0.5733 | 0.7210 | 0.7500 | 0.7500 | resolved |
-| `constraints.add.collinear` | 4 | 2.26 | 0.5640 | 0.7280 | 0.7990 | 0.7990 | resolved |
-| `constraints.add.midpoint` | 4 | 2.07 | 0.5182 | 0.6360 | 0.8110 | 0.8110 | resolved |
-| `constraints.add.symmetric` | 4 | 2.07 | 0.5177 | 0.7220 | 0.7240 | 0.7240 | resolved |
-| `constraints.add.concentric` | 4 | 1.94 | 0.4855 | 0.6420 | 0.7170 | 0.7170 | resolved |
-| `constraints.add.parallel` | 4 | 1.88 | 0.4707 | 0.6150 | 0.6890 | 0.6890 | resolved |
-| `constraints.add.equal` | 4 | 1.88 | 0.4702 | 0.5930 | 0.7430 | 0.7430 | resolved |
-| `constraints.add.horizontal` | 4 | 1.78 | 0.4450 | 0.5970 | 0.6320 | 0.6320 | resolved |
-| `constraints.add.vertical` | 4 | 1.77 | 0.4437 | 0.5700 | 0.6470 | 0.6470 | resolved |
-| `constraints.add.smooth` | 4 | 1.53 | 0.3813 | 0.5310 | 0.5350 | 0.5350 | resolved |
-| `constraints.inferPointBindings` | 160 | 0.59 | 0.0037 | 0.0010 | 0.0100 | 0.2580 | resolved |
-| `constraints.inferConstraints` | 160 | 0.38 | 0.0024 | 0.0010 | 0.0120 | 0.0300 | resolved |
+| `constraints.add.dimension` | 2 | 10.12 | 5.062 | 5.169 | 5.169 | 5.169 | resolved |
+| `constraints.encode` | 40 | 5.53 | 0.1384 | 0.1350 | 0.1470 | 0.2310 | resolved |
+| `constraints.add.perpendicular` | 2 | 4.51 | 2.253 | 2.339 | 2.339 | 2.339 | resolved |
+| `constraints.add.fix` | 2 | 3.79 | 1.893 | 1.919 | 1.919 | 1.919 | resolved |
+| `constraints.decode` | 40 | 3.55 | 0.0888 | 0.0860 | 0.0980 | 0.1560 | resolved |
+| `constraints.add.tangent` | 2 | 3.36 | 1.680 | 1.719 | 1.719 | 1.719 | resolved |
+| `constraints.add.collinear` | 2 | 0.61 | 0.3035 | 0.3140 | 0.3140 | 0.3140 | resolved |
+| `constraints.add.coincident` | 2 | 0.57 | 0.2845 | 0.3100 | 0.3100 | 0.3100 | resolved |
+| `constraints.add.symmetric` | 2 | 0.54 | 0.2675 | 0.2680 | 0.2680 | 0.2680 | resolved |
+| `constraints.add.midpoint` | 2 | 0.53 | 0.2660 | 0.2790 | 0.2790 | 0.2790 | resolved |
+| `constraints.add.parallel` | 2 | 0.50 | 0.2485 | 0.2510 | 0.2510 | 0.2510 | resolved |
+| `constraints.add.concentric` | 2 | 0.50 | 0.2480 | 0.2510 | 0.2510 | 0.2510 | resolved |
+| `constraints.add.horizontal` | 2 | 0.46 | 0.2295 | 0.2330 | 0.2330 | 0.2330 | resolved |
+| `constraints.add.vertical` | 2 | 0.45 | 0.2235 | 0.2240 | 0.2240 | 0.2240 | resolved |
+| `constraints.add.equal` | 2 | 0.45 | 0.2230 | 0.2240 | 0.2240 | 0.2240 | resolved |
+| `constraints.add.smooth` | 2 | 0.36 | 0.1815 | 0.1820 | 0.1820 | 0.1820 | resolved |
+| `constraints.inferConstraints` | 80 | 0.30 | 0.0037 | 0.0010 | 0.0060 | 0.1950 | resolved |
+| `constraints.inferPointBindings` | 80 | 0.08 | 0.0011 | < 1 µs | 0.0050 | 0.0070 | resolved |
 
 #### Document I/O
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `io.savePart` | 6 | 645.12 | 107.5 | 86.33 | 294.8 | 294.8 | resolved |
+| `io.savePart` | 7 | 866.09 | 123.7 | 42.63 | 631.8 | 631.8 | resolved |
 
 #### Drawing tools
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `tool.build.eqCurve` | 200 | 3.52 | 0.0176 | 0.0060 | 0.0130 | 1.416 | resolved |
-| `tool.build.slot3A` | 200 | 1.90 | 0.0095 | < 1 µs | 0.0010 | 1.820 | resolved |
-| `tool.build.chamfer` | 200 | 1.39 | 0.0069 | 0.0010 | 0.0020 | 1.037 | resolved |
-| `tool.build.bridge` | 200 | 1.18 | 0.0059 | 0.0040 | 0.0080 | 0.0350 | resolved |
-| `tool.build.slotCC` | 200 | 0.83 | 0.0041 | < 1 µs | < 1 µs | 0.7880 | resolved |
-| `tool.build.circleTangent` | 200 | 0.60 | 0.0030 | 0.0020 | 0.0040 | 0.0080 | resolved |
-| `tool.build.fillet` | 200 | 0.47 | 0.0023 | 0.0010 | 0.0030 | 0.0180 | resolved |
-| `tool.build.arcTangent` | 200 | 0.44 | 0.0022 | 0.0010 | 0.0030 | 0.0110 | resolved |
-| `tool.build.splineCV` | 200 | 0.10 | 0.0005 | < 1 µs | 0.0010 | 0.0060 | resolved |
-| `tool.build.splineInterp` | 200 | 0.10 | 0.0005 | < 1 µs | 0.0010 | 0.0040 | resolved |
-| `tool.build.splineFree` | 200 | 0.09 | 0.0005 | < 1 µs | 0.0010 | 0.0010 | resolved |
-| `tool.build.slotCPA` | 200 | 0.07 | 0.0003 | < 1 µs | 0.0010 | 0.0160 | resolved |
-| `tool.build.polygon` | 200 | 0.04 | 0.0002 | < 1 µs | < 1 µs | 0.0230 | resolved |
-| `tool.build.rect3PC` | 200 | 0.02 | 0.0001 | < 1 µs | < 1 µs | 0.0070 | marginal |
-| `tool.build.rect2PC` | 200 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0020 | unresolved |
-| `tool.build.ellipse` | 200 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0030 | unresolved |
-| `tool.build.line` | 200 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0030 | unresolved |
-| `tool.build.slotCP` | 200 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0040 | unresolved |
-| `tool.build.rect3P` | 200 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
-| `tool.build.rectTwoPoint` | 200 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
-| `tool.build.slotOverall` | 200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
-| `tool.build.arcCenter` | 200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
-| `tool.build.arcThreePoint` | 200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
-| `tool.build.circleCenter` | 200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
-| `tool.build.lineMid` | 200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
-| `tool.build.point` | 200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.bridge` | 100 | 0.65 | 0.0065 | 0.0040 | 0.0040 | 0.2690 | resolved |
+| `tool.build.eqCurve` | 100 | 0.62 | 0.0062 | 0.0060 | 0.0070 | 0.0320 | resolved |
+| `tool.build.circleTangent` | 100 | 0.39 | 0.0039 | 0.0020 | 0.0020 | 0.1870 | resolved |
+| `tool.build.fillet` | 100 | 0.11 | 0.0011 | 0.0010 | 0.0020 | 0.0020 | resolved |
+| `tool.build.arcTangent` | 100 | 0.10 | 0.0010 | 0.0010 | 0.0010 | 0.0020 | resolved |
+| `tool.build.chamfer` | 100 | 0.10 | 0.0010 | 0.0010 | 0.0010 | 0.0020 | resolved |
+| `tool.build.splineCV` | 100 | 0.02 | 0.0002 | < 1 µs | < 1 µs | 0.0160 | marginal |
+| `tool.build.line` | 100 | 0.01 | 0.0001 | < 1 µs | < 1 µs | 0.0130 | marginal |
+| `tool.build.arcThreePoint` | 100 | 0.01 | 0.0001 | < 1 µs | < 1 µs | 0.0120 | marginal |
+| `tool.build.ellipse` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `tool.build.polygon` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `tool.build.slotCP` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `tool.build.splineFree` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `tool.build.splineInterp` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
+| `tool.build.arcCenter` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.circleCenter` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.lineMid` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.point` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.rect2PC` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.rect3P` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.rect3PC` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.rectTwoPoint` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.slot3A` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.slotCC` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.slotCPA` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `tool.build.slotOverall` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
 
 #### Drawing tools (composite)
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `tools.bez.flatten` | 240 | 14.10 | 0.0588 | 0.0220 | 0.1760 | 0.2600 | resolved |
-| `tools.bez.tol.0_01` | 40 | 3.72 | 0.0930 | 0.1190 | 0.1210 | 0.1970 | resolved |
-| `tools.filletMaxRadius` | 40 | 3.08 | 0.0771 | 0.0480 | 0.0730 | 1.557 | resolved |
-| `tools.bez.tol.0_05` | 40 | 1.58 | 0.0395 | 0.0500 | 0.0550 | 0.0630 | resolved |
-| `tools.bez.tol.0_25` | 40 | 0.57 | 0.0143 | 0.0160 | 0.0180 | 0.0890 | resolved |
-| `tools.bez.build` | 240 | 0.30 | 0.0013 | < 1 µs | 0.0040 | 0.0090 | resolved |
-| `tools.bez.tol.1_0` | 40 | 0.16 | 0.0039 | 0.0050 | 0.0060 | 0.0070 | resolved |
-| `tools.filletInventor` | 200 | 0.14 | 0.0007 | < 1 µs | 0.0010 | 0.0260 | resolved |
-| `tools.chamferInventor` | 200 | 0.03 | 0.0001 | < 1 µs | < 1 µs | 0.0150 | marginal |
+| `tools.bez.flatten` | 120 | 4.83 | 0.0402 | 0.0210 | 0.0910 | 0.1390 | resolved |
+| `tools.bez.tol.0_01` | 20 | 1.29 | 0.0643 | 0.0620 | 0.0670 | 0.1060 | resolved |
+| `tools.filletMaxRadius` | 20 | 0.71 | 0.0354 | 0.0250 | 0.0250 | 0.2320 | resolved |
+| `tools.bez.tol.0_05` | 20 | 0.52 | 0.0261 | 0.0260 | 0.0270 | 0.0270 | resolved |
+| `tools.bez.tol.0_25` | 20 | 0.17 | 0.0086 | 0.0090 | 0.0090 | 0.0090 | resolved |
+| `tools.bez.build` | 120 | 0.08 | 0.0007 | < 1 µs | 0.0020 | 0.0020 | resolved |
+| `tools.bez.tol.1_0` | 20 | 0.06 | 0.0029 | 0.0030 | 0.0030 | 0.0030 | resolved |
+| `tools.filletInventor` | 100 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0030 | unresolved |
+| `tools.chamferInventor` | 100 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
 
 #### Ellipses
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `ellipse.curve` | 400 | 0.04 | 0.0001 | < 1 µs | < 1 µs | 0.0220 | marginal |
+| `ellipse.curve` | 200 | 0.01 | 0.0001 | < 1 µs | < 1 µs | 0.0110 | marginal |
 
 #### Freehand
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `freehand.fit` | 120 | 8.29 | 0.0691 | 0.0210 | 0.2670 | 0.3100 | resolved |
-| `freehand.smooth` | 120 | 7.66 | 0.0638 | 0.0170 | 0.2530 | 0.2780 | resolved |
-| `freehand.dedupe` | 120 | 0.38 | 0.0032 | 0.0020 | 0.0110 | 0.0140 | resolved |
-| `freehand.resample` | 120 | 0.17 | 0.0014 | 0.0010 | 0.0050 | 0.0220 | resolved |
+| `freehand.fit` | 60 | 2.63 | 0.0438 | 0.0110 | 0.1190 | 0.1210 | resolved |
+| `freehand.smooth` | 60 | 2.43 | 0.0405 | 0.0090 | 0.1110 | 0.1140 | resolved |
+| `freehand.dedupe` | 60 | 0.13 | 0.0021 | 0.0010 | 0.0050 | 0.0060 | resolved |
+| `freehand.resample` | 60 | 0.04 | 0.0007 | < 1 µs | 0.0020 | 0.0020 | resolved |
 
 #### Gears
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `gear.curve` | 240 | 116.41 | 0.4850 | 0.2750 | 1.065 | 1.258 | resolved |
-| `gear.curve.cached` | 2400 | 1.21 | 0.0005 | < 1 µs | < 1 µs | 0.0030 | resolved |
+| `gear.curve` | 120 | 40.09 | 0.3341 | 0.2770 | 0.5630 | 0.6640 | resolved |
+| `gear.curve.cached` | 1200 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
 
 #### Modify operations
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `modify.intersectionsWithOthers` | 272 | 1.91 | 0.0070 | 0.0040 | 0.0040 | 0.6320 | resolved |
-| `modify.trimCutAway` | 40 | 1.16 | 0.0290 | 0.0050 | 0.0060 | 1.012 | resolved |
-| `modify.trimEntity` | 136 | 0.84 | 0.0061 | 0.0050 | 0.0100 | 0.0270 | resolved |
-| `modify.trim` | 136 | 0.82 | 0.0060 | 0.0050 | 0.0100 | 0.0260 | resolved |
-| `modify.offsetEntity` | 1600 | 0.61 | 0.0004 | < 1 µs | < 1 µs | 0.6080 | resolved |
-| `modify.transformGeo` | 160 | 0.58 | 0.0037 | 0.0040 | 0.0090 | 0.0230 | resolved |
-| `modify.offsetChainAt` | 200 | 0.45 | 0.0022 | 0.0010 | 0.0030 | 0.0270 | resolved |
-| `modify.extendEntity` | 80 | 0.31 | 0.0039 | 0.0040 | 0.0050 | 0.0280 | resolved |
-| `modify.extend` | 80 | 0.28 | 0.0035 | 0.0040 | 0.0050 | 0.0280 | resolved |
-| `modify.stretchGeo` | 80 | 0.28 | 0.0035 | 0.0040 | 0.0050 | 0.0150 | resolved |
-| `modify.splitEntity` | 40 | 0.14 | 0.0036 | 0.0050 | 0.0050 | 0.0070 | resolved |
-| `modify.offset` | 1600 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `modify.intersectionsWithOthers` | 136 | 0.60 | 0.0044 | 0.0040 | 0.0040 | 0.1880 | resolved |
+| `modify.trimEntity` | 68 | 0.42 | 0.0061 | 0.0050 | 0.0050 | 0.1350 | resolved |
+| `modify.trim` | 68 | 0.40 | 0.0058 | 0.0050 | 0.0050 | 0.1350 | resolved |
+| `modify.trimCutAway` | 20 | 0.24 | 0.0122 | 0.0030 | 0.0030 | 0.1900 | resolved |
+| `modify.transformGeo` | 80 | 0.17 | 0.0021 | 0.0040 | 0.0040 | 0.0050 | resolved |
+| `modify.offsetEntity` | 800 | 0.13 | 0.0002 | < 1 µs | < 1 µs | 0.1270 | resolved |
+| `modify.offsetChainAt` | 100 | 0.12 | 0.0012 | 0.0010 | 0.0010 | 0.0140 | resolved |
+| `modify.extendEntity` | 40 | 0.09 | 0.0023 | 0.0020 | 0.0020 | 0.0140 | resolved |
+| `modify.stretchGeo` | 40 | 0.08 | 0.0021 | 0.0020 | 0.0020 | 0.0030 | resolved |
+| `modify.extend` | 40 | 0.08 | 0.0020 | 0.0020 | 0.0020 | 0.0020 | resolved |
+| `modify.splitEntity` | 20 | 0.04 | 0.0021 | 0.0020 | 0.0020 | 0.0030 | resolved |
+| `modify.offset` | 800 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
 
 #### Other
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `tool.spline.interp` | 240 | 0.72 | 0.0030 | < 1 µs | 0.0020 | 0.2140 | resolved |
-| `tool.spline.cv` | 240 | 0.16 | 0.0007 | < 1 µs | 0.0020 | 0.0040 | resolved |
+| `tool.spline.cv` | 120 | 0.04 | 0.0003 | < 1 µs | 0.0010 | 0.0010 | resolved |
+| `tool.spline.interp` | 120 | 0.04 | 0.0003 | < 1 µs | 0.0010 | 0.0010 | resolved |
 
 #### Patterns
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `pattern.occurrences.circular` | 240 | 1.45 | 0.0060 | 0.0020 | 0.0190 | 0.0220 | resolved |
-| `pattern.occurrences.curve` | 80 | 1.27 | 0.0158 | 0.0210 | 0.0210 | 0.0260 | resolved |
-| `pattern.occurrences.points` | 240 | 0.22 | 0.0009 | < 1 µs | 0.0030 | 0.0070 | resolved |
-| `pattern.occurrences` | 240 | 0.20 | 0.0008 | < 1 µs | 0.0030 | 0.0050 | resolved |
-| `pattern.sketchPoints` | 240 | 0.04 | 0.0002 | < 1 µs | 0.0010 | 0.0020 | marginal |
-| `pattern.occurrences.mirror` | 80 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `pattern.occurrences.circular` | 120 | 0.83 | 0.0069 | 0.0020 | 0.0100 | 0.3500 | resolved |
+| `pattern.occurrences.curve` | 40 | 0.44 | 0.0109 | 0.0110 | 0.0110 | 0.0130 | resolved |
+| `pattern.occurrences.points` | 120 | 0.06 | 0.0005 | < 1 µs | 0.0020 | 0.0020 | resolved |
+| `pattern.occurrences` | 120 | 0.05 | 0.0004 | < 1 µs | 0.0010 | 0.0020 | resolved |
+| `pattern.occurrences.mirror` | 40 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `pattern.sketchPoints` | 120 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
 
 #### Projection
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `project.partEdges` | 120 | 9.79 | 0.0816 | 0.0460 | 0.2500 | 0.6570 | resolved |
-| `project.syncSolid` | 7 | 0.00 | < 1 µs | < 1 µs | 0.0010 | 0.0010 | unresolved |
+| `project.partEdges` | 60 | 3.45 | 0.0574 | 0.0240 | 0.1220 | 0.3360 | resolved |
+| `project.syncSolid` | 1 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
 
 #### Ramps (fine-grained sweeps)
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `ramp.allEdges.144` | 4 | 5205.07 | 1301.3 | 1704.9 | 1718.7 | 1718.7 | resolved |
-| `ramp.allEdges.96` | 4 | 2331.63 | 582.9 | 764.9 | 765.9 | 765.9 | resolved |
-| `ramp.allEdges.72` | 4 | 1319.03 | 329.8 | 432.9 | 433.3 | 433.3 | resolved |
-| `ramp.allEdges.48` | 4 | 595.17 | 148.8 | 195.5 | 196.1 | 196.1 | resolved |
-| `ramp.analyze.256` | 4 | 484.52 | 121.1 | 162.7 | 167.1 | 167.1 | resolved |
-| `ramp.boolean.144` | 4 | 438.05 | 109.5 | 144.1 | 144.3 | 144.3 | resolved |
-| `ramp.solids.16` | 4 | 395.72 | 98.93 | 123.0 | 127.5 | 127.5 | resolved |
-| `ramp.allEdges.36` | 4 | 337.55 | 84.39 | 110.5 | 111.4 | 111.4 | resolved |
-| `ramp.solids.12` | 4 | 295.05 | 73.76 | 92.81 | 93.86 | 93.86 | resolved |
-| `ramp.boolean.96` | 4 | 267.05 | 66.76 | 87.77 | 88.02 | 88.02 | resolved |
-| `ramp.analyze.192` | 4 | 221.84 | 55.46 | 73.61 | 76.50 | 76.50 | resolved |
-| `ramp.solids.8` | 4 | 197.60 | 49.40 | 62.75 | 62.79 | 62.79 | resolved |
-| `ramp.boolean.72` | 4 | 191.06 | 47.77 | 62.80 | 62.91 | 62.91 | resolved |
-| `ramp.mesh.288` | 4 | 157.36 | 39.34 | 47.61 | 50.12 | 50.12 | resolved |
-| `ramp.allEdges.24` | 4 | 156.62 | 39.16 | 51.48 | 51.95 | 51.95 | resolved |
-| `ramp.solids.6` | 4 | 148.02 | 37.01 | 46.61 | 46.63 | 46.63 | resolved |
-| `ramp.boolean.48` | 4 | 121.49 | 30.37 | 39.91 | 39.99 | 39.99 | resolved |
-| `ramp.mesh.192` | 4 | 102.82 | 25.70 | 32.23 | 33.38 | 33.38 | resolved |
-| `ramp.solids.4` | 4 | 101.45 | 25.36 | 31.91 | 32.21 | 32.21 | resolved |
-| `ramp.boolean.36` | 4 | 89.15 | 22.29 | 29.27 | 29.37 | 29.37 | resolved |
-| `ramp.mesh.144` | 4 | 76.62 | 19.16 | 24.24 | 24.75 | 24.75 | resolved |
-| `ramp.analyze.128` | 4 | 68.35 | 17.09 | 19.82 | 26.29 | 26.29 | resolved |
-| `ramp.boolean.24` | 4 | 58.67 | 14.67 | 19.21 | 19.34 | 19.34 | resolved |
-| `ramp.density.8` | 4 | 55.90 | 13.97 | 17.98 | 18.37 | 18.37 | resolved |
-| `ramp.drag.128` | 4 | 55.76 | 13.94 | 18.60 | 19.25 | 19.25 | resolved |
-| `ramp.build.288` | 4 | 53.94 | 13.49 | 17.68 | 17.77 | 17.77 | resolved |
-| `ramp.solids.2` | 4 | 49.66 | 12.41 | 14.91 | 16.15 | 16.15 | resolved |
-| `ramp.mesh.96` | 4 | 49.53 | 12.38 | 15.74 | 15.74 | 15.74 | resolved |
-| `ramp.allEdges.12` | 4 | 46.11 | 11.53 | 14.90 | 16.35 | 16.35 | resolved |
-| `ramp.mesh.72` | 4 | 38.57 | 9.642 | 11.84 | 12.35 | 12.35 | resolved |
-| `ramp.build.192` | 4 | 35.47 | 8.868 | 11.65 | 11.70 | 11.70 | resolved |
-| `ramp.density.6` | 4 | 31.74 | 7.934 | 10.28 | 10.29 | 10.29 | resolved |
-| `ramp.boolean.12` | 4 | 30.51 | 7.628 | 9.827 | 10.22 | 10.22 | resolved |
-| `ramp.drag.96` | 4 | 29.74 | 7.436 | 8.901 | 9.126 | 9.126 | resolved |
-| `ramp.analyze.96` | 4 | 29.23 | 7.307 | 9.409 | 9.824 | 9.824 | resolved |
-| `ramp.build.144` | 4 | 26.45 | 6.614 | 8.674 | 8.738 | 8.738 | resolved |
-| `ramp.solids.1` | 4 | 25.89 | 6.473 | 7.715 | 8.491 | 8.491 | resolved |
-| `ramp.mesh.48` | 4 | 25.54 | 6.386 | 8.028 | 8.378 | 8.378 | resolved |
-| `ramp.mesh.36` | 4 | 19.55 | 4.888 | 6.214 | 6.288 | 6.288 | resolved |
-| `ramp.build.96` | 4 | 17.56 | 4.389 | 5.754 | 5.790 | 5.790 | resolved |
-| `ramp.analyze.64` | 4 | 16.79 | 4.196 | 3.976 | 7.463 | 7.463 | resolved |
-| `ramp.solve.256` | 4 | 15.91 | 3.978 | 5.174 | 5.213 | 5.213 | resolved |
-| `ramp.density.4` | 4 | 14.60 | 3.650 | 4.722 | 4.752 | 4.752 | resolved |
-| `ramp.drag.64` | 4 | 13.60 | 3.399 | 4.389 | 4.543 | 4.543 | resolved |
-| `ramp.mesh.24` | 4 | 13.40 | 3.349 | 4.226 | 4.246 | 4.246 | resolved |
-| `ramp.build.72` | 4 | 13.21 | 3.303 | 4.320 | 4.393 | 4.393 | resolved |
-| `ramp.solve.192` | 4 | 9.44 | 2.360 | 3.024 | 3.097 | 3.097 | resolved |
-| `ramp.build.48` | 4 | 8.80 | 2.201 | 2.884 | 2.925 | 2.925 | resolved |
-| `ramp.density.3` | 4 | 8.52 | 2.129 | 2.751 | 2.778 | 2.778 | resolved |
-| `ramp.drag.48` | 4 | 8.41 | 2.103 | 2.735 | 2.810 | 2.810 | resolved |
-| `ramp.mesh.12` | 4 | 7.27 | 1.818 | 2.190 | 2.467 | 2.467 | resolved |
-| `ramp.build.36` | 4 | 6.64 | 1.660 | 2.168 | 2.209 | 2.209 | resolved |
-| `ramp.analyze.48` | 4 | 6.16 | 1.540 | 1.849 | 2.236 | 2.236 | resolved |
-| `ramp.solve.128` | 4 | 4.49 | 1.122 | 1.473 | 1.495 | 1.495 | resolved |
-| `ramp.build.24` | 4 | 4.46 | 1.116 | 1.445 | 1.505 | 1.505 | resolved |
-| `ramp.drag.32` | 4 | 4.41 | 1.102 | 1.442 | 1.465 | 1.465 | resolved |
-| `ramp.density.2` | 4 | 4.12 | 1.030 | 1.335 | 1.336 | 1.336 | resolved |
-| `ramp.drag.24` | 4 | 2.96 | 0.7410 | 0.9780 | 0.9840 | 0.9840 | resolved |
-| `ramp.solve.96` | 4 | 2.76 | 0.6893 | 0.9000 | 0.9280 | 0.9280 | resolved |
-| `ramp.build.12` | 4 | 2.46 | 0.6148 | 0.7400 | 0.8860 | 0.8860 | resolved |
-| `ramp.analyze.32` | 4 | 2.46 | 0.6142 | 0.8040 | 0.8310 | 0.8310 | resolved |
-| `ramp.drag.16` | 4 | 1.74 | 0.4340 | 0.5760 | 0.5840 | 0.5840 | resolved |
-| `ramp.solve.64` | 4 | 1.40 | 0.3503 | 0.4520 | 0.4810 | 0.4810 | resolved |
-| `ramp.density.1` | 4 | 1.40 | 0.3495 | 0.4520 | 0.4700 | 0.4700 | resolved |
-| `ramp.analyze.24` | 4 | 1.29 | 0.3232 | 0.4340 | 0.4380 | 0.4380 | resolved |
-| `ramp.drag.8` | 4 | 1.13 | 0.2830 | 0.2860 | 0.4750 | 0.4750 | resolved |
-| `ramp.solve.48` | 4 | 0.89 | 0.2230 | 0.2990 | 0.3000 | 0.3000 | resolved |
-| `ramp.analyze.16` | 4 | 0.62 | 0.1542 | 0.2080 | 0.2090 | 0.2090 | resolved |
-| `ramp.solve.32` | 4 | 0.49 | 0.1225 | 0.1590 | 0.1740 | 0.1740 | resolved |
-| `ramp.solve.24` | 4 | 0.34 | 0.0860 | 0.1110 | 0.1210 | 0.1210 | resolved |
-| `ramp.solve.8` | 4 | 0.28 | 0.0693 | 0.0570 | 0.1610 | 0.1610 | resolved |
-| `ramp.analyze.8` | 4 | 0.23 | 0.0575 | 0.0700 | 0.0880 | 0.0880 | resolved |
-| `ramp.solve.16` | 4 | 0.22 | 0.0560 | 0.0690 | 0.0870 | 0.0870 | resolved |
+| `ramp.boolean.144` | 2 | 150.71 | 75.35 | 75.43 | 75.43 | 75.43 | resolved |
+| `ramp.solids.16` | 2 | 146.51 | 73.25 | 73.86 | 73.86 | 73.86 | resolved |
+| `ramp.solids.12` | 2 | 111.92 | 55.96 | 56.03 | 56.03 | 56.03 | resolved |
+| `ramp.allEdges.144` | 2 | 99.93 | 49.96 | 50.17 | 50.17 | 50.17 | resolved |
+| `ramp.boolean.96` | 2 | 91.62 | 45.81 | 46.16 | 46.16 | 46.16 | resolved |
+| `ramp.solids.8` | 2 | 73.66 | 36.83 | 36.91 | 36.91 | 36.91 | resolved |
+| `ramp.boolean.72` | 2 | 65.83 | 32.91 | 33.24 | 33.24 | 33.24 | resolved |
+| `ramp.mesh.288` | 2 | 59.74 | 29.87 | 30.19 | 30.19 | 30.19 | resolved |
+| `ramp.solids.6` | 2 | 56.03 | 28.01 | 28.58 | 28.58 | 28.58 | resolved |
+| `ramp.allEdges.96` | 2 | 49.44 | 24.72 | 24.81 | 24.81 | 24.81 | resolved |
+| `ramp.boolean.48` | 2 | 41.38 | 20.69 | 20.72 | 20.72 | 20.72 | resolved |
+| `ramp.mesh.192` | 2 | 38.39 | 19.19 | 19.67 | 19.67 | 19.67 | resolved |
+| `ramp.analyze.256` | 2 | 37.74 | 18.87 | 18.90 | 18.90 | 18.90 | resolved |
+| `ramp.solids.4` | 2 | 37.67 | 18.83 | 19.17 | 19.17 | 19.17 | resolved |
+| `ramp.boolean.36` | 2 | 30.81 | 15.40 | 15.67 | 15.67 | 15.67 | resolved |
+| `ramp.allEdges.72` | 2 | 30.61 | 15.30 | 15.43 | 15.43 | 15.43 | resolved |
+| `ramp.mesh.144` | 2 | 28.19 | 14.09 | 14.14 | 14.14 | 14.14 | resolved |
+| `ramp.boolean.24` | 2 | 20.28 | 10.14 | 10.31 | 10.31 | 10.31 | resolved |
+| `ramp.density.8` | 2 | 19.54 | 9.769 | 9.805 | 9.805 | 9.805 | resolved |
+| `ramp.analyze.192` | 2 | 19.38 | 9.690 | 9.735 | 9.735 | 9.735 | resolved |
+| `ramp.solids.2` | 2 | 19.10 | 9.551 | 9.984 | 9.984 | 9.984 | resolved |
+| `ramp.mesh.96` | 2 | 18.56 | 9.281 | 9.474 | 9.474 | 9.474 | resolved |
+| `ramp.build.288` | 2 | 18.45 | 9.227 | 9.250 | 9.250 | 9.250 | resolved |
+| `ramp.drag.128` | 2 | 16.05 | 8.026 | 8.104 | 8.104 | 8.104 | resolved |
+| `ramp.allEdges.48` | 2 | 15.83 | 7.917 | 7.917 | 7.917 | 7.917 | resolved |
+| `ramp.mesh.72` | 2 | 14.21 | 7.103 | 7.360 | 7.360 | 7.360 | resolved |
+| `ramp.build.192` | 2 | 12.13 | 6.063 | 6.075 | 6.075 | 6.075 | resolved |
+| `ramp.density.6` | 2 | 11.27 | 5.637 | 5.701 | 5.701 | 5.701 | resolved |
+| `ramp.boolean.12` | 2 | 10.50 | 5.250 | 5.302 | 5.302 | 5.302 | resolved |
+| `ramp.allEdges.36` | 2 | 10.50 | 5.248 | 5.292 | 5.292 | 5.292 | resolved |
+| `ramp.mesh.48` | 2 | 9.74 | 4.871 | 5.067 | 5.067 | 5.067 | resolved |
+| `ramp.drag.96` | 2 | 9.47 | 4.734 | 4.740 | 4.740 | 4.740 | resolved |
+| `ramp.solids.1` | 2 | 9.31 | 4.654 | 4.772 | 4.772 | 4.772 | resolved |
+| `ramp.build.144` | 2 | 9.07 | 4.537 | 4.548 | 4.548 | 4.548 | resolved |
+| `ramp.analyze.128` | 2 | 8.60 | 4.302 | 4.346 | 4.346 | 4.346 | resolved |
+| `ramp.mesh.36` | 2 | 7.42 | 3.709 | 3.792 | 3.792 | 3.792 | resolved |
+| `ramp.build.96` | 2 | 5.99 | 2.997 | 3.005 | 3.005 | 3.005 | resolved |
+| `ramp.allEdges.24` | 2 | 5.79 | 2.894 | 2.906 | 2.906 | 2.906 | resolved |
+| `ramp.solve.256` | 2 | 5.57 | 2.784 | 2.797 | 2.797 | 2.797 | resolved |
+| `ramp.mesh.24` | 2 | 5.14 | 2.572 | 2.689 | 2.689 | 2.689 | resolved |
+| `ramp.density.4` | 2 | 5.10 | 2.550 | 2.557 | 2.557 | 2.557 | resolved |
+| `ramp.drag.64` | 2 | 4.65 | 2.323 | 2.327 | 2.327 | 2.327 | resolved |
+| `ramp.analyze.96` | 2 | 4.62 | 2.308 | 2.442 | 2.442 | 2.442 | resolved |
+| `ramp.build.72` | 2 | 4.50 | 2.252 | 2.268 | 2.268 | 2.268 | resolved |
+| `ramp.solve.192` | 2 | 3.28 | 1.639 | 1.647 | 1.647 | 1.647 | resolved |
+| `ramp.build.48` | 2 | 3.00 | 1.499 | 1.504 | 1.504 | 1.504 | resolved |
+| `ramp.density.3` | 2 | 2.94 | 1.468 | 1.487 | 1.487 | 1.487 | resolved |
+| `ramp.drag.48` | 2 | 2.88 | 1.439 | 1.445 | 1.445 | 1.445 | resolved |
+| `ramp.mesh.12` | 2 | 2.73 | 1.367 | 1.369 | 1.369 | 1.369 | resolved |
+| `ramp.allEdges.12` | 2 | 2.45 | 1.223 | 1.239 | 1.239 | 1.239 | resolved |
+| `ramp.build.36` | 2 | 2.25 | 1.123 | 1.125 | 1.125 | 1.125 | resolved |
+| `ramp.analyze.64` | 2 | 2.21 | 1.107 | 1.190 | 1.190 | 1.190 | resolved |
+| `ramp.solve.128` | 2 | 1.59 | 0.7945 | 0.8010 | 0.8010 | 0.8010 | resolved |
+| `ramp.build.24` | 2 | 1.52 | 0.7575 | 0.7680 | 0.7680 | 0.7680 | resolved |
+| `ramp.drag.32` | 2 | 1.50 | 0.7515 | 0.7600 | 0.7600 | 0.7600 | resolved |
+| `ramp.density.2` | 2 | 1.44 | 0.7205 | 0.7220 | 0.7220 | 0.7220 | resolved |
+| `ramp.analyze.48` | 2 | 1.37 | 0.6845 | 0.7970 | 0.7970 | 0.7970 | resolved |
+| `ramp.drag.24` | 2 | 0.99 | 0.4975 | 0.5040 | 0.5040 | 0.5040 | resolved |
+| `ramp.solve.96` | 2 | 0.99 | 0.4950 | 0.5120 | 0.5120 | 0.5120 | resolved |
+| `ramp.build.12` | 2 | 0.82 | 0.4105 | 0.4430 | 0.4430 | 0.4430 | resolved |
+| `ramp.analyze.32` | 2 | 0.59 | 0.2960 | 0.3010 | 0.3010 | 0.3010 | resolved |
+| `ramp.drag.16` | 2 | 0.58 | 0.2895 | 0.2930 | 0.2930 | 0.2930 | resolved |
+| `ramp.solve.64` | 2 | 0.50 | 0.2510 | 0.2590 | 0.2590 | 0.2590 | resolved |
+| `ramp.density.1` | 2 | 0.47 | 0.2375 | 0.2390 | 0.2390 | 0.2390 | resolved |
+| `ramp.analyze.24` | 2 | 0.35 | 0.1760 | 0.1790 | 0.1790 | 0.1790 | resolved |
+| `ramp.solve.48` | 2 | 0.32 | 0.1605 | 0.1650 | 0.1650 | 0.1650 | resolved |
+| `ramp.drag.8` | 2 | 0.29 | 0.1455 | 0.1560 | 0.1560 | 0.1560 | resolved |
+| `ramp.analyze.16` | 2 | 0.20 | 0.0990 | 0.1010 | 0.1010 | 0.1010 | resolved |
+| `ramp.solve.32` | 2 | 0.17 | 0.0860 | 0.0880 | 0.0880 | 0.0880 | resolved |
+| `ramp.solve.24` | 2 | 0.12 | 0.0595 | 0.0600 | 0.0600 | 0.0600 | resolved |
+| `ramp.solve.8` | 2 | 0.10 | 0.0495 | 0.0780 | 0.0780 | 0.0780 | resolved |
+| `ramp.analyze.8` | 2 | 0.08 | 0.0410 | 0.0450 | 0.0450 | 0.0450 | resolved |
+| `ramp.solve.16` | 2 | 0.08 | 0.0385 | 0.0410 | 0.0410 | 0.0410 | resolved |
 
 #### RealityKit (Dart side)
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `rv.setCamera` | 1698 | 14966.17 | 8.814 | 1.577 | 16.64 | 421.9 | resolved |
-| `rv.setOverlays` | 1698 | 14917.16 | 8.785 | 1.515 | 16.62 | 445.4 | resolved |
-| `rv.setScene` | 63 | 1769.43 | 28.09 | 17.32 | 45.68 | 445.4 | resolved |
+| `rv.setCamera` | 2345 | 12685.99 | 5.410 | 1.853 | 159.0 | 688.1 | resolved |
+| `rv.setOverlays` | 2345 | 12603.60 | 5.375 | 1.778 | 159.0 | 679.0 | resolved |
+| `rv.setScene` | 21 | 1417.41 | 67.50 | 29.36 | 206.3 | 682.1 | resolved |
 
 #### RealityKit (native, past the boundary)
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `rv.native.setCamera` | 1698 | 1843.35 | 1.086 | 0.8221 | 0.8221 | 2.115 | resolved |
-| `rv.native.setScene` | 63 | 995.05 | 15.79 | 23.36 | 23.36 | 23.36 | resolved |
-| `rv.native.planes` | 66 | 641.52 | 9.720 | 17.07 | 17.07 | 17.07 | resolved |
-| `rv.native.setOverlays` | 1698 | 205.97 | 0.1213 | 0.1262 | 0.1262 | 0.1262 | resolved |
-| `rv.native.solids` | 66 | 162.17 | 2.457 | 2.487 | 2.487 | 2.487 | resolved |
-| `rv.native.sketches` | 66 | 103.67 | 1.571 | 1.889 | 1.889 | 1.889 | resolved |
-| `rv.native.accents` | 66 | 100.44 | 1.522 | 1.624 | 1.624 | 1.624 | resolved |
-| `rv.native.placeCamera` | 66 | 0.87 | 0.0133 | 0.0154 | 0.0154 | 0.0154 | resolved |
-| `rv.native.highlight` | 66 | 0.01 | 0.0002 | < 1 µs | < 1 µs | < 1 µs | marginal |
+| `rv.native.setCamera` | 2345 | 2903.01 | 1.238 | 1.238 | 1.238 | 1.238 | resolved |
+| `rv.native.setScene` | 21 | 1013.19 | 48.25 | 48.25 | 48.25 | 48.25 | resolved |
+| `rv.native.accents` | 22 | 582.82 | 26.49 | 26.49 | 26.49 | 26.49 | resolved |
+| `rv.native.solids` | 22 | 387.32 | 17.61 | 17.61 | 17.61 | 17.61 | resolved |
+| `rv.native.setOverlays` | 2345 | 165.41 | 0.0705 | 0.0705 | 0.0705 | 0.0705 | resolved |
+| `rv.native.sketches` | 22 | 135.44 | 6.156 | 6.156 | 6.156 | 6.156 | resolved |
+| `rv.native.planes` | 22 | 99.55 | 4.525 | 4.525 | 4.525 | 4.525 | resolved |
+| `rv.native.placeCamera` | 22 | 0.33 | 0.0152 | 0.0152 | 0.0152 | 0.0152 | resolved |
+| `rv.native.highlight` | 22 | 0.01 | 0.0003 | < 1 µs | < 1 µs | < 1 µs | marginal |
 
 #### Sketch analysis and rebuild
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `sketch.analyze` | 163 | 28562.92 | 175.2 | 0.9350 | 148.0 | 16860.5 | resolved |
-| `sketch.profileLoops` | 178 | 30.51 | 0.1714 | 0.1050 | 0.2130 | 1.447 | resolved |
-| `sketch.syncProjections` | 3090 | 0.01 | < 1 µs | < 1 µs | < 1 µs | 0.0020 | unresolved |
+| `sketch.analyze` | 95 | 802.35 | 8.446 | 0.5640 | 9.725 | 562.1 | resolved |
+| `sketch.solveRebuild` | 3 | 58.62 | 19.54 | 22.37 | 27.40 | 27.40 | resolved |
+| `sketch.profileLoops` | 89 | 51.31 | 0.5765 | 0.1060 | 0.2030 | 14.49 | resolved |
+| `sketch.syncProjections` | 2006 | 0.00 | < 1 µs | < 1 µs | < 1 µs | 0.0010 | unresolved |
 
 #### Splines
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `spline.curveFor` | 1200 | 23.47 | 0.0196 | 0.0010 | 0.0020 | 21.09 | resolved |
+| `spline.curveFor` | 600 | 7.84 | 0.0131 | 0.0010 | 0.0020 | 7.205 | resolved |
 
 #### Startup
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `launch.toFirstFrame` | 1 | 145.74 | 145.7 | 145.7 | 145.7 | 145.7 | resolved |
+| `launch.toFirstFrame` | 1 | 64.00 | 64.00 | 64.00 | 64.00 | 64.00 | resolved |
 
 #### Startup steps
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `step.state.getApplicationDocumentsDirectory (platform channel)` | 1 | 18.08 | 18.08 | 18.08 | 18.08 | 18.08 | resolved |
-| `step.state.Engine.create (backend probe)` | 1 | 15.91 | 15.91 | 15.91 | 15.91 | 15.91 | resolved |
-| `step.state.occt smoke` | 1 | 11.20 | 11.20 | 11.20 | 11.20 | 11.20 | resolved |
-| `step.ffi.symbol lookup + qcad_init()` | 1 | 9.49 | 9.489 | 9.489 | 9.489 | 9.489 | resolved |
-| `step.ffi.qcad_document_new()` | 1 | 4.88 | 4.884 | 4.884 | 4.884 | 4.884 | resolved |
-| `step.main.WidgetsFlutterBinding.ensureInitialized` | 1 | 0.69 | 0.6910 | 0.6910 | 0.6910 | 0.6910 | resolved |
-| `step.ffi.probe qcad_add_line()` | 1 | 0.60 | 0.6040 | 0.6040 | 0.6040 | 0.6040 | resolved |
-| `step.state.refreshSaved` | 1 | 0.54 | 0.5380 | 0.5380 | 0.5380 | 0.5380 | resolved |
-| `step.ffi.probe entity_ids/geometry round-trip` | 1 | 0.33 | 0.3310 | 0.3310 | 0.3310 | 0.3310 | resolved |
-| `step.state.loadRemembered` | 1 | 0.33 | 0.3260 | 0.3260 | 0.3260 | 0.3260 | resolved |
-| `step.state.Engine.create (smoke)` | 1 | 0.15 | 0.1460 | 0.1460 | 0.1460 | 0.1460 | resolved |
-| `step.state.migrateLegacyDocuments` | 1 | 0.12 | 0.1210 | 0.1210 | 0.1210 | 0.1210 | resolved |
-| `step.main.runApp` | 1 | 0.08 | 0.0820 | 0.0820 | 0.0820 | 0.0820 | resolved |
-| `step.ffi.probe qcad_document_free()` | 1 | 0.05 | 0.0490 | 0.0490 | 0.0490 | 0.0490 | resolved |
-| `step.main.hide system UI (fire-and-forget)` | 1 | 0.04 | 0.0400 | 0.0400 | 0.0400 | 0.0400 | resolved |
-| `step.main.setPreferredOrientations (fire-and-forget)` | 1 | 0.03 | 0.0270 | 0.0270 | 0.0270 | 0.0270 | resolved |
-| `step.state.reacquireExternals` | 1 | 0.02 | 0.0240 | 0.0240 | 0.0240 | 0.0240 | resolved |
-| `step.main.AppState()` | 1 | 0.02 | 0.0180 | 0.0180 | 0.0180 | 0.0180 | resolved |
-| `step.ffi.qcad_version()` | 1 | 0.01 | 0.0140 | 0.0140 | 0.0140 | 0.0140 | resolved |
-| `step.ffi.DynamicLibrary.process()` | 1 | 0.01 | 0.0060 | 0.0060 | 0.0060 | 0.0060 | resolved |
+| `step.state.Engine.create (backend probe)` | 1 | 9.71 | 9.711 | 9.711 | 9.711 | 9.711 | resolved |
+| `step.state.getApplicationDocumentsDirectory (platform channel)` | 1 | 8.34 | 8.335 | 8.335 | 8.335 | 8.335 | resolved |
+| `step.state.occt smoke` | 1 | 7.24 | 7.240 | 7.240 | 7.240 | 7.240 | resolved |
+| `step.ffi.symbol lookup + qcad_init()` | 1 | 5.94 | 5.937 | 5.937 | 5.937 | 5.937 | resolved |
+| `step.ffi.qcad_document_new()` | 1 | 3.10 | 3.102 | 3.102 | 3.102 | 3.102 | resolved |
+| `step.main.WidgetsFlutterBinding.ensureInitialized` | 1 | 0.33 | 0.3300 | 0.3300 | 0.3300 | 0.3300 | resolved |
+| `step.ffi.probe qcad_add_line()` | 1 | 0.30 | 0.3020 | 0.3020 | 0.3020 | 0.3020 | resolved |
+| `step.state.refreshSaved` | 1 | 0.28 | 0.2840 | 0.2840 | 0.2840 | 0.2840 | resolved |
+| `step.ffi.probe entity_ids/geometry round-trip` | 1 | 0.18 | 0.1810 | 0.1810 | 0.1810 | 0.1810 | resolved |
+| `step.state.loadRemembered` | 1 | 0.07 | 0.0680 | 0.0680 | 0.0680 | 0.0680 | resolved |
+| `step.state.Engine.create (smoke)` | 1 | 0.06 | 0.0630 | 0.0630 | 0.0630 | 0.0630 | resolved |
+| `step.main.runApp` | 1 | 0.04 | 0.0380 | 0.0380 | 0.0380 | 0.0380 | resolved |
+| `step.state.migrateLegacyDocuments` | 1 | 0.03 | 0.0270 | 0.0270 | 0.0270 | 0.0270 | resolved |
+| `step.ffi.probe qcad_document_free()` | 1 | 0.02 | 0.0180 | 0.0180 | 0.0180 | 0.0180 | resolved |
+| `step.main.setPreferredOrientations (fire-and-forget)` | 1 | 0.01 | 0.0130 | 0.0130 | 0.0130 | 0.0130 | resolved |
+| `step.ffi.qcad_version()` | 1 | 0.01 | 0.0110 | 0.0110 | 0.0110 | 0.0110 | resolved |
+| `step.main.AppState()` | 1 | 0.01 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | resolved |
+| `step.main.hide system UI (fire-and-forget)` | 1 | 0.01 | 0.0060 | 0.0060 | 0.0060 | 0.0060 | resolved |
+| `step.state.reacquireExternals` | 1 | 0.01 | 0.0050 | 0.0050 | 0.0050 | 0.0050 | resolved |
+| `step.ffi.DynamicLibrary.process()` | 1 | 0.00 | 0.0020 | 0.0020 | 0.0020 | 0.0020 | marginal |
 
 #### Stress ladders
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `stress.analyze.1024` | 2 | 25697.00 | 12848.5 | 16860.0 | 16860.0 | 16860.0 | resolved |
-| `stress.allEdges.480` | 1 | 10017.00 | 10017.0 | 10017.0 | 10017.0 | 10017.0 | resolved |
-| `stress.allEdges.240` | 2 | 7297.00 | 3648.5 | 4789.0 | 4789.0 | 4789.0 | resolved |
-| `stress.allEdges.120` | 2 | 1801.00 | 900.5 | 1185.0 | 1185.0 | 1185.0 | resolved |
-| `stress.analyze.512` | 2 | 1597.00 | 798.5 | 1055.0 | 1055.0 | 1055.0 | resolved |
-| `stress.manySolids.64` | 2 | 789.00 | 394.5 | 502.0 | 502.0 | 502.0 | resolved |
-| `stress.buildOnly.1920` | 2 | 674.00 | 337.0 | 429.0 | 429.0 | 429.0 | resolved |
-| `stress.manySolids.32` | 2 | 396.00 | 198.0 | 251.0 | 251.0 | 251.0 | resolved |
-| `stress.drag.512` | 2 | 311.00 | 155.5 | 204.0 | 204.0 | 204.0 | resolved |
-| `stress.buildOnly.960` | 2 | 288.00 | 144.0 | 181.0 | 181.0 | 181.0 | resolved |
-| `stress.analyze.256` | 2 | 224.00 | 112.0 | 148.0 | 148.0 | 148.0 | resolved |
-| `stress.manySolids.16` | 2 | 196.00 | 98.00 | 124.0 | 124.0 | 124.0 | resolved |
-| `stress.buildOnly.480` | 2 | 134.00 | 67.00 | 84.00 | 84.00 | 84.00 | resolved |
-| `stress.solve.1024` | 2 | 120.00 | 60.00 | 80.00 | 80.00 | 80.00 | resolved |
-| `stress.manySolids.8` | 2 | 99.00 | 49.50 | 63.00 | 63.00 | 63.00 | resolved |
-| `stress.drag.256` | 2 | 82.00 | 41.00 | 54.00 | 54.00 | 54.00 | resolved |
-| `stress.boolChain.32` | 2 | 74.00 | 37.00 | 49.00 | 49.00 | 49.00 | resolved |
-| `stress.buildOnly.240` | 2 | 66.00 | 33.00 | 42.00 | 42.00 | 42.00 | resolved |
-| `stress.manySolids.4` | 2 | 51.00 | 25.50 | 32.00 | 32.00 | 32.00 | resolved |
-| `stress.buildOnly.120` | 2 | 34.00 | 17.00 | 21.00 | 21.00 | 21.00 | resolved |
-| `stress.solve.512` | 2 | 30.00 | 15.00 | 20.00 | 20.00 | 20.00 | resolved |
-| `stress.analyze.128` | 2 | 29.00 | 14.50 | 19.00 | 19.00 | 19.00 | resolved |
-| `stress.drag.128` | 2 | 22.00 | 11.00 | 15.00 | 15.00 | 15.00 | resolved |
-| `stress.boolChain.16` | 2 | 21.00 | 10.50 | 14.00 | 14.00 | 14.00 | resolved |
-| `stress.solve.256` | 2 | 8.00 | 4.000 | 5.000 | 5.000 | 5.000 | resolved |
-| `stress.boolChain.8` | 2 | 6.00 | 3.000 | 4.000 | 4.000 | 4.000 | resolved |
-| `stress.drag.64` | 2 | 6.00 | 3.000 | 4.000 | 4.000 | 4.000 | resolved |
-| `stress.analyze.64` | 2 | 4.00 | 2.000 | 3.000 | 3.000 | 3.000 | resolved |
-| `stress.boolChain.4` | 2 | 3.00 | 1.500 | 2.000 | 2.000 | 2.000 | resolved |
-| `stress.solve.128` | 2 | 1.00 | 0.5000 | 1.000 | 1.000 | 1.000 | resolved |
-| `stress.solve.64` | 2 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `stress.allEdges.1920` | 1 | 7320.00 | 7320.0 | 7320.0 | 7320.0 | 7320.0 | resolved |
+| `stress.allEdges.960` | 1 | 1845.00 | 1845.0 | 1845.0 | 1845.0 | 1845.0 | resolved |
+| `stress.analyze.1024` | 1 | 562.00 | 562.0 | 562.0 | 562.0 | 562.0 | resolved |
+| `stress.allEdges.480` | 1 | 474.00 | 474.0 | 474.0 | 474.0 | 474.0 | resolved |
+| `stress.manySolids.64` | 1 | 294.00 | 294.0 | 294.0 | 294.0 | 294.0 | resolved |
+| `stress.buildOnly.1920` | 1 | 249.00 | 249.0 | 249.0 | 249.0 | 249.0 | resolved |
+| `stress.manySolids.32` | 1 | 146.00 | 146.0 | 146.0 | 146.0 | 146.0 | resolved |
+| `stress.allEdges.240` | 1 | 125.00 | 125.0 | 125.0 | 125.0 | 125.0 | resolved |
+| `stress.buildOnly.960` | 1 | 109.00 | 109.0 | 109.0 | 109.0 | 109.0 | resolved |
+| `stress.drag.512` | 1 | 105.00 | 105.0 | 105.0 | 105.0 | 105.0 | resolved |
+| `stress.analyze.512` | 1 | 96.00 | 96.00 | 96.00 | 96.00 | 96.00 | resolved |
+| `stress.manySolids.16` | 1 | 74.00 | 74.00 | 74.00 | 74.00 | 74.00 | resolved |
+| `stress.buildOnly.480` | 1 | 53.00 | 53.00 | 53.00 | 53.00 | 53.00 | resolved |
+| `stress.solve.1024` | 1 | 38.00 | 38.00 | 38.00 | 38.00 | 38.00 | resolved |
+| `stress.manySolids.8` | 1 | 37.00 | 37.00 | 37.00 | 37.00 | 37.00 | resolved |
+| `stress.allEdges.120` | 1 | 35.00 | 35.00 | 35.00 | 35.00 | 35.00 | resolved |
+| `stress.drag.256` | 1 | 28.00 | 28.00 | 28.00 | 28.00 | 28.00 | resolved |
+| `stress.boolChain.32` | 1 | 25.00 | 25.00 | 25.00 | 25.00 | 25.00 | resolved |
+| `stress.buildOnly.240` | 1 | 25.00 | 25.00 | 25.00 | 25.00 | 25.00 | resolved |
+| `stress.manySolids.4` | 1 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | resolved |
+| `stress.analyze.256` | 1 | 18.00 | 18.00 | 18.00 | 18.00 | 18.00 | resolved |
+| `stress.buildOnly.120` | 1 | 13.00 | 13.00 | 13.00 | 13.00 | 13.00 | resolved |
+| `stress.solve.512` | 1 | 10.00 | 10.00 | 10.00 | 10.00 | 10.00 | resolved |
+| `stress.drag.128` | 1 | 8.00 | 8.000 | 8.000 | 8.000 | 8.000 | resolved |
+| `stress.boolChain.16` | 1 | 7.00 | 7.000 | 7.000 | 7.000 | 7.000 | resolved |
+| `stress.analyze.128` | 1 | 4.00 | 4.000 | 4.000 | 4.000 | 4.000 | resolved |
+| `stress.boolChain.8` | 1 | 2.00 | 2.000 | 2.000 | 2.000 | 2.000 | resolved |
+| `stress.drag.64` | 1 | 2.00 | 2.000 | 2.000 | 2.000 | 2.000 | resolved |
+| `stress.solve.256` | 1 | 2.00 | 2.000 | 2.000 | 2.000 | 2.000 | resolved |
+| `stress.analyze.64` | 1 | 1.00 | 1.000 | 1.000 | 1.000 | 1.000 | resolved |
+| `stress.boolChain.4` | 1 | 1.00 | 1.000 | 1.000 | 1.000 | 1.000 | resolved |
+| `stress.solve.128` | 1 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
+| `stress.solve.64` | 1 | 0.00 | < 1 µs | < 1 µs | < 1 µs | < 1 µs | unresolved |
 
 #### UI runner
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `ui.allGeometry` | 20 | 0.01 | 0.0006 | < 1 µs | 0.0040 | 0.0080 | marginal |
+| `ui.allGeometry` | 10 | 0.00 | < 1 µs | < 1 µs | 0.0020 | 0.0020 | unresolved |
 
 #### UI shell
 
 | span | n | total ms | mean ms | p50 | p95 | max | class |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `browser.sig` | 246 | 21.28 | 0.0865 | 0.0610 | 0.1680 | 0.3890 | resolved |
-| `toolbar.sig` | 241 | 6.67 | 0.0277 | 0.0190 | 0.0470 | 0.1020 | resolved |
-| `menu.ribbon.part` | 134 | 2.09 | 0.0156 | 0.0150 | 0.0280 | 0.0560 | resolved |
-| `menu.ribbon.sketch` | 105 | 2.05 | 0.0195 | 0.0180 | 0.0330 | 0.1630 | resolved |
-| `tabbar.sig` | 240 | 1.78 | 0.0074 | 0.0050 | 0.0150 | 0.0230 | resolved |
+| `browser.sig` | 1534 | 59.02 | 0.0385 | 0.0460 | 0.0850 | 0.1930 | resolved |
+| `toolbar.sig` | 1503 | 45.86 | 0.0305 | 0.0350 | 0.0750 | 1.295 | resolved |
+| `menu.ribbon.sketch` | 1469 | 17.02 | 0.0116 | 0.0140 | 0.0290 | 0.1460 | resolved |
+| `tabbar.sig` | 1501 | 9.88 | 0.0066 | 0.0070 | 0.0150 | 0.0620 | resolved |
+| `menu.ribbon.part` | 33 | 0.58 | 0.0177 | 0.0150 | 0.0380 | 0.0650 | resolved |
 
 
 ### B. Complete counter inventory
 
-**62 counters**, session scope. Counters are exact integers and carry no timing uncertainty; where a counter and a duration answer the same question, the counter is the stronger evidence and is invariant under a change of processor.
+**67 counters**, session scope. Counters are exact integers and carry no timing uncertainty; where a counter and a duration answer the same question, the counter is the stronger evidence and is invariant under a change of processor.
 
 #### 2D kernel — qcad entry points
 
 | counter | value |
 | --- | ---: |
-| `ffi.qcad.allGeometry.entities` | 3049 |
+| `ffi.qcad.allGeometry.entities` | 1722 |
 
 #### 2D — interaction
 
 | counter | value |
 | --- | ---: |
-| `2d.displayGeometry.solves` | 480 |
+| `2d.displayGeometry.cacheHit` | 1945 |
+| `2d.displayGeometry.solves` | 459 |
 
 #### 3D kernel — OCCT entry points
 
 | counter | value |
 | --- | ---: |
-| `ffi.occt.chamferEdges.edges` | 70 |
-| `ffi.occt.edgeInfo.calls` | 27482 |
-| `ffi.occt.filletEdges.edges` | 214 |
-| `ffi.occt.meshCopyOut.tris` | 1156209 |
-| `ffi.occt.meshCopyOut.verts` | 857860 |
-| `ffi.occt.meshCreate.calls` | 1124 |
+| `ffi.occt.chamferEdges.edges` | 34 |
+| `ffi.occt.edgeInfo.calls` | 200 |
+| `ffi.occt.edgesInfo.calls` | 83 |
+| `ffi.occt.edgesInfo.edges` | 22752 |
+| `ffi.occt.filletEdges.edges` | 66 |
+| `ffi.occt.meshCopyOut.tris` | 412986 |
+| `ffi.occt.meshCopyOut.verts` | 582458 |
+| `ffi.occt.meshCreate.calls` | 559 |
 
 #### 3D kernel — scenarios
 
 | counter | value |
 | --- | ---: |
-| `kernel.feature.fail` | 12 |
-| `kernel.feature.ok` | 216 |
-| `kernel.sweepTwist.fail` | 8 |
+| `kernel.feature.ok` | 99 |
+| `kernel.sweepTwist.fail` | 4 |
 
 #### 3D — feature rebuild
 
 | counter | value |
 | --- | ---: |
-| `part.rebuild.passes` | 70 |
+| `part.rebuild.passes` | 34 |
 
 #### 3D — scene push
 
 | counter | value |
 | --- | ---: |
-| `3d.orbit.events` | 1162 |
+| `3d.orbit.events` | 572 |
 
 #### Constraint solver
 
 | counter | value |
 | --- | ---: |
-| `solve.iterationsRequested` | 43190 |
-| `solve.ok` | 1533 |
-| `solve.path.lm` | 56 |
-| `solve.path.slvs` | 1489 |
-| `solve.slvs.rejected.residual` | 48 |
-| `solve.unsatisfied` | 12 |
+| `solve.iterationsRequested` | 27990 |
+| `solve.ok` | 997 |
+| `solve.path.lm` | 28 |
+| `solve.path.lm-frozen` | 238 |
+| `solve.path.slvs` | 737 |
+| `solve.slvs.rejected.residual` | 24 |
+| `solve.unsatisfied` | 6 |
 
 #### Constraint solver (native)
 
 | counter | value |
 | --- | ---: |
-| `ffi.slvs.solve.constraints` | 157462 |
-| `ffi.slvs.solve.points` | 149389 |
+| `ffi.slvs.solve.constraints` | 75036 |
+| `ffi.slvs.solve.points` | 70952 |
 
 #### Constraints
 
 | counter | value |
 | --- | ---: |
-| `constraints.unsupportedInFixture.pattern` | 4 |
+| `constraints.unsupportedInFixture.pattern` | 2 |
 
 #### Drawing tools
 
 | counter | value |
 | --- | ---: |
-| `tool.build.arcCenter.entities` | 4 |
-| `tool.build.arcTangent.entities` | 4 |
-| `tool.build.arcThreePoint.entities` | 4 |
-| `tool.build.bridge.entities` | 4 |
-| `tool.build.chamfer.null` | 4 |
-| `tool.build.circleCenter.entities` | 4 |
-| `tool.build.circleTangent.entities` | 4 |
-| `tool.build.ellipse.entities` | 4 |
-| `tool.build.eqCurve.entities` | 4 |
-| `tool.build.fillet.null` | 4 |
-| `tool.build.line.entities` | 4 |
-| `tool.build.lineMid.entities` | 4 |
-| `tool.build.point.entities` | 4 |
-| `tool.build.polygon.entities` | 28 |
-| `tool.build.rect2PC.entities` | 24 |
-| `tool.build.rect3P.entities` | 16 |
-| `tool.build.rect3PC.entities` | 24 |
-| `tool.build.rectTwoPoint.entities` | 16 |
-| `tool.build.slot3A.entities` | 24 |
-| `tool.build.slotCC.entities` | 20 |
-| `tool.build.slotCP.entities` | 20 |
-| `tool.build.slotCPA.entities` | 24 |
-| `tool.build.slotOverall.entities` | 20 |
-| `tool.build.splineCV.entities` | 4 |
-| `tool.build.splineFree.entities` | 4 |
-| `tool.build.splineInterp.entities` | 4 |
+| `tool.build.arcCenter.entities` | 2 |
+| `tool.build.arcTangent.entities` | 2 |
+| `tool.build.arcThreePoint.entities` | 2 |
+| `tool.build.bridge.entities` | 2 |
+| `tool.build.chamfer.null` | 2 |
+| `tool.build.circleCenter.entities` | 2 |
+| `tool.build.circleTangent.entities` | 2 |
+| `tool.build.ellipse.entities` | 2 |
+| `tool.build.eqCurve.entities` | 2 |
+| `tool.build.fillet.null` | 2 |
+| `tool.build.line.entities` | 2 |
+| `tool.build.lineMid.entities` | 2 |
+| `tool.build.point.entities` | 2 |
+| `tool.build.polygon.entities` | 14 |
+| `tool.build.rect2PC.entities` | 12 |
+| `tool.build.rect3P.entities` | 8 |
+| `tool.build.rect3PC.entities` | 12 |
+| `tool.build.rectTwoPoint.entities` | 8 |
+| `tool.build.slot3A.entities` | 12 |
+| `tool.build.slotCC.entities` | 10 |
+| `tool.build.slotCP.entities` | 10 |
+| `tool.build.slotCPA.entities` | 12 |
+| `tool.build.slotOverall.entities` | 10 |
+| `tool.build.splineCV.entities` | 2 |
+| `tool.build.splineFree.entities` | 2 |
+| `tool.build.splineInterp.entities` | 2 |
+
+#### Other
+
+| counter | value |
+| --- | ---: |
+| `analyze.cache.hit` | 1 |
+| `analyze.cache.miss` | 15 |
 
 #### RealityKit (Dart side)
 
 | counter | value |
 | --- | ---: |
-| `rv.setCamera.calls` | 1698 |
-| `rv.setOverlays.calls` | 1698 |
-| `rv.setScene.calls` | 63 |
+| `rv.setCamera.calls` | 2345 |
+| `rv.setOverlays.calls` | 2345 |
+| `rv.setScene.calls` | 21 |
 
 #### UI shell
 
 | counter | value |
 | --- | ---: |
-| `browser.rows.hit` | 226 |
-| `browser.rows.miss` | 20 |
-| `browser.setRows.calls` | 20 |
-| `browser.sig.rows` | 2526 |
-| `menu.ribbon.builds` | 239 |
-| `tabbar.rows.hit` | 238 |
+| `browser.rows.hit` | 1516 |
+| `browser.rows.miss` | 18 |
+| `browser.setRows.calls` | 18 |
+| `browser.sig.rows` | 4894 |
+| `menu.ribbon.builds` | 1502 |
+| `tabbar.rows.hit` | 1499 |
 | `tabbar.rows.miss` | 2 |
 | `tabbar.setTabs.calls` | 2 |
-| `toolbar.rows.hit` | 211 |
-| `toolbar.rows.miss` | 30 |
-| `toolbar.setItems.calls` | 30 |
+| `toolbar.rows.hit` | 1483 |
+| `toolbar.rows.miss` | 20 |
+| `toolbar.setItems.calls` | 20 |
 
 
 ### C. Complete gauge inventory
 
-**357 gauges** (351 application, 6 machine). Gauges are exact last-written values describing the size of the input a measurement ran against — the axis a duration is meaningless without.
+**377 gauges** (371 application, 6 machine). Gauges are exact last-written values describing the size of the input a measurement ran against — the axis a duration is meaningless without.
 
 #### 3D kernel — scenarios
 
@@ -3681,19 +3869,17 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 | `analyze.constraints` | 1537 |
 | `analyze.dof` | 1022 |
 | `analyze.entities` | 1024 |
-| `features` | 7 |
+| `features` | 1 |
 | `fillet.candidates` | 72 |
 | `infer.existing` | 128 |
 | `infer.found` | 29 |
 | `mesh.tris.last` | 188 |
-| `remeshCount` | 1 |
-| `sceneTris` | 54881 |
-| `sketchEntities` | 4 |
+| `sketchEntities` | 1 |
 | `sketchProjections` | 0 |
 | `solids` | 1 |
 | `sweep.edgeCount` | 360 |
 | `sweep.profilePts` | 120 |
-| `triangles` | 54881 |
+| `triangles` | 91646 |
 
 #### Patterns
 
@@ -3719,25 +3905,23 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 
 | gauge | value |
 | --- | ---: |
-| `quality.budget.entitiesAt120Hz` | 256 |
+| `quality.budget.entitiesAt120Hz` | 384 |
 | `quality.budget.entitiesAt60Hz` | 384 |
-| `quality.cache.gearColdUs` | 288 |
-| `quality.cache.gearSpeedup` | 480 |
+| `quality.cache.gearColdUs` | 278 |
+| `quality.cache.gearSpeedup` | 557 |
 | `quality.cache.gearWarmUs` | 0 |
-| `quality.memPerSolidKB` | 2 |
-| `quality.memPerTriangleBytes` | 14 |
-| `quality.variance.analyze.iqrPct` | 2 |
-| `quality.variance.analyze.medianUs` | 934 |
-| `quality.variance.analyze.spreadPct` | 24 |
+| `quality.variance.analyze.iqrPct` | 3 |
+| `quality.variance.analyze.medianUs` | 574 |
+| `quality.variance.analyze.spreadPct` | 23 |
 | `quality.variance.extrude.iqrPct` | 0 |
-| `quality.variance.extrude.medianUs` | 1461 |
-| `quality.variance.extrude.spreadPct` | 4 |
-| `quality.variance.solve.iqrPct` | 3 |
-| `quality.variance.solve.medianUs` | 143 |
-| `quality.variance.solve.spreadPct` | 29 |
+| `quality.variance.extrude.medianUs` | 1457 |
+| `quality.variance.extrude.spreadPct` | 2 |
+| `quality.variance.solve.iqrPct` | 1 |
+| `quality.variance.solve.medianUs` | 144 |
+| `quality.variance.solve.spreadPct` | 21 |
 | `quality.variance.splineEval.iqrPct` | 0 |
 | `quality.variance.splineEval.medianUs` | 1 |
-| `quality.variance.splineEval.spreadPct` | 200 |
+| `quality.variance.splineEval.spreadPct` | 100 |
 
 #### Ramps (fine-grained sweeps)
 
@@ -3750,29 +3934,29 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 | `ramp.allEdges.edges.48` | 144 |
 | `ramp.allEdges.edges.72` | 216 |
 | `ramp.allEdges.edges.96` | 288 |
-| `ramp.allEdges.k.144` | 197 |
-| `ramp.allEdges.k.24` | 186 |
-| `ramp.allEdges.k.36` | 191 |
-| `ramp.allEdges.k.48` | 198 |
-| `ramp.allEdges.k.72` | 197 |
-| `ramp.allEdges.k.96` | 199 |
+| `ramp.allEdges.k.144` | 173 |
+| `ramp.allEdges.k.24` | 126 |
+| `ramp.allEdges.k.36` | 146 |
+| `ramp.allEdges.k.48` | 146 |
+| `ramp.allEdges.k.72` | 160 |
+| `ramp.allEdges.k.96` | 168 |
 | `ramp.allEdges.rungs` | 7 |
-| `ramp.analyze.k.128` | 227 |
-| `ramp.analyze.k.16` | 140 |
-| `ramp.analyze.k.192` | 312 |
-| `ramp.analyze.k.24` | 186 |
-| `ramp.analyze.k.256` | 262 |
-| `ramp.analyze.k.32` | 245 |
-| `ramp.analyze.k.48` | 199 |
-| `ramp.analyze.k.64` | 510 |
-| `ramp.analyze.k.96` | 68 |
+| `ramp.analyze.k.128` | 241 |
+| `ramp.analyze.k.16` | 139 |
+| `ramp.analyze.k.192` | 197 |
+| `ramp.analyze.k.24` | 143 |
+| `ramp.analyze.k.256` | 233 |
+| `ramp.analyze.k.32` | 181 |
+| `ramp.analyze.k.48` | 167 |
+| `ramp.analyze.k.64` | 255 |
+| `ramp.analyze.k.96` | 149 |
 | `ramp.analyze.rungs` | 10 |
-| `ramp.boolean.k.144` | 122 |
-| `ramp.boolean.k.24` | 97 |
+| `ramp.boolean.k.144` | 121 |
+| `ramp.boolean.k.24` | 96 |
 | `ramp.boolean.k.36` | 103 |
-| `ramp.boolean.k.48` | 109 |
-| `ramp.boolean.k.72` | 111 |
-| `ramp.boolean.k.96` | 117 |
+| `ramp.boolean.k.48` | 97 |
+| `ramp.boolean.k.72` | 117 |
+| `ramp.boolean.k.96` | 114 |
 | `ramp.boolean.rungs` | 7 |
 | `ramp.build.edges.12` | 36 |
 | `ramp.build.edges.144` | 432 |
@@ -3783,14 +3967,14 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 | `ramp.build.edges.48` | 144 |
 | `ramp.build.edges.72` | 216 |
 | `ramp.build.edges.96` | 288 |
-| `ramp.build.k.144` | 99 |
-| `ramp.build.k.192` | 105 |
-| `ramp.build.k.24` | 94 |
+| `ramp.build.k.144` | 102 |
+| `ramp.build.k.192` | 101 |
+| `ramp.build.k.24` | 98 |
 | `ramp.build.k.288` | 103 |
-| `ramp.build.k.36` | 102 |
-| `ramp.build.k.48` | 98 |
+| `ramp.build.k.36` | 100 |
+| `ramp.build.k.48` | 100 |
 | `ramp.build.k.72` | 100 |
-| `ramp.build.k.96` | 104 |
+| `ramp.build.k.96` | 101 |
 | `ramp.build.rungs` | 9 |
 | `ramp.density.cons.1` | 97 |
 | `ramp.density.cons.2` | 194 |
@@ -3798,56 +3982,70 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 | `ramp.density.cons.4` | 388 |
 | `ramp.density.cons.6` | 582 |
 | `ramp.density.cons.8` | 776 |
-| `ramp.density.k.2` | 160 |
+| `ramp.density.k.2` | 161 |
 | `ramp.density.k.3` | 179 |
-| `ramp.density.k.4` | 189 |
-| `ramp.density.k.6` | 193 |
-| `ramp.density.k.8` | 193 |
-| `ramp.density.path.lm.1` | 56 |
-| `ramp.density.path.lm.2` | 56 |
-| `ramp.density.path.lm.3` | 56 |
-| `ramp.density.path.lm.4` | 56 |
-| `ramp.density.path.lm.6` | 56 |
-| `ramp.density.path.lm.8` | 56 |
-| `ramp.density.path.slvs.1` | 1153 |
-| `ramp.density.path.slvs.2` | 1154 |
-| `ramp.density.path.slvs.3` | 1155 |
-| `ramp.density.path.slvs.4` | 1156 |
-| `ramp.density.path.slvs.6` | 1157 |
-| `ramp.density.path.slvs.8` | 1158 |
+| `ramp.density.k.4` | 186 |
+| `ramp.density.k.6` | 199 |
+| `ramp.density.k.8` | 186 |
+| `ramp.density.path.lm-frozen.1` | 238 |
+| `ramp.density.path.lm-frozen.2` | 238 |
+| `ramp.density.path.lm-frozen.3` | 238 |
+| `ramp.density.path.lm-frozen.4` | 238 |
+| `ramp.density.path.lm-frozen.6` | 238 |
+| `ramp.density.path.lm-frozen.8` | 238 |
+| `ramp.density.path.lm.1` | 28 |
+| `ramp.density.path.lm.2` | 28 |
+| `ramp.density.path.lm.3` | 28 |
+| `ramp.density.path.lm.4` | 28 |
+| `ramp.density.path.lm.6` | 28 |
+| `ramp.density.path.lm.8` | 28 |
+| `ramp.density.path.slvs.1` | 521 |
+| `ramp.density.path.slvs.2` | 522 |
+| `ramp.density.path.slvs.3` | 523 |
+| `ramp.density.path.slvs.4` | 524 |
+| `ramp.density.path.slvs.6` | 525 |
+| `ramp.density.path.slvs.8` | 526 |
 | `ramp.density.rungs` | 6 |
-| `ramp.drag.k.128` | 261 |
-| `ramp.drag.k.16` | 106 |
-| `ramp.drag.k.24` | 140 |
-| `ramp.drag.k.32` | 141 |
-| `ramp.drag.k.48` | 159 |
-| `ramp.drag.k.64` | 171 |
-| `ramp.drag.k.96` | 175 |
-| `ramp.drag.path.lm.128` | 56 |
-| `ramp.drag.path.lm.16` | 56 |
-| `ramp.drag.path.lm.24` | 56 |
-| `ramp.drag.path.lm.32` | 56 |
-| `ramp.drag.path.lm.48` | 56 |
-| `ramp.drag.path.lm.64` | 56 |
-| `ramp.drag.path.lm.8` | 56 |
-| `ramp.drag.path.lm.96` | 56 |
-| `ramp.drag.path.slvs.128` | 1146 |
-| `ramp.drag.path.slvs.16` | 1086 |
-| `ramp.drag.path.slvs.24` | 1096 |
-| `ramp.drag.path.slvs.32` | 1106 |
-| `ramp.drag.path.slvs.48` | 1116 |
-| `ramp.drag.path.slvs.64` | 1126 |
-| `ramp.drag.path.slvs.8` | 1076 |
-| `ramp.drag.path.slvs.96` | 1136 |
+| `ramp.drag.k.128` | 180 |
+| `ramp.drag.k.16` | 108 |
+| `ramp.drag.k.24` | 133 |
+| `ramp.drag.k.32` | 144 |
+| `ramp.drag.k.48` | 162 |
+| `ramp.drag.k.64` | 167 |
+| `ramp.drag.k.96` | 176 |
+| `ramp.drag.path.lm-frozen.128` | 238 |
+| `ramp.drag.path.lm-frozen.16` | 238 |
+| `ramp.drag.path.lm-frozen.24` | 238 |
+| `ramp.drag.path.lm-frozen.32` | 238 |
+| `ramp.drag.path.lm-frozen.48` | 238 |
+| `ramp.drag.path.lm-frozen.64` | 238 |
+| `ramp.drag.path.lm-frozen.8` | 238 |
+| `ramp.drag.path.lm-frozen.96` | 238 |
+| `ramp.drag.path.lm.128` | 28 |
+| `ramp.drag.path.lm.16` | 28 |
+| `ramp.drag.path.lm.24` | 28 |
+| `ramp.drag.path.lm.32` | 28 |
+| `ramp.drag.path.lm.48` | 28 |
+| `ramp.drag.path.lm.64` | 28 |
+| `ramp.drag.path.lm.8` | 28 |
+| `ramp.drag.path.lm.96` | 28 |
+| `ramp.drag.path.slvs.128` | 514 |
+| `ramp.drag.path.slvs.16` | 454 |
+| `ramp.drag.path.slvs.24` | 464 |
+| `ramp.drag.path.slvs.32` | 474 |
+| `ramp.drag.path.slvs.48` | 484 |
+| `ramp.drag.path.slvs.64` | 494 |
+| `ramp.drag.path.slvs.8` | 444 |
+| `ramp.drag.path.slvs.96` | 504 |
 | `ramp.drag.rungs` | 8 |
-| `ramp.mesh.k.144` | 115 |
-| `ramp.mesh.k.192` | 103 |
-| `ramp.mesh.k.24` | 96 |
-| `ramp.mesh.k.288` | 113 |
-| `ramp.mesh.k.36` | 88 |
-| `ramp.mesh.k.48` | 87 |
-| `ramp.mesh.k.72` | 106 |
-| `ramp.mesh.k.96` | 87 |
+| `ramp.mesh.k.144` | 109 |
+| `ramp.mesh.k.192` | 115 |
+| `ramp.mesh.k.24` | 84 |
+| `ramp.mesh.k.288` | 100 |
+| `ramp.mesh.k.36` | 96 |
+| `ramp.mesh.k.48` | 88 |
+| `ramp.mesh.k.72` | 94 |
+| `ramp.mesh.k.96` | 98 |
 | `ramp.mesh.rungs` | 9 |
 | `ramp.mesh.tris.12` | 44 |
 | `ramp.mesh.tris.144` | 572 |
@@ -3858,12 +4056,12 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 | `ramp.mesh.tris.48` | 188 |
 | `ramp.mesh.tris.72` | 284 |
 | `ramp.mesh.tris.96` | 380 |
-| `ramp.solids.k.12` | 101 |
-| `ramp.solids.k.16` | 105 |
+| `ramp.solids.k.12` | 102 |
+| `ramp.solids.k.16` | 91 |
 | `ramp.solids.k.2` | 101 |
 | `ramp.solids.k.4` | 102 |
-| `ramp.solids.k.6` | 98 |
-| `ramp.solids.k.8` | 98 |
+| `ramp.solids.k.6` | 97 |
+| `ramp.solids.k.8` | 103 |
 | `ramp.solids.rungs` | 7 |
 | `ramp.solids.tris.1` | 188 |
 | `ramp.solids.tris.12` | 2256 |
@@ -3882,76 +4080,86 @@ Complete inventory: **321 spans**, session scope (includes the warm-up pass). Re
 | `ramp.solve.cons.64` | 97 |
 | `ramp.solve.cons.8` | 13 |
 | `ramp.solve.cons.96` | 145 |
-| `ramp.solve.k.128` | 166 |
-| `ramp.solve.k.16` | 68 |
-| `ramp.solve.k.192` | 200 |
-| `ramp.solve.k.24` | 120 |
-| `ramp.solve.k.256` | 165 |
-| `ramp.solve.k.32` | 141 |
-| `ramp.solve.k.48` | 165 |
-| `ramp.solve.k.64` | 156 |
-| `ramp.solve.k.96` | 171 |
-| `ramp.solve.path.lm.128` | 56 |
-| `ramp.solve.path.lm.16` | 56 |
-| `ramp.solve.path.lm.192` | 56 |
-| `ramp.solve.path.lm.24` | 56 |
-| `ramp.solve.path.lm.256` | 56 |
-| `ramp.solve.path.lm.32` | 56 |
-| `ramp.solve.path.lm.48` | 56 |
-| `ramp.solve.path.lm.64` | 56 |
-| `ramp.solve.path.lm.8` | 56 |
-| `ramp.solve.path.lm.96` | 56 |
-| `ramp.solve.path.slvs.128` | 984 |
-| `ramp.solve.path.slvs.16` | 978 |
-| `ramp.solve.path.slvs.192` | 985 |
-| `ramp.solve.path.slvs.24` | 979 |
-| `ramp.solve.path.slvs.256` | 986 |
-| `ramp.solve.path.slvs.32` | 980 |
-| `ramp.solve.path.slvs.48` | 981 |
-| `ramp.solve.path.slvs.64` | 982 |
-| `ramp.solve.path.slvs.8` | 977 |
-| `ramp.solve.path.slvs.96` | 983 |
+| `ramp.solve.k.128` | 174 |
+| `ramp.solve.k.16` | 78 |
+| `ramp.solve.k.192` | 179 |
+| `ramp.solve.k.24` | 122 |
+| `ramp.solve.k.256` | 184 |
+| `ramp.solve.k.32` | 123 |
+| `ramp.solve.k.48` | 153 |
+| `ramp.solve.k.64` | 154 |
+| `ramp.solve.k.96` | 167 |
+| `ramp.solve.path.lm-frozen.128` | 238 |
+| `ramp.solve.path.lm-frozen.16` | 238 |
+| `ramp.solve.path.lm-frozen.192` | 238 |
+| `ramp.solve.path.lm-frozen.24` | 238 |
+| `ramp.solve.path.lm-frozen.256` | 238 |
+| `ramp.solve.path.lm-frozen.32` | 238 |
+| `ramp.solve.path.lm-frozen.48` | 238 |
+| `ramp.solve.path.lm-frozen.64` | 238 |
+| `ramp.solve.path.lm-frozen.8` | 238 |
+| `ramp.solve.path.lm-frozen.96` | 238 |
+| `ramp.solve.path.lm.128` | 28 |
+| `ramp.solve.path.lm.16` | 28 |
+| `ramp.solve.path.lm.192` | 28 |
+| `ramp.solve.path.lm.24` | 28 |
+| `ramp.solve.path.lm.256` | 28 |
+| `ramp.solve.path.lm.32` | 28 |
+| `ramp.solve.path.lm.48` | 28 |
+| `ramp.solve.path.lm.64` | 28 |
+| `ramp.solve.path.lm.8` | 28 |
+| `ramp.solve.path.lm.96` | 28 |
+| `ramp.solve.path.slvs.128` | 352 |
+| `ramp.solve.path.slvs.16` | 346 |
+| `ramp.solve.path.slvs.192` | 353 |
+| `ramp.solve.path.slvs.24` | 347 |
+| `ramp.solve.path.slvs.256` | 354 |
+| `ramp.solve.path.slvs.32` | 348 |
+| `ramp.solve.path.slvs.48` | 349 |
+| `ramp.solve.path.slvs.64` | 350 |
+| `ramp.solve.path.slvs.8` | 345 |
+| `ramp.solve.path.slvs.96` | 351 |
 | `ramp.solve.rungs` | 10 |
 
 #### RealityKit (native, past the boundary)
 
 | gauge | value |
 | --- | ---: |
-| `rv.native.accents.worstUs` | 7115 |
+| `rv.native.accents.worstUs` | 582680 |
 | `rv.native.highlight.worstUs` | 1 |
-| `rv.native.placeCamera.worstUs` | 26 |
-| `rv.native.planes.worstUs` | 8622 |
-| `rv.native.setCamera.worstUs` | 10130 |
-| `rv.native.setOverlays.worstUs` | 4931 |
-| `rv.native.setScene.worstUs` | 12200 |
-| `rv.native.sketches.worstUs` | 4335 |
-| `rv.native.solids.worstUs` | 6218 |
+| `rv.native.placeCamera.worstUs` | 58 |
+| `rv.native.planes.worstUs` | 20674 |
+| `rv.native.setCamera.worstUs` | 210142 |
+| `rv.native.setOverlays.worstUs` | 5516 |
+| `rv.native.setScene.worstUs` | 596727 |
+| `rv.native.sketches.worstUs` | 25676 |
+| `rv.native.solids.worstUs` | 194994 |
 
 #### Stress ladders
 
 | gauge | value |
 | --- | ---: |
-| `stress.allEdges.edges` | 1440 |
-| `stress.allEdges.maxSize` | 480 |
-| `stress.allEdges.rssDeltaMB` | 0 |
+| `stress.allEdges.edges` | 5760 |
+| `stress.allEdges.maxSize` | 1920 |
+| `stress.allEdges.rssDeltaMB` | -7 |
 | `stress.analyze.entities` | 1024 |
 | `stress.analyze.maxSize` | 1024 |
-| `stress.analyze.rssDeltaMB` | 105 |
+| `stress.analyze.rssDeltaMB` | -13 |
 | `stress.boolChain.edges` | 108 |
 | `stress.boolChain.maxSize` | 32 |
 | `stress.boolChain.rssDeltaMB` | 0 |
 | `stress.buildOnly.edges` | 5760 |
 | `stress.buildOnly.maxSize` | 1920 |
-| `stress.buildOnly.rssDeltaMB` | 67 |
+| `stress.buildOnly.rssDeltaMB` | 62 |
 | `stress.drag.maxSize` | 512 |
-| `stress.drag.rssDeltaMB` | -4 |
+| `stress.drag.rssDeltaMB` | 1 |
 | `stress.manySolids.held` | 64 |
 | `stress.manySolids.maxSize` | 64 |
 | `stress.manySolids.rssDeltaMB` | 0 |
-| `stress.manySolids.rssMB` | 489 |
+| `stress.manySolids.rssMB` | 1391 |
 | `stress.manySolids.tris` | 12032 |
 | `stress.solve.maxSize` | 1024 |
-| `stress.solve.rssDeltaMB` | -47 |
+| `stress.solve.rssDeltaMB` | 0 |
 
 #### UI runner
 
@@ -3966,10 +4174,10 @@ These describe the machine, not the application. They are deliberately a separat
 
 | probe | value |
 | --- | ---: |
-| `native.availableMB.postSuite` | 3886 |
-| `native.availableMB.preSuite` | 3794 |
-| `native.footprintMB.postSuite` | 1233 |
-| `native.footprintMB.preSuite` | 1325 |
+| `native.availableMB.postSuite` | 3744 |
+| `native.availableMB.preSuite` | 3409 |
+| `native.footprintMB.postSuite` | 1375 |
+| `native.footprintMB.preSuite` | 1710 |
 | `native.thermal.postSuite` | 0 |
 | `native.thermal.preSuite` | 0 |
 
@@ -3989,358 +4197,357 @@ These describe the machine, not the application. They are deliberately a separat
 
 | scenario | runner | wall ms | dominant span | dominant ms | spans |
 | --- | --- | ---: | --- | ---: | ---: |
-| `analysis.sweep.24` | ui | 0.894 | `sketch.analyze` | 0.891 | 1 |
-| `analysis.sweep.64` | ui | 11.086 | `sketch.analyze` | 11.079 | 1 |
-| `analysis.sweep.8` | ui | 0.103 | `sketch.analyze` | 0.102 | 1 |
-| `app.blendPattern.edgeQuery.2` | ui | 285.983 | `app.blendPattern.edgesOf` | 285.982 | 2 |
-| `app.blendPattern.edgeQuery.4` | ui | 571.681 | `app.blendPattern.edgesOf` | 571.679 | 2 |
-| `app.blendPattern.edgeQuery.8` | ui | 1142.489 | `ffi.occt.allEdges` | 1142.485 | 2 |
-| `app.engineFill.128` | ui | 2.201 | `app.engineFill` | 1.984 | 4 |
-| `app.engineFill.24` | ui | 0.708 | `app.engineFill` | 0.613 | 4 |
-| `app.facesOf.120` | ui | 0.133 | `app.facesOf` | 0.125 | 1 |
-| `app.facesOf.24` | ui | 0.013 | `app.facesOf` | 0.011 | 1 |
-| `app.facesOf.360` | ui | 0.175 | `app.facesOf` | 0.171 | 1 |
-| `app.history.24` | ui | 1.185 | `app.checkpoint` | 1.015 | 3 |
-| `app.history.64` | ui | 3.108 | `app.checkpoint` | 2.860 | 3 |
-| `app.history.8` | ui | 0.498 | `app.checkpoint` | 0.370 | 3 |
-| `app.meshDiagnostics` | ui | 0.190 | `app.meshSelfReport` | 0.187 | 2 |
-| `app.partCodec` | ui | 0.074 | `app.part.toJson` | 0.060 | 1 |
-| `app.pattern.circular` | ui | 0.230 | `app.patternPreview` | 0.220 | 1 |
-| `app.pattern.mirror` | ui | 0.012 | `—` | 0.000 | 1 |
+| `analysis.sweep.24` | ui | 0.572 | `sketch.analyze` | 0.569 | 1 |
+| `analysis.sweep.64` | ui | 4.273 | `sketch.analyze` | 4.209 | 1 |
+| `analysis.sweep.8` | ui | 0.100 | `sketch.analyze` | 0.099 | 1 |
+| `app.blendPattern.edgeQuery.2` | ui | 18.940 | `app.blendPattern.edgesOf` | 18.938 | 2 |
+| `app.blendPattern.edgeQuery.4` | ui | 37.498 | `ffi.occt.allEdges` | 37.495 | 2 |
+| `app.blendPattern.edgeQuery.8` | ui | 75.192 | `app.blendPattern.edgesOf` | 75.187 | 2 |
+| `app.engineFill.128` | ui | 2.190 | `app.engineFill` | 1.976 | 4 |
+| `app.engineFill.24` | ui | 0.735 | `app.engineFill` | 0.635 | 4 |
+| `app.facesOf.120` | ui | 0.061 | `app.facesOf` | 0.054 | 1 |
+| `app.facesOf.24` | ui | 0.013 | `app.facesOf` | 0.010 | 1 |
+| `app.facesOf.360` | ui | 0.183 | `app.facesOf` | 0.177 | 1 |
+| `app.history.24` | ui | 1.297 | `app.checkpoint` | 1.154 | 3 |
+| `app.history.64` | ui | 3.210 | `app.checkpoint` | 2.970 | 3 |
+| `app.history.8` | ui | 0.483 | `app.checkpoint` | 0.376 | 3 |
+| `app.meshDiagnostics` | ui | 0.185 | `app.meshSelfReport` | 0.182 | 2 |
+| `app.partCodec` | ui | 0.082 | `app.part.toJson` | 0.080 | 1 |
+| `app.pattern.circular` | ui | 0.228 | `app.patternPreview` | 0.220 | 1 |
+| `app.pattern.mirror` | ui | 0.013 | `—` | 0.000 | 1 |
 | `app.pattern.occurrences.16` | ui | 0.013 | `—` | 0.000 | 1 |
 | `app.pattern.occurrences.4` | ui | 0.006 | `—` | 0.000 | 1 |
-| `app.pattern.occurrences.64` | ui | 0.040 | `pattern.occurrences` | 0.022 | 1 |
-| `app.pattern.occurrences.circular.16` | ui | 0.053 | `pattern.occurrences.circular` | 0.040 | 1 |
-| `app.pattern.occurrences.circular.4` | ui | 0.013 | `—` | 0.000 | 1 |
-| `app.pattern.occurrences.circular.64` | ui | 0.207 | `pattern.occurrences.circular` | 0.198 | 1 |
-| `app.pattern.occurrences.curve` | ui | 0.214 | `pattern.occurrences.curve` | 0.204 | 1 |
-| `app.pattern.occurrences.mirror` | ui | 0.001 | `—` | 0.000 | 1 |
+| `app.pattern.occurrences.64` | ui | 0.041 | `pattern.occurrences` | 0.024 | 1 |
+| `app.pattern.occurrences.circular.16` | ui | 0.054 | `pattern.occurrences.circular` | 0.041 | 1 |
+| `app.pattern.occurrences.circular.4` | ui | 0.014 | `—` | 0.000 | 1 |
+| `app.pattern.occurrences.circular.64` | ui | 0.210 | `pattern.occurrences.circular` | 0.199 | 1 |
+| `app.pattern.occurrences.curve` | ui | 0.225 | `pattern.occurrences.curve` | 0.217 | 1 |
+| `app.pattern.occurrences.mirror` | ui | 0.002 | `—` | 0.000 | 1 |
 | `app.pattern.occurrences.points.16` | ui | 0.088 | `—` | 0.000 | 2 |
-| `app.pattern.occurrences.points.4` | ui | 0.080 | `—` | 0.000 | 2 |
-| `app.pattern.occurrences.points.64` | ui | 0.133 | `pattern.occurrences.points` | 0.023 | 2 |
-| `app.pattern.rect.16` | ui | 0.152 | `app.patternPreview` | 0.140 | 1 |
+| `app.pattern.occurrences.points.4` | ui | 0.084 | `—` | 0.000 | 2 |
+| `app.pattern.occurrences.points.64` | ui | 0.142 | `pattern.occurrences.points` | 0.028 | 2 |
+| `app.pattern.rect.16` | ui | 0.157 | `app.patternPreview` | 0.145 | 1 |
 | `app.pattern.rect.4` | ui | 0.034 | `app.patternPreview` | 0.020 | 1 |
-| `app.pattern.rect.64` | ui | 0.618 | `app.patternPreview` | 0.608 | 1 |
-| `app.patternRebuild.2` | ui | 16.365 | `part.rebuildAll` | 16.203 | 11 |
-| `app.patternRebuild.4` | ui | 13.859 | `part.rebuildAll` | 13.705 | 11 |
-| `app.patternRebuild.8` | ui | 28.335 | `part.rebuildAll` | 28.165 | 11 |
-| `app.pick.sweep` | ui | 7.812 | `2d.pickEntity` | 7.733 | 1 |
-| `app.pickEdge3d.1x24` | ui | 0.052 | `app.pickEdge3d` | 0.030 | 1 |
-| `app.pickEdge3d.3x48` | ui | 0.181 | `app.pickEdge3d` | 0.166 | 1 |
-| `app.pickEdge3d.6x120` | ui | 0.922 | `app.pickEdge3d` | 0.906 | 1 |
+| `app.pattern.rect.64` | ui | 0.616 | `app.patternPreview` | 0.606 | 1 |
+| `app.patternRebuild.2` | ui | 16.926 | `part.rebuildAll` | 16.777 | 11 |
+| `app.patternRebuild.4` | ui | 14.433 | `part.rebuildAll` | 14.284 | 11 |
+| `app.patternRebuild.8` | ui | 29.105 | `part.rebuildAll` | 28.931 | 11 |
+| `app.pick.sweep` | ui | 8.080 | `2d.pickEntity` | 8.000 | 1 |
+| `app.pickEdge3d.1x24` | ui | 0.068 | `app.pickEdge3d` | 0.052 | 1 |
+| `app.pickEdge3d.3x48` | ui | 0.180 | `app.pickEdge3d` | 0.161 | 1 |
+| `app.pickEdge3d.6x120` | ui | 0.944 | `app.pickEdge3d` | 0.929 | 1 |
 | `app.projectEdges.1x24` | ui | 0.064 | `project.partEdges` | 0.060 | 2 |
-| `app.projectEdges.3x48` | ui | 0.248 | `app.partEdges` | 0.244 | 2 |
-| `app.projectEdges.6x120` | ui | 1.211 | `project.partEdges` | 1.204 | 2 |
-| `app.provenance.attribute.12` | ui | 1.619 | `provenance.attributeFaces` | 1.482 | 1 |
-| `app.provenance.attribute.2` | ui | 0.275 | `provenance.attributeFaces` | 0.247 | 1 |
-| `app.provenance.attribute.6` | ui | 0.802 | `provenance.attributeFaces` | 0.726 | 1 |
-| `app.provenance.faceSurfaces.120` | ui | 0.236 | `provenance.faceSurfaces` | 0.228 | 1 |
-| `app.provenance.faceSurfaces.24` | ui | 0.049 | `provenance.faceSurfaces` | 0.041 | 1 |
-| `app.provenance.faceSurfaces.360` | ui | 0.710 | `provenance.faceSurfaces` | 0.704 | 1 |
-| `app.provenance.newSurfaces.120` | ui | 0.549 | `provenance.newSurfaces` | 0.493 | 1 |
-| `app.provenance.newSurfaces.24` | ui | 0.039 | `provenance.newSurfaces` | 0.020 | 1 |
-| `app.provenance.newSurfaces.360` | ui | 4.137 | `provenance.newSurfaces` | 3.986 | 1 |
-| `app.rebuildPart.1` | ui | 2.065 | `part.rebuildAll` | 1.992 | 8 |
-| `app.rebuildPart.3` | ui | 20.494 | `part.rebuildAll` | 20.258 | 10 |
-| `app.rebuildPart.6` | ui | 37.711 | `part.rebuildAll` | 37.308 | 10 |
-| `app.scene.1x24` | ui | 0.071 | `app.buildScenePayload` | 0.030 | 3 |
-| `app.scene.3x48` | ui | 0.092 | `app.buildScenePayload` | 0.040 | 3 |
-| `app.scene.6x120` | ui | 0.123 | `app.buildScenePayload` | 0.060 | 3 |
+| `app.projectEdges.3x48` | ui | 0.261 | `project.partEdges` | 0.254 | 2 |
+| `app.projectEdges.6x120` | ui | 1.425 | `project.partEdges` | 1.419 | 2 |
+| `app.provenance.attribute.12` | ui | 1.478 | `provenance.attributeFaces` | 1.436 | 1 |
+| `app.provenance.attribute.2` | ui | 0.210 | `provenance.attributeFaces` | 0.198 | 1 |
+| `app.provenance.attribute.6` | ui | 0.680 | `provenance.attributeFaces` | 0.657 | 1 |
+| `app.provenance.faceSurfaces.120` | ui | 0.069 | `provenance.faceSurfaces` | 0.061 | 1 |
+| `app.provenance.faceSurfaces.24` | ui | 0.015 | `provenance.faceSurfaces` | 0.010 | 1 |
+| `app.provenance.faceSurfaces.360` | ui | 0.200 | `provenance.faceSurfaces` | 0.192 | 1 |
+| `app.provenance.newSurfaces.120` | ui | 0.115 | `provenance.newSurfaces` | 0.095 | 1 |
+| `app.provenance.newSurfaces.24` | ui | 0.030 | `provenance.newSurfaces` | 0.020 | 1 |
+| `app.provenance.newSurfaces.360` | ui | 0.433 | `provenance.newSurfaces` | 0.386 | 1 |
+| `app.rebuildPart.1` | ui | 2.041 | `part.rebuildAll` | 1.955 | 8 |
+| `app.rebuildPart.3` | ui | 21.681 | `part.rebuildAll` | 21.459 | 10 |
+| `app.rebuildPart.6` | ui | 39.629 | `part.rebuildAll` | 39.178 | 10 |
+| `app.scene.1x24` | ui | 0.073 | `app.buildScenePayload` | 0.030 | 3 |
+| `app.scene.3x48` | ui | 0.090 | `app.buildScenePayload` | 0.040 | 3 |
+| `app.scene.6x120` | ui | 0.124 | `app.buildScenePayload` | 0.060 | 3 |
 | `app.sceneRevs` | ui | 0.008 | `—` | 0.000 | 1 |
-| `app.sketchCodec` | ui | 4.509 | `app.sketch.encodeCons` | 2.707 | 2 |
-| `constraints.addEachType` | ui | 40.148 | `solve.total` | 36.871 | 20 |
-| `constraints.encode` | ui | 4.640 | `constraints.encode` | 2.867 | 2 |
-| `constraints.infer.24` | ui | 0.032 | `constraints.inferConstraints` | 0.011 | 2 |
-| `constraints.infer.64` | ui | 0.085 | `constraints.inferConstraints` | 0.036 | 2 |
-| `constraints.infer.8` | ui | 0.018 | `constraints.inferConstraints` | 0.003 | 2 |
-| `gear.curve.10` | ui | 2.901 | `gear.curve` | 2.764 | 2 |
-| `gear.curve.20` | ui | 5.620 | `gear.curve` | 5.481 | 2 |
-| `gear.curve.40` | ui | 11.045 | `gear.curve` | 10.909 | 2 |
-| `kernel.allEdges.repeat` | ui | 501.435 | `ffi.occt.allEdges` | 499.864 | 2 |
-| `kernel.allEdges.sweep.12` | ui | 7.309 | `ffi.occt.allEdges` | 6.927 | 2 |
-| `kernel.allEdges.sweep.120` | ui | 616.216 | `ffi.occt.allEdges` | 612.361 | 2 |
-| `kernel.allEdges.sweep.48` | ui | 100.927 | `ffi.occt.allEdges` | 99.427 | 2 |
-| `kernel.boolean` | ui | 15.944 | `ffi.occt.fuse` | 5.654 | 5 |
-| `kernel.boolean.chain` | ui | 33.254 | `ffi.occt.fuse` | 33.112 | 3 |
-| `kernel.boolean.complex.12` | ui | 12.122 | `ffi.occt.fuse` | 4.162 | 4 |
-| `kernel.boolean.complex.120` | ui | 151.736 | `ffi.occt.fuse` | 52.822 | 4 |
-| `kernel.boolean.complex.48` | ui | 50.941 | `ffi.occt.fuse` | 17.485 | 4 |
-| `kernel.chamfer.edges.1` | ui | 31.413 | `ffi.occt.allEdges` | 25.536 | 3 |
-| `kernel.chamfer.edges.12` | ui | 50.775 | `ffi.occt.allEdges` | 25.829 | 3 |
-| `kernel.chamfer.edges.4` | ui | 36.353 | `ffi.occt.allEdges` | 25.571 | 3 |
-| `kernel.coil.1` | ui | 7.911 | `ffi.occt.coilProfile` | 7.890 | 1 |
-| `kernel.coil.12` | ui | 24.618 | `ffi.occt.coilProfile` | 24.604 | 1 |
-| `kernel.coil.4` | ui | 12.178 | `ffi.occt.coilProfile` | 12.164 | 1 |
-| `kernel.extrude.arcs.12` | ui | 0.370 | `ffi.occt.extrudeProfileArcs` | 0.366 | 1 |
-| `kernel.extrude.arcs.120` | ui | 3.730 | `ffi.occt.extrudeProfileArcs` | 3.700 | 1 |
-| `kernel.extrude.arcs.48` | ui | 1.453 | `ffi.occt.extrudeProfileArcs` | 1.442 | 1 |
-| `kernel.extrude.holes` | ui | 1.787 | `ffi.occt.extrudeProfile` | 1.707 | 1 |
-| `kernel.extrude.plain` | ui | 1.189 | `ffi.occt.extrudeProfile` | 1.145 | 1 |
-| `kernel.extrude.sweep` | ui | 15.111 | `ffi.occt.extrudeProfileArcs` | 14.986 | 1 |
-| `kernel.extrude.taper` | ui | 61.277 | `ffi.occt.extrudeProfileArcs` | 61.210 | 1 |
-| `kernel.fillet` | ui | 37.255 | `ffi.occt.allEdges` | 25.765 | 3 |
-| `kernel.fillet.edges.1` | ui | 31.550 | `ffi.occt.allEdges` | 25.593 | 3 |
-| `kernel.fillet.edges.12` | ui | 50.455 | `ffi.occt.allEdges` | 25.580 | 3 |
-| `kernel.fillet.edges.4` | ui | 36.996 | `ffi.occt.allEdges` | 25.562 | 3 |
-| `kernel.fillet.radius` | ui | 438.974 | `ffi.occt.filletEdges` | 359.785 | 3 |
-| `kernel.loft.2` | ui | 3.091 | `ffi.occt.loftSections` | 3.072 | 1 |
-| `kernel.loft.4` | ui | 4.188 | `ffi.occt.loftSections` | 4.164 | 1 |
-| `kernel.loft.8` | ui | 5.309 | `ffi.occt.loftSections` | 5.282 | 1 |
-| `kernel.loft.ruled` | ui | 21.724 | `ffi.occt.loftSections` | 21.681 | 1 |
-| `kernel.mesh.complexity.12` | ui | 1.346 | `ffi.occt.meshCreate` | 0.959 | 3 |
-| `kernel.mesh.complexity.120` | ui | 11.460 | `ffi.occt.meshCreate` | 7.717 | 3 |
-| `kernel.mesh.complexity.48` | ui | 4.626 | `ffi.occt.meshCreate` | 3.202 | 3 |
-| `kernel.mesh.repeat` | ui | 13.280 | `ffi.occt.meshCreate` | 11.802 | 3 |
-| `kernel.mesh.sweep` | ui | 13.912 | `ffi.occt.meshCreate` | 9.578 | 3 |
-| `kernel.mirror.120` | ui | 34.938 | `ffi.occt.mirror` | 22.904 | 3 |
-| `kernel.mirror.24` | ui | 6.894 | `ffi.occt.mirror` | 4.540 | 3 |
-| `kernel.query.cheap` | ui | 7.548 | `ffi.occt.extrudeProfileArcs` | 3.679 | 3 |
-| `kernel.query.edgeInfoOne` | ui | 34.512 | `kernel.edgeInfo1` | 30.788 | 2 |
-| `kernel.query.edgeInfoScale.120` | ui | 34.724 | `kernel.edgeInfoScale.120` | 30.858 | 2 |
-| `kernel.query.edgeInfoScale.24` | ui | 7.240 | `kernel.edgeInfoScale.24` | 6.460 | 2 |
-| `kernel.query.edgeInfoScale.240` | ui | 70.322 | `kernel.edgeInfoScale.240` | 62.496 | 2 |
-| `kernel.query.edgeInfoScale.60` | ui | 17.461 | `kernel.edgeInfoScale.60` | 15.530 | 2 |
-| `kernel.rayHits` | ui | 8.760 | `kernel.rayHit` | 7.267 | 3 |
-| `kernel.revolve.12` | ui | 0.286 | `ffi.occt.revolveProfile` | 0.282 | 1 |
-| `kernel.revolve.120` | ui | 2.869 | `ffi.occt.revolveProfile` | 2.832 | 1 |
-| `kernel.revolve.48` | ui | 1.138 | `ffi.occt.revolveProfile` | 1.123 | 1 |
-| `kernel.revolve.angle` | ui | 4.870 | `ffi.occt.revolveProfile` | 4.820 | 1 |
-| `kernel.sweep.12` | ui | 46.407 | `ffi.occt.sweepProfile` | 46.307 | 1 |
-| `kernel.sweep.48` | ui | 202.072 | `ffi.occt.sweepProfile` | 201.692 | 1 |
-| `kernel.sweep.path` | ui | 317.151 | `ffi.occt.sweepProfile` | 316.134 | 1 |
-| `kernel.sweep.twist` | ui | 91.513 | `ffi.occt.sweepProfile` | 90.845 | 1 |
-| `kernel.transform` | ui | 7.743 | `ffi.occt.transform` | 5.980 | 2 |
-| `kernel.unify` | ui | 0.852 | `ffi.occt.fuse` | 0.749 | 3 |
-| `modify.extend` | ui | 0.052 | `modify.extendEntity` | 0.040 | 2 |
+| `app.sketchCodec` | ui | 4.638 | `app.sketch.encodeCons` | 2.878 | 2 |
+| `constraints.addEachType` | ui | 13.165 | `solve.total` | 10.529 | 20 |
+| `constraints.encode` | ui | 4.542 | `constraints.encode` | 2.707 | 2 |
+| `constraints.infer.24` | ui | 0.032 | `constraints.inferConstraints` | 0.010 | 2 |
+| `constraints.infer.64` | ui | 0.084 | `constraints.inferConstraints` | 0.035 | 2 |
+| `constraints.infer.8` | ui | 0.019 | `constraints.inferConstraints` | 0.003 | 2 |
+| `gear.curve.10` | ui | 2.947 | `gear.curve` | 2.814 | 2 |
+| `gear.curve.20` | ui | 5.815 | `gear.curve` | 5.677 | 2 |
+| `gear.curve.40` | ui | 11.420 | `gear.curve` | 11.281 | 2 |
+| `kernel.allEdges.repeat` | ui | 33.835 | `ffi.occt.allEdges` | 32.352 | 2 |
+| `kernel.allEdges.sweep.12` | ui | 1.213 | `ffi.occt.allEdges` | 0.818 | 2 |
+| `kernel.allEdges.sweep.120` | ui | 35.820 | `ffi.occt.allEdges` | 32.049 | 2 |
+| `kernel.allEdges.sweep.48` | ui | 8.063 | `ffi.occt.allEdges` | 6.558 | 2 |
+| `kernel.boolean` | ui | 16.176 | `ffi.occt.fuse` | 5.717 | 5 |
+| `kernel.boolean.chain` | ui | 33.954 | `ffi.occt.fuse` | 33.810 | 3 |
+| `kernel.boolean.complex.12` | ui | 12.148 | `ffi.occt.fuse` | 4.187 | 4 |
+| `kernel.boolean.complex.120` | ui | 151.531 | `ffi.occt.fuse` | 51.986 | 4 |
+| `kernel.boolean.complex.48` | ui | 51.115 | `ffi.occt.fuse` | 17.613 | 4 |
+| `kernel.chamfer.edges.1` | ui | 8.131 | `ffi.occt.chamferEdges` | 5.217 | 3 |
+| `kernel.chamfer.edges.12` | ui | 26.913 | `ffi.occt.chamferEdges` | 24.006 | 3 |
+| `kernel.chamfer.edges.4` | ui | 12.995 | `ffi.occt.chamferEdges` | 10.129 | 3 |
+| `kernel.coil.1` | ui | 8.191 | `ffi.occt.coilProfile` | 8.176 | 1 |
+| `kernel.coil.12` | ui | 25.398 | `ffi.occt.coilProfile` | 25.384 | 1 |
+| `kernel.coil.4` | ui | 12.443 | `ffi.occt.coilProfile` | 12.429 | 1 |
+| `kernel.extrude.arcs.12` | ui | 0.376 | `ffi.occt.extrudeProfileArcs` | 0.372 | 1 |
+| `kernel.extrude.arcs.120` | ui | 3.724 | `ffi.occt.extrudeProfileArcs` | 3.696 | 1 |
+| `kernel.extrude.arcs.48` | ui | 1.475 | `ffi.occt.extrudeProfileArcs` | 1.463 | 1 |
+| `kernel.extrude.holes` | ui | 1.788 | `ffi.occt.extrudeProfile` | 1.709 | 1 |
+| `kernel.extrude.plain` | ui | 1.179 | `ffi.occt.extrudeProfile` | 1.136 | 1 |
+| `kernel.extrude.sweep` | ui | 15.081 | `ffi.occt.extrudeProfileArcs` | 14.968 | 1 |
+| `kernel.extrude.taper` | ui | 64.439 | `ffi.occt.extrudeProfileArcs` | 64.369 | 1 |
+| `kernel.fillet` | ui | 13.848 | `ffi.occt.filletEdges` | 10.973 | 3 |
+| `kernel.fillet.edges.1` | ui | 8.101 | `ffi.occt.filletEdges` | 5.208 | 3 |
+| `kernel.fillet.edges.12` | ui | 27.024 | `ffi.occt.filletEdges` | 24.145 | 3 |
+| `kernel.fillet.edges.4` | ui | 13.556 | `ffi.occt.filletEdges` | 10.668 | 3 |
+| `kernel.fillet.radius` | ui | 374.203 | `ffi.occt.filletEdges` | 365.487 | 3 |
+| `kernel.loft.2` | ui | 3.155 | `ffi.occt.loftSections` | 3.135 | 1 |
+| `kernel.loft.4` | ui | 4.279 | `ffi.occt.loftSections` | 4.253 | 1 |
+| `kernel.loft.8` | ui | 5.548 | `ffi.occt.loftSections` | 5.513 | 1 |
+| `kernel.loft.ruled` | ui | 23.753 | `ffi.occt.loftSections` | 23.707 | 1 |
+| `kernel.mesh.complexity.12` | ui | 1.340 | `ffi.occt.meshCreate` | 0.938 | 3 |
+| `kernel.mesh.complexity.120` | ui | 12.052 | `ffi.occt.meshCreate` | 8.137 | 3 |
+| `kernel.mesh.complexity.48` | ui | 4.863 | `ffi.occt.meshCreate` | 3.317 | 3 |
+| `kernel.mesh.repeat` | ui | 14.970 | `ffi.occt.meshCreate` | 13.408 | 3 |
+| `kernel.mesh.sweep` | ui | 14.568 | `ffi.occt.meshCreate` | 9.981 | 3 |
+| `kernel.mirror.120` | ui | 35.094 | `ffi.occt.mirror` | 22.961 | 3 |
+| `kernel.mirror.24` | ui | 6.892 | `ffi.occt.mirror` | 4.552 | 3 |
+| `kernel.query.cheap` | ui | 7.601 | `ffi.occt.extrudeProfileArcs` | 3.719 | 3 |
+| `kernel.query.edgeInfoOne` | ui | 34.635 | `kernel.edgeInfo1` | 30.901 | 2 |
+| `kernel.query.edgeInfoScale.120` | ui | 34.859 | `kernel.edgeInfoScale.120` | 30.961 | 2 |
+| `kernel.query.edgeInfoScale.24` | ui | 7.234 | `kernel.edgeInfoScale.24` | 6.451 | 2 |
+| `kernel.query.edgeInfoScale.240` | ui | 70.748 | `kernel.edgeInfoScale.240` | 62.895 | 2 |
+| `kernel.query.edgeInfoScale.60` | ui | 17.509 | `kernel.edgeInfoScale.60` | 15.566 | 2 |
+| `kernel.rayHits` | ui | 8.792 | `kernel.rayHit` | 7.281 | 3 |
+| `kernel.revolve.12` | ui | 0.295 | `ffi.occt.revolveProfile` | 0.291 | 1 |
+| `kernel.revolve.120` | ui | 2.868 | `ffi.occt.revolveProfile` | 2.828 | 1 |
+| `kernel.revolve.48` | ui | 1.128 | `ffi.occt.revolveProfile` | 1.113 | 1 |
+| `kernel.revolve.angle` | ui | 4.894 | `ffi.occt.revolveProfile` | 4.845 | 1 |
+| `kernel.sweep.12` | ui | 46.182 | `ffi.occt.sweepProfile` | 46.081 | 1 |
+| `kernel.sweep.48` | ui | 202.882 | `ffi.occt.sweepProfile` | 202.493 | 1 |
+| `kernel.sweep.path` | ui | 318.687 | `ffi.occt.sweepProfile` | 317.654 | 1 |
+| `kernel.sweep.twist` | ui | 93.471 | `ffi.occt.sweepProfile` | 92.949 | 1 |
+| `kernel.transform` | ui | 7.785 | `ffi.occt.transform` | 6.010 | 2 |
+| `kernel.unify` | ui | 0.853 | `ffi.occt.fuse` | 0.749 | 3 |
+| `modify.extend` | ui | 0.051 | `modify.extend` | 0.040 | 2 |
 | `modify.intersections.10` | ui | 0.046 | `modify.intersectionsWithOthers` | 0.040 | 1 |
-| `modify.intersections.20` | ui | 0.181 | `modify.intersectionsWithOthers` | 0.160 | 1 |
-| `modify.intersections.4` | ui | 0.008 | `modify.intersectionsWithOthers` | 0.002 | 1 |
-| `modify.offsetChain` | ui | 0.092 | `modify.offsetChainAt` | 0.051 | 1 |
+| `modify.intersections.20` | ui | 0.181 | `modify.intersectionsWithOthers` | 0.162 | 1 |
+| `modify.intersections.4` | ui | 0.008 | `modify.intersectionsWithOthers` | 0.001 | 1 |
+| `modify.offsetChain` | ui | 0.091 | `modify.offsetChainAt` | 0.052 | 1 |
 | `modify.offsetSingle` | ui | 0.072 | `—` | 0.000 | 2 |
-| `modify.split` | ui | 0.028 | `modify.splitEntity` | 0.021 | 1 |
-| `modify.stretch` | ui | 0.052 | `modify.stretchGeo` | 0.041 | 1 |
-| `modify.transform.128` | ui | 0.100 | `modify.transformGeo` | 0.083 | 1 |
+| `modify.split` | ui | 0.028 | `modify.splitEntity` | 0.020 | 1 |
+| `modify.stretch` | ui | 0.051 | `modify.stretchGeo` | 0.041 | 1 |
+| `modify.transform.128` | ui | 0.098 | `modify.transformGeo` | 0.082 | 1 |
 | `modify.transform.24` | ui | 0.020 | `modify.transformGeo` | 0.001 | 1 |
-| `modify.trim.10` | ui | 0.029 | `modify.trimEntity` | 0.022 | 2 |
-| `modify.trim.20` | ui | 0.114 | `modify.trimEntity` | 0.101 | 2 |
+| `modify.trim.10` | ui | 0.031 | `modify.trimEntity` | 0.029 | 2 |
+| `modify.trim.20` | ui | 0.113 | `modify.trim` | 0.100 | 2 |
 | `modify.trim.4` | ui | 0.006 | `modify.trim` | 0.004 | 2 |
-| `modify.trimCutAway` | ui | 0.030 | `modify.trimCutAway` | 0.024 | 1 |
-| `quality.caches` | ui | 2.891 | `—` | 0.000 | 0 |
-| `quality.frameBudget` | ui | 11.730 | `solve.total` | 11.671 | 4 |
-| `quality.memoryPerEntity` | ui | 0.087 | `—` | 0.000 | 0 |
-| `quality.memoryPerSolid` | ui | 54.405 | `ffi.occt.meshCreate` | 36.737 | 3 |
-| `quality.variance` | ui | 24.227 | `ffi.occt.extrudeProfileArcs` | 13.125 | 6 |
-| `ramp.analyze.entities` | ui | 132.297 | `sketch.analyze` | 132.236 | 11 |
-| `ramp.drag.entities` | ui | 20.175 | `solve.total` | 20.080 | 12 |
-| `ramp.kernel.allEdges` | ui | 1708.974 | `ffi.occt.allEdges` | 1695.381 | 9 |
-| `ramp.kernel.boolean` | ui | 204.235 | `ffi.occt.fuse` | 177.163 | 9 |
-| `ramp.kernel.build` | ui | 28.738 | `ffi.occt.extrudeProfileArcs` | 28.266 | 10 |
-| `ramp.kernel.mesh` | ui | 89.262 | `ffi.occt.meshCreate` | 60.147 | 12 |
-| `ramp.solids` | ui | 221.055 | `ffi.occt.meshCreate` | 148.566 | 10 |
-| `ramp.solve.density` | ui | 20.318 | `solve.total` | 20.259 | 10 |
-| `ramp.solve.entities` | ui | 6.316 | `solve.total` | 6.251 | 14 |
-| `solve.drag60` | ui | 8.557 | `solve.total` | 8.505 | 4 |
-| `solve.fromViolated` | ui | 1.418 | `solve.total` | 1.388 | 4 |
-| `solve.overConstrained` | ui | 341.719 | `solve.total` | 341.687 | 5 |
-| `solve.sweep.24` | ui | 1.455 | `solve.total` | 1.446 | 4 |
-| `solve.sweep.64` | ui | 7.947 | `solve.total` | 7.929 | 4 |
-| `solve.sweep.8` | ui | 0.503 | `solve.total` | 0.492 | 4 |
-| `stress.booleanChain` | ui | 36.691 | `ffi.occt.fuse` | 36.221 | 7 |
-| `stress.kernel.allEdges` | ui | 13142.049 | `ffi.occt.allEdges` | 13113.816 | 5 |
-| `stress.kernel.buildOnly` | ui | 441.466 | `ffi.occt.meshCreate` | 297.557 | 8 |
-| `stress.manySolids` | ui | 561.795 | `ffi.occt.meshCreate` | 373.994 | 8 |
-| `stress.sketch.analyze` | ui | 9469.120 | `sketch.analyze` | 9467.729 | 6 |
-| `stress.sketch.drag` | ui | 146.385 | `solve.total` | 146.250 | 8 |
-| `stress.sketch.solve` | ui | 55.016 | `solve.total` | 54.730 | 9 |
-| `tools.bezPath.128` | ui | 1.910 | `tools.bez.flatten` | 1.850 | 2 |
-| `tools.bezPath.32` | ui | 0.455 | `tools.bez.flatten` | 0.429 | 2 |
-| `tools.bezPath.8` | ui | 0.110 | `tools.bez.flatten` | 0.100 | 2 |
-| `tools.bezTolerance` | ui | 1.009 | `tools.bez.tol.0_01` | 0.620 | 4 |
-| `tools.buildAll` | ui | 2.457 | `tool.build.chamfer` | 1.091 | 26 |
+| `modify.trimCutAway` | ui | 0.031 | `modify.trimCutAway` | 0.026 | 1 |
+| `quality.caches` | ui | 2.793 | `—` | 0.000 | 0 |
+| `quality.frameBudget` | ui | 11.569 | `solve.total` | 11.510 | 4 |
+| `quality.memoryPerEntity` | ui | 0.090 | `—` | 0.000 | 0 |
+| `quality.memoryPerSolid` | ui | 55.100 | `ffi.occt.meshCreate` | 36.727 | 3 |
+| `quality.variance` | ui | 20.720 | `ffi.occt.extrudeProfileArcs` | 13.044 | 6 |
+| `ramp.analyze.entities` | ui | 37.375 | `sketch.analyze` | 37.322 | 11 |
+| `ramp.drag.entities` | ui | 18.102 | `solve.total` | 18.008 | 12 |
+| `ramp.kernel.allEdges` | ui | 106.772 | `ffi.occt.allEdges` | 93.224 | 9 |
+| `ramp.kernel.boolean` | ui | 206.678 | `ffi.occt.fuse` | 179.136 | 9 |
+| `ramp.kernel.build` | ui | 28.755 | `ffi.occt.extrudeProfileArcs` | 28.269 | 10 |
+| `ramp.kernel.mesh` | ui | 91.425 | `ffi.occt.meshCreate` | 61.795 | 12 |
+| `ramp.solids` | ui | 225.046 | `ffi.occt.meshCreate` | 150.009 | 10 |
+| `ramp.solve.density` | ui | 20.424 | `solve.total` | 20.349 | 10 |
+| `ramp.solve.entities` | ui | 6.272 | `solve.total` | 6.211 | 14 |
+| `solve.drag60` | ui | 8.351 | `solve.total` | 8.299 | 4 |
+| `solve.fromViolated` | ui | 1.548 | `solve.total` | 1.520 | 4 |
+| `solve.overConstrained` | ui | 44.211 | `solve.total` | 44.178 | 5 |
+| `solve.sweep.24` | ui | 1.439 | `solve.total` | 1.427 | 4 |
+| `solve.sweep.64` | ui | 7.728 | `solve.total` | 7.710 | 4 |
+| `solve.sweep.8` | ui | 0.288 | `solve.total` | 0.279 | 4 |
+| `stress.booleanChain` | ui | 36.451 | `ffi.occt.fuse` | 35.988 | 7 |
+| `stress.kernel.allEdges` | ui | 9802.991 | `ffi.occt.allEdges` | 9663.240 | 7 |
+| `stress.kernel.buildOnly` | ui | 451.717 | `ffi.occt.meshCreate` | 307.890 | 8 |
+| `stress.manySolids` | ui | 572.126 | `ffi.occt.meshCreate` | 383.335 | 8 |
+| `stress.sketch.analyze` | ui | 683.313 | `sketch.analyze` | 683.078 | 6 |
+| `stress.sketch.drag` | ui | 144.439 | `solve.total` | 144.284 | 8 |
+| `stress.sketch.solve` | ui | 52.482 | `solve.total` | 52.325 | 9 |
+| `tools.bezPath.128` | ui | 1.915 | `tools.bez.flatten` | 1.855 | 2 |
+| `tools.bezPath.32` | ui | 0.510 | `tools.bez.flatten` | 0.484 | 2 |
+| `tools.bezPath.8` | ui | 0.109 | `tools.bez.flatten` | 0.100 | 2 |
+| `tools.bezTolerance` | ui | 1.066 | `tools.bez.tol.0_01` | 0.663 | 4 |
+| `tools.buildAll` | ui | 1.657 | `tool.build.bridge` | 0.465 | 26 |
 | `tools.chamfer2d` | ui | 0.021 | `—` | 0.000 | 1 |
-| `tools.ellipseEval` | ui | 0.052 | `ellipse.curve` | 0.022 | 1 |
-| `tools.fillet2d` | ui | 0.037 | `tools.filletInventor` | 0.001 | 1 |
-| `tools.filletMaxRadius` | ui | 0.250 | `tools.filletMaxRadius` | 0.246 | 1 |
-| `tools.freehand.1024` | ui | 2.363 | `freehand.fit` | 1.178 | 4 |
-| `tools.freehand.256` | ui | 0.208 | `freehand.fit` | 0.097 | 4 |
-| `tools.freehand.64` | ui | 0.035 | `freehand.fit` | 0.010 | 4 |
-| `tools.spline.16` | ui | 0.025 | `—` | 0.000 | 2 |
-| `tools.spline.4` | ui | 0.010 | `—` | 0.000 | 2 |
-| `tools.spline.64` | ui | 0.305 | `tool.spline.interp` | 0.251 | 2 |
-| `tools.splineEval.16` | ui | 0.090 | `spline.curveFor` | 0.013 | 1 |
-| `tools.splineEval.4` | ui | 0.035 | `—` | 0.000 | 1 |
-| `tools.splineEval.64` | ui | 0.212 | `spline.curveFor` | 0.133 | 1 |
-| `ui.drag60` | ui | 19.983 | `2d.paint` | 19.827 | 25 |
+| `tools.ellipseEval` | ui | 0.030 | `—` | 0.000 | 1 |
+| `tools.fillet2d` | ui | 0.040 | `tools.filletInventor` | 0.001 | 1 |
+| `tools.filletMaxRadius` | ui | 0.254 | `tools.filletMaxRadius` | 0.250 | 1 |
+| `tools.freehand.1024` | ui | 2.405 | `freehand.fit` | 1.186 | 4 |
+| `tools.freehand.256` | ui | 0.228 | `freehand.fit` | 0.109 | 4 |
+| `tools.freehand.64` | ui | 0.050 | `freehand.fit` | 0.017 | 4 |
+| `tools.spline.16` | ui | 0.018 | `—` | 0.000 | 2 |
+| `tools.spline.4` | ui | 0.007 | `—` | 0.000 | 2 |
+| `tools.spline.64` | ui | 0.062 | `tool.spline.cv` | 0.020 | 2 |
+| `tools.splineEval.16` | ui | 0.064 | `—` | 0.000 | 1 |
+| `tools.splineEval.4` | ui | 0.031 | `—` | 0.000 | 1 |
+| `tools.splineEval.64` | ui | 0.190 | `spline.curveFor` | 0.108 | 1 |
+| `ui.drag60` | ui | 11.504 | `2d.paint` | 11.356 | 25 |
 | `ui.engineRebuild` | ui | 0.001 | `—` | 0.000 | 2 |
-| `ui.paint.sweep.24` | ui | 1.405 | `2d.paint` | 1.332 | 20 |
-| `ui.paint.sweep.64` | ui | 3.603 | `2d.paint` | 3.489 | 20 |
-| `ui.paint.sweep.8` | ui | 0.534 | `2d.paint` | 0.481 | 20 |
-| `ui.snapHover` | ui | 3.522 | `2d.pickEntity` | 2.949 | 2 |
+| `ui.paint.sweep.24` | ui | 1.514 | `2d.paint` | 1.441 | 20 |
+| `ui.paint.sweep.64` | ui | 3.482 | `2d.paint` | 3.371 | 20 |
+| `ui.paint.sweep.8` | ui | 0.823 | `2d.paint` | 0.767 | 20 |
+| `ui.snapHover` | ui | 3.595 | `2d.pickEntity` | 2.998 | 2 |
 
 
 ### F. Ramp families with local exponents
 
 Ramps use fine steps so a **knee** is visible. A fit through three points assumes the curve *is* a power law and averages away anything that is not one; the local exponent between neighbouring rungs does not. A constant local exponent means a clean power law; a jump means a threshold, and the rung it jumps at is the size that matters.
 
-#### `ramp.allEdges` — overall k = 1.91, R² = 0.9994, CI [1.87, 1.95]
+#### `ramp.allEdges` — overall k = 1.50, R² = 0.9956, CI [1.41, 1.59]
 
 | size | mean ms | local exponent vs previous |
 | ---: | ---: | ---: |
-| 12 | 11.5285 | — |
-| 24 | 39.1553 | 1.76 |
-| 36 | 84.3877 | 1.89 |
-| 48 | 148.7930 | 1.97 |
-| 72 | 329.7570 | 1.96 |
-| 96 | 582.9070 | 1.98 |
-| 144 | 1301.2683 | 1.98 |
+| 12 | 1.2225 | — |
+| 24 | 2.8945 | 1.24 |
+| 36 | 5.2485 | 1.47 |
+| 48 | 7.9170 | 1.43 |
+| 72 | 15.3035 | 1.63 |
+| 96 | 24.7180 | 1.67 |
+| 144 | 49.9640 | 1.74 |
 
-#### `ramp.analyze` — overall k = 2.26, R² = 0.9882, CI [2.09, 2.44]
-
-| size | mean ms | local exponent vs previous |
-| ---: | ---: | ---: |
-| 8 | 0.0575 | — |
-| 16 | 0.1542 | 1.42 |
-| 24 | 0.3232 | 1.82 |
-| 32 | 0.6142 | 2.23 |
-| 48 | 1.5395 | 2.27 |
-| 64 | 4.1963 | 3.49 |
-| 96 | 7.3068 | 1.37 |
-| 128 | 17.0877 | 2.95 |
-| 192 | 55.4590 | 2.90 |
-| 256 | 121.1292 | 2.72 |
-
-#### `ramp.boolean` — overall k = 1.07, R² = 0.9975, CI [1.03, 1.12]
+#### `ramp.analyze` — overall k = 1.80, R² = 0.9927, CI [1.69, 1.91]
 
 | size | mean ms | local exponent vs previous |
 | ---: | ---: | ---: |
-| 12 | 7.6278 | — |
-| 24 | 14.6670 | 0.94 |
-| 36 | 22.2882 | 1.03 |
-| 48 | 30.3727 | 1.08 |
-| 72 | 47.7657 | 1.12 |
-| 96 | 66.7622 | 1.16 |
-| 144 | 109.5123 | 1.22 |
+| 8 | 0.0410 | — |
+| 16 | 0.0990 | 1.27 |
+| 24 | 0.1760 | 1.42 |
+| 32 | 0.2960 | 1.81 |
+| 48 | 0.6845 | 2.07 |
+| 64 | 1.1075 | 1.67 |
+| 96 | 2.3075 | 1.81 |
+| 128 | 4.3020 | 2.17 |
+| 192 | 9.6900 | 2.00 |
+| 256 | 18.8700 | 2.32 |
 
-#### `ramp.build` — overall k = 0.98, R² = 0.9992, CI [0.96, 1.00]
-
-| size | mean ms | local exponent vs previous |
-| ---: | ---: | ---: |
-| 12 | 0.6148 | — |
-| 24 | 1.1155 | 0.86 |
-| 36 | 1.6600 | 0.98 |
-| 48 | 2.2010 | 0.98 |
-| 72 | 3.3030 | 1.00 |
-| 96 | 4.3892 | 0.99 |
-| 144 | 6.6135 | 1.01 |
-| 192 | 8.8682 | 1.02 |
-| 288 | 13.4853 | 1.03 |
-
-#### `ramp.density` — overall k = 1.78, R² = 0.9975, CI [1.69, 1.87]
+#### `ramp.boolean` — overall k = 1.07, R² = 0.9974, CI [1.02, 1.12]
 
 | size | mean ms | local exponent vs previous |
 | ---: | ---: | ---: |
-| 1 | 0.3495 | — |
-| 2 | 1.0305 | 1.56 |
-| 3 | 2.1290 | 1.79 |
-| 4 | 3.6498 | 1.87 |
-| 6 | 7.9340 | 1.92 |
-| 8 | 13.9738 | 1.97 |
+| 12 | 5.2500 | — |
+| 24 | 10.1385 | 0.95 |
+| 36 | 15.4040 | 1.03 |
+| 48 | 20.6920 | 1.03 |
+| 72 | 32.9135 | 1.14 |
+| 96 | 45.8090 | 1.15 |
+| 144 | 75.3530 | 1.23 |
 
-#### `ramp.drag` — overall k = 1.44, R² = 0.9668, CI [1.23, 1.66]
-
-| size | mean ms | local exponent vs previous |
-| ---: | ---: | ---: |
-| 8 | 0.2830 | — |
-| 16 | 0.4340 | 0.62 |
-| 24 | 0.7410 | 1.32 |
-| 32 | 1.1018 | 1.38 |
-| 48 | 2.1027 | 1.59 |
-| 64 | 3.3993 | 1.67 |
-| 96 | 7.4355 | 1.93 |
-| 128 | 13.9403 | 2.18 |
-
-#### `ramp.mesh` — overall k = 0.97, R² = 0.9989, CI [0.95, 0.99]
+#### `ramp.build` — overall k = 0.99, R² = 0.9993, CI [0.97, 1.01]
 
 | size | mean ms | local exponent vs previous |
 | ---: | ---: | ---: |
-| 12 | 1.8182 | — |
-| 24 | 3.3490 | 0.88 |
-| 36 | 4.8878 | 0.93 |
-| 48 | 6.3862 | 0.93 |
-| 72 | 9.6422 | 1.02 |
-| 96 | 12.3833 | 0.87 |
-| 144 | 19.1558 | 1.08 |
-| 192 | 25.7048 | 1.02 |
-| 288 | 39.3410 | 1.05 |
+| 12 | 0.4105 | — |
+| 24 | 0.7575 | 0.88 |
+| 36 | 1.1230 | 0.97 |
+| 48 | 1.4990 | 1.00 |
+| 72 | 2.2525 | 1.00 |
+| 96 | 2.9965 | 0.99 |
+| 144 | 4.5370 | 1.02 |
+| 192 | 6.0635 | 1.01 |
+| 288 | 9.2270 | 1.04 |
 
-#### `ramp.solids` — overall k = 0.98, R² = 0.9999, CI [0.97, 1.00]
-
-| size | mean ms | local exponent vs previous |
-| ---: | ---: | ---: |
-| 1 | 6.4730 | — |
-| 2 | 12.4138 | 0.94 |
-| 4 | 25.3637 | 1.03 |
-| 6 | 37.0053 | 0.93 |
-| 8 | 49.4000 | 1.00 |
-| 12 | 73.7615 | 0.99 |
-| 16 | 98.9305 | 1.02 |
-
-#### `ramp.solve` — overall k = 1.31, R² = 0.9301, CI [1.06, 1.56]
+#### `ramp.density` — overall k = 1.80, R² = 0.9978, CI [1.71, 1.88]
 
 | size | mean ms | local exponent vs previous |
 | ---: | ---: | ---: |
-| 8 | 0.0693 | — |
-| 16 | 0.0560 | -0.31 |
-| 24 | 0.0860 | 1.06 |
-| 32 | 0.1225 | 1.23 |
-| 48 | 0.2230 | 1.48 |
-| 64 | 0.3503 | 1.57 |
-| 96 | 0.6893 | 1.67 |
-| 128 | 1.1222 | 1.69 |
-| 192 | 2.3595 | 1.83 |
-| 256 | 3.9775 | 1.82 |
+| 1 | 0.2375 | — |
+| 2 | 0.7205 | 1.60 |
+| 3 | 1.4675 | 1.75 |
+| 4 | 2.5495 | 1.92 |
+| 6 | 5.6375 | 1.96 |
+| 8 | 9.7690 | 1.91 |
+
+#### `ramp.drag` — overall k = 1.47, R² = 0.9881, CI [1.34, 1.60]
+
+| size | mean ms | local exponent vs previous |
+| ---: | ---: | ---: |
+| 8 | 0.1455 | — |
+| 16 | 0.2895 | 0.99 |
+| 24 | 0.4975 | 1.34 |
+| 32 | 0.7515 | 1.43 |
+| 48 | 1.4390 | 1.60 |
+| 64 | 2.3230 | 1.66 |
+| 96 | 4.7335 | 1.76 |
+| 128 | 8.0265 | 1.84 |
+
+#### `ramp.mesh` — overall k = 0.97, R² = 0.9986, CI [0.94, 0.99]
+
+| size | mean ms | local exponent vs previous |
+| ---: | ---: | ---: |
+| 12 | 1.3665 | — |
+| 24 | 2.5725 | 0.91 |
+| 36 | 3.7090 | 0.90 |
+| 48 | 4.8710 | 0.95 |
+| 72 | 7.1030 | 0.93 |
+| 96 | 9.2810 | 0.93 |
+| 144 | 14.0940 | 1.03 |
+| 192 | 19.1945 | 1.07 |
+| 288 | 29.8715 | 1.09 |
+
+#### `ramp.solids` — overall k = 0.99, R² = 0.9999, CI [0.98, 1.00]
+
+| size | mean ms | local exponent vs previous |
+| ---: | ---: | ---: |
+| 1 | 4.6535 | — |
+| 2 | 9.5510 | 1.04 |
+| 4 | 18.8330 | 0.98 |
+| 6 | 28.0130 | 0.98 |
+| 8 | 36.8295 | 0.95 |
+| 12 | 55.9575 | 1.03 |
+| 16 | 73.2540 | 0.94 |
+
+#### `ramp.solve` — overall k = 1.31, R² = 0.9293, CI [1.06, 1.56]
+
+| size | mean ms | local exponent vs previous |
+| ---: | ---: | ---: |
+| 8 | 0.0495 | — |
+| 16 | 0.0385 | -0.36 |
+| 24 | 0.0595 | 1.07 |
+| 32 | 0.0860 | 1.28 |
+| 48 | 0.1605 | 1.54 |
+| 64 | 0.2510 | 1.55 |
+| 96 | 0.4950 | 1.67 |
+| 128 | 0.7945 | 1.64 |
+| 192 | 1.6385 | 1.79 |
+| 256 | 2.7835 | 1.84 |
 
 
 ### G. All fitted cost models
 
-**34 sweep families.** Dependent variable: dominant span total. Families with N = 2 yield a slope with zero residual degrees of freedom — R² is 1.000 by construction and no confidence interval exists, so they support **no scaling claim**.
+**33 sweep families.** Dependent variable: dominant span total. Families with N = 2 yield a slope with zero residual degrees of freedom — R² is 1.000 by construction and no confidence interval exists, so they support **no scaling claim**.
 
 | family | N | k | R² | 95 % CI | range ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `modify.intersections` | 3 | 2.75 | 0.9834 | [2.05, 3.45] | 0.002–0.160 |
-| `modify.transform` | 2 | 2.64 | — | slope only (N=2) | 0.001–0.083 |
-| `analysis.sweep` | 3 | 2.25 | 0.9942 | [1.91, 2.59] | 0.102–11.079 |
-| `modify.trim` | 3 | 2.00 | 0.9977 | [1.81, 2.19] | 0.004–0.101 |
-| `app.provenance.newSurfaces` | 3 | 1.96 | 0.9998 | [1.91, 2.01] | 0.020–3.986 |
-| `kernel.allEdges.sweep` | 3 | 1.94 | 0.9999 | [1.91, 1.98] | 6.927–612.361 |
-| `tools.freehand` | 3 | 1.72 | 0.9993 | [1.63, 1.81] | 0.010–1.178 |
-| `app.rebuildPart` | 3 | 1.68 | 0.9625 | [1.03, 2.33] | 1.992–37.308 |
-| `tools.splineEval` | 2 | 1.68 | — | slope only (N=2) | 0.013–0.133 |
-| `solve.sweep` | 3 | 1.33 | 0.9741 | [0.91, 1.75] | 0.492–7.929 |
-| `app.pattern.rect` | 3 | 1.23 | 0.9935 | [1.04, 1.43] | 0.020–0.608 |
-| `constraints.infer` | 3 | 1.19 | 1.0000 | [1.18, 1.21] | 0.003–0.036 |
-| `app.pattern.occurrences.circular` | 2 | 1.15 | — | slope only (N=2) | 0.040–0.198 |
-| `kernel.boolean.complex` | 3 | 1.10 | 0.9982 | [1.01, 1.19] | 4.162–52.822 |
-| `kernel.sweep` | 2 | 1.06 | — | slope only (N=2) | 46.307–201.692 |
-| `tools.bezPath` | 3 | 1.05 | 1.0000 | [1.05, 1.05] | 0.100–1.850 |
-| `app.provenance.faceSurfaces` | 3 | 1.05 | 0.9999 | [1.03, 1.07] | 0.041–0.704 |
-| `app.facesOf` | 3 | 1.05 | 0.9066 | [0.39, 1.71] | 0.011–0.171 |
-| `kernel.mirror` | 2 | 1.01 | — | slope only (N=2) | 4.540–22.904 |
-| `kernel.extrude.arcs` | 3 | 1.00 | 0.9999 | [0.98, 1.02] | 0.366–3.700 |
-| `kernel.revolve` | 3 | 1.00 | 1.0000 | [0.99, 1.01] | 0.282–2.832 |
-| `app.blendPattern.edgeQuery` | 3 | 1.00 | 1.0000 | [1.00, 1.00] | 285.982–1142.485 |
-| `app.provenance.attribute` | 3 | 1.00 | 0.9998 | [0.97, 1.02] | 0.247–1.482 |
-| `gear.curve` | 3 | 0.99 | 1.0000 | [0.99, 0.99] | 2.764–10.909 |
-| `kernel.query.edgeInfoScale` | 4 | 0.99 | 0.9998 | [0.97, 1.00] | 6.460–62.496 |
-| `app.history` | 3 | 0.98 | 0.9984 | [0.90, 1.06] | 0.370–2.860 |
-| `ui.paint.sweep` | 3 | 0.95 | 0.9997 | [0.92, 0.98] | 0.481–3.489 |
-| `kernel.mesh.complexity` | 3 | 0.90 | 0.9993 | [0.85, 0.95] | 0.959–7.717 |
-| `app.engineFill` | 2 | 0.70 | — | slope only (N=2) | 0.613–1.984 |
-| `kernel.coil` | 3 | 0.45 | 0.9591 | [0.27, 0.63] | 7.890–24.604 |
-| `app.patternRebuild` | 3 | 0.40 | 0.5378 | [-0.33, 1.12] | 13.705–28.165 |
-| `kernel.loft` | 3 | 0.39 | 0.9950 | [0.34, 0.45] | 3.072–5.282 |
-| `kernel.chamfer.edges` | 3 | 0.00 | 0.7866 | [-0.00, 0.01] | 25.536–25.829 |
-| `kernel.fillet.edges` | 3 | -0.00 | 0.2276 | [-0.00, 0.00] | 25.562–25.593 |
+| `modify.intersections` | 3 | 3.21 | 0.9699 | [2.10, 4.31] | 0.001–0.162 |
+| `modify.transform` | 2 | 2.63 | — | slope only (N=2) | 0.001–0.082 |
+| `modify.trim` | 3 | 2.01 | 0.9972 | [1.80, 2.22] | 0.004–0.100 |
+| `analysis.sweep` | 3 | 1.80 | 0.9949 | [1.55, 2.05] | 0.099–4.209 |
+| `app.rebuildPart` | 3 | 1.72 | 0.9595 | [1.03, 2.41] | 1.955–39.178 |
+| `solve.sweep` | 3 | 1.59 | 0.9982 | [1.46, 1.73] | 0.279–7.710 |
+| `kernel.allEdges.sweep` | 3 | 1.59 | 0.9984 | [1.46, 1.71] | 0.818–32.049 |
+| `tools.freehand` | 3 | 1.53 | 0.9949 | [1.32, 1.75] | 0.017–1.186 |
+| `app.pattern.rect` | 3 | 1.23 | 0.9914 | [1.01, 1.46] | 0.020–0.606 |
+| `constraints.infer` | 3 | 1.18 | 0.9981 | [1.08, 1.28] | 0.003–0.035 |
+| `app.pattern.occurrences.circular` | 2 | 1.14 | — | slope only (N=2) | 0.041–0.199 |
+| `app.provenance.attribute` | 3 | 1.10 | 0.9999 | [1.09, 1.12] | 0.198–1.436 |
+| `app.provenance.faceSurfaces` | 3 | 1.09 | 0.9996 | [1.05, 1.14] | 0.010–0.192 |
+| `kernel.boolean.complex` | 3 | 1.09 | 0.9987 | [1.01, 1.17] | 4.187–51.986 |
+| `app.provenance.newSurfaces` | 3 | 1.08 | 0.9939 | [0.92, 1.25] | 0.020–0.386 |
+| `kernel.sweep` | 2 | 1.07 | — | slope only (N=2) | 46.081–202.493 |
+| `app.facesOf` | 3 | 1.06 | 0.9999 | [1.04, 1.08] | 0.010–0.177 |
+| `tools.bezPath` | 3 | 1.05 | 0.9979 | [0.96, 1.15] | 0.100–1.855 |
+| `kernel.mirror` | 2 | 1.01 | — | slope only (N=2) | 4.552–22.961 |
+| `gear.curve` | 3 | 1.00 | 1.0000 | [0.99, 1.01] | 2.814–11.281 |
+| `kernel.extrude.arcs` | 3 | 1.00 | 1.0000 | [0.98, 1.01] | 0.372–3.696 |
+| `app.blendPattern.edgeQuery` | 3 | 0.99 | 1.0000 | [0.98, 1.00] | 18.938–75.187 |
+| `app.history` | 3 | 0.99 | 0.9997 | [0.96, 1.03] | 0.376–2.970 |
+| `kernel.query.edgeInfoScale` | 4 | 0.99 | 0.9998 | [0.97, 1.01] | 6.451–62.895 |
+| `kernel.revolve` | 3 | 0.99 | 0.9998 | [0.96, 1.01] | 0.291–2.828 |
+| `kernel.mesh.complexity` | 3 | 0.94 | 0.9996 | [0.90, 0.97] | 0.938–8.137 |
+| `ui.paint.sweep` | 3 | 0.71 | 0.9861 | [0.54, 0.87] | 0.767–3.371 |
+| `app.engineFill` | 2 | 0.68 | — | slope only (N=2) | 0.635–1.976 |
+| `kernel.fillet.edges` | 3 | 0.61 | 0.9892 | [0.49, 0.74] | 5.208–24.145 |
+| `kernel.chamfer.edges` | 3 | 0.61 | 0.9800 | [0.44, 0.78] | 5.217–24.006 |
+| `kernel.coil` | 3 | 0.45 | 0.9540 | [0.26, 0.64] | 8.176–25.384 |
+| `kernel.loft` | 3 | 0.41 | 0.9978 | [0.37, 0.44] | 3.135–5.513 |
+| `app.patternRebuild` | 3 | 0.39 | 0.5425 | [-0.31, 1.10] | 14.284–28.931 |
 
 <!-- END GENERATED APPENDIX -->
 

@@ -13,6 +13,7 @@ once, at integration (plan §8).
 | `S5-partmodel.md` | Part model | `part_model.dart` |
 | `S8-display.md` | Display path + Track B (round 2) | `widgets/viewport3d.dart`, `packages/reality_view/**`, `.github/workflows/sim-perf.yml` |
 | `S9-drift.md` | Sketch drag drift (round 2) | `solver.dart`, `endGripDrag` + warm start |
+| `S11-sweep.md` | Sweep + loop detection (round 2) | the sweep feature path and loop detection in `part_model.dart`, `perf_scenarios_kernel.dart`, `perf_scenarios_profile.dart` (new) |
 
 `CROSS-SESSION.md` and `CONFLICTS.md` are **append-only**. Never edit an entry
 you did not write.
