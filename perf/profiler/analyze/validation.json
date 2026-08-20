@@ -1,0 +1,146 @@
+{
+  "at": "2026-08-20T11:39:56Z",
+  "cases": [
+    {
+      "checks": [
+        {
+          "check": "sample count",
+          "detail": "17654 samples inside analyzeSketch",
+          "ok": true
+        },
+        {
+          "check": "unattributed share",
+          "detail": "`other` is 34.87 % of the root (cap 15 %) \u2014 a split is not quotable from a capture with a large unattributed remainder",
+          "ok": false
+        },
+        {
+          "check": "elimination",
+          "detail": "share 54.85 % [54.12, 55.59] vs registered [78.0, 93.0] %  (known: S3-solver.md \u00a72: Jacobian construction 3.191 s, elimination 21.004 s, total 24.195 s -> 21.004/24.195 = 86.81 %)",
+          "ok": false
+        }
+      ],
+      "id": "dense-1024",
+      "ok": false,
+      "within": {
+        "buckets": {
+          "elimination": {
+            "ci95": [
+              0.5411937274432866,
+              0.5558736295152163
+            ],
+            "samples": 9684,
+            "share": 0.5485442392658888
+          },
+          "jacobian": {
+            "ci95": [
+              0.09836000635772219,
+              0.10731867001336198
+            ],
+            "samples": 1814,
+            "share": 0.10275291718590687
+          },
+          "other": {
+            "ci95": [
+              0.3417066313471201,
+              0.35576488506342685
+            ],
+            "samples": 6156,
+            "share": 0.34870284354820436
+          }
+        },
+        "otherLeaves": [
+          "ListIterator._current (iterable.dart:350)",
+          "ListIterator._index (iterable.dart:349)",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x1993c0",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x19944f",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x19946b",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x199486",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x19949f",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x1994b1",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x1994b8",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98d6f",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98d71",
+          "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98f40"
+        ],
+        "root": "analyzeSketch",
+        "samplesInRoot": 17654,
+        "samplesTotal": 17657
+      }
+    },
+    {
+      "checks": [
+        {
+          "check": "sample count",
+          "detail": "12732 samples inside analyzeSketch",
+          "ok": true
+        },
+        {
+          "check": "unattributed share",
+          "detail": "`other` is 2.00 % of the root (cap 15 %) \u2014 a split is not quotable from a capture with a large unattributed remainder",
+          "ok": true
+        },
+        {
+          "check": "elimination",
+          "detail": "share 48.98 % [48.11, 49.85] vs registered [0.0, 25.0] %  (known: S3-solver.md \u00a76: 'At n = 1024 the remaining second is almost entirely step 1, the finite-difference Jacobian.' \u00a72's derivation puts the sparse elimination at ~0.066 s against ~1.77 s of Jacobian construction = 3.6 %)",
+          "ok": false
+        },
+        {
+          "check": "jacobian",
+          "detail": "share 49.02 % [48.15, 49.89] vs registered [55.0, 100.0] %  (known: the complement of the above: step 1 is what is left)",
+          "ok": false
+        }
+      ],
+      "id": "sparse-1024",
+      "ok": false,
+      "within": {
+        "buckets": {
+          "elimination": {
+            "ci95": [
+              0.4811107075242071,
+              0.4984744654821727
+            ],
+            "samples": 6236,
+            "share": 0.489789506754634
+          },
+          "jacobian": {
+            "ci95": [
+              0.4815031637646545,
+              0.49886719489532605
+            ],
+            "samples": 6241,
+            "share": 0.4901822180333019
+          },
+          "other": {
+            "ci95": [
+              0.017735627871006816,
+              0.022610466298123532
+            ],
+            "samples": 255,
+            "share": 0.02002827521206409
+          }
+        },
+        "otherLeaves": [
+          "<unknown Dart function>",
+          "Geo.type (qcad_engine.dart:80)",
+          "List.List.of (array_patch.dart:36)",
+          "ListBase.any (list.dart:111)",
+          "ListBase.sort (list.dart:320)",
+          "ListIterator.current (iterable.dart:358)",
+          "Sort._dualPivotQuicksort (sort.dart:85)",
+          "Sort._insertionSort (sort.dart:68)",
+          "_CompactIterator.current (compact_hash.dart:855)",
+          "_Double.abs (double.dart:184)",
+          "_GrowableList._GrowableList._literal1 (growable_array.dart:569)",
+          "_GrowableList._GrowableList._literal2 (growable_array.dart:578)"
+        ],
+        "root": "analyzeSketch",
+        "samplesInRoot": 12732,
+        "samplesTotal": 12740
+      }
+    }
+  ],
+  "name": "analyzeSketch phase split at 1024 entities",
+  "ok": false,
+  "sha": "2430e415e43e66d6e9e5bde79669e3fe1472eb26",
+  "source": "perf/findings/S3-solver.md \u00a72 (host baseline, wall-clock timers) and \u00a76; PERFORMANCE_PROFILE.md \u00a75.5.2"
+}

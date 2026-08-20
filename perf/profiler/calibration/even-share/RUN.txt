@@ -1,0 +1,8 @@
+produced_by: tools/profiler/profile.py
+captured:    2026-08-20T07:46:11Z
+sha:         2430e415e43e66d6e9e5bde79669e3fe1472eb26
+ref:         claude/a4-sampling-profiler-uyls2i
+target:      dart
+samples:     3323
+period_us:   250
+trace:       trace.json.gz (Chrome JSON trace format; open at ui.perfetto.dev)

@@ -1614,3 +1614,105 @@ worth a glance for the same pattern before anyone trusts them.
 Not touched `solver.dart` or any M232 test — they are S3's, and a silent edit
 from me is precisely the merge accident §7 warns about. Not weakened a pin to
 turn the build green.
+
+---
+
+## 2026-08-20 — S7 — the round-two integration branch cannot be created as §3 specifies
+
+**Needs:** integrator
+
+**Found by:** Session 7 (profiler), at the first step of `OPTIMIZATION_PLAN_2.md`
+§3.
+**Blocked:** no. Worked around, in the open.
+
+§3 says the first round-two session creates `claude/perf-opt2` from the tag
+`perf-capture-round1`, "not the branch tip, so late round-one commits cannot
+slide in unmeasured". **That tag does not exist on the remote**, and §1.1 is
+explicit that its absence means the integrator has not taken the capture point.
+
+Creating the integration branch from a guess at where the capture point *would*
+be is the one thing §1.1 exists to prevent, so I did not create it. This
+session's work sits on its own branch, merged from `claude/perf-opt` (round
+one's tip) with `claude/perf-deep-analysis`'s plan commit alongside it.
+
+Nothing here can contaminate the capture: S7 owns no application code and this
+branch contains no change under `frontend/lib/`, `backend/` or `ci/`. It can be
+merged into `claude/perf-opt2` whenever that branch exists, before or after the
+capture, without affecting either.
+
+---
+
+## 2026-08-20 — S7 — `S3-solver.md` §6's attribution is refuted: the elimination is still 40.6 %
+
+*(referred to elsewhere as S7-1)*
+
+**Found by:** Session 7, profiling `stress.sketch.analyze`'s top rung on
+`claude/perf-opt`.
+**Files:** `perf/findings/S3-solver.md` §6 (nobody edits another session's
+file), `frontend/lib/solver.dart` (not mine).
+**Blocked:** no.
+
+S3 §6 says: "At n = 1024 the remaining second is almost entirely **step 1**,
+the finite-difference Jacobian." §2's Prediction P2 derives the same thing
+arithmetically, charging the sparse elimination ~0.066 s against ~1.77 s of
+Jacobian construction — 3.6 %.
+
+Measured, on round one's tip, at n = 1024:
+
+| | share of `analyzeSketch` |
+| --- | ---: |
+| Jacobian construction (`_jacobian`, `_residuals`) | **58.9 %** |
+| elimination (`_rankAndPivots`, `_spAxpy`) | **40.6 %** |
+| everything else | 0.5 % |
+
+Ground truth, not inference: a `UserTag` was set around each phase in a scratch
+worktree, so every CPU sample carries the phase it was taken in whether or not
+its stack could be unwound (n = 22 668). The profiler's independent, stack-based
+attribution agrees to within 4 pp on the same run, which is what licenses
+reading it at all — `S7-profiler.md` §7 has both columns.
+
+So the direction of P2 holds — step 1 *is* now the larger half — but "almost
+entirely" is an order of magnitude out. Whatever is next in this routine is not
+only the Jacobian.
+
+Nothing is being changed on the strength of this. It is written down because
+S3's §6 is what a later session would otherwise start from.
+
+---
+
+## 2026-08-20 — S7 — 45.7 % of `analyzeSketch` is growable-list growth, in two named lines
+
+*(referred to elsewhere as S7-2)*
+
+**Found by:** Session 7, from the flat profile of the same capture.
+**Files:** `frontend/lib/solver.dart` — **not this session's file.**
+**Blocked:** no. Reported, not fixed (`OPTIMIZATION_PLAN_2.md` §0 rule 6).
+
+| | self share | total share | function |
+| ---: | ---: | ---: | :--- |
+| 1 | **24.73 %** [23.99, 25.49] | 46.54 % | `_GrowableList.add (growable_array.dart:283)` |
+| 2 | **21.00 %** [20.30, 21.71] | 21.34 % | `_GrowableList._grow (growable_array.dart:387)` |
+
+12 732 samples inside the routine. The two together are 45.7 % of its self
+time, and they are reached from `_spAxpy (solver.dart:1158)` and
+`_jacobian (solver.dart:1247)` — both build sparse rows by appending to a
+`List` whose length is never given up front, so each row reallocates and copies
+as it fills.
+
+This is the cost S3 priced as a guess and never located. `S3-solver.md` §2's P2
+charges "4x sparse per-operation cost (index indirection, list growth, no
+linear scan)" and §12 concludes the sparse form is "allocation- and
+pointer-chasing-bound". Neither is a measurement of where. This is one
+allocation pattern, in two functions, on two lines.
+
+Caveats, both in `S7-profiler.md` §9: the share is of sampled **Dart CPU
+time**, and 26 % of the capture's wall clock was unobserved because the Dart
+sampler cannot see the collector — list growth allocates, so this figure is
+more likely low than high. And it is a Linux JIT host: §13.3's rule against
+quoting an off-device millisecond as a device one applies. The attribution
+transfers; the milliseconds do not.
+
+An `nnz`-per-row bound is derivable — `S3-solver.md` §0.3 measured max 2
+nonzeros per RREF row and nnz(J) = 5121 at this rung — so a pre-sized row is
+not obviously hard. Whoever owns `solver.dart` next should decide; a device
+capture would settle whether it is worth it.

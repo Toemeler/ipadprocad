@@ -1,0 +1,7 @@
+   Woah! You appear to be trying to run flutter as root.
+   We strongly recommend running the flutter tool without superuser privileges.
+  /
+📎
+The Dart VM service is listening on http://127.0.0.1:46761/n6uPeiMFt4M=/
+vm-service: isolate(6350292969835851) 'main' has no debugger attached and is paused at start.  Connect to the Dart VM service at http://127.0.0.1:46761/n6uPeiMFt4M=/ to debug.
+PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=2562 rank=2562 jacRepeats=5 elimRepeats=1 storage=Float64List jacobianMs=1921.51 eliminationMs=324.903 elimShare=0.14463190873628315
