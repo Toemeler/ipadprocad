@@ -1,0 +1,1712 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_l10n.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for English (`en`).
+class AppL10nEn extends AppL10n {
+  AppL10nEn([String locale = 'en']) : super(locale);
+
+  @override
+  String get languageName => 'English';
+
+  @override
+  String get languageMenuItem => 'Language: English';
+
+  @override
+  String get ok => 'OK';
+
+  @override
+  String get cancel => 'Cancel';
+
+  @override
+  String get done => 'Done';
+
+  @override
+  String get apply => 'Apply';
+
+  @override
+  String get close => 'Close';
+
+  @override
+  String get delete => 'Delete';
+
+  @override
+  String get rename => 'Rename';
+
+  @override
+  String get duplicate => 'Duplicate';
+
+  @override
+  String get create => 'Create';
+
+  @override
+  String get select => 'Select';
+
+  @override
+  String get finish => 'Finish';
+
+  @override
+  String get discard => 'Discard';
+
+  @override
+  String get edit => 'Edit';
+
+  @override
+  String get hide => 'Hide';
+
+  @override
+  String get openEllipsis => 'Open…';
+
+  @override
+  String get exportEllipsis => 'Export…';
+
+  @override
+  String get shareEllipsis => 'Share…';
+
+  @override
+  String get undo => 'Undo';
+
+  @override
+  String get redo => 'Redo';
+
+  @override
+  String get panelSketch => 'Sketch';
+
+  @override
+  String get panelCreate => 'Create';
+
+  @override
+  String get panelModify => 'Modify';
+
+  @override
+  String get panelWorkFeatures => 'Work Features';
+
+  @override
+  String get panelPattern => 'Pattern';
+
+  @override
+  String get panelLayer => 'Layer';
+
+  @override
+  String get panelConstrain => 'Constrain';
+
+  @override
+  String get panelInsert => 'Insert';
+
+  @override
+  String get panelView => 'View';
+
+  @override
+  String get panelExit => 'Exit';
+
+  @override
+  String get panelProjectGeometry => 'Project Geometry';
+
+  @override
+  String get btnCreateNewSketch => 'Create\nNew Sketch';
+
+  @override
+  String get btnStart2dSketch => 'Start\n2D Sketch';
+
+  @override
+  String get btnStartNewLayer => 'Start\nNew Layer';
+
+  @override
+  String get btnExtrude => 'Extrude';
+
+  @override
+  String get btnRevolve => 'Revolve';
+
+  @override
+  String get btnSweep => 'Sweep';
+
+  @override
+  String get btnLoft => 'Loft';
+
+  @override
+  String get btnCoil => 'Coil';
+
+  @override
+  String get btnEmboss => 'Emboss';
+
+  @override
+  String get btnDerive => 'Derive';
+
+  @override
+  String get btnDecal => 'Decal';
+
+  @override
+  String get btnFillet => 'Fillet';
+
+  @override
+  String get btnChamfer => 'Chamfer';
+
+  @override
+  String get btnShell => 'Shell';
+
+  @override
+  String get btnDraft => 'Draft';
+
+  @override
+  String get btnThread => 'Thread';
+
+  @override
+  String get btnHole => 'Hole';
+
+  @override
+  String get btnSplit => 'Split';
+
+  @override
+  String get btnCombine => 'Combine';
+
+  @override
+  String get btnPlane => 'Plane';
+
+  @override
+  String get btnAxis => 'Axis';
+
+  @override
+  String get btnPoint => 'Point';
+
+  @override
+  String get btnLine => 'Line';
+
+  @override
+  String get btnCircle => 'Circle';
+
+  @override
+  String get btnArc => 'Arc';
+
+  @override
+  String get btnRectangle => 'Rectangle';
+
+  @override
+  String get btnText => 'Text';
+
+  @override
+  String get btnDimension => 'Dimension';
+
+  @override
+  String get btnRectangular => 'Rectangular';
+
+  @override
+  String get btnCircular => 'Circular';
+
+  @override
+  String get btnMirror => 'Mirror';
+
+  @override
+  String get btnImage => 'Image';
+
+  @override
+  String get btnAcad => 'ACAD';
+
+  @override
+  String get btnConstruction => 'Construction';
+
+  @override
+  String get btnParameters => 'Parameters';
+
+  @override
+  String get btnGear => 'Gear';
+
+  @override
+  String get btnProjectGeometry => 'Project\nGeometry';
+
+  @override
+  String get btnSliceGraphics => 'Slice\nGraphics';
+
+  @override
+  String get btnTrim => 'Trim';
+
+  @override
+  String get btnSelfSymmetric => 'Self Symmetric';
+
+  @override
+  String get btnAssociative => 'Associative';
+
+  @override
+  String get btnFitted => 'Fitted';
+
+  @override
+  String get flyLineB => 'Line';
+
+  @override
+  String get flyLineSub => 'Line';
+
+  @override
+  String get flyMidlineSub => 'Midpoint Line';
+
+  @override
+  String get flySplineB => 'Spline';
+
+  @override
+  String get flySplineCvSub => 'Control Vertex';
+
+  @override
+  String get flySplineInterpSub => 'Interpolation';
+
+  @override
+  String get flySplineFreeSub => 'Freehand';
+
+  @override
+  String get flyEqCurveB => 'Equation Curve';
+
+  @override
+  String get flyBridgeB => 'Bridge Curve';
+
+  @override
+  String get flyCircleB => 'Circle';
+
+  @override
+  String get flyCenterPointSub => 'Center Point';
+
+  @override
+  String get flyTangentSub => 'Tangent';
+
+  @override
+  String get flyEllipseB => 'Ellipse';
+
+  @override
+  String get flyArcB => 'Arc';
+
+  @override
+  String get flyThreePointSub => 'Three Point';
+
+  @override
+  String get flyRectB => 'Rectangle';
+
+  @override
+  String get flyTwoPointSub => 'Two Point';
+
+  @override
+  String get flyTwoPointCenterSub => 'Two Point Center';
+
+  @override
+  String get flyThreePointCenterSub => 'Three Point Center';
+
+  @override
+  String get flySlotB => 'Slot';
+
+  @override
+  String get flySlotCcSub => 'Center to Center';
+
+  @override
+  String get flySlotOverallSub => 'Overall';
+
+  @override
+  String get flySlot3aSub => 'Three Point Arc';
+
+  @override
+  String get flySlotCpaSub => 'Center Point Arc';
+
+  @override
+  String get flyPolygonB => 'Polygon';
+
+  @override
+  String get flyFilletB => 'Fillet';
+
+  @override
+  String get flyChamferB => 'Chamfer';
+
+  @override
+  String get flyTextB => 'Text';
+
+  @override
+  String get flyGeomTextB => 'Geometry Text';
+
+  @override
+  String get flyMoveB => 'Move';
+
+  @override
+  String get flySizeB => 'Size';
+
+  @override
+  String get flyScaleB => 'Scale';
+
+  @override
+  String get flyRotateB => 'Rotate';
+
+  @override
+  String get flyDeleteB => 'Delete';
+
+  @override
+  String get flyAxisB => 'Axis';
+
+  @override
+  String get flyAxisOnLineB => 'On Line or Edge';
+
+  @override
+  String get flyAxisParPtB => 'Parallel to Line through Point';
+
+  @override
+  String get flyAxisTwoPtB => 'Through Two Points';
+
+  @override
+  String get flyAxisTwoPlB => 'Intersection of Two Planes';
+
+  @override
+  String get flyAxisNormPtB => 'Normal to Plane through Point';
+
+  @override
+  String get flyAxisCircB => 'Through Center of Circular Edge';
+
+  @override
+  String get flyAxisRevB => 'Through Revolved Face or Feature';
+
+  @override
+  String get flyPointB => 'Point';
+
+  @override
+  String get flyPointGroundB => 'Grounded Point';
+
+  @override
+  String get flyPointVertexB => 'On Vertex, Sketch Point, or Midpoint';
+
+  @override
+  String get flyPointThreePlB => 'Intersection of Three Planes';
+
+  @override
+  String get flyPointTwoLnB => 'Intersection of Two Lines';
+
+  @override
+  String get flyPointPlLnB => 'Intersection of Plane/Surface and Line';
+
+  @override
+  String get flyPointLoopB => 'Center Point of Loop of Edges';
+
+  @override
+  String get flyPointTorusB => 'Center Point of Torus';
+
+  @override
+  String get flyPointSphereB => 'Center Point of Sphere';
+
+  @override
+  String get flyPlaneB => 'Plane';
+
+  @override
+  String get flyPlaneOffsetB => 'Offset from Plane';
+
+  @override
+  String get flyPlaneParallelPtB => 'Parallel to Plane through Point';
+
+  @override
+  String get flyPlaneMid2B => 'Midplane between Two Planes';
+
+  @override
+  String get flyPlaneMidTorusB => 'Midplane of Torus';
+
+  @override
+  String get flyPlaneAngleEdgeB => 'Angle to Plane around Edge';
+
+  @override
+  String get flyPlaneThreePtsB => 'Three Points';
+
+  @override
+  String get flyPlaneTwoEdgesB => 'Two Coplanar Edges';
+
+  @override
+  String get flyPlaneTanSurfEdgeB => 'Tangent to Surface through Edge';
+
+  @override
+  String get flyPlaneTanSurfPtB => 'Tangent to Surface through Point';
+
+  @override
+  String get flyPlaneTanParallelB => 'Tangent to Surface and Parallel to Plane';
+
+  @override
+  String get flyPlaneNormalAxisB => 'Normal to Axis through Point';
+
+  @override
+  String get flyPlaneNormalCurveB => 'Normal to Curve at Point';
+
+  @override
+  String get browserTitle => 'Model';
+
+  @override
+  String get nodeOrigin => 'Origin';
+
+  @override
+  String get nodeXAxis => 'X Axis';
+
+  @override
+  String get nodeYAxis => 'Y Axis';
+
+  @override
+  String get nodeCenterPoint => 'Center Point';
+
+  @override
+  String get nodeEndOfPart => 'End of Part';
+
+  @override
+  String get nodeEndOfSketch => 'End of Sketch';
+
+  @override
+  String nodeSolidBodies(int count) {
+    return 'Solid Bodies($count)';
+  }
+
+  @override
+  String nodeOccurrence(int index) {
+    return 'Occurrence $index';
+  }
+
+  @override
+  String get nodeAutoProjected => 'Automatically projected';
+
+  @override
+  String get ctxUseAsTargetBody => 'Use as Target Body';
+
+  @override
+  String get ctxDeleteBody => 'Delete Body';
+
+  @override
+  String get ctxEditSketch => 'Edit Sketch';
+
+  @override
+  String get ctxShareSketch => 'Share Sketch';
+
+  @override
+  String get ctxUnshare => 'Unshare';
+
+  @override
+  String get ctxEditFeature => 'Edit Feature';
+
+  @override
+  String get ctxMoveEosHere => 'Move End of Sketch here';
+
+  @override
+  String get ctxDeleteLayer => 'Delete layer';
+
+  @override
+  String get ctxMoveToTop => 'Move to Top';
+
+  @override
+  String get ctxMoveToEnd => 'Move to End';
+
+  @override
+  String get ctxDeleteAllLayersBelow => 'Delete all layers below';
+
+  @override
+  String get ctxDeleteAllFeaturesBelow => 'Delete all features below';
+
+  @override
+  String get ctxDeleteAllFeaturesBelowEop => 'Delete All Features Below EOP';
+
+  @override
+  String get ctxCreateSketch => 'Create Sketch';
+
+  @override
+  String get ctxEditOffset => 'Edit Offset';
+
+  @override
+  String get ctxFlipDirection => 'Flip Direction';
+
+  @override
+  String get ctxEditLayer => 'Edit Layer';
+
+  @override
+  String get ctxMoveSelectionHere => 'Move Selection Here';
+
+  @override
+  String get ctxExportDxf => 'Export DXF…';
+
+  @override
+  String get ctxShareDxf => 'Share DXF…';
+
+  @override
+  String get dlgRenameBody => 'Rename body';
+
+  @override
+  String get dlgRenameFeature => 'Rename feature';
+
+  @override
+  String get dlgRenameLayer => 'Rename layer';
+
+  @override
+  String get dlgRenameSketch => 'Rename sketch';
+
+  @override
+  String get phBodyName => 'Body name';
+
+  @override
+  String get phFeatureName => 'Feature name';
+
+  @override
+  String get phLayerName => 'Layer name';
+
+  @override
+  String get phSketchName => 'Sketch name';
+
+  @override
+  String get phPartName => 'Part name';
+
+  @override
+  String get dlgNewSketch => 'New sketch';
+
+  @override
+  String get dlgNewPart => 'New part';
+
+  @override
+  String get dlgDeleteAllFeaturesBelowEop => 'Delete all features below EOP?';
+
+  @override
+  String get dlgDeleteEverythingBelowEos =>
+      'Delete everything below End of Sketch?';
+
+  @override
+  String dlgDeleteNamed(String name) {
+    return 'Delete “$name”?';
+  }
+
+  @override
+  String msgFeaturesRemoved(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count features are removed from the part.',
+      one: 'One feature is removed from the part.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgBodyFeaturesRemoved(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Its $count features are removed from the part.',
+      one: 'Its one feature is removed from the part.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgLayersAndEntitiesRemoved(int layers, int entities) {
+    String _temp0 = intl.Intl.pluralLogic(
+      layers,
+      locale: localeName,
+      other: '$layers layers are removed',
+      one: 'One layer is removed',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      entities,
+      locale: localeName,
+      other: 'with $entities entities on it.',
+      one: 'with one entity on it.',
+      zero: 'with nothing on it.',
+    );
+    return '$_temp0, $_temp1';
+  }
+
+  @override
+  String get msgFeatureAndSolidRemoved =>
+      'The feature and its solid are removed from the part.';
+
+  @override
+  String get msgSketchDeleted =>
+      'The sketch and everything in it are removed from this iPad. This can’t be undone.';
+
+  @override
+  String get galleryNew2dSketch => 'New 2D Sketch';
+
+  @override
+  String get galleryNew3dPart => 'New 3D Part';
+
+  @override
+  String get galleryEmpty => 'Tap  +  to create a new sketch or part';
+
+  @override
+  String get errNameTaken => 'A sketch or part with that name already exists';
+
+  @override
+  String get qtReportBug => 'Report a bug';
+
+  @override
+  String get hudOverConstrained => 'Over-constrained';
+
+  @override
+  String get hudDriven => 'Driven';
+
+  @override
+  String get msgWouldOverConstrain =>
+      'Adding this dimension will over-constrain the sketch. Add it as a driven dimension?';
+
+  @override
+  String get menuHomeView => 'Home view';
+
+  @override
+  String msgCouldNotSave(String name) {
+    return 'Could not save “$name”.';
+  }
+
+  @override
+  String msgSavedTo(String folder) {
+    return 'Saved to $folder';
+  }
+
+  @override
+  String msgSavedNamed(String name) {
+    return 'Saved “$name”';
+  }
+
+  @override
+  String get msgCannotOpenKind => 'Prototype cannot open that kind of file.';
+
+  @override
+  String get msgNotAPrototypeDoc =>
+      'That file is not a Prototype document (or is damaged).';
+
+  @override
+  String get msgCouldNotOpenDoc => 'Could not open that document.';
+
+  @override
+  String get msgCouldNotOpenFile => 'Could not open that file.';
+
+  @override
+  String get msgCouldNotImportFile => 'Could not import that file.';
+
+  @override
+  String get msgCouldNotImportImage => 'Could not import the image.';
+
+  @override
+  String get msgCouldNotImportDxf => 'Could not import the DXF file.';
+
+  @override
+  String get msgCouldNotReadDxf => 'Could not read the DXF file.';
+
+  @override
+  String get msgDxfNoSupportedEntities =>
+      'The DXF file contains no supported entities.';
+
+  @override
+  String msgLayerBelowEos(String layer) {
+    return '“$layer” is below End of Sketch — drag the marker down to bring it back.';
+  }
+
+  @override
+  String msgLayerLockedEdit(String layer) {
+    return '“$layer” is locked — unlock it to edit.';
+  }
+
+  @override
+  String msgLayerLocked(String layer) {
+    return '“$layer” is locked.';
+  }
+
+  @override
+  String msgTargetBelowEos(String layer) {
+    return '“$layer” is below End of Sketch.';
+  }
+
+  @override
+  String get msgDefaultLayerNoRename =>
+      'The default layer “0” can’t be renamed.';
+
+  @override
+  String get msgZeroReserved => '“0” is reserved for the default layer.';
+
+  @override
+  String msgLayerExists(String name) {
+    return 'A layer named “$name” already exists.';
+  }
+
+  @override
+  String get msgDefaultLayerNoDelete =>
+      'The default layer “0” can’t be deleted.';
+
+  @override
+  String get msgEnterLayerToEdit =>
+      'Enter a layer to edit: double-tap it in the model browser.';
+
+  @override
+  String get msgEnterLayerToSketch =>
+      'Enter a layer to sketch: double-tap it in the model browser.';
+
+  @override
+  String get msgSelectThenDelete => 'Select geometry first, then delete it.';
+
+  @override
+  String get msgSelectThenMoveToLayer =>
+      'Select geometry first, then move it to a layer.';
+
+  @override
+  String msgSelectThenToggle(String what) {
+    return 'Select geometry first, then toggle $what.';
+  }
+
+  @override
+  String get msgNothingBelowEos => 'Nothing below End of Sketch.';
+
+  @override
+  String get msgNothingBelowEop => 'Nothing below End of Part.';
+
+  @override
+  String get msgNoKernelStep =>
+      'No 3D kernel linked — STEP export needs the device build.';
+
+  @override
+  String get msgNothingToExportYet =>
+      'Nothing to export yet — extrude a profile first.';
+
+  @override
+  String msgStepExportFailed(String error) {
+    return 'STEP export failed: $error';
+  }
+
+  @override
+  String get msgStepExportEmpty => 'STEP export produced an empty file.';
+
+  @override
+  String msgExportedWithout(int count, String names) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Exported without $names — they could not be built.',
+      one: 'Exported without $names — it could not be built.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgNothingToExportEmpty(String name) {
+    return 'Nothing to export — “$name” is empty.';
+  }
+
+  @override
+  String get msgDxfExportFailed => 'DXF export failed.';
+
+  @override
+  String get msgOpenPartForStep =>
+      'Open a part first — STEP imports arrive as solid bodies.';
+
+  @override
+  String msgNoSolidsInStep(String error) {
+    return 'No solids in that STEP file ($error).';
+  }
+
+  @override
+  String msgImportedBodies(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Imported $count bodies.',
+      one: 'Imported one body.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgImportedEntities(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Imported $count entities.',
+      one: 'Imported one entity.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgNothingToUndo => 'Nothing to undo.';
+
+  @override
+  String get msgNothingToRedo => 'Nothing to redo.';
+
+  @override
+  String get msgSelectPlaneForSketch =>
+      'Select a plane to create the sketch on.';
+
+  @override
+  String msgUsedByFeature(String name) {
+    return '$name is used by a feature — delete that first.';
+  }
+
+  @override
+  String get msgSelectPlaneToOffsetFrom =>
+      'Select a plane or face to offset from.';
+
+  @override
+  String get msgSelectFirstParallel =>
+      'Select the first of two parallel planes or faces.';
+
+  @override
+  String get msgSelectSecondParallel =>
+      'Select the second parallel plane or face.';
+
+  @override
+  String get msgNotParallel =>
+      'Those two are not parallel — pick a parallel plane or face.';
+
+  @override
+  String msgPlaneHasNoOffset(String name) {
+    return '$name: this plane has no offset to drag.';
+  }
+
+  @override
+  String get msgDragAwayToSetOffset =>
+      'Drag away from the plane to set the offset.';
+
+  @override
+  String msgNameColonDef(String name, String definition) {
+    return '$name: $definition';
+  }
+
+  @override
+  String msgFaceEditNeedsBody(String command) {
+    return '$command needs a solid body first.';
+  }
+
+  @override
+  String get msgSetScaleThenApply => 'Set the scale factor, then apply.';
+
+  @override
+  String msgSelectFacesTo(String verb) {
+    return 'Select the faces to $verb.';
+  }
+
+  @override
+  String get msgSelectAtLeastOneFace => 'Select at least one face.';
+
+  @override
+  String get msgNothingToEditBuildBody =>
+      'Nothing to edit — build a body first.';
+
+  @override
+  String msgFeatureError(String name, String error) {
+    return '$name: $error';
+  }
+
+  @override
+  String msgLostFaces(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name: $count selected faces no longer exist.',
+      one: '$name: one selected face no longer exists.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgCannotCreateFeature => 'Cannot create the feature.';
+
+  @override
+  String get msgNoKernelFeatureStored =>
+      'No 3D kernel linked — feature stored, solid pending.';
+
+  @override
+  String get msgHoleNeedsSketch =>
+      'A hole is placed on sketch points — create a sketch first.';
+
+  @override
+  String get msgHoleNeedsBody => 'A hole needs a body to drill into.';
+
+  @override
+  String get msgTapSketchPointsForHoles =>
+      'Tap the sketch points the holes go on.';
+
+  @override
+  String msgHoleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count holes — tap a point to add or remove one.',
+      one: 'One hole — tap a point to add or remove one.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgHolesSameSketch =>
+      'All holes of one feature come from the same sketch.';
+
+  @override
+  String get msgDiameterPositive => 'Diameter must be a number greater than 0.';
+
+  @override
+  String get msgDepthPositive => 'Depth must be a number greater than 0.';
+
+  @override
+  String msgCboreWiderThanHole(String kind) {
+    return 'The $kind must be wider than the hole and deeper than 0.';
+  }
+
+  @override
+  String get msgCsinkAngle =>
+      'The countersink must be wider than the hole, with an angle between 0 and 180 deg.';
+
+  @override
+  String get msgSplitNeedsBody => 'Split trims a body — there is none yet.';
+
+  @override
+  String get msgSelectTrimPlane => 'Select the plane to trim with.';
+
+  @override
+  String msgTrimmingWith(String label) {
+    return 'Trimming with $label. OK keeps the side that is left.';
+  }
+
+  @override
+  String get msgCombineNeedsTwoBodies =>
+      'Combine needs two bodies — it joins, cuts or intersects one with another.';
+
+  @override
+  String get msgTapBodyToKeep => 'Tap the body to KEEP.';
+
+  @override
+  String msgTapBodiesToCombine(String name) {
+    return 'Tap the bodies to combine into $name.';
+  }
+
+  @override
+  String get msgThatIsBaseBody =>
+      'That is the base body — pick another one to combine with it.';
+
+  @override
+  String get msgPickKeepThenCombine =>
+      'Pick the body to keep, then the bodies to combine into it.';
+
+  @override
+  String get msgSelectTargetBody =>
+      'Select the target body — tap it in 3D or in the browser.';
+
+  @override
+  String msgPatternNeedsFeature(String kind) {
+    return '$kind needs a feature to copy — build one first.';
+  }
+
+  @override
+  String get msgSelectFeatures =>
+      'Select features — tap a face in 3D, or a row in the browser.';
+
+  @override
+  String get msgTapStraightOrCircularEdge =>
+      'Tap a straight edge, a circular edge, or an origin axis.';
+
+  @override
+  String get msgTapCircularOrStraightEdge =>
+      'Tap a circular edge, a straight edge, or an origin axis.';
+
+  @override
+  String get msgTapPlanarFace =>
+      'Tap a planar face, a work plane, or an origin plane.';
+
+  @override
+  String get msgTapSketchForOccurrences =>
+      'Tap the sketch whose points place the occurrences.';
+
+  @override
+  String get msgTapSketchPointOfOriginal =>
+      'Tap the sketch point the original sits on.';
+
+  @override
+  String get msgTapCurveStart =>
+      'Tap the point on the curve where the pattern starts.';
+
+  @override
+  String get msgTapFaceToFollow =>
+      'Tap the face the occurrences should follow.';
+
+  @override
+  String get msgTapSolidBodyToPattern => 'Tap the solid body to pattern.';
+
+  @override
+  String get msgPickSolidBodyToPattern => 'Pick the solid body to pattern.';
+
+  @override
+  String msgBuiltAfterPattern(String name) {
+    return '“$name” is built after this pattern, so the pattern cannot copy it.';
+  }
+
+  @override
+  String get msgEdgeNoDirection => 'That edge has no direction.';
+
+  @override
+  String get msgPickCurveFirst => 'Pick the curve for this direction first.';
+
+  @override
+  String get msgCurveGone => 'That curve is no longer available.';
+
+  @override
+  String msgSketchHasNoPoints(String name) {
+    return '“$name” holds no sketch points — a sketch-driven pattern places one occurrence per point.';
+  }
+
+  @override
+  String msgBasePointMustBeOf(String name) {
+    return 'The base point must be a point of “$name”.';
+  }
+
+  @override
+  String get msgCannotCreatePattern => 'Cannot create the pattern.';
+
+  @override
+  String msgPatternedByBroken(String name, String names, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '“$name” was patterned by $names — those patterns are now broken. Undo restores it.',
+      one:
+          '“$name” was patterned by $names — that pattern is now broken. Undo restores it.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgTapCurveToSweep => 'Tap the curve to sweep along.';
+
+  @override
+  String get msgCurveNoLength => 'That curve has no length.';
+
+  @override
+  String get msgTapSectionsInOrder => 'Tap each section in order.';
+
+  @override
+  String get msgTapAxisLine =>
+      'Tap a sketch line or an origin axis to use as the axis.';
+
+  @override
+  String get msgPickAxisLine => 'Pick a sketch line or an origin axis.';
+
+  @override
+  String get msgAxisNotInSketchPlane => 'That axis is not in the sketch plane.';
+
+  @override
+  String get msgLineGone => 'That line is no longer available.';
+
+  @override
+  String get msgAxisMustBeStraight => 'The axis must be a straight line.';
+
+  @override
+  String get msgLineNoLength => 'That line has no length.';
+
+  @override
+  String get msgCreateSketchFirstExtrude =>
+      'Create a 2D sketch first — Extrude needs a closed profile.';
+
+  @override
+  String get msgProfilesSameSketch =>
+      'All profiles of one extrusion must come from the same sketch.';
+
+  @override
+  String get msgPickProfile => 'Pick at least one profile to extrude.';
+
+  @override
+  String get msgSelectTerminateFace => 'Select the face to terminate on.';
+
+  @override
+  String get msgPickOneEdgeFirst =>
+      'Pick one edge first, so the body is known.';
+
+  @override
+  String get msgBodyHasNoEdges => 'That body has no selectable edges.';
+
+  @override
+  String get msgSelectEdges =>
+      'Select edges — tap to add, tap again to remove.';
+
+  @override
+  String get msgNoConcaveEdgesLeft => 'No concave edges left to add.';
+
+  @override
+  String get msgNoConvexEdgesLeft => 'No convex edges left to add.';
+
+  @override
+  String msgAddedConcaveEdges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Added $count concave edges.',
+      one: 'Added one concave edge.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgAddedConvexEdges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Added $count convex edges.',
+      one: 'Added one convex edge.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgTapToPlaceGear => 'Tap in the sketch to place the gear.';
+
+  @override
+  String get msgCouldNotPlaceGear => 'Could not place the gear here.';
+
+  @override
+  String get msgInternalGearTeeth =>
+      'Internal gear needs at least 3 teeth and a valid module.';
+
+  @override
+  String get msgGearTeeth => 'Gear needs at least 4 teeth and a valid module.';
+
+  @override
+  String get msgInternalGearPlaced =>
+      'Internal gear placed — dimension the centre and one angle to fully constrain it.';
+
+  @override
+  String get msgExternalGearPlaced =>
+      'External gear placed — dimension the centre and one angle to fully constrain it.';
+
+  @override
+  String get msgPlanetaryNeeds =>
+      'Planetary needs sun and planet teeth ≥ 4 and ≥ 2 planets.';
+
+  @override
+  String get msgPlanetaryUndrawable =>
+      'These planetary parameters cannot be drawn.';
+
+  @override
+  String get msgPlanetaryPlacedFree =>
+      'Planetary set placed (as free geometry).';
+
+  @override
+  String get msgPlanetaryPlacedDimension =>
+      'Planetary set placed — dimension the centre and one angle.';
+
+  @override
+  String msgPlanetaryUneven(int count) {
+    return 'Planetary set placed. Note: $count planets do not evenly divide for exact meshing.';
+  }
+
+  @override
+  String msgPlanetaryUnevenSpacing(int count) {
+    return 'Planetary set placed ($count planets are not evenly spaced for exact meshing).';
+  }
+
+  @override
+  String get msgAlreadyProjected => 'Already projected onto this layer.';
+
+  @override
+  String get msgProjectPicksOtherLayers =>
+      'Project picks geometry from OTHER layers.';
+
+  @override
+  String get msgTapPolygonEdge => 'Tap an edge of the polygon to project it.';
+
+  @override
+  String get msgTapGeometryOtherLayer =>
+      'Tap geometry on another layer, or the X/Y axis.';
+
+  @override
+  String get msgProjectedNoPattern => 'Projected geometry cannot be patterned.';
+
+  @override
+  String get msgProjectedNoModify =>
+      'Projected geometry cannot be modified here.';
+
+  @override
+  String get msgPickDirectionLine => 'Pick a line to define the direction.';
+
+  @override
+  String get msgPickAxisPoint => 'Pick a point or center to define the axis.';
+
+  @override
+  String get msgPickMirrorLine => 'Pick a line to mirror about.';
+
+  @override
+  String get msgMirrorLineInSelection =>
+      'The mirror line cannot be part of the selection.';
+
+  @override
+  String get msgSelectGeometryToPattern => 'Select geometry to pattern.';
+
+  @override
+  String get msgPickLineDirection1 => 'Pick a line under Direction 1.';
+
+  @override
+  String get msgPickPatternAxis => 'Pick the pattern axis.';
+
+  @override
+  String get msgPickTheMirrorLine => 'Pick the mirror line.';
+
+  @override
+  String get msgPatternNothingToCreate => 'The pattern has nothing to create.';
+
+  @override
+  String get msgPatternUnsatisfiable =>
+      'Pattern cannot be satisfied with the current constraints.';
+
+  @override
+  String msgPatternCreated(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Pattern created ($count new elements).',
+      one: 'Pattern created (one new element).',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgSelfSymNeedsOneSpline =>
+      'Self Symmetric needs exactly one spline.';
+
+  @override
+  String get msgSelfSymNeedsOpenSpline =>
+      'Self Symmetric needs an open spline.';
+
+  @override
+  String get msgSelfSymEndOnMirror =>
+      'The spline must end on the mirror line for Self Symmetric.';
+
+  @override
+  String get msgSelfSymUnsatisfiable =>
+      'Self Symmetric cannot be satisfied with the current constraints.';
+
+  @override
+  String get msgSelfSymDone => 'Spline made self-symmetric.';
+
+  @override
+  String get msgTrimBreaksConstraints =>
+      'This trim would break the sketch constraints.';
+
+  @override
+  String get msgSplitBreaksConstraints =>
+      'This split would break the sketch constraints.';
+
+  @override
+  String get msgNothingToOffset => 'Nothing to offset here.';
+
+  @override
+  String msgRadiusPastEdge(String radius, String most) {
+    return 'R$radius runs past the end of that edge. This corner takes at most R$most.';
+  }
+
+  @override
+  String get msgPickTwoThatMeet =>
+      'Pick two lines, arcs or circles that can meet.';
+
+  @override
+  String get msgPickTwoNonParallel => 'Pick two non-parallel lines.';
+
+  @override
+  String get msgFilletBreaksSketch =>
+      'That fillet would break the sketch — pick a valid corner or a smaller radius.';
+
+  @override
+  String get msgChamferBreaksSketch =>
+      'That chamfer would break the sketch — pick a valid corner or smaller distances.';
+
+  @override
+  String get msgShapeHasNoSize => 'That shape has no size — draw it again.';
+
+  @override
+  String get msgAlreadyLocked => 'This geometry is already locked.';
+
+  @override
+  String get msgWouldOverConstrainC =>
+      'Adding this constraint will over-constrain the sketch.';
+
+  @override
+  String get msgConstraintUnsatisfiable =>
+      'This constraint cannot be satisfied with the current geometry.';
+
+  @override
+  String get msgTangentNeedsCurve =>
+      'Tangent needs at least one curved entity.';
+
+  @override
+  String get msgTangentClosedSpline =>
+      'Tangent to a CLOSED spline is not supported.';
+
+  @override
+  String get msgSmoothNeedsTwoCurves =>
+      'Smooth (G2) needs two curved entities.';
+
+  @override
+  String get msgValueUnsatisfiable =>
+      'This value cannot be satisfied with the current constraints.';
+
+  @override
+  String get msgValueUnsatisfiableShort =>
+      'Value cannot be satisfied with the current constraints.';
+
+  @override
+  String get msgDrivenDimension =>
+      'This is a driven (reference) dimension — it cannot be edited.';
+
+  @override
+  String get msgInvalidParamName => 'Invalid parameter name.';
+
+  @override
+  String get msgInvalidOrDuplicateParamName =>
+      'Invalid or duplicate parameter name.';
+
+  @override
+  String msgParamNameInUse(String name) {
+    return 'Parameter name “$name” is already in use.';
+  }
+
+  @override
+  String msgUnknownParam(String name) {
+    return 'Unknown parameter “$name”.';
+  }
+
+  @override
+  String msgCircularRefDimension(String name) {
+    return 'Circular reference: “$name” depends on this dimension.';
+  }
+
+  @override
+  String msgCircularRefParam(String name) {
+    return 'Circular reference: “$name” depends on this parameter.';
+  }
+
+  @override
+  String get msgInvalidExpression => 'Invalid expression.';
+
+  @override
+  String msgParamUsedBy(String name, String user) {
+    return '“$name” is used by “$user” — remove the reference first.';
+  }
+
+  @override
+  String get msgEdgeIsSpline =>
+      'That edge is a spline — it defines no single direction.';
+
+  @override
+  String get msgRotationAxisStraight =>
+      'A rotation axis must be a straight line or an axis.';
+
+  @override
+  String get msgPickEdgeOrCurve =>
+      'Pick a straight or circular edge, a sketch curve, or an origin axis.';
+
+  @override
+  String get msgTapOnTheCurve => 'Tap on the curve.';
+
+  @override
+  String get msgPickPlanarFace =>
+      'Pick a planar face, a work plane, or an origin plane.';
+
+  @override
+  String get msgPickSketchPointOccurrences =>
+      'Pick a sketch POINT — the occurrences go where the points are.';
+
+  @override
+  String get msgTapFaceOfFeature =>
+      'Tap a face of the feature to pattern, or pick it in the browser.';
+
+  @override
+  String get msgFaceNoSingleFeature =>
+      'That face cannot be traced back to one feature — pick the feature in the browser.';
+
+  @override
+  String msgAddedNamed(String name) {
+    return 'Added $name.';
+  }
+
+  @override
+  String msgRemovedNamed(String name) {
+    return 'Removed $name.';
+  }
+
+  @override
+  String get msgTapSolidBody => 'Tap a solid body.';
+
+  @override
+  String get msgTapSketchPointForHole =>
+      'Tap a sketch POINT — that is where a hole goes.';
+
+  @override
+  String msgNotBuiltYet(String command) {
+    return '$command: not built yet — use Offset from Plane or Midplane.';
+  }
+
+  @override
+  String get dlgEquationCurve => 'Equation Curve';
+
+  @override
+  String get lblEquationHint => 'y = f(x)   (sin, cos, sqrt, ^, pi, ...)';
+
+  @override
+  String get lblXMin => 'x min';
+
+  @override
+  String get lblXMax => 'x max';
+
+  @override
+  String get dlgProperties => 'Properties';
+
+  @override
+  String get dlgParameters => 'Parameters';
+
+  @override
+  String get dlgGear => 'Gear';
+
+  @override
+  String get dlgText => 'Text';
+
+  @override
+  String get dlgFreehandSpline => 'Freehand Spline';
+
+  @override
+  String get dlgPolygon => 'Polygon';
+
+  @override
+  String lblDirectionN(String n) {
+    return 'Direction $n';
+  }
+
+  @override
+  String get lblAxis => 'Axis';
+
+  @override
+  String get lblMirrorLine => 'Mirror line';
+
+  @override
+  String get lblGeometry => 'Geometry';
+
+  @override
+  String get lblExtents => 'Extents';
+
+  @override
+  String get lblBoundary => 'Boundary';
+
+  @override
+  String get lblIncludeGeometry => 'Include geometry';
+
+  @override
+  String get lblSuppress => 'Suppress';
+
+  @override
+  String get tipCancel => 'Cancel';
+
+  @override
+  String get tipSelectDirectionLine => 'Select the direction line';
+
+  @override
+  String get tipFlipDirection => 'Flip direction';
+
+  @override
+  String get tipPatternAlongPath => 'Pattern along a path — not yet available';
+
+  @override
+  String get tipSelectRotationAxisPoint => 'Select the rotation axis point';
+
+  @override
+  String get tipFlipRotation => 'Flip rotation direction';
+
+  @override
+  String get tipSelectGeometryToMirror => 'Select the geometry to mirror';
+
+  @override
+  String get tipSelectMirrorLine => 'Select the mirror line';
+
+  @override
+  String get tipSelectGeometryToPattern => 'Select the geometry to pattern';
+
+  @override
+  String get msgBoundaryFillNotYet => 'Boundary fill — not yet available';
+
+  @override
+  String get msgSuppressNotYet => 'Suppress instances — not yet available';
+
+  @override
+  String get msgPickWhileSelectorBlue =>
+      'Pick geometry in the viewport while the blue selector is lit.';
+
+  @override
+  String get msgFilletPickTwo =>
+      'Pick two lines, arcs or circles.\nFirst fillet is dimensioned; later ones reuse the radius.';
+
+  @override
+  String get msgDistance1FirstLine =>
+      'Distance 1 applies to the first picked line.';
+
+  @override
+  String get msgPolygonSides => 'Sides. Pick the centre, then a corner.';
+
+  @override
+  String get hintTapBodyIn3d => 'Tap the body in 3D…';
+
+  @override
+  String get hintTapFeaturesInBrowser => 'Tap features in the browser…';
+
+  @override
+  String get hintTapPointOnCurve => 'Tap a point on the curve…';
+
+  @override
+  String get hintTapEdgeOrAxis => 'Tap an edge or axis…';
+
+  @override
+  String get hintTapCircularEdge => 'Tap a circular edge or axis…';
+
+  @override
+  String get hintTapSketchPoint => 'Tap a sketch point…';
+
+  @override
+  String get hintTapOriginalPoint => 'Tap the point the original sits on…';
+
+  @override
+  String get hintTapFaceToFollow => 'Tap the face to follow…';
+
+  @override
+  String get hintTapFaceOrPlane => 'Tap a face or plane…';
+
+  @override
+  String get msgNoDimensionsInSketch => 'No dimensions in this sketch.';
+
+  @override
+  String get btnAddNumericParameter => 'Add numeric parameter';
+
+  @override
+  String get colParameterName => 'Parameter Name';
+
+  @override
+  String get colEquation => 'Equation';
+
+  @override
+  String get colValue => 'Value';
+
+  @override
+  String get lblReference => '(reference)';
+
+  @override
+  String get lblPoints => 'Points';
+
+  @override
+  String get lblSmoothing => 'Smoothing';
+
+  @override
+  String lblFitPoints(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count fit points',
+      one: 'One fit point',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tipFinishEnter => 'Finish (Enter)';
+
+  @override
+  String get tipDiscardEsc => 'Discard (Esc)';
+
+  @override
+  String get lblFont => 'Font';
+
+  @override
+  String get lblSize => 'Size';
+
+  @override
+  String get lblPreview => 'Preview';
+
+  @override
+  String lblEdgeCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count edges',
+      one: 'One edge',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get btnAddEdgeSet => '+ Add edge set';
+
+  @override
+  String get lblSwapFaces => 'Swap the two faces';
+
+  @override
+  String lblSketchPlaneN(String n) {
+    return '$n Sketch Plane';
+  }
+
+  @override
+  String lblNeedsExistingBody(String label) {
+    return '$label (needs an existing body)';
+  }
+
+  @override
+  String get tipApplyAndStartAnother => 'Apply and start another';
+
+  @override
+  String get msgSplitRemovesOtherSide =>
+      'Everything on the other side of the plane is removed. The direction can be flipped.';
+
+  @override
+  String get msgGearTapToPlace =>
+      'Tap in the sketch to place; then dimension the centre and one angle.';
+
+  @override
+  String get lblAutoRootTip => 'Automatic root & tip radii';
+
+  @override
+  String get dlgReportBug => 'Report a bug';
+
+  @override
+  String get msgBugPrompt => 'What did you expect, and what happened instead?';
+
+  @override
+  String get hintBugExample =>
+      'e.g. filleted the top edge at 2 mm and the wall came out wrong';
+
+  @override
+  String get btnSaveReport => 'Save report';
+
+  @override
+  String get btnCopyPath => 'Copy path';
+
+  @override
+  String get btnDirect => 'Direct';
+
+  @override
+  String get btnDeleteFace => 'Delete Face';
+
+  @override
+  String get btnThickenOffset => 'Thicken / Offset';
+
+  @override
+  String get btnUcs => 'UCS';
+
+  @override
+  String get btnSketchDriven => 'Sketch Driven';
+
+  @override
+  String get btnCenterline => 'Centerline';
+
+  @override
+  String get btnConstraintSettings => 'Constraint Settings';
+
+  @override
+  String get btnCopy => 'Copy';
+
+  @override
+  String get btnDrivenDimension => 'Driven Dimension';
+
+  @override
+  String get btnExtend => 'Extend';
+
+  @override
+  String get btnPointsTool => 'Points';
+
+  @override
+  String get btnShowConstraints => 'Show Constraints';
+
+  @override
+  String get btnShowFormat => 'Show Format';
+
+  @override
+  String get btnSmoothG2 => 'Smooth (G2)';
+
+  @override
+  String get btnStretch => 'Stretch';
+
+  @override
+  String get btnCenterPoint => 'Center Point';
+}
