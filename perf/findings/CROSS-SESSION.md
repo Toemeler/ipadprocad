@@ -2802,3 +2802,75 @@ parens balance, and the three names
 `profile.loops.count`, `profile.loops.selfIntersect`) are all outside the
 guard, so the one test that pins host behaviour still has its subject.
 CI is the adjudicator; if it is still red, it is red on something else.
+
+---
+
+## 2026-08-21 — INTEGRATOR — S12's second failure: the test asserted that S11's optimisation does not work
+
+**Needs:** nobody.
+
+**Closes:** the second half of S12's entry above — `m233_sweep_rebuild_guard_test`,
+"an unchanged rebuild does not reach the kernel", `Expected: <3> Actual: <2>`,
+reproduced by S12 on a detached worktree with nothing of anyone's in it.
+**Files:** `frontend/test/m233_sweep_rebuild_guard_test.dart` — S11's.
+
+This is a **separate** failure from the type error, as S12 said, and my fix for
+that one does not touch it. It is not a compile error and it is not the merge.
+
+**The test was wrong, not the code.** The failing assertion:
+
+```dart
+f.builtSig = null;
+final atCommit = k.sweeps;
+expect(recomputeFeature(part, f, k), isTrue);
+expect(k.sweeps, atCommit + 1, reason: 'the commit itself must still compute');
+```
+
+The sweep guard does not key on `builtSig`. `_recomputeSweep`
+(`part_model.dart:7395`) keys on `f.sweptFrom`, the hash of the *resolved*
+arguments — profile points, placement matrix, path points, orientation, taper,
+twist. `builtSig` is `recomputeAllFeatures`'s own chain-aware key and is
+consulted before the call, not inside it. So nulling `builtSig` gets you past
+the fold's guard and changes nothing about the sweep's; `_sweptPart` has
+already committed, `sweptFrom` is set, and `recomputeFeature` correctly reuses.
+`atCommit` is 2 (preview, commit) and stays 2. Hence 3 vs 2.
+
+**S11's own file says so four times.** The very next test:
+
+> `// REFERENCE — the old behaviour. Clearing sweptFrom defeats the guard`
+> `// and nothing else, so this is a genuine recomputation`
+> `f.sweptFrom = null;`
+
+and the orientation, taper, path and dispose tests all open with a bare
+`recomputeFeature(...)` whose result they *do not* count, precisely because it
+is a no-op that reuses. Only this one assertion uses `builtSig` as if it were
+the guard's key, and asserting that an unchanged feature must reach the kernel
+is asserting that the optimisation does not fire.
+
+**Fixed by deleting the wrong assertion, not by changing the guard.** Making
+the code satisfy it would mean clearing `sweptFrom` somewhere on the
+`recomputeFeature` path — which is the third identical run coming back in
+through a different door, and that run is the whole finding: 310.75 s, 53 % of
+the field session, three sweeps all logging `tris=91646`.
+
+What the test exists to pin is untouched and is now the only thing it asserts:
+`builtSig = null`, then `recomputeAllFeatures` must add **zero** kernel sweeps.
+That is a stronger pin than before, because nulling `builtSig` forces the fold
+past its own short-circuit and down into `_recomputeSweep`, where the guard
+actually lives — with `builtSig` set, the fold would return early and the test
+would pass without ever exercising the guard.
+
+**One thing worth stating rather than leaving implicit**, because it looks like
+a hole and is not: a sweep whose *upstream* changed gets a different `sig` in
+`recomputeAllFeatures`, falls through, and then `_recomputeSweep` reuses
+anyway. That is correct. The swept solid does not depend on the base — the
+boolean that consumes it runs outside `_recomputeSweep`, which is why the base
+is absent from `_sweepArgSig`. S11 wrote that down in the guard's comment and
+it holds.
+
+**Verification, and its limit.** `flutter test` **NOT RUN** — no Flutter SDK in
+this container, same wall as above. The change is a deletion of two `expect`s
+and a comment; no production code moved. The diagnosis is from source and from
+S12's exact failure signature, and it predicts specifically that this file goes
+from 1 failure to 0 with no other file moving. If CI shows otherwise, that
+prediction is refuted and the guard itself needs looking at.

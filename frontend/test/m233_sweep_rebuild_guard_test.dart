@@ -150,12 +150,23 @@ void main() {
       final part = app.currentPart!;
 
       // The state the fold sees right after a commit: a solid built through
-      // the single-feature entry point, which never sets builtSig.
+      // the single-feature entry point, which never sets builtSig. Nulling it
+      // is what makes this test reach the guard at all — with builtSig set,
+      // recomputeAllFeatures short-circuits on its OWN key and never calls
+      // down into _recomputeSweep, so the thing being pinned would not run.
+      //
+      // INTEGRATOR (2026-08-21): this used to null builtSig and then assert
+      // that a recomputeFeature call still reached the kernel ("the commit
+      // itself must still compute"). It does not, and should not: the sweep
+      // guard keys on `sweptFrom`, not on `builtSig`, and every other test in
+      // this file clears `sweptFrom` when it wants a genuine recomputation —
+      // see the REFERENCE in the next test, which says so in as many words.
+      // The commit inside _sweptPart already performed that computation; it IS
+      // the second of the three identical runs, and staging a fourth to stand
+      // in for it only asserted that the optimisation does not work.
+      //
+      // What the test exists to pin is the THIRD run, and that is below.
       f.builtSig = null;
-      final atCommit = k.sweeps;
-      expect(recomputeFeature(part, f, k), isTrue);
-      expect(k.sweeps, atCommit + 1,
-          reason: 'the commit itself must still compute');
 
       final afterCommit = k.sweeps;
       expect(recomputeAllFeatures(part, k), isTrue);
