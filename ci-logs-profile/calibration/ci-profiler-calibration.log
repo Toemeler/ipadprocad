@@ -1,0 +1,234 @@
+[profiler] expectation: profiler calibration against a ground truth measured in the same run
+[profiler] source of truth: tools/profiler/scenarios/known_split.dart — a Stopwatch around each phase, printed by the run itself
+
+[profiler] === case low-share: elimination should be a small minority of the two phases
+[profiler] target: dart
+[profiler] vm service: ws://127.0.0.1:37909/jZQxgvETkUM=/ws
+[profiler] WARNING: no samples carry userTag 'profiler.measure'; falling back to every sample with a Dart frame
+# CPU sample attribution
+
+* capture: `2026-08-21T00:11:07Z` target `dart` sha `67f77646d7a4`
+* sample period: **250 us**, max stack depth 128, total samples 2417 (duplicates merged away: 1714)
+* selection: userTag `profiler.measure` -> **2375** samples
+* scenario: `PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=2562 rank=2562 jacRepeats=5 elimRepeats=1 storage=Float64List jacobianMs=870.018 eliminationMs=150.466 elimShare=0.1474457218339533`
+* VM profiler: `profiler=true` `profile_period=250` `profile_vm=false` `sample_buffer_duration=600` `max_profile_depth=128`
+
+A sampling profiler measures a **share**, not a duration. Milliseconds below are `samples x period` and are an estimate; the sample counts are the measurement.
+* coverage: the sampler observed **70.2 %** of the 1.12 s it was attached for (45 gaps wider than 3 periods, 0.33 s unobserved); effective period 330 us against a nominal 250 us
+* **WARNING: under a quarter of the elapsed time is missing from this capture.** Poll more often (`--poll-interval`); the VM's sample ring is dropping samples between calls and the shares below are shares of what survived, not of what ran.
+
+### Census — what the sampler caught
+
+* samples in this view: **0**
+* with at least one Dart frame: **0** (0.0 %)
+* native-only stacks (idle threads, GC helpers, the engine's own threads): 0
+* stacks truncated at the depth limit: 0
+
+| thread | samples |
+| :--- | ---: |
+
+VM tags: 
+
+### Flat profile — samples with a Dart frame
+
+Samples: **2375**, period 250 us (~593.8 ms of sampled CPU time). Shares are of these 2375 samples.
+
+| # | self | self % | 95 % CI | total | total % | function |
+| ---: | ---: | ---: | :--- | ---: | ---: | :--- |
+| 1 | 1014 | 42.69 | [40.72, 44.69] | 2041 | 85.94 | `phaseJacobianTyped (known_split.dart:67)` |
+| 2 | 803 | 33.81 | [31.94, 35.74] | 853 | 35.92 | `residualsInto (known_split.dart:92)` |
+| 3 | 230 | 9.68 | [8.56, 10.94] | 269 | 11.33 | `phaseEliminationTyped (known_split.dart:102)` |
+| 4 | 152 | 6.40 | [5.48, 7.46] | 152 | 6.40 | `Float64List.Float64List (typed_data_patch.dart:2948)` |
+| 5 | 80 | 3.37 | [2.71, 4.17] | 80 | 3.37 | `_Double.abs (double.dart:184)` |
+| 6 | 35 | 1.47 | [1.06, 2.04] | 167 | 7.03 | `_GrowableList._GrowableList.generate (growable_array.dart:135)` |
+| 7 | 15 | 0.63 | [0.38, 1.04] | 16 | 0.67 | `_GrowableList.add (growable_array.dart:283)` |
+| 8 | 10 | 0.42 | [0.23, 0.77] | 10 | 0.42 | `_Float64List.[] (typed_data_patch.dart:2969)` |
+| 9 | 7 | 0.29 | [0.14, 0.61] | 7 | 0.29 | `_TypedListBase._memMove8 (typed_data_patch.dart:208)` |
+| 10 | 5 | 0.21 | [0.09, 0.49] | 13 | 0.55 | `_TypedListBase._setRange (typed_data_patch.dart:105)` |
+| 11 | 3 | 0.13 | [0.04, 0.37] | 2373 | 99.92 | `main (known_split.dart:201)` |
+| 12 | 3 | 0.13 | [0.04, 0.37] | 3 | 0.13 | `_Double.- (double.dart:32)` |
+| 13 | 2 | 0.08 | [0.02, 0.31] | 15 | 0.63 | `__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)` |
+| 14 | 2 | 0.08 | [0.02, 0.31] | 2 | 0.08 | `sqrt (math_patch.dart:129)` |
+| 15 | 1 | 0.04 | [0.01, 0.24] | 2375 | 100.00 | `_delayEntrypointInvocation.<anonymous closure> (isolate_patch.dart:305)` |
+| 16 | 1 | 0.04 | [0.01, 0.24] | 53 | 2.23 | `elimCopyTyped (known_split.dart:59)` |
+| 17 | 1 | 0.04 | [0.01, 0.24] | 37 | 1.56 | `Float64List.Float64List.fromList (typed_data_patch.dart:2954)` |
+| 18 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `<unknown Dart function>` |
+| 19 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `ListIterator._current (iterable.dart:350)` |
+| 20 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `Lists.copy (internal_patch.dart:125)` |
+| 21 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `_Double.* (double.dart:44)` |
+| 22 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `_Double./ (double.dart:60)` |
+| 23 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `_DoubleToStringCache.store (double.dart:408)` |
+| 24 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `_GrowableList._GrowableList._withData (growable_array.dart:213)` |
+| 25 | 1 | 0.04 | [0.01, 0.24] | 1 | 0.04 | `_GrowableList._grow (growable_array.dart:387)` |
+
+### Inside `main`
+
+Root `main`: **2373** samples of 2375 (~593.2 ms). Shares below are of those 2373.
+
+| phase | samples | share | 95 % CI | est. ms |
+| :--- | ---: | ---: | :--- | ---: |
+| elimination | 322 | 13.57 % | [12.25, 15.01] | 80.5 |
+| jacobian | 2041 | 86.01 % | [84.56, 87.35] | 510.2 |
+| other | 10 | 0.42 % | [0.23, 0.77] | 2.5 |
+
+Leaves seen in `other` (up to 12): `<unknown Dart function>`, `Lists.copy (internal_patch.dart:125)`, `_DoubleToStringCache.store (double.dart:408)`, `_List.[]= (array.dart:186)`, `__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)`, `main (known_split.dart:201)`, `main.<anonymous closure> (known_split.dart:217)`
+
+[profiler] wrote profiler-out/calibration/low-share/: samples.json.gz trace.json.gz stacks.folded.txt attribution.md attribution.json RUN.txt
+    [PASS] sample count: 2373 samples inside main
+    [PASS] unattributed share: `other` is 0.42 % of the root (cap 15 %) — a split is not quotable from a capture with a large unattributed remainder
+    [PASS] elimination vs measured elimShare: profiler 13.63 % [12.25, 15.01] vs the run's own Stopwatch 14.74 % (|delta| 1.12 pp, tolerance 5.0 pp)
+
+[profiler] === case even-share: the two phases roughly equal
+[profiler] target: dart
+[profiler] vm service: ws://127.0.0.1:44375/KSQ1lRcQMhk=/ws
+[profiler] WARNING: no samples carry userTag 'profiler.measure'; falling back to every sample with a Dart frame
+# CPU sample attribution
+
+* capture: `2026-08-21T00:11:09Z` target `dart` sha `67f77646d7a4`
+* sample period: **250 us**, max stack depth 128, total samples 1789 (duplicates merged away: 953)
+* selection: userTag `profiler.measure` -> **1751** samples
+* scenario: `PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=2562 rank=2562 jacRepeats=2 elimRepeats=2 storage=Float64List jacobianMs=450.545 eliminationMs=284.865 elimShare=0.38735535279639927`
+* VM profiler: `profiler=true` `profile_period=250` `profile_vm=false` `sample_buffer_duration=600` `max_profile_depth=128`
+
+A sampling profiler measures a **share**, not a duration. Milliseconds below are `samples x period` and are an estimate; the sample counts are the measurement.
+* coverage: the sampler observed **70.4 %** of the 0.83 s it was attached for (46 gaps wider than 3 periods, 0.24 s unobserved); effective period 331 us against a nominal 250 us
+* **WARNING: under a quarter of the elapsed time is missing from this capture.** Poll more often (`--poll-interval`); the VM's sample ring is dropping samples between calls and the shares below are shares of what survived, not of what ran.
+
+### Census — what the sampler caught
+
+* samples in this view: **0**
+* with at least one Dart frame: **0** (0.0 %)
+* native-only stacks (idle threads, GC helpers, the engine's own threads): 0
+* stacks truncated at the depth limit: 0
+
+| thread | samples |
+| :--- | ---: |
+
+VM tags: 
+
+### Flat profile — samples with a Dart frame
+
+Samples: **1751**, period 250 us (~437.8 ms of sampled CPU time). Shares are of these 1751 samples.
+
+| # | self | self % | 95 % CI | total | total % | function |
+| ---: | ---: | ---: | :--- | ---: | ---: | :--- |
+| 1 | 506 | 28.90 | [26.82, 31.07] | 593 | 33.87 | `phaseEliminationTyped (known_split.dart:102)` |
+| 2 | 496 | 28.33 | [26.27, 30.48] | 527 | 30.10 | `residualsInto (known_split.dart:92)` |
+| 3 | 437 | 24.96 | [22.99, 27.04] | 1056 | 60.31 | `phaseJacobianTyped (known_split.dart:67)` |
+| 4 | 120 | 6.85 | [5.76, 8.13] | 120 | 6.85 | `Float64List.Float64List (typed_data_patch.dart:2948)` |
+| 5 | 115 | 6.57 | [5.50, 7.83] | 115 | 6.57 | `_Double.abs (double.dart:184)` |
+| 6 | 34 | 1.94 | [1.39, 2.70] | 92 | 5.25 | `_GrowableList._GrowableList.generate (growable_array.dart:135)` |
+| 7 | 16 | 0.91 | [0.56, 1.48] | 24 | 1.37 | `_TypedListBase._setRange (typed_data_patch.dart:105)` |
+| 8 | 7 | 0.40 | [0.19, 0.82] | 7 | 0.40 | `_TypedListBase._memMove8 (typed_data_patch.dart:208)` |
+| 9 | 3 | 0.17 | [0.06, 0.50] | 3 | 0.17 | `_Float64List.[] (typed_data_patch.dart:2969)` |
+| 10 | 2 | 0.11 | [0.03, 0.42] | 1750 | 99.94 | `_delayEntrypointInvocation.<anonymous closure> (isolate_patch.dart:305)` |
+| 11 | 1 | 0.06 | [0.01, 0.32] | 1748 | 99.83 | `main (known_split.dart:201)` |
+| 12 | 1 | 0.06 | [0.01, 0.32] | 90 | 5.14 | `elimCopyTyped (known_split.dart:59)` |
+| 13 | 1 | 0.06 | [0.01, 0.32] | 25 | 1.43 | `__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)` |
+| 14 | 1 | 0.06 | [0.01, 0.32] | 3 | 0.17 | `_GrowableList.add (growable_array.dart:283)` |
+| 15 | 1 | 0.06 | [0.01, 0.32] | 2 | 0.11 | `_Double.toString (double.dart:250)` |
+| 16 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `<unknown Dart function>` |
+| 17 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `ListIterator._iterable (iterable.dart:347)` |
+| 18 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `Lists.copy (internal_patch.dart:125)` |
+| 19 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `_Double.+ (double.dart:20)` |
+| 20 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `_Double._mulFromInteger (double.dart:149)` |
+| 21 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `_DoubleToStringCache.store (double.dart:408)` |
+| 22 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `_GrowableList.[]= (growable_array.dart:274)` |
+| 23 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `_List.[]= (array.dart:186)` |
+| 24 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `_Timer._nextId (timer_impl.dart:171)` |
+| 25 | 1 | 0.06 | [0.01, 0.32] | 1 | 0.06 | `__Map&_LinkedHashBase&MapMixin&_HashBase&_OperatorEqualsAndHashCode&_LinkedHashMapMixin._getValueOrData (compact_hash.dart:671)` |
+
+### Inside `main`
+
+Root `main`: **1748** samples of 1751 (~437.0 ms). Shares below are of those 1748.
+
+| phase | samples | share | 95 % CI | est. ms |
+| :--- | ---: | ---: | :--- | ---: |
+| elimination | 683 | 39.07 % | [36.81, 41.38] | 170.8 |
+| jacobian | 1056 | 60.41 % | [58.10, 62.68] | 264.0 |
+| other | 9 | 0.51 % | [0.27, 0.98] | 2.2 |
+
+Leaves seen in `other` (up to 12): `<unknown Dart function>`, `Lists.copy (internal_patch.dart:125)`, `_Double._mulFromInteger (double.dart:149)`, `_Double.toString (double.dart:250)`, `_DoubleToStringCache.store (double.dart:408)`, `_GrowableList.add (growable_array.dart:283)`, `_Timer._nextId (timer_impl.dart:171)`, `__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)`, `main (known_split.dart:201)`
+
+[profiler] wrote profiler-out/calibration/even-share/: samples.json.gz trace.json.gz stacks.folded.txt attribution.md attribution.json RUN.txt
+    [FAIL] sample count: 1748 samples inside main, need >= 2000
+    [PASS] unattributed share: `other` is 0.51 % of the root (cap 15 %) — a split is not quotable from a capture with a large unattributed remainder
+    [PASS] elimination vs measured elimShare: profiler 39.28 % [36.81, 41.38] vs the run's own Stopwatch 38.74 % (|delta| 0.54 pp, tolerance 5.0 pp)
+
+[profiler] === case high-share: elimination dominant, the regime PERFORMANCE_PROFILE.md §5.5.2 describes
+[profiler] target: dart
+[profiler] vm service: ws://127.0.0.1:43785/0DBZ40QASn8=/ws
+[profiler] WARNING: no samples carry userTag 'profiler.measure'; falling back to every sample with a Dart frame
+# CPU sample attribution
+
+* capture: `2026-08-21T00:11:10Z` target `dart` sha `67f77646d7a4`
+* sample period: **250 us**, max stack depth 128, total samples 2560 (duplicates merged away: 2043)
+* selection: userTag `profiler.measure` -> **2560** samples
+* scenario: `PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=3500 rank=3500 jacRepeats=1 elimRepeats=3 storage=Float64List jacobianMs=301.076 eliminationMs=770.246 elimShare=0.7189677799951835`
+* VM profiler: `profiler=true` `profile_period=250` `profile_vm=false` `sample_buffer_duration=600` `max_profile_depth=128`
+
+A sampling profiler measures a **share**, not a duration. Milliseconds below are `samples x period` and are an estimate; the sample counts are the measurement.
+* coverage: the sampler observed **75.5 %** of the 1.10 s it was attached for (35 gaps wider than 3 periods, 0.27 s unobserved); effective period 327 us against a nominal 250 us
+
+### Census — what the sampler caught
+
+* samples in this view: **0**
+* with at least one Dart frame: **0** (0.0 %)
+* native-only stacks (idle threads, GC helpers, the engine's own threads): 0
+* stacks truncated at the depth limit: 0
+
+| thread | samples |
+| :--- | ---: |
+
+VM tags: 
+
+### Flat profile — samples with a Dart frame
+
+Samples: **2560**, period 250 us (~640.0 ms of sampled CPU time). Shares are of these 2560 samples.
+
+| # | self | self % | 95 % CI | total | total % | function |
+| ---: | ---: | ---: | :--- | ---: | ---: | :--- |
+| 1 | 1348 | 52.66 | [50.72, 54.58] | 1625 | 63.48 | `phaseEliminationTyped (known_split.dart:102)` |
+| 2 | 327 | 12.77 | [11.54, 14.12] | 349 | 13.63 | `residualsInto (known_split.dart:92)` |
+| 3 | 315 | 12.30 | [11.09, 13.63] | 731 | 28.55 | `phaseJacobianTyped (known_split.dart:67)` |
+| 4 | 292 | 11.41 | [10.23, 12.70] | 292 | 11.41 | `_Double.abs (double.dart:184)` |
+| 5 | 143 | 5.59 | [4.76, 6.54] | 143 | 5.59 | `Float64List.Float64List (typed_data_patch.dart:2948)` |
+| 6 | 41 | 1.60 | [1.18, 2.17] | 48 | 1.88 | `_TypedListBase._setRange (typed_data_patch.dart:105)` |
+| 7 | 35 | 1.37 | [0.98, 1.90] | 40 | 1.56 | `_GrowableList.add (growable_array.dart:283)` |
+| 8 | 21 | 0.82 | [0.54, 1.25] | 64 | 2.50 | `_GrowableList._GrowableList.generate (growable_array.dart:135)` |
+| 9 | 6 | 0.23 | [0.11, 0.51] | 6 | 0.23 | `_Float64List.[] (typed_data_patch.dart:2969)` |
+| 10 | 6 | 0.23 | [0.11, 0.51] | 6 | 0.23 | `_TypedListBase._memMove8 (typed_data_patch.dart:208)` |
+| 11 | 3 | 0.12 | [0.04, 0.34] | 51 | 1.99 | `__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)` |
+| 12 | 2 | 0.08 | [0.02, 0.28] | 194 | 7.58 | `elimCopyTyped (known_split.dart:59)` |
+| 13 | 2 | 0.08 | [0.02, 0.28] | 2 | 0.08 | `_List._setIndexed (array.dart:191)` |
+| 14 | 1 | 0.04 | [0.01, 0.22] | 2560 | 100.00 | `_delayEntrypointInvocation.<anonymous closure> (isolate_patch.dart:305)` |
+| 15 | 1 | 0.04 | [0.01, 0.22] | 154 | 6.02 | `Float64List.Float64List.fromList (typed_data_patch.dart:2954)` |
+| 16 | 1 | 0.04 | [0.01, 0.22] | 4 | 0.16 | `_GrowableList._grow (growable_array.dart:387)` |
+| 17 | 1 | 0.04 | [0.01, 0.22] | 2 | 0.08 | `ListIterator.moveNext (iterable.dart:361)` |
+| 18 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `<unknown Dart function>` |
+| 19 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_Double.* (double.dart:44)` |
+| 20 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_Double.+ (double.dart:20)` |
+| 21 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_Double.- (double.dart:32)` |
+| 22 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_Double./ (double.dart:60)` |
+| 23 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_GrowableList.[] (growable_array.dart:269)` |
+| 24 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_GrowableList._capacity (growable_array.dart:221)` |
+| 25 | 1 | 0.04 | [0.01, 0.22] | 1 | 0.04 | `_GrowableList.elementAt (growable_array.dart:500)` |
+
+### Inside `main`
+
+Root `main`: **2559** samples of 2560 (~639.8 ms). Shares below are of those 2559.
+
+| phase | samples | share | 95 % CI | est. ms |
+| :--- | ---: | ---: | :--- | ---: |
+| elimination | 1819 | 71.08 % | [69.30, 72.81] | 454.8 |
+| jacobian | 731 | 28.57 % | [26.85, 30.35] | 182.8 |
+| other | 9 | 0.35 % | [0.19, 0.67] | 2.2 |
+
+Leaves seen in `other` (up to 12): `<unknown Dart function>`, `_IntegerImplementation.* (integers.dart:17)`, `_Smi.toString (integers.dart:639)`, `_TypedListBase._setRange (typed_data_patch.dart:105)`, `_UserTag.makeCurrent (profiler.dart:23)`, `__Float64List&_TypedList&_DoubleListMixin&_TypedDoubleListMixin._slowSetRange (typed_data_patch.dart:858)`, `__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)`, `main.<anonymous closure> (known_split.dart:217)`
+
+[profiler] wrote profiler-out/calibration/high-share/: samples.json.gz trace.json.gz stacks.folded.txt attribution.md attribution.json RUN.txt
+    [PASS] sample count: 2559 samples inside main
+    [PASS] unattributed share: `other` is 0.35 % of the root (cap 15 %) — a split is not quotable from a capture with a large unattributed remainder
+    [PASS] elimination vs measured elimShare: profiler 71.33 % [69.30, 72.81] vs the run's own Stopwatch 71.90 % (|delta| 0.56 pp, tolerance 5.0 pp)
+
+[profiler] VALIDATION: FAIL

@@ -1,0 +1,3 @@
+The Dart VM service is listening on http://127.0.0.1:43785/0DBZ40QASn8=/
+vm-service: isolate(2600181305337303) 'main' has no debugger attached and is paused at start.  Connect to the Dart VM service at http://127.0.0.1:43785/0DBZ40QASn8=/ to debug.
+PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=3500 rank=3500 jacRepeats=1 elimRepeats=3 storage=Float64List jacobianMs=301.076 eliminationMs=770.246 elimShare=0.7189677799951835

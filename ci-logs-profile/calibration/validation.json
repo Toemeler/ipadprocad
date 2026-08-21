@@ -1,0 +1,195 @@
+{
+  "at": "2026-08-21T00:11:10Z",
+  "cases": [
+    {
+      "checks": [
+        {
+          "check": "sample count",
+          "detail": "2373 samples inside main",
+          "ok": true
+        },
+        {
+          "check": "unattributed share",
+          "detail": "`other` is 0.42 % of the root (cap 15 %) \u2014 a split is not quotable from a capture with a large unattributed remainder",
+          "ok": true
+        },
+        {
+          "check": "elimination vs measured elimShare",
+          "detail": "profiler 13.63 % [12.25, 15.01] vs the run's own Stopwatch 14.74 % (|delta| 1.12 pp, tolerance 5.0 pp)",
+          "ok": true
+        }
+      ],
+      "id": "low-share",
+      "ok": true,
+      "within": {
+        "buckets": {
+          "elimination": {
+            "ci95": [
+              0.12250173672856099,
+              0.15006228154724374
+            ],
+            "samples": 322,
+            "share": 0.13569321533923304
+          },
+          "jacobian": {
+            "ci95": [
+              0.8455528731296121,
+              0.8734685801767207
+            ],
+            "samples": 2041,
+            "share": 0.8600927096502318
+          },
+          "other": {
+            "ci95": [
+              0.0022906332937847615,
+              0.007740098344716455
+            ],
+            "samples": 10,
+            "share": 0.004214075010535188
+          }
+        },
+        "otherLeaves": [
+          "<unknown Dart function>",
+          "Lists.copy (internal_patch.dart:125)",
+          "_DoubleToStringCache.store (double.dart:408)",
+          "_List.[]= (array.dart:186)",
+          "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+          "main (known_split.dart:201)",
+          "main.<anonymous closure> (known_split.dart:217)"
+        ],
+        "root": "main",
+        "samplesInRoot": 2373,
+        "samplesTotal": 2375
+      }
+    },
+    {
+      "checks": [
+        {
+          "check": "sample count",
+          "detail": "1748 samples inside main, need >= 2000",
+          "ok": false
+        },
+        {
+          "check": "unattributed share",
+          "detail": "`other` is 0.51 % of the root (cap 15 %) \u2014 a split is not quotable from a capture with a large unattributed remainder",
+          "ok": true
+        },
+        {
+          "check": "elimination vs measured elimShare",
+          "detail": "profiler 39.28 % [36.81, 41.38] vs the run's own Stopwatch 38.74 % (|delta| 0.54 pp, tolerance 5.0 pp)",
+          "ok": true
+        }
+      ],
+      "id": "even-share",
+      "ok": false,
+      "within": {
+        "buckets": {
+          "elimination": {
+            "ci95": [
+              0.3681228111416749,
+              0.4138209269308588
+            ],
+            "samples": 683,
+            "share": 0.39073226544622425
+          },
+          "jacobian": {
+            "ci95": [
+              0.5809890783550289,
+              0.6267922811779496
+            ],
+            "samples": 1056,
+            "share": 0.6041189931350115
+          },
+          "other": {
+            "ci95": [
+              0.0027111355855077303,
+              0.009756578722040039
+            ],
+            "samples": 9,
+            "share": 0.005148741418764302
+          }
+        },
+        "otherLeaves": [
+          "<unknown Dart function>",
+          "Lists.copy (internal_patch.dart:125)",
+          "_Double._mulFromInteger (double.dart:149)",
+          "_Double.toString (double.dart:250)",
+          "_DoubleToStringCache.store (double.dart:408)",
+          "_GrowableList.add (growable_array.dart:283)",
+          "_Timer._nextId (timer_impl.dart:171)",
+          "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+          "main (known_split.dart:201)"
+        ],
+        "root": "main",
+        "samplesInRoot": 1748,
+        "samplesTotal": 1751
+      }
+    },
+    {
+      "checks": [
+        {
+          "check": "sample count",
+          "detail": "2559 samples inside main",
+          "ok": true
+        },
+        {
+          "check": "unattributed share",
+          "detail": "`other` is 0.35 % of the root (cap 15 %) \u2014 a split is not quotable from a capture with a large unattributed remainder",
+          "ok": true
+        },
+        {
+          "check": "elimination vs measured elimShare",
+          "detail": "profiler 71.33 % [69.30, 72.81] vs the run's own Stopwatch 71.90 % (|delta| 0.56 pp, tolerance 5.0 pp)",
+          "ok": true
+        }
+      ],
+      "id": "high-share",
+      "ok": true,
+      "within": {
+        "buckets": {
+          "elimination": {
+            "ci95": [
+              0.6929527795977205,
+              0.7280642896737074
+            ],
+            "samples": 1819,
+            "share": 0.7108245408362641
+          },
+          "jacobian": {
+            "ci95": [
+              0.2684878381415214,
+              0.3034716382340517
+            ],
+            "samples": 731,
+            "share": 0.2856584603360688
+          },
+          "other": {
+            "ci95": [
+              0.0018514257473077047,
+              0.00667093475436164
+            ],
+            "samples": 9,
+            "share": 0.0035169988276670576
+          }
+        },
+        "otherLeaves": [
+          "<unknown Dart function>",
+          "_IntegerImplementation.* (integers.dart:17)",
+          "_Smi.toString (integers.dart:639)",
+          "_TypedListBase._setRange (typed_data_patch.dart:105)",
+          "_UserTag.makeCurrent (profiler.dart:23)",
+          "__Float64List&_TypedList&_DoubleListMixin&_TypedDoubleListMixin._slowSetRange (typed_data_patch.dart:858)",
+          "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+          "main.<anonymous closure> (known_split.dart:217)"
+        ],
+        "root": "main",
+        "samplesInRoot": 2559,
+        "samplesTotal": 2560
+      }
+    }
+  ],
+  "name": "profiler calibration against a ground truth measured in the same run",
+  "ok": false,
+  "sha": "67f77646d7a44ae82d710c316b6f6fa4f6c87bbf",
+  "source": "tools/profiler/scenarios/known_split.dart \u2014 a Stopwatch around each phase, printed by the run itself"
+}

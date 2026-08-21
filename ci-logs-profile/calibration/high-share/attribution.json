@@ -1,0 +1,406 @@
+{
+  "census": {
+    "byThread": {},
+    "byUserTag": {},
+    "byVmTag": {},
+    "nativeOnly": 0,
+    "samples": 0,
+    "truncatedStacks": 0,
+    "withDartFrames": 0
+  },
+  "coverage": {
+    "effectivePeriodUs": 327,
+    "gaps": 35,
+    "nominalPeriodUs": 250,
+    "observedFraction": 0.7551054601811895,
+    "spanUs": 1098187,
+    "unobservedUs": 268940
+  },
+  "dartOnly": true,
+  "flat": [
+    {
+      "label": "phaseEliminationTyped (known_split.dart:102)",
+      "line": 102,
+      "self": 1348,
+      "total": 1625,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "residualsInto (known_split.dart:92)",
+      "line": 92,
+      "self": 327,
+      "total": 349,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "phaseJacobianTyped (known_split.dart:67)",
+      "line": 67,
+      "self": 315,
+      "total": 731,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_Double.abs (double.dart:184)",
+      "line": 184,
+      "self": 292,
+      "total": 292,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "Float64List.Float64List (typed_data_patch.dart:2948)",
+      "line": 2948,
+      "self": 143,
+      "total": 143,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_TypedListBase._setRange (typed_data_patch.dart:105)",
+      "line": 105,
+      "self": 41,
+      "total": 48,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_GrowableList.add (growable_array.dart:283)",
+      "line": 283,
+      "self": 35,
+      "total": 40,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._GrowableList.generate (growable_array.dart:135)",
+      "line": 135,
+      "self": 21,
+      "total": 64,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_Float64List.[] (typed_data_patch.dart:2969)",
+      "line": 2969,
+      "self": 6,
+      "total": 6,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_TypedListBase._memMove8 (typed_data_patch.dart:208)",
+      "line": 208,
+      "self": 6,
+      "total": 6,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+      "line": 844,
+      "self": 3,
+      "total": 51,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "elimCopyTyped (known_split.dart:59)",
+      "line": 59,
+      "self": 2,
+      "total": 194,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_List._setIndexed (array.dart:191)",
+      "line": 191,
+      "self": 2,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/array.dart"
+    },
+    {
+      "label": "_delayEntrypointInvocation.<anonymous closure> (isolate_patch.dart:305)",
+      "line": 305,
+      "self": 1,
+      "total": 2560,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/isolate_patch.dart"
+    },
+    {
+      "label": "Float64List.Float64List.fromList (typed_data_patch.dart:2954)",
+      "line": 2954,
+      "self": 1,
+      "total": 154,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_GrowableList._grow (growable_array.dart:387)",
+      "line": 387,
+      "self": 1,
+      "total": 4,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "ListIterator.moveNext (iterable.dart:361)",
+      "line": 361,
+      "self": 1,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/internal/iterable.dart"
+    },
+    {
+      "label": "<unknown Dart function>",
+      "line": 0,
+      "self": 1,
+      "total": 1,
+      "url": ""
+    },
+    {
+      "label": "_Double.* (double.dart:44)",
+      "line": 44,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double.+ (double.dart:20)",
+      "line": 20,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double.- (double.dart:32)",
+      "line": 32,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double./ (double.dart:60)",
+      "line": 60,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_GrowableList.[] (growable_array.dart:269)",
+      "line": 269,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._capacity (growable_array.dart:221)",
+      "line": 221,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList.elementAt (growable_array.dart:500)",
+      "line": 500,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_IntegerImplementation.* (integers.dart:17)",
+      "line": 17,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/integers.dart"
+    },
+    {
+      "label": "_List._List (array.dart:83)",
+      "line": 83,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/array.dart"
+    },
+    {
+      "label": "_Smi.toString (integers.dart:639)",
+      "line": 639,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/integers.dart"
+    },
+    {
+      "label": "_UserTag.makeCurrent (profiler.dart:23)",
+      "line": 23,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/profiler.dart"
+    },
+    {
+      "label": "__Float64List&_TypedList&_DoubleListMixin&_TypedDoubleListMixin._slowSetRange (typed_data_patch.dart:858)",
+      "line": 858,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_sqrt (math_patch.dart:163)",
+      "line": 163,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/math_patch.dart"
+    },
+    {
+      "label": "main.<anonymous closure> (known_split.dart:217)",
+      "line": 217,
+      "self": 1,
+      "total": 1,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_RawReceivePort._handleMessage (isolate_patch.dart:184)",
+      "line": 184,
+      "self": 0,
+      "total": 2560,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/isolate_patch.dart"
+    },
+    {
+      "label": "main (known_split.dart:201)",
+      "line": 201,
+      "self": 0,
+      "total": 2559,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "phaseJacobianTyped.<anonymous closure> (known_split.dart:71)",
+      "line": 71,
+      "self": 0,
+      "total": 41,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_Float64List._fastSetRange (typed_data_patch.dart:2994)",
+      "line": 2994,
+      "self": 0,
+      "total": 6,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_GrowableList._growToNextCapacity (growable_array.dart:406)",
+      "line": 406,
+      "self": 0,
+      "total": 4,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._allocateData (growable_array.dart:372)",
+      "line": 372,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_StringBase._interpolate (string_patch.dart:879)",
+      "line": 879,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/string_patch.dart"
+    },
+    {
+      "label": "main.<anonymous closure> (known_split.dart:233)",
+      "line": 233,
+      "self": 0,
+      "total": 1,
+      "url": "file:///home/runner/work/ipadprocad/ipadprocad/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "sqrt (math_patch.dart:129)",
+      "line": 129,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/math_patch.dart"
+    }
+  ],
+  "meta": {
+    "captureEndMicros": 98443206,
+    "captureStartMicros": 97322796,
+    "captureWallSeconds": 1.175,
+    "capturedAtUtc": "2026-08-21T00:11:10Z",
+    "gitRef": "claude/perf-opt2",
+    "gitSha": "67f77646d7a44ae82d710c316b6f6fa4f6c87bbf",
+    "profilerFlags": {
+      "applied": {
+        "profile_period": "250",
+        "profile_vm": "false"
+      },
+      "before": {
+        "profile_period": "1000",
+        "profile_vm": "false",
+        "sample_buffer_duration": "600"
+      },
+      "max_profile_depth": "128",
+      "profile_period": "250",
+      "profile_vm": "false",
+      "profiler": "true",
+      "refused": {
+        "sample_buffer_duration": "Cannot set flag: cannot change at runtime"
+      },
+      "requested": {
+        "profile_period": "250",
+        "profile_vm": "false",
+        "sample_buffer_duration": "60"
+      },
+      "sample_buffer_duration": "600"
+    },
+    "scenarioFields": {
+      "elimRepeats": 3.0,
+      "elimShare": 0.7189677799951835,
+      "eliminationMs": 770.246,
+      "jacRepeats": 1.0,
+      "jacobianMs": 301.076,
+      "m": 3500.0,
+      "rank": 3500.0,
+      "scenario": "known_split",
+      "storage": "Float64List",
+      "total": 3584.0
+    },
+    "scenarioResult": "PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=3500 rank=3500 jacRepeats=1 elimRepeats=3 storage=Float64List jacobianMs=301.076 eliminationMs=770.246 elimShare=0.7189677799951835",
+    "stoppedBecause": "target-finished",
+    "target": "dart",
+    "targetReturnCode": -15,
+    "vm": {
+      "hostCPU": "AMD EPYC 7763 64-Core Processor ",
+      "operatingSystem": "linux",
+      "targetCPU": "x64",
+      "version": "3.13.1 (stable) (Tue Aug 18 01:00:59 2026 -0700) on \"linux_x64\""
+    }
+  },
+  "samplePeriodUs": 250,
+  "samplesSelected": 2560,
+  "within": {
+    "buckets": {
+      "elimination": {
+        "ci95": [
+          0.6929527795977205,
+          0.7280642896737074
+        ],
+        "samples": 1819,
+        "share": 0.7108245408362641
+      },
+      "jacobian": {
+        "ci95": [
+          0.2684878381415214,
+          0.3034716382340517
+        ],
+        "samples": 731,
+        "share": 0.2856584603360688
+      },
+      "other": {
+        "ci95": [
+          0.0018514257473077047,
+          0.00667093475436164
+        ],
+        "samples": 9,
+        "share": 0.0035169988276670576
+      }
+    },
+    "otherLeaves": [
+      "<unknown Dart function>",
+      "_IntegerImplementation.* (integers.dart:17)",
+      "_Smi.toString (integers.dart:639)",
+      "_TypedListBase._setRange (typed_data_patch.dart:105)",
+      "_UserTag.makeCurrent (profiler.dart:23)",
+      "__Float64List&_TypedList&_DoubleListMixin&_TypedDoubleListMixin._slowSetRange (typed_data_patch.dart:858)",
+      "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+      "main.<anonymous closure> (known_split.dart:217)"
+    ],
+    "root": "main",
+    "samplesInRoot": 2559,
+    "samplesTotal": 2560
+  }
+}

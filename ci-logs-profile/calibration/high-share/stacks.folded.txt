@@ -1,0 +1,38 @@
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped 1348
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto 327
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped 315
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped;_Double.abs 273
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;Float64List.Float64List 102
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_GrowableList._GrowableList.generate;phaseJacobianTyped.<anonymous closure>;Float64List.Float64List 41
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange;_TypedListBase._setRange 40
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.add 35
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_GrowableList._GrowableList.generate 21
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;_Double.abs 19
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange;_TypedListBase._setRange;_Float64List._fastSetRange;_TypedListBase._memMove8 6
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_Float64List.[] 3
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange 2
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped 2
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.add;_GrowableList._growToNextCapacity;_GrowableList._grow;_List._setIndexed 2
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped;_Float64List.[] 2
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure> 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;<unknown Dart function> 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange;_TypedListBase._setRange 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange;_TypedListBase._setRange;__Float64List&_TypedList&_DoubleListMixin&_TypedDoubleListMixin._slowSetRange 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_GrowableList._GrowableList.generate;main.<anonymous closure> 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_GrowableList._GrowableList.generate;main.<anonymous closure>;_IntegerImplementation.* 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_StringBase._interpolate;_Smi.toString 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_UserTag.makeCurrent 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;ListIterator.moveNext 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;ListIterator.moveNext;_GrowableList.elementAt 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.add;_GrowableList._capacity 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.add;_GrowableList._growToNextCapacity;_GrowableList._grow 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.add;_GrowableList._growToNextCapacity;_GrowableList._grow;_GrowableList._allocateData;_List._List 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped;_Double.* 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped;_GrowableList.[] 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_Double.- 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_Double./ 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;_Double.+ 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;_Float64List.[] 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;sqrt;_sqrt 1
