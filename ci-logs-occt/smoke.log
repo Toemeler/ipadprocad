@@ -1,0 +1,100 @@
+Prototype OCCT shim v21 (OCCT 7.9.3) (shim ABI v21)
+[1] box faces=6 edges=12 vertices=8
+[1] box volume=6000.000000 (want 6000)
+[2] L-prism faces=8 edges=18 vertices=12
+[2] L-prism volume=3000.000000 (want 3000)
+[3] cylinder faces=3
+[3] cylinder volume=1130.973355 (want 1130.973355)
+[4] fused volume=8785.398163 (want 8785.398163)
+[4] fused faces=8
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 0                      ******[0m
+[32;1m** WorkSession : Sending all data[0m
+[32;1m Step File Name : /tmp/prototype_smoke.step(440 ents)  Write  Done[0m
+[5] STEP file /tmp/prototype_smoke.step size=19191 bytes
+[5] roundtrip faces 8->8 edges 15->15 vertices 10->10
+[5] roundtrip volume 8785.398163 -> 8785.398163
+[6] missing-file import -> NULL, last_error="occt_import_step: file missing or not parseable as STEP"
+[7] profile prism faces=8 edges=18 vertices=12
+[7] profile prism volume=3000.000000 (want 3000)
+[8] holed plate faces=10 edges=24 vertices=16
+[8] holed plate volume=920.000000 (want 920)
+[9] tapered square volume=593.345358 (want 593.345358)
+[9] neg-taper volume=417.018377 (want 417.018377)
+[10] tapered holed volume=1802.484129 (want 1802.484129)
+[11] box mesh: 24 verts, 12 tris, 12 edges, 24 edge pts
+[11] mesh signed volume=6000.000000 (want +6000)
+[12] cylinder mesh: 170 verts, 164 tris, 2 edges, 254 edge pts
+[12] mesh volume=1126.7595 (analytic 1130.9734)
+[13] rotated bbox x[-20.000,0.000] y[-0.000,10.000]
+[13b] mirrored bbox x[-10.000,0.000]
+[15] arc cylinder faces=3
+[15] arc cylinder volume=1570.796327 (analytic 1570.796327)
+[15] arc cylinder mesh edges=2
+[16] faces=3 tris=164 edges=2
+[16] planes=2 cylinders=1 cylR=10.000000000
+[16] analytic circle edges=2
+[16] fuse faces 14 -> unify 6, volume 1500.000000 -> 1500.000000
+[17] cut volume 6000.000000 faces 10
+[18] common volume 1000.000000
+[19] lens volume 205.428179 (analytic 205.428179)
+[19] lens bbox y 2.733648..8.371665 (want 2.733648..8.371665)
+[20] tube volume 706.858347 (analytic 706.858347)
+[20] tube faces 4 (want 4)
+[21] cube topological edges 12 (want 12)
+[21] filleted cube volume 7892.699082 (analytic 7892.699082)
+[22] chamfered cube volume 7840.000000 (want 7840)
+[21c] full-quarter-round fillet -> built (scale 0.999999000)
+[21c] volume 6283.188741 (cylinder 6283.185307)
+[21d] mixed set -> built (dropped 0,1)
+[23] ray hits 2 at 10.000000, 30.000000 (want 2: 10, 30)
+[24] notched block: 22 convex, 2 concave, 0 tangent (of 24 edges)
+[25] revolve hits 2 at 19.4712, 340.5288 (want 2: 19.4712, 340.5288)
+[26] variable 7924.1899, const2 7982.8319, const6 7845.4867, mean 7914.1593
+[27] face hits 1 at 340.5288 (want 1: 340.5288)
+[28] cylinder: 2 display edges, 3 topological
+[28] map is a REMAP
+[29] display edges: plain cube 12, filleted 15
+[29] tangent-continuous edges on the filleted solid: 2
+[30] swept prism volume 4000.000000 (want 4000), faces 6
+[31] lofted prism volume 2500.000000 (want 2500)
+[31] lofted frustum volume 5833.333333 (analytic 5833.333333)
+[32] coil volume 2521.2203 (helix-length estimate 2521.2193)
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 2                      ******[0m
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 2                      ******[0m
+[32;1m** WorkSession : Sending all data[0m
+[32;1m Step File Name : /tmp/prototype_multi.step(694 ents)  Write  Done[0m
+[33] re-imported solids=2 (want 2)
+[33] total volume 1125.0000 (want 1125)
+[33] in file: Solid1=1 Solid2=1 SmokePart=1 MILLI=1
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 2                      ******[0m
+[34] drilled volume 6429.2037 (want 6429.2037)
+[34] cylindrical face topo index = 7 (of 7 faces)
+[34] after Delete Face volume 8000.0000 (want 8000.0000)
+[34] top face topo index = 3
+[34] after Move Faces volume 8036.5046 (want 8036.5046)
+[34] after Scale x2 volume 51433.6294 (want 51433.6294)
+OCCT SMOKE: PASS

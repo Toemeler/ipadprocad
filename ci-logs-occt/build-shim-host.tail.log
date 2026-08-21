@@ -1,0 +1,7 @@
+[1/7] Building C object CMakeFiles/occt_smoke.dir/tests/smoke_occt.c.o
+[2/7] Building CXX object CMakeFiles/occt_mesh_recon_test.dir/tests/mesh_recon_test.cpp.o
+[3/7] Building CXX object CMakeFiles/occt_capi.dir/shim/occt_capi.cpp.o
+[4/7] Building CXX object CMakeFiles/occt_capi.dir/shim/mesh_recon.cpp.o
+[5/7] Linking CXX static library libocct_capi.a
+[6/7] Linking CXX executable occt_mesh_recon_test
+[7/7] Linking CXX executable occt_smoke
