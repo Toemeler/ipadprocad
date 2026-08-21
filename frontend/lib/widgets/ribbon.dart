@@ -1055,8 +1055,11 @@ class _RibbonState extends State<Ribbon> {
                 app.toggleShowConstraints, active: app.showConstraints),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            SizedBox(
-              width: 66,
+            ConstrainedBox(
+              // Was a fixed 66 and it cramped the German: "Bemaßung" asks for
+              // ~94 px where "Dimension" fitted in 66, so the label wrapped.
+              // A floor, like [_Big] and [_BigWide].
+              constraints: const BoxConstraints(minWidth: 66),
               child: _Hover(
                 activeHighlight: app.tool == Tool.dimension,
                 onTap: () => _startTool(Tool.dimension),
@@ -1119,7 +1122,11 @@ class _RibbonState extends State<Ribbon> {
                   const SizedBox(height: 2),
                   _SmallRow(
                       icon: IN['constr']!, // unused: iconWidget wins
+                      // An icon drawn as type, so it must not wrap the way a
+                      // label would; it is centred in the 18 px icon column
+                      // that lines this row up with its SVG neighbours.
                       iconWidget: const Text('fx',
+                          softWrap: false,
                           style: TextStyle(
                               color: T.blue,
                               fontSize: 14,
@@ -1261,7 +1268,7 @@ class _RibbonState extends State<Ribbon> {
     // as broken pan/zoom. Never let a widget-valued variable be reassigned to
     // something that closes over itself.
     final titleRow = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(label, style: ts(12, T.dim)),
+      Text(label, style: ts(12, T.dim), softWrap: false),
       if (arrow || over != null) ...[
         const SizedBox(width: 6),
         Text('▼', style: ts(8, T.dim)),
@@ -1509,8 +1516,24 @@ class _Big extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Builder(builder: (ctx) {
-      return SizedBox(
-        width: 62,
+      return ConstrainedBox(
+        // M235 — a MINIMUM width, not a fixed one.
+        //
+        // 62 was measured against the ENGLISH labels. German runs longer
+        // ("Rechteck", "Konstruktion", "Bemaßung"), and because this Text had
+        // no line limit a label wider than the box did not clip — it WRAPPED,
+        // which pushed the whole ribbon a line taller. Growing the box is the
+        // fix rather than shrinking the type: the ribbon is a horizontal
+        // SingleChildScrollView (see [_RibbonState.build]) whose panels
+        // "routinely overflow", so width here costs scroll, not layout.
+        //
+        // The floor stays 62, so a label that already fitted is laid out
+        // exactly where it was: a minWidth only ever grows a box that was
+        // being cut off. How many labels that is depends on the device's SF
+        // Pro Text metrics, which cannot be measured on a host test runner --
+        // so this is stated as a property of the constraint, not as a claim
+        // about which buttons move.
+        constraints: const BoxConstraints(minWidth: 62),
         child: _Hover(
           activeHighlight: active,
           onTap: onDefault ??
@@ -1520,7 +1543,17 @@ class _Big extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               svg(icon, 34),
               const SizedBox(height: 3),
-              Text(label, style: ts(11.5, T.text)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: Text(label,
+                    style: ts(11.5, T.text),
+                    textAlign: TextAlign.center,
+                    // A hard '\n' still breaks; only SOFT wrapping is off.
+                    // That is the whole distinction being drawn here: a label
+                    // is allowed to be two lines because it was WRITTEN that
+                    // way, never because it ran out of room.
+                    softWrap: false),
+              ),
               if (showDd)
                 // No SizedBox gap: the chip carries its own transparent
                 // padding, and stacking a gap on top of it only pushes the
@@ -1553,8 +1586,10 @@ class _BigWide extends StatelessWidget {
       this.active = false});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
+    return ConstrainedBox(
+      // Same change as [_Big], same reason: [width] is the floor the English
+      // layout was tuned to, not a cap the German has to fit inside.
+      constraints: BoxConstraints(minWidth: width),
       child: _Hover(
         onTap: onTap,
         activeHighlight: active,
@@ -1564,9 +1599,18 @@ class _BigWide extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: svg(icon, 34)),
               const SizedBox(height: 3),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  style: ts(11.5, T.text, height: 1.15)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: Text(label,
+                    textAlign: TextAlign.center,
+                    style: ts(11.5, T.text, height: 1.15),
+                    // The six deliberate two-line labels (btnCreateNewSketch,
+                    // btnStart2dSketch, btnStartNewLayer, btnProjectGeometry,
+                    // btnSliceGraphics, btnFinishSketch) carry their own '\n'
+                    // and keep both lines — in English too. Everything else
+                    // now stays on one.
+                    softWrap: false),
+              ),
             ]),
           ),
         ]),
@@ -1612,7 +1656,7 @@ class _SmallRow extends StatelessWidget {
                   height: 18,
                   child: Center(child: iconWidget ?? svg(icon, 18))),
               const SizedBox(width: 6),
-              Text(label, style: ts(12.5, T.text)),
+              Text(label, style: ts(12.5, T.text), softWrap: false),
             ]),
           ),
         ),
@@ -1640,7 +1684,10 @@ class _BigPlainBody extends StatelessWidget {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       svg(CN['dim']!, 34),
       const SizedBox(height: 3),
-      Text(label, style: ts(11.5, T.text)),
+      Text(label,
+          style: ts(11.5, T.text),
+          textAlign: TextAlign.center,
+          softWrap: false),
     ]);
   }
 }
