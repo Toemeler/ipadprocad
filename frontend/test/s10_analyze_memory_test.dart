@@ -88,6 +88,7 @@ void main() {
     // double costing sixteen bytes more.
     final densePredictedBytes = (m * total * 8) + (dof * total * 8);
 
+    const mb = 1024 * 1024;
     int peakDeltaOf(void Function() body) {
       _churn();
       final before = _rssBytes();
@@ -107,7 +108,6 @@ void main() {
       denseReferenceForTests = false;
     }
 
-    const mb = 1024 * 1024;
     printOnFailure('total=$total m=$m rank=$rank dof=$dof\n'
         'dense predicted ${densePredictedBytes / mb} MiB (pointer arrays only)\n'
         'dense measured  ${dense / mb} MiB\n'
@@ -132,6 +132,35 @@ void main() {
         reason: 'the dense reference allocated far less than its own '
             'dimensions require — either the byte model in 5.5.2 is wrong, or '
             'RSS moved for a reason that has nothing to do with this call');
+
+    // ---- the instrument has to pass its own sanity check first -----------
+    //
+    // A private process is not a quiet machine. `flutter test` runs test FILES
+    // concurrently, so this one shares a host with a dozen other VMs, and
+    // under that pressure RSS stops tracking allocation: measured on an idle
+    // machine the gap below is 12.9x (324 MiB against 25 MiB at the top rung);
+    // measured inside the full concurrent suite it fell to 2.4x, with the
+    // dense arm reading 22.9 MiB — BELOW the 24.5 MiB of pointer array it
+    // provably allocates.
+    //
+    // That last fact is the tell, and it is checkable: the dense algorithm
+    // cannot allocate less than m*total + dof*total pointers. If RSS says it
+    // did, RSS is not measuring allocation on this run, and a ratio computed
+    // from it means nothing. Report and stop, rather than assert on an
+    // instrument that has just failed its own null test (PERFORMANCE_PROFILE
+    // 3.3 is the precedent — a measurement of nothing must never read as a
+    // measurement).
+    //
+    // This is a gate on the INSTRUMENT, not a softened claim. The claim is
+    // unchanged and is checked in full whenever the machine can support it.
+    if (dense < densePredictedBytes) {
+      markTestSkipped(
+          'RSS under-reported the dense arm (${dense ~/ mb} MiB) below its own '
+          'pointer arrays (${densePredictedBytes ~/ mb} MiB), so it is not '
+          'tracking allocation on this run — most likely a concurrent suite. '
+          'Ratio not asserted. Run this file alone to get the real number.');
+      return;
+    }
 
     // And the sparse path does not. THIS IS THE FINDING: the structural
     // allocation 5.5.2 measured as 105 MB at the top rung is gone, and what

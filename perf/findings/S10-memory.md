@@ -397,8 +397,30 @@ Two observations from building the test above:
   makes it safe, and useless in a warm process for the same reason.
 
 The consequence for §2.2 is that the comparison had to be moved into its own
-test file, so `flutter test` gives it a cold process; there it is decisive and
-stable. The consequence for the report generally is narrower than it sounds:
+test file, so `flutter test` gives it a cold process; run alone, it is decisive
+and stable.
+
+**And that was still not enough, which is the part worth passing on.** A private
+process is not a quiet machine: `flutter test` runs test FILES concurrently, so
+this one shares a host with a dozen other VMs. Inside the full suite the gap
+between the two arms fell from **12.9× to 2.4×**, and the dense arm read
+**22.9 MiB — below the 24.5 MiB of pointer array it provably allocates.** The
+measurement was not noisy; it was wrong, in the direction that would have made
+the sparse path look no better than the dense one.
+
+That last fact is also the way out, because it is checkable. The dense algorithm
+cannot allocate fewer than `m·total + dof·total` pointers; if RSS reports that it
+did, RSS is not tracking allocation on that run and no ratio computed from it
+means anything. So the test now gates the ratio on that null check and skips it
+with a message when the instrument fails — §3.3's discipline, that a measurement
+of nothing must never read as a measurement, applied to the instrument rather
+than to the subject. The claim is not softened: it is asserted in full whenever
+the machine can support it, and declared unmeasured when it cannot.
+
+I would rather record this than quietly widen the tolerance until it passed.
+Widening it would have left a test that goes green while measuring nothing,
+which is the failure §12.5's fourth conclusion cost a whole device run to
+learn. The consequence for the report generally is narrower than it sounds:
 the figures §8.5 rests on — 14 bytes per triangle from 12 solids held, 2 KB per
 solid, 0 MB net across 64 held-and-released solids — are deltas around **large,
 held** allocations, which is the case RSS handles best. They stand.
