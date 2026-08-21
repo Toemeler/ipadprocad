@@ -568,7 +568,7 @@ class _RibbonState extends State<Ribbon> {
       builder: (ctx) => AlertDialog(
         backgroundColor: T.fly,
         title: Text(t.dlgEquationCurve,
-            style: ts(14, Colors.white, w: FontWeight.w600)),
+            style: ts(14, T.text, w: FontWeight.w600)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(
               controller: expr,
@@ -609,7 +609,7 @@ class _RibbonState extends State<Ribbon> {
               child: Text(t.cancel, style: ts(12.5, T.dim))),
           TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: Text(t.ok, style: ts(12.5, T.blue))),
+              child: Text(t.ok, style: ts(12.5, T.accent))),
         ],
       ),
     );
@@ -1055,8 +1055,11 @@ class _RibbonState extends State<Ribbon> {
                 app.toggleShowConstraints, active: app.showConstraints),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            SizedBox(
-              width: 66,
+            ConstrainedBox(
+              // Was a fixed 66 and it cramped the German: "Bemaßung" asks for
+              // ~94 px where "Dimension" fitted in 66, so the label wrapped.
+              // A floor, like [_Big] and [_BigWide].
+              constraints: const BoxConstraints(minWidth: 66),
               child: _Hover(
                 activeHighlight: app.tool == Tool.dimension,
                 onTap: () => _startTool(Tool.dimension),
@@ -1119,9 +1122,13 @@ class _RibbonState extends State<Ribbon> {
                   const SizedBox(height: 2),
                   _SmallRow(
                       icon: IN['constr']!, // unused: iconWidget wins
-                      iconWidget: const Text('fx',
+                      // An icon drawn as type, so it must not wrap the way a
+                      // label would; it is centred in the 18 px icon column
+                      // that lines this row up with its SVG neighbours.
+                      iconWidget: Text('fx',
+                          softWrap: false,
                           style: TextStyle(
-                              color: T.blue,
+                              color: T.accent,
                               fontSize: 14,
                               height: 1.0,
                               fontStyle: FontStyle.italic,
@@ -1261,7 +1268,7 @@ class _RibbonState extends State<Ribbon> {
     // as broken pan/zoom. Never let a widget-valued variable be reassigned to
     // something that closes over itself.
     final titleRow = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(label, style: ts(12, T.dim)),
+      Text(label, style: ts(12, T.dim), softWrap: false),
       if (arrow || over != null) ...[
         const SizedBox(width: 6),
         Text('▼', style: ts(8, T.dim)),
@@ -1279,7 +1286,7 @@ class _RibbonState extends State<Ribbon> {
     return Container(
       decoration: first
           ? null
-          : const BoxDecoration(
+          : BoxDecoration(
               border: Border(left: BorderSide(color: T.panelSep, width: 1))),
       padding: EdgeInsets.zero,
       child: Column(
@@ -1305,15 +1312,20 @@ class _RibbonState extends State<Ribbon> {
 class _Hover extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
-  final Color hoverBg;
+  /// Null means "the standard hover wash" — resolved through [hoverColor] at
+  /// build time rather than defaulted here, because a default value has to be
+  /// a compile-time constant and a palette token is no longer one (M236).
+  final Color? hoverBg;
   final bool hoverBorder;
   final bool activeHighlight; // Inventor-style: active tool stays lit
-  const _Hover(
+  _Hover(
       {required this.child,
       this.onTap,
-      this.hoverBg = T.hover6,
+      this.hoverBg,
       this.hoverBorder = true,
       this.activeHighlight = false});
+
+  Color get hoverColor => hoverBg ?? T.hover6;
   @override
   State<_Hover> createState() => _HoverState();
 }
@@ -1342,12 +1354,12 @@ class _HoverState extends State<_Hover> {
         child: Container(
           decoration: BoxDecoration(
             color: act
-                ? const Color(0xFF3A4149)
-                : (_h ? widget.hoverBg : Colors.transparent),
+                ? T.mbActiveBg
+                : (_h ? widget.hoverColor : Colors.transparent),
             borderRadius: BorderRadius.circular(2),
             border: Border.all(
                 color: act
-                    ? const Color(0xFF5A88B5)
+                    ? T.mbActiveOutline
                     : (_h && widget.hoverBorder
                         ? T.border10
                         : Colors.transparent)),
@@ -1438,7 +1450,7 @@ class _DropChipState extends State<_DropChip> {
                 color: _down ? T.hover8 : (lit ? T.hover7 : T.hover6),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                    color: lit ? const Color(0x40FFFFFF) : T.border10),
+                    color: lit ? T.accent.withValues(alpha: 0.45) : T.border10),
               ),
               child: Center(
                 child: Icon(Icons.arrow_drop_down,
@@ -1509,8 +1521,24 @@ class _Big extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Builder(builder: (ctx) {
-      return SizedBox(
-        width: 62,
+      return ConstrainedBox(
+        // M235 — a MINIMUM width, not a fixed one.
+        //
+        // 62 was measured against the ENGLISH labels. German runs longer
+        // ("Rechteck", "Konstruktion", "Bemaßung"), and because this Text had
+        // no line limit a label wider than the box did not clip — it WRAPPED,
+        // which pushed the whole ribbon a line taller. Growing the box is the
+        // fix rather than shrinking the type: the ribbon is a horizontal
+        // SingleChildScrollView (see [_RibbonState.build]) whose panels
+        // "routinely overflow", so width here costs scroll, not layout.
+        //
+        // The floor stays 62, so a label that already fitted is laid out
+        // exactly where it was: a minWidth only ever grows a box that was
+        // being cut off. How many labels that is depends on the device's SF
+        // Pro Text metrics, which cannot be measured on a host test runner --
+        // so this is stated as a property of the constraint, not as a claim
+        // about which buttons move.
+        constraints: const BoxConstraints(minWidth: 62),
         child: _Hover(
           activeHighlight: active,
           onTap: onDefault ??
@@ -1520,7 +1548,17 @@ class _Big extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               svg(icon, 34),
               const SizedBox(height: 3),
-              Text(label, style: ts(11.5, T.text)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: Text(label,
+                    style: ts(11.5, T.text),
+                    textAlign: TextAlign.center,
+                    // A hard '\n' still breaks; only SOFT wrapping is off.
+                    // That is the whole distinction being drawn here: a label
+                    // is allowed to be two lines because it was WRITTEN that
+                    // way, never because it ran out of room.
+                    softWrap: false),
+              ),
               if (showDd)
                 // No SizedBox gap: the chip carries its own transparent
                 // padding, and stacking a gap on top of it only pushes the
@@ -1553,8 +1591,10 @@ class _BigWide extends StatelessWidget {
       this.active = false});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
+    return ConstrainedBox(
+      // Same change as [_Big], same reason: [width] is the floor the English
+      // layout was tuned to, not a cap the German has to fit inside.
+      constraints: BoxConstraints(minWidth: width),
       child: _Hover(
         onTap: onTap,
         activeHighlight: active,
@@ -1564,9 +1604,18 @@ class _BigWide extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: svg(icon, 34)),
               const SizedBox(height: 3),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  style: ts(11.5, T.text, height: 1.15)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: Text(label,
+                    textAlign: TextAlign.center,
+                    style: ts(11.5, T.text, height: 1.15),
+                    // The six deliberate two-line labels (btnCreateNewSketch,
+                    // btnStart2dSketch, btnStartNewLayer, btnProjectGeometry,
+                    // btnSliceGraphics, btnFinishSketch) carry their own '\n'
+                    // and keep both lines — in English too. Everything else
+                    // now stays on one.
+                    softWrap: false),
+              ),
             ]),
           ),
         ]),
@@ -1612,7 +1661,7 @@ class _SmallRow extends StatelessWidget {
                   height: 18,
                   child: Center(child: iconWidget ?? svg(icon, 18))),
               const SizedBox(width: 6),
-              Text(label, style: ts(12.5, T.text)),
+              Text(label, style: ts(12.5, T.text), softWrap: false),
             ]),
           ),
         ),
@@ -1640,7 +1689,10 @@ class _BigPlainBody extends StatelessWidget {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       svg(CN['dim']!, 34),
       const SizedBox(height: 3),
-      Text(label, style: ts(11.5, T.text)),
+      Text(label,
+          style: ts(11.5, T.text),
+          textAlign: TextAlign.center,
+          softWrap: false),
     ]);
   }
 }
@@ -1823,7 +1875,7 @@ class _OverRowState extends State<_OverRow> {
             color: (_h || it.active) ? T.flyHov : T.fly,
             border: widget.last
                 ? null
-                : const Border(bottom: BorderSide(color: Color(0x08FFFFFF))),
+                : Border(bottom: BorderSide(color: T.hover6)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             svg(it.icon, 18),
@@ -1941,8 +1993,8 @@ class _FlyRowState extends State<_FlyRow> {
             color: (_h || widget.first) ? T.flyHov : T.fly,
             border: widget.last
                 ? null
-                : const Border(
-                    bottom: BorderSide(color: Color(0x08FFFFFF))),
+                : Border(
+                    bottom: BorderSide(color: T.hover6)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             svg(IC[it.icon] ?? PL[it.icon] ?? IC['line34']!, 26),
@@ -1954,7 +2006,7 @@ class _FlyRowState extends State<_FlyRow> {
                   Text(it.b,
                       style: oneline
                           ? ts(12.5, T.text, height: 1.25)
-                          : ts(12.5, Colors.white,
+                          : ts(12.5, T.text,
                               w: FontWeight.w600, height: 1.25)),
                   if (!oneline)
                     Text(it.sub, style: ts(12, T.dim, height: 1.25)),

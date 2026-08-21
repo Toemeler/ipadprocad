@@ -97,11 +97,40 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
           id: kLanguageMenuId,
           title: L.otherStrings.languageMenuItem,
           symbol: 'globe'),
+      // M236 — the appearance switch, on the same shelf and for the same
+      // reason: it belongs to the APP, not to a document. Like the language
+      // row it names the scheme it switches TO, never the one that is on, and
+      // `kAppearanceMenuId` is what code matches on.
+      NativeMenuItem(
+          id: kAppearanceMenuId,
+          title: t.appearanceMenuItem(appearanceName(t, nextThemeMode())),
+          symbol: 'circle.lefthalf.filled'),
     ];
 
 /// The id the language row comes back as. A constant, because the row's
 /// TITLE changes with the language and must never be what code matches on.
 const String kLanguageMenuId = 'lang';
+
+/// The id the appearance row comes back as. Same rule as [kLanguageMenuId].
+const String kAppearanceMenuId = 'appearance';
+
+/// System -> Light -> Dark -> System.
+///
+/// A cycle rather than a submenu because there are three states and the row
+/// already SAYS where the next tap goes; a submenu would cost a second tap to
+/// tell the user what one tap already tells them.
+AppThemeMode nextThemeMode() {
+  const order = [AppThemeMode.system, AppThemeMode.light, AppThemeMode.dark];
+  return order[(order.indexOf(T.mode) + 1) % order.length];
+}
+
+/// The user-visible name of a scheme. In the ARB, like every other string —
+/// [Palette.name] is 'Chalk'/'Ember', which are internal names.
+String appearanceName(AppL10n t, AppThemeMode m) => switch (m) {
+      AppThemeMode.system => t.appearanceSystem,
+      AppThemeMode.light => t.appearanceLight,
+      AppThemeMode.dark => t.appearanceDark,
+    };
 
 class HomeView extends StatefulWidget {
   final AppState app;
@@ -285,9 +314,21 @@ class _HomeViewState extends State<HomeView> {
             value: kLanguageMenuId,
             height: 40,
             child: Row(children: [
-              const Icon(Icons.language, size: 18, color: T.text),
+              Icon(Icons.language, size: 18, color: T.text),
               const SizedBox(width: 10),
               Text(L.otherStrings.languageMenuItem, style: ts(12.5, T.text)),
+            ]),
+          ),
+          // M236 — the same appearance row the native sheet carries, so the
+          // switch is reachable off iOS and in the host test suite too.
+          PopupMenuItem(
+            value: kAppearanceMenuId,
+            height: 40,
+            child: Row(children: [
+              Icon(Icons.contrast, size: 18, color: T.text),
+              const SizedBox(width: 10),
+              Text(t.appearanceMenuItem(appearanceName(t, nextThemeMode())),
+                  style: ts(12.5, T.text)),
             ]),
           ),
         ],
@@ -304,6 +345,10 @@ class _HomeViewState extends State<HomeView> {
       // Applies on the next frame and is written to the settings file on the
       // way out; nothing is rebuilt, nothing is lost. See L.set.
       L.set(L.other);
+    } else if (choice == kAppearanceMenuId) {
+      // Same shape: the notifier repaints the tree, the choice lands in the
+      // same settings.json. See T.set.
+      T.set(nextThemeMode());
     }
   }
 
@@ -531,7 +576,7 @@ class _PlusButtonState extends State<_PlusButton> {
             color: _h ? T.galleryActionBgHover : T.galleryActionBg,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.add, color: T.galleryTitle, size: 26),
+          child: Icon(Icons.add, color: T.galleryTitle, size: 26),
         ),
       ),
     );
@@ -593,7 +638,7 @@ class _CardState extends State<_Card> {
                 border: Border.all(
                     color: _h ? T.cardHoverBorder : Colors.transparent,
                     width: 1.5),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
                       color: T.cardShadow, blurRadius: 14, offset: Offset(0, 6)),
                 ],

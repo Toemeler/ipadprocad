@@ -81,7 +81,7 @@ class BottomTabBar extends StatelessWidget {
   Widget _flutterBar() {
     return Container(
       height: 30,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: T.tabbarBg,
         border: Border(top: BorderSide(color: T.tabbarBorder)),
       ),
@@ -138,7 +138,7 @@ class _TabState extends State<_Tab> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final color = widget.on || _h ? Colors.white : T.tabText;
+    final color = widget.on || _h ? T.text : T.tabText;
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
@@ -147,7 +147,7 @@ class _TabState extends State<_Tab> {
         child: Container(
           decoration: BoxDecoration(
             color: widget.on ? T.tabOnBg : T.tabBg,
-            border: const Border(right: BorderSide(color: T.tabbarBorder)),
+            border: Border(right: BorderSide(color: T.tabbarBorder)),
           ),
           child: Stack(children: [
             Padding(
@@ -160,7 +160,7 @@ class _TabState extends State<_Tab> {
               ),
             ),
             if (widget.on)
-              const Positioned(
+              Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
@@ -195,7 +195,7 @@ class _CloseXState extends State<_CloseX> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 1),
           child: Text('✕',
-              style: ts(11, _h ? Colors.white : const Color(0xFF8B9197))),
+              style: ts(11, _h ? T.text : T.mbDimmed)),
         ),
       ),
     );

@@ -1241,6 +1241,11 @@ class AppState extends ChangeNotifier {
     // measurable launch regression in an app whose launch time is a tracked
     // number, and one frame is the cheaper of the two.
     L.attachStore(LocaleStore(_cacheRoot));
+    // M236 — the appearance choice is remembered in the same file, off the
+    // launch path for the same reason. Until this runs the app follows the
+    // iPad's own setting, which is also the default, so the worst case is one
+    // frame in the system scheme before an explicit override is adopted.
+    T.attachStore(ThemeStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
@@ -13953,7 +13958,7 @@ class AppState extends ChangeNotifier {
             w / 2 + (x - (minx + maxx) / 2) * scale,
             h / 2 - (y - (miny + maxy) / 2) * scale);
         final p = Paint()
-          ..color = const Color(0xFFC4C9CE)
+          ..color = T.ink
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.4;
         for (final g in geos) {

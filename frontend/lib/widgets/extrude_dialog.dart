@@ -90,9 +90,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             color: T.panel,
             border: Border.all(color: T.sep),
             borderRadius: BorderRadius.circular(6),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                  color: Color(0x73000000),
+                  color: T.scrim,
                   blurRadius: 24,
                   offset: Offset(0, 6)),
             ],
@@ -101,14 +101,14 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             // ---- header: Properties ✕ | ... + ----
             Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: T.fly,
                 border: Border(bottom: BorderSide(color: T.panelSep)),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
               ),
               child: Row(children: [
                 Text(L.of(context).dlgProperties,
-                    style: ts(13, Colors.white, w: FontWeight.w600)),
+                    style: ts(13, T.text, w: FontWeight.w600)),
                 const SizedBox(width: 6),
                 GestureDetector(
                   onTap: app.cancelExtrude,
@@ -137,9 +137,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         },
                     style: TextStyle(
                         fontSize: 12.5,
-                        color: T.blue,
+                        color: T.accent,
                         decoration: TextDecoration.underline,
-                        decorationColor: T.blue)),
+                        decorationColor: T.accent)),
                 Text('  ›  ', style: ts(12, T.dim)),
                 Text(sketchLabel, style: ts(12.5, T.text)),
                 const Spacer(),
@@ -299,13 +299,13 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF212429),
+                          color: T.fly,
                           border: Border.all(
                               color: app.pickingRevolveAxis
-                                  ? T.blue
+                                  ? T.accent
                                   : (s.axisPicked
-                                      ? const Color(0xFF3A3F45)
-                                      : const Color(0xFFA05A2C))),
+                                      ? T.panelSep
+                                      : T.warn)),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text(
@@ -329,11 +329,11 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: s.full
-                              ? const Color(0xFF2E4A6B)
-                              : const Color(0xFF2A2E33),
+                              ? T.chipBg
+                              : T.bg,
                           border: Border.all(
                               color:
-                                  s.full ? T.blue : const Color(0xFF3A3F45)),
+                                  s.full ? T.accent : T.panelSep),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text('360°', style: ts(12, T.text)),
@@ -389,11 +389,11 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF212429),
+                          color: T.fly,
                           border: Border.all(
                               color: app.pickingExtentFace
-                                  ? T.blue
-                                  : const Color(0xFF3A3F45)),
+                                  ? T.accent
+                                  : T.panelSep),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text(
@@ -452,12 +452,12 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: app.pickingBody
-                              ? const Color(0xFF2F6FB0)
-                              : const Color(0xFF212429),
+                              ? T.chipStrong
+                              : T.fly,
                           border: Border.all(
                               color: app.pickingBody
-                                  ? T.blue
-                                  : const Color(0xFF3A3F45)),
+                                  ? T.accent
+                                  : T.panelSep),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text(
@@ -486,12 +486,12 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
                 child: Row(children: [
-                  const Icon(Icons.error_outline,
-                      size: 13, color: Color(0xFFE05A56)),
+                  Icon(Icons.error_outline,
+                      size: 13, color: T.err),
                   const SizedBox(width: 5),
                   Expanded(
                       child: Text(s.previewError!,
-                          style: ts(10.5, const Color(0xFFE0928F)))),
+                          style: ts(10.5, T.errText))),
                 ]),
               ),
             // ---- OK / Cancel / + ----
@@ -512,15 +512,15 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                       height: 26,
                       decoration: BoxDecoration(
                         border:
-                            Border.all(color: const Color(0xFF3FA43C)),
+                            Border.all(color: T.ok),
                         borderRadius: BorderRadius.circular(3),
                       ),
-                      child: const Center(
+                      child: Center(
                           child: Text('+',
                               style: TextStyle(
                                   fontSize: 16,
                                   height: 1,
-                                  color: Color(0xFF5CBF4A)))),
+                                  color: T.okText))),
                     ),
                   ),
                 ),
@@ -543,13 +543,13 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF212429),
+          color: T.fly,
           border: Border.all(
               color: armed
-                  ? T.blue
+                  ? T.accent
                   : (filled
-                      ? const Color(0xFF3A3F45)
-                      : const Color(0xFFA05A2C))),
+                      ? T.panelSep
+                      : T.warn)),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(label, style: ts(12, filled || armed ? T.text : T.dim)),
@@ -566,9 +566,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color:
-                  active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+                  active ? T.chipBg : T.bg,
               border: Border.all(
-                  color: active ? T.blue : const Color(0xFF3A3F45)),
+                  color: active ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(3),
             ),
             child: Text(label,
@@ -594,8 +594,8 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF212429),
-          border: Border.all(color: const Color(0xFF3A3F45)),
+          color: T.fly,
+          border: Border.all(color: T.panelSep),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Row(children: [
@@ -654,9 +654,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             width: 26,
             height: 26,
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+              color: active ? T.chipBg : T.bg,
               border: Border.all(
-                  color: active ? T.blue : const Color(0xFF3A3F45)),
+                  color: active ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(3),
             ),
             padding: const EdgeInsets.all(4),
@@ -708,9 +708,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             width: 28,
             height: 26,
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF2F6FB0) : const Color(0xFF212429),
+              color: active ? T.chipStrong : T.fly,
               border: Border.all(
-                  color: active ? T.blue : const Color(0xFF3A3F45)),
+                  color: active ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(3),
             ),
             child: Center(
@@ -745,9 +745,9 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
           width: 28,
           height: 26,
           decoration: BoxDecoration(
-            color: active ? const Color(0xFF2F6FB0) : const Color(0xFF212429),
+            color: active ? T.chipStrong : T.fly,
             border: Border.all(
-                color: active ? T.blue : const Color(0xFF3A3F45)),
+                color: active ? T.accent : T.panelSep),
             borderRadius: BorderRadius.circular(3),
           ),
           child: Center(
@@ -771,20 +771,20 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
             height: 15,
             decoration: BoxDecoration(
               color: value
-                  ? (enabled ? T.blue : const Color(0xFF2B3946))
-                  : const Color(0xFF212429),
-              border: Border.all(color: const Color(0xFF3A3F45)),
+                  ? (enabled ? T.accent : T.disabledFill)
+                  : T.fly,
+              border: Border.all(color: T.panelSep),
               borderRadius: BorderRadius.circular(2),
             ),
             child: value
                 ? Icon(Icons.check,
                     size: 12,
-                    color: enabled ? Colors.white : const Color(0xFF6A6F77))
+                    color: enabled ? T.onAccent : T.disabled)
                 : null,
           ),
           const SizedBox(width: 6),
           Text(label,
-              style: ts(12, enabled ? T.text : const Color(0xFF6A6F77))),
+              style: ts(12, enabled ? T.text : T.disabled)),
         ]),
       ),
     );
@@ -796,13 +796,13 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
         decoration: BoxDecoration(
-          color: primary ? T.blue : Colors.transparent,
+          color: primary ? T.accent : Colors.transparent,
           border:
-              Border.all(color: primary ? T.blue : const Color(0xFF3A3F45)),
+              Border.all(color: primary ? T.accent : T.panelSep),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(label,
-            style: ts(12.5, primary ? Colors.white : T.text,
+            style: ts(12.5, primary ? T.onAccent : T.text,
                 w: primary ? FontWeight.w600 : FontWeight.normal)),
       ),
     );

@@ -1,75 +1,847 @@
-// Prototype — design tokens, 1:1 from create-panel.html (FINAL mock).
+// Prototype — design tokens.
+//
+// M236 — TWO palettes, not one. Until now every colour in the app was a
+// compile-time constant lifted 1:1 from create-panel.html: one dark blue-grey
+// scheme, no alternative, and roughly two hundred more colours written
+// straight into the painters where no token could reach them. A light mode was
+// therefore not a setting, it was a rewrite.
+//
+// What replaced it:
+//
+//   [Palette]         — one immutable value holding EVERY colour the app
+//                       paints. Two instances exist: [kChalk] (light) and
+//                       [kEmber] (dark).
+//   [T]               — the same names the 450-odd call sites already use,
+//                       now getters that read the ACTIVE palette instead of
+//                       constants. Call sites did not change; `const` in front
+//                       of the expressions using them did, because a colour
+//                       that can change is no longer a compile-time constant.
+//   [T.scheme]        — a ValueNotifier the app root listens to, plus the
+//                       switch itself: it follows the iPad's own light/dark
+//                       setting by default and remembers an explicit choice
+//                       in the same settings.json the language uses.
+//
+// Why a global notifier rather than an InheritedWidget: the geometry is drawn
+// by CustomPainters and by off-screen renderers (the gallery thumbnails in
+// AppState._writePartPreview) that have no BuildContext and no business
+// acquiring one. A painter reads T.ink at paint time; [T.scheme] notifies, the
+// tree rebuilds, and the painters repaint with the new palette. The tradeoff
+// is that the palette is process-global — which it already was, as constants.
+//
+// The shape deliberately mirrors M234's [L]: a ValueNotifier the app root
+// listens to, a store attached from AppState.init rather than from main() (a
+// settings read in front of the first frame is a launch-time regression this
+// repository measures), and the same settings.json under .cache. An app with
+// one window has one language and one appearance, and the two should not be
+// remembered in two different ways.
+//
+// The palettes themselves: CHALK is a cool grey-cream paper, EMBER a warm
+// brown charcoal. Both are held to WCAG by test/m236_theme_test.dart, at the
+// bar each role actually answers to: 4.5:1 for anything read as TEXT, 3:1
+// (WCAG 1.4.11, non-text contrast) for the graphical states that are meant to
+// recede — construction geometry, an unconstrained curve, a disabled control.
+// Those are deliberately quiet and forcing them to 4.5 would destroy the very
+// distinction they exist to make.
+//
+// The accent is a petrol teal in both schemes and the ANNOTATION colour is
+// copper: everything the app owns is teal, everything the drawing says is
+// copper, and the two never trade places.
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 
+import 'log.dart';
+
+/// Every colour the app paints, as one value.
+///
+/// Fields are grouped the way the UI is: chrome first, then the model browser,
+/// tab bar and home gallery, then the viewport — the sketch, its annotations
+/// and the shaded solid. A new colour belongs HERE, never inline in a painter;
+/// that rule is the whole point of the file.
+@immutable
+class Palette {
+  /// Shown in the theme switcher. Not a debug label.
+  final String name;
+
+  /// Drives the Material [ThemeData] and, through it, the system text
+  /// selection handles and the keyboard's appearance.
+  final Brightness brightness;
+
+  // ---- chrome ----
+  final Color bg; // app shell behind the ribbon
+  final Color panel; // panels, ribbon body
+  final Color fly; // flyouts, dialog fields: RECESSED on dark, RAISED on light
+  final Color flyHov; // the same surface, hovered
+  final Color text; // primary text
+  final Color dim; // secondary text and labels
+  final Color sep; // hard separator, darkest/lightest hairline
+  final Color accent; // selection, active tab, focus ring
+  final Color hover; // halo under hovered / pre-selected geometry
+  final Color viewport; // the drawing ground
+  final Color ribbonTop; // ribbon active-tab gradient, top stop
+  final Color ribbonBottom; // ... and bottom stop
+  final Color panelSep; // soft separator inside a panel, control borders
+
+  // ---- model browser ----
+  final Color mbBg;
+  final Color mbHead;
+  final Color mbBorder;
+  final Color mbHeadBorder;
+  final Color mbText;
+  final Color mbDim;
+  final Color mbDimmed;
+  final Color mbActiveBg;
+  final Color mbActiveOutline;
+  final Color mbHover;
+
+  // ---- tab bar ----
+  final Color tabbarBg;
+  final Color tabbarBorder;
+  final Color tabBg;
+  final Color tabOnBg;
+  final Color tabText;
+  final Color tabUnderline;
+
+  // ---- home ----
+  final Color cardBg;
+  final Color cardBorder;
+  final Color cardHoverBorder;
+  final Color homeH1;
+  final Color cardName;
+  final Color cardDate;
+
+  // ---- home gallery (Procreate-style start page) ----
+  final Color galleryBg;
+  final Color galleryThumb;
+  final Color galleryTitle;
+  final Color galleryActionBg;
+  final Color galleryActionBgHover;
+  final Color cardShadow;
+
+  // ---- edit-mode sketch overlay ----
+  final Color rawGrey; // unconstrained sketch geometry
+  final Color projRef; // projected / reference geometry (copper)
+  final Color projRefEdge; // ... its darker edge
+  final Color finishGreen; // the "finish sketch" affordance
+
+  // ---- neutral overlays (hover states, hairlines) ----
+  //
+  // White on dark, BLACK on light. A white 6%-overlay is invisible on cream,
+  // which is exactly the bug a light mode ships with when these are constants.
+  final Color hover6;
+  final Color hover7;
+  final Color hover8;
+  final Color border10;
+  final Color conActiveBg;
+  final Color conActiveBorder;
+
+  // ---- dialogs and controls ----
+  final Color scrim; // behind a modal
+  final Color shadow; // drop shadow under a floating panel
+  final Color chipBg; // an active chip / segment, accent-tinted fill
+  final Color chipStrong; // a primary button at rest
+  final Color onAccent; // text and icons ON chipStrong or accent
+  final Color disabled; // disabled text and icons
+  final Color disabledFill; // a disabled primary button
+  final Color warn; // an incomplete profile, a non-fatal notice
+  final Color warnText;
+  final Color err; // a conflict, a failed operation: strokes and glyphs
+  /// The same meaning as [err] as a FILLED surface. Separate because the two
+  /// have opposite requirements: [err] has to stay bright enough to read as a
+  /// red line on the viewport, and a fill that bright cannot carry [onAccent]
+  /// text on it.
+  final Color errFill;
+  final Color errText;
+  final Color ok; // a closed profile, a solved sketch
+  final Color okText;
+
+  // ---- viewport: the sketch ----
+  final Color ink; // a sketch curve, and sketch text
+  final Color inkDim; // the same, on a layer that is not being edited
+  final Color constr; // construction geometry
+  final Color snapOk; // snap markers and alignment guides
+  final Color grid; // grid dots
+  final Color axis; // the world axes through the origin
+  final Color node; // a draggable grip / control point
+
+  // Inventor colours a sketch entity by its CONSTRAINT STATE, and the three
+  // states have to stay tellable apart on both grounds: fully defined reads as
+  // the strongest ink the scheme has, under-constrained keeps its violet (the
+  // one hue neither the accent nor the annotation uses), and anything on a
+  // layer you are not editing drops back to a whisper.
+  final Color dofFull;
+  final Color dofUnder;
+  final Color refDim;
+  final Color dofArrow; // degrees-of-freedom arrows
+  final Color ctrl; // spline control polygon and its points
+
+  // ---- viewport: annotation ----
+  final Color dimLine; // dimension witness lines and arrows
+  final Color dimText; // the value itself
+  final Color dimPlate; // the plate the value sits on
+  final Color dimPlateHot; // ... when the label is hovered
+  final Color hudBg; // the inline value editor's row
+  final Color hudBgHot; // ... focused
+  final Color toastBg; // the transient message strip
+  final Color toastBorder;
+  final Color toastText;
+
+  // ---- viewport: the solid ----
+  final Color solid; // shaded face base tone
+  final Color solidEdge; // a B-Rep edge
+  final Color edgeAccent; // a hovered or selected B-Rep edge (copper)
+  final Color faceHighlight; // a hovered or selected face
+  final Color previewFill; // the live extrude preview
+  final Color previewEdge;
+  final Color okSolid; // a committed boolean, the "good" solid tint
+  final Color okSolidBright;
+  final Color axisX;
+  final Color axisY;
+  final Color axisZ;
+  final Color cubeFace; // ViewCube face at rest
+  final Color cubeFaceTop; // ... the lit one
+  final Color cubeFaceDim; // ... the shaded one
+  final Color cubeEdge;
+  final Color cubeText;
+
+  const Palette({
+    required this.name,
+    required this.brightness,
+    required this.bg,
+    required this.panel,
+    required this.fly,
+    required this.flyHov,
+    required this.text,
+    required this.dim,
+    required this.sep,
+    required this.accent,
+    required this.hover,
+    required this.viewport,
+    required this.ribbonTop,
+    required this.ribbonBottom,
+    required this.panelSep,
+    required this.mbBg,
+    required this.mbHead,
+    required this.mbBorder,
+    required this.mbHeadBorder,
+    required this.mbText,
+    required this.mbDim,
+    required this.mbDimmed,
+    required this.mbActiveBg,
+    required this.mbActiveOutline,
+    required this.mbHover,
+    required this.tabbarBg,
+    required this.tabbarBorder,
+    required this.tabBg,
+    required this.tabOnBg,
+    required this.tabText,
+    required this.tabUnderline,
+    required this.cardBg,
+    required this.cardBorder,
+    required this.cardHoverBorder,
+    required this.homeH1,
+    required this.cardName,
+    required this.cardDate,
+    required this.galleryBg,
+    required this.galleryThumb,
+    required this.galleryTitle,
+    required this.galleryActionBg,
+    required this.galleryActionBgHover,
+    required this.cardShadow,
+    required this.rawGrey,
+    required this.projRef,
+    required this.projRefEdge,
+    required this.finishGreen,
+    required this.hover6,
+    required this.hover7,
+    required this.hover8,
+    required this.border10,
+    required this.conActiveBg,
+    required this.conActiveBorder,
+    required this.scrim,
+    required this.shadow,
+    required this.chipBg,
+    required this.chipStrong,
+    required this.onAccent,
+    required this.disabled,
+    required this.disabledFill,
+    required this.warn,
+    required this.warnText,
+    required this.err,
+    required this.errFill,
+    required this.errText,
+    required this.ok,
+    required this.okText,
+    required this.ink,
+    required this.inkDim,
+    required this.constr,
+    required this.snapOk,
+    required this.grid,
+    required this.axis,
+    required this.node,
+    required this.dofFull,
+    required this.dofUnder,
+    required this.refDim,
+    required this.dofArrow,
+    required this.ctrl,
+    required this.dimLine,
+    required this.dimText,
+    required this.dimPlate,
+    required this.dimPlateHot,
+    required this.hudBg,
+    required this.hudBgHot,
+    required this.toastBg,
+    required this.toastBorder,
+    required this.toastText,
+    required this.solid,
+    required this.solidEdge,
+    required this.edgeAccent,
+    required this.faceHighlight,
+    required this.previewFill,
+    required this.previewEdge,
+    required this.okSolid,
+    required this.okSolidBright,
+    required this.axisX,
+    required this.axisY,
+    required this.axisZ,
+    required this.cubeFace,
+    required this.cubeFaceTop,
+    required this.cubeFaceDim,
+    required this.cubeEdge,
+    required this.cubeText,
+  });
+}
+
+/// EMBER — warm brown charcoal. The dark scheme.
+const Palette kEmber = Palette(
+  name: 'Ember',
+  brightness: Brightness.dark,
+  bg: Color(0xFF24211D),
+  panel: Color(0xFF2C2823),
+  fly: Color(0xFF1B1815),
+  flyHov: Color(0xFF35302A),
+  text: Color(0xFFEDE6D9),
+  dim: Color(0xFFA09686),
+  sep: Color(0xFF141210),
+  accent: Color(0xFF2FA9A2),
+  hover: Color(0xFF74D6CE),
+  viewport: Color(0xFF201D19),
+  ribbonTop: Color(0xD92FA9A2),
+  ribbonBottom: Color(0x732FA9A2),
+  panelSep: Color(0xFF3A342D),
+  mbBg: Color(0xFF2A2621),
+  mbHead: Color(0xFF322D27),
+  mbBorder: Color(0xFF141210),
+  mbHeadBorder: Color(0xFF1B1815),
+  mbText: Color(0xFFE6DFD2),
+  mbDim: Color(0xFFA09686),
+  mbDimmed: Color(0xFF8E8578),
+  mbActiveBg: Color(0xFF3E3831),
+  mbActiveOutline: Color(0xFF4E8C88),
+  mbHover: Color(0x14E8DCC8),
+  tabbarBg: Color(0xFF1B1815),
+  tabbarBorder: Color(0xFF100E0C),
+  tabBg: Color(0xFF24211D),
+  tabOnBg: Color(0xFF2C2823),
+  tabText: Color(0xFFA09686),
+  tabUnderline: Color(0xFF2FA9A2),
+  cardBg: Color(0xFF2C2823),
+  cardBorder: Color(0xFF1B1815),
+  cardHoverBorder: Color(0xFF2FA9A2),
+  homeH1: Color(0xFFF2ECE0),
+  cardName: Color(0xFFEDE6D9),
+  cardDate: Color(0xFFA09686),
+  galleryBg: Color(0xFF1F1C18),
+  galleryThumb: Color(0xFF201D19),
+  galleryTitle: Color(0xFFF5F0E6),
+  galleryActionBg: Color(0x1FFFFFFF),
+  galleryActionBgHover: Color(0x33FFFFFF),
+  cardShadow: Color(0x66000000),
+  rawGrey: Color(0xFF7A7266),
+  projRef: Color(0xFFD98A4A),
+  projRefEdge: Color(0xFF8A5526),
+  finishGreen: Color(0xFF4E9B4A),
+  hover6: Color(0x0FFFFFFF),
+  hover7: Color(0x12FFFFFF),
+  hover8: Color(0x14FFFFFF),
+  border10: Color(0x1AFFFFFF),
+  conActiveBg: Color(0x2E2FA9A2),
+  conActiveBorder: Color(0x8C2FA9A2),
+  scrim: Color(0x73000000),
+  shadow: Color(0x8C000000),
+  chipBg: Color(0xFF1E4A48),
+  chipStrong: Color(0xFF237E79),
+  onAccent: Color(0xFFF2FBFA),
+  disabled: Color(0xFF7A7267),
+  disabledFill: Color(0xFF232E2C),
+  warn: Color(0xFFC87A3C),
+  warnText: Color(0xFFE8A96A),
+  err: Color(0xFFF0675F),
+  errFill: Color(0xFFB4322C),
+  errText: Color(0xFFF0A09A),
+  ok: Color(0xFF4E9B4A),
+  okText: Color(0xFF7FD06F),
+  ink: Color(0xFFEDE6D9),
+  inkDim: Color(0x66EDE6D9),
+  constr: Color(0xFF8FB6B3),
+  snapOk: Color(0xFF6FC96A),
+  grid: Color(0xFF3A342D),
+  axis: Color(0xFF4A443B),
+  node: Color(0xFF2FA9A2),
+  dofFull: Color(0xFFFBF7EF),
+  dofUnder: Color(0xFFA79BF7),
+  refDim: Color(0xFF5C5851),
+  dofArrow: Color(0xFFEFD37A),
+  ctrl: Color(0xFFE8C060),
+  dimLine: Color(0xFFB9AE96),
+  dimText: Color(0xFFE9DFC9),
+  dimPlate: Color(0xCC201D19),
+  dimPlateHot: Color(0xCC2E3A38),
+  hudBg: Color(0xE01F1C18),
+  hudBgHot: Color(0xF02A3634),
+  toastBg: Color(0xE6402F1F),
+  toastBorder: Color(0xFF8A6A3A),
+  toastText: Color(0xFFF2D6A2),
+  solid: Color(0xFF9A9384),
+  solidEdge: Color(0xFF17140F),
+  edgeAccent: Color(0xFFD98A4A),
+  faceHighlight: Color(0xFF45C8C0),
+  previewFill: Color(0xFFEA9E5C),
+  previewEdge: Color(0xE6F0A868),
+  okSolid: Color(0xFF4BC96A),
+  okSolidBright: Color(0xFF9AE8A6),
+  axisX: Color(0xFFE06A56),
+  axisY: Color(0xFF6FC96A),
+  axisZ: Color(0xFF5A93D8),
+  cubeFace: Color(0xFFE3DCCE),
+  cubeFaceTop: Color(0xFFF6F1E7),
+  cubeFaceDim: Color(0xFFC9C1B0),
+  cubeEdge: Color(0xFFA79E8C),
+  cubeText: Color(0xFF4A443B),
+);
+
+/// CHALK — cool grey-cream paper. The light scheme.
+///
+/// Note where it is NOT a mechanical inversion of [kEmber]: [fly] is RAISED
+/// here (a dialog field is lighter than its panel, not darker), the neutral
+/// overlays are black rather than white, and the shaded solid keeps a cool
+/// grey so a steel part still reads as steel on warm paper.
+const Palette kChalk = Palette(
+  name: 'Chalk',
+  brightness: Brightness.light,
+  bg: Color(0xFFE2E2DF),
+  panel: Color(0xFFECECE9),
+  fly: Color(0xFFF6F6F3),
+  flyHov: Color(0xFFE4E4E0),
+  text: Color(0xFF1F2224),
+  dim: Color(0xFF5C6165),
+  sep: Color(0xFFC9CAC6),
+  accent: Color(0xFF0F6A70),
+  hover: Color(0xFF7FC9C4),
+  viewport: Color(0xFFFDFDFB),
+  ribbonTop: Color(0xD90F6A70),
+  ribbonBottom: Color(0x730F6A70),
+  panelSep: Color(0xFFD3D4D0),
+  mbBg: Color(0xFFECECE9),
+  mbHead: Color(0xFFE2E2DF),
+  mbBorder: Color(0xFFC2C3BF),
+  mbHeadBorder: Color(0xFFD3D4D0),
+  mbText: Color(0xFF1F2224),
+  mbDim: Color(0xFF5C6165),
+  mbDimmed: Color(0xFF767B7F),
+  mbActiveBg: Color(0xFFD2E3E1),
+  mbActiveOutline: Color(0xFF4E9490),
+  mbHover: Color(0x0A000000),
+  tabbarBg: Color(0xFFD6D7D3),
+  tabbarBorder: Color(0xFFC2C3BF),
+  tabBg: Color(0xFFDEDEDA),
+  tabOnBg: Color(0xFFECECE9),
+  tabText: Color(0xFF545A5E),
+  tabUnderline: Color(0xFF0F6A70),
+  cardBg: Color(0xFFF6F6F3),
+  cardBorder: Color(0xFFD3D4D0),
+  cardHoverBorder: Color(0xFF0F6A70),
+  homeH1: Color(0xFF16181A),
+  cardName: Color(0xFF1F2224),
+  cardDate: Color(0xFF63686C),
+  galleryBg: Color(0xFFDCDCD8),
+  galleryThumb: Color(0xFFFDFDFB),
+  galleryTitle: Color(0xFF16181A),
+  galleryActionBg: Color(0x14000000),
+  galleryActionBgHover: Color(0x24000000),
+  cardShadow: Color(0x33000000),
+  rawGrey: Color(0xFF8A9095),
+  projRef: Color(0xFFA0561F),
+  projRefEdge: Color(0xFF6E3B15),
+  finishGreen: Color(0xFF26762F),
+  hover6: Color(0x0A000000),
+  hover7: Color(0x0D000000),
+  hover8: Color(0x12000000),
+  border10: Color(0x1A000000),
+  conActiveBg: Color(0x240F6A70),
+  conActiveBorder: Color(0x8C0F6A70),
+  scrim: Color(0x40000000),
+  shadow: Color(0x33000000),
+  chipBg: Color(0xFFD2E3E1),
+  chipStrong: Color(0xFF0F6A70),
+  onAccent: Color(0xFFF4FAF9),
+  disabled: Color(0xFF878D91),
+  disabledFill: Color(0xFFE0E4E3),
+  warn: Color(0xFFA0561F),
+  warnText: Color(0xFF7A4116),
+  err: Color(0xFFAB2A3C),
+  errFill: Color(0xFFAB2A3C),
+  errText: Color(0xFF8A2030),
+  ok: Color(0xFF26762F),
+  okText: Color(0xFF1D5C24),
+  ink: Color(0xFF1F2224),
+  inkDim: Color(0x661F2224),
+  constr: Color(0xFF7B8B9C),
+  snapOk: Color(0xFF26762F),
+  grid: Color(0xFFD3D4D0),
+  axis: Color(0xFFB4B6B2),
+  node: Color(0xFF0F6A70),
+  dofFull: Color(0xFF16181A),
+  dofUnder: Color(0xFF5A4CC4),
+  refDim: Color(0xFFA8ADB0),
+  dofArrow: Color(0xFF8A6A1E),
+  ctrl: Color(0xFF8A5F1E),
+  dimLine: Color(0xFF6E7A5E),
+  dimText: Color(0xFF3C4433),
+  dimPlate: Color(0xCCFDFDFB),
+  dimPlateHot: Color(0xCCD8E8E6),
+  hudBg: Color(0xF0F6F6F3),
+  hudBgHot: Color(0xF0DCEBE9),
+  toastBg: Color(0xF5F3E4D2),
+  toastBorder: Color(0xFFC79A62),
+  toastText: Color(0xFF5A3A16),
+  solid: Color(0xFFC0C4C7),
+  solidEdge: Color(0xFF55595C),
+  edgeAccent: Color(0xFFA0561F),
+  faceHighlight: Color(0xFF158C8C),
+  previewFill: Color(0xFFB4652A),
+  previewEdge: Color(0xE68F4E20),
+  okSolid: Color(0xFF2E8B3E),
+  okSolidBright: Color(0xFF1D6B2A),
+  axisX: Color(0xFFB3332A),
+  axisY: Color(0xFF26762F),
+  axisZ: Color(0xFF1F5C9E),
+  cubeFace: Color(0xFFFAFAF8),
+  cubeFaceTop: Color(0xFFFFFFFF),
+  cubeFaceDim: Color(0xFFE4E4E0),
+  cubeEdge: Color(0xFF9AA0A3),
+  cubeText: Color(0xFF3C4043),
+);
+
+
+/// What the user picked in the appearance switch.
+enum AppThemeMode {
+  /// Follow the iPad's own appearance setting. The default.
+  system,
+  light,
+  dark;
+
+  /// The name as it is stored. NOT shown to anyone — the visible names come
+  /// from the ARB, because this app is written in German.
+  String get id => name;
+
+  static AppThemeMode? byId(Object? s) {
+    for (final m in AppThemeMode.values) {
+      if (m.id == s) return m;
+    }
+    return null;
+  }
+}
+
+/// Where the appearance choice survives a restart.
+///
+/// The same file, the same shape and the same swallow-the-error rule as
+/// [LocaleStore] — it merges into `settings.json` rather than owning it, so
+/// the language preference sitting next to it is never dropped.
+class ThemeStore {
+  final Directory dir;
+  const ThemeStore(this.dir);
+
+  static const String fileName = 'settings.json';
+  static const String key = 'theme';
+
+  File get file => File('${dir.path}/$fileName');
+
+  AppThemeMode? load() {
+    try {
+      final f = file;
+      if (!f.existsSync()) return null;
+      final raw = jsonDecode(f.readAsStringSync());
+      if (raw is! Map) return null;
+      return AppThemeMode.byId(raw[key]);
+    } catch (e) {
+      // A corrupt settings file costs an appearance preference and nothing
+      // else. It must not cost the launch.
+      Log.w('theme', 'could not read the appearance setting: $e');
+      return null;
+    }
+  }
+
+  void save(AppThemeMode m) {
+    try {
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      Map<String, Object?> data = <String, Object?>{};
+      final f = file;
+      if (f.existsSync()) {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          data = <String, Object?>{
+            for (final e in raw.entries) '${e.key}': e.value
+          };
+        }
+      }
+      data[key] = m.id;
+      f.writeAsStringSync(jsonEncode(data));
+    } catch (e) {
+      Log.w('theme', 'could not remember the appearance setting: $e');
+    }
+  }
+}
+
+/// The design tokens, read at paint time.
+///
+/// Every name here existed before M221 as a `static const`; they are getters
+/// now so the palette can change while the app runs. That is the ONE reason a
+/// `const` in front of a widget expression that mentions `T.` had to go.
 class T {
-  // :root palette
-  static const bg = Color(0xFF2A2E33);
-  static const panel = Color(0xFF292D33);
-  static const fly = Color(0xFF212429);
-  static const flyHov = Color(0xFF31363D);
-  static const text = Color(0xFFDDE0E3);
-  static const dim = Color(0xFF9EA4AA);
-  static const sep = Color(0xFF131518);
-  static const blue = Color(0xFF3D9BE9);
-  // Halo under hovered / picked geometry (Inventor's pre-select highlight).
-  static const hover = Color(0xFF7FC8FF);
+  T._();
 
-  static const viewport = Color(0xFF212830);
-  static const ribbonTop = Color(0xD92F7BD6); // rgba(47,123,214,.85)
-  static const ribbonBottom = Color(0x732F7BD6); // rgba(47,123,214,.45)
-  static const panelSep = Color(0xFF3A3F45);
+  /// The active palette, as something the app root can listen to.
+  ///
+  /// Mirrors [L.locale]: `PrototypeApp` wraps itself in a
+  /// ValueListenableBuilder on this, so a switch rebuilds the whole tree and
+  /// every CustomPainter with it. Nothing is torn down and the open sketch
+  /// stays open — the difference between a theme switch and a restart.
+  static final ValueNotifier<Palette> scheme = ValueNotifier<Palette>(kEmber);
 
-  // model browser
-  static const mbBg = Color(0xFF262A2F);
-  static const mbHead = Color(0xFF2E3237);
-  static const mbBorder = Color(0xFF16181B);
-  static const mbHeadBorder = Color(0xFF1A1D20);
-  static const mbText = Color(0xFFD5D8DB);
-  static const mbDim = Color(0xFF9AA0A6);
-  static const mbDimmed = Color(0xFF8B9197);
-  static const mbActiveBg = Color(0xFF3A4149);
-  static const mbActiveOutline = Color(0xFF5A88B5);
-  static const mbHover = Color(0x14A0C8FF); // rgba(160,200,255,.08)
+  static Palette get palette => scheme.value;
 
-  // tab bar
-  static const tabbarBg = Color(0xFF14171B);
-  static const tabbarBorder = Color(0xFF0D0F12);
-  static const tabBg = Color(0xFF1E2227);
-  static const tabOnBg = Color(0xFF262B31);
-  static const tabText = Color(0xFFAEB3B9);
-  static const tabUnderline = Color(0xFF2F7BD6);
+  /// Pins a palette. For tests, and for [_apply].
+  @visibleForTesting
+  static set palette(Palette p) => scheme.value = p;
 
-  // home
-  static const cardBg = Color(0xFF24282D);
-  static const cardBorder = Color(0xFF1A1D20);
-  static const cardHoverBorder = Color(0xFF2F7BD6);
-  static const homeH1 = Color(0xFFE8EAEC);
-  static const cardName = Color(0xFFE2E5E8);
-  static const cardDate = Color(0xFF8B9197);
+  static bool get isDark => palette.brightness == Brightness.dark;
 
-  // home gallery (Procreate-style start page)
-  static const galleryBg = Color(0xFF1B1E22); // darker canvas behind cards
-  static const galleryThumb = Color(0xFF212830); // blank-card canvas (= viewport)
-  static const galleryTitle = Color(0xFFF2F4F6); // big bold gallery title
-  static const galleryActionBg = Color(0x1FFFFFFF); // subtle round + button
-  static const galleryActionBgHover = Color(0x33FFFFFF);
-  static const cardShadow = Color(0x66000000); // drop shadow under thumbs
+  // ---- the switch ----
 
-  // edit-mode sketch overlay
-  static const rawGrey = Color(0xFF6B7178);
-  static const projYellow = Color(0xFFE8C63F);
-  static const projYellowEdge = Color(0xFF9A8320);
-  static const finishGreen = Color(0xFF3FA43C);
+  static AppThemeMode _mode = AppThemeMode.system;
+  static AppThemeMode get mode => _mode;
 
-  static const hover6 = Color(0x0FFFFFFF); // rgba(255,255,255,.06)
-  static const hover7 = Color(0x12FFFFFF); // .07
-  static const hover8 = Color(0x14FFFFFF); // .08
-  static const border10 = Color(0x1AFFFFFF); // .10
-  static const conActiveBg = Color(0x2E3D9BE9); // rgba(61,155,233,.18)
-  static const conActiveBorder = Color(0x8C3D9BE9); // .55
+  static ThemeStore? _store;
+
+  /// The brightness the OS reports. A field rather than a live read so the
+  /// resolution behaves identically in tests, where there is no platform.
+  static Brightness _platform = Brightness.dark;
+
+  /// Start following the iPad's own light/dark setting.
+  ///
+  /// Called from `main()` — unlike the STORE, this is only a synchronous
+  /// property read and a callback registration, and it has to happen before
+  /// the first frame or the app paints one scheme and snaps to the other.
+  static void followPlatform() {
+    _platform = PlatformDispatcher.instance.platformBrightness;
+    PlatformDispatcher.instance.onPlatformBrightnessChanged = () {
+      final b = PlatformDispatcher.instance.platformBrightness;
+      if (b == _platform) return;
+      _platform = b;
+      if (_mode == AppThemeMode.system) _apply();
+    };
+    _apply();
+  }
+
+  /// Point the switch at a settings file and adopt whatever it remembers.
+  ///
+  /// Called from [AppState.init], i.e. off the launch path, for the same
+  /// reason [L.attachStore] is.
+  static void attachStore(ThemeStore store) {
+    _store = store;
+    final saved = store.load();
+    if (saved != null) {
+      _mode = saved;
+      _apply();
+    }
+  }
+
+  /// Switch scheme, and remember it. A preference that does not survive the
+  /// app being killed is not a preference.
+  static void set(AppThemeMode m) {
+    if (m == _mode) return;
+    _mode = m;
+    _apply();
+    _store?.save(m);
+  }
+
+  static Palette get _resolved => switch (_mode) {
+        AppThemeMode.light => kChalk,
+        AppThemeMode.dark => kEmber,
+        AppThemeMode.system =>
+          _platform == Brightness.light ? kChalk : kEmber,
+      };
+
+  static void _apply() {
+    final p = _resolved;
+    if (identical(p, scheme.value)) return;
+    scheme.value = p;
+    Log.i('theme', 'palette = ${p.name} (mode=${_mode.id})');
+  }
+
+  /// Resets the switch so one test cannot leak its palette into the next.
+  @visibleForTesting
+  static void resetForTest() {
+    _mode = AppThemeMode.system;
+    _platform = Brightness.dark;
+    _store = null;
+    scheme.value = kEmber;
+  }
+
+  static Color get bg => scheme.value.bg;
+  static Color get panel => scheme.value.panel;
+  static Color get fly => scheme.value.fly;
+  static Color get flyHov => scheme.value.flyHov;
+  static Color get text => scheme.value.text;
+  static Color get dim => scheme.value.dim;
+  static Color get sep => scheme.value.sep;
+  static Color get accent => scheme.value.accent;
+  static Color get hover => scheme.value.hover;
+  static Color get viewport => scheme.value.viewport;
+  static Color get ribbonTop => scheme.value.ribbonTop;
+  static Color get ribbonBottom => scheme.value.ribbonBottom;
+  static Color get panelSep => scheme.value.panelSep;
+
+  static Color get mbBg => scheme.value.mbBg;
+  static Color get mbHead => scheme.value.mbHead;
+  static Color get mbBorder => scheme.value.mbBorder;
+  static Color get mbHeadBorder => scheme.value.mbHeadBorder;
+  static Color get mbText => scheme.value.mbText;
+  static Color get mbDim => scheme.value.mbDim;
+  static Color get mbDimmed => scheme.value.mbDimmed;
+  static Color get mbActiveBg => scheme.value.mbActiveBg;
+  static Color get mbActiveOutline => scheme.value.mbActiveOutline;
+  static Color get mbHover => scheme.value.mbHover;
+
+  static Color get tabbarBg => scheme.value.tabbarBg;
+  static Color get tabbarBorder => scheme.value.tabbarBorder;
+  static Color get tabBg => scheme.value.tabBg;
+  static Color get tabOnBg => scheme.value.tabOnBg;
+  static Color get tabText => scheme.value.tabText;
+  static Color get tabUnderline => scheme.value.tabUnderline;
+
+  static Color get cardBg => scheme.value.cardBg;
+  static Color get cardBorder => scheme.value.cardBorder;
+  static Color get cardHoverBorder => scheme.value.cardHoverBorder;
+  static Color get homeH1 => scheme.value.homeH1;
+  static Color get cardName => scheme.value.cardName;
+  static Color get cardDate => scheme.value.cardDate;
+
+  static Color get galleryBg => scheme.value.galleryBg;
+  static Color get galleryThumb => scheme.value.galleryThumb;
+  static Color get galleryTitle => scheme.value.galleryTitle;
+  static Color get galleryActionBg => scheme.value.galleryActionBg;
+  static Color get galleryActionBgHover => scheme.value.galleryActionBgHover;
+  static Color get cardShadow => scheme.value.cardShadow;
+
+  static Color get rawGrey => scheme.value.rawGrey;
+  static Color get projRef => scheme.value.projRef;
+  static Color get projRefEdge => scheme.value.projRefEdge;
+  static Color get finishGreen => scheme.value.finishGreen;
+
+  static Color get hover6 => scheme.value.hover6;
+  static Color get hover7 => scheme.value.hover7;
+  static Color get hover8 => scheme.value.hover8;
+  static Color get border10 => scheme.value.border10;
+  static Color get conActiveBg => scheme.value.conActiveBg;
+  static Color get conActiveBorder => scheme.value.conActiveBorder;
+
+  static Color get scrim => scheme.value.scrim;
+  static Color get shadow => scheme.value.shadow;
+  static Color get chipBg => scheme.value.chipBg;
+  static Color get chipStrong => scheme.value.chipStrong;
+  static Color get onAccent => scheme.value.onAccent;
+  static Color get disabled => scheme.value.disabled;
+  static Color get disabledFill => scheme.value.disabledFill;
+  static Color get warn => scheme.value.warn;
+  static Color get warnText => scheme.value.warnText;
+  static Color get err => scheme.value.err;
+  static Color get errFill => scheme.value.errFill;
+  static Color get errText => scheme.value.errText;
+  static Color get ok => scheme.value.ok;
+  static Color get okText => scheme.value.okText;
+
+  static Color get ink => scheme.value.ink;
+  static Color get inkDim => scheme.value.inkDim;
+  static Color get constr => scheme.value.constr;
+  static Color get snapOk => scheme.value.snapOk;
+  static Color get grid => scheme.value.grid;
+  static Color get axis => scheme.value.axis;
+  static Color get node => scheme.value.node;
+  static Color get dofFull => scheme.value.dofFull;
+  static Color get dofUnder => scheme.value.dofUnder;
+  static Color get refDim => scheme.value.refDim;
+  static Color get dofArrow => scheme.value.dofArrow;
+  static Color get ctrl => scheme.value.ctrl;
+
+  static Color get dimLine => scheme.value.dimLine;
+  static Color get dimText => scheme.value.dimText;
+  static Color get dimPlate => scheme.value.dimPlate;
+  static Color get dimPlateHot => scheme.value.dimPlateHot;
+  static Color get hudBg => scheme.value.hudBg;
+  static Color get hudBgHot => scheme.value.hudBgHot;
+  static Color get toastBg => scheme.value.toastBg;
+  static Color get toastBorder => scheme.value.toastBorder;
+  static Color get toastText => scheme.value.toastText;
+
+  static Color get solid => scheme.value.solid;
+  static Color get solidEdge => scheme.value.solidEdge;
+  static Color get edgeAccent => scheme.value.edgeAccent;
+  static Color get faceHighlight => scheme.value.faceHighlight;
+  static Color get previewFill => scheme.value.previewFill;
+  static Color get previewEdge => scheme.value.previewEdge;
+  static Color get okSolid => scheme.value.okSolid;
+  static Color get okSolidBright => scheme.value.okSolidBright;
+  static Color get axisX => scheme.value.axisX;
+  static Color get axisY => scheme.value.axisY;
+  static Color get axisZ => scheme.value.axisZ;
+  static Color get cubeFace => scheme.value.cubeFace;
+  static Color get cubeFaceTop => scheme.value.cubeFaceTop;
+  static Color get cubeFaceDim => scheme.value.cubeFaceDim;
+  static Color get cubeEdge => scheme.value.cubeEdge;
+  static Color get cubeText => scheme.value.cubeText;
 
   static const fontFamily = '.SF UI Text'; // system-ui on iOS (mock fallback)
 }
+
+
+/// The Material theme, derived from [Palette] so a scheme change carries the
+/// framework's own surfaces (text selection, cursors, dialogs) with it.
+ThemeData materialTheme(Palette p) => ThemeData(
+      brightness: p.brightness,
+      scaffoldBackgroundColor: p.viewport,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: p.accent,
+        brightness: p.brightness,
+        surface: p.panel,
+      ),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: p.accent,
+        selectionColor: p.accent.withValues(alpha: 0.35),
+        selectionHandleColor: p.accent,
+      ),
+      tooltipTheme: TooltipThemeData(
+        waitDuration: const Duration(milliseconds: 500),
+        textStyle: ts(11.5, p.onAccent),
+        decoration: BoxDecoration(
+          color: p.fly,
+          border: Border.all(color: p.sep),
+        ),
+      ),
+    );
 
 TextStyle ts(double size, Color color,
         {FontWeight w = FontWeight.normal, double height = 1.1}) =>

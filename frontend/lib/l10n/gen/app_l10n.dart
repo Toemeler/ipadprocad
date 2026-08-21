@@ -109,6 +109,30 @@ abstract class AppL10n {
   /// **'Sprache: Deutsch'**
   String get languageMenuItem;
 
+  /// Eintrag im "+"-Menue der Galerie. Nennt das Schema, auf das er umschaltet — wie die Sprachzeile eine Aktion, keine Statuszeile.
+  ///
+  /// In de, this message translates to:
+  /// **'Darstellung: {scheme}'**
+  String appearanceMenuItem(String scheme);
+
+  /// Darstellung folgt der iPad-Einstellung.
+  ///
+  /// In de, this message translates to:
+  /// **'System'**
+  String get appearanceSystem;
+
+  /// Das helle Schema (Chalk): kuehles graues Cremepapier.
+  ///
+  /// In de, this message translates to:
+  /// **'Hell'**
+  String get appearanceLight;
+
+  /// Das dunkle Schema (Ember): warme braune Kohle.
+  ///
+  /// In de, this message translates to:
+  /// **'Dunkel'**
+  String get appearanceDark;
+
   /// Bestaetigen. In beiden Sprachen OK — im Deutschen ebenso ueblich wie im Englischen.
   ///
   /// In de, this message translates to:

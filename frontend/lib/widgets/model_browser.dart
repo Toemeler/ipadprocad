@@ -612,11 +612,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
               constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
               padding: const EdgeInsets.symmetric(vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF212429),
+                color: T.fly,
                 border: Border.all(color: T.sep),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                      color: Color(0x8C000000),
+                      color: T.shadow,
                       blurRadius: 22,
                       offset: Offset(0, 8))
                 ],
@@ -720,11 +720,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
               constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
               padding: const EdgeInsets.symmetric(vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF212429),
+                color: T.fly,
                 border: Border.all(color: T.sep),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                      color: Color(0x8C000000),
+                      color: T.shadow,
                       blurRadius: 22,
                       offset: Offset(0, 8))
                 ],
@@ -1093,7 +1093,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         // for platforms without it. A colour here would sit on top of the
         // glass and hide it.
         color: GlassPanel.isSupported ? null : T.mbBg,
-        border: const Border(right: BorderSide(color: T.mbBorder)),
+        border: Border(right: BorderSide(color: T.mbBorder)),
       ),
       child: Stack(children: [
         // The glass surface. IgnorePointer inside GlassPanel: every gesture in
@@ -1106,7 +1106,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: T.mbHead,
             border: Border(bottom: BorderSide(color: T.mbHeadBorder)),
           ),
@@ -1114,7 +1114,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
             Container(
               height: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: T.mbBg,
                 border: Border(right: BorderSide(color: T.mbHeadBorder)),
               ),
@@ -1285,7 +1285,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     );
     Widget out = Container(
       key: _bodyKeyFor(bodyName),
-      color: hot ? T.blue.withValues(alpha: 0.28) : null,
+      color: hot ? T.accent.withValues(alpha: 0.28) : null,
       child: row,
     );
     if (picking) {
@@ -1549,7 +1549,7 @@ class _TreeRowState extends State<_TreeRow> {
                 width: 11,
                 child: Text(widget.exp!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10, color: T.mbDim, fontFamily: 'Menlo')),
               ),
             const SizedBox(width: 6),
@@ -1557,7 +1557,7 @@ class _TreeRowState extends State<_TreeRow> {
             const SizedBox(width: 6),
             Expanded(
               child: Text(widget.label,
-                  style: ts(12.5, widget.active ? Colors.white : T.mbText),
+                  style: ts(12.5, widget.active ? T.text : T.mbText),
                   overflow: TextOverflow.ellipsis),
             ),
             if (widget.trailing != null) widget.trailing!,
@@ -1594,7 +1594,7 @@ class _CtxRowState extends State<_CtxRow> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Text(widget.label,
               style:
-                  ts(12.5, widget.danger ? const Color(0xFFE05A56) : T.mbText)),
+                  ts(12.5, widget.danger ? T.err : T.mbText)),
         ),
       ),
     );
@@ -1630,7 +1630,7 @@ class _EyeButtonState extends State<_EyeButton> {
             on ? Icons.visibility_outlined : Icons.visibility_off_outlined,
             size: 14,
             color: on
-                ? (_h ? Colors.white : T.mbDim)
+                ? (_h ? T.mbText : T.mbDim)
                 : (_h ? T.mbText : T.mbDimmed),
           ),
         ),
@@ -1653,9 +1653,9 @@ class _LockedMark extends StatelessWidget {
   const _LockedMark();
   @override
   Widget build(BuildContext context) {
-    return const Padding(
+    return Padding(
       padding: EdgeInsets.symmetric(horizontal: 4),
-      child: Icon(Icons.lock_outline, size: 14, color: Color(0xFFD65A56)),
+      child: Icon(Icons.lock_outline, size: 14, color: T.err),
     );
   }
 }

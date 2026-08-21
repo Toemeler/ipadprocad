@@ -465,7 +465,7 @@ class QuickToolsBar extends StatelessWidget {
           height: GlassToolBar.buttonSize,
           margin: const EdgeInsets.only(bottom: GlassToolBar.spacing),
           decoration: BoxDecoration(
-            color: i.selected ? T.blue.withValues(alpha: 0.30) : null,
+            color: i.selected ? T.accent.withValues(alpha: 0.30) : null,
             borderRadius: BorderRadius.circular(GlassToolBar.buttonSize / 2),
           ),
           child: Opacity(
@@ -473,7 +473,7 @@ class QuickToolsBar extends StatelessWidget {
             child: Icon(
               glyphs[i.id] ?? Icons.circle,
               size: 19,
-              color: i.destructive ? const Color(0xFFE5544B) : T.text,
+              color: i.destructive ? T.err : T.text,
             ),
           ),
         ),

@@ -23,7 +23,7 @@ Widget panelSection(String title, bool open, VoidCallback onToggle,
           height: 24,
           margin: const EdgeInsets.fromLTRB(6, 3, 6, 0),
           padding: const EdgeInsets.symmetric(horizontal: 6),
-          color: const Color(0xFF2E3237),
+          color: T.mbHead,
           child: Row(children: [
             Text(open ? '▾' : '▸', style: ts(9, T.dim)),
             const SizedBox(width: 6),
@@ -55,14 +55,14 @@ Widget panelPickField(
     height: 26,
     padding: const EdgeInsets.symmetric(horizontal: 6),
     decoration: BoxDecoration(
-      color: const Color(0xFF212429),
+      color: T.fly,
       border: Border.all(
-          color: active ? T.blue : const Color(0xFF3A3F45),
+          color: active ? T.accent : T.panelSep,
           width: active ? 1.4 : 1),
       borderRadius: BorderRadius.circular(3),
     ),
     child: Row(children: [
-      Icon(icon, size: 13, color: active ? T.blue : T.dim),
+      Icon(icon, size: 13, color: active ? T.accent : T.dim),
       const SizedBox(width: 6),
       Expanded(
           child: Text(label,
@@ -70,8 +70,8 @@ Widget panelPickField(
       if (onClear != null)
         GestureDetector(
           onTap: onClear,
-          child: const Icon(Icons.cancel_outlined,
-              size: 13, color: Color(0xFF9EA4AA)),
+          child: Icon(Icons.cancel_outlined,
+              size: 13, color: T.dim),
         ),
     ]),
   );
@@ -91,8 +91,8 @@ Widget panelValueField(TextEditingController c, String suffix,
         height: 26,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF212429),
-          border: Border.all(color: const Color(0xFF3A3F45)),
+          color: T.fly,
+          border: Border.all(color: T.panelSep),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Row(children: [

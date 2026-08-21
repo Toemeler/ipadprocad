@@ -49,8 +49,11 @@ void main() {
       // M177 — one verb. It is not "Import STEP / DXF" any more, because it
       // also opens the app's own documents from anywhere on the iPad; which
       // of those happens follows from the file the user picks.
+      // M236 (SPEC CHANGE) — the appearance switch joined the language row
+      // for the same reason the language row is here at all: it belongs to
+      // the app rather than to a document, and this is the app's only menu.
       expect(items.map((i) => i.id).toList(),
-          ['2d', '3d', 'import', kLanguageMenuId],
+          ['2d', '3d', 'import', kLanguageMenuId, kAppearanceMenuId],
           reason: 'ids must match the showMenu fallback values');
       // M234 — the language row joined them, LAST and in its own right: it is
       // not a way to get a document, it is the one app-level setting, and the

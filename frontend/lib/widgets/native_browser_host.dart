@@ -10,6 +10,7 @@ import '../app_state.dart';
 import '../menus.dart';
 import '../log.dart';
 import '../part_model.dart';
+import '../theme.dart';
 import 'model_browser.dart';
 import 'native_browser.dart';
 import 'native_prompts.dart';
@@ -204,7 +205,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
                 duration: const Duration(milliseconds: 220),
                 turns: _collapsed ? 0.5 : 0,
                 child: Icon(Icons.chevron_left,
-                    size: 18, color: Colors.white.withValues(alpha: 0.55)),
+                    size: 18, color: T.dim),
               ),
             ),
           ),

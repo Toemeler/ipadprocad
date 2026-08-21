@@ -8,6 +8,23 @@
   "@languageMenuItem": {
     "description": "Eintrag im \"+\"-Menue der Galerie. Zeigt die Sprache, in die er umschaltet — der Eintrag ist eine Aktion, keine Statuszeile."
   },
+  "appearanceMenuItem": "Darstellung: {scheme}",
+  "@appearanceMenuItem": {
+    "description": "Eintrag im \"+\"-Menue der Galerie. Nennt das Schema, auf das er umschaltet — wie die Sprachzeile eine Aktion, keine Statuszeile.",
+    "placeholders": { "scheme": { "type": "String" } }
+  },
+  "appearanceSystem": "System",
+  "@appearanceSystem": {
+    "description": "Darstellung folgt der iPad-Einstellung."
+  },
+  "appearanceLight": "Hell",
+  "@appearanceLight": {
+    "description": "Das helle Schema (Chalk): kuehles graues Cremepapier."
+  },
+  "appearanceDark": "Dunkel",
+  "@appearanceDark": {
+    "description": "Das dunkle Schema (Ember): warme braune Kohle."
+  },
   "ok": "OK",
   "@ok": {
     "description": "Bestaetigen. In beiden Sprachen OK — im Deutschen ebenso ueblich wie im Englischen.",
