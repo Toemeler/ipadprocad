@@ -49,7 +49,16 @@
 // Making all three parametric is a real feature, not a footnote to this one.
 import 'dart:math' as math;
 
+import 'l10n/l.dart';
 import 'part_model.dart' show Vec3;
+
+/// The current strings.
+///
+/// This file has no BuildContext anywhere in it — it is the geometry that
+/// decides what a pick can mean, and its sentences reach the user as toasts
+/// raised by AppState. Same seam as native_browser.dart: one app-wide
+/// language, read where it is needed.
+AppL10n get _t => L.current;
 
 /// Everything a picked entity can CONTRIBUTE to a work feature.
 ///
@@ -463,27 +472,27 @@ int workAxisArity(WorkAxisMethod m) {
 String workAxisPrompt(WorkAxisMethod m, int have) {
   switch (m) {
     case WorkAxisMethod.auto:
-      return 'Select an edge, a face, two planes, or two points.';
+      return _t.wfPickEdgeFacePlanesPoints;
     case WorkAxisMethod.onLineOrEdge:
-      return 'Select a linear edge or sketch line.';
+      return _t.wfPickLinearEdge;
     case WorkAxisMethod.throughCenterOfCircularEdge:
-      return 'Select a circular or elliptical edge.';
+      return _t.wfPickCircularEdge;
     case WorkAxisMethod.throughRevolvedFace:
-      return 'Select a cylindrical or conical face.';
+      return _t.wfPickCylConeFace;
     case WorkAxisMethod.parallelToLineThroughPoint:
       return have == 0
-          ? 'Select a point.'
-          : 'Select the line to be parallel to.';
+          ? _t.wfPickPoint
+          : _t.wfPickParallelLine;
     case WorkAxisMethod.throughTwoPoints:
-      return have == 0 ? 'Select the first point.' : 'Select the second point.';
+      return have == 0 ? _t.wfPickFirstPoint : _t.wfPickSecondPoint;
     case WorkAxisMethod.intersectionOfTwoPlanes:
       return have == 0
-          ? 'Select the first plane or planar face.'
-          : 'Select a second, non-parallel plane or face.';
+          ? _t.wfPickFirstPlane
+          : _t.wfPickSecondNonParallelPlane;
     case WorkAxisMethod.normalToPlaneThroughPoint:
       return have == 0
-          ? 'Select a plane or planar face.'
-          : 'Select the point the axis runs through.';
+          ? _t.wfPickPlane
+          : _t.wfPickAxisThroughPoint;
   }
 }
 
@@ -504,7 +513,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       {
       final r = refs.first;
       if (!r.hasLine || r.source == WorkRefSource.circle) {
-        return WorkAttempt.no('${r.label} is not a straight edge or line.');
+        return WorkAttempt.no(_t.wfNotStraightEdge(r.label));
       }
       return WorkAttempt.ok(
           WorkAxisSolution(r.lineAt!, r.lineDir!, 'On ${r.label}'),
@@ -515,8 +524,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       {
       final r = refs.first;
       if (r.source != WorkRefSource.circle) {
-        return WorkAttempt.no('${r.label} is not a circular or elliptical '
-            'edge.');
+        return WorkAttempt.no(_t.wfNotCircularEdge(r.label));
       }
       return WorkAttempt.ok(
           WorkAxisSolution(
@@ -529,8 +537,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       final r = refs.first;
       if (r.source != WorkRefSource.revolved &&
           r.source != WorkRefSource.torus) {
-        return WorkAttempt.no('${r.label} is not a revolved face — pick a '
-            'cylinder, cone or torus.');
+        return WorkAttempt.no(_t.wfNotRevolvedFace(r.label));
       }
       return WorkAttempt.ok(
           WorkAxisSolution(
@@ -542,7 +549,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       {
       for (final r in refs) {
         if (!r.hasPoint) {
-          return WorkAttempt.no('${r.label} does not give a point.');
+          return WorkAttempt.no(_t.wfNoPoint(r.label));
         }
       }
       if (refs.length < 2) return WorkAttempt.more(workAxisPrompt(m, 1));
@@ -553,7 +560,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       {
       for (final r in refs) {
         if (!r.hasPlane) {
-          return WorkAttempt.no('${r.label} is not a plane or planar face.');
+          return WorkAttempt.no(_t.wfNotPlane(r.label));
         }
       }
       if (refs.length < 2) return WorkAttempt.more(workAxisPrompt(m, 1));
@@ -565,14 +572,13 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       final plane = refs.firstWhere((r) => r.hasPlane,
           orElse: () => refs.first);
       if (!plane.hasPlane) {
-        return WorkAttempt.no('${refs.first.label} is not a plane or planar '
-            'face.');
+        return WorkAttempt.no(_t.wfNotPlane(refs.first.label));
       }
       if (refs.length < 2) return WorkAttempt.more(workAxisPrompt(m, 1));
       final pt = refs.firstWhere((r) => !identical(r, plane) && r.hasPoint,
           orElse: () => refs.last);
       if (!pt.hasPoint) {
-        return WorkAttempt.no('${pt.label} does not give a point.');
+        return WorkAttempt.no(_t.wfNoPoint(pt.label));
       }
       return WorkAttempt.ok(
           WorkAxisSolution(pt.point!, plane.planeNormal!,
@@ -584,8 +590,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
       {
       if (refs.length < 2) {
         if (!refs.first.hasPoint && !refs.first.hasLine) {
-          return WorkAttempt.no('${refs.first.label} is neither a point nor a '
-              'line.');
+          return WorkAttempt.no(_t.wfNeitherPointNorLine(refs.first.label));
         }
         return WorkAttempt.more(workAxisPrompt(m, 1));
       }
@@ -598,10 +603,10 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
           (r) => !identical(r, line) && r.hasPoint,
           orElse: () => refs.first);
       if (!line.hasLine) {
-        return WorkAttempt.no('Neither pick is a line to be parallel to.');
+        return WorkAttempt.no(_t.wfNoParallelLinePicked);
       }
       if (!point.hasPoint || identical(point, line)) {
-        return WorkAttempt.no('Select a point for the axis to pass through.');
+        return WorkAttempt.no(_t.wfPickPointForAxis);
       }
       return WorkAttempt.ok(
           WorkAxisSolution(point.point!, line.lineDir!,
@@ -614,7 +619,7 @@ WorkAttempt<WorkAxisSolution> solveWorkAxis(
 WorkAttempt<WorkAxisSolution> _twoPointAxis(WorkRef a, WorkRef b) {
   final d = b.point! - a.point!;
   if (d.length < 1e-9) {
-    return WorkAttempt.no('Those two points are in the same place.');
+    return WorkAttempt.no(_t.wfSamePlace);
   }
   final def = 'Through ${a.label} and ${b.label}';
   // Inventor: "positive direction oriented in the direction from the first
@@ -628,8 +633,7 @@ WorkAttempt<WorkAxisSolution> _planeIntersectAxis(WorkRef a, WorkRef b) {
   final line = planePlaneLine(
       a.planeNormal!, a.planeD, b.planeNormal!, b.planeD);
   if (line == null) {
-    return WorkAttempt.no('${a.label} and ${b.label} are parallel — they '
-        'never meet.');
+    return WorkAttempt.no(_t.wfParallelNeverMeet(a.label, b.label));
   }
   final def = 'Intersection of ${a.label} and ${b.label}';
   return WorkAttempt.ok(WorkAxisSolution(line.$1, line.$2, def), def);
@@ -660,13 +664,12 @@ WorkAttempt<WorkAxisSolution> _autoAxis(List<WorkRef> refs) {
           WorkAxisSolution(first.lineAt!, first.lineDir!, def), def);
     }
     if (first.hasPlane) {
-      return WorkAttempt.more('Select a second plane to intersect with, or a '
-          'point for the normal through it.');
+      return WorkAttempt.more(_t.wfPickSecondPlaneOrPoint);
     }
     if (first.hasPoint) {
-      return WorkAttempt.more('Select a second point, a plane, or a line.');
+      return WorkAttempt.more(_t.wfPickSecondPointPlaneOrLine);
     }
-    return WorkAttempt.no('${first.label} cannot define an axis.');
+    return WorkAttempt.no(_t.wfCannotDefineAxis(first.label));
   }
 
   final second = refs[1];
@@ -677,8 +680,7 @@ WorkAttempt<WorkAxisSolution> _autoAxis(List<WorkRef> refs) {
     if (!planesParallel(first.planeNormal!, second.planeNormal!)) {
       return _planeIntersectAxis(first, second);
     }
-    return WorkAttempt.no('${first.label} and ${second.label} are parallel — '
-        'pick two planes that meet.');
+    return WorkAttempt.no(_t.wfParallelPickTwoMeeting(first.label, second.label));
   }
   if (first.hasPlane && second.hasPoint) {
     final def = 'Normal to ${first.label} through ${second.label}';
@@ -698,8 +700,7 @@ WorkAttempt<WorkAxisSolution> _autoAxis(List<WorkRef> refs) {
   if (first.hasPoint && second.hasPoint) {
     return _twoPointAxis(first, second);
   }
-  return WorkAttempt.no('${first.label} and ${second.label} do not define an '
-      'axis.');
+  return WorkAttempt.no(_t.wfNoAxisFromTwo(first.label, second.label));
 }
 
 // ---------------------------------------------------------------------------
@@ -727,30 +728,30 @@ int workPointArity(WorkPointMethod m) {
 String workPointPrompt(WorkPointMethod m, int have) {
   switch (m) {
     case WorkPointMethod.auto:
-      return 'Select a vertex, a circular edge, or geometry that meets.';
+      return _t.wfPickVertexCircleOrMeeting;
     case WorkPointMethod.grounded:
-      return 'Select a vertex or midpoint to ground a point at.';
+      return _t.wfPickVertexToGround;
     case WorkPointMethod.onVertex:
-      return 'Select a vertex, sketch point, or edge midpoint.';
+      return _t.wfPickVertexSketchPointMid;
     case WorkPointMethod.centerOfLoop:
-      return 'Select a circular or elliptical edge.';
+      return _t.wfPickCircularEdge;
     case WorkPointMethod.centerOfTorus:
-      return 'Select a toroidal face.';
+      return _t.wfPickTorusFace;
     case WorkPointMethod.centerOfSphere:
-      return 'Select a spherical face.';
+      return _t.wfPickSphereFace;
     case WorkPointMethod.intersectionOfTwoLines:
       return have == 0
-          ? 'Select the first line, edge or axis.'
-          : 'Select a second line that crosses it.';
+          ? _t.wfPickFirstLine
+          : _t.wfPickSecondCrossingLine;
     case WorkPointMethod.intersectionOfPlaneAndLine:
       return have == 0
-          ? 'Select a plane or planar face.'
-          : 'Select a line, edge or axis that crosses it.';
+          ? _t.wfPickPlane
+          : _t.wfPickCrossingLine;
     case WorkPointMethod.intersectionOfThreePlanes:
       return switch (have) {
-        0 => 'Select the first plane or planar face.',
-        1 => 'Select the second plane.',
-        _ => 'Select the third plane.',
+        0 => _t.wfPickFirstPlane,
+        1 => _t.wfPickSecondPlane,
+        _ => _t.wfPickThirdPlane,
       };
   }
 }
@@ -767,7 +768,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       final r = refs.first;
       if (!r.hasPoint) {
-        return WorkAttempt.no('${r.label} does not give a point.');
+        return WorkAttempt.no(_t.wfNoPoint(r.label));
       }
       final def = m == WorkPointMethod.grounded
           ? 'Grounded at ${r.label}'
@@ -779,7 +780,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       final r = refs.first;
       if (r.source != WorkRefSource.circle) {
-        return WorkAttempt.no('${r.label} is not a closed circular edge.');
+        return WorkAttempt.no(_t.wfNotClosedCircle(r.label));
       }
       final def = 'Center of ${r.label}';
       return WorkAttempt.ok(WorkPointSolution(r.point!, def), def);
@@ -789,7 +790,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       final r = refs.first;
       if (r.source != WorkRefSource.sphere) {
-        return WorkAttempt.no('${r.label} is not a spherical face.');
+        return WorkAttempt.no(_t.wfNotSphere(r.label));
       }
       final def = 'Center of ${r.label}';
       return WorkAttempt.ok(WorkPointSolution(r.point!, def), def);
@@ -799,7 +800,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       final r = refs.first;
       if (r.source != WorkRefSource.torus) {
-        return WorkAttempt.no('${r.label} is not a toroidal face.');
+        return WorkAttempt.no(_t.wfNotTorus(r.label));
       }
       final def = 'Center of ${r.label}';
       return WorkAttempt.ok(WorkPointSolution(r.point!, def), def);
@@ -809,7 +810,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       for (final r in refs) {
         if (!r.hasLine) {
-          return WorkAttempt.no('${r.label} is not a line, edge or axis.');
+          return WorkAttempt.no(_t.wfNotLineEdgeAxis(r.label));
         }
       }
       if (refs.length < 2) return WorkAttempt.more(workPointPrompt(m, 1));
@@ -820,8 +821,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       if (refs.length < 2) {
         if (!refs.first.hasPlane && !refs.first.hasLine) {
-          return WorkAttempt.no('${refs.first.label} is neither a plane nor a '
-              'line.');
+          return WorkAttempt.no(_t.wfNeitherPlaneNorLine(refs.first.label));
         }
         return WorkAttempt.more(workPointPrompt(m, 1));
       }
@@ -831,7 +831,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
           (r) => !identical(r, plane) && r.hasLine,
           orElse: () => refs.first);
       if (!plane.hasPlane || identical(plane, line) || !line.hasLine) {
-        return WorkAttempt.no('Select one plane and one line.');
+        return WorkAttempt.no(_t.wfPickOnePlaneOneLine);
       }
       return _planeLinePoint(plane, line);
       }
@@ -840,7 +840,7 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
       {
       for (final r in refs) {
         if (!r.hasPlane) {
-          return WorkAttempt.no('${r.label} is not a plane or planar face.');
+          return WorkAttempt.no(_t.wfNotPlane(r.label));
         }
       }
       if (refs.length < 3) {
@@ -854,15 +854,13 @@ WorkAttempt<WorkPointSolution> solveWorkPoint(
 WorkAttempt<WorkPointSolution> _twoLinePoint(WorkRef a, WorkRef b) {
   final hit = lineLineClosest(a.lineAt!, a.lineDir!, b.lineAt!, b.lineDir!);
   if (hit == null) {
-    return WorkAttempt.no('${a.label} and ${b.label} are parallel — they '
-        'never cross.');
+    return WorkAttempt.no(_t.wfParallelNeverCross(a.label, b.label));
   }
   final (qa, qb, gap) = hit;
   if (gap > kLineIntersectTol) {
     // Skew lines. Reporting the gap turns "it refused" into "they miss each
     // other by 3.4 mm", which is something the user can go and fix.
-    return WorkAttempt.no('${a.label} and ${b.label} do not meet — they pass '
-        '${_mm(gap)} apart.');
+    return WorkAttempt.no(_t.wfSkewByGap(a.label, b.label, _mm(gap)));
   }
   final def = 'Intersection of ${a.label} and ${b.label}';
   return WorkAttempt.ok(WorkPointSolution((qa + qb) * 0.5, def), def);
@@ -872,8 +870,7 @@ WorkAttempt<WorkPointSolution> _planeLinePoint(WorkRef plane, WorkRef line) {
   final p = linePlanePoint(
       line.lineAt!, line.lineDir!, plane.planeNormal!, plane.planeD);
   if (p == null) {
-    return WorkAttempt.no('${line.label} is parallel to ${plane.label} — it '
-        'never crosses it.');
+    return WorkAttempt.no(_t.wfLineParallelToPlane(line.label, plane.label));
   }
   final def = 'Intersection of ${plane.label} and ${line.label}';
   return WorkAttempt.ok(WorkPointSolution(p, def), def);
@@ -884,8 +881,7 @@ WorkAttempt<WorkPointSolution> _threePlanePoint(
   final p = threePlanePoint(a.planeNormal!, a.planeD, b.planeNormal!, b.planeD,
       c.planeNormal!, c.planeD);
   if (p == null) {
-    return WorkAttempt.no('${a.label}, ${b.label} and ${c.label} do not meet '
-        'at one point — two of them are parallel, or all three share a line.');
+    return WorkAttempt.no(_t.wfThreeNoCommonPoint(a.label, b.label, c.label));
   }
   final def = 'Intersection of ${a.label}, ${b.label} and ${c.label}';
   return WorkAttempt.ok(WorkPointSolution(p, def), def);
@@ -908,12 +904,12 @@ WorkAttempt<WorkPointSolution> _autoPoint(List<WorkRef> refs) {
       return WorkAttempt.ok(WorkPointSolution(first.point!, def), def);
     }
     if (first.hasPlane) {
-      return WorkAttempt.more('Select a line to cross it, or two more planes.');
+      return WorkAttempt.more(_t.wfPickLineOrTwoPlanes);
     }
     if (first.hasLine) {
-      return WorkAttempt.more('Select a second line, or a plane to cross.');
+      return WorkAttempt.more(_t.wfPickSecondLineOrPlane);
     }
-    return WorkAttempt.no('${first.label} cannot define a point.');
+    return WorkAttempt.no(_t.wfCannotDefinePoint(first.label));
   }
 
   final second = refs[1];
@@ -928,15 +924,14 @@ WorkAttempt<WorkPointSolution> _autoPoint(List<WorkRef> refs) {
   }
   if (first.hasPlane && second.hasPlane) {
     if (refs.length < 3) {
-      return WorkAttempt.more('Select a third plane.');
+      return WorkAttempt.more(_t.wfPickThirdPlane);
     }
     if (!refs[2].hasPlane) {
-      return WorkAttempt.no('${refs[2].label} is not a plane or planar face.');
+      return WorkAttempt.no(_t.wfNotPlane(refs[2].label));
     }
     return _threePlanePoint(first, second, refs[2]);
   }
-  return WorkAttempt.no('${first.label} and ${second.label} do not define a '
-      'point.');
+  return WorkAttempt.no(_t.wfNoPointFromTwo(first.label, second.label));
 }
 
 String _mm(double v) {
@@ -1080,43 +1075,43 @@ int workPlaneArity(WorkPlaneMethod m) {
 String workPlanePrompt(WorkPlaneMethod m, int have) {
   switch (m) {
     case WorkPlaneMethod.midplaneOfTorus:
-      return 'Select a toroidal face.';
+      return _t.wfPickTorusFace;
     case WorkPlaneMethod.parallelToPlaneThroughPoint:
       return have == 0
-          ? 'Select the plane or planar face to be parallel to.'
-          : 'Select the point the plane runs through.';
+          ? _t.wfPickParallelPlane
+          : _t.wfPickPlaneThroughPoint;
     case WorkPlaneMethod.twoCoplanarEdges:
       return have == 0
-          ? 'Select the first edge or line.'
-          : 'Select a second edge in the same plane.';
+          ? _t.wfPickFirstEdge
+          : _t.wfPickSecondCoplanarEdge;
     case WorkPlaneMethod.normalToAxisThroughPoint:
       return have == 0
-          ? 'Select the axis, edge or line to be normal to.'
-          : 'Select the point the plane runs through.';
+          ? _t.wfPickNormalAxis
+          : _t.wfPickPlaneThroughPoint;
     case WorkPlaneMethod.threePoints:
       return switch (have) {
-        0 => 'Select the first point.',
-        1 => 'Select the second point.',
-        _ => 'Select the third point.',
+        0 => _t.wfPickFirstPoint,
+        1 => _t.wfPickSecondPoint,
+        _ => _t.wfPickThirdPoint,
       };
     case WorkPlaneMethod.tangentToSurfaceThroughPoint:
       return have == 0
-          ? 'Select a cylindrical face, on the side the plane goes.'
-          : 'Select the point the plane runs through.';
+          ? _t.wfPickCylFaceSide
+          : _t.wfPickPlaneThroughPoint;
     case WorkPlaneMethod.tangentToSurfaceThroughEdge:
       return have == 0
-          ? 'Select a cylindrical face.'
-          : 'Select an edge lying along it.';
+          ? _t.wfPickCylFace
+          : _t.wfPickEdgeAlongIt;
     case WorkPlaneMethod.tangentToSurfaceParallelToPlane:
       return have == 0
-          ? 'Select a cylindrical face, on the side the plane goes.'
-          : 'Select the plane to be parallel to.';
+          ? _t.wfPickCylFaceSide
+          : _t.wfPickPlaneToParallel;
     case WorkPlaneMethod.angleToPlaneAroundEdge:
       return have == 0
-          ? 'Select the plane to angle from.'
-          : 'Select the edge to pivot about — it must lie in that plane.';
+          ? _t.wfPickPlaneToAngleFrom
+          : _t.wfPickPivotEdgeInPlane;
     case WorkPlaneMethod.normalToCurveAtPoint:
-      return 'Tap a sketch curve where the plane should cross it.';
+      return _t.wfTapCurveToCross;
   }
 }
 
@@ -1144,7 +1139,7 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
       {
         final r = refs.first;
         if (r.source != WorkRefSource.torus) {
-          return WorkAttempt.no('${r.label} is not a toroidal face.');
+          return WorkAttempt.no(_t.wfNotTorus(r.label));
         }
         // The torus record gives the centre and the axis; the midplane is the
         // one the tube revolves in, so the axis IS its normal.
@@ -1159,15 +1154,14 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
             refs.firstWhere((r) => r.hasPlane, orElse: () => refs.first);
         if (!plane.hasPlane) {
           return WorkAttempt.no(
-              '${refs.first.label} is not a plane or planar face.');
+              _t.wfNotPlane(refs.first.label));
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         final pt = refs.firstWhere(
             (r) => !identical(r, plane) && r.hasPoint,
             orElse: () => refs.last);
         if (!pt.hasPoint || identical(pt, plane)) {
-          return WorkAttempt.no('Select a point for the plane to pass '
-              'through.');
+          return WorkAttempt.no(_t.wfPickPointForPlane);
         }
         final def = 'Parallel to ${plane.label} through ${pt.label}';
         return WorkAttempt.ok(
@@ -1180,15 +1174,14 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
             refs.firstWhere((r) => r.hasLine, orElse: () => refs.first);
         if (!line.hasLine) {
           return WorkAttempt.no(
-              '${refs.first.label} is not an axis, edge or line.');
+              _t.wfNotAxisEdgeLine(refs.first.label));
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         final pt = refs.firstWhere(
             (r) => !identical(r, line) && r.hasPoint,
             orElse: () => refs.last);
         if (!pt.hasPoint || identical(pt, line)) {
-          return WorkAttempt.no('Select a point for the plane to pass '
-              'through.');
+          return WorkAttempt.no(_t.wfPickPointForPlane);
         }
         final def = 'Normal to ${line.label} through ${pt.label}';
         return WorkAttempt.ok(
@@ -1199,7 +1192,7 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
       {
         for (final r in refs) {
           if (!r.hasPoint) {
-            return WorkAttempt.no('${r.label} does not give a point.');
+            return WorkAttempt.no(_t.wfNoPoint(r.label));
           }
         }
         if (refs.length < 3) {
@@ -1212,7 +1205,7 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
       {
         for (final r in refs) {
           if (!r.hasLine) {
-            return WorkAttempt.no('${r.label} is not an edge or line.');
+            return WorkAttempt.no(_t.wfNotEdgeOrLine(r.label));
           }
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
@@ -1223,8 +1216,7 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
       {
         final r = refs.first;
         if (r.source != WorkRefSource.curve) {
-          return WorkAttempt.no('${r.label} is not a curve — tap a sketch '
-              'curve where the plane should cross it.');
+          return WorkAttempt.no(_t.wfNotACurve(r.label));
         }
         // The plane sits AT the tapped point with the tangent as its normal.
         // That is the definition, and it is why this is one pick: a curve
@@ -1240,26 +1232,24 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
             refs.firstWhere((r) => r.hasPlane, orElse: () => refs.first);
         if (!plane.hasPlane) {
           return WorkAttempt.no(
-              '${refs.first.label} is not a plane or planar face.');
+              _t.wfNotPlane(refs.first.label));
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         final edge = refs.firstWhere(
             (r) => !identical(r, plane) && r.hasLine,
             orElse: () => refs.last);
         if (!edge.hasLine || identical(edge, plane)) {
-          return WorkAttempt.no('Select the edge the plane pivots about.');
+          return WorkAttempt.no(_t.wfPickPivotEdge);
         }
         // The edge has to LIE IN the plane, or the rotation would swing the
         // plane off it and the result would not touch the edge at all.
         // Inventor asks for an edge in the plane for the same reason.
         final off = edge.lineDir!.dot(plane.planeNormal!).abs();
         if (off > 1e-6) {
-          return WorkAttempt.no('${edge.label} is not parallel to '
-              '${plane.label} — the plane can only pivot about an edge lying '
-              'in it.');
+          return WorkAttempt.no(_t.wfEdgeNotInPlane(edge.label, plane.label));
         }
         if (!angleDeg.isFinite) {
-          return WorkAttempt.no('The angle is not a number.');
+          return WorkAttempt.no(_t.wfAngleNotANumber);
         }
         // The normal turns about the edge; a point ON the edge is the origin,
         // because that is the line the two planes share.
@@ -1281,8 +1271,7 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
         final cyl = refs.firstWhere((r) => r.radius != null,
             orElse: () => refs.first);
         if (cyl.radius == null || !cyl.hasLine) {
-          return WorkAttempt.no('${refs.first.label} is not a cylindrical '
-              'face — a tangent plane needs one.');
+          return WorkAttempt.no(_t.wfNotCylForTangent(refs.first.label));
         }
         if (refs.length < 2) return WorkAttempt.more(workPlanePrompt(m, 1));
         final other =
@@ -1348,14 +1337,13 @@ Vec3? _sideChosen(WorkRef cyl, List<Vec3> cands) {
 
 WorkAttempt<WorkPlaneSolution> _tangentThroughPoint(WorkRef cyl, WorkRef pt) {
   if (!pt.hasPoint) {
-    return WorkAttempt.no('${pt.label} does not give a point.');
+    return WorkAttempt.no(_t.wfNoPoint(pt.label));
   }
   final d = cyl.lineDir!, r = cyl.radius!;
   final w = _radial(pt.point! - cyl.lineAt!, d);
   final h = w.length;
   if (h < r - 1e-9) {
-    return WorkAttempt.no('${pt.label} is inside ${cyl.label} — no tangent '
-        'plane passes through it.');
+    return WorkAttempt.no(_t.wfPointInsideCyl(pt.label, cyl.label));
   }
   final def = 'Tangent to ${cyl.label} through ${pt.label}';
   if (h <= r + 1e-9) {
@@ -1374,20 +1362,18 @@ WorkAttempt<WorkPlaneSolution> _tangentThroughPoint(WorkRef cyl, WorkRef pt) {
   ];
   final m = _sideChosen(cyl, cands);
   if (m == null) {
-    return WorkAttempt.no('Two planes are tangent to ${cyl.label} through '
-        '${pt.label} — tap the face on the side the plane should go.');
+    return WorkAttempt.no(_t.wfTwoTangentThroughPoint(cyl.label, pt.label));
   }
   return WorkAttempt.ok(_tangentAt(cyl, m, pt.point!, def), def);
 }
 
 WorkAttempt<WorkPlaneSolution> _tangentThroughEdge(WorkRef cyl, WorkRef edge) {
   if (!edge.hasLine) {
-    return WorkAttempt.no('${edge.label} is not an edge or line.');
+    return WorkAttempt.no(_t.wfNotEdgeOrLine(edge.label));
   }
   final d = cyl.lineDir!, r = cyl.radius!;
   if (edge.lineDir!.cross(d).length > 1e-6) {
-    return WorkAttempt.no('${edge.label} is not parallel to the axis of '
-        '${cyl.label}.');
+    return WorkAttempt.no(_t.wfEdgeNotParallelToAxis(edge.label, cyl.label));
   }
   final w = _radial(edge.lineAt! - cyl.lineAt!, d);
   final h = w.length;
@@ -1395,8 +1381,7 @@ WorkAttempt<WorkPlaneSolution> _tangentThroughEdge(WorkRef cyl, WorkRef edge) {
     // An edge OFF the surface has two tangent planes through it as well, but
     // an edge that is not on the cylinder is far more likely a mis-pick than a
     // request, so this says so instead of choosing.
-    return WorkAttempt.no('${edge.label} does not lie on ${cyl.label} — it is '
-        '${(h - r).abs().toStringAsFixed(3)} mm off it.');
+    return WorkAttempt.no(_t.wfEdgeOffCylinder(edge.label, cyl.label, (h - r).abs().toStringAsFixed(3)));
   }
   final def = 'Tangent to ${cyl.label} through ${edge.label}';
   return WorkAttempt.ok(
@@ -1406,7 +1391,7 @@ WorkAttempt<WorkPlaneSolution> _tangentThroughEdge(WorkRef cyl, WorkRef edge) {
 WorkAttempt<WorkPlaneSolution> _tangentParallelToPlane(
     WorkRef cyl, WorkRef plane) {
   if (!plane.hasPlane) {
-    return WorkAttempt.no('${plane.label} is not a plane or planar face.');
+    return WorkAttempt.no(_t.wfNotPlane(plane.label));
   }
   final d = cyl.lineDir!;
   final n = plane.planeNormal!;
@@ -1414,14 +1399,12 @@ WorkAttempt<WorkPlaneSolution> _tangentParallelToPlane(
   // normal is not can never have a tangent parallel to it.
   final along = n.dot(d).abs();
   if (along > 1e-6) {
-    return WorkAttempt.no('${plane.label} is not parallel to the axis of '
-        '${cyl.label} — no tangent plane is parallel to it.');
+    return WorkAttempt.no(_t.wfPlaneNotParallelToAxis(plane.label, cyl.label));
   }
   final def = 'Tangent to ${cyl.label}, parallel to ${plane.label}';
   final m = _sideChosen(cyl, [n, n * -1.0]);
   if (m == null) {
-    return WorkAttempt.no('Two planes are tangent to ${cyl.label} parallel to '
-        '${plane.label} — tap the face on the side the plane should go.');
+    return WorkAttempt.no(_t.wfTwoTangentParallel(cyl.label, plane.label));
   }
   return WorkAttempt.ok(
       _tangentAt(cyl, m, cyl.hitAt ?? cyl.lineAt!, def), def);
@@ -1433,8 +1416,7 @@ WorkAttempt<WorkPlaneSolution> _threePointPlane(WorkRef a, WorkRef b, WorkRef c)
     // Collinear (or two of them in the same place): an infinity of planes
     // contains them, which is not an answer. Say which, and by how much, the
     // way every other refusal in this file does.
-    return WorkAttempt.no('${a.label}, ${b.label} and ${c.label} are in a '
-        'line — three points must not be collinear.');
+    return WorkAttempt.no(_t.wfCollinearThreePoints(a.label, b.label, c.label));
   }
   final def = 'Through ${a.label}, ${b.label} and ${c.label}';
   return WorkAttempt.ok(
@@ -1450,8 +1432,7 @@ WorkAttempt<WorkPlaneSolution> _twoEdgePlane(WorkRef a, WorkRef b) {
     // perpendicular to the shared direction and to the gap between them.
     final n = d1.cross(between);
     if (n.length < 1e-9) {
-      return WorkAttempt.no('${a.label} and ${b.label} are the same line — '
-          'a plane needs two distinct edges.');
+      return WorkAttempt.no(_t.wfSameLineTwice(a.label, b.label));
     }
     final def = 'Through ${a.label} and ${b.label}';
     return WorkAttempt.ok(
@@ -1462,8 +1443,7 @@ WorkAttempt<WorkPlaneSolution> _twoEdgePlane(WorkRef a, WorkRef b) {
   // the area of the direction parallelogram.
   final gap = between.dot(cross) / cross.length;
   if (gap.abs() > 1e-6) {
-    return WorkAttempt.no('${a.label} and ${b.label} are skew — they miss '
-        'each other by ${gap.abs().toStringAsFixed(3)} mm.');
+    return WorkAttempt.no(_t.wfSkewEdges(a.label, b.label, gap.abs().toStringAsFixed(3)));
   }
   final def = 'Through ${a.label} and ${b.label}';
   return WorkAttempt.ok(

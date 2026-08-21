@@ -1234,7 +1234,7 @@ abstract class AppL10n {
   /// No description provided for @galleryEmpty.
   ///
   /// In de, this message translates to:
-  /// **'Auf  +  tippen, um eine Skizze oder ein Bauteil anzulegen'**
+  /// **'Auf  +  tippen für eine neue Skizze oder ein Bauteil'**
   String get galleryEmpty;
 
   /// No description provided for @errNameTaken.
@@ -1276,7 +1276,7 @@ abstract class AppL10n {
   /// No description provided for @msgCouldNotSave.
   ///
   /// In de, this message translates to:
-  /// **'„{name}“ konnte nicht gespeichert werden.'**
+  /// **'„{name}“ ließ sich nicht speichern.'**
   String msgCouldNotSave(String name);
 
   /// No description provided for @msgSavedTo.
@@ -1306,37 +1306,37 @@ abstract class AppL10n {
   /// No description provided for @msgCouldNotOpenDoc.
   ///
   /// In de, this message translates to:
-  /// **'Das Dokument konnte nicht geöffnet werden.'**
+  /// **'Dieses Dokument ließ sich nicht öffnen.'**
   String get msgCouldNotOpenDoc;
 
   /// No description provided for @msgCouldNotOpenFile.
   ///
   /// In de, this message translates to:
-  /// **'Die Datei konnte nicht geöffnet werden.'**
+  /// **'Diese Datei ließ sich nicht öffnen.'**
   String get msgCouldNotOpenFile;
 
   /// No description provided for @msgCouldNotImportFile.
   ///
   /// In de, this message translates to:
-  /// **'Die Datei konnte nicht importiert werden.'**
+  /// **'Diese Datei ließ sich nicht importieren.'**
   String get msgCouldNotImportFile;
 
   /// No description provided for @msgCouldNotImportImage.
   ///
   /// In de, this message translates to:
-  /// **'Das Bild konnte nicht importiert werden.'**
+  /// **'Das Bild ließ sich nicht importieren.'**
   String get msgCouldNotImportImage;
 
   /// No description provided for @msgCouldNotImportDxf.
   ///
   /// In de, this message translates to:
-  /// **'Die DXF-Datei konnte nicht importiert werden.'**
+  /// **'Die DXF-Datei ließ sich nicht importieren.'**
   String get msgCouldNotImportDxf;
 
   /// No description provided for @msgCouldNotReadDxf.
   ///
   /// In de, this message translates to:
-  /// **'Die DXF-Datei konnte nicht gelesen werden.'**
+  /// **'Die DXF-Datei ließ sich nicht lesen.'**
   String get msgCouldNotReadDxf;
 
   /// No description provided for @msgDxfNoSupportedEntities.
@@ -1636,13 +1636,13 @@ abstract class AppL10n {
   /// No description provided for @msgTapSketchPointsForHoles.
   ///
   /// In de, this message translates to:
-  /// **'Die Skizzenpunkte antippen, auf die die Bohrungen kommen.'**
+  /// **'Skizzenpunkte für die Bohrungen antippen.'**
   String get msgTapSketchPointsForHoles;
 
   /// No description provided for @msgHoleCount.
   ///
   /// In de, this message translates to:
-  /// **'{count, plural, =1{Eine Bohrung — Punkt antippen, um eine hinzuzufügen oder zu entfernen.} other{{count} Bohrungen — Punkt antippen, um eine hinzuzufügen oder zu entfernen.}}'**
+  /// **'{count, plural, =1{Eine Bohrung — Punkt antippen zum Hinzufügen oder Entfernen.} other{{count} Bohrungen — Punkt antippen zum Hinzufügen oder Entfernen.}}'**
   String msgHoleCount(int count);
 
   /// No description provided for @msgHolesSameSketch.
@@ -1702,13 +1702,13 @@ abstract class AppL10n {
   /// No description provided for @msgTapBodyToKeep.
   ///
   /// In de, this message translates to:
-  /// **'Den Körper antippen, der BLEIBEN soll.'**
+  /// **'Körper antippen, der BLEIBT.'**
   String get msgTapBodyToKeep;
 
   /// No description provided for @msgTapBodiesToCombine.
   ///
   /// In de, this message translates to:
-  /// **'Die Körper antippen, die in {name} eingerechnet werden.'**
+  /// **'Körper antippen, die in {name} eingehen.'**
   String msgTapBodiesToCombine(String name);
 
   /// No description provided for @msgThatIsBaseBody.
@@ -1786,13 +1786,13 @@ abstract class AppL10n {
   /// No description provided for @msgTapSolidBodyToPattern.
   ///
   /// In de, this message translates to:
-  /// **'Den Volumenkörper antippen, der angeordnet wird.'**
+  /// **'Volumenkörper antippen, der angeordnet wird.'**
   String get msgTapSolidBodyToPattern;
 
   /// No description provided for @msgPickSolidBodyToPattern.
   ///
   /// In de, this message translates to:
-  /// **'Den Volumenkörper wählen, der angeordnet wird.'**
+  /// **'Volumenkörper wählen, der angeordnet wird.'**
   String get msgPickSolidBodyToPattern;
 
   /// No description provided for @msgBuiltAfterPattern.
@@ -1846,7 +1846,7 @@ abstract class AppL10n {
   /// No description provided for @msgTapCurveToSweep.
   ///
   /// In de, this message translates to:
-  /// **'Die Kurve antippen, entlang der gezogen wird.'**
+  /// **'Kurve antippen, entlang der gezogen wird.'**
   String get msgTapCurveToSweep;
 
   /// No description provided for @msgCurveNoLength.
@@ -1858,7 +1858,7 @@ abstract class AppL10n {
   /// No description provided for @msgTapSectionsInOrder.
   ///
   /// In de, this message translates to:
-  /// **'Die Querschnitte der Reihe nach antippen.'**
+  /// **'Querschnitte der Reihe nach antippen.'**
   String get msgTapSectionsInOrder;
 
   /// No description provided for @msgTapAxisLine.
@@ -2224,7 +2224,7 @@ abstract class AppL10n {
   /// No description provided for @msgTangentClosedSpline.
   ///
   /// In de, this message translates to:
-  /// **'Tangential an einen GESCHLOSSENEN Spline wird nicht unterstützt.'**
+  /// **'Tangential an einen GESCHLOSSENEN Spline geht nicht.'**
   String get msgTangentClosedSpline;
 
   /// G2 = kruemmungsstetig. Inventor DE: "Stetig (G2)".
@@ -2362,7 +2362,7 @@ abstract class AppL10n {
   /// No description provided for @msgTapSolidBody.
   ///
   /// In de, this message translates to:
-  /// **'Einen Volumenkörper antippen.'**
+  /// **'Volumenkörper antippen.'**
   String get msgTapSolidBody;
 
   /// No description provided for @msgTapSketchPointForHole.
@@ -2899,6 +2899,30 @@ abstract class AppL10n {
   /// **'Mittelpunkt'**
   String get btnCenterPoint;
 
+  /// Skizzenbefehl: eine Kurve an einem Schnittpunkt teilen. Inventor DE: "Teilen" — bewusst NICHT "Trennen", das ist der 3D-Befehl, der einen Körper schneidet.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilen'**
+  String get btnSplitCurve;
+
+  /// Skizzenbefehl: Parallelkurve. Inventor DE: "Versatz".
+  ///
+  /// In de, this message translates to:
+  /// **'Versatz'**
+  String get btnOffsetCurve;
+
+  /// No description provided for @btnFinish.
+  ///
+  /// In de, this message translates to:
+  /// **'Fertig'**
+  String get btnFinish;
+
+  /// Zweizeilig, 64 px breit. Inventor DE sagt "Skizze beenden"; das passt hier nicht in eine Zeile und "fertig" ist die Form, die auf der Schnellwerkzeugleiste daneben schon steht.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze\nfertig'**
+  String get btnFinishSketch;
+
   /// No description provided for @featExtrusion.
   ///
   /// In de, this message translates to:
@@ -3100,13 +3124,13 @@ abstract class AppL10n {
   /// No description provided for @msgUndone.
   ///
   /// In de, this message translates to:
-  /// **'Rückgängig gemacht'**
+  /// **'Rückgängig'**
   String get msgUndone;
 
   /// No description provided for @msgRedone.
   ///
   /// In de, this message translates to:
-  /// **'Wiederhergestellt'**
+  /// **'Wiederholt'**
   String get msgRedone;
 
   /// No description provided for @msgShow.
@@ -3138,6 +3162,492 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Abstand'**
   String get extDistance;
+
+  /// No description provided for @wfPickEdgeFacePlanesPoints.
+  ///
+  /// In de, this message translates to:
+  /// **'Kante, Fläche, zwei Ebenen oder zwei Punkte wählen.'**
+  String get wfPickEdgeFacePlanesPoints;
+
+  /// No description provided for @wfPickLinearEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerade Kante oder Skizzenlinie wählen.'**
+  String get wfPickLinearEdge;
+
+  /// No description provided for @wfPickCircularEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Kreis- oder Ellipsenkante wählen.'**
+  String get wfPickCircularEdge;
+
+  /// No description provided for @wfPickCylConeFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Zylinder- oder Kegelfläche wählen.'**
+  String get wfPickCylConeFace;
+
+  /// No description provided for @wfPickPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt wählen.'**
+  String get wfPickPoint;
+
+  /// No description provided for @wfPickParallelLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie wählen, zu der parallel gebaut wird.'**
+  String get wfPickParallelLine;
+
+  /// No description provided for @wfPickFirstPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Ersten Punkt wählen.'**
+  String get wfPickFirstPoint;
+
+  /// No description provided for @wfPickSecondPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweiten Punkt wählen.'**
+  String get wfPickSecondPoint;
+
+  /// No description provided for @wfPickThirdPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Dritten Punkt wählen.'**
+  String get wfPickThirdPoint;
+
+  /// No description provided for @wfPickFirstPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Erste Ebene oder planare Fläche wählen.'**
+  String get wfPickFirstPlane;
+
+  /// No description provided for @wfPickSecondNonParallelPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite, nicht parallele Ebene oder Fläche wählen.'**
+  String get wfPickSecondNonParallelPlane;
+
+  /// No description provided for @wfPickPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder planare Fläche wählen.'**
+  String get wfPickPlane;
+
+  /// No description provided for @wfPickAxisThroughPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt wählen, durch den die Achse läuft.'**
+  String get wfPickAxisThroughPoint;
+
+  /// No description provided for @wfPickVertexCircleOrMeeting.
+  ///
+  /// In de, this message translates to:
+  /// **'Eckpunkt, Kreiskante oder sich treffende Geometrie wählen.'**
+  String get wfPickVertexCircleOrMeeting;
+
+  /// No description provided for @wfPickVertexToGround.
+  ///
+  /// In de, this message translates to:
+  /// **'Eckpunkt oder Mittelpunkt wählen, an dem fixiert wird.'**
+  String get wfPickVertexToGround;
+
+  /// No description provided for @wfPickVertexSketchPointMid.
+  ///
+  /// In de, this message translates to:
+  /// **'Eckpunkt, Skizzenpunkt oder Kantenmittelpunkt wählen.'**
+  String get wfPickVertexSketchPointMid;
+
+  /// No description provided for @wfPickTorusFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Torusfläche wählen.'**
+  String get wfPickTorusFace;
+
+  /// No description provided for @wfPickSphereFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Kugelfläche wählen.'**
+  String get wfPickSphereFace;
+
+  /// No description provided for @wfPickFirstLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Erste Linie, Kante oder Achse wählen.'**
+  String get wfPickFirstLine;
+
+  /// No description provided for @wfPickSecondCrossingLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Linie wählen, die sie schneidet.'**
+  String get wfPickSecondCrossingLine;
+
+  /// No description provided for @wfPickCrossingLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie, Kante oder Achse wählen, die sie schneidet.'**
+  String get wfPickCrossingLine;
+
+  /// No description provided for @wfPickSecondPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Ebene wählen.'**
+  String get wfPickSecondPlane;
+
+  /// No description provided for @wfPickThirdPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Dritte Ebene wählen.'**
+  String get wfPickThirdPlane;
+
+  /// No description provided for @wfPickLineOrTwoPlanes.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie wählen, die sie kreuzt, oder zwei weitere Ebenen.'**
+  String get wfPickLineOrTwoPlanes;
+
+  /// No description provided for @wfPickSecondLineOrPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Linie wählen, oder eine Ebene zum Kreuzen.'**
+  String get wfPickSecondLineOrPlane;
+
+  /// No description provided for @wfPickSecondPlaneOrPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Ebene zum Schneiden wählen, oder einen Punkt für die Normale hindurch.'**
+  String get wfPickSecondPlaneOrPoint;
+
+  /// No description provided for @wfPickSecondPointPlaneOrLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweiten Punkt, eine Ebene oder eine Linie wählen.'**
+  String get wfPickSecondPointPlaneOrLine;
+
+  /// No description provided for @wfPickParallelPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder planare Fläche wählen, zu der parallel gebaut wird.'**
+  String get wfPickParallelPlane;
+
+  /// No description provided for @wfPickPlaneThroughPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt wählen, durch den die Ebene läuft.'**
+  String get wfPickPlaneThroughPoint;
+
+  /// No description provided for @wfPickFirstEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Erste Kante oder Linie wählen.'**
+  String get wfPickFirstEdge;
+
+  /// No description provided for @wfPickSecondCoplanarEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Kante in derselben Ebene wählen.'**
+  String get wfPickSecondCoplanarEdge;
+
+  /// No description provided for @wfPickNormalAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse, Kante oder Linie wählen, zu der normal gebaut wird.'**
+  String get wfPickNormalAxis;
+
+  /// No description provided for @wfPickCylFaceSide.
+  ///
+  /// In de, this message translates to:
+  /// **'Zylinderfläche wählen, auf der Seite, wo die Ebene liegen soll.'**
+  String get wfPickCylFaceSide;
+
+  /// No description provided for @wfPickCylFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Zylinderfläche wählen.'**
+  String get wfPickCylFace;
+
+  /// No description provided for @wfPickEdgeAlongIt.
+  ///
+  /// In de, this message translates to:
+  /// **'Kante wählen, die darauf liegt.'**
+  String get wfPickEdgeAlongIt;
+
+  /// No description provided for @wfPickPlaneToParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene wählen, zu der parallel gebaut wird.'**
+  String get wfPickPlaneToParallel;
+
+  /// No description provided for @wfPickPlaneToAngleFrom.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene wählen, von der aus gewinkelt wird.'**
+  String get wfPickPlaneToAngleFrom;
+
+  /// No description provided for @wfPickPivotEdgeInPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Kante zum Schwenken wählen — sie muss in dieser Ebene liegen.'**
+  String get wfPickPivotEdgeInPlane;
+
+  /// No description provided for @wfTapCurveToCross.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.'**
+  String get wfTapCurveToCross;
+
+  /// No description provided for @wfNotStraightEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine gerade Kante oder Linie.'**
+  String wfNotStraightEdge(String ref);
+
+  /// No description provided for @wfNotCircularEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Kreis- oder Ellipsenkante.'**
+  String wfNotCircularEdge(String ref);
+
+  /// No description provided for @wfNotRevolvedFace.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Drehfläche — Zylinder, Kegel oder Torus wählen.'**
+  String wfNotRevolvedFace(String ref);
+
+  /// No description provided for @wfNoPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ergibt keinen Punkt.'**
+  String wfNoPoint(String ref);
+
+  /// No description provided for @wfNotPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Ebene und keine planare Fläche.'**
+  String wfNotPlane(String ref);
+
+  /// No description provided for @wfNeitherPointNorLine.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist weder ein Punkt noch eine Linie.'**
+  String wfNeitherPointNorLine(String ref);
+
+  /// No description provided for @wfNeitherPlaneNorLine.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist weder eine Ebene noch eine Linie.'**
+  String wfNeitherPlaneNorLine(String ref);
+
+  /// No description provided for @wfNoParallelLinePicked.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine der beiden Auswahlen ist eine Linie.'**
+  String get wfNoParallelLinePicked;
+
+  /// No description provided for @wfPickPointForAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt wählen, durch den die Achse gehen soll.'**
+  String get wfPickPointForAxis;
+
+  /// No description provided for @wfPickPointForPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt wählen, durch den die Ebene gehen soll.'**
+  String get wfPickPointForPlane;
+
+  /// No description provided for @wfSamePlace.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese beiden Punkte liegen an derselben Stelle.'**
+  String get wfSamePlace;
+
+  /// No description provided for @wfParallelNeverMeet.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} sind parallel — sie treffen sich nie.'**
+  String wfParallelNeverMeet(String a, String b);
+
+  /// No description provided for @wfParallelNeverCross.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} sind parallel — sie kreuzen sich nie.'**
+  String wfParallelNeverCross(String a, String b);
+
+  /// No description provided for @wfCannotDefineAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} kann keine Achse festlegen.'**
+  String wfCannotDefineAxis(String ref);
+
+  /// No description provided for @wfCannotDefinePoint.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} kann keinen Punkt festlegen.'**
+  String wfCannotDefinePoint(String ref);
+
+  /// No description provided for @wfParallelPickTwoMeeting.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} sind parallel — zwei Ebenen wählen, die sich schneiden.'**
+  String wfParallelPickTwoMeeting(String a, String b);
+
+  /// No description provided for @wfNoAxisFromTwo.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} legen keine Achse fest.'**
+  String wfNoAxisFromTwo(String a, String b);
+
+  /// No description provided for @wfNoPointFromTwo.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} legen keinen Punkt fest.'**
+  String wfNoPointFromTwo(String a, String b);
+
+  /// No description provided for @wfNotClosedCircle.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine geschlossene Kreiskante.'**
+  String wfNotClosedCircle(String ref);
+
+  /// No description provided for @wfNotSphere.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Kugelfläche.'**
+  String wfNotSphere(String ref);
+
+  /// No description provided for @wfNotTorus.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Torusfläche.'**
+  String wfNotTorus(String ref);
+
+  /// No description provided for @wfNotLineEdgeAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Linie, Kante oder Achse.'**
+  String wfNotLineEdgeAxis(String ref);
+
+  /// No description provided for @wfNotAxisEdgeLine.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Achse, Kante oder Linie.'**
+  String wfNotAxisEdgeLine(String ref);
+
+  /// No description provided for @wfNotEdgeOrLine.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Kante und keine Linie.'**
+  String wfNotEdgeOrLine(String ref);
+
+  /// No description provided for @wfPickOnePlaneOneLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Ebene und eine Linie wählen.'**
+  String get wfPickOnePlaneOneLine;
+
+  /// No description provided for @wfSkewByGap.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} treffen sich nicht — {gap} Abstand.'**
+  String wfSkewByGap(String a, String b, String gap);
+
+  /// No description provided for @wfLineParallelToPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'{line} ist parallel zu {plane} — sie schneidet sie nie.'**
+  String wfLineParallelToPlane(String line, String plane);
+
+  /// No description provided for @wfThreeNoCommonPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'{a}, {b} und {c} treffen sich nicht in einem Punkt — zwei davon sind parallel, oder alle drei teilen sich eine Gerade.'**
+  String wfThreeNoCommonPoint(String a, String b, String c);
+
+  /// No description provided for @wfNotACurve.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Kurve — Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.'**
+  String wfNotACurve(String ref);
+
+  /// No description provided for @wfPickPivotEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Kante wählen, um die die Ebene schwenkt.'**
+  String get wfPickPivotEdge;
+
+  /// No description provided for @wfEdgeNotInPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'{edge} ist nicht parallel zu {plane} — die Ebene kann nur um eine Kante schwenken, die darin liegt.'**
+  String wfEdgeNotInPlane(String edge, String plane);
+
+  /// No description provided for @wfAngleNotANumber.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Winkel ist keine Zahl.'**
+  String get wfAngleNotANumber;
+
+  /// No description provided for @wfNotCylForTangent.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} ist keine Zylinderfläche — eine Tangentialebene braucht eine.'**
+  String wfNotCylForTangent(String ref);
+
+  /// No description provided for @wfPointInsideCyl.
+  ///
+  /// In de, this message translates to:
+  /// **'{pt} liegt in {cyl} — dadurch geht keine Tangentialebene.'**
+  String wfPointInsideCyl(String pt, String cyl);
+
+  /// No description provided for @wfTwoTangentThroughPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Ebenen sind tangential an {cyl} durch {pt} — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.'**
+  String wfTwoTangentThroughPoint(String cyl, String pt);
+
+  /// No description provided for @wfTwoTangentParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Ebenen sind tangential an {cyl} und parallel zu {plane} — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.'**
+  String wfTwoTangentParallel(String cyl, String plane);
+
+  /// No description provided for @wfEdgeNotParallelToAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'{edge} ist nicht parallel zur Achse von {cyl}.'**
+  String wfEdgeNotParallelToAxis(String edge, String cyl);
+
+  /// No description provided for @wfEdgeOffCylinder.
+  ///
+  /// In de, this message translates to:
+  /// **'{edge} liegt nicht auf {cyl} — sie ist {gap} mm daneben.'**
+  String wfEdgeOffCylinder(String edge, String cyl, String gap);
+
+  /// No description provided for @wfPlaneNotParallelToAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'{plane} ist nicht parallel zur Achse von {cyl} — dazu ist keine Tangentialebene parallel.'**
+  String wfPlaneNotParallelToAxis(String plane, String cyl);
+
+  /// No description provided for @wfCollinearThreePoints.
+  ///
+  /// In de, this message translates to:
+  /// **'{a}, {b} und {c} liegen auf einer Geraden — drei Punkte dürfen nicht kollinear sein.'**
+  String wfCollinearThreePoints(String a, String b, String c);
+
+  /// No description provided for @wfSameLineTwice.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} sind dieselbe Linie — eine Ebene braucht zwei verschiedene Kanten.'**
+  String wfSameLineTwice(String a, String b);
+
+  /// No description provided for @wfSkewEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} sind windschief — sie verfehlen sich um {gap} mm.'**
+  String wfSkewEdges(String a, String b, String gap);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

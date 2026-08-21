@@ -28,7 +28,7 @@ import 'package:flutter/widgets.dart';
 import 'gen/app_l10n.dart';
 import 'locale_store.dart';
 
-export 'gen/app_l10n.dart' show AppL10n;
+export 'gen/app_l10n.dart' show AppL10n, lookupAppL10n;
 
 /// German. The language the app is written in.
 const Locale kDe = Locale('de');
@@ -83,6 +83,10 @@ class L {
     locale.value = next;
     _store?.save(next);
   }
+
+  /// The strings of an arbitrary supported locale, without switching to it.
+  /// Used to label the toggle, and by the tests to pin both languages at once.
+  static AppL10n stringsFor(Locale l) => lookupAppL10n(l);
 
   /// The other language — what the menu entry offers.
   static Locale get other => locale.value.languageCode == kDe.languageCode

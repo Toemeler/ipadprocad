@@ -548,7 +548,7 @@
   "@galleryNew3dPart": {
     "x-maxChars": 20
   },
-  "galleryEmpty": "Auf  +  tippen, um eine Skizze oder ein Bauteil anzulegen",
+  "galleryEmpty": "Auf  +  tippen für eine neue Skizze oder ein Bauteil",
   "errNameTaken": "Eine Skizze oder ein Bauteil mit diesem Namen existiert bereits.",
   "qtReportBug": "Fehler melden",
   "@qtReportBug": {
@@ -567,7 +567,7 @@
   "@menuHomeView": {
     "description": "Zurueck in die Ausgangsansicht des 3D-Fensters."
   },
-  "msgCouldNotSave": "„{name}“ konnte nicht gespeichert werden.",
+  "msgCouldNotSave": "„{name}“ ließ sich nicht speichern.",
   "@msgCouldNotSave": {
     "placeholders": {
       "name": {
@@ -593,12 +593,12 @@
   },
   "msgCannotOpenKind": "Prototype kann diese Art von Datei nicht öffnen.",
   "msgNotAPrototypeDoc": "Diese Datei ist kein Prototype-Dokument (oder ist beschädigt).",
-  "msgCouldNotOpenDoc": "Das Dokument konnte nicht geöffnet werden.",
-  "msgCouldNotOpenFile": "Die Datei konnte nicht geöffnet werden.",
-  "msgCouldNotImportFile": "Die Datei konnte nicht importiert werden.",
-  "msgCouldNotImportImage": "Das Bild konnte nicht importiert werden.",
-  "msgCouldNotImportDxf": "Die DXF-Datei konnte nicht importiert werden.",
-  "msgCouldNotReadDxf": "Die DXF-Datei konnte nicht gelesen werden.",
+  "msgCouldNotOpenDoc": "Dieses Dokument ließ sich nicht öffnen.",
+  "msgCouldNotOpenFile": "Diese Datei ließ sich nicht öffnen.",
+  "msgCouldNotImportFile": "Diese Datei ließ sich nicht importieren.",
+  "msgCouldNotImportImage": "Das Bild ließ sich nicht importieren.",
+  "msgCouldNotImportDxf": "Die DXF-Datei ließ sich nicht importieren.",
+  "msgCouldNotReadDxf": "Die DXF-Datei ließ sich nicht lesen.",
   "msgDxfNoSupportedEntities": "Die DXF-Datei enthält keine unterstützten Objekte.",
   "msgLayerBelowEos": "„{layer}“ liegt unter dem Skizzenende — die Marke nach unten ziehen, um ihn zurückzuholen.",
   "@msgLayerBelowEos": {
@@ -803,8 +803,8 @@
   "msgNoKernelFeatureStored": "Kein 3D-Kern verbunden — Element gespeichert, Volumenkörper steht aus.",
   "msgHoleNeedsSketch": "Eine Bohrung sitzt auf Skizzenpunkten — zuerst eine Skizze anlegen.",
   "msgHoleNeedsBody": "Eine Bohrung braucht einen Körper zum Bohren.",
-  "msgTapSketchPointsForHoles": "Die Skizzenpunkte antippen, auf die die Bohrungen kommen.",
-  "msgHoleCount": "{count, plural, =1{Eine Bohrung — Punkt antippen, um eine hinzuzufügen oder zu entfernen.} other{{count} Bohrungen — Punkt antippen, um eine hinzuzufügen oder zu entfernen.}}",
+  "msgTapSketchPointsForHoles": "Skizzenpunkte für die Bohrungen antippen.",
+  "msgHoleCount": "{count, plural, =1{Eine Bohrung — Punkt antippen zum Hinzufügen oder Entfernen.} other{{count} Bohrungen — Punkt antippen zum Hinzufügen oder Entfernen.}}",
   "@msgHoleCount": {
     "placeholders": {
       "count": {
@@ -839,8 +839,8 @@
   "@msgCombineNeedsTwoBodies": {
     "description": "Vereinigen / Differenz / Schnittmenge sind Inventors drei Kombinationsarten."
   },
-  "msgTapBodyToKeep": "Den Körper antippen, der BLEIBEN soll.",
-  "msgTapBodiesToCombine": "Die Körper antippen, die in {name} eingerechnet werden.",
+  "msgTapBodyToKeep": "Körper antippen, der BLEIBT.",
+  "msgTapBodiesToCombine": "Körper antippen, die in {name} eingehen.",
   "@msgTapBodiesToCombine": {
     "placeholders": {
       "name": {
@@ -867,8 +867,8 @@
   "msgTapSketchPointOfOriginal": "Den Skizzenpunkt antippen, auf dem das Original sitzt.",
   "msgTapCurveStart": "Den Punkt auf der Kurve antippen, an dem die Anordnung beginnt.",
   "msgTapFaceToFollow": "Die Fläche antippen, der die Exemplare folgen sollen.",
-  "msgTapSolidBodyToPattern": "Den Volumenkörper antippen, der angeordnet wird.",
-  "msgPickSolidBodyToPattern": "Den Volumenkörper wählen, der angeordnet wird.",
+  "msgTapSolidBodyToPattern": "Volumenkörper antippen, der angeordnet wird.",
+  "msgPickSolidBodyToPattern": "Volumenkörper wählen, der angeordnet wird.",
   "msgBuiltAfterPattern": "„{name}“ entsteht nach dieser Anordnung, deshalb kann sie es nicht kopieren.",
   "@msgBuiltAfterPattern": {
     "placeholders": {
@@ -911,9 +911,9 @@
       }
     }
   },
-  "msgTapCurveToSweep": "Die Kurve antippen, entlang der gezogen wird.",
+  "msgTapCurveToSweep": "Kurve antippen, entlang der gezogen wird.",
   "msgCurveNoLength": "Diese Kurve hat keine Länge.",
-  "msgTapSectionsInOrder": "Die Querschnitte der Reihe nach antippen.",
+  "msgTapSectionsInOrder": "Querschnitte der Reihe nach antippen.",
   "msgTapAxisLine": "Skizzenlinie oder Ursprungsachse antippen, die als Achse dient.",
   "msgPickAxisLine": "Skizzenlinie oder Ursprungsachse wählen.",
   "msgAxisNotInSketchPlane": "Diese Achse liegt nicht in der Skizzenebene.",
@@ -1012,7 +1012,7 @@
   "msgWouldOverConstrainC": "Diese Abhängigkeit würde die Skizze überbestimmen.",
   "msgConstraintUnsatisfiable": "Diese Abhängigkeit lässt sich mit der vorhandenen Geometrie nicht erfüllen.",
   "msgTangentNeedsCurve": "Tangential braucht mindestens ein gekrümmtes Objekt.",
-  "msgTangentClosedSpline": "Tangential an einen GESCHLOSSENEN Spline wird nicht unterstützt.",
+  "msgTangentClosedSpline": "Tangential an einen GESCHLOSSENEN Spline geht nicht.",
   "msgSmoothNeedsTwoCurves": "Stetig (G2) braucht zwei gekrümmte Objekte.",
   "@msgSmoothNeedsTwoCurves": {
     "description": "G2 = kruemmungsstetig. Inventor DE: \"Stetig (G2)\"."
@@ -1090,7 +1090,7 @@
       }
     }
   },
-  "msgTapSolidBody": "Einen Volumenkörper antippen.",
+  "msgTapSolidBody": "Volumenkörper antippen.",
   "msgTapSketchPointForHole": "Einen Skizzen-PUNKT antippen — dorthin kommt die Bohrung.",
   "msgNotBuiltYet": "{command}: noch nicht gebaut — Versatz von Ebene oder Mittelebene verwenden.",
   "@msgNotBuiltYet": {
@@ -1278,6 +1278,25 @@
   "@btnCenterPoint": {
     "x-maxChars": 14
   },
+  "btnSplitCurve": "Teilen",
+  "@btnSplitCurve": {
+    "description": "Skizzenbefehl: eine Kurve an einem Schnittpunkt teilen. Inventor DE: \"Teilen\" — bewusst NICHT \"Trennen\", das ist der 3D-Befehl, der einen Körper schneidet.",
+    "x-maxChars": 12
+  },
+  "btnOffsetCurve": "Versatz",
+  "@btnOffsetCurve": {
+    "description": "Skizzenbefehl: Parallelkurve. Inventor DE: \"Versatz\".",
+    "x-maxChars": 12
+  },
+  "btnFinish": "Fertig",
+  "@btnFinish": {
+    "x-maxChars": 12
+  },
+  "btnFinishSketch": "Skizze\nfertig",
+  "@btnFinishSketch": {
+    "description": "Zweizeilig, 64 px breit. Inventor DE sagt \"Skizze beenden\"; das passt hier nicht in eine Zeile und \"fertig\" ist die Form, die auf der Schnellwerkzeugleiste daneben schon steht.",
+    "x-maxChars": 12
+  },
   "featExtrusion": "Extrusion",
   "featRevolution": "Drehung",
   "featSweep": "Sweeping",
@@ -1346,8 +1365,8 @@
       }
     }
   },
-  "msgUndone": "Rückgängig gemacht",
-  "msgRedone": "Wiederhergestellt",
+  "msgUndone": "Rückgängig",
+  "msgRedone": "Wiederholt",
   "msgShow": "Einblenden",
   "extToNext": "Bis zum Nächsten",
   "@extToNext": {
@@ -1358,5 +1377,400 @@
     "description": "Inventor DE: \"Bis\" — bis zu einer gewaehlten Flaeche."
   },
   "extThroughAll": "Durch alle",
-  "extDistance": "Abstand"
+  "extDistance": "Abstand",
+  "wfPickEdgeFacePlanesPoints": "Kante, Fläche, zwei Ebenen oder zwei Punkte wählen.",
+  "wfPickLinearEdge": "Gerade Kante oder Skizzenlinie wählen.",
+  "wfPickCircularEdge": "Kreis- oder Ellipsenkante wählen.",
+  "wfPickCylConeFace": "Zylinder- oder Kegelfläche wählen.",
+  "wfPickPoint": "Punkt wählen.",
+  "wfPickParallelLine": "Linie wählen, zu der parallel gebaut wird.",
+  "wfPickFirstPoint": "Ersten Punkt wählen.",
+  "wfPickSecondPoint": "Zweiten Punkt wählen.",
+  "wfPickThirdPoint": "Dritten Punkt wählen.",
+  "wfPickFirstPlane": "Erste Ebene oder planare Fläche wählen.",
+  "wfPickSecondNonParallelPlane": "Zweite, nicht parallele Ebene oder Fläche wählen.",
+  "wfPickPlane": "Ebene oder planare Fläche wählen.",
+  "wfPickAxisThroughPoint": "Punkt wählen, durch den die Achse läuft.",
+  "wfPickVertexCircleOrMeeting": "Eckpunkt, Kreiskante oder sich treffende Geometrie wählen.",
+  "wfPickVertexToGround": "Eckpunkt oder Mittelpunkt wählen, an dem fixiert wird.",
+  "wfPickVertexSketchPointMid": "Eckpunkt, Skizzenpunkt oder Kantenmittelpunkt wählen.",
+  "wfPickTorusFace": "Torusfläche wählen.",
+  "wfPickSphereFace": "Kugelfläche wählen.",
+  "wfPickFirstLine": "Erste Linie, Kante oder Achse wählen.",
+  "wfPickSecondCrossingLine": "Zweite Linie wählen, die sie schneidet.",
+  "wfPickCrossingLine": "Linie, Kante oder Achse wählen, die sie schneidet.",
+  "wfPickSecondPlane": "Zweite Ebene wählen.",
+  "wfPickThirdPlane": "Dritte Ebene wählen.",
+  "wfPickLineOrTwoPlanes": "Linie wählen, die sie kreuzt, oder zwei weitere Ebenen.",
+  "wfPickSecondLineOrPlane": "Zweite Linie wählen, oder eine Ebene zum Kreuzen.",
+  "wfPickSecondPlaneOrPoint": "Zweite Ebene zum Schneiden wählen, oder einen Punkt für die Normale hindurch.",
+  "wfPickSecondPointPlaneOrLine": "Zweiten Punkt, eine Ebene oder eine Linie wählen.",
+  "wfPickParallelPlane": "Ebene oder planare Fläche wählen, zu der parallel gebaut wird.",
+  "wfPickPlaneThroughPoint": "Punkt wählen, durch den die Ebene läuft.",
+  "wfPickFirstEdge": "Erste Kante oder Linie wählen.",
+  "wfPickSecondCoplanarEdge": "Zweite Kante in derselben Ebene wählen.",
+  "wfPickNormalAxis": "Achse, Kante oder Linie wählen, zu der normal gebaut wird.",
+  "wfPickCylFaceSide": "Zylinderfläche wählen, auf der Seite, wo die Ebene liegen soll.",
+  "wfPickCylFace": "Zylinderfläche wählen.",
+  "wfPickEdgeAlongIt": "Kante wählen, die darauf liegt.",
+  "wfPickPlaneToParallel": "Ebene wählen, zu der parallel gebaut wird.",
+  "wfPickPlaneToAngleFrom": "Ebene wählen, von der aus gewinkelt wird.",
+  "wfPickPivotEdgeInPlane": "Kante zum Schwenken wählen — sie muss in dieser Ebene liegen.",
+  "wfTapCurveToCross": "Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.",
+  "wfNotStraightEdge": "{ref} ist keine gerade Kante oder Linie.",
+  "@wfNotStraightEdge": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotCircularEdge": "{ref} ist keine Kreis- oder Ellipsenkante.",
+  "@wfNotCircularEdge": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotRevolvedFace": "{ref} ist keine Drehfläche — Zylinder, Kegel oder Torus wählen.",
+  "@wfNotRevolvedFace": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoPoint": "{ref} ergibt keinen Punkt.",
+  "@wfNoPoint": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotPlane": "{ref} ist keine Ebene und keine planare Fläche.",
+  "@wfNotPlane": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNeitherPointNorLine": "{ref} ist weder ein Punkt noch eine Linie.",
+  "@wfNeitherPointNorLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNeitherPlaneNorLine": "{ref} ist weder eine Ebene noch eine Linie.",
+  "@wfNeitherPlaneNorLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoParallelLinePicked": "Keine der beiden Auswahlen ist eine Linie.",
+  "wfPickPointForAxis": "Punkt wählen, durch den die Achse gehen soll.",
+  "wfPickPointForPlane": "Punkt wählen, durch den die Ebene gehen soll.",
+  "wfSamePlace": "Diese beiden Punkte liegen an derselben Stelle.",
+  "wfParallelNeverMeet": "{a} und {b} sind parallel — sie treffen sich nie.",
+  "@wfParallelNeverMeet": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfParallelNeverCross": "{a} und {b} sind parallel — sie kreuzen sich nie.",
+  "@wfParallelNeverCross": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfCannotDefineAxis": "{ref} kann keine Achse festlegen.",
+  "@wfCannotDefineAxis": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfCannotDefinePoint": "{ref} kann keinen Punkt festlegen.",
+  "@wfCannotDefinePoint": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfParallelPickTwoMeeting": "{a} und {b} sind parallel — zwei Ebenen wählen, die sich schneiden.",
+  "@wfParallelPickTwoMeeting": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoAxisFromTwo": "{a} und {b} legen keine Achse fest.",
+  "@wfNoAxisFromTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoPointFromTwo": "{a} und {b} legen keinen Punkt fest.",
+  "@wfNoPointFromTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotClosedCircle": "{ref} ist keine geschlossene Kreiskante.",
+  "@wfNotClosedCircle": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotSphere": "{ref} ist keine Kugelfläche.",
+  "@wfNotSphere": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotTorus": "{ref} ist keine Torusfläche.",
+  "@wfNotTorus": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotLineEdgeAxis": "{ref} ist keine Linie, Kante oder Achse.",
+  "@wfNotLineEdgeAxis": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotAxisEdgeLine": "{ref} ist keine Achse, Kante oder Linie.",
+  "@wfNotAxisEdgeLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotEdgeOrLine": "{ref} ist keine Kante und keine Linie.",
+  "@wfNotEdgeOrLine": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPickOnePlaneOneLine": "Eine Ebene und eine Linie wählen.",
+  "wfSkewByGap": "{a} und {b} treffen sich nicht — {gap} Abstand.",
+  "@wfSkewByGap": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "wfLineParallelToPlane": "{line} ist parallel zu {plane} — sie schneidet sie nie.",
+  "@wfLineParallelToPlane": {
+    "placeholders": {
+      "line": {
+        "type": "String"
+      },
+      "plane": {
+        "type": "String"
+      }
+    }
+  },
+  "wfThreeNoCommonPoint": "{a}, {b} und {c} treffen sich nicht in einem Punkt — zwei davon sind parallel, oder alle drei teilen sich eine Gerade.",
+  "@wfThreeNoCommonPoint": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "c": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNotACurve": "{ref} ist keine Kurve — Skizzenkurve dort antippen, wo die Ebene sie schneiden soll.",
+  "@wfNotACurve": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPickPivotEdge": "Kante wählen, um die die Ebene schwenkt.",
+  "wfEdgeNotInPlane": "{edge} ist nicht parallel zu {plane} — die Ebene kann nur um eine Kante schwenken, die darin liegt.",
+  "@wfEdgeNotInPlane": {
+    "placeholders": {
+      "edge": {
+        "type": "String"
+      },
+      "plane": {
+        "type": "String"
+      }
+    }
+  },
+  "wfAngleNotANumber": "Der Winkel ist keine Zahl.",
+  "wfNotCylForTangent": "{ref} ist keine Zylinderfläche — eine Tangentialebene braucht eine.",
+  "@wfNotCylForTangent": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPointInsideCyl": "{pt} liegt in {cyl} — dadurch geht keine Tangentialebene.",
+  "@wfPointInsideCyl": {
+    "placeholders": {
+      "pt": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      }
+    }
+  },
+  "wfTwoTangentThroughPoint": "Zwei Ebenen sind tangential an {cyl} durch {pt} — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.",
+  "@wfTwoTangentThroughPoint": {
+    "placeholders": {
+      "cyl": {
+        "type": "String"
+      },
+      "pt": {
+        "type": "String"
+      }
+    }
+  },
+  "wfTwoTangentParallel": "Zwei Ebenen sind tangential an {cyl} und parallel zu {plane} — die Fläche auf der Seite antippen, auf der die Ebene liegen soll.",
+  "@wfTwoTangentParallel": {
+    "placeholders": {
+      "cyl": {
+        "type": "String"
+      },
+      "plane": {
+        "type": "String"
+      }
+    }
+  },
+  "wfEdgeNotParallelToAxis": "{edge} ist nicht parallel zur Achse von {cyl}.",
+  "@wfEdgeNotParallelToAxis": {
+    "placeholders": {
+      "edge": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      }
+    }
+  },
+  "wfEdgeOffCylinder": "{edge} liegt nicht auf {cyl} — sie ist {gap} mm daneben.",
+  "@wfEdgeOffCylinder": {
+    "placeholders": {
+      "edge": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "wfPlaneNotParallelToAxis": "{plane} ist nicht parallel zur Achse von {cyl} — dazu ist keine Tangentialebene parallel.",
+  "@wfPlaneNotParallelToAxis": {
+    "placeholders": {
+      "plane": {
+        "type": "String"
+      },
+      "cyl": {
+        "type": "String"
+      }
+    }
+  },
+  "wfCollinearThreePoints": "{a}, {b} und {c} liegen auf einer Geraden — drei Punkte dürfen nicht kollinear sein.",
+  "@wfCollinearThreePoints": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "c": {
+        "type": "String"
+      }
+    }
+  },
+  "wfSameLineTwice": "{a} und {b} sind dieselbe Linie — eine Ebene braucht zwei verschiedene Kanten.",
+  "@wfSameLineTwice": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "wfSkewEdges": "{a} und {b} sind windschief — sie verfehlen sich um {gap} mm.",
+  "@wfSkewEdges": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  }
 }
