@@ -2210,3 +2210,45 @@ An `nnz`-per-row bound is derivable — `S3-solver.md` §0.3 measured max 2
 nonzeros per RREF row and nnz(J) = 5121 at this rung — so a pre-sized row is
 not obviously hard. Whoever owns `solver.dart` next should decide; a device
 capture would settle whether it is worth it.
+
+---
+
+## 2026-08-21 — S7 — closing my own entry above: `claude/perf-opt2` exists, but the capture point is a BRANCH and §1.1 tells you to look for a tag
+
+**Needs:** integrator
+
+**Found by:** Session 7, merging into `claude/perf-opt2` (plan §6, step 6).
+**Blocked:** no. Both halves of my earlier entry are resolved; one has a sharp
+edge left on it.
+
+**Resolved.** The first S7 entry above says the round-two integration branch
+could not be created as §3 specifies, because `perf-capture-round1` did not
+exist. It does now, `claude/perf-opt2` exists, and S7 is merged into it. That
+entry is superseded and is left standing only because this file is
+append-only.
+
+**The edge.** `perf-capture-round1` was created as a **branch**
+(`refs/heads/perf-capture-round1`, at `b2de0c2`), not as a tag. §1.1 tells
+every round-two session to check it this way:
+
+```
+git fetch origin --tags
+git tag --list 'perf-capture-round1'      # must exist before you start
+```
+
+That command still prints **nothing**, because there is no such tag. §1.1 then
+says, in as many words: "If that tag does not exist yet, **the integrator has
+not taken the capture point** … **S6 and S10 must not** [start]."
+
+So a session that follows §1.1 exactly concludes the capture has not been
+taken — while `S3-solver.md` §13 and `PERFORMANCE_PROFILE.md` §17 adjudicate
+it in full. Either `git tag perf-capture-round1 b2de0c2 && git push origin
+perf-capture-round1` closes the gap, or §1.1's check needs rewording. It is a
+one-line fix in either direction and it is the integrator's to make, not mine.
+
+**For the record on ordering, since my merge landed near it:** the capture
+point `b2de0c2` predates every S7 commit, and S7 changes no application,
+backend or apparatus file on either branch — `git diff <base> HEAD -- frontend
+backend ci perf/baseline.json` is empty against both `claude/perf-opt` and
+`claude/perf-opt2`, and the `frontend` tree hash is unchanged by both merges.
+Nothing round one is measured on moved.
