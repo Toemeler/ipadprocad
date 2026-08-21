@@ -58,9 +58,17 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         super.init()
         container.frame = frame
         container.backgroundColor = .clear
-        // Same reason as the ribbon and the browser: UIGlassEffect follows its
-        // trait environment and Flutter's is light.
-        container.overrideUserInterfaceStyle = .dark
+        // M237 — the trait is still pinned explicitly, but to the ACTIVE
+        // palette rather than to dark.
+        //
+        // M108's reason stands: left to resolve on its own, UIGlassEffect
+        // follows the host's trait environment (Flutter's is light), the
+        // material comes out milky and UIKit then picks near-black labels.
+        // Pinning it to .dark fixed that and created the next problem — the
+        // glass stayed charcoal under M236's cream chrome, so one window
+        // rendered in two schemes. AppearanceBinder does both jobs: always
+        // explicit, and it follows a scheme change.
+        AppearanceBinder.shared.bind(container)
 
         buildGlass()
         buildRow()

@@ -129,6 +129,28 @@ class _RealityViewState extends State<RealityView> {
 ///
 /// It is a plugin-level channel (not per platform view) because a thumbnail is
 /// written on save, when the 3D viewport may not be on screen at all.
+/// M237 — the palette's viewport ground, pushed into the native renderer.
+///
+/// A plugin-level channel, not a per-view one: the colour has to be settable
+/// before any viewport exists (so the first frame is already right) and it has
+/// to reach a live viewport when the scheme changes mid-session.
+class RealityAppearance {
+  RealityAppearance._();
+  static const MethodChannel _channel =
+      MethodChannel('$_channelName/appearance');
+
+  /// Sets the ground the 3D viewport clears to. Swallows failures: a viewport
+  /// in last session's colour is a cosmetic problem, not a crash.
+  static Future<void> setViewportColor(int argb) async {
+    if (!RealityView.isSupported) return;
+    try {
+      await _channel.invokeMethod<void>('setViewportColor', {'argb': argb});
+    } catch (_) {
+      // No plugin (host tests), or a host build without the method.
+    }
+  }
+}
+
 class RealityThumbnailer {
   RealityThumbnailer._();
   static const MethodChannel _channel =
@@ -143,11 +165,16 @@ class RealityThumbnailer {
   /// the platform is too old (the renderer needs iOS 15) or when the snapshot
   /// fails for any reason — the caller is expected to keep its CPU fallback.
   /// Never throws.
+  /// [backgroundArgb] is the ground the still is drawn on. Pass 0 (fully
+  /// transparent) — M237's rule — so the PNG carries the PART and nothing
+  /// else: the gallery card paints its own surface behind it, which means the
+  /// cached file never goes stale when the palette changes.
   static Future<Uint8List?> render({
     required Map<String, dynamic> scene,
     required Map<String, dynamic> camera,
     required int width,
     required int height,
+    int backgroundArgb = 0,
   }) async {
     if (!isSupported) return null;
     try {
@@ -156,6 +183,7 @@ class RealityThumbnailer {
         'camera': camera,
         'w': width,
         'h': height,
+        'bg': backgroundArgb,
       });
     } on MissingPluginException {
       return null;

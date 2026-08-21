@@ -38,7 +38,7 @@ final class RealityPartView: NSObject, FlutterPlatformView {
         self.channel = channel
         super.init()
         container.frame = frame
-        container.backgroundColor = RealityPartView.viewportColor
+        RealityPartView.trackBackground(container)
         container.isUserInteractionEnabled = false
         container.clipsToBounds = true
 
@@ -71,9 +71,43 @@ final class RealityPartView: NSObject, FlutterPlatformView {
         }
     }
 
-    // 0xFF212830 — the app's T.viewport.
-    static let viewportColor = UIColor(
+    // M237 — the app's T.viewport, pushed from Dart instead of frozen here.
+    //
+    // It used to be a `static let` holding 0xFF212830, which is why the 3D
+    // viewport stayed charcoal under a cream Flutter chrome. Worse, the 2D
+    // sketch painter veils this view at 55% opacity (viewport.dart) — so a
+    // near-white veil over a charcoal ground came out as the muddy mid-grey in
+    // the sketch screenshot. Both are the same wrong constant.
+    private(set) static var viewportColor = UIColor(
         red: 0x21 / 255.0, green: 0x28 / 255.0, blue: 0x30 / 255.0, alpha: 1)
+
+    /// Live views that must repaint when the palette changes. Weak, so a torn
+    /// down viewport drops out on its own.
+    private static let live = NSHashTable<UIView>.weakObjects()
+
+    static func trackBackground(_ v: UIView) {
+        v.backgroundColor = viewportColor
+        live.add(v)
+    }
+
+    /// Applies a new viewport ground to every live view, now.
+    ///
+    /// An ARView needs BOTH its `backgroundColor` and its
+    /// `environment.background` set: the first is the UIKit layer, the second
+    /// is what RealityKit clears the frame to, and a mismatch shows as a flash
+    /// of the old colour on the next redraw.
+    static func setViewportColor(_ c: UIColor) {
+        assert(Thread.isMainThread, "viewport colour must be applied on the main thread")
+        viewportColor = c
+        for v in live.allObjects {
+            v.backgroundColor = c
+            #if canImport(RealityKit)
+            if #available(iOS 15.0, *), let ar = v as? ARView {
+                ar.environment.background = .color(c)
+            }
+            #endif
+        }
+    }
 }
 
 // ===========================================================================
@@ -155,7 +189,7 @@ final class PartRenderer: NSObject {
 
     private func commonInit() {
         arView.isUserInteractionEnabled = false
-        arView.backgroundColor = RealityPartView.viewportColor
+        RealityPartView.trackBackground(arView)
         arView.environment.background = .color(RealityPartView.viewportColor)
 
         // Crisp CAD look: kill the AR post effects that survive into .nonAR.

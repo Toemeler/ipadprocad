@@ -2,6 +2,7 @@
 // Home on the left, one tab per open sketch with ✕, active tab lighter with
 // a 2px blue underline, burger on the far right.
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:native_menu/native_menu.dart';
@@ -98,7 +99,7 @@ class BottomTabBar extends StatelessWidget {
           on: app.isHome,
           onTap: app.goHome,
           // The house speaks for itself — the word next to it was redundant.
-          child: SvgPicture.string(homeTabIcon, width: 15, height: 15),
+          child: SvgPicture.string(themedIcon(homeTabIcon), width: 15, height: 15),
         ),
         for (final t in app.openTabs)
           _Tab(

@@ -13,6 +13,7 @@
 // tapping geometry while it is open. Which input a tap feeds is the ACTIVE
 // selector (blue outline) — AppState._patternClick routes it.
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -26,7 +27,7 @@ import '../l10n/l.dart';
 
 // M236 — getters, not finals: a top-level `final` is initialised lazily on
 // first use and would freeze whichever palette was active at that moment.
-Color get _fieldBg => T.fly;
+Color get _fieldBg => T.field;
 Color get _fieldBorder => T.panelSep;
 Color get _disabledBg => T.disabledFill;
 Color get _disabledBorder => T.disabled;
@@ -572,7 +573,7 @@ class _PatternDialogState extends State<PatternDialog> {
 }
 
 Widget svgi(String s, double size) =>
-    SvgPicture.string(s, width: size, height: size);
+    SvgPicture.string(themedIcon(s), width: size, height: size);
 
 /// A selector button: blue outline while ARMED (the next viewport tap feeds
 /// it), a subtle blue underline once its pick exists — Inventor's language.

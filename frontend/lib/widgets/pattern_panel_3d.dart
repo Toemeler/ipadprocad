@@ -818,7 +818,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: T.fly,
+          color: T.field,
           border: Border.all(
               color: active ? T.accent : T.panelSep,
               width: active ? 1.4 : 1),

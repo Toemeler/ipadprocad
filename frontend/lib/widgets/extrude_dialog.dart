@@ -5,6 +5,7 @@
 // the Pattern and Fillet dialogs (M35/M36); the viewport does the profile
 // picking, this panel shows and edits the session state.
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
@@ -143,8 +144,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                 Text('  ›  ', style: ts(12, T.dim)),
                 Text(sketchLabel, style: ts(12.5, T.text)),
                 const Spacer(),
-                SvgPicture.string(
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2 L13 5 v5 L8 13 L3 10 V5 Z" fill="#E59B63" stroke="#a86a35" stroke-width=".8"/><path d="M3 5 L8 8 L13 5 M8 8 v5" stroke="#a86a35" stroke-width=".8" fill="none"/></svg>',
+                SvgPicture.string(themedIcon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2 L13 5 v5 L8 13 L3 10 V5 Z" fill="#E59B63" stroke="#a86a35" stroke-width=".8"/><path d="M3 5 L8 8 L13 5 M8 8 v5" stroke="#a86a35" stroke-width=".8" fill="none"/></svg>'),
                     width: 15,
                     height: 15),
                 const SizedBox(width: 8),
@@ -299,7 +299,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(
-                          color: T.fly,
+                          color: T.field,
                           border: Border.all(
                               color: app.pickingRevolveAxis
                                   ? T.accent
@@ -389,7 +389,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(
-                          color: T.fly,
+                          color: T.field,
                           border: Border.all(
                               color: app.pickingExtentFace
                                   ? T.accent
@@ -543,7 +543,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: T.fly,
+          color: T.field,
           border: Border.all(
               color: armed
                   ? T.accent
@@ -594,7 +594,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: T.fly,
+          color: T.field,
           border: Border.all(color: T.panelSep),
           borderRadius: BorderRadius.circular(3),
         ),
@@ -660,7 +660,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
               borderRadius: BorderRadius.circular(3),
             ),
             padding: const EdgeInsets.all(4),
-            child: SvgPicture.string(icons[e] ?? ''),
+            child: SvgPicture.string(themedIcon(icons[e] ?? '')),
           ),
         ),
       ),
@@ -714,7 +714,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
               borderRadius: BorderRadius.circular(3),
             ),
             child: Center(
-                child: SvgPicture.string(icons[key]!, width: 16, height: 16)),
+                child: SvgPicture.string(themedIcon(icons[key]!), width: 16, height: 16)),
           ),
         ),
       ),
@@ -752,7 +752,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
           ),
           child: Center(
               child:
-                  SvgPicture.string(icons[d]!, width: 16, height: 16)),
+                  SvgPicture.string(themedIcon(icons[d]!), width: 16, height: 16)),
         ),
       ),
     );

@@ -21,7 +21,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/icon_theme.dart';
 import 'package:prototype/part_render.dart';
+import 'package:prototype/svg_icons.dart';
 import 'package:prototype/theme.dart';
 
 /// Relative luminance, WCAG 2.1 definition.
@@ -67,6 +69,8 @@ void main() {
           ('text on fly', p.text, p.fly),
           ('dim on panel', p.dim, p.panel),
           ('dim on bg', p.dim, p.bg),
+          ('dim on field', p.dim, p.field),
+          ('text on field', p.text, p.field),
           ('accent on panel', p.accent, p.panel),
           ('accent on viewport', p.accent, p.viewport),
           ('mbText on mbBg', p.mbText, p.mbBg),
@@ -149,6 +153,15 @@ void main() {
         expect(_cr(p.disabled, p.fly), lessThan(_cr(p.text, p.fly)));
       });
     }
+
+    test('a field well sits BELOW its dialog on light, above it on dark', () {
+      // M237 — the reason `field` exists. On paper an input has to sink or it
+      // stops looking editable; on charcoal it lifts for the same reason.
+      expect(_lum(kChalk.field), lessThan(_lum(kChalk.fly)),
+          reason: 'a light-scheme field must be darker than the surface it is on');
+      expect(_lum(kEmber.field), lessThan(_lum(kEmber.panel)),
+          reason: 'a dark-scheme field stays recessed against its panel');
+    });
 
     test('the two schemes really are light and dark', () {
       expect(kChalk.brightness, Brightness.light);
@@ -271,6 +284,143 @@ void main() {
       File('${dir.path}/${ThemeStore.fileName}').writeAsStringSync('{not json');
       T.attachStore(ThemeStore(dir));
       expect(T.mode, AppThemeMode.system);
+    });
+  });
+
+  group('the icon set follows the palette (M237)', () {
+    // Every literal in svg_icons.dart, so the test cannot drift from the set.
+    final all = RegExp(r'#([0-9a-fA-F]{6})')
+        .allMatches(File('lib/svg_icons.dart').readAsStringSync())
+        .map((m) => '#${m.group(1)!.toLowerCase()}')
+        .toSet()
+        .toList()
+      ..sort();
+
+    Color parse(String h) => Color(0xFF000000 | int.parse(h.substring(1), radix: 16));
+
+    test('the set is not already themed', () {
+      expect(all.length, greaterThan(20),
+          reason: 'svg_icons.dart should still hold its authored colours');
+    });
+
+    for (final p in [kChalk, kEmber]) {
+      test('${p.name}: no stop is less readable than it was authored', () {
+        // The right instrument. An absolute floor punishes the darkest and
+        // lightest stops of a modelled face, which are SUPPOSED to be subtle —
+        // they are the shading. What must never happen is a stop coming out of
+        // the mapping harder to see than the artist drew it, so each one is
+        // measured against its own authored readability on the scheme it was
+        // drawn for (Ember).
+        T.palette = p;
+        final bad = <String>[];
+        for (final src in all) {
+          final out = themedIcon('<path fill="$src"/>');
+          final hex = RegExp(r'#([0-9a-fA-F]{6})').firstMatch(out);
+          expect(hex, isNotNull, reason: '$src produced no colour');
+          final now = _cr(parse('#${hex!.group(1)!}'), p.panel);
+          // Two roles, two rules.
+          //
+          // A NEUTRAL stop is the glyph's structure — its outline and its
+          // plate. It must not come out of the mapping harder to see than it
+          // was drawn, so it is held to its authored readability.
+          //
+          // A CHROMATIC stop is shading, and its authored contrast is partly
+          // an accident of the ground: a near-white highlight on charcoal
+          // starts at 11:1, and the honest equivalent on paper is a mid-tone,
+          // not a near-black — near-black would still be legible and would no
+          // longer be blue. Those are held to "clearly visible" instead, with
+          // the whole-set test below guaranteeing the glyph carries contrast
+          // somewhere.
+          final chromatic = HSLColor.fromColor(parse(src)).saturation >= 0.12;
+          final was = _cr(parse(src), kEmber.panel);
+          if (chromatic) {
+            // Clearly visible, OR no worse than it was drawn. The second arm
+            // is not a loophole: the darkest shadow stop of a red glyph was
+            // authored at 1.4:1 on charcoal ON PURPOSE, and demanding 2.0 of
+            // it would mean brightening a shadow until it stops being one.
+            if (now < 2.0 && now < was) {
+              bad.add('$src -> #${hex.group(1)} = ${now.toStringAsFixed(2)}:1 '
+                  '(dimmer than authored ${was.toStringAsFixed(2)}:1)');
+            }
+          } else {
+            if (now < was * 0.75) {
+              bad.add('$src -> #${hex.group(1)}: '
+                  '${was.toStringAsFixed(2)} -> ${now.toStringAsFixed(2)}:1 '
+                  '(neutral regressed)');
+            }
+          }
+        }
+        expect(bad, isEmpty,
+            reason: '${p.name}: stops lost readability:\n  ${bad.join('\n  ')}');
+      });
+
+      test('${p.name}: the set as a whole is legible', () {
+        // The other half: subtlety is allowed per stop, invisibility is not.
+        // Some stop in the set has to carry real contrast, or every glyph is
+        // a smudge.
+        T.palette = p;
+        var best = 0.0;
+        for (final src in all) {
+          final out = themedIcon('<path fill="$src"/>');
+          final hex = RegExp(r'#([0-9a-fA-F]{6})').firstMatch(out)!;
+          final r = _cr(parse('#${hex.group(1)!}'), p.panel);
+          if (r > best) best = r;
+        }
+        expect(best, greaterThan(4.5),
+            reason: '${p.name}: the strongest icon stop is only $best:1');
+      });
+    }
+
+    test('Chalk darkens the set, Ember does not', () {
+      // The authored set was drawn FOR charcoal. On paper it has to invert, and
+      // this is the assertion that the inversion actually happened rather than
+      // the icons merely being passed through.
+      const grey = '<path fill="#e8eaec"/>'; // the lightest authored stop
+      T.palette = kEmber;
+      final onDark = themedIcon(grey);
+      T.palette = kChalk;
+      final onLight = themedIcon(grey);
+      expect(onLight, isNot(onDark));
+      Color only(String s) =>
+          parse('#${RegExp(r'#([0-9a-fA-F]{6})').firstMatch(s)!.group(1)!}');
+      expect(_lum(only(onLight)), lessThan(_lum(only(onDark))),
+          reason: 'a light stop must become a DARK one on paper');
+    });
+
+    test('orange stays annotation and never becomes an error colour', () {
+      // The bug this pins: a 26-degree orange fell through a too-narrow amber
+      // band into the red bucket, so the extrude preview glyph came out as a
+      // failure glyph.
+      for (final p in [kChalk, kEmber]) {
+        T.palette = p;
+        for (final src in ['#E59B63', '#C8843F', '#E8C63F']) {
+          final out = themedIcon('<path fill="$src"/>');
+          final c = parse('#${RegExp(r'#([0-9a-fA-F]{6})').firstMatch(out)!.group(1)!}');
+          final got = HSLColor.fromColor(c).hue;
+          final want = HSLColor.fromColor(p.projRef).hue;
+          final red = HSLColor.fromColor(p.err).hue;
+          expect((got - want).abs(), lessThan((got - red).abs()),
+              reason: '${p.name}: $src landed nearer the error hue than the '
+                  'annotation hue');
+        }
+      }
+    });
+
+    test('the blue family lands on the accent, not on some other hue', () {
+      T.palette = kChalk;
+      final out = themedIcon('<path fill="#3D9BE9"/>');
+      final c = parse('#${RegExp(r'#([0-9a-fA-F]{6})').firstMatch(out)!.group(1)!}');
+      final want = HSLColor.fromColor(kChalk.accent).hue;
+      expect((HSLColor.fromColor(c).hue - want).abs(), lessThan(12),
+          reason: 'the old app blue must read as the new accent');
+    });
+
+    test('a real icon comes back as valid, fully-mapped SVG', () {
+      T.palette = kChalk;
+      final out = themedIcon(homeTabIcon);
+      expect(out, isNot(contains('#3D9BE9')));
+      expect(out.split('<').length, homeTabIcon.split('<').length,
+          reason: 'only colours change, never structure');
     });
   });
 

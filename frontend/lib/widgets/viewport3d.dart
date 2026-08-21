@@ -12,6 +12,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:reality_view/reality_view.dart';
@@ -2918,7 +2919,7 @@ class _ViewCubeState extends State<_ViewCube> {
             child: Tooltip(
               message: L.of(context).menuHomeView,
               child: SizedBox(
-                  width: 22, height: 22, child: SvgPicture.string(homeTabIcon)),
+                  width: 22, height: 22, child: SvgPicture.string(themedIcon(homeTabIcon))),
             ),
           ),
         ),

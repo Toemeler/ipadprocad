@@ -17,6 +17,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -285,7 +286,7 @@ class _HomeViewState extends State<HomeView> {
             value: '2d',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(sketch2dMenuIcon, width: 18, height: 18),
+              SvgPicture.string(themedIcon(sketch2dMenuIcon), width: 18, height: 18),
               const SizedBox(width: 10),
               Text(t.galleryNew2dSketch, style: ts(12.5, T.text)),
             ]),
@@ -294,7 +295,7 @@ class _HomeViewState extends State<HomeView> {
             value: '3d',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
+              SvgPicture.string(themedIcon(part3dMenuIcon), width: 18, height: 18),
               const SizedBox(width: 10),
               Text(t.galleryNew3dPart, style: ts(12.5, T.text)),
             ]),
@@ -303,7 +304,7 @@ class _HomeViewState extends State<HomeView> {
             value: 'import',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
+              SvgPicture.string(themedIcon(part3dMenuIcon), width: 18, height: 18),
               const SizedBox(width: 10),
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),
@@ -575,8 +576,12 @@ class _PlusButtonState extends State<_PlusButton> {
           decoration: BoxDecoration(
             color: _h ? T.galleryActionBgHover : T.galleryActionBg,
             shape: BoxShape.circle,
+            border: Border.all(color: T.cardBorder),
+            boxShadow: [
+              BoxShadow(color: T.cardShadow, blurRadius: 8, offset: const Offset(0, 2)),
+            ],
           ),
-          child: Icon(Icons.add, color: T.galleryTitle, size: 26),
+          child: Icon(Icons.add, color: T.text, size: 24),
         ),
       ),
     );
@@ -636,11 +641,11 @@ class _CardState extends State<_Card> {
                 color: T.galleryThumb,
                 borderRadius: BorderRadius.circular(_kThumbRadius),
                 border: Border.all(
-                    color: _h ? T.cardHoverBorder : Colors.transparent,
-                    width: 1.5),
+                    color: _h ? T.cardHoverBorder : T.cardBorder,
+                    width: _h ? 1.5 : 1),
                 boxShadow: [
                   BoxShadow(
-                      color: T.cardShadow, blurRadius: 14, offset: Offset(0, 6)),
+                      color: T.cardShadow, blurRadius: 10, offset: const Offset(0, 3)),
                 ],
               ),
               child: ClipRRect(
@@ -671,8 +676,7 @@ class _CardState extends State<_Card> {
   Widget _blank() => Center(
         child: Opacity(
           opacity: 0.5,
-          child: SvgPicture.string(
-              widget.kind == 'part' ? partCubeIcon : sketchCubeIcon,
+          child: SvgPicture.string(themedIcon(widget.kind == 'part' ? partCubeIcon : sketchCubeIcon),
               width: 30,
               height: 30),
         ),

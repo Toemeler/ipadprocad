@@ -1,5 +1,6 @@
 // Prototype — application state (tabs, layers, edit mode, active tool) and
 // persistence (DXF per sketch + preview PNG in the app Documents directory).
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -1241,6 +1242,11 @@ class AppState extends ChangeNotifier {
     // measurable launch regression in an app whose launch time is a tracked
     // number, and one frame is the cheaper of the two.
     L.attachStore(LocaleStore(_cacheRoot));
+    // M237 — previews written before this milestone have the viewport colour
+    // BAKED IN, so every one of them stayed charcoal under the cream scheme.
+    // They are derived data, so the repair is to throw them away and draw them
+    // again; the new ones are transparent and will never need this twice.
+    _migratePreviews();
     // M236 — the appearance choice is remembered in the same file, off the
     // launch path for the same reason. Until this runs the app follows the
     // iPad's own setting, which is also the default, so the worst case is one
@@ -3212,6 +3218,11 @@ class AppState extends ChangeNotifier {
 
   Future<void> openPart(String name) async {
     if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
+    // M237 — the still inside this document may predate the transparent
+    // format, in which case its gallery card is a charcoal rectangle on a
+    // cream shelf. The model is loaded and the kernel is warm right here, so
+    // this is the cheapest honest moment to redraw it. Once per document.
+    unawaited(_repairPreview(name));
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
     activeChild = null;
@@ -3382,6 +3393,96 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The preview format currently on disk. Bump when a change makes older
+  /// cached stills wrong rather than merely out of date.
+  ///
+  /// 1 — opaque, the viewport colour baked in (up to M236).
+  /// 2 — transparent; the card supplies the ground (M237).
+  static const int kPreviewFormat = 2;
+
+  /// Documents whose still has already been redrawn in the current format.
+  ///
+  /// A preview lives INSIDE the document (`readDocEntry(kPreviewEntry)`), not
+  /// only in the cache, so dropping the cache repairs nothing — the old
+  /// opaque still is simply extracted again. Redrawing it means writing the
+  /// document, and that is not something to do to every file on the launch
+  /// path. So it happens when a document is OPENED, once, and this set is how
+  /// "once" is remembered across launches.
+  final Set<String> _previewsRepaired = <String>{};
+
+  /// Drops the extracted thumbnail cache when the format on disk is older than
+  /// [kPreviewFormat]. Cheap: a handful of file deletes, no geometry.
+  void _migratePreviews() {
+    try {
+      final f = File('${_cacheRoot.path}/settings.json');
+      Map<String, Object?> data = <String, Object?>{};
+      if (f.existsSync()) {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          data = <String, Object?>{
+            for (final e in raw.entries) '${e.key}': e.value
+          };
+        }
+      }
+      _previewsRepaired
+        ..clear()
+        ..addAll(
+            (data['previewsRepaired'] as List? ?? const []).whereType<String>());
+      if (data['previewFormat'] == kPreviewFormat) return;
+      // A format bump invalidates every earlier repair.
+      _previewsRepaired.clear();
+      final thumbs = Directory('${_cacheRoot.path}/thumbs');
+      if (thumbs.existsSync()) thumbs.deleteSync(recursive: true);
+      data['previewFormat'] = kPreviewFormat;
+      data['previewsRepaired'] = <String>[];
+      f.writeAsStringSync(jsonEncode(data));
+      Log.i('preview', 'format -> $kPreviewFormat, thumbnail cache dropped');
+    } catch (e) {
+      // A migration that cannot run costs stale-looking cards, not a launch.
+      Log.w('preview', 'preview migration failed: $e');
+    }
+  }
+
+  /// Redraws [name]'s still in the current format, once, and remembers it.
+  ///
+  /// Deliberately NOT on the launch path and deliberately not a sweep over
+  /// every document: rewriting files the user did not ask about, at startup,
+  /// is how a cosmetic fix turns into a data-loss report.
+  Future<void> _repairPreview(String name) async {
+    if (_previewsRepaired.contains(name)) return;
+    final p = parts[name];
+    if (p == null) return;
+    // GUARD, and the important line in this method: repairing means SAVING,
+    // and saving a model that did not load completely would overwrite a good
+    // document with a partial one. A cosmetic fix must never be able to cost
+    // geometry, so a part with nothing in it is left alone — its card is a
+    // placeholder either way.
+    if (p.features.isEmpty) {
+      Log.i('preview', 'skipping the redraw for "$name": nothing loaded');
+      return;
+    }
+    _previewsRepaired.add(name);
+    try {
+      await savePart(name);
+      final f = File('${_cacheRoot.path}/settings.json');
+      Map<String, Object?> data = <String, Object?>{};
+      if (f.existsSync()) {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          data = <String, Object?>{
+            for (final e in raw.entries) '${e.key}': e.value
+          };
+        }
+      }
+      data['previewsRepaired'] = _previewsRepaired.toList();
+      f.writeAsStringSync(jsonEncode(data));
+      Log.i('preview', 'redrew the still for "$name"');
+    } catch (e) {
+      _previewsRepaired.remove(name); // try again next time
+      Log.w('preview', 'could not redraw the still for "$name": $e');
+    }
+  }
+
   /// Renders the part's solids to <name>.png (380x240) for the gallery card
   /// and the long-press lift preview.
   ///
@@ -3422,6 +3523,11 @@ class AppState extends ChangeNotifier {
       final cam = fitThumbCamera(solids, size);
 
       // Preferred path: the real engine.
+      //
+      // M237 — rendered on a TRANSPARENT ground (the default). The card paints
+      // its own surface behind the PNG, so the file carries the part and never
+      // a palette: a thumbnail written in Ember still looks right in Chalk,
+      // and a scheme switch does not invalidate a single cached still.
       final shot = await RealityThumbnailer.render(
         scene: buildThumbScenePayload(named),
         camera: cameraPayload(cam, size),
@@ -3436,8 +3542,8 @@ class AppState extends ChangeNotifier {
       // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      canvas.drawRect(
-          const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      // No background fill, for the reason above: the still is the part, and
+      // the card supplies the ground.
       paintPartSolids(canvas, Cam3(cam, size), solids);
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
@@ -13917,8 +14023,9 @@ class AppState extends ChangeNotifier {
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
       // same dark radial feel as the mock card thumb
-      canvas.drawRect(
-          const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      // M237 — no ground. The card paints its own surface behind the PNG, so
+      // a still written in one scheme still reads correctly in the other and a
+      // cached file never goes stale. (Same rule as _writePartPreview.)
       // M220 — the card shows the text too, because the text IS geometry now
       // (and a thumbnail that omitted half the drawing was never right).
       final geos = [...s.geometry, ...textGeometry(s)];

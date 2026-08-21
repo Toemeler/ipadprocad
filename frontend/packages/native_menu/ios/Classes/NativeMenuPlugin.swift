@@ -96,6 +96,13 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         case "isSupported":
             result(true)
 
+        // M237 — the Flutter palette, pushed into UIKit. Every glass surface
+        // bound through AppearanceBinder switches with it, so the material and
+        // the Flutter text on top of it always come from the same scheme.
+        case "setAppearance":
+            AppearanceBinder.shared.set(dark: args["dark"] as? Bool ?? true)
+            result(nil)
+
         case "setTargets":
             let raw = args["targets"] as? [[String: Any]] ?? []
             targets = raw.compactMap { NativeMenuPlugin.parseTarget($0) }
@@ -605,12 +612,17 @@ final class GlassPanelView: NSObject, FlutterPlatformView {
         // The glass must never take touches: Flutter's rows sit above it and
         // own every gesture in this panel.
         container.isUserInteractionEnabled = false
-        // M146 — DARK TRAITS. UIGlassEffect adapts to the trait environment,
-        // and a Flutter platform view inherits the host's, which is light.
-        // Without this the same effect that reads as smoked glass in the model
-        // browser (GlassBrowserView sets it) comes out milky white. It was the
-        // single visible difference between the two panels on the device.
-        container.overrideUserInterfaceStyle = .dark
+        // M237 — the trait is still pinned explicitly, but to the ACTIVE
+        // palette rather than to dark.
+        //
+        // M108's reason stands: left to resolve on its own, UIGlassEffect
+        // follows the host's trait environment (Flutter's is light), the
+        // material comes out milky and UIKit then picks near-black labels.
+        // Pinning it to .dark fixed that and created the next problem — the
+        // glass stayed charcoal under M236's cream chrome, so one window
+        // rendered in two schemes. AppearanceBinder does both jobs: always
+        // explicit, and it follows a scheme change.
+        AppearanceBinder.shared.bind(container)
 
         let effect: UIVisualEffect
         if #available(iOS 26.0, *) {

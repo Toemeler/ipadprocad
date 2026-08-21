@@ -150,7 +150,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       decoration: BoxDecoration(
-                        color: T.fly,
+                        color: T.field,
                         border: Border.all(
                             color: app.pickingEdges
                                 ? T.accent

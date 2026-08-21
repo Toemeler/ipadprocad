@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
@@ -23,7 +24,7 @@ import 'ribbon_chrome.dart';
 import 'scrub_field.dart';
 
 Widget svg(String s, double size) =>
-    SvgPicture.string(s, width: size, height: size);
+    SvgPicture.string(themedIcon(s), width: size, height: size);
 
 /// Descriptor for one flyout entry: icon key, bold line, subtitle, and the
 /// (optional) real tool it activates.

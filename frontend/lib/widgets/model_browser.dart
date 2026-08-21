@@ -12,6 +12,7 @@ import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
@@ -1553,7 +1554,7 @@ class _TreeRowState extends State<_TreeRow> {
                         fontSize: 10, color: T.mbDim, fontFamily: 'Menlo')),
               ),
             const SizedBox(width: 6),
-            SvgPicture.string(widget.icon, width: 15, height: 15),
+            SvgPicture.string(themedIcon(widget.icon), width: 15, height: 15),
             const SizedBox(width: 6),
             Expanded(
               child: Text(widget.label,

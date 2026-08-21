@@ -51,6 +51,8 @@ import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:native_menu/native_menu.dart';
+import 'package:reality_view/reality_view.dart';
 
 import 'log.dart';
 
@@ -72,8 +74,16 @@ class Palette {
   // ---- chrome ----
   final Color bg; // app shell behind the ribbon
   final Color panel; // panels, ribbon body
-  final Color fly; // flyouts, dialog fields: RECESSED on dark, RAISED on light
+  final Color fly; // flyouts and dialog surfaces: RAISED on light, sunk on dark
   final Color flyHov; // the same surface, hovered
+
+  /// An input well — a text field, a number box, a segmented control's ground.
+  ///
+  /// Split from [fly] in M237: on dark both are "darker than the panel", so
+  /// one token covered both. On light they pull APART — a dialog lifts to
+  /// white while the field inside it has to sink below the dialog, or the two
+  /// merge into one flat sheet and the field stops looking editable.
+  final Color field;
   final Color text; // primary text
   final Color dim; // secondary text and labels
   final Color sep; // hard separator, darkest/lightest hairline
@@ -213,6 +223,7 @@ class Palette {
     required this.panel,
     required this.fly,
     required this.flyHov,
+    required this.field,
     required this.text,
     required this.dim,
     required this.sep,
@@ -322,6 +333,7 @@ const Palette kEmber = Palette(
   panel: Color(0xFF2C2823),
   fly: Color(0xFF1B1815),
   flyHov: Color(0xFF35302A),
+  field: Color(0xFF1B1815),
   text: Color(0xFFEDE6D9),
   dim: Color(0xFFA09686),
   sep: Color(0xFF141210),
@@ -356,8 +368,8 @@ const Palette kEmber = Palette(
   galleryBg: Color(0xFF1F1C18),
   galleryThumb: Color(0xFF201D19),
   galleryTitle: Color(0xFFF5F0E6),
-  galleryActionBg: Color(0x1FFFFFFF),
-  galleryActionBgHover: Color(0x33FFFFFF),
+  galleryActionBg: Color(0xFF35302A),
+  galleryActionBgHover: Color(0xFF3E3831),
   cardShadow: Color(0x66000000),
   rawGrey: Color(0xFF7A7266),
   projRef: Color(0xFFD98A4A),
@@ -431,47 +443,48 @@ const Palette kEmber = Palette(
 const Palette kChalk = Palette(
   name: 'Chalk',
   brightness: Brightness.light,
-  bg: Color(0xFFE2E2DF),
-  panel: Color(0xFFECECE9),
-  fly: Color(0xFFF6F6F3),
-  flyHov: Color(0xFFE4E4E0),
-  text: Color(0xFF1F2224),
+  bg: Color(0xFFEDEBE6),
+  panel: Color(0xFFF5F4F0),
+  fly: Color(0xFFFFFFFF),
+  flyHov: Color(0xFFF1EFEA),
+  field: Color(0xFFF2F0EB),
+  text: Color(0xFF1C1E20),
   dim: Color(0xFF5C6165),
-  sep: Color(0xFFC9CAC6),
+  sep: Color(0xFFD9D6CF),
   accent: Color(0xFF0F6A70),
   hover: Color(0xFF7FC9C4),
-  viewport: Color(0xFFFDFDFB),
+  viewport: Color(0xFFFCFBF8),
   ribbonTop: Color(0xD90F6A70),
   ribbonBottom: Color(0x730F6A70),
-  panelSep: Color(0xFFD3D4D0),
-  mbBg: Color(0xFFECECE9),
-  mbHead: Color(0xFFE2E2DF),
-  mbBorder: Color(0xFFC2C3BF),
-  mbHeadBorder: Color(0xFFD3D4D0),
-  mbText: Color(0xFF1F2224),
+  panelSep: Color(0xFFE3E0D9),
+  mbBg: Color(0xFFF5F4F0),
+  mbHead: Color(0xFFEDEBE6),
+  mbBorder: Color(0xFFD9D6CF),
+  mbHeadBorder: Color(0xFFE3E0D9),
+  mbText: Color(0xFF1C1E20),
   mbDim: Color(0xFF5C6165),
-  mbDimmed: Color(0xFF767B7F),
-  mbActiveBg: Color(0xFFD2E3E1),
+  mbDimmed: Color(0xFF6E7276),
+  mbActiveBg: Color(0xFFD9E9E7),
   mbActiveOutline: Color(0xFF4E9490),
   mbHover: Color(0x0A000000),
-  tabbarBg: Color(0xFFD6D7D3),
-  tabbarBorder: Color(0xFFC2C3BF),
-  tabBg: Color(0xFFDEDEDA),
-  tabOnBg: Color(0xFFECECE9),
+  tabbarBg: Color(0xFFE7E4DE),
+  tabbarBorder: Color(0xFFD4D0C8),
+  tabBg: Color(0xFFEFEDE8),
+  tabOnBg: Color(0xFFFCFBF8),
   tabText: Color(0xFF545A5E),
   tabUnderline: Color(0xFF0F6A70),
-  cardBg: Color(0xFFF6F6F3),
-  cardBorder: Color(0xFFD3D4D0),
+  cardBg: Color(0xFFFFFFFF),
+  cardBorder: Color(0xFFE3E0D9),
   cardHoverBorder: Color(0xFF0F6A70),
   homeH1: Color(0xFF16181A),
-  cardName: Color(0xFF1F2224),
+  cardName: Color(0xFF1C1E20),
   cardDate: Color(0xFF63686C),
-  galleryBg: Color(0xFFDCDCD8),
-  galleryThumb: Color(0xFFFDFDFB),
+  galleryBg: Color(0xFFF0EEE9),
+  galleryThumb: Color(0xFFFCFBF8),
   galleryTitle: Color(0xFF16181A),
-  galleryActionBg: Color(0x14000000),
-  galleryActionBgHover: Color(0x24000000),
-  cardShadow: Color(0x33000000),
+  galleryActionBg: Color(0xFFFFFFFF),
+  galleryActionBgHover: Color(0xFFF1EFEA),
+  cardShadow: Color(0x14000000),
   rawGrey: Color(0xFF8A9095),
   projRef: Color(0xFFA0561F),
   projRefEdge: Color(0xFF6E3B15),
@@ -483,7 +496,7 @@ const Palette kChalk = Palette(
   conActiveBg: Color(0x240F6A70),
   conActiveBorder: Color(0x8C0F6A70),
   scrim: Color(0x40000000),
-  shadow: Color(0x33000000),
+  shadow: Color(0x1F000000),
   chipBg: Color(0xFFD2E3E1),
   chipStrong: Color(0xFF0F6A70),
   onAccent: Color(0xFFF4FAF9),
@@ -496,12 +509,12 @@ const Palette kChalk = Palette(
   errText: Color(0xFF8A2030),
   ok: Color(0xFF26762F),
   okText: Color(0xFF1D5C24),
-  ink: Color(0xFF1F2224),
-  inkDim: Color(0x661F2224),
+  ink: Color(0xFF1C1E20),
+  inkDim: Color(0x661C1E20),
   constr: Color(0xFF7B8B9C),
   snapOk: Color(0xFF26762F),
-  grid: Color(0xFFD3D4D0),
-  axis: Color(0xFFB4B6B2),
+  grid: Color(0xFFE6E3DC),
+  axis: Color(0xFFD2CEC5),
   node: Color(0xFF0F6A70),
   dofFull: Color(0xFF16181A),
   dofUnder: Color(0xFF5A4CC4),
@@ -510,9 +523,9 @@ const Palette kChalk = Palette(
   ctrl: Color(0xFF8A5F1E),
   dimLine: Color(0xFF6E7A5E),
   dimText: Color(0xFF3C4433),
-  dimPlate: Color(0xCCFDFDFB),
+  dimPlate: Color(0xCCFCFBF8),
   dimPlateHot: Color(0xCCD8E8E6),
-  hudBg: Color(0xF0F6F6F3),
+  hudBg: Color(0xF0FFFFFF),
   hudBgHot: Color(0xF0DCEBE9),
   toastBg: Color(0xF5F3E4D2),
   toastBorder: Color(0xFFC79A62),
@@ -528,10 +541,10 @@ const Palette kChalk = Palette(
   axisX: Color(0xFFB3332A),
   axisY: Color(0xFF26762F),
   axisZ: Color(0xFF1F5C9E),
-  cubeFace: Color(0xFFFAFAF8),
+  cubeFace: Color(0xFFFFFFFF),
   cubeFaceTop: Color(0xFFFFFFFF),
-  cubeFaceDim: Color(0xFFE4E4E0),
-  cubeEdge: Color(0xFF9AA0A3),
+  cubeFaceDim: Color(0xFFE9E6DF),
+  cubeEdge: Color(0xFFBDBAB2),
   cubeText: Color(0xFF3C4043),
 );
 
@@ -647,6 +660,11 @@ class T {
   /// the first frame or the app paints one scheme and snaps to the other.
   static void followPlatform() {
     _platform = PlatformDispatcher.instance.platformBrightness;
+    // Push unconditionally on the way in: _apply() below only pushes on a
+    // CHANGE, and the common case (the iPad is dark, so is the default) is
+    // no change at all — yet UIKit still has to be told, because its own
+    // default is whatever the last run left behind.
+    _pushToPlatform(_resolved);
     PlatformDispatcher.instance.onPlatformBrightnessChanged = () {
       final b = PlatformDispatcher.instance.platformBrightness;
       if (b == _platform) return;
@@ -690,6 +708,23 @@ class T {
     if (identical(p, scheme.value)) return;
     scheme.value = p;
     Log.i('theme', 'palette = ${p.name} (mode=${_mode.id})');
+    _pushToPlatform(p);
+  }
+
+  /// M237 — carry the scheme across to UIKit.
+  ///
+  /// Flutter is not the whole window. The ribbon, the model browser, the tab
+  /// bar and the tool bar are native GLASS, and the 3D viewport is RealityKit;
+  /// none of them can see a Dart notifier. Without this push they keep last
+  /// session's appearance and the app renders in two schemes at once — which
+  /// is exactly what the light-mode screenshots showed.
+  ///
+  /// Fire-and-forget on purpose: both sides swallow their own failures, and a
+  /// theme switch must not be able to throw into the widget tree.
+  static void _pushToPlatform(Palette p) {
+    final dark = p.brightness == Brightness.dark;
+    NativeMenu.setAppearance(dark: dark);
+    RealityAppearance.setViewportColor(p.viewport.toARGB32());
   }
 
   /// Resets the switch so one test cannot leak its palette into the next.
@@ -705,6 +740,7 @@ class T {
   static Color get panel => scheme.value.panel;
   static Color get fly => scheme.value.fly;
   static Color get flyHov => scheme.value.flyHov;
+  static Color get field => scheme.value.field;
   static Color get text => scheme.value.text;
   static Color get dim => scheme.value.dim;
   static Color get sep => scheme.value.sep;

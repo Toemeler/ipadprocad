@@ -21,7 +21,7 @@ import '../l10n/l.dart';
 
 // M236 — getters, not finals: a top-level `final` is initialised lazily on
 // first use and would freeze whichever palette was active at that moment.
-Color get _fieldBg => T.fly;
+Color get _fieldBg => T.field;
 Color get _fieldBorder => T.panelSep;
 
 TextStyle _ts(double s, Color c, {FontWeight w = FontWeight.normal}) =>

@@ -101,7 +101,7 @@ class _BugDialogState extends State<_BugDialog> {
                 hintText: L.of(context).hintBugExample,
                 hintStyle: ts(12, T.dim),
                 filled: true,
-                fillColor: T.fly,
+                fillColor: T.field,
                 border: OutlineInputBorder(
                     borderSide: BorderSide(color: T.sep)),
                 enabledBorder: OutlineInputBorder(
