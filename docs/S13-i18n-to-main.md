@@ -392,3 +392,51 @@ was told not to solve that, and did not. What should make it tractable:
   needs no repair.
 - `claude/perf-opt2` still points at `4858fc4`. The IPA under test still
   corresponds to the branch.
+
+---
+
+## 10. Landing — CI verdict and outcome
+
+**`dart-checks` on run [32479771236](https://github.com/Toemeler/ipadprocad/actions/runs/32479771236), commit `c1aa148`: SUCCESS.**
+Job wall clock 3m20s (12:00:00 → 12:03:19), matching the brief's ~3 min. From
+CI's own committed logs on `ci-debug-logs-dart`:
+
+- `Analyze Dart` — success, `56 issues found. (ran in 12.8s)`. The same 56 I
+  measured locally, all info/warning, zero errors.
+- `Host tests` — success, 100s, `🎉 1984 tests passed.` The same 1984.
+
+Both CI numbers match my local run exactly, which is the corroboration I
+wanted before the irreversible step.
+
+Merged to `main` as **`698c96b`** (`--no-ff`, so the whole transplant is one
+revertable unit — `git revert -m 1 698c96b` backs the localisation out of
+`main` in one move should the device capture demand it). `main` went
+`8b7e636 → 698c96b`.
+
+Final state of the three refs:
+
+```
+origin/main                            698c96b
+origin/claude/i18n-to-main-s13-8hol4t  c1aa148
+origin/claude/perf-opt2                4858fc4   ← unchanged
+```
+
+`claude/perf-opt2` still points at `4858fc4`. The unsigned IPA under test still
+corresponds to the branch.
+
+### One process note, since precision is the point of this report
+
+While waiting on CI I read the GitHub Actions API as showing the `Host tests`
+step stalled for over an hour, and said so. That was wrong — the API was
+serving stale step data. The job had in fact finished at 12:03:19, minutes
+after it started. Nothing was hung and nothing was re-run. Recorded here
+because a future session polling this workflow will hit the same lag: the
+cache-immune signal is the CI's own log commit on the `ci-debug-logs-dart`
+branch, which is pushed by an `if: always()` step and can be checked with a
+plain `git fetch`.
+
+### Branch name
+
+Developed on `claude/i18n-to-main-s13-8hol4t`, the branch this session was
+assigned, rather than the `claude/i18n-to-main-s13` named in the brief. Same
+work, same base (`origin/main`); only the ref name differs.
