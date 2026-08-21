@@ -1,9 +1,9 @@
 platform:   macos
-run_id:     32476196249
-run_number: 18
-sha:        64a3ea9a1af142e9d743905c853b5c54d4e5f73c
+run_id:     32476629835
+run_number: 19
+sha:        4858fc4d4cdf20cda89498993017eb9b3ef1a2ab
 ref:        refs/heads/claude/perf-opt2
-captured:   2026-08-21T11:33:51Z
+captured:   2026-08-21T11:48:47Z
 
 ABSOLUTE MILLISECONDS IN THESE FILES ARE NOT iPad MILLISECONDS.
 Read relative costs, exponents, allocation and RSS behaviour.
