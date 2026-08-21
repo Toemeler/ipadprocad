@@ -2252,3 +2252,55 @@ backend or apparatus file on either branch — `git diff <base> HEAD -- frontend
 backend ci perf/baseline.json` is empty against both `claude/perf-opt` and
 `claude/perf-opt2`, and the `frontend` tree hash is unchanged by both merges.
 Nothing round one is measured on moved.
+
+---
+
+## 2026-08-21 — S7 — `claude/perf-opt2` is red on `flutter analyze` AND `flutter test`, and it is not this merge
+
+**Needs:** integrator, and S11
+
+**Found by:** Session 7, running the definition-of-done checks after merging
+into `claude/perf-opt2`.
+**Files:** `frontend/lib/perf_scenarios_profile.dart` — S11's file, and inside
+the frozen `frontend/lib/perf*.dart` apparatus zone (§4).
+**Blocked:** no. **Not fixed** — §0 rule 6, and §4 closes that file to me
+twice over.
+
+Two static type errors, from the same mistake at two call sites:
+
+```
+lib/perf_scenarios_profile.dart:254:26 • argument_type_not_assignable
+lib/perf_scenarios_profile.dart:282:16 • argument_type_not_assignable
+    The argument type 'OcctFfi?' can't be assigned to the parameter type 'OcctFfi'.
+```
+
+`OcctFfi.instance()` returns `OcctFfi?` (`ffi/occt_engine.dart:972`), so the
+`occt` that `buildProfileScenarios` holds is nullable. `_sweep` is declared
+`OcctShape? _sweep(OcctFfi occt, {...})` at `:383` and takes it non-nullable.
+The other scenario files get away with the same `final occt =
+OcctFfi.instance();` because none of them passes it on.
+
+**This is not a merge artefact.** The `frontend` tree hash is
+`fa3ef101852bd428f63c2e61f718d5d960bb5a3b` both before and after S7's merge —
+byte-identical, because S7 adds no Dart at all. It arrived with `068f6ef`
+("S11: the profile-complexity ladders"), and `claude/perf-opt2-sweep` carries
+the same signature and is zero commits ahead of the integration branch, so
+there is no fix waiting to be merged either.
+
+**What it costs, in the terms §6 uses:**
+
+| definition-of-done item | on `claude/perf-opt2` |
+| --- | --- |
+| 1. `flutter analyze` — zero issues | **exit 1**, two errors, with the exact flags the CI job uses |
+| 2. `flutter test` — green | **red**: `m233_profile_ladders_test.dart` imports the file and cannot load |
+| 3. `python3 -m unittest discover -s ci` | green (45 tests) |
+
+`bug_capture.dart:31` imports it too, so this is not confined to the test.
+
+The fix is one character in either direction — widen `_sweep` to `OcctFfi?` and
+guard inside, or hoist a single null check above both ladders — but the choice
+belongs to whoever owns the scenario's semantics: a null `occt` means the
+native kernel is not linked, and whether that rung should be *skipped* or
+should *fail loudly* is a measurement decision, not a typing one. On a Linux
+host it is always null, which is exactly where a silent skip would produce a
+ladder of empty rungs that looks like a measurement.
