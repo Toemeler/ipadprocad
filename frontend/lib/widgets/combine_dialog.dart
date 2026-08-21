@@ -43,9 +43,9 @@ class _CombineDialogState extends State<CombineDialog> {
             color: T.panel,
             border: Border.all(color: T.sep),
             borderRadius: BorderRadius.circular(6),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                  color: Color(0x73000000),
+                  color: T.scrim,
                   blurRadius: 24,
                   offset: Offset(0, 6)),
             ],
@@ -55,14 +55,14 @@ class _CombineDialogState extends State<CombineDialog> {
               onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: T.fly,
                   border: Border(bottom: BorderSide(color: T.panelSep)),
                   borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
                 ),
                 child: Row(children: [
                   Text(L.of(context).dlgProperties,
-                      style: ts(13, Colors.white, w: FontWeight.w600)),
+                      style: ts(13, T.text, w: FontWeight.w600)),
                   const SizedBox(width: 6),
                   GestureDetector(
                     onTap: app.cancelCombine,
@@ -76,7 +76,7 @@ class _CombineDialogState extends State<CombineDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ?? L.of(context).btnCombine, style: ts(12.5, T.blue)),
+                Text(s.editing?.name ?? L.of(context).btnCombine, style: ts(12.5, T.accent)),
                 const Spacer(),
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
@@ -139,13 +139,13 @@ class _CombineDialogState extends State<CombineDialog> {
             height: 26,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: on ? T.blue : const Color(0xFF212429),
+              color: on ? T.accent : T.fly,
               border:
-                  Border.all(color: on ? T.blue : const Color(0xFF3A3F45)),
+                  Border.all(color: on ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(3),
             ),
             child:
-                Text(label, style: ts(11.5, on ? Colors.white : T.text)),
+                Text(label, style: ts(11.5, on ? T.onAccent : T.text)),
           ),
         ),
       );
@@ -164,9 +164,9 @@ class _CombineDialogState extends State<CombineDialog> {
                 height: 28,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                    color: T.blue, borderRadius: BorderRadius.circular(3)),
+                    color: T.accent, borderRadius: BorderRadius.circular(3)),
                 child: Text(L.of(context).ok,
-                    style: ts(12.5, Colors.white, w: FontWeight.w600)),
+                    style: ts(12.5, T.text, w: FontWeight.w600)),
               ),
             ),
           ),
@@ -179,8 +179,8 @@ class _CombineDialogState extends State<CombineDialog> {
               height: 28,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFF2A2E33),
-                border: Border.all(color: const Color(0xFF3A3F45)),
+                color: T.bg,
+                border: Border.all(color: T.panelSep),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(L.of(context).cancel, style: ts(12.5, T.text)),

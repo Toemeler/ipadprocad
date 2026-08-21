@@ -41,10 +41,12 @@ import '../l10n/l.dart';
 // the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
 // survives only as the empty-part default, which lives there as
 // kOriginExtentDefault; nothing in this file should size geometry with it.
-const _orange = Color(0xFFEA9E5C);
-const _orangeEdge = Color(0xE6F0A868);
-const _green = Color(0xFF39D65B);
-const _greenBright = Color(0xFF8DFFA0);
+// M236 — palette reads, for the reason spelled out in part_render.dart: the
+// live extrude preview and the committed-boolean tint follow the scheme too.
+Color get _orange => T.previewFill;
+Color get _orangeEdge => T.previewEdge;
+Color get _green => T.okSolid;
+Color get _greenBright => T.okSolidBright;
 // Cam3 (orthographic turntable camera) and paintPartSolids live in
 // ../part_render.dart now — shared verbatim with off-screen thumbnail
 // rendering (AppState._writePartPreview). kSolidBase/kSolidEdge moved with
@@ -461,7 +463,7 @@ class _Viewport3DState extends State<Viewport3D>
   Widget build(BuildContext context) {
     final app = widget.app;
     final p = part;
-    if (p == null) return const ColoredBox(color: T.viewport);
+    if (p == null) return ColoredBox(color: T.viewport);
     return LayoutBuilder(builder: (context, bc) {
       final size = Size(bc.maxWidth, bc.maxHeight);
       final cam = Cam3(_effectiveCamera(app, p, size), size);
@@ -486,7 +488,7 @@ class _Viewport3DState extends State<Viewport3D>
                     // not: device build 0f04ca2).
                     ? IgnorePointer(
                         child: RealityView(
-                          placeholder: const ColoredBox(color: T.viewport),
+                          placeholder: ColoredBox(color: T.viewport),
                           onCreated: (c) {
                             _reality = c;
                             // A FRESH platform view starts empty. Without
@@ -851,12 +853,12 @@ class _Viewport3DState extends State<Viewport3D>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xE6402F1F),
-                  border: Border.all(color: const Color(0xFF8A6A3A)),
+                  color: T.toastBg,
+                  border: Border.all(color: T.toastBorder),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child:
-                    Text(app.message!, style: ts(12, const Color(0xFFF2D6A2))),
+                    Text(app.message!, style: ts(12, T.toastText)),
               ),
             ),
           ),
@@ -2511,7 +2513,7 @@ class _ScenePainter extends CustomPainter {
                 ..color = _greenBright);
         }
         canvas.drawCircle(cam.project(Vec3.zero), 4,
-            Paint()..color = const Color(0xFFFFE07A));
+            Paint()..color = T.dofArrow);
         final p0 = cam.project(f.toWorld(Offset(uMin + 0.6, vMin + 1.4)));
         final p1 = cam.project(f.toWorld(Offset(uMin + 4.6, vMin + 1.4)));
         final ang = math.atan2(p1.dy - p0.dy, p1.dx - p0.dx);
@@ -2605,7 +2607,7 @@ class _ScenePainter extends CustomPainter {
     final pen = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = const Color(0xFFC4C9CE);
+      ..color = T.ink;
     for (final g in cs.model.geometry) {
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
       final li = cs.model.layers.indexOf(g.layer);
@@ -2664,13 +2666,13 @@ class _ScenePainter extends CustomPainter {
         loopPath(h.pts);
       }
       canvas.drawPath(
-          path, Paint()..color = T.blue.withOpacity(selected ? 0.38 : 0.16));
+          path, Paint()..color = T.accent.withOpacity(selected ? 0.38 : 0.16));
       canvas.drawPath(
           path,
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = selected ? 1.6 : 1
-            ..color = selected ? T.hover : T.blue.withOpacity(0.7));
+            ..color = selected ? T.hover : T.accent.withOpacity(0.7));
     }
   }
 
@@ -2718,7 +2720,7 @@ class _OverlayPainter extends CustomPainter {
         canvas.drawCircle(cam.project(c), 6, ring);
       }
       canvas.drawCircle(
-          cam.project(Vec3.zero), 4, Paint()..color = const Color(0xFFFFE07A));
+          cam.project(Vec3.zero), 4, Paint()..color = T.dofArrow);
       final p0 = cam.project(f.toWorld(Offset(uMin + 0.6, vMin + 1.4)));
       final p1 = cam.project(f.toWorld(Offset(uMin + 4.6, vMin + 1.4)));
       final ang = math.atan2(p1.dy - p0.dy, p1.dx - p0.dx);
@@ -2786,13 +2788,13 @@ class _OverlayPainter extends CustomPainter {
           loopPath(h.pts);
         }
         canvas.drawPath(
-            path, Paint()..color = T.blue.withOpacity(selected ? 0.38 : 0.16));
+            path, Paint()..color = T.accent.withOpacity(selected ? 0.38 : 0.16));
         canvas.drawPath(
             path,
             Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = selected ? 1.6 : 1
-              ..color = selected ? T.hover : T.blue.withOpacity(0.7));
+              ..color = selected ? T.hover : T.accent.withOpacity(0.7));
       }
     }
   }
@@ -2976,8 +2978,8 @@ class _ViewCubeState extends State<_ViewCube> {
             },
             child: RotatedBox(
               quarterTurns: (turns * 4).round(),
-              child: const Icon(Icons.arrow_drop_up,
-                  size: 22, color: Color(0xFFC5CACE)),
+              child: Icon(Icons.arrow_drop_up,
+                  size: 22, color: T.dim),
             ),
           ),
         );
@@ -2999,13 +3001,13 @@ class _CubePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cam =
         Cam3(PartCamera(az: camera.az, pol: camera.pol, halfH: 0.86), size);
-    const tint = {
-      'RIGHT': Color(0xFFDFE3E7),
-      'LEFT': Color(0xFFDFE3E7),
-      'TOP': Color(0xFFFFFFFF),
-      'BOTTOM': Color(0xFFC7CCD1),
-      'FRONT': Color(0xFFEEF1F3),
-      'BACK': Color(0xFFEEF1F3),
+    final tint = {
+      'RIGHT': T.cubeFace,
+      'LEFT': T.cubeFace,
+      'TOP': T.cubeFaceTop,
+      'BOTTOM': T.cubeFaceDim,
+      'FRONT': T.cubeFace,
+      'BACK': T.cubeFace,
     };
     final faces = <(double, String, Vec3, List<Offset>)>[];
     for (final (label, n) in _cubeFaces) {
@@ -3029,9 +3031,9 @@ class _CubePainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1
-            ..color = const Color(0xFFAAB1B8));
+            ..color = T.cubeEdge);
       if (lit.contains(_nkey(n))) {
-        canvas.drawPath(path, Paint()..color = const Color(0x8C7EC0F0));
+        canvas.drawPath(path, Paint()..color = T.hover.withValues(alpha: 0.55));
       }
       // Label painted ON the face like a decal. Its basis is the face's FIXED
       // (u, v) axes, so the text turns, tilts and foreshortens exactly with the
@@ -3050,10 +3052,10 @@ class _CubePainter extends CustomPainter {
       final tp = TextPainter(
           text: TextSpan(
               text: label,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF565B61))),
+                  color: T.cubeText)),
           textDirection: TextDirection.ltr)
         ..layout();
       // Column-major affine: text +x follows u, text +y (down on screen)
@@ -3112,9 +3114,9 @@ class _TriadPainter extends CustomPainter {
       tp.paint(canvas, lp - Offset(tp.width / 2, tp.height / 2));
     }
 
-    arrow(const Vec3(1, 0, 0), const Color(0xFFE0554F), 'X');
-    arrow(const Vec3(0, 1, 0), const Color(0xFF54B24C), 'Y');
-    arrow(const Vec3(0, 0, 1), const Color(0xFF3D7BD6), 'Z');
+    arrow(const Vec3(1, 0, 0), T.err, 'X');
+    arrow(const Vec3(0, 1, 0), T.axisY, 'Y');
+    arrow(const Vec3(0, 0, 1), T.axisZ, 'Z');
   }
 
   @override

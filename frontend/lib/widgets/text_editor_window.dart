@@ -121,7 +121,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
         color: T.fly,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: T.sep),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        boxShadow: [BoxShadow(color: T.shadow, blurRadius: 10)],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // ---- draggable title bar ----
@@ -131,17 +131,17 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
           child: Container(
             height: 30,
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: T.sep))),
             child: Row(children: [
-              const Icon(Icons.text_fields, size: 15, color: T.blue),
+              Icon(Icons.text_fields, size: 15, color: T.accent),
               const SizedBox(width: 6),
               Expanded(
                   child: Text(L.of(context).dlgText,
                       style: TextStyle(color: T.text, fontSize: 12))),
               InkWell(
                 onTap: () => app.endTextEdit(keep: false),
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.all(4),
                   child: Icon(Icons.close, size: 14, color: T.dim),
                 ),
@@ -159,11 +159,11 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                     _tplF.hasFocus
                         ? L.of(context).hintTapDimensionToInsert
                         : L.of(context).hintTextEmbedParams,
-                    style: const TextStyle(color: T.dim, fontSize: 10)),
+                    style: TextStyle(color: T.dim, fontSize: 10)),
                 const SizedBox(height: 4),
                 Container(
                   decoration: BoxDecoration(
-                      color: const Color(0xFF262B31),
+                      color: T.tabOnBg,
                       borderRadius: BorderRadius.circular(3),
                       border: Border.all(color: T.sep, width: 0.5)),
                   child: TextField(
@@ -174,7 +174,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                     autocorrect: false,
                     enableSuggestions: false,
                     onChanged: (_) => setState(() {}),
-                    style: const TextStyle(fontSize: 13, color: T.text),
+                    style: TextStyle(fontSize: 13, color: T.text),
                     decoration: const InputDecoration(
                         isDense: true,
                         border: InputBorder.none,
@@ -190,14 +190,14 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                     value: _font,
                     dropdownColor: T.fly,
                     isDense: true,
-                    style: const TextStyle(fontSize: 12, color: T.text),
+                    style: TextStyle(fontSize: 12, color: T.text),
                     underline: const SizedBox(),
                     items: [
                       for (final f in kTextFonts)
                         DropdownMenuItem(
                             value: f,
                             child: Text(f,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontSize: 12, color: T.text)))
                     ],
                     onChanged: (v) => setState(() => _font = v ?? _font),
@@ -222,7 +222,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                         controller: _hCtrl,
                         keyboardType: kValueKeyboard, // M206
                         stylusHandwritingEnabled: kValueHandwriting, // M179
-                        style: const TextStyle(fontSize: 12, color: T.text),
+                        style: TextStyle(fontSize: 12, color: T.text),
                         decoration: const InputDecoration(
                             isDense: true, suffixText: 'mm'),
                         onChanged: (v) {
@@ -257,7 +257,7 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                           app.endTextEdit(keep: true);
                         },
                         child: Text(L.of(context).delete,
-                            style: TextStyle(color: Color(0xFFE05A5A)))),
+                            style: TextStyle(color: T.err))),
                   TextButton(
                       onPressed: () => app.endTextEdit(keep: false),
                       child: Text(L.of(context).cancel)),
@@ -265,11 +265,11 @@ class _TextEditorWindowState extends State<TextEditorWindow> {
                   ElevatedButton(
                     onPressed: _apply,
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: T.blue,
+                        backgroundColor: T.accent,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 6)),
                     child: Text(L.of(context).ok,
-                        style: TextStyle(color: Colors.white)),
+                        style: TextStyle(color: T.text)),
                   ),
                 ]),
               ]),

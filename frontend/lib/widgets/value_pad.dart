@@ -189,9 +189,9 @@ class ValuePad extends StatelessWidget {
           color: T.fly,
           border: Border.all(color: T.sep, width: border),
           borderRadius: BorderRadius.circular(10),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-                color: Color(0x8C000000), blurRadius: 20, offset: Offset(0, 6)),
+                color: T.shadow, blurRadius: 20, offset: Offset(0, 6)),
           ],
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -204,7 +204,7 @@ class ValuePad extends StatelessWidget {
           Row(mainAxisSize: MainAxisSize.min, children: [
             k(PadKey.k0, span: 2),
             const SizedBox(width: gap),
-            k(PadKey.done, label: L.of(context).ok, span: 2, tint: T.blue),
+            k(PadKey.done, label: L.of(context).ok, span: 2, tint: T.accent),
           ]),
         ]),
       ),
@@ -262,7 +262,7 @@ class _PadKeyCapState extends State<_PadKeyCap> {
           style: TextStyle(
             fontSize: 17,
             color: widget.enabled
-                ? (tint != null ? Colors.white : T.text)
+                ? (tint != null ? T.onAccent : T.text)
                 : T.dim.withValues(alpha: 0.4),
           ),
         ),

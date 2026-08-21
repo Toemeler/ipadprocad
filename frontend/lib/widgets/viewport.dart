@@ -732,10 +732,10 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           title: Text(L.of(context).hudOverConstrained,
               style: TextStyle(
                   fontSize: 14,
-                  color: Colors.white,
+                  color: T.text,
                   fontWeight: FontWeight.w600)),
           content: Text(L.of(ctx).msgWouldOverConstrain,
-              style: const TextStyle(fontSize: 13, color: T.text)),
+              style: TextStyle(fontSize: 13, color: T.text)),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -744,7 +744,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 child: Text(L.of(context).hudDriven,
-                    style: TextStyle(fontSize: 12.5, color: T.blue))),
+                    style: TextStyle(fontSize: 12.5, color: T.accent))),
           ],
         ),
       );
@@ -994,9 +994,9 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           decoration: BoxDecoration(
             color: T.fly,
             borderRadius: BorderRadius.circular(5),
-            border: Border.all(color: T.blue, width: 1),
-            boxShadow: const [
-              BoxShadow(color: Colors.black54, blurRadius: 6),
+            border: Border.all(color: T.accent, width: 1),
+            boxShadow: [
+              BoxShadow(color: T.shadow, blurRadius: 6),
             ],
           ),
           padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -1031,7 +1031,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             enableSuggestions: false,
             // Inventor colours invalid syntax red while you type
             style: TextStyle(
-                fontSize: 13, color: valid ? T.text : const Color(0xFFE05A5A)),
+                fontSize: 13, color: valid ? T.text : T.err),
             textAlign: TextAlign.center,
             onChanged: (_) => setState(() {}),
             // outside taps are handled by _handleClick (reference-insert or
@@ -1041,9 +1041,9 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
               isDense: true,
               border: InputBorder.none,
               prefixText: name != null ? '$name = ' : null,
-              prefixStyle: const TextStyle(fontSize: 11, color: T.dim),
+              prefixStyle: TextStyle(fontSize: 11, color: T.dim),
               suffixText: _isAngleKind(d) ? '\u00b0' : 'mm',
-              suffixStyle: const TextStyle(fontSize: 11, color: T.dim),
+              suffixStyle: TextStyle(fontSize: 11, color: T.dim),
             ),
             onSubmitted: (_) => _submitInline(),
             ),
@@ -1267,11 +1267,11 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
               constraints: const BoxConstraints(minWidth: 168, maxWidth: 240),
               padding: const EdgeInsets.symmetric(vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF212429),
+                color: T.fly,
                 border: Border.all(color: T.sep),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                      color: Color(0x8C000000),
+                      color: T.shadow,
                       blurRadius: 22,
                       offset: Offset(0, 8))
                 ],
@@ -1299,7 +1299,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
         // UIKit draws destructive rows red and we never colour anything else
         // ourselves — same tone the native menus get from the system.
         child: Text(label,
-            style: ts(12.5, destructive ? const Color(0xFFE5544B) : T.mbText)),
+            style: ts(12.5, destructive ? T.err : T.mbText)),
       ),
     );
   }
@@ -1962,8 +1962,8 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                           style: TextStyle(
                             fontSize: 11,
                             color: app.analysis!.dof <= 0
-                                ? const Color(0xFFDDE0E3)
-                                : const Color(0xFF9EA4AA),
+                                ? T.text
+                                : T.dim,
                           ),
                         ),
                       ),
@@ -2094,33 +2094,33 @@ class _ViewportPainter extends CustomPainter {
     // ---- real entities from the QCAD document ----
     if (s != null) {
       final p = Paint()
-        ..color = const Color(0xFFC4C9CE)
+        ..color = T.ink
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
       final sel = Paint()
-        ..color = T.blue
+        ..color = T.accent
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.2;
       // Inventor colours each entity by its constraint state: white when fully
       // defined, violet-blue while still under-constrained, blue when selected.
       final whitePaint = Paint()
-        ..color = const Color(0xFFFFFFFF)
+        ..color = T.dofFull
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
       // projected geometry (M32) is YELLOW like Inventor's projected loops
       final projPaint = Paint()
-        ..color = const Color(0xFFE8C84A)
+        ..color = T.projRef
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
       final underPaint = Paint()
-        ..color = const Color(0xFF9A8CF5)
+        ..color = T.dofUnder
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
       // Geometry on a layer you are NOT editing (or a locked layer) is drawn as
       // dim reference while a layer is in edit mode, so the active layer's DOF
       // colours read clearly. Outside edit mode everything keeps its own state.
       final refPaint = Paint()
-        ..color = const Color(0xFF5C6066)
+        ..color = T.refDim
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
       final gs = app.displayGeometry(s);
@@ -2168,7 +2168,7 @@ class _ViewportPainter extends CustomPainter {
           }
         }
         final refHalo = Paint()
-          ..color = T.blue.withOpacity(.8)
+          ..color = T.accent.withOpacity(.8)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3.4
           ..strokeCap = StrokeCap.round;
@@ -2209,7 +2209,7 @@ class _ViewportPainter extends CustomPainter {
         final faint = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.0
-          ..color = T.projYellowEdge.withOpacity(0.45);
+          ..color = T.projRefEdge.withOpacity(0.45);
         final hot = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2.4
@@ -2255,6 +2255,9 @@ class _ViewportPainter extends CustomPainter {
         if (u != null) {
           final paint = Paint()..filterQuality = FilterQuality.medium;
           if (!onLayer) {
+            // Stays white on purpose: this is an ALPHA MULTIPLIER for
+            // drawImageRect, not a theme colour. Tinting it would tint the
+            // user's underlay image.
             paint.color = const Color(0x66FFFFFF); // ~40% opacity
             paint.colorFilter = const ColorFilter.matrix(<double>[
               0.2126, 0.7152, 0.0722, 0, 40, // desaturate toward grey
@@ -2272,14 +2275,14 @@ class _ViewportPainter extends CustomPainter {
           canvas.drawRect(
               dst,
               Paint()
-                ..color = const Color(0x33FFFFFF)
+                ..color = T.dim
                 ..style = PaintingStyle.stroke);
         }
         if (identical(img, selImage) && onLayer) {
           canvas.drawRect(
               dst,
               Paint()
-                ..color = T.blue
+                ..color = T.accent
                 ..style = PaintingStyle.stroke
                 ..strokeWidth = 1.4);
           // resize grip (visual bottom-right) + delete X (visual top-right).
@@ -2288,11 +2291,11 @@ class _ViewportPainter extends CustomPainter {
           // rect's corners — screen-down is -world-y, so they differ.
           canvas.drawRect(
               Rect.fromCenter(center: dst.bottomRight, width: 12, height: 12),
-              Paint()..color = T.blue);
+              Paint()..color = T.accent);
           final xC = dst.topRight;
-          canvas.drawCircle(xC, 9, Paint()..color = const Color(0xFFE05A5A));
+          canvas.drawCircle(xC, 9, Paint()..color = T.err);
           final xp = Paint()
-            ..color = Colors.white
+            ..color = T.onAccent
             ..strokeWidth = 1.6;
           canvas.drawLine(
               xC + const Offset(-3.5, -3.5), xC + const Offset(3.5, 3.5), xp);
@@ -2360,7 +2363,7 @@ class _ViewportPainter extends CustomPainter {
           if ((g.spline == Geo.splineCv || g.spline == Geo.splineBez) &&
               (app.selection.contains(i) || app.hoverEnt == i)) {
             final poly = Paint()
-              ..color = const Color(0x88E8C060)
+              ..color = T.ctrl.withValues(alpha: 0.53)
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1;
             final n = g.data[1].toInt();
@@ -2377,7 +2380,7 @@ class _ViewportPainter extends CustomPainter {
                   map(g.data[2], g.data[3]),
                   poly);
             }
-            final dot = Paint()..color = const Color(0xFFE8C060);
+            final dot = Paint()..color = T.ctrl;
             for (var v = 0; v < n; v++) {
               canvas.drawCircle(
                   map(g.data[2 + 2 * v], g.data[3 + 2 * v]), 3, dot);
@@ -2413,7 +2416,7 @@ class _ViewportPainter extends CustomPainter {
       for (final c in centreMarks(gs,
           visible: (i) => app.geoVisible(gs[i]) && app.geoEditable(gs[i]))) {
         final p = map(c.dx, c.dy);
-        canvas.drawCircle(p, 2.5, Paint()..color = const Color(0xFFB9C0C7));
+        canvas.drawCircle(p, 2.5, Paint()..color = T.dim);
       }
       // Degrees-of-freedom glyphs: arrows on every point that can still move
       // (they vanish one by one as constraints are added).
@@ -2423,7 +2426,7 @@ class _ViewportPainter extends CustomPainter {
           app.tool == Tool.none &&
           an != null) {
         final dp = Paint()
-          ..color = const Color(0xFFEFD37A)
+          ..color = T.dofArrow
           ..strokeWidth = 1.2;
         for (final (e, pt) in an.freePoints) {
           if (e >= gs.length || pt >= ptCount(gs[e])) continue;
@@ -2448,7 +2451,7 @@ class _ViewportPainter extends CustomPainter {
         final tp = app.trimPreview(app.hoverWorld!);
         if (tp != null) {
           final red = Paint()
-            ..color = const Color(0xFFE0554F)
+            ..color = T.err
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2.4;
           paintGeo(canvas, tp.$1, map, app.zoom, red);
@@ -2464,13 +2467,13 @@ class _ViewportPainter extends CustomPainter {
         final sp = app.splitPreview(app.hoverWorld!);
         if (sp != null) {
           final hi = Paint()
-            ..color = T.blue
+            ..color = T.accent
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2.4;
           paintGeo(canvas, sp.pieces[sp.hovered], map, app.zoom, hi);
-          final mark = Paint()..color = const Color(0xFFE0554F);
+          final mark = Paint()..color = T.err;
           final ring = Paint()
-            ..color = const Color(0xFFE0554F)
+            ..color = T.err
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.4;
           for (final c in sp.cuts) {
@@ -2482,7 +2485,7 @@ class _ViewportPainter extends CustomPainter {
       }
       // sketch point grips (Inventor shows them whenever no tool is active)
       if (app.tool == Tool.none) {
-        final gp = Paint()..color = const Color(0xFF7BC96A);
+        final gp = Paint()..color = T.snapOk;
         for (final g in gripsOf(gs)) {
           if (g.entity < gs.length && !app.geoEditable(gs[g.entity])) continue;
           final o = map(g.pos.dx, g.pos.dy);
@@ -2491,7 +2494,7 @@ class _ViewportPainter extends CustomPainter {
         if (app.dragGrip != null && app.dragPos != null) {
           final o = map(app.dragPos!.dx, app.dragPos!.dy);
           canvas.drawRect(Rect.fromCenter(center: o, width: 7, height: 7),
-              Paint()..color = const Color(0xFFE05555));
+              Paint()..color = T.err);
         }
       }
     }
@@ -2505,7 +2508,7 @@ class _ViewportPainter extends CustomPainter {
       final c = app.hoverWorld!;
       final ang = g.angleRad;
       final ghost = Paint()
-        ..color = T.blue.withOpacity(0.85)
+        ..color = T.accent.withOpacity(0.85)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
         ..strokeJoin = StrokeJoin.round;
@@ -2547,7 +2550,7 @@ class _ViewportPainter extends CustomPainter {
         }
       } catch (_) {/* half-typed params: skip the ghost this frame */}
       // centre marker
-      canvas.drawCircle(map(c.dx, c.dy), 3, Paint()..color = T.blue);
+      canvas.drawCircle(map(c.dx, c.dy), 3, Paint()..color = T.accent);
     }
 
     // ---- M87: raw freehand ink, while the pointer is still down ----
@@ -2576,7 +2579,7 @@ class _ViewportPainter extends CustomPainter {
     if (app.tool != Tool.none &&
         (app.toolPoints.isNotEmpty || app.hoverWorld != null)) {
       final prev = Paint()
-        ..color = T.blue
+        ..color = T.accent
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
       final pts = app.toolPoints;
@@ -2611,7 +2614,7 @@ class _ViewportPainter extends CustomPainter {
       for (final pt in pts) {
         final o = map(pt.dx, pt.dy);
         canvas.drawRect(Rect.fromCenter(center: o, width: 5, height: 5),
-            Paint()..color = T.blue);
+            Paint()..color = T.accent);
       }
       // HUD value boxes NEXT TO the live geometry, never on it: the block
       // continues the stroke direction past the tip — beyond a line's
@@ -2650,7 +2653,7 @@ class _ViewportPainter extends CustomPainter {
         for (final t in s.texts) {
           final layout = textLayoutOf(s, t);
           final dim = !app.inEditMode || t.layer == app.editingLayer;
-          final ink = dim ? const Color(0xFFDDE0E3) : const Color(0x66DDE0E3);
+          final ink = dim ? T.text : T.inkDim;
           // NON-ZERO, the rule TrueType outlines are drawn with: a counter
           // runs opposite to its outer contour and so punches a hole, while
           // two letters that overlap stay solid where they meet (even-odd
@@ -2683,7 +2686,7 @@ class _ViewportPainter extends CustomPainter {
             final b = map(wr.right, wr.bottom);
             final rr = Rect.fromPoints(a, b);
             final cp = Paint()
-              ..color = const Color(0xFF6FA8D8) // construction blue-grey
+              ..color = T.constr // construction blue-grey
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1.0;
             // dashed like the construction linetype
@@ -2712,7 +2715,7 @@ class _ViewportPainter extends CustomPainter {
               rr.bottomRight
             ]) {
               canvas.drawRect(Rect.fromCenter(center: c, width: 4, height: 4),
-                  Paint()..color = const Color(0xFF6FA8D8));
+                  Paint()..color = T.constr);
             }
           }
         }
@@ -2740,13 +2743,13 @@ class _ViewportPainter extends CustomPainter {
             final tp = TextPainter(
                 text: TextSpan(
                     text: label,
-                    style: const TextStyle(
-                        fontSize: 10, color: Color(0xFFEFD37A))),
+                    style: TextStyle(
+                        fontSize: 10, color: T.dofArrow)),
                 textDirection: TextDirection.ltr)
               ..layout();
             canvas.drawRect(
                 Rect.fromLTWH(o.dx - 2, o.dy - 1, tp.width + 4, tp.height + 2),
-                Paint()..color = const Color(0xB2333333));
+                Paint()..color = T.hudBg);
             tp.paint(canvas, o);
           }
         }
@@ -2784,7 +2787,7 @@ class _ViewportPainter extends CustomPainter {
       final ghost = app.modifyGhost(s, app.hoverWorld!);
       if (ghost.isNotEmpty) {
         final gp = Paint()
-          ..color = T.blue.withOpacity(0.55)
+          ..color = T.accent.withOpacity(0.55)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2;
         for (final g in ghost) {
@@ -2798,7 +2801,7 @@ class _ViewportPainter extends CustomPainter {
       final ghost = app.patternPreview();
       if (ghost.isNotEmpty) {
         final gp = Paint()
-          ..color = T.blue.withOpacity(0.55)
+          ..color = T.accent.withOpacity(0.55)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2;
         for (final g in ghost) {
@@ -2811,7 +2814,7 @@ class _ViewportPainter extends CustomPainter {
     // ---- snap marker + alignment guides (Inventor green) ----
     final sn = app.snap;
     if (sn != null && (app.tool != Tool.none || app.dragGrip != null)) {
-      const green = Color(0xFF58C05C);
+      final green = T.snapOk;
       final o = map(sn.pos.dx, sn.pos.dy);
       final mp = Paint()
         ..color = green
@@ -2868,20 +2871,20 @@ class _ViewportPainter extends CustomPainter {
       final r = Rect.fromPoints(map(app.boxStart!.dx, app.boxStart!.dy),
           map(app.boxEnd!.dx, app.boxEnd!.dy));
       if (app.boxCrossing) {
-        canvas.drawRect(r, Paint()..color = const Color(0x2E58C05C));
+        canvas.drawRect(r, Paint()..color = T.snapOk.withValues(alpha: 0.18));
         _dashedRect(
             canvas,
             r,
             Paint()
-              ..color = const Color(0xFF58C05C)
+              ..color = T.snapOk
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1);
       } else {
-        canvas.drawRect(r, Paint()..color = const Color(0x2E3D9BE9));
+        canvas.drawRect(r, Paint()..color = T.accent.withValues(alpha: 0.18));
         canvas.drawRect(
             r,
             Paint()
-              ..color = T.blue
+              ..color = T.accent
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1);
       }
@@ -2899,13 +2902,13 @@ class _ViewportPainter extends CustomPainter {
               text: TextSpan(
                   text: constraintLabel(hints[i]),
                   style:
-                      const TextStyle(fontSize: 10, color: Color(0xFFEFD37A))),
+                      TextStyle(fontSize: 10, color: T.dofArrow)),
               textDirection: TextDirection.ltr)
             ..layout();
           final at = o + Offset(i * 16.0, 0);
           canvas.drawRect(
               Rect.fromLTWH(at.dx - 2, at.dy - 1, tp.width + 4, tp.height + 2),
-              Paint()..color = const Color(0xCC333333));
+              Paint()..color = T.hudBg);
           tp.paint(canvas, at);
         }
       }
@@ -2921,7 +2924,7 @@ class _ViewportPainter extends CustomPainter {
       final tp = TextPainter(
           text: TextSpan(
               text: app.message!,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFF2D6A2))),
+              style: TextStyle(fontSize: 12, color: T.toastText)),
           textDirection: TextDirection.ltr)
         ..layout(maxWidth: size.width - 60);
       // M203 — clear of the floating tab bar. At a flat 44 the notice sat
@@ -2934,11 +2937,11 @@ class _ViewportPainter extends CustomPainter {
           tp.width + 24,
           tp.height + 12);
       canvas.drawRRect(RRect.fromRectAndRadius(box, const Radius.circular(4)),
-          Paint()..color = const Color(0xE6402F1F));
+          Paint()..color = T.toastBg);
       canvas.drawRRect(
           RRect.fromRectAndRadius(box, const Radius.circular(4)),
           Paint()
-            ..color = const Color(0xFF8A6A3A)
+            ..color = T.toastBorder
             ..style = PaintingStyle.stroke);
       tp.paint(canvas, box.topLeft + const Offset(12, 6));
     }
@@ -2947,12 +2950,12 @@ class _ViewportPainter extends CustomPainter {
     if (app.inEditMode) {
       final o = map(0, 0);
       canvas.drawCircle(
-          o, 3.2, Paint()..color = projCpSelected ? T.blue : T.projYellow);
+          o, 3.2, Paint()..color = projCpSelected ? T.accent : T.projRef);
       canvas.drawCircle(
           o,
           3.2,
           Paint()
-            ..color = T.projYellowEdge
+            ..color = T.projRefEdge
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1);
     }
@@ -2966,7 +2969,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
     Offset Function(double, double) map,
     {List<(Constraint, Rect)>? labelSink, bool highlight = false}) {
   final p = Paint()
-    ..color = const Color(0xFFB8C4A8)
+    ..color = T.dimLine
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1;
   String label;
@@ -3199,7 +3202,7 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
   final tp = TextPainter(
       text: TextSpan(
           text: label,
-          style: const TextStyle(fontSize: 11, color: Color(0xFFDDE6CF))),
+          style: TextStyle(fontSize: 11, color: T.dimText)),
       textDirection: TextDirection.ltr)
     ..layout();
   final bg =
@@ -3208,14 +3211,14 @@ void _paintDimension(Canvas canvas, List<Geo> gs, Constraint c,
       bg,
       Paint()
         ..color =
-            highlight ? const Color(0xCC2C3A4C) : const Color(0xCC212830));
+            highlight ? T.dimPlateHot : T.dimPlate);
   if (highlight) {
     // M42: hover feedback — this label is clickable (inserts its parameter
     // name while the expression box is open, opens the editor otherwise)
     canvas.drawRect(
         bg.inflate(1),
         Paint()
-          ..color = T.blue
+          ..color = T.accent
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2);
   }
@@ -3376,7 +3379,7 @@ void _paintHud(Canvas canvas, List<(String, String, bool, bool, bool)> rows,
     final vt = TextPainter(
         text: TextSpan(
             text: value,
-            style: ts(11.5, locked ? T.blue : T.text,
+            style: ts(11.5, locked ? T.accent : T.text,
                 w: focused ? FontWeight.w600 : FontWeight.w500)),
         textDirection: TextDirection.ltr)
       ..layout();
@@ -3403,7 +3406,7 @@ void _paintHud(Canvas canvas, List<(String, String, bool, bool, bool)> rows,
         rect,
         Paint()
           ..color =
-              focused ? const Color(0xF01E2A38) : const Color(0xE01B1E22));
+              focused ? T.hudBgHot : T.hudBg);
     canvas.drawRRect(
         rect,
         Paint()
@@ -3418,7 +3421,7 @@ void _paintHud(Canvas canvas, List<(String, String, bool, bool, bool)> rows,
             top + (rowH - valueTps[i].height) / 2));
     if (locked) {
       _paintLock(canvas, Offset(left + boxW - pad - lockW / 2, top + rowH / 2),
-          T.blue);
+          T.accent);
     }
     top += rowH + rowGap;
   }

@@ -15,6 +15,20 @@ class AppL10nDe extends AppL10n {
   String get languageMenuItem => 'Sprache: Deutsch';
 
   @override
+  String appearanceMenuItem(String scheme) {
+    return 'Darstellung: $scheme';
+  }
+
+  @override
+  String get appearanceSystem => 'System';
+
+  @override
+  String get appearanceLight => 'Hell';
+
+  @override
+  String get appearanceDark => 'Dunkel';
+
+  @override
   String get ok => 'OK';
 
   @override

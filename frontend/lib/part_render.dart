@@ -20,14 +20,24 @@ import 'package:flutter/material.dart';
 
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'part_model.dart';
+import 'theme.dart';
 
-// Steel, same family as partCubeIcon — the committed-solid look.
-const Color kSolidBase = Color(0xFF8C939A);
+// M236 — palette reads, not constants, so a solid picks up the active scheme
+// wherever it is drawn: the live viewport AND the off-screen gallery
+// thumbnails.
+//
+// GETTERS rather than top-level finals: a `final` is initialised lazily on
+// first use and would freeze whichever palette happened to be active then —
+// which would show up as "the thumbnails kept the old colours".
+
+/// Steel, same family as partCubeIcon — the committed-solid look.
+Color get kSolidBase => T.solid;
+
 /// M144 — accented (hovered or selected) B-Rep edge in the CPU painter. Same
 /// hue as the RealityKit accent so the two renderers agree.
-const Color kEdgeAccent = Color(0xFFE8C63F);
+Color get kEdgeAccent => T.edgeAccent;
 
-const Color kSolidEdge = Color(0xFF23272C);
+Color get kSolidEdge => T.solidEdge;
 
 /// Shared orthographic camera math (also used by the ViewCube/triad).
 class Cam3 {
@@ -223,8 +233,8 @@ List<ProjectedEdge> projectSolidEdges(OcctMeshData m, Cam3 cam) {
 // their own triangles.
 // ===========================================================================
 
-/// Inventor-like prehighlight blue for hoverable faces (M59 / Phase 2).
-const Color kFaceHighlight = Color(0xFF4FA3FF);
+/// Inventor-like prehighlight for hoverable faces (M59 / Phase 2).
+Color get kFaceHighlight => T.faceHighlight;
 
 /// Surface-type codes of the 15-double face records (see occt_capi.h).
 const int kFacePlane = 0, kFaceCylinder = 1;
@@ -639,7 +649,8 @@ void _strokeRuns(Canvas canvas, Path path, Color color) {
 
 void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
     SceneOccluders occ, Color color,
-    {Set<int> accent = const {}, Color accentColor = kEdgeAccent}) {
+    {Set<int> accent = const {}, Color? accentColor}) {
+  final ac = accentColor ?? kEdgeAccent;
   final m = scene.solid.mesh;
   var ei = -1;
   for (final e in DisplayEdge.of(m)) {
@@ -647,7 +658,7 @@ void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
     // display index the accent set is expressed in.
     ei++;
     // Cannot shadow the parameter, so name it for what it is.
-    final edgeColor = accent.contains(ei) ? accentColor : color;
+    final edgeColor = accent.contains(ei) ? ac : color;
     if (e.type == kEdgeOther) {
       // adaptive polyline fallback with per-point visibility
       final n = e.polyEnd - e.polyStart;
@@ -763,13 +774,13 @@ void paintPartSolids(
   KernelSolid? previewSolid,
   KernelSolid? highlightSolid,
   int highlightFace = -1,
-  Color highlightColor = kFaceHighlight,
+  Color? highlightColor,
   /// M144 — DISPLAY edge indices of [accentSolid] to draw in
   /// [accentColor], mirroring the RealityKit accent overlay so the CPU
   /// painter (non-iOS, and gallery thumbnails) shows the same selection.
   KernelSolid? accentSolid,
   Set<int> accentEdges = const {},
-  Color accentColor = kEdgeAccent,
+  Color? accentColor,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   final occ = SceneOccluders(opaque);
@@ -804,7 +815,7 @@ void paintPartSolids(
         pos[pi++] = t.c.dy;
       }
       canvas.drawVertices(ui.Vertices.raw(ui.VertexMode.triangles, pos),
-          BlendMode.srcOver, Paint()..color = highlightColor.withOpacity(0.42));
+          BlendMode.srcOver, Paint()..color = (highlightColor ?? kFaceHighlight).withOpacity(0.42));
       break;
     }
   }

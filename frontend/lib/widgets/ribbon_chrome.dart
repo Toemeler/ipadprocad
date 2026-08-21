@@ -107,7 +107,7 @@ class RibbonSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isGlass) return const ColoredBox(color: T.panel);
+    if (!isGlass) return ColoredBox(color: T.panel);
     return const GlassPanel(cornerRadius: RibbonMetrics.radius);
   }
 }
