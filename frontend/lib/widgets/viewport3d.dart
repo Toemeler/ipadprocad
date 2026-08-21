@@ -35,6 +35,7 @@ import 'package:native_menu/native_menu.dart'
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'ribbon_chrome.dart';
+import '../l10n/l.dart';
 
 // M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
 // the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
@@ -62,19 +63,20 @@ const _greenBright = Color(0xFF8DFFA0);
 /// VISIBLE sketch can be under the finger ([_pickSketchCurve] skips the rest),
 /// so a "Show" that could never be reached would be a dead control.
 ///
-/// Top-level and const so a host test can pin the contract — ids, order,
-/// labels — without a device: UIKit never sees these strings, this list is
+/// Top-level, and it TAKES the strings rather than reading a global, so a
+/// host test can pin the contract — ids, order, labels — in either language
+/// without a device: UIKit never sees these strings, this list is
 /// their only source (exactly like `sketchMenuGroups` for the gallery card).
-List<NativeMenuItem> sketch3dMenuItems() => const [
-      NativeMenuItem(id: 'skEdit', title: 'Edit Sketch', symbol: 'pencil.tip'),
-      NativeMenuItem(id: 'skVisible', title: 'Hide', symbol: 'eye.slash'),
+List<NativeMenuItem> sketch3dMenuItems(AppL10n t) => [
+      NativeMenuItem(id: 'skEdit', title: t.ctxEditSketch, symbol: 'pencil.tip'),
+      NativeMenuItem(id: 'skVisible', title: t.hide, symbol: 'eye.slash'),
       NativeMenuItem(
           id: 'skExportDxf',
-          title: 'Export DXF…',
+          title: t.ctxExportDxf,
           symbol: 'square.and.arrow.down'),
       NativeMenuItem(
           id: 'skShareDxf',
-          title: 'Share DXF…',
+          title: t.ctxShareDxf,
           symbol: 'square.and.arrow.up'),
     ];
 
@@ -357,7 +359,7 @@ class _Viewport3DState extends State<Viewport3D>
   /// The native action sheet on iOS, an identical Flutter popup everywhere
   /// else — same ids, so both paths funnel into one handler.
   Future<String?> _showSketchMenu(Rect anchor, String title) async {
-    final items = sketch3dMenuItems();
+    final items = sketch3dMenuItems(L.of(context));
     if (NativeMenu.isSupported) {
       // The sketch's NAME as the sheet title: a curve in 3D is a thin line
       // among several, and the menu has to say which sketch it caught.
@@ -1813,7 +1815,7 @@ class _Viewport3DState extends State<Viewport3D>
             app.patternAxisPicked(ax.$1, ax.$2, ax.$3);
             return;
           }
-          app.toast('That edge is a spline — it defines no single direction.');
+          app.toast(L.current.msgEdgeIsSpline);
           return;
         }
         // A sketch LINE is a direction too, and on a part whose origin axes
@@ -1830,26 +1832,25 @@ class _Viewport3DState extends State<Viewport3D>
           final path = _sketchPathOf(p, key);
           if (path != null) {
             if (s.active == PatternField.axis) {
-              app.toast('A rotation axis must be a straight line or an axis.');
+              app.toast(L.current.msgRotationAxisStraight);
               return;
             }
             app.patternPathPicked(path, first: s.active == PatternField.dirA);
             return;
           }
         }
-        app.toast('Pick a straight or circular edge, a sketch curve, or an '
-            'origin axis.');
+        app.toast(L.current.msgPickEdgeOrCurve);
       case PatternField.startA:
       case PatternField.startB:
         final first = s.active == PatternField.startA;
         final sel = first ? s.pathA : s.pathB;
         if (sel == null) {
-          app.toast('Pick the curve for this direction first.');
+          app.toast(L.current.msgPickCurveFirst);
           return;
         }
         final cs = p.sketchByName(sel.sketchName);
         if (cs == null) {
-          app.toast('That curve is no longer available.');
+          app.toast(L.current.msgCurveGone);
           return;
         }
         // The tap is turned into a point ON THE CURVE'S PLANE, which is where
@@ -1857,14 +1858,14 @@ class _Viewport3DState extends State<Viewport3D>
         final frame = sketchFrameOf(cs);
         final w = cam.rayOnPlane(px, frame.n, frame.origin);
         if (w == null) {
-          app.toast('Tap on the curve.');
+          app.toast(L.current.msgTapOnTheCurve);
           return;
         }
         app.patternStartPicked(w, first: first);
       case PatternField.orientFace:
         final face = _pickSolidFace(cam, px, planarOnly: false);
         if (face == null) {
-          app.toast('Tap the face the occurrences should follow.');
+          app.toast(L.current.msgTapFaceToFollow);
           return;
         }
         app.patternOrientFacePicked(face.$3);
@@ -1886,13 +1887,12 @@ class _Viewport3DState extends State<Viewport3D>
                   : (_workPlaneById(p, key!)?.name ?? 'Work Plane'));
           return;
         }
-        app.toast('Pick a planar face, a work plane, or an origin plane.');
+        app.toast(L.current.msgPickPlanarFace);
       case PatternField.pointSketch:
       case PatternField.basePoint:
         final hit = _sketchPointAt(cam, px, p);
         if (hit == null) {
-          app.toast('Pick a sketch POINT — the occurrences go where the '
-              'points are.');
+          app.toast(L.current.msgPickSketchPointOccurrences);
           return;
         }
         if (s.active == PatternField.pointSketch) {
@@ -1904,7 +1904,7 @@ class _Viewport3DState extends State<Viewport3D>
         final solid = _pickSolidAny(cam, px);
         final name = solid == null ? null : _bodyNameOf(p, solid);
         if (name == null) {
-          app.toast('Pick the solid body to pattern.');
+          app.toast(L.current.msgPickSolidBodyToPattern);
           return;
         }
         app.patternBodyPicked(name);
@@ -1915,14 +1915,12 @@ class _Viewport3DState extends State<Viewport3D>
         // browser rather than selecting something at random.
         final face = _pickSolidFace(cam, px, planarOnly: false);
         if (face == null) {
-          app.toast('Tap a face of the feature to pattern, or pick it in the '
-              'browser.');
+          app.toast(L.current.msgTapFaceOfFeature);
           return;
         }
         final owner = app.featureOfFace(face.$1, face.$2);
         if (owner == null) {
-          app.toast('That face cannot be traced back to one feature — pick '
-              'the feature in the browser.');
+          app.toast(L.current.msgFaceNoSingleFeature);
           return;
         }
         if (!app.patternToggleFeature(owner)) return;
@@ -2018,7 +2016,7 @@ class _Viewport3DState extends State<Viewport3D>
       final solid = _pickSolidAny(cam, px);
       final name = solid == null ? null : _bodyNameOf(p, solid);
       if (name == null) {
-        app.toast('Tap a solid body.');
+        app.toast(L.current.msgTapSolidBody);
         return;
       }
       app.combineBodyPicked(name);
@@ -2027,7 +2025,7 @@ class _Viewport3DState extends State<Viewport3D>
     if (app.holePicking3D) {
       final hit = _sketchPointAt(cam, px, p);
       if (hit == null) {
-        app.toast('Tap a sketch POINT — that is where a hole goes.');
+        app.toast(L.current.msgTapSketchPointForHole);
         return;
       }
       app.holePointPicked(hit.$1, hit.$2);
@@ -2916,7 +2914,7 @@ class _ViewCubeState extends State<_ViewCube> {
               widget.onChanged();
             },
             child: Tooltip(
-              message: 'Home view',
+              message: L.of(context).menuHomeView,
               child: SizedBox(
                   width: 22, height: 22, child: SvgPicture.string(homeTabIcon)),
             ),

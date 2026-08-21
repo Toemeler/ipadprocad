@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../theme.dart';
+import '../l10n/l.dart';
 
 /// One-line text input. Returns null when cancelled.
 ///
@@ -133,7 +134,7 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
       actions: [
         TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text('Cancel', style: ts(13, T.mbDim))),
+            child: Text(L.of(context).cancel, style: ts(13, T.mbDim))),
         TextButton(
             onPressed: _submit,
             child: Text(widget.confirmLabel, style: ts(13, T.blue))),
@@ -168,7 +169,7 @@ Future<bool> confirmAction(
       actions: [
         TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancel', style: ts(13, T.mbDim))),
+            child: Text(L.of(context).cancel, style: ts(13, T.mbDim))),
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(true),
           child: Text(confirmLabel,

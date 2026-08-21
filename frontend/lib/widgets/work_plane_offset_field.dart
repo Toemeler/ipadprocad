@@ -17,6 +17,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../l10n/fmt.dart';
+import '../l10n/l.dart';
 import '../part_model.dart' show parseValueExpr;
 import 'ribbon_chrome.dart';
 import 'scrub_field.dart';
@@ -53,7 +55,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
     if (v == null || _focus.hasFocus) return;
     if (_shown != null && (_shown! - v).abs() < 1e-9) return;
     _shown = v;
-    _c.text = v.toStringAsFixed(2);
+    _c.text = Fmt.fixed(v, 2);
     _c.selection = TextSelection(baseOffset: 0, extentOffset: _c.text.length);
   }
 
@@ -94,7 +96,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
               ],
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Text('${w.name}  Offset',
+              Text(L.of(context).lblWorkPlaneOffset(w.name),
                   style: TextStyle(color: T.dim, fontSize: 12)),
               const SizedBox(width: 10),
               SizedBox(
@@ -143,7 +145,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
                         final v = app.selectedWorkPlane?.offset;
                         if (v != null) {
                           _shown = v;
-                          _c.text = v.toStringAsFixed(2);
+                          _c.text = Fmt.fixed(v, 2);
                           _c.selection = TextSelection.collapsed(
                               offset: _c.text.length);
                         }

@@ -14,6 +14,15 @@ import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../part_model.dart';
+import '../l10n/l.dart';
+
+/// The current strings.
+///
+/// This file is a pure model-to-rows translation with no BuildContext
+/// anywhere in it — the rows are handed to a UIKit view over a method
+/// channel, not built as widgets — so it reads the app-wide language
+/// directly. The app has exactly one, so there is nothing to disagree with.
+AppL10n get t => L.current;
 
 /// Row id prefixes, so an event can be routed without ambiguity. Layer names
 /// are arbitrary user text, hence the separators.
@@ -84,7 +93,7 @@ List<GlassRow> _buildRows(
     if (bodies.isNotEmpty) {
       rows.add(GlassRow(
         id: 'bodies',
-        label: 'Solid Bodies(${bodies.length})',
+        label: t.nodeSolidBodies(bodies.length),
         // M129 — Inventor draws its container folders as FILLED amber, not a
         // grey outline; the two are the only true folders in the tree.
         symbol: 'folder.fill',
@@ -114,7 +123,7 @@ List<GlassRow> _buildRows(
     // ---- origin -----------------------------------------------------------
     rows.add(GlassRow(
       id: 'origin',
-      label: 'Origin',
+      label: t.nodeOrigin,
       symbol: 'folder.fill',
       tint: 'folder',
       depth: 1,
@@ -264,7 +273,7 @@ List<GlassRow> _buildRows(
             final off = pat.suppressed.contains(i);
             rows.add(GlassRow(
               id: '$kIdOccurrence${f.name}#$i',
-              label: 'Occurrence $i',
+              label: t.nodeOccurrence(i),
               symbol: off ? 'circle.dashed' : 'cube',
               depth: 2,
               dim: off,
@@ -342,9 +351,9 @@ List<GlassRow> _buildRows(
   return rows;
 }
 
-GlassRow _eopRow() => const GlassRow(
+GlassRow _eopRow() => GlassRow(
       id: kIdEop,
-      label: 'End of Part',
+      label: t.nodeEndOfPart,
       symbol: 'xmark.circle.fill',
       tint: 'red',
       depth: 1,
@@ -352,37 +361,37 @@ GlassRow _eopRow() => const GlassRow(
       menu: [
         [
           GlassMenuItem(
-              id: 'eoptop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
+              id: 'eoptop', title: t.ctxMoveToTop, symbol: 'arrow.up.to.line'),
           GlassMenuItem(
-              id: 'eopend', title: 'Move to End', symbol: 'arrow.down.to.line'),
+              id: 'eopend', title: t.ctxMoveToEnd, symbol: 'arrow.down.to.line'),
         ],
         [
           GlassMenuItem(
               id: 'eopDeleteBelow',
-              title: 'Delete All Features Below EOP',
+              title: t.ctxDeleteAllFeaturesBelowEop,
               symbol: 'trash',
               destructive: true),
         ],
       ],
     );
 
-GlassRow _eosRow() => const GlassRow(
+GlassRow _eosRow() => GlassRow(
       id: kIdEos,
-      label: 'End of Sketch',
+      label: t.nodeEndOfSketch,
       symbol: 'xmark.circle.fill',
       tint: 'red',
       depth: 1,
       menu: [
         [
           GlassMenuItem(
-              id: 'eostop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
+              id: 'eostop', title: t.ctxMoveToTop, symbol: 'arrow.up.to.line'),
           GlassMenuItem(
-              id: 'eosend', title: 'Move to End', symbol: 'arrow.down.to.line'),
+              id: 'eosend', title: t.ctxMoveToEnd, symbol: 'arrow.down.to.line'),
         ],
         [
           GlassMenuItem(
               id: 'deleteBelow',
-              title: 'Delete all layers below',
+              title: t.ctxDeleteAllLayersBelow,
               symbol: 'trash',
               destructive: true),
         ],
@@ -392,18 +401,18 @@ GlassRow _eosRow() => const GlassRow(
 List<List<GlassMenuItem>> _bodyMenu(AppState app, bool on) => [
       [
         if (app.extrudeSession != null)
-          const GlassMenuItem(
-              id: 'bdPick', title: 'Use as Target Body', symbol: 'scope'),
+          GlassMenuItem(
+              id: 'bdPick', title: t.ctxUseAsTargetBody, symbol: 'scope'),
         GlassMenuItem(
             id: 'bdVisible',
             title: on ? 'Hide' : 'Show',
             symbol: on ? 'eye.slash' : 'eye'),
-        const GlassMenuItem(id: 'bdRename', title: 'Rename', symbol: 'pencil'),
+        GlassMenuItem(id: 'bdRename', title: t.rename, symbol: 'pencil'),
       ],
       [
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'bdDelete',
-            title: 'Delete Body',
+            title: t.ctxDeleteBody,
             symbol: 'trash',
             destructive: true),
       ],
@@ -420,20 +429,20 @@ String _patternSymbol(PatternKind k) => switch (k) {
 
 List<List<GlassMenuItem>> _featureMenu(PartFeature f) => [
       [
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'ftEdit',
-            title: 'Edit Feature',
+            title: t.ctxEditFeature,
             symbol: 'slider.horizontal.3'),
         GlassMenuItem(
             id: 'ftVisible',
             title: f.visible ? 'Hide' : 'Show',
             symbol: f.visible ? 'eye.slash' : 'eye'),
-        const GlassMenuItem(id: 'ftRename', title: 'Rename', symbol: 'pencil'),
+        GlassMenuItem(id: 'ftRename', title: t.rename, symbol: 'pencil'),
       ],
       [
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'ftDelete',
-            title: 'Delete',
+            title: t.delete,
             symbol: 'trash',
             destructive: true),
       ],
@@ -449,20 +458,20 @@ List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
         // face and the origin planes the command itself switched on, and
         // failing that race is what "I still can't sketch on a work plane"
         // has been every time. Naming the plane leaves nothing to hit.
-        const GlassMenuItem(
-            id: 'wpSketch', title: 'Create Sketch', symbol: 'square.on.square'),
+        GlassMenuItem(
+            id: 'wpSketch', title: t.ctxCreateSketch, symbol: 'square.on.square'),
         if (w.offsetEditable)
-          const GlassMenuItem(
-              id: 'wpOffset', title: 'Edit Offset', symbol: 'ruler'),
+          GlassMenuItem(
+              id: 'wpOffset', title: t.ctxEditOffset, symbol: 'ruler'),
         GlassMenuItem(
             id: 'wpVis',
             title: w.visible ? 'Hide' : 'Show',
             symbol: w.visible ? 'eye.slash' : 'eye'),
       ],
       [
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'wpDelete',
-            title: 'Delete',
+            title: t.delete,
             symbol: 'trash',
             destructive: true),
       ],
@@ -480,15 +489,15 @@ List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a) => [
         // The axis carries a SIGN that revolve and pattern directions inherit
         // (see WorkAxis.flip), and re-picking two points in the other order to
         // change it would be absurd.
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'waFlip',
-            title: 'Flip Direction',
+            title: t.ctxFlipDirection,
             symbol: 'arrow.up.arrow.down'),
       ],
       [
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'waDelete',
-            title: 'Delete',
+            title: t.delete,
             symbol: 'trash',
             destructive: true),
       ],
@@ -502,9 +511,9 @@ List<List<GlassMenuItem>> _workPointMenu(WorkPoint pt) => [
             symbol: pt.visible ? 'eye.slash' : 'eye'),
       ],
       [
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'wptDelete',
-            title: 'Delete',
+            title: t.delete,
             symbol: 'trash',
             destructive: true),
       ],
@@ -514,8 +523,8 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
   final consumed = sketchIsConsumed(part, cs);
   return [
     [
-      const GlassMenuItem(
-          id: 'skEdit', title: 'Edit Sketch', symbol: 'pencil.tip'),
+      GlassMenuItem(
+          id: 'skEdit', title: t.ctxEditSketch, symbol: 'pencil.tip'),
       GlassMenuItem(
           id: 'skVisible',
           title: cs.visible ? 'Hide' : 'Show',
@@ -523,20 +532,20 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
     ],
     [
       if (consumed && !cs.shared)
-        const GlassMenuItem(
-            id: 'skShare', title: 'Share Sketch', symbol: 'square.on.square'),
+        GlassMenuItem(
+            id: 'skShare', title: t.ctxShareSketch, symbol: 'square.on.square'),
       if (canUnshareSketch(part, cs))
-        const GlassMenuItem(
-            id: 'skUnshare', title: 'Unshare', symbol: 'square.slash'),
+        GlassMenuItem(
+            id: 'skUnshare', title: t.ctxUnshare, symbol: 'square.slash'),
     ],
     [
       // M152 — Delete. Offered only when the sketch is NOT consumed: deleting
       // a sketch an extrusion is built on would take the feature with it, and
       // Inventor makes you remove the feature first for the same reason.
       if (!consumed)
-        const GlassMenuItem(
+        GlassMenuItem(
             id: 'skDelete',
-            title: 'Delete',
+            title: t.delete,
             symbol: 'trash',
             destructive: true),
     ],
@@ -545,12 +554,12 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
 
 List<List<GlassMenuItem>> _layerMenu() => [
       [
-        const GlassMenuItem(id: 'edit', title: 'Edit Layer', symbol: 'pencil'),
-        const GlassMenuItem(id: 'rename', title: 'Rename', symbol: 'character.cursor.ibeam'),
-        const GlassMenuItem(id: 'move', title: 'Move Selection Here', symbol: 'arrow.right.doc.on.clipboard'),
+        GlassMenuItem(id: 'edit', title: t.ctxEditLayer, symbol: 'pencil'),
+        GlassMenuItem(id: 'rename', title: t.rename, symbol: 'character.cursor.ibeam'),
+        GlassMenuItem(id: 'move', title: t.ctxMoveSelectionHere, symbol: 'arrow.right.doc.on.clipboard'),
       ],
       [
-        const GlassMenuItem(
-            id: 'delete', title: 'Delete', symbol: 'trash', destructive: true),
+        GlassMenuItem(
+            id: 'delete', title: t.delete, symbol: 'trash', destructive: true),
       ],
     ];

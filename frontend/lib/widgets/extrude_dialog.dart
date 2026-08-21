@@ -12,6 +12,8 @@ import '../part_model.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/cad_terms.dart';
+import '../l10n/l.dart';
 
 class ExtrudeDialog extends StatefulWidget {
   final AppState app;
@@ -105,7 +107,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
               ),
               child: Row(children: [
-                Text('Properties',
+                Text(L.of(context).dlgProperties,
                     style: ts(13, Colors.white, w: FontWeight.w600)),
                 const SizedBox(width: 6),
                 GestureDetector(
@@ -162,7 +164,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                       s.profiles.isEmpty ? null : app.clearSessionProfiles)),
               panelRow('From', panelPickField(
                   icon: Icons.layers_outlined,
-                  label: '1 Sketch Plane',
+                  label: L.of(context).lblSketchPlaneN('1'),
                   active: false)),
             ]),
             panelSection('Behavior', _behaviorOpen,
@@ -501,7 +503,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
                 _btn('Cancel', onTap: app.cancelExtrude),
                 const Spacer(),
                 Tooltip(
-                  message: 'Apply and start another',
+                  message: L.of(context).tipApplyAndStartAnother,
                   child: GestureDetector(
                     onTap: () => app.applyExtrude(keepOpen: true),
                     child: Container(
@@ -626,8 +628,8 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
     };
     return Tooltip(
       message: enabled
-          ? extentLabel(e)
-          : '${extentLabel(e)} (needs an existing body)',
+          ? extentName(L.of(context), e)
+          : L.of(context).lblNeedsExistingBody(extentName(L.of(context), e)),
       child: GestureDetector(
         onTap: enabled
             ? () {
@@ -680,7 +682,7 @@ class _ExtrudeDialogState extends State<ExtrudeDialog> {
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><rect x="3.5" y="5.5" width="9" height="9" rx="1" fill="#E8C63F" fill-opacity=".2" stroke="#E8C63F" stroke-width="1.3"/><path d="M13 3 v3.4 M11.3 4.7 h3.4" stroke="#E8C63F" stroke-width="1.3"/></svg>',
     };
     return Tooltip(
-      message: enabled ? label : '$label (needs an existing body)',
+      message: enabled ? label : L.of(context).lblNeedsExistingBody(label),
       child: GestureDetector(
         onTap: enabled
             ? () {

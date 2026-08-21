@@ -23,6 +23,7 @@ import '../part_model.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
+import '../l10n/l.dart';
 
 /// M107 — on iOS the whole panel is native (see native_browser.dart and
 /// GlassBrowser). This Flutter implementation stays as the non-iOS path and as
@@ -106,21 +107,21 @@ class _ModelBrowserState extends State<ModelBrowser> {
     return [
       [
         if (app.extrudeSession != null)
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'bdPick',
-              title: 'Use as Target Body',
+              title: L.of(context).ctxUseAsTargetBody,
               symbol: 'scope'),
         NativeMenuItem(
             id: 'bdVisible',
             title: on ? 'Hide' : 'Show',
             symbol: on ? 'eye.slash' : 'eye'),
-        const NativeMenuItem(
-            id: 'bdRename', title: 'Rename', symbol: 'pencil'),
+        NativeMenuItem(
+            id: 'bdRename', title: L.of(context).rename, symbol: 'pencil'),
       ],
       [
-        const NativeMenuItem(
+        NativeMenuItem(
             id: 'bdDelete',
-            title: 'Delete Body',
+            title: L.of(context).ctxDeleteBody,
             symbol: 'trash',
             destructive: true),
       ],
@@ -136,8 +137,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final consumed = sketchIsConsumed(part, cs);
     return [
       [
-        const NativeMenuItem(
-            id: 'skEdit', title: 'Edit Sketch', symbol: 'pencil.tip'),
+        NativeMenuItem(
+            id: 'skEdit', title: L.of(context).ctxEditSketch, symbol: 'pencil.tip'),
         NativeMenuItem(
             id: 'skVisible',
             title: cs.visible ? 'Hide' : 'Show',
@@ -145,13 +146,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
       ],
       [
         if (consumed && !cs.shared)
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'skShare',
-              title: 'Share Sketch',
+              title: L.of(context).ctxShareSketch,
               symbol: 'square.on.square'),
         if (canUnshareSketch(part, cs))
-          const NativeMenuItem(
-              id: 'skUnshare', title: 'Unshare', symbol: 'square.slash'),
+          NativeMenuItem(
+              id: 'skUnshare', title: L.of(context).ctxUnshare, symbol: 'square.slash'),
       ],
     ];
   }
@@ -161,19 +162,19 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// what the row's double-tap already does.
   List<List<NativeMenuItem>> _featureMenu(AppState app, PartFeature f) => [
         [
-          const NativeMenuItem(
-              id: 'ftEdit', title: 'Edit Feature', symbol: 'slider.horizontal.3'),
+          NativeMenuItem(
+              id: 'ftEdit', title: L.of(context).ctxEditFeature, symbol: 'slider.horizontal.3'),
           NativeMenuItem(
               id: 'ftVisible',
               title: f.visible ? 'Hide' : 'Show',
               symbol: f.visible ? 'eye.slash' : 'eye'),
-          const NativeMenuItem(
-              id: 'ftRename', title: 'Rename', symbol: 'pencil'),
+          NativeMenuItem(
+              id: 'ftRename', title: L.of(context).rename, symbol: 'pencil'),
         ],
         [
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'ftDelete',
-              title: 'Delete',
+              title: L.of(context).delete,
               symbol: 'trash',
               destructive: true),
         ],
@@ -206,16 +207,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (app.layerRolledBack(layer)) {
       return [
         [
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'eophere',
-              title: 'Move End of Sketch here',
+              title: L.of(context).ctxMoveEosHere,
               symbol: 'arrow.up.and.down.text.horizontal'),
         ],
         if (!base)
           [
-            const NativeMenuItem(
+            NativeMenuItem(
                 id: 'delete',
-                title: 'Delete layer',
+                title: L.of(context).ctxDeleteLayer,
                 symbol: 'trash',
                 destructive: true),
           ],
@@ -224,7 +225,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     return [
       [
         if (!locked)
-          const NativeMenuItem(id: 'edit', title: 'Edit', symbol: 'pencil.tip'),
+          NativeMenuItem(id: 'edit', title: L.of(context).edit, symbol: 'pencil.tip'),
         NativeMenuItem(
             id: 'visible',
             title: app.layerVisible(layer) ? 'Hide' : 'Show',
@@ -234,22 +235,22 @@ class _ModelBrowserState extends State<ModelBrowser> {
             title: locked ? 'Unlock' : 'Lock',
             symbol: locked ? 'lock.open' : 'lock'),
         if (!base)
-          const NativeMenuItem(id: 'rename', title: 'Rename', symbol: 'pencil'),
+          NativeMenuItem(id: 'rename', title: L.of(context).rename, symbol: 'pencil'),
         NativeMenuItem(
             id: 'move',
             title:
                 selCount == 0 ? 'Move selection here' : 'Move $selCount here',
             symbol: 'arrow.right.doc.on.clipboard'),
-        const NativeMenuItem(
+        NativeMenuItem(
             id: 'eophere',
-            title: 'Move End of Sketch here',
+            title: L.of(context).ctxMoveEosHere,
             symbol: 'arrow.up.and.down.text.horizontal'),
       ],
       if (!base)
         [
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'delete',
-              title: 'Delete layer',
+              title: L.of(context).ctxDeleteLayer,
               symbol: 'trash',
               destructive: true),
         ],
@@ -261,17 +262,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
     return [
       [
         if (eos > 0)
-          const NativeMenuItem(
-              id: 'eostop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
+          NativeMenuItem(
+              id: 'eostop', title: L.of(context).ctxMoveToTop, symbol: 'arrow.up.to.line'),
         if (eos < s.layers.length)
-          const NativeMenuItem(
-              id: 'eosend', title: 'Move to End', symbol: 'arrow.down.to.line'),
+          NativeMenuItem(
+              id: 'eosend', title: L.of(context).ctxMoveToEnd, symbol: 'arrow.down.to.line'),
       ],
       if (eos < s.layers.length)
         [
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'deleteBelow',
-              title: 'Delete all layers below',
+              title: L.of(context).ctxDeleteAllLayersBelow,
               symbol: 'trash',
               destructive: true),
         ],
@@ -306,7 +307,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         if (hit.width > 1 && hit.height > 1) {
           targets.add(NativeMenuTarget(
             id: '__eos__',
-            title: 'End of Sketch',
+            title: L.of(context).nodeEndOfSketch,
             rect: hit,
             cornerRadius: 4,
             lift: false, // M90
@@ -536,20 +537,20 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final selCount = app.selection.length;
     final items = <Widget>[
       if (rolled) ...[
-        _ctxItem('Move End of Sketch here', () {
+        _ctxItem(L.of(context).ctxMoveEosHere, () {
           _closeCtx();
           final i = app.current?.layers.indexOf(layer) ?? -1;
           if (i >= 0) app.setEndOfSketch(i + 1);
         }),
         if (!base)
-          _ctxItem('Delete layer', () {
+          _ctxItem(L.of(context).ctxDeleteLayer, () {
             _closeCtx();
             _confirmDelete(layer);
           }, danger: true),
       ],
       if (!rolled) ...[
         if (!locked)
-          _ctxItem('Edit', () {
+          _ctxItem(L.of(context).edit, () {
             _closeCtx();
             app.enterEdit(layer);
           }),
@@ -571,13 +572,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
           _closeCtx();
           app.moveSelectionToLayer(layer);
         }),
-        _ctxItem('Move End of Sketch here', () {
+        _ctxItem(L.of(context).ctxMoveEosHere, () {
           _closeCtx();
           final i = app.current?.layers.indexOf(layer) ?? -1;
           if (i >= 0) app.setEndOfSketch(i + 1);
         }),
         if (!base)
-          _ctxItem('Delete layer', () {
+          _ctxItem(L.of(context).ctxDeleteLayer, () {
             _closeCtx();
             _confirmDelete(layer);
           }, danger: true),
@@ -636,17 +637,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final n = partTimeline(part).length;
     _showCtxItems(globalPos, [
       if (eop > 0)
-        _ctxItem('Move to Top', () {
+        _ctxItem(L.of(context).ctxMoveToTop, () {
           _closeCtx();
           app.setEndOfPart(0);
         }),
       if (eop < n)
-        _ctxItem('Move to End', () {
+        _ctxItem(L.of(context).ctxMoveToEnd, () {
           _closeCtx();
           app.setEndOfPart(n);
         }),
       if (eop < n)
-        _ctxItem('Delete all features below', () {
+        _ctxItem(L.of(context).ctxDeleteAllFeaturesBelow, () {
           _closeCtx();
           _confirmDeleteBelowPart();
         }, danger: true),
@@ -660,10 +661,9 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (count == 0) return;
     final ok = await confirmAction(
       context,
-      title: 'Delete all features below EOP?',
-      message: '$count feature${count == 1 ? '' : 's'} '
-          '${count == 1 ? 'is' : 'are'} removed from the part.',
-      confirmLabel: 'Delete',
+      title: L.of(context).dlgDeleteAllFeaturesBelowEop,
+      message: L.of(context).msgFeaturesRemoved(count),
+      confirmLabel: L.of(context).delete,
     );
     if (ok) widget.app.deleteBelowEndOfPart();
   }
@@ -676,17 +676,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final eos = _shownEos(s);
     final items = <Widget>[
       if (eos > 0)
-        _ctxItem('Move to Top', () {
+        _ctxItem(L.of(context).ctxMoveToTop, () {
           _closeCtx();
           app.setEndOfSketch(0);
         }),
       if (eos < s.layers.length)
-        _ctxItem('Move to End', () {
+        _ctxItem(L.of(context).ctxMoveToEnd, () {
           _closeCtx();
           app.setEndOfSketch(s.layers.length);
         }),
       if (eos < s.layers.length)
-        _ctxItem('Delete all layers below', () {
+        _ctxItem(L.of(context).ctxDeleteAllLayersBelow, () {
           _closeCtx();
           _confirmDeleteBelow();
         }, danger: true),
@@ -746,11 +746,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final count = s.geometry.where((g) => names.contains(g.layer)).length;
     final ok = await confirmAction(
       context,
-      title: 'Delete everything below End of Sketch?',
-      message: 'This removes ${below.length} '
-          '${below.length == 1 ? "layer" : "layers"} and '
-          '$count ${count == 1 ? "entity" : "entities"}.',
-      confirmLabel: 'Delete',
+      title: L.of(context).dlgDeleteEverythingBelowEos,
+      message: L.of(context)
+          .msgLayersAndEntitiesRemoved(below.length, count),
+      confirmLabel: L.of(context).delete,
     );
     if (ok) app.deleteBelowEndOfSketch();
   }
@@ -899,7 +898,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
               indent: 8,
               exp: ' ',
               icon: endOfSketchIcon,
-              label: 'End of Part'),
+              label: L.of(context).nodeEndOfPart),
         ),
       ),
     );
@@ -911,17 +910,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
     return [
       [
         if (eop > 0)
-          const NativeMenuItem(
-              id: 'eoptop', title: 'Move to Top', symbol: 'arrow.up.to.line'),
+          NativeMenuItem(
+              id: 'eoptop', title: L.of(context).ctxMoveToTop, symbol: 'arrow.up.to.line'),
         if (eop < n)
-          const NativeMenuItem(
-              id: 'eopend', title: 'Move to End', symbol: 'arrow.down.to.line'),
+          NativeMenuItem(
+              id: 'eopend', title: L.of(context).ctxMoveToEnd, symbol: 'arrow.down.to.line'),
       ],
       [
         if (eop < n)
-          const NativeMenuItem(
+          NativeMenuItem(
               id: 'eopDeleteBelow',
-              title: 'Delete All Features Below EOP',
+              title: L.of(context).ctxDeleteAllFeaturesBelowEop,
               symbol: 'trash',
               destructive: true),
       ],
@@ -988,7 +987,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
               indent: 8,
               exp: ' ',
               icon: endOfSketchIcon,
-              label: 'End of Sketch'),
+              label: L.of(context).nodeEndOfSketch),
         ),
       ),
     );
@@ -998,10 +997,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final app = widget.app;
     final result = await promptForText(
       context,
-      title: 'Rename layer',
+      title: L.of(context).dlgRenameLayer,
       initialValue: layer,
-      placeholder: 'Layer name',
-      confirmLabel: 'Rename',
+      placeholder: L.of(context).phLayerName,
+      confirmLabel: L.of(context).rename,
     );
     if (result != null && result.trim().isNotEmpty) {
       app.renameLayer(layer, result);
@@ -1015,10 +1014,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final app = widget.app;
     final result = await promptForText(
       context,
-      title: 'Rename feature',
+      title: L.of(context).dlgRenameFeature,
       initialValue: f.name,
-      placeholder: 'Feature name',
-      confirmLabel: 'Rename',
+      placeholder: L.of(context).phFeatureName,
+      confirmLabel: L.of(context).rename,
     );
     if (result != null && result.trim().isNotEmpty) {
       app.renameFeature(f, result.trim());
@@ -1030,10 +1029,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final app = widget.app;
     final result = await promptForText(
       context,
-      title: 'Rename body',
+      title: L.of(context).dlgRenameBody,
       initialValue: bodyName,
-      placeholder: 'Body name',
-      confirmLabel: 'Rename',
+      placeholder: L.of(context).phBodyName,
+      confirmLabel: L.of(context).rename,
     );
     if (result != null && result.trim().isNotEmpty) {
       app.renameBody(bodyName, result.trim());
@@ -1045,12 +1044,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (part == null) return;
     final n = part.features.where((f) => f.bodyName == bodyName).length;
     if (n == 0) return;
+    final t = L.of(context);
     final ok = await confirmAction(
       context,
-      title: 'Delete "$bodyName"?',
-      message: 'Its $n feature${n == 1 ? '' : 's'} '
-          '${n == 1 ? 'is' : 'are'} removed from the part.',
-      confirmLabel: 'Delete',
+      title: t.dlgDeleteNamed(bodyName),
+      message: t.msgBodyFeaturesRemoved(n),
+      confirmLabel: L.of(context).delete,
     );
     if (ok) widget.app.deleteBody(bodyName);
   }
@@ -1062,12 +1061,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
         s == null ? 0 : s.geometry.where((g) => g.layer == layer).length;
     final ok = await confirmAction(
       context,
-      title: 'Delete “$layer”?',
+      title: L.of(context).dlgDeleteNamed(layer),
       message: count == 0
           ? 'This layer is empty and will be removed.'
           : 'This removes the layer and its $count '
               '${count == 1 ? "entity" : "entities"}. This can’t be undone.',
-      confirmLabel: 'Delete',
+      confirmLabel: L.of(context).delete,
     );
     if (ok) app.deleteLayer(layer);
   }
@@ -1117,7 +1116,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 border: Border(right: BorderSide(color: T.mbHeadBorder)),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Text('Model', style: ts(12.5, T.mbText)),
+                Text(L.of(context).browserTitle, style: ts(12.5, T.mbText)),
                 const SizedBox(width: 7),
                 Text('✕', style: ts(11, T.mbDim)),
               ]),
@@ -1162,7 +1161,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
                       indent: 8,
                       exp: bodiesOpen ? '−' : '+',
                       icon: originIcon,
-                      label: 'Solid Bodies(${part.solidBodies().length})',
+                      label: L.of(context)
+                  .nodeSolidBodies(part.solidBodies().length),
                       onTap: () => setState(() => bodiesOpen = !bodiesOpen),
                     ),
                     if (bodiesOpen)
@@ -1174,7 +1174,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   indent: 8,
                   exp: originOpen ? '−' : '+',
                   icon: originIcon,
-                  label: 'Origin',
+                  label: L.of(context).nodeOrigin,
                   onTap: () => setState(() => originOpen = !originOpen),
                 ),
                 if (originOpen) ...[
@@ -1193,14 +1193,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
                     ])
                       _originRow(app, part, o.$1, o.$2),
                   ] else ...[
-                    _row(indent: 30, icon: xAxisIcon, label: 'X Axis'),
-                    _row(indent: 30, icon: yAxisIcon, label: 'Y Axis'),
+                    _row(indent: 30, icon: xAxisIcon, label: L.of(context).nodeXAxis),
+                    _row(indent: 30, icon: yAxisIcon, label: L.of(context).nodeYAxis),
                     Tooltip(
-                      message: 'Automatically projected',
+                      message: L.of(context).nodeAutoProjected,
                       child: _row(
                           indent: 30,
                           icon: centerPointIcon,
-                          label: 'Center Point'),
+                          label: L.of(context).nodeCenterPoint),
                     ),
                   ],
                 ],
@@ -1251,7 +1251,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                       indent: 8,
                       exp: ' ',
                       icon: endOfSketchIcon,
-                      label: 'End of Sketch'),
+                      label: L.of(context).nodeEndOfSketch),
               ],
             ),
           ),
@@ -1419,7 +1419,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final row = _row(
       indent: 30,
       icon: partCubeIcon,
-      label: 'Occurrence $index',
+      label: L.of(context).nodeOccurrence(index),
       onTap: () => app.patternSuppressOccurrence(f, index, !off),
       trailing: _EyeButton(
           visible: !off,
@@ -1431,9 +1431,9 @@ class _ModelBrowserState extends State<ModelBrowser> {
   Future<void> _confirmDeleteFeature(PartFeature f) async {
     final ok = await confirmAction(
       context,
-      title: 'Delete “${f.name}”?',
-      message: 'The feature and its solid are removed from the part.',
-      confirmLabel: 'Delete',
+      title: L.of(context).dlgDeleteNamed(f.name),
+      message: L.of(context).msgFeatureAndSolidRemoved,
+      confirmLabel: L.of(context).delete,
     );
     if (ok) await widget.app.deleteFeature(f);
   }

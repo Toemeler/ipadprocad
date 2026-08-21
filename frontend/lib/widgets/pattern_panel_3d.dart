@@ -27,6 +27,7 @@ import '../part_model.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class PatternPanel3D extends StatefulWidget {
   final AppState app;
@@ -163,7 +164,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
           ),
           child: Row(children: [
-            Text('Properties', style: ts(13, Colors.white, w: FontWeight.w600)),
+            Text(L.of(context).dlgProperties, style: ts(13, Colors.white, w: FontWeight.w600)),
             const SizedBox(width: 6),
             GestureDetector(
               onTap: widget.app.cancelPattern,
@@ -202,7 +203,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             _pickButton(
                 label: s.bodyName.isEmpty ? 'Select Solid' : s.bodyName,
                 active: s.active == PatternField.solid,
-                hint: 'Tap the body in 3D…',
+                hint: L.of(context).hintTapBodyIn3d,
                 onTap: () => app.patternPick(PatternField.solid)))
       else
         panelRow(
@@ -215,7 +216,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 // The feature list is fed from the MODEL BROWSER: a feature is
                 // a row in the tree, and the graphics window shows a folded
                 // body in which one extrusion's faces are no longer its own.
-                hint: 'Tap features in the browser…',
+                hint: L.of(context).hintTapFeaturesInBrowser,
                 onTap: () => app.patternPick(PatternField.features))),
       if (!s.patternSolid && s.features.isNotEmpty)
         Padding(
@@ -267,7 +268,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                     ? '${s.startA.toStringAsFixed(2)} mm along'
                     : 'Curve start',
                 active: s.active == PatternField.startA,
-                hint: 'Tap a point on the curve…',
+                hint: L.of(context).hintTapPointOnCurve,
                 onTap: () => app.patternPick(PatternField.startA),
                 onClear: s.startPickedA
                     ? () => _changed(() {
@@ -283,7 +284,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                     ? '${s.startB.toStringAsFixed(2)} mm along'
                     : 'Curve start',
                 active: s.active == PatternField.startB,
-                hint: 'Tap a point on the curve…',
+                hint: L.of(context).hintTapPointOnCurve,
                 onTap: () => app.patternPick(PatternField.startB),
                 onClear: s.startPickedB
                     ? () => _changed(() {
@@ -418,7 +419,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                           ? '${path.sketchName} curve'
                           : (ref?.label ?? 'Select Dir...'),
                       active: s.active == field,
-                      hint: 'Tap an edge or axis…',
+                      hint: L.of(context).hintTapEdgeOrAxis,
                       onTap: () => app.patternPick(field),
                       onClear: (ref == null && path == null)
                           ? null
@@ -543,7 +544,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               child: _pickButton(
                   label: s.axis?.label ?? 'Select Dir...',
                   active: s.active == PatternField.axis,
-                  hint: 'Tap a circular edge or axis…',
+                  hint: L.of(context).hintTapCircularEdge,
                   onTap: () => app.patternPick(PatternField.axis),
                   onClear:
                       s.axis == null ? null : () => _changed(() => s.axis = null)),
@@ -603,7 +604,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                   ? 'Select Point'
                   : '${s.pointSketch} ($n point${n == 1 ? '' : 's'})',
               active: s.active == PatternField.pointSketch,
-              hint: 'Tap a sketch point…',
+              hint: L.of(context).hintTapSketchPoint,
               onTap: () => app.patternPick(PatternField.pointSketch))),
       panelRow(
           'Base Point',
@@ -613,7 +614,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                       '${s.baseY.toStringAsFixed(2)})'
                   : 'Select Point',
               active: s.active == PatternField.basePoint,
-              hint: 'Tap the point the original sits on…',
+              hint: L.of(context).hintTapOriginalPoint,
               onTap: () => app.patternPick(PatternField.basePoint),
               onClear: s.basePicked
                   ? () => _changed(() => s.basePicked = false)
@@ -634,7 +635,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             _pickButton(
                 label: s.orientFace == null ? 'Select Face' : 'Face',
                 active: s.active == PatternField.orientFace,
-                hint: 'Tap the face to follow…',
+                hint: L.of(context).hintTapFaceToFollow,
                 onTap: () => app.patternPick(PatternField.orientFace),
                 onClear: s.orientFace == null
                     ? null
@@ -652,7 +653,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           _pickButton(
               label: s.plane?.label ?? 'Mirror Plane',
               active: s.active == PatternField.plane,
-              hint: 'Tap a face or plane…',
+              hint: L.of(context).hintTapFaceOrPlane,
               onTap: () => app.patternPick(PatternField.plane),
               onClear:
                   s.plane == null ? null : () => _changed(() => s.plane = null))),
@@ -920,7 +921,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -938,7 +939,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),

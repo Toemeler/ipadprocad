@@ -16,6 +16,8 @@ import '../gear.dart';
 import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
+import '../l10n/fmt.dart';
+import '../l10n/l.dart';
 
 const _fieldBg = Color(0xFF212429);
 const _fieldBorder = Color(0xFF3A3F45);
@@ -83,7 +85,7 @@ class _GearDialogState extends State<GearDialog> {
   }
 
   double _d(TextEditingController c, double fallback) =>
-      double.tryParse(c.text.trim()) ?? fallback;
+      Fmt.num(c.text) ?? fallback;
   int _i(TextEditingController c, int fallback) =>
       int.tryParse(c.text.trim()) ?? fallback;
 
@@ -132,7 +134,7 @@ class _GearDialogState extends State<GearDialog> {
                 border: Border(bottom: BorderSide(color: T.sep))),
             child: Row(children: [
               Expanded(
-                  child: Text('Gear',
+                  child: Text(L.of(context).dlgGear,
                       style: _ts(12, T.text, w: FontWeight.w600))),
               InkWell(
                 onTap: widget.app.cancelTool,
@@ -207,8 +209,7 @@ class _GearDialogState extends State<GearDialog> {
                 ]),
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text('Tap in the sketch to place; then dimension the '
-                      'centre and one angle.',
+                  child: Text(L.of(context).msgGearTapToPlace,
                       style: _ts(10, T.dim)),
                 ),
               ]),
@@ -341,7 +342,7 @@ class _GearDialogState extends State<GearDialog> {
               : null,
         ),
         const SizedBox(width: 8),
-        Text('Automatic root & tip radii', style: _ts(11.5, T.text)),
+        Text(L.of(context).lblAutoRootTip, style: _ts(11.5, T.text)),
       ]),
     );
   }

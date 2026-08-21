@@ -632,7 +632,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get msgWouldOverConstrain =>
-      'Adding this dimension will over-constrain the sketch. Add it as a driven dimension?';
+      'Adding this dimension will over-constrain the sketch. Keep it as a driven (reference) dimension?';
 
   @override
   String get menuHomeView => 'Home view';
@@ -1110,34 +1110,6 @@ class AppL10nEn extends AppL10n {
       'Select edges — tap to add, tap again to remove.';
 
   @override
-  String get msgNoConcaveEdgesLeft => 'No concave edges left to add.';
-
-  @override
-  String get msgNoConvexEdgesLeft => 'No convex edges left to add.';
-
-  @override
-  String msgAddedConcaveEdges(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Added $count concave edges.',
-      one: 'Added one concave edge.',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String msgAddedConvexEdges(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Added $count convex edges.',
-      one: 'Added one convex edge.',
-    );
-    return '$_temp0';
-  }
-
-  @override
   String get msgTapToPlaceGear => 'Tap in the sketch to place the gear.';
 
   @override
@@ -1515,7 +1487,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get msgPickWhileSelectorBlue =>
-      'Pick geometry in the viewport while the blue selector is lit.';
+      'Pick geometry in the viewport while the blue selector is active. OK / Done creates the pattern.';
 
   @override
   String get msgFilletPickTwo =>
@@ -1623,6 +1595,11 @@ class AppL10nEn extends AppL10n {
   String get lblSwapFaces => 'Swap the two faces';
 
   @override
+  String lblWorkPlaneOffset(String name) {
+    return '$name  Offset';
+  }
+
+  @override
   String lblSketchPlaneN(String n) {
     return '$n Sketch Plane';
   }
@@ -1637,7 +1614,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get msgSplitRemovesOtherSide =>
-      'Everything on the other side of the plane is removed. The direction can be flipped.';
+      'Everything on the other side of the plane is removed. Splitting into two bodies is not built.';
 
   @override
   String get msgGearTapToPlace =>
@@ -1650,11 +1627,12 @@ class AppL10nEn extends AppL10n {
   String get dlgReportBug => 'Report a bug';
 
   @override
-  String get msgBugPrompt => 'What did you expect, and what happened instead?';
+  String get msgBugPrompt =>
+      'What did you expect, and what happened instead?\nThe model, every feature\'s state and the full log are attached automatically — describe only what you SAW.';
 
   @override
   String get hintBugExample =>
-      'e.g. filleted the top edge at 2 mm and the wall came out wrong';
+      'e.g. filleted the top edge at 2 mm and the wall disappeared instead of rounding';
 
   @override
   String get btnSaveReport => 'Save report';
@@ -1709,4 +1687,140 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get btnCenterPoint => 'Center Point';
+
+  @override
+  String get featExtrusion => 'Extrusion';
+
+  @override
+  String get featRevolution => 'Revolution';
+
+  @override
+  String get featSweep => 'Sweep';
+
+  @override
+  String get featLoft => 'Loft';
+
+  @override
+  String get featCoil => 'Coil';
+
+  @override
+  String get featFillet => 'Fillet';
+
+  @override
+  String get featChamfer => 'Chamfer';
+
+  @override
+  String get featHole => 'Hole';
+
+  @override
+  String get featSplit => 'Split';
+
+  @override
+  String get featCombine => 'Combine';
+
+  @override
+  String get featDeleteFace => 'Delete Face';
+
+  @override
+  String get cmdDeleteFace => 'Delete Face';
+
+  @override
+  String get cmdMoveFaces => 'Move Faces';
+
+  @override
+  String get cmdSizeFaces => 'Size Faces';
+
+  @override
+  String get cmdScaleBody => 'Scale Body';
+
+  @override
+  String get verbDelete => 'delete';
+
+  @override
+  String get verbMove => 'move';
+
+  @override
+  String get patRectangular => 'Rectangular Pattern';
+
+  @override
+  String get patCircular => 'Circular Pattern';
+
+  @override
+  String get patSketchDriven => 'Sketch Driven Pattern';
+
+  @override
+  String get patMirror => 'Mirror';
+
+  @override
+  String get holeSimple => 'Simple';
+
+  @override
+  String get holeCounterbore => 'Counterbore';
+
+  @override
+  String get holeSpotface => 'Spotface';
+
+  @override
+  String get holeCountersink => 'Countersink';
+
+  @override
+  String get holeSimpleShort => 'Simple';
+
+  @override
+  String get holeCounterboreShort => 'C\'bore';
+
+  @override
+  String get holeSpotfaceShort => 'Spot';
+
+  @override
+  String get holeCountersinkShort => 'C\'sink';
+
+  @override
+  String get msgNoInteriorEdgesLeft => 'No interior edges left to add.';
+
+  @override
+  String get msgNoExteriorEdgesLeft => 'No exterior edges left to add.';
+
+  @override
+  String msgAddedInteriorEdges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Added $count fillet edges.',
+      one: 'Added one fillet edge.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgAddedExteriorEdges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Added $count round edges.',
+      one: 'Added one round edge.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgUndone => 'Undo';
+
+  @override
+  String get msgRedone => 'Redo';
+
+  @override
+  String get msgShow => 'Show';
+
+  @override
+  String get extToNext => 'To Next';
+
+  @override
+  String get extToFace => 'To';
+
+  @override
+  String get extThroughAll => 'Through All';
+
+  @override
+  String get extDistance => 'Distance';
 }

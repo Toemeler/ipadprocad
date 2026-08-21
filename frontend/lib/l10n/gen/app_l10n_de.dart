@@ -637,7 +637,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgWouldOverConstrain =>
-      'Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung einfügen?';
+      'Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung (Referenzmaß) behalten?';
 
   @override
   String get menuHomeView => 'Startansicht';
@@ -1134,36 +1134,6 @@ class AppL10nDe extends AppL10n {
       'Kanten wählen — antippen fügt hinzu, nochmals antippen entfernt.';
 
   @override
-  String get msgNoConcaveEdgesLeft =>
-      'Keine konkaven Kanten mehr zum Hinzufügen.';
-
-  @override
-  String get msgNoConvexEdgesLeft =>
-      'Keine konvexen Kanten mehr zum Hinzufügen.';
-
-  @override
-  String msgAddedConcaveEdges(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count konkave Kanten hinzugefügt.',
-      one: 'Eine konkave Kante hinzugefügt.',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String msgAddedConvexEdges(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count konvexe Kanten hinzugefügt.',
-      one: 'Eine konvexe Kante hinzugefügt.',
-    );
-    return '$_temp0';
-  }
-
-  @override
   String get msgTapToPlaceGear =>
       'In die Skizze tippen, um das Zahnrad zu setzen.';
 
@@ -1553,7 +1523,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgPickWhileSelectorBlue =>
-      'Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter leuchtet.';
+      'Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter aktiv ist. OK / Fertig erzeugt die Anordnung.';
 
   @override
   String get msgFilletPickTwo =>
@@ -1663,6 +1633,11 @@ class AppL10nDe extends AppL10n {
   String get lblSwapFaces => 'Die beiden Flächen tauschen';
 
   @override
+  String lblWorkPlaneOffset(String name) {
+    return '$name  Versatz';
+  }
+
+  @override
   String lblSketchPlaneN(String n) {
     return '$n Skizzenebene';
   }
@@ -1677,7 +1652,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgSplitRemovesOtherSide =>
-      'Alles auf der anderen Seite der Ebene wird entfernt. Die Richtung lässt sich umkehren.';
+      'Alles auf der anderen Seite der Ebene wird entfernt. Das Teilen in zwei Körper ist nicht gebaut.';
 
   @override
   String get msgGearTapToPlace =>
@@ -1691,11 +1666,11 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgBugPrompt =>
-      'Was haben Sie erwartet, und was ist stattdessen passiert?';
+      'Was haben Sie erwartet, und was ist stattdessen passiert?\nDas Modell, der Zustand jedes Elements und das vollständige Protokoll werden automatisch angehängt — beschreiben Sie nur, was Sie GESEHEN haben.';
 
   @override
   String get hintBugExample =>
-      'z. B. die obere Kante mit 2 mm verrundet und die Wandstärke ist danach falsch';
+      'z. B. die obere Kante mit 2 mm verrundet, und die Wand ist verschwunden statt abgerundet zu werden';
 
   @override
   String get btnSaveReport => 'Bericht sichern';
@@ -1750,4 +1725,140 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get btnCenterPoint => 'Mittelpunkt';
+
+  @override
+  String get featExtrusion => 'Extrusion';
+
+  @override
+  String get featRevolution => 'Drehung';
+
+  @override
+  String get featSweep => 'Sweeping';
+
+  @override
+  String get featLoft => 'Erhebung';
+
+  @override
+  String get featCoil => 'Spirale';
+
+  @override
+  String get featFillet => 'Verrundung';
+
+  @override
+  String get featChamfer => 'Fase';
+
+  @override
+  String get featHole => 'Bohrung';
+
+  @override
+  String get featSplit => 'Trennen';
+
+  @override
+  String get featCombine => 'Kombinieren';
+
+  @override
+  String get featDeleteFace => 'Fläche löschen';
+
+  @override
+  String get cmdDeleteFace => 'Fläche löschen';
+
+  @override
+  String get cmdMoveFaces => 'Flächen verschieben';
+
+  @override
+  String get cmdSizeFaces => 'Flächengröße ändern';
+
+  @override
+  String get cmdScaleBody => 'Körper skalieren';
+
+  @override
+  String get verbDelete => 'Löschen';
+
+  @override
+  String get verbMove => 'Verschieben';
+
+  @override
+  String get patRectangular => 'Rechteckige Anordnung';
+
+  @override
+  String get patCircular => 'Runde Anordnung';
+
+  @override
+  String get patSketchDriven => 'Skizzengesteuerte Anordnung';
+
+  @override
+  String get patMirror => 'Spiegeln';
+
+  @override
+  String get holeSimple => 'Einfach';
+
+  @override
+  String get holeCounterbore => 'Senkung';
+
+  @override
+  String get holeSpotface => 'Plansenkung';
+
+  @override
+  String get holeCountersink => 'Kegelsenkung';
+
+  @override
+  String get holeSimpleShort => 'Einfach';
+
+  @override
+  String get holeCounterboreShort => 'Senkung';
+
+  @override
+  String get holeSpotfaceShort => 'Plan';
+
+  @override
+  String get holeCountersinkShort => 'Kegel';
+
+  @override
+  String get msgNoInteriorEdgesLeft => 'Keine Innenkanten mehr zum Hinzufügen.';
+
+  @override
+  String get msgNoExteriorEdgesLeft => 'Keine Außenkanten mehr zum Hinzufügen.';
+
+  @override
+  String msgAddedInteriorEdges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Innenkanten hinzugefügt.',
+      one: 'Eine Innenkante hinzugefügt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgAddedExteriorEdges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Außenkanten hinzugefügt.',
+      one: 'Eine Außenkante hinzugefügt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgUndone => 'Rückgängig gemacht';
+
+  @override
+  String get msgRedone => 'Wiederhergestellt';
+
+  @override
+  String get msgShow => 'Einblenden';
+
+  @override
+  String get extToNext => 'Bis zum Nächsten';
+
+  @override
+  String get extToFace => 'Bis';
+
+  @override
+  String get extThroughAll => 'Durch alle';
+
+  @override
+  String get extDistance => 'Abstand';
 }

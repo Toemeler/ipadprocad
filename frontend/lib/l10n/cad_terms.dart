@@ -1,0 +1,86 @@
+// M234 — domain value to display string.
+//
+// part_model.dart keeps its English `typeLabel`, `holeTypeLabel` and
+// `patternKindLabel`, and it keeps `patternTypeLabel`/`holeTypeName`, which
+// are the strings that go INTO a .ptp. Nothing there changes. What changes is
+// who decides how a value is spelt on screen, and that decision belongs here.
+//
+// The distinction is not pedantry. `holeTypeLabel(t).toLowerCase()` was
+// correct English and is wrong German — nouns are capitalised — so a
+// lower-casing call at the point of use is a grammar bug the moment a second
+// language exists. Both spellings live in the ARB instead, one key each.
+import '../part_model.dart'
+    show FaceEditKind, FeatureExtent, HoleType, PartFeature, PatternKind;
+import 'l.dart';
+
+/// The command name of a direct-edit / delete-face session.
+String faceEditName(AppL10n t, FaceEditKind k) => switch (k) {
+      FaceEditKind.delete => t.cmdDeleteFace,
+      FaceEditKind.move => t.cmdMoveFaces,
+      FaceEditKind.size => t.cmdSizeFaces,
+      FaceEditKind.scale => t.cmdScaleBody,
+    };
+
+/// The verb in "Select the faces to …" / "Flächen zum … wählen."
+///
+/// Capitalised in German (it is a noun there), lower case in English. Not a
+/// `toLowerCase()` on a shared string, for exactly that reason.
+String faceEditVerb(AppL10n t, FaceEditKind k) =>
+    k == FaceEditKind.delete ? t.verbDelete : t.verbMove;
+
+/// Inventor's name for a pattern kind.
+String patternKindDisplay(AppL10n t, PatternKind k) => switch (k) {
+      PatternKind.rectangular => t.patRectangular,
+      PatternKind.circular => t.patCircular,
+      PatternKind.sketchDriven => t.patSketchDriven,
+      PatternKind.mirror => t.patMirror,
+    };
+
+/// A hole type, spelt out.
+String holeTypeDisplay(AppL10n t, HoleType h) => switch (h) {
+      HoleType.simple => t.holeSimple,
+      HoleType.counterbore => t.holeCounterbore,
+      HoleType.spotface => t.holeSpotface,
+      HoleType.countersink => t.holeCountersink,
+    };
+
+/// A hole type on the panel's four-way switch — short enough for a segment.
+String holeTypeShortDisplay(AppL10n t, HoleType h) => switch (h) {
+      HoleType.simple => t.holeSimpleShort,
+      HoleType.counterbore => t.holeCounterboreShort,
+      HoleType.spotface => t.holeSpotfaceShort,
+      HoleType.countersink => t.holeCountersinkShort,
+    };
+
+/// What the browser and the error toasts call a feature's KIND.
+///
+/// Keyed off the model's own English `typeLabel`, which is a stable domain
+/// value: adding a feature type without a German name here falls back to that
+/// value rather than to an empty row, and l10n_completeness_test.dart is what
+/// catches the omission.
+String featureTypeName(AppL10n t, PartFeature f) => switch (f.typeLabel) {
+      'Extrusion' => t.featExtrusion,
+      'Revolution' => t.featRevolution,
+      'Sweep' => t.featSweep,
+      'Loft' => t.featLoft,
+      'Coil' => t.featCoil,
+      'Fillet' => t.featFillet,
+      'Chamfer' => t.featChamfer,
+      'Hole' => t.featHole,
+      'Split' => t.featSplit,
+      'Combine' => t.featCombine,
+      'Delete Face' => t.featDeleteFace,
+      'Rectangular Pattern' => t.patRectangular,
+      'Circular Pattern' => t.patCircular,
+      'Sketch Driven Pattern' => t.patSketchDriven,
+      'Mirror' => t.patMirror,
+      _ => f.typeLabel,
+    };
+
+/// Inventor's four extent (termination) options for extrude and revolve.
+String extentName(AppL10n t, FeatureExtent e) => switch (e) {
+      FeatureExtent.toNext => t.extToNext,
+      FeatureExtent.toFace => t.extToFace,
+      FeatureExtent.throughAll => t.extThroughAll,
+      FeatureExtent.distance => t.extDistance,
+    };
