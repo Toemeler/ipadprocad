@@ -1,0 +1,31 @@
+   Woah! You appear to be trying to run flutter as root.
+   We strongly recommend running the flutter tool without superuser privileges.
+  /
+📎
+00:00 +0: loading <repo>/frontend/build/profiler/analyze_1024_test.dart
+The Dart VM service is listening on http://127.0.0.1:46215/E36cGVlemwI=/
+The Flutter DevTools debugger and profiler is available at: http://127.0.0.1:46215/E36cGVlemwI=/devtools/?uri=ws://127.0.0.1:46215/E36cGVlemwI=/ws
+
+The test process has been started. Set any relevant breakpoints and then resume the test in the debugger.
+00:00 +0: profiler scenario analyze at n=1024
+PROFILER_SCENARIO_RESULT scenario=analyze n=1024 repeats=3 wallMs=8057.196
+unhandled error during finalization of test:
+<repo>/frontend/build/profiler/analyze_1024_test.dart
+PathNotFoundException: Deletion failed, path = '/tmp/flutter_tools.RPYUXW/flutter_test_listener.THXMUV' (OS Error: No such file or directory, errno = 2)
+#0      _Directory._deleteSync (dart:io/directory_impl.dart:216:7)
+#1      FileSystemEntity.deleteSync (dart:io/file_system_entity.dart:425:7)
+#2      ForwardingFileSystemEntity.deleteSync (package:file/src/forwarding/forwarding_file_system_entity.dart:70:16)
+#3      ErrorHandlingDirectory.deleteSync.<anonymous closure> (package:flutter_tools/src/base/error_handling_io.dart:717:22)
+#4      _runSync (package:flutter_tools/src/base/error_handling_io.dart:1118:16)
+#5      ErrorHandlingDirectory.deleteSync (package:flutter_tools/src/base/error_handling_io.dart:716:12)
+#6      FlutterPlatform._createListenerDart.<anonymous closure> (package:flutter_tools/src/test/flutter_platform.dart:786:15)
+#7      FlutterPlatform._startTest.finalize (package:flutter_tools/src/test/flutter_platform.dart:591:26)
+<asynchronous suspension>
+#8      asyncGuard.<anonymous closure> (package:flutter_tools/src/base/async_guard.dart:108:24)
+<asynchronous suspension>
+
+00:09 +0: profiler scenario analyze at n=1024 - did not complete [E]
+00:09 +0: Some tests failed.
+
+Failing tests:
+  <repo>/frontend/build/profiler/analyze_1024_test.dart: profiler scenario analyze at n=1024 (did not complete)

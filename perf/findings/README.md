@@ -18,3 +18,21 @@ you did not write.
 Every prediction goes in before the code change, in the form given in
 `OPTIMIZATION_PLAN.md` §2. A prediction without arithmetic behind it is not a
 prediction.
+
+## Round two (sessions 6–10) — `OPTIMIZATION_PLAN_2.md`
+
+| File | Session | Owns |
+| --- | --- | --- |
+| `S6-shim2.md` | the quadratic that survived | `backend/occt/shim/**`, `ffi/occt_engine.dart` |
+| `S7-profiler.md` | sampling profiler | `tools/profiler/**` — no app code at all |
+| `S8-display.md` | display path + Track B | `viewport3d.dart`, `packages/reality_view/**`, `sim-perf.yml` |
+| `S9-drift.md` | the 14.64-unit drift | `solver.dart`, `endGripDrag` + warm start only |
+| `S10-memory.md` | memory + the 30-minute soak | `perf_scenarios_stress.dart` + a new scenario file |
+
+Two rules round two added, both learned the hard way:
+
+* **Equivalence tests must be differential** — old path against new, same
+  machine, same run. A recorded golden pins the machine, not the claim, and
+  four of them broke the first IPA build.
+* **S9 may change behaviour.** No other session may. It is investigating a
+  finding that says behaviour is already wrong.

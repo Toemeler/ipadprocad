@@ -1,0 +1,555 @@
+{
+  "census": {
+    "byThread": {
+      "main#3759": 17603
+    },
+    "byUserTag": {
+      "profiler.measure": 17603
+    },
+    "byVmTag": {
+      "DLRT_NewMarkingStackBlockProcess": 6,
+      "DLRT_OldMarkingStackBlockProcess": 1,
+      "DRT_AllocateArray": 148,
+      "DRT_AllocateContext": 59,
+      "DRT_AllocateDouble": 12,
+      "DRT_AllocateObject": 41,
+      "DRT_AllocateSmallRecord": 4,
+      "DRT_FixCallersTargetMonomorphic": 1,
+      "DRT_InterruptOrStackOverflow": 4581,
+      "DRT_OptimizeInvokedFunction": 1,
+      "DRT_PatchStaticCall": 18,
+      "Dart": 12706,
+      "GCOldSpace": 25
+    },
+    "nativeOnly": 4863,
+    "samples": 17603,
+    "truncatedStacks": 0,
+    "withDartFrames": 12740
+  },
+  "coverage": {
+    "effectivePeriodUs": 372,
+    "gaps": 621,
+    "nominalPeriodUs": 250,
+    "observedFraction": 0.7401996810628184,
+    "spanUs": 9686547,
+    "unobservedUs": 2516568
+  },
+  "dartOnly": true,
+  "flat": [
+    {
+      "label": "_GrowableList.add (growable_array.dart:283)",
+      "line": 283,
+      "self": 3151,
+      "total": 5929,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._grow (growable_array.dart:387)",
+      "line": 387,
+      "self": 2675,
+      "total": 2719,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_residuals (solver.dart:601)",
+      "line": 601,
+      "self": 1029,
+      "total": 5095,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_spAxpy (solver.dart:1158)",
+      "line": 1158,
+      "self": 918,
+      "total": 5839,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_jacobian (solver.dart:1247)",
+      "line": 1247,
+      "self": 901,
+      "total": 6241,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_pointAt (solver.dart:174)",
+      "line": 174,
+      "self": 889,
+      "total": 891,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "residualCount.pt (solver.dart:335)",
+      "line": 335,
+      "self": 784,
+      "total": 784,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_active (solver.dart:329)",
+      "line": 329,
+      "self": 520,
+      "total": 520,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "residualCount (solver.dart:332)",
+      "line": 332,
+      "self": 447,
+      "total": 1880,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_circle (solver.dart:308)",
+      "line": 308,
+      "self": 416,
+      "total": 417,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_SpMat.at (solver.dart:1105)",
+      "line": 1105,
+      "self": 345,
+      "total": 345,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "residualCount.ent (solver.dart:334)",
+      "line": 334,
+      "self": 125,
+      "total": 125,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "_GrowableList._allocateData (growable_array.dart:372)",
+      "line": 372,
+      "self": 55,
+      "total": 64,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._growToNextCapacity (growable_array.dart:406)",
+      "line": 406,
+      "self": 52,
+      "total": 2772,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_IntegerImplementation.compareTo (integers.dart:213)",
+      "line": 213,
+      "self": 40,
+      "total": 42,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/integers.dart"
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin&_HashBase&_OperatorEqualsAndHashCode&_LinkedHashSetMixin._add (compact_hash.dart:1039)",
+      "line": 1039,
+      "self": 39,
+      "total": 73,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "Sort._insertionSort (sort.dart:68)",
+      "line": 68,
+      "self": 32,
+      "total": 42,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/internal/sort.dart"
+    },
+    {
+      "label": "Sort._dualPivotQuicksort (sort.dart:85)",
+      "line": 85,
+      "self": 29,
+      "total": 102,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/internal/sort.dart"
+    },
+    {
+      "label": "_rankAndPivots (solver.dart:1198)",
+      "line": 1198,
+      "self": 16,
+      "total": 6236,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "<unknown Dart function>",
+      "line": 0,
+      "self": 15,
+      "total": 216,
+      "url": ""
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin&_HashBase&_OperatorEqualsAndHashCode&_LinkedHashSetMixin._rehash (compact_hash.dart:996)",
+      "line": 996,
+      "self": 13,
+      "total": 43,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "_analyzeSketch (solver.dart:2790)",
+      "line": 2790,
+      "self": 12,
+      "total": 12711,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin&_HashBase&_OperatorEqualsAndHashCode&_LinkedHashSetMixin._init (compact_hash.dart:1014)",
+      "line": 1014,
+      "self": 12,
+      "total": 27,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "_GrowableList._GrowableList.of (growable_array.dart:146)",
+      "line": 146,
+      "self": 12,
+      "total": 25,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList.elementAt (growable_array.dart:500)",
+      "line": 500,
+      "self": 11,
+      "total": 11,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin&_HashBase&_OperatorEqualsAndHashCode&_LinkedHashSetMixin.remove (compact_hash.dart:1103)",
+      "line": 1103,
+      "self": 10,
+      "total": 15,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "_HashBase._hashPattern (compact_hash.dart:223)",
+      "line": 223,
+      "self": 10,
+      "total": 10,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "ListBase.sort (list.dart:320)",
+      "line": 320,
+      "self": 8,
+      "total": 122,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/collection/list.dart"
+    },
+    {
+      "label": "Sort._doSort (sort.dart:55)",
+      "line": 55,
+      "self": 8,
+      "total": 111,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/internal/sort.dart"
+    },
+    {
+      "label": "Offset.dy (geometry.dart:137)",
+      "line": 137,
+      "self": 8,
+      "total": 8,
+      "url": "org-dartlang-sdk:///flutter/lib/ui/geometry.dart"
+    },
+    {
+      "label": "_CompactIterator.current (compact_hash.dart:855)",
+      "line": 855,
+      "self": 8,
+      "total": 8,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "_GrowableList._GrowableList (growable_array.dart:96)",
+      "line": 96,
+      "self": 7,
+      "total": 8,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_dimResidual (solver.dart:942)",
+      "line": 942,
+      "self": 6,
+      "total": 8,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "Offset.dx (geometry.dart:132)",
+      "line": 132,
+      "self": 6,
+      "total": 6,
+      "url": "org-dartlang-sdk:///flutter/lib/ui/geometry.dart"
+    },
+    {
+      "label": "_OneByteString.== (string_patch.dart:1027)",
+      "line": 1027,
+      "self": 6,
+      "total": 6,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/string_patch.dart"
+    },
+    {
+      "label": "List.List.of (array_patch.dart:36)",
+      "line": 36,
+      "self": 5,
+      "total": 29,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/array_patch.dart"
+    },
+    {
+      "label": "ListIterator.moveNext (iterable.dart:361)",
+      "line": 361,
+      "self": 5,
+      "total": 16,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/internal/iterable.dart"
+    },
+    {
+      "label": "_CompactIterator.moveNext (compact_hash.dart:839)",
+      "line": 839,
+      "self": 5,
+      "total": 7,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "_GrowableList.isNotEmpty (growable_array.dart:508)",
+      "line": 508,
+      "self": 5,
+      "total": 5,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_analyze (analyze_1024_test.dart:29)",
+      "line": 29,
+      "self": 4,
+      "total": 12740,
+      "url": "file://<repo>/frontend/build/profiler/analyze_1024_test.dart"
+    },
+    {
+      "label": "_spSwapRows (solver.dart:1135)",
+      "line": 1135,
+      "self": 4,
+      "total": 34,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98d71",
+      "line": 0,
+      "self": 4,
+      "total": 4,
+      "url": ""
+    },
+    {
+      "label": "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98f70",
+      "line": 0,
+      "self": 4,
+      "total": 4,
+      "url": ""
+    },
+    {
+      "label": "_Double.abs (double.dart:184)",
+      "line": 184,
+      "self": 4,
+      "total": 4,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "analyzeSketch.<anonymous closure> (solver.dart:2649)",
+      "line": 2649,
+      "self": 3,
+      "total": 12731,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "Sort.sort (sort.dart:32)",
+      "line": 32,
+      "self": 3,
+      "total": 114,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/internal/sort.dart"
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin&_HashBase&_OperatorEqualsAndHashCode&_LinkedHashSetMixin.add (compact_hash.dart:1034)",
+      "line": 1034,
+      "self": 3,
+      "total": 79,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin.toList (set.dart:118)",
+      "line": 118,
+      "self": 3,
+      "total": 32,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/collection/set.dart"
+    },
+    {
+      "label": "_GrowableList._GrowableList._ofEfficientLengthIterable (growable_array.dart:187)",
+      "line": 187,
+      "self": 3,
+      "total": 13,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98d6f",
+      "line": 0,
+      "self": 3,
+      "total": 3,
+      "url": ""
+    },
+    {
+      "label": "[Native] /opt/fl/flutter/bin/cache/artifacts/engine/linux-x64/flutter_tester+0x14a8c00",
+      "line": 0,
+      "self": 3,
+      "total": 3,
+      "url": ""
+    },
+    {
+      "label": "[Native] /opt/fl/flutter/bin/cache/artifacts/engine/linux-x64/flutter_tester+0x154b230",
+      "line": 0,
+      "self": 3,
+      "total": 3,
+      "url": ""
+    },
+    {
+      "label": "_HashBase._setDeletedAt (compact_hash.dart:241)",
+      "line": 241,
+      "self": 3,
+      "total": 3,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "__Set&_LinkedHashBase&SetMixin&_HashBase&_OperatorEqualsAndHashCode._hashCode (compact_hash.dart:284)",
+      "line": 284,
+      "self": 3,
+      "total": 3,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    },
+    {
+      "label": "_columnIndex (solver.dart:1125)",
+      "line": 1125,
+      "self": 2,
+      "total": 10,
+      "url": "file://<repo>/frontend/lib/solver.dart"
+    },
+    {
+      "label": "Geo.Geo (qcad_engine.dart:131)",
+      "line": 131,
+      "self": 2,
+      "total": 2,
+      "url": "file://<repo>/frontend/lib/ffi/qcad_engine.dart"
+    },
+    {
+      "label": "[Native] /lib/x86_64-linux-gnu/libc.so.6+0x98f6e",
+      "line": 0,
+      "self": 2,
+      "total": 2,
+      "url": ""
+    },
+    {
+      "label": "[Native] /opt/fl/flutter/bin/cache/artifacts/engine/linux-x64/flutter_tester+0x14a8c55",
+      "line": 0,
+      "self": 2,
+      "total": 2,
+      "url": ""
+    },
+    {
+      "label": "[Native] /opt/fl/flutter/bin/cache/artifacts/engine/linux-x64/flutter_tester+0x154b2c1",
+      "line": 0,
+      "self": 2,
+      "total": 2,
+      "url": ""
+    },
+    {
+      "label": "_CompactIterator._CompactIterator (compact_hash.dart:836)",
+      "line": 836,
+      "self": 2,
+      "total": 2,
+      "url": "org-dartlang-sdk:///flutter/third_party/dart/sdk/lib/_internal/vm_shared/lib/compact_hash.dart"
+    }
+  ],
+  "meta": {
+    "captureEndMicros": 159714913,
+    "captureStartMicros": 149979636,
+    "captureWallSeconds": 10.234,
+    "capturedAtUtc": "2026-08-20T11:39:54Z",
+    "gitRef": "claude/a4-sampling-profiler-uyls2i",
+    "gitSha": "2430e415e43e66d6e9e5bde79669e3fe1472eb26",
+    "profilerFlags": {
+      "applied": {
+        "profile_period": "250"
+      },
+      "before": {
+        "profile_period": "1000",
+        "profile_vm": "true",
+        "sample_buffer_duration": "0"
+      },
+      "max_profile_depth": "128",
+      "profile_period": "250",
+      "profile_vm": "true",
+      "profiler": "true",
+      "refused": {
+        "profile_vm": "Cannot set flag: cannot change at runtime",
+        "sample_buffer_duration": "Cannot set flag: cannot change at runtime"
+      },
+      "requested": {
+        "profile_period": "250",
+        "profile_vm": "false",
+        "sample_buffer_duration": "60"
+      },
+      "sample_buffer_duration": "0"
+    },
+    "scenarioFields": {
+      "n": 1024.0,
+      "repeats": 3.0,
+      "scenario": "analyze",
+      "wallMs": 8057.196
+    },
+    "scenarioResult": "PROFILER_SCENARIO_RESULT scenario=analyze n=1024 repeats=3 wallMs=8057.196",
+    "stoppedBecause": "target-finished",
+    "target": "flutter test",
+    "targetReturnCode": 0,
+    "vm": {
+      "hostCPU": "Intel(R) Xeon(R) Processor @ 2.8",
+      "operatingSystem": "linux",
+      "targetCPU": "x64",
+      "version": "3.13.1 (stable) (Tue Aug 18 01:00:59 2026 -0700) on \"linux_x64\""
+    }
+  },
+  "samplePeriodUs": 250,
+  "samplesSelected": 12740,
+  "within": {
+    "buckets": {
+      "elimination": {
+        "ci95": [
+          0.4811107075242071,
+          0.4984744654821727
+        ],
+        "samples": 6236,
+        "share": 0.489789506754634
+      },
+      "jacobian": {
+        "ci95": [
+          0.4815031637646545,
+          0.49886719489532605
+        ],
+        "samples": 6241,
+        "share": 0.4901822180333019
+      },
+      "other": {
+        "ci95": [
+          0.017735627871006816,
+          0.022610466298123532
+        ],
+        "samples": 255,
+        "share": 0.02002827521206409
+      }
+    },
+    "otherLeaves": [
+      "<unknown Dart function>",
+      "Geo.type (qcad_engine.dart:80)",
+      "List.List.of (array_patch.dart:36)",
+      "ListBase.any (list.dart:111)",
+      "ListBase.sort (list.dart:320)",
+      "ListIterator.current (iterable.dart:358)",
+      "Sort._dualPivotQuicksort (sort.dart:85)",
+      "Sort._insertionSort (sort.dart:68)",
+      "_CompactIterator.current (compact_hash.dart:855)",
+      "_Double.abs (double.dart:184)",
+      "_GrowableList._GrowableList._literal1 (growable_array.dart:569)",
+      "_GrowableList._GrowableList._literal2 (growable_array.dart:578)"
+    ],
+    "root": "analyzeSketch",
+    "samplesInRoot": 12732,
+    "samplesTotal": 12740
+  }
+}
