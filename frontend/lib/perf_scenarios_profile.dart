@@ -235,59 +235,72 @@ List<PerfScenario> buildProfileScenarios() {
   final out = <PerfScenario>[];
   final occt = OcctFfi.instance();
 
-  // ---- the one that matters: sweep against profile segment count ---------
-  //
-  // Rungs chosen to bracket the field: 32 and 128 sit near the sizes the
-  // existing ladder already covers (so the two are comparable), 512 and 1200
-  // reach the size that actually happened, and 2048 is there to show whether
-  // the curve bends. Five rungs over a 64x range fit an exponent with an
-  // interval worth quoting.
-  //
-  // The path is held at 16 spans, which is what the field's path had: faces
-  // ~= segments x spans, so leaving the path free would confound the two axes
-  // and produce a number that describes neither.
-  out.add(PerfScenario(
-    'profile.sweep.segments',
-    () {
-      _ladder('sweep.segments', const [32, 128, 512, 1200, 2048], (n) {
-        Perf.gauge('profile.sweepSegments', n);
-        final s = _sweep(occt, segments: n, spans: 16);
-        if (s != null) {
-          Perf.gauge('profile.sweepFaces', s.counts()?.faces ?? -1);
-          s.dispose();
-        }
-      });
-    },
-    note: 'THE missing axis. sweepProfile vs profile segment count at a fixed '
-        '16-span path. The existing kernel ladder stops at 48 points; the '
-        'field profile was ~1218 segments and cost 102 244 ms. Fit the '
-        'exponent over the five rungs: linear says the cost is the output '
-        'size, quadratic says something inside the pipe-shell does whole-wire '
-        'work per segment — which is the same shape of defect S2/S6 found in '
-        'edge_info, in a different operation',
-  ));
+  // The two kernel ladders below need the shim; the 2D ones after them do
+  // not. `OcctFfi.instance()` is nullable and is null wherever the native
+  // kernel is not linked -- every Linux host, in particular. Registering
+  // them anyway would produce a ladder whose every rung failed, and a rung
+  // that failed and a rung that was fast are the same number in a timing
+  // report. So they are not registered at all, which is what
+  // perf_scenarios_kernel.dart:162, _ramp.dart:187 and _stress.dart:150 all
+  // do with the same fact. The 2D ladders are pure Dart and always run.
+  if (occt != null) {
+    // ---- the one that matters: sweep against profile segment count ---------
+    //
+    // Rungs chosen to bracket the field: 32 and 128 sit near the sizes the
+    // existing ladder already covers (so the two are comparable), 512 and 1200
+    // reach the size that actually happened, and 2048 is there to show whether
+    // the curve bends. Five rungs over a 64x range fit an exponent with an
+    // interval worth quoting.
+    //
+    // The path is held at 16 spans, which is what the field's path had: faces
+    // ~= segments x spans, so leaving the path free would confound the two axes
+    // and produce a number that describes neither.
+    out.add(PerfScenario(
+      'profile.sweep.segments',
+      () {
+        _ladder('sweep.segments', const [32, 128, 512, 1200, 2048], (n) {
+          Perf.gauge('profile.sweepSegments', n);
+          final s = _sweep(occt, segments: n, spans: 16);
+          if (s != null) {
+            Perf.gauge('profile.sweepFaces', s.counts()?.faces ?? -1);
+            s.dispose();
+          }
+        });
+      },
+      note: 'THE missing axis. sweepProfile vs profile segment count at a '
+          'fixed '
+          '16-span path. The existing kernel ladder stops at 48 points; the '
+          'field profile was ~1218 segments and cost 102 244 ms. Fit the '
+          'exponent over the five rungs: linear says the cost is the output '
+          'size, quadratic says something inside the pipe-shell does '
+          'whole-wire work per segment — which is the same shape of defect '
+          'S2/S6 found in '
+          'edge_info, in a different operation',
+    ));
 
-  // ---- the OTHER half of the multiplier ----------------------------------
-  //
-  // Spans are chosen in Dart, not by the kernel: resolvePath emits every point
-  // of sketchCurve(), and sampleEntity uses arcSamples: 64 REGARDLESS of the
-  // arc's angle. So an arc used as a sweep path is always 64 spans, and
-  // against a 512-segment profile that is 32 768 faces where four spans might
-  // have done. This ladder prices that decision.
-  out.add(PerfScenario(
-    'profile.sweep.spans',
-    () {
-      _ladder('sweep.spans', const [1, 4, 16, 64], (spans) {
-        Perf.gauge('profile.sweepSpans', spans);
-        _sweep(occt, segments: 512, spans: spans)?.dispose();
-      });
-    },
-    note: 'path resolution at a FIXED 512-segment profile. Faces ~= segments x '
-        'spans, so if cost tracks faces this is linear with the same constant '
-        'as profile.sweep.segments. If it is not, the two axes are not '
-        'interchangeable and the cost model needs both. 64 is what an arc path '
-        'costs today, whatever its angle',
-  ));
+    // ---- the OTHER half of the multiplier ----------------------------------
+    //
+    // Spans are chosen in Dart, not by the kernel: resolvePath emits every
+    // point
+    // of sketchCurve(), and sampleEntity uses arcSamples: 64 REGARDLESS of the
+    // arc's angle. So an arc used as a sweep path is always 64 spans, and
+    // against a 512-segment profile that is 32 768 faces where four spans might
+    // have done. This ladder prices that decision.
+    out.add(PerfScenario(
+      'profile.sweep.spans',
+      () {
+        _ladder('sweep.spans', const [1, 4, 16, 64], (spans) {
+          Perf.gauge('profile.sweepSpans', spans);
+          _sweep(occt, segments: 512, spans: spans)?.dispose();
+        });
+      },
+      note: 'path resolution at a FIXED 512-segment profile. Faces ~= '
+          'segments x spans, so if cost tracks faces this is linear with the '
+          'same constant as profile.sweep.segments. If it is not, the two axes '
+          'are not interchangeable and the cost model needs both. 64 is what '
+          'an arc path costs today, whatever its angle',
+    ));
+  }
 
   // ---- 2D: the arrangement, which runs on every paint --------------------
   out.add(PerfScenario(

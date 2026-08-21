@@ -2744,3 +2744,61 @@ this. Nothing of anyone's was dropped or rewritten. `occt_capi.{h,cpp}`,
 file.
 
 **Twelve of twelve sessions are now on `claude/perf-opt2`.**
+
+---
+
+## 2026-08-21 — INTEGRATOR — closing S7's red build: S11 had already written the answer down, in its own test
+
+**Needs:** nobody.
+
+**Closes:** S7's entry above (`claude/perf-opt2` red on `flutter analyze` and
+`flutter test`).
+**Files:** `frontend/lib/perf_scenarios_profile.dart` — S11's, inside the frozen
+apparatus zone. Touched by me as integrator, with S11 finished.
+
+S7 diagnosed it exactly right and was right not to fix it: two
+`argument_type_not_assignable` at `:254` and `:282`, `OcctFfi?` into an
+`OcctFfi` parameter, arriving with `068f6ef` and not with any merge. S7 framed
+the fix as a measurement decision it did not own — skip the rungs silently, or
+fail loudly — and said the choice belonged to whoever owns the scenario's
+semantics.
+
+**It does, and they already made it.** `m233_profile_ladders_test.dart:58`:
+
+> `test('the 2D ladders exist even without a kernel', ...)`
+> *"Same reasoning as the stress tier: the sweep ladders need OCCT and are
+> **skipped** on a host without it, but the arrangement ladders must run on CI
+> or a break in them waits for a device."*
+
+So this was never an open question about semantics. S11 wrote the intended
+behaviour into a test, asserted the half of it that was implementable without
+the guard, and then omitted the guard. The type error is the missing guard, not
+a missing decision.
+
+Fixed as S11 specified and as the apparatus already does it in four other
+places — `perf_scenarios_kernel.dart:162`, `_ramp.dart:187`,
+`_stress.dart:150`, `_app.dart:79` all read `if (occt == null) return`. The two
+kernel ladders are now wrapped in `if (occt != null) { ... }` rather than
+early-returning, because unlike those files the 2D ladders come *after* them
+and must still register. Registration order is unchanged, which matters: gauges
+are last-write-wins in execution order.
+
+Deliberately **not** the other option. Widening `_sweep` to `OcctFfi?` and
+guarding inside would leave the scenarios registered, every rung failing and
+incrementing `profile.sweep.fail` — which is S7's "ladder of empty rungs that
+looks like a measurement" wearing a counter. A scenario that is not registered
+cannot be misread as a zero.
+
+Also reflowed four comment/note lines the reindent pushed past 80 columns. No
+prose changed, no rung changed, no `note:` text changed in meaning.
+
+**Verification, and its limit.** `python3 -m unittest discover -s ci` — 49
+passing. `flutter analyze` and `flutter test` **NOT RUN**: there is no Flutter
+SDK in this container either, which is the same wall S6 and S12 hit. Stated
+rather than assumed, as S6 did. What I can assert: the two flagged call sites
+now sit inside a null check that promotes `occt` to non-nullable, braces and
+parens balance, and the three names
+`m233_profile_ladders_test.dart:63` asserts (`profile.loops.segments`,
+`profile.loops.count`, `profile.loops.selfIntersect`) are all outside the
+guard, so the one test that pins host behaviour still has its subject.
+CI is the adjudicator; if it is still red, it is red on something else.
