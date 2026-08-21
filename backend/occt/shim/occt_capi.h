@@ -347,8 +347,17 @@ int occt_shape_edge_count(const occt_shape *shape);
  *          (0 = tangent-continuous, 90 = square corner)
  *   [11]   v13: +1 CONVEX (exterior corner -> Inventor calls it a round),
  *          -1 CONCAVE (interior corner -> a fillet), 0 unknown/tangent
+ *          v22: decided locally, from the two into-face directions, instead
+ *          of by stepping off the edge and asking a solid classifier. The
+ *          set of edges that get a nonzero sign is unchanged; the SIGN
+ *          changes on shapes with a feature thinner than
+ *          ‖bbox diagonal‖/1414, where the old answer was wrong. See
+ *          convexity_sign in the .cpp.
  * This is the fingerprint Dart persists so a fillet survives a rebuild: OCCT
  * indices are NOT stable across a recompute, midpoint+length+type is.
+ * NOTE that [11] is not part of that fingerprint and never has been — Dart
+ * stores midpoint, length, type and radius (part_model.dart EdgeSel) — so a
+ * change to [11] cannot move which edge a blend reattaches to.
  * Returns 1/0.
  */
 int occt_shape_edge_info(const occt_shape *shape, int index, double *out12);
@@ -386,6 +395,31 @@ int occt_shape_edge_info(const occt_shape *shape, int index, double *out12);
  * still a valid record.
  */
 int occt_shape_edges_info(const occt_shape *shape, double *out12n, int cap);
+
+/*
+ * v22 — TEST ONLY, and application code must not call it.
+ *
+ * occt_shape_edges_info with field 11 (convexity) decided the way v21 and
+ * earlier decided it: step ‖bbox diagonal‖/1000 from the edge midpoint along
+ * the bisector of the two into-face directions and ask
+ * BRepClass3d_SolidClassifier whether the point is inside the solid. Every
+ * other field is computed by the same code as the shipping path, so a
+ * difference in fields 0..10 between the two is a defect by construction.
+ *
+ * It exists for one reason: smoke scenario [36] compares the shipping path
+ * against it **in the same run on the same machine**, which is what proves
+ * the two agree; a golden recorded from one machine would pin that machine's
+ * digits and prove nothing (OPTIMIZATION_PLAN_2.md §1.4, and the four red
+ * tests of build 437 that taught it).
+ *
+ * DO NOT SHIP CALLS TO THIS. On a shape carrying a feature thinner than
+ * ‖bbox diagonal‖/1414 — a rib, a seal groove, sheet metal — the probe steps
+ * clean through the material and the sign comes back inverted. A 200 x 0.1 x
+ * 20 box, which is convex, comes back with eight of its twelve edges marked
+ * concave. That is why v22 stopped using it.
+ */
+int occt_shape_edges_info_ref(const occt_shape *shape, double *out12n,
+                              int cap);
 
 /*
  * v12 — For every DISPLAY edge of the mesh (same order and count as
