@@ -1,0 +1,86 @@
+{
+  "name": "analyzeSketch phase split at 1024 entities",
+  "source": "perf/findings/S3-solver.md \u00a72 (host baseline, wall-clock timers) and \u00a76; PERFORMANCE_PROFILE.md \u00a75.5.2",
+  "why": "A sampling profiler that cannot reproduce a cost split somebody already measured by other means must not be believed on a split nobody has measured. Both cases below profile `stress.sketch.analyze`'s top rung \u2014 sketchFixture(512) + constraintFixture(512), total = 3584 parameters, m = 2562 residuals, dof = 1022, the arithmetic PERFORMANCE_PROFILE.md \u00a75.5.2 closes exactly. The DENSE case runs the solver as it stood at 4890f06, which is bit-identical to build 230f179's solver.dart \u2014 the build the device numbers were taken on. The SPARSE case runs round one's tip. S3 measured the dense split with explicit Stopwatch timers around the two phases and stated the sparse one from the mechanism; neither number came from a sampler, so neither is circular. Both cases are run with the same profiler settings the calibration in expectations/known_split.json passes under, and with the same refusal rule: a split is not quotable from a capture whose unattributed remainder exceeds 15 % of the root.",
+  "cases": [
+    {
+      "id": "dense-1024",
+      "what": "the solver at 4890f06 (== build 230f179): elimination must dominate",
+      "root": "analyzeSketch",
+      "tag": "profiler.measure",
+      "minSamples": 2000,
+      "buckets": {
+        "elimination": [
+          "_rankAndPivots"
+        ],
+        "jacobian": [
+          "_jacobian",
+          "_residuals"
+        ]
+      },
+      "capture": {
+        "project": "$PROFILER_DENSE_PROJECT",
+        "scenario": "analyze",
+        "n": 1024,
+        "repeats": 1,
+        "warmups": 2,
+        "warmup_n": 128,
+        "poll_interval": 0.1,
+        "period_us": 250
+      },
+      "expect": {
+        "elimination": {
+          "shareRange": [
+            0.78,
+            0.93
+          ],
+          "known": "S3-solver.md \u00a72: Jacobian construction 3.191 s, elimination 21.004 s, total 24.195 s -> 21.004/24.195 = 86.81 %"
+        }
+      },
+      "maxOther": 0.15
+    },
+    {
+      "id": "sparse-1024",
+      "what": "round one's tip: the cubic is gone, so step 1 must dominate instead",
+      "root": "analyzeSketch",
+      "tag": "profiler.measure",
+      "minSamples": 500,
+      "buckets": {
+        "elimination": [
+          "_rankAndPivots"
+        ],
+        "jacobian": [
+          "_jacobian",
+          "_residuals"
+        ]
+      },
+      "capture": {
+        "project": "$PROFILER_SPARSE_PROJECT",
+        "scenario": "analyze",
+        "n": 1024,
+        "repeats": 3,
+        "warmups": 2,
+        "warmup_n": 128,
+        "poll_interval": 0.1,
+        "period_us": 250
+      },
+      "expect": {
+        "elimination": {
+          "shareRange": [
+            0.0,
+            0.25
+          ],
+          "known": "S3-solver.md \u00a76: 'At n = 1024 the remaining second is almost entirely step 1, the finite-difference Jacobian.' \u00a72's derivation puts the sparse elimination at ~0.066 s against ~1.77 s of Jacobian construction = 3.6 %"
+        },
+        "jacobian": {
+          "shareRange": [
+            0.55,
+            1.0
+          ],
+          "known": "the complement of the above: step 1 is what is left"
+        }
+      },
+      "maxOther": 0.15
+    }
+  ]
+}
