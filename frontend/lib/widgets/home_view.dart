@@ -23,6 +23,7 @@ import 'package:native_menu/native_menu.dart';
 import '../app_state.dart';
 import '../doc_file.dart';
 import '../log.dart';
+import '../mesh_io.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
@@ -273,13 +274,17 @@ class _HomeViewState extends State<HomeView> {
   ///                                  in the gallery from now on and Ctrl+S
   ///                                  writes back to where it actually lives
   ///   a .ptp/.pts already in the app folder -> just opened
-  ///   a STEP or DXF               -> converted into a new document here
+  ///   a STEP, DXF, STL, OBJ or 3MF -> converted into a new document here
   ///   anything else               -> said so plainly
   ///
   /// [AppState.openPath] owns that decision; this only picks the file.
   Future<void> _importDocument() async {
     final app = widget.app;
-    const kinds = [kPartExt, kSketchExt, 'step', 'stp', 'dxf'];
+    // M232 — meshes join the list: an STL, OBJ or 3MF from MakerWorld opens
+    // as a new part, converted to real surfaces on the way in.
+    const kinds = [
+      kPartExt, kSketchExt, 'step', 'stp', 'dxf', ...kMeshExtensions
+    ];
     try {
       // The NATIVE picker first, in open-in-place mode. The ordinary file
       // picker imports a COPY into tmp, which would make "save back to where

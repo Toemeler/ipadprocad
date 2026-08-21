@@ -603,6 +603,86 @@ int occt_split_solids(const occt_shape *shape, occt_shape **out, int max);
 
 void occt_free_shape(occt_shape *shape);
 
+/* ---- v21 (M232): mesh -> B-Rep -------------------------------------- */
+
+/*
+ * Reconstructs a B-Rep SOLID from a triangle mesh — the kernel half of Open
+ * for an STL, OBJ or 3MF. The file itself is parsed in Dart
+ * (frontend/lib/mesh_io.dart); what arrives here is a plain indexed mesh in
+ * millimetres, because parsing is I/O and this is geometry.
+ *
+ * `xyz` holds nv*3 coordinates, `tri` holds nt*3 zero-based vertex indices.
+ * Winding is taken as the file gave it: a mesh that is inside-out, unwelded,
+ * or inconsistently wound is repaired internally rather than refused, which
+ * is the normal condition of anything downloaded.
+ *
+ * mode 0 — FACETED. One planar face per triangle, then coplanar faces merged.
+ *          Fast, exact to the mesh, and of very limited use afterwards: a
+ *          cylinder stays a hundred flat strips, so it cannot be filleted and
+ *          it exports as a hundred faces.
+ * mode 1 — SURFACES (recommended). Segments the mesh, fits planes, cylinders,
+ *          cones, spheres and tori to the pieces, makes the surfaces agree
+ *          with each other, and builds real trimmed faces whose edges are the
+ *          exact intersection curves. A drilled hole comes back a cylinder
+ *          with a circular rim, so a fillet has a circle to roll along.
+ *
+ * Tuning — pass <= 0 for the built-in default, which is what callers should
+ * normally do:
+ *   tol_frac   surface fit tolerance as a FRACTION of the bounding-box
+ *              diagonal (default 0.002). Relative because one absolute
+ *              tolerance cannot serve a 200 mm bracket and a 4 mm pin.
+ *   sharp_deg  dihedral angle past which an edge is a feature boundary
+ *              (default 22).
+ *   max_faceted  refuse to emit more than this many face-per-triangle faces
+ *              (default 120000). A half-million-face B-Rep is not a CAD model.
+ *
+ * `report_ints` (OCCT_MESH_REPORT_INTS entries) and `report_reals`
+ * (OCCT_MESH_REPORT_REALS entries) receive what happened; either may be NULL.
+ * They are filled in even on failure, because "it fitted four thousand faceted
+ * patches" is the explanation for a bad result and the caller is entitled to
+ * it. Field order is given by the OCCT_MR_* indices below.
+ *
+ * Returns NULL on failure with occt_last_error() set. The result is a SOLID
+ * when the mesh closed, otherwise a shell or a compound — never null-but-
+ * successful.
+ */
+occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
+                                const int *tri, int nt,
+                                int mode, double tol_frac, double sharp_deg,
+                                int max_faceted,
+                                int *report_ints, double *report_reals);
+
+#define OCCT_MESH_REPORT_INTS 22
+#define OCCT_MESH_REPORT_REALS 2
+
+/* Indices into `report_ints`. */
+#define OCCT_MR_TRIANGLES_IN       0
+#define OCCT_MR_VERTICES_IN        1
+#define OCCT_MR_TRIANGLES_USED     2   /* after welding and dropping degenerates */
+#define OCCT_MR_VERTICES_WELDED    3
+#define OCCT_MR_NON_MANIFOLD_EDGES 4
+#define OCCT_MR_BOUNDARY_EDGES     5   /* holes in the mesh; >0 cannot close */
+#define OCCT_MR_FLIPPED_TRIANGLES  6
+#define OCCT_MR_PATCHES            7
+#define OCCT_MR_PLANES             8
+#define OCCT_MR_CYLINDERS          9
+#define OCCT_MR_CONES              10
+#define OCCT_MR_SPHERES            11
+#define OCCT_MR_TORI               12
+#define OCCT_MR_FREEFORM           13
+#define OCCT_MR_FACETED_PATCHES    14  /* fell back to one face per triangle */
+#define OCCT_MR_FACES_BUILT        15
+#define OCCT_MR_FACES_FAILED       16
+#define OCCT_MR_ANALYTIC_EDGES     17  /* exact surface-intersection curves */
+#define OCCT_MR_APPROXIMATED_EDGES 18
+#define OCCT_MR_SHELLS             19
+#define OCCT_MR_SOLIDS             20
+#define OCCT_MR_CLOSED             21  /* 1 when the result is a closed solid */
+
+/* Indices into `report_reals`. */
+#define OCCT_MR_FIT_RMS  0   /* area-weighted, in model units */
+#define OCCT_MR_DIAGONAL 1   /* bounding-box diagonal of the input mesh */
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

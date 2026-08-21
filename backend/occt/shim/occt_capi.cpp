@@ -12,6 +12,7 @@
  *     archives (unlike Qt's generated registration objects — see HANDOFF M5).
  */
 #include "occt_capi.h"
+#include "mesh_recon.h"
 
 #include <cmath>
 #include <cstdio>
@@ -190,7 +191,7 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v20 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v21 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -202,7 +203,7 @@ extern "C" const char *occt_version(void)
  * either, so it takes the next free number rather than pretending one of the
  * two v17s did not happen. A version that means different things in two
  * binaries is worse than a gap in the sequence. */
-extern "C" int occt_shim_version(void) { return 20; }
+extern "C" int occt_shim_version(void) { return 21; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3359,4 +3360,85 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
     }
     return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile");
     OCCT_CATCH("occt_coil_profile", nullptr)
+}
+
+/* ---- v21 (M232): mesh -> B-Rep ------------------------------------------ */
+
+extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
+                                           const int *tri, int nt,
+                                           int mode, double tol_frac,
+                                           double sharp_deg, int max_faceted,
+                                           int *report_ints,
+                                           double *report_reals)
+{
+    OCCT_TRY("occt_brep_from_mesh")
+    meshrecon::Report rep;
+    meshrecon::ClearReport(rep);
+
+    /* Publish the report on EVERY path, including the early refusals below.
+     * A caller that has to explain a failure to a user needs the numbers most
+     * exactly when there is no shape to look at. */
+    struct Publish {
+        const meshrecon::Report &r;
+        int *ints;
+        double *reals;
+        ~Publish()
+        {
+            if (ints) {
+                ints[OCCT_MR_TRIANGLES_IN] = r.triangles_in;
+                ints[OCCT_MR_VERTICES_IN] = r.vertices_in;
+                ints[OCCT_MR_TRIANGLES_USED] = r.triangles_used;
+                ints[OCCT_MR_VERTICES_WELDED] = r.vertices_welded;
+                ints[OCCT_MR_NON_MANIFOLD_EDGES] = r.non_manifold_edges;
+                ints[OCCT_MR_BOUNDARY_EDGES] = r.boundary_edges;
+                ints[OCCT_MR_FLIPPED_TRIANGLES] = r.flipped_triangles;
+                ints[OCCT_MR_PATCHES] = r.patches;
+                ints[OCCT_MR_PLANES] = r.planes;
+                ints[OCCT_MR_CYLINDERS] = r.cylinders;
+                ints[OCCT_MR_CONES] = r.cones;
+                ints[OCCT_MR_SPHERES] = r.spheres;
+                ints[OCCT_MR_TORI] = r.tori;
+                ints[OCCT_MR_FREEFORM] = r.freeform;
+                ints[OCCT_MR_FACETED_PATCHES] = r.faceted_patches;
+                ints[OCCT_MR_FACES_BUILT] = r.faces_built;
+                ints[OCCT_MR_FACES_FAILED] = r.faces_failed;
+                ints[OCCT_MR_ANALYTIC_EDGES] = r.analytic_edges;
+                ints[OCCT_MR_APPROXIMATED_EDGES] = r.approximated_edges;
+                ints[OCCT_MR_SHELLS] = r.shells;
+                ints[OCCT_MR_SOLIDS] = r.solids;
+                ints[OCCT_MR_CLOSED] = r.closed;
+            }
+            if (reals) {
+                reals[OCCT_MR_FIT_RMS] = r.fit_rms;
+                reals[OCCT_MR_DIAGONAL] = r.diagonal;
+            }
+        }
+    } publish{rep, report_ints, report_reals};
+
+    if (!xyz || !tri || nv < 3 || nt < 1) {
+        set_err("occt_brep_from_mesh", "no mesh data");
+        return nullptr;
+    }
+    /* nv*3 and nt*3 are computed as int in the reader; refuse sizes where that
+     * would overflow rather than index past the end of the caller's arrays. */
+    if (nv > 700000000 || nt > 700000000) {
+        set_err("occt_brep_from_mesh", "mesh is too large");
+        return nullptr;
+    }
+
+    meshrecon::Params p = meshrecon::Defaults();
+    p.mode = (mode == 0) ? 0 : 1;
+    if (tol_frac > 0) p.tol_frac = tol_frac;
+    if (sharp_deg > 0) p.sharp_deg = sharp_deg;
+    if (max_faceted > 0) p.max_faceted_triangles = max_faceted;
+
+    std::string err;
+    const TopoDS_Shape out = meshrecon::Reconstruct(xyz, nv, tri, nt, p, rep, err);
+    if (out.IsNull()) {
+        set_err("occt_brep_from_mesh",
+                err.empty() ? "the mesh could not be converted" : err.c_str());
+        return nullptr;
+    }
+    return wrap(out, "occt_brep_from_mesh");
+    OCCT_CATCH("occt_brep_from_mesh", nullptr)
 }

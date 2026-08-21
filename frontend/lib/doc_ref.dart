@@ -19,6 +19,7 @@
 import 'dart:convert';
 
 import 'doc_file.dart';
+import 'mesh_io.dart';
 
 enum DocSource { internal, external }
 
@@ -131,6 +132,12 @@ OpenAction openActionFor(String path, String appDir,
       lower.endsWith('.step') ||
       lower.endsWith('.stp')) {
     return OpenAction.import;
+  }
+  // M232 — a mesh is a source like a STEP is: it becomes a NEW part here, it
+  // is never opened in place. The list lives in mesh_io.dart so the parser and
+  // the picker can never disagree about what Open accepts.
+  for (final e in kMeshExtensions) {
+    if (lower.endsWith('.$e')) return OpenAction.import;
   }
   return OpenAction.unsupported;
 }

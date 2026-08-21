@@ -58,7 +58,16 @@ class DocumentOpener: NSObject, UIDocumentPickerDelegate {
             result(nil)
             return
         }
+        // M232 — an extension the system has no declared type for (3mf is the
+        // one that matters, and .stl and .obj are not guaranteed either) yields
+        // nil here. compactMap would quietly drop it, and the file would then
+        // be greyed out in the picker with nothing to explain why. When any
+        // requested extension fails to resolve, widen the filter to plain data
+        // so the file can at least be chosen; Dart checks the extension again
+        // on the way in (openActionFor) and says so plainly if it is not one we
+        // handle. A loose picker beats an unopenable file.
         var types = extensions.compactMap { UTType(filenameExtension: $0) }
+        if types.count < extensions.count { types.append(UTType.data) }
         if types.isEmpty { types = [UTType.data] }
 
         let vc = UIDocumentPickerViewController(forOpeningContentTypes: types,

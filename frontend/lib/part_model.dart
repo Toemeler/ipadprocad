@@ -14,6 +14,7 @@
 // fake to exercise the state machinery on host.
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'app_state.dart' show SketchModel;
@@ -5861,6 +5862,19 @@ class KernelSolid {
   void dispose() => shape?.dispose();
 }
 
+/// What [PartKernel.meshToBrep] produced: a body, or a reason there is none.
+///
+/// The report comes back either way. A conversion that failed is exactly when
+/// the numbers matter most — "the mesh has 412 open edges" is something the
+/// user can act on, where "sewing failed" is not.
+class MeshImportOutcome {
+  const MeshImportOutcome(this.solid, this.report, this.error);
+  final KernelSolid? solid;
+  final MeshToBrepReport report;
+  final String? error;
+  bool get ok => solid != null;
+}
+
 abstract class PartKernel {
   bool get available;
   String get info;
@@ -6000,6 +6014,17 @@ abstract class PartKernel {
   /// assembly becomes several bodies rather than one opaque compound. Empty
   /// list on failure or when the file holds no solids.
   List<KernelSolid> importStepSolids(String path);
+
+  /// M232 — a triangle mesh from an STL/OBJ/3MF as a real body.
+  ///
+  /// Concrete rather than abstract, and refusing by default, so that a fake
+  /// which does not model a converter has something honest to return. The test
+  /// fakes `implement` this interface rather than extending it, so they must
+  /// still spell the method out — but what they spell out is one line saying
+  /// no, instead of a stub that has to pretend.
+  MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles) =>
+      const MeshImportOutcome(null, MeshToBrepReport.empty(),
+          'this kernel has no mesh converter');
 
   // ---- M212: the two placements a PATTERN needs -------------------------
   //
@@ -6587,6 +6612,43 @@ class OcctPartKernel implements PartKernel {
     } catch (e) {
       _err = '$e';
       return const [];
+    }
+  }
+
+  @override
+  MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles) {
+    final ffi = _ffi;
+    if (ffi == null) {
+      _err = 'no 3D kernel linked (occt_* symbols missing)';
+      return MeshImportOutcome(null, const MeshToBrepReport.empty(), _err);
+    }
+    try {
+      final res = ffi.brepFromMesh(xyz, triangles);
+      final sh = res.shape;
+      if (sh == null) {
+        _err = res.error ?? 'the mesh could not be converted';
+        return MeshImportOutcome(null, res.report, _err);
+      }
+      final mesh = sh.mesh(
+          linDeflection: kCoarseLinDeflection,
+          angDeflection: kCoarseAngDeflection);
+      if (mesh == null) {
+        // A body we cannot tessellate is a body nobody can see or pick. Say so
+        // rather than adding an invisible one to the tree.
+        sh.dispose();
+        _err = 'the converted body could not be displayed';
+        return MeshImportOutcome(null, res.report, _err);
+      }
+      return MeshImportOutcome(
+          KernelSolid(mesh, sh.volume, sh,
+              meshLin: kCoarseLinDeflection,
+              remesher: (lin, ang) =>
+                  sh.mesh(linDeflection: lin, angDeflection: ang)),
+          res.report,
+          null);
+    } catch (e) {
+      _err = '$e';
+      return MeshImportOutcome(null, const MeshToBrepReport.empty(), _err);
     }
   }
 

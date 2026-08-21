@@ -22,6 +22,7 @@ import 'freehand.dart';
 import 'gear.dart';
 import 'hud.dart';
 import 'log.dart';
+import 'mesh_io.dart';
 import 'perf.dart';
 import 'modify.dart';
 import 'params.dart';
@@ -2196,7 +2197,7 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
-  /// Converts a STEP or DXF into a NEW document in the app folder.
+  /// Converts a STEP, DXF or mesh file into a NEW document in the app folder.
   ///
   /// The original is never touched and never referenced: a foreign file is a
   /// source, not a document, and the app folder is where the user's documents
@@ -2219,6 +2220,15 @@ class AppState extends ChangeNotifier {
         if (!await createNamedSketch(name)) return null;
         importDxf(path);
         await saveSketch(name);
+      } else if (isMeshPath(path)) {
+        if (!await createNamedPart(name)) return null;
+        if (await importMeshIntoPart(path) == 0) {
+          // The toast from importMeshIntoPart already said what was wrong.
+          // Drop the empty part rather than leaving a blank document behind.
+          await deleteDocument(name);
+          return null;
+        }
+        await savePart(name);
       } else {
         toast('Prototype cannot open that kind of file.');
         return null;
@@ -12482,6 +12492,149 @@ class AppState extends ChangeNotifier {
         'bod${solids.length == 1 ? 'y' : 'ies'}.');
     notifyListeners();
     return solids.length;
+  }
+
+  /// M232 — opens an STL, OBJ or 3MF as a real, editable body.
+  ///
+  /// Two stages, in two languages, and the split is deliberate. The FILE is
+  /// parsed in Dart (`mesh_io.dart`), because container formats are I/O and
+  /// belong where they can be tested without a linked kernel. The GEOMETRY is
+  /// reconstructed in the shim, because turning a triangle soup into surfaces
+  /// needs a spatial index over millions of vertices and then needs OCCT to
+  /// intersect, trim and sew what it found.
+  ///
+  /// The converted body is written out as STEP beside the part and the feature
+  /// points at THAT, not at the mesh. Imported bodies are re-read from their
+  /// source on every open (see openPart), and re-running a conversion that
+  /// takes a second on a large download — and that could answer differently
+  /// after a tolerance change — every time the part is opened would be both
+  /// slow and dishonest. The conversion happens once; its result is the
+  /// document's geometry from then on.
+  ///
+  /// Returns the number of bodies added (0 on failure, having said why).
+  Future<int> importMeshIntoPart(String path) async {
+    final p = currentPart;
+    if (p == null) {
+      toast('Open a part first — a mesh arrives as a solid body.');
+      return 0;
+    }
+    if (!partKernel.available) {
+      toast('This build has no 3D kernel, so a mesh cannot be converted.');
+      return 0;
+    }
+
+    final MeshSoup soup;
+    try {
+      soup = loadMeshFile(path);
+    } on MeshLoadException catch (e) {
+      toast(e.message);
+      return 0;
+    } catch (e, st) {
+      Log.e('import', 'mesh parse of "$path" failed', e, st);
+      toast('That file could not be read.');
+      return 0;
+    }
+    Log.i(
+        'import',
+        'mesh ${soup.format}: ${soup.triangleCount} tri, '
+            '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
+            'diagonal ${soup.diagonal.toStringAsFixed(2)} mm'
+            '${soup.droppedTriangles > 0 ? ', ${soup.droppedTriangles} dropped' : ''}');
+
+    final res = partKernel.meshToBrep(soup.vertices, soup.triangles);
+    Log.i('import', res.report.describe());
+    final solid = res.solid;
+    if (solid == null) {
+      toast(_meshFailureMessage(res));
+      return 0;
+    }
+
+    // Persist the RESULT, and make the feature point at it.
+    String? rel;
+    try {
+      final dir = _partImportDir(curTab!);
+      var base = path.split('/').last;
+      final dot = base.lastIndexOf('.');
+      if (dot > 0) base = base.substring(0, dot);
+      final dst = File('${dir.path}/$base.step');
+      if (partKernel.exportStep([solid], dst.path)) {
+        rel = 'imports/$base.step';
+      } else {
+        Log.w('import',
+            'could not write the converted STEP: ${partKernel.lastError}');
+      }
+    } catch (e) {
+      Log.w('import', 'could not stash the converted body: $e');
+    }
+    if (rel == null) {
+      // Without a file on disk the body would come back empty on reopen, and
+      // geometry that vanishes without explanation is the worse failure.
+      solid.dispose();
+      toast('The mesh converted, but the result could not be saved.');
+      return 0;
+    }
+
+    p.appendFeature(ExtrudeFeature(
+      name: 'Import${p.features.length + 1}',
+      bodyName: p.nextSolidName(),
+      sketchName: '',
+      profiles: const [],
+      output: 'new',
+    )
+      ..imported = true
+      ..importPath = rel
+      ..solid = solid
+      ..seq = p.nextSeq());
+    applyEndOfPart(p);
+    p.dirty = true;
+    if (curTab != null) await savePart(curTab!);
+    toast(_meshSuccessMessage(res.report));
+    notifyListeners();
+    return 1;
+  }
+
+  /// What to tell the user when a mesh would not convert.
+  ///
+  /// The report is more useful than the kernel's message here: "the faces
+  /// would not sew" means nothing to someone who downloaded a model, whereas
+  /// "the mesh has holes in it" is something they can act on.
+  String _meshFailureMessage(MeshImportOutcome res) {
+    final r = res.report;
+    if (r.trianglesUsed == 0) {
+      return 'That file has no usable triangles.';
+    }
+    if (r.boundaryEdges > 0) {
+      return 'That mesh is not watertight (${r.boundaryEdges} open '
+          'edge${r.boundaryEdges == 1 ? '' : 's'}), so it cannot become a solid.';
+    }
+    return res.error?.isNotEmpty == true
+        ? 'Could not convert that mesh: ${res.error}'
+        : 'Could not convert that mesh.';
+  }
+
+  /// What to tell the user when it worked. Says how much of the model became
+  /// real surfaces, because that is what decides whether the next operation
+  /// they try will behave.
+  String _meshSuccessMessage(MeshToBrepReport r) {
+    final parts = <String>[];
+    void add(int n, String one, [String? many]) {
+      if (n > 0) parts.add('$n ${n == 1 ? one : (many ?? '${one}s')}');
+    }
+    add(r.planes, 'plane');
+    add(r.cylinders, 'cylinder');
+    add(r.cones, 'cone');
+    add(r.spheres, 'sphere');
+    add(r.tori, 'torus', 'tori');
+    final head = parts.isEmpty
+        ? 'Imported as ${r.facesBuilt} face${r.facesBuilt == 1 ? '' : 's'}'
+        : 'Imported: ${parts.join(', ')}';
+    final tail = <String>[];
+    if (r.facetedPatches > 0) {
+      tail.add('${r.facetedPatches} area${r.facetedPatches == 1 ? '' : 's'} '
+          'kept as triangles');
+    }
+    if (!r.closed) tail.add('not closed — this is a surface body');
+    return tail.isEmpty ? '$head.' : '$head (${tail.join('; ')}).';
   }
 
   bool importDxf(String path) {

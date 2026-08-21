@@ -23,7 +23,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenCASCADE CONFIG REQUIRED)
 message(STATUS "OpenCASCADE ${OpenCASCADE_VERSION} from ${OpenCASCADE_DIR}")
 
-add_library(occt_capi STATIC shim/occt_capi.cpp)
+add_library(occt_capi STATIC shim/occt_capi.cpp shim/mesh_recon.cpp)
 
 target_include_directories(occt_capi
     PUBLIC  ${CMAKE_CURRENT_LIST_DIR}/shim
@@ -44,7 +44,11 @@ target_link_libraries(occt_capi PUBLIC
     TKBO        # BRepAlgoAPI_Fuse
     TKMesh      # BRepMesh_IncrementalMesh (v2 tessellation)
     TKTopAlgo   # BRepBuilderAPI_*, BRepLib, BRepCheck, BRepGProp, BRepBndLib
-    TKGeomBase  # GCPnts_TangentialDeflection (v2 edge discretisation)
+    TKGeomBase  # GCPnts_TangentialDeflection (v2 edge discretisation);
+                # GeomAPI_PointsToBSpline / ProjectPointOn* (v21 mesh->B-Rep)
+    TKGeomAlgo  # GeomAPI_IntSS (v21: exact surface-intersection edges)
+    TKG3d       # Geom_CylindricalSurface / Conical / Spherical / Toroidal (v21)
+    TKG2d       # pcurves the v21 faces carry
     TKShHealing # ShapeUpgrade_UnifySameDomain (v3 arc-extrude face merge)
     TKBRep      # TopoDS/TopExp/TopTools
     TKMath      # gp, GProp, Bnd, Poly
@@ -58,4 +62,12 @@ if(OCCT_SMOKE)
     add_executable(occt_smoke tests/smoke_occt.c)
     target_link_libraries(occt_smoke PRIVATE occt_capi
         Threads::Threads ${CMAKE_DL_LIBS})
+
+    # M232 — the mesh->B-Rep round trip. Builds a solid with OCCT, tessellates
+    # it, throws the B-Rep away and reconstructs from the triangles alone, then
+    # compares topology and volume. Host only; needs TKPrim/TKBO/TKFillet to
+    # build the reference solids, which the shim itself does not.
+    add_executable(occt_mesh_recon_test tests/mesh_recon_test.cpp)
+    target_link_libraries(occt_mesh_recon_test PRIVATE occt_capi
+        TKFillet Threads::Threads ${CMAKE_DL_LIBS})
 endif()
