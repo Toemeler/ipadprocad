@@ -817,10 +817,11 @@ class PartPatternSession {
   }
 
   /// Label for the Direction/Axis/Plane pick fields.
-  String get dirALabel => dirA?.label ?? 'Select Dir...';
-  String get dirBLabel => dirB?.label ?? 'Select Dir...';
-  String get axisLabel => axis?.label ?? 'Select Dir...';
-  String get planeLabel => plane?.label ?? 'Mirror Plane';
+  String get dirALabel => dirA?.label ?? L.current.lblSelectDirPlaceholder;
+  String get dirBLabel => dirB?.label ?? L.current.lblSelectDirPlaceholder;
+  String get axisLabel => axis?.label ?? L.current.lblSelectDirPlaceholder;
+  String get planeLabel =>
+      plane?.label ?? L.current.lblMirrorPlanePlaceholder;
 
   void disposePreview() {
     preview?.dispose();
@@ -1855,10 +1856,10 @@ class AppState extends ChangeNotifier {
   /// directory has to be refused here.
   String? validateSketchName(String raw) {
     final n = raw.trim();
-    if (n.isEmpty) return 'Name must not be empty';
-    if (n.length > 60) return 'Name is too long';
-    if (RegExp(r'[/\\:]').hasMatch(n)) return 'Name cannot contain / \\ or :';
-    if (n.startsWith('.')) return 'Name cannot start with a dot';
+    if (n.isEmpty) return L.current.valNameEmpty;
+    if (n.length > 60) return L.current.valNameTooLong;
+    if (RegExp(r'[/\\:]').hasMatch(n)) return L.current.valNameBadChars;
+    if (n.startsWith('.')) return L.current.valNameLeadingDot;
     return null;
   }
 
@@ -2101,8 +2102,8 @@ class AppState extends ChangeNotifier {
     }
     final saved = library[name] ?? ref;
     toast(saved != null && saved.source == DocSource.external
-        ? 'Saved to ${_folderLabel(saved.path)}'
-        : 'Saved "$name"');
+        ? L.current.msgSavedTo(_folderLabel(saved.path))
+        : L.current.msgSavedNamed(name));
   }
 
   // ---- M177: Open ----
@@ -2494,7 +2495,9 @@ class AppState extends ChangeNotifier {
     if (dragGrip != null) return; // never rip the state out from under a drag
     final snap = step(s);
     if (snap == null) {
-      toast(what == 'undo' ? 'Nothing to undo.' : 'Nothing to redo.');
+      toast(what == 'undo'
+          ? L.current.msgNothingToUndo
+          : L.current.msgNothingToRedo);
       return;
     }
     Log.i(
@@ -4009,8 +4012,8 @@ class AppState extends ChangeNotifier {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
     }
     toast(kind == WorkPlaneKind.offset
-        ? 'Select a plane or face to offset from.'
-        : 'Select the first of two parallel planes or faces.');
+        ? L.current.msgSelectPlaneToOffsetFrom
+        : L.current.msgSelectFirstParallel);
     notifyListeners();
   }
 
@@ -5273,7 +5276,7 @@ class AppState extends ChangeNotifier {
     final s = edgeSession;
     final p = currentPart;
     if (s == null || p == null) return (null, 'no session');
-    if (pickedEdges.isEmpty) return (null, 'Select at least one edge.');
+    if (pickedEdges.isEmpty) return (null, L.current.valSelectOneEdge);
     final body = pickedEdgeSolid == null
         ? (s.editing?.bodyName ?? 'Solid1')
         : (_bodyNameOfSolid(pickedEdgeSolid!) ?? 'Solid1');
@@ -5285,12 +5288,12 @@ class AppState extends ChangeNotifier {
         final v = parseValueExpr(s.exprRadii[i]);
         if (v == null || !(v > 0)) {
           return (null, s.exprRadii.length == 1
-              ? 'Radius must be > 0.'
-              : 'Radius of set ${i + 1} must be > 0.');
+              ? L.current.valRadiusPositive
+              : L.current.valRadiusOfSetPositive('${i + 1}'));
         }
         rs.add(v);
       }
-      if (rs.isEmpty) return (null, 'Radius must be > 0.');
+      if (rs.isEmpty) return (null, L.current.valRadiusPositive);
       // End radii: blank means constant (0). A non-blank value that does not
       // parse is an error, not a silent fallback to constant.
       final rs2 = <double>[];
@@ -5303,8 +5306,8 @@ class AppState extends ChangeNotifier {
         final v = parseValueExpr(t);
         if (v == null || !(v > 0)) {
           return (null, rs.length == 1
-              ? 'End radius must be > 0.'
-              : 'End radius of set ${i + 1} must be > 0.');
+              ? L.current.valEndRadiusPositive
+              : L.current.valEndRadiusOfSetPositive('${i + 1}'));
         }
         rs2.add(v);
       }
@@ -5334,16 +5337,16 @@ class AppState extends ChangeNotifier {
       );
     }
     final d1 = parseValueExpr(s.exprD1);
-    if (d1 == null || !(d1 > 0)) return (null, 'Distance must be > 0.');
+    if (d1 == null || !(d1 > 0)) return (null, L.current.valDistancePositive);
     var d2 = d1, ang = 45.0;
     if (s.mode == 1) {
       final v = parseValueExpr(s.exprD2);
-      if (v == null || !(v > 0)) return (null, 'Distance 2 must be > 0.');
+      if (v == null || !(v > 0)) return (null, L.current.valDistance2Positive);
       d2 = v;
     } else if (s.mode == 2) {
       final v = parseValueExpr(s.exprAngle);
       if (v == null || !(v > 0) || v >= 90) {
-        return (null, 'Angle must be between 0 and 90 deg.');
+        return (null, L.current.valAngle0to90);
       }
       ang = v;
     }
@@ -5388,7 +5391,7 @@ class AppState extends ChangeNotifier {
     }
     final base = pickedEdgeSolid;
     if (base == null) {
-      s.previewError = 'Select at least one edge.';
+      s.previewError = L.current.valSelectOneEdge;
       return;
     }
     // The throwaway feature owns the solid it builds; hand it straight to the
@@ -5408,7 +5411,7 @@ class AppState extends ChangeNotifier {
     if (s == null || p == null) return false;
     final (f, err) = _edgeSessionFeature();
     if (f == null) {
-      toast(err ?? 'Cannot create the feature.');
+      toast(err ?? L.current.msgCannotCreateFeature);
       return false;
     }
     final edit = s.editing;
@@ -5814,8 +5817,8 @@ class AppState extends ChangeNotifier {
     }
     combineSession = s;
     toast(s.baseBody == null
-        ? 'Tap the body to KEEP.'
-        : 'Tap the bodies to combine into ${s.baseBody}.');
+        ? L.current.msgTapBodyToKeep
+        : L.current.msgTapBodiesToCombine(s.baseBody!));
     notifyListeners();
   }
 
@@ -6237,7 +6240,7 @@ class AppState extends ChangeNotifier {
     }
     final (pts, err) = resolvePath(p, sel);
     if (pts == null) {
-      toast(err ?? 'That curve is no longer available.');
+      toast(err ?? L.current.msgCurveGone);
       return;
     }
     final poly = <Vec3>[
@@ -6385,7 +6388,7 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     if (s == null || p == null) return (null, 'no session');
     if (!s.patternSolid && s.features.isEmpty) {
-      return (null, 'Select at least one feature to pattern.');
+      return (null, L.current.valSelectOneFeature);
     }
     final f = PatternFeature(
       name: s.editing?.name ?? p.nextFeatureName(patternTypeLabel(s.mode)),
@@ -6400,13 +6403,13 @@ class AppState extends ChangeNotifier {
     switch (s.mode) {
       case PatternKind.rectangular:
         if (s.dirA == null && s.pathA == null) {
-          return (null, 'Select a direction or a curve for Direction A.');
+          return (null, L.current.valSelectDirectionA);
         }
         final ca = _patternCount(s.exprCountA);
-        if (ca == null) return (null, 'Number in Direction A must be 1 or more.');
+        if (ca == null) return (null, L.current.valCountAAtLeastOne);
         final da = parseValueExpr(s.exprDistanceA);
         if (da == null || !(da > 0)) {
-          return (null, 'Distance in Direction A must be greater than 0.');
+          return (null, L.current.valDistanceAPositive);
         }
         f
           ..dirA = s.dirA?.copy()
@@ -6424,11 +6427,11 @@ class AppState extends ChangeNotifier {
         if (s.dirB != null || s.pathB != null) {
           final cb = _patternCount(s.exprCountB);
           if (cb == null) {
-            return (null, 'Number in Direction B must be 1 or more.');
+            return (null, L.current.valCountBAtLeastOne);
           }
           final db = parseValueExpr(s.exprDistanceB);
           if (db == null || !(db > 0)) {
-            return (null, 'Distance in Direction B must be greater than 0.');
+            return (null, L.current.valDistanceBPositive);
           }
           f
             ..dirB = s.dirB?.copy()
@@ -6448,16 +6451,16 @@ class AppState extends ChangeNotifier {
         // leftover count let a one-occurrence pattern through the panel to
         // fail in the kernel instead.
         if (f.occurrenceCount <= 1) {
-          return (null, 'A pattern needs more than one occurrence.');
+          return (null, L.current.valPatternNeedsTwo);
         }
       case PatternKind.circular:
-        if (s.axis == null) return (null, 'Select the rotation axis.');
+        if (s.axis == null) return (null, L.current.valSelectRotationAxis);
         final n = _patternCount(s.exprCountC);
-        if (n == null) return (null, 'Count must be 1 or more.');
-        if (n <= 1) return (null, 'A pattern needs more than one occurrence.');
+        if (n == null) return (null, L.current.valCountAtLeastOne);
+        if (n <= 1) return (null, L.current.valPatternNeedsTwo);
         final ang = parseValueExpr(s.exprAngleC);
         if (ang == null || ang == 0) {
-          return (null, 'Angle must not be 0.');
+          return (null, L.current.valAngleNotZero);
         }
         f
           ..axis = s.axis!.copy()
@@ -6471,7 +6474,7 @@ class AppState extends ChangeNotifier {
         f.irregularC.addAll(s.irregularC);
       case PatternKind.sketchDriven:
         if (s.pointSketch.isEmpty) {
-          return (null, 'Select the sketch that holds the points.');
+          return (null, L.current.valSelectPointSketch);
         }
         f
           ..pointSketch = s.pointSketch
@@ -6480,7 +6483,7 @@ class AppState extends ChangeNotifier {
           ..baseY = s.baseY
           ..orientFace = s.orientFace;
       case PatternKind.mirror:
-        if (s.plane == null) return (null, 'Select the mirror plane.');
+        if (s.plane == null) return (null, L.current.valSelectMirrorPlane);
         f
           ..mirrorPlane = s.plane!.copy()
           ..removeOriginal = s.removeOriginal && s.patternSolid;
@@ -6523,7 +6526,7 @@ class AppState extends ChangeNotifier {
         ? currentBodySolid(p, f.bodyName)
         : bodyBaseBefore(p, f.bodyName, edit);
     if (base == null) {
-      s.previewError = 'There is no solid to pattern yet.';
+      s.previewError = L.current.valNoSolidToPattern;
       return;
     }
     if (!recomputeFeature(p, f, partKernel, base: base)) {
@@ -6541,7 +6544,7 @@ class AppState extends ChangeNotifier {
     if (s == null || p == null) return false;
     final (f, err) = _patternSessionFeature();
     if (f == null) {
-      toast(err ?? 'Cannot create the pattern.');
+      toast(err ?? L.current.msgCannotCreatePattern);
       return false;
     }
     final edit = s.editing;
@@ -6596,7 +6599,7 @@ class AppState extends ChangeNotifier {
       s.axDx = edit.axDx;
       s.axDy = edit.axDy;
       s.axisPicked = true;
-      s.axisLabel = 'Axis';
+      s.axisLabel = L.current.lblAxis;
       s.profiles
         ..clear()
         ..addAll(
@@ -6656,7 +6659,7 @@ class AppState extends ChangeNotifier {
       s.axDx = edit.axDx;
       s.axDy = edit.axDy;
       s.axisPicked = true;
-      s.axisLabel = 'Axis';
+      s.axisLabel = L.current.lblAxis;
       s.coilMethod = edit.method;
       s.exprRevolutions = edit.exprRevolutions;
       s.exprHeight = edit.exprHeight;
@@ -6869,8 +6872,10 @@ class AppState extends ChangeNotifier {
     s.axDy = dy;
     s.axisPicked = true;
     s.axisLabel = g.isCenterline
-        ? 'Centerline'
-        : (g.isConstruction ? 'Construction line' : 'Line');
+        ? L.current.lblCenterlineGeo
+        : (g.isConstruction
+            ? L.current.lblConstructionLineGeo
+            : L.current.lblLineGeo);
     _updateExtrudePreview();
     notifyListeners();
   }
@@ -7111,13 +7116,13 @@ class AppState extends ChangeNotifier {
 
   /// Parses the session values into a throwaway feature (also used for the
   (PartFeature?, String?) _sweepSessionFeature(ExtrudeSession s) {
-    if (s.path == null) return (null, 'Select a path curve.');
+    if (s.path == null) return (null, L.current.valSelectPathCurve);
     final taper = parseValueExpr(s.exprTaperSweep) ?? 0;
     final twist = parseValueExpr(s.exprTwist) ?? 0;
     if (twist.abs() > 1e-9) {
       // The kernel refuses a non-zero twist rather than producing an
       // untwisted solid; say so here instead of failing at the shim.
-      return (null, 'Twist is not supported yet — leave it at 0.');
+      return (null, L.current.valTwistUnsupported);
     }
     return (
       SweepFeature(
@@ -7139,7 +7144,7 @@ class AppState extends ChangeNotifier {
 
   (PartFeature?, String?) _loftSessionFeature(ExtrudeSession s) {
     if (s.loftSections.length < 2) {
-      return (null, 'Select at least two sections.');
+      return (null, L.current.valSelectTwoSections);
     }
     return (
       LoftFeature(
@@ -7160,7 +7165,7 @@ class AppState extends ChangeNotifier {
   }
 
   (PartFeature?, String?) _coilSessionFeature(ExtrudeSession s) {
-    if (!s.axisPicked) return (null, 'Select an axis.');
+    if (!s.axisPicked) return (null, L.current.valSelectAxis);
     final rev = parseValueExpr(s.exprRevolutions) ?? 0;
     final h = parseValueExpr(s.exprHeight) ?? 0;
     final pitch = parseValueExpr(s.exprPitch) ?? 0;
@@ -7168,19 +7173,19 @@ class AppState extends ChangeNotifier {
     // field left at nonsense does not block a perfectly good coil.
     switch (s.coilMethod) {
       case 1: // pitch and revolution
-        if (!(pitch > 0)) return (null, 'Pitch must be > 0.');
-        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        if (!(pitch > 0)) return (null, L.current.valPitchPositive);
+        if (!(rev > 0)) return (null, L.current.valRevolutionPositive);
         break;
       case 2: // pitch and height
-        if (!(pitch > 0)) return (null, 'Pitch must be > 0.');
-        if (!(h > 0)) return (null, 'Height must be > 0.');
+        if (!(pitch > 0)) return (null, L.current.valPitchPositive);
+        if (!(h > 0)) return (null, L.current.valHeightPositive);
         break;
       case 3: // spiral
-        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
+        if (!(rev > 0)) return (null, L.current.valRevolutionPositive);
         break;
       default: // revolution and height
-        if (!(rev > 0)) return (null, 'Revolution must be > 0.');
-        if (!(h > 0)) return (null, 'Height must be > 0.');
+        if (!(rev > 0)) return (null, L.current.valRevolutionPositive);
+        if (!(h > 0)) return (null, L.current.valHeightPositive);
     }
     return (
       CoilFeature(
@@ -7216,31 +7221,31 @@ class AppState extends ChangeNotifier {
     // M144 — all three extents are resolved by resolveRevolveSweep now;
     // occt_revolve_hits_face answers the picked-face question.
     if (s.extent == FeatureExtent.toFace && s.extentFace == null) {
-      return (null, 'Select the face to terminate on.');
+      return (null, L.current.msgSelectTerminateFace);
     }
     // axisPicked is the ONLY gate. Testing the direction instead let the
     // default (0, 1) through — a non-degenerate vector — so a revolve could
     // be committed about a Y axis the user never chose.
     if (!s.axisPicked) {
-      return (null, 'Select an axis of revolution.');
+      return (null, L.current.valSelectRevolveAxis);
     }
     if (s.axDx == 0 && s.axDy == 0) {
-      return (null, 'The axis has no direction.');
+      return (null, L.current.valAxisNoDirection);
     }
     var a = 360.0, b = 0.0;
     if (!s.full) {
       final pa = parseValueExpr(s.exprA);
       if (pa == null || !(pa > 0) || pa > 360) {
-        return (null, 'Angle A must be between 0 and 360 degrees.');
+        return (null, L.current.valAngleA0to360);
       }
       a = pa;
       if (s.direction == ExtrudeDirection.asymmetric) {
         final pb = parseValueExpr(s.exprB);
-        if (pb == null || !(pb > 0)) return (null, 'Angle B must be > 0.');
+        if (pb == null || !(pb > 0)) return (null, L.current.valAngleBPositive);
         b = pb;
       }
       if (a + b > 360.0 + 1e-9) {
-        return (null, 'Angle A + B cannot exceed 360 degrees.');
+        return (null, L.current.valAngleABMax360);
       }
     }
     return (
@@ -7278,16 +7283,16 @@ class AppState extends ChangeNotifier {
     // Only a plain Distance is driven by the typed value; To Next / To /
     // Through All resolve against the model, so an empty or nonsense field
     // must not block them.
-    if (usesDistance && !(a > 0)) return (null, 'Distance A must be > 0.');
+    if (usesDistance && !(a > 0)) return (null, L.current.valDistanceAPositiveShort);
     var b = 0.0;
     if (usesDistance && s.direction == ExtrudeDirection.asymmetric) {
       final pb = parseValueExpr(s.exprB);
-      if (pb == null || !(pb > 0)) return (null, 'Distance B must be > 0.');
+      if (pb == null || !(pb > 0)) return (null, L.current.valDistanceBPositiveShort);
       b = pb;
     }
     final t = parseValueExpr(s.exprTaper);
     if (t == null || t.abs() >= 90) {
-      return (null, 'Taper must be inside (-90, 90) degrees.');
+      return (null, L.current.valTaperRange);
     }
     final f = ExtrudeFeature(
       name: s.editing?.name ?? '(preview)',
@@ -7658,7 +7663,7 @@ class AppState extends ChangeNotifier {
     final n = name.trim();
     if (p == null || n.isEmpty || n == f.name) return false;
     if (p.features.any((o) => !identical(o, f) && o.name == n)) {
-      message = 'A feature named "$n" already exists';
+      message = L.current.valFeatureNameTaken(n);
       notifyListeners();
       return false;
     }
@@ -8862,7 +8867,7 @@ class AppState extends ChangeNotifier {
     final n = to.trim();
     if (p == null || n.isEmpty || n == from) return false;
     if (p.features.any((f) => f.bodyName == n)) {
-      message = 'A body named "$n" already exists';
+      message = L.current.valBodyNameTaken(n);
       notifyListeners();
       return false;
     }
@@ -10017,8 +10022,8 @@ class AppState extends ChangeNotifier {
       final g = s.geometry[picked];
       if (g.layer == lay) {
         toast(g.isProjection
-            ? 'Already projected onto this layer.'
-            : 'Project picks geometry from OTHER layers.');
+            ? L.current.msgAlreadyProjected
+            : L.current.msgProjectPicksOtherLayers);
         return;
       }
       src = picked;
@@ -12638,8 +12643,8 @@ class AppState extends ChangeNotifier {
           }
         }
         toast(tool == Tool.fillet
-            ? 'Pick two lines, arcs or circles that can meet.'
-            : 'Pick two non-parallel lines.');
+            ? L.current.msgPickTwoThatMeet
+            : L.current.msgPickTwoNonParallel);
         return;
       }
       // Build the result on LOCAL copies so a fillet/chamfer that cannot be
@@ -12841,10 +12846,8 @@ class AppState extends ChangeNotifier {
         // it showed both fillet arcs glued to the same endpoint.
         Log.block('modify', '${tool.name} refused this', sketchDump(gs, cons));
         toast(tool == Tool.fillet
-            ? 'That fillet would break the sketch — pick a valid corner or a '
-                'smaller radius.'
-            : 'That chamfer would break the sketch — pick a valid corner or '
-                'smaller distances.');
+            ? L.current.msgFilletBreaksSketch
+            : L.current.msgChamferBreaksSketch);
         return; // s.geometry / s.constraints untouched
       }
       Log.i('modify', '${tool.name} at e$e1/e$e2 -> e$newIdx (dimensioned)');

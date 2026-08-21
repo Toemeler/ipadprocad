@@ -94,9 +94,9 @@ class _PatternDialogState extends State<PatternDialog> {
 
   Widget _header(AppState app) {
     final title = switch (ps.kind) {
-      Tool.patRect => 'Rectangular Pattern',
-      Tool.patCirc => 'Circular Pattern',
-      _ => 'Mirror',
+      Tool.patRect => L.of(context).patRectangular,
+      Tool.patCirc => L.of(context).patCircular,
+      _ => L.of(context).patMirror,
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -341,13 +341,13 @@ class _PatternDialogState extends State<PatternDialog> {
         const SizedBox(width: 7),
         Text(L.of(context).lblMirrorLine, style: ts(12.5, T.text)),
         const Spacer(),
-        Text(ps.mirrorEnt == null ? '—' : 'Line ${ps.mirrorEnt}',
+        Text(ps.mirrorEnt == null ? '—' : L.of(context).lblLineN('${ps.mirrorEnt}'),
             style: ts(11.5, T.dim)),
       ]),
       const SizedBox(height: 8),
       _CheckRow(
         label: L.of(context).btnSelfSymmetric,
-        hint: selfSymOk ? null : '(single open spline only)',
+        hint: selfSymOk ? null : L.of(context).lblSingleOpenSplineOnly,
         value: ps.selfSym,
         enabled: selfSymOk,
         onChanged: (v) {
@@ -858,9 +858,9 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         );
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        modeBtn(0, PD['chamEq']!, 'Equal distance'),
-        modeBtn(1, PD['cham2d']!, 'Two distances'),
-        modeBtn(2, PD['chamAng']!, 'Distance and angle'),
+        modeBtn(0, PD['chamEq']!, L.of(context).lblEqualDistance),
+        modeBtn(1, PD['cham2d']!, L.of(context).lblTwoDistances),
+        modeBtn(2, PD['chamAng']!, L.of(context).lblDistanceAndAngle),
       ]),
       const SizedBox(height: 8),
       _num(PD['spacing']!, _d1, min: 0.1, (v) {

@@ -16,6 +16,7 @@ import '../params.dart';
 import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
+import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 
 class ParametersDialog extends StatefulWidget {
@@ -83,7 +84,7 @@ class _ParametersDialogState extends State<ParametersDialog> {
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               _header(),
-              _section('Model Parameters'),
+              _section(L.of(context).secModelParameters),
               if (dims.isEmpty)
                 Padding(
                     padding: EdgeInsets.symmetric(vertical: 4),
@@ -91,7 +92,7 @@ class _ParametersDialogState extends State<ParametersDialog> {
                         style: TextStyle(color: T.dim, fontSize: 11))),
               for (final c in dims) _DimRow(app: app, dim: c),
               const SizedBox(height: 6),
-              _section('User Parameters'),
+              _section(L.of(context).secUserParameters),
               if (s != null)
                 for (final u in s.userParams) _UserRow(app: app, u: u),
               Padding(
@@ -342,8 +343,8 @@ class _DimRow extends StatelessWidget {
       key: ObjectKey(dim),
       app: app,
       name: dim.paramName!,
-      equation: dim.expr ?? v.toStringAsFixed(_angle(dim) ? 1 : 2),
-      value: '${v.toStringAsFixed(_angle(dim) ? 1 : 2)}$unit',
+      equation: dim.expr ?? Fmt.fixed(v, _angle(dim) ? 1 : 2),
+      value: '${Fmt.fixed(v, _angle(dim) ? 1 : 2)}$unit',
       readOnly: dim.driven,
       kind: _angle(dim) ? ScrubKind.angle : ScrubKind.length,
       commitName: (t) => app.renameDimParam(dim, t),
@@ -364,8 +365,8 @@ class _UserRow extends StatelessWidget {
       key: ObjectKey(u),
       app: app,
       name: u.name,
-      equation: u.expr ?? u.value.toStringAsFixed(2),
-      value: '${u.value.toStringAsFixed(2)} mm',
+      equation: u.expr ?? Fmt.fixed(u.value, 2),
+      value: Fmt.mm(u.value),
       commitName: (t) => app.renameUserParam(u, t),
       commitEquation: (t) => app.setUserParamText(u, t),
       validEquation: (t) => app.userParamTextValid(u, t),

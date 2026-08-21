@@ -172,28 +172,28 @@ class _GearDialogState extends State<GearDialog> {
                     style: _ts(10.5, T.dim), textAlign: TextAlign.left),
                 const SizedBox(height: 8),
                 // ---- fields ----
-                _field('Module (mm)', _module, min: 0.1),
+                _field(L.of(context).lblModuleMm, _module, min: 0.1),
                 if (!planetary)
-                  _field('Teeth', _teeth,
+                  _field(L.of(context).lblTeeth, _teeth,
                       kind: ScrubKind.count, min: 3, max: 400),
-                _field('Corner radius (mm)', _corner, min: 0),
+                _field(L.of(context).lblCornerRadiusMm, _corner, min: 0),
                 if (planetary) ...[
-                  _field('Sun teeth', _sun, kind: ScrubKind.count, min: 3, max: 400),
-                  _field('Planet teeth', _planet,
+                  _field(L.of(context).lblSunTeeth, _sun, kind: ScrubKind.count, min: 3, max: 400),
+                  _field(L.of(context).lblPlanetTeeth, _planet,
                       kind: ScrubKind.count, min: 3, max: 400),
-                  _field('Planets', _count, kind: ScrubKind.count, min: 1, max: 12),
+                  _field(L.of(context).lblPlanets, _count, kind: ScrubKind.count, min: 1, max: 12),
                 ],
-                _field('Pressure angle (°)', _angle,
+                _field(L.of(context).lblPressureAngle, _angle,
                     kind: ScrubKind.angle, min: 5, max: 45),
-                _field('Profile shift', _shift, kind: ScrubKind.ratio),
-                if (!planetary) _field('Bore Ø (mm)', _bore, min: 0),
+                _field(L.of(context).lblProfileShift, _shift, kind: ScrubKind.ratio),
+                if (!planetary) _field(L.of(context).lblBoreDia, _bore, min: 0),
                 const SizedBox(height: 6),
                 _filletToggle(g),
                 const SizedBox(height: 12),
                 Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                  _btn('Cancel', () => widget.app.cancelTool()),
+                  _btn(L.of(context).cancel, () => widget.app.cancelTool()),
                   const SizedBox(width: 8),
-                  _btn('Insert', () {
+                  _btn(L.of(context).btnInsert, () {
                     _sync();
                     final gg = widget.app.gear;
                     if (gg != null && !gg.placedOnce) {
@@ -222,14 +222,17 @@ class _GearDialogState extends State<GearDialog> {
     if (g.kind == GearKind.planetary) {
       final zr = planetaryRingTeeth(g.sunTeeth, g.planetTeeth);
       final ok = planetaryAssembles(g.sunTeeth, g.planetTeeth, g.planetCount);
-      return 'Ring ${zr}T · centre dist '
-          '${(g.params.module * (g.sunTeeth + g.planetTeeth) / 2).toStringAsFixed(1)} mm'
-          '${ok ? '' : ' · ⚠ planets not evenly spaced'}';
+      final t = L.current;
+      return t.gearRingLine(
+          '$zr',
+          Fmt.fixed(g.params.module * (g.sunTeeth + g.planetTeeth) / 2, 1),
+          ok ? '' : t.gearUnevenWarn);
     }
     final p = g.params;
-    return 'Pitch Ø ${(p.pitchRadius * 2).toStringAsFixed(1)} · '
-        'tip Ø ${(p.tipRadius * 2).toStringAsFixed(1)} · '
-        'root Ø ${(p.rootRadius * 2).toStringAsFixed(1)} mm';
+    return L.current.gearPitchLine(
+        Fmt.fixed(p.pitchRadius * 2, 1),
+        Fmt.fixed(p.tipRadius * 2, 1),
+        Fmt.fixed(p.rootRadius * 2, 1));
   }
 
   Widget _segmented(GearKind sel) {
@@ -256,9 +259,9 @@ class _GearDialogState extends State<GearDialog> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: Row(children: [
-        seg('External', GearKind.external),
-        seg('Internal', GearKind.internal),
-        seg('Planetary', GearKind.planetary),
+        seg(L.of(context).gearExternal, GearKind.external),
+        seg(L.of(context).gearInternal, GearKind.internal),
+        seg(L.of(context).gearPlanetary, GearKind.planetary),
       ]),
     );
   }

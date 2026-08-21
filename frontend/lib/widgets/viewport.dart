@@ -1227,7 +1227,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           app.finishVariableTool();
         }),
       if (app.tool != Tool.none)
-        _qmItem('Cancel (Esc)', () {
+        _qmItem(L.of(context).hudCancelEsc, () {
           app.cancelTool();
         }),
       // M193 — delete what is selected. On a touch-only device this and the
@@ -1236,15 +1236,15 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
       if (app.canDeleteSelection)
         _qmItem(
             app.selection.length > 1
-                ? 'Delete ${app.selection.length} objects'
-                : 'Delete',
+                ? L.of(context).hudDeleteN(app.selection.length)
+                : L.of(context).delete,
             () => app.deleteSelection(),
             destructive: true),
       if (app.inEditMode) ...[
-        _qmItem('Line (L)', () => app.selectTool(Tool.line)),
-        _qmItem('Circle (C)', () => app.selectTool(Tool.circleCenter)),
-        _qmItem('Rectangle (R)', () => app.selectTool(Tool.rectTwoPoint)),
-        _qmItem('Dimension (D)', () => app.selectTool(Tool.dimension)),
+        _qmItem(L.of(context).hudLineKey, () => app.selectTool(Tool.line)),
+        _qmItem(L.of(context).hudCircleKey, () => app.selectTool(Tool.circleCenter)),
+        _qmItem(L.of(context).hudRectKey, () => app.selectTool(Tool.rectTwoPoint)),
+        _qmItem(L.of(context).hudDimensionKey, () => app.selectTool(Tool.dimension)),
       ],
     ];
     if (items.isEmpty) return; // outside edit mode with no tool: nothing to do
@@ -1957,7 +1957,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
                       child: IgnorePointer(
                         child: Text(
                           app.analysis!.dof <= 0
-                              ? 'Fully Constrained'
+                              ? L.of(context).hudFullyConstrained
                               : '${app.analysis!.dof} dimensions needed',
                           style: TextStyle(
                             fontSize: 11,

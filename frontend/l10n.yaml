@@ -19,4 +19,7 @@ nullable-getter: true
 # A key missing from app_en.arb must be a BUILD failure, not a silent fallback
 # to German text in an English UI. l10n_completeness_test.dart is the belt to
 # this brace — it also fails when a key is missing the other way round.
-untranslated-messages-file: l10n_untranslated.json
+# Written into .dart_tool/, which is not versioned: it is a build report,
+# not a source. It comes out `{}` today, and l10n_completeness_test is
+# what actually fails the build if it ever would not.
+untranslated-messages-file: .dart_tool/l10n_untranslated.json

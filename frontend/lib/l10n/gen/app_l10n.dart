@@ -1042,7 +1042,7 @@ abstract class AppL10n {
   /// No description provided for @ctxMoveToEnd.
   ///
   /// In de, this message translates to:
-  /// **'An das Ende'**
+  /// **'Ans Ende'**
   String get ctxMoveToEnd;
 
   /// No description provided for @ctxDeleteAllLayersBelow.
@@ -2770,7 +2770,7 @@ abstract class AppL10n {
   /// Fusskreis und Kopfkreis sind die Verzahnungsbegriffe fuer root und tip.
   ///
   /// In de, this message translates to:
-  /// **'Fuß- und Kopfkreisradius automatisch'**
+  /// **'Fuß- und Kopfkreisradien automatisch'**
   String get lblAutoRootTip;
 
   /// No description provided for @dlgReportBug.
@@ -3648,6 +3648,1470 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'{a} und {b} sind windschief — sie verfehlen sich um {gap} mm.'**
   String wfSkewEdges(String a, String b, String gap);
+
+  /// No description provided for @secInputGeometry.
+  ///
+  /// In de, this message translates to:
+  /// **'Eingabegeometrie'**
+  String get secInputGeometry;
+
+  /// No description provided for @secOutputGeometry.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausgabegeometrie'**
+  String get secOutputGeometry;
+
+  /// No description provided for @secBehavior.
+  ///
+  /// In de, this message translates to:
+  /// **'Verhalten'**
+  String get secBehavior;
+
+  /// No description provided for @secPlacement.
+  ///
+  /// In de, this message translates to:
+  /// **'Platzierung'**
+  String get secPlacement;
+
+  /// No description provided for @secOutput.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausgabe'**
+  String get secOutput;
+
+  /// No description provided for @secExtents.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausdehnung'**
+  String get secExtents;
+
+  /// No description provided for @lblDirection.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung'**
+  String get lblDirection;
+
+  /// No description provided for @lblOrientation.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausrichtung'**
+  String get lblOrientation;
+
+  /// No description provided for @lblMethod.
+  ///
+  /// In de, this message translates to:
+  /// **'Methode'**
+  String get lblMethod;
+
+  /// No description provided for @lblDistance.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand'**
+  String get lblDistance;
+
+  /// No description provided for @lblAngle.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel'**
+  String get lblAngle;
+
+  /// No description provided for @lblDepth.
+  ///
+  /// In de, this message translates to:
+  /// **'Tiefe'**
+  String get lblDepth;
+
+  /// No description provided for @lblDiameter.
+  ///
+  /// In de, this message translates to:
+  /// **'Durchmesser'**
+  String get lblDiameter;
+
+  /// No description provided for @lblType.
+  ///
+  /// In de, this message translates to:
+  /// **'Typ'**
+  String get lblType;
+
+  /// No description provided for @lblCount.
+  ///
+  /// In de, this message translates to:
+  /// **'Anzahl'**
+  String get lblCount;
+
+  /// No description provided for @lblNumber.
+  ///
+  /// In de, this message translates to:
+  /// **'Anzahl'**
+  String get lblNumber;
+
+  /// No description provided for @lblSpacing.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand'**
+  String get lblSpacing;
+
+  /// No description provided for @lblDistribution.
+  ///
+  /// In de, this message translates to:
+  /// **'Verteilung'**
+  String get lblDistribution;
+
+  /// No description provided for @lblFlip.
+  ///
+  /// In de, this message translates to:
+  /// **'Umkehren'**
+  String get lblFlip;
+
+  /// No description provided for @lblKeep.
+  ///
+  /// In de, this message translates to:
+  /// **'Behalten'**
+  String get lblKeep;
+
+  /// No description provided for @lblPlaneField.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene'**
+  String get lblPlaneField;
+
+  /// No description provided for @lblFaceField.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche'**
+  String get lblFaceField;
+
+  /// No description provided for @lblEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'Kanten'**
+  String get lblEdges;
+
+  /// No description provided for @lblRadius.
+  ///
+  /// In de, this message translates to:
+  /// **'Radius'**
+  String get lblRadius;
+
+  /// No description provided for @lblRadiusN.
+  ///
+  /// In de, this message translates to:
+  /// **'Radius {n}'**
+  String lblRadiusN(String n);
+
+  /// No description provided for @lblDistance1.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand 1'**
+  String get lblDistance1;
+
+  /// No description provided for @lblDistance2.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand 2'**
+  String get lblDistance2;
+
+  /// No description provided for @lblTwoDistances.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Abstände'**
+  String get lblTwoDistances;
+
+  /// No description provided for @lblDistanceAndAngle.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand und Winkel'**
+  String get lblDistanceAndAngle;
+
+  /// No description provided for @lblEqualDistance.
+  ///
+  /// In de, this message translates to:
+  /// **'Gleicher Abstand'**
+  String get lblEqualDistance;
+
+  /// No description provided for @lblAllFillets.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Innenkanten'**
+  String get lblAllFillets;
+
+  /// No description provided for @lblAllRounds.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Außenkanten'**
+  String get lblAllRounds;
+
+  /// No description provided for @hintTapEdgesIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Kanten in 3D antippen…'**
+  String get hintTapEdgesIn3d;
+
+  /// No description provided for @lblSelectEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'Kanten wählen'**
+  String get lblSelectEdges;
+
+  /// No description provided for @lblBodies.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper'**
+  String get lblBodies;
+
+  /// No description provided for @lblBase.
+  ///
+  /// In de, this message translates to:
+  /// **'Basis'**
+  String get lblBase;
+
+  /// No description provided for @lblToolbodies.
+  ///
+  /// In de, this message translates to:
+  /// **'Werkzeugkörper'**
+  String get lblToolbodies;
+
+  /// No description provided for @hintTapBodyToKeep.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper antippen, der BLEIBT…'**
+  String get hintTapBodyToKeep;
+
+  /// No description provided for @hintPickBaseFirst.
+  ///
+  /// In de, this message translates to:
+  /// **'Erst die Basis wählen'**
+  String get hintPickBaseFirst;
+
+  /// No description provided for @hintTapBodiesToCombine.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper zum Kombinieren antippen…'**
+  String get hintTapBodiesToCombine;
+
+  /// No description provided for @lblOperation.
+  ///
+  /// In de, this message translates to:
+  /// **'Operation'**
+  String get lblOperation;
+
+  /// No description provided for @lblKeepTool.
+  ///
+  /// In de, this message translates to:
+  /// **'Werkzeug behalten'**
+  String get lblKeepTool;
+
+  /// No description provided for @lblYes.
+  ///
+  /// In de, this message translates to:
+  /// **'Ja'**
+  String get lblYes;
+
+  /// Inventor DE: die boolesche Vereinigung.
+  ///
+  /// In de, this message translates to:
+  /// **'Vereinigen'**
+  String get opJoin;
+
+  /// Inventor DE nennt den Abzug "Differenz", nicht "Schneiden".
+  ///
+  /// In de, this message translates to:
+  /// **'Differenz'**
+  String get opCut;
+
+  /// No description provided for @opIntersect.
+  ///
+  /// In de, this message translates to:
+  /// **'Schnittmenge'**
+  String get opIntersect;
+
+  /// No description provided for @opNewSolid.
+  ///
+  /// In de, this message translates to:
+  /// **'Neuer Körper'**
+  String get opNewSolid;
+
+  /// No description provided for @lblBoolean.
+  ///
+  /// In de, this message translates to:
+  /// **'Boolesch'**
+  String get lblBoolean;
+
+  /// No description provided for @lblTargetBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielkörper'**
+  String get lblTargetBody;
+
+  /// No description provided for @lblTrim.
+  ///
+  /// In de, this message translates to:
+  /// **'Beschneiden'**
+  String get lblTrim;
+
+  /// No description provided for @hintTapPlaneOrFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder planare Fläche antippen…'**
+  String get hintTapPlaneOrFace;
+
+  /// No description provided for @lblThisSide.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Seite'**
+  String get lblThisSide;
+
+  /// No description provided for @lblOtherSide.
+  ///
+  /// In de, this message translates to:
+  /// **'Andere Seite'**
+  String get lblOtherSide;
+
+  /// No description provided for @lblProfiles.
+  ///
+  /// In de, this message translates to:
+  /// **'Profile'**
+  String get lblProfiles;
+
+  /// No description provided for @hintSelectProfile.
+  ///
+  /// In de, this message translates to:
+  /// **'Profil im Ansichtsfenster wählen'**
+  String get hintSelectProfile;
+
+  /// No description provided for @lblFrom.
+  ///
+  /// In de, this message translates to:
+  /// **'Von'**
+  String get lblFrom;
+
+  /// No description provided for @lblPath.
+  ///
+  /// In de, this message translates to:
+  /// **'Pfad'**
+  String get lblPath;
+
+  /// No description provided for @hintTapCurveIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Kurve in 3D antippen…'**
+  String get hintTapCurveIn3d;
+
+  /// No description provided for @lblSelectCurveOrEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Kurve oder Kante wählen'**
+  String get lblSelectCurveOrEdge;
+
+  /// No description provided for @lblPathSelected.
+  ///
+  /// In de, this message translates to:
+  /// **'Pfad gewählt'**
+  String get lblPathSelected;
+
+  /// No description provided for @lblFollowPath.
+  ///
+  /// In de, this message translates to:
+  /// **'Pfad folgen'**
+  String get lblFollowPath;
+
+  /// No description provided for @lblFixed.
+  ///
+  /// In de, this message translates to:
+  /// **'Fest'**
+  String get lblFixed;
+
+  /// No description provided for @lblGuide.
+  ///
+  /// In de, this message translates to:
+  /// **'Führung'**
+  String get lblGuide;
+
+  /// No description provided for @lblTaper.
+  ///
+  /// In de, this message translates to:
+  /// **'Verjüngung'**
+  String get lblTaper;
+
+  /// No description provided for @lblTwist.
+  ///
+  /// In de, this message translates to:
+  /// **'Verdrehung'**
+  String get lblTwist;
+
+  /// No description provided for @lblSections.
+  ///
+  /// In de, this message translates to:
+  /// **'Querschnitte'**
+  String get lblSections;
+
+  /// No description provided for @hintTapProfilesIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Profile in 3D antippen…'**
+  String get hintTapProfilesIn3d;
+
+  /// No description provided for @hintClickToAdd.
+  ///
+  /// In de, this message translates to:
+  /// **'Zum Hinzufügen tippen'**
+  String get hintClickToAdd;
+
+  /// No description provided for @lblTransition.
+  ///
+  /// In de, this message translates to:
+  /// **'Übergang'**
+  String get lblTransition;
+
+  /// No description provided for @lblSmooth.
+  ///
+  /// In de, this message translates to:
+  /// **'Stetig'**
+  String get lblSmooth;
+
+  /// Inventor DE: "Geradlinig" — die Erhebung verbindet die Querschnitte mit Geraden statt tangentenstetig.
+  ///
+  /// In de, this message translates to:
+  /// **'Geradlinig'**
+  String get lblRuled;
+
+  /// No description provided for @lblClosedLoop.
+  ///
+  /// In de, this message translates to:
+  /// **'Geschlossene Schleife'**
+  String get lblClosedLoop;
+
+  /// No description provided for @lblMergeTangentFaces.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangentiale Flächen zusammenfassen'**
+  String get lblMergeTangentFaces;
+
+  /// Wendel-Parameter: die ANZAHL der Umdrehungen, nicht das Feature "Drehung".
+  ///
+  /// In de, this message translates to:
+  /// **'Umdrehungen'**
+  String get lblRevolutionCount;
+
+  /// No description provided for @lblHeight.
+  ///
+  /// In de, this message translates to:
+  /// **'Höhe'**
+  String get lblHeight;
+
+  /// Steigung einer Wendel. Nicht "Neigung".
+  ///
+  /// In de, this message translates to:
+  /// **'Steigung'**
+  String get lblPitch;
+
+  /// No description provided for @lblRotationAngle.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehwinkel'**
+  String get lblRotationAngle;
+
+  /// No description provided for @hintTapLineOrAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie oder Ursprungsachse antippen…'**
+  String get hintTapLineOrAxis;
+
+  /// No description provided for @lblSelectAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse wählen'**
+  String get lblSelectAxis;
+
+  /// No description provided for @lblFull.
+  ///
+  /// In de, this message translates to:
+  /// **'Voll'**
+  String get lblFull;
+
+  /// No description provided for @lblAngleA.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel A'**
+  String get lblAngleA;
+
+  /// No description provided for @lblAngleB.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel B'**
+  String get lblAngleB;
+
+  /// No description provided for @lblDistanceA.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand A'**
+  String get lblDistanceA;
+
+  /// No description provided for @lblDistanceB.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand B'**
+  String get lblDistanceB;
+
+  /// No description provided for @lblTerminateOn.
+  ///
+  /// In de, this message translates to:
+  /// **'Enden auf'**
+  String get lblTerminateOn;
+
+  /// No description provided for @hintTapFaceIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche in 3D antippen…'**
+  String get hintTapFaceIn3d;
+
+  /// No description provided for @lblSelectFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche wählen'**
+  String get lblSelectFace;
+
+  /// No description provided for @lblFaceSelected.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche gewählt — antippen zum Ändern'**
+  String get lblFaceSelected;
+
+  /// No description provided for @lblDefault.
+  ///
+  /// In de, this message translates to:
+  /// **'Standard'**
+  String get lblDefault;
+
+  /// No description provided for @lblFlipped.
+  ///
+  /// In de, this message translates to:
+  /// **'Umgekehrt'**
+  String get lblFlipped;
+
+  /// No description provided for @lblSymmetric.
+  ///
+  /// In de, this message translates to:
+  /// **'Symmetrisch'**
+  String get lblSymmetric;
+
+  /// No description provided for @lblAsymmetric.
+  ///
+  /// In de, this message translates to:
+  /// **'Asymmetrisch'**
+  String get lblAsymmetric;
+
+  /// No description provided for @coilRevAndHeight.
+  ///
+  /// In de, this message translates to:
+  /// **'Umdrehungen und Höhe'**
+  String get coilRevAndHeight;
+
+  /// No description provided for @coilPitchAndRev.
+  ///
+  /// In de, this message translates to:
+  /// **'Steigung und Umdrehungen'**
+  String get coilPitchAndRev;
+
+  /// No description provided for @coilPitchAndHeight.
+  ///
+  /// In de, this message translates to:
+  /// **'Steigung und Höhe'**
+  String get coilPitchAndHeight;
+
+  /// No description provided for @coilSpiral.
+  ///
+  /// In de, this message translates to:
+  /// **'Spirale'**
+  String get coilSpiral;
+
+  /// No description provided for @hintTapSketchPointsIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenpunkte in 3D antippen…'**
+  String get hintTapSketchPointsIn3d;
+
+  /// No description provided for @lblCountersinkDia.
+  ///
+  /// In de, this message translates to:
+  /// **'Senkung ⌀'**
+  String get lblCountersinkDia;
+
+  /// Inventor DE: "Endbedingung" — wo das Element aufhört.
+  ///
+  /// In de, this message translates to:
+  /// **'Endbedingung'**
+  String get lblTermination;
+
+  /// No description provided for @lblIntoPart.
+  ///
+  /// In de, this message translates to:
+  /// **'Ins Bauteil'**
+  String get lblIntoPart;
+
+  /// No description provided for @ctxShow.
+  ///
+  /// In de, this message translates to:
+  /// **'Einblenden'**
+  String get ctxShow;
+
+  /// No description provided for @ctxLock.
+  ///
+  /// In de, this message translates to:
+  /// **'Sperren'**
+  String get ctxLock;
+
+  /// No description provided for @ctxUnlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Entsperren'**
+  String get ctxUnlock;
+
+  /// No description provided for @ctxRenameEllipsis.
+  ///
+  /// In de, this message translates to:
+  /// **'Umbenennen…'**
+  String get ctxRenameEllipsis;
+
+  /// No description provided for @ctxMoveNHere.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eines hierher verschieben} other{{count} hierher verschieben}}'**
+  String ctxMoveNHere(int count);
+
+  /// No description provided for @ctxSuppressOccurrence.
+  ///
+  /// In de, this message translates to:
+  /// **'Exemplar unterdrücken'**
+  String get ctxSuppressOccurrence;
+
+  /// No description provided for @ctxRestoreOccurrence.
+  ///
+  /// In de, this message translates to:
+  /// **'Exemplar wiederherstellen'**
+  String get ctxRestoreOccurrence;
+
+  /// No description provided for @nodeYzPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'YZ-Ebene'**
+  String get nodeYzPlane;
+
+  /// No description provided for @nodeXzPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'XZ-Ebene'**
+  String get nodeXzPlane;
+
+  /// No description provided for @nodeXyPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'XY-Ebene'**
+  String get nodeXyPlane;
+
+  /// No description provided for @nodeZAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Z-Achse'**
+  String get nodeZAxis;
+
+  /// No description provided for @msgLayerEmptyRemoved.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Layer ist leer und wird entfernt.'**
+  String get msgLayerEmptyRemoved;
+
+  /// No description provided for @msgRemovesLayerAndEntities.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Damit werden der Layer und sein einziges Objekt entfernt.} other{Damit werden der Layer und seine {count} Objekte entfernt.}}'**
+  String msgRemovesLayerAndEntities(int count);
+
+  /// No description provided for @secModelParameters.
+  ///
+  /// In de, this message translates to:
+  /// **'Modellparameter'**
+  String get secModelParameters;
+
+  /// No description provided for @secUserParameters.
+  ///
+  /// In de, this message translates to:
+  /// **'Benutzerparameter'**
+  String get secUserParameters;
+
+  /// No description provided for @lblLineN.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie {n}'**
+  String lblLineN(String n);
+
+  /// No description provided for @lblSingleOpenSplineOnly.
+  ///
+  /// In de, this message translates to:
+  /// **'(nur ein offener Spline)'**
+  String get lblSingleOpenSplineOnly;
+
+  /// No description provided for @lblSolid.
+  ///
+  /// In de, this message translates to:
+  /// **'Volumenkörper'**
+  String get lblSolid;
+
+  /// No description provided for @lblSelectSolid.
+  ///
+  /// In de, this message translates to:
+  /// **'Volumenkörper wählen'**
+  String get lblSelectSolid;
+
+  /// No description provided for @lblFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'Element'**
+  String get lblFeature;
+
+  /// No description provided for @lblSelectFeatures.
+  ///
+  /// In de, this message translates to:
+  /// **'Elemente wählen'**
+  String get lblSelectFeatures;
+
+  /// No description provided for @lblDirectionA.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung A'**
+  String get lblDirectionA;
+
+  /// No description provided for @lblDirectionB.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung B'**
+  String get lblDirectionB;
+
+  /// No description provided for @lblStartA.
+  ///
+  /// In de, this message translates to:
+  /// **'Start A'**
+  String get lblStartA;
+
+  /// No description provided for @lblStartB.
+  ///
+  /// In de, this message translates to:
+  /// **'Start B'**
+  String get lblStartB;
+
+  /// No description provided for @lblCurveStart.
+  ///
+  /// In de, this message translates to:
+  /// **'Kurvenanfang'**
+  String get lblCurveStart;
+
+  /// No description provided for @lblMmAlong.
+  ///
+  /// In de, this message translates to:
+  /// **'{value} mm entlang'**
+  String lblMmAlong(String value);
+
+  /// No description provided for @lblAddIrregularAngle.
+  ///
+  /// In de, this message translates to:
+  /// **'+ Abweichender Winkel'**
+  String get lblAddIrregularAngle;
+
+  /// No description provided for @lblAddIrregularDistance.
+  ///
+  /// In de, this message translates to:
+  /// **'+ Abweichender Abstand'**
+  String get lblAddIrregularDistance;
+
+  /// No description provided for @lblSelectDir.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung…'**
+  String get lblSelectDir;
+
+  /// No description provided for @lblMidplane.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelebene'**
+  String get lblMidplane;
+
+  /// No description provided for @lblCurveLength.
+  ///
+  /// In de, this message translates to:
+  /// **'Kurvenlänge'**
+  String get lblCurveLength;
+
+  /// No description provided for @lblIdentical.
+  ///
+  /// In de, this message translates to:
+  /// **'Identisch'**
+  String get lblIdentical;
+
+  /// No description provided for @lblIncremental.
+  ///
+  /// In de, this message translates to:
+  /// **'Schrittweise'**
+  String get lblIncremental;
+
+  /// No description provided for @lblRotational.
+  ///
+  /// In de, this message translates to:
+  /// **'Mitdrehend'**
+  String get lblRotational;
+
+  /// No description provided for @lblSketchPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenpunkt'**
+  String get lblSketchPoint;
+
+  /// No description provided for @lblSelectPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt wählen'**
+  String get lblSelectPoint;
+
+  /// No description provided for @lblBasePoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Basispunkt'**
+  String get lblBasePoint;
+
+  /// No description provided for @lblFollowFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche folgen'**
+  String get lblFollowFace;
+
+  /// No description provided for @lblMirrorPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegelebene'**
+  String get lblMirrorPlane;
+
+  /// No description provided for @lblCreationMethod.
+  ///
+  /// In de, this message translates to:
+  /// **'Erzeugungsmethode'**
+  String get lblCreationMethod;
+
+  /// No description provided for @lblAdjust.
+  ///
+  /// In de, this message translates to:
+  /// **'Anpassen'**
+  String get lblAdjust;
+
+  /// No description provided for @lblRemoveOriginal.
+  ///
+  /// In de, this message translates to:
+  /// **'Original entfernen'**
+  String get lblRemoveOriginal;
+
+  /// No description provided for @lblKeepMirroredHalf.
+  ///
+  /// In de, this message translates to:
+  /// **'Nur die gespiegelte Hälfte behalten'**
+  String get lblKeepMirroredHalf;
+
+  /// No description provided for @lblPatternFeatures.
+  ///
+  /// In de, this message translates to:
+  /// **'Einzelne Elemente anordnen'**
+  String get lblPatternFeatures;
+
+  /// No description provided for @lblPatternSolid.
+  ///
+  /// In de, this message translates to:
+  /// **'Einen Volumenkörper anordnen'**
+  String get lblPatternSolid;
+
+  /// No description provided for @lblPick.
+  ///
+  /// In de, this message translates to:
+  /// **'Wählen'**
+  String get lblPick;
+
+  /// No description provided for @lblPointCount.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{{name} (ein Punkt)} other{{name} ({count} Punkte)}}'**
+  String lblPointCount(String name, int count);
+
+  /// No description provided for @lblCoords.
+  ///
+  /// In de, this message translates to:
+  /// **'({x}, {y})'**
+  String lblCoords(String x, String y);
+
+  /// No description provided for @conCoincident.
+  ///
+  /// In de, this message translates to:
+  /// **'Koinzident'**
+  String get conCoincident;
+
+  /// No description provided for @conCollinear.
+  ///
+  /// In de, this message translates to:
+  /// **'Kollinear'**
+  String get conCollinear;
+
+  /// No description provided for @conConcentric.
+  ///
+  /// In de, this message translates to:
+  /// **'Konzentrisch'**
+  String get conConcentric;
+
+  /// Inventor DE: "Fixieren" — die Abhaengigkeit, die Geometrie festnagelt.
+  ///
+  /// In de, this message translates to:
+  /// **'Fixieren'**
+  String get conLock;
+
+  /// No description provided for @conParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Parallel'**
+  String get conParallel;
+
+  /// Inventor DE: "Lotrecht", nicht "Senkrecht" — senkrecht heisst dort vertikal.
+  ///
+  /// In de, this message translates to:
+  /// **'Lotrecht'**
+  String get conPerpendicular;
+
+  /// No description provided for @conHorizontal.
+  ///
+  /// In de, this message translates to:
+  /// **'Horizontal'**
+  String get conHorizontal;
+
+  /// No description provided for @conVertical.
+  ///
+  /// In de, this message translates to:
+  /// **'Vertikal'**
+  String get conVertical;
+
+  /// No description provided for @conTangent.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential'**
+  String get conTangent;
+
+  /// No description provided for @conSymmetric.
+  ///
+  /// In de, this message translates to:
+  /// **'Symmetrisch'**
+  String get conSymmetric;
+
+  /// No description provided for @conEqual.
+  ///
+  /// In de, this message translates to:
+  /// **'Gleich'**
+  String get conEqual;
+
+  /// No description provided for @lblModuleMm.
+  ///
+  /// In de, this message translates to:
+  /// **'Modul (mm)'**
+  String get lblModuleMm;
+
+  /// No description provided for @lblTeeth.
+  ///
+  /// In de, this message translates to:
+  /// **'Zähne'**
+  String get lblTeeth;
+
+  /// No description provided for @lblCornerRadiusMm.
+  ///
+  /// In de, this message translates to:
+  /// **'Eckenradius (mm)'**
+  String get lblCornerRadiusMm;
+
+  /// No description provided for @lblSunTeeth.
+  ///
+  /// In de, this message translates to:
+  /// **'Sonnenzähne'**
+  String get lblSunTeeth;
+
+  /// No description provided for @lblPlanetTeeth.
+  ///
+  /// In de, this message translates to:
+  /// **'Planetenzähne'**
+  String get lblPlanetTeeth;
+
+  /// No description provided for @lblPlanets.
+  ///
+  /// In de, this message translates to:
+  /// **'Planeten'**
+  String get lblPlanets;
+
+  /// Verzahnungsbegriff: der Eingriffswinkel, nicht der "Druckwinkel".
+  ///
+  /// In de, this message translates to:
+  /// **'Eingriffswinkel (°)'**
+  String get lblPressureAngle;
+
+  /// No description provided for @lblProfileShift.
+  ///
+  /// In de, this message translates to:
+  /// **'Profilverschiebung'**
+  String get lblProfileShift;
+
+  /// No description provided for @lblBoreDia.
+  ///
+  /// In de, this message translates to:
+  /// **'Bohrung Ø (mm)'**
+  String get lblBoreDia;
+
+  /// No description provided for @btnInsert.
+  ///
+  /// In de, this message translates to:
+  /// **'Einfügen'**
+  String get btnInsert;
+
+  /// No description provided for @gearExternal.
+  ///
+  /// In de, this message translates to:
+  /// **'Stirnrad'**
+  String get gearExternal;
+
+  /// No description provided for @gearInternal.
+  ///
+  /// In de, this message translates to:
+  /// **'Hohlrad'**
+  String get gearInternal;
+
+  /// No description provided for @gearPlanetary.
+  ///
+  /// In de, this message translates to:
+  /// **'Planetensatz'**
+  String get gearPlanetary;
+
+  /// Z fuer Zaehnezahl, wie auf einer deutschen Zeichnung.
+  ///
+  /// In de, this message translates to:
+  /// **'Hohlrad {teeth}Z · Achsabstand {dist}'**
+  String gearRingInfo(String teeth, String dist);
+
+  /// Inventor DE: eine Skizze ist "vollständig bestimmt", wenn sie keine Freiheitsgrade mehr hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Vollständig bestimmt'**
+  String get hudFullyConstrained;
+
+  /// No description provided for @hudCancelEsc.
+  ///
+  /// In de, this message translates to:
+  /// **'Abbrechen (Esc)'**
+  String get hudCancelEsc;
+
+  /// No description provided for @hudDeleteN.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Objekt löschen} other{{count} Objekte löschen}}'**
+  String hudDeleteN(int count);
+
+  /// Der Buchstabe ist das TASTENKUERZEL und bleibt, wie es auf der Tastatur liegt.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie (L)'**
+  String get hudLineKey;
+
+  /// No description provided for @hudCircleKey.
+  ///
+  /// In de, this message translates to:
+  /// **'Kreis (C)'**
+  String get hudCircleKey;
+
+  /// No description provided for @hudRectKey.
+  ///
+  /// In de, this message translates to:
+  /// **'Rechteck (R)'**
+  String get hudRectKey;
+
+  /// No description provided for @hudDimensionKey.
+  ///
+  /// In de, this message translates to:
+  /// **'Bemaßung (D)'**
+  String get hudDimensionKey;
+
+  /// No description provided for @hintTapDimensionToInsert.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Bemaßung in der Skizze antippen, um sie als „Name“ einzufügen'**
+  String get hintTapDimensionToInsert;
+
+  /// No description provided for @hintTextEmbedParams.
+  ///
+  /// In de, this message translates to:
+  /// **'Text — Parameter als <Breite> oder „d0“ einbetten'**
+  String get hintTextEmbedParams;
+
+  /// No description provided for @msgReportSaved.
+  ///
+  /// In de, this message translates to:
+  /// **'Bericht gesichert'**
+  String get msgReportSaved;
+
+  /// No description provided for @msgReportFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Bericht FEHLGESCHLAGEN'**
+  String get msgReportFailed;
+
+  /// Der Pfad ist der, den iPadOS auf Deutsch anzeigt — die Dateien-App heisst so. "prototype" und "bugreports" sind Ordnernamen auf der Platte und bleiben.
+  ///
+  /// In de, this message translates to:
+  /// **'Dateien-App > Auf meinem iPad > prototype > bugreports\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.'**
+  String get msgBugSaved;
+
+  /// prototype_log.txt und die Logmarke "bug" sind Dateiname und Logmarke — sie bleiben, wie sie auf der Platte stehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.'**
+  String get msgBugBundleFailed;
+
+  /// No description provided for @hintPickBodyTapCancel.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper wählen… (zum Abbrechen tippen)'**
+  String get hintPickBodyTapCancel;
+
+  /// No description provided for @lblSelectBodyIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper in 3D / im Browser wählen'**
+  String get lblSelectBodyIn3d;
+
+  /// No description provided for @secAdvancedProperties.
+  ///
+  /// In de, this message translates to:
+  /// **'Erweiterte Eigenschaften'**
+  String get secAdvancedProperties;
+
+  /// No description provided for @lblTaperA.
+  ///
+  /// In de, this message translates to:
+  /// **'Verjüngung A'**
+  String get lblTaperA;
+
+  /// No description provided for @lblMatchShape.
+  ///
+  /// In de, this message translates to:
+  /// **'Form angleichen'**
+  String get lblMatchShape;
+
+  /// No description provided for @lblSelectFaceBtn.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche wählen'**
+  String get lblSelectFaceBtn;
+
+  /// Z = Zaehnezahl, wie auf einer deutschen Zeichnung. {warn} ist leer oder der Hinweis unten.
+  ///
+  /// In de, this message translates to:
+  /// **'Hohlrad {teeth}Z · Achsabstand {dist} mm{warn}'**
+  String gearRingLine(String teeth, String dist, String warn);
+
+  /// No description provided for @gearUnevenWarn.
+  ///
+  /// In de, this message translates to:
+  /// **' · ⚠ Planeten nicht gleichmäßig verteilt'**
+  String get gearUnevenWarn;
+
+  /// Teilkreis / Kopfkreis / Fusskreis — die drei Verzahnungsdurchmesser.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilkreis Ø {pitch} · Kopf Ø {tip} · Fuß Ø {root} mm'**
+  String gearPitchLine(String pitch, String tip, String root);
+
+  /// No description provided for @msgRemovesLayerAndEntitiesUndo.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Entfernt den Layer und sein einziges Objekt. Nicht rückgängig zu machen.} other{Entfernt den Layer und seine {count} Objekte. Nicht rückgängig zu machen.}}'**
+  String msgRemovesLayerAndEntitiesUndo(int count);
+
+  /// No description provided for @valNameEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Name darf nicht leer sein'**
+  String get valNameEmpty;
+
+  /// No description provided for @valNameTooLong.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Name ist zu lang'**
+  String get valNameTooLong;
+
+  /// No description provided for @valNameBadChars.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Name darf / \\ und : nicht enthalten'**
+  String get valNameBadChars;
+
+  /// No description provided for @valNameLeadingDot.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Name darf nicht mit einem Punkt beginnen'**
+  String get valNameLeadingDot;
+
+  /// No description provided for @valBodyNameTaken.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Körper namens „{name}“ existiert bereits'**
+  String valBodyNameTaken(String name);
+
+  /// No description provided for @valFeatureNameTaken.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Element namens „{name}“ existiert bereits'**
+  String valFeatureNameTaken(String name);
+
+  /// No description provided for @valSelectOneEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens eine Kante wählen.'**
+  String get valSelectOneEdge;
+
+  /// No description provided for @valRadiusPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Radius muss größer als 0 sein.'**
+  String get valRadiusPositive;
+
+  /// No description provided for @valRadiusOfSetPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Radius von Gruppe {n} muss größer als 0 sein.'**
+  String valRadiusOfSetPositive(String n);
+
+  /// No description provided for @valEndRadiusPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Endradius muss größer als 0 sein.'**
+  String get valEndRadiusPositive;
+
+  /// No description provided for @valEndRadiusOfSetPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Endradius von Gruppe {n} muss größer als 0 sein.'**
+  String valEndRadiusOfSetPositive(String n);
+
+  /// No description provided for @valDistancePositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand muss größer als 0 sein.'**
+  String get valDistancePositive;
+
+  /// No description provided for @valDistance2Positive.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand 2 muss größer als 0 sein.'**
+  String get valDistance2Positive;
+
+  /// No description provided for @valAngle0to90.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Winkel muss zwischen 0 und 90 Grad liegen.'**
+  String get valAngle0to90;
+
+  /// No description provided for @valSelectOneFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens ein Element zum Anordnen wählen.'**
+  String get valSelectOneFeature;
+
+  /// No description provided for @valSelectDirectionA.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung oder Kurve für Richtung A wählen.'**
+  String get valSelectDirectionA;
+
+  /// No description provided for @valCountAAtLeastOne.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anzahl in Richtung A muss mindestens 1 sein.'**
+  String get valCountAAtLeastOne;
+
+  /// No description provided for @valDistanceAPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Abstand in Richtung A muss größer als 0 sein.'**
+  String get valDistanceAPositive;
+
+  /// No description provided for @valCountBAtLeastOne.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anzahl in Richtung B muss mindestens 1 sein.'**
+  String get valCountBAtLeastOne;
+
+  /// No description provided for @valDistanceBPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Abstand in Richtung B muss größer als 0 sein.'**
+  String get valDistanceBPositive;
+
+  /// No description provided for @valPatternNeedsTwo.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Anordnung braucht mehr als ein Exemplar.'**
+  String get valPatternNeedsTwo;
+
+  /// No description provided for @valSelectRotationAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehachse wählen.'**
+  String get valSelectRotationAxis;
+
+  /// No description provided for @valCountAtLeastOne.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anzahl muss mindestens 1 sein.'**
+  String get valCountAtLeastOne;
+
+  /// No description provided for @valAngleNotZero.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Winkel darf nicht 0 sein.'**
+  String get valAngleNotZero;
+
+  /// No description provided for @valSelectPointSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Skizze mit den Punkten wählen.'**
+  String get valSelectPointSketch;
+
+  /// No description provided for @valSelectMirrorPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegelebene wählen.'**
+  String get valSelectMirrorPlane;
+
+  /// No description provided for @valNoSolidToPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Es gibt noch keinen Volumenkörper zum Anordnen.'**
+  String get valNoSolidToPattern;
+
+  /// No description provided for @valSelectPathCurve.
+  ///
+  /// In de, this message translates to:
+  /// **'Pfadkurve wählen.'**
+  String get valSelectPathCurve;
+
+  /// No description provided for @valTwistUnsupported.
+  ///
+  /// In de, this message translates to:
+  /// **'Verdrehung wird noch nicht unterstützt — auf 0 lassen.'**
+  String get valTwistUnsupported;
+
+  /// No description provided for @valSelectTwoSections.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens zwei Querschnitte wählen.'**
+  String get valSelectTwoSections;
+
+  /// No description provided for @valSelectAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse wählen.'**
+  String get valSelectAxis;
+
+  /// No description provided for @valPitchPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Steigung muss größer als 0 sein.'**
+  String get valPitchPositive;
+
+  /// No description provided for @valRevolutionPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Umdrehungen müssen größer als 0 sein.'**
+  String get valRevolutionPositive;
+
+  /// No description provided for @valHeightPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Höhe muss größer als 0 sein.'**
+  String get valHeightPositive;
+
+  /// No description provided for @valSelectRevolveAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehachse wählen.'**
+  String get valSelectRevolveAxis;
+
+  /// No description provided for @valAxisNoDirection.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Achse gibt keine Richtung vor.'**
+  String get valAxisNoDirection;
+
+  /// No description provided for @valAngleA0to360.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel A muss zwischen 0 und 360 Grad liegen.'**
+  String get valAngleA0to360;
+
+  /// No description provided for @valAngleBPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel B muss größer als 0 sein.'**
+  String get valAngleBPositive;
+
+  /// No description provided for @valAngleABMax360.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel A + B dürfen 360 Grad nicht überschreiten.'**
+  String get valAngleABMax360;
+
+  /// No description provided for @valDistanceAPositiveShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand A muss größer als 0 sein.'**
+  String get valDistanceAPositiveShort;
+
+  /// No description provided for @valDistanceBPositiveShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand B muss größer als 0 sein.'**
+  String get valDistanceBPositiveShort;
+
+  /// No description provided for @valTaperRange.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Verjüngung muss zwischen -90 und 90 Grad liegen.'**
+  String get valTaperRange;
+
+  /// No description provided for @lblSelectDirPlaceholder.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung…'**
+  String get lblSelectDirPlaceholder;
+
+  /// No description provided for @lblMirrorPlanePlaceholder.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegelebene'**
+  String get lblMirrorPlanePlaceholder;
+
+  /// No description provided for @lblCenterlineGeo.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittellinie'**
+  String get lblCenterlineGeo;
+
+  /// No description provided for @lblConstructionLineGeo.
+  ///
+  /// In de, this message translates to:
+  /// **'Konstruktionslinie'**
+  String get lblConstructionLineGeo;
+
+  /// No description provided for @lblLineGeo.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie'**
+  String get lblLineGeo;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

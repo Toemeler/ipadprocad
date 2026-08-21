@@ -74,7 +74,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     if (s == null) return const SizedBox.shrink();
     _syncOnce();
     final n = app.pickedEdges.length;
-    final title = s.isFillet ? 'Fillet' : 'Chamfer';
+    final title = s.isFillet ? L.of(context).btnFillet : L.of(context).btnChamfer;
 
     // M123 — the same fix M122 made for the extrude dialog: (12, 12) is the
     // top-left corner, i.e. directly underneath the floating model browser
@@ -137,10 +137,10 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
             ),
-            panelSection('Input Geometry', _inputOpen,
+            panelSection(L.of(context).secInputGeometry, _inputOpen,
                 () => setState(() => _inputOpen = !_inputOpen), [
               panelRow(
-                  'Edges',
+                  L.of(context).lblEdges,
                   GestureDetector(
                     onTap: app.pickingEdges
                         ? app.cancelPickEdges
@@ -160,8 +160,8 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                       child: Text(
                           n == 0
                               ? (app.pickingEdges
-                                  ? 'Tap edges in 3D…'
-                                  : 'Select edges')
+                                  ? L.of(context).hintTapEdgesIn3d
+                                  : L.of(context).lblSelectEdges)
                               : '$n Edge${n == 1 ? '' : 's'}'
                                   '${app.pickingEdges ? ' — tap to finish' : ''}',
                           style: ts(12, n == 0 ? T.dim : T.text)),
@@ -169,7 +169,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                   )),
             ]),
             panelSection(
-                s.isFillet ? 'Radius' : 'Chamfer',
+                s.isFillet ? L.of(context).lblRadius : L.of(context).btnChamfer,
                 _shapeOpen,
                 () => setState(() => _shapeOpen = !_shapeOpen),
                 s.isFillet ? _filletFields() : _chamferFields()),
@@ -211,7 +211,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     return [
       for (var i = 0; i < sets; i++) ...[
         panelRow(
-            sets == 1 ? 'Radius' : 'Radius ${i + 1}',
+            sets == 1 ? L.of(context).lblRadius : L.of(context).lblRadiusN('${i + 1}'),
             Row(children: [
               GestureDetector(
                 onTap: () => app.selectEdgeSet(i),
@@ -253,12 +253,12 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
       // Inventor's Select Mode. Enabled once a body is known, because
       // "all edges" is meaningless without one.
       panelRow(
-          'Select',
+          L.of(context).select,
           Row(children: [
-            _pill('All Fillets', () => app.selectAllEdges(concave: true),
+            _pill(L.of(context).lblAllFillets, () => app.selectAllEdges(concave: true),
                 app.pickedEdgeSolid != null),
             const SizedBox(width: 3),
-            _pill('All Rounds', () => app.selectAllEdges(concave: false),
+            _pill(L.of(context).lblAllRounds, () => app.selectAllEdges(concave: false),
                 app.pickedEdgeSolid != null),
           ])),
       panelRow(
@@ -283,32 +283,32 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     final s = sess;
     return [
       panelRow(
-          'Method',
+          L.of(context).lblMethod,
           Row(children: [
-            _modeButton(0, 'Distance', 'd'),
+            _modeButton(0, L.of(context).lblDistance, 'd'),
             const SizedBox(width: 3),
-            _modeButton(1, 'Two Distances', 'd1/d2'),
+            _modeButton(1, L.of(context).lblTwoDistances, 'd1/d2'),
             const SizedBox(width: 3),
-            _modeButton(2, 'Distance and Angle', 'd∠'),
+            _modeButton(2, L.of(context).lblDistanceAndAngle, 'd∠'),
           ])),
       panelRow(
-          s.mode == 0 ? 'Distance' : 'Distance 1',
+          s.mode == 0 ? L.of(context).lblDistance : L.of(context).lblDistance1,
           panelValueField(
               _d1, 'mm', (v) => widget.app.setEdgeFeature(exprD1: v), app: widget.app)),
       if (s.mode == 1)
         panelRow(
-            'Distance 2',
+            L.of(context).lblDistance2,
             panelValueField(
                 _d2, 'mm', (v) => widget.app.setEdgeFeature(exprD2: v), app: widget.app)),
       if (s.mode == 2)
         panelRow(
-            'Angle',
+            L.of(context).lblAngle,
             panelValueField(
                 _angle, 'deg', (v) => widget.app.setEdgeFeature(exprAngle: v), app: widget.app)),
       // Flip only means anything when the two sides differ.
       if (s.mode != 0)
         panelRow(
-            'Flip',
+            L.of(context).lblFlip,
             GestureDetector(
               onTap: () => widget.app.setEdgeFeature(flip: !s.flip),
               child: Container(
