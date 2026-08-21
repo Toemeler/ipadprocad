@@ -1,0 +1,512 @@
+{
+  "census": {
+    "byThread": {},
+    "byUserTag": {},
+    "byVmTag": {},
+    "nativeOnly": 0,
+    "samples": 0,
+    "truncatedStacks": 0,
+    "withDartFrames": 0
+  },
+  "coverage": {
+    "effectivePeriodUs": 365,
+    "gaps": 83,
+    "nominalPeriodUs": 250,
+    "observedFraction": 0.7963207809634482,
+    "spanUs": 2641865,
+    "unobservedUs": 538093
+  },
+  "dartOnly": true,
+  "flat": [
+    {
+      "label": "phaseEliminationTyped (known_split.dart:102)",
+      "line": 102,
+      "self": 3427,
+      "total": 3990,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "phaseJacobianTyped (known_split.dart:67)",
+      "line": 67,
+      "self": 1031,
+      "total": 1358,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_Double.abs (double.dart:184)",
+      "line": 184,
+      "self": 573,
+      "total": 573,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "Float64List.Float64List (typed_data_patch.dart:2948)",
+      "line": 2948,
+      "self": 216,
+      "total": 216,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "residualsInto (known_split.dart:92)",
+      "line": 92,
+      "self": 210,
+      "total": 227,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_TypedListBase._setRange (typed_data_patch.dart:105)",
+      "line": 105,
+      "self": 85,
+      "total": 97,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_GrowableList.add (growable_array.dart:283)",
+      "line": 283,
+      "self": 61,
+      "total": 63,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._GrowableList.generate (growable_array.dart:135)",
+      "line": 135,
+      "self": 31,
+      "total": 93,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_TypedListBase._memMove8 (typed_data_patch.dart:208)",
+      "line": 208,
+      "self": 11,
+      "total": 11,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_Float64List.[] (typed_data_patch.dart:2969)",
+      "line": 2969,
+      "self": 7,
+      "total": 7,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "main (known_split.dart:201)",
+      "line": 201,
+      "self": 3,
+      "total": 5681,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "ListIterator.current (iterable.dart:358)",
+      "line": 358,
+      "self": 3,
+      "total": 4,
+      "url": "org-dartlang-sdk:///sdk/lib/internal/iterable.dart"
+    },
+    {
+      "label": "<unknown Dart function>",
+      "line": 0,
+      "self": 3,
+      "total": 3,
+      "url": ""
+    },
+    {
+      "label": "_Double.* (double.dart:44)",
+      "line": 44,
+      "self": 2,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double.- (double.dart:32)",
+      "line": 32,
+      "self": 2,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_sqrt (math_patch.dart:163)",
+      "line": 163,
+      "self": 2,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/math_patch.dart"
+    },
+    {
+      "label": "_delayEntrypointInvocation.<anonymous closure> (isolate_patch.dart:305)",
+      "line": 305,
+      "self": 1,
+      "total": 5682,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/isolate_patch.dart"
+    },
+    {
+      "label": "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+      "line": 844,
+      "self": 1,
+      "total": 98,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_GrowableList.elementAt (growable_array.dart:500)",
+      "line": 500,
+      "self": 1,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "ListIterator._current (iterable.dart:350)",
+      "line": 350,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/internal/iterable.dart"
+    },
+    {
+      "label": "Lists.copy (internal_patch.dart:125)",
+      "line": 125,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/internal_patch.dart"
+    },
+    {
+      "label": "ThreadLocal.value= (_vm.dart:28)",
+      "line": 28,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_vm/_vm.dart"
+    },
+    {
+      "label": "_Double./ (double.dart:60)",
+      "line": 60,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double._add (double.dart:27)",
+      "line": 27,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double._mulFromInteger (double.dart:149)",
+      "line": 149,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Float64List.[]= (typed_data_patch.dart:2975)",
+      "line": 2975,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "_GrowableList.[] (growable_array.dart:269)",
+      "line": 269,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList.[]= (growable_array.dart:274)",
+      "line": 274,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._setLength (growable_array.dart:261)",
+      "line": 261,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_List._setIndexed (array.dart:191)",
+      "line": 191,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/array.dart"
+    },
+    {
+      "label": "_TimerHeap.add (timer_impl.dart:35)",
+      "line": 35,
+      "self": 1,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/timer_impl.dart"
+    },
+    {
+      "label": "_RawReceivePort._handleMessage (isolate_patch.dart:184)",
+      "line": 184,
+      "self": 0,
+      "total": 5682,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/isolate_patch.dart"
+    },
+    {
+      "label": "elimCopyTyped (known_split.dart:59)",
+      "line": 59,
+      "self": 0,
+      "total": 320,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "Float64List.Float64List.fromList (typed_data_patch.dart:2954)",
+      "line": 2954,
+      "self": 0,
+      "total": 253,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "phaseJacobianTyped.<anonymous closure> (known_split.dart:71)",
+      "line": 71,
+      "self": 0,
+      "total": 61,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    },
+    {
+      "label": "_Float64List._fastSetRange (typed_data_patch.dart:2994)",
+      "line": 2994,
+      "self": 0,
+      "total": 11,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "ListIterator.moveNext (iterable.dart:361)",
+      "line": 361,
+      "self": 0,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/internal/iterable.dart"
+    },
+    {
+      "label": "sqrt (math_patch.dart:129)",
+      "line": 129,
+      "self": 0,
+      "total": 2,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/math_patch.dart"
+    },
+    {
+      "label": "FinalThreadLocal.value (_vm.dart:129)",
+      "line": 129,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_vm/_vm.dart"
+    },
+    {
+      "label": "Future.Future.delayed (future.dart:430)",
+      "line": 430,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/async/future.dart"
+    },
+    {
+      "label": "Timer.Timer (timer.dart:42)",
+      "line": 42,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/async/timer.dart"
+    },
+    {
+      "label": "Timer._createTimer (timer_patch.dart:9)",
+      "line": 9,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/timer_patch.dart"
+    },
+    {
+      "label": "_Double._addFromInteger (double.dart:141)",
+      "line": 141,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_Double.toString (double.dart:250)",
+      "line": 250,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/double.dart"
+    },
+    {
+      "label": "_GrowableList._grow (growable_array.dart:387)",
+      "line": 387,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_GrowableList._growToNextCapacity (growable_array.dart:406)",
+      "line": 406,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/growable_array.dart"
+    },
+    {
+      "label": "_IntegerImplementation.* (integers.dart:17)",
+      "line": 17,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/integers.dart"
+    },
+    {
+      "label": "_IntegerImplementation.+ (integers.dart:9)",
+      "line": 9,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/integers.dart"
+    },
+    {
+      "label": "_RootZone.createTimer (zone.dart:1057)",
+      "line": 1057,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/async/zone.dart"
+    },
+    {
+      "label": "_StringBase._interpolate (string_patch.dart:879)",
+      "line": 879,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/string_patch.dart"
+    },
+    {
+      "label": "_Timer._Timer (timer_impl.dart:220)",
+      "line": 220,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/timer_impl.dart"
+    },
+    {
+      "label": "_Timer._createTimer (timer_impl.dart:192)",
+      "line": 192,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/timer_impl.dart"
+    },
+    {
+      "label": "_Timer._enqueue (timer_impl.dart:268)",
+      "line": 268,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/timer_impl.dart"
+    },
+    {
+      "label": "_Timer._factory (timer_impl.dart:501)",
+      "line": 501,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/timer_impl.dart"
+    },
+    {
+      "label": "__Float64List&_TypedList&_DoubleListMixin&_TypedDoubleListMixin._slowSetRange (typed_data_patch.dart:858)",
+      "line": 858,
+      "self": 0,
+      "total": 1,
+      "url": "org-dartlang-sdk:///sdk/lib/_internal/vm/lib/typed_data_patch.dart"
+    },
+    {
+      "label": "main.<anonymous closure> (known_split.dart:233)",
+      "line": 233,
+      "self": 0,
+      "total": 1,
+      "url": "file://<repo>/tools/profiler/scenarios/known_split.dart"
+    }
+  ],
+  "meta": {
+    "captureEndMicros": 4200562110,
+    "captureStartMicros": 4197915157,
+    "captureWallSeconds": 2.686,
+    "capturedAtUtc": "2026-08-20T07:46:15Z",
+    "gitRef": "claude/a4-sampling-profiler-uyls2i",
+    "gitSha": "2430e415e43e66d6e9e5bde79669e3fe1472eb26",
+    "profilerFlags": {
+      "applied": {
+        "profile_period": "250",
+        "profile_vm": "false"
+      },
+      "before": {
+        "profile_period": "1000",
+        "profile_vm": "false",
+        "sample_buffer_duration": "600"
+      },
+      "max_profile_depth": "128",
+      "profile_period": "250",
+      "profile_vm": "false",
+      "profiler": "true",
+      "refused": {
+        "sample_buffer_duration": "Cannot set flag: cannot change at runtime"
+      },
+      "requested": {
+        "profile_period": "250",
+        "profile_vm": "false",
+        "sample_buffer_duration": "60"
+      },
+      "sample_buffer_duration": "600"
+    },
+    "scenarioFields": {
+      "elimRepeats": 3.0,
+      "elimShare": 0.7553805274091915,
+      "eliminationMs": 1886.757,
+      "jacRepeats": 1.0,
+      "jacobianMs": 611.0,
+      "m": 3500.0,
+      "rank": 3500.0,
+      "scenario": "known_split",
+      "storage": "Float64List",
+      "total": 3584.0
+    },
+    "scenarioResult": "PROFILER_SCENARIO_RESULT scenario=known_split total=3584 m=3500 rank=3500 jacRepeats=1 elimRepeats=3 storage=Float64List jacobianMs=611.0 eliminationMs=1886.757 elimShare=0.7553805274091915",
+    "stoppedBecause": "target-finished",
+    "target": "dart",
+    "targetReturnCode": -15,
+    "vm": {
+      "hostCPU": "Intel(R) Xeon(R) Processor @ 2.8",
+      "operatingSystem": "linux",
+      "targetCPU": "x64",
+      "version": "3.13.1 (stable) (Tue Aug 18 01:00:59 2026 -0700) on \"linux_x64\""
+    }
+  },
+  "samplePeriodUs": 250,
+  "samplesSelected": 5682,
+  "within": {
+    "buckets": {
+      "elimination": {
+        "ci95": [
+          0.7473700942036077,
+          0.7696188176753329
+        ],
+        "samples": 4310,
+        "share": 0.7586692483717655
+      },
+      "jacobian": {
+        "ci95": [
+          0.22813054804778474,
+          0.25030697365311394
+        ],
+        "samples": 1358,
+        "share": 0.23904242210878365
+      },
+      "other": {
+        "ci95": [
+          0.0013378404046713573,
+          0.003911463210364666
+        ],
+        "samples": 13,
+        "share": 0.002288329519450801
+      }
+    },
+    "otherLeaves": [
+      "<unknown Dart function>",
+      "Float64List.Float64List (typed_data_patch.dart:2948)",
+      "Lists.copy (internal_patch.dart:125)",
+      "ThreadLocal.value= (_vm.dart:28)",
+      "_Double._mulFromInteger (double.dart:149)",
+      "_Float64List.[]= (typed_data_patch.dart:2975)",
+      "_TimerHeap.add (timer_impl.dart:35)",
+      "__Float64List&_TypedList&_DoubleListMixin.setRange (typed_data_patch.dart:844)",
+      "main (known_split.dart:201)"
+    ],
+    "root": "main",
+    "samplesInRoot": 5681,
+    "samplesTotal": 5682
+  }
+}

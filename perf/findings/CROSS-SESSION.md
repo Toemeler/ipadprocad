@@ -2278,3 +2278,199 @@ another session's area get written down, not fixed, and this sits on the line:
 the defect is in S11's delivery path, the fix is in a shared file I was already
 editing. **If S11 would rather own that change, revert those two tokens and take
 it** — nothing else depends on them.
+
+---
+
+## 2026-08-20 — S7 — the round-two integration branch cannot be created as §3 specifies
+
+**Needs:** integrator
+
+**Found by:** Session 7 (profiler), at the first step of `OPTIMIZATION_PLAN_2.md`
+§3.
+**Blocked:** no. Worked around, in the open.
+
+§3 says the first round-two session creates `claude/perf-opt2` from the tag
+`perf-capture-round1`, "not the branch tip, so late round-one commits cannot
+slide in unmeasured". **That tag does not exist on the remote**, and §1.1 is
+explicit that its absence means the integrator has not taken the capture point.
+
+Creating the integration branch from a guess at where the capture point *would*
+be is the one thing §1.1 exists to prevent, so I did not create it. This
+session's work sits on its own branch, merged from `claude/perf-opt` (round
+one's tip) with `claude/perf-deep-analysis`'s plan commit alongside it.
+
+Nothing here can contaminate the capture: S7 owns no application code and this
+branch contains no change under `frontend/lib/`, `backend/` or `ci/`. It can be
+merged into `claude/perf-opt2` whenever that branch exists, before or after the
+capture, without affecting either.
+
+---
+
+## 2026-08-20 — S7 — `S3-solver.md` §6's attribution is refuted: the elimination is still 40.6 %
+
+*(referred to elsewhere as S7-1)*
+
+**Found by:** Session 7, profiling `stress.sketch.analyze`'s top rung on
+`claude/perf-opt`.
+**Files:** `perf/findings/S3-solver.md` §6 (nobody edits another session's
+file), `frontend/lib/solver.dart` (not mine).
+**Blocked:** no.
+
+S3 §6 says: "At n = 1024 the remaining second is almost entirely **step 1**,
+the finite-difference Jacobian." §2's Prediction P2 derives the same thing
+arithmetically, charging the sparse elimination ~0.066 s against ~1.77 s of
+Jacobian construction — 3.6 %.
+
+Measured, on round one's tip, at n = 1024:
+
+| | share of `analyzeSketch` |
+| --- | ---: |
+| Jacobian construction (`_jacobian`, `_residuals`) | **58.9 %** |
+| elimination (`_rankAndPivots`, `_spAxpy`) | **40.6 %** |
+| everything else | 0.5 % |
+
+Ground truth, not inference: a `UserTag` was set around each phase in a scratch
+worktree, so every CPU sample carries the phase it was taken in whether or not
+its stack could be unwound (n = 22 668). The profiler's independent, stack-based
+attribution agrees to within 4 pp on the same run, which is what licenses
+reading it at all — `S7-profiler.md` §7 has both columns.
+
+So the direction of P2 holds — step 1 *is* now the larger half — but "almost
+entirely" is an order of magnitude out. Whatever is next in this routine is not
+only the Jacobian.
+
+Nothing is being changed on the strength of this. It is written down because
+S3's §6 is what a later session would otherwise start from.
+
+---
+
+## 2026-08-20 — S7 — 45.7 % of `analyzeSketch` is growable-list growth, in two named lines
+
+*(referred to elsewhere as S7-2)*
+
+**Found by:** Session 7, from the flat profile of the same capture.
+**Files:** `frontend/lib/solver.dart` — **not this session's file.**
+**Blocked:** no. Reported, not fixed (`OPTIMIZATION_PLAN_2.md` §0 rule 6).
+
+| | self share | total share | function |
+| ---: | ---: | ---: | :--- |
+| 1 | **24.73 %** [23.99, 25.49] | 46.54 % | `_GrowableList.add (growable_array.dart:283)` |
+| 2 | **21.00 %** [20.30, 21.71] | 21.34 % | `_GrowableList._grow (growable_array.dart:387)` |
+
+12 732 samples inside the routine. The two together are 45.7 % of its self
+time, and they are reached from `_spAxpy (solver.dart:1158)` and
+`_jacobian (solver.dart:1247)` — both build sparse rows by appending to a
+`List` whose length is never given up front, so each row reallocates and copies
+as it fills.
+
+This is the cost S3 priced as a guess and never located. `S3-solver.md` §2's P2
+charges "4x sparse per-operation cost (index indirection, list growth, no
+linear scan)" and §12 concludes the sparse form is "allocation- and
+pointer-chasing-bound". Neither is a measurement of where. This is one
+allocation pattern, in two functions, on two lines.
+
+Caveats, both in `S7-profiler.md` §9: the share is of sampled **Dart CPU
+time**, and 26 % of the capture's wall clock was unobserved because the Dart
+sampler cannot see the collector — list growth allocates, so this figure is
+more likely low than high. And it is a Linux JIT host: §13.3's rule against
+quoting an off-device millisecond as a device one applies. The attribution
+transfers; the milliseconds do not.
+
+An `nnz`-per-row bound is derivable — `S3-solver.md` §0.3 measured max 2
+nonzeros per RREF row and nnz(J) = 5121 at this rung — so a pre-sized row is
+not obviously hard. Whoever owns `solver.dart` next should decide; a device
+capture would settle whether it is worth it.
+
+---
+
+## 2026-08-21 — S7 — closing my own entry above: `claude/perf-opt2` exists, but the capture point is a BRANCH and §1.1 tells you to look for a tag
+
+**Needs:** integrator
+
+**Found by:** Session 7, merging into `claude/perf-opt2` (plan §6, step 6).
+**Blocked:** no. Both halves of my earlier entry are resolved; one has a sharp
+edge left on it.
+
+**Resolved.** The first S7 entry above says the round-two integration branch
+could not be created as §3 specifies, because `perf-capture-round1` did not
+exist. It does now, `claude/perf-opt2` exists, and S7 is merged into it. That
+entry is superseded and is left standing only because this file is
+append-only.
+
+**The edge.** `perf-capture-round1` was created as a **branch**
+(`refs/heads/perf-capture-round1`, at `b2de0c2`), not as a tag. §1.1 tells
+every round-two session to check it this way:
+
+```
+git fetch origin --tags
+git tag --list 'perf-capture-round1'      # must exist before you start
+```
+
+That command still prints **nothing**, because there is no such tag. §1.1 then
+says, in as many words: "If that tag does not exist yet, **the integrator has
+not taken the capture point** … **S6 and S10 must not** [start]."
+
+So a session that follows §1.1 exactly concludes the capture has not been
+taken — while `S3-solver.md` §13 and `PERFORMANCE_PROFILE.md` §17 adjudicate
+it in full. Either `git tag perf-capture-round1 b2de0c2 && git push origin
+perf-capture-round1` closes the gap, or §1.1's check needs rewording. It is a
+one-line fix in either direction and it is the integrator's to make, not mine.
+
+**For the record on ordering, since my merge landed near it:** the capture
+point `b2de0c2` predates every S7 commit, and S7 changes no application,
+backend or apparatus file on either branch — `git diff <base> HEAD -- frontend
+backend ci perf/baseline.json` is empty against both `claude/perf-opt` and
+`claude/perf-opt2`, and the `frontend` tree hash is unchanged by both merges.
+Nothing round one is measured on moved.
+
+---
+
+## 2026-08-21 — S7 — `claude/perf-opt2` is red on `flutter analyze` AND `flutter test`, and it is not this merge
+
+**Needs:** integrator, and S11
+
+**Found by:** Session 7, running the definition-of-done checks after merging
+into `claude/perf-opt2`.
+**Files:** `frontend/lib/perf_scenarios_profile.dart` — S11's file, and inside
+the frozen `frontend/lib/perf*.dart` apparatus zone (§4).
+**Blocked:** no. **Not fixed** — §0 rule 6, and §4 closes that file to me
+twice over.
+
+Two static type errors, from the same mistake at two call sites:
+
+```
+lib/perf_scenarios_profile.dart:254:26 • argument_type_not_assignable
+lib/perf_scenarios_profile.dart:282:16 • argument_type_not_assignable
+    The argument type 'OcctFfi?' can't be assigned to the parameter type 'OcctFfi'.
+```
+
+`OcctFfi.instance()` returns `OcctFfi?` (`ffi/occt_engine.dart:972`), so the
+`occt` that `buildProfileScenarios` holds is nullable. `_sweep` is declared
+`OcctShape? _sweep(OcctFfi occt, {...})` at `:383` and takes it non-nullable.
+The other scenario files get away with the same `final occt =
+OcctFfi.instance();` because none of them passes it on.
+
+**This is not a merge artefact.** The `frontend` tree hash is
+`fa3ef101852bd428f63c2e61f718d5d960bb5a3b` both before and after S7's merge —
+byte-identical, because S7 adds no Dart at all. It arrived with `068f6ef`
+("S11: the profile-complexity ladders"), and `claude/perf-opt2-sweep` carries
+the same signature and is zero commits ahead of the integration branch, so
+there is no fix waiting to be merged either.
+
+**What it costs, in the terms §6 uses:**
+
+| definition-of-done item | on `claude/perf-opt2` |
+| --- | --- |
+| 1. `flutter analyze` — zero issues | **exit 1**, two errors, with the exact flags the CI job uses |
+| 2. `flutter test` — green | **red**: `m233_profile_ladders_test.dart` imports the file and cannot load |
+| 3. `python3 -m unittest discover -s ci` | green (45 tests) |
+
+`bug_capture.dart:31` imports it too, so this is not confined to the test.
+
+The fix is one character in either direction — widen `_sweep` to `OcctFfi?` and
+guard inside, or hoist a single null check above both ladders — but the choice
+belongs to whoever owns the scenario's semantics: a null `occt` means the
+native kernel is not linked, and whether that rung should be *skipped* or
+should *fail loudly* is a measurement decision, not a typing one. On a Linux
+host it is always null, which is exactly where a silent skip would produce a
+ladder of empty rungs that looks like a measurement.
