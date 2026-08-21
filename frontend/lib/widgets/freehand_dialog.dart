@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../freehand.dart';
 import '../theme.dart';
+import '../l10n/l.dart';
 
 class FreehandDialog extends StatefulWidget {
   final AppState app;
@@ -57,11 +58,11 @@ class _FreehandDialogState extends State<FreehandDialog> {
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
               ),
               child: Row(children: [
-                Text('Freehand Spline',
+                Text(L.of(context).dlgFreehandSpline,
                     style: ts(12, T.text, w: FontWeight.w600)),
                 const Spacer(),
                 _IconBtn(
-                  tooltip: 'Discard (Esc)',
+                  tooltip: L.of(context).tipDiscardEsc,
                   icon: Icons.close,
                   color: T.dim,
                   onTap: widget.app.freehandCancel,
@@ -73,7 +74,7 @@ class _FreehandDialogState extends State<FreehandDialog> {
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               _slider(
-                label: 'Points',
+                label: L.of(context).lblPoints,
                 value: f.points.toDouble(),
                 min: kFreehandMinPoints.toDouble(),
                 max: kFreehandMaxPoints.toDouble(),
@@ -82,7 +83,7 @@ class _FreehandDialogState extends State<FreehandDialog> {
                 onChanged: (v) => _edit(() => f.points = v.round()),
               ),
               _slider(
-                label: 'Smoothing',
+                label: L.of(context).lblSmoothing,
                 value: f.smoothing,
                 min: 0,
                 max: 1,
@@ -99,7 +100,7 @@ class _FreehandDialogState extends State<FreehandDialog> {
               // deleting the constraint afterwards, like any other.
               const SizedBox(height: 10),
               Row(children: [
-                Text('${widget.app.toolPoints.length} fit points',
+                Text(L.of(context).lblFitPoints(widget.app.toolPoints.length),
                     style: ts(10.5, T.dim)),
                 const Spacer(),
                 _FinishButton(onTap: widget.app.freehandCommit),
@@ -187,7 +188,7 @@ class _FinishButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-        message: 'Finish (Enter)',
+        message: L.of(context).tipFinishEnter,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
@@ -200,7 +201,7 @@ class _FinishButton extends StatelessWidget {
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               const Icon(Icons.check, size: 15, color: Colors.white),
               const SizedBox(width: 5),
-              Text('Finish', style: ts(11.5, Colors.white, w: FontWeight.w600)),
+              Text(L.of(context).finish, style: ts(11.5, Colors.white, w: FontWeight.w600)),
             ]),
           ),
         ),

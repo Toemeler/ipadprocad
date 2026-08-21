@@ -46,6 +46,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme.dart';
+import '../l10n/l.dart';
 
 /// One key. [insert] is the text it types; the two specials do their own thing.
 enum PadKey {
@@ -203,7 +204,7 @@ class ValuePad extends StatelessWidget {
           Row(mainAxisSize: MainAxisSize.min, children: [
             k(PadKey.k0, span: 2),
             const SizedBox(width: gap),
-            k(PadKey.done, label: 'OK', span: 2, tint: T.blue),
+            k(PadKey.done, label: L.of(context).ok, span: 2, tint: T.blue),
           ]),
         ]),
       ),

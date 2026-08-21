@@ -27,6 +27,7 @@ import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/widgets/bottom_tabbar.dart';
 import 'package:prototype/widgets/model_browser.dart';
 import 'package:prototype/widgets/ribbon.dart';
+import 'package:prototype/l10n/l.dart';
 
 AppState makeApp() {
   final app = AppState();
@@ -44,7 +45,16 @@ Future<void> pump(WidgetTester t, Widget w) async {
 }
 
 /// Opens the ▼ next to a panel title.
+///
+/// M234 — scrolls to it first. The ribbon is a horizontal scroller by
+/// construction ("the bar is only as wide as the screen and its panels
+/// routinely overflow"), and the German panel titles push the last panel past
+/// the right edge of this test's 1600 px surface. Tapping a widget that is
+/// off-screen is a test artefact, not a defect: on a device the user flicks
+/// the ribbon, which is what ensureVisible does here.
 Future<void> openOverflow(WidgetTester t, String panel) async {
+  await t.ensureVisible(find.text(panel));
+  await t.pumpAndSettle();
   await t.tap(find.text(panel));
   await t.pumpAndSettle();
 }
@@ -62,8 +72,8 @@ void main() {
       await pump(t, Ribbon(app: makeApp()));
       // If _panel ever closes over its own title variable again, this never
       // returns (host) / blows the stack (device) and the titles never render.
-      expect(find.text('Constrain'), findsOneWidget);
-      expect(find.text('Modify'), findsOneWidget);
+      expect(find.text(L.current.panelConstrain), findsOneWidget);
+      expect(find.text(L.current.panelModify), findsOneWidget);
       expect(t.takeException(), isNull);
     });
 
@@ -77,14 +87,18 @@ void main() {
     testWidgets('they are NOT on the panel face', (t) async {
       await pump(t, Ribbon(app: makeApp()));
       // the grid is icon-only, so tooltips are the probe
-      for (final label in const [
-        'Smooth (G2)',
-        'Constraint Settings',
-        'Show Constraints',
+      for (final label in [
+        L.current.btnSmoothG2,
+        L.current.btnConstraintSettings,
+        L.current.btnShowConstraints,
       ]) {
         expect(find.byTooltip(label), findsNothing, reason: label);
       }
-      for (final label in const ['Coincident', 'Parallel', 'Equal']) {
+      for (final label in [
+        L.current.conCoincident,
+        L.current.conParallel,
+        L.current.conEqual,
+      ]) {
         expect(find.byTooltip(label), findsOneWidget, reason: label);
       }
     });
@@ -93,20 +107,20 @@ void main() {
         (t) async {
       final app = makeApp();
       await pump(t, Ribbon(app: app));
-      await openOverflow(t, 'Constrain');
-      expect(find.text('Smooth (G2)'), findsOneWidget);
-      expect(find.text('Constraint Settings'), findsOneWidget);
-      expect(find.text('Show Constraints'), findsOneWidget);
-      await t.tap(find.text('Smooth (G2)'));
+      await openOverflow(t, L.current.panelConstrain);
+      expect(find.text(L.current.btnSmoothG2), findsOneWidget);
+      expect(find.text(L.current.btnConstraintSettings), findsOneWidget);
+      expect(find.text(L.current.btnShowConstraints), findsOneWidget);
+      await t.tap(find.text(L.current.btnSmoothG2));
       await t.pumpAndSettle();
       expect(app.tool, Tool.cSmooth);
     });
 
     testWidgets('the menu opens DOWNWARD, below the title', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      final titleY = t.getCenter(find.text('Constrain')).dy;
-      await openOverflow(t, 'Constrain');
-      final itemY = t.getCenter(find.text('Show Constraints')).dy;
+      final titleY = t.getCenter(find.text(L.current.panelConstrain)).dy;
+      await openOverflow(t, L.current.panelConstrain);
+      final itemY = t.getCenter(find.text(L.current.btnShowConstraints)).dy;
       expect(itemY, greaterThan(titleY),
           reason: 'upward menus climb over the ribbon into the status bar');
     });
@@ -115,22 +129,22 @@ void main() {
   group('Insert = Insert + Format + Manage in one panel', () {
     testWidgets('only the four kept commands are on the face', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      for (final label in const [
-        'Image',
-        'ACAD',
-        'Construction',
-        'Parameters',
+      for (final label in [
+        L.current.btnImage,
+        L.current.btnAcad,
+        L.current.btnConstruction,
+        L.current.btnParameters,
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
       expect(find.text('Format'), findsNothing);
       expect(find.text('Manage'), findsNothing);
-      for (final label in const [
-        'Points',
-        'Show Format',
-        'Center Point',
-        'Centerline',
-        'Driven Dimension',
+      for (final label in [
+        L.current.btnPointsTool,
+        L.current.btnShowFormat,
+        L.current.btnCenterPoint,
+        L.current.btnCenterline,
+        L.current.btnDrivenDimension,
       ]) {
         expect(find.text(label), findsNothing, reason: label);
       }
@@ -138,13 +152,13 @@ void main() {
 
     testWidgets('the ▼ reaches all five moved commands', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      await openOverflow(t, 'Insert');
-      for (final label in const [
-        'Points',
-        'Centerline',
-        'Center Point',
-        'Driven Dimension',
-        'Show Format',
+      await openOverflow(t, L.current.panelInsert);
+      for (final label in [
+        L.current.btnPointsTool,
+        L.current.btnCenterline,
+        L.current.btnCenterPoint,
+        L.current.btnDrivenDimension,
+        L.current.btnShowFormat,
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
@@ -154,7 +168,7 @@ void main() {
       final app = makeApp();
       expect(app.showParams, isFalse);
       await pump(t, Ribbon(app: app));
-      await t.tap(find.text('Parameters'));
+      await t.tap(find.text(L.current.btnParameters));
       await t.pumpAndSettle();
       expect(app.showParams, isTrue);
     });
@@ -163,16 +177,20 @@ void main() {
   group('Modify: only Trim / Split / Offset keep their width', () {
     testWidgets('the transform family left the panel face', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      for (final label in const ['Trim', 'Split', 'Offset']) {
+      for (final label in [
+        L.current.btnTrim,
+        L.current.btnSplitCurve,
+        L.current.btnOffsetCurve,
+      ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
-      for (final label in const [
-        'Extend',
-        'Move',
-        'Copy',
-        'Rotate',
-        'Scale',
-        'Stretch',
+      for (final label in [
+        L.current.btnExtend,
+        L.current.flyMoveB,
+        L.current.btnCopy,
+        L.current.flyRotateB,
+        L.current.flyScaleB,
+        L.current.btnStretch,
       ]) {
         expect(find.text(label), findsNothing, reason: label);
       }
@@ -181,18 +199,18 @@ void main() {
     testWidgets('the ▼ reaches all six, and they still start', (t) async {
       final app = makeApp();
       await pump(t, Ribbon(app: app));
-      await openOverflow(t, 'Modify');
-      for (final label in const [
-        'Extend',
-        'Move',
-        'Copy',
-        'Rotate',
-        'Scale',
-        'Stretch',
+      await openOverflow(t, L.current.panelModify);
+      for (final label in [
+        L.current.btnExtend,
+        L.current.flyMoveB,
+        L.current.btnCopy,
+        L.current.flyRotateB,
+        L.current.flyScaleB,
+        L.current.btnStretch,
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
-      await t.tap(find.text('Extend'));
+      await t.tap(find.text(L.current.btnExtend));
       await t.pumpAndSettle();
       expect(app.tool, Tool.extendT);
     });
@@ -205,9 +223,9 @@ void main() {
       // exactly three panel arrows exist, and they belong to the panels WITH
       // an overflow — so none is left on Create / Start New Layer / Finish
       expect(panelArrows, findsNWidgets(3));
-      expect(find.textContaining('Start'), findsOneWidget);
-      expect(find.text('Create'), findsOneWidget);
-      expect(find.text('Finish'), findsOneWidget);
+      expect(find.text(L.current.btnStartNewLayer), findsOneWidget);
+      expect(find.text(L.current.create), findsOneWidget);
+      expect(find.text(L.current.btnFinish), findsOneWidget);
     });
   });
 
@@ -222,7 +240,7 @@ void main() {
           findsNothing);
       expect(find.text('🔍'), findsNothing);
       expect(find.text('☰'), findsNothing);
-      expect(find.text('Model'), findsOneWidget); // the header itself stays
+      expect(find.text(L.current.browserTitle), findsOneWidget); // the header itself stays
     });
 
     testWidgets('only a LOCKED layer shows a padlock', (t) async {

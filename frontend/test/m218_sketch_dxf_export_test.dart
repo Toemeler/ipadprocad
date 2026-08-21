@@ -24,6 +24,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/l10n/l.dart';
 import 'package:prototype/ffi/qcad_engine.dart' show Geo;
 import 'package:prototype/widgets/viewport3d.dart' show sketch3dMenuItems;
 
@@ -77,16 +78,17 @@ void main() {
 
   group('the menu contract', () {
     test('four items, in the order the sheet shows them', () {
-      expect(sketch3dMenuItems().map((i) => i.id).toList(),
+      final items = sketch3dMenuItems(L.stringsFor(kEn));
+      expect(items.map((i) => i.id).toList(),
           ['skEdit', 'skVisible', 'skExportDxf', 'skShareDxf']);
-      expect(sketch3dMenuItems().map((i) => i.title).toList(),
+      expect(items.map((i) => i.title).toList(),
           ['Edit Sketch', 'Hide', 'Export DXF…', 'Share DXF…']);
     });
 
     test('Edit and Hide keep the model browser ids', () {
       // Same command, same id: the two menus are two ways to the same place,
       // and a rename on one side that forgot the other would leave a dead row.
-      final ids = sketch3dMenuItems().map((i) => i.id);
+      final ids = sketch3dMenuItems(L.stringsFor(kEn)).map((i) => i.id);
       expect(ids, containsAll(['skEdit', 'skVisible']));
     });
 
@@ -94,11 +96,14 @@ void main() {
       // Deliberate: Delete lives in the browser, where the row you press is
       // unambiguous. A long press in the viewport can land on a curve you did
       // not mean, and that must never be able to cost a sketch.
-      expect(sketch3dMenuItems().every((i) => !i.destructive), isTrue);
+      expect(sketch3dMenuItems(L.stringsFor(kEn)).every((i) => !i.destructive),
+          isTrue);
     });
 
     test('every item carries a glyph', () {
-      expect(sketch3dMenuItems().every((i) => (i.symbol ?? '').isNotEmpty),
+      expect(
+          sketch3dMenuItems(L.stringsFor(kEn))
+              .every((i) => (i.symbol ?? '').isNotEmpty),
           isTrue);
     });
   });
@@ -232,7 +237,11 @@ void main() {
 
       expect(await app.childSketchExportPath('Bracket', _sketchOf(app)), isNull,
           reason: 'an empty DXF is worse than a refusal');
-      expect(app.message, contains('empty'));
+      // M234 — pinned to the l10n key, not to an English substring: the
+      // message is German now, and a `contains('empty')` was only ever
+      // checking that SOME message mentioned emptiness.
+      expect(app.message,
+          L.current.msgNothingToExportEmpty(_sketchOf(app)));
     });
 
     test('exporting from a CLOSED part does not open it', () async {

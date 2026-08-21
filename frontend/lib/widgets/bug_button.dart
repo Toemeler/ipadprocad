@@ -24,6 +24,7 @@ import '../app_state.dart';
 import '../bug_capture.dart';
 import '../log.dart';
 import '../theme.dart';
+import '../l10n/l.dart';
 
 /// The report-it-now affordance, as a flow rather than a widget.
 class BugReport {
@@ -78,7 +79,7 @@ class _BugDialogState extends State<_BugDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: T.panel,
-      title: Text('Report a bug', style: ts(16, Colors.white)),
+      title: Text(L.of(context).dlgReportBug, style: ts(16, Colors.white)),
       content: SizedBox(
         width: 460,
         child: Column(
@@ -86,9 +87,7 @@ class _BugDialogState extends State<_BugDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'What did you expect, and what happened instead?\n'
-              'The model, every feature\'s state and the full log are '
-              'attached automatically — describe only what you SAW.',
+              L.of(context).msgBugPrompt,
               style: ts(12, Colors.white70),
             ),
             const SizedBox(height: 12),
@@ -99,8 +98,7 @@ class _BugDialogState extends State<_BugDialog> {
               minLines: 4,
               style: ts(13, Colors.white),
               decoration: InputDecoration(
-                hintText: 'e.g. filleted the top edge at 2 mm and the wall '
-                    'disappeared instead of rounding',
+                hintText: L.of(context).hintBugExample,
                 hintStyle: ts(12, Colors.white38),
                 filled: true,
                 fillColor: const Color(0xFF191B1F),
@@ -116,7 +114,7 @@ class _BugDialogState extends State<_BugDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text('Cancel', style: ts(13, Colors.white70)),
+          child: Text(L.of(context).cancel, style: ts(13, Colors.white70)),
         ),
         FilledButton(
           style: FilledButton.styleFrom(
@@ -125,7 +123,7 @@ class _BugDialogState extends State<_BugDialog> {
           // valuable half and it is complete either way, so a wordless report
           // still beats no report.
           onPressed: () => Navigator.of(context).pop(_c.text),
-          child: Text('Save report', style: ts(13, Colors.white)),
+          child: Text(L.of(context).btnSaveReport, style: ts(13, Colors.white)),
         ),
       ],
     );
@@ -145,7 +143,7 @@ class _ResultDialog extends StatelessWidget {
     }
     return AlertDialog(
       backgroundColor: T.panel,
-      title: Text(ok ? 'Report saved' : 'Report FAILED',
+      title: Text(ok ? L.of(context).msgReportSaved : L.of(context).msgReportFailed,
           style: ts(16, Colors.white)),
       content: SizedBox(
         width: 460,
@@ -155,12 +153,8 @@ class _ResultDialog extends StatelessWidget {
           children: [
             Text(
               ok
-                  ? 'Files app > On My iPad > prototype > bugreports\n'
-                      'Send the .zip — it contains everything needed; no '
-                      'explanation has to travel with it.'
-                  : 'The bundle could not be written. The log still has the '
-                      'description, so the session is not lost — see the '
-                      '"bug" lines in prototype_log.txt.',
+                  ? L.of(context).msgBugSaved
+                  : L.of(context).msgBugBundleFailed,
               style: ts(12, Colors.white70),
             ),
             if (ok) ...[
@@ -175,11 +169,11 @@ class _ResultDialog extends StatelessWidget {
           TextButton(
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: path!)),
-            child: Text('Copy path', style: ts(13, Colors.white70)),
+            child: Text(L.of(context).btnCopyPath, style: ts(13, Colors.white70)),
           ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text('Done', style: ts(13, Colors.white)),
+          child: Text(L.of(context).done, style: ts(13, Colors.white)),
         ),
       ],
     );

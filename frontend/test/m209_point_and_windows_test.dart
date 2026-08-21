@@ -29,6 +29,7 @@ import 'package:prototype/snap.dart';
 import 'package:prototype/tools.dart';
 import 'package:prototype/widgets/viewport.dart';
 import 'package:prototype/widgets/viewport_window.dart';
+import 'package:prototype/l10n/l.dart';
 
 AppState _app() {
   final app = AppState();
@@ -143,7 +144,7 @@ void main() {
       final before = app.current!.geometry.length;
       final points = app.toolPoints.length;
       // A tap on the window: down and up inside its rectangle.
-      final at = t.getCenter(find.text('Freehand Spline'));
+      final at = t.getCenter(find.text(L.current.dlgFreehandSpline));
       final g = await t.startGesture(at);
       await g.up();
       await t.pumpAndSettle();

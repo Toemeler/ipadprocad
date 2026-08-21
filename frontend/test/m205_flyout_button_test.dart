@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/l10n/l.dart';
 import 'package:prototype/menus.dart';
 import 'package:prototype/widgets/quick_tools.dart';
 import 'package:prototype/widgets/ribbon.dart';
@@ -83,7 +84,12 @@ void main() {
     testWidgets('the target is far bigger than the 40x14 it replaced',
         (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      for (final label in const ['Line', 'Circle', 'Arc', 'Rectangle']) {
+      for (final label in [
+        L.current.btnLine,
+        L.current.btnCircle,
+        L.current.btnArc,
+        L.current.btnRectangle,
+      ]) {
         final s = chipTarget(t, label);
         expect(s.width, greaterThanOrEqualTo(44), reason: label);
         expect(s.height, greaterThanOrEqualTo(26), reason: label);
@@ -94,13 +100,13 @@ void main() {
 
     testWidgets('tapping the chip opens that button\'s list', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      await t.tap(chipUnder(t, 'Rectangle'));
+      await t.tap(chipUnder(t, L.current.btnRectangle));
       await t.pumpAndSettle();
       // The Rectangle flyout, and no other: "Two Point" is its first variant.
-      expect(find.text('Two Point'), findsOneWidget);
+      expect(find.text(L.current.flyTwoPointSub), findsOneWidget);
       // ...and only the Rectangle one. (Not "Center Point" as the probe: the
       // Slot variants in this very list have one.)
-      expect(find.text('Ellipse'), findsNothing, reason: 'that is Circle');
+      expect(find.text(L.current.flyEllipseB), findsNothing, reason: 'that is Circle');
     });
 
     testWidgets('the chip is BESIDE the body, not on top of it', (t) async {
@@ -110,9 +116,9 @@ void main() {
       await pump(t, Ribbon(app: makeApp()));
       final chip = t.getRect(find
           .ancestor(
-              of: chipUnder(t, 'Rectangle'), matching: find.byType(GestureDetector))
+              of: chipUnder(t, L.current.btnRectangle), matching: find.byType(GestureDetector))
           .first);
-      final label = t.getRect(find.text('Rectangle'));
+      final label = t.getRect(find.text(L.current.btnRectangle));
       expect(chip.top, greaterThanOrEqualTo(label.bottom - 1));
     });
   });
@@ -120,28 +126,28 @@ void main() {
   group('a click anywhere else cancels the menu', () {
     testWidgets('a bare pointer DOWN closes it — no tap required', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      await t.tap(chipUnder(t, 'Rectangle'));
+      await t.tap(chipUnder(t, L.current.btnRectangle));
       await t.pumpAndSettle();
-      expect(find.text('Two Point'), findsOneWidget);
+      expect(find.text(L.current.flyTwoPointSub), findsOneWidget);
 
       // Down and nothing else. This never becomes a tap, which is exactly the
       // case the old GestureDetector barrier could not see.
       final g = await t.startGesture(const Offset(800, 700));
       await t.pump();
-      expect(find.text('Two Point'), findsNothing);
+      expect(find.text(L.current.flyTwoPointSub), findsNothing);
       await g.up();
       await t.pumpAndSettle();
     });
 
     testWidgets('a press that turns into a DRAG closes it too', (t) async {
       await pump(t, Ribbon(app: makeApp()));
-      await t.tap(chipUnder(t, 'Rectangle'));
+      await t.tap(chipUnder(t, L.current.btnRectangle));
       await t.pumpAndSettle();
 
       final g = await t.startGesture(const Offset(800, 700));
       await g.moveBy(const Offset(120, 60));
       await t.pump();
-      expect(find.text('Two Point'), findsNothing,
+      expect(find.text(L.current.flyTwoPointSub), findsNothing,
           reason: 'a drag is not a tap, and it still means "not the menu"');
       await g.up();
       await t.pumpAndSettle();
@@ -151,12 +157,12 @@ void main() {
         (t) async {
       final app = makeApp();
       await pump(t, Ribbon(app: app));
-      await t.tap(chipUnder(t, 'Rectangle'));
+      await t.tap(chipUnder(t, L.current.btnRectangle));
       await t.pumpAndSettle();
-      await t.tap(find.text('Three Point'));
+      await t.tap(find.text(L.current.flyThreePointSub));
       await t.pumpAndSettle();
       expect(app.tool, Tool.rect3P);
-      expect(find.text('Two Point'), findsNothing, reason: 'picking closes it');
+      expect(find.text(L.current.flyTwoPointSub), findsNothing, reason: 'picking closes it');
     });
   });
 
@@ -167,13 +173,13 @@ void main() {
       // one click that left a menu standing.
       final app = makeApp();
       await pump(t, Ribbon(app: app));
-      await t.tap(chipUnder(t, 'Rectangle'));
+      await t.tap(chipUnder(t, L.current.btnRectangle));
       await t.pumpAndSettle();
       expect(OpenMenus.any, isTrue);
 
       runQuickTool(app, QuickToolId.cancel);
       await t.pumpAndSettle();
-      expect(find.text('Two Point'), findsNothing);
+      expect(find.text(L.current.flyTwoPointSub), findsNothing);
       expect(OpenMenus.any, isFalse);
     });
   });

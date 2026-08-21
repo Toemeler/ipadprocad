@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/work_features.dart';
+import 'package:prototype/l10n/l.dart';
 
 import 'm56_part_test.dart' show FakeKernel;
 
@@ -32,6 +33,19 @@ AppState _app() {
 }
 
 void main() {
+
+  // M234 — this file runs in ENGLISH, deliberately.
+  //
+  // What it pins is which refusal fires and what it names — "straight",
+  // "skew", "7.000", "not a toroidal face". That is geometry, not
+  // presentation, and every one of those assertions stays exactly as
+  // meaningful when it is read in one fixed language. Translating the
+  // fragments into German would have hardcoded German into a geometry test
+  // and bought nothing: the German strings are covered by
+  // l10n_completeness_test (present, non-empty, same placeholders) and
+  // l10n_length_test (short enough to fit).
+  setUpAll(() => L.set(kEn));
+  tearDownAll(L.resetForTest);
   TestWidgetsFlutterBinding.ensureInitialized();
   _curveTests();
 

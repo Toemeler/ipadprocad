@@ -16,6 +16,8 @@ import '../params.dart';
 import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
+import '../l10n/fmt.dart';
+import '../l10n/l.dart';
 
 class ParametersDialog extends StatefulWidget {
   final AppState app;
@@ -63,8 +65,8 @@ class _ParametersDialogState extends State<ParametersDialog> {
                       fontStyle: FontStyle.italic,
                       fontWeight: FontWeight.w600)),
               const SizedBox(width: 6),
-              const Expanded(
-                  child: Text('Parameters',
+              Expanded(
+                  child: Text(L.of(context).dlgParameters,
                       style: TextStyle(color: T.text, fontSize: 12))),
               InkWell(
                 onTap: app.toggleParams,
@@ -82,25 +84,25 @@ class _ParametersDialogState extends State<ParametersDialog> {
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               _header(),
-              _section('Model Parameters'),
+              _section(L.of(context).secModelParameters),
               if (dims.isEmpty)
-                const Padding(
+                Padding(
                     padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text('No dimensions in this sketch.',
+                    child: Text(L.of(context).msgNoDimensionsInSketch,
                         style: TextStyle(color: T.dim, fontSize: 11))),
               for (final c in dims) _DimRow(app: app, dim: c),
               const SizedBox(height: 6),
-              _section('User Parameters'),
+              _section(L.of(context).secUserParameters),
               if (s != null)
                 for (final u in s.userParams) _UserRow(app: app, u: u),
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: InkWell(
                   onTap: () => setState(() => app.addUserParam()),
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.add, size: 14, color: T.blue),
                     SizedBox(width: 4),
-                    Text('Add numeric parameter',
+                    Text(L.of(context).btnAddNumericParameter,
                         style: TextStyle(color: T.blue, fontSize: 11)),
                   ]),
                 ),
@@ -119,21 +121,21 @@ class _ParametersDialogState extends State<ParametersDialog> {
                 color: T.dim, fontSize: 10, fontWeight: FontWeight.w600)),
       );
 
-  Widget _header() => const Padding(
+  Widget _header() => Padding(
         padding: EdgeInsets.only(bottom: 2),
         child: Row(children: [
           SizedBox(
               width: 96,
-              child: Text('Parameter Name',
+              child: Text(L.of(context).colParameterName,
                   style: TextStyle(color: T.dim, fontSize: 10))),
           SizedBox(width: 6),
           Expanded(
               child:
-                  Text('Equation', style: TextStyle(color: T.dim, fontSize: 10))),
+                  Text(L.of(context).colEquation, style: TextStyle(color: T.dim, fontSize: 10))),
           SizedBox(width: 6),
           SizedBox(
               width: 86,
-              child: Text('Value', style: TextStyle(color: T.dim, fontSize: 10))),
+              child: Text(L.of(context).colValue, style: TextStyle(color: T.dim, fontSize: 10))),
           SizedBox(width: 22),
         ]),
       );
@@ -280,9 +282,9 @@ class _ParamRowState extends State<_ParamRow> {
         const SizedBox(width: 6),
         Expanded(
           child: widget.readOnly
-              ? cell(const Padding(
+              ? cell(Padding(
                   padding: EdgeInsets.only(left: 4),
-                  child: Text('(reference)',
+                  child: Text(L.of(context).lblReference,
                       style: TextStyle(fontSize: 11, color: T.dim))))
               // M180 — the Equation cell drags too, when it holds a plain
               // number. Applied per detent like everywhere else, so the sketch
@@ -341,8 +343,8 @@ class _DimRow extends StatelessWidget {
       key: ObjectKey(dim),
       app: app,
       name: dim.paramName!,
-      equation: dim.expr ?? v.toStringAsFixed(_angle(dim) ? 1 : 2),
-      value: '${v.toStringAsFixed(_angle(dim) ? 1 : 2)}$unit',
+      equation: dim.expr ?? Fmt.fixed(v, _angle(dim) ? 1 : 2),
+      value: '${Fmt.fixed(v, _angle(dim) ? 1 : 2)}$unit',
       readOnly: dim.driven,
       kind: _angle(dim) ? ScrubKind.angle : ScrubKind.length,
       commitName: (t) => app.renameDimParam(dim, t),
@@ -363,8 +365,8 @@ class _UserRow extends StatelessWidget {
       key: ObjectKey(u),
       app: app,
       name: u.name,
-      equation: u.expr ?? u.value.toStringAsFixed(2),
-      value: '${u.value.toStringAsFixed(2)} mm',
+      equation: u.expr ?? Fmt.fixed(u.value, 2),
+      value: Fmt.mm(u.value),
       commitName: (t) => app.renameUserParam(u, t),
       commitEquation: (t) => app.setUserParamText(u, t),
       validEquation: (t) => app.userParamTextValid(u, t),
