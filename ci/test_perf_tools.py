@@ -340,6 +340,184 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIn("stress.kernel.allEdges", out)
         self.assertIn("perf_suite_stress.json", out)
 
+    # ---- S10: catalogue scenario 18 and the memory family --------------
+
+    def _soak_bundle(self, name: str, *, samples, trends, cycles=100,
+                     wall_ms=1_800_000) -> str:
+        b = os.path.join(self.dir, name)
+        synthetic_bundle(b)
+        with zipfile.ZipFile(b, "a") as z:
+            z.writestr("perf_suite_soak.json", json.dumps({
+                "suite": "perf_scenarios_soak/v1", "build": "testbuild",
+                "at": "2026-01-01T00:00:00.000000", "wallMs": wall_ms,
+                "cycles": cycles, "cycleThrew": 0,
+                "did": {"solves": 5 * cycles, "analyses": cycles,
+                        "gears": cycles, "solids": cycles,
+                        "edges": 24 * cycles, "triangles": 100 * cycles},
+                "trends": trends, "samples": samples,
+            }))
+        return b
+
+    @staticmethod
+    def _trend(slope, half, n=30, r2=0.99, resolved=None):
+        return {"n": n, "slope": slope, "intercept": 0.0, "r2": r2,
+                "se": half / 1.96 if half else 0.0, "halfWidth": half,
+                "resolved": (abs(slope) > half > 0) if resolved is None
+                else resolved}
+
+    def test_a_soak_slope_is_printed_beside_the_floor_that_qualifies_it(self):
+        """The soak's whole output is a rate, and a rate without its own
+        uncertainty is unreadable in the one direction that matters: "no leak"
+        and "no sensitivity" look identical on the page. Both numbers, always.
+        """
+        samples = [
+            {"phase": "work", "minutes": float(i), "cycles": i,
+             "dartRssMB": 300 + i, "footprintMB": 1000 + 2 * i,
+             "residentMB": 400 + i, "availableMB": 3000 - i,
+             "internalMB": 800 + i, "compressedMB": 150, "deviceMB": 40,
+             "externalMB": 60, "thermal": 0 if i < 20 else 2,
+             "frames": 100 * i, "jank": i, "lagP95Ms": 1.0, "logKB": 100 * i}
+            for i in range(30)
+        ] + [
+            {"phase": "settle", "minutes": 30.0 + i, "cycles": 30,
+             "dartRssMB": 320, "footprintMB": 1040, "residentMB": 420,
+             "availableMB": 2970, "internalMB": 830, "compressedMB": 150,
+             "deviceMB": 40, "externalMB": 60, "thermal": 2,
+             "frames": 3000, "jank": 30, "lagP95Ms": 1.0, "logKB": 3000}
+            for i in range(2)
+        ]
+        trends = {
+            # 2 MB/min = 120 MB/h, floor 12 MB/h -> resolved, i.e. a leak
+            "footprintMBPerMin": self._trend(2.0, 0.2),
+            "dartRssMBPerMin": self._trend(1.0, 0.1),
+            "internalMBPerMin": self._trend(1.0, 0.1),
+            "compressedMBPerMin": self._trend(0.0, 0.1),
+            "deviceMBPerMin": self._trend(0.0, 0.1),
+            "residentMBPerMin": self._trend(1.0, 0.1),
+            "availableMBPerMin": self._trend(-1.0, 0.1),
+            "jankPerKFramePerMin": self._trend(0.0, 0.5),
+            "lagP95MsPerMin": self._trend(0.0, 0.2),
+            "logKBPerMin": self._trend(100.0, 5.0),
+        }
+        b = self._soak_bundle("soak.zip", samples=samples, trends=trends)
+
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            pr.main_for_test(b)
+        finally:
+            sys.stdout = old
+        out = buf.getvalue()
+
+        self.assertIn("catalogue scenario 18", out)
+        self.assertIn("phys_footprint", out)
+        # 2 MB/min is 120 MB/h; its floor is 12 MB/h. Both on the page.
+        self.assertIn("120.00", out)
+        self.assertIn("12.00", out)
+        self.assertIn("RESOLVED", out)
+        # The decomposition, which is the whole reason PerfProbe grew four
+        # fields: a footprint that rises is only actionable once you know
+        # WHICH part of it rose.
+        self.assertIn("internal", out)
+        self.assertIn("compressed", out)
+        # Thermal rose during the run, so any trend above is suspect and the
+        # report has to say so rather than leave the reader to notice.
+        self.assertIn("the device heated up", out)
+        # The settle phase separates a leak from a heap reaching its size.
+        self.assertIn("settle:", out)
+        # And 8.5's ratio, over a run rather than at four moments.
+        self.assertIn("footprint / RSS", out)
+
+    def test_an_unresolved_soak_slope_is_not_reported_as_no_leak(self):
+        """The failure mode this section exists to prevent. A flat-looking
+        slope whose interval is wider than itself has not shown there is no
+        leak; it has shown the run could not have seen one.
+        """
+        samples = [{"phase": "work", "minutes": float(i), "cycles": i,
+                    "dartRssMB": 300, "footprintMB": -1, "residentMB": -1,
+                    "availableMB": -1, "internalMB": -1, "compressedMB": -1,
+                    "deviceMB": -1, "externalMB": -1, "thermal": -1,
+                    "frames": 0, "jank": 0, "lagP95Ms": 0.0, "logKB": -1}
+                   for i in range(5)]
+        trends = {"dartRssMBPerMin": self._trend(0.1, 4.0, n=5, r2=0.01)}
+        b = self._soak_bundle("soakflat.zip", samples=samples, trends=trends)
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            pr.main_for_test(b)
+        finally:
+            sys.stdout = old
+        out = buf.getvalue()
+        self.assertIn("below its own floor", out)
+        self.assertIn("could not have seen one that small", out)
+        # No native probe on this run, so the footprint row must say it was
+        # not sampled rather than print a slope of zero.
+        self.assertIn("not sampled", out)
+
+    def test_a_bundle_without_a_soak_says_so_instead_of_pretending(self):
+        b = os.path.join(self.dir, "nosoak.zip")
+        synthetic_bundle(b)
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            pr.main_for_test(b)
+        finally:
+            sys.stdout = old
+        out = buf.getvalue()
+        self.assertIn("no soak in this bundle", out)
+        self.assertIn("no memory family in this bundle", out)
+
+    def test_the_memory_family_reaches_the_report_and_the_appendix(self):
+        """The delivery path, which section 13.1 is the cautionary tale for:
+        a green job whose numbers nobody could read for a dozen runs.
+        """
+        b = os.path.join(self.dir, "mem.zip")
+        synthetic_bundle(b)
+        with zipfile.ZipFile(b, "a") as z:
+            z.writestr("perf_suite_memory.json", json.dumps({
+                "suite": "perf_scenarios_memory/v1", "build": "testbuild",
+                "wallMs": 900, "scenarios": [
+                    {"scenario": "mem.analyze.128", "wallMs": 90.0,
+                     "spans": {"sketch.analyze": {"n": 1, "totalMs": 90.0,
+                                                  "avgMs": 90.0}},
+                     "counters": {},
+                     "gauges": {"mem.analyze.128.params": 448,
+                                "mem.analyze.128.residuals": 322,
+                                "mem.analyze.128.rank": 322,
+                                "mem.analyze.128.dof": 126,
+                                "mem.analyze.128.churnMB": 3,
+                                "mem.analyze.128.rssDeltaMB": 2,
+                                "mem.analyze.128.settledDeltaMB": 1}},
+                ]}))
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            pr.main_for_test(b)
+        finally:
+            sys.stdout = old
+        out = buf.getvalue()
+        self.assertIn("WHAT ALLOCATES", out)
+        self.assertIn("448", out)
+        # churn is arithmetic, not measurement, and the report has to say so
+        # where the number is, not in a document somebody may not have.
+        self.assertIn("ARITHMETIC", out)
+
+        # ...and the appendix that claims to print everything must have it.
+        d = pp.load(b)
+        self.assertIn("perf_suite_memory.json", [n for n, _ in d["runners"]])
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            pp.main_for_test(b)
+        finally:
+            sys.stdout = old
+        self.assertIn("mem.analyze.128", buf.getvalue())
+
     def test_a_failed_suite_is_reported_not_swallowed(self):
         """bug_capture writes an error STRING when a suite throws.
 

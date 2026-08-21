@@ -13,7 +13,12 @@ once, at integration (plan §8).
 | `S5-partmodel.md` | Part model | `part_model.dart` |
 | `S8-display.md` | Display path + Track B (round 2) | `widgets/viewport3d.dart`, `packages/reality_view/**`, `.github/workflows/sim-perf.yml` |
 | `S9-drift.md` | Sketch drag drift (round 2) | `solver.dart`, `endGripDrag` + warm start |
+| `S10-memory.md` | Memory + the soak (round 2) | `perf_scenarios_stress.dart`, `perf_scenarios_soak.dart` (new) |
 | `S11-sweep.md` | Sweep + loop detection (round 2) | the sweep feature path and loop detection in `part_model.dart`, `perf_scenarios_profile.dart` (new) |
+
+Round two's other sessions, per `OPTIMIZATION_PLAN_2.md` §2, write to
+`S6-shim2.md` (the shim again) and `S7-profiler.md` (the sampling profiler,
+which owns `tools/profiler/**` and no app code at all).
 
 `CROSS-SESSION.md` and `CONFLICTS.md` are **append-only**. Never edit an entry
 you did not write.

@@ -56,15 +56,18 @@ def load(path: str) -> dict:
         names = set(z.namelist())
         if "perf_snapshot.json" in names:
             out["snapshot"] = json.loads(z.read("perf_snapshot.json"))
-        # All THREE runners. Dropping the stress file here was a real bug:
+        # EVERY runner. Dropping the stress file here was a real bug:
         # perf_report.py reads it, this did not, so the appendix that claims
         # to print everything would have silently omitted the entire stress
         # tier — the one thing that measures where the app actually fails
         # rather than extrapolating to it. An appendix with a hole in it is
         # worse than an obviously partial one, because nothing signals the
-        # hole.
+        # hole. The two S10 tiers are here for the same reason; the soak
+        # carries a series rather than scenarios, so it contributes only its
+        # runner name and its errors, which is still more than nothing.
         for n in ("perf_suite.json", "perf_suite_ui.json",
-                  "perf_suite_stress.json"):
+                  "perf_suite_stress.json", "perf_suite_profile.json",
+                  "perf_suite_memory.json", "perf_suite_soak.json"):
             if n not in names:
                 continue
             raw = z.read(n)
