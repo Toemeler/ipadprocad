@@ -22,6 +22,7 @@ import '../app_state.dart';
 import '../menus.dart';
 import '../scrub.dart';
 import 'value_pad.dart';
+import '../l10n/fmt.dart';
 
 /// Makes [child] (a TextField driven by [controller]) draggable.
 ///
@@ -131,7 +132,10 @@ class _ScrubFieldState extends State<ScrubField> {
     var v = scrubbedValue(start, _dx, _step, _upp);
     if (widget.min != null && v < widget.min!) v = widget.min!;
     if (widget.max != null && v > widget.max!) v = widget.max!;
-    final text = v.toStringAsFixed(scrubDecimals(_step)) +
+    // M234 — written in the UI's convention. _current() above already strips
+    // the suffix and accepts both separators, so the value this puts back is
+    // one this widget can read again in either language.
+    final text = Fmt.fixed(v, scrubDecimals(_step)) +
         (widget.suffix == null ? '' : ' ${widget.suffix}');
     if (text == widget.controller.text) return;
     // A detent was crossed. The tick is what makes it feel mechanical rather

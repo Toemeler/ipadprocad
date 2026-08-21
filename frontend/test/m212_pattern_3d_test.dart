@@ -24,6 +24,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/part_pick.dart';
+import 'package:prototype/l10n/l.dart';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -172,6 +173,16 @@ PatternFeature _rectPattern({
 Vec3 _translationOf(List<double> m) => Vec3(m[3], m[7], m[11]);
 
 void main() {
+
+  // M234 — this file runs in ENGLISH, deliberately.
+  //
+  // It pins WHICH refusal a panel raises, by a fragment of the sentence
+  // ('Direction A', 'more than one', 'Number'). That is the panel's validation
+  // logic, not its presentation, and it stays exactly as meaningful read in
+  // one fixed language. The German side is covered by l10n_completeness_test
+  // and l10n_length_test.
+  setUpAll(() => L.set(kEn));
+  tearDownAll(L.resetForTest);
   TestWidgetsFlutterBinding.ensureInitialized();
 
   // -------------------------------------------------------------------------

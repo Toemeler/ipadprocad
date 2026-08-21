@@ -22,6 +22,7 @@ import 'package:prototype/widgets/pattern_dialog.dart';
 import 'package:prototype/widgets/ribbon.dart';
 import 'package:prototype/widgets/scrub_field.dart';
 import 'package:prototype/widgets/value_pad.dart';
+import 'package:prototype/l10n/l.dart';
 
 AppState _app() {
   final app = AppState();
@@ -48,8 +49,8 @@ void main() {
       // The chip under the split button opens the list (M205).
       await t.tap(find.byIcon(Icons.arrow_drop_down).at(3));
       await t.pumpAndSettle();
-      expect(find.text('Two Point'), findsOneWidget, reason: 'the rect flyout');
-      await t.tap(find.text('Polygon').last);
+      expect(find.text(L.current.flyTwoPointSub), findsOneWidget, reason: 'the rect flyout');
+      await t.tap(find.text(L.current.flyPolygonB).last);
       await t.pumpAndSettle();
 
       expect(app.tool, Tool.polygon,
@@ -68,7 +69,7 @@ void main() {
       app.toolParams = {'sides': 6.0};
       await _pump(t, PolygonDialog(app: app));
 
-      expect(find.text('Polygon'), findsOneWidget);
+      expect(find.text(L.current.flyPolygonB), findsOneWidget);
       expect(find.widgetWithText(TextField, '6'), findsOneWidget);
 
       await t.enterText(find.byType(TextField), '8');

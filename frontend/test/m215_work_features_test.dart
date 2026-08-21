@@ -11,6 +11,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/work_features.dart';
+import 'package:prototype/l10n/l.dart';
 
 const _x = Vec3(1, 0, 0);
 const _y = Vec3(0, 1, 0);
@@ -34,6 +35,19 @@ WorkPointSolution pointOf(WorkAttempt<WorkPointSolution> a) {
 }
 
 void main() {
+
+  // M234 — this file runs in ENGLISH, deliberately.
+  //
+  // What it pins is which refusal fires and what it names — "straight",
+  // "skew", "7.000", "not a toroidal face". That is geometry, not
+  // presentation, and every one of those assertions stays exactly as
+  // meaningful when it is read in one fixed language. Translating the
+  // fragments into German would have hardcoded German into a geometry test
+  // and bought nothing: the German strings are covered by
+  // l10n_completeness_test (present, non-empty, same placeholders) and
+  // l10n_length_test (short enough to fit).
+  setUpAll(() => L.set(kEn));
+  tearDownAll(L.resetForTest);
   group('geometry primitives', () {
     test('two planes meet on a line that lies on both', () {
       // x = 5 and y = 3 meet on the vertical line through (5, 3, 0).

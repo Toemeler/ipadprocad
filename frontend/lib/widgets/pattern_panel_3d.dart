@@ -27,6 +27,8 @@ import '../part_model.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/fmt.dart';
+import '../l10n/l.dart';
 
 class PatternPanel3D extends StatefulWidget {
   final AppState app;
@@ -163,7 +165,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
           ),
           child: Row(children: [
-            Text('Properties', style: ts(13, Colors.white, w: FontWeight.w600)),
+            Text(L.of(context).dlgProperties, style: ts(13, Colors.white, w: FontWeight.w600)),
             const SizedBox(width: 6),
             GestureDetector(
               onTap: widget.app.cancelPattern,
@@ -194,28 +196,28 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   Widget _inputGeometry(PartPatternSession s) {
     final app = widget.app;
     final n = s.features.length;
-    return panelSection('Input Geometry', _inputOpen,
+    return panelSection(L.of(context).secInputGeometry, _inputOpen,
         () => setState(() => _inputOpen = !_inputOpen), [
       if (s.patternSolid)
         panelRow(
-            'Solid',
+            L.of(context).lblSolid,
             _pickButton(
-                label: s.bodyName.isEmpty ? 'Select Solid' : s.bodyName,
+                label: s.bodyName.isEmpty ? L.of(context).lblSelectSolid : s.bodyName,
                 active: s.active == PatternField.solid,
-                hint: 'Tap the body in 3D…',
+                hint: L.of(context).hintTapBodyIn3d,
                 onTap: () => app.patternPick(PatternField.solid)))
       else
         panelRow(
-            'Feature',
+            L.of(context).lblFeature,
             _pickButton(
                 label: n == 0
-                    ? 'Select Features'
+                    ? L.of(context).lblSelectFeatures
                     : '$n Feature${n == 1 ? '' : 's'}',
                 active: s.active == PatternField.features,
                 // The feature list is fed from the MODEL BROWSER: a feature is
                 // a row in the tree, and the graphics window shows a folded
                 // body in which one extrusion's faces are no longer its own.
-                hint: 'Tap features in the browser…',
+                hint: L.of(context).hintTapFeaturesInBrowser,
                 onTap: () => app.patternPick(PatternField.features))),
       if (!s.patternSolid && s.features.isNotEmpty)
         Padding(
@@ -241,8 +243,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
 
   List<Widget> _middleSections(PartPatternSession s) => switch (s.mode) {
         PatternKind.rectangular => [
-            _directionSection('Direction A', s, first: true),
-            _directionSection('Direction B', s, first: false),
+            _directionSection(L.of(context).lblDirectionA, s, first: true),
+            _directionSection(L.of(context).lblDirectionB, s, first: false),
             _extentsSection(s),
           ],
         PatternKind.circular => [_orientationSection(s)],
@@ -257,17 +259,17 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   Widget _extentsSection(PartPatternSession s) {
     if (s.pathA == null && s.pathB == null) return const SizedBox.shrink();
     final app = widget.app;
-    return panelSection('Extents', _extentsOpen,
+    return panelSection(L.of(context).secExtents, _extentsOpen,
         () => setState(() => _extentsOpen = !_extentsOpen), [
       if (s.pathA != null)
         panelRow(
-            'Start A',
+            L.of(context).lblStartA,
             _pickButton(
                 label: s.startPickedA
-                    ? '${s.startA.toStringAsFixed(2)} mm along'
-                    : 'Curve start',
+                    ? L.of(context).lblMmAlong(Fmt.fixed(s.startA, 2))
+                    : L.of(context).lblCurveStart,
                 active: s.active == PatternField.startA,
-                hint: 'Tap a point on the curve…',
+                hint: L.of(context).hintTapPointOnCurve,
                 onTap: () => app.patternPick(PatternField.startA),
                 onClear: s.startPickedA
                     ? () => _changed(() {
@@ -277,13 +279,13 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                     : null)),
       if (s.pathB != null)
         panelRow(
-            'Start B',
+            L.of(context).lblStartB,
             _pickButton(
                 label: s.startPickedB
-                    ? '${s.startB.toStringAsFixed(2)} mm along'
-                    : 'Curve start',
+                    ? L.of(context).lblMmAlong(Fmt.fixed(s.startB, 2))
+                    : L.of(context).lblCurveStart,
                 active: s.active == PatternField.startB,
-                hint: 'Tap a point on the curve…',
+                hint: L.of(context).hintTapPointOnCurve,
                 onTap: () => app.patternPick(PatternField.startB),
                 onClear: s.startPickedB
                     ? () => _changed(() {
@@ -308,7 +310,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     return [
       for (final k in steps)
         panelRow(
-            'Occurrence ${k + 1}',
+            L.of(context).nodeOccurrence(k + 1),
             Row(children: [
               Expanded(
                 child: panelValueField(_irrController('$which$k', map[k]!),
@@ -328,7 +330,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
       panelRow(
           '',
           _smallButton(
-              which == 'C' ? '+ Irregular Angle' : '+ Irregular Distance',
+              which == 'C' ? L.of(context).lblAddIrregularAngle : L.of(context).lblAddIrregularDistance,
               false, () {
             for (var k = 1; k < count; k++) {
               if (!map.containsKey(k)) {
@@ -388,7 +390,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   }
 
   static String _fmt(double v) =>
-      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+      v == v.roundToDouble() ? Fmt.fixed(v, 0) : Fmt.fixed(v, 2);
 
   /// Direction A / B of a rectangular pattern.
   Widget _directionSection(String title, PartPatternSession s,
@@ -408,7 +410,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         open,
         () => setState(() => first ? _aOpen = !_aOpen : _bOpen = !_bOpen),
         [
-          panelRow('Direction', _axisQuickRow(field)),
+          panelRow(L.of(context).lblDirection, _axisQuickRow(field)),
           panelRow(
               '',
               Row(children: [
@@ -416,9 +418,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                   child: _pickButton(
                       label: path != null
                           ? '${path.sketchName} curve'
-                          : (ref?.label ?? 'Select Dir...'),
+                          : (ref?.label ?? L.of(context).lblSelectDir),
                       active: s.active == field,
-                      hint: 'Tap an edge or axis…',
+                      hint: L.of(context).hintTapEdgeOrAxis,
                       onTap: () => app.patternPick(field),
                       onClear: (ref == null && path == null)
                           ? null
@@ -437,7 +439,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                               })),
                 ),
                 const SizedBox(width: 4),
-                _iconToggle(Icons.swap_horiz, 'Flip', flip,
+                _iconToggle(Icons.swap_horiz, L.of(context).lblFlip, flip,
                     () => _changed(() {
                           if (first) {
                             s.flipA = !s.flipA;
@@ -446,7 +448,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                           }
                         })),
                 const SizedBox(width: 3),
-                _iconToggle(Icons.align_horizontal_center, 'Midplane', mid,
+                _iconToggle(Icons.align_horizontal_center, L.of(context).lblMidplane, mid,
                     () => _changed(() {
                           if (first) {
                             s.midplaneA = !s.midplaneA;
@@ -456,7 +458,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                         })),
               ])),
           panelRow(
-              'Number',
+              L.of(context).lblNumber,
               panelValueField(count, 'ul', (v) {
                 _changed(() {
                   if (first) {
@@ -467,9 +469,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 });
               }, app: app)),
           panelRow(
-              'Distribution',
+              L.of(context).lblDistribution,
               _segmented([
-                ('Spacing', distribution == PatternDistribution.spacing,
+                (L.of(context).lblSpacing, distribution == PatternDistribution.spacing,
                     () => _changed(() {
                           if (first) {
                             s.distributionA = PatternDistribution.spacing;
@@ -477,7 +479,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                             s.distributionB = PatternDistribution.spacing;
                           }
                         })),
-                ('Distance', distribution == PatternDistribution.distance,
+                (L.of(context).lblDistance, distribution == PatternDistribution.distance,
                     () => _changed(() {
                           if (first) {
                             s.distributionA = PatternDistribution.distance;
@@ -489,7 +491,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 // along a CURVE — there is nothing to fit to on a straight
                 // direction, and an option that cannot act is a lie.
                 if (path != null)
-                  ('Curve Length',
+                  (L.of(context).lblCurveLength,
                       distribution == PatternDistribution.curveLength,
                       () => _changed(() {
                             if (first) {
@@ -502,8 +504,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           if (distribution != PatternDistribution.curveLength)
             panelRow(
                 distribution == PatternDistribution.spacing
-                    ? 'Spacing'
-                    : 'Distance',
+                    ? L.of(context).lblSpacing
+                    : L.of(context).lblDistance,
                 panelValueField(dist, 'mm', (v) {
                   _changed(() {
                     if (first) {
@@ -517,12 +519,12 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           // there can a copy follow the curve instead of keeping its attitude.
           if (path != null && first)
             panelRow(
-                'Orientation',
+                L.of(context).lblOrientation,
                 _segmented([
-                  ('Identical', s.orientation == PatternOrient.fixed,
+                  (L.of(context).lblIdentical, s.orientation == PatternOrient.fixed,
                       () => _changed(
                           () => s.orientation = PatternOrient.fixed)),
-                  ('Direction A', s.orientation == PatternOrient.rotational,
+                  (L.of(context).lblDirectionA, s.orientation == PatternOrient.rotational,
                       () => _changed(
                           () => s.orientation = PatternOrient.rotational)),
                 ])),
@@ -534,52 +536,52 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   Widget _orientationSection(PartPatternSession s) {
     final app = widget.app;
     return panelSection(
-        'Orientation', _aOpen, () => setState(() => _aOpen = !_aOpen), [
-      panelRow('Direction', _axisQuickRow(PatternField.axis)),
+        L.of(context).lblOrientation, _aOpen, () => setState(() => _aOpen = !_aOpen), [
+      panelRow(L.of(context).lblDirection, _axisQuickRow(PatternField.axis)),
       panelRow(
           '',
           Row(children: [
             Expanded(
               child: _pickButton(
-                  label: s.axis?.label ?? 'Select Dir...',
+                  label: s.axis?.label ?? L.of(context).lblSelectDir,
                   active: s.active == PatternField.axis,
-                  hint: 'Tap a circular edge or axis…',
+                  hint: L.of(context).hintTapCircularEdge,
                   onTap: () => app.patternPick(PatternField.axis),
                   onClear:
                       s.axis == null ? null : () => _changed(() => s.axis = null)),
             ),
             const SizedBox(width: 4),
-            _iconToggle(Icons.swap_horiz, 'Flip', s.flipC,
+            _iconToggle(Icons.swap_horiz, L.of(context).lblFlip, s.flipC,
                 () => _changed(() => s.flipC = !s.flipC)),
           ])),
       panelRow(
-          'Count',
+          L.of(context).lblCount,
           panelValueField(_countC, 'ul',
               (v) => _changed(() => s.exprCountC = v),
               app: app)),
       panelRow(
-          'Distribution',
+          L.of(context).lblDistribution,
           _segmented([
             // Inventor's names for the circular pair. "Incremental" is the
             // angle BETWEEN occurrences, "Fitted" the total they fill.
-            ('Incremental', s.distributionC == PatternDistribution.spacing,
+            (L.of(context).lblIncremental, s.distributionC == PatternDistribution.spacing,
                 () => _changed(
                     () => s.distributionC = PatternDistribution.spacing)),
-            ('Fitted', s.distributionC == PatternDistribution.distance,
+            (L.of(context).btnFitted, s.distributionC == PatternDistribution.distance,
                 () => _changed(
                     () => s.distributionC = PatternDistribution.distance)),
           ])),
       panelRow(
-          'Angle',
+          L.of(context).lblAngle,
           panelValueField(_angleC, 'deg',
               (v) => _changed(() => s.exprAngleC = v),
               app: app)),
       panelRow(
-          'Orientation',
+          L.of(context).lblOrientation,
           _segmented([
-            ('Rotational', s.orientation == PatternOrient.rotational,
+            (L.of(context).lblRotational, s.orientation == PatternOrient.rotational,
                 () => _changed(() => s.orientation = PatternOrient.rotational)),
-            ('Fixed', s.orientation == PatternOrient.fixed,
+            (L.of(context).lblFixed, s.orientation == PatternOrient.fixed,
                 () => _changed(() => s.orientation = PatternOrient.fixed)),
           ])),
       ..._irregularRows(s, 'C', _countOf(s.exprCountC), 'deg'),
@@ -595,25 +597,25 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         : p.sketchByName(s.pointSketch);
     final n = cs == null ? 0 : sketchPatternPoints(cs.model).length;
     return panelSection(
-        'Placement', _aOpen, () => setState(() => _aOpen = !_aOpen), [
+        L.of(context).secPlacement, _aOpen, () => setState(() => _aOpen = !_aOpen), [
       panelRow(
-          'Sketch Point',
+          L.of(context).lblSketchPoint,
           _pickButton(
               label: s.pointSketch.isEmpty
-                  ? 'Select Point'
-                  : '${s.pointSketch} ($n point${n == 1 ? '' : 's'})',
+                  ? L.of(context).lblSelectPoint
+                  : L.of(context).lblPointCount(s.pointSketch, n),
               active: s.active == PatternField.pointSketch,
-              hint: 'Tap a sketch point…',
+              hint: L.of(context).hintTapSketchPoint,
               onTap: () => app.patternPick(PatternField.pointSketch))),
       panelRow(
-          'Base Point',
+          L.of(context).lblBasePoint,
           _pickButton(
               label: s.basePicked
-                  ? '(${s.baseX.toStringAsFixed(2)}, '
-                      '${s.baseY.toStringAsFixed(2)})'
-                  : 'Select Point',
+                  ? L.of(context)
+                      .lblCoords(Fmt.fixed(s.baseX, 2), Fmt.fixed(s.baseY, 2))
+                  : L.of(context).lblSelectPoint,
               active: s.active == PatternField.basePoint,
-              hint: 'Tap the point the original sits on…',
+              hint: L.of(context).hintTapOriginalPoint,
               onTap: () => app.patternPick(PatternField.basePoint),
               onClear: s.basePicked
                   ? () => _changed(() => s.basePicked = false)
@@ -621,20 +623,22 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
       // Inventor's Variable Orientation: Identical keeps every copy parallel
       // to the parent, Follow Face turns it to the surface it lands on.
       panelRow(
-          'Orientation',
+          L.of(context).lblOrientation,
           _segmented([
-            ('Identical', s.orientFace == null,
+            (L.of(context).lblIdentical, s.orientFace == null,
                 () => _changed(() => s.orientFace = null)),
-            ('Follow Face', s.orientFace != null,
+            (L.of(context).lblFollowFace, s.orientFace != null,
                 () => app.patternPick(PatternField.orientFace)),
           ])),
       if (s.orientFace != null || s.active == PatternField.orientFace)
         panelRow(
-            'Face',
+            L.of(context).lblFaceField,
             _pickButton(
-                label: s.orientFace == null ? 'Select Face' : 'Face',
+                label: s.orientFace == null
+                    ? L.of(context).lblSelectFaceBtn
+                    : L.of(context).lblFaceField,
                 active: s.active == PatternField.orientFace,
-                hint: 'Tap the face to follow…',
+                hint: L.of(context).hintTapFaceToFollow,
                 onTap: () => app.patternPick(PatternField.orientFace),
                 onClear: s.orientFace == null
                     ? null
@@ -646,13 +650,13 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   Widget _mirrorSection(PartPatternSession s) {
     final app = widget.app;
     return panelSection(
-        'Mirror Plane', _aOpen, () => setState(() => _aOpen = !_aOpen), [
+        L.of(context).lblMirrorPlane, _aOpen, () => setState(() => _aOpen = !_aOpen), [
       panelRow(
-          'Plane',
+          L.of(context).lblPlaneField,
           _pickButton(
-              label: s.plane?.label ?? 'Mirror Plane',
+              label: s.plane?.label ?? L.of(context).lblMirrorPlane,
               active: s.active == PatternField.plane,
-              hint: 'Tap a face or plane…',
+              hint: L.of(context).hintTapFaceOrPlane,
               onTap: () => app.patternPick(PatternField.plane),
               onClear:
                   s.plane == null ? null : () => _changed(() => s.plane = null))),
@@ -674,13 +678,13 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   }
 
   Widget _outputGeometry(PartPatternSession s) => panelSection(
-          'Output Geometry', _outOpen, () => setState(() => _outOpen = !_outOpen), [
+          L.of(context).secOutputGeometry, _outOpen, () => setState(() => _outOpen = !_outOpen), [
         panelRow(
-            'Creation Method',
+            L.of(context).lblCreationMethod,
             _segmented([
-              ('Identical', s.compute == PatternCompute.identical,
+              (L.of(context).lblIdentical, s.compute == PatternCompute.identical,
                   () => _changed(() => s.compute = PatternCompute.identical)),
-              ('Adjust', s.compute == PatternCompute.adjust,
+              (L.of(context).lblAdjust, s.compute == PatternCompute.adjust,
                   () => _changed(() => s.compute = PatternCompute.adjust)),
             ])),
         // Inventor offers Remove Original only when a SOLID is being
@@ -688,8 +692,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         // deleting a feature that this one is built on.
         if (s.mode == PatternKind.mirror && s.patternSolid)
           panelRow(
-              'Remove Original',
-              _smallButton('Keep only the mirrored half', s.removeOriginal,
+              L.of(context).lblRemoveOriginal,
+              _smallButton(L.of(context).lblKeepMirroredHalf, s.removeOriginal,
                   () => _changed(() => s.removeOriginal = !s.removeOriginal))),
       ]);
 
@@ -703,16 +707,16 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           borderRadius: BorderRadius.circular(6),
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          _railButton(Icons.grid_on, 'Rectangular Pattern',
+          _railButton(Icons.grid_on, L.of(context).patRectangular,
               s.mode == PatternKind.rectangular,
               () => widget.app.switchPattern(PatternKind.rectangular)),
-          _railButton(Icons.blur_circular, 'Circular Pattern',
+          _railButton(Icons.blur_circular, L.of(context).patCircular,
               s.mode == PatternKind.circular,
               () => widget.app.switchPattern(PatternKind.circular)),
-          _railButton(Icons.scatter_plot, 'Sketch Driven Pattern',
+          _railButton(Icons.scatter_plot, L.of(context).patSketchDriven,
               s.mode == PatternKind.sketchDriven,
               () => widget.app.switchPattern(PatternKind.sketchDriven)),
-          _railButton(Icons.flip, 'Mirror', s.mode == PatternKind.mirror,
+          _railButton(Icons.flip, L.of(context).patMirror, s.mode == PatternKind.mirror,
               () => widget.app.switchPattern(PatternKind.mirror)),
           Container(
               height: 1,
@@ -720,9 +724,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               margin: const EdgeInsets.symmetric(vertical: 5),
               color: T.panelSep),
           // Inventor's two Input Geometry modes.
-          _railButton(Icons.category_outlined, 'Pattern individual features',
+          _railButton(Icons.category_outlined, L.of(context).lblPatternFeatures,
               !s.patternSolid, () => widget.app.patternSetSolidMode(false)),
-          _railButton(Icons.view_in_ar, 'Pattern a solid', s.patternSolid,
+          _railButton(Icons.view_in_ar, L.of(context).lblPatternSolid, s.patternSolid,
               () => widget.app.patternSetSolidMode(true)),
         ]),
       );
@@ -763,7 +767,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     return Row(children: [
       Expanded(
         child: _smallButton(
-            'Pick', s.active == field, () => widget.app.patternPick(field)),
+            L.of(context).lblPick, s.active == field, () => widget.app.patternPick(field)),
       ),
       for (final k in const ['x', 'y', 'z']) ...[
         const SizedBox(width: 3),
@@ -920,7 +924,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -938,7 +942,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),

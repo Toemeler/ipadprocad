@@ -25,6 +25,7 @@ import 'package:prototype/doc_file.dart';
 import 'package:prototype/doc_store.dart';
 import 'package:prototype/widgets/home_view.dart';
 import 'package:native_menu/native_menu.dart';
+import 'package:prototype/l10n/l.dart';
 
 Directory _scratch() => Directory.systemTemp.createTempSync('ipc_ctxmenu');
 
@@ -67,7 +68,9 @@ void main() {
 
   group('menu contract', () {
     test('five items in two sections, delete destructive and alone', () {
-      final groups = sketchMenuGroups();
+      // Pinned in English; the German titles are covered by
+      // l10n_completeness_test and l10n_length_test.
+      final groups = sketchMenuGroups(L.stringsFor(kEn));
       expect(groups, hasLength(2),
           reason: 'a second section is what separates Delete visually');
       expect([for (final i in groups[0]) i.id],

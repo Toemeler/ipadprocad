@@ -22,6 +22,7 @@ import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../doc_file.dart';
+import '../l10n/l.dart';
 import '../log.dart';
 import '../mesh_io.dart';
 import '../svg_icons.dart';
@@ -41,22 +42,27 @@ const double _kThumbRadius = 14; // matches the card's BorderRadius
 /// section, which is what puts Delete alone at the bottom — UIKit paints a
 /// `destructive` row red on its own, we never colour it ourselves.
 ///
-/// Top-level and const so tests can assert the contract without a device.
-List<List<NativeMenuItem>> sketchMenuGroups() => const [
+/// Top-level so tests can assert the contract without a device. It takes the
+/// strings rather than reading a global, so a test can pin BOTH languages.
+List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t) => [
       [
-        NativeMenuItem(id: 'rename', title: 'Rename', symbol: 'pencil'),
+        NativeMenuItem(id: 'rename', title: t.rename, symbol: 'pencil'),
         NativeMenuItem(
             id: 'duplicate',
-            title: 'Duplicate',
+            title: t.duplicate,
             symbol: 'plus.square.on.square'),
         NativeMenuItem(
-            id: 'export', title: 'Export…', symbol: 'square.and.arrow.down'),
+            id: 'export',
+            title: t.exportEllipsis,
+            symbol: 'square.and.arrow.down'),
         NativeMenuItem(
-            id: 'share', title: 'Share…', symbol: 'square.and.arrow.up'),
+            id: 'share',
+            title: t.shareEllipsis,
+            symbol: 'square.and.arrow.up'),
       ],
       [
         NativeMenuItem(
-            id: 'delete', title: 'Delete', symbol: 'trash', destructive: true),
+            id: 'delete', title: t.delete, symbol: 'trash', destructive: true),
       ],
     ];
 
@@ -64,10 +70,10 @@ List<List<NativeMenuItem>> sketchMenuGroups() => const [
 /// values the Flutter fallback (showMenu) returns, so the native and non-native
 /// paths funnel into one branch in [_showNewMenu]. Top-level + const so a test
 /// can pin the contract (ids, order, labels) without a device.
-List<NativeMenuItem> newDocMenuItems() => const [
+List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       NativeMenuItem(
-          id: '2d', title: 'New 2D Sketch', symbol: 'square.on.square'),
-      NativeMenuItem(id: '3d', title: 'New 3D Part', symbol: 'cube'),
+          id: '2d', title: t.galleryNew2dSketch, symbol: 'square.on.square'),
+      NativeMenuItem(id: '3d', title: t.galleryNew3dPart, symbol: 'cube'),
       // M117 — Open belongs HERE, next to the two ways of starting a
       // document, because that is what it is: a third way to get one. In the
       // ribbon it was a tool among modelling tools, which is the wrong shelf.
@@ -76,9 +82,26 @@ List<NativeMenuItem> newDocMenuItems() => const [
       // verb covers all of it: a Prototype document from anywhere on the iPad
       // opens in place, a STEP or DXF is converted. Which one happens follows
       // from the file, not from a menu the user has to get right first.
+      NativeMenuItem(id: 'import', title: t.openEllipsis, symbol: 'folder'),
+      // M234 — the language switch.
+      //
+      // It lives in the "+" menu because that is the app's only menu that
+      // belongs to the APP rather than to a document: the gallery is the front
+      // page, and this is the one control on it that is not about drawing.
+      //
+      // The entry names the language it switches TO, never the one that is
+      // on. A row reading "Deutsch" while the app is already German is a
+      // status line, and people tap status lines expecting something to
+      // happen. `kLanguageMenuId` is matched against, never the title.
       NativeMenuItem(
-          id: 'import', title: 'Open…', symbol: 'folder'),
+          id: kLanguageMenuId,
+          title: L.otherStrings.languageMenuItem,
+          symbol: 'globe'),
     ];
+
+/// The id the language row comes back as. A constant, because the row's
+/// TITLE changes with the language and must never be what code matches on.
+const String kLanguageMenuId = 'lang';
 
 class HomeView extends StatefulWidget {
   final AppState app;
@@ -154,7 +177,7 @@ class _HomeViewState extends State<HomeView> {
             Rect.fromLTWH(full.left, full.top, full.width, full.width / _kCardAspect),
         cornerRadius: _kThumbRadius,
         previewImagePath: s.preview?.path,
-        groups: sketchMenuGroups(),
+        groups: sketchMenuGroups(L.of(context)),
       ));
     }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
@@ -190,17 +213,16 @@ class _HomeViewState extends State<HomeView> {
   /// and left renaming as a chore nobody did.
   Future<void> _promptNewSketch() async {
     final app = widget.app;
+    final t = L.of(context);
     final name = await promptForText(
       context,
-      title: 'New sketch',
+      title: t.dlgNewSketch,
       initialValue: app.suggestedSketchName(),
-      placeholder: 'Sketch name',
-      confirmLabel: 'Create',
+      placeholder: t.phSketchName,
+      confirmLabel: t.create,
       validate: (v) =>
           app.validateSketchName(v) ??
-          (app.docNameExists(v.trim())
-              ? 'A sketch or part with that name already exists'
-              : null),
+          (app.docNameExists(v.trim()) ? t.errNameTaken : null),
     );
     if (name == null) return;
     await app.createNamedSketch(name);
@@ -212,6 +234,7 @@ class _HomeViewState extends State<HomeView> {
   /// Flutter popup with the identical two entries stands in, so desktop runs
   /// and the host test suite behave exactly as before.
   Future<void> _showNewMenu() async {
+    final t = L.of(context);
     final box = context.findRenderObject();
     final headerRect = box is RenderBox
         ? box.localToGlobal(Offset.zero) & box.size
@@ -220,7 +243,8 @@ class _HomeViewState extends State<HomeView> {
 
     String? choice;
     if (NativeMenu.isSupported) {
-      choice = await NativeMenu.menu(items: newDocMenuItems(), anchor: anchor);
+      choice = await NativeMenu.menu(
+          items: newDocMenuItems(t), anchor: anchor, cancelLabel: t.cancel);
     } else {
       choice = await showMenu<String>(
         context: context,
@@ -234,7 +258,7 @@ class _HomeViewState extends State<HomeView> {
             child: Row(children: [
               SvgPicture.string(sketch2dMenuIcon, width: 18, height: 18),
               const SizedBox(width: 10),
-              Text('New 2D Sketch', style: ts(12.5, T.text)),
+              Text(t.galleryNew2dSketch, style: ts(12.5, T.text)),
             ]),
           ),
           PopupMenuItem(
@@ -243,7 +267,7 @@ class _HomeViewState extends State<HomeView> {
             child: Row(children: [
               SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
               const SizedBox(width: 10),
-              Text('New 3D Part', style: ts(12.5, T.text)),
+              Text(t.galleryNew3dPart, style: ts(12.5, T.text)),
             ]),
           ),
           PopupMenuItem(
@@ -252,7 +276,18 @@ class _HomeViewState extends State<HomeView> {
             child: Row(children: [
               SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
               const SizedBox(width: 10),
-              Text('Open…', style: ts(12.5, T.text)),
+              Text(t.openEllipsis, style: ts(12.5, T.text)),
+            ]),
+          ),
+          // M234 — the same language row the native sheet carries, so the
+          // switch is reachable off iOS and in the host test suite too.
+          PopupMenuItem(
+            value: kLanguageMenuId,
+            height: 40,
+            child: Row(children: [
+              const Icon(Icons.language, size: 18, color: T.text),
+              const SizedBox(width: 10),
+              Text(L.otherStrings.languageMenuItem, style: ts(12.5, T.text)),
             ]),
           ),
         ],
@@ -265,6 +300,10 @@ class _HomeViewState extends State<HomeView> {
       await _promptNewPart();
     } else if (choice == 'import') {
       await _importDocument();
+    } else if (choice == kLanguageMenuId) {
+      // Applies on the next frame and is written to the settings file on the
+      // way out; nothing is rebuilt, nothing is lost. See L.set.
+      L.set(L.other);
     }
   }
 
@@ -305,23 +344,22 @@ class _HomeViewState extends State<HomeView> {
       if (name != null) Log.i('doc', 'opened "$name" from $path');
     } catch (e) {
       Log.w('import', 'open failed: $e');
-      app.toast('Could not open that file.');
+      app.toast(L.current.msgCouldNotOpenFile);
     }
   }
 
   Future<void> _promptNewPart() async {
     final app = widget.app;
+    final t = L.of(context);
     final name = await promptForText(
       context,
-      title: 'New part',
+      title: t.dlgNewPart,
       initialValue: app.suggestedPartName(),
-      placeholder: 'Part name',
-      confirmLabel: 'Create',
+      placeholder: t.phPartName,
+      confirmLabel: t.create,
       validate: (v) =>
           app.validateSketchName(v) ??
-          (app.docNameExists(v.trim())
-              ? 'A sketch or part with that name already exists'
-              : null),
+          (app.docNameExists(v.trim()) ? t.errNameTaken : null),
     );
     if (name == null) return;
     await app.createNamedPart(name);
@@ -346,16 +384,17 @@ class _HomeViewState extends State<HomeView> {
 
   Future<void> _promptRename(String name) async {
     final app = widget.app;
+    final t = L.of(context);
     final result = await promptForText(
       context,
-      title: 'Rename sketch',
+      title: t.dlgRenameSketch,
       initialValue: name,
-      placeholder: 'Sketch name',
-      confirmLabel: 'Rename',
+      placeholder: t.phSketchName,
+      confirmLabel: t.rename,
       validate: (v) =>
           app.validateSketchName(v) ??
           (v.trim() != name && app.docNameExists(v.trim())
-              ? 'A sketch or part with that name already exists'
+              ? t.errNameTaken
               : null),
     );
     if (result != null && result.trim() != name) {
@@ -364,12 +403,12 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Future<void> _confirmDelete(String name) async {
+    final t = L.of(context);
     final ok = await confirmAction(
       context,
-      title: 'Delete “$name”?',
-      message: 'The sketch and everything in it are removed from this iPad. '
-          'This can’t be undone.',
-      confirmLabel: 'Delete',
+      title: t.dlgDeleteNamed(name),
+      message: t.msgSketchDeleted,
+      confirmLabel: t.delete,
     );
     if (ok) await widget.app.deleteDocument(name);
   }
@@ -506,7 +545,7 @@ class _EmptyState extends StatelessWidget {
     // Deliberately ONE line. The cube glyph and the "No sketches yet" heading
     // were decoration around a message that already says everything.
     return Center(
-      child: Text('Tap  +  to create a new sketch or part',
+      child: Text(L.of(context).galleryEmpty,
           style: ts(13.5, T.cardDate)),
     );
   }

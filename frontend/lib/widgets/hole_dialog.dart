@@ -16,6 +16,7 @@ import '../part_model.dart'
 import '../theme.dart';
 import 'dialog_dock.dart';
 import 'properties_panel.dart';
+import '../l10n/l.dart';
 
 class HoleDialog extends StatefulWidget {
   final AppState app;
@@ -102,7 +103,7 @@ class _HoleDialogState extends State<HoleDialog> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
                 ),
                 child: Row(children: [
-                  Text('Properties',
+                  Text(L.of(context).dlgProperties,
                       style: ts(13, Colors.white, w: FontWeight.w600)),
                   const SizedBox(width: 6),
                   GestureDetector(
@@ -117,16 +118,16 @@ class _HoleDialogState extends State<HoleDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(children: [
-                Text(s.editing?.name ?? 'Hole',
+                Text(s.editing?.name ?? L.of(context).btnHole,
                     style: ts(12.5, T.blue)),
                 const Spacer(),
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
             ),
-            panelSection('Placement', _placeOpen,
+            panelSection(L.of(context).secPlacement, _placeOpen,
                 () => setState(() => _placeOpen = !_placeOpen), [
               panelRow(
-                  'Points',
+                  L.of(context).lblPoints,
                   panelPickField(
                     icon: Icons.control_point,
                     // The panel is ALWAYS picking while it is open: a hole has
@@ -134,17 +135,17 @@ class _HoleDialogState extends State<HoleDialog> {
                     // would be a button whose only job is to be on.
                     active: true,
                     label: n == 0
-                        ? 'Tap sketch points in 3D…'
+                        ? L.of(context).hintTapSketchPointsIn3d
                         : '$n point${n == 1 ? '' : 's'}'
                             '${s.sketchName == null ? '' : ' on ${s.sketchName}'}',
                   )),
             ]),
-            panelSection('Hole', _shapeOpen,
+            panelSection(L.of(context).btnHole, _shapeOpen,
                 () => setState(() => _shapeOpen = !_shapeOpen), [
               // M226 — Inventor's four shapes. Spotface is drawn like a
               // counterbore and kept apart because it MEANS something else.
               panelRow(
-                  'Type',
+                  L.of(context).lblType,
                   Row(children: [
                     for (final t in HoleType.values) ...[
                       if (t != HoleType.values.first) const SizedBox(width: 4),
@@ -153,7 +154,7 @@ class _HoleDialogState extends State<HoleDialog> {
                     ],
                   ])),
               panelRow(
-                  'Diameter',
+                  L.of(context).lblDiameter,
                   panelValueField(_dia, 'mm',
                       (v) => app.setHole(exprDia: v), app: app)),
               if (s.type == HoleType.counterbore ||
@@ -169,34 +170,34 @@ class _HoleDialogState extends State<HoleDialog> {
               ],
               if (s.type == HoleType.countersink) ...[
                 panelRow(
-                    'Countersink ⌀',
+                    L.of(context).lblCountersinkDia,
                     panelValueField(_csDia, 'mm',
                         (v) => app.setHole(exprCsDia: v), app: app)),
                 panelRow(
-                    'Angle',
+                    L.of(context).lblAngle,
                     panelValueField(_csAngle, 'deg',
                         (v) => app.setHole(exprCsAngle: v), app: app)),
               ],
               panelRow(
-                  'Termination',
+                  L.of(context).lblTermination,
                   Row(children: [
-                    _seg('Distance', !through,
+                    _seg(L.of(context).lblDistance, !through,
                         () => app.setHole(extent: FeatureExtent.distance)),
                     const SizedBox(width: 6),
-                    _seg('Through All', through,
+                    _seg(L.of(context).extThroughAll, through,
                         () => app.setHole(extent: FeatureExtent.throughAll)),
                   ])),
               if (!through)
                 panelRow(
-                    'Depth',
+                    L.of(context).lblDepth,
                     panelValueField(_depth, 'mm',
                         (v) => app.setHole(exprDepth: v), app: app)),
               panelRow(
-                  'Direction',
+                  L.of(context).lblDirection,
                   Row(children: [
-                    _seg('Into part', !s.flip, () => app.setHole(flip: false)),
+                    _seg(L.of(context).lblIntoPart, !s.flip, () => app.setHole(flip: false)),
                     const SizedBox(width: 6),
-                    _seg('Flipped', s.flip, () => app.setHole(flip: true)),
+                    _seg(L.of(context).lblFlipped, s.flip, () => app.setHole(flip: true)),
                   ])),
             ]),
             _footer(app, n),
@@ -239,7 +240,7 @@ class _HoleDialogState extends State<HoleDialog> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     color: T.blue, borderRadius: BorderRadius.circular(3)),
-                child: Text('OK',
+                child: Text(L.of(context).ok,
                     style: ts(12.5, Colors.white, w: FontWeight.w600)),
               ),
             ),
@@ -257,7 +258,7 @@ class _HoleDialogState extends State<HoleDialog> {
                 border: Border.all(color: const Color(0xFF3A3F45)),
                 borderRadius: BorderRadius.circular(3),
               ),
-              child: Text('Cancel', style: ts(12.5, T.text)),
+              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
             ),
           ),
         ),
