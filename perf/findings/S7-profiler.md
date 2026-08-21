@@ -492,3 +492,43 @@ Three entries, also in `CROSS-SESSION.md`.
 3. **The largest single cost in round one's `analyzeSketch` is list growth**
    (§9), which nothing in `PERFORMANCE_PROFILE.md` or the findings predicts,
    and which is in a file this session does not own.
+
+## 14. Reconciled against `claude/perf-opt` at merge time
+
+This session measured round one's tip at **`a762656`**. By the time the work
+was merged, `claude/perf-opt` had reached **`d1f18ea`**, and three things about
+that are worth stating rather than leaving for a reader to trip over.
+
+**The line numbers in §7–§9 move by two.** S3 added
+`_rankAndPivotsDenseReference` — a test-only copy of the dense implementation,
+so the M232 pins become differential in the sense §1.4 requires — and it sits
+above the functions this session profiled:
+
+| function | at `a762656`, where the captures were taken | at `d1f18ea` |
+| --- | ---: | ---: |
+| `_spAxpy` | `solver.dart:1158` | `solver.dart:1160` |
+| `_rankAndPivots` | `solver.dart:1198` | `solver.dart:1200` |
+| `_jacobian` | `solver.dart:1247` | `solver.dart:1249` |
+
+The bodies are unchanged; only the offsets moved. Everything in
+`perf/profiler/` names the commit it was taken at, so the captures stay
+readable against either.
+
+**The capture point exists now, and it was never tagged.** §1.1's concern —
+that round two must not change measured code before the paired capture — is
+answered twice over: the capture has been taken and adjudicated
+(`S3-solver.md` §13, `PERFORMANCE_PROFILE.md` §17), and this session changed no
+measured code at all. `perf-capture-round1` still does not exist as a tag, so
+the CROSS-SESSION entry above stands as written.
+
+**S3's device exponent corroborates §7, from the other direction.** P1 was
+registered as *k* = 2.0 ± 0.35 with the derivation "both terms are quadratic,
+so no cubic term remains anywhere in the routine". The device measured
+**2.285 [2.076, 2.495]** — held, and comfortably so, but the interval
+**excludes 2.0 from below**. §7 above measures, independently and on a
+different machine, that the elimination is still **40.6 %** of the routine
+rather than the 3.6 % §2 derived. A phase that large with any superlinear term
+left in it is a candidate explanation for an exponent sitting a quarter above
+quadratic. That is a consistency observation between two measurements, not a
+claim about the mechanism: showing it would take the exponent of the
+elimination alone, on the ladder, which nobody has fitted.
