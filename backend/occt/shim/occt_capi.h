@@ -658,7 +658,7 @@ occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
 /* Indices into `report_ints`. */
 #define OCCT_MR_TRIANGLES_IN       0
 #define OCCT_MR_VERTICES_IN        1
-#define OCCT_MR_TRIANGLES_USED     2   /* after welding and dropping degenerates */
+#define OCCT_MR_TRIANGLES_USED     2   /* after welding, minus degenerates */
 #define OCCT_MR_VERTICES_WELDED    3
 #define OCCT_MR_NON_MANIFOLD_EDGES 4
 #define OCCT_MR_BOUNDARY_EDGES     5   /* holes in the mesh; >0 cannot close */

@@ -1495,6 +1495,138 @@ abstract class AppL10n {
   /// **'{count, plural, =1{Ein Körper importiert.} other{{count} Körper importiert.}}'**
   String msgImportedBodies(int count);
 
+  /// Gegenstück zu msgOpenPartForStep. "Netz" ist der übliche deutsche CAD-Begriff für ein Dreiecksnetz (STL/OBJ/3MF).
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst ein Bauteil öffnen — ein Netz kommt als Volumenkörper an.'**
+  String get msgOpenPartForMesh;
+
+  /// Wie msgNoKernelStep: auf dem Host ist kein OCCT gelinkt.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein 3D-Kern verbunden — ein Netz umzuwandeln braucht den Gerätebuild.'**
+  String get msgNoKernelMesh;
+
+  /// Null Bytes.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei ist leer.'**
+  String get msgMeshEmpty;
+
+  /// Zwischen Auswahl und Lesen verschwunden — bei iCloud-Dateien keine Seltenheit.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei gibt es nicht mehr.'**
+  String get msgMeshMissing;
+
+  /// Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei ließ sich nicht lesen.'**
+  String get msgMeshUnreadable;
+
+  /// Formal in Ordnung, aber ohne Dreiecke: ein STL nur aus entarteten Facetten, ein OBJ ohne f-Zeilen.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei enthält keine brauchbare Geometrie.'**
+  String get msgMeshNoGeometry;
+
+  /// Ein Punkt mit zwei Koordinaten, ein Dreieck ohne dritte Ecke.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei ist beschädigt — ein Datensatz bricht ab.'**
+  String get msgMeshTruncated;
+
+  /// OBJ und 3MF verweisen per Index auf Punkte; ein Verweis ins Leere ist ein kaputtes Modell, kein leerer.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei ist beschädigt — eine Fläche nennt Punkt {index}, den es nicht gibt.'**
+  String msgMeshBadIndex(String index);
+
+  /// 3MF ist ein ZIP. Ist es keines, hilft kein Weiterlesen.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese 3MF-Datei ist kein lesbares Archiv.'**
+  String get msgMeshNotAnArchive;
+
+  /// ZIP in Ordnung, aber ohne .model-Teil darin.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese 3MF-Datei enthält kein Modell.'**
+  String get msgMeshNoModel;
+
+  /// Deutsche Anführungszeichen. Abgelehnt statt geraten: eine geratene Einheit skaliert das Bauteil stillschweigend.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese 3MF-Datei nutzt die unbekannte Einheit „{unit}“.'**
+  String msgMeshUnknownUnit(String unit);
+
+  /// Die brauchbarste Fehlermeldung des Umwandlers: „nicht dicht“ kann man reparieren, „Vernähen fehlgeschlagen“ nicht.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Dieses Netz ist nicht dicht (eine offene Kante) und kann kein Volumenkörper werden.} other{Dieses Netz ist nicht dicht ({count} offene Kanten) und kann kein Volumenkörper werden.}}'**
+  String msgMeshNotWatertight(int count);
+
+  /// Wenn der Kern keinen Grund nennt.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Netz ließ sich nicht umwandeln.'**
+  String get msgMeshConvertFailed;
+
+  /// Der Grund kommt aus dem Kern und bleibt englisch — er ist eine Diagnose, keine Oberflächenmeldung.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Netz ließ sich nicht umwandeln: {error}'**
+  String msgMeshConvertFailedWhy(String error);
+
+  /// Der Körper wird beim Öffnen aus seiner Datei neu gelesen; ohne diese Datei wäre er nach dem Neuöffnen leer.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Netz wurde umgewandelt, aber nicht gespeichert.'**
+  String get msgMeshNotSaved;
+
+  /// Gezählt werden die als Ebene, Zylinder, Kegel, Kugel oder Torus ERKANNTEN Flächen — das ist die Zahl, die verrät, ob sich das Modell danach noch abrunden lässt. Die Aufschlüsselung nach Art steht im Log.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Importiert: eine Fläche erkannt.} other{Importiert: {count} Flächen erkannt.}}'**
+  String msgMeshImported(int count);
+
+  /// Der ehrliche Fall: es kam etwas an, aber nur Dreiecke.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Als eine Fläche importiert — keine Flächenform erkannt.} other{Als {count} Flächen importiert — keine Flächenform erkannt.}}'**
+  String msgMeshImportedFacetedOnly(int count);
+
+  /// Zusatz zu msgMeshImported. Getrennter Satz statt angehängtem Fragment, damit beide Sprachen ihre eigene Wortstellung behalten.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Bereich blieb als Dreiecke.} other{{count} Bereiche blieben als Dreiecke.}}'**
+  String msgMeshImportedFaceted(int count);
+
+  /// Das Netz hatte Löcher; daraus kann nur ein Flächenkörper werden, und das muss dastehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Nicht geschlossen — ein Flächenkörper.'**
+  String get msgMeshImportedOpen;
+
+  /// Vor dem Lesen abgefangen: eine Datei dieser Groesse einzulesen wuerde die App abschiessen, nicht bremsen.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei hat {size} MB; Prototype liest Netze bis {limit} MB.'**
+  String msgMeshFileTooLarge(int size, int limit);
+
+  /// Die Umwandlung laeuft auf dem UI-Thread, weil der Kern einfaedig ist; die Grenze haelt die Wartezeit endlich.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Netz hat {count} Dreiecke; Prototype wandelt bis {limit} um.'**
+  String msgMeshTooManyTriangles(int count, int limit);
+
+  /// Steht waehrend der Umwandlung auf dem Schirm. Der Kern blockiert den UI-Thread, also ist dies das einzige Lebenszeichen, das der Nutzer bekommt.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Dreiecke werden umgewandelt …'**
+  String msgMeshConverting(int count);
+
   /// No description provided for @msgImportedEntities.
   ///
   /// In de, this message translates to:

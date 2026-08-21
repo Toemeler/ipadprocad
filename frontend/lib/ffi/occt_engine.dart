@@ -1425,8 +1425,8 @@ class OcctFfi {
       double sharpDegrees = 0,
       int maxFacetedTriangles = 0}) {
     if (shimVersion < 21) {
-      return MeshToBrepResult._(
-          null, const MeshToBrepReport.empty(), 'This build has no mesh converter.');
+      return MeshToBrepResult._(null, const MeshToBrepReport.empty(),
+          'This build has no mesh converter.');
     }
     final nv = xyz.length ~/ 3, nt = triangles.length ~/ 3;
     if (nv < 3 || nt < 1) {

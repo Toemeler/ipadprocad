@@ -31,6 +31,27 @@ import 'dart:typed_data';
 /// The mesh formats Open accepts, lower-case, without the dot.
 const List<String> kMeshExtensions = ['stl', 'obj', '3mf'];
 
+/// Largest mesh file this will read, in bytes.
+///
+/// A guard against the crash rather than against slowness: reading is
+/// `readAsBytesSync`, so a gigabyte file is a gigabyte of iPad memory before
+/// a single triangle has been looked at, and the app is killed rather than
+/// told. 256 MB is past any printable model — a binary STL of that size holds
+/// five million triangles, well beyond [kMaxMeshTriangles] anyway, and the
+/// wordier ASCII form still reaches about a million.
+const int kMaxMeshFileBytes = 256 * 1024 * 1024;
+
+/// Largest mesh this will hand to the converter.
+///
+/// The reconstruction runs at roughly 2–3 µs per triangle and it runs on the
+/// UI THREAD, because the kernel is single-threaded by contract (see the
+/// header of ffi/occt_engine.dart). Two million triangles is therefore about
+/// seven seconds of frozen app on a desktop and perhaps fifteen on a device —
+/// far enough out that nothing anyone prints comes close (a typical MakerWorld
+/// model is fifty to five hundred thousand), and near enough that the app can
+/// never be wedged for minutes by one bad download.
+const int kMaxMeshTriangles = 2000000;
+
 /// True when [path] ends in one of [kMeshExtensions].
 bool isMeshPath(String path) {
   final lower = path.toLowerCase();
@@ -40,13 +61,82 @@ bool isMeshPath(String path) {
   return false;
 }
 
-/// Why a mesh file could not be read. The message is shown to the user, so it
-/// says what is wrong with THEIR file, never what went wrong in here.
+/// Why a mesh file could not be read.
+///
+/// A CODE rather than a sentence, and deliberately so. M234 made the app
+/// German with English as the second locale, and every user-visible string
+/// lives in the ARB. A reader has no business holding UI prose in either
+/// language: what crosses this boundary is the reason plus the one number or
+/// name that belongs in it, and [AppState] turns that into a sentence in
+/// whatever language the user is reading.
+enum MeshFailure {
+  /// The file is zero bytes.
+  empty,
+
+  /// Not one of [kMeshExtensions].
+  unsupportedKind,
+
+  /// It was there a moment ago and is not now.
+  missing,
+
+  /// The bytes could not be read at all (permissions, a dead iCloud stub).
+  /// [MeshLoadException.detail] carries the OS reason where there was one.
+  unreadable,
+
+  /// Structurally fine, but there is no geometry in it: an STL whose facets
+  /// are all degenerate, an OBJ with no `f` lines, a 3MF with no triangles.
+  noGeometry,
+
+  /// A record stops in the middle — a vertex with two coordinates, a triangle
+  /// missing a corner.
+  truncated,
+
+  /// A face or triangle names a vertex that is not in the file.
+  /// [MeshLoadException.detail] is the offending index.
+  badIndex,
+
+  /// A 3MF that is not a readable ZIP.
+  notAnArchive,
+
+  /// A ZIP with no `.model` part in it.
+  noModel,
+
+  /// A 3MF unit outside the spec's six. Refused rather than guessed: guessing
+  /// a unit silently rescales somebody's part.
+  /// [MeshLoadException.detail] is the unit as written.
+  unknownUnit,
+
+  /// Bigger than [kMaxMeshFileBytes]. [MeshLoadException.count] is its size in
+  /// whole megabytes. Refused BEFORE reading, which is the only moment at
+  /// which it can be refused rather than crashed on.
+  fileTooLarge,
+
+  /// More triangles than [kMaxMeshTriangles]. [MeshLoadException.count] is how
+  /// many.
+  tooManyTriangles,
+}
+
+/// Thrown by every reader in this file. Carries a [MeshFailure] and, where one
+/// exists, the single value that belongs in the sentence.
 class MeshLoadException implements Exception {
-  MeshLoadException(this.message);
-  final String message;
+  MeshLoadException(this.reason, {this.detail, this.count});
+
+  final MeshFailure reason;
+
+  /// The offending text — an index, a unit name, an OS error. Never shown to
+  /// the user on its own; it is a placeholder in a localised message.
+  final String? detail;
+
+  /// The offending number, where the reason has one. Kept apart from [detail]
+  /// so the message can format it for the reader's language: a German user
+  /// expects 2.000.000 where an English one expects 2,000,000.
+  final int? count;
+
+  /// For logs and test failures, not for the user.
   @override
-  String toString() => message;
+  String toString() => 'MeshLoadException(${reason.name}'
+      '${detail == null ? '' : ': $detail'}'
+      '${count == null ? '' : ': $count'})';
 }
 
 /// An indexed triangle mesh, in millimetres, as read from a file.
@@ -118,15 +208,27 @@ class MeshSoup {
 
 /// Reads the mesh at [path], choosing the parser by extension.
 ///
-/// Throws [MeshLoadException] with a sentence fit to show the user.
+/// Throws [MeshLoadException] carrying a [MeshFailure] the caller localises.
 MeshSoup loadMeshFile(String path) {
   final f = File(path);
-  if (!f.existsSync()) throw MeshLoadException('That file no longer exists.');
+  if (!f.existsSync()) throw MeshLoadException(MeshFailure.missing);
+  // Before reading, not after: the read is what would take the app down.
+  final int size;
+  try {
+    size = f.lengthSync();
+  } on FileSystemException catch (e) {
+    throw MeshLoadException(MeshFailure.unreadable, detail: e.osError?.message);
+  }
+  if (size > kMaxMeshFileBytes) {
+    throw MeshLoadException(MeshFailure.fileTooLarge,
+        count: size ~/ (1024 * 1024));
+  }
   final Uint8List bytes;
   try {
     bytes = f.readAsBytesSync();
   } on FileSystemException catch (e) {
-    throw MeshLoadException('That file could not be read (${e.osError?.message ?? 'no access'}).');
+    throw MeshLoadException(MeshFailure.unreadable,
+        detail: e.osError?.message);
   }
   return loadMeshBytes(bytes, path: path);
 }
@@ -134,11 +236,24 @@ MeshSoup loadMeshFile(String path) {
 /// Reads a mesh already in memory. [path] is used only to pick the parser.
 MeshSoup loadMeshBytes(Uint8List bytes, {required String path}) {
   final lower = path.toLowerCase();
-  if (bytes.isEmpty) throw MeshLoadException('That file is empty.');
-  if (lower.endsWith('.stl')) return parseStl(bytes);
-  if (lower.endsWith('.obj')) return parseObj(bytes);
-  if (lower.endsWith('.3mf')) return parse3mf(bytes);
-  throw MeshLoadException('Prototype cannot open that kind of file.');
+  if (bytes.isEmpty) throw MeshLoadException(MeshFailure.empty);
+  final MeshSoup soup;
+  if (lower.endsWith('.stl')) {
+    soup = parseStl(bytes);
+  } else if (lower.endsWith('.obj')) {
+    soup = parseObj(bytes);
+  } else if (lower.endsWith('.3mf')) {
+    soup = parse3mf(bytes);
+  } else {
+    throw MeshLoadException(MeshFailure.unsupportedKind);
+  }
+  // Checked once here rather than in each reader: the limit is about what the
+  // CONVERTER can do in a tolerable time, not about any one file format.
+  if (soup.triangleCount > kMaxMeshTriangles) {
+    throw MeshLoadException(MeshFailure.tooManyTriangles,
+        count: soup.triangleCount);
+  }
+  return soup;
 }
 
 // =========================================================================
@@ -167,6 +282,11 @@ MeshSoup parseStl(Uint8List bytes) {
 }
 
 MeshSoup _parseBinaryStl(ByteData bd, int n) {
+  // The count is in the header, so this costs nothing and is checked before
+  // the arrays are sized from it rather than after they are filled.
+  if (n > kMaxMeshTriangles) {
+    throw MeshLoadException(MeshFailure.tooManyTriangles, count: n);
+  }
   final w = _VertexWelder(n * 3);
   final tris = Int32List(n * 3);
   var kept = 0, dropped = 0;
@@ -176,12 +296,10 @@ MeshSoup _parseBinaryStl(ByteData bd, int n) {
     // routinely absent, zero, or simply wrong, and the reconstructor computes
     // them from the winding anyway. Trusting them would import the file's bugs.
     off += 12;
-    final a = w.add(bd.getFloat32(off, Endian.little),
-        bd.getFloat32(off + 4, Endian.little), bd.getFloat32(off + 8, Endian.little));
-    final b = w.add(bd.getFloat32(off + 12, Endian.little),
-        bd.getFloat32(off + 16, Endian.little), bd.getFloat32(off + 20, Endian.little));
-    final c = w.add(bd.getFloat32(off + 24, Endian.little),
-        bd.getFloat32(off + 28, Endian.little), bd.getFloat32(off + 32, Endian.little));
+    double f(int k) => bd.getFloat32(off + k, Endian.little);
+    final a = w.add(f(0), f(4), f(8));
+    final b = w.add(f(12), f(16), f(20));
+    final c = w.add(f(24), f(28), f(32));
     off += 36 + 2; // 3 vertices + the 2-byte attribute word
     if (a == b || b == c || a == c) {
       dropped++;
@@ -193,7 +311,7 @@ MeshSoup _parseBinaryStl(ByteData bd, int n) {
     kept++;
   }
   if (kept == 0) {
-    throw MeshLoadException('That STL file contains no usable triangles.');
+    throw MeshLoadException(MeshFailure.noGeometry);
   }
   return MeshSoup(
     vertices: w.finish(),
@@ -217,7 +335,7 @@ MeshSoup _parseAsciiStl(Uint8List bytes) {
     for (var k = 0; k < 3; k++) {
       final v = s.number();
       if (v == null) {
-        throw MeshLoadException('That STL file is damaged (a vertex is incomplete).');
+        throw MeshLoadException(MeshFailure.truncated);
       }
       xyz[k] = v;
     }
@@ -227,6 +345,10 @@ MeshSoup _parseAsciiStl(Uint8List bytes) {
           pending[1] != pending[2] &&
           pending[0] != pending[2]) {
         tris.addAll(pending);
+        if (tris.length > kMaxMeshTriangles * 3) {
+          throw MeshLoadException(MeshFailure.tooManyTriangles,
+              count: tris.length ~/ 3);
+        }
       } else {
         dropped++;
       }
@@ -234,7 +356,7 @@ MeshSoup _parseAsciiStl(Uint8List bytes) {
     }
   }
   if (tris.isEmpty) {
-    throw MeshLoadException('That STL file contains no usable triangles.');
+    throw MeshLoadException(MeshFailure.noGeometry);
   }
   return MeshSoup(
     vertices: w.finish(),
@@ -267,7 +389,7 @@ MeshSoup parseObj(Uint8List bytes) {
     if (key == 'v') {
       final x = s.number(), y = s.number(), z = s.number();
       if (x == null || y == null || z == null) {
-        throw MeshLoadException('That OBJ file is damaged (a vertex is incomplete).');
+        throw MeshLoadException(MeshFailure.truncated);
       }
       verts.addAll([x, y, z]);
       // A `v` line may carry r,g,b after z. skipLine drops them with the rest.
@@ -283,7 +405,7 @@ MeshSoup parseObj(Uint8List bytes) {
         final n = verts.length ~/ 3;
         final idx = ref < 0 ? n + ref : ref - 1;
         if (idx < 0 || idx >= n) {
-          throw MeshLoadException('That OBJ file is damaged (a face names vertex $ref).');
+          throw MeshLoadException(MeshFailure.badIndex, detail: '$ref');
         }
         face.add(idx);
       }
@@ -295,6 +417,10 @@ MeshSoup parseObj(Uint8List bytes) {
         }
         tris.addAll([a, b, c]);
       }
+      if (tris.length > kMaxMeshTriangles * 3) {
+        throw MeshLoadException(MeshFailure.tooManyTriangles,
+            count: tris.length ~/ 3);
+      }
     } else if (key == 'o' || key == 'g') {
       groups++;
       s.skipLine();
@@ -303,7 +429,7 @@ MeshSoup parseObj(Uint8List bytes) {
     }
   }
   if (tris.isEmpty) {
-    throw MeshLoadException('That OBJ file contains no faces.');
+    throw MeshLoadException(MeshFailure.noGeometry);
   }
   return MeshSoup(
     vertices: Float64List.fromList(verts),
@@ -350,7 +476,7 @@ MeshSoup parse3mf(Uint8List bytes) {
     }
   }
   if (xml == null) {
-    throw MeshLoadException('That 3MF file has no model inside it.');
+    throw MeshLoadException(MeshFailure.noModel);
   }
   return _parse3mfModel(utf8.decode(xml, allowMalformed: true));
 }
@@ -383,7 +509,7 @@ MeshSoup _parse3mfModel(String xml) {
           if (u != null) {
             final f = _k3mfUnits[u.toLowerCase()];
             if (f == null) {
-              throw MeshLoadException('That 3MF file uses an unknown unit ("$u").');
+              throw MeshLoadException(MeshFailure.unknownUnit, detail: u);
             }
             unit = f;
           }
@@ -426,7 +552,8 @@ MeshSoup _parse3mfModel(String xml) {
         if (cur != null && !tag.isEnd) {
           final id = tag.attrs['objectid'];
           if (id != null) {
-            cur.components.add(MapEntry(id, _parse3mfMatrix(tag.attrs['transform'])));
+            cur.components
+                .add(MapEntry(id, _parse3mfMatrix(tag.attrs['transform'])));
           }
         }
         break;
@@ -442,7 +569,7 @@ MeshSoup _parse3mfModel(String xml) {
   }
 
   if (!sawModel) {
-    throw MeshLoadException('That 3MF file is damaged (no model element).');
+    throw MeshLoadException(MeshFailure.noModel);
   }
   // A 3MF with no <build> is legal and common enough — treat every object that
   // nothing references as a root, so the geometry is not silently dropped.
@@ -473,7 +600,9 @@ MeshSoup _parse3mfModel(String xml) {
       final base = verts.length ~/ 3;
       final n = o.verts.length ~/ 3;
       for (var i = 0; i < n; i++) {
-        final x = o.verts[i * 3], y = o.verts[i * 3 + 1], z = o.verts[i * 3 + 2];
+        final x = o.verts[i * 3];
+        final y = o.verts[i * 3 + 1];
+        final z = o.verts[i * 3 + 2];
         if (m == null) {
           verts.addAll([x * unit, y * unit, z * unit]);
         } else {
@@ -493,6 +622,18 @@ MeshSoup _parse3mfModel(String xml) {
         }
         tris.addAll([base + a, base + b, base + c]);
       }
+      // Checked HERE, inside the flatten, not once at the end.
+      //
+      // A 3MF names its geometry by reference: an object can be a list of
+      // components, each pointing at another object, and four levels of sixty
+      // turn one cube into thirteen million triangles from a file of a few
+      // kilobytes. Waiting until the flatten finished would mean allocating
+      // all of it first — which is the crash this limit exists to prevent, not
+      // the wait.
+      if (tris.length > kMaxMeshTriangles * 3) {
+        throw MeshLoadException(MeshFailure.tooManyTriangles,
+            count: tris.length ~/ 3);
+      }
       for (final comp in o.components) {
         emit(comp.key, _mul3mf(m, comp.value), stack, depth + 1);
       }
@@ -505,7 +646,7 @@ MeshSoup _parse3mfModel(String xml) {
   }
 
   if (tris.isEmpty) {
-    throw MeshLoadException('That 3MF file contains no triangles.');
+    throw MeshLoadException(MeshFailure.noGeometry);
   }
   return MeshSoup(
     vertices: Float64List.fromList(verts),
@@ -521,7 +662,7 @@ double _attrNum(Map<String, String> a, String k) {
   final v = a[k];
   final d = v == null ? null : double.tryParse(v);
   if (d == null || !d.isFinite) {
-    throw MeshLoadException('That 3MF file is damaged (a vertex has no $k).');
+    throw MeshLoadException(MeshFailure.truncated, detail: k);
   }
   return d;
 }
@@ -530,7 +671,7 @@ int _attrInt(Map<String, String> a, String k) {
   final v = a[k];
   final i = v == null ? null : int.tryParse(v);
   if (i == null) {
-    throw MeshLoadException('That 3MF file is damaged (a triangle has no $k).');
+    throw MeshLoadException(MeshFailure.truncated, detail: k);
   }
   return i;
 }
@@ -588,7 +729,7 @@ Map<String, Uint8List> _readZip(Uint8List bytes) {
   final bd = ByteData.sublistView(bytes);
   final eocd = _findEocd(bytes);
   if (eocd < 0) {
-    throw MeshLoadException('That 3MF file is not a readable archive.');
+    throw MeshLoadException(MeshFailure.notAnArchive);
   }
   final count = bd.getUint16(eocd + 10, Endian.little);
   var p = bd.getUint32(eocd + 16, Endian.little);
@@ -639,7 +780,10 @@ int _findEocd(Uint8List b) {
   // bounded backwards scan finds it without reading the whole file again.
   final lowest = math.max(0, b.length - 22 - 65535);
   for (var i = b.length - 22; i >= lowest; i--) {
-    if (b[i] == 0x50 && b[i + 1] == 0x4b && b[i + 2] == 0x05 && b[i + 3] == 0x06) {
+    if (b[i] == 0x50 &&
+        b[i + 1] == 0x4b &&
+        b[i + 2] == 0x05 &&
+        b[i + 3] == 0x06) {
       return i;
     }
   }
@@ -887,7 +1031,8 @@ class _XmlScanner {
     return _XmlTag(name.toLowerCase(), _attrsOf(b, k), isEnd, selfClosing);
   }
 
-  static bool _isXmlSpace(int c) => c == 0x20 || c == 0x09 || c == 0x0a || c == 0x0d;
+  static bool _isXmlSpace(int c) =>
+      c == 0x20 || c == 0x09 || c == 0x0a || c == 0x0d;
 
   static Map<String, String> _attrsOf(String b, int from) {
     final out = <String, String>{};

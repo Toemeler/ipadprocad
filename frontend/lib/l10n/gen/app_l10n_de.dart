@@ -808,6 +808,141 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String get msgOpenPartForMesh =>
+      'Zuerst ein Bauteil öffnen — ein Netz kommt als Volumenkörper an.';
+
+  @override
+  String get msgNoKernelMesh =>
+      'Kein 3D-Kern verbunden — ein Netz umzuwandeln braucht den Gerätebuild.';
+
+  @override
+  String get msgMeshEmpty => 'Diese Datei ist leer.';
+
+  @override
+  String get msgMeshMissing => 'Diese Datei gibt es nicht mehr.';
+
+  @override
+  String get msgMeshUnreadable => 'Diese Datei ließ sich nicht lesen.';
+
+  @override
+  String get msgMeshNoGeometry =>
+      'Diese Datei enthält keine brauchbare Geometrie.';
+
+  @override
+  String get msgMeshTruncated =>
+      'Diese Datei ist beschädigt — ein Datensatz bricht ab.';
+
+  @override
+  String msgMeshBadIndex(String index) {
+    return 'Diese Datei ist beschädigt — eine Fläche nennt Punkt $index, den es nicht gibt.';
+  }
+
+  @override
+  String get msgMeshNotAnArchive => 'Diese 3MF-Datei ist kein lesbares Archiv.';
+
+  @override
+  String get msgMeshNoModel => 'Diese 3MF-Datei enthält kein Modell.';
+
+  @override
+  String msgMeshUnknownUnit(String unit) {
+    return 'Diese 3MF-Datei nutzt die unbekannte Einheit „$unit“.';
+  }
+
+  @override
+  String msgMeshNotWatertight(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Dieses Netz ist nicht dicht ($count offene Kanten) und kann kein Volumenkörper werden.',
+      one:
+          'Dieses Netz ist nicht dicht (eine offene Kante) und kann kein Volumenkörper werden.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgMeshConvertFailed => 'Das Netz ließ sich nicht umwandeln.';
+
+  @override
+  String msgMeshConvertFailedWhy(String error) {
+    return 'Das Netz ließ sich nicht umwandeln: $error';
+  }
+
+  @override
+  String get msgMeshNotSaved =>
+      'Das Netz wurde umgewandelt, aber nicht gespeichert.';
+
+  @override
+  String msgMeshImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Importiert: $count Flächen erkannt.',
+      one: 'Importiert: eine Fläche erkannt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgMeshImportedFacetedOnly(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Als $count Flächen importiert — keine Flächenform erkannt.',
+      one: 'Als eine Fläche importiert — keine Flächenform erkannt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgMeshImportedFaceted(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Bereiche blieben als Dreiecke.',
+      one: 'Ein Bereich blieb als Dreiecke.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgMeshImportedOpen => 'Nicht geschlossen — ein Flächenkörper.';
+
+  @override
+  String msgMeshFileTooLarge(int size, int limit) {
+    final intl.NumberFormat sizeNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String sizeString = sizeNumberFormat.format(size);
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'Diese Datei hat $sizeString MB; Prototype liest Netze bis $limitString MB.';
+  }
+
+  @override
+  String msgMeshTooManyTriangles(int count, int limit) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'Dieses Netz hat $countString Dreiecke; Prototype wandelt bis $limitString um.';
+  }
+
+  @override
+  String msgMeshConverting(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    return '$countString Dreiecke werden umgewandelt …';
+  }
+
+  @override
   String msgImportedEntities(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

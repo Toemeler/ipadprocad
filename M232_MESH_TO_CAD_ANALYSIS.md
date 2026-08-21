@@ -9,20 +9,58 @@ This is the research that decided the build. The answer to "is there a tool I ca
 drop in" is **no** — the evidence is below — so it was written instead, against the
 kernel that was already here.
 
-**What shipped with this document** (see the commit that follows it):
+**What shipped with this document** (see the commits that follow it):
 
 | | |
 |---|---|
 | `frontend/lib/mesh_io.dart` | STL (binary + ASCII), OBJ, 3MF readers. No new package: the 3MF container is unzipped with `dart:io`'s raw inflate, the same one `zip_writer.dart` writes with |
 | `backend/occt/shim/mesh_recon.{h,cpp}` | the reconstruction pipeline — weld, orient, segment, fit plane/cylinder/cone/sphere/torus, merge, refine boundaries, regularise, build faces on exact intersection curves, sew |
 | `occt_brep_from_mesh` (shim v21) | the flat C ABI over it, with a report the UI can explain a failure from |
+| `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
-| `backend/occt/tests/mesh_recon_test.cpp` | 49 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume |
-| `frontend/test/m232_mesh_import_test.dart` | 19 tests over the readers and the Open decision |
+| 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
+| `backend/occt/tests/mesh_recon_test.cpp` | 49 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
-Measured on the round trip: a drilled and bossed plate of 4 610 triangles comes back
-as **exactly its 28 original faces** — 10 planes and 18 cylinders, no faceted
-remainder — closed, valid, volume within 0.0002%, in 70 ms.
+### What it actually does
+
+A drilled and bossed plate of 4 610 triangles comes back as **exactly its 28
+original faces** — 10 planes and 18 cylinders, no faceted remainder — closed,
+valid, volume within 0.0002%, in 70 ms. A block with 3 mm fillets recovers 6
+planes and 4 cylinders of radius exactly 3.0000 on exactly the right axes.
+
+Measured on synthetic meshes, the reconstruction is near-linear and holds its
+accuracy at every size:
+
+| triangles | time | per triangle | result |
+|---|---|---|---|
+| 51 120 | 97 ms | 1.9 µs | 2 planes + 1 cylinder, closed |
+| 253 400 | 497 ms | 2.0 µs | 2 planes + 1 cylinder, closed |
+| 882 200 | 2.5 s | 2.9 µs | 2 planes + 1 cylinder, closed |
+| 2 243 200 | 7.5 s | 3.3 µs | 2 planes + 1 cylinder, closed |
+
+### The two limits, and why they are where they are
+
+Both are in `mesh_io.dart`, and both guard against a **crash**, not a wait.
+
+- **`kMaxMeshFileBytes` = 256 MB.** Reading is `readAsBytesSync`, so a gigabyte
+  file is a gigabyte of iPad memory before a triangle has been looked at, and
+  the app is killed rather than told. Checked from `lengthSync()` *before* the
+  read — the only moment at which it can be refused instead of crashed on.
+- **`kMaxMeshTriangles` = 2 000 000.** The reconstruction runs on the **UI
+  thread**, because the kernel is single-threaded by contract. Two million is
+  about seven seconds of frozen app on a desktop and perhaps fifteen on a
+  device: far past anything anyone prints (a typical MakerWorld model is fifty
+  to five hundred thousand), near enough that one bad download cannot wedge the
+  app for minutes. A notice goes up before the kernel takes the thread, so the
+  freeze has an explanation on screen.
+
+The triangle limit is enforced **inside** each reader, not once on the finished
+mesh. A 3MF names its geometry by reference — an object can be a list of
+components pointing at other objects — so four levels of sixty turn one cube
+into thirteen million triangles from a few kilobytes of XML. Checking only at
+the end would mean allocating all of it first, which is the crash the limit
+exists to prevent.
 
 ---
 

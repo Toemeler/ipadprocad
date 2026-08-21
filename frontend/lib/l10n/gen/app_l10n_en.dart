@@ -799,6 +799,140 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get msgOpenPartForMesh =>
+      'Open a part first — a mesh arrives as a solid body.';
+
+  @override
+  String get msgNoKernelMesh =>
+      'No 3D kernel linked — converting a mesh needs the device build.';
+
+  @override
+  String get msgMeshEmpty => 'That file is empty.';
+
+  @override
+  String get msgMeshMissing => 'That file no longer exists.';
+
+  @override
+  String get msgMeshUnreadable => 'That file could not be read.';
+
+  @override
+  String get msgMeshNoGeometry => 'That file contains no usable geometry.';
+
+  @override
+  String get msgMeshTruncated =>
+      'That file is damaged — a record stops part-way through.';
+
+  @override
+  String msgMeshBadIndex(String index) {
+    return 'That file is damaged — a face names vertex $index, which is not in it.';
+  }
+
+  @override
+  String get msgMeshNotAnArchive => 'That 3MF file is not a readable archive.';
+
+  @override
+  String get msgMeshNoModel => 'That 3MF file has no model inside it.';
+
+  @override
+  String msgMeshUnknownUnit(String unit) {
+    return 'That 3MF file uses an unknown unit (“$unit”).';
+  }
+
+  @override
+  String msgMeshNotWatertight(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'That mesh is not watertight ($count open edges), so it cannot become a solid.',
+      one:
+          'That mesh is not watertight (one open edge), so it cannot become a solid.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgMeshConvertFailed => 'Could not convert that mesh.';
+
+  @override
+  String msgMeshConvertFailedWhy(String error) {
+    return 'Could not convert that mesh: $error';
+  }
+
+  @override
+  String get msgMeshNotSaved =>
+      'The mesh converted, but the result could not be saved.';
+
+  @override
+  String msgMeshImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Imported: $count surfaces recognised.',
+      one: 'Imported: one surface recognised.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgMeshImportedFacetedOnly(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Imported as $count faces — no surface shape recognised.',
+      one: 'Imported as one face — no surface shape recognised.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgMeshImportedFaceted(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count areas stayed as triangles.',
+      one: 'One area stayed as triangles.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgMeshImportedOpen => 'Not closed — this is a surface body.';
+
+  @override
+  String msgMeshFileTooLarge(int size, int limit) {
+    final intl.NumberFormat sizeNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String sizeString = sizeNumberFormat.format(size);
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'That file is $sizeString MB; Prototype reads meshes up to $limitString MB.';
+  }
+
+  @override
+  String msgMeshTooManyTriangles(int count, int limit) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'That mesh has $countString triangles; Prototype converts up to $limitString.';
+  }
+
+  @override
+  String msgMeshConverting(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    return 'Converting $countString triangles…';
+  }
+
+  @override
   String msgImportedEntities(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -3433,7 +3433,8 @@ extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
     if (max_faceted > 0) p.max_faceted_triangles = max_faceted;
 
     std::string err;
-    const TopoDS_Shape out = meshrecon::Reconstruct(xyz, nv, tri, nt, p, rep, err);
+    const TopoDS_Shape out =
+        meshrecon::Reconstruct(xyz, nv, tri, nt, p, rep, err);
     if (out.IsNull()) {
         set_err("occt_brep_from_mesh",
                 err.empty() ? "the mesh could not be converted" : err.c_str());

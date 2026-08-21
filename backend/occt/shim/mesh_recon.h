@@ -37,7 +37,8 @@ namespace meshrecon {
 /* How the caller wants it converted. Zero-initialising this struct gives
  * Defaults() values only if you call Defaults(); the fields have no implicit
  * sane value, so always start from Defaults(). */
-struct Params {
+struct Params
+{
     /* 0 = faceted (one face per triangle, coplanar-merged afterwards)
      * 1 = prismatic (fit surfaces; fall back to faceted per patch) */
     int mode;
@@ -68,7 +69,8 @@ Params Defaults();
 /* What actually happened. Filled in even when the conversion fails, because
  * "it produced 4000 faceted patches" is the explanation for a slow, useless
  * result and the user is entitled to it. */
-struct Report {
+struct Report
+{
     int triangles_in, vertices_in;
     int triangles_used, vertices_welded;
     int non_manifold_edges, boundary_edges;
@@ -78,12 +80,12 @@ struct Report {
     int faces_built, faces_failed;
     int analytic_edges, approximated_edges;
     int shells, solids;
-    int closed;              /* 1 when the result is a closed solid */
-    double fit_rms;          /* area-weighted, in model units */
-    double diagonal;         /* bounding-box diagonal of the input */
+    int closed;      /* 1 when the result is a closed solid */
+    double fit_rms;  /* area-weighted, in model units */
+    double diagonal; /* bounding-box diagonal of the input */
 };
 
-void ClearReport(Report& r);
+void ClearReport(Report &r);
 
 /* Reconstructs a B-Rep from an indexed triangle mesh.
  *
@@ -92,10 +94,9 @@ void ClearReport(Report& r);
  * all point inward still comes out a solid.
  *
  * Returns a null shape on failure, with `err` set. Never throws. */
-TopoDS_Shape Reconstruct(const double* xyz, int nv,
-                         const int* tri, int nt,
-                         const Params& p, Report& rep, std::string& err);
+TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
+                         const Params &p, Report &rep, std::string &err);
 
-}  // namespace meshrecon
+} // namespace meshrecon
 
-#endif  /* MESH_RECON_H */
+#endif /* MESH_RECON_H */

@@ -12535,11 +12535,11 @@ class AppState extends ChangeNotifier {
   Future<int> importMeshIntoPart(String path) async {
     final p = currentPart;
     if (p == null) {
-      toast('Open a part first — a mesh arrives as a solid body.');
+      toast(L.current.msgOpenPartForMesh);
       return 0;
     }
     if (!partKernel.available) {
-      toast('This build has no 3D kernel, so a mesh cannot be converted.');
+      toast(L.current.msgNoKernelMesh);
       return 0;
     }
 
@@ -12547,11 +12547,12 @@ class AppState extends ChangeNotifier {
     try {
       soup = loadMeshFile(path);
     } on MeshLoadException catch (e) {
-      toast(e.message);
+      Log.w('import', 'mesh parse of "$path" refused: $e');
+      toast(_meshReadFailure(e));
       return 0;
     } catch (e, st) {
       Log.e('import', 'mesh parse of "$path" failed', e, st);
-      toast('That file could not be read.');
+      toast(L.current.msgMeshUnreadable);
       return 0;
     }
     Log.i(
@@ -12559,13 +12560,29 @@ class AppState extends ChangeNotifier {
         'mesh ${soup.format}: ${soup.triangleCount} tri, '
             '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
             'diagonal ${soup.diagonal.toStringAsFixed(2)} mm'
-            '${soup.droppedTriangles > 0 ? ', ${soup.droppedTriangles} dropped' : ''}');
+            '${soup.droppedTriangles > 0 ? ', '
+                '${soup.droppedTriangles} dropped' : ''}');
+
+    // The kernel is single-threaded by contract, so the conversion happens on
+    // the UI thread and the app is frozen for the duration — under a second
+    // for a typical model, several for a big one. Put the notice up and give
+    // the engine a frame's worth of the event loop to paint it, so the freeze
+    // has an explanation on screen instead of looking like a hang.
+    //
+    // One frame period rather than Duration.zero: a zero delay yields to the
+    // event loop but need not include a vsync tick, and 16 ms against seconds
+    // of work is not a cost worth optimising. Awaiting SchedulerBinding's real
+    // endOfFrame would be the precise primitive and is deliberately not used —
+    // it needs an initialised binding, which the host tests that reach this
+    // code do not have.
+    toast(L.current.msgMeshConverting(soup.triangleCount));
+    await Future<void>.delayed(const Duration(milliseconds: 16));
 
     final res = partKernel.meshToBrep(soup.vertices, soup.triangles);
     Log.i('import', res.report.describe());
     final solid = res.solid;
     if (solid == null) {
-      toast(_meshFailureMessage(res));
+      toast(_meshConvertFailure(res));
       return 0;
     }
 
@@ -12590,7 +12607,7 @@ class AppState extends ChangeNotifier {
       // Without a file on disk the body would come back empty on reopen, and
       // geometry that vanishes without explanation is the worse failure.
       solid.dispose();
-      toast('The mesh converted, but the result could not be saved.');
+      toast(L.current.msgMeshNotSaved);
       return 0;
     }
 
@@ -12613,48 +12630,88 @@ class AppState extends ChangeNotifier {
     return 1;
   }
 
-  /// What to tell the user when a mesh would not convert.
+  /// The sentence for a mesh file that could not be READ.
   ///
-  /// The report is more useful than the kernel's message here: "the faces
-  /// would not sew" means nothing to someone who downloaded a model, whereas
-  /// "the mesh has holes in it" is something they can act on.
-  String _meshFailureMessage(MeshImportOutcome res) {
-    final r = res.report;
-    if (r.trianglesUsed == 0) {
-      return 'That file has no usable triangles.';
+  /// mesh_io.dart throws a [MeshFailure] rather than prose, because the app is
+  /// German and a reader has no business holding UI text (M234). This is where
+  /// the code becomes a sentence, in whatever language the user is reading.
+  String _meshReadFailure(MeshLoadException e) {
+    final l = L.current;
+    switch (e.reason) {
+      case MeshFailure.empty:
+        return l.msgMeshEmpty;
+      case MeshFailure.unsupportedKind:
+        return l.msgCannotOpenKind;
+      case MeshFailure.missing:
+        return l.msgMeshMissing;
+      case MeshFailure.unreadable:
+        return l.msgMeshUnreadable;
+      case MeshFailure.noGeometry:
+        return l.msgMeshNoGeometry;
+      case MeshFailure.truncated:
+        return l.msgMeshTruncated;
+      case MeshFailure.badIndex:
+        return l.msgMeshBadIndex(e.detail ?? '?');
+      case MeshFailure.notAnArchive:
+        return l.msgMeshNotAnArchive;
+      case MeshFailure.noModel:
+        return l.msgMeshNoModel;
+      case MeshFailure.unknownUnit:
+        return l.msgMeshUnknownUnit(e.detail ?? '?');
+      case MeshFailure.fileTooLarge:
+        return l.msgMeshFileTooLarge(
+            e.count ?? 0, kMaxMeshFileBytes ~/ (1024 * 1024));
+      case MeshFailure.tooManyTriangles:
+        return l.msgMeshTooManyTriangles(e.count ?? 0, kMaxMeshTriangles);
     }
-    if (r.boundaryEdges > 0) {
-      return 'That mesh is not watertight (${r.boundaryEdges} open '
-          'edge${r.boundaryEdges == 1 ? '' : 's'}), so it cannot become a solid.';
-    }
-    return res.error?.isNotEmpty == true
-        ? 'Could not convert that mesh: ${res.error}'
-        : 'Could not convert that mesh.';
   }
 
-  /// What to tell the user when it worked. Says how much of the model became
-  /// real surfaces, because that is what decides whether the next operation
-  /// they try will behave.
+  /// The sentence for a mesh that was read but would not CONVERT.
+  ///
+  /// The report is more useful than the kernel's own message here. "the faces
+  /// would not sew" means nothing to someone who downloaded a model; "this mesh
+  /// is not watertight, 412 open edges" names something they can go and fix, in
+  /// their slicer or in the model they downloaded.
+  String _meshConvertFailure(MeshImportOutcome res) {
+    final r = res.report;
+    if (r.trianglesUsed == 0) return L.current.msgMeshNoGeometry;
+    if (r.boundaryEdges > 0) {
+      return L.current.msgMeshNotWatertight(r.boundaryEdges);
+    }
+    final why = res.error;
+    return (why != null && why.isNotEmpty)
+        ? L.current.msgMeshConvertFailedWhy(why)
+        : L.current.msgMeshConvertFailed;
+  }
+
+  /// What to tell the user when it worked.
+  ///
+  /// Three whole sentences, picked and joined — never fragments glued into one.
+  /// A localised fragment cannot be relied on to keep its shape when the
+  /// surrounding words change language, and this is the one message here with
+  /// something conditional to say.
+  ///
+  /// The number reported is the count of RECOGNISED surfaces, not of faces.
+  /// That is the figure that decides whether the next thing the user tries will
+  /// work: a hole that came back a cylinder can be filleted, and a hole that
+  /// came back forty flat strips cannot. The breakdown by kind goes to the log
+  /// (see [MeshToBrepReport.describe]), where it belongs — a toast is read in
+  /// two seconds or not at all.
   String _meshSuccessMessage(MeshToBrepReport r) {
-    final parts = <String>[];
-    void add(int n, String one, [String? many]) {
-      if (n > 0) parts.add('$n ${n == 1 ? one : (many ?? '${one}s')}');
+    final l = L.current;
+    final surfaces = r.analyticFaces;
+    final out = <String>[
+      surfaces > 0
+          ? l.msgMeshImported(surfaces)
+          : l.msgMeshImportedFacetedOnly(r.facesBuilt),
+    ];
+    // Only worth saying alongside a real result; when nothing was recognised,
+    // msgMeshImportedFacetedOnly has already said it.
+    if (surfaces > 0 && r.facetedPatches > 0) {
+      out.add(l.msgMeshImportedFaceted(r.facetedPatches));
     }
-    add(r.planes, 'plane');
-    add(r.cylinders, 'cylinder');
-    add(r.cones, 'cone');
-    add(r.spheres, 'sphere');
-    add(r.tori, 'torus', 'tori');
-    final head = parts.isEmpty
-        ? 'Imported as ${r.facesBuilt} face${r.facesBuilt == 1 ? '' : 's'}'
-        : 'Imported: ${parts.join(', ')}';
-    final tail = <String>[];
-    if (r.facetedPatches > 0) {
-      tail.add('${r.facetedPatches} area${r.facetedPatches == 1 ? '' : 's'} '
-          'kept as triangles');
-    }
-    if (!r.closed) tail.add('not closed — this is a surface body');
-    return tail.isEmpty ? '$head.' : '$head (${tail.join('; ')}).';
+    if (!r.closed) out.add(l.msgMeshImportedOpen);
+    return out.join(' ');
   }
 
   bool importDxf(String path) {
