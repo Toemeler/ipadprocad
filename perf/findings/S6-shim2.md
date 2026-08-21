@@ -643,3 +643,327 @@ Predicted     : - large duration drops on every allEdges span (P1)
 Falsifiable by: any counter change at all, or a gauge moving that is not in
                 this list.
 ```
+
+---
+
+## 6. Results
+
+### 6.1 What was changed
+
+**Shim v22**, `backend/occt/shim/occt_capi.{h,cpp}`:
+
+| | |
+| --- | --- |
+| `convexity_sign()` | field 11 from the local wedge test `u1 · n2`. The guards around it — `faceCount == 2`, `dihedral > 1e-3`, both `into_face_dir` succeeding, `\|u1+u2\| > 1e-9` — are **unchanged**, so exactly the same set of edges receives a nonzero sign as before. `m.Normalize()` moved inside the reference branch, since the shipping path has no use for it. |
+| the orientation index | `1c4735f` restored — this commit reverts `c5f7e21`. `perf/findings/S2-shim.md` is **not** reverted with it: that file is S2's record of what S2 did and is not mine to rewrite. |
+| `occt_shape_edges_info_ref()` | **new, test-only.** The pre-v22 convexity path, so `[36]` can compare old against new in one run. Documented in the header as not-for-application-use, with the reason. Not bound in `occt_engine.dart`. |
+| `occt_shim_version()` | 21 → **22**, with the version note saying what a caller learns by testing for it: whether the binary's thin-wall convexity can be trusted. |
+
+`backend/occt/tests/smoke_occt.c`: scenario **`[36]`** (§6.3).
+`frontend/lib/ffi/occt_engine.dart`: **documentation only** — 16 added lines,
+every one of them a `///` comment. No Dart behaviour, no counters, no bindings.
+
+Files touched outside this session's ownership: **none.** `perf/baseline.json`,
+`PERFORMANCE_PROFILE.md`, `frontend/lib/perf*.dart`, `backend/bench/**`,
+`solver.dart`, `part_model.dart` — all untouched.
+
+### 6.2 Verified on real OCCT, here, on the pinned kernel
+
+Not "syntax-checked in isolation", which is what `1c4735f` had and why it was
+reverted. OCCT V7_9_3 `a016080b` built from the submodule with
+`kernel-bench.yml`'s flags verbatim; shim, smoke test and Lane C all compiled
+against it and run.
+
+```
+[35] box / cylinder / L-prism / filleted / 24-gon: 0 of 12, 3, 18, 15, 72 records differ
+[36] box 20 / cylinder / L-prism / star / 24-gon / through-hole / internal void:
+       fields 0..10 differ on 0, convexity differs on 0
+[36] box 200 x 0.1 x 20 (THIN): fields 0..10 differ on 0, convexity differs on 8
+       reference got 8 of 12 box edges wrong, shipping path 0
+[36] box 60 x 0.04 x 40 (THIN): fields 0..10 differ on 0, convexity differs on 8
+       reference got 8 of 12 box edges wrong, shipping path 0
+[36] coverage: convex 203, concave 23, curve-kind mask 0x6, thin fixtures 2 with 16 repaired signs
+OCCT SMOKE: PASS
+```
+
+`[35]` still passes, which matters more than it looks: it pins the bulk path
+against the single-edge path bitwise, so it is the guard that the two entry
+points did not drift apart when both changed.
+
+### 6.3 `[36]` — how a differential test says an honest thing about a change that is not identical
+
+The rule (§1.4) is "compare old against new on the same machine, in the same
+run", and "never convert a failing equivalence pin to a tolerance to get a
+green build". The two divergent fixtures make that a real design problem, and
+a tolerance is exactly what must not be reached for. `[36]` splits the claim
+instead:
+
+1. **Fields 0–10, every fixture, bitwise.** Both paths run the same code for
+   them, so any difference is a defect however small. Nine fixtures.
+2. **Field 11, every fixture with no feature below `‖diag‖/1414`, bitwise.**
+   Seven fixtures, 204 edges, including a 10-point star whose sign has to
+   alternate correctly ten times around one loop and a solid with an internal
+   void whose twelve cavity edges are genuinely concave.
+3. **The thin fixtures assert GROUND TRUTH, not the disagreement.** A box is
+   convex; the shipping path must report all twelve edges convex at every
+   thickness. The reference's error count is *printed*, not asserted — so if
+   some future OCCT fixes `Perform`, this test keeps passing and simply stops
+   printing repairs.
+4. **The thin fixtures must still reach their regime.** `check(sign_diff > 0)`
+   with a message saying to re-derive the threshold. A fixture that quietly
+   stops exercising the case it was built for is worse than no fixture, and
+   this one says so out loud.
+5. **Coverage**, as `[35]` does: convex, concave, straight and circular edges
+   all actually seen, so an all-zeros implementation cannot pass by agreeing
+   with itself.
+
+### 6.4 Definition of done, item by item
+
+| plan §6 | |
+| --- | --- |
+| 1. `flutter analyze` zero issues | **NOT RUN — no Flutter SDK in this container.** The Dart diff is 16 lines and all of them are `///` comments; `git diff frontend/` contains no added non-comment line. Stated rather than assumed. |
+| 2. `flutter test` green | **NOT RUN**, same reason. No Dart behaviour changed. The three Dart tests that touch this record (`bulk_edge_info_test.dart`, `m136_edge_feature_test.dart`) construct `OcctEdgeInfo` from literals and never call the shim. |
+| 3. `python3 -m unittest discover -s ci` | **45 passing** |
+| 4. behaviour pinned by a differential test | **yes**, `[36]`, §6.3 — and it is pinned as *not* identical, with the divergence named |
+| 5. predictions with arithmetic, before the change | **yes**, P1–P3 above, committed in `7c58e0f` before `a11b97a` touched the shim |
+| 6. merged cleanly into `claude/perf-opt2` | **NO, and cannot be** — §0.1: no `perf-capture-round1` tag, so no integration branch exists to merge into |
+| 7. findings say what was done, predicted, unsure, not done | this file; §8 is the unsure and the not-done |
+
+---
+
+## 7. Adjudication — Lane C's own binary, same machine, before and after
+
+Not my harness this time: `backend/bench/occt_bench` itself, built from this
+branch and from `7c58e0f` (the commit before the shim changed), run
+back to back on the same machine with the same flags. Round one never had a
+same-machine before/after on the gating op; this is one.
+
+### 7.1 `allEdgesBulk` — P1
+
+| edges | v21 | **v22** | factor |
+| ---: | ---: | ---: | ---: |
+| 180 | 29.893 ± 0.507 | **0.9716 ± 0.0107** | 30.8× |
+| 360 | 114.796 ± 3.094 | **2.2745 ± 0.0263** | 50.5× |
+| 720 | 426.846 ± 11.145 | **4.5963 ± 0.1939** | 92.9× |
+| 1440 | 1714.885 ± 22.280 | **9.2273 ± 0.1531** | **185.8×** |
+| **k** | **1.9421 [1.9123, 1.9719]** | **1.0757 [1.0015, 1.1499]** | |
+| R² | 0.99988 | 0.99753 | |
+
+**P1 is UPHELD.** Predicted k = 1.00, interval [0.95, 1.10]; measured
+**1.0757**, inside it. The two intervals are disjoint with room to spare —
+[1.9123, 1.9719] against [1.0015, 1.1499] — which is the comparison round one
+could not make: S1 had to withdraw "the exponent dropped by 0.145" because on
+arm64 the intervals overlapped. Here they do not overlap on either reading, and
+both arms are the same machine, so no cross-platform argument is needed.
+
+The factor **grows with size** — 30.8× → 185.8× — which is the signature of an
+exponent change rather than a constant one. Round one's 20.7× was flat at
+15.1 → 20.7 across the same rungs, and that flatness was the tell.
+
+**One part of P1 I cannot yet check, and one I got right.** The predicted
+*absolute* milliseconds (0.79 / 1.63 / 3.25 / 6.10) were carried onto Lane C's
+*published* Linux machine, which is not this one — that comparison waits for a
+Lane C run. What can be checked here is the predicted **ratio** per rung, and
+it holds tightly:
+
+| edges | predicted v22/v21 | measured | error |
+| ---: | ---: | ---: | ---: |
+| 180 | 0.0351 | 0.0325 | 8 % |
+| 360 | 0.0204 | 0.0198 | 3 % |
+| 720 | 0.0110 | 0.0108 | 2 % |
+| 1440 | 0.0052 | 0.0054 | 4 % |
+
+### 7.2 `edgeInfo1` — P2, and the control moved exactly as advertised
+
+| edges | v21 | v22 | factor |
+| ---: | ---: | ---: | ---: |
+| 180 | 2.3929 | 0.12234 | 19.6× |
+| 360 | 5.4097 | 0.27190 | 19.9× |
+| 720 | 10.6119 | 0.55897 | 19.0× |
+| 1440 | 21.5364 | 1.14704 | 18.8× |
+| **k** | 1.0482 [0.9885, 1.1079] | 1.0726 [1.0339, 1.1114] | **overlapping** |
+
+**P2 is UPHELD on both halves.** Cost / 18.8 to / 19.9, predicted [12×, 26×].
+Exponent unchanged, intervals overlapping — a single `edgeInfo` is still
+Θ(shape), because the single-edge path still rebuilds its whole-shape context
+per call. §6.5 evidence 2 stays true as a statement about scaling; only its
+constant moved.
+
+### 7.3 The per-edge enumeration is still quadratic, and that is correct
+
+| edges | v21 | v22 | factor |
+| ---: | ---: | ---: | ---: |
+| 180 | 478.58 | 22.451 | 21.3× |
+| 360 | 2097.41 | 99.495 | 21.1× |
+| 720 | 8682.45 | 396.867 | 21.9× |
+| 1440 | 34887.17 | 1677.89 | 20.8× |
+| **k** | 2.0613 [2.0221, 2.1005] | **2.0667 [2.0278, 2.1056]** | **unmoved** |
+
+A flat ~21× with the exponent untouched — the same shape of result round one
+got from hoisting, now on the other path, and for the same reason: what remains
+quadratic there is `MapShapes` + `MapShapesAndAncestors` + the bounding box,
+rebuilt per call. **Calling `occt_shape_edge_info` in a loop is still the wrong
+thing to do**, and its doc comment still says so. `allEdges()` in Dart does not.
+
+### 7.4 The control that must NOT move, did not
+
+`buildOnly` builds and tessellates and touches none of this code:
+
+| edges | v21 | v22 |
+| ---: | ---: | ---: |
+| 180 | 18.429 | 16.996 |
+| 360 | 32.871 | 34.210 |
+| 720 | 74.936 | 73.988 |
+| 1440 | 131.126 | 136.754 |
+| k | 0.9682 [0.8658, 1.0705] | 1.0138 [0.9542, 1.0733] |
+
+±4 % with no trend and overlapping intervals. Machine noise, as required.
+
+### 7.5 The harness verdict flipped — and the honest reading is "resolution", not "physics"
+
+| | v21 | v22 |
+| --- | --- | --- |
+| `edgeInfo1` vs device 0.990 [0.970, 1.010] | [0.9885, 1.1079] → **AGREES** | [1.0339, 1.1114] → **DISAGREES** |
+| `allEdges` vs device 2.012 [1.910, 2.113] | AGREES | AGREES |
+| `buildOnly` vs device 1.063 [0.959, 1.167] | AGREES | AGREES |
+| **harness verdict** | **VALIDATED** | **NOT VALIDATED** |
+
+It would be easy to report this as "no change, the interval merely narrowed",
+and that is not quite true either. Both things moved: the point estimate went
+1.0482 → 1.0726 (+0.024, well inside either interval, i.e. not significant),
+**and** the interval narrowed from 0.119 wide to 0.078. Neither alone flips the
+verdict; together they clear the device's upper bound of 1.010 by 0.024.
+
+The narrowing is a direct consequence of the change: `edgeInfo1` is now fast
+enough that the bench takes inner repetitions (×32 at the small rung instead of
+×1), and its CV falls from 5.5 % to 1.3 %. **A disagreement that was always
+there is now resolvable.** That is the instrument getting sharper, not the
+kernel getting worse — but it is a real disagreement and it should not be
+waved away: `edgeInfo1` on a desktop and `kernel.query.edgeInfoScale` on an
+iPad now measurably differ in exponent by ~0.08.
+
+**CI already handles this correctly and needs nothing from anyone.**
+`kernel-bench.yml` keys the gate on `CALIBRATION.txt`'s content hash of the
+shim; the shim's hash is now `93fb7e7`, the recorded one is `8c46e48`, so
+`--validate` is dropped and the comparison becomes informational — which is
+exactly the case that file was written for ("a dropped `allEdges` exponent is
+the intended outcome of Session 2's work, not a broken harness"). Both runs
+printed **`LANE C: PASS`**.
+
+**`CALIBRATION.txt` must NOT be re-recorded to make this go away**, and its own
+text says so: "Never update it to silence a disagreement." It should be
+re-recorded only after the next device capture re-establishes what the device's
+`edgeInfoScale` exponent is against a v22 kernel. `backend/bench/**` is not
+mine to touch in any case. **`Needs:` integrator**, as a note rather than a
+task.
+
+---
+
+## 8. What I am unsure of, and what I deliberately did not do
+
+### 8.1 The change is not proven identical, and here is where it must still differ
+
+7 644 edges over 15 fixtures is evidence, not a proof. The classes where the
+two paths must be expected to disagree, derived rather than observed:
+
+| class | why | seen? |
+| --- | --- | --- |
+| a feature thinner than `‖diag‖/1414` | §5.1 — the probe crosses it | **yes**, 10 edges, and the classifier is wrong on all of them |
+| a query point inside the classifier's ON-tolerance of an edge or vertex | `Perform` returns `TopAbs_ON`, which the shim maps to −1; the wedge has no such state | not seen; needs a shape with tolerances near `‖diag‖/1000` |
+| an exactly-180° "knife" edge | `u1 · n2` is exactly 0 and v22 returns −1; the old path stepped along a direction tangent to both faces and got whatever the classifier said | not seen; both answers are arbitrary there |
+| a self-intersecting or invalid solid | the classifier answers about the point set; the wedge answers about the declared normals | not tested — I could not build one through the C ABI |
+
+The first row is the reason to make the change. The other three are why it is
+**routed and not merged** (§9).
+
+### 8.2 Things I checked and could not fault, so am not claiming as risks
+
+- **Global shell inversion.** I expected this to be a divergence class and
+  worked through it before testing: reversing every face leaves `u1` and `u2`
+  unchanged (`(−n) × (−T) = n × T`), so the classifier's query point is
+  unchanged too, while `u1 · n2` flips. That predicts disagreement. I could not
+  produce an inverted solid through the shim's C ABI to confirm it, so it is
+  **unresolved rather than absent** — I am flagging the reasoning, not a
+  measurement. If the integrator wants it closed, it needs a fixture built
+  against OCCT directly.
+- **Seam edges.** A cylinder's seam has both `fl.First()` and `fl.Last()` on
+  the same face, so `n1 == n2`, the dihedral is 0, and the `> 1e-3` guard
+  excludes it before either path is reached. `[36]`'s cylinder confirms: one
+  edge with sign 0, identical on both paths.
+- **The orientation index against the scan.** `[35]` pins them bitwise (the
+  bulk path indexes, the single-edge path scans), five fixtures, 120 edges.
+
+### 8.3 The sqrt I chose to keep paying
+
+The shipping path still computes `m = u1 + u2` and `m.Magnitude()` purely to
+evaluate the `> 1e-9` guard, and then does not use `m`. One square root per
+edge, bought deliberately: it keeps the *set* of edges that receive a sign
+exactly what it was. `SquareMagnitude() > 1e-18` would save it and would change
+which edges fall through in the last bits. Fidelity beat the sqrt; at 33.7
+allocations and ~6 µs per edge it is not measurable anyway.
+
+### 8.4 Not done, on purpose
+
+- **The single-edge path keeps the scan**, as `1c4735f` decided. Building an
+  E-sized index to answer one question is waste, and §7.2 shows the exponent
+  there is set by the whole-shape rebuilds, not by the scan.
+- **`step` is left as `‖diag‖/1000`.** Now that the shipping path does not use
+  it, it survives only inside the test-only reference. Rescaling it to local
+  feature size would "fix" the reference — and the reference's job is to
+  reproduce pre-v22 behaviour exactly, so fixing it would destroy the test.
+- **The fillet guard (`S2-shim.md` §7.5, ≥ 45.2 % of a one-edge blend)** is
+  untouched. It is behaviour — a blend that would hand back a self-intersecting
+  solid fails cleanly because of it — and it is a separate question from this
+  one.
+- **`BRepCheck_Analyzer`, `occt_shape_volume`, `fuse`/`cut`** — Lane C fits
+  `fuse` at k = 1.336 and `cut` at 1.353 on this ladder, both above linear and
+  neither owned by anyone. Recorded, not chased.
+- **I did not touch `backend/bench/**`**, so Lane C gained no new op. The
+  decomposition in §4 was done in a scratch harness outside the repo,
+  linking the repo's `bench_stats.cpp` read-only, and none of it is committed.
+
+### 8.5 What would refute this session
+
+- A Lane C run on the published Linux or arm64 runner fitting `allEdgesBulk`
+  above **k = 1.10**.
+- An allocation counter still carrying a term proportional to n.
+- Any fixture where fields 0–10 differ between the two paths.
+- A fixture with **no** feature below `‖diag‖/1414` where the convexity signs
+  differ. That would mean the local test is wrong for a reason I have not
+  found, and `[36]` fails loudly on it rather than tolerating it.
+
+---
+
+## 9. `**Needs:** integrator`
+
+**This is a behaviour change and `OPTIMIZATION_PLAN_2.md` §1.2 does not let S6
+merge one on its own authority.** It is built, measured, tested and pushed to
+`claude/edge-path-quadratic-exponent-990pqs`; whether it lands is not mine.
+
+Three things to decide, and they are separable:
+
+1. **The change itself.** 185.8× at 1440 edges and k 1.94 → 1.08, at the cost
+   of 10 sign flips in 7 644 edges — all of them on shapes where the shipped
+   path is demonstrably wrong (a box reported as having concave edges). §2.4
+   is the blast radius: field 11 has one consumer, `selectAllEdges`, and is not
+   in any persisted fingerprint. If the answer is no, **the orientation index
+   must come out with it** (§4.3.5): alone it is a wash and S2 was right to
+   revert it.
+
+2. **The sequencing.** §0.1 — `perf-capture-round1` does not exist and neither
+   does `claude/perf-opt2`. Nothing of mine has reached `claude/perf-opt`, so
+   round one's attribution is intact, but this branch cannot be merged anywhere
+   correct until the capture is taken and the tag exists.
+
+3. **`CALIBRATION.txt`.** §7.5 — do not re-record it to clear the
+   `edgeInfo1` disagreement. CI already degrades the gate to informational on
+   its own. The right moment to re-record is after a device capture against a
+   v22 kernel.
+
+And one thing that is not a decision, just a fact worth carrying into
+`PERFORMANCE_PROFILE.md` at integration: **§6.5's "principal finding" is
+closed.** The extrapolation there — 56.4 s [44.9, 70.8] for the ≈ 3 400-edge
+part that died in the field — was a quadratic's. Against k = 1.076 and this
+ladder's constant the same enumeration is on the order of **25 ms**. The number
+that has been at the top of that section since the beginning no longer
+describes the code.
