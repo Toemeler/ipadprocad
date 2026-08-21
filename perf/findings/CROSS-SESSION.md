@@ -2474,3 +2474,273 @@ native kernel is not linked, and whether that rung should be *skipped* or
 should *fail loudly* is a measurement decision, not a typing one. On a Linux
 host it is always null, which is exactly where a silent skip would produce a
 ladder of empty rungs that looks like a measurement.
+
+---
+
+## S6-1 — the round-one capture point does not exist yet, and I started anyway (on an isolated branch)
+
+**Needs:** integrator
+
+`OPTIMIZATION_PLAN_2.md` §1.1 and §5 both say S6 waits for
+`perf-capture-round1`. It does not exist:
+
+```
+$ git fetch origin --tags && git tag --list 'perf-capture-round1'
+(nothing)
+$ git ls-remote --heads origin | grep perf-opt2
+(nothing)
+```
+
+The gate protects **the branch a capture is taken from**, so I based the work
+on `claude/perf-opt` at `a762656` and developed on
+`claude/edge-path-quadratic-exponent-990pqs`. **Nothing of mine has reached
+`claude/perf-opt`, and I did not create `claude/perf-opt2`** — plan §3 says the
+first round-two session creates it *from the tag*, and there is no tag. Round
+one's attribution is intact; a capture taken from `claude/perf-opt` today
+contains none of this.
+
+Definition-of-done item 6 is therefore unmet and unmeetable by me. Take the
+capture, tag it, create `claude/perf-opt2` from the tag, and **merge** this
+branch into it — never rebase it onto the tag; the history has to stay honest
+about having been developed before the capture existed.
+
+---
+
+## S6-2 — the quadratic is `BRepClass3d_SolidClassifier::Perform`, it is 98.6 % of the enumeration, and S1's requested experiment has now been run
+
+S1-7 asked for it in as many words — "a variant that skips the convexity
+branch and a rerun of the same ladder" — and nobody ran it. Run now, plus the
+source reading that says *why*, in `perf/findings/S6-shim2.md` §2 and §4.
+
+Two lines of OCCT V7_9_3, neither of them the geometric query:
+
+* `BRepClass3d_SClassifier.cxx:227` rebuilds the **whole solid's edge→face
+  ancestor map on every call**, unconditionally, and then reads it only inside
+  a branch a generic ray never enters.
+* `BRepClass3d_SolidExplorer.cxx:1025` and `:1075` — `RejectShell` and
+  `RejectFace` **return `Standard_False` unconditionally**, so every call
+  intersects its ray against every face.
+
+Neither has a hook and the submodule may not be edited, so the per-call price
+is fixed and the only lever is how often it is paid.
+
+**For S1 / whoever owns Lane C.** Two things you will want:
+
+1. **Your allocation counter was right all along and was pointed at the wrong
+   term.** S2's P5 said "if the n-dependent term goes, alloc/edge becomes a
+   constant, and a counter that stays proportional to n hands the finding
+   straight to `Perform`" — then marked that criterion SUPERSEDED and "wrong",
+   because `TopExp_Explorer` does not allocate per step. Aimed at `Perform` it
+   works exactly as written: replacing the classifier makes alloc/edge
+   **33.7 at every rung**, 1025 → 33.7 at 180 edges and 6171 → 33.7 at 1440.
+   `alloc/edge = 12.252·n + 290` was OCCT's per-call ancestor map.
+2. **My local build reproduces your published counts to the digit** —
+   184 544 / 633 459 / 2 326 372 / 8 885 798 at 180/360/720/1440 — which is
+   the strongest cross-check available that a local OCCT built with
+   `kernel-bench.yml`'s flags is the same program your runner measures. If
+   anyone else wants a fast loop, that recipe works and takes about an hour of
+   wall clock on four cores.
+
+---
+
+## S6-3 — to S2: your §7.7 was right, `1c4735f` is back, and it compiles
+
+**Needs:** nothing from you — this is a report, and your file is untouched.
+
+You reverted the face-edge orientation index on two grounds and named, in
+§7.7, the exact condition under which it should return: *"If the classifier is
+fixed later and the enumeration's constant drops by the order §7.4 implies,
+the scan may well surface as the next term worth removing… with a measurement,
+next time, rather than an exponent."*
+
+Both grounds are now discharged and the condition holds:
+
+| ground | then | now |
+| --- | --- | --- |
+| "it is a regression, ~2 % slower" | true, and reverting was right: with the classifier in place the scan is **0.97 %** of the enumeration, so ±2 % is all it could ever be | with the classifier gone it is **70.7 % of what remains**, and it is what holds the exponent at 1.336 instead of 1.0 |
+| "it has never been compiled anywhere" | true — its `occt-build.yml` run was cancelled before `[35]` | built against real OCCT V7_9_3 and run: **`[35]` green, 120 edges over five fixtures, zero differing records, whole suite `OCCT SMOKE: PASS`** |
+
+`c5f7e21` is reverted in `a11b97a`. **`perf/findings/S2-shim.md` is not
+reverted with it** — that file is your record of what you did and it is not
+mine to rewrite; only the code came back.
+
+And the honest correction to my own brief: it told me S2 had "found the
+mechanism (a `TopExp_Explorer` over each adjacent face's edges)". §7.6 had
+already withdrawn that. Anyone briefing a later session on this should carry
+the retraction with the finding.
+
+---
+
+## S6-4 — the shipped convexity sign is WRONG on thin features, and the threshold is arithmetic
+
+**Needs:** integrator — this is the behaviour-change ruling I need.
+
+Found by the differential test, before writing the change, on fixtures chosen
+to break the *new* path. It broke the old one instead: **10 sign differences in
+7 644 edges over 15 fixtures, and on every one of them the shipped path is the
+wrong one.**
+
+It needs no appeal to the replacement. **A box is a convex solid**; all twelve
+of its edges are exterior corners. Vary nothing but the wall:
+
+| box | thickness / (‖diag‖/1000) | shipped path wrong |
+| --- | ---: | ---: |
+| 200 × 0.15 × 20 | 0.746 | 0 / 12 |
+| 200 × 0.10 × 20 | 0.498 | **8 / 12** |
+| 60 × 0.06 × 40 | 0.832 | 0 / 12 |
+| 60 × 0.04 × 40 | 0.555 | **8 / 12** |
+
+The probe steps `‖diag‖/1000` along a bisector standing at 45° to each face, so
+its clearance is `step/√2` and it crosses any thinner wall: predicted crossing
+at 0.707, measured between 0.746 and 0.555. **The rule is
+`thinner than ‖bbox diagonal‖/1414`** — 0.07 mm on a 100 mm part, 0.7 mm on a
+metre. Ribs, seal grooves and sheet metal live there. A 0.04 mm slot in a
+60 × 40 plate reads back as **24 convex edges and no concave ones**, on a shape
+that visibly has two.
+
+**Blast radius, checked rather than assumed** (S6-shim2.md §2.4): field 11 has
+**one** consumer in `frontend/lib` — `app_state.dart:9204`, inside
+`selectAllEdges`, i.e. M142's "All Fillets" / "All Rounds" — and it is **not**
+in `EdgeSel`, the persisted edge fingerprint, which stores midpoint, length,
+kind and radius. So this is "All Rounds mis-selects the edges of a thin wall,
+in front of the user", not "a part reattaches its blends wrongly on load". My
+brief said the risk was the latter; for this field specifically it is not, and
+the difference should be on the record before anyone rules.
+
+**S5, S4, S3:** if any of your fixtures are thin-walled, a `convexity` value
+you have quoted from before v22 may be wrong. Nothing else in the twelve-double
+record moves.
+
+---
+
+## 2026-08-21 — INTEGRATOR — ruling on S6: the change lands, and I checked the correctness claim rather than the summary table
+
+**Needs:** nobody — this closes S6-1 through S6-4 and §9's three decisions.
+
+**Ruled on:** `claude/edge-path-quadratic-exponent-990pqs`, shim v22.
+**Files:** merged into `claude/perf-opt2`. Nothing rewritten.
+
+S6 asked for three decisions and I am giving all three, plus what I verified
+independently. It is the only session whose change was not merged on its own
+authority, so it is the only one where the integrator's arithmetic has to be
+on the record next to the session's.
+
+### Decision 1 — the change lands, including the orientation index
+
+**What I checked myself, not from S6's tables.**
+
+*The blast radius.* S6 §2.4 claims field 11 reaches exactly one consumer and is
+absent from persisted fingerprints. Verified by grep on the merge base, not
+taken on trust:
+
+```
+frontend/lib/app_state.dart:9223   if (concave ? !e.isConcave : !e.isConvex) continue;   <- the only read
+frontend/lib/ffi/occt_engine.dart:233,277,280                                            <- the declaration
+```
+
+and `EdgeSel.toJson` (`part_model.dart:1815`) writes `{m, l, k, r}` — no
+convexity — while `EdgeSel.score` (`:1838`) reads `filletable`, `kind`,
+midpoint, `radius`, `length` and never `convexity`. So a wrong sign in field 11
+mis-fills a selection set at selection time, on one menu command, in front of
+the user. It cannot reattach a blend wrongly across a rebuild. **§2.4 holds.**
+
+*The sign convention.* Worked on a unit cube before accepting the identity.
+Edge along z at x=y=0; face x=0 has nOut=(-1,0,0) and T=(0,0,1), so
+u1 = nOut x T = (0,1,0); face y=0 has nOut=(0,-1,0) and -T, giving u2 = (1,0,0).
+Then u1·n2 = -1 < 0 → convex, which a cube edge is. On an L's interior edge the
+same construction gives u1·n2 = +1 → concave, which it is. And
+u2·n1 = -1 = u1·n2, so S6's identity is an identity and not a coincidence of
+that fixture.
+
+*The ground truth.* This is the load-bearing claim — that the divergences are
+repairs and not a tie — so I recomputed the threshold from the geometry instead
+of reading S6's sweep:
+
+```
+200 x t x 20 box:  diag 200.9975   step = diag/1000 = 0.20100   clearance = step/sqrt2 = 0.14213
+   t = 0.30  ratio 1.493   probe stays in material
+   t = 0.20  ratio 0.995   stays
+   t = 0.15  ratio 0.746   stays
+   t = 0.10  ratio 0.498   ESCAPES
+   t = 0.05  ratio 0.249   ESCAPES
+60 x t x 40 box:   diag  72.1111   step = 0.07211           clearance = 0.05100
+   t = 0.06  ratio 0.832   stays
+   t = 0.04  ratio 0.555   ESCAPES
+```
+
+The escape column reproduces S6 §5.1's "classifier wrong" column row for row,
+on both sweeps, from first principles. The crossing is at ratio 1/sqrt2 =
+0.7071 because the bisector of two into-face directions at a square corner
+stands at 45° to each face — arithmetic, as claimed, not a fitted curve. And
+the count follows: on a box only the eight edges whose bisector has a component
+across the thin axis can escape, the four running along that axis cannot, which
+is the 8-of-12 that was measured.
+
+**A convex solid has no concave edges.** The shipped path reports eight. That
+settles which of the two is right without any appeal to the replacement, and it
+is the reason this is an optimisation whose divergences are repairs rather than
+a behaviour change that happens to be faster.
+
+*The Dart claim.* S6 could not run `flutter analyze` and said so instead of
+assuming. I checked the thing that claim rests on:
+`git diff ... -- frontend/lib | grep '^+' | grep -v '^+ *///'` returns **zero
+lines**. Every added Dart line is a `///` comment. There is no Dart behaviour
+in this change to analyse.
+
+**The orientation index comes with it**, per §9's own conditional. S2 was right
+to revert `1c4735f` when it was a wash verified only in isolation; against v22
+it is no longer a wash, and it is now verified on real OCCT V7_9_3 `a016080b`
+with `[35]` pinning the bulk path against the single-edge path bitwise.
+
+**What I am accepting knowingly.** §8.1's other three divergence classes are
+real and two of them are unmeasured. The one that would actually bite is a
+globally reversed shell, where the classifier answers about the point set and
+the wedge about the declared normals; S6 reasoned it through and could not
+build the fixture through the C ABI, so it is unresolved rather than absent. I
+am taking it because the failure mode is bounded by §2.4: "All Rounds" and "All
+Fillets" swap, on screen, on a shape that OCCT's own modelling operations do
+not produce. Against that: k 1.94 → 1.08 and 185.8× at 1440 edges on the op
+§6.5 called the principal finding. If a fixture ever shows it, `[36]` is where
+it gets pinned.
+
+### Decision 2 — the sequencing gate is satisfied now, and S6-1 is closed
+
+S6-1 was correct when written and is stale now. `perf-capture-round1` exists —
+as a **branch, not a tag**, because the proxy refused four tag pushes
+(`send-pack: unexpected disconnect`); S7 already flagged the same discrepancy
+against §1.1's wording. `claude/perf-opt2` exists and carries eleven sessions.
+Round one's attribution is intact: nothing of S6's ever reached
+`claude/perf-opt`, which S6 checked before starting and which I confirm.
+
+### Decision 3 — `CALIBRATION.txt` is NOT re-recorded
+
+Agreed with §7.5 and for its reason, not just its conclusion. The `edgeInfo1`
+disagreement is a real ~0.08 exponent gap between a desktop bench and the
+device's `kernel.query.edgeInfoScale`, and it became visible because the
+instrument sharpened (CV 5.5 % → 1.3 % once the op was fast enough to take
+inner repetitions), not because the kernel got worse. Re-recording now would
+convert a measurable disagreement into a silence, which is the exact move that
+file's own text forbids. CI degrades the gate to informational on its own — the
+shim hash moved `8c46e48` → `93fb7e7` — and both runs printed `LANE C: PASS`.
+It gets re-recorded after the round-two device capture against a v22 kernel,
+and not before.
+
+### The one thing that is not a decision
+
+§9's closing note is correct and I am carrying it into the profile at round-two
+integration: **§6.5's principal finding is closed.** The 56.4 s [44.9, 70.8]
+extrapolation for the ≈3 400-edge part that died in the field was a quadratic's
+extrapolation. Against k = 1.076 the same enumeration is on the order of 25 ms.
+That number has been at the top of §6.5 since the first draft and no longer
+describes the code; it will be rewritten with the measured basis, not deleted.
+
+### Merge
+
+Conflict in `CROSS-SESSION.md` only — the append-only one, both sides having
+appended since S6 branched. Resolved by keeping **both** blocks in
+chronological order: the other eleven sessions' entries, then S6-1…S6-4, then
+this. Nothing of anyone's was dropped or rewritten. `occt_capi.{h,cpp}`,
+`smoke_occt.c` and `occt_engine.dart` merged clean; `S6-shim2.md` is a new
+file.
+
+**Twelve of twelve sessions are now on `claude/perf-opt2`.**

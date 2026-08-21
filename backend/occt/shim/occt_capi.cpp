@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include <Standard_Failure.hxx>
@@ -208,7 +209,14 @@ extern "C" const char *occt_version(void)
  * what happens when two of them pick the same number — this one is taken by
  * the session that owns backend/occt/shim/**, which is the only one adding
  * shim surface. */
-extern "C" int occt_shim_version(void) { return 21; }
+/* v22 (S6, round two): the convexity sign in field 11 stops going through
+ * BRepClass3d_SolidClassifier — see convexity_sign — and
+ * occt_shape_edges_info_ref appears as its test-only reference. Field 11's
+ * VALUE changes on shapes with a feature thinner than ‖bbox diagonal‖/1414,
+ * where the pre-v22 answer was wrong; nothing else in the record moves. A
+ * caller that must know whether it is talking to a binary whose thin-wall
+ * convexity can be trusted tests for >= 22. */
+extern "C" int occt_shim_version(void) { return 22; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -2145,28 +2153,45 @@ static bool face_outward_normal(const TopoDS_Face &face, const TopoDS_Edge &edge
     return true;
 }
 
-/* Unit direction that leaves [edge] and runs INTO [face], tangent to it.
+/* Orientation of `edge` where it sits in `face`'s own boundary traversal, by
+ * SCANNING the face. The first occurrence wins — a seam edge appears twice,
+ * once each way, and taking the first is what this has always done.
  *
- * Built from the edge tangent oriented along the face's own boundary
- * traversal: with an outward normal and a CCW outer loop seen from outside,
- * the interior lies to the left, i.e. along nOut x T. Taking the orientation
- * from the face's explorer (rather than assuming FORWARD) is what makes this
- * work for the second face of the pair, where the shared edge is traversed
- * the other way. */
-static bool into_face_dir(const TopoDS_Face &face, const TopoDS_Edge &edge,
-                         double t, const gp_Dir &nOut, gp_Dir &out)
+ * v21 note: this scan is O(edges of the face) and is asked twice per edge.
+ * On an n-gon prism — the profile's own fixture — the two end faces carry n
+ * edges each and two thirds of all edges touch one, so an enumeration pays
+ * 2n x O(n). See edge_info_ctx::edge_orientation_in for the index that
+ * replaces it when the whole shape is being enumerated, and §6.5 of the
+ * profile for why that matters. */
+static bool edge_ori_in_face(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                             TopAbs_Orientation &out)
 {
-    TopAbs_Orientation ori = TopAbs_FORWARD;
-    bool found = false;
     for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
         if (ex.Current().IsSame(edge)) {
-            ori = ex.Current().Orientation();
-            found = true;
-            break;
+            out = ex.Current().Orientation();
+            return true;
         }
     }
-    if (!found)
-        return false;
+    return false;
+}
+
+/* Unit direction that leaves [edge] and runs INTO [face], tangent to it, given
+ * the edge's orientation in that face's own boundary traversal.
+ *
+ * Built from the edge tangent oriented along that traversal: with an outward
+ * normal and a CCW outer loop seen from outside, the interior lies to the
+ * left, i.e. along nOut x T. Taking the orientation from the face (rather than
+ * assuming FORWARD) is what makes this work for the second face of the pair,
+ * where the shared edge is traversed the other way.
+ *
+ * The orientation arrives as an argument rather than being looked up here, so
+ * that the bulk path can serve it from a per-shape index and the single-edge
+ * path from a scan, with not one line of the geometry duplicated between
+ * them. */
+static bool into_face_dir_with_ori(const TopoDS_Edge &edge, double t,
+                                   const gp_Dir &nOut, TopAbs_Orientation ori,
+                                   gp_Dir &out)
+{
     BRepAdaptor_Curve c(edge);
     gp_Pnt p;
     gp_Vec d1;
@@ -2218,10 +2243,22 @@ struct edge_info_ctx
     const TopoDS_Shape &s;
     TopTools_IndexedMapOfShape edges;
 
-    explicit edge_info_ctx(const TopoDS_Shape &sh) : s(sh)
+    /* `shared` = this context will serve EVERY edge of the shape, so indices
+     * whose build cost is Θ(shape) pay for themselves. A context built for one
+     * query leaves them alone: that path is this branch's control and must
+     * cost exactly what it always did.
+     *
+     * `classifier_convexity` = decide field 11 the pre-v22 way, with
+     * BRepClass3d_SolidClassifier. TEST ONLY — see convexity_sign and
+     * occt_shape_edges_info_ref. Nothing the app calls sets it. */
+    explicit edge_info_ctx(const TopoDS_Shape &sh, bool shared = false,
+                           bool classifier_convexity = false)
+        : s(sh), m_shared(shared), m_cls_convexity(classifier_convexity)
     {
         TopExp::MapShapes(s, TopAbs_EDGE, edges);
     }
+
+    bool convexity_by_classifier() const { return m_cls_convexity; }
 
     const TopTools_IndexedDataMapOfShapeListOfShape &faces()
     {
@@ -2254,6 +2291,78 @@ struct edge_info_ctx
         return *m_cls;
     }
 
+    /* Orientation of `edge` where it sits in `face`'s boundary traversal.
+     *
+     * THE SECOND QUADRATIC. Hoisting the four whole-shape objects took a
+     * factor of ~20 out of the constant and left the exponent at k = 1.909
+     * [1.887, 1.932] (Lane C, shim v21, four rungs, R² = 0.9999) — measured,
+     * not guessed, and it refuted the prediction that the exponent would fall
+     * to 1. What remained is this: `edge_ori_in_face` scans the face's edges
+     * to find the one it was asked about, and is asked twice per edge. On the
+     * fixture the profile ladders over — an n-gon prism, two end faces of n
+     * edges each and n side faces of four — two thirds of all edges touch an
+     * end face, so an enumeration performs 2n × O(n) explorer steps.
+     *
+     * Lane C's allocation counters fit that arithmetic and not much else:
+     * allocations per edge come to 12.25·n + 290 over four rungs, exactly
+     * linear in n, which is a per-edge cost proportional to the FACE being
+     * scanned. The classifier hypothesis Session 1 raised fits the totals too
+     * — the discriminator is that this scan is a plain O(n) loop visible in
+     * the source, and removing it is free.
+     *
+     * The index is built PER FACE, on first request, by exploring the very
+     * TopoDS_Face object the caller passed. Not from a separate MapShapes
+     * pass: a face reached through the ancestor map and a face reached through
+     * MapShapes could in principle differ in orientation, and every edge
+     * orientation the explorer reports is composed with the face's. Exploring
+     * the caller's own object removes that question rather than answering it.
+     * The guard below covers the remaining case — a second face that is IsSame
+     * to an indexed one but oriented the other way falls back to the scan.
+     *
+     * Total build cost is one explorer pass per face, i.e. Θ(face-edge
+     * incidences) = Θ(E) on a manifold solid, against the Θ(E·F) it replaces.
+     */
+    bool edge_orientation_in(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                             TopAbs_Orientation &out)
+    {
+        if (!m_shared)
+            return edge_ori_in_face(face, edge, out);
+        if (m_face_idx.Extent() == 0)
+            TopExp::MapShapes(s, TopAbs_FACE, m_face_idx);
+        const int fi = m_face_idx.FindIndex(face);
+        const int ei = edges.FindIndex(edge);
+        if (fi < 1 || ei < 1)
+            return edge_ori_in_face(face, edge, out);
+        if (m_row_ori.size() < (size_t)m_face_idx.Extent() + 1) {
+            m_row_ori.assign((size_t)m_face_idx.Extent() + 1,
+                             (signed char)-1);
+        }
+        const signed char have = m_row_ori[(size_t)fi];
+        if (have < 0) {
+            /* First question about this face: index it, from THIS object. */
+            for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+                const int k = edges.FindIndex(ex.Current());
+                if (k < 1)
+                    continue;
+                /* emplace, not assignment: the FIRST occurrence wins, which is
+                 * what the scan's `break` did. A seam edge appears twice. */
+                m_ori.emplace(ori_key(fi, k),
+                              (int)ex.Current().Orientation());
+            }
+            m_row_ori[(size_t)fi] = (signed char)face.Orientation();
+        } else if (have != (signed char)face.Orientation()) {
+            /* Same face by IsSame, opposite orientation: its edges would come
+             * back composed the other way. Do not serve those from the index. */
+            return edge_ori_in_face(face, edge, out);
+        }
+        const std::unordered_map<unsigned long long, int>::const_iterator it =
+            m_ori.find(ori_key(fi, ei));
+        if (it == m_ori.end())
+            return false; /* not on this face — same answer the scan gives */
+        out = (TopAbs_Orientation)it->second;
+        return true;
+    }
+
     /* Throw the shared classifier away after a failed query. The per-edge path
      * this replaces built a fresh one every time, so a classifier left in a
      * bad state by one edge could not affect the next; sharing one across an
@@ -2263,12 +2372,86 @@ struct edge_info_ctx
     void forget_classifier() { m_cls.reset(); }
 
   private:
+    static unsigned long long ori_key(int face_idx, int edge_idx)
+    {
+        return ((unsigned long long)(unsigned)face_idx << 32) |
+               (unsigned long long)(unsigned)edge_idx;
+    }
+
+    const bool m_shared;
+    const bool m_cls_convexity;
     bool m_faces_done = false;
     TopTools_IndexedDataMapOfShapeListOfShape m_edge_faces;
     bool m_step_done = false;
     double m_step = 0.0;
     std::unique_ptr<BRepClass3d_SolidClassifier> m_cls;
+    /* Face-edge orientation index, shared path only. m_row_ori[i] is -1 until
+     * face i has been indexed, then holds the orientation of the face object
+     * it was indexed from. */
+    TopTools_IndexedMapOfShape m_face_idx;
+    std::vector<signed char> m_row_ori;
+    std::unordered_map<unsigned long long, int> m_ori;
 };
+
+/*
+ * v22 — CONVEXITY: +1 exterior corner (a "round"), -1 interior corner (a
+ * "fillet"). This is field 11, and it is the only field this function decides.
+ *
+ * THE LOCAL TEST. u1 leaves the edge into face 1, u2 into face 2, both
+ * perpendicular to the edge and tangent to their face. Write T for the edge
+ * tangent along face 1's own boundary traversal, so u1 = n1 x T and
+ * u2 = n2 x (-T). Then
+ *
+ *     u1 . n2  =  (n1 x T) . n2  =  T . (n2 x n1)  =  u2 . n1
+ *
+ * identically -- the two dot products are the same number, so there is no
+ * second opinion available from computing both. Its sign is the answer:
+ * walking into face 1 takes you to the INNER side of face 2's tangent plane
+ * exactly when the corner is exterior.
+ *
+ * WHAT IT REPLACED, AND WHY. Until v21 this stepped ‖bbox diagonal‖/1000 along
+ * the bisector of u1 and u2 and asked BRepClass3d_SolidClassifier whether the
+ * point had landed in the solid. Two problems, one of cost and one of
+ * correctness, and the second is the one that matters:
+ *
+ *   COST. BRepClass3d_SClassifier::Perform is Theta(shape) per call -- it
+ *   rebuilds the whole solid's edge->face ancestor map every time
+ *   (BRepClass3d_SClassifier.cxx:227 in V7_9_3) and intersects its ray against
+ *   every face, because RejectShell and RejectFace return Standard_False
+ *   unconditionally (BRepClass3d_SolidExplorer.cxx:1025, :1075). One call per
+ *   edge is therefore Theta(E*F): measured at 98.6 % of a whole enumeration
+ *   and k = 1.889 [1.755, 2.023] on the profile's own ladder fixture.
+ *   perf/findings/S6-shim2.md §4.
+ *
+ *   CORRECTNESS. The step is a property of the WHOLE SHAPE and is not scaled
+ *   to local feature size, and the bisector stands at 45 degrees to each face
+ *   of a square corner, so the probe crosses any wall thinner than
+ *   ‖diagonal‖/(1000*sqrt(2)) and answers about the far side of it. A box is
+ *   a convex solid; a 200 x 0.1 x 20 box has eight of its twelve edges
+ *   reported CONCAVE by the classifier path. That is not a tie between two
+ *   opinions. Measured threshold and sweep: S6-shim2.md §5.1, pinned by smoke
+ *   scenario [36].
+ *
+ * The classifier path is kept, reachable only through
+ * occt_shape_edges_info_ref, so that [36] can compare the two in one run on
+ * one machine -- which is what proves the claim, where a recorded golden
+ * would only pin one machine's digits (OPTIMIZATION_PLAN_2.md §1.4).
+ */
+static double convexity_sign(edge_info_ctx &ctx, const gp_Pnt &pm, gp_Vec m,
+                             const gp_Dir &n2, const gp_Dir &u1)
+{
+    if (!ctx.convexity_by_classifier())
+        return (u1.Dot(n2) < 0.0) ? 1.0 : -1.0;
+
+    /* Reference path: pre-v22 behaviour, byte for byte. Test-only. `m` is
+     * taken BY VALUE and normalised here rather than at the call site, so the
+     * shipping path does not pay a square root it has no use for. */
+    m.Normalize();
+    const double step = ctx.classifier_step();
+    BRepClass3d_SolidClassifier &cls = ctx.classifier();
+    cls.Perform(pm.Translated(m * step), 1.0e-7);
+    return (cls.State() == TopAbs_IN) ? 1.0 : -1.0;
+}
 
 /*
  * The twelve doubles for ONE edge, 1-based `index` into ctx.edges.
@@ -2352,25 +2535,29 @@ static int edge_info_one(edge_info_ctx &ctx, int index, double *out12)
             face_outward_normal(f2, edge, tmid, n2)) {
             const double c = std::max(-1.0, std::min(1.0, n1.Dot(n2)));
             out12[10] = std::acos(c) * 180.0 / M_PI;
-            /* The BISECTOR OF THE TWO INTO-FACE DIRECTIONS, not of the two
-             * normals. The first attempt used the normals and reported every
-             * edge convex: stepping inward along the averaged normal lands in
-             * material for a concave edge just as much as for a convex one, so
-             * it does not discriminate at all. Walking into the faces does:
-             * for an exterior corner the bisector points into the solid, for
-             * an interior corner it points into the void the corner opens
-             * onto. */
+            /* v22 — the sign comes from the two INTO-FACE DIRECTIONS, and
+             * from nothing else. See convexity_sign below for what this
+             * replaced and why; the guards around it are unchanged, so
+             * exactly the same set of edges receives a sign as before.
+             *
+             * (The historical note that belongs here: the FIRST attempt at a
+             * local test averaged the two NORMALS and reported every edge
+             * convex, because stepping inward along the averaged normal lands
+             * in material for a concave edge just as much as for a convex
+             * one. That failure is what sent this code to a solid classifier.
+             * It was the wrong local test, not a proof that local tests
+             * cannot work: walking into the FACES discriminates, and the
+             * bisector's sign against the opposite face's normal is the
+             * discrimination.) */
+            TopAbs_Orientation o1 = TopAbs_FORWARD, o2 = TopAbs_FORWARD;
             if (out12[10] > 1.0e-3 &&
-                into_face_dir(f1, edge, tmid, n1, u1) &&
-                into_face_dir(f2, edge, tmid, n2, u2)) {
+                ctx.edge_orientation_in(f1, edge, o1) &&
+                into_face_dir_with_ori(edge, tmid, n1, o1, u1) &&
+                ctx.edge_orientation_in(f2, edge, o2) &&
+                into_face_dir_with_ori(edge, tmid, n2, o2, u2)) {
                 gp_Vec m(u1.XYZ() + u2.XYZ());
-                if (m.Magnitude() > 1e-9) {
-                    m.Normalize();
-                    const double step = ctx.classifier_step();
-                    BRepClass3d_SolidClassifier &cls = ctx.classifier();
-                    cls.Perform(pm.Translated(m * step), 1.0e-7);
-                    out12[11] = (cls.State() == TopAbs_IN) ? 1.0 : -1.0;
-                }
+                if (m.Magnitude() > 1e-9)
+                    out12[11] = convexity_sign(ctx, pm, m, n2, u1);
             }
         }
     }
@@ -2415,7 +2602,7 @@ extern "C" int occt_shape_edges_info(const occt_shape *shape, double *out12n,
         set_err("occt_shape_edges_info", "null argument");
         return -1;
     }
-    edge_info_ctx ctx(shape->s);
+    edge_info_ctx ctx(shape->s, /*shared=*/true);
     const int n = ctx.edges.Extent();
     if (cap < n) {
         set_err("occt_shape_edges_info", "output buffer too small");
@@ -2440,6 +2627,56 @@ extern "C" int occt_shape_edges_info(const occt_shape *shape, double *out12n,
     }
     return n;
     OCCT_CATCH("occt_shape_edges_info", -1)
+}
+
+/*
+ * v22 — TEST ONLY. occt_shape_edges_info with field 11 decided the pre-v22
+ * way, by BRepClass3d_SolidClassifier.
+ *
+ * It exists so that the shipping path can be compared against the path it
+ * replaced **in one run, on one machine** — smoke scenario [36] — which is
+ * what makes the comparison a proof of equivalence rather than a record of
+ * one machine's digits. OPTIMIZATION_PLAN_2.md §1.4 is the rule and the
+ * cautionary tale behind it.
+ *
+ * It is deliberately NOT bound in frontend/lib/ffi/occt_engine.dart and no
+ * application code may call it: on shapes with a feature thinner than
+ * ‖bbox diagonal‖/1414 it returns WRONG convexity signs, which is why v22
+ * stopped using it. See convexity_sign.
+ */
+extern "C" int occt_shape_edges_info_ref(const occt_shape *shape,
+                                         double *out12n, int cap)
+{
+    OCCT_TRY("occt_shape_edges_info_ref")
+    if (!shape || !out12n) {
+        set_err("occt_shape_edges_info_ref", "null argument");
+        return -1;
+    }
+    edge_info_ctx ctx(shape->s, /*shared=*/true, /*classifier_convexity=*/true);
+    const int n = ctx.edges.Extent();
+    if (cap < n) {
+        set_err("occt_shape_edges_info_ref", "output buffer too small");
+        return -1;
+    }
+    for (int i = 1; i <= n; ++i) {
+        double *rec = out12n + 12 * (i - 1);
+        try {
+            if (!edge_info_one(ctx, i, rec))
+                rec[0] = -1.0;
+        } catch (const Standard_Failure &) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        } catch (...) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        }
+    }
+    return n;
+    OCCT_CATCH("occt_shape_edges_info_ref", -1)
 }
 
 extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)

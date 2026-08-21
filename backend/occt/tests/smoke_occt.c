@@ -56,6 +56,19 @@
  *        Theta(n^2) of PERFORMANCE_PROFILE.md section 6.5; its only real risk
  *        is a silently different record, so that is what is pinned
  *
+ * v22 scenario:
+ *   [36] convexity, DIFFERENTIALLY — occt_shape_edges_info (the local wedge
+ *        test v22 ships) against occt_shape_edges_info_ref (the pre-v22 solid
+ *        classifier), both run HERE, on THIS machine, in THIS process. Not a
+ *        recorded golden: a constant recorded on one machine pins that
+ *        machine's digits and says nothing about whether two paths agree,
+ *        which is what build 437 cost us (OPTIMIZATION_PLAN_2.md section 1.4).
+ *        Fields 0..10 must match bitwise on every fixture, because the change
+ *        cannot reach them. Field 11 must match bitwise on every fixture
+ *        EXCEPT the deliberately thin-walled ones, where the two are KNOWN to
+ *        differ and the classifier is the one that is wrong — a box is a
+ *        convex solid, so the ground truth there needs no second opinion
+ *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
  *   and exits non-zero on any failure.
@@ -1915,6 +1928,272 @@ int main(void)
 
         for (int ci = 0; ci < 5; ++ci)
             occt_free_shape(k35[ci]);
+    }
+
+    /* [36] v22 CONVEXITY, DIFFERENTIALLY — the shipping path against the one
+     * it replaced, in one run on one machine.
+     *
+     * WHY NOT A GOLDEN. Round one's first IPA build failed on four tests that
+     * pinned recorded digit strings; they passed on Linux and failed on macOS
+     * arm64, and they had never proved the claim they were written for.
+     * OPTIMIZATION_PLAN_2.md section 1.4 turned that into a standing rule:
+     * keep the old implementation reachable and compare old against new in
+     * the same run. occt_shape_edges_info_ref is that reference, and this is
+     * that comparison.
+     *
+     * WHAT MUST MATCH, AND WHAT MUST NOT.
+     *
+     * Fields 0..10 come out of code both paths share, so a difference in any
+     * of them is a defect however small — pinned bitwise, on every fixture.
+     *
+     * Field 11 is the one v22 changed. On ordinary shapes the two agree
+     * bitwise and this test says so. On a shape carrying a feature thinner
+     * than the classifier's probe they do NOT agree, and converting that into
+     * a tolerance to get a green build is exactly what section 1.4 forbids —
+     * so it is pinned as what it is. The probe steps ||bbox diagonal||/1000
+     * along the bisector of the two into-face directions, which stands at 45
+     * degrees to each face of a square corner, so it crosses any wall thinner
+     * than ||diagonal||/(1000*sqrt(2)) = ||diagonal||/1414 and answers about
+     * the far side of it:
+     *
+     *   200 x 0.10 x 20 : diagonal 201.0, probe clearance 0.1421 > 0.10  ->  crosses
+     *    60 x 0.04 x 40 : diagonal  72.1, probe clearance 0.0510 > 0.04  ->  crosses
+     *
+     * A box is a convex solid. Every one of its twelve edges is an exterior
+     * corner, so +1 twelve times is the only correct answer and needs no
+     * appeal to either implementation. The shipping path must produce it at
+     * every thickness; the reference is merely reported. If a future OCCT
+     * makes the reference right too, this test still passes — it asserts the
+     * ground truth, not the disagreement. */
+    {
+        struct fx36 {
+            const char *name;
+            occt_shape *s;
+            int thin;      /* thinner than diag/1414 somewhere: field 11 may
+                            * legitimately differ, and the reference is wrong */
+            int convex_box; /* a box: ground truth is all-convex */
+        };
+        struct fx36 f36[9];
+        int nf36 = 0;
+        memset(f36, 0, sizeof(f36));
+
+        f36[nf36].name = "box 20";
+        f36[nf36].s = occt_make_box(20.0, 20.0, 20.0);
+        f36[nf36].convex_box = 1;
+        nf36++;
+        f36[nf36].name = "cylinder r6 h10 (seam)";
+        f36[nf36].s = occt_make_cylinder(0.0, 0.0, 0.0, 6.0, 10.0);
+        nf36++;
+        {
+            const double L36[] = {0, 0, 40, 0, 40, 10, 10, 10, 10, 30, 0, 30};
+            f36[nf36].name = "L-prism (one concave edge)";
+            f36[nf36].s = occt_extrude_polygon(L36, 6, 5.0);
+            nf36++;
+        }
+        {
+            /* Ten-point star: 10 convex and 10 concave vertices in ONE loop,
+             * so the sign has to alternate correctly around the profile
+             * rather than merely be constant and lucky. */
+            double star[40];
+            int i;
+            for (i = 0; i < 20; ++i) {
+                const double a = 2.0 * 3.14159265358979323846 * i / 20.0;
+                const double r = (i % 2 == 0) ? 40.0 : 16.0;
+                star[2 * i] = r * cos(a);
+                star[2 * i + 1] = r * sin(a);
+            }
+            f36[nf36].name = "10-point star (alternating)";
+            f36[nf36].s = occt_extrude_polygon(star, 20, 8.0);
+            nf36++;
+        }
+        {
+            double poly[48];
+            int i;
+            for (i = 0; i < 24; ++i) {
+                const double a = 2.0 * 3.14159265358979323846 * i / 24.0;
+                poly[2 * i] = 40.0 * cos(a);
+                poly[2 * i + 1] = 40.0 * sin(a);
+            }
+            f36[nf36].name = "24-gon prism";
+            f36[nf36].s = occt_extrude_polygon(poly, 24, 10.0);
+            nf36++;
+        }
+        {
+            /* A through hole, so the enumeration meets an inner boundary. */
+            occt_shape *a36 = occt_make_box(40.0, 40.0, 40.0);
+            occt_shape *c36 = occt_make_cylinder(20.0, 20.0, -5.0, 8.0, 50.0);
+            if (a36 != NULL && c36 != NULL) {
+                f36[nf36].name = "box minus through-hole";
+                f36[nf36].s = occt_cut(a36, c36);
+                nf36++;
+            }
+            occt_free_shape(a36);
+            occt_free_shape(c36);
+        }
+        {
+            /* An INTERNAL void: twelve of its edges are genuinely concave and
+             * they are the ones a classifier is supposed to be good at. */
+            occt_shape *a36 = occt_make_box(40.0, 40.0, 40.0);
+            occt_shape *b36 = occt_make_box(10.0, 10.0, 10.0);
+            const double mv[12] = {1, 0, 0, 15, 0, 1, 0, 15, 0, 0, 1, 15};
+            occt_shape *bt = (b36 != NULL) ? occt_transform(b36, mv) : NULL;
+            if (a36 != NULL && bt != NULL) {
+                f36[nf36].name = "box with an internal void";
+                f36[nf36].s = occt_cut(a36, bt);
+                nf36++;
+            }
+            occt_free_shape(a36);
+            occt_free_shape(b36);
+            occt_free_shape(bt);
+        }
+        f36[nf36].name = "box 200 x 0.1 x 20 (THIN)";
+        f36[nf36].s = occt_make_box(200.0, 0.1, 20.0);
+        f36[nf36].thin = 1;
+        f36[nf36].convex_box = 1;
+        nf36++;
+        f36[nf36].name = "box 60 x 0.04 x 40 (THIN)";
+        f36[nf36].s = occt_make_box(60.0, 0.04, 40.0);
+        f36[nf36].thin = 1;
+        f36[nf36].convex_box = 1;
+        nf36++;
+
+        int c36_convex = 0, c36_concave = 0, c36_kinds = 0;
+        int thin_fixtures = 0, thin_repairs = 0;
+        for (int ci = 0; ci < nf36; ++ci) {
+            occt_shape *s = f36[ci].s;
+            char why[192];
+            snprintf(why, sizeof(why), "[36] %s fixture is NULL", f36[ci].name);
+            if (!check(s != NULL, why))
+                continue;
+            const int ne = occt_shape_edge_count(s);
+            snprintf(why, sizeof(why), "[36] %s has no edges", f36[ci].name);
+            if (!check(ne > 0, why))
+                continue;
+            double *neu = (double *)malloc(sizeof(double) * 12 * (size_t)ne);
+            double *ref = (double *)malloc(sizeof(double) * 12 * (size_t)ne);
+            if (!check(neu != NULL && ref != NULL, "[36] out of memory")) {
+                free(neu);
+                free(ref);
+                continue;
+            }
+            for (int i = 0; i < 12 * ne; ++i) {
+                neu[i] = -12345.0;
+                ref[i] = -54321.0;
+            }
+            const int gn = occt_shape_edges_info(s, neu, ne);
+            const int gr = occt_shape_edges_info_ref(s, ref, ne);
+            snprintf(why, sizeof(why),
+                     "[36] %s: the two paths wrote different record counts",
+                     f36[ci].name);
+            check(gn == ne && gr == ne, why);
+
+            int head_diff = 0, sign_diff = 0, box_wrong_new = 0,
+                box_wrong_ref = 0;
+            const int n = (gn < gr) ? gn : gr;
+            for (int i = 0; i < n; ++i) {
+                const double *a = neu + 12 * i;
+                const double *b = ref + 12 * i;
+                /* Fields 0..10: shared code, must be identical. */
+                if (memcmp(a, b, sizeof(double) * 11) != 0) {
+                    ++head_diff;
+                    if (head_diff <= 3) {
+                        for (int k = 0; k < 11; ++k)
+                            if (memcmp(&a[k], &b[k], sizeof(double)) != 0)
+                                printf("[36] %s edge %d field %d: new %.17g "
+                                       "ref %.17g\n",
+                                       f36[ci].name, i + 1, k, a[k], b[k]);
+                    }
+                }
+                if (a[11] != b[11]) {
+                    ++sign_diff;
+                    if (f36[ci].thin && sign_diff <= 3)
+                        printf("[36] %s edge %d: dihedral %.4f deg, "
+                               "new %+.0f ref %+.0f (expected: the probe "
+                               "crosses the wall)\n",
+                               f36[ci].name, i + 1, a[10], a[11], b[11]);
+                }
+                if (f36[ci].convex_box) {
+                    if (a[11] != 1.0)
+                        ++box_wrong_new;
+                    if (b[11] != 1.0)
+                        ++box_wrong_ref;
+                }
+                if (a[11] > 0.0)
+                    ++c36_convex;
+                if (a[11] < 0.0)
+                    ++c36_concave;
+                c36_kinds |= 1 << ((int)(a[0] + 0.5) & 7);
+            }
+            printf("[36] %s: %d edges, fields 0..10 differ on %d, "
+                   "convexity differs on %d\n",
+                   f36[ci].name, n, head_diff, sign_diff);
+
+            snprintf(why, sizeof(why),
+                     "[36] %s: fields 0..10 differ between the two paths — "
+                     "they share that code, so any difference is a defect",
+                     f36[ci].name);
+            check(head_diff == 0, why);
+
+            if (!f36[ci].thin) {
+                snprintf(why, sizeof(why),
+                         "[36] %s: convexity differs from the reference on a "
+                         "fixture with no feature below diagonal/1414",
+                         f36[ci].name);
+                check(sign_diff == 0, why);
+            } else {
+                ++thin_fixtures;
+                /* The fixture must actually reach the regime it exists for,
+                 * or it is proving nothing. */
+                snprintf(why, sizeof(why),
+                         "[36] %s: the thin-wall fixture produced NO "
+                         "disagreement, so it no longer reaches the regime it "
+                         "was built for — re-derive the threshold",
+                         f36[ci].name);
+                check(sign_diff > 0, why);
+                thin_repairs += sign_diff;
+                printf("[36] %s: reference got %d of %d box edges wrong, "
+                       "shipping path %d\n",
+                       f36[ci].name, box_wrong_ref, n, box_wrong_new);
+            }
+            if (f36[ci].convex_box) {
+                /* GROUND TRUTH, independent of both implementations. */
+                snprintf(why, sizeof(why),
+                         "[36] %s: a box is a CONVEX solid and every one of "
+                         "its edges is an exterior corner, but the shipping "
+                         "path did not say so",
+                         f36[ci].name);
+                check(box_wrong_new == 0, why);
+            }
+            free(neu);
+            free(ref);
+        }
+
+        printf("[36] coverage: convex %d, concave %d, curve-kind mask 0x%x, "
+               "thin fixtures %d with %d repaired signs\n",
+               c36_convex, c36_concave, c36_kinds, thin_fixtures,
+               thin_repairs);
+        check(c36_convex > 0, "[36] no CONVEX edge in any fixture");
+        check(c36_concave > 0,
+              "[36] no CONCAVE edge — the star and the internal void are "
+              "there to produce them, and neither did");
+        check((c36_kinds & (1 << 1)) != 0, "[36] no straight edge seen");
+        check((c36_kinds & (1 << 2)) != 0, "[36] no circular edge seen");
+        check(thin_fixtures == 2,
+              "[36] the two thin-wall fixtures did not both build");
+
+        /* The reference shares the shipping path's argument checking. */
+        if (f36[0].s != NULL) {
+            double room36[12 * 12];
+            check(occt_shape_edges_info_ref(f36[0].s, room36, 1) == -1,
+                  "[36] ref: an undersized buffer was not refused");
+            check(occt_shape_edges_info_ref(f36[0].s, NULL, 12) == -1,
+                  "[36] ref: a null buffer was not refused");
+        }
+        check(occt_shape_edges_info_ref(NULL, NULL, 0) == -1,
+              "[36] ref: a null shape was not refused");
+
+        for (int ci = 0; ci < nf36; ++ci)
+            occt_free_shape(f36[ci].s);
     }
 
     if (g_failures == 0) {

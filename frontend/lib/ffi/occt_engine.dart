@@ -230,6 +230,15 @@ class OcctEdgeInfo {
   /// v13 — +1 CONVEX (exterior corner; rounding one is what Inventor calls a
   /// round), -1 CONCAVE (interior corner; rounding one is a fillet), 0 when
   /// unknown or tangent.
+  ///
+  /// v22 — the shim decides this locally now, from the two into-face
+  /// directions, rather than by stepping off the edge and asking a solid
+  /// classifier where it landed. Which edges get a nonzero sign is unchanged;
+  /// the sign itself changes on shapes carrying a feature thinner than
+  /// `‖bbox diagonal‖ / 1414`, where the old probe stepped clean through the
+  /// material and answered about the far side. On a 200 × 0.1 × 20 box —
+  /// a convex solid — the old path called eight of the twelve edges concave.
+  /// A shim older than v22 still does.
   final int convexity;
 
   const OcctEdgeInfo(this.index, this.kind, this.mx, this.my, this.mz, this.tx,
@@ -499,6 +508,13 @@ class OcctShape {
   /// [1.910, 2.113], R² = 1.0000, against a control doing strictly more work
   /// at k = 1.063 — 200.3× at 1440 edges, 10 017 ms for one enumeration, and
   /// an extrapolated 56.4 s on the part that failed in the field.
+  ///
+  /// v21 removed the per-call rebuilds and Lane C measured a 20.7× drop with
+  /// the exponent unmoved at k = 1.909 — the quadratic outlived the fix. What
+  /// was left was `BRepClass3d_SolidClassifier::Perform`, one call per edge
+  /// and Θ(shape) inside, at **98.6 %** of the whole enumeration. v22 answers
+  /// the same question locally and the ladder fits **k = 0.996**
+  /// [0.971, 1.020]: linear at last. See `perf/findings/S6-shim2.md`.
   ///
   /// The fix is in the shim, where the quadratic is; see
   /// `occt_shape_edges_info`. What is left here is one crossing and one
