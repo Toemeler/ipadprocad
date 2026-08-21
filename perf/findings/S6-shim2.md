@@ -12,7 +12,36 @@ a desktop millisecond as an iPad millisecond.
 
 ## 0. STATUS FOR THE INTEGRATOR — read this first
 
-*(filled in at the end of the session; see §7.)*
+**Session 6 is COMPLETE, and it needs one ruling before anything of it can
+merge: the change is NOT bit-identical.** Everything else is done, built and
+run against real OCCT.
+
+**What is proposed:** shim **v22** — the convexity sign (field 11) decided
+locally from the two into-face directions instead of by a solid classifier,
+plus the restoration of `1c4735f`'s face-edge orientation index (this reverts
+`c5f7e21`). One change, not two: the index alone is a wash and S2 was right to
+revert it (§4.3.5).
+
+| | |
+| --- | --- |
+| Exponent, `allEdgesBulk` | **1.9421 [1.9123, 1.9719] → 1.0757 [1.0015, 1.1499]** — Lane C's own binary, same machine, before and after. Disjoint intervals. |
+| Cost at 1440 edges | 1714.9 ms → **9.23 ms**, and the factor grows with size (30.8× → 185.8×) |
+| Predicted, before the change | k = 1.00, interval [0.95, 1.10]. **P1 upheld.** P2 upheld on both halves. |
+| Mechanism | `BRepClass3d_SolidClassifier::Perform`, **98.6 %** of the enumeration, pinned to two lines of OCCT V7_9_3 (§2.2) |
+| Allocations per edge | 1025 / 1760 / 3231 / 6171 → **33.7 at every rung** |
+| Behaviour | **CHANGES.** 10 sign flips in 7 644 edges over 15 fixtures, all on features thinner than `‖bbox diagonal‖/1414` — and on every one the *pre-v22* path is wrong (§5.1) |
+| Differential test | smoke **`[36]`**, old path against new, same run, same machine, bitwise (§6.3) |
+| Verified on real OCCT | here, OCCT V7_9_3 `a016080b` built from the submodule with `kernel-bench.yml`'s flags. `[35]` and `[36]` green, **`OCCT SMOKE: PASS`** |
+| Lane C | **`LANE C: PASS`** on both the v21 and the v22 run; the harness verdict flips on `edgeInfo1`, and §7.5 says exactly why and why CI needs nothing |
+| `python3 -m unittest discover -s ci` | **45 passing** |
+| `flutter analyze` / `flutter test` | **NOT RUN — no Flutter SDK in this container.** The Dart diff is 16 lines, every one a `///` comment (§6.4) |
+| Files touched outside this session's ownership | **none.** `perf/baseline.json`, `PERFORMANCE_PROFILE.md`, `perf*.dart`, `backend/bench/**`, `S2-shim.md` — untouched |
+
+**The three decisions I need are in §9**, and `CROSS-SESSION.md` S6-1 … S6-4
+carry them. In short: (1) is a repair that changes behaviour acceptable, given
+field 11's one consumer and its absence from every persisted fingerprint;
+(2) the sequencing gate below; (3) do **not** re-record `CALIBRATION.txt` to
+clear §7.5.
 
 ### 0.1 The sequencing gate is NOT satisfied, and I said so before starting
 
