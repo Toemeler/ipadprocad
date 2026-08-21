@@ -21,6 +21,8 @@ import 'ffi/qcad_engine.dart';
 import 'freehand.dart';
 import 'gear.dart';
 import 'hud.dart';
+import 'l10n/l.dart';
+import 'l10n/locale_store.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'modify.dart';
@@ -1226,6 +1228,15 @@ class AppState extends ChangeNotifier {
     // logger uses $HOME (empty on some iOS builds -> temp dir, not file-shared).
     Log.retarget(_docsDir!.path);
     Perf.retarget(_docsDir!.path);
+    // M234 — adopt the remembered language.
+    //
+    // HERE and not in main(): init() is fired and deliberately not awaited so
+    // the first frame does not wait on a platform channel, and putting a
+    // settings read in front of runApp would undo that. The cost is that an
+    // English user can see one German frame at launch; the alternative is a
+    // measurable launch regression in an app whose launch time is a tracked
+    // number, and one frame is the cheaper of the two.
+    L.attachStore(LocaleStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;

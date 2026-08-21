@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_state.dart';
+import '../l10n/l.dart';
 import '../log.dart';
 import '../menus.dart';
 import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
@@ -44,97 +45,122 @@ class OverItem {
   const OverItem(this.icon, this.label, this.onTap, {this.active = false});
 }
 
-const flyouts = <String, List<FlyItem>>{
+/// The flyout lists, in the current language.
+///
+/// Built per locale and cached, because this map is read from ribbon BUILD
+/// methods: rebuilding a hundred-odd FlyItems on every frame of a drag would
+/// be a real cost in an app whose ribbon build time is a tracked number. The
+/// cache key is the [AppL10n] instance itself — Flutter hands out one per
+/// loaded locale, so identity is exactly "the language did not change".
+Map<String, List<FlyItem>> _flyCache = const <String, List<FlyItem>>{};
+AppL10n? _flyCacheFor;
+
+Map<String, List<FlyItem>> flyoutsOf(AppL10n t) {
+  if (!identical(_flyCacheFor, t)) {
+    _flyCacheFor = t;
+    _flyCache = _buildFlyouts(t);
+  }
+  return _flyCache;
+}
+
+/// Tests only: drop the cache so the next read rebuilds in the new language.
+@visibleForTesting
+void resetFlyoutCacheForTest() {
+  _flyCacheFor = null;
+  _flyCache = const <String, List<FlyItem>>{};
+}
+
+Map<String, List<FlyItem>> _buildFlyouts(AppL10n t) => <String, List<FlyItem>>{
   'line': [
-    FlyItem('fline', 'Line', 'Line', Tool.line),
-    FlyItem('fmidline', 'Line', 'Midpoint Line', Tool.lineMid),
-    FlyItem('fsplinecv', 'Spline', 'Control Vertex', Tool.splineCV),
-    FlyItem('fsplinei', 'Spline', 'Interpolation', Tool.splineInterp),
-    FlyItem('fsplinefree', 'Spline', 'Freehand', Tool.splineFree),
-    FlyItem('feqcurve', 'Equation Curve', 'Equation Curve', Tool.eqCurve),
-    FlyItem('fbridge', 'Bridge Curve', 'Bridge Curve', Tool.bridge),
+    FlyItem('fline', t.flyLineB, t.flyLineSub, Tool.line),
+    FlyItem('fmidline', t.flyLineB, t.flyMidlineSub, Tool.lineMid),
+    FlyItem('fsplinecv', t.flySplineB, t.flySplineCvSub, Tool.splineCV),
+    FlyItem('fsplinei', t.flySplineB, t.flySplineInterpSub, Tool.splineInterp),
+    FlyItem('fsplinefree', t.flySplineB, t.flySplineFreeSub, Tool.splineFree),
+    FlyItem('feqcurve', t.flyEqCurveB, t.flyEqCurveB, Tool.eqCurve),
+    FlyItem('fbridge', t.flyBridgeB, t.flyBridgeB, Tool.bridge),
   ],
   'circle': [
-    FlyItem('fcirclecp', 'Circle', 'Center Point', Tool.circleCenter),
-    FlyItem('fcircletan', 'Circle', 'Tangent', Tool.circleTangent),
-    FlyItem('fellipse', 'Ellipse', 'Ellipse', Tool.ellipse),
+    FlyItem('fcirclecp', t.flyCircleB, t.flyCenterPointSub, Tool.circleCenter),
+    FlyItem('fcircletan', t.flyCircleB, t.flyTangentSub, Tool.circleTangent),
+    FlyItem('fellipse', t.flyEllipseB, t.flyEllipseB, Tool.ellipse),
   ],
   'arc': [
-    FlyItem('farc3', 'Arc', 'Three Point', Tool.arcThreePoint),
-    FlyItem('farctan', 'Arc', 'Tangent', Tool.arcTangent),
-    FlyItem('farccp', 'Arc', 'Center Point', Tool.arcCenter),
+    FlyItem('farc3', t.flyArcB, t.flyThreePointSub, Tool.arcThreePoint),
+    FlyItem('farctan', t.flyArcB, t.flyTangentSub, Tool.arcTangent),
+    FlyItem('farccp', t.flyArcB, t.flyCenterPointSub, Tool.arcCenter),
   ],
   'rect': [
-    FlyItem('frect2p', 'Rectangle', 'Two Point', Tool.rectTwoPoint),
-    FlyItem('frect3p', 'Rectangle', 'Three Point', Tool.rect3P),
-    FlyItem('frect2pc', 'Rectangle', 'Two Point Center', Tool.rect2PC),
-    FlyItem('frect3pc', 'Rectangle', 'Three Point Center', Tool.rect3PC),
-    FlyItem('fslotcc', 'Slot', 'Center to Center', Tool.slotCC),
-    FlyItem('fslotov', 'Slot', 'Overall', Tool.slotOverall),
-    FlyItem('fslotcp', 'Slot', 'Center Point', Tool.slotCP),
-    FlyItem('fslot3a', 'Slot', 'Three Point Arc', Tool.slot3A),
-    FlyItem('fslotcpa', 'Slot', 'Center Point Arc', Tool.slotCPA),
-    FlyItem('fpolygon', 'Polygon', 'Polygon', Tool.polygon),
+    FlyItem('frect2p', t.flyRectB, t.flyTwoPointSub, Tool.rectTwoPoint),
+    FlyItem('frect3p', t.flyRectB, t.flyThreePointSub, Tool.rect3P),
+    FlyItem('frect2pc', t.flyRectB, t.flyTwoPointCenterSub, Tool.rect2PC),
+    FlyItem('frect3pc', t.flyRectB, t.flyThreePointCenterSub, Tool.rect3PC),
+    FlyItem('fslotcc', t.flySlotB, t.flySlotCcSub, Tool.slotCC),
+    FlyItem('fslotov', t.flySlotB, t.flySlotOverallSub, Tool.slotOverall),
+    FlyItem('fslotcp', t.flySlotB, t.flyCenterPointSub, Tool.slotCP),
+    FlyItem('fslot3a', t.flySlotB, t.flySlot3aSub, Tool.slot3A),
+    FlyItem('fslotcpa', t.flySlotB, t.flySlotCpaSub, Tool.slotCPA),
+    FlyItem('fpolygon', t.flyPolygonB, t.flyPolygonB, Tool.polygon),
   ],
   'fillet': [
-    FlyItem('ffillet', 'Fillet', '', Tool.fillet),
-    FlyItem('fchamfer', 'Chamfer', '', Tool.chamfer),
+    FlyItem('ffillet', t.flyFilletB, '', Tool.fillet),
+    FlyItem('fchamfer', t.flyChamferB, '', Tool.chamfer),
   ],
   'text': [
-    FlyItem('ftext', 'Text', ''),
-    FlyItem('fgtext', 'Geometry Text', ''),
+    FlyItem('ftext', t.flyTextB, ''),
+    FlyItem('fgtext', t.flyGeomTextB, ''),
   ],
   // M215 — Work Features > Axis / Point. Every entry is REAL and every label
-  // is Inventor's own wording, so a user who knows Inventor finds the method
-  // they are looking for by name. `wa`/`wpt` prefixes keep the ids apart from
-  // the plane list's.
+  // is Inventor's own wording — in German, Inventor's GERMAN wording — so a
+  // user who knows Inventor finds the method they are looking for by name.
+  // `wa`/`wpt` prefixes keep the ids apart from the plane list's.
   // M217 — Inventor's Direct panel. Move/Size/Scale/Delete are built; Rotate
   // is listed because Inventor lists it and left inert because rotating a face
   // needs a BRepTools_Modification whose failure modes only show on real
   // shapes — see DirectEditFeature.
   'direct': [
-    FlyItem('deMove', 'Move', ''),
-    FlyItem('deSize', 'Size', ''),
-    FlyItem('deScale', 'Scale', ''),
-    FlyItem('deRotate', 'Rotate', ''),
-    FlyItem('deDelete', 'Delete', ''),
+    FlyItem('deMove', t.flyMoveB, ''),
+    FlyItem('deSize', t.flySizeB, ''),
+    FlyItem('deScale', t.flyScaleB, ''),
+    FlyItem('deRotate', t.flyRotateB, ''),
+    FlyItem('deDelete', t.flyDeleteB, ''),
   ],
   'axis': [
-    FlyItem('waAuto', 'Axis', ''),
-    FlyItem('waLine', 'On Line or Edge', ''),
-    FlyItem('waParPt', 'Parallel to Line through Point', ''),
-    FlyItem('wa2Pt', 'Through Two Points', ''),
-    FlyItem('wa2Pl', 'Intersection of Two Planes', ''),
-    FlyItem('waNormPt', 'Normal to Plane through Point', ''),
-    FlyItem('waCirc', 'Through Center of Circular Edge', ''),
-    FlyItem('waRev', 'Through Revolved Face or Feature', ''),
+    FlyItem('waAuto', t.flyAxisB, ''),
+    FlyItem('waLine', t.flyAxisOnLineB, ''),
+    FlyItem('waParPt', t.flyAxisParPtB, ''),
+    FlyItem('wa2Pt', t.flyAxisTwoPtB, ''),
+    FlyItem('wa2Pl', t.flyAxisTwoPlB, ''),
+    FlyItem('waNormPt', t.flyAxisNormPtB, ''),
+    FlyItem('waCirc', t.flyAxisCircB, ''),
+    FlyItem('waRev', t.flyAxisRevB, ''),
   ],
   'point': [
-    FlyItem('wptAuto', 'Point', ''),
-    FlyItem('wptGround', 'Grounded Point', ''),
-    FlyItem('wptVertex', 'On Vertex, Sketch Point, or Midpoint', ''),
-    FlyItem('wpt3Pl', 'Intersection of Three Planes', ''),
-    FlyItem('wpt2Ln', 'Intersection of Two Lines', ''),
-    FlyItem('wptPlLn', 'Intersection of Plane/Surface and Line', ''),
-    FlyItem('wptLoop', 'Center Point of Loop of Edges', ''),
-    FlyItem('wptTorus', 'Center Point of Torus', ''),
-    FlyItem('wptSphere', 'Center Point of Sphere', ''),
+    FlyItem('wptAuto', t.flyPointB, ''),
+    FlyItem('wptGround', t.flyPointGroundB, ''),
+    FlyItem('wptVertex', t.flyPointVertexB, ''),
+    FlyItem('wpt3Pl', t.flyPointThreePlB, ''),
+    FlyItem('wpt2Ln', t.flyPointTwoLnB, ''),
+    FlyItem('wptPlLn', t.flyPointPlLnB, ''),
+    FlyItem('wptLoop', t.flyPointLoopB, ''),
+    FlyItem('wptTorus', t.flyPointTorusB, ''),
+    FlyItem('wptSphere', t.flyPointSphereB, ''),
   ],
   // M56 — Work Features > Plane (dummy items, real Inventor list)
   'plane': [
-    FlyItem('plane', 'Plane', ''),
-    FlyItem('offset', 'Offset from Plane', ''),
-    FlyItem('parallelpt', 'Parallel to Plane through Point', ''),
-    FlyItem('midplane2', 'Midplane between Two Planes', ''),
-    FlyItem('midtorus', 'Midplane of Torus', ''),
-    FlyItem('angleedge', 'Angle to Plane around Edge', ''),
-    FlyItem('threepts', 'Three Points', ''),
-    FlyItem('twoedges', 'Two Coplanar Edges', ''),
-    FlyItem('tansurfedge', 'Tangent to Surface through Edge', ''),
-    FlyItem('tansurfpt', 'Tangent to Surface through Point', ''),
-    FlyItem('tanparallel', 'Tangent to Surface and Parallel to Plane', ''),
-    FlyItem('normalaxis', 'Normal to Axis through Point', ''),
-    FlyItem('normalcurve', 'Normal to Curve at Point', ''),
+    FlyItem('plane', t.flyPlaneB, ''),
+    FlyItem('offset', t.flyPlaneOffsetB, ''),
+    FlyItem('parallelpt', t.flyPlaneParallelPtB, ''),
+    FlyItem('midplane2', t.flyPlaneMid2B, ''),
+    FlyItem('midtorus', t.flyPlaneMidTorusB, ''),
+    FlyItem('angleedge', t.flyPlaneAngleEdgeB, ''),
+    FlyItem('threepts', t.flyPlaneThreePtsB, ''),
+    FlyItem('twoedges', t.flyPlaneTwoEdgesB, ''),
+    FlyItem('tansurfedge', t.flyPlaneTanSurfEdgeB, ''),
+    FlyItem('tansurfpt', t.flyPlaneTanSurfPtB, ''),
+    FlyItem('tanparallel', t.flyPlaneTanParallelB, ''),
+    FlyItem('normalaxis', t.flyPlaneNormalAxisB, ''),
+    FlyItem('normalcurve', t.flyPlaneNormalCurveB, ''),
   ],
 };
 
@@ -160,11 +186,11 @@ class _Face {
   const _Face(this.icon, this.label, this.tool);
 }
 
-_Face _faceFor(AppState app, String group,
+_Face _faceFor(AppState app, AppL10n t, String group,
     {required Tool dflt, required String icon, required String label}) {
   final pick = app.ribbonPick[group] ?? dflt;
   if (pick == dflt) return _Face(icon, label, dflt);
-  for (final it in flyouts[group] ?? const <FlyItem>[]) {
+  for (final it in flyoutsOf(t)[group] ?? const <FlyItem>[]) {
     if (it.tool == pick) {
       return _Face(IC[it.icon] ?? icon, it.b, pick);
     }
@@ -218,7 +244,7 @@ class _RibbonState extends State<Ribbon> {
     closeFly();
     final box = anchorCtx.findRenderObject() as RenderBox;
     final pos = box.localToGlobal(Offset.zero);
-    final items = flyouts[id]!;
+    final items = flyoutsOf(L.of(context))[id]!;
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
         _barrier(),
@@ -371,8 +397,7 @@ class _RibbonState extends State<Ribbon> {
                 default:
                   // Silence is the worst answer: the user cannot tell a broken
                   // tool from an unbuilt one. Say which it is.
-                  widget.app.toast('${it.b}: not built yet — '
-                      'use Offset from Plane or Midplane.');
+                  widget.app.toast(L.current.msgNotBuiltYet(it.b));
               }
             },
           ),
@@ -442,7 +467,7 @@ class _RibbonState extends State<Ribbon> {
           w: app.viewWidthWorld * 0.5);
     } catch (e) {
       Log.w('insert', 'image pick failed: $e');
-      app.toast('Could not import the image.');
+      app.toast(L.current.msgCouldNotImportImage);
     }
   }
 
@@ -458,7 +483,7 @@ class _RibbonState extends State<Ribbon> {
       app.importDxf(path);
     } catch (e) {
       Log.w('insert', 'dxf pick failed: $e');
-      app.toast('Could not import the DXF file.');
+      app.toast(L.current.msgCouldNotImportDxf);
     }
   }
 
@@ -495,7 +520,7 @@ class _RibbonState extends State<Ribbon> {
     // Nothing may be drawn outside a layer's edit mode — bail BEFORE any
     // parameter dialog, so the user isn't asked for a radius and then refused.
     if (!app.inEditMode) {
-      app.toast('Enter a layer to sketch: double-tap it in the model browser.');
+      app.toast(L.current.msgEnterLayerToSketch);
       return;
     }
     switch (t) {
@@ -532,6 +557,9 @@ class _RibbonState extends State<Ribbon> {
   }
 
   Future<(String, double, double)?> _equationDialog() async {
+    final t = L.of(context);
+    // The default expression is CODE, not prose: it goes straight into the
+    // parser and stays as it is in both languages.
     final expr = TextEditingController(text: 'sin(x)*5');
     final x0 = TextEditingController(text: '0');
     final x1 = TextEditingController(text: '20');
@@ -539,7 +567,7 @@ class _RibbonState extends State<Ribbon> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: T.fly,
-        title: Text('Equation Curve',
+        title: Text(t.dlgEquationCurve,
             style: ts(14, Colors.white, w: FontWeight.w600)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(
@@ -547,7 +575,7 @@ class _RibbonState extends State<Ribbon> {
               autofocus: true,
               style: ts(13, T.text),
               decoration: InputDecoration(
-                  labelText: 'y = f(x)   (sin, cos, sqrt, ^, pi, ...)',
+                  labelText: t.lblEquationHint,
                   labelStyle: ts(12, T.dim))),
           Row(children: [
             Expanded(
@@ -559,7 +587,8 @@ class _RibbonState extends State<Ribbon> {
                         stylusHandwritingEnabled: kValueHandwriting, // M179
                         style: ts(13, T.text),
                         decoration: InputDecoration(
-                            labelText: 'x min', labelStyle: ts(12, T.dim))))),
+                            labelText: t.lblXMin,
+                            labelStyle: ts(12, T.dim))))),
             const SizedBox(width: 10),
             Expanded(
                 child: ScrubField(
@@ -570,16 +599,17 @@ class _RibbonState extends State<Ribbon> {
                         stylusHandwritingEnabled: kValueHandwriting, // M179
                         style: ts(13, T.text),
                         decoration: InputDecoration(
-                            labelText: 'x max', labelStyle: ts(12, T.dim))))),
+                            labelText: t.lblXMax,
+                            labelStyle: ts(12, T.dim))))),
           ]),
         ]),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Cancel', style: ts(12.5, T.dim))),
+              child: Text(t.cancel, style: ts(12.5, T.dim))),
           TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: Text('OK', style: ts(12.5, T.blue))),
+              child: Text(t.ok, style: ts(12.5, T.blue))),
         ],
       ),
     );
@@ -631,16 +661,17 @@ class _RibbonState extends State<Ribbon> {
 
   // Home: single "Sketch" panel with the big Create New Sketch button.
   Widget _homeRibbon(AppState app) {
+    final t = L.of(context);
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _panel(
-          label: 'Sketch',
+          label: t.panelSketch,
           arrow: false,
           first: true,
           child: _BigWide(
               width: 78,
               icon: newSketchIcon,
-              label: 'Create\nNew Sketch',
+              label: t.btnCreateNewSketch,
               onTap: app.createNewSketch),
         ),
       ]),
@@ -653,6 +684,7 @@ class _RibbonState extends State<Ribbon> {
   // inert placeholders the dummy ships, so the layout is final while the
   // behaviour grows feature by feature.
   Widget _partRibbon(AppState app) {
+    final t = L.of(context);
     // Like [col], but each row can also LIGHT UP — a part command that is
     // currently open says so, the way the Extrude button does.
     //
@@ -689,8 +721,14 @@ class _RibbonState extends State<Ribbon> {
     // cannot be put in a visible column at all: it goes in the panel's `over`
     // list, where _OverRow renders it dimmed and untappable. The rule is a
     // type, not a convention somebody has to remember.
-    Widget col(List<(String, String, VoidCallback)> rows,
-            {double leftPad = 8, Map<String, String> flyIds = const {}}) =>
+    //
+    // M234 — the flyout id is the ROW'S OWN fourth field. It used to be looked
+    // up in a `Map<String, String>` keyed by the row's LABEL, which worked
+    // only for as long as the label was a compile-time English constant: the
+    // moment 'Axis' became 'Achse' the lookup missed and the drop chip
+    // vanished from two buttons. Structure never keys off display text.
+    Widget col(List<(String, String, VoidCallback, String?)> rows,
+            {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
           child: Column(
@@ -702,8 +740,8 @@ class _RibbonState extends State<Ribbon> {
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
-                      flyId: flyIds[rows[i].$2],
-                      onFly: flyIds[rows[i].$2] == null ? null : toggleFly,
+                      flyId: rows[i].$4,
+                      onFly: rows[i].$4 == null ? null : toggleFly,
                       onTap: rows[i].$3),
                 ]
               ]),
@@ -711,13 +749,13 @@ class _RibbonState extends State<Ribbon> {
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _panel(
-          label: 'Sketch',
+          label: t.panelSketch,
           arrow: false,
           first: true,
           child: _BigWide(
               width: 70,
               icon: newSketchIcon,
-              label: 'Start\n2D Sketch',
+              label: t.btnStart2dSketch,
               onTap: app.startPartSketch,
               active: app.pickPlane),
         ),
@@ -738,19 +776,19 @@ class _RibbonState extends State<Ribbon> {
         // honest instead of the ribbon quietly pretending these commands were
         // never planned.
         _panel(
-          label: 'Create',
+          label: t.panelCreate,
           arrow: false,
           overId: 'ov-create3d',
           over: () => [
-            OverItem(CR['emboss']!, 'Emboss', null),
-            OverItem(CR['derive']!, 'Derive', null),
-            OverItem(CR['decal']!, 'Decal', null),
+            OverItem(CR['emboss']!, t.btnEmboss, null),
+            OverItem(CR['derive']!, t.btnDerive, null),
+            OverItem(CR['decal']!, t.btnDecal, null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 58,
                 icon: CR['extrude']!,
-                label: 'Extrude',
+                label: t.btnExtrude,
                 onTap: () => app.openExtrude(),
                 // M210 — the highlight names THIS command, not "some panel is
                 // open": it toggles now, and a button that lights for a
@@ -759,13 +797,13 @@ class _RibbonState extends State<Ribbon> {
             _BigWide(
                 width: 58,
                 icon: CR['revolve']!,
-                label: 'Revolve',
+                label: t.btnRevolve,
                 onTap: () => app.openRevolve(),
                 active: app.extrudeSession?.isRevolve == true),
             col([
-              (CR['sweep']!, 'Sweep', () => app.openSweep()),
-              (CR['loft']!, 'Loft', () => app.openLoft()),
-              (CR['coil']!, 'Coil', () => app.openCoil()),
+              (CR['sweep']!, t.btnSweep, () => app.openSweep(), null),
+              (CR['loft']!, t.btnLoft, () => app.openLoft(), null),
+              (CR['coil']!, t.btnCoil, () => app.openCoil(), null),
             ]),
           ]),
         ),
@@ -774,54 +812,54 @@ class _RibbonState extends State<Ribbon> {
         // that silently does nothing is the most expensive kind of lie in a
         // ribbon, because it looks the most finished.
         _panel(
-          label: 'Modify',
+          label: t.panelModify,
           arrow: false,
           overId: 'ov-modify3d',
           over: () => [
-            OverItem(MO['shell']!, 'Shell', null),
-            OverItem(MO['draft']!, 'Draft', null),
-            OverItem(MO['thread']!, 'Thread', null),
+            OverItem(MO['shell']!, t.btnShell, null),
+            OverItem(MO['draft']!, t.btnDraft, null),
+            OverItem(MO['thread']!, t.btnThread, null),
             // M227 — built. It stays in the ▼ rather than moving out: the
             // dropdown is for commands that are available but do not earn
             // permanent ribbon width (M216's own words for the sketch side),
             // and Modify's visible column is full. A live callback is what
             // separates built from unbuilt here, not which list it is in.
-            OverItem(MO['combine']!, 'Combine', () => app.openCombine(),
+            OverItem(MO['combine']!, t.btnCombine, () => app.openCombine(),
                 active: app.combineSession != null),
-            OverItem(MO['thicken']!, 'Thicken / Offset', null),
+            OverItem(MO['thicken']!, t.btnThickenOffset, null),
             // M228 — Trim Solid, built. Splitting a body INTO TWO needs a
             // feature that spawns a body, which the fold does not do.
-            OverItem(MO['split']!, 'Split', () => app.openSplit(),
+            OverItem(MO['split']!, t.btnSplit, () => app.openSplit(),
                 active: app.splitSession != null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 58,
                 icon: MO['fillet']!,
-                label: 'Fillet',
+                label: t.btnFillet,
                 onTap: () => app.openFillet(),
                 active: app.edgeSession?.isFillet == true),
             colActive([
-              (MO['chamfer']!, 'Chamfer', app.openChamfer,
+              (MO['chamfer']!, t.btnChamfer, app.openChamfer,
                   app.edgeSession?.isFillet == false),
               // M217 — built, so they leave the ▼ and take their place in the
               // panel. The rule cuts both ways: the dropdown is where a
               // command waits to be built, not where it stays after it is.
-              (MO['deleteface']!, 'Delete Face', app.openDeleteFace,
+              (MO['deleteface']!, t.btnDeleteFace, app.openDeleteFace,
                   app.faceEdit?.kind == FaceEditKind.delete),
               // M225 — Hole, the same way: built, so it leaves the ▼. It sat
               // there as an OverItem with a null onTap, and before M216 as a
               // full-size button with an empty closure.
-              (MO['hole']!, 'Hole', () => app.openHole(),
+              (MO['hole']!, t.btnHole, () => app.openHole(),
                   app.holeSession != null),
             ]),
             col([
-              (MO['direct']!, 'Direct', () => app.openDirectMove()),
-            ], leftPad: 0, flyIds: const {'Direct': 'direct'}),
+              (MO['direct']!, t.btnDirect, () => app.openDirectMove(), 'direct'),
+            ], leftPad: 0),
           ]),
         ),
         _panel(
-          label: 'Work Features',
+          label: t.panelWorkFeatures,
           arrow: false,
           overId: 'ov-work3d',
           // UCS is deliberately still inert: it is a coordinate SYSTEM with
@@ -830,12 +868,12 @@ class _RibbonState extends State<Ribbon> {
           // that says it is not built (M157). Behind the ▼ it is listed,
           // dimmed and honest instead of sitting in the panel looking ready.
           over: () => [
-            OverItem(WF['ucs']!, 'UCS', null),
+            OverItem(WF['ucs']!, t.btnUcs, null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(
                 id: 'plane',
-                label: 'Plane',
+                label: t.btnPlane,
                 icon: WF['plane']!,
                 onFly: toggleFly,
                 // M157 — was an empty closure, so tapping the button did
@@ -850,15 +888,17 @@ class _RibbonState extends State<Ribbon> {
               // methods for the cases where a pick is ambiguous.
               (
                 WF['axis']!,
-                'Axis',
-                () => widget.app.startWorkAxis(WorkAxisMethod.auto)
+                t.btnAxis,
+                () => widget.app.startWorkAxis(WorkAxisMethod.auto),
+                'axis'
               ),
               (
                 WF['point']!,
-                'Point',
-                () => widget.app.startWorkPoint(WorkPointMethod.auto)
+                t.btnPoint,
+                () => widget.app.startWorkPoint(WorkPointMethod.auto),
+                'point'
               ),
-            ], flyIds: const {'Axis': 'axis', 'Point': 'point'}),
+            ]),
           ]),
         ),
         // M212 — the four pattern commands, wired. They toggle like every
@@ -871,19 +911,19 @@ class _RibbonState extends State<Ribbon> {
         // works, so the rule is applied to the MERGED truth, not to a
         // snapshot of one side.
         _panel(
-          label: 'Pattern',
+          label: t.panelPattern,
           arrow: false,
           child: Row(children: [
             colActive([
-              (PT['rect']!, 'Rectangular', app.openRectPattern,
+              (PT['rect']!, t.btnRectangular, app.openRectPattern,
                   app.patternKind == PatternKind.rectangular),
-              (PT['circ']!, 'Circular', app.openCircPattern,
+              (PT['circ']!, t.btnCircular, app.openCircPattern,
                   app.patternKind == PatternKind.circular),
-              (PT['sketch']!, 'Sketch Driven', app.openSketchPattern,
+              (PT['sketch']!, t.btnSketchDriven, app.openSketchPattern,
                   app.patternKind == PatternKind.sketchDriven),
             ], leftPad: 2),
             colActive([
-              (PT['mirror']!, 'Mirror', app.openMirror,
+              (PT['mirror']!, t.btnMirror, app.openMirror,
                   app.patternKind == PatternKind.mirror)
             ]),
           ]),
@@ -893,17 +933,18 @@ class _RibbonState extends State<Ribbon> {
   }
 
   Widget _sketchRibbon(AppState app) {
+    final t = L.of(context);
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         // 1. Layer
         _panel(
-          label: 'Layer',
+          label: t.panelLayer,
           arrow: false,
           first: true,
           child: _BigWide(
               width: 70,
               icon: layerBigIcon,
-              label: 'Start\nNew Layer',
+              label: t.btnStartNewLayer,
               onTap: app.startNewLayer),
         ),
         // Outside layer edit mode there is NOTHING to do with these: every
@@ -913,20 +954,20 @@ class _RibbonState extends State<Ribbon> {
         if (app.inEditMode) ...[
         // 2. Create
         _panel(
-          label: 'Create',
+          label: t.panelCreate,
           arrow: false,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigSplit(app: app, id: 'line', dflt: Tool.line,
-                icon: IC['line34']!, label: 'Line',
+                icon: IC['line34']!, label: t.btnLine,
                 onFly: toggleFly, onStart: _startTool),
             _BigSplit(app: app, id: 'circle', dflt: Tool.circleCenter,
-                icon: IC['circle34']!, label: 'Circle',
+                icon: IC['circle34']!, label: t.btnCircle,
                 onFly: toggleFly, onStart: _startTool),
             _BigSplit(app: app, id: 'arc', dflt: Tool.arcThreePoint,
-                icon: IC['arc34']!, label: 'Arc',
+                icon: IC['arc34']!, label: t.btnArc,
                 onFly: toggleFly, onStart: _startTool),
             _BigSplit(app: app, id: 'rect', dflt: Tool.rectTwoPoint,
-                icon: IC['rect34']!, label: 'Rectangle',
+                icon: IC['rect34']!, label: t.btnRectangle,
                 onFly: toggleFly, onStart: _startTool),
             Padding(
               padding: const EdgeInsets.only(left: 8),
@@ -939,10 +980,10 @@ class _RibbonState extends State<Ribbon> {
                     // the flyout. Without the body tap only the 14-px arrow did
                     // anything and the Fillet button was dead on touch.
                     Builder(builder: (_) {
-                      final f = _faceFor(app, 'fillet',
+                      final f = _faceFor(app, t, 'fillet',
                           dflt: Tool.fillet,
                           icon: IC['fillet18']!,
-                          label: 'Fillet');
+                          label: t.btnFillet);
                       return _SmallRow(
                           icon: f.icon,
                           label: f.label,
@@ -952,13 +993,13 @@ class _RibbonState extends State<Ribbon> {
                           active: _toolGroup[app.tool] == 'fillet');
                     }),
                     const SizedBox(height: 2),
-                    _SmallRow(icon: IC['text18']!, label: 'Text', flyId: 'text', onFly: toggleFly,
+                    _SmallRow(icon: IC['text18']!, label: t.btnText, flyId: 'text', onFly: toggleFly,
                         // M44: parametric sketch text — tap places, the
                         // dialog takes <Param> placeholders
                         onTap: () => _startTool(Tool.text),
                         active: app.tool == Tool.text),
                     const SizedBox(height: 2),
-                    _SmallRow(icon: IC['point18']!, label: 'Point',
+                    _SmallRow(icon: IC['point18']!, label: t.btnPoint,
                         onTap: () => _startTool(Tool.point),
                         active: app.tool == Tool.point),
                   ]),
@@ -969,13 +1010,13 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: ' ',
           arrow: false,
-          child: _BigWide(width: 76, icon: IC['projgeo']!, label: 'Project\nGeometry',
+          child: _BigWide(width: 76, icon: IC['projgeo']!, label: t.btnProjectGeometry,
               onTap: () => _startTool(Tool.project),
               active: app.tool == Tool.project),
         ),
         // 4. Pattern
         _panel(
-          label: 'Pattern',
+          label: t.panelPattern,
           arrow: false,
           child: Padding(
             padding: const EdgeInsets.only(left: 2),
@@ -983,15 +1024,15 @@ class _RibbonState extends State<Ribbon> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _SmallRow(icon: IC['patrect']!, label: 'Rectangular',
+                  _SmallRow(icon: IC['patrect']!, label: t.btnRectangular,
                       onTap: () => _startTool(Tool.patRect),
                       active: app.tool == Tool.patRect),
                   const SizedBox(height: 2),
-                  _SmallRow(icon: IC['patcirc']!, label: 'Circular',
+                  _SmallRow(icon: IC['patcirc']!, label: t.btnCircular,
                       onTap: () => _startTool(Tool.patCirc),
                       active: app.tool == Tool.patCirc),
                   const SizedBox(height: 2),
-                  _SmallRow(icon: IC['patmir']!, label: 'Mirror',
+                  _SmallRow(icon: IC['patmir']!, label: t.btnMirror,
                       onTap: () => _startTool(Tool.mirror),
                       active: app.tool == Tool.mirror),
                 ]),
@@ -1001,16 +1042,16 @@ class _RibbonState extends State<Ribbon> {
         // rarely used, so they moved behind the title's ▼ instead of costing
         // permanent grid width. They are NOT gone, just one tap deeper.
         _panel(
-          label: 'Constrain',
+          label: t.panelConstrain,
           arrow: false,
           overId: 'ov-constrain',
           over: () => [
-            OverItem(CN['smooth']!, 'Smooth (G2)',
+            OverItem(CN['smooth']!, t.btnSmoothG2,
                 () => _startTool(Tool.cSmooth),
                 active: app.tool == Tool.cSmooth),
-            OverItem(CN['conset']!, 'Constraint Settings',
+            OverItem(CN['conset']!, t.btnConstraintSettings,
                 app.toggleShowDof, active: app.showDof),
-            OverItem(CN['showcons']!, 'Show Constraints',
+            OverItem(CN['showcons']!, t.btnShowConstraints,
                 app.toggleShowConstraints, active: app.showConstraints),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1019,9 +1060,9 @@ class _RibbonState extends State<Ribbon> {
               child: _Hover(
                 activeHighlight: app.tool == Tool.dimension,
                 onTap: () => _startTool(Tool.dimension),
-                child: const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: _BigPlainBody(label: 'Dimension'),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: _BigPlainBody(label: t.btnDimension),
                 ),
               ),
             ),
@@ -1037,16 +1078,16 @@ class _RibbonState extends State<Ribbon> {
         // Center Point, Centerline, Driven Dimension — is one tap away behind
         // the title's ▼ instead of eating three panels of ribbon width.
         _panel(
-          label: 'Insert',
+          label: t.panelInsert,
           arrow: false,
           overId: 'ov-insert',
           over: () => [
-            OverItem(IN['points']!, 'Points', null),
-            OverItem(IN['sphere']!, 'Centerline',
+            OverItem(IN['points']!, t.btnPointsTool, null),
+            OverItem(IN['sphere']!, t.btnCenterline,
                 app.toggleCenterlineSelected),
-            OverItem(IN['center']!, 'Center Point', null),
-            OverItem(IN['driven']!, 'Driven Dimension', null),
-            OverItem(IN['showfmt']!, 'Show Format', null),
+            OverItem(IN['center']!, t.btnCenterPoint, null),
+            OverItem(IN['driven']!, t.btnDrivenDimension, null),
+            OverItem(IN['showfmt']!, t.btnShowFormat, null),
           ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Column(
@@ -1055,12 +1096,12 @@ class _RibbonState extends State<Ribbon> {
                 children: [
                   _SmallRow(
                       icon: IN['image']!,
-                      label: 'Image',
+                      label: t.btnImage,
                       onTap: () => _pickImage(app)),
                   const SizedBox(height: 2),
                   _SmallRow(
                       icon: IN['acad']!,
-                      label: 'ACAD',
+                      label: t.btnAcad,
                       // M117 — Import moved to the gallery "+" menu; this
                       // button stays as the in-sketch DXF drop, which is a
                       // different job: it merges geometry into the sketch you
@@ -1073,7 +1114,7 @@ class _RibbonState extends State<Ribbon> {
                 children: [
                   _SmallRow(
                       icon: IN['constr']!,
-                      label: 'Construction',
+                      label: t.btnConstruction,
                       onTap: app.toggleConstructionSelected),
                   const SizedBox(height: 2),
                   _SmallRow(
@@ -1085,7 +1126,7 @@ class _RibbonState extends State<Ribbon> {
                               height: 1.0,
                               fontStyle: FontStyle.italic,
                               fontWeight: FontWeight.w700)),
-                      label: 'Parameters',
+                      label: t.btnParameters,
                       onTap: app.toggleParams,
                       active: app.showParams),
                 ]),
@@ -1095,7 +1136,7 @@ class _RibbonState extends State<Ribbon> {
                 children: [
                   _SmallRow(
                       icon: IN['gear']!,
-                      label: 'Gear',
+                      label: t.btnGear,
                       onTap: app.toggleGear,
                       active: app.gear != null),
                 ]),
@@ -1106,23 +1147,23 @@ class _RibbonState extends State<Ribbon> {
         // Stretch) and Extend moved behind the title's ▼ — still there, just
         // not paid for in ribbon real estate.
         _panel(
-          label: 'Modify',
+          label: t.panelModify,
           arrow: false,
           overId: 'ov-modify',
           over: () => [
-            OverItem(MD['extend']!, 'Extend',
+            OverItem(MD['extend']!, t.btnExtend,
                 () => _startTool(Tool.extendT),
                 active: app.tool == Tool.extendT),
-            OverItem(MD['move']!, 'Move', () => _startTool(Tool.move),
+            OverItem(MD['move']!, t.flyMoveB, () => _startTool(Tool.move),
                 active: app.tool == Tool.move),
-            OverItem(MD['copy']!, 'Copy', () => _startTool(Tool.mcopy),
+            OverItem(MD['copy']!, t.btnCopy, () => _startTool(Tool.mcopy),
                 active: app.tool == Tool.mcopy),
-            OverItem(MD['mrotate']!, 'Rotate',
+            OverItem(MD['mrotate']!, t.flyRotateB,
                 () => _startTool(Tool.mrotate),
                 active: app.tool == Tool.mrotate),
-            OverItem(MD['mscale']!, 'Scale', () => _startTool(Tool.mscale),
+            OverItem(MD['mscale']!, t.flyScaleB, () => _startTool(Tool.mscale),
                 active: app.tool == Tool.mscale),
-            OverItem(MD['stretch']!, 'Stretch',
+            OverItem(MD['stretch']!, t.btnStretch,
                 () => _startTool(Tool.mstretch),
                 active: app.tool == Tool.mstretch),
           ],
@@ -1139,12 +1180,12 @@ class _RibbonState extends State<Ribbon> {
         // broken, and this ribbon has had nine of those.
         if (app.canSliceGraphics)
           _panel(
-            label: 'View',
+            label: t.panelView,
             arrow: false,
             child: _BigWide(
                 width: 74,
                 icon: WF['plane']!,
-                label: 'Slice\nGraphics',
+                label: t.btnSliceGraphics,
                 active: app.sliceGraphics,
                 onTap: app.toggleSliceGraphics),
           ),
@@ -1152,7 +1193,7 @@ class _RibbonState extends State<Ribbon> {
         // in a scrolling ribbon it follows Modify like #panel-exit.on does.
         if (app.inEditMode || app.activeChild != null)
           _panel(
-            label: 'Exit',
+            label: t.panelExit,
             arrow: false,
             child: _BigWide(
                 width: 64,
@@ -1432,7 +1473,7 @@ class _BigSplit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final f = _faceFor(app, id, dflt: dflt, icon: icon, label: label);
+    final f = _faceFor(app, L.of(context), id, dflt: dflt, icon: icon, label: label);
     return _Big(
       id: id,
       label: f.label,

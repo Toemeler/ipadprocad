@@ -10,6 +10,15 @@ dependencies:
   file_picker: ^8.1.2
   flutter:
     sdk: flutter
+  # M234 — the app is natively German; English is the second locale, not the
+  # source one. flutter_localizations also gives Material's own widgets
+  # (Cupertino pickers, text-selection handles, the date formats) their German
+  # strings, which no ARB of ours could supply.
+  flutter_localizations:
+    sdk: flutter
+  # Pinned by flutter_localizations; declared explicitly because the generated
+  # localisations import it directly.
+  intl: any
   ffi: ^2.1.0
   # In-repo iOS plugin (real UIKit context menus / share sheet / Files export).
   # A path dependency, so CocoaPods picks it up from the generated Podfile just
@@ -31,3 +40,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # gen-l10n runs on `flutter pub get` and on every build. The output is
+  # committed as well (see l10n.yaml) so `flutter analyze`/`flutter test`
+  # never depend on the generator having run first.
+  generate: true

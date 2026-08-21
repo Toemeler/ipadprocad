@@ -1,0 +1,2951 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart' as intl;
+
+import 'app_l10n_de.dart';
+import 'app_l10n_en.dart';
+
+// ignore_for_file: type=lint
+
+/// Callers can lookup localized strings with an instance of AppL10n
+/// returned by `AppL10n.of(context)`.
+///
+/// Applications need to include `AppL10n.delegate()` in their app's
+/// `localizationDelegates` list, and the locales they support in the app's
+/// `supportedLocales` list. For example:
+///
+/// ```dart
+/// import 'gen/app_l10n.dart';
+///
+/// return MaterialApp(
+///   localizationsDelegates: AppL10n.localizationsDelegates,
+///   supportedLocales: AppL10n.supportedLocales,
+///   home: MyApplicationHome(),
+/// );
+/// ```
+///
+/// ## Update pubspec.yaml
+///
+/// Please make sure to update your pubspec.yaml to include the following
+/// packages:
+///
+/// ```yaml
+/// dependencies:
+///   # Internationalization support.
+///   flutter_localizations:
+///     sdk: flutter
+///   intl: any # Use the pinned version from flutter_localizations
+///
+///   # Rest of dependencies
+/// ```
+///
+/// ## iOS Applications
+///
+/// iOS applications define key application metadata, including supported
+/// locales, in an Info.plist file that is built into the application bundle.
+/// To configure the locales supported by your app, you’ll need to edit this
+/// file.
+///
+/// First, open your project’s ios/Runner.xcworkspace Xcode workspace file.
+/// Then, in the Project Navigator, open the Info.plist file under the Runner
+/// project’s Runner folder.
+///
+/// Next, select the Information Property List item, select Add Item from the
+/// Editor menu, then select Localizations from the pop-up menu.
+///
+/// Select and expand the newly-created Localizations item then, for each
+/// locale your application supports, add a new item and select the locale
+/// you wish to add from the pop-up menu in the Value field. This list should
+/// be consistent with the languages listed in the AppL10n.supportedLocales
+/// property.
+abstract class AppL10n {
+  AppL10n(String locale)
+      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+
+  final String localeName;
+
+  static AppL10n? of(BuildContext context) {
+    return Localizations.of<AppL10n>(context, AppL10n);
+  }
+
+  static const LocalizationsDelegate<AppL10n> delegate = _AppL10nDelegate();
+
+  /// A list of this localizations delegate along with the default localizations
+  /// delegates.
+  ///
+  /// Returns a list of localizations delegates containing this delegate along with
+  /// GlobalMaterialLocalizations.delegate, GlobalCupertinoLocalizations.delegate,
+  /// and GlobalWidgetsLocalizations.delegate.
+  ///
+  /// Additional delegates can be added by appending to this list in
+  /// MaterialApp. This list does not have to be used at all if a custom list
+  /// of delegates is preferred or required.
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
+      <LocalizationsDelegate<dynamic>>[
+    delegate,
+    GlobalMaterialLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+  ];
+
+  /// A list of this localizations delegate's supported locales.
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('de'),
+    Locale('en')
+  ];
+
+  /// Name dieser Sprache, in dieser Sprache geschrieben. Erscheint im Sprachumschalter.
+  ///
+  /// In de, this message translates to:
+  /// **'Deutsch'**
+  String get languageName;
+
+  /// Eintrag im "+"-Menue der Galerie. Zeigt die Sprache, in die er umschaltet — der Eintrag ist eine Aktion, keine Statuszeile.
+  ///
+  /// In de, this message translates to:
+  /// **'Sprache: Deutsch'**
+  String get languageMenuItem;
+
+  /// Bestaetigen. In beiden Sprachen OK — im Deutschen ebenso ueblich wie im Englischen.
+  ///
+  /// In de, this message translates to:
+  /// **'OK'**
+  String get ok;
+
+  /// Abbrechen. Nicht "Stornieren" (Handel) und nicht "Absagen" (Termin).
+  ///
+  /// In de, this message translates to:
+  /// **'Abbrechen'**
+  String get cancel;
+
+  /// Vorgang abschliessen. Kurz gehalten; "Fertigstellen" waere hier doppelt so lang.
+  ///
+  /// In de, this message translates to:
+  /// **'Fertig'**
+  String get done;
+
+  /// Werte anwenden, Dialog bleibt offen. Inventor sagt "Übernehmen".
+  ///
+  /// In de, this message translates to:
+  /// **'Übernehmen'**
+  String get apply;
+
+  /// No description provided for @close.
+  ///
+  /// In de, this message translates to:
+  /// **'Schließen'**
+  String get close;
+
+  /// No description provided for @delete.
+  ///
+  /// In de, this message translates to:
+  /// **'Löschen'**
+  String get delete;
+
+  /// No description provided for @rename.
+  ///
+  /// In de, this message translates to:
+  /// **'Umbenennen'**
+  String get rename;
+
+  /// No description provided for @duplicate.
+  ///
+  /// In de, this message translates to:
+  /// **'Duplizieren'**
+  String get duplicate;
+
+  /// No description provided for @create.
+  ///
+  /// In de, this message translates to:
+  /// **'Erstellen'**
+  String get create;
+
+  /// No description provided for @select.
+  ///
+  /// In de, this message translates to:
+  /// **'Auswählen'**
+  String get select;
+
+  /// No description provided for @finish.
+  ///
+  /// In de, this message translates to:
+  /// **'Fertig'**
+  String get finish;
+
+  /// No description provided for @discard.
+  ///
+  /// In de, this message translates to:
+  /// **'Verwerfen'**
+  String get discard;
+
+  /// No description provided for @edit.
+  ///
+  /// In de, this message translates to:
+  /// **'Bearbeiten'**
+  String get edit;
+
+  /// No description provided for @hide.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausblenden'**
+  String get hide;
+
+  /// No description provided for @openEllipsis.
+  ///
+  /// In de, this message translates to:
+  /// **'Öffnen…'**
+  String get openEllipsis;
+
+  /// No description provided for @exportEllipsis.
+  ///
+  /// In de, this message translates to:
+  /// **'Exportieren…'**
+  String get exportEllipsis;
+
+  /// No description provided for @shareEllipsis.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilen…'**
+  String get shareEllipsis;
+
+  /// Werkzeugleiste. "Rückgängig" ist der Begriff, den jede deutsche Oberflaeche benutzt; die Leiste laesst 12 Zeichen zu.
+  ///
+  /// In de, this message translates to:
+  /// **'Rückgängig'**
+  String get undo;
+
+  /// Werkzeugleiste. NICHT "Wiederherstellen" (16 Zeichen, sprengt die Leiste) — "Wiederholen" ist die kurze Form, die auch Office benutzt.
+  ///
+  /// In de, this message translates to:
+  /// **'Wiederholen'**
+  String get redo;
+
+  /// Ribbon-Gruppe. die Skizze.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze'**
+  String get panelSketch;
+
+  /// No description provided for @panelCreate.
+  ///
+  /// In de, this message translates to:
+  /// **'Erstellen'**
+  String get panelCreate;
+
+  /// Ribbon-Gruppe. Inventor DE: "Ändern".
+  ///
+  /// In de, this message translates to:
+  /// **'Ändern'**
+  String get panelModify;
+
+  /// Ribbon-Gruppe. Inventor DE: "Arbeitselemente" (Arbeitsebene, -achse, -punkt).
+  ///
+  /// In de, this message translates to:
+  /// **'Arbeitselemente'**
+  String get panelWorkFeatures;
+
+  /// Ribbon-Gruppe. Inventor DE: "Anordnung", nicht "Muster".
+  ///
+  /// In de, this message translates to:
+  /// **'Anordnung'**
+  String get panelPattern;
+
+  /// Ribbon-Gruppe. "Layer" bleibt englisch — AutoCAD DE und die gesamte deutsche CAD-Praxis sagen Layer, nicht Ebene, weil Ebene in 3D die Plane ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Layer'**
+  String get panelLayer;
+
+  /// Ribbon-Gruppe. Inventor DE nennt Zwangsbedingungen "Abhängigkeiten"; dieser Sprachgebrauch ist bei den Anwendern eingeuebt.
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängigkeit'**
+  String get panelConstrain;
+
+  /// No description provided for @panelInsert.
+  ///
+  /// In de, this message translates to:
+  /// **'Einfügen'**
+  String get panelInsert;
+
+  /// No description provided for @panelView.
+  ///
+  /// In de, this message translates to:
+  /// **'Ansicht'**
+  String get panelView;
+
+  /// No description provided for @panelExit.
+  ///
+  /// In de, this message translates to:
+  /// **'Beenden'**
+  String get panelExit;
+
+  /// Ribbon-Gruppe. Kurzform von "Geometrie projizieren"; der volle Inventor-Begriff steht auf der Schaltflaeche darunter.
+  ///
+  /// In de, this message translates to:
+  /// **'Projizieren'**
+  String get panelProjectGeometry;
+
+  /// Grosse Schaltflaeche auf der Startseite, zweizeilig. Englisch braucht drei Woerter fuer das, was "Neue Skizze" sagt.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue\nSkizze'**
+  String get btnCreateNewSketch;
+
+  /// Bauteil-Ribbon: startet eine Skizze auf einer gewaehlten Ebene.
+  ///
+  /// In de, this message translates to:
+  /// **'2D-Skizze\nbeginnen'**
+  String get btnStart2dSketch;
+
+  /// No description provided for @btnStartNewLayer.
+  ///
+  /// In de, this message translates to:
+  /// **'Neuer\nLayer'**
+  String get btnStartNewLayer;
+
+  /// Inventor DE: "Extrusion". Substantiv, wie alle Feature-Befehle dort.
+  ///
+  /// In de, this message translates to:
+  /// **'Extrusion'**
+  String get btnExtrude;
+
+  /// Inventor DE: "Drehung" — das Feature, nicht die Ansichtsdrehung (das ist "Orbit").
+  ///
+  /// In de, this message translates to:
+  /// **'Drehung'**
+  String get btnRevolve;
+
+  /// Inventor DE laesst Sweep als "Sweeping" stehen. "Ziehen" oder "Austragung" wuerde kein Inventor-Anwender wiedererkennen.
+  ///
+  /// In de, this message translates to:
+  /// **'Sweeping'**
+  String get btnSweep;
+
+  /// Inventor DE: "Erhebung".
+  ///
+  /// In de, this message translates to:
+  /// **'Erhebung'**
+  String get btnLoft;
+
+  /// Inventor DE: "Spirale".
+  ///
+  /// In de, this message translates to:
+  /// **'Spirale'**
+  String get btnCoil;
+
+  /// No description provided for @btnEmboss.
+  ///
+  /// In de, this message translates to:
+  /// **'Prägen'**
+  String get btnEmboss;
+
+  /// No description provided for @btnDerive.
+  ///
+  /// In de, this message translates to:
+  /// **'Ableiten'**
+  String get btnDerive;
+
+  /// No description provided for @btnDecal.
+  ///
+  /// In de, this message translates to:
+  /// **'Aufkleber'**
+  String get btnDecal;
+
+  /// Inventor DE: "Verrundung". NICHT "Filet" — das ist Fleisch.
+  ///
+  /// In de, this message translates to:
+  /// **'Verrundung'**
+  String get btnFillet;
+
+  /// No description provided for @btnChamfer.
+  ///
+  /// In de, this message translates to:
+  /// **'Fase'**
+  String get btnChamfer;
+
+  /// Inventor DE: "Wandung" — den Koerper auf eine Wandstaerke aushoehlen.
+  ///
+  /// In de, this message translates to:
+  /// **'Wandung'**
+  String get btnShell;
+
+  /// No description provided for @btnDraft.
+  ///
+  /// In de, this message translates to:
+  /// **'Formschräge'**
+  String get btnDraft;
+
+  /// No description provided for @btnThread.
+  ///
+  /// In de, this message translates to:
+  /// **'Gewinde'**
+  String get btnThread;
+
+  /// No description provided for @btnHole.
+  ///
+  /// In de, this message translates to:
+  /// **'Bohrung'**
+  String get btnHole;
+
+  /// No description provided for @btnSplit.
+  ///
+  /// In de, this message translates to:
+  /// **'Trennen'**
+  String get btnSplit;
+
+  /// No description provided for @btnCombine.
+  ///
+  /// In de, this message translates to:
+  /// **'Kombinieren'**
+  String get btnCombine;
+
+  /// No description provided for @btnPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene'**
+  String get btnPlane;
+
+  /// No description provided for @btnAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse'**
+  String get btnAxis;
+
+  /// No description provided for @btnPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt'**
+  String get btnPoint;
+
+  /// No description provided for @btnLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie'**
+  String get btnLine;
+
+  /// No description provided for @btnCircle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kreis'**
+  String get btnCircle;
+
+  /// No description provided for @btnArc.
+  ///
+  /// In de, this message translates to:
+  /// **'Bogen'**
+  String get btnArc;
+
+  /// No description provided for @btnRectangle.
+  ///
+  /// In de, this message translates to:
+  /// **'Rechteck'**
+  String get btnRectangle;
+
+  /// No description provided for @btnText.
+  ///
+  /// In de, this message translates to:
+  /// **'Text'**
+  String get btnText;
+
+  /// Inventor DE: "Bemaßung". Mit ß — nach langem a steht ß, nicht ss.
+  ///
+  /// In de, this message translates to:
+  /// **'Bemaßung'**
+  String get btnDimension;
+
+  /// No description provided for @btnRectangular.
+  ///
+  /// In de, this message translates to:
+  /// **'Rechteckig'**
+  String get btnRectangular;
+
+  /// Inventor DE: "Runde Anordnung". Hier steht das Adjektiv allein unter dem Symbol.
+  ///
+  /// In de, this message translates to:
+  /// **'Rund'**
+  String get btnCircular;
+
+  /// No description provided for @btnMirror.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegeln'**
+  String get btnMirror;
+
+  /// No description provided for @btnImage.
+  ///
+  /// In de, this message translates to:
+  /// **'Bild'**
+  String get btnImage;
+
+  /// DXF-Import. Kuerzel des Fremdformats, bleibt in beiden Sprachen stehen.
+  ///
+  /// In de, this message translates to:
+  /// **'ACAD'**
+  String get btnAcad;
+
+  /// Konstruktionsgeometrie ein-/ausschalten. Inventor DE: "Konstruktion".
+  ///
+  /// In de, this message translates to:
+  /// **'Konstruktion'**
+  String get btnConstruction;
+
+  /// Plural von "der Parameter" ist "die Parameter" — kein -n.
+  ///
+  /// In de, this message translates to:
+  /// **'Parameter'**
+  String get btnParameters;
+
+  /// No description provided for @btnGear.
+  ///
+  /// In de, this message translates to:
+  /// **'Zahnrad'**
+  String get btnGear;
+
+  /// Zweizeilig. Inventor DE: "Geometrie projizieren".
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie\nprojizieren'**
+  String get btnProjectGeometry;
+
+  /// Inventor DE: "Grafik schneiden" — blendet das Material vor der Skizzierebene aus.
+  ///
+  /// In de, this message translates to:
+  /// **'Grafik\nschneiden'**
+  String get btnSliceGraphics;
+
+  /// Inventor DE: "Stutzen".
+  ///
+  /// In de, this message translates to:
+  /// **'Stutzen'**
+  String get btnTrim;
+
+  /// Spline auf sich selbst spiegeln. Langes Wort, sitzt aber in einer Zeile mit voller Breite.
+  ///
+  /// In de, this message translates to:
+  /// **'Selbstsymmetrisch'**
+  String get btnSelfSymmetric;
+
+  /// No description provided for @btnAssociative.
+  ///
+  /// In de, this message translates to:
+  /// **'Assoziativ'**
+  String get btnAssociative;
+
+  /// No description provided for @btnFitted.
+  ///
+  /// In de, this message translates to:
+  /// **'Angepasst'**
+  String get btnFitted;
+
+  /// No description provided for @flyLineB.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie'**
+  String get flyLineB;
+
+  /// No description provided for @flyLineSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Linie'**
+  String get flyLineSub;
+
+  /// Linie durch den Mittelpunkt. Inventor DE: "Mittellinie".
+  ///
+  /// In de, this message translates to:
+  /// **'Mittellinie'**
+  String get flyMidlineSub;
+
+  /// "Spline" ist auch im Deutschen der Fachbegriff; es gibt kein gebraeuchliches deutsches Wort dafuer.
+  ///
+  /// In de, this message translates to:
+  /// **'Spline'**
+  String get flySplineB;
+
+  /// Inventor DE: Spline ueber Steuerpunkte.
+  ///
+  /// In de, this message translates to:
+  /// **'Steuerpunkt'**
+  String get flySplineCvSub;
+
+  /// No description provided for @flySplineInterpSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Interpolation'**
+  String get flySplineInterpSub;
+
+  /// No description provided for @flySplineFreeSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Freihand'**
+  String get flySplineFreeSub;
+
+  /// Inventor DE: "Gleichungskurve".
+  ///
+  /// In de, this message translates to:
+  /// **'Gleichungskurve'**
+  String get flyEqCurveB;
+
+  /// Inventor DE: "Übergangskurve" — verbindet zwei Kurven tangenten- oder kruemmungsstetig.
+  ///
+  /// In de, this message translates to:
+  /// **'Übergangskurve'**
+  String get flyBridgeB;
+
+  /// No description provided for @flyCircleB.
+  ///
+  /// In de, this message translates to:
+  /// **'Kreis'**
+  String get flyCircleB;
+
+  /// No description provided for @flyCenterPointSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelpunkt'**
+  String get flyCenterPointSub;
+
+  /// Konstruktionsmethode: tangential an vorhandene Geometrie.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential'**
+  String get flyTangentSub;
+
+  /// No description provided for @flyEllipseB.
+  ///
+  /// In de, this message translates to:
+  /// **'Ellipse'**
+  String get flyEllipseB;
+
+  /// Inventor DE: "Bogen". Nicht "Kreisbogen" — die Gruppe sagt schon, dass es ein Kreisbogen ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Bogen'**
+  String get flyArcB;
+
+  /// No description provided for @flyThreePointSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Drei Punkte'**
+  String get flyThreePointSub;
+
+  /// No description provided for @flyRectB.
+  ///
+  /// In de, this message translates to:
+  /// **'Rechteck'**
+  String get flyRectB;
+
+  /// No description provided for @flyTwoPointSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Punkte'**
+  String get flyTwoPointSub;
+
+  /// No description provided for @flyTwoPointCenterSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Punkte, mittig'**
+  String get flyTwoPointCenterSub;
+
+  /// No description provided for @flyThreePointCenterSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Drei Punkte, mittig'**
+  String get flyThreePointCenterSub;
+
+  /// Inventor DE: "Langloch".
+  ///
+  /// In de, this message translates to:
+  /// **'Langloch'**
+  String get flySlotB;
+
+  /// No description provided for @flySlotCcSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Mitte zu Mitte'**
+  String get flySlotCcSub;
+
+  /// Langloch ueber die Gesamtlaenge bemasst, nicht ueber den Mittenabstand.
+  ///
+  /// In de, this message translates to:
+  /// **'Gesamtlänge'**
+  String get flySlotOverallSub;
+
+  /// No description provided for @flySlot3aSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Bogen, drei Punkte'**
+  String get flySlot3aSub;
+
+  /// No description provided for @flySlotCpaSub.
+  ///
+  /// In de, this message translates to:
+  /// **'Bogen, Mittelpunkt'**
+  String get flySlotCpaSub;
+
+  /// No description provided for @flyPolygonB.
+  ///
+  /// In de, this message translates to:
+  /// **'Polygon'**
+  String get flyPolygonB;
+
+  /// No description provided for @flyFilletB.
+  ///
+  /// In de, this message translates to:
+  /// **'Verrundung'**
+  String get flyFilletB;
+
+  /// No description provided for @flyChamferB.
+  ///
+  /// In de, this message translates to:
+  /// **'Fase'**
+  String get flyChamferB;
+
+  /// No description provided for @flyTextB.
+  ///
+  /// In de, this message translates to:
+  /// **'Text'**
+  String get flyTextB;
+
+  /// Text, der als Geometrie und nicht als Schriftobjekt entsteht.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrietext'**
+  String get flyGeomTextB;
+
+  /// No description provided for @flyMoveB.
+  ///
+  /// In de, this message translates to:
+  /// **'Verschieben'**
+  String get flyMoveB;
+
+  /// Direktbearbeitung: Flaeche vergroessern/verkleinern. Inventor DE: "Größe".
+  ///
+  /// In de, this message translates to:
+  /// **'Größe'**
+  String get flySizeB;
+
+  /// No description provided for @flyScaleB.
+  ///
+  /// In de, this message translates to:
+  /// **'Skalieren'**
+  String get flyScaleB;
+
+  /// No description provided for @flyRotateB.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehen'**
+  String get flyRotateB;
+
+  /// No description provided for @flyDeleteB.
+  ///
+  /// In de, this message translates to:
+  /// **'Löschen'**
+  String get flyDeleteB;
+
+  /// No description provided for @flyAxisB.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse'**
+  String get flyAxisB;
+
+  /// No description provided for @flyAxisOnLineB.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf Linie oder Kante'**
+  String get flyAxisOnLineB;
+
+  /// No description provided for @flyAxisParPtB.
+  ///
+  /// In de, this message translates to:
+  /// **'Parallel zu Linie durch Punkt'**
+  String get flyAxisParPtB;
+
+  /// No description provided for @flyAxisTwoPtB.
+  ///
+  /// In de, this message translates to:
+  /// **'Durch zwei Punkte'**
+  String get flyAxisTwoPtB;
+
+  /// No description provided for @flyAxisTwoPlB.
+  ///
+  /// In de, this message translates to:
+  /// **'Schnitt zweier Ebenen'**
+  String get flyAxisTwoPlB;
+
+  /// No description provided for @flyAxisNormPtB.
+  ///
+  /// In de, this message translates to:
+  /// **'Normal zu Ebene durch Punkt'**
+  String get flyAxisNormPtB;
+
+  /// No description provided for @flyAxisCircB.
+  ///
+  /// In de, this message translates to:
+  /// **'Durch Mittelpunkt einer Rundkante'**
+  String get flyAxisCircB;
+
+  /// No description provided for @flyAxisRevB.
+  ///
+  /// In de, this message translates to:
+  /// **'Durch Drehfläche oder -element'**
+  String get flyAxisRevB;
+
+  /// No description provided for @flyPointB.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt'**
+  String get flyPointB;
+
+  /// Inventor DE: "Fixierter Punkt" — haengt an keiner Geometrie.
+  ///
+  /// In de, this message translates to:
+  /// **'Fixierter Punkt'**
+  String get flyPointGroundB;
+
+  /// No description provided for @flyPointVertexB.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf Eckpunkt, Skizzenpunkt oder Mittelpunkt'**
+  String get flyPointVertexB;
+
+  /// No description provided for @flyPointThreePlB.
+  ///
+  /// In de, this message translates to:
+  /// **'Schnitt dreier Ebenen'**
+  String get flyPointThreePlB;
+
+  /// No description provided for @flyPointTwoLnB.
+  ///
+  /// In de, this message translates to:
+  /// **'Schnitt zweier Linien'**
+  String get flyPointTwoLnB;
+
+  /// No description provided for @flyPointPlLnB.
+  ///
+  /// In de, this message translates to:
+  /// **'Schnitt Ebene/Fläche und Linie'**
+  String get flyPointPlLnB;
+
+  /// No description provided for @flyPointLoopB.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelpunkt einer Kantenschleife'**
+  String get flyPointLoopB;
+
+  /// No description provided for @flyPointTorusB.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelpunkt eines Torus'**
+  String get flyPointTorusB;
+
+  /// No description provided for @flyPointSphereB.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelpunkt einer Kugel'**
+  String get flyPointSphereB;
+
+  /// No description provided for @flyPlaneB.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene'**
+  String get flyPlaneB;
+
+  /// Inventor DE: "Versatz". Nicht "Offset" — Inventor uebersetzt es.
+  ///
+  /// In de, this message translates to:
+  /// **'Versatz von Ebene'**
+  String get flyPlaneOffsetB;
+
+  /// No description provided for @flyPlaneParallelPtB.
+  ///
+  /// In de, this message translates to:
+  /// **'Parallel zu Ebene durch Punkt'**
+  String get flyPlaneParallelPtB;
+
+  /// No description provided for @flyPlaneMid2B.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelebene zwischen zwei Ebenen'**
+  String get flyPlaneMid2B;
+
+  /// No description provided for @flyPlaneMidTorusB.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelebene eines Torus'**
+  String get flyPlaneMidTorusB;
+
+  /// No description provided for @flyPlaneAngleEdgeB.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel zu Ebene um Kante'**
+  String get flyPlaneAngleEdgeB;
+
+  /// No description provided for @flyPlaneThreePtsB.
+  ///
+  /// In de, this message translates to:
+  /// **'Drei Punkte'**
+  String get flyPlaneThreePtsB;
+
+  /// No description provided for @flyPlaneTwoEdgesB.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei koplanare Kanten'**
+  String get flyPlaneTwoEdgesB;
+
+  /// No description provided for @flyPlaneTanSurfEdgeB.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential zu Fläche durch Kante'**
+  String get flyPlaneTanSurfEdgeB;
+
+  /// No description provided for @flyPlaneTanSurfPtB.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential zu Fläche durch Punkt'**
+  String get flyPlaneTanSurfPtB;
+
+  /// No description provided for @flyPlaneTanParallelB.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential zu Fläche und parallel zu Ebene'**
+  String get flyPlaneTanParallelB;
+
+  /// No description provided for @flyPlaneNormalAxisB.
+  ///
+  /// In de, this message translates to:
+  /// **'Normal zu Achse durch Punkt'**
+  String get flyPlaneNormalAxisB;
+
+  /// No description provided for @flyPlaneNormalCurveB.
+  ///
+  /// In de, this message translates to:
+  /// **'Normal zu Kurve im Punkt'**
+  String get flyPlaneNormalCurveB;
+
+  /// Kopfzeile des Modellbrowsers. Inventor DE: "Modell".
+  ///
+  /// In de, this message translates to:
+  /// **'Modell'**
+  String get browserTitle;
+
+  /// Browser-Knoten mit den drei Ursprungsebenen, -achsen und dem Mittelpunkt.
+  ///
+  /// In de, this message translates to:
+  /// **'Ursprung'**
+  String get nodeOrigin;
+
+  /// Mit Bindestrich: im Deutschen wird die Buchstaben-Wort-Fuegung durchgekoppelt.
+  ///
+  /// In de, this message translates to:
+  /// **'X-Achse'**
+  String get nodeXAxis;
+
+  /// No description provided for @nodeYAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Y-Achse'**
+  String get nodeYAxis;
+
+  /// No description provided for @nodeCenterPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelpunkt'**
+  String get nodeCenterPoint;
+
+  /// Inventor DE: "Ende des Bauteils". das Bauteil, deshalb "des".
+  ///
+  /// In de, this message translates to:
+  /// **'Ende des Bauteils'**
+  String get nodeEndOfPart;
+
+  /// die Skizze, deshalb "der".
+  ///
+  /// In de, this message translates to:
+  /// **'Ende der Skizze'**
+  String get nodeEndOfSketch;
+
+  /// Browser-Knoten. "Volumenkörper" ist im Plural formgleich mit dem Singular, deshalb kein plural-Block.
+  ///
+  /// In de, this message translates to:
+  /// **'Volumenkörper ({count})'**
+  String nodeSolidBodies(int count);
+
+  /// Ein Exemplar einer Anordnung. Inventor DE nennt die Kopien einer Anordnung "Exemplare".
+  ///
+  /// In de, this message translates to:
+  /// **'Exemplar {index}'**
+  String nodeOccurrence(int index);
+
+  /// No description provided for @nodeAutoProjected.
+  ///
+  /// In de, this message translates to:
+  /// **'Automatisch projiziert'**
+  String get nodeAutoProjected;
+
+  /// No description provided for @ctxUseAsTargetBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Als Zielkörper verwenden'**
+  String get ctxUseAsTargetBody;
+
+  /// No description provided for @ctxDeleteBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper löschen'**
+  String get ctxDeleteBody;
+
+  /// No description provided for @ctxEditSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze bearbeiten'**
+  String get ctxEditSketch;
+
+  /// Skizze fuer andere Elemente sichtbar machen. "Freigeben" im Sinne von Inventors "gemeinsam verwenden", nicht im Sinne von Teilen/Versenden.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze freigeben'**
+  String get ctxShareSketch;
+
+  /// No description provided for @ctxUnshare.
+  ///
+  /// In de, this message translates to:
+  /// **'Freigabe aufheben'**
+  String get ctxUnshare;
+
+  /// Inventor DE nennt ein Feature "Element".
+  ///
+  /// In de, this message translates to:
+  /// **'Element bearbeiten'**
+  String get ctxEditFeature;
+
+  /// No description provided for @ctxMoveEosHere.
+  ///
+  /// In de, this message translates to:
+  /// **'Ende der Skizze hierher'**
+  String get ctxMoveEosHere;
+
+  /// No description provided for @ctxDeleteLayer.
+  ///
+  /// In de, this message translates to:
+  /// **'Layer löschen'**
+  String get ctxDeleteLayer;
+
+  /// No description provided for @ctxMoveToTop.
+  ///
+  /// In de, this message translates to:
+  /// **'An den Anfang'**
+  String get ctxMoveToTop;
+
+  /// No description provided for @ctxMoveToEnd.
+  ///
+  /// In de, this message translates to:
+  /// **'An das Ende'**
+  String get ctxMoveToEnd;
+
+  /// No description provided for @ctxDeleteAllLayersBelow.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Layer darunter löschen'**
+  String get ctxDeleteAllLayersBelow;
+
+  /// No description provided for @ctxDeleteAllFeaturesBelow.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Elemente darunter löschen'**
+  String get ctxDeleteAllFeaturesBelow;
+
+  /// EOP bleibt als Kuerzel stehen — es steht so schon im englischen UI und der Browser-Knoten daneben schreibt es aus.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Elemente unterhalb EOP löschen'**
+  String get ctxDeleteAllFeaturesBelowEop;
+
+  /// No description provided for @ctxCreateSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze erstellen'**
+  String get ctxCreateSketch;
+
+  /// No description provided for @ctxEditOffset.
+  ///
+  /// In de, this message translates to:
+  /// **'Versatz bearbeiten'**
+  String get ctxEditOffset;
+
+  /// No description provided for @ctxFlipDirection.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung umkehren'**
+  String get ctxFlipDirection;
+
+  /// No description provided for @ctxEditLayer.
+  ///
+  /// In de, this message translates to:
+  /// **'Layer bearbeiten'**
+  String get ctxEditLayer;
+
+  /// No description provided for @ctxMoveSelectionHere.
+  ///
+  /// In de, this message translates to:
+  /// **'Auswahl hierher verschieben'**
+  String get ctxMoveSelectionHere;
+
+  /// DXF bleibt DXF — Dateiformat, kein uebersetzbares Wort.
+  ///
+  /// In de, this message translates to:
+  /// **'DXF exportieren…'**
+  String get ctxExportDxf;
+
+  /// No description provided for @ctxShareDxf.
+  ///
+  /// In de, this message translates to:
+  /// **'DXF teilen…'**
+  String get ctxShareDxf;
+
+  /// No description provided for @dlgRenameBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper umbenennen'**
+  String get dlgRenameBody;
+
+  /// No description provided for @dlgRenameFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'Element umbenennen'**
+  String get dlgRenameFeature;
+
+  /// No description provided for @dlgRenameLayer.
+  ///
+  /// In de, this message translates to:
+  /// **'Layer umbenennen'**
+  String get dlgRenameLayer;
+
+  /// No description provided for @dlgRenameSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze umbenennen'**
+  String get dlgRenameSketch;
+
+  /// Platzhaltertext im Eingabefeld.
+  ///
+  /// In de, this message translates to:
+  /// **'Körpername'**
+  String get phBodyName;
+
+  /// No description provided for @phFeatureName.
+  ///
+  /// In de, this message translates to:
+  /// **'Elementname'**
+  String get phFeatureName;
+
+  /// No description provided for @phLayerName.
+  ///
+  /// In de, this message translates to:
+  /// **'Layername'**
+  String get phLayerName;
+
+  /// Fugen-n: Skizze + Name = Skizzenname.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenname'**
+  String get phSketchName;
+
+  /// No description provided for @phPartName.
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteilname'**
+  String get phPartName;
+
+  /// No description provided for @dlgNewSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue Skizze'**
+  String get dlgNewSketch;
+
+  /// das Bauteil -> neues.
+  ///
+  /// In de, this message translates to:
+  /// **'Neues Bauteil'**
+  String get dlgNewPart;
+
+  /// No description provided for @dlgDeleteAllFeaturesBelowEop.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Elemente unterhalb EOP löschen?'**
+  String get dlgDeleteAllFeaturesBelowEop;
+
+  /// No description provided for @dlgDeleteEverythingBelowEos.
+  ///
+  /// In de, this message translates to:
+  /// **'Alles unterhalb des Skizzenendes löschen?'**
+  String get dlgDeleteEverythingBelowEos;
+
+  /// Deutsche Anfuehrungszeichen: „unten-oben“, nicht die englischen “oben-oben”.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ löschen?'**
+  String dlgDeleteNamed(String name);
+
+  /// Explizite Ein-/Mehrzahl statt zusammengesetzter Fragmente. Im Singular steht "Ein Element", nicht "1 Element".
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Element wird aus dem Bauteil entfernt.} other{{count} Elemente werden aus dem Bauteil entfernt.}}'**
+  String msgFeaturesRemoved(int count);
+
+  /// Bezug ist "der Körper", deshalb "sein/seine".
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Sein einziges Element wird aus dem Bauteil entfernt.} other{Seine {count} Elemente werden aus dem Bauteil entfernt.}}'**
+  String msgBodyFeaturesRemoved(int count);
+
+  /// Zwei Zaehlungen in einem Satz, beide mit eigener Ein-/Mehrzahl. "Layer" ist im Deutschen im Plural formgleich; der Unterschied steckt im Verb (wird/werden), was die plural-Bloecke mit abdecken.
+  ///
+  /// In de, this message translates to:
+  /// **'{layers, plural, =1{Ein Layer wird entfernt} other{{layers} Layer werden entfernt}}, {entities, plural, =0{ohne Objekte darin.} =1{mit einem Objekt darin.} other{mit {entities} Objekten darin.}}'**
+  String msgLayersAndEntitiesRemoved(int layers, int entities);
+
+  /// No description provided for @msgFeatureAndSolidRemoved.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Element und sein Volumenkörper werden aus dem Bauteil entfernt.'**
+  String get msgFeatureAndSolidRemoved;
+
+  /// No description provided for @msgSketchDeleted.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Skizze und alles darin werden von diesem iPad entfernt. Das lässt sich nicht rückgängig machen.'**
+  String get msgSketchDeleted;
+
+  /// No description provided for @galleryNew2dSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue 2D-Skizze'**
+  String get galleryNew2dSketch;
+
+  /// No description provided for @galleryNew3dPart.
+  ///
+  /// In de, this message translates to:
+  /// **'Neues 3D-Bauteil'**
+  String get galleryNew3dPart;
+
+  /// No description provided for @galleryEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf  +  tippen, um eine Skizze oder ein Bauteil anzulegen'**
+  String get galleryEmpty;
+
+  /// No description provided for @errNameTaken.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Skizze oder ein Bauteil mit diesem Namen existiert bereits.'**
+  String get errNameTaken;
+
+  /// No description provided for @qtReportBug.
+  ///
+  /// In de, this message translates to:
+  /// **'Fehler melden'**
+  String get qtReportBug;
+
+  /// Inventor DE: eine Skizze ist "überbestimmt", wenn eine Abhaengigkeit zu viel gesetzt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Überbestimmt'**
+  String get hudOverConstrained;
+
+  /// Referenzmass: wird von der Geometrie getrieben, treibt sie nicht. Inventor DE: "abhängige Bemaßung".
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängig'**
+  String get hudDriven;
+
+  /// No description provided for @msgWouldOverConstrain.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Bemaßung würde die Skizze überbestimmen. Als abhängige Bemaßung einfügen?'**
+  String get msgWouldOverConstrain;
+
+  /// Zurueck in die Ausgangsansicht des 3D-Fensters.
+  ///
+  /// In de, this message translates to:
+  /// **'Startansicht'**
+  String get menuHomeView;
+
+  /// No description provided for @msgCouldNotSave.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ konnte nicht gespeichert werden.'**
+  String msgCouldNotSave(String name);
+
+  /// No description provided for @msgSavedTo.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespeichert in {folder}'**
+  String msgSavedTo(String folder);
+
+  /// No description provided for @msgSavedNamed.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ gespeichert'**
+  String msgSavedNamed(String name);
+
+  /// No description provided for @msgCannotOpenKind.
+  ///
+  /// In de, this message translates to:
+  /// **'Prototype kann diese Art von Datei nicht öffnen.'**
+  String get msgCannotOpenKind;
+
+  /// No description provided for @msgNotAPrototypeDoc.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei ist kein Prototype-Dokument (oder ist beschädigt).'**
+  String get msgNotAPrototypeDoc;
+
+  /// No description provided for @msgCouldNotOpenDoc.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Dokument konnte nicht geöffnet werden.'**
+  String get msgCouldNotOpenDoc;
+
+  /// No description provided for @msgCouldNotOpenFile.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Datei konnte nicht geöffnet werden.'**
+  String get msgCouldNotOpenFile;
+
+  /// No description provided for @msgCouldNotImportFile.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Datei konnte nicht importiert werden.'**
+  String get msgCouldNotImportFile;
+
+  /// No description provided for @msgCouldNotImportImage.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Bild konnte nicht importiert werden.'**
+  String get msgCouldNotImportImage;
+
+  /// No description provided for @msgCouldNotImportDxf.
+  ///
+  /// In de, this message translates to:
+  /// **'Die DXF-Datei konnte nicht importiert werden.'**
+  String get msgCouldNotImportDxf;
+
+  /// No description provided for @msgCouldNotReadDxf.
+  ///
+  /// In de, this message translates to:
+  /// **'Die DXF-Datei konnte nicht gelesen werden.'**
+  String get msgCouldNotReadDxf;
+
+  /// No description provided for @msgDxfNoSupportedEntities.
+  ///
+  /// In de, this message translates to:
+  /// **'Die DXF-Datei enthält keine unterstützten Objekte.'**
+  String get msgDxfNoSupportedEntities;
+
+  /// der Layer -> "ihn".
+  ///
+  /// In de, this message translates to:
+  /// **'„{layer}“ liegt unter dem Skizzenende — die Marke nach unten ziehen, um ihn zurückzuholen.'**
+  String msgLayerBelowEos(String layer);
+
+  /// No description provided for @msgLayerLockedEdit.
+  ///
+  /// In de, this message translates to:
+  /// **'„{layer}“ ist gesperrt — zum Bearbeiten entsperren.'**
+  String msgLayerLockedEdit(String layer);
+
+  /// No description provided for @msgLayerLocked.
+  ///
+  /// In de, this message translates to:
+  /// **'„{layer}“ ist gesperrt.'**
+  String msgLayerLocked(String layer);
+
+  /// No description provided for @msgTargetBelowEos.
+  ///
+  /// In de, this message translates to:
+  /// **'„{layer}“ liegt unter dem Skizzenende.'**
+  String msgTargetBelowEos(String layer);
+
+  /// No description provided for @msgDefaultLayerNoRename.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Standardlayer „0“ kann nicht umbenannt werden.'**
+  String get msgDefaultLayerNoRename;
+
+  /// No description provided for @msgZeroReserved.
+  ///
+  /// In de, this message translates to:
+  /// **'„0“ ist für den Standardlayer reserviert.'**
+  String get msgZeroReserved;
+
+  /// No description provided for @msgLayerExists.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Layer namens „{name}“ existiert bereits.'**
+  String msgLayerExists(String name);
+
+  /// No description provided for @msgDefaultLayerNoDelete.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Standardlayer „0“ kann nicht gelöscht werden.'**
+  String get msgDefaultLayerNoDelete;
+
+  /// No description provided for @msgEnterLayerToEdit.
+  ///
+  /// In de, this message translates to:
+  /// **'Layer betreten: im Modellbrowser doppelt antippen.'**
+  String get msgEnterLayerToEdit;
+
+  /// No description provided for @msgEnterLayerToSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Layer betreten, um zu zeichnen: im Modellbrowser doppelt antippen.'**
+  String get msgEnterLayerToSketch;
+
+  /// No description provided for @msgSelectThenDelete.
+  ///
+  /// In de, this message translates to:
+  /// **'Erst Geometrie wählen, dann löschen.'**
+  String get msgSelectThenDelete;
+
+  /// No description provided for @msgSelectThenMoveToLayer.
+  ///
+  /// In de, this message translates to:
+  /// **'Erst Geometrie wählen, dann auf einen Layer verschieben.'**
+  String get msgSelectThenMoveToLayer;
+
+  /// No description provided for @msgSelectThenToggle.
+  ///
+  /// In de, this message translates to:
+  /// **'Erst Geometrie wählen, dann {what} umschalten.'**
+  String msgSelectThenToggle(String what);
+
+  /// No description provided for @msgNothingBelowEos.
+  ///
+  /// In de, this message translates to:
+  /// **'Unter dem Skizzenende liegt nichts.'**
+  String get msgNothingBelowEos;
+
+  /// No description provided for @msgNothingBelowEop.
+  ///
+  /// In de, this message translates to:
+  /// **'Unter dem Bauteilende liegt nichts.'**
+  String get msgNothingBelowEop;
+
+  /// STEP bleibt STEP: Dateiformat.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein 3D-Kern verbunden — der STEP-Export braucht den Gerätebuild.'**
+  String get msgNoKernelStep;
+
+  /// No description provided for @msgNothingToExportYet.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch nichts zu exportieren — zuerst ein Profil extrudieren.'**
+  String get msgNothingToExportYet;
+
+  /// {error} kommt aus dem Kernel und bleibt in dessen Sprache — er wird nicht uebersetzt.
+  ///
+  /// In de, this message translates to:
+  /// **'STEP-Export fehlgeschlagen: {error}'**
+  String msgStepExportFailed(String error);
+
+  /// No description provided for @msgStepExportEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Der STEP-Export hat eine leere Datei erzeugt.'**
+  String get msgStepExportEmpty;
+
+  /// No description provided for @msgExportedWithout.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ohne {names} exportiert — es ließ sich nicht bauen.} other{Ohne {names} exportiert — sie ließen sich nicht bauen.}}'**
+  String msgExportedWithout(int count, String names);
+
+  /// No description provided for @msgNothingToExportEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Nichts zu exportieren — „{name}“ ist leer.'**
+  String msgNothingToExportEmpty(String name);
+
+  /// No description provided for @msgDxfExportFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'DXF-Export fehlgeschlagen.'**
+  String get msgDxfExportFailed;
+
+  /// No description provided for @msgOpenPartForStep.
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst ein Bauteil öffnen — STEP-Importe kommen als Volumenkörper an.'**
+  String get msgOpenPartForStep;
+
+  /// No description provided for @msgNoSolidsInStep.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Volumenkörper in dieser STEP-Datei ({error}).'**
+  String msgNoSolidsInStep(String error);
+
+  /// "Körper" ist im Plural formgleich; der Unterschied steckt im Zahlwort, deshalb trotzdem zwei Formen.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Körper importiert.} other{{count} Körper importiert.}}'**
+  String msgImportedBodies(int count);
+
+  /// No description provided for @msgImportedEntities.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Objekt importiert.} other{{count} Objekte importiert.}}'**
+  String msgImportedEntities(int count);
+
+  /// No description provided for @msgNothingToUndo.
+  ///
+  /// In de, this message translates to:
+  /// **'Nichts rückgängig zu machen.'**
+  String get msgNothingToUndo;
+
+  /// No description provided for @msgNothingToRedo.
+  ///
+  /// In de, this message translates to:
+  /// **'Nichts zu wiederholen.'**
+  String get msgNothingToRedo;
+
+  /// No description provided for @msgSelectPlaneForSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene wählen, auf der die Skizze entstehen soll.'**
+  String get msgSelectPlaneForSketch;
+
+  /// No description provided for @msgUsedByFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'{name} wird von einem Element verwendet — dieses zuerst löschen.'**
+  String msgUsedByFeature(String name);
+
+  /// No description provided for @msgSelectPlaneToOffsetFrom.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder Fläche wählen, von der aus versetzt wird.'**
+  String get msgSelectPlaneToOffsetFrom;
+
+  /// No description provided for @msgSelectFirstParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Erste von zwei parallelen Ebenen oder Flächen wählen.'**
+  String get msgSelectFirstParallel;
+
+  /// No description provided for @msgSelectSecondParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite parallele Ebene oder Fläche wählen.'**
+  String get msgSelectSecondParallel;
+
+  /// No description provided for @msgNotParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese beiden sind nicht parallel — eine parallele Ebene oder Fläche wählen.'**
+  String get msgNotParallel;
+
+  /// No description provided for @msgPlaneHasNoOffset.
+  ///
+  /// In de, this message translates to:
+  /// **'{name}: Diese Ebene hat keinen Versatz zum Ziehen.'**
+  String msgPlaneHasNoOffset(String name);
+
+  /// No description provided for @msgDragAwayToSetOffset.
+  ///
+  /// In de, this message translates to:
+  /// **'Von der Ebene wegziehen, um den Versatz zu setzen.'**
+  String get msgDragAwayToSetOffset;
+
+  /// Nur ein Doppelpunkt-Muster. {definition} ist der GESPEICHERTE Definitionssatz eines Arbeitselements ("Through X Axis and Y Axis") und bleibt englisch — er steht so in der .ptp-Datei und darf nicht uebersetzt werden, sonst aendert sich das Dateiformat. Siehe S12-i18n.md.
+  ///
+  /// In de, this message translates to:
+  /// **'{name}: {definition}'**
+  String msgNameColonDef(String name, String definition);
+
+  /// No description provided for @msgFaceEditNeedsBody.
+  ///
+  /// In de, this message translates to:
+  /// **'{command} braucht zuerst einen Volumenkörper.'**
+  String msgFaceEditNeedsBody(String command);
+
+  /// No description provided for @msgSetScaleThenApply.
+  ///
+  /// In de, this message translates to:
+  /// **'Skalierungsfaktor setzen, dann übernehmen.'**
+  String get msgSetScaleThenApply;
+
+  /// {verb} steht hier als substantiviertes Verb ("zum Verschieben"), deshalb gross und mit "zum".
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen zum {verb} wählen.'**
+  String msgSelectFacesTo(String verb);
+
+  /// No description provided for @msgSelectAtLeastOneFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens eine Fläche wählen.'**
+  String get msgSelectAtLeastOneFace;
+
+  /// No description provided for @msgNothingToEditBuildBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Nichts zu bearbeiten — zuerst einen Körper bauen.'**
+  String get msgNothingToEditBuildBody;
+
+  /// {error} ist die Kernel-Meldung und bleibt in deren Sprache.
+  ///
+  /// In de, this message translates to:
+  /// **'{name}: {error}'**
+  String msgFeatureError(String name, String error);
+
+  /// Ersetzt das englische "face(s)" mit Klammer-s, das im Deutschen gar nicht erst funktioniert.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{{name}: Eine gewählte Fläche existiert nicht mehr.} other{{name}: {count} gewählte Flächen existieren nicht mehr.}}'**
+  String msgLostFaces(String name, int count);
+
+  /// No description provided for @msgCannotCreateFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Element lässt sich nicht erstellen.'**
+  String get msgCannotCreateFeature;
+
+  /// No description provided for @msgNoKernelFeatureStored.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein 3D-Kern verbunden — Element gespeichert, Volumenkörper steht aus.'**
+  String get msgNoKernelFeatureStored;
+
+  /// No description provided for @msgHoleNeedsSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Bohrung sitzt auf Skizzenpunkten — zuerst eine Skizze anlegen.'**
+  String get msgHoleNeedsSketch;
+
+  /// No description provided for @msgHoleNeedsBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Bohrung braucht einen Körper zum Bohren.'**
+  String get msgHoleNeedsBody;
+
+  /// No description provided for @msgTapSketchPointsForHoles.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Skizzenpunkte antippen, auf die die Bohrungen kommen.'**
+  String get msgTapSketchPointsForHoles;
+
+  /// No description provided for @msgHoleCount.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine Bohrung — Punkt antippen, um eine hinzuzufügen oder zu entfernen.} other{{count} Bohrungen — Punkt antippen, um eine hinzuzufügen oder zu entfernen.}}'**
+  String msgHoleCount(int count);
+
+  /// No description provided for @msgHolesSameSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Bohrungen eines Elements stammen aus derselben Skizze.'**
+  String get msgHolesSameSketch;
+
+  /// No description provided for @msgDiameterPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Durchmesser muss eine Zahl größer als 0 sein.'**
+  String get msgDiameterPositive;
+
+  /// No description provided for @msgDepthPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Tiefe muss eine Zahl größer als 0 sein.'**
+  String get msgDepthPositive;
+
+  /// {kind} ist "Senkung"/"Plansenkung" — weiblich, deshalb "die … muss".
+  ///
+  /// In de, this message translates to:
+  /// **'Die {kind} muss weiter als die Bohrung und tiefer als 0 sein.'**
+  String msgCboreWiderThanHole(String kind);
+
+  /// No description provided for @msgCsinkAngle.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Senkung muss weiter als die Bohrung sein, mit einem Winkel zwischen 0 und 180 Grad.'**
+  String get msgCsinkAngle;
+
+  /// No description provided for @msgSplitNeedsBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Trennen schneidet einen Körper — es gibt noch keinen.'**
+  String get msgSplitNeedsBody;
+
+  /// No description provided for @msgSelectTrimPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene wählen, mit der geschnitten wird.'**
+  String get msgSelectTrimPlane;
+
+  /// No description provided for @msgTrimmingWith.
+  ///
+  /// In de, this message translates to:
+  /// **'Schnitt mit {label}. OK behält die Seite, die stehen bleibt.'**
+  String msgTrimmingWith(String label);
+
+  /// Vereinigen / Differenz / Schnittmenge sind Inventors drei Kombinationsarten.
+  ///
+  /// In de, this message translates to:
+  /// **'Kombinieren braucht zwei Körper — es vereinigt, schneidet oder verschneidet einen mit einem anderen.'**
+  String get msgCombineNeedsTwoBodies;
+
+  /// No description provided for @msgTapBodyToKeep.
+  ///
+  /// In de, this message translates to:
+  /// **'Den Körper antippen, der BLEIBEN soll.'**
+  String get msgTapBodyToKeep;
+
+  /// No description provided for @msgTapBodiesToCombine.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Körper antippen, die in {name} eingerechnet werden.'**
+  String msgTapBodiesToCombine(String name);
+
+  /// No description provided for @msgThatIsBaseBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Das ist der Basiskörper — einen anderen zum Kombinieren wählen.'**
+  String get msgThatIsBaseBody;
+
+  /// No description provided for @msgPickKeepThenCombine.
+  ///
+  /// In de, this message translates to:
+  /// **'Erst den Körper wählen, der bleibt, dann die Körper, die hineingerechnet werden.'**
+  String get msgPickKeepThenCombine;
+
+  /// No description provided for @msgSelectTargetBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielkörper wählen — in 3D oder im Browser antippen.'**
+  String get msgSelectTargetBody;
+
+  /// No description provided for @msgPatternNeedsFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'{kind} braucht ein Element zum Kopieren — zuerst eines bauen.'**
+  String msgPatternNeedsFeature(String kind);
+
+  /// No description provided for @msgSelectFeatures.
+  ///
+  /// In de, this message translates to:
+  /// **'Elemente wählen — eine Fläche in 3D oder eine Zeile im Browser antippen.'**
+  String get msgSelectFeatures;
+
+  /// No description provided for @msgTapStraightOrCircularEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerade Kante, Rundkante oder Ursprungsachse antippen.'**
+  String get msgTapStraightOrCircularEdge;
+
+  /// No description provided for @msgTapCircularOrStraightEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Rundkante, gerade Kante oder Ursprungsachse antippen.'**
+  String get msgTapCircularOrStraightEdge;
+
+  /// No description provided for @msgTapPlanarFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Planare Fläche, Arbeitsebene oder Ursprungsebene antippen.'**
+  String get msgTapPlanarFace;
+
+  /// No description provided for @msgTapSketchForOccurrences.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Skizze antippen, deren Punkte die Exemplare setzen.'**
+  String get msgTapSketchForOccurrences;
+
+  /// No description provided for @msgTapSketchPointOfOriginal.
+  ///
+  /// In de, this message translates to:
+  /// **'Den Skizzenpunkt antippen, auf dem das Original sitzt.'**
+  String get msgTapSketchPointOfOriginal;
+
+  /// No description provided for @msgTapCurveStart.
+  ///
+  /// In de, this message translates to:
+  /// **'Den Punkt auf der Kurve antippen, an dem die Anordnung beginnt.'**
+  String get msgTapCurveStart;
+
+  /// No description provided for @msgTapFaceToFollow.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Fläche antippen, der die Exemplare folgen sollen.'**
+  String get msgTapFaceToFollow;
+
+  /// No description provided for @msgTapSolidBodyToPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Den Volumenkörper antippen, der angeordnet wird.'**
+  String get msgTapSolidBodyToPattern;
+
+  /// No description provided for @msgPickSolidBodyToPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Den Volumenkörper wählen, der angeordnet wird.'**
+  String get msgPickSolidBodyToPattern;
+
+  /// No description provided for @msgBuiltAfterPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ entsteht nach dieser Anordnung, deshalb kann sie es nicht kopieren.'**
+  String msgBuiltAfterPattern(String name);
+
+  /// No description provided for @msgEdgeNoDirection.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Kante gibt keine Richtung vor.'**
+  String get msgEdgeNoDirection;
+
+  /// No description provided for @msgPickCurveFirst.
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst die Kurve für diese Richtung wählen.'**
+  String get msgPickCurveFirst;
+
+  /// No description provided for @msgCurveGone.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Kurve ist nicht mehr vorhanden.'**
+  String get msgCurveGone;
+
+  /// No description provided for @msgSketchHasNoPoints.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ enthält keine Skizzenpunkte — eine skizzengesteuerte Anordnung setzt je Punkt ein Exemplar.'**
+  String msgSketchHasNoPoints(String name);
+
+  /// No description provided for @msgBasePointMustBeOf.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Basispunkt muss ein Punkt von „{name}“ sein.'**
+  String msgBasePointMustBeOf(String name);
+
+  /// No description provided for @msgCannotCreatePattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anordnung lässt sich nicht erstellen.'**
+  String get msgCannotCreatePattern;
+
+  /// No description provided for @msgPatternedByBroken.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{„{name}“ wurde von {names} angeordnet — diese Anordnung ist jetzt defekt. Rückgängig stellt sie wieder her.} other{„{name}“ wurde von {names} angeordnet — diese Anordnungen sind jetzt defekt. Rückgängig stellt sie wieder her.}}'**
+  String msgPatternedByBroken(String name, String names, int count);
+
+  /// No description provided for @msgTapCurveToSweep.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Kurve antippen, entlang der gezogen wird.'**
+  String get msgTapCurveToSweep;
+
+  /// No description provided for @msgCurveNoLength.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Kurve hat keine Länge.'**
+  String get msgCurveNoLength;
+
+  /// No description provided for @msgTapSectionsInOrder.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Querschnitte der Reihe nach antippen.'**
+  String get msgTapSectionsInOrder;
+
+  /// No description provided for @msgTapAxisLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenlinie oder Ursprungsachse antippen, die als Achse dient.'**
+  String get msgTapAxisLine;
+
+  /// No description provided for @msgPickAxisLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenlinie oder Ursprungsachse wählen.'**
+  String get msgPickAxisLine;
+
+  /// No description provided for @msgAxisNotInSketchPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Achse liegt nicht in der Skizzenebene.'**
+  String get msgAxisNotInSketchPlane;
+
+  /// No description provided for @msgLineGone.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Linie ist nicht mehr vorhanden.'**
+  String get msgLineGone;
+
+  /// No description provided for @msgAxisMustBeStraight.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Achse muss eine gerade Linie sein.'**
+  String get msgAxisMustBeStraight;
+
+  /// No description provided for @msgLineNoLength.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Linie hat keine Länge.'**
+  String get msgLineNoLength;
+
+  /// No description provided for @msgCreateSketchFirstExtrude.
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst eine 2D-Skizze anlegen — die Extrusion braucht ein geschlossenes Profil.'**
+  String get msgCreateSketchFirstExtrude;
+
+  /// No description provided for @msgProfilesSameSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Profile einer Extrusion stammen aus derselben Skizze.'**
+  String get msgProfilesSameSketch;
+
+  /// No description provided for @msgPickProfile.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens ein Profil zum Extrudieren wählen.'**
+  String get msgPickProfile;
+
+  /// No description provided for @msgSelectTerminateFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Fläche wählen, auf der es enden soll.'**
+  String get msgSelectTerminateFace;
+
+  /// No description provided for @msgPickOneEdgeFirst.
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst eine Kante wählen, damit der Körper feststeht.'**
+  String get msgPickOneEdgeFirst;
+
+  /// No description provided for @msgBodyHasNoEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Körper hat keine wählbaren Kanten.'**
+  String get msgBodyHasNoEdges;
+
+  /// No description provided for @msgSelectEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'Kanten wählen — antippen fügt hinzu, nochmals antippen entfernt.'**
+  String get msgSelectEdges;
+
+  /// No description provided for @msgNoConcaveEdgesLeft.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine konkaven Kanten mehr zum Hinzufügen.'**
+  String get msgNoConcaveEdgesLeft;
+
+  /// No description provided for @msgNoConvexEdgesLeft.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine konvexen Kanten mehr zum Hinzufügen.'**
+  String get msgNoConvexEdgesLeft;
+
+  /// No description provided for @msgAddedConcaveEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine konkave Kante hinzugefügt.} other{{count} konkave Kanten hinzugefügt.}}'**
+  String msgAddedConcaveEdges(int count);
+
+  /// No description provided for @msgAddedConvexEdges.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine konvexe Kante hinzugefügt.} other{{count} konvexe Kanten hinzugefügt.}}'**
+  String msgAddedConvexEdges(int count);
+
+  /// No description provided for @msgTapToPlaceGear.
+  ///
+  /// In de, this message translates to:
+  /// **'In die Skizze tippen, um das Zahnrad zu setzen.'**
+  String get msgTapToPlaceGear;
+
+  /// No description provided for @msgCouldNotPlaceGear.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Zahnrad lässt sich hier nicht setzen.'**
+  String get msgCouldNotPlaceGear;
+
+  /// Innenverzahntes Rad = Hohlrad. "der Modul" (Verzahnungsgroesse), nicht "das Modul" (Baugruppe).
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Hohlrad braucht mindestens 3 Zähne und einen gültigen Modul.'**
+  String get msgInternalGearTeeth;
+
+  /// No description provided for @msgGearTeeth.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Zahnrad braucht mindestens 4 Zähne und einen gültigen Modul.'**
+  String get msgGearTeeth;
+
+  /// No description provided for @msgInternalGearPlaced.
+  ///
+  /// In de, this message translates to:
+  /// **'Hohlrad gesetzt — Mittelpunkt und einen Winkel bemaßen, um es vollständig zu bestimmen.'**
+  String get msgInternalGearPlaced;
+
+  /// Aussenverzahntes Stirnrad. "Extern" waere die Uebersetzung, "Stirnrad" ist das Bauteil.
+  ///
+  /// In de, this message translates to:
+  /// **'Stirnrad gesetzt — Mittelpunkt und einen Winkel bemaßen, um es vollständig zu bestimmen.'**
+  String get msgExternalGearPlaced;
+
+  /// No description provided for @msgPlanetaryNeeds.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Planetensatz braucht Sonnen- und Planetenzähne ≥ 4 und ≥ 2 Planeten.'**
+  String get msgPlanetaryNeeds;
+
+  /// No description provided for @msgPlanetaryUndrawable.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Planetenparameter lassen sich nicht zeichnen.'**
+  String get msgPlanetaryUndrawable;
+
+  /// No description provided for @msgPlanetaryPlacedFree.
+  ///
+  /// In de, this message translates to:
+  /// **'Planetensatz gesetzt (als freie Geometrie).'**
+  String get msgPlanetaryPlacedFree;
+
+  /// No description provided for @msgPlanetaryPlacedDimension.
+  ///
+  /// In de, this message translates to:
+  /// **'Planetensatz gesetzt — Mittelpunkt und einen Winkel bemaßen.'**
+  String get msgPlanetaryPlacedDimension;
+
+  /// No description provided for @msgPlanetaryUneven.
+  ///
+  /// In de, this message translates to:
+  /// **'Planetensatz gesetzt. Hinweis: {count} Planeten teilen sich nicht gleichmäßig für exakten Eingriff.'**
+  String msgPlanetaryUneven(int count);
+
+  /// No description provided for @msgPlanetaryUnevenSpacing.
+  ///
+  /// In de, this message translates to:
+  /// **'Planetensatz gesetzt ({count} Planeten stehen für exakten Eingriff nicht gleichmäßig verteilt).'**
+  String msgPlanetaryUnevenSpacing(int count);
+
+  /// No description provided for @msgAlreadyProjected.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf diesen Layer bereits projiziert.'**
+  String get msgAlreadyProjected;
+
+  /// No description provided for @msgProjectPicksOtherLayers.
+  ///
+  /// In de, this message translates to:
+  /// **'Projizieren holt Geometrie von ANDEREN Layern.'**
+  String get msgProjectPicksOtherLayers;
+
+  /// No description provided for @msgTapPolygonEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Kante des Polygons antippen, um es zu projizieren.'**
+  String get msgTapPolygonEdge;
+
+  /// No description provided for @msgTapGeometryOtherLayer.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie auf einem anderen Layer oder die X-/Y-Achse antippen.'**
+  String get msgTapGeometryOtherLayer;
+
+  /// No description provided for @msgProjectedNoPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Projizierte Geometrie lässt sich nicht anordnen.'**
+  String get msgProjectedNoPattern;
+
+  /// No description provided for @msgProjectedNoModify.
+  ///
+  /// In de, this message translates to:
+  /// **'Projizierte Geometrie lässt sich hier nicht ändern.'**
+  String get msgProjectedNoModify;
+
+  /// No description provided for @msgPickDirectionLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Linie wählen, die die Richtung vorgibt.'**
+  String get msgPickDirectionLine;
+
+  /// No description provided for @msgPickAxisPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt oder Mittelpunkt wählen, der die Achse vorgibt.'**
+  String get msgPickAxisPoint;
+
+  /// No description provided for @msgPickMirrorLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Linie wählen, an der gespiegelt wird.'**
+  String get msgPickMirrorLine;
+
+  /// No description provided for @msgMirrorLineInSelection.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Spiegelachse darf nicht Teil der Auswahl sein.'**
+  String get msgMirrorLineInSelection;
+
+  /// No description provided for @msgSelectGeometryToPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie zum Anordnen wählen.'**
+  String get msgSelectGeometryToPattern;
+
+  /// No description provided for @msgPickLineDirection1.
+  ///
+  /// In de, this message translates to:
+  /// **'Unter Richtung 1 eine Linie wählen.'**
+  String get msgPickLineDirection1;
+
+  /// No description provided for @msgPickPatternAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anordnungsachse wählen.'**
+  String get msgPickPatternAxis;
+
+  /// No description provided for @msgPickTheMirrorLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Spiegelachse wählen.'**
+  String get msgPickTheMirrorLine;
+
+  /// No description provided for @msgPatternNothingToCreate.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anordnung hat nichts zu erzeugen.'**
+  String get msgPatternNothingToCreate;
+
+  /// No description provided for @msgPatternUnsatisfiable.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Anordnung lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.'**
+  String get msgPatternUnsatisfiable;
+
+  /// No description provided for @msgPatternCreated.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Anordnung erstellt (ein neues Objekt).} other{Anordnung erstellt ({count} neue Objekte).}}'**
+  String msgPatternCreated(int count);
+
+  /// No description provided for @msgSelfSymNeedsOneSpline.
+  ///
+  /// In de, this message translates to:
+  /// **'Selbstsymmetrisch braucht genau einen Spline.'**
+  String get msgSelfSymNeedsOneSpline;
+
+  /// No description provided for @msgSelfSymNeedsOpenSpline.
+  ///
+  /// In de, this message translates to:
+  /// **'Selbstsymmetrisch braucht einen offenen Spline.'**
+  String get msgSelfSymNeedsOpenSpline;
+
+  /// No description provided for @msgSelfSymEndOnMirror.
+  ///
+  /// In de, this message translates to:
+  /// **'Für Selbstsymmetrisch muss der Spline auf der Spiegelachse enden.'**
+  String get msgSelfSymEndOnMirror;
+
+  /// No description provided for @msgSelfSymUnsatisfiable.
+  ///
+  /// In de, this message translates to:
+  /// **'Selbstsymmetrisch lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.'**
+  String get msgSelfSymUnsatisfiable;
+
+  /// No description provided for @msgSelfSymDone.
+  ///
+  /// In de, this message translates to:
+  /// **'Spline selbstsymmetrisch gemacht.'**
+  String get msgSelfSymDone;
+
+  /// No description provided for @msgTrimBreaksConstraints.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Stutzen würde die Abhängigkeiten der Skizze zerstören.'**
+  String get msgTrimBreaksConstraints;
+
+  /// No description provided for @msgSplitBreaksConstraints.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Teilen würde die Abhängigkeiten der Skizze zerstören.'**
+  String get msgSplitBreaksConstraints;
+
+  /// No description provided for @msgNothingToOffset.
+  ///
+  /// In de, this message translates to:
+  /// **'Hier gibt es nichts zu versetzen.'**
+  String get msgNothingToOffset;
+
+  /// Die Radien kommen bereits formatiert an — im Deutschen mit Dezimalkomma, siehe Fmt.num.
+  ///
+  /// In de, this message translates to:
+  /// **'R{radius} läuft über das Ende dieser Kante hinaus. Diese Ecke nimmt höchstens R{most}.'**
+  String msgRadiusPastEdge(String radius, String most);
+
+  /// No description provided for @msgPickTwoThatMeet.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Linien, Bögen oder Kreise wählen, die sich treffen können.'**
+  String get msgPickTwoThatMeet;
+
+  /// No description provided for @msgPickTwoNonParallel.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei nicht parallele Linien wählen.'**
+  String get msgPickTwoNonParallel;
+
+  /// No description provided for @msgFilletBreaksSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Verrundung würde die Skizze zerstören — eine gültige Ecke oder einen kleineren Radius wählen.'**
+  String get msgFilletBreaksSketch;
+
+  /// No description provided for @msgChamferBreaksSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Fase würde die Skizze zerstören — eine gültige Ecke oder kleinere Abstände wählen.'**
+  String get msgChamferBreaksSketch;
+
+  /// No description provided for @msgShapeHasNoSize.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Form hat keine Größe — noch einmal zeichnen.'**
+  String get msgShapeHasNoSize;
+
+  /// No description provided for @msgAlreadyLocked.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Geometrie ist bereits fixiert.'**
+  String get msgAlreadyLocked;
+
+  /// No description provided for @msgWouldOverConstrainC.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Abhängigkeit würde die Skizze überbestimmen.'**
+  String get msgWouldOverConstrainC;
+
+  /// No description provided for @msgConstraintUnsatisfiable.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Abhängigkeit lässt sich mit der vorhandenen Geometrie nicht erfüllen.'**
+  String get msgConstraintUnsatisfiable;
+
+  /// No description provided for @msgTangentNeedsCurve.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential braucht mindestens ein gekrümmtes Objekt.'**
+  String get msgTangentNeedsCurve;
+
+  /// No description provided for @msgTangentClosedSpline.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential an einen GESCHLOSSENEN Spline wird nicht unterstützt.'**
+  String get msgTangentClosedSpline;
+
+  /// G2 = kruemmungsstetig. Inventor DE: "Stetig (G2)".
+  ///
+  /// In de, this message translates to:
+  /// **'Stetig (G2) braucht zwei gekrümmte Objekte.'**
+  String get msgSmoothNeedsTwoCurves;
+
+  /// No description provided for @msgValueUnsatisfiable.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.'**
+  String get msgValueUnsatisfiable;
+
+  /// No description provided for @msgValueUnsatisfiableShort.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.'**
+  String get msgValueUnsatisfiableShort;
+
+  /// No description provided for @msgDrivenDimension.
+  ///
+  /// In de, this message translates to:
+  /// **'Das ist eine abhängige Bemaßung (Referenzmaß) — sie lässt sich nicht bearbeiten.'**
+  String get msgDrivenDimension;
+
+  /// No description provided for @msgInvalidParamName.
+  ///
+  /// In de, this message translates to:
+  /// **'Ungültiger Parametername.'**
+  String get msgInvalidParamName;
+
+  /// No description provided for @msgInvalidOrDuplicateParamName.
+  ///
+  /// In de, this message translates to:
+  /// **'Ungültiger oder bereits vergebener Parametername.'**
+  String get msgInvalidOrDuplicateParamName;
+
+  /// No description provided for @msgParamNameInUse.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Parametername „{name}“ ist bereits vergeben.'**
+  String msgParamNameInUse(String name);
+
+  /// No description provided for @msgUnknownParam.
+  ///
+  /// In de, this message translates to:
+  /// **'Unbekannter Parameter „{name}“.'**
+  String msgUnknownParam(String name);
+
+  /// No description provided for @msgCircularRefDimension.
+  ///
+  /// In de, this message translates to:
+  /// **'Zirkelbezug: „{name}“ hängt von dieser Bemaßung ab.'**
+  String msgCircularRefDimension(String name);
+
+  /// No description provided for @msgCircularRefParam.
+  ///
+  /// In de, this message translates to:
+  /// **'Zirkelbezug: „{name}“ hängt von diesem Parameter ab.'**
+  String msgCircularRefParam(String name);
+
+  /// No description provided for @msgInvalidExpression.
+  ///
+  /// In de, this message translates to:
+  /// **'Ungültiger Ausdruck.'**
+  String get msgInvalidExpression;
+
+  /// No description provided for @msgParamUsedBy.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ wird von „{user}“ verwendet — zuerst den Bezug entfernen.'**
+  String msgParamUsedBy(String name, String user);
+
+  /// No description provided for @msgEdgeIsSpline.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Kante ist ein Spline — sie gibt keine eindeutige Richtung vor.'**
+  String get msgEdgeIsSpline;
+
+  /// No description provided for @msgRotationAxisStraight.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Drehachse muss eine gerade Linie oder eine Achse sein.'**
+  String get msgRotationAxisStraight;
+
+  /// No description provided for @msgPickEdgeOrCurve.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerade Kante, Rundkante, Skizzenkurve oder Ursprungsachse wählen.'**
+  String get msgPickEdgeOrCurve;
+
+  /// No description provided for @msgTapOnTheCurve.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf die Kurve tippen.'**
+  String get msgTapOnTheCurve;
+
+  /// No description provided for @msgPickPlanarFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Planare Fläche, Arbeitsebene oder Ursprungsebene wählen.'**
+  String get msgPickPlanarFace;
+
+  /// No description provided for @msgPickSketchPointOccurrences.
+  ///
+  /// In de, this message translates to:
+  /// **'Einen Skizzen-PUNKT wählen — die Exemplare entstehen dort, wo die Punkte sind.'**
+  String get msgPickSketchPointOccurrences;
+
+  /// No description provided for @msgTapFaceOfFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Fläche des anzuordnenden Elements antippen oder es im Browser wählen.'**
+  String get msgTapFaceOfFeature;
+
+  /// No description provided for @msgFaceNoSingleFeature.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Fläche lässt sich nicht auf ein einzelnes Element zurückführen — das Element im Browser wählen.'**
+  String get msgFaceNoSingleFeature;
+
+  /// No description provided for @msgAddedNamed.
+  ///
+  /// In de, this message translates to:
+  /// **'{name} hinzugefügt.'**
+  String msgAddedNamed(String name);
+
+  /// No description provided for @msgRemovedNamed.
+  ///
+  /// In de, this message translates to:
+  /// **'{name} entfernt.'**
+  String msgRemovedNamed(String name);
+
+  /// No description provided for @msgTapSolidBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Einen Volumenkörper antippen.'**
+  String get msgTapSolidBody;
+
+  /// No description provided for @msgTapSketchPointForHole.
+  ///
+  /// In de, this message translates to:
+  /// **'Einen Skizzen-PUNKT antippen — dorthin kommt die Bohrung.'**
+  String get msgTapSketchPointForHole;
+
+  /// No description provided for @msgNotBuiltYet.
+  ///
+  /// In de, this message translates to:
+  /// **'{command}: noch nicht gebaut — Versatz von Ebene oder Mittelebene verwenden.'**
+  String msgNotBuiltYet(String command);
+
+  /// No description provided for @dlgEquationCurve.
+  ///
+  /// In de, this message translates to:
+  /// **'Gleichungskurve'**
+  String get dlgEquationCurve;
+
+  /// Die Funktionsnamen sind Bezeichner des Ausdrucks-Parsers und bleiben englisch — sie werden so EINGEGEBEN.
+  ///
+  /// In de, this message translates to:
+  /// **'y = f(x)   (sin, cos, sqrt, ^, pi, …)'**
+  String get lblEquationHint;
+
+  /// No description provided for @lblXMin.
+  ///
+  /// In de, this message translates to:
+  /// **'x min'**
+  String get lblXMin;
+
+  /// No description provided for @lblXMax.
+  ///
+  /// In de, this message translates to:
+  /// **'x max'**
+  String get lblXMax;
+
+  /// Kopfzeile aller Element-Dialoge. Inventor DE: "Eigenschaften".
+  ///
+  /// In de, this message translates to:
+  /// **'Eigenschaften'**
+  String get dlgProperties;
+
+  /// No description provided for @dlgParameters.
+  ///
+  /// In de, this message translates to:
+  /// **'Parameter'**
+  String get dlgParameters;
+
+  /// No description provided for @dlgGear.
+  ///
+  /// In de, this message translates to:
+  /// **'Zahnrad'**
+  String get dlgGear;
+
+  /// No description provided for @dlgText.
+  ///
+  /// In de, this message translates to:
+  /// **'Text'**
+  String get dlgText;
+
+  /// No description provided for @dlgFreehandSpline.
+  ///
+  /// In de, this message translates to:
+  /// **'Freihand-Spline'**
+  String get dlgFreehandSpline;
+
+  /// No description provided for @dlgPolygon.
+  ///
+  /// In de, this message translates to:
+  /// **'Polygon'**
+  String get dlgPolygon;
+
+  /// No description provided for @lblDirectionN.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung {n}'**
+  String lblDirectionN(String n);
+
+  /// No description provided for @lblAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse'**
+  String get lblAxis;
+
+  /// No description provided for @lblMirrorLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegelachse'**
+  String get lblMirrorLine;
+
+  /// No description provided for @lblGeometry.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie'**
+  String get lblGeometry;
+
+  /// Inventor DE: "Ausdehnung" — wie weit die Anordnung reicht.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausdehnung'**
+  String get lblExtents;
+
+  /// No description provided for @lblBoundary.
+  ///
+  /// In de, this message translates to:
+  /// **'Begrenzung'**
+  String get lblBoundary;
+
+  /// No description provided for @lblIncludeGeometry.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie einschließen'**
+  String get lblIncludeGeometry;
+
+  /// Inventor DE: ein Element "unterdrücken" heisst, es aus der Berechnung nehmen.
+  ///
+  /// In de, this message translates to:
+  /// **'Unterdrücken'**
+  String get lblSuppress;
+
+  /// No description provided for @tipCancel.
+  ///
+  /// In de, this message translates to:
+  /// **'Abbrechen'**
+  String get tipCancel;
+
+  /// No description provided for @tipSelectDirectionLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtungslinie wählen'**
+  String get tipSelectDirectionLine;
+
+  /// No description provided for @tipFlipDirection.
+  ///
+  /// In de, this message translates to:
+  /// **'Richtung umkehren'**
+  String get tipFlipDirection;
+
+  /// No description provided for @tipPatternAlongPath.
+  ///
+  /// In de, this message translates to:
+  /// **'Anordnung entlang eines Pfades — noch nicht verfügbar'**
+  String get tipPatternAlongPath;
+
+  /// No description provided for @tipSelectRotationAxisPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehachsenpunkt wählen'**
+  String get tipSelectRotationAxisPoint;
+
+  /// No description provided for @tipFlipRotation.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehrichtung umkehren'**
+  String get tipFlipRotation;
+
+  /// No description provided for @tipSelectGeometryToMirror.
+  ///
+  /// In de, this message translates to:
+  /// **'Zu spiegelnde Geometrie wählen'**
+  String get tipSelectGeometryToMirror;
+
+  /// No description provided for @tipSelectMirrorLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Spiegelachse wählen'**
+  String get tipSelectMirrorLine;
+
+  /// No description provided for @tipSelectGeometryToPattern.
+  ///
+  /// In de, this message translates to:
+  /// **'Anzuordnende Geometrie wählen'**
+  String get tipSelectGeometryToPattern;
+
+  /// No description provided for @msgBoundaryFillNotYet.
+  ///
+  /// In de, this message translates to:
+  /// **'Begrenzungsfüllung — noch nicht verfügbar'**
+  String get msgBoundaryFillNotYet;
+
+  /// No description provided for @msgSuppressNotYet.
+  ///
+  /// In de, this message translates to:
+  /// **'Exemplare unterdrücken — noch nicht verfügbar'**
+  String get msgSuppressNotYet;
+
+  /// No description provided for @msgPickWhileSelectorBlue.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie im Ansichtsfenster wählen, solange der blaue Auswahlschalter leuchtet.'**
+  String get msgPickWhileSelectorBlue;
+
+  /// No description provided for @msgFilletPickTwo.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Linien, Bögen oder Kreise wählen.\nDie erste Verrundung wird bemaßt; die folgenden übernehmen den Radius.'**
+  String get msgFilletPickTwo;
+
+  /// No description provided for @msgDistance1FirstLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand 1 gilt für die zuerst gewählte Linie.'**
+  String get msgDistance1FirstLine;
+
+  /// No description provided for @msgPolygonSides.
+  ///
+  /// In de, this message translates to:
+  /// **'Seiten. Erst den Mittelpunkt, dann eine Ecke wählen.'**
+  String get msgPolygonSides;
+
+  /// No description provided for @hintTapBodyIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper in 3D antippen…'**
+  String get hintTapBodyIn3d;
+
+  /// No description provided for @hintTapFeaturesInBrowser.
+  ///
+  /// In de, this message translates to:
+  /// **'Elemente im Browser antippen…'**
+  String get hintTapFeaturesInBrowser;
+
+  /// No description provided for @hintTapPointOnCurve.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt auf der Kurve antippen…'**
+  String get hintTapPointOnCurve;
+
+  /// No description provided for @hintTapEdgeOrAxis.
+  ///
+  /// In de, this message translates to:
+  /// **'Kante oder Achse antippen…'**
+  String get hintTapEdgeOrAxis;
+
+  /// No description provided for @hintTapCircularEdge.
+  ///
+  /// In de, this message translates to:
+  /// **'Rundkante oder Achse antippen…'**
+  String get hintTapCircularEdge;
+
+  /// No description provided for @hintTapSketchPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenpunkt antippen…'**
+  String get hintTapSketchPoint;
+
+  /// No description provided for @hintTapOriginalPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt antippen, auf dem das Original sitzt…'**
+  String get hintTapOriginalPoint;
+
+  /// No description provided for @hintTapFaceToFollow.
+  ///
+  /// In de, this message translates to:
+  /// **'Zu folgende Fläche antippen…'**
+  String get hintTapFaceToFollow;
+
+  /// No description provided for @hintTapFaceOrPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche oder Ebene antippen…'**
+  String get hintTapFaceOrPlane;
+
+  /// No description provided for @msgNoDimensionsInSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Bemaßungen in dieser Skizze.'**
+  String get msgNoDimensionsInSketch;
+
+  /// No description provided for @btnAddNumericParameter.
+  ///
+  /// In de, this message translates to:
+  /// **'Numerischen Parameter hinzufügen'**
+  String get btnAddNumericParameter;
+
+  /// No description provided for @colParameterName.
+  ///
+  /// In de, this message translates to:
+  /// **'Parametername'**
+  String get colParameterName;
+
+  /// No description provided for @colEquation.
+  ///
+  /// In de, this message translates to:
+  /// **'Gleichung'**
+  String get colEquation;
+
+  /// No description provided for @colValue.
+  ///
+  /// In de, this message translates to:
+  /// **'Wert'**
+  String get colValue;
+
+  /// No description provided for @lblReference.
+  ///
+  /// In de, this message translates to:
+  /// **'(Referenz)'**
+  String get lblReference;
+
+  /// No description provided for @lblPoints.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkte'**
+  String get lblPoints;
+
+  /// No description provided for @lblSmoothing.
+  ///
+  /// In de, this message translates to:
+  /// **'Glättung'**
+  String get lblSmoothing;
+
+  /// Stuetzpunkte, durch die der Spline laeuft.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Stützpunkt} other{{count} Stützpunkte}}'**
+  String lblFitPoints(int count);
+
+  /// No description provided for @tipFinishEnter.
+  ///
+  /// In de, this message translates to:
+  /// **'Fertig (Eingabe)'**
+  String get tipFinishEnter;
+
+  /// No description provided for @tipDiscardEsc.
+  ///
+  /// In de, this message translates to:
+  /// **'Verwerfen (Esc)'**
+  String get tipDiscardEsc;
+
+  /// No description provided for @lblFont.
+  ///
+  /// In de, this message translates to:
+  /// **'Schrift'**
+  String get lblFont;
+
+  /// No description provided for @lblSize.
+  ///
+  /// In de, this message translates to:
+  /// **'Größe'**
+  String get lblSize;
+
+  /// No description provided for @lblPreview.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorschau'**
+  String get lblPreview;
+
+  /// No description provided for @lblEdgeCount.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine Kante} other{{count} Kanten}}'**
+  String lblEdgeCount(int count);
+
+  /// Kurz gehalten: die Schaltflaeche sitzt in der Dialogspalte. "+ Kantengruppe hinzufügen" waere doppelt so lang wie das Original.
+  ///
+  /// In de, this message translates to:
+  /// **'+ Kantengruppe'**
+  String get btnAddEdgeSet;
+
+  /// No description provided for @lblSwapFaces.
+  ///
+  /// In de, this message translates to:
+  /// **'Die beiden Flächen tauschen'**
+  String get lblSwapFaces;
+
+  /// No description provided for @lblSketchPlaneN.
+  ///
+  /// In de, this message translates to:
+  /// **'{n} Skizzenebene'**
+  String lblSketchPlaneN(String n);
+
+  /// No description provided for @lblNeedsExistingBody.
+  ///
+  /// In de, this message translates to:
+  /// **'{label} (braucht einen vorhandenen Körper)'**
+  String lblNeedsExistingBody(String label);
+
+  /// No description provided for @tipApplyAndStartAnother.
+  ///
+  /// In de, this message translates to:
+  /// **'Übernehmen und das nächste beginnen'**
+  String get tipApplyAndStartAnother;
+
+  /// No description provided for @msgSplitRemovesOtherSide.
+  ///
+  /// In de, this message translates to:
+  /// **'Alles auf der anderen Seite der Ebene wird entfernt. Die Richtung lässt sich umkehren.'**
+  String get msgSplitRemovesOtherSide;
+
+  /// No description provided for @msgGearTapToPlace.
+  ///
+  /// In de, this message translates to:
+  /// **'In die Skizze tippen, um es zu setzen; dann Mittelpunkt und einen Winkel bemaßen.'**
+  String get msgGearTapToPlace;
+
+  /// Fusskreis und Kopfkreis sind die Verzahnungsbegriffe fuer root und tip.
+  ///
+  /// In de, this message translates to:
+  /// **'Fuß- und Kopfkreisradius automatisch'**
+  String get lblAutoRootTip;
+
+  /// No description provided for @dlgReportBug.
+  ///
+  /// In de, this message translates to:
+  /// **'Fehler melden'**
+  String get dlgReportBug;
+
+  /// No description provided for @msgBugPrompt.
+  ///
+  /// In de, this message translates to:
+  /// **'Was haben Sie erwartet, und was ist stattdessen passiert?'**
+  String get msgBugPrompt;
+
+  /// No description provided for @hintBugExample.
+  ///
+  /// In de, this message translates to:
+  /// **'z. B. die obere Kante mit 2 mm verrundet und die Wandstärke ist danach falsch'**
+  String get hintBugExample;
+
+  /// No description provided for @btnSaveReport.
+  ///
+  /// In de, this message translates to:
+  /// **'Bericht sichern'**
+  String get btnSaveReport;
+
+  /// No description provided for @btnCopyPath.
+  ///
+  /// In de, this message translates to:
+  /// **'Pfad kopieren'**
+  String get btnCopyPath;
+
+  /// Inventor DE: "Direktbearbeitung"; auf der Schaltflaeche steht die Kurzform, wie im Englischen auch.
+  ///
+  /// In de, this message translates to:
+  /// **'Direkt'**
+  String get btnDirect;
+
+  /// No description provided for @btnDeleteFace.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche löschen'**
+  String get btnDeleteFace;
+
+  /// No description provided for @btnThickenOffset.
+  ///
+  /// In de, this message translates to:
+  /// **'Verdicken / Versatz'**
+  String get btnThickenOffset;
+
+  /// Benutzerkoordinatensystem. "BKS" ist das Kuerzel, das AutoCAD DE und Inventor DE benutzen — die deutschen Anwender kennen UCS nicht.
+  ///
+  /// In de, this message translates to:
+  /// **'BKS'**
+  String get btnUcs;
+
+  /// No description provided for @btnSketchDriven.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzengesteuert'**
+  String get btnSketchDriven;
+
+  /// No description provided for @btnCenterline.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittellinie'**
+  String get btnCenterline;
+
+  /// No description provided for @btnConstraintSettings.
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängigkeitseinstellungen'**
+  String get btnConstraintSettings;
+
+  /// No description provided for @btnCopy.
+  ///
+  /// In de, this message translates to:
+  /// **'Kopieren'**
+  String get btnCopy;
+
+  /// No description provided for @btnDrivenDimension.
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängige Bemaßung'**
+  String get btnDrivenDimension;
+
+  /// Inventor DE: "Dehnen" — das Gegenstueck zu "Stutzen".
+  ///
+  /// In de, this message translates to:
+  /// **'Dehnen'**
+  String get btnExtend;
+
+  /// No description provided for @btnPointsTool.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkte'**
+  String get btnPointsTool;
+
+  /// No description provided for @btnShowConstraints.
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängigkeiten einblenden'**
+  String get btnShowConstraints;
+
+  /// No description provided for @btnShowFormat.
+  ///
+  /// In de, this message translates to:
+  /// **'Format einblenden'**
+  String get btnShowFormat;
+
+  /// No description provided for @btnSmoothG2.
+  ///
+  /// In de, this message translates to:
+  /// **'Stetig (G2)'**
+  String get btnSmoothG2;
+
+  /// No description provided for @btnStretch.
+  ///
+  /// In de, this message translates to:
+  /// **'Strecken'**
+  String get btnStretch;
+
+  /// No description provided for @btnCenterPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittelpunkt'**
+  String get btnCenterPoint;
+}
+
+class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
+  const _AppL10nDelegate();
+
+  @override
+  Future<AppL10n> load(Locale locale) {
+    return SynchronousFuture<AppL10n>(lookupAppL10n(locale));
+  }
+
+  @override
+  bool isSupported(Locale locale) =>
+      <String>['de', 'en'].contains(locale.languageCode);
+
+  @override
+  bool shouldReload(_AppL10nDelegate old) => false;
+}
+
+AppL10n lookupAppL10n(Locale locale) {
+  // Lookup logic when only language code is specified.
+  switch (locale.languageCode) {
+    case 'de':
+      return AppL10nDe();
+    case 'en':
+      return AppL10nEn();
+  }
+
+  throw FlutterError(
+      'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
+      'an issue with the localizations generation tool. Please file an issue '
+      'on GitHub with a reproducible sample app and the gen-l10n configuration '
+      'that was used.');
+}

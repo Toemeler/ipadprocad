@@ -34,6 +34,7 @@ import '../tools.dart';
 import 'bottom_tabbar.dart';
 import 'bug_button.dart';
 import 'ribbon_chrome.dart';
+import '../l10n/l.dart';
 
 /// Ids on the wire. They come back from UIKit verbatim and are dispatched by
 /// [runQuickTool]; a rename on one side only is a dead button, so they are
@@ -152,13 +153,13 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       GlassToolItem(
         id: QuickToolId.ok,
         symbol: 'checkmark',
-        label: 'Done',
+        label: L.current.done,
         enabled: quickCanConfirm(app),
       ),
       GlassToolItem(
         id: QuickToolId.cancel,
         symbol: 'xmark',
-        label: 'Cancel',
+        label: L.current.cancel,
         enabled: quickCanCancel(app),
         destructive: true,
       ),
@@ -169,13 +170,13 @@ List<GlassToolItem> buildQuickTools(AppState app) {
     GlassToolItem(
       id: QuickToolId.undo,
       symbol: 'arrow.uturn.backward',
-      label: 'Undo',
+      label: L.current.undo,
       enabled: quickCanUndo(app),
     ),
     GlassToolItem(
       id: QuickToolId.redo,
       symbol: 'arrow.uturn.forward',
-      label: 'Redo',
+      label: L.current.redo,
       enabled: quickCanRedo(app),
     ),
   ]);
@@ -188,31 +189,31 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       // stroke rather than to an empty button.
       symbol: 'line.diagonal',
       fallback: 'minus',
-      label: 'Line',
+      label: L.current.btnLine,
       selected: app.tool == Tool.line,
     ),
     GlassToolItem(
       id: QuickToolId.circle,
       symbol: 'circle',
-      label: 'Circle',
+      label: L.current.btnCircle,
       selected: app.tool == Tool.circleCenter,
     ),
     GlassToolItem(
       id: QuickToolId.rect,
       symbol: 'rectangle',
-      label: 'Rectangle',
+      label: L.current.btnRectangle,
       selected: app.tool == Tool.rectTwoPoint,
     ),
     GlassToolItem(
       id: QuickToolId.dimension,
       symbol: 'ruler',
-      label: 'Dimension',
+      label: L.current.btnDimension,
       selected: app.tool == Tool.dimension,
     ),
     GlassToolItem(
       id: QuickToolId.trim,
       symbol: 'scissors',
-      label: 'Trim',
+      label: L.current.btnTrim,
       selected: _modifyRing.contains(app.tool),
     ),
   ]);
@@ -225,10 +226,10 @@ List<GlassToolItem> buildQuickTools(AppState app) {
   if (app.canDeleteSelection) {
     items.addAll([
       const GlassToolItem.separator('sep3'),
-      const GlassToolItem(
+      GlassToolItem(
         id: QuickToolId.delete,
         symbol: 'trash',
-        label: 'Delete',
+        label: L.current.delete,
         destructive: true,
       ),
     ]);
@@ -252,13 +253,13 @@ List<GlassToolItem> _withBugReport(List<GlassToolItem> items) {
   return [
     ...items,
     if (items.isNotEmpty) const GlassToolItem.separator('sepBug'),
-    const GlassToolItem(
+    GlassToolItem(
       id: QuickToolId.bug,
       // SF Symbols 4 (iOS 16). Older systems get the classic ant rather than
       // an empty button.
       symbol: 'ladybug.fill',
       fallback: 'ant.fill',
-      label: 'Report a bug',
+      label: L.current.qtReportBug,
       destructive: true,
     ),
   ];
