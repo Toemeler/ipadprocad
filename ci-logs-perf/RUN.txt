@@ -1,0 +1,5 @@
+run_id:     32476605478
+run_number: 100
+sha:        4858fc4d4cdf20cda89498993017eb9b3ef1a2ab
+ref:        refs/heads/claude/perf-opt2
+captured:   2026-08-21T12:07:18Z

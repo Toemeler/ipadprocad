@@ -1,0 +1,54 @@
+2026-08-21 11:59:45.470 softwareupdate[89035:219600] Package Authoring Error: 140-36222: Package reference com.apple.pkg.RosettaUpdateAuto is missing installKBytes attribute
+By using the agreetolicense option, you are agreeing that you have run this tool with the license only option and have read and agreed to the terms.
+If you do not agree, press CTRL-C and cancel this process immediately.
+Installing: 0.0%Installing: 0.0%Installing: 100.0%Installing: 100.0%Installing: -1.0%Installing: 2.0%Installing: 2.0%Installing: 100.0%Install of Rosetta 2 finished successfully
+created sim 'iPad Pro (12.9-inch) (6th generation)' -> 72714817-38F5-4B14-8DDE-EB0FDE037863
+sim booted (~5s)
+== launch ==
+launch rc=0: com.prototype.prototype: 90901
+== app Documents container ==
+container: /Users/runner/Library/Developer/CoreSimulator/Devices/72714817-38F5-4B14-8DDE-EB0FDE037863/data/Containers/Data/Application/29369907-3DF1-4107-A9D9-6C40EF7300D6
+total 0
+drwxr-xr-x  4 runner  staff  128 Aug 21 12:02 .
+drwxr-xr-x@ 7 runner  staff  224 Aug 21 12:01 ..
+drwxr-xr-x  2 runner  staff   64 Aug 21 12:02 .cache
+drwxr-xr-x  4 runner  staff  128 Aug 21 12:02 logs
+== what we got back ==
+-rw-r--r--  1 runner  staff  5514 Aug 21 12:02 /Users/runner/work/ipadprocad/ipadprocad/perf-out/logs/prototype_log.txt
+-rw-r--r--  1 runner  staff  2897 Aug 21 12:02 /Users/runner/work/ipadprocad/ipadprocad/perf-out/logs/performance_logs.txt
+-rw-r--r--  1 runner  staff  325113 Aug 21 12:02 /Users/runner/work/ipadprocad/ipadprocad/perf-out/ci-sim-console.log
+== performance_logs.txt (tail) ==
+
+================ PERF SESSION 2026-08-21T12:02:14.966270 build=4858fc4 ================
+# ms columns are: last / avg / p95 / worst   (n = calls)
+--- 2026-08-21T12:02:21.026532 ---
+  WARNING  no frame timings — Perf.attachToBinding() did not run or failed. Spans below are valid; frame.* is missing.
+  MEMORY  rss=394.9MB peak=423.6MB
+  SUBSYSTEMS (by total time, share of 0s wall clock)
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2320.1 / 2320.1 / 2320.1 / 2320.1 ms  tot=2.32s 0.0%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    233.2 /  233.2 /  233.2 /  233.2 ms  tot=0.23s 0.0%
+  step.state.Engine.create (backend probe) n=     1    172.3 /  172.3 /  172.3 /  172.3 ms  tot=0.17s 0.0%
+  step.state.occt smoke      n=     1     88.6 /   88.6 /   88.6 /   88.6 ms  tot=0.09s 0.0%
+  step.ffi.qcad_document_new() n=     1     59.9 /   59.9 /   59.9 /   59.9 ms  tot=0.06s 0.0%
+  step.ffi.symbol lookup + qcad_init() n=     1     57.6 /   57.6 /   57.6 /   57.6 ms  tot=0.06s 0.0%
+  step.state.refreshSaved    n=     1     41.5 /   41.5 /   41.5 /   41.5 ms  tot=0.04s 0.0%
+  step.main.runApp           n=     1     32.7 /   32.7 /   32.7 /   32.7 ms  tot=0.03s 0.0%
+  ffi.occt.makeBox           n=     1     19.3 /   19.3 /   19.3 /   19.3 ms  tot=0.02s 0.0%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     14.5 /   14.5 /   14.5 /   14.5 ms  tot=0.01s 0.0%
+  ffi.qcad.allGeometry       n=     2      0.9 /    7.2 /   13.4 /   13.4 ms  tot=0.01s 0.0%
+  step.ffi.probe qcad_add_line() n=     1     12.2 /   12.2 /   12.2 /   12.2 ms  tot=0.01s 0.0%
+  ffi.qcad.addLine           n=     2      0.5 /    5.0 /    9.6 /    9.6 ms  tot=0.01s 0.0%
+  step.main.AppState()       n=     1      5.3 /    5.3 /    5.3 /    5.3 ms  tot=0.01s 0.0%
+  step.state.Engine.create (smoke) n=     1      5.2 /    5.2 /    5.2 /    5.2 ms  tot=0.01s 0.0%
+  step.main.hide system UI (fire-and-forget) n=     1      4.8 /    4.8 /    4.8 /    4.8 ms  tot=0.00s 0.0%
+  step.ffi.probe qcad_document_free() n=     1      3.4 /    3.4 /    3.4 /    3.4 ms  tot=0.00s 0.0%
+  ffi.qcad.addCircle         n=     1      3.0 /    3.0 /    3.0 /    3.0 ms  tot=0.00s 0.0%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      2.9 /    2.9 /    2.9 /    2.9 ms  tot=0.00s 0.0%
+  step.state.migrateLegacyDocuments n=     1      2.9 /    2.9 /    2.9 /    2.9 ms  tot=0.00s 0.0%
+  step.ffi.qcad_version()    n=     1      2.7 /    2.7 /    2.7 /    2.7 ms  tot=0.00s 0.0%
+  step.state.reacquireExternals n=     1      2.7 /    2.7 /    2.7 /    2.7 ms  tot=0.00s 0.0%
+  step.state.loadRemembered  n=     1      2.6 /    2.6 /    2.6 /    2.6 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.6 /    0.6 /    0.6 /    0.6 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=395  rssMaxMB=423  rssPeakMB=395
+  COUNTERS  ffi.qcad.allGeometry.entities=3
+PERF CAPTURE: PASS
