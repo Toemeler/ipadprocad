@@ -160,6 +160,37 @@ class Log {
 
   static void d(String tag, String msg) => _write('DEBUG', tag, msg);
   static void i(String tag, String msg) => _write('INFO ', tag, msg);
+
+  /// An INFO line that is on disk before this call returns.
+  ///
+  /// For the handful of steps that cross into native code and can therefore
+  /// end the process — presenting the document picker, handing a mesh to the
+  /// kernel. An ordinary [i] is buffered for up to 400 ms, so after a hard
+  /// kill the log's last line is simply whatever happened to be flushed, not
+  /// where the app died. Two wrong diagnoses came out of reading it as the
+  /// latter (M232): the absence of a line meant only that it had not been
+  /// flushed yet.
+  ///
+  /// Not [w]: these are not warnings, and a log where every milestone shouts
+  /// is a log nobody reads. The cost is one fsync per step, on steps that are
+  /// already measured in hundreds of milliseconds.
+  static void milestone(String tag, String msg) {
+    _write('INFO ', tag, msg);
+    flush();
+  }
+
+  /// Resident memory in MB, or null where the platform will not say.
+  ///
+  /// Worth having on the milestones around a conversion: an iOS app killed for
+  /// memory leaves NO crash report — a jetsam is not a crash — so a rising
+  /// number that simply stops is the only trace it leaves behind.
+  static int? rssMb() {
+    try {
+      return ProcessInfo.currentRss ~/ (1024 * 1024);
+    } catch (_) {
+      return null;
+    }
+  }
   static void w(String tag, String msg) =>
       _write('WARN ', tag, msg, urgent: true);
   static void e(String tag, String msg, [Object? err, StackTrace? st]) {
