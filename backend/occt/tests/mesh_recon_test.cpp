@@ -360,6 +360,41 @@ int main()
             }
         }
     }
+    // ---- 9. a cone on a cylinder: the shape that killed the app ---------
+    //
+    // A tapered post -- a nozzle, a pin, a chamfered boss -- is ordinary in a
+    // printed part and was fatal. ShapeFix_Face::Perform runs
+    // FixPeriodicDegenerated, which fires on a CONICAL face whose one wire
+    // wraps the full 2*pi, and that function ends with an unguarded
+    //
+    //     Context()->Replace(myFace, myResult);
+    //
+    // while ShapeFix_Face -- unlike ShapeFix_Shape and ShapeFix_Shell -- never
+    // creates a context of its own. Null dereference, SIGSEGV, no exception to
+    // catch: the app was simply gone, with no crash report and a log that
+    // stopped mid-import. Still unguarded in the 7.9.3 we pin, so the fix is on
+    // our side: hand the tool a context. This case reproduced it at every
+    // deflection tried.
+    {
+        std::printf("== cone fused on a cylinder (ShapeFix context) ==\n");
+        TopoDS_Shape src =
+            BRepAlgoAPI_Fuse(
+                BRepPrimAPI_MakeCylinder(4., 10.).Shape(),
+                BRepPrimAPI_MakeCone(gp_Ax2(gp_Pnt(0, 0, 10), gp_Dir(0, 0, 1)),
+                                     4., 0., 10.)
+                    .Shape())
+                .Shape();
+        for (double defl : {0.4, 0.05}) {
+            meshrecon::Report r;
+            TopoDS_Shape out = Run(src, defl, r);
+            report(r);
+            chk("survives the cone face", !out.IsNull(),
+                "deflection " + std::to_string(defl));
+            chk("recovers cone surfaces", r.cones > 0,
+                std::to_string(r.cones) + " cones");
+        }
+    }
+
     // ---- scale, and input broken the way downloads are broken -----------
 
     // A part with many features: a plate with a grid of holes and some bosses.

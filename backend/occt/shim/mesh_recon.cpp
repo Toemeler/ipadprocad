@@ -35,6 +35,7 @@
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_Shell.hxx>
@@ -2551,6 +2552,26 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
          * OCCT approximate input at all. */
         BRepLib::BuildCurves3d(face);
         Handle(ShapeFix_Face) fix = new ShapeFix_Face(face);
+        /* The context is NOT optional, and leaving it out is what killed the
+         * app on real models.
+         *
+         * ShapeFix_Face::Perform runs FixPeriodicDegenerated, which fires on a
+         * CONICAL face whose single wire wraps the full 2*pi — a countersink, a
+         * chamfered hole, a tapered boss: the commonest features there are in a
+         * printed part. Every other Context() use in that file is guarded by
+         * IsNull(); its last line is not:
+         *
+         *     myResult = aNewFace;
+         *     Context()->Replace(myFace, myResult);   // ShapeFix_Face.cxx
+         *
+         * ShapeFix_Face, unlike ShapeFix_Shape and ShapeFix_Shell, never makes
+         * a context of its own, so without this line that dereferences null and
+         * takes the process down — no exception, nothing to catch, the app is
+         * simply gone. Present in 7.6 and still present in the 7.9.3 we pin.
+         * Giving it a context is also what ShapeFix_Shape does when it drives
+         * this same tool, and it stops the null being handed further down to
+         * ShapeFix_Wire, which never checks it at all. */
+        fix->SetContext(new ShapeBuild_ReShape);
         fix->SetPrecision(ctx.tol);
         fix->SetMaxTolerance(ctx.tol * 100);
         fix->FixAddNaturalBoundMode() = Standard_False;
