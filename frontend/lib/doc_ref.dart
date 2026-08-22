@@ -117,6 +117,26 @@ enum OpenAction {
 /// will ever see again. Those are adopted into the app folder instead. This
 /// matters in practice because the standard iOS file picker imports by
 /// copying into tmp rather than opening in place.
+/// Every extension Open offers, in picker order.
+///
+/// ONE list, because the picker and [openActionFor] disagreeing is a bug the
+/// user meets as "the file is greyed out" or, worse, "I picked it and nothing
+/// happened". `openable extensions are accepted` in the M232 test walks this
+/// list through [openActionFor] and fails if any entry is refused.
+///
+/// Note that `step` and `stp` are two spellings of one format. That is fine
+/// here and is NOT fine by the time it reaches iOS: UTType resolves both to
+/// the same content type, and UIDocumentPickerViewController raises on a
+/// duplicate. DocumentOpen.swift de-duplicates, and says why.
+const List<String> kOpenableExtensions = <String>[
+  kPartExt,
+  kSketchExt,
+  'step',
+  'stp',
+  'dxf',
+  ...kMeshExtensions,
+];
+
 OpenAction openActionFor(String path, String appDir,
     {Iterable<String> volatileDirs = const []}) {
   final lower = path.toLowerCase();

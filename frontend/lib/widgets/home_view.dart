@@ -23,9 +23,9 @@ import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../doc_file.dart';
+import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
-import '../mesh_io.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
@@ -365,11 +365,9 @@ class _HomeViewState extends State<HomeView> {
   /// [AppState.openPath] owns that decision; this only picks the file.
   Future<void> _importDocument() async {
     final app = widget.app;
-    // M232 — meshes join the list: an STL, OBJ or 3MF from MakerWorld opens
-    // as a new part, converted to real surfaces on the way in.
-    const kinds = [
-      kPartExt, kSketchExt, 'step', 'stp', 'dxf', ...kMeshExtensions
-    ];
+    // The list lives in doc_ref.dart next to openActionFor, so the picker
+    // cannot offer a kind that Open then refuses.
+    const kinds = kOpenableExtensions;
     try {
       // The NATIVE picker first, in open-in-place mode. The ordinary file
       // picker imports a COPY into tmp, which would make "save back to where
@@ -377,9 +375,19 @@ class _HomeViewState extends State<HomeView> {
       // native side is unavailable (desktop, host tests, an older iOS) the
       // copy still opens: openPath adopts it into the app folder rather than
       // remembering a path that is about to vanish.
+      //
+      // Logged on BOTH sides of the call, and that is not noise. Presenting
+      // the picker is a native call that can take the whole app down without
+      // Dart ever running again — a bad content-type list raises an
+      // Objective-C exception, and Swift cannot catch it. When that happened
+      // the app's own log ended on an unrelated line and there was no way to
+      // tell the picker from anything else the user had touched. These two
+      // lines put the crash inside a bracket.
+      Log.i('doc', 'open: presenting picker for ${kinds.join(",")}');
       final picked = await NativeMenu.openInPlace(
           extensions: kinds, anchor: _globalRect(_plusKey));
       var path = picked?['path'];
+      Log.i('doc', 'open: picker returned ${path == null ? "nothing" : path}');
       if (path == null && !NativeMenu.isSupported) {
         final res = await FilePicker.platform
             .pickFiles(type: FileType.custom, allowedExtensions: kinds);

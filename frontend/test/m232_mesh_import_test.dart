@@ -487,6 +487,33 @@ void main() {
       expect(isMeshPath('/a/b.step'), isFalse);
     });
 
+    test('every openable extension is one Open actually handles', () {
+      // The bug this pins is not hypothetical: the picker's list and
+      // openActionFor's list were two lists, and two lists drift. The user
+      // meets that as a greyed-out file, or as picking one and nothing
+      // happening. They are one list now, and this walks it.
+      for (final ext in kOpenableExtensions) {
+        expect(openActionFor('/elsewhere/thing.$ext', '/app'),
+            isNot(OpenAction.unsupported),
+            reason: 'the picker offers .$ext but Open refuses it');
+      }
+    });
+
+    test('the openable list has no duplicate extensions', () {
+      // Duplicates here become duplicate UTTypes on iOS, and
+      // UIDocumentPickerViewController raises on those — a native crash with
+      // nothing in the app log. DocumentOpen.swift de-duplicates because
+      // `step` and `stp` legitimately collide AFTER resolution; this keeps the
+      // list itself honest so that is the only collision it has to handle.
+      expect(kOpenableExtensions.toSet().length, kOpenableExtensions.length);
+    });
+
+    test('the mesh kinds are in the openable list', () {
+      for (final ext in kMeshExtensions) {
+        expect(kOpenableExtensions, contains(ext));
+      }
+    });
+
     test('openActionFor imports a mesh, like a STEP', () {
       // A mesh is a SOURCE, never a document opened in place: it becomes a new
       // part in the app folder and the original is left alone.
