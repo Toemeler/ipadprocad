@@ -22,6 +22,10 @@
 // required — that is unreliable under Impeller.
 import Flutter
 import UIKit
+// Swift imports are per FILE, not per module. DocumentOpen.swift importing
+// this one does not make UTType visible here, and the build says so:
+// "Cannot find 'UTType' in scope".
+import UniformTypeIdentifiers
 
 public class NativeMenuPlugin: NSObject, FlutterPlugin {
     private struct Item {
@@ -240,13 +244,19 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 result([String]())
                 return
             }
+            // A plain loop rather than map: the availability established by
+            // the guard above holds in THIS scope, and relying on it reaching
+            // into a closure body is a needless thing to be clever about.
             let exts = args["extensions"] as? [String] ?? []
-            result(exts.map { ext -> String in
-                guard let t = UTType(filenameExtension: ext) else {
-                    return "\(ext)=nil"
+            var probed: [String] = []
+            for ext in exts {
+                if let t = UTType(filenameExtension: ext) {
+                    probed.append("\(ext)=\(t.identifier)")
+                } else {
+                    probed.append("\(ext)=nil")
                 }
-                return "\(ext)=\(t.identifier)"
-            })
+            }
+            result(probed)
 
         case "resolveBookmark":
             guard #available(iOS 14.0, *),
