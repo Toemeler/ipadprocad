@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 84 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 86 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -144,12 +144,22 @@ behaving it is the only box computed — and only the expensive exact one when
 that fails, because a B-spline's control polygon stands outside the curve and
 read as 1.7 mm of overshoot on a plate's end cap that was exactly right.
 
-**A fitted shell that will not close is dropped for the faceted build when THAT
-closes.** One face per triangle recognises nothing, but on a watertight mesh it
-cannot fail, and a heavy solid the user can cut and fillet beats a light shell
-they cannot. Decided by trying it rather than by predicting it, so a genuinely
-open mesh — a shell with a hole in it — closes under neither and keeps its
-fitted surfaces.
+**A fitted shell that will not close is dropped for the faceted build.** One
+face per triangle recognises nothing, but on a watertight mesh it cannot fail,
+and a heavy solid the user can cut and fillet beats a light shell they cannot.
+Decided by trying it rather than predicting it: if the faceted build closes
+where the fitted one did not, it wins.
+
+Closing is not the only reason to prefer it, and assuming it was left the shards
+on screen for one more round. A downloaded mesh is often NOT watertight, and
+then nothing closes — so the question becomes which OPEN shell is worth having.
+A fitted one that read the model is: it is lighter and its faces are real
+surfaces. One that SHATTERED is not, and shattering is plain in the numbers —
+this file came back as 179 patches for 1138 triangles, one face per six, which
+is not a reading of the shape but a failure to read it. Below ten triangles a
+patch the faceted build wins whether or not either closes; the ratio is ignored
+under 200 triangles, where it means nothing (a cube with a face missing is five
+patches for ten triangles and exactly right).
 
 **The faceted build is now sewn by construction.** It used to make each
 triangle its own face and hand the pile to `BRepBuilderAPI_Sewing`, which asks

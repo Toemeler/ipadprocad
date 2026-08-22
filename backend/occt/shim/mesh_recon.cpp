@@ -1111,6 +1111,15 @@ const int kMaxCreaseDepth = 4;
  * bounded now. */
 const int kMaxAutoFacetedTriangles = 30000;
 
+/* Fewer triangles per patch than this and the fit did not read the model, it
+ * came apart on it. A recognised part runs to tens or hundreds of triangles a
+ * face; the download that exposed this managed six. */
+const int kShatterTrianglesPerPatch = 10;
+
+/* And the ratio says nothing on a small mesh: a cube with one face missing is
+ * five patches for ten triangles and exactly right. */
+const int kShatterFloorTriangles = 200;
+
 /* Largest fitted radius worth believing, as a multiple of the part's own
  * bounding-box diagonal. */
 const double kMaxRadiusFactor = 4.0;
@@ -3504,8 +3513,21 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
      *
      * Decided by trying it rather than by predicting it: if the faceted build
      * closes where the fitted one did not, it wins; otherwise nothing is lost
-     * but the attempt. A genuinely open mesh — a shell with a hole in it —
-     * closes under neither, so it keeps the fitted surfaces, which is right. */
+     * but the attempt.
+     *
+     * Closing is not the only reason to prefer it. A mesh that is not
+     * watertight — and downloaded ones often are not — closes under neither,
+     * and then the question is which OPEN shell is worth having. A fitted one
+     * that recognised the model is: it is lighter and its faces are real
+     * surfaces. One that SHATTERED is not, and shattering is plain in the
+     * numbers — the file this was found on came back as 179 patches for 1138
+     * triangles, one face per six, which is not a reading of the shape but a
+     * failure to read it. Below a floor the ratio means nothing (a cube with a
+     * face missing is 5 patches for 10 triangles and perfectly recognised), so
+     * it only applies to meshes big enough for it to say something. */
+    const bool shattered =
+        m.triCount() >= kShatterFloorTriangles &&
+        rep.patches * kShatterTrianglesPerPatch > m.triCount();
     if (rep.closed != 1 && m.triCount() <= kMaxAutoFacetedTriangles &&
         m.triCount() <= prm.max_faceted_triangles) {
         Report fr;
@@ -3525,7 +3547,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         } catch (const std::exception &) {
         } catch (...) {
         }
-        if (!alt.IsNull() && fr.closed == 1) {
+        if (!alt.IsNull() && (fr.closed == 1 || shattered)) {
             rep = fr;
             return alt;
         }

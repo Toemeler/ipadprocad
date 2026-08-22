@@ -180,8 +180,11 @@ static double Overshoot(const TopoDS_Shape &out)
 {
     if (out.IsNull())
         return 0;
+    /* AddOptimal: the cheap box is built from the curves' POLES, and a
+     * spline's control polygon stands outside the curve — on a fitted shell
+     * that read as 28% of the model when the truth was zero. */
     Bnd_Box b;
-    BRepBndLib::Add(out, b);
+    BRepBndLib::AddOptimal(out, b, Standard_False, Standard_False);
     if (b.IsVoid())
         return 0;
     Standard_Real x0, y0, z0, x1, y1, z1;
@@ -687,6 +690,45 @@ int main()
                 std::fabs(Volume(out) - g_meshVolume) / g_meshVolume < 1e-6,
                 std::to_string(Volume(out)) + " mesh " +
                     std::to_string(g_meshVolume));
+        }
+
+        /* And the same blob with a HOLE in it. Downloaded meshes often are not
+         * watertight, and then NOTHING closes — so "take the faceted build if
+         * it closes" would leave the shards in place, which is the state the
+         * user was looking at. What decides it instead is whether the fitted
+         * pass read the model at all. Here it does: fifty patches over 1770
+         * triangles is thirty-five triangles a face, a reading. The file that
+         * exposed this managed six, and that is not one. */
+        {
+            std::vector<double> xyz;
+            std::vector<int> tri;
+            Tessellate(src, 1.2, xyz, tri);
+            for (int k = 0; k < 3; ++k) {
+                g_meshLo[k] = 1e300;
+                g_meshHi[k] = -1e300;
+            }
+            for (size_t i = 0; i < xyz.size(); i += 3)
+                for (int k = 0; k < 3; ++k) {
+                    g_meshLo[k] = std::min(g_meshLo[k], xyz[i + k]);
+                    g_meshHi[k] = std::max(g_meshHi[k], xyz[i + k]);
+                }
+            g_meshDiag = std::sqrt(
+                (g_meshHi[0] - g_meshLo[0]) * (g_meshHi[0] - g_meshLo[0]) +
+                (g_meshHi[1] - g_meshLo[1]) * (g_meshHi[1] - g_meshLo[1]) +
+                (g_meshHi[2] - g_meshLo[2]) * (g_meshHi[2] - g_meshLo[2]));
+            tri.resize(tri.size() - 3 * 40); /* punch a hole */
+            meshrecon::Params p = meshrecon::Defaults();
+            meshrecon::Report r;
+            std::string err;
+            TopoDS_Shape out = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                (int)(tri.size() / 3), p, r, err);
+            report(r);
+            chk("an open organic mesh still builds", !out.IsNull(), err);
+            chk("and nothing reaches outside it",
+                Overshoot(out) < g_meshDiag * 0.02,
+                std::to_string(Overshoot(out)) + " mm of " +
+                    std::to_string(g_meshDiag));
         }
     }
 
