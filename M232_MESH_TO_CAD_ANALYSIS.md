@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 62 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 84 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -121,6 +121,59 @@ Measured over 600 randomly generated models, before and after:
 And on a plate with four countersunk holes, which is close to the file that
 started this: four spheres and a volume 0.18% short became four **cones** and a
 volume exact to five figures.
+
+### And then the file turned out not to be prismatic at all
+
+The model this milestone was built for is a curved shell — organic, not
+prismatic, 1138 triangles across 54 mm. Surface fitting has nothing to
+recognise on a shape that is analytic nowhere. It came back as **179 patches
+for 1138 triangles** — one face per six — as an open shell rather than a solid,
+and with faces that had lost their trimming: an untrimmed plane is INFINITE,
+and in the viewport that is a shard across the model with edges running off
+screen and a bounding box that grew every time the viewer re-tessellated. An
+ellipsoid reproduced it exactly: faces reaching **285% of the model's own
+diagonal** outside it.
+
+Three changes, in the order they matter:
+
+**A face may not escape its own triangles.** The wires come from mesh vertices,
+so a well-built face is within a facet's sagitta of its patch; one that is not
+has lost its trimming and is refused, and its patch goes faceted. Measured with
+the cheap pole-based box first — it never understates, so on a model that is
+behaving it is the only box computed — and only the expensive exact one when
+that fails, because a B-spline's control polygon stands outside the curve and
+read as 1.7 mm of overshoot on a plate's end cap that was exactly right.
+
+**A fitted shell that will not close is dropped for the faceted build when THAT
+closes.** One face per triangle recognises nothing, but on a watertight mesh it
+cannot fail, and a heavy solid the user can cut and fillet beats a light shell
+they cannot. Decided by trying it rather than by predicting it, so a genuinely
+open mesh — a shell with a hole in it — closes under neither and keeps its
+fitted surfaces.
+
+**The faceted build is now sewn by construction.** It used to make each
+triangle its own face and hand the pile to `BRepBuilderAPI_Sewing`, which asks
+OCCT to rediscover by geometric search over every face the adjacency this code
+computes exactly in `BuildAdjacency` — about a **millisecond per triangle**, 43
+seconds for 40 000 triangles, which on an iPad is the app gone. Sharing one
+vertex per welded mesh vertex and one edge per mesh edge makes the shell sewn
+already, needs no healing after (the edges are identical, not merely close),
+and costs 90–140 µs per triangle instead. One trap on the way: `MakeFace` picks
+a plane by least squares and its normal is not bound to the wire's winding, so
+half the faces came out facing inward — sewing used to hide that, and a shell
+built directly has nothing to hide it. The triangle already knows which way it
+faces.
+
+That is still a hundred times the fitted path, so the automatic fallback stops
+at **30 000 triangles** (`kMaxAutoFacetedTriangles`) — of the order of ten
+seconds on a device, with a notice on screen. Past it the fitted result is kept
+however poor: a model that is visibly wrong beats an app that is visibly dead,
+and its faces are at least bounded now.
+
+**The honest limit this leaves.** A large organic download — and MakerWorld is
+full of 100 k-triangle organic models — still gets the fitted result, which on
+such a model is not a good answer. Recovering real surfaces there is Stage D
+below, and it is not built.
 
 ---
 

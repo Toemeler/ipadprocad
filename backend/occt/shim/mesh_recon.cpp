@@ -11,10 +11,12 @@
 
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
@@ -1096,6 +1098,18 @@ const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
 
 /* A patch with more creases than this is not a pair of surfaces, it is noise. */
 const int kMaxCreaseDepth = 4;
+
+/* Above this the faceted fallback is not a rescue, it is a freeze.
+ *
+ * Measured at 90 to 140 microseconds a triangle — a tenth of what it cost
+ * before the shell was built directly, but still a hundred times the fitted
+ * path — and an iPad is a few times slower than the machine it was measured
+ * on. Thirty thousand triangles is then of the order of ten seconds with a
+ * notice on screen, which is a long wait for an import and a short one for a
+ * mistake. Past it the fitted result is kept however poor: a model that is
+ * visibly wrong beats an app that is visibly dead, and its faces are at least
+ * bounded now. */
+const int kMaxAutoFacetedTriangles = 30000;
 
 /* Largest fitted radius worth believing, as a multiple of the part's own
  * bounding-box diagonal. */
@@ -2564,6 +2578,74 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
 
 /* Every triangle of a patch as its own planar face — the honest fallback when
  * the patch fitted nothing, or when the analytic face refused to build. */
+/* A face has to stay inside the triangles it was built from.
+ *
+ * The wires come from mesh vertices, so a well-built face is within a facet's
+ * sagitta of its own patch. One that is not has lost its trimming — a plane
+ * whose wire failed to bound it is INFINITE, and an infinite plane in a shell
+ * is not a slightly wrong face, it is a black shard across the model with
+ * edges running off to the horizon and a bounding box that grows every time
+ * the viewer re-tessellates it. That is exactly what a real organic download
+ * produced: faces reaching nearly three times the whole model's diagonal
+ * outside it.
+ *
+ * The patch's own triangles are the honest bound, and the margin is generous
+ * by two orders of magnitude against what a broken face does, so this cannot
+ * refuse a face that is merely imperfect. */
+bool FaceWithinPatch(const TopoDS_Face &face, const Mesh &m,
+                     const std::vector<int> &tris, double tol)
+{
+    if (tris.empty())
+        return false;
+    V3 lo(1e300, 1e300, 1e300), hi(-1e300, -1e300, -1e300);
+    for (int t : tris) {
+        for (int k = 0; k < 3; ++k) {
+            const V3 &p = m.pos[m.tri[t * 3 + k]];
+            lo.x = std::min(lo.x, p.x);
+            lo.y = std::min(lo.y, p.y);
+            lo.z = std::min(lo.z, p.z);
+            hi.x = std::max(hi.x, p.x);
+            hi.y = std::max(hi.y, p.y);
+            hi.z = std::max(hi.z, p.z);
+        }
+    }
+    const double slack = std::max(tol * 8.0, Norm(hi - lo) * 0.08);
+    /* Two boxes, cheap first.
+     *
+     * BRepBndLib::Add boxes a face by its pcurves' POLES, so it never
+     * UNDERstates the face — if that box is inside the patch, the face
+     * certainly is, and on a model that is behaving this is the only box ever
+     * computed. It does overstate: a B-spline's control polygon stands well
+     * outside the curve, which on a plate's end cap read as 1.7 mm of
+     * overshoot on a face that was exactly right. So a failure there is not a
+     * verdict, only a reason to pay for AddOptimal, which evaluates the curves
+     * instead of trusting their hulls. */
+    auto inside = [&](const Bnd_Box &b) {
+        if (b.IsVoid() || b.IsWhole() || b.IsOpenXmin() || b.IsOpenXmax() ||
+            b.IsOpenYmin() || b.IsOpenYmax() || b.IsOpenZmin() || b.IsOpenZmax())
+            return false;
+        Standard_Real x0, y0, z0, x1, y1, z1;
+        b.Get(x0, y0, z0, x1, y1, z1);
+        const double v[6] = {x0, y0, z0, x1, y1, z1};
+        for (int k = 0; k < 6; ++k)
+            if (!(v[k] > -1e99 && v[k] < 1e99))
+                return false;
+        return x0 >= lo.x - slack && y0 >= lo.y - slack && z0 >= lo.z - slack &&
+               x1 <= hi.x + slack && y1 <= hi.y + slack && z1 <= hi.z + slack;
+    };
+    try {
+        Bnd_Box quick;
+        BRepBndLib::Add(face, quick, Standard_False);
+        if (inside(quick))
+            return true;
+        Bnd_Box tight;
+        BRepBndLib::AddOptimal(face, tight, Standard_False, Standard_False);
+        return inside(tight);
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+}
+
 void EmitFaceted(const Mesh &m, const std::vector<int> &tris,
                  std::vector<TopoDS_Face> &out)
 {
@@ -2920,6 +3002,8 @@ namespace {
  * "If it can" is deliberate. A downloaded mesh with a hole in it cannot become
  * a solid, and returning the open shell — which the app can still display,
  * still section, still export — beats returning nothing. */
+TopoDS_Shape Solidify(const TopoDS_Shape &sewn, Report &rep);
+
 TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
                             Report &rep)
 {
@@ -3001,9 +3085,14 @@ TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
         }
     }
 
-    /* Every closed shell becomes a solid; open ones are left as they are. A
-     * compound of one solid is unwrapped, because the app's feature tree wants
-     * a body, not a bag holding one. */
+    return Solidify(sewn, rep);
+}
+
+/* Every closed shell becomes a solid; open ones are left as they are. A
+ * compound of one solid is unwrapped, because the app's feature tree wants a
+ * body, not a bag holding one. */
+TopoDS_Shape Solidify(const TopoDS_Shape &sewn, Report &rep)
+{
     std::vector<TopoDS_Solid> solids;
     std::vector<TopoDS_Shape> open;
     for (TopExp_Explorer ex(sewn, TopAbs_SHELL); ex.More(); ex.Next()) {
@@ -3049,6 +3138,133 @@ TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
     for (const TopoDS_Shape &s : open)
         b.Add(c, s);
     return c;
+}
+
+} // namespace
+
+namespace {
+
+/* One B-Rep face per triangle, built as a shell that is ALREADY sewn.
+ *
+ * The whole of mode 0, and the safety net under mode 1: it recognises nothing,
+ * but on a watertight mesh it cannot fail either.
+ *
+ * The obvious way — make each triangle its own face and hand the pile to
+ * BRepBuilderAPI_Sewing — asks OCCT to rediscover by geometric search over
+ * every face the adjacency this file computed exactly in BuildAdjacency, and
+ * it charges about a millisecond per triangle to do it: 43 seconds for 40 000
+ * triangles, which on an iPad is the app gone. Sharing ONE vertex per welded
+ * mesh vertex and ONE edge per mesh edge makes the shell sewn by construction,
+ * needs no healing afterwards (the edges are identical, not merely close), and
+ * is linear. */
+TopoDS_Shape FacetedShell(const Mesh &m, int &faceCount)
+{
+    faceCount = 0;
+    BRep_Builder bb;
+    std::vector<TopoDS_Vertex> vs(m.vertCount());
+    for (int i = 0; i < m.vertCount(); ++i)
+        vs[i] = BRepBuilderAPI_MakeVertex(P(m.pos[i]));
+
+    std::unordered_map<long long, TopoDS_Edge> edges;
+    edges.reserve(m.tri.size());
+    const long long n = m.vertCount();
+    auto edgeFor = [&](int a, int b) {
+        const int lo = std::min(a, b), hi = std::max(a, b);
+        const long long key = (long long)lo * n + hi;
+        auto it = edges.find(key);
+        if (it != edges.end())
+            return it->second;
+        const TopoDS_Edge e = BRepBuilderAPI_MakeEdge(vs[lo], vs[hi]);
+        edges.emplace(key, e);
+        return e;
+    };
+
+    TopoDS_Shell shell;
+    bb.MakeShell(shell);
+    for (int t = 0; t < m.triCount(); ++t) {
+        try {
+            const int v[3] = {m.tri[t * 3], m.tri[t * 3 + 1], m.tri[t * 3 + 2]};
+            TopoDS_Wire w;
+            bb.MakeWire(w);
+            for (int k = 0; k < 3; ++k) {
+                const int a = v[k], b = v[(k + 1) % 3];
+                const TopoDS_Edge e = edgeFor(a, b);
+                /* The stored edge runs low id -> high id; a triangle that uses
+                 * it the other way takes it REVERSED, which is what makes the
+                 * two faces either side agree and the shell hold together. */
+                bb.Add(w, TopoDS::Edge(e.Oriented(
+                              a < b ? TopAbs_FORWARD : TopAbs_REVERSED)));
+            }
+            BRepBuilderAPI_MakeFace mf(w, Standard_True);
+            if (!mf.IsDone())
+                continue;
+            TopoDS_Face f = mf.Face();
+            /* MakeFace picks the plane by least squares and its normal is not
+             * bound to the wire's winding, so half the faces come out facing
+             * inward. Sewing used to hide that; a shell built directly has
+             * nothing to hide it, and an inside-out face makes a solid whose
+             * volume comes back zero or a tenth of the truth. The triangle
+             * already knows which way it faces. */
+            const Handle(Geom_Plane) pl =
+                Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(f));
+            if (!pl.IsNull()) {
+                const gp_Dir d = pl->Position().Direction();
+                V3 nn(d.X(), d.Y(), d.Z());
+                if (f.Orientation() == TopAbs_REVERSED)
+                    nn = V3(-nn.x, -nn.y, -nn.z);
+                if (Dot(nn, m.tnorm[t]) < 0)
+                    f.Reverse();
+            }
+            bb.Add(shell, f);
+            faceCount++;
+        } catch (const Standard_Failure &) {
+        }
+    }
+    if (faceCount == 0)
+        return TopoDS_Shape();
+    return shell;
+}
+
+TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
+{
+    (void)tol;
+    int built = 0;
+    TopoDS_Shell shell;
+    try {
+        const TopoDS_Shape sh = FacetedShell(m, built);
+        if (sh.IsNull())
+            return TopoDS_Shape();
+        shell = TopoDS::Shell(sh);
+    } catch (const Standard_Failure &) {
+        return TopoDS_Shape();
+    }
+    /* Whether it closes is known exactly from the mesh, and asking OCCT to
+     * work it out over a hundred thousand faces is not free. */
+    if (rep.boundary_edges == 0 && rep.non_manifold_edges == 0)
+        shell.Closed(Standard_True);
+    rep.patches = 1;
+    rep.faceted_patches = 1;
+    rep.faces_built = built;
+    TopoDS_Shape out = Solidify(shell, rep);
+    if (out.IsNull())
+        return out;
+
+    /* Coplanar triangles become one face — the only thing that makes a faceted
+     * conversion usable at all, and about half its running time.
+     *
+     * Not skippable on the grounds that a curved model has nothing coplanar:
+     * measured, a finely tessellated ellipsoid has 9 to 13 per cent of its
+     * neighbouring pairs flat with each other to within a quarter of a degree,
+     * and a coarser one a third of them. The merge earns its time there too. */
+    try {
+        ShapeUpgrade_UnifySameDomain uni(out, Standard_True, Standard_True,
+                                         Standard_False);
+        uni.Build();
+        if (!uni.Shape().IsNull())
+            out = uni.Shape();
+    } catch (const Standard_Failure &) {
+    }
+    return out;
 }
 
 } // namespace
@@ -3105,28 +3321,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             err = buf;
             return TopoDS_Shape();
         }
-        std::vector<int> all(m.triCount());
-        for (int i = 0; i < m.triCount(); ++i)
-            all[i] = i;
-        EmitFaceted(m, all, faces);
-        rep.patches = 1;
-        rep.faceted_patches = 1;
-        rep.faces_built = static_cast<int>(faces.size());
-        TopoDS_Shape out = SewAndSolidify(faces, tol, rep);
+        TopoDS_Shape out = BuildFaceted(m, tol, rep);
         if (out.IsNull())
             err = "the faces would not sew into a shell";
-        else {
-            /* Coplanar triangles become one face — the only thing that makes a
-             * faceted conversion usable at all. */
-            try {
-                ShapeUpgrade_UnifySameDomain uni(out, Standard_True,
-                                                 Standard_True, Standard_False);
-                uni.Build();
-                if (!uni.Shape().IsNull())
-                    out = uni.Shape();
-            } catch (const Standard_Failure &) {
-            }
-        }
         return out;
     }
 
@@ -3219,6 +3416,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::vector<std::vector<int>> deferred;
     for (size_t i = 0; i < patches.size(); ++i) {
         bool built = false;
+        const size_t before = faces.size();
         if (!surfs[i].IsNull()) {
             try {
                 built =
@@ -3235,8 +3433,22 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             }
         }
         if (built) {
+            /* Checked HERE rather than inside the builder because the analytic
+             * path can also hand off to the parametric one, and a face that
+             * escaped its patch is worthless whichever built it. */
+            for (size_t k = before; k < faces.size(); ++k) {
+                if (!FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
+                    built = false;
+                    break;
+                }
+            }
+            if (!built)
+                faces.resize(before);
+        }
+        if (built) {
             rep.faces_built++;
         } else {
+            faces.resize(before);
             if (!surfs[i].IsNull())
                 rep.faces_failed++;
             rep.faceted_patches++;
@@ -3277,6 +3489,46 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         if (!uni.Shape().IsNull())
             out = uni.Shape();
     } catch (const Standard_Failure &) {
+    }
+
+    /* A shell that will not close is not a body, and an ORGANIC model produces
+     * exactly that.
+     *
+     * Surface fitting has nothing to recognise on a shape that is curved
+     * everywhere and analytic nowhere: it shatters into one small patch per
+     * handful of triangles, none of them meeting cleanly, and the result is an
+     * open shell that cannot be filleted, cut or booleaned — the whole reason
+     * for converting at all. One face per triangle recognises nothing either,
+     * but on a watertight mesh it CANNOT fail, and a heavy solid the user can
+     * actually work on beats a light shell they cannot.
+     *
+     * Decided by trying it rather than by predicting it: if the faceted build
+     * closes where the fitted one did not, it wins; otherwise nothing is lost
+     * but the attempt. A genuinely open mesh — a shell with a hole in it —
+     * closes under neither, so it keeps the fitted surfaces, which is right. */
+    if (rep.closed != 1 && m.triCount() <= kMaxAutoFacetedTriangles &&
+        m.triCount() <= prm.max_faceted_triangles) {
+        Report fr;
+        ClearReport(fr);
+        fr.triangles_in = rep.triangles_in;
+        fr.vertices_in = rep.vertices_in;
+        fr.triangles_used = rep.triangles_used;
+        fr.vertices_welded = rep.vertices_welded;
+        fr.non_manifold_edges = rep.non_manifold_edges;
+        fr.boundary_edges = rep.boundary_edges;
+        fr.flipped_triangles = rep.flipped_triangles;
+        fr.diagonal = rep.diagonal;
+        TopoDS_Shape alt;
+        try {
+            alt = BuildFaceted(m, tol, fr);
+        } catch (const Standard_Failure &) {
+        } catch (const std::exception &) {
+        } catch (...) {
+        }
+        if (!alt.IsNull() && fr.closed == 1) {
+            rep = fr;
+            return alt;
+        }
     }
     return out;
 }

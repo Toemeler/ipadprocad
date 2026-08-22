@@ -35,7 +35,11 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopLoc_Location.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_GTransform.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <Bnd_Box.hxx>
+#include <gp_GTrsf.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <cstdio>
 #include <cmath>
@@ -163,6 +167,32 @@ static void report(const meshrecon::Report &r)
 }
 
 static double g_meshVolume = 0;
+static double g_meshDiag = 0;
+static double g_meshLo[3], g_meshHi[3];
+
+/* How far outside the MESH's own bounding box the built shape reaches.
+ *
+ * The number that matters for a face that lost its trimming: an untrimmed
+ * plane is infinite, so it shows up here as an overshoot the size of the whole
+ * model, and in the viewer as a shard with edges running to the horizon and a
+ * bounding box that grows on every re-tessellation. */
+static double Overshoot(const TopoDS_Shape &out)
+{
+    if (out.IsNull())
+        return 0;
+    Bnd_Box b;
+    BRepBndLib::Add(out, b);
+    if (b.IsVoid())
+        return 0;
+    Standard_Real x0, y0, z0, x1, y1, z1;
+    b.Get(x0, y0, z0, x1, y1, z1);
+    const double f[6] = {g_meshLo[0] - x0, g_meshLo[1] - y0, g_meshLo[2] - z0,
+                         x1 - g_meshHi[0], y1 - g_meshHi[1], z1 - g_meshHi[2]};
+    double worst = 0;
+    for (int k = 0; k < 6; ++k)
+        worst = std::max(worst, f[k]);
+    return worst;
+}
 
 static TopoDS_Shape Run(const TopoDS_Shape &src, double defl,
                         meshrecon::Report &rep, int mode = 1)
@@ -171,6 +201,19 @@ static TopoDS_Shape Run(const TopoDS_Shape &src, double defl,
     std::vector<int> tri;
     Tessellate(src, defl, xyz, tri);
     g_meshVolume = std::fabs(MeshVolume(xyz, tri));
+    for (int k = 0; k < 3; ++k) {
+        g_meshLo[k] = 1e300;
+        g_meshHi[k] = -1e300;
+    }
+    for (size_t i = 0; i < xyz.size(); i += 3)
+        for (int k = 0; k < 3; ++k) {
+            g_meshLo[k] = std::min(g_meshLo[k], xyz[i + k]);
+            g_meshHi[k] = std::max(g_meshHi[k], xyz[i + k]);
+        }
+    g_meshDiag =
+        std::sqrt((g_meshHi[0] - g_meshLo[0]) * (g_meshHi[0] - g_meshLo[0]) +
+                  (g_meshHi[1] - g_meshLo[1]) * (g_meshHi[1] - g_meshLo[1]) +
+                  (g_meshHi[2] - g_meshLo[2]) * (g_meshHi[2] - g_meshLo[2]));
     meshrecon::Params p = meshrecon::Defaults();
     p.mode = mode;
     std::string err;
@@ -365,6 +408,9 @@ int main()
                     std::to_string(Volume(out)) + " mesh " +
                         std::to_string(g_meshVolume) + " src " +
                         std::to_string(Volume(src)));
+                chk("nothing reaches outside the mesh",
+                    Overshoot(out) < g_meshDiag * 0.02,
+                    std::to_string(Overshoot(out)) + " mm");
                 chk("valid", BRepCheck_Analyzer(out).IsValid());
             }
         }
@@ -398,8 +444,13 @@ int main()
             TopoDS_Shape out = Run(src, 0.4, r);
             report(r);
             chk("survives the cone face", !out.IsNull());
-            chk("recovers cone surfaces", r.cones > 0,
-                std::to_string(r.cones) + " cones");
+            /* At THIS tessellation the fitted pass cannot hold the shell
+             * together and the faceted fallback takes over, so the report is
+             * the fallback's — which is the point: a watertight solid, not a
+             * shattered open shell. The crash this case exists for happens in
+             * the fitted pass either way, long before any fallback. Case 10
+             * below is where the cone itself has to be recognised. */
+            chk("still a closed solid", r.closed == 1);
         }
     }
     // ---- 10. the same post, tessellated finely: crease splitting ---------
@@ -577,6 +628,66 @@ int main()
                 std::to_string(r2.vertices_welded));
         chk("welded to 8 corners", r2.vertices_welded == 8,
             std::to_string(r2.vertices_welded));
+    }
+
+    // ---- 12. an ORGANIC model, which fits no primitive anywhere ---------
+    //
+    // Every case above is prismatic, and a real download often is not: the file
+    // this milestone was built for turned out to be a curved shell. On one of
+    // those the fitter has nothing to recognise. It shattered into one patch
+    // per handful of triangles, none of them meeting — and worse, some of those
+    // faces lost their trimming, so an untrimmed plane reached nearly THREE
+    // TIMES the model's own diagonal outside it: shards across the viewport
+    // with edges running off screen, and a bounding box that grew every time
+    // the viewer re-tessellated.
+    //
+    // Two things stop that. A face that escapes its own triangles is refused
+    // and its patch goes faceted; and a fitted shell that will not close is
+    // dropped for the faceted build when THAT closes. One face per triangle
+    // recognises nothing, but on a watertight mesh it cannot fail, and a heavy
+    // solid the user can cut and fillet beats a light shell they cannot.
+    {
+        std::printf("== organic: an ellipsoid, no primitive anywhere ==\n");
+        gp_GTrsf g;
+        g.SetValue(1, 1, 1.0);
+        g.SetValue(2, 2, 2.2);
+        g.SetValue(3, 3, 0.45);
+        TopoDS_Shape src =
+            BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(20.).Shape(), g,
+                                      Standard_True)
+                .Shape();
+        for (double defl : {1.2, 0.4}) {
+            meshrecon::Report r;
+            const auto t0 = std::chrono::steady_clock::now();
+            TopoDS_Shape out = Run(src, defl, r);
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t0)
+                                  .count();
+            report(r);
+            std::printf("   %.0f ms\n", ms);
+            chk("built something", !out.IsNull());
+            chk("closed solid", r.closed == 1);
+            /* The faceted shell is built with ONE vertex per welded mesh
+             * vertex and ONE edge per mesh edge, so it is sewn by
+             * construction. Handing loose triangles to BRepBuilderAPI_Sewing
+             * instead — which is what this did first — makes OCCT rediscover
+             * by geometric search the adjacency this code already knows, at
+             * about a millisecond per triangle: 43 seconds for 40 000
+             * triangles, and on an iPad that is the app gone. The ceiling is
+             * ten times the measured cost and a fifth of the old one, so it
+             * separates the two without being flaky on a slow runner. */
+            chk("converts in linear time", ms < 5000.0,
+                std::to_string(ms) + " ms for " +
+                    std::to_string(r.triangles_used) + " triangles");
+            chk("nothing reaches outside the mesh",
+                Overshoot(out) < g_meshDiag * 0.02,
+                std::to_string(Overshoot(out)) + " mm of " +
+                    std::to_string(g_meshDiag));
+            chk("volume is the mesh's own",
+                std::fabs(Volume(out) - g_meshVolume) / g_meshVolume < 1e-6,
+                std::to_string(Volume(out)) + " mesh " +
+                    std::to_string(g_meshVolume));
+        }
     }
 
     // ---- what a DOWNLOADED mesh is, and none of the above was ------------
