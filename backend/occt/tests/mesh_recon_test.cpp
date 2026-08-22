@@ -198,6 +198,11 @@ int main()
             chk("6 planar faces", c.planes == 6 && c.total == 6,
                 "got " + std::to_string(c.total) + " faces, " +
                     std::to_string(c.planes) + " planar");
+            /* Plane against plane is closed-form in OCCT and must stay on the
+             * exact path: the guard that keeps GeomAPI_IntSS off the quadric
+             * pairs it can hang on must not cost a box its straight edges. */
+            chk("edges still built exactly", r.analytic_edges >= 6,
+                std::to_string(r.analytic_edges) + " exact");
             chk("volume 6000", std::fabs(Volume(out) - 6000.) < 1e-6,
                 std::to_string(Volume(out)));
             chk("valid", BRepCheck_Analyzer(out).IsValid());
@@ -268,6 +273,10 @@ int main()
         if (!out.IsNull()) {
             Counts c = FaceKinds(out);
             chk("closed solid", r.closed == 1);
+            /* Two of these come off plane against CYLINDER — the hole's two
+             * rims, real circles. That pair also has to stay exact. */
+            chk("hole rims and box edges exact", r.analytic_edges >= 8,
+                std::to_string(r.analytic_edges) + " exact");
             chk("6 planes + 1 cylinder", c.planes == 6 && c.cyl == 1,
                 std::to_string(c.planes) + "pl " + std::to_string(c.cyl) +
                     "cy " + std::to_string(c.other) + "other");
@@ -384,15 +393,88 @@ int main()
                                      4., 0., 10.)
                     .Shape())
                 .Shape();
-        for (double defl : {0.4, 0.05}) {
+        {
             meshrecon::Report r;
-            TopoDS_Shape out = Run(src, defl, r);
+            TopoDS_Shape out = Run(src, 0.4, r);
             report(r);
-            chk("survives the cone face", !out.IsNull(),
-                "deflection " + std::to_string(defl));
+            chk("survives the cone face", !out.IsNull());
             chk("recovers cone surfaces", r.cones > 0,
                 std::to_string(r.cones) + " cones");
         }
+    }
+    // ---- 10. the same post, tessellated finely: crease splitting ---------
+    //
+    // The cylinder meets the cone at 21.8 degrees — under the 22-degree sharp
+    // threshold, so the two arrive as ONE smooth patch that fits no primitive.
+    // Region growing alone came apart on it: every seed near the crease
+    // straddles both surfaces, and a barrel came out as a fan of thirty planar
+    // strips, open. SplitAtCrease reads the patch's own dihedral distribution
+    // and cuts the one ring that stands above the tessellation step.
+    {
+        std::printf("== tapered post, 21.8 degree crease ==\n");
+        TopoDS_Shape src =
+            BRepAlgoAPI_Fuse(
+                BRepPrimAPI_MakeCylinder(4., 10.).Shape(),
+                BRepPrimAPI_MakeCone(gp_Ax2(gp_Pnt(0, 0, 10), gp_Dir(0, 0, 1)),
+                                     4., 0., 10.)
+                    .Shape())
+                .Shape();
+        meshrecon::Report r;
+        TopoDS_Shape out = Run(src, 0.02, r);
+        report(r);
+        chk("built something", !out.IsNull());
+        if (!out.IsNull()) {
+            Counts c = FaceKinds(out);
+            chk("closed solid", r.closed == 1);
+            chk("exactly disc + barrel + cone",
+                c.total == 3 && c.planes == 1 && c.cyl == 1 && c.cone == 1,
+                std::to_string(c.total) + " faces: " +
+                    std::to_string(c.planes) + "pl " + std::to_string(c.cyl) +
+                    "cy " + std::to_string(c.cone) + "co");
+            chk("volume tracks the mesh",
+                std::fabs(Volume(out) - g_meshVolume) / g_meshVolume < 5e-3,
+                std::to_string(Volume(out)) + " mesh " +
+                    std::to_string(g_meshVolume));
+            chk("valid", BRepCheck_Analyzer(out).IsValid());
+        }
+    }
+
+    // ---- 11. two parallel cylinders fused --------------------------------
+    //
+    // Their barrels are adjacent, so the edge builder is asked where two
+    // parallel cylinders meet. GeomAPI_IntSS has no time bound and its
+    // implicit-implicit path can grind on a quadric pair for minutes — on a
+    // 444-triangle mesh it had not finished after ninety seconds, which on an
+    // iPad is a frozen app the watchdog kills. IntersectablePair keeps that
+    // pair off the analytic path; the seam becomes a curve through the mesh
+    // points, which is what it would have been anyway.
+    {
+        std::printf("== two parallel cylinders fused ==\n");
+        TopoDS_Shape src =
+            BRepAlgoAPI_Fuse(
+                BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)),
+                                         5., 20.)
+                    .Shape(),
+                BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(6, 0, 0), gp_Dir(0, 0, 1)),
+                                         3., 20.)
+                    .Shape())
+                .Shape();
+        meshrecon::Report r;
+        const auto t0 = std::chrono::steady_clock::now();
+        TopoDS_Shape out = Run(src, 0.05, r);
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - t0)
+                              .count();
+        report(r);
+        std::printf("   %.0f ms\n", ms);
+        chk("built something", !out.IsNull());
+        chk("closed solid", r.closed == 1);
+        chk("two barrels and two flats", r.cylinders == 2 && r.planes == 2,
+            std::to_string(r.cylinders) + "cy " + std::to_string(r.planes) +
+                "pl");
+        /* Generous by two orders of magnitude against the ~10 ms it takes;
+         * this fails only if the analytic path is let back onto the pair. */
+        chk("converts promptly", ms < 5000.0, std::to_string(ms) + " ms");
     }
 
     // ---- scale, and input broken the way downloads are broken -----------
