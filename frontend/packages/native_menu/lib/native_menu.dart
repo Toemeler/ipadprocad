@@ -338,6 +338,20 @@ class NativeMenu {
     return _stringMap(res);
   }
 
+  /// What [openInPlace]'s extensions resolve to, as "ext=identifier" pairs.
+  ///
+  /// Purely diagnostic, and deliberately a SEPARATE call: presenting the
+  /// picker can take the whole process down, so anything we want to know about
+  /// why has to be asked — and logged — before that happens. An identifier
+  /// beginning `dyn.` means iOS has no declaration for that extension and
+  /// invented a placeholder; those are what the picker chokes on.
+  static Future<List<String>> probeContentTypes(List<String> extensions) async {
+    if (!isSupported) return const [];
+    final res =
+        await _invoke<List<Object?>>('probeContentTypes', {'extensions': extensions});
+    return [for (final e in res ?? const []) '$e'];
+  }
+
   /// Re-acquires access to a document remembered from an earlier launch.
   ///
   /// Returns its CURRENT path — which can differ from the stored one, because

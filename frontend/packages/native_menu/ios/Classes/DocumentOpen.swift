@@ -86,7 +86,21 @@ class DocumentOpener: NSObject, UIDocumentPickerDelegate {
         var types: [UTType] = []
         var unresolved: [String] = []
         for ext in extensions {
-            guard let t = UTType(filenameExtension: ext) else {
+            let t = UTType(filenameExtension: ext)
+            // A DYNAMIC identifier is the trap, and it is not the same thing
+            // as nil. For an extension nothing on the system declares, iOS
+            // does not fail — it invents `dyn.ah62d4...`, a placeholder that
+            // stands for "some file called .stl" and that matches no real
+            // file. The app's own Info.plist says as much about ptp/pts
+            // (M177): "without the declaration UTType(filenameExtension:)
+            // only yields a dynamic identifier, which the open-in-place
+            // picker will not match on."
+            //
+            // So `guard let` is not enough — it never fires — and a dynamic
+            // type handed to UIDocumentPickerViewController is worse than
+            // useless. M232 added stl, obj and 3mf, none of them declared,
+            // and Open stopped surviving the tap.
+            guard let t, !t.identifier.hasPrefix("dyn.") else {
                 unresolved.append(ext)
                 continue
             }
@@ -96,7 +110,7 @@ class DocumentOpener: NSObject, UIDocumentPickerDelegate {
             types = [UTType.data]
         }
         // Console-only; the Dart log brackets this call from the other side.
-        NSLog("[native_menu] open picker: asked %@, resolved %@, unresolved %@",
+        NSLog("[native_menu] open picker: asked %@, resolved %@, undeclared %@",
               extensions.joined(separator: ","),
               types.map { $0.identifier }.joined(separator: ","),
               unresolved.joined(separator: ","))

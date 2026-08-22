@@ -670,6 +670,38 @@ jobs:
             /usr/libexec/PlistBuddy -c "Add :UTExportedTypeDeclarations:$i:UTTypeTagSpecification:public.filename-extension:0 string $ext" $P
             i=$((i+1))
           done
+          # M232 — the mesh formats Open accepts. IMPORTED, not exported:
+          # STL, OBJ and 3MF are not ours, we only read them. The declaration
+          # matters for the same reason the two above do, and the failure mode
+          # is worse than "not matched": an undeclared extension resolves to a
+          # DYNAMIC identifier (dyn.ah62d4...), and handing those to
+          # UIDocumentPickerViewController took the app down on the tap, before
+          # any Dart ran. DocumentOpen.swift now refuses dynamic types as a
+          # safety net; this is what stops them being produced at all, and it
+          # also gets the files a proper name and icon in Files.
+          #
+          # STL and OBJ have well-known public identifiers, so these
+          # declarations defer to the system's if it has them. 3MF has none, so
+          # the identifier here is the one the 3MF Consortium uses.
+          /usr/libexec/PlistBuddy -c 'Add :UTImportedTypeDeclarations array' $P
+          j=0
+          for spec in \
+            "public.standard-tesselated-geometry-format:stl:STL Mesh:public.data" \
+            "public.geometry-definition-format:obj:Wavefront OBJ:public.data" \
+            "org.3mf.3dmanufacturing:3mf:3D Manufacturing Format:public.zip-archive"; do
+            uti=${spec%%:*}; r1=${spec#*:}; ext=${r1%%:*}
+            r2=${r1#*:}; desc=${r2%%:*}; conf=${r2#*:}
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j dict" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeIdentifier string $uti" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeDescription string $desc" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeConformsTo array" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeConformsTo:0 string $conf" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeTagSpecification dict" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeTagSpecification:public.filename-extension array" $P
+            /usr/libexec/PlistBuddy -c "Add :UTImportedTypeDeclarations:$j:UTTypeTagSpecification:public.filename-extension:0 string $ext" $P
+            j=$((j+1))
+          done
+          /usr/libexec/PlistBuddy -c 'Print :UTImportedTypeDeclarations' $P
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes array' $P
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0 dict' $P
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:CFBundleTypeName string Prototype Document' $P
@@ -678,6 +710,16 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSItemContentTypes array' $P
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string com.prototype.part' $P
           /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:0:LSItemContentTypes:1 string com.prototype.sketch' $P
+          # A second entry rather than more content types on the first: these
+          # are Viewer-rank imports, not documents this app owns.
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1 dict' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:CFBundleTypeName string Mesh' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:CFBundleTypeRole string Viewer' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:LSHandlerRank string Alternate' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:LSItemContentTypes array' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:LSItemContentTypes:0 string public.standard-tesselated-geometry-format' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:LSItemContentTypes:1 string public.geometry-definition-format' $P
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleDocumentTypes:1:LSItemContentTypes:2 string org.3mf.3dmanufacturing' $P
           /usr/libexec/PlistBuddy -c 'Print :UTExportedTypeDeclarations' $P
           # flutter create generates a template test referencing MyApp,
           # which doesn't exist in our app -> would fail flutter analyze

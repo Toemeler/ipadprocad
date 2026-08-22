@@ -383,7 +383,12 @@ class _HomeViewState extends State<HomeView> {
       // the app's own log ended on an unrelated line and there was no way to
       // tell the picker from anything else the user had touched. These two
       // lines put the crash inside a bracket.
-      Log.i('doc', 'open: presenting picker for ${kinds.join(",")}');
+      // Ask what these resolve to BEFORE presenting. See
+      // NativeMenu.probeContentTypes: a `dyn.` identifier means iOS has no
+      // declaration for that extension, and that is what the picker dies on.
+      final resolved = await NativeMenu.probeContentTypes(kinds);
+      Log.i('doc', 'open: presenting picker for ${kinds.join(",")}'
+          '${resolved.isEmpty ? "" : " -> ${resolved.join(" ")}"}');
       final picked = await NativeMenu.openInPlace(
           extensions: kinds, anchor: _globalRect(_plusKey));
       var path = picked?['path'];

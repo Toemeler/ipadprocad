@@ -227,6 +227,27 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 anchor: NativeMenuPlugin.parseRect(args["anchor"]),
                 result: result)
 
+        // M232 — what do these extensions actually resolve to?
+        //
+        // Presenting the picker is a native call that can end the process, so
+        // when it does, the app's log stops with nothing to say WHY. This is
+        // read-only and cannot crash, and Dart logs its answer before asking
+        // for the picker — so the next time the picker takes the app down, the
+        // log already says which content types it was handed. Guessing that
+        // twice was expensive.
+        case "probeContentTypes":
+            guard #available(iOS 14.0, *) else {
+                result([String]())
+                return
+            }
+            let exts = args["extensions"] as? [String] ?? []
+            result(exts.map { ext -> String in
+                guard let t = UTType(filenameExtension: ext) else {
+                    return "\(ext)=nil"
+                }
+                return "\(ext)=\(t.identifier)"
+            })
+
         case "resolveBookmark":
             guard #available(iOS 14.0, *),
                   let bm = args["bookmark"] as? String else {
