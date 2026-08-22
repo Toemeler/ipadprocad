@@ -2743,6 +2743,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         err = f.GetMessageString() ? f.GetMessageString()
                                    : "mesh preparation failed";
         return TopoDS_Shape();
+    } catch (const std::exception &e) {
+        err = e.what() ? e.what() : "mesh preparation failed";
+        return TopoDS_Shape();
+    } catch (...) {
+        err = "mesh preparation failed";
+        return TopoDS_Shape();
     }
 
     const double scale = m.diagonal;
@@ -2832,6 +2838,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         err =
             f.GetMessageString() ? f.GetMessageString() : "segmentation failed";
         return TopoDS_Shape();
+    } catch (const std::exception &e) {
+        err = e.what() ? e.what() : "segmentation failed";
+        return TopoDS_Shape();
+    } catch (...) {
+        err = "segmentation failed";
+        return TopoDS_Shape();
     }
 
     rep.patches = static_cast<int>(patches.size());
@@ -2891,6 +2903,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                     BuildAnalyticFace(ctx, m, patches[i], static_cast<int>(i),
                                       patchOf, surfs, faces);
             } catch (const Standard_Failure &) {
+                built = false;
+            } catch (const std::exception &) {
+                built = false;
+            } catch (...) {
+                /* One patch that will not build goes faceted. It never stops
+                 * the conversion, and it must never leave this loop. */
                 built = false;
             }
         }
