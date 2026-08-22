@@ -100,7 +100,7 @@ class DocumentOpener: NSObject, UIDocumentPickerDelegate {
             // type handed to UIDocumentPickerViewController is worse than
             // useless. M232 added stl, obj and 3mf, none of them declared,
             // and Open stopped surviving the tap.
-            guard let t, !t.identifier.hasPrefix("dyn.") else {
+            guard let t = t, !t.identifier.hasPrefix("dyn.") else {
                 unresolved.append(ext)
                 continue
             }

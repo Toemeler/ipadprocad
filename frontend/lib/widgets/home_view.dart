@@ -403,12 +403,18 @@ class _HomeViewState extends State<HomeView> {
       // NativeMenu.probeContentTypes: a `dyn.` identifier means iOS has no
       // declaration for that extension, and that is what the picker dies on.
       final resolved = await NativeMenu.probeContentTypes(kinds);
-      Log.i('doc', 'open: presenting picker for ${kinds.join(",")}'
+      // milestone, not i: buffered logging is flushed every 400 ms, so after a
+      // hard native kill the log's last line is whatever happened to be on
+      // disk — NOT where the app died. See Log.milestone.
+      Log.milestone(
+          'doc',
+          'open: presenting picker for ${kinds.join(",")}'
           '${resolved.isEmpty ? "" : " -> ${resolved.join(" ")}"}');
       final picked = await NativeMenu.openInPlace(
           extensions: kinds, anchor: _globalRect(_plusKey));
       var path = picked?['path'];
-      Log.i('doc', 'open: picker returned ${path == null ? "nothing" : path}');
+      Log.milestone(
+          'doc', 'open: picker returned ${path == null ? "nothing" : path}');
       if (path == null && !NativeMenu.isSupported) {
         final res = await FilePicker.platform
             .pickFiles(type: FileType.custom, allowedExtensions: kinds);

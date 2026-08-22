@@ -2134,7 +2134,7 @@ class AppState extends ChangeNotifier {
     if (_docsDir == null) return null;
     final action =
         openActionFor(path, _docsDir!.path, volatileDirs: _volatileDirs);
-    Log.i('doc', 'open "$path" -> ${action.name}');
+    Log.milestone('doc', 'open "$path" -> ${action.name}');
     switch (action) {
       case OpenAction.unsupported:
         toast(L.current.msgCannotOpenKind);
@@ -13002,6 +13002,13 @@ class AppState extends ChangeNotifier {
       return 0;
     }
 
+    // Every step from here to the kernel gets a milestone, because every one
+    // of them can end the process without an exception Dart could catch: a
+    // large file is read whole into memory, and the conversion is native. An
+    // iOS app killed for memory leaves no crash report at all, so a line that
+    // simply stops is the only evidence there will be.
+    Log.milestone('import',
+        'mesh: reading "$path" (rss ${Log.rssMb() ?? -1} MB)');
     final MeshSoup soup;
     try {
       soup = loadMeshFile(path);
@@ -13014,7 +13021,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgMeshUnreadable);
       return 0;
     }
-    Log.i(
+    Log.milestone(
         'import',
         'mesh ${soup.format}: ${soup.triangleCount} tri, '
             '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
@@ -13037,8 +13044,12 @@ class AppState extends ChangeNotifier {
     toast(L.current.msgMeshConverting(soup.triangleCount));
     await Future<void>.delayed(const Duration(milliseconds: 16));
 
+    Log.milestone('import',
+        'mesh: >> kernel convert (rss ${Log.rssMb() ?? -1} MB)');
     final res = partKernel.meshToBrep(soup.vertices, soup.triangles);
-    Log.i('import', res.report.describe());
+    Log.milestone('import',
+        'mesh: << kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+    Log.milestone('import', res.report.describe());
     final solid = res.solid;
     if (solid == null) {
       toast(_meshConvertFailure(res));
@@ -13053,6 +13064,7 @@ class AppState extends ChangeNotifier {
       final dot = base.lastIndexOf('.');
       if (dot > 0) base = base.substring(0, dot);
       final dst = File('${dir.path}/$base.step');
+      Log.milestone('import', 'mesh: >> write ${dst.path}');
       if (partKernel.exportStep([solid], dst.path)) {
         rel = 'imports/$base.step';
       } else {
@@ -13084,6 +13096,7 @@ class AppState extends ChangeNotifier {
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);
+    Log.milestone('import', 'mesh: done (rss ${Log.rssMb() ?? -1} MB)');
     toast(_meshSuccessMessage(res.report));
     notifyListeners();
     return 1;

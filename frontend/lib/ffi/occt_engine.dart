@@ -1438,8 +1438,17 @@ class OcctFfi {
     final pInts = calloc<Int32>(_kMeshReportInts);
     final pReals = calloc<Double>(_kMeshReportReals);
     try {
-      pXyz.asTypedList(nv * 3).setAll(0, xyz);
-      pTri.asTypedList(nt * 3).setAll(0, triangles);
+      // setRange, NOT setAll. The buffers are nv*3 and nt*3 long, and those
+      // are FLOORED divisions — a list whose length is not a multiple of three
+      // is one or two elements longer than the buffer made for it, and setAll
+      // copies all of it. That writes past the end of a calloc'd block, which
+      // is heap corruption at an FFI boundary: it does not fail here, it fails
+      // later, somewhere unrelated, with nothing to connect it back.
+      //
+      // mesh_io never produces a ragged list today. This does not depend on
+      // that staying true.
+      pXyz.asTypedList(nv * 3).setRange(0, nv * 3, xyz);
+      pTri.asTypedList(nt * 3).setRange(0, nt * 3, triangles);
       final h = _brepFromMesh(pXyz, nv, pTri, nt, mode, tolFraction,
           sharpDegrees, maxFacetedTriangles, pInts, pReals);
       // The report is filled in even when the conversion failed — that is the

@@ -14,6 +14,8 @@
 #include "occt_capi.h"
 #include "mesh_recon.h"
 
+#include <OSD.hxx>
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -3364,6 +3366,40 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
 
 /* ---- v21 (M232): mesh -> B-Rep ------------------------------------------ */
 
+/* Turns OCCT's own faults into exceptions this shim can catch.
+ *
+ * Without it, a fault INSIDE OCCT — a null dereference, a bad access, a
+ * division by zero in some algorithm handed geometry it did not expect — is a
+ * raw SIGSEGV. The process dies. Not an exception, so none of the catch
+ * clauses below ever run; not a Dart error, so the app's log ends mid-line
+ * with no explanation and iOS files it as no crash at all.
+ *
+ * With it, the same fault arrives as an OSD_Signal, which derives from
+ * Standard_Failure, which every entry point here already catches. The user
+ * gets a sentence instead of a dead app.
+ *
+ * Standard_False: do NOT trap floating-point exceptions. Geometry code
+ * produces the occasional NaN or infinity in the ordinary course of
+ * converging a fit, and turning those into crashes would be trading one bad
+ * failure for a worse one.
+ *
+ * Idempotent and lazy rather than a static initialiser: the handlers are
+ * installed on the calling thread, and this shim is called from exactly one
+ * (the header says so), so installing them on first use is both correct and
+ * easier to reason about than static-init order across a static library. */
+static void ensure_signal_handlers()
+{
+    static bool done = false;
+    if (done) return;
+    done = true;
+    try {
+        OSD::SetSignal(Standard_False);
+    } catch (...) {
+        /* An old or restricted platform that will not let us install them.
+         * Nothing to do but carry on without the safety net. */
+    }
+}
+
 extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                                            const int *tri, int nt,
                                            int mode, double tol_frac,
@@ -3372,6 +3408,7 @@ extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                                            double *report_reals)
 {
     OCCT_TRY("occt_brep_from_mesh")
+    ensure_signal_handlers();
     meshrecon::Report rep;
     meshrecon::ClearReport(rep);
 
