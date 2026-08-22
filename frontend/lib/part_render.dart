@@ -273,8 +273,16 @@ class SceneSolid {
 
 /// Projects [solid] with per-vertex Gouraud shades. Backfacing triangles are
 /// included (front = false) so silhouette detection can see both sides.
+/// M240 — [depthBias] is added to every projected depth.
+///
+/// An assembly draws each component through a SHIFTED camera, which gets the
+/// projection exactly right (see [shiftedCam]) and leaves the depths measured
+/// from the component's own origin. Adding the placement's own depth back puts
+/// every component into ONE depth space, which is what lets a single
+/// [SceneOccluders] hide one component behind another — and lets the shaded
+/// triangles of the whole assembly go through one sort.
 SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
-    {bool preview = false}) {
+    {bool preview = false, double depthBias = 0}) {
   final m = solid.mesh;
   final light = solidLight(cam);
   final tris = <SceneTri>[];
@@ -306,9 +314,9 @@ SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
         cam.project(w0),
         cam.project(w1),
         cam.project(w2),
-        cam.depth(w0),
-        cam.depth(w1),
-        cam.depth(w2),
+        cam.depth(w0) + depthBias,
+        cam.depth(w1) + depthBias,
+        cam.depth(w2) + depthBias,
         shadeAt(i0),
         shadeAt(i1),
         shadeAt(i2),
@@ -649,7 +657,9 @@ void _strokeRuns(Canvas canvas, Path path, Color color) {
 
 void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
     SceneOccluders occ, Color color,
-    {Set<int> accent = const {}, Color? accentColor}) {
+    {Set<int> accent = const {},
+    bool accentAll = false,
+    Color? accentColor}) {
   final ac = accentColor ?? kEdgeAccent;
   final m = scene.solid.mesh;
   var ei = -1;
@@ -658,7 +668,7 @@ void _paintSolidEdges(Canvas canvas, Cam3 cam, SceneSolid scene,
     // display index the accent set is expressed in.
     ei++;
     // Cannot shadow the parameter, so name it for what it is.
-    final edgeColor = accent.contains(ei) ? ac : color;
+    final edgeColor = (accentAll || accent.contains(ei)) ? ac : color;
     if (e.type == kEdgeOther) {
       // adaptive polyline fallback with per-point visibility
       final n = e.polyEnd - e.polyStart;
@@ -781,6 +791,14 @@ void paintPartSolids(
   KernelSolid? accentSolid,
   Set<int> accentEdges = const {},
   Color? accentColor,
+
+  /// M240 — accent EVERY display edge of EVERY solid drawn.
+  ///
+  /// [accentSolid]/[accentEdges] name one solid and the handful of edges the
+  /// user picked inside it, which is right for a fillet. A SELECTED ASSEMBLY
+  /// COMPONENT is "all of it", and spelling that as a set at the call site
+  /// would only rebuild the edge list the painter is about to walk anyway.
+  bool accentAll = false,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   final occ = SceneOccluders(opaque);
@@ -826,8 +844,10 @@ void paintPartSolids(
         accent: (accentSolid != null && identical(s.solid, accentSolid))
             ? accentEdges
             : const {},
+        accentAll: accentAll,
         accentColor: accentColor);
-    _paintSolidSilhouettes(canvas, cam, s, occ, kSolidEdge);
+    _paintSolidSilhouettes(canvas, cam, s, occ,
+        accentAll ? (accentColor ?? kEdgeAccent) : kSolidEdge);
   }
 
   // 4. translucent live preview on top (its own sort; edges dimmed and only
@@ -846,6 +866,124 @@ void paintPartSolids(
     _paintSolidSilhouettes(canvas, cam, pv, occ, dim);
   }
 }
+
+// ---------------------------------------------------------------------------
+// M240 — assemblies
+//
+// A placed component is the source part's geometry SHIFTED, and nothing else
+// (see lib/assembly.dart for why there is no rotation yet). An orthographic
+// projection is affine, so "shifted geometry" and "shifted camera" are the
+// same picture:
+//
+//     project(w + t) = ((w + t)·s - ox) / k  =  (w·s - (ox - t·s)) / k
+//
+// which is exactly [shiftedCam]. That identity is what lets an assembly reuse
+// [paintPartSolids] verbatim instead of copying a mesh per component per
+// frame — the drag would otherwise rebuild every vertex buffer it touches.
+// ---------------------------------------------------------------------------
+
+/// One placed component: where it sits, and the solids it is made of.
+typedef PlacedComponent = (Vec3, List<KernelSolid>);
+
+/// [cam] as seen by geometry translated by [t] — see the note above.
+Cam3 shiftedCam(Cam3 cam, Vec3 t) => Cam3.basis(
+      dir: cam.dir,
+      s: cam.s,
+      u: cam.u,
+      halfH: cam.halfH,
+      ox: cam.ox - t.dot(cam.s),
+      oy: cam.oy - t.dot(cam.u),
+      size: cam.size,
+    );
+
+/// Draws every component of an assembly, and hands back the occluder it built
+/// so the caller can draw origin planes and axes THROUGH the model the way the
+/// part viewport does. Null when there is nothing to occlude.
+///
+/// One pass over all components rather than one [paintPartSolids] call each:
+/// that is what makes the depth right BETWEEN components as well as inside
+/// one. Every component's triangles land in one sorted buffer and one
+/// occluder, in a single depth space (see [buildSceneSolid]'s depthBias), so a
+/// component behind another is hidden by it — including its edges. Sorting
+/// components by their origin and painting them in turn, which is what this
+/// did first, gets that wrong for any two components that overlap on screen.
+///
+/// [selected] is an index into [placed]; that component's edges are drawn in
+/// the accent colour, which is how the viewport shows what a drag will move.
+SceneOccluders? paintAssemblySolids(
+  Canvas canvas,
+  Cam3 cam,
+  List<PlacedComponent> placed, {
+  int selected = -1,
+  Color? accentColor,
+}) {
+  // (component index, its solids projected through its own shifted camera)
+  final scenes = <(int, SceneSolid)>[];
+  for (var i = 0; i < placed.length; i++) {
+    final (at, solids) = placed[i];
+    final sc = shiftedCam(cam, at);
+    final bias = cam.depth(at);
+    for (final s in solids) {
+      scenes.add((i, buildSceneSolid(s, sc, depthBias: bias)));
+    }
+  }
+  if (scenes.isEmpty) return null;
+  final occ = SceneOccluders([for (final (_, s) in scenes) s]);
+
+  // 1. shaded faces of the WHOLE assembly, one watertight sorted buffer
+  _drawShaded(
+      canvas,
+      [
+        for (final (_, s) in scenes)
+          for (final t in s.tris)
+            if (t.front) t
+      ],
+      255);
+
+  // 2. edges + silhouettes over the shading, against the shared occluder
+  for (final (i, s) in scenes) {
+    final on = i == selected;
+    // The EDGES are drawn through the component's own shifted camera: the
+    // occluder is in screen space and shared, but where an edge lands is the
+    // component's own business.
+    final sc = shiftedCam(cam, placed[i].$1);
+    _paintSolidEdges(canvas, sc, s, occ, kSolidEdge,
+        accentAll: on, accentColor: accentColor);
+    _paintSolidSilhouettes(
+        canvas, sc, s, occ, on ? (accentColor ?? kEdgeAccent) : kSolidEdge);
+  }
+  return occ;
+}
+
+/// [fitThumbCamera] for an assembly: the same fixed top-front-right view,
+/// framed to every component's PLACED geometry.
+PartCamera fitAssemblyThumbCamera(List<PlacedComponent> placed, Size size) =>
+    _fitThumb(size, _walkPlaced(placed));
+
+/// Frames [placed] in [cam] WITHOUT touching its orientation — Inventor's Zoom
+/// All, which is what placing a component runs.
+///
+/// The thumbnail's twin ([fitAssemblyThumbCamera]) chooses the view direction
+/// as well, because a gallery card should look the same however the user left
+/// the model turned. In the viewport the opposite is true: the user turned it
+/// deliberately, and only the pan and the zoom are ours to set.
+void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
+  if (placed.isEmpty) return;
+  _fitInto(cam, size, _walkPlaced(placed));
+}
+
+/// Every placed vertex of [placed], in world coordinates.
+void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
+    (add) {
+      for (final (at, solids) in placed) {
+        for (final sol in solids) {
+          final pos = sol.mesh.positions;
+          for (var i = 0; i + 2 < pos.length; i += 3) {
+            add(Vec3(pos[i] + at.x, pos[i + 1] + at.y, pos[i + 2] + at.z));
+          }
+        }
+      }
+    };
 
 /// M59 Phase 3: the part's solids rendered UNDER the 2D sketch editor, seen
 /// straight down the sketch frame with the editor's own pan/zoom mapping —
@@ -1027,29 +1165,48 @@ Vec3 get thumbCameraDir =>
 /// the same in the gallery no matter where the user left it rotated — and
 /// identical whether the picture is produced by the CPU painter or by the
 /// RealityKit snapshot, since both are handed THIS camera.
-PartCamera fitThumbCamera(List<KernelSolid> solids, Size size) {
+PartCamera fitThumbCamera(List<KernelSolid> solids, Size size) =>
+    _fitThumb(size, (add) {
+      for (final sol in solids) {
+        final pos = sol.mesh.positions;
+        for (var i = 0; i + 2 < pos.length; i += 3) {
+          add(Vec3(pos[i], pos[i + 1], pos[i + 2]));
+        }
+      }
+    });
+
+/// The framing itself, over whatever world points [walk] offers.
+///
+/// M240 — split out of [fitThumbCamera] so an assembly can be framed by the
+/// same rule with its components' PLACEMENTS folded in. The camera is
+/// identical for a part either way: the walk is the only difference.
+PartCamera _fitThumb(Size size, void Function(void Function(Vec3)) walk) {
   final cam = PartCamera(az: kThumbAz, pol: kThumbPol);
+  _fitInto(cam, size, walk);
+  return cam;
+}
+
+/// Sets [cam]'s pan and zoom so the points [walk] offers fill [size] at
+/// [kThumbFill]. The ORIENTATION is read, never written.
+void _fitInto(
+    PartCamera cam, Size size, void Function(void Function(Vec3)) walk) {
   // A provisional Cam3 gives the screen-space right/up basis (s, u) to measure
   // the silhouette against before committing pan/zoom.
   final basis = Cam3(cam, size);
   double minS = 1e30, maxS = -1e30, minU = 1e30, maxU = -1e30;
-  for (final sol in solids) {
-    final pos = sol.mesh.positions;
-    for (var i = 0; i + 2 < pos.length; i += 3) {
-      final v = Vec3(pos[i], pos[i + 1], pos[i + 2]);
-      final su = v.dot(basis.s), uv = v.dot(basis.u);
-      minS = math.min(minS, su);
-      maxS = math.max(maxS, su);
-      minU = math.min(minU, uv);
-      maxU = math.max(maxU, uv);
-    }
-  }
-  if (minS > maxS) return cam; // no finite vertices — leave defaults
+  walk((v) {
+    final su = v.dot(basis.s), uv = v.dot(basis.u);
+    if (!su.isFinite || !uv.isFinite) return;
+    minS = math.min(minS, su);
+    maxS = math.max(maxS, su);
+    minU = math.min(minU, uv);
+    maxU = math.max(maxU, uv);
+  });
+  if (minS > maxS) return; // no finite vertices — leave the camera alone
   cam.ox = (minS + maxS) / 2;
   cam.oy = (minU + maxU) / 2;
   final hx = (maxS - minS) / 2, hy = (maxU - minU) / 2;
   final aspect = size.width / size.height;
   final halfH = math.max(hy, hx / (aspect <= 0 ? 1 : aspect)) / kThumbFill;
-  cam.halfH = halfH > 1e-6 ? halfH : 27;
-  return cam;
+  cam.halfH = PartCamera.clampHalfH(halfH > 1e-6 ? halfH : 27);
 }

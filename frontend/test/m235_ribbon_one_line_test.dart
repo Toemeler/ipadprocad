@@ -40,6 +40,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/l10n/l.dart';
+import 'package:prototype/assembly.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/widgets/ribbon.dart';
 
@@ -77,6 +78,17 @@ AppState _partApp() {
   app.docsDirForTest = Directory.systemTemp.createTempSync('ipc_m235p');
   app.parts['p'] = PartModel('Part1');
   app.curTab = 'p';
+  return app;
+}
+
+/// M240 — the assembly tab. It is held to the same rule as the other three:
+/// German labels are longer, and "Abhängig machen" is the longest label the
+/// app has ever put under a ribbon icon.
+AppState _assemblyApp() {
+  final app = AppState();
+  app.docsDirForTest = Directory.systemTemp.createTempSync('ipc_m235a');
+  app.assemblies['a'] = AssemblyModel('Assembly1');
+  app.curTab = 'a';
   return app;
 }
 
@@ -157,6 +169,7 @@ void main() {
     ('the home ribbon', _homeApp),
     ('the sketch ribbon', _sketchApp),
     ('the part ribbon', _partApp),
+    ('the assembly ribbon', _assemblyApp),
   ]) {
     // Both languages, because the fix has two halves to prove. German is the
     // one that was broken. English is the one that must not have MOVED: every

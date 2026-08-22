@@ -27,9 +27,14 @@ List<GlassTab> buildTabs(AppState app) => [
           id: t,
           label: t,
           // Same glyph vocabulary as the model browser: a part is a cube, a
-          // sketch is stacked squares. Two panels naming the same thing two
-          // different ways is worse than either name.
-          symbol: app.parts.containsKey(t) ? 'cube' : 'square.on.square',
+          // sketch is stacked squares, an assembly is cubes on cubes. Two
+          // panels naming the same thing two different ways is worse than
+          // either name.
+          symbol: app.assemblies.containsKey(t)
+              ? 'square.stack.3d.up'
+              : app.parts.containsKey(t)
+                  ? 'cube'
+                  : 'square.on.square',
           selected: !app.isHome && app.curTab == t,
           closable: true,
         ),

@@ -3166,4 +3166,83 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get lblLineGeo => 'Linie';
+
+  @override
+  String get panelComponent => 'Komponente';
+
+  @override
+  String get panelPosition => 'Position';
+
+  @override
+  String get panelRelationships => 'Beziehungen';
+
+  @override
+  String get btnPlace => 'Platzieren';
+
+  @override
+  String get btnCreateComponent => 'Erstellen';
+
+  @override
+  String get btnFreeMove => 'Frei bewegen';
+
+  @override
+  String get btnFreeRotate => 'Frei drehen';
+
+  @override
+  String get btnJoint => 'Gelenk';
+
+  @override
+  String get btnConstrain => 'Abhängig machen';
+
+  @override
+  String get btnShowRelationships => 'Einblenden';
+
+  @override
+  String get btnShowSick => 'Fehlerhafte';
+
+  @override
+  String get btnHideAll => 'Alle ausblenden';
+
+  @override
+  String get btnPatternComponent => 'Anordnung';
+
+  @override
+  String get galleryNewAssembly => 'Neue Baugruppe';
+
+  @override
+  String get dlgNewAssembly => 'Neue Baugruppe';
+
+  @override
+  String get phAssemblyName => 'Baugruppenname';
+
+  @override
+  String get nodeRepresentations => 'Darstellungen';
+
+  @override
+  String get nodeRelationships => 'Beziehungen';
+
+  @override
+  String get dlgPlaceComponent => 'Komponente platzieren';
+
+  @override
+  String get msgAsmNoPartsToPlace =>
+      'Erstellen Sie zuerst ein 3D-Bauteil — es gibt nichts zu platzieren.';
+
+  @override
+  String msgAsmNoSuchPart(String name) {
+    return '„$name“ ist kein Bauteil.';
+  }
+
+  @override
+  String msgAsmCouldNotPlace(String name) {
+    return '„$name“ konnte nicht platziert werden.';
+  }
+
+  @override
+  String msgAsmGrounded(String name) {
+    return '„$name“ ist fixiert.';
+  }
+
+  @override
+  String get ctxGrounded => 'Fixiert';
 }

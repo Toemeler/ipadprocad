@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
 
 import '../app_state.dart';
 import '../l10n/l.dart';
@@ -641,9 +642,11 @@ class _RibbonState extends State<Ribbon> {
       clipBehavior: Clip.hardEdge,
       child: app.isHome
           ? _homeRibbon(app)
-          : (app.currentPart != null && app.activeChild == null
-              ? _partRibbon(app)
-              : _sketchRibbon(app)),
+          : app.currentAssembly != null
+              ? _assemblyRibbon(app)
+              : (app.currentPart != null && app.activeChild == null
+                  ? _partRibbon(app)
+                  : _sketchRibbon(app)),
     );
 
     return RibbonMeasure(
@@ -931,6 +934,192 @@ class _RibbonState extends State<Ribbon> {
         ),
       ]),
     );
+  }
+
+  // ---- M240: the ASSEMBLY ribbon (Inventor's Assemble tab).
+  //
+  // Component / Position / Relationships / Pattern / Work Features, in
+  // Inventor's own order and with Inventor's own wording. ONE command is
+  // wired — Place — and every other button is drawn in Inventor's DISABLED
+  // state rather than folded behind a ▼ (see [_Big.enabled] for why this tab
+  // gets that third option and the part ribbon does not).
+  //
+  // Work Features reuses the part ribbon's WF icons and its Plane/Axis/Point/
+  // UCS layout unchanged: an assembly work plane IS a part work plane placed
+  // in another document, so drawing it a second way would be inventing a
+  // difference that is not there.
+  Widget _assemblyRibbon(AppState app) {
+    final t = L.of(context);
+    // Small rows, all disabled: the assembly tab has no built command that
+    // lives in one, so this takes no callback at all. When one arrives it
+    // takes the shape [_partRibbon.colActive] already has.
+    Widget offCol(List<(String, String)> rows, {double leftPad = 8}) => Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      enabled: false,
+                      onTap: null),
+                ]
+              ]),
+        );
+    return IntrinsicHeight(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // ---- Component: Place (wired) + Create -----------------------------
+        _panel(
+          label: t.panelComponent,
+          arrow: true,
+          first: true,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // The drop chip is Inventor's: Place has a list behind it (Place
+            // Component / Place from Content Center / Place Imported CAD).
+            // Only the default action exists here, so the chip runs the same
+            // command the body does rather than opening an empty menu.
+            _Big(
+                label: t.btnPlace,
+                icon: AS['place']!,
+                onDefault: () => _placeComponent(app),
+                active: _placing),
+            _BigWide(
+                width: 58,
+                icon: AS['create']!,
+                label: t.btnCreateComponent,
+                enabled: false),
+          ]),
+        ),
+        // ---- Position: Free Move / Free Rotate -----------------------------
+        //
+        // Both greyed, and the viewport still drags a component: Inventor's
+        // Free Move is the COMMAND (pick, then move, then it stays where the
+        // command put it), while dragging an unconstrained component with the
+        // pointer is plain direct manipulation and needs no command at all.
+        // The second is what ViewportAssembly does; the first is not built.
+        _panel(
+          label: t.panelPosition,
+          arrow: true,
+          child: offCol([
+            (AS['freemove']!, t.btnFreeMove),
+            (AS['freerotate']!, t.btnFreeRotate),
+          ], leftPad: 2),
+        ),
+        // ---- Relationships: Joint / Constrain + Show / Show Sick / Hide All
+        _panel(
+          label: t.panelRelationships,
+          arrow: true,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _BigWide(
+                width: 52,
+                icon: AS['joint']!,
+                label: t.btnJoint,
+                enabled: false),
+            _BigWide(
+                width: 62,
+                icon: AS['constrain']!,
+                label: t.btnConstrain,
+                enabled: false),
+            offCol([
+              (AS['show']!, t.btnShowRelationships),
+              (AS['showsick']!, t.btnShowSick),
+              (AS['hideall']!, t.btnHideAll),
+            ]),
+          ]),
+        ),
+        // ---- Pattern: Pattern / Mirror / Copy ------------------------------
+        _panel(
+          label: t.panelPattern,
+          arrow: true,
+          child: offCol([
+            (PT['rect']!, t.btnPatternComponent),
+            (PT['mirror']!, t.btnMirror),
+            (AS['copy']!, t.btnCopy),
+          ], leftPad: 2),
+        ),
+        // ---- Work Features: the part ribbon's panel, all four inert --------
+        _panel(
+          label: t.panelWorkFeatures,
+          arrow: false,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _Big(
+                label: t.btnPlane,
+                icon: WF['plane']!,
+                enabled: false),
+            offCol([
+              (WF['axis']!, t.btnAxis),
+              (WF['point']!, t.btnPoint),
+              (WF['ucs']!, t.btnUcs),
+            ]),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  /// True while the Place picker is up, so the button stays lit under it the
+  /// way every other open command's button does (M210).
+  bool _placing = false;
+
+  /// Place Component: pick a part from the gallery, drop it into the assembly.
+  ///
+  /// The picker is the NATIVE action sheet on iOS and a Flutter menu
+  /// elsewhere, exactly like the gallery's "+" — one list of documents to
+  /// choose from is the same problem, and having it behave differently in the
+  /// one place it is reached from the ribbon would be gratuitous.
+  Future<void> _placeComponent(AppState app) async {
+    final t = L.of(context);
+    final parts = app.placeableParts();
+    if (parts.isEmpty) {
+      app.toast(t.msgAsmNoPartsToPlace);
+      return;
+    }
+    final box = context.findRenderObject();
+    final anchor = box is RenderBox
+        ? box.localToGlobal(Offset.zero) & box.size
+        : Rect.zero;
+    setState(() => _placing = true);
+    try {
+      String? pick;
+      if (NativeMenu.isSupported) {
+        pick = await NativeMenu.menu(
+          items: [
+            for (final n in parts)
+              NativeMenuItem(id: 'p:$n', title: n, symbol: 'cube'),
+          ],
+          anchor: anchor,
+          cancelLabel: t.cancel,
+        );
+      } else {
+        pick = await showMenu<String>(
+          context: context,
+          color: T.fly,
+          position: RelativeRect.fromLTRB(
+              anchor.left + 8, anchor.bottom, anchor.right, anchor.bottom),
+          items: [
+            for (final n in parts)
+              PopupMenuItem(
+                value: 'p:$n',
+                height: 40,
+                child: Row(children: [
+                  svg(part3dMenuIcon, 18),
+                  const SizedBox(width: 10),
+                  Text(n, style: ts(12.5, T.text)),
+                ]),
+              ),
+          ],
+        );
+      }
+      if (!mounted) return;
+      if (pick != null && pick.startsWith('p:')) {
+        await app.placeComponent(pick.substring(2));
+      }
+    } finally {
+      if (mounted) setState(() => _placing = false);
+    }
   }
 
   Widget _sketchRibbon(AppState app) {
@@ -1509,14 +1698,29 @@ class _Big extends StatelessWidget {
   final bool showDd;
   final bool active;
   final VoidCallback? onDefault; // button body = default tool (Inventor)
+
+  /// M240 — Inventor's DISABLED state, and the honest middle ground between
+  /// M216's two options.
+  ///
+  /// M216's rule is that a command which does nothing must not take permanent
+  /// ribbon width: it goes behind the panel's ▼, where _OverRow draws it
+  /// dimmed and untappable. That rule assumes the panel around it is real. The
+  /// assembly tab is a LAYOUT being built — the whole point of it is that the
+  /// panels stand where Inventor's stand — so folding eleven of its twelve
+  /// commands away would leave a tab that shows nothing of what it is going to
+  /// be. Inventor itself draws these greyed rather than hidden (Free Move,
+  /// Free Rotate and Show Sick are greyed in an empty assembly), so the third
+  /// state is Inventor's own, not an excuse: dimmed, no hover, no tap, no lie.
+  final bool enabled;
   const _Big({this.id, required this.label, required this.icon, this.onFly,
-      this.active = false, this.onDefault})
+      this.active = false, this.onDefault, this.enabled = true})
       : showDd = true;
   const _Big.plain({required this.label, required this.icon})
       : id = null,
         onFly = null,
         showDd = false,
         active = false,
+        enabled = true,
         onDefault = null;
 
   @override
@@ -1542,17 +1746,19 @@ class _Big extends StatelessWidget {
         constraints: const BoxConstraints(minWidth: 62),
         child: _Hover(
           activeHighlight: active,
-          onTap: onDefault ??
-              (id != null && onFly != null ? () => onFly!(id!, ctx) : null),
+          onTap: !enabled
+              ? null
+              : onDefault ??
+                  (id != null && onFly != null ? () => onFly!(id!, ctx) : null),
           child: Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              svg(icon, 34),
+              _dimmable(svg(icon, 34), enabled),
               const SizedBox(height: 3),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5),
                 child: Text(label,
-                    style: ts(11.5, T.text),
+                    style: ts(11.5, enabled ? T.text : T.dim),
                     textAlign: TextAlign.center,
                     // A hard '\n' still breaks; only SOFT wrapping is off.
                     // That is the whole distinction being drawn here: a label
@@ -1566,7 +1772,7 @@ class _Big extends StatelessWidget {
                 // ribbon taller for nothing.
                 _DropChip(
                   width: 46,
-                  onTap: id != null && onFly != null
+                  onTap: enabled && id != null && onFly != null
                       ? () => onFly!(id!, ctx)
                       : null,
                 ),
@@ -1584,12 +1790,16 @@ class _BigWide extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final bool active;
+
+  /// See [_Big.enabled] — Inventor's greyed state, for the assembly tab.
+  final bool enabled;
   const _BigWide(
       {required this.width,
       required this.icon,
       required this.label,
       this.onTap,
-      this.active = false});
+      this.active = false,
+      this.enabled = true});
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
@@ -1597,19 +1807,19 @@ class _BigWide extends StatelessWidget {
       // layout was tuned to, not a cap the German has to fit inside.
       constraints: BoxConstraints(minWidth: width),
       child: _Hover(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         activeHighlight: active,
         child: Stack(children: [
           Padding(
             padding: const EdgeInsets.only(top: 6, bottom: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Center(child: svg(icon, 34)),
+              Center(child: _dimmable(svg(icon, 34), enabled)),
               const SizedBox(height: 3),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5),
                 child: Text(label,
                     textAlign: TextAlign.center,
-                    style: ts(11.5, T.text, height: 1.15),
+                    style: ts(11.5, enabled ? T.text : T.dim, height: 1.15),
                     // The six deliberate two-line labels (btnCreateNewSketch,
                     // btnStart2dSketch, btnStartNewLayer, btnProjectGeometry,
                     // btnSliceGraphics, btnFinishSketch) carry their own '\n'
@@ -1625,6 +1835,16 @@ class _BigWide extends StatelessWidget {
   }
 }
 
+/// A ribbon glyph in its disabled state.
+///
+/// Opacity rather than a grey re-draw: the icons are multi-colour SVG strings
+/// (steel, blue, the green "new" marker), and a colour filter over that comes
+/// out as a muddy smear where the eye still has to tell Place from Create.
+/// Fading keeps the SHAPE readable, which is what a disabled icon has to do —
+/// it says "this command, not yet", not "some button".
+Widget _dimmable(Widget child, bool enabled) =>
+    enabled ? child : Opacity(opacity: 0.38, child: child);
+
 /// Width of the flyout chip in a [_SmallRow] (Fillet, Text, ...) — and of the
 /// blank that keeps rows without one in line. UNCHANGED from the bare glyph it
 /// replaced, on purpose: this column's width is ribbon width, and the ribbon
@@ -1639,12 +1859,15 @@ class _SmallRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool active;
 
+  /// See [_Big.enabled] — Inventor's greyed state, for the assembly tab.
+  final bool enabled;
+
   /// Replaces the SVG when the glyph is not an icon — Parameters uses
   /// Inventor's italic "fx", which is type, not artwork.
   final Widget? iconWidget;
   const _SmallRow(
       {required this.icon, required this.label, this.flyId, this.onFly,
-      this.onTap, this.active = false, this.iconWidget});
+      this.onTap, this.active = false, this.enabled = true, this.iconWidget});
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -1653,16 +1876,18 @@ class _SmallRow extends StatelessWidget {
         _Hover(
           hoverBorder: false,
           activeHighlight: active,
-          onTap: onTap,
+          onTap: enabled ? onTap : null,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               SizedBox(
                   width: 18,
                   height: 18,
-                  child: Center(child: iconWidget ?? svg(icon, 18))),
+                  child: Center(
+                      child: _dimmable(iconWidget ?? svg(icon, 18), enabled))),
               const SizedBox(width: 6),
-              Text(label, style: ts(12.5, T.text), softWrap: false),
+              Text(label,
+                  style: ts(12.5, enabled ? T.text : T.dim), softWrap: false),
             ]),
           ),
         ),
@@ -1671,7 +1896,9 @@ class _SmallRow extends StatelessWidget {
           // used to hold a 7.5-px glyph was the hardest target in the app. The
           // placeholder keeps the SAME width so rows without a flyout still
           // line up with the ones that have one.
-          if (flyId == null) return const SizedBox(width: _smallDropWidth);
+          if (flyId == null || !enabled) {
+            return const SizedBox(width: _smallDropWidth);
+          }
           return _DropChip(
             width: _smallDropWidth,
             onTap: () => onFly!(flyId!, ctx),

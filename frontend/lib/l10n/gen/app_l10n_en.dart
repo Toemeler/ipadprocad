@@ -3121,4 +3121,83 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get lblLineGeo => 'Line';
+
+  @override
+  String get panelComponent => 'Component';
+
+  @override
+  String get panelPosition => 'Position';
+
+  @override
+  String get panelRelationships => 'Relationships';
+
+  @override
+  String get btnPlace => 'Place';
+
+  @override
+  String get btnCreateComponent => 'Create';
+
+  @override
+  String get btnFreeMove => 'Free Move';
+
+  @override
+  String get btnFreeRotate => 'Free Rotate';
+
+  @override
+  String get btnJoint => 'Joint';
+
+  @override
+  String get btnConstrain => 'Constrain';
+
+  @override
+  String get btnShowRelationships => 'Show';
+
+  @override
+  String get btnShowSick => 'Show Sick';
+
+  @override
+  String get btnHideAll => 'Hide All';
+
+  @override
+  String get btnPatternComponent => 'Pattern';
+
+  @override
+  String get galleryNewAssembly => 'New Assembly';
+
+  @override
+  String get dlgNewAssembly => 'New assembly';
+
+  @override
+  String get phAssemblyName => 'Assembly name';
+
+  @override
+  String get nodeRepresentations => 'Representations';
+
+  @override
+  String get nodeRelationships => 'Relationships';
+
+  @override
+  String get dlgPlaceComponent => 'Place Component';
+
+  @override
+  String get msgAsmNoPartsToPlace =>
+      'Create a 3D part first — there is nothing to place.';
+
+  @override
+  String msgAsmNoSuchPart(String name) {
+    return 'There is no part named “$name”.';
+  }
+
+  @override
+  String msgAsmCouldNotPlace(String name) {
+    return 'Could not place “$name”.';
+  }
+
+  @override
+  String msgAsmGrounded(String name) {
+    return '“$name” is grounded.';
+  }
+
+  @override
+  String get ctxGrounded => 'Grounded';
 }

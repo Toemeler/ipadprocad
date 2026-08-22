@@ -362,6 +362,61 @@ final Map<String, String> PN = {
   'centersphere': S(26, '<circle cx="13" cy="13" r="8.5" stroke="$GC" stroke-width="1.2"/><ellipse cx="13" cy="13" rx="8.5" ry="3.2" stroke="$GC" stroke-width=".9" fill="none"/><circle cx="13" cy="13" r="1.7" fill="$BL"/>'),
 };
 
+// ==== M240 — the ASSEMBLY tab ====
+//
+// One map, so the same rule the part ribbon follows applies here: every key
+// the ribbon looks up is in exactly one map and m115_ribbon_icons_test walks
+// them. Two entries are deliberately NOT here — Pattern and Mirror reuse
+// PT['rect'] and PT['mirror'], because an assembly pattern and a feature
+// pattern are the same idea drawn the same way, and a second near-identical
+// glyph is a thing to keep in step for nothing.
+final Map<String, String> AS = {
+  // Place: the part arriving in the assembly. A placed component behind, the
+  // incoming one in front with the green "this is the new thing" arrow the
+  // Extrude and New Sketch icons already use.
+  'place': S(34, '<path d="M13 5 L24 10 L24 20 L13 25 L2 20 L2 10 Z" fill="none" stroke="$GC" stroke-width="1.1" stroke-dasharray="2.6 2"/><path d="M21 12 L31 16.5 L31 25 L21 29.5 L11 25 L11 16.5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><path d="M11 16.5 L21 21 L31 16.5 M21 21 L21 29.5" fill="none" stroke="#1a5f95" stroke-width=".8"/><path d="M17 6 L17 13 M17 13 L14.6 10.4 M17 13 L19.4 10.4" stroke="#5CBF4A" stroke-width="1.8" fill="none"/>'),
+  // Create: a component made IN PLACE — the steel cube with the same green
+  // plus the New Sketch and Layer buttons carry.
+  'create': S(34, '<path d="M12 4 L23 9.5 L23 20 L12 25.5 L1 20 L1 9.5 Z" fill="#8C939A" stroke="#4d5257" stroke-width="1"/><path d="M1 9.5 L12 15 L23 9.5 M12 15 L12 25.5" fill="none" stroke="#4d5257" stroke-width=".9"/><path d="M27 20v9M22.5 24.5h9" stroke="#5CBF4A" stroke-width="3" stroke-linecap="round"/>'),
+  // Free Move: a component and the four-way screen drag that moves it. This
+  // is the ONE Position command the viewport actually performs today, which
+  // is why its glyph is the drag arrows rather than a generic mover.
+  'freemove': S(18, '<path d="M7 5 L12 7.5 L12 13 L7 15.5 L2 13 L2 7.5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M14 4 v9 M14 4 l-1.6 1.9 M14 4 l1.6 1.9 M14 13 l-1.6-1.9 M14 13 l1.6-1.9" stroke="$GC" stroke-width="1" fill="none"/>'),
+  'freerotate': S(18, '<path d="M6 5 L11 7.5 L11 13 L6 15.5 L1 13 L1 7.5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M12 12.5 A 5.5 5.5 0 1 0 12 4.5" fill="none" stroke="$GC" stroke-width="1.2"/><path d="M12 4.5 l1.9 1.5 M12 4.5 l-.2 2.4" stroke="$GC" stroke-width="1.1" fill="none"/>'),
+  // Joint: two components and the pin that joins them (Inventor's Joint is a
+  // single connection between two origins, not a pair of face constraints).
+  'joint': S(34, '<path d="M3 12 L11 8 L19 12 L11 16 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><path d="M3 12 L11 16 L11 25 L3 21 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".9"/><path d="M19 12 L11 16 L11 25 L19 21 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".9"/><path d="M19 18 L27 14 L33 17 L25 21 Z" fill="#D8DEE4" fill-opacity=".9" stroke="#8b9096" stroke-width=".9"/><circle cx="19" cy="16.5" r="3.2" fill="#E8C63F" stroke="#8a7318" stroke-width=".9"/>'),
+  // Constrain: two faces brought flush, with the mate mark between them.
+  'constrain': S(34, '<path d="M2 9 L12 4 L12 20 L2 25 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><path d="M22 4 L32 9 L32 25 L22 20 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><path d="M13 14 h6 M19 14 l-2.2-1.7 M19 14 l-2.2 1.7" stroke="#5CBF4A" stroke-width="1.6" fill="none"/><path d="M12 4 v16 M22 4 v16" stroke="#E8C63F" stroke-width="1.4"/>'),
+  // Show / Show Sick / Hide All — the three relationship-visibility rows.
+  // They share one shape on purpose: what changes is the badge, because what
+  // changes in the command is only WHICH relationships are meant.
+  'show': S(18, '<path d="M3 6 L8 3.5 L8 12 L3 14.5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M11 3.5 L16 6 L16 14.5 L11 12 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><circle cx="9.5" cy="8" r="2.4" fill="$YL" stroke="#8a7318" stroke-width=".7"/>'),
+  'showsick': S(18, '<path d="M3 6 L8 3.5 L8 12 L3 14.5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M11 3.5 L16 6 L16 14.5 L11 12 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><circle cx="9.5" cy="8" r="2.6" fill="$RD" stroke="$RDD" stroke-width=".7"/><path d="M8.3 6.8 l2.4 2.4 M10.7 6.8 l-2.4 2.4" stroke="#fff" stroke-width="1"/>'),
+  'hideall': S(18, '<path d="M3 6 L8 3.5 L8 12 L3 14.5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M11 3.5 L16 6 L16 14.5 L11 12 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><path d="M2 15.5 L16.5 2.5" stroke="$RD" stroke-width="1.6"/>'),
+  // Copy: the component, and the component again.
+  'copy': S(18, '<path d="M2 5 L7 2.5 L12 5 L7 7.5 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><path d="M2 5 L7 7.5 L7 12.5 L2 10 Z" fill="#5b6167" stroke="#4d5257" stroke-width=".7"/><path d="M12 5 L7 7.5 L7 12.5 L12 10 Z" fill="#71787e" stroke="#4d5257" stroke-width=".7"/><path d="M8 9 L12.5 6.8 L17 9 L12.5 11.2 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M8 9 L12.5 11.2 L12.5 15.7 L8 13.5 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".7"/><path d="M17 9 L12.5 11.2 L12.5 15.7 L17 13.5 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".7"/>'),
+};
+
+/// The gallery "+" menu glyph for a new assembly, and the assembly's own tree
+/// root. Two cubes, outlined in the same weight the sketch and part glyphs use
+/// so the three read as one family at 18 px.
+final assemblyMenuIcon = S(18,
+    '<path d="M6.5 1.5 L11 4 v5 L6.5 11.5 L2 9 V4 Z" fill="none" stroke="$G" stroke-width="1.1"/><path d="M2 4 L6.5 6.5 L11 4 M6.5 6.5 v5" stroke="$G" stroke-width="1.1" fill="none"/><path d="M11.5 6.5 L16 9 v4.5 L11.5 16 L7 13.5 V9 Z" fill="none" stroke="$BL" stroke-width="1.1"/><path d="M7 9 L11.5 11.5 L16 9 M11.5 11.5 V16" stroke="$BL" stroke-width="1.1" fill="none"/>');
+
+/// 16-px tree icons for the assembly browser: the assembly itself, one placed
+/// component, and the grounded pin Inventor stamps on a fixed one.
+const assemblyCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M6 1.5L10.5 4v4.5L6 11 1.5 8.5V4z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M1.5 4L6 6.5 10.5 4M6 6.5V11" stroke="#4d5257" stroke-width=".7" fill="none"/><path d="M10 6.5L14.5 9v4.5L10 16 5.5 13.5V9z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".8"/><path d="M5.5 9L10 11.5 14.5 9M10 11.5V16" stroke="#1d5c8a" stroke-width=".7" fill="none"/></svg>';
+const componentCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#4d5257" stroke-width=".8" fill="none"/></svg>';
+const groundedPinIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2v7" stroke="#E59B63" stroke-width="1.6"/><path d="M3.5 9h9M5 12h6" stroke="#E59B63" stroke-width="1.4"/><circle cx="8" cy="2.6" r="1.8" fill="#E59B63"/></svg>';
+const relationshipsIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="4" cy="4.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><circle cx="12" cy="11.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><path d="M5.7 6.2l4.6 3.6" stroke="#3D9BE9" stroke-width="1.3"/></svg>';
+const representationsIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1.5" y="3" width="8" height="6" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><rect x="6.5" y="7" width="8" height="6" fill="#3D9BE9" fill-opacity=".5" stroke="#1d5c8a" stroke-width="1.1"/></svg>';
+
 // Part model-browser tree icons (15px rows) + the "+" menu glyphs
 const partCubeIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#4d5257" stroke-width=".8" fill="none"/></svg>';

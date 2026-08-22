@@ -21,13 +21,20 @@ import 'dart:convert';
 import 'doc_file.dart';
 import 'mesh_io.dart';
 
+export 'doc_file.dart' show kAssemblyDocKind;
+
 enum DocSource { internal, external }
+
+/// Which kind of document [path] holds, from its extension alone.
+String kindOfPath(String path) => isAssemblyPath(path)
+    ? kAssemblyDocKind
+    : (isPartPath(path) ? 'part' : 'sketch');
 
 /// A document the gallery knows about.
 class DocRef {
   final String name;
 
-  /// 'part' or 'sketch'.
+  /// 'part', 'sketch' or 'assembly'.
   final String kind;
 
   /// Absolute path. For an internal document this is inside the app folder;
@@ -52,6 +59,9 @@ class DocRef {
       [this.lastOpened, this.bookmark]);
 
   bool get isPart => kind == 'part';
+
+  /// M240 — an assembly document (.pas).
+  bool get isAssembly => kind == kAssemblyDocKind;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -131,6 +141,7 @@ enum OpenAction {
 const List<String> kOpenableExtensions = <String>[
   kPartExt,
   kSketchExt,
+  kAsmExt,
   'step',
   'stp',
   'dxf',
@@ -185,7 +196,7 @@ String _parentOf(String path) {
 String saveTargetFor(DocRef ref, String appDir) => ref.source ==
         DocSource.external
     ? ref.path
-    : '${_stripSlash(appDir)}/${ref.name}.${ref.isPart ? kPartExt : kSketchExt}';
+    : '${_stripSlash(appDir)}/${ref.name}.${extForKind(ref.kind)}';
 
 /// The documents sitting in the app folder, from a directory listing.
 ///
@@ -198,8 +209,8 @@ List<DocRef> scanAppFolder(Iterable<String> fileNames, String appDir) {
   for (final f in fileNames) {
     final name = docNameOf(f);
     if (name == null) continue;
-    out.add(DocRef(name, isPartPath(f) ? 'part' : 'sketch',
-        '${_stripSlash(appDir)}/$f', DocSource.internal));
+    out.add(DocRef(name, kindOfPath(f), '${_stripSlash(appDir)}/$f',
+        DocSource.internal));
   }
   out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   return out;

@@ -2437,5 +2437,122 @@
   "lblMirrorPlanePlaceholder": "Spiegelebene",
   "lblCenterlineGeo": "Mittellinie",
   "lblConstructionLineGeo": "Konstruktionslinie",
-  "lblLineGeo": "Linie"
+  "lblLineGeo": "Linie",
+  "panelComponent": "Komponente",
+  "@panelComponent": {
+    "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Komponente\"."
+  },
+  "panelPosition": "Position",
+  "@panelPosition": {
+    "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Position\"."
+  },
+  "panelRelationships": "Beziehungen",
+  "@panelRelationships": {
+    "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Beziehungen\" (Gelenke und Abhaengigkeiten)."
+  },
+  "btnPlace": "Platzieren",
+  "@btnPlace": {
+    "x-maxChars": 12
+  },
+  "btnCreateComponent": "Erstellen",
+  "@btnCreateComponent": {
+    "description": "Baugruppe: neues Bauteil an Ort und Stelle erstellen. Inventor DE: \"Erstellen\".",
+    "x-maxChars": 12
+  },
+  "btnFreeMove": "Frei bewegen",
+  "@btnFreeMove": {
+    "description": "Inventor DE: \"Frei bewegen\".",
+    "x-maxChars": 16
+  },
+  "btnFreeRotate": "Frei drehen",
+  "@btnFreeRotate": {
+    "description": "Inventor DE: \"Frei drehen\".",
+    "x-maxChars": 16
+  },
+  "btnJoint": "Gelenk",
+  "@btnJoint": {
+    "description": "Inventor DE: \"Gelenk\".",
+    "x-maxChars": 16
+  },
+  "btnConstrain": "Abhängig machen",
+  "@btnConstrain": {
+    "description": "Inventor DE: \"Abhängig machen\". Steht unter einem Symbol, das mitwaechst (M235), daher das groessere Budget.",
+    "x-maxChars": 16
+  },
+  "btnShowRelationships": "Einblenden",
+  "@btnShowRelationships": {
+    "description": "Beziehungen einblenden. Inventor DE: \"Einblenden\".",
+    "x-maxChars": 16
+  },
+  "btnShowSick": "Fehlerhafte",
+  "@btnShowSick": {
+    "description": "Inventor DE: \"Fehlerhafte einblenden\" — in der schmalen Zeile auf das Adjektiv gekuerzt, wie Inventor selbst \"Show Sick\" kuerzt.",
+    "x-maxChars": 16
+  },
+  "btnHideAll": "Alle ausblenden",
+  "@btnHideAll": {
+    "description": "Inventor DE: \"Alle ausblenden\".",
+    "x-maxChars": 16
+  },
+  "btnPatternComponent": "Anordnung",
+  "@btnPatternComponent": {
+    "description": "Baugruppen-Anordnung. Inventor DE: \"Anordnung\", nicht \"Muster\".",
+    "x-maxChars": 16
+  },
+  "btnCopy": "Kopieren",
+  "@btnCopy": {
+    "description": "Inventor DE: \"Kopieren\".",
+    "x-maxChars": 16
+  },
+  "galleryNewAssembly": "Neue Baugruppe",
+  "@galleryNewAssembly": {
+    "description": "Eintrag im \"+\"-Menue der Galerie."
+  },
+  "dlgNewAssembly": "Neue Baugruppe",
+  "@dlgNewAssembly": {
+    "description": "Titel des Dialogs, der nach dem Namen fragt."
+  },
+  "phAssemblyName": "Baugruppenname",
+  "nodeRepresentations": "Darstellungen",
+  "@nodeRepresentations": {
+    "description": "Browserknoten der Baugruppe. Inventor DE: \"Darstellungen\"."
+  },
+  "nodeRelationships": "Beziehungen",
+  "@nodeRelationships": {
+    "description": "Browserknoten der Baugruppe. Inventor DE: \"Beziehungen\"."
+  },
+  "dlgPlaceComponent": "Komponente platzieren",
+  "@dlgPlaceComponent": {
+    "description": "Titel der Liste, aus der ein Bauteil gewaehlt wird."
+  },
+  "msgAsmNoPartsToPlace": "Erstellen Sie zuerst ein 3D-Bauteil — es gibt nichts zu platzieren.",
+  "msgAsmNoSuchPart": "„{name}“ ist kein Bauteil.",
+  "@msgAsmNoSuchPart": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgAsmCouldNotPlace": "„{name}“ konnte nicht platziert werden.",
+  "@msgAsmCouldNotPlace": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgAsmGrounded": "„{name}“ ist fixiert.",
+  "@msgAsmGrounded": {
+    "description": "Toast beim Ziehversuch an einer fixierten Komponente.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "ctxGrounded": "Fixiert",
+  "@ctxGrounded": {
+    "description": "Kontextmenue einer Komponente. Inventor DE: \"Fixiert\"."
+  }
 }

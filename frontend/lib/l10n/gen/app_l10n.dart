@@ -3001,7 +3001,7 @@ abstract class AppL10n {
   /// **'Abhängigkeitseinstellungen'**
   String get btnConstraintSettings;
 
-  /// No description provided for @btnCopy.
+  /// Inventor DE: "Kopieren".
   ///
   /// In de, this message translates to:
   /// **'Kopieren'**
@@ -5268,6 +5268,150 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Linie'**
   String get lblLineGeo;
+
+  /// Ribbon-Gruppe der Baugruppe. Inventor DE: "Komponente".
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente'**
+  String get panelComponent;
+
+  /// Ribbon-Gruppe der Baugruppe. Inventor DE: "Position".
+  ///
+  /// In de, this message translates to:
+  /// **'Position'**
+  String get panelPosition;
+
+  /// Ribbon-Gruppe der Baugruppe. Inventor DE: "Beziehungen" (Gelenke und Abhaengigkeiten).
+  ///
+  /// In de, this message translates to:
+  /// **'Beziehungen'**
+  String get panelRelationships;
+
+  /// No description provided for @btnPlace.
+  ///
+  /// In de, this message translates to:
+  /// **'Platzieren'**
+  String get btnPlace;
+
+  /// Baugruppe: neues Bauteil an Ort und Stelle erstellen. Inventor DE: "Erstellen".
+  ///
+  /// In de, this message translates to:
+  /// **'Erstellen'**
+  String get btnCreateComponent;
+
+  /// Inventor DE: "Frei bewegen".
+  ///
+  /// In de, this message translates to:
+  /// **'Frei bewegen'**
+  String get btnFreeMove;
+
+  /// Inventor DE: "Frei drehen".
+  ///
+  /// In de, this message translates to:
+  /// **'Frei drehen'**
+  String get btnFreeRotate;
+
+  /// Inventor DE: "Gelenk".
+  ///
+  /// In de, this message translates to:
+  /// **'Gelenk'**
+  String get btnJoint;
+
+  /// Inventor DE: "Abhängig machen". Steht unter einem Symbol, das mitwaechst (M235), daher das groessere Budget.
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängig machen'**
+  String get btnConstrain;
+
+  /// Beziehungen einblenden. Inventor DE: "Einblenden".
+  ///
+  /// In de, this message translates to:
+  /// **'Einblenden'**
+  String get btnShowRelationships;
+
+  /// Inventor DE: "Fehlerhafte einblenden" — in der schmalen Zeile auf das Adjektiv gekuerzt, wie Inventor selbst "Show Sick" kuerzt.
+  ///
+  /// In de, this message translates to:
+  /// **'Fehlerhafte'**
+  String get btnShowSick;
+
+  /// Inventor DE: "Alle ausblenden".
+  ///
+  /// In de, this message translates to:
+  /// **'Alle ausblenden'**
+  String get btnHideAll;
+
+  /// Baugruppen-Anordnung. Inventor DE: "Anordnung", nicht "Muster".
+  ///
+  /// In de, this message translates to:
+  /// **'Anordnung'**
+  String get btnPatternComponent;
+
+  /// Eintrag im "+"-Menue der Galerie.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue Baugruppe'**
+  String get galleryNewAssembly;
+
+  /// Titel des Dialogs, der nach dem Namen fragt.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue Baugruppe'**
+  String get dlgNewAssembly;
+
+  /// No description provided for @phAssemblyName.
+  ///
+  /// In de, this message translates to:
+  /// **'Baugruppenname'**
+  String get phAssemblyName;
+
+  /// Browserknoten der Baugruppe. Inventor DE: "Darstellungen".
+  ///
+  /// In de, this message translates to:
+  /// **'Darstellungen'**
+  String get nodeRepresentations;
+
+  /// Browserknoten der Baugruppe. Inventor DE: "Beziehungen".
+  ///
+  /// In de, this message translates to:
+  /// **'Beziehungen'**
+  String get nodeRelationships;
+
+  /// Titel der Liste, aus der ein Bauteil gewaehlt wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente platzieren'**
+  String get dlgPlaceComponent;
+
+  /// No description provided for @msgAsmNoPartsToPlace.
+  ///
+  /// In de, this message translates to:
+  /// **'Erstellen Sie zuerst ein 3D-Bauteil — es gibt nichts zu platzieren.'**
+  String get msgAsmNoPartsToPlace;
+
+  /// No description provided for @msgAsmNoSuchPart.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ ist kein Bauteil.'**
+  String msgAsmNoSuchPart(String name);
+
+  /// No description provided for @msgAsmCouldNotPlace.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ konnte nicht platziert werden.'**
+  String msgAsmCouldNotPlace(String name);
+
+  /// Toast beim Ziehversuch an einer fixierten Komponente.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ ist fixiert.'**
+  String msgAsmGrounded(String name);
+
+  /// Kontextmenue einer Komponente. Inventor DE: "Fixiert".
+  ///
+  /// In de, this message translates to:
+  /// **'Fixiert'**
+  String get ctxGrounded;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

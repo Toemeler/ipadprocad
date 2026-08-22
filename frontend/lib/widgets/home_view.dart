@@ -22,7 +22,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
-import '../doc_file.dart';
 import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -75,6 +74,11 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       NativeMenuItem(
           id: '2d', title: t.galleryNew2dSketch, symbol: 'square.on.square'),
       NativeMenuItem(id: '3d', title: t.galleryNew3dPart, symbol: 'cube'),
+      // M240 — the third document kind, on the same shelf as the other two.
+      NativeMenuItem(
+          id: 'asm',
+          title: t.galleryNewAssembly,
+          symbol: 'square.stack.3d.up'),
       // M117 — Open belongs HERE, next to the two ways of starting a
       // document, because that is what it is: a third way to get one. In the
       // ribbon it was a tool among modelling tools, which is the wrong shelf.
@@ -301,6 +305,16 @@ class _HomeViewState extends State<HomeView> {
             ]),
           ),
           PopupMenuItem(
+            value: 'asm',
+            height: 40,
+            child: Row(children: [
+              SvgPicture.string(themedIcon(assemblyMenuIcon),
+                  width: 18, height: 18),
+              const SizedBox(width: 10),
+              Text(t.galleryNewAssembly, style: ts(12.5, T.text)),
+            ]),
+          ),
+          PopupMenuItem(
             value: 'import',
             height: 40,
             child: Row(children: [
@@ -340,6 +354,8 @@ class _HomeViewState extends State<HomeView> {
       await _promptNewSketch();
     } else if (choice == '3d') {
       await _promptNewPart();
+    } else if (choice == 'asm') {
+      await _promptNewAssembly();
     } else if (choice == 'import') {
       await _importDocument();
     } else if (choice == kLanguageMenuId) {
@@ -422,6 +438,23 @@ class _HomeViewState extends State<HomeView> {
     );
     if (name == null) return;
     await app.createNamedPart(name);
+  }
+
+  Future<void> _promptNewAssembly() async {
+    final app = widget.app;
+    final t = L.of(context);
+    final name = await promptForText(
+      context,
+      title: t.dlgNewAssembly,
+      initialValue: app.suggestedAssemblyName(),
+      placeholder: t.phAssemblyName,
+      confirmLabel: t.create,
+      validate: (v) =>
+          app.validateSketchName(v) ??
+          (app.docNameExists(v.trim()) ? t.errNameTaken : null),
+    );
+    if (name == null) return;
+    await app.createNamedAssembly(name);
   }
 
   Future<void> _sendFile(String name, {required bool share}) async {
@@ -689,7 +722,12 @@ class _CardState extends State<_Card> {
   Widget _blank() => Center(
         child: Opacity(
           opacity: 0.5,
-          child: SvgPicture.string(themedIcon(widget.kind == 'part' ? partCubeIcon : sketchCubeIcon),
+          child: SvgPicture.string(
+              themedIcon(switch (widget.kind) {
+                'part' => partCubeIcon,
+                kAssemblyDocKind => assemblyCubeIcon,
+                _ => sketchCubeIcon,
+              }),
               width: 30,
               height: 30),
         ),

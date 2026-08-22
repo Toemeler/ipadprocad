@@ -7,8 +7,9 @@
 // that only this app knows how to reassemble.
 //
 // So: two file types, mirroring Inventor's three-letter convention.
-//   .ptp — Prototype Part    (Inventor's .ipt)
-//   .pts — Prototype Sketch  (Inventor's .idw)
+//   .ptp — Prototype Part     (Inventor's .ipt)
+//   .pts — Prototype Sketch   (Inventor's .idw)
+//   .pas — Prototype Assembly (Inventor's .iam)  — M240
 //
 // The container is deliberately the simplest thing that opens fast:
 //
@@ -34,10 +35,32 @@ const String kPartExt = 'ptp';
 /// File extension for a standalone 2D sketch document.
 const String kSketchExt = 'pts';
 
+/// File extension for an assembly document (M240).
+const String kAsmExt = 'pas';
+
+/// The `kind` string an assembly carries — in its container header, in its
+/// [DocRef] and in the gallery. Spelled ONCE, here in the leaf file both the
+/// document layer and the assembly model can reach without importing each
+/// other.
+const String kAssemblyDocKind = 'assembly';
+
+/// Every document extension this app writes, in the order the gallery scans
+/// them. A single list, so adding a fourth kind cannot leave one scanner
+/// behind — which is exactly what the assembly nearly did to [docNameOf].
+const List<String> kDocExtensions = [kPartExt, kSketchExt, kAsmExt];
+
+/// The extension a document of [kind] is stored in. Unknown kinds fall back to
+/// a part, matching [DocFile.decode]'s own default.
+String extForKind(String kind) => switch (kind) {
+      'sketch' => kSketchExt,
+      kAssemblyDocKind => kAsmExt,
+      _ => kPartExt,
+    };
+
 const List<int> _magic = [0x50, 0x52, 0x4F, 0x54, 0x4F, 0x76, 0x31, 0x0A];
 
 /// One document, read or ready to write. [entries] maps a name to its raw
-/// bytes; [kind] is 'part' or 'sketch'.
+/// bytes; [kind] is 'part', 'sketch' or 'assembly'.
 class DocFile {
   final String kind;
   final Map<String, Uint8List> entries;
@@ -123,7 +146,7 @@ class DocFile {
 String? docNameOf(String path) {
   final slash = path.lastIndexOf('/');
   final file = slash < 0 ? path : path.substring(slash + 1);
-  for (final ext in const [kPartExt, kSketchExt]) {
+  for (final ext in kDocExtensions) {
     if (file.toLowerCase().endsWith('.$ext')) {
       return file.substring(0, file.length - ext.length - 1);
     }
@@ -133,3 +156,6 @@ String? docNameOf(String path) {
 
 /// True when [path] is a part document (rather than a sketch).
 bool isPartPath(String path) => path.toLowerCase().endsWith('.$kPartExt');
+
+/// True when [path] is an assembly document (M240).
+bool isAssemblyPath(String path) => path.toLowerCase().endsWith('.$kAsmExt');

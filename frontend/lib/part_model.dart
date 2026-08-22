@@ -9661,13 +9661,24 @@ String _contentSignature(PartModel p) {
 /// around it) and prevents the degenerate one: a part modelled far off-origin
 /// would otherwise push its own origin planes off into the distance, away from
 /// the origin axes and centre point that are supposed to lie ON them.
-(Vec3, Vec3) originExtentBounds(PartModel p) {
-  final b = partContentBounds(p);
-  if (b == null) {
+(Vec3, Vec3) originExtentBounds(PartModel p) =>
+    paddedOriginExtent(partContentBounds(p));
+
+/// [originExtentBounds] with the content box handed IN rather than walked out
+/// of a [PartModel].
+///
+/// M240 — an assembly has origin planes and axes for the same reason a part
+/// does, and they have to frame ITS contents (the placed components) by
+/// exactly this rule. The padding, the floor and the "origin always inside"
+/// guarantee are the part's, not the part model's, so they belong in a
+/// function that only knows about a box. Null means "nothing drawable yet" and
+/// yields the empty-document default cube.
+(Vec3, Vec3) paddedOriginExtent((Vec3, Vec3)? content) {
+  if (content == null) {
     const d = kOriginExtentDefault;
     return (const Vec3(-d, -d, -d), const Vec3(d, d, d));
   }
-  final (lo, hi) = b;
+  final (lo, hi) = content;
   double padOf(double a, double c) =>
       math.max(kOriginExtentPadMin, (c - a).abs() * kOriginExtentPadFrac);
   final px = padOf(lo.x, hi.x), py = padOf(lo.y, hi.y), pz = padOf(lo.z, hi.z);
@@ -9692,8 +9703,14 @@ String _contentSignature(PartModel p) {
 /// function is the point: M83 fixed a bug where the drawn rectangle and the
 /// clickable one had drifted apart, and two plane kinds is two chances to do
 /// it again.
-(double, double, double, double) planeRectFor(PartModel p, PlaneFrame f) {
-  final (lo, hi) = originExtentBounds(p);
+(double, double, double, double) planeRectFor(PartModel p, PlaneFrame f) =>
+    planeRectInBounds(originExtentBounds(p), f);
+
+/// [planeRectFor] against a box that is already known — the assembly side of
+/// the split described on [paddedOriginExtent].
+(double, double, double, double) planeRectInBounds(
+    (Vec3, Vec3) bounds, PlaneFrame f) {
+  final (lo, hi) = bounds;
   // The frame axes are signed unit world axes, so projecting the two box
   // corners and ordering the result is exact — no need to test all eight.
   double along(Vec3 axis, bool wantMax) {

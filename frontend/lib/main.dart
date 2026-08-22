@@ -28,6 +28,7 @@ import 'widgets/ribbon.dart';
 import 'widgets/ribbon_chrome.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
+import 'widgets/viewport_assembly.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
 import 'widgets/combine_dialog.dart';
@@ -276,7 +277,16 @@ class PrototypeApp extends StatelessWidget {
                                   // then drawn by the GPU: pan and zoom only
                                   // move the camera and cost nothing, which is
                                   // what the CPU underlay could never manage.
-                                  child: app.currentPart != null
+                                  // M240 — an ASSEMBLY is the third case,
+                                  // and it is checked first because it is the
+                                  // simplest to state: an assembly document
+                                  // has no part and no sketch open inside it,
+                                  // so none of the part branch's overlays
+                                  // (extrude, hole, pattern, work plane) can
+                                  // apply to it.
+                                  child: app.currentAssembly != null
+                                      ? ViewportAssembly(app: app)
+                                      : app.currentPart != null
                                       ? Stack(children: [
                                           Positioned.fill(
                                               child: Viewport3D(app: app)),

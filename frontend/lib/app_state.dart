@@ -12,6 +12,7 @@ import 'package:native_menu/native_menu.dart' show NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
+import 'assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
 import 'doc_file.dart';
@@ -1334,11 +1335,10 @@ class AppState extends ChangeNotifier {
     final known = library[name];
     if (known != null) return known;
     if (_docsDir == null) return null;
-    for (final ext in const [kPartExt, kSketchExt]) {
+    for (final ext in kDocExtensions) {
       final path = '${_docsDir!.path}/$name.$ext';
       if (File(path).existsSync()) {
-        final ref = DocRef(
-            name, ext == kPartExt ? 'part' : 'sketch', path, DocSource.internal);
+        final ref = DocRef(name, kindOfPath(path), path, DocSource.internal);
         library[name] = ref;
         return ref;
       }
@@ -1421,10 +1421,11 @@ class AppState extends ChangeNotifier {
 
   /// The file a document is stored in. Internal by default; an external
   /// document keeps the path it was opened from, which is the whole point.
-  String docPath(String name, {bool part = false}) {
+  String docPath(String name, {bool part = false, String? kind}) {
     final known = _findDoc(name);
     if (known != null) return saveTargetFor(known, _docsDir!.path);
-    return '${_docsDir!.path}/$name.${part ? kPartExt : kSketchExt}';
+    return '${_docsDir!.path}/$name.'
+        '${extForKind(kind ?? (part ? 'part' : 'sketch'))}';
   }
 
   File _dxfFile(String name) => File('${_stage(name).path}/sketch.dxf');
@@ -1456,8 +1457,7 @@ class AppState extends ChangeNotifier {
   /// Packs [name]'s staging folder into its document file.
   bool _commitStage(String name, String kind) {
     final ref = _findDoc(name) ??
-        DocRef(name, kind, docPath(name, part: kind == 'part'),
-            DocSource.internal);
+        DocRef(name, kind, docPath(name, kind: kind), DocSource.internal);
     final target = saveTargetFor(ref, _docsDir!.path);
     final ok = writeDoc(target, packDir(_stage(name), kind));
     if (!ok) {
@@ -1508,7 +1508,7 @@ class AppState extends ChangeNotifier {
   bool _renameDocFile(String from, String to) {
     final ref = _findDoc(from);
     if (ref == null) return false;
-    final ext = ref.isPart ? kPartExt : kSketchExt;
+    final ext = extForKind(ref.kind);
     final dir = ref.source == DocSource.external
         ? (ref.path.contains('/')
             ? ref.path.substring(0, ref.path.lastIndexOf('/'))
@@ -1543,7 +1543,7 @@ class AppState extends ChangeNotifier {
   bool _duplicateDocFile(String name, String copy) {
     final ref = _findDoc(name);
     if (ref == null) return false;
-    final ext = ref.isPart ? kPartExt : kSketchExt;
+    final ext = extForKind(ref.kind);
     final target = '${_docsDir!.path}/$copy.$ext';
     try {
       final src = File(ref.path);
@@ -2085,7 +2085,9 @@ class AppState extends ChangeNotifier {
   Future<void> flushCurrentDocument() async {
     final name = curTab;
     if (name == null) return;
-    if (parts.containsKey(name)) {
+    if (assemblies.containsKey(name)) {
+      await saveAssembly(name);
+    } else if (parts.containsKey(name)) {
       await savePart(name);
     } else if (sketches.containsKey(name)) {
       await saveSketch(name);
@@ -2103,11 +2105,13 @@ class AppState extends ChangeNotifier {
     final name = curTab;
     if (name == null) return;
     final ref = _findDoc(name);
-    final ok = parts.containsKey(name)
-        ? await savePart(name)
-        : sketches.containsKey(name)
-            ? await saveSketch(name)
-            : false;
+    final ok = assemblies.containsKey(name)
+        ? await saveAssembly(name)
+        : parts.containsKey(name)
+            ? await savePart(name)
+            : sketches.containsKey(name)
+                ? await saveSketch(name)
+                : false;
     if (!ok) {
       toast(L.current.msgCouldNotSave(name));
       return;
@@ -2195,7 +2199,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgNotAPrototypeDoc);
       return null;
     }
-    final ext = isPartPath(path) ? kPartExt : kSketchExt;
+    final ext = extForKind(kindOfPath(path));
     final base = docNameOf(path)!;
     var name = base;
     for (var i = 2; docNameExists(name); i++) {
@@ -2621,7 +2625,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> closeTab(String name) async {
-    if (parts.containsKey(name)) {
+    if (assemblies.containsKey(name)) {
+      await saveAssembly(name);
+      assemblies.remove(name)?.dispose();
+    } else if (parts.containsKey(name)) {
       if (curTab == name) {
         cancel3DCommands(); // M230
         pickPlane = false;
@@ -3184,7 +3191,7 @@ class AppState extends ChangeNotifier {
   /// both kinds — a "Bracket" part next to a "Bracket" sketch would be two
   /// cards with one label.
   bool docNameExists(String name) =>
-      sketchNameExists(name) || partNameExists(name);
+      sketchNameExists(name) || partNameExists(name) || isAssemblyName(name);
 
   String suggestedPartName() {
     var n = 1;
@@ -3196,6 +3203,7 @@ class AppState extends ChangeNotifier {
 
   /// Opens whatever [name] is — part or sketch (gallery cards + tab bar).
   Future<void> openDocument(String name) async {
+    if (isAssemblyName(name)) return openAssembly(name);
     if (isPartName(name)) return openPart(name);
     return openSketch(name);
   }
@@ -3618,6 +3626,328 @@ class AppState extends ChangeNotifier {
     return copy;
   }
 
+  // =========================================================================
+  // M240 — ASSEMBLIES
+  //
+  // The third document kind. Everything below mirrors the part side one method
+  // at a time (create / open / save / load / delete / rename / duplicate) and
+  // deliberately does NOT try to share an implementation with it: a part is a
+  // feature timeline with a kernel behind it and an assembly is a list of
+  // placements, and the only thing they have in common is the document
+  // plumbing — which they DO share, through _stage / _commitStage / _findDoc.
+  // =========================================================================
+
+  /// Open assemblies, by document name.
+  final Map<String, AssemblyModel> assemblies = {};
+
+  /// The open assembly, or null when the current tab is a part or a sketch.
+  AssemblyModel? get currentAssembly =>
+      curTab == null ? null : assemblies[curTab];
+
+  bool isAssemblyName(String name) =>
+      assemblies.containsKey(name) || _findDoc(name)?.isAssembly == true;
+
+  String suggestedAssemblyName() {
+    var n = 1;
+    while (docNameExists('Assembly$n')) {
+      n++;
+    }
+    return 'Assembly$n';
+  }
+
+  /// The parts that can be PLACED into an assembly: every part document in the
+  /// gallery, most recently modified first, so the one you were just working
+  /// on is at the top of the list.
+  List<String> placeableParts() {
+    final out = [
+      for (final e in library.entries)
+        if (e.value.isPart) e.key
+    ];
+    final when = <String, DateTime>{
+      for (final s in saved) s.name: s.modified,
+    };
+    out.sort((a, b) {
+      final ma = when[a], mb = when[b];
+      if (ma == null || mb == null) {
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      }
+      return mb.compareTo(ma);
+    });
+    return out;
+  }
+
+  Future<bool> createNamedAssembly(String name) async {
+    final clean = name.trim();
+    if (validateSketchName(clean) != null) return false;
+    if (docNameExists(clean)) return false;
+    final a = AssemblyModel(clean);
+    assemblies[clean] = a;
+    if (!openTabs.contains(clean)) openTabs.add(clean);
+    curTab = clean;
+    activeChild = null;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    await saveAssembly(clean);
+    return true;
+  }
+
+  Future<void> openAssembly(String name) async {
+    if (!assemblies.containsKey(name)) {
+      assemblies[name] = await _loadAssemblyModel(name);
+    }
+    if (!openTabs.contains(name)) openTabs.add(name);
+    curTab = name;
+    activeChild = null;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    notifyListeners();
+  }
+
+  File _assemblyJson(String name) => File('${_stage(name).path}/$kMetaEntry');
+
+  Future<AssemblyModel> _loadAssemblyModel(String name) async {
+    final a = AssemblyModel(name);
+    _ensureStaged(name);
+    try {
+      final f = _assemblyJson(name);
+      if (f.existsSync()) {
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        a.loadJson(j);
+      }
+    } catch (e, st) {
+      Log.e('asm', 'load "$name" failed', e, st);
+    }
+    // The occurrences came back as references. Give each one its geometry.
+    //
+    // A source part that has since been DELETED leaves its occurrence in the
+    // list with no part behind it: the browser still shows the row (so the
+    // user can see what is missing and remove it) and nothing is drawn for it.
+    // Dropping the row instead would silently rewrite the user's assembly the
+    // first time a file went walkabout.
+    for (final o in List<AssemblyOccurrence>.of(a.occurrences)) {
+      o.part = await _loadOccurrencePart(o.source);
+      if (o.part == null) {
+        Log.w('asm', 'occurrence "${o.id}": part "${o.source}" is gone');
+      }
+    }
+    return a;
+  }
+
+  /// A private copy of part [source]'s geometry for one occurrence, or null
+  /// when there is no such part any more.
+  Future<PartModel?> _loadOccurrencePart(String source) async {
+    if (_findDoc(source)?.isPart != true) return null;
+    try {
+      return await _loadPartModel(source);
+    } catch (e, st) {
+      Log.e('asm', 'could not load part "$source"', e, st);
+      return null;
+    }
+  }
+
+  Future<bool> saveAssembly(String name) async {
+    final a = assemblies[name];
+    if (a == null || _docsDir == null) return false;
+    _ensureStaged(name);
+    try {
+      _assemblyJson(name).writeAsStringSync(jsonEncode(a.toJson()));
+    } catch (e, st) {
+      Log.e('asm', 'save "$name" failed', e, st);
+      return false;
+    }
+    await _writeAssemblyPreview(name, a);
+    if (!_commitStage(name, kAssemblyDocKind)) return false;
+    await refreshSaved();
+    notifyListeners();
+    return true;
+  }
+
+  /// The gallery still for an assembly.
+  ///
+  /// The CPU painter, always — unlike a part, which prefers the off-screen
+  /// RealityKit shot. Same reason the assembly VIEWPORT is CPU-painted: the
+  /// RealityKit payload addresses solids by id in one world space and has no
+  /// per-occurrence placement, so two components would be drawn on top of each
+  /// other. paintPartSolids takes a camera, and a translated component is just
+  /// a translated camera (see ViewportAssembly).
+  Future<void> _writeAssemblyPreview(String name, AssemblyModel a) async {
+    try {
+      final png = _pngFile(name);
+      final placed = placedComponents(a);
+      if (placed.isEmpty) {
+        if (png.existsSync()) png.deleteSync();
+        return;
+      }
+      const w = 512.0, h = 384.0;
+      const size = Size(w, h);
+      final cam = Cam3(fitAssemblyThumbCamera(placed, size), size);
+      final rec = ui.PictureRecorder();
+      final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
+      // No background fill: the still is the assembly, the gallery card
+      // supplies the ground (same rule as _writePartPreview).
+      paintAssemblySolids(canvas, cam, placed);
+      final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes != null) {
+        await png.writeAsBytes(bytes.buffer.asUint8List());
+      }
+    } catch (e) {
+      debugPrint('assembly preview write failed: $e');
+    }
+  }
+
+  // ---- placing components -------------------------------------------------
+
+  /// M240 — Place Component. The ONE assembly command that is wired.
+  ///
+  /// Loads [source]'s geometry, sets it down clear of what is already there
+  /// and selects it. The first component of an assembly is GROUNDED, exactly
+  /// as Inventor grounds the first one it places: an assembly needs something
+  /// to be built against, and a free-floating first component would drift
+  /// under the very drag this milestone adds.
+  Future<AssemblyOccurrence?> placeComponent(String source) async {
+    final a = currentAssembly;
+    if (a == null) return null;
+    if (!isPartName(source)) {
+      toast(L.current.msgAsmNoSuchPart(source));
+      return null;
+    }
+    final part = await _loadOccurrencePart(source);
+    if (part == null) {
+      toast(L.current.msgAsmCouldNotPlace(source));
+      return null;
+    }
+    final occ = AssemblyOccurrence(
+      id: a.nextOccurrenceId(source),
+      source: source,
+      part: part,
+      grounded: a.occurrences.isEmpty,
+    );
+    occ.offset = nextPlacement(a, occurrenceBounds(occ));
+    a.occurrences.add(occ);
+    a.selected = occ;
+    // Inventor runs Zoom All when a component is placed, and it has to here:
+    // a placement lands CLEAR of what is already there (see nextPlacement), so
+    // without reframing, the second component of a large assembly arrives off
+    // the edge of the screen and the command looks like it did nothing.
+    a.needsFit = true;
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+    return occ;
+  }
+
+  /// Moves [occ] by [delta] millimetres. Grounded occurrences do not move —
+  /// see [placeComponent].
+  void moveOccurrence(AssemblyOccurrence occ, Vec3 delta) {
+    if (occ.grounded) return;
+    occ.offset = occ.offset + delta;
+    notifyListeners();
+  }
+
+  void selectOccurrence(AssemblyOccurrence? occ) {
+    final a = currentAssembly;
+    if (a == null || identical(a.selected, occ)) return;
+    a.selected = occ;
+    notifyListeners();
+  }
+
+  /// Called when a component drag finishes, so the new placement is persisted
+  /// once rather than on every frame of the drag.
+  void endOccurrenceDrag() {
+    final a = currentAssembly;
+    if (a == null) return;
+    unawaited(saveAssembly(a.name));
+  }
+
+  void setOccurrenceVisible(AssemblyOccurrence occ, bool on) {
+    occ.visible = on;
+    notifyListeners();
+  }
+
+  void setOccurrenceGrounded(AssemblyOccurrence occ, bool on) {
+    occ.grounded = on;
+    notifyListeners();
+    final a = currentAssembly;
+    if (a != null) unawaited(saveAssembly(a.name));
+  }
+
+  void deleteOccurrence(AssemblyOccurrence occ) {
+    final a = currentAssembly;
+    if (a == null) return;
+    a.remove(occ);
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Origin plane / axis / centre-point visibility in the assembly browser.
+  void setAssemblyOriginVisible(String key, bool on) {
+    final a = currentAssembly;
+    if (a == null || !a.vis.containsKey(key)) return;
+    a.vis[key] = on;
+    notifyListeners();
+  }
+
+  // ---- assembly document operations ---------------------------------------
+
+  Future<void> deleteAssembly(String name) async {
+    if (_docsDir == null) return;
+    openTabs.remove(name);
+    if (curTab == name) {
+      curTab = openTabs.isNotEmpty ? openTabs.last : null;
+      if (curTab == null) editingLayer = null;
+      _reanalyze();
+    }
+    assemblies.remove(name)?.dispose();
+    _deleteDocFile(name);
+    await refreshSaved();
+    notifyListeners();
+  }
+
+  Future<bool> renameAssembly(String from, String to) async {
+    if (_docsDir == null) return false;
+    final target = to.trim();
+    if (target == from) return true;
+    if (validateSketchName(target) != null) return false;
+    if (docNameExists(target)) return false;
+    final wasOpen = openTabs.contains(from);
+    final tabIndex = openTabs.indexOf(from);
+    final wasCurrent = curTab == from;
+    if (assemblies.containsKey(from)) {
+      await saveAssembly(from);
+      openTabs.remove(from);
+      assemblies.remove(from)?.dispose();
+      if (wasCurrent) curTab = null;
+    }
+    if (!_renameDocFile(from, target)) return false;
+    if (wasOpen) {
+      await openAssembly(target);
+      openTabs.remove(target);
+      openTabs.insert(math.min(tabIndex, openTabs.length), target);
+      if (!wasCurrent) curTab = openTabs.isNotEmpty ? openTabs.last : null;
+    }
+    await refreshSaved();
+    notifyListeners();
+    return true;
+  }
+
+  Future<String?> duplicateAssembly(String name) async {
+    if (_docsDir == null) return null;
+    if (assemblies.containsKey(name)) await saveAssembly(name);
+    if (_findDoc(name) == null) return null;
+    var copy = '$name copy';
+    var n = 2;
+    while (docNameExists(copy)) {
+      copy = '$name copy $n';
+      n++;
+    }
+    if (!_duplicateDocFile(name, copy)) return null;
+    await refreshSaved();
+    notifyListeners();
+    return copy;
+  }
+
   /// Writes the part's solids as STEP into the export cache and returns the
   /// path (for the share sheet / Files export). Null without a kernel or
   /// without any computed solid — reported honestly, never faked.
@@ -3781,12 +4111,21 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- gallery routing: one card menu, two document kinds ----
-  Future<void> deleteDocument(String name) =>
-      isPartName(name) ? deletePart(name) : deleteSketch(name);
-  Future<bool> renameDocument(String from, String to) =>
-      isPartName(from) ? renamePart(from, to) : renameSketch(from, to);
-  Future<String?> duplicateDocument(String name) =>
-      isPartName(name) ? duplicatePart(name) : duplicateSketch(name);
+  Future<void> deleteDocument(String name) => isAssemblyName(name)
+      ? deleteAssembly(name)
+      : isPartName(name)
+          ? deletePart(name)
+          : deleteSketch(name);
+  Future<bool> renameDocument(String from, String to) => isAssemblyName(from)
+      ? renameAssembly(from, to)
+      : isPartName(from)
+          ? renamePart(from, to)
+          : renameSketch(from, to);
+  Future<String?> duplicateDocument(String name) => isAssemblyName(name)
+      ? duplicateAssembly(name)
+      : isPartName(name)
+          ? duplicatePart(name)
+          : duplicateSketch(name);
 
   // ---- child-sketch flow (Start 2D Sketch -> plane pick -> 2D env) ----
   /// True while the origin planes were switched on BY the plane pick, so
@@ -7805,8 +8144,17 @@ class AppState extends ChangeNotifier {
   final List<PartSnap> _partUndo = [];
   final List<PartSnap> _partRedo = [];
 
-  bool get canUndoPart => _partUndo.isNotEmpty;
-  bool get canRedoPart => _partRedo.isNotEmpty;
+  // M240 — a PART has to be open, not just a stack that is not empty.
+  //
+  // [undoPart] has always required `currentPart != null` and toasts "nothing
+  // to undo" without one; these getters did not, so the quick-tool bar lit
+  // Undo from the stack alone. With only two document kinds that never showed:
+  // the stack is only ever filled from a part, and leaving one to a SKETCH
+  // takes the `app.current != null` branch instead. An ASSEMBLY is neither, so
+  // it read the part stack — and opening one after editing a part offered a
+  // bright Undo button whose whole behaviour was a toast.
+  bool get canUndoPart => currentPart != null && _partUndo.isNotEmpty;
+  bool get canRedoPart => currentPart != null && _partRedo.isNotEmpty;
 
   PartSnap _takePartSnap(PartModel p) => PartSnap(
         p.toJson(),

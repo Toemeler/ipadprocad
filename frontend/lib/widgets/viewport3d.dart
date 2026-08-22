@@ -810,7 +810,7 @@ class _Viewport3DState extends State<Viewport3D>
             top: top + 8,
             right: 10,
             child:
-                _ViewCube(camera: p.camera, onChanged: () => setState(() {})))),
+                ViewCube(camera: p.camera, onChanged: () => setState(() {})))),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
         // bottom-left corner the triad used to have to itself. Off iOS there
@@ -832,7 +832,7 @@ class _Viewport3DState extends State<Viewport3D>
             ),
             child: IgnorePointer(
                 child: CustomPaint(
-                    painter: _TriadPainter(p.camera),
+                    painter: TriadPainter(p.camera),
                     size: const Size(118, 118))),
           )
         else
@@ -841,7 +841,7 @@ class _Viewport3DState extends State<Viewport3D>
               bottom: BottomTabBar.floatingHeight,
               child: IgnorePointer(
                   child: CustomPaint(
-                      painter: _TriadPainter(p.camera),
+                      painter: TriadPainter(p.camera),
                       size: const Size(118, 118)))),
         if (app.message != null)
           Positioned(
@@ -2872,15 +2872,21 @@ const _cubeFaces = <(String, Vec3)>[
 
 String _nkey(Vec3 v) => '${v.x.round()},${v.y.round()},${v.z.round()}';
 
-class _ViewCube extends StatefulWidget {
+/// The ViewCube, the Home button and the face-view nav arrows.
+///
+/// PUBLIC since M240: the assembly viewport shows the same cube over the same
+/// [PartCamera]. It knows nothing about a part — it turns a camera — so
+/// sharing it is not a coupling, and a second copy would be a second place for
+/// "snap to TOP" to drift.
+class ViewCube extends StatefulWidget {
   final PartCamera camera;
   final VoidCallback onChanged;
-  const _ViewCube({required this.camera, required this.onChanged});
+  const ViewCube({super.key, required this.camera, required this.onChanged});
   @override
-  State<_ViewCube> createState() => _ViewCubeState();
+  State<ViewCube> createState() => _ViewCubeState();
 }
 
-class _ViewCubeState extends State<_ViewCube> {
+class _ViewCubeState extends State<ViewCube> {
   Set<String> _lit = const {};
 
   bool get _faceView {
@@ -3081,9 +3087,10 @@ class _CubePainter extends CustomPainter {
   bool shouldRepaint(covariant _CubePainter old) => true;
 }
 
-class _TriadPainter extends CustomPainter {
+/// The bottom-left coordinate triad. Public for the same reason [ViewCube] is.
+class TriadPainter extends CustomPainter {
   final PartCamera camera;
-  _TriadPainter(this.camera);
+  TriadPainter(this.camera);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3121,5 +3128,5 @@ class _TriadPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TriadPainter old) => true;
+  bool shouldRepaint(covariant TriadPainter old) => true;
 }
