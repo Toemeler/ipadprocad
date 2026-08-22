@@ -22,26 +22,44 @@
 //     orientation and any zoom — an orthographic projection makes that a
 //     constant, not an approximation.
 //
-// WHY THE CPU PAINTER, ON DEVICE TOO. The part viewport hands its scene to
-// RealityKit on iOS. That payload addresses solids by id in ONE world space
-// and carries no per-solid placement (reality_payload.dart: 'positions' are
-// world xyz), so two occurrences of the same part would arrive as one solid
-// drawn once, at the origin. Teaching the Swift renderer about placements is a
-// real change to the scene protocol and belongs with real assembly
-// constraints, not with the tab's first milestone — so until then the assembly
-// draws through the same painter the gallery thumbnails already use on device.
+// M241 — REALITYKIT, exactly as in part mode.
+//
+// M240 drew the assembly with the CPU painter on device as well, because the
+// scene payload addressed solids by id in one world space and had no
+// per-solid placement: two occurrences of a part would have arrived as one
+// solid drawn once, at the origin. The payload carries `at` now and the
+// renderer puts it on the solid's holder Entity, so this viewport drives the
+// same RealityView the part viewport does, over the same three calls.
+//
+// The CPU painter stays as the OFF-IOS renderer — the host tests and any
+// desktop run go through it, exactly as they do for a part.
+//
+// The split between the two pushes is the thing to keep straight:
+//
+//   setScene    the assembly's STRUCTURE — which components exist, their
+//               meshes, the origin planes sized to their extent. Fires when
+//               [assemblySceneSignature] moves.
+//   setOverlays WHERE each component is and what colour it is. Fires every
+//               frame. This is the drag path: no mesh crosses the channel.
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:native_menu/native_menu.dart' show GlassBrowser;
+import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
 import '../assembly.dart';
 import '../l10n/l.dart';
+import '../log.dart';
 import '../part_model.dart';
 import '../part_render.dart';
+import '../perf.dart';
+import '../reality_assembly.dart';
+import '../reality_payload.dart';
+import '../reality_scene.dart' show RealityPush, logMeshConvention;
 import '../theme.dart';
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
@@ -82,8 +100,146 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   /// focal point while the camera moves under it, and both are wrong.
   final Set<int> _down = {};
 
-  /// The occurrence under the pointer, for the hover cursor.
+  /// The occurrence under the pointer, for the hover cursor and the hover tint.
   AssemblyOccurrence? _hover;
+
+  // ---- RealityKit (iOS) ----
+  RealityViewController? _reality;
+  String? _lastSceneSig;
+  Map<String, int> _sentRevs = const {};
+
+  /// Push the camera (always), the scene (only when its signature moved) and
+  /// the placements + tints (always) to RealityKit.
+  ///
+  /// The same shape as _Viewport3DState._pushReality, and for the same reason:
+  /// meshes are large and the camera is three doubles, so they cannot travel
+  /// on the same schedule.
+  void _pushReality(AssemblyModel a, Size size) =>
+      Perf.span('3d.push', () => _pushRealityInner(a, size));
+
+  void _pushRealityInner(AssemblyModel a, Size size) {
+    final c = _reality;
+    if (c == null) return;
+    c.setCamera(cameraPayload(a.camera, size));
+    // The same diagnostics the part viewport records. RealityKit composites
+    // outside Flutter, so it never appears in a bug bundle's screenshot and
+    // Dart cannot read back what it drew — this is the last word before the
+    // boundary, and without it an "the assembly is empty" report is
+    // unanswerable (bug_capture.dart carries RealityPush.dump()).
+    RealityPush.recordCamera('assembly on ${size.width.toInt()}x'
+        '${size.height.toInt()}');
+    final sig = assemblySceneSignature(a);
+    if (sig != _lastSceneSig) {
+      _lastSceneSig = sig;
+      final pushed = <String>[];
+      for (final (id, o, sol) in assemblyPieces(a)) {
+        logMeshConvention(id, sol.mesh);
+        pushed.add('$id @ ${o.offset.x.toStringAsFixed(2)},'
+            '${o.offset.y.toStringAsFixed(2)},'
+            '${o.offset.z.toStringAsFixed(2)}: '
+            'tris=${sol.mesh.indices.length ~/ 3} '
+            'verts=${sol.mesh.positions.length ~/ 3} '
+            'rev=${identityHashCode(sol.mesh)}');
+      }
+      RealityPush.recordScene(sig, pushed);
+      c.setScene(Perf.span(
+          '3d.payload',
+          () => buildAssemblyScenePayload(a,
+              hoverId: _hover?.id, knownRevs: _sentRevs)));
+      _sentRevs = assemblySceneRevs(a);
+    }
+    c.setOverlays(buildAssemblyOverlaysPayload(a, hoverId: _hover?.id));
+  }
+
+  // ---- mesh refinement -----------------------------------------------------
+  //
+  // M241 — the part viewport re-tessellates its solids as you zoom in, so a
+  // cylinder stays round instead of keeping the facet count it was built at.
+  // A component IS a part's solids, so an assembly needs the same pass or
+  // zooming into one shows faceting the part viewport would have smoothed
+  // away — "just like part mode" has to include this or it is not.
+  //
+  // Every occurrence holds its OWN PartModel (see assembly.dart), so two
+  // placements of one part refine independently. Wasteful and correct; sharing
+  // one model between occurrences is the fix, and it only pays off once
+  // occurrences can differ from each other.
+  Timer? _refineTimer;
+
+  Iterable<KernelSolid> _refinableSolids() sync* {
+    final a = asm;
+    if (a == null) return;
+    for (final o in a.occurrences) {
+      if (!o.visible) continue;
+      yield* o.solids;
+    }
+  }
+
+  int _sceneTriangles() {
+    var n = 0;
+    for (final s in _refinableSolids()) {
+      n += s.mesh.indices.length ~/ 3;
+    }
+    return n;
+  }
+
+  bool _anyCoarse(Size size) {
+    final a = asm;
+    if (a == null) return false;
+    final target = budgetedLinDeflection(
+        viewLinearDeflection(a.camera.halfH, size.height), _sceneTriangles());
+    for (final s in _refinableSolids()) {
+      if (meshNeedsRefine(s.meshLin, steppedLinDeflection(s.meshLin, target))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// (Re)arm the debounce so a burst of zoom steps triggers exactly one
+  /// kernel re-mesh after the gesture settles.
+  void _armRefine(Size size) {
+    if (!_anyCoarse(size)) return;
+    _refineTimer?.cancel();
+    _refineTimer = Timer(const Duration(milliseconds: 80), () {
+      if (mounted) _refineNow(size);
+    });
+  }
+
+  void _refineNow(Size size) {
+    final a = asm;
+    if (a == null) return;
+    // Refinement only ever makes meshes FINER, so without a budget every zoom
+    // step ratchets the scene up and nothing gives it back.
+    final target = budgetedLinDeflection(
+        viewLinearDeflection(a.camera.halfH, size.height), _sceneTriangles());
+    var remeshed = 0;
+    final sw = Stopwatch()..start();
+    for (final s in _refinableSolids()) {
+      final step = steppedLinDeflection(s.meshLin, target);
+      if (meshNeedsRefine(s.meshLin, step) &&
+          s.refine(step, viewAngularDeflection(step))) {
+        remeshed++;
+      }
+    }
+    sw.stop();
+    if (remeshed == 0) return;
+    // A re-mesh replaces the mesh OBJECT, so its identityHashCode changes and
+    // the scene signature moves with it — which is exactly what makes the new
+    // buffers travel on the next push. Nothing else has to notice.
+    Perf.record('kernel.remesh', sw.elapsedMicroseconds / 1000.0);
+    Perf.gauge('sceneTris', _sceneTriangles());
+    Log.i(
+        'perf',
+        'asm remesh n=$remeshed lin=${target.toStringAsExponential(2)} '
+        'tris=${_sceneTriangles()} in ${sw.elapsedMilliseconds}ms');
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _refineTimer?.cancel();
+    super.dispose();
+  }
 
   /// M170's rule, unchanged: the tap/drag threshold belongs to the INPUT. A
   /// finger wobbles several pixels just resting on the glass; a Pencil does
@@ -108,16 +264,62 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
         fitAssemblyView(a.camera, placedComponents(a), size);
       }
       final cam = Cam3(a.camera, size);
+      // Keep the components at screen resolution: refine on the first frame,
+      // on resize, and after every zoom. Cheap no-op once smooth.
+      _armRefine(size);
+      // Drive the RealityKit surface (iOS). Off iOS this is a no-op and the
+      // CustomPaint fallback below renders instead.
+      if (RealityView.isSupported) _pushReality(a, size);
       return Stack(children: [
         // The render surface sits at the BOTTOM and is never hit-tested; the
         // gesture layer is stacked on top of it (viewport3d does the same, and
         // for the same reason — see the note there about platform views).
         Positioned.fill(
           child: ClipRect(
-            child: CustomPaint(
-              painter: _AssemblyPainter(a),
-              size: Size.infinite,
-            ),
+            child: Stack(children: [
+              Positioned.fill(
+                child: RealityView.isSupported
+                    // IgnorePointer: the ARView is a pure output surface. A
+                    // platform view must never be the topmost hit target — on
+                    // iOS its touch interception swallows taps before the
+                    // Flutter gesture arena sees them.
+                    ? IgnorePointer(
+                        child: RealityView(
+                          placeholder: ColoredBox(color: T.viewport),
+                          onCreated: (c) {
+                            _reality = c;
+                            // A FRESH platform view starts empty. Without
+                            // clearing these the signature would still match
+                            // the old view's contents, setScene would never
+                            // fire and the viewport would stay blank forever
+                            // (app resume, tab switch, document switch).
+                            _lastSceneSig = null;
+                            _sentRevs = const {};
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) setState(() {});
+                            });
+                          },
+                        ),
+                      )
+                    : CustomPaint(
+                        painter: _AssemblyPainter(a, _hover),
+                        size: Size.infinite,
+                      ),
+              ),
+              // Screen-space decorations. On iOS the scene is RealityKit and
+              // _AssemblyPainter never runs, so anything that is pure HUD has
+              // to be drawn here or it would be visible on the host and
+              // invisible on the device it was built for.
+              if (RealityView.isSupported)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _MissingPartPainter(a),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
+            ]),
           ),
         ),
         Positioned.fill(
@@ -359,6 +561,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
       a.camera.ox += nx * aspect * dH;
       a.camera.oy += ny * dH;
     }
+    _armRefine(cam.size); // re-tessellate to the new screen resolution
   }
 }
 
@@ -429,11 +632,65 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
 }
 
 // ---------------------------------------------------------------------------
-// scene painter
+// scene painters
 // ---------------------------------------------------------------------------
+
+/// A component whose SOURCE PART has gone — deleted from the gallery since the
+/// assembly was saved — drawn as a marker at its placement.
+///
+/// Screen space, and called from BOTH painters. That is the point: on iOS the
+/// scene is RealityKit and [_AssemblyPainter] never runs, so a marker drawn
+/// only there would be perfectly visible on the host and invisible on the
+/// device it exists for. (The same trap paintWorkFeatures documents on the
+/// part side.)
+///
+/// Drawing nothing would be the confusing version: the browser still lists the
+/// component, so an empty viewport reads as a broken renderer rather than as a
+/// missing file.
+void paintMissingComponents(Canvas canvas, Cam3 cam, AssemblyModel asm) {
+  for (final o in asm.occurrences) {
+    if (o.loaded || !o.visible) continue;
+    final c = cam.project(o.offset);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = T.err;
+    const r = 7.0;
+    canvas.drawCircle(c, r, paint);
+    final k = r * math.sqrt1_2;
+    canvas.drawLine(c + Offset(-k, -k), c + Offset(k, k), paint);
+    canvas.drawLine(c + Offset(k, -k), c + Offset(-k, k), paint);
+  }
+}
+
+/// The iOS overlay: RealityKit draws the scene, this draws what is pure HUD.
+class _MissingPartPainter extends CustomPainter {
+  final AssemblyModel asm;
+  _MissingPartPainter(this.asm);
+
+  @override
+  void paint(Canvas canvas, Size size) =>
+      paintMissingComponents(canvas, Cam3(asm.camera, size), asm);
+
+  @override
+  bool shouldRepaint(covariant _MissingPartPainter old) => true;
+}
+
+/// The OFF-IOS renderer, and the one the host tests exercise.
+///
+/// It says the same things RealityKit says: a selected component is washed in
+/// the selection tone and a hovered one in a lighter pass of it, because a
+/// viewport where selection means one thing on the iPad and another on a
+/// desktop run is a viewport nobody can reason about. See
+/// [paintAssemblySolids] for how the wash avoids touching the shared shading
+/// path — and for what it adds on top of RealityKit's, which is the accented
+/// edge on the selected component.
 class _AssemblyPainter extends CustomPainter {
   final AssemblyModel asm;
-  _AssemblyPainter(this.asm);
+
+  /// The component under the pointer, washed the way RealityKit tints it.
+  final AssemblyOccurrence? hover;
+  _AssemblyPainter(this.asm, this.hover);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -449,12 +706,16 @@ class _AssemblyPainter extends CustomPainter {
       for (final o in asm.occurrences)
         if (o.visible) o
     ];
+    int indexOf(AssemblyOccurrence? o) =>
+        o == null ? -1 : visible.indexWhere((v) => identical(v, o));
     final occ = paintAssemblySolids(
-        canvas, cam, [for (final o in visible) (o.offset, o.solids.toList())],
-        selected: asm.selected == null
-            ? -1
-            : visible.indexWhere((o) => identical(o, asm.selected)),
-        accentColor: kEdgeAccent);
+      canvas,
+      cam,
+      [for (final o in visible) (o.offset, o.solids.toList())],
+      selected: indexOf(asm.selected),
+      hovered: indexOf(hover),
+      accentColor: kEdgeAccent,
+    );
 
     // ---- origin planes ----
     for (final key in kPlaneKeys) {
@@ -503,22 +764,7 @@ class _AssemblyPainter extends CustomPainter {
       canvas.drawCircle(cam.project(Vec3.zero), 3.5, Paint()..color = _orange);
     }
 
-    // A component whose source part has gone (deleted from the gallery) draws
-    // as a marker at its placement rather than as nothing at all: an empty
-    // viewport with rows in the browser is the confusing version.
-    for (final o in asm.occurrences) {
-      if (o.loaded || !o.visible) continue;
-      final c = cam.project(o.offset);
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = T.err;
-      const r = 7.0;
-      canvas.drawCircle(c, r, paint);
-      final k = r * math.sqrt1_2;
-      canvas.drawLine(c + Offset(-k, -k), c + Offset(k, k), paint);
-      canvas.drawLine(c + Offset(k, -k), c + Offset(-k, k), paint);
-    }
+    paintMissingComponents(canvas, cam, asm);
   }
 
   @override

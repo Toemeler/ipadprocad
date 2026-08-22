@@ -908,14 +908,28 @@ Cam3 shiftedCam(Cam3 cam, Vec3 t) => Cam3.basis(
 /// components by their origin and painting them in turn, which is what this
 /// did first, gets that wrong for any two components that overlap on screen.
 ///
-/// [selected] is an index into [placed]; that component's edges are drawn in
-/// the accent colour, which is how the viewport shows what a drag will move.
+/// [selected] and [hovered] are indices into [placed]. That component's faces
+/// are washed with [selectedTint] / [hoveredTint] and, for the selection, its
+/// edges are drawn in [accentColor].
+///
+/// The wash is what keeps this renderer and RealityKit saying the SAME thing:
+/// on device a selected component is a tinted body (the payload carries the
+/// colour, PartRenderer.applyTint puts it on the material), and a viewport
+/// where selection means one thing on the iPad and another on a desktop run is
+/// a viewport nobody can reason about. It is drawn as a translucent overlay
+/// over the shading rather than by re-tinting it, because the shading path is
+/// shared with every part render and a per-solid base colour there would be a
+/// hot-loop change for one document kind. The face prehighlight above does
+/// exactly the same thing for exactly the same reason.
 SceneOccluders? paintAssemblySolids(
   Canvas canvas,
   Cam3 cam,
   List<PlacedComponent> placed, {
   int selected = -1,
+  int hovered = -1,
   Color? accentColor,
+  Color? selectedTint,
+  Color? hoveredTint,
 }) {
   // (component index, its solids projected through its own shifted camera)
   final scenes = <(int, SceneSolid)>[];
@@ -940,7 +954,38 @@ SceneOccluders? paintAssemblySolids(
       ],
       255);
 
-  // 2. edges + silhouettes over the shading, against the shared occluder
+  // 2. the selection / hover wash, over the shading and under the edges.
+  //
+  // Selection WINS on the component that is both: two washes would compound
+  // into a third colour that means nothing, and "selected" is the stronger
+  // statement. Same rule as assemblyTint on the RealityKit side.
+  for (final (which, tint, alpha) in [
+    (selected, selectedTint ?? kFaceHighlight, 0.42),
+    (hovered == selected ? -1 : hovered, hoveredTint ?? kFaceHighlight, 0.20),
+  ]) {
+    if (which < 0) continue;
+    final tris = [
+      for (final (i, sol) in scenes)
+        if (i == which)
+          for (final t in sol.tris)
+            if (t.front) t
+    ];
+    if (tris.isEmpty) continue;
+    final pos = Float32List(tris.length * 6);
+    var pi = 0;
+    for (final t in tris) {
+      pos[pi++] = t.a.dx;
+      pos[pi++] = t.a.dy;
+      pos[pi++] = t.b.dx;
+      pos[pi++] = t.b.dy;
+      pos[pi++] = t.c.dx;
+      pos[pi++] = t.c.dy;
+    }
+    canvas.drawVertices(ui.Vertices.raw(ui.VertexMode.triangles, pos),
+        BlendMode.srcOver, Paint()..color = tint.withValues(alpha: alpha));
+  }
+
+  // 3. edges + silhouettes over the shading, against the shared occluder
   for (final (i, s) in scenes) {
     final on = i == selected;
     // The EDGES are drawn through the component's own shifted camera: the

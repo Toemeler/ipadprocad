@@ -1,10 +1,20 @@
 // Prototype — RealityKit geometry builders.
 //
-// Turns the app's payload maps into RealityKit entities. All geometry arrives
-// in WORLD coordinates (the app has already placed every solid), so builders
-// never transform — they only tessellate into MeshResources and pick a
-// material. Edges/axes/sketch lines are drawn as thin swept tubes rather than a
-// line primitive, because RealityKit's high-level MeshResource has no line
+// Turns the app's payload maps into RealityKit entities. Geometry arrives in
+// the coordinates of the DOCUMENT IT WAS BUILT IN, so builders never transform
+// — they only tessellate into MeshResources and pick a material.
+//
+// For a PART that is the world: the app has already placed every solid, and
+// every solid's payload carries no placement.
+//
+// M241 — for an ASSEMBLY it is the SOURCE PART's own space, and the payload
+// carries `at`, the component's placement. The renderer puts that on the
+// solid's holder Entity (see PartRenderer.rebuildSolids), which is the whole
+// mechanism: two occurrences of one part are two holders over ONE uploaded
+// mesh, and dragging one is a transform write rather than a mesh upload.
+//
+// Edges/axes/sketch lines are drawn as thin swept tubes rather than a line
+// primitive, because RealityKit's high-level MeshResource has no line
 // primitive and the tube approach is depth-buffer correct (no z-fighting, no
 // frayed outlines — the exact failure mode of the CPU painter).
 import Flutter
@@ -64,6 +74,27 @@ enum Payload {
         return i.map { UInt32(bitPattern: $0) }
     }
 
+    /// A packed ARGB integer from Dart's `Color.value`, as a plain Int.
+    ///
+    /// ZERO means "no colour given". That is a sentinel and not a colour: a
+    /// fully transparent black is never a tint anyone asks for, and it keeps
+    /// the value out of `[String: Int?]`, where Swift's `dict[k] = nil`
+    /// REMOVES the entry instead of storing a nil — a trap worth designing
+    /// around rather than remembering.
+    static func argb(_ any: Any?) -> Int {
+        return (any as? NSNumber)?.intValue ?? 0
+    }
+
+    /// [argb] as a colour, or nil when it is the zero sentinel.
+    static func color(_ argb: Int) -> UIColor? {
+        guard argb != 0 else { return nil }
+        return UIColor(
+            red: CGFloat((argb >> 16) & 0xFF) / 255.0,
+            green: CGFloat((argb >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(argb & 0xFF) / 255.0,
+            alpha: CGFloat((argb >> 24) & 0xFF) / 255.0)
+    }
+
     static func vec3(_ any: Any?) -> SIMD3<Float>? {
         guard let d = any as? [Any], d.count >= 3,
               let x = (d[0] as? NSNumber)?.doubleValue,
@@ -117,6 +148,19 @@ enum Materials {
 
     static func unlit(_ color: UIColor) -> RealityKit.Material {
         return UnlitMaterial(color: color)
+    }
+
+    /// M241 — [steel] in another colour, for a solid the app wants tinted:
+    /// the SELECTED assembly component, and the one under the pointer.
+    ///
+    /// The colour is pushed from Dart (payload key `tint`, ARGB) rather than
+    /// named here. That is M237's lesson applied to one more constant: the
+    /// app has two palettes and the selection tone differs between them, so a
+    /// frozen UIColor in this file would be right in one scheme and wrong in
+    /// the other — exactly how the viewport background came to be charcoal
+    /// under a cream chrome.
+    static func tinted(_ color: UIColor) -> RealityKit.Material {
+        return SimpleMaterial(color: color, roughness: 0.9, isMetallic: false)
     }
 
     /// Unlit colour whose ALPHA comes from the ribbon ramp, sampled across
