@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'assembly.dart';
+import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
 import 'doc_file.dart';
@@ -3766,28 +3767,44 @@ class AppState extends ChangeNotifier {
 
   /// The gallery still for an assembly.
   ///
-  /// The CPU painter, always — unlike a part, which prefers the off-screen
-  /// RealityKit shot. Same reason the assembly VIEWPORT is CPU-painted: the
-  /// RealityKit payload addresses solids by id in one world space and has no
-  /// per-occurrence placement, so two components would be drawn on top of each
-  /// other. paintPartSolids takes a camera, and a translated component is just
-  /// a translated camera (see ViewportAssembly).
+  /// M241 — the SAME engine the part's still uses, and for the same reason:
+  /// one renderer means the card and the live viewport cannot disagree. The
+  /// off-screen ARView is handed each component's placement beside its mesh,
+  /// exactly as the viewport is; the CPU painter stays as the fallback for a
+  /// host run or an older iOS.
   Future<void> _writeAssemblyPreview(String name, AssemblyModel a) async {
+    final png = _pngFile(name);
     try {
-      final png = _pngFile(name);
-      final placed = placedComponents(a);
-      if (placed.isEmpty) {
+      final pieces = [
+        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.offset)
+      ];
+      if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
         return;
       }
-      const w = 512.0, h = 384.0;
+      const w = 380.0, h = 240.0;
       const size = Size(w, h);
-      final cam = Cam3(fitAssemblyThumbCamera(placed, size), size);
+      final placed = placedComponents(a);
+      final cam = fitAssemblyThumbCamera(placed, size);
+
+      // M237 — a TRANSPARENT ground: the card paints its own surface behind
+      // the PNG, so a still written in one scheme still looks right in the
+      // other and a palette switch invalidates no cached file.
+      final shot = await RealityThumbnailer.render(
+        scene: buildPlacedThumbScenePayload(pieces),
+        camera: cameraPayload(cam, size),
+        width: w.toInt(),
+        height: h.toInt(),
+      );
+      if (shot != null && shot.isNotEmpty) {
+        await png.writeAsBytes(shot);
+        return;
+      }
+
+      // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      // No background fill: the still is the assembly, the gallery card
-      // supplies the ground (same rule as _writePartPreview).
-      paintAssemblySolids(canvas, cam, placed);
+      paintAssemblySolids(canvas, Cam3(cam, size), placed);
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
@@ -3828,6 +3845,7 @@ class AppState extends ChangeNotifier {
     occ.offset = nextPlacement(a, occurrenceBounds(occ));
     a.occurrences.add(occ);
     a.selected = occ;
+    a.bump();
     // Inventor runs Zoom All when a component is placed, and it has to here:
     // a placement lands CLEAR of what is already there (see nextPlacement), so
     // without reframing, the second component of a large assembly arrives off
@@ -3858,16 +3876,29 @@ class AppState extends ChangeNotifier {
   void endOccurrenceDrag() {
     final a = currentAssembly;
     if (a == null) return;
+    // M241 — the drag itself never bumped the generation (a placement rides
+    // the light RealityKit push). Now that it has settled, tick it once so the
+    // origin planes and axes, which are sized to the assembly's contents,
+    // catch up with where the component ended.
+    //
+    // notifyListeners is what makes that tick reach the renderer: the last
+    // frame of the drag already rebuilt the viewport, and without this nothing
+    // would ask it to again until the user touched something else — the planes
+    // would sit at the old extent for as long as the assembly was left alone.
+    a.bump();
+    notifyListeners();
     unawaited(saveAssembly(a.name));
   }
 
   void setOccurrenceVisible(AssemblyOccurrence occ, bool on) {
     occ.visible = on;
+    currentAssembly?.bump();
     notifyListeners();
   }
 
   void setOccurrenceGrounded(AssemblyOccurrence occ, bool on) {
     occ.grounded = on;
+    currentAssembly?.bump();
     notifyListeners();
     final a = currentAssembly;
     if (a != null) unawaited(saveAssembly(a.name));
@@ -3877,6 +3908,7 @@ class AppState extends ChangeNotifier {
     final a = currentAssembly;
     if (a == null) return;
     a.remove(occ);
+    a.bump();
     notifyListeners();
     unawaited(saveAssembly(a.name));
   }
@@ -3886,6 +3918,7 @@ class AppState extends ChangeNotifier {
     final a = currentAssembly;
     if (a == null || !a.vis.containsKey(key)) return;
     a.vis[key] = on;
+    a.bump();
     notifyListeners();
   }
 

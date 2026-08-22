@@ -410,6 +410,34 @@ void main() {
           1e-6));
     });
 
+    test('a settled drag ticks the generation and tells the viewport', () {
+      // M241 — the drag itself deliberately does NOT move the scene
+      // signature (a placement rides the light RealityKit push), so the
+      // origin planes, which are sized to the assembly's contents, are stale
+      // the moment the finger lifts. endOccurrenceDrag is what settles that,
+      // and it has to NOTIFY or nothing rebuilds to act on it.
+      final app = freshApp('ipc_m240_dragend');
+      final a = AssemblyModel('Gearbox');
+      app.assemblies['Gearbox'] = a;
+      app.openTabs.add('Gearbox');
+      app.curTab = 'Gearbox';
+      final o = placed('Lid:1', Vec3.zero);
+      a.occurrences.add(o);
+
+      var notified = 0;
+      app.addListener(() => notified++);
+
+      final genBefore = a.gen;
+      app.moveOccurrence(o, const Vec3(10, 0, 0));
+      expect(a.gen, genBefore, reason: 'a drag in flight must not tick it');
+      expect(notified, greaterThan(0), reason: 'the viewport must repaint');
+
+      final n = notified;
+      app.endOccurrenceDrag();
+      expect(a.gen, greaterThan(genBefore));
+      expect(notified, greaterThan(n));
+    });
+
     test('deleting an occurrence clears the selection with it', () {
       final app = freshApp('ipc_m240_del');
       final a = AssemblyModel('Gearbox');

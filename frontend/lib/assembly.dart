@@ -17,8 +17,10 @@
 //
 // The consequence runs all the way through this file: a placement is a Vec3,
 // so every renderer and hit-test can treat a component as "the source part's
-// geometry, shifted". That is what lets the assembly viewport reuse the part
-// viewport's painter verbatim instead of forking it.
+// geometry, shifted". That is what lets the assembly reuse the part's
+// renderers rather than fork them — on RealityKit it is a transform on the
+// solid's holder Entity (M241, see reality_assembly.dart), and on the CPU
+// painter it is a shifted camera (see shiftedCam in part_render.dart).
 import 'dart:math' as math;
 
 import 'doc_file.dart' show kAssemblyDocKind;
@@ -60,15 +62,29 @@ class AssemblyOccurrence {
     this.part,
   }) : offset = offset ?? Vec3.zero;
 
-  /// The solids this occurrence draws, in the SOURCE part's own coordinates.
-  /// Callers add [offset] themselves — see the note in the file header.
-  Iterable<KernelSolid> get solids sync* {
+  /// The solids this occurrence draws, each with the FEATURE NAME that built
+  /// it, in the SOURCE part's own coordinates. Callers add [offset] themselves
+  /// — see the note in the file header.
+  ///
+  /// ONE definition of "what a component draws". The rule (visible, built,
+  /// not folded away by a boolean, not below End of Part) is the part
+  /// viewport's own, and it is stated here exactly once: the CPU painter, the
+  /// RealityKit payload, the bounds walk and the picker all read it from here,
+  /// so a component cannot be drawn by one and missed by another.
+  Iterable<(String, KernelSolid)> get namedSolids sync* {
     final p = part;
     if (p == null) return;
     for (final f in p.features) {
       if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack) {
-        yield f.solid!;
+        yield (f.name, f.solid!);
       }
+    }
+  }
+
+  /// [namedSolids] without the names, for the painters that do not need them.
+  Iterable<KernelSolid> get solids sync* {
+    for (final (_, s) in namedSolids) {
+      yield s;
     }
   }
 
@@ -126,6 +142,19 @@ class AssemblyModel {
 
   /// The occurrence currently selected in the viewport or the browser.
   AssemblyOccurrence? selected;
+
+  /// M241 — the assembly's STRUCTURE generation.
+  ///
+  /// Bumped whenever something changes that the heavy RealityKit push has to
+  /// see: a component placed or deleted, hidden or shown, grounded, or a drag
+  /// ENDING (the origin planes are sized to the assembly's contents, so they
+  /// are stale until the drag settles). Deliberately NOT bumped while a drag
+  /// is in flight — a placement travels on the light push, and moving this
+  /// would rebuild every mesh and plane sixty times a second to express a
+  /// translation the renderer can apply itself. See assemblySceneSignature.
+  int gen = 0;
+
+  void bump() => gen++;
 
   /// Set when something happened that the CAMERA should react to — placing a
   /// component. The viewport clears it on the next frame.
