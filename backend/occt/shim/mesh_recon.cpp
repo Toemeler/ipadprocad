@@ -1072,6 +1072,31 @@ const char *KindName(SurfKind k)
  * vertex normals, tight enough that a sphere never passes for a cylinder. */
 const double kMinNormalAgreement = 0.90;
 
+/* How much better a later, more complex kind must agree with the mesh normals
+ * before it displaces an earlier one that also fits. Level kinds keep the
+ * simpler answer. */
+const double kAgreeSlack = 0.004;
+
+/* Agreement past which no later kind could win by more than the slack, so the
+ * search can stop. */
+const double kAgreeCertain = 0.9995;
+
+/* Where in the sorted dihedrals of a patch to read "the sharpest edges in it".
+ * A crease ring is a few per cent of a patch's internal edges. */
+const double kCreaseQuantile = 0.98;
+
+/* How many times the ordinary curvature step that ring must reach before it is
+ * a crease and not just the tessellation. Below this the crease and the facet
+ * angle are the same size and no dihedral test can separate them. */
+const double kCreaseRatio = 2.0;
+
+/* And an absolute floor, so a very finely tessellated smooth patch is never cut
+ * at a two-degree "crease" that is really its own curvature. */
+const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
+
+/* A patch with more creases than this is not a pair of surfaces, it is noise. */
+const int kMaxCreaseDepth = 4;
+
 /* Largest fitted radius worth believing, as a multiple of the part's own
  * bounding-box diagonal. */
 const double kMaxRadiusFactor = 4.0;
@@ -1080,6 +1105,8 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
 {
     const std::vector<V3> &pts = d.pts;
     Fit best;
+    Fit chosen;
+    bool have = false;
     const SurfKind order[5] = {kPlane, kSphere, kCylinder, kCone, kTorus};
     for (int i = 0; i < 5; ++i) {
         const SurfKind k = order[i];
@@ -1137,11 +1164,34 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
         if (agree < kMinNormalAgreement)
             continue;
         if (rms <= tol) {
-            best.kind = k;
-            std::memcpy(best.q, q, sizeof(q));
-            best.rms = rms;
-            best.agree = agree;
-            return best; /* simplest kind that fits wins */
+            /* Of the kinds that PASS through the points, take the one that
+             * also POINTS the way the mesh does — and keep the simpler kind
+             * when the two are level.
+             *
+             * "Simplest kind that fits wins" is right on a whole face and
+             * wrong on a piece of one, and region growing works on pieces. A
+             * plane fits three columns of a tessellated cylinder to well
+             * inside tolerance; so does a sphere the size of a house. Taking
+             * either meant the running fit stopped at the third column and the
+             * barrel came out as a fan of planar strips — which is what a
+             * cylinder-into-cone patch turned into, all the way down. The
+             * residual cannot tell those apart; the normals can, and by a wide
+             * margin: on that strip a plane agrees to 0.94, the cylinder to
+             * 0.999. The slack keeps a genuinely flat face a PLANE rather than
+             * a sphere of radius ten thousand, which is what the old rule was
+             * protecting and is still worth protecting. */
+            if (!have || agree > chosen.agree + kAgreeSlack) {
+                chosen.kind = k;
+                std::memcpy(chosen.q, q, sizeof(q));
+                chosen.rms = rms;
+                chosen.agree = agree;
+                have = true;
+            }
+            /* Nothing later can beat this by more than the slack, so stop —
+             * which is the common case (a flat face, first kind tried). */
+            if (chosen.agree >= kAgreeCertain)
+                return chosen;
+            continue;
         }
         if (rms < best.rms) {
             best.kind = k;
@@ -1150,6 +1200,8 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
             best.agree = agree;
         }
     }
+    if (have)
+        return chosen;
     if (best.rms > tol)
         best.kind = kNone; /* nothing fitted; caller decides */
     return best;
@@ -1230,6 +1282,115 @@ void SmoothPatches(const Mesh &m, double sharpDeg, std::vector<int> &patchOf,
             }
         }
     }
+}
+
+/* Cuts a patch at its own sharpest internal crease, if it has one.
+ *
+ * A smooth patch that fits no primitive is often two surfaces meeting at an
+ * angle SHALLOWER than the global sharp-edge threshold: a cylinder into a
+ * gentle cone, a nozzle, a tapered boss, a shallow chamfer. Region growing
+ * handles a TANGENT seam well and a creased one badly — at a crease every seed
+ * near it straddles both surfaces and fits neither, and the patch comes apart
+ * into shards instead of two faces.
+ *
+ * The crease is visible in the patch's own dihedral statistics, with no
+ * absolute angle anywhere: on a smoothly curved patch every internal dihedral
+ * is about the tessellation step, so the distribution is tight; a crease puts
+ * one ring of edges far above it. Comparing a high quantile against that step
+ * is self-calibrating — it reads the same on a 12-segment download as on a
+ * 2000-segment export, and it says "no crease" on a sphere.
+ *
+ * The step is NOT the plain median: half the internal edges of a quad-meshed
+ * surface are the diagonals inside the quads, whose dihedral is exactly zero,
+ * so a median reads zero on every cylinder and the cut lands everywhere. Take
+ * the median of the edges that actually bend. */
+bool SplitAtCrease(const Mesh &m, const std::vector<int> &tris, int minTris,
+                   std::vector<std::vector<int>> &parts)
+{
+    parts.clear();
+    if (tris.size() < 8)
+        return false;
+    std::unordered_map<int, int> local;
+    for (size_t i = 0; i < tris.size(); ++i)
+        local.emplace(tris[i], static_cast<int>(i));
+
+    std::vector<double> ang;
+    ang.reserve(tris.size() * 3 / 2);
+    for (int t : tris) {
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o < 0 || o < t || local.find(o) == local.end())
+                continue;
+            const double c =
+                std::max(-1.0, std::min(1.0, Dot(m.tnorm[t], m.tnorm[o])));
+            ang.push_back(std::acos(c));
+        }
+    }
+    if (ang.size() < 8)
+        return false;
+    std::sort(ang.begin(), ang.end());
+    const double hi = ang[(size_t)(ang.size() * kCreaseQuantile)];
+    if (hi < kMinCreaseAngle)
+        return false;
+    const double floorAng = std::max(hi * 0.05, 0.2 * M_PI / 180.0);
+    size_t lo = 0;
+    while (lo < ang.size() && ang[lo] < floorAng)
+        lo++;
+    if (lo >= ang.size())
+        return false;
+    const double step = ang[lo + (ang.size() - lo) / 2];
+    if (hi < kCreaseRatio * std::max(step, 1e-4))
+        return false;
+
+    /* Cut between the two: above every ordinary curvature step, below the
+     * crease. The geometric mean puts it there on any tessellation. */
+    double thr = std::sqrt(std::max(step, 1e-6) * hi);
+    thr = std::max(thr, 1.5 * step);
+    thr = std::min(thr, 0.8 * hi);
+    const double cosThr = std::cos(thr);
+
+    std::vector<int> comp(tris.size(), -1);
+    int n = 0;
+    std::vector<int> stack;
+    for (size_t si = 0; si < tris.size(); ++si) {
+        if (comp[si] >= 0)
+            continue;
+        const int id = n++;
+        stack.assign(1, static_cast<int>(si));
+        comp[si] = id;
+        while (!stack.empty()) {
+            const int i = stack.back();
+            stack.pop_back();
+            const int t = tris[i];
+            for (int k = 0; k < 3; ++k) {
+                const int o = m.adj[t * 3 + k];
+                if (o < 0)
+                    continue;
+                auto it = local.find(o);
+                if (it == local.end() || comp[it->second] >= 0)
+                    continue;
+                if (Dot(m.tnorm[t], m.tnorm[o]) < cosThr)
+                    continue;
+                comp[it->second] = id;
+                stack.push_back(it->second);
+            }
+        }
+    }
+    if (n < 2)
+        return false;
+    parts.assign(n, std::vector<int>());
+    for (size_t i = 0; i < tris.size(); ++i)
+        parts[comp[i]].push_back(tris[i]);
+    /* Two real pieces, not one piece and a rim of strays. */
+    int big = 0;
+    for (const std::vector<int> &pp : parts)
+        if (static_cast<int>(pp.size()) >= std::max(minTris, 3))
+            big++;
+    if (big < 2) {
+        parts.clear();
+        return false;
+    }
+    return true;
 }
 
 /* How closely a candidate triangle's normal must follow the running fit's, to
@@ -1374,6 +1535,39 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
         }
         out.push_back(pa);
     }
+}
+
+/* Splits a patch that fits nothing: crease first, running fit second.
+ *
+ * Cutting at a crease is both cheaper and more reliable than growing across
+ * one, so it is tried first and recursed into; SplitByFit then handles what is
+ * left, which is the tangent case it was written for. */
+void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
+                double scale, int minTris, int origin, int depth,
+                std::vector<Patch> &out)
+{
+    PatchData pd;
+    PatchPoints(m, tris, pd, 4000);
+    Patch pa;
+    pa.tris = tris;
+    pa.origin = origin;
+    pa.fit = FitPatch(pd, tol, scale);
+    if (pa.fit.kind != kNone || static_cast<int>(tris.size()) < minTris * 4) {
+        out.push_back(pa);
+        return;
+    }
+    if (depth < kMaxCreaseDepth) {
+        std::vector<std::vector<int>> parts;
+        if (SplitAtCrease(m, tris, minTris, parts)) {
+            for (const std::vector<int> &pp : parts)
+                SplitPatch(m, pp, tol, scale, minTris, origin, depth + 1, out);
+            return;
+        }
+    }
+    const size_t before = out.size();
+    SplitByFit(m, tris, tol, scale, minTris, origin, out);
+    if (out.size() == before)
+        out.push_back(pa);
 }
 
 /* Weight on the angular half of the boundary score, as a fraction of the part's
@@ -2053,6 +2247,105 @@ TopoDS_Vertex VertexAt(BuildCtx &ctx, int v)
     return tv;
 }
 
+/* Reads a quadric's axis and size, for the degeneracy test below. */
+struct Quadric
+{
+    int kind = -1; /* 0 plane, 1 cylinder, 2 cone, 3 sphere, 4 torus */
+    gp_Pnt loc;
+    gp_Dir dir;
+    double size = 0; /* radius, or a cone's semi-angle */
+};
+
+bool ReadQuadric(const Handle(Geom_Surface) & s, Quadric &q)
+{
+    if (Handle(Geom_Plane) x = Handle(Geom_Plane)::DownCast(s)) {
+        q.kind = 0;
+        q.loc = x->Position().Location();
+        q.dir = x->Position().Direction();
+        return true;
+    }
+    if (Handle(Geom_CylindricalSurface) x =
+            Handle(Geom_CylindricalSurface)::DownCast(s)) {
+        q.kind = 1;
+        q.loc = x->Position().Location();
+        q.dir = x->Position().Direction();
+        q.size = x->Radius();
+        return true;
+    }
+    if (Handle(Geom_ConicalSurface) x =
+            Handle(Geom_ConicalSurface)::DownCast(s)) {
+        q.kind = 2;
+        q.loc = x->Position().Location();
+        q.dir = x->Position().Direction();
+        q.size = x->SemiAngle();
+        return true;
+    }
+    if (Handle(Geom_SphericalSurface) x =
+            Handle(Geom_SphericalSurface)::DownCast(s)) {
+        q.kind = 3;
+        q.loc = x->Position().Location();
+        q.dir = x->Position().Direction();
+        q.size = x->Radius();
+        return true;
+    }
+    if (Handle(Geom_ToroidalSurface) x =
+            Handle(Geom_ToroidalSurface)::DownCast(s)) {
+        q.kind = 4;
+        q.loc = x->Position().Location();
+        q.dir = x->Position().Direction();
+        q.size = x->MajorRadius();
+        return true;
+    }
+    return false;
+}
+
+/* Which surface pairs are safe to hand to GeomAPI_IntSS.
+ *
+ * IntSS has no time bound, and OCCT's implicit-implicit intersector can grind
+ * on a quadric pair indefinitely — two parallel cylinders whose axes are a
+ * millimetre apart took over ninety seconds on a 444-triangle mesh and had not
+ * finished. On an iPad that is not a slow conversion; it is a frozen app the
+ * watchdog kills, indistinguishable from the crash this same file already cost
+ * a day to find. There is no way to interrupt it once it is running, so the
+ * only safe bound is on what goes in.
+ *
+ * Two cases carry essentially all the value, and both are the well-trodden
+ * paths in OCCT:
+ *
+ *   - a PLANE against anything, including another plane. This is the hole rim,
+ *     the cap edge, the box edge, the flat a boss stands on — a circle or a
+ *     line, exactly, and OCCT solves it in closed form.
+ *   - two COAXIAL quadrics of different kinds: a cylinder into a cone is the
+ *     rim of a countersunk hole, a cylinder into a torus the rim of a filleted
+ *     one. Also a circle, exactly.
+ *
+ * Everything else — two cylinders crossing, a cone against a sphere — meets in
+ * a curve of degree four that OCCT would hand back approximated anyway, so the
+ * polyline fallback loses nothing that was ever exact. Coaxial pairs of the
+ * SAME kind are refused outright: they meet nowhere or everywhere. */
+bool IntersectablePair(const Handle(Geom_Surface) & s1,
+                       const Handle(Geom_Surface) & s2, double tol)
+{
+    Quadric a, b;
+    if (!ReadQuadric(s1, a) || !ReadQuadric(s2, b))
+        return false;
+    const double cosPar = 1.0 - 1e-7;
+    if (a.kind == 0 && b.kind == 0) /* parallel planes meet nowhere */
+        return std::fabs(a.dir.Dot(b.dir)) <= cosPar;
+    if (a.kind == 0 || b.kind == 0)
+        return true;
+    /* Same axis LINE, not merely the same direction. */
+    if (std::fabs(a.dir.Dot(b.dir)) <= cosPar)
+        return false;
+    if (a.kind == b.kind)
+        return false;
+    const gp_Vec off(a.loc, b.loc);
+    const double along = off.Dot(gp_Vec(a.dir));
+    const double perp2 = off.SquareMagnitude() - along * along;
+    const double gap = perp2 > 0 ? std::sqrt(perp2) : 0.0;
+    return gap <= tol;
+}
+
 /* The exact intersection curve of two analytic surfaces, when there is one
  * that follows this chain. Null otherwise.
  *
@@ -2065,6 +2358,27 @@ Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
 {
     if (s1.IsNull() || s2.IsNull())
         return nullptr;
+    if (!IntersectablePair(s1, s2, tol))
+        return nullptr;
+    /* And the chain has to be ON both surfaces before it is worth asking where
+     * they meet: if it is not, whatever curve comes back is not this edge, and
+     * the check costs a handful of projections against an intersection that can
+     * cost everything. */
+    try {
+        for (size_t k = 0; k < pts.size();
+             k += std::max<size_t>(1, pts.size() / 4)) {
+            GeomAPI_ProjectPointOnSurf p1(pts[k], s1);
+            if (!p1.IsDone() || p1.NbPoints() < 1 ||
+                p1.LowerDistance() > tol * 3)
+                return nullptr;
+            GeomAPI_ProjectPointOnSurf p2(pts[k], s2);
+            if (!p2.IsDone() || p2.NbPoints() < 1 ||
+                p2.LowerDistance() > tol * 3)
+                return nullptr;
+        }
+    } catch (const Standard_Failure &) {
+        return nullptr;
+    }
     try {
         GeomAPI_IntSS iss(s1, s2, tol * 0.1);
         if (!iss.IsDone() || iss.NbLines() < 1)
@@ -2826,28 +3140,15 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         for (int t = 0; t < m.triCount(); ++t)
             byPatch[patchOf[t]].push_back(t);
 
-        PatchData pd;
         for (int i = 0; i < rawPatches; ++i) {
             if (byPatch[i].empty())
                 continue;
-            PatchPoints(m, byPatch[i], pd, 4000);
-            Patch pa;
-            pa.tris = byPatch[i];
-            pa.origin = i;
-            pa.fit = FitPatch(pd, tol, scale);
-            if (pa.fit.kind != kNone || static_cast<int>(byPatch[i].size()) <
-                                            prm.min_patch_triangles * 4) {
-                patches.push_back(pa);
-            } else {
-                /* A patch that fits nothing is usually several surfaces that
-                 * meet tangentially — a fillet and the faces it blends. Growing
-                 * with a running fit finds the seam no dihedral test can. */
-                const size_t before = patches.size();
-                SplitByFit(m, byPatch[i], tol, scale, prm.min_patch_triangles,
-                           i, patches);
-                if (patches.size() == before)
-                    patches.push_back(pa);
-            }
+            /* A patch that fits nothing is several surfaces in one: met at a
+             * crease too shallow for the global threshold, or met tangentially,
+             * where no dihedral test will ever cut. SplitPatch tries the crease
+             * first and the running fit after. */
+            SplitPatch(m, byPatch[i], tol, scale, prm.min_patch_triangles, i, 0,
+                       patches);
         }
         MergeRegions(m, patches, tol, scale, 8);
         RefineBoundaries(m, patches, tol, scale, 6);
