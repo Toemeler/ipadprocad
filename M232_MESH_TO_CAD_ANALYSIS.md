@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 49 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 62 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -61,6 +61,66 @@ components pointing at other objects — so four levels of sixty turn one cube
 into thirteen million triangles from a few kilobytes of XML. Checking only at
 the end would mean allocating all of it first, which is the crash the limit
 exists to prevent.
+
+### What a real downloaded file then broke, and what fixed it
+
+Every mesh the suite above was built from came out of OCCT's own tessellator:
+closed, manifold, consistently wound, and in **double** precision. A downloaded
+STL is none of those by default, and the difference that mattered most was the
+last one — an STL stores `float32`, so nothing is ever exactly on the surface it
+came from. The first real file killed the app.
+
+The tool that found it is worth keeping in mind before the findings: build the
+thing that downloads a model. Tessellate an OCCT solid **coarsely**, round every
+coordinate to `float32`, dedup on exact float bits the way `mesh_io.dart` does,
+reconstruct — one `fork` per case, so a segfault names its seed instead of
+ending the run. Seed 103 died on 412 triangles. Fifteen hundred seeds then
+produced three findings, two of them fatal.
+
+**1. `ShapeFix_Face::FixPeriodicDegenerated` dereferences a null context.** It
+fires on a conical face whose single wire wraps the full 2π — a countersink, a
+chamfer, a tapered boss. Every other `Context()` use in that file is guarded by
+`IsNull()`; its last two lines are not, and `ShapeFix_Face`, unlike
+`ShapeFix_Shape` and `ShapeFix_Shell`, never makes a context of its own. Null
+dereference, SIGSEGV, no exception to catch: the app simply gone, with no crash
+report and a log stopping mid-import. Present in 7.6 and in the 7.9.3 we pin.
+The fix is one line on our side — hand the tool a `ShapeBuild_ReShape`, which is
+what `ShapeFix_Shape` does when it drives the same tool.
+
+**2. `GeomAPI_IntSS` does not always terminate, and cannot be interrupted.** On
+two parallel cylinders whose axes were a millimetre apart it had not returned
+after ninety seconds on a 444-triangle mesh. On an iPad that is not a slow
+conversion; it is a frozen app the watchdog kills, and from the outside it looks
+exactly like the crash above. The only safe bound is on what goes in, so
+`IntersectablePair` now admits a plane against anything (hole rims, cap edges,
+box edges — closed form in OCCT) and two coaxial quadrics of different kinds
+(the rim of a countersunk hole). Everything else meets in a degree-four curve
+OCCT would approximate anyway, so the polyline fallback loses nothing that was
+ever exact — every exact-edge count in the suite is unchanged.
+
+**3. A countersink came back as a sphere.** Not a crash, but the thing the
+feature exists to avoid. `FitPatch` took the simplest kind that fitted, which is
+right on a whole face and wrong on a piece of one — and region growing works on
+pieces. A plane fits three columns of a tessellated cylinder to well inside
+tolerance; so does a sphere the size of a house. It now takes the kind whose
+**normals** agree with the mesh, ties going to the simpler kind: on that strip a
+plane agrees to 0.94 and the cylinder to 0.999, so there is nothing marginal
+about the decision. Alongside it, `SplitAtCrease` cuts a patch at a crease too
+shallow for the global sharp-edge threshold, read from the patch's own dihedral
+distribution rather than any absolute angle, so it calibrates itself to the
+tessellation.
+
+Measured over 600 randomly generated models, before and after:
+
+| | before | after |
+|---|---|---|
+| total faces for the same 600 models | 12 342 | **9 141** (−25.9%) |
+| models that closed into a solid | 384 | **405** |
+| models that stopped closing | — | **0** |
+
+And on a plate with four countersunk holes, which is close to the file that
+started this: four spheres and a volume 0.18% short became four **cones** and a
+volume exact to five figures.
 
 ---
 
