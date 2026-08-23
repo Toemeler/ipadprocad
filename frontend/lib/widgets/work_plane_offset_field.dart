@@ -90,9 +90,9 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
             decoration: BoxDecoration(
               color: T.panel,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: _bad ? const Color(0xFFE05252) : T.panelSep),
-              boxShadow: const [
-                BoxShadow(color: Colors.black45, blurRadius: 12, spreadRadius: 1)
+              border: Border.all(color: _bad ? T.err : T.panelSep),
+              boxShadow: [
+                BoxShadow(color: T.shadow, blurRadius: 12, spreadRadius: 1)
               ],
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -180,7 +180,7 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
               // M229 — the unit the PLANE says, not a constant: this one
               // field now edits an offset in mm or an angle in degrees.
               Text(w.valueUnit,
-                  style: const TextStyle(color: T.dim, fontSize: 12)),
+                  style: TextStyle(color: T.dim, fontSize: 12)),
               const SizedBox(width: 10),
               _btn('OK', _commit, primary: true),
               const SizedBox(width: 6),
@@ -198,13 +198,13 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: primary ? T.blue : T.flyHov,
+            color: primary ? T.accent : T.flyHov,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: T.panelSep),
           ),
           child: Text(label,
               style: TextStyle(
-                  color: primary ? Colors.white : T.text, fontSize: 12)),
+                  color: primary ? T.onAccent : T.text, fontSize: 12)),
         ),
       );
 }

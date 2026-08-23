@@ -126,14 +126,24 @@ void main() {
   group('the menu carries it', () {
     test('the "+" menu offers the OTHER language, by a stable id', () {
       final de = newDocMenuItems(lookupAppL10n(kDe));
-      expect(de.map((i) => i.id).toList(), ['2d', '3d', 'import', kLanguageMenuId]);
-      expect(de.last.title, 'Language: English',
+      // M236 (SPEC CHANGE) — the appearance row joined the language row on
+      // the app-level shelf, after it. The language row is therefore no
+      // longer `last`; it is matched by id, which is what it was always for.
+      // M240 (SPEC CHANGE) — and 'asm' joined the two document kinds, in
+      // front of Open: the three ways to START a document sit together, and
+      // Open is the fourth way to GET one.
+      expect(de.map((i) => i.id).toList(),
+          ['2d', '3d', 'asm', 'import', kLanguageMenuId, kAppearanceMenuId]);
+      expect(de.firstWhere((i) => i.id == kLanguageMenuId).title,
+          'Language: English',
           reason: 'while German is on, the row offers English');
 
       L.set(kEn);
       final en = newDocMenuItems(lookupAppL10n(kEn));
-      expect(en.last.id, kLanguageMenuId, reason: 'the id never changes');
-      expect(en.last.title, 'Sprache: Deutsch');
+      expect(en.map((i) => i.id), contains(kLanguageMenuId),
+          reason: 'the id never changes');
+      expect(en.firstWhere((i) => i.id == kLanguageMenuId).title,
+          'Sprache: Deutsch');
     });
 
     test('the create rows are localised too', () {

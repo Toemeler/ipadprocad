@@ -35,7 +35,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('new-document menu contract', () {
-    test('three items: New 2D Sketch, New 3D Part, then Open', () {
+    test('four items: New 2D Sketch, New 3D Part, New Assembly, then Open',
+        () {
       // M234 — pinned in ENGLISH, deliberately: this test is about the
       // contract (ids, order, no destructive flag, every glyph present),
       // and pinning it to one language keeps it a contract test rather than
@@ -49,14 +50,21 @@ void main() {
       // M177 — one verb. It is not "Import STEP / DXF" any more, because it
       // also opens the app's own documents from anywhere on the iPad; which
       // of those happens follows from the file the user picks.
+      // M236 (SPEC CHANGE) — the appearance switch joined the language row
+      // for the same reason the language row is here at all: it belongs to
+      // the app rather than to a document, and this is the app's only menu.
+      // M240 (SPEC CHANGE) — 'asm' joined the two create actions, ahead of
+      // Open and for the same reason Open comes after them: the three ways to
+      // START a document belong together, and Open is a way to GET one that
+      // already exists.
       expect(items.map((i) => i.id).toList(),
-          ['2d', '3d', 'import', kLanguageMenuId],
+          ['2d', '3d', 'asm', 'import', kLanguageMenuId, kAppearanceMenuId],
           reason: 'ids must match the showMenu fallback values');
       // M234 — the language row joined them, LAST and in its own right: it is
       // not a way to get a document, it is the one app-level setting, and the
       // gallery's "+" is the only menu the app itself owns.
-      expect(items.take(3).map((i) => i.title).toList(),
-          ['New 2D Sketch', 'New 3D Part', 'Open…']);
+      expect(items.take(4).map((i) => i.title).toList(),
+          ['New 2D Sketch', 'New 3D Part', 'New Assembly', 'Open…']);
       // Neither entry is destructive (no red styling on a create action).
       expect(items.every((i) => !i.destructive), isTrue);
       // Every item carries an SF Symbol name for the native glyph.
@@ -96,6 +104,34 @@ void main() {
       expect(app.isPartName('Housing'), isTrue);
       expect(app.curTab, 'Housing');
       expect(app.currentPart, isNotNull);
+    });
+
+    // M240 — the third kind, through the same door as the other two.
+    testWidgets('New Assembly opens the assembly-name prompt', (t) async {
+      final app = makeApp();
+      await pumpHome(t, app);
+
+      await t.tap(find.byIcon(Icons.add));
+      await t.pumpAndSettle();
+      await t.tap(find.text(L.current.galleryNewAssembly));
+      await t.pumpAndSettle();
+
+      expect(find.text(L.current.dlgNewAssembly), findsOneWidget);
+      expect(find.text(app.suggestedAssemblyName()), findsOneWidget);
+      expect(app.openTabs, isEmpty);
+
+      await t.enterText(find.byType(TextField), 'Gearbox');
+      await t.tap(find.text(L.current.create));
+      await t.pumpAndSettle();
+
+      expect(app.isAssemblyName('Gearbox'), isTrue);
+      expect(app.curTab, 'Gearbox');
+      expect(app.currentAssembly, isNotNull);
+      // A brand-new assembly is empty and, being a document kind of its own,
+      // is neither a part nor a sketch.
+      expect(app.currentAssembly!.occurrences, isEmpty);
+      expect(app.currentPart, isNull);
+      expect(app.isPartName('Gearbox'), isFalse);
     });
   });
 }

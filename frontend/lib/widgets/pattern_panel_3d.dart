@@ -122,9 +122,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               color: T.panel,
               border: Border.all(color: T.sep),
               borderRadius: BorderRadius.circular(6),
-              boxShadow: const [
+              boxShadow: [
                 BoxShadow(
-                    color: Color(0x73000000),
+                    color: T.scrim,
                     blurRadius: 24,
                     offset: Offset(0, 6)),
               ],
@@ -139,7 +139,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
                   child: Text(s.previewError!,
-                      style: ts(11.5, const Color(0xFFE0A030))),
+                      style: ts(11.5, T.warnText)),
                 ),
               _footer(s),
             ]),
@@ -159,13 +159,13 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: T.fly,
             border: Border(bottom: BorderSide(color: T.panelSep)),
             borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
           ),
           child: Row(children: [
-            Text(L.of(context).dlgProperties, style: ts(13, Colors.white, w: FontWeight.w600)),
+            Text(L.of(context).dlgProperties, style: ts(13, T.text, w: FontWeight.w600)),
             const SizedBox(width: 6),
             GestureDetector(
               onTap: widget.app.cancelPattern,
@@ -183,9 +183,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           Text(s.editing?.name ?? patternKindLabel(s.mode),
               style: TextStyle(
                   fontSize: 12.5,
-                  color: T.blue,
+                  color: T.accent,
                   decoration: TextDecoration.underline,
-                  decorationColor: T.blue)),
+                  decorationColor: T.accent)),
           const Spacer(),
           Icon(Icons.visibility_outlined, size: 14, color: T.dim),
         ]),
@@ -742,12 +742,12 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             height: 30,
             margin: const EdgeInsets.only(bottom: 3),
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+              color: active ? T.chipBg : T.bg,
               border: Border.all(
-                  color: active ? T.blue : const Color(0xFF3A3F45)),
+                  color: active ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Icon(icon, size: 16, color: active ? T.blue : T.text),
+            child: Icon(icon, size: 16, color: active ? T.accent : T.text),
           ),
         ),
       );
@@ -818,25 +818,25 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF212429),
+          color: T.field,
           border: Border.all(
-              color: active ? T.blue : const Color(0xFF3A3F45),
+              color: active ? T.accent : T.panelSep,
               width: active ? 1.4 : 1),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Row(children: [
-          Icon(Icons.north_west, size: 12, color: active ? T.blue : T.dim),
+          Icon(Icons.north_west, size: 12, color: active ? T.accent : T.dim),
           const SizedBox(width: 6),
           Expanded(
             child: Text(active ? hint : label,
                 overflow: TextOverflow.ellipsis,
-                style: ts(12, active ? T.blue : T.text)),
+                style: ts(12, active ? T.accent : T.text)),
           ),
           if (onClear != null)
             GestureDetector(
               onTap: onClear,
-              child: const Icon(Icons.cancel_outlined,
-                  size: 13, color: Color(0xFF9EA4AA)),
+              child: Icon(Icons.cancel_outlined,
+                  size: 13, color: T.dim),
             ),
         ]),
       ),
@@ -846,8 +846,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   Widget _chip(String label, VoidCallback onRemove) => Container(
         padding: const EdgeInsets.fromLTRB(6, 2, 3, 2),
         decoration: BoxDecoration(
-          color: const Color(0xFF2E4A6B),
-          border: Border.all(color: T.blue),
+          color: T.chipBg,
+          border: Border.all(color: T.accent),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -877,9 +877,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
-            color: active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+            color: active ? T.chipBg : T.bg,
             border:
-                Border.all(color: active ? T.blue : const Color(0xFF3A3F45)),
+                Border.all(color: active ? T.accent : T.panelSep),
             borderRadius: BorderRadius.circular(3),
           ),
           child: Text(label,
@@ -898,12 +898,12 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
             height: 26,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+              color: active ? T.chipBg : T.bg,
               border: Border.all(
-                  color: active ? T.blue : const Color(0xFF3A3F45)),
+                  color: active ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(3),
             ),
-            child: Icon(icon, size: 14, color: active ? T.blue : T.text),
+            child: Icon(icon, size: 14, color: active ? T.accent : T.text),
           ),
         ),
       );
@@ -923,9 +923,9 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 height: 28,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                    color: T.blue, borderRadius: BorderRadius.circular(3)),
+                    color: T.accent, borderRadius: BorderRadius.circular(3)),
                 child: Text(L.of(context).ok,
-                    style: ts(12.5, Colors.white, w: FontWeight.w600)),
+                    style: ts(12.5, T.text, w: FontWeight.w600)),
               ),
             ),
           ),
@@ -938,8 +938,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               height: 28,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFF2A2E33),
-                border: Border.all(color: const Color(0xFF3A3F45)),
+                color: T.bg,
+                border: Border.all(color: T.panelSep),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(L.of(context).cancel, style: ts(12.5, T.text)),

@@ -19,8 +19,10 @@ import 'scrub_field.dart';
 import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 
-const _fieldBg = Color(0xFF212429);
-const _fieldBorder = Color(0xFF3A3F45);
+// M236 — getters, not finals: a top-level `final` is initialised lazily on
+// first use and would freeze whichever palette was active at that moment.
+Color get _fieldBg => T.field;
+Color get _fieldBorder => T.panelSep;
 
 TextStyle _ts(double s, Color c, {FontWeight w = FontWeight.normal}) =>
     TextStyle(fontSize: s, color: c, fontWeight: w, height: 1.1);
@@ -120,7 +122,7 @@ class _GearDialogState extends State<GearDialog> {
         color: T.fly,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: T.sep),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        boxShadow: [BoxShadow(color: T.shadow, blurRadius: 10)],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // ---- draggable title bar ----
@@ -130,7 +132,7 @@ class _GearDialogState extends State<GearDialog> {
           child: Container(
             height: 30,
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: T.sep))),
             child: Row(children: [
               Expanded(
@@ -138,7 +140,7 @@ class _GearDialogState extends State<GearDialog> {
                       style: _ts(12, T.text, w: FontWeight.w600))),
               InkWell(
                 onTap: widget.app.cancelTool,
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.all(4),
                   child: Icon(Icons.close, size: 14, color: T.dim),
                 ),
@@ -158,7 +160,7 @@ class _GearDialogState extends State<GearDialog> {
                 Container(
                   height: 128,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF171A1F),
+                    color: T.fly,
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(color: _fieldBorder),
                   ),
@@ -245,11 +247,11 @@ class _GearDialogState extends State<GearDialog> {
             height: 26,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: on ? T.blue : _fieldBg,
-              border: Border.all(color: on ? T.blue : _fieldBorder),
+              color: on ? T.accent : _fieldBg,
+              border: Border.all(color: on ? T.accent : _fieldBorder),
             ),
             child: Text(label,
-                style: _ts(11, on ? Colors.white : T.text,
+                style: _ts(11, on ? T.onAccent : T.text,
                     w: on ? FontWeight.w600 : FontWeight.normal)),
           ),
         ),
@@ -301,10 +303,10 @@ class _GearDialogState extends State<GearDialog> {
                 fillColor: _fieldBg,
                 enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(3),
-                    borderSide: const BorderSide(color: _fieldBorder)),
+                    borderSide: BorderSide(color: _fieldBorder)),
                 focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(3),
-                    borderSide: const BorderSide(color: T.blue)),
+                    borderSide: BorderSide(color: T.accent)),
               ),
             ),
           ),
@@ -336,12 +338,12 @@ class _GearDialogState extends State<GearDialog> {
           width: 16,
           height: 16,
           decoration: BoxDecoration(
-            color: on ? T.blue : _fieldBg,
-            border: Border.all(color: on ? T.blue : _fieldBorder),
+            color: on ? T.accent : _fieldBg,
+            border: Border.all(color: on ? T.accent : _fieldBorder),
             borderRadius: BorderRadius.circular(3),
           ),
           child: on
-              ? const Icon(Icons.check, size: 12, color: Colors.white)
+              ? Icon(Icons.check, size: 12, color: T.onAccent)
               : null,
         ),
         const SizedBox(width: 8),
@@ -356,12 +358,12 @@ class _GearDialogState extends State<GearDialog> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: primary ? T.blue : Colors.transparent,
-          border: Border.all(color: primary ? T.blue : _fieldBorder),
+          color: primary ? T.accent : Colors.transparent,
+          border: Border.all(color: primary ? T.accent : _fieldBorder),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(label,
-            style: _ts(12.5, primary ? Colors.white : T.text,
+            style: _ts(12.5, primary ? T.onAccent : T.text,
                 w: primary ? FontWeight.w600 : FontWeight.normal)),
       ),
     );
@@ -392,10 +394,10 @@ class _GearPreviewPainter extends CustomPainter {
               params: m.params,
               flankSamples: 10);
           final col = m.role == 'sun'
-              ? T.blue
+              ? T.accent
               : m.role == 'ring'
-                  ? const Color(0xFF54C96A)
-                  : const Color(0xFFE0913A);
+                  ? T.okText
+                  : T.warnText;
           loops.add((pts, col));
         }
       } else {
@@ -404,7 +406,7 @@ class _GearPreviewPainter extends CustomPainter {
         loops.add((
           gearProfile(
               center: Offset.zero, angle: 0, params: p, flankSamples: 12),
-          T.blue
+          T.accent
         ));
         if (p.bore > 1e-6) {
           loops.add((_circle(Offset.zero, p.bore / 2), T.dim));

@@ -17,11 +17,12 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
-import '../doc_file.dart';
+import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import '../svg_icons.dart';
@@ -73,6 +74,11 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       NativeMenuItem(
           id: '2d', title: t.galleryNew2dSketch, symbol: 'square.on.square'),
       NativeMenuItem(id: '3d', title: t.galleryNew3dPart, symbol: 'cube'),
+      // M240 — the third document kind, on the same shelf as the other two.
+      NativeMenuItem(
+          id: 'asm',
+          title: t.galleryNewAssembly,
+          symbol: 'square.stack.3d.up'),
       // M117 — Open belongs HERE, next to the two ways of starting a
       // document, because that is what it is: a third way to get one. In the
       // ribbon it was a tool among modelling tools, which is the wrong shelf.
@@ -96,11 +102,40 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
           id: kLanguageMenuId,
           title: L.otherStrings.languageMenuItem,
           symbol: 'globe'),
+      // M236 — the appearance switch, on the same shelf and for the same
+      // reason: it belongs to the APP, not to a document. Like the language
+      // row it names the scheme it switches TO, never the one that is on, and
+      // `kAppearanceMenuId` is what code matches on.
+      NativeMenuItem(
+          id: kAppearanceMenuId,
+          title: t.appearanceMenuItem(appearanceName(t, nextThemeMode())),
+          symbol: 'circle.lefthalf.filled'),
     ];
 
 /// The id the language row comes back as. A constant, because the row's
 /// TITLE changes with the language and must never be what code matches on.
 const String kLanguageMenuId = 'lang';
+
+/// The id the appearance row comes back as. Same rule as [kLanguageMenuId].
+const String kAppearanceMenuId = 'appearance';
+
+/// System -> Light -> Dark -> System.
+///
+/// A cycle rather than a submenu because there are three states and the row
+/// already SAYS where the next tap goes; a submenu would cost a second tap to
+/// tell the user what one tap already tells them.
+AppThemeMode nextThemeMode() {
+  const order = [AppThemeMode.system, AppThemeMode.light, AppThemeMode.dark];
+  return order[(order.indexOf(T.mode) + 1) % order.length];
+}
+
+/// The user-visible name of a scheme. In the ARB, like every other string —
+/// [Palette.name] is 'Chalk'/'Ember', which are internal names.
+String appearanceName(AppL10n t, AppThemeMode m) => switch (m) {
+      AppThemeMode.system => t.appearanceSystem,
+      AppThemeMode.light => t.appearanceLight,
+      AppThemeMode.dark => t.appearanceDark,
+    };
 
 class HomeView extends StatefulWidget {
   final AppState app;
@@ -255,7 +290,7 @@ class _HomeViewState extends State<HomeView> {
             value: '2d',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(sketch2dMenuIcon, width: 18, height: 18),
+              SvgPicture.string(themedIcon(sketch2dMenuIcon), width: 18, height: 18),
               const SizedBox(width: 10),
               Text(t.galleryNew2dSketch, style: ts(12.5, T.text)),
             ]),
@@ -264,16 +299,26 @@ class _HomeViewState extends State<HomeView> {
             value: '3d',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
+              SvgPicture.string(themedIcon(part3dMenuIcon), width: 18, height: 18),
               const SizedBox(width: 10),
               Text(t.galleryNew3dPart, style: ts(12.5, T.text)),
+            ]),
+          ),
+          PopupMenuItem(
+            value: 'asm',
+            height: 40,
+            child: Row(children: [
+              SvgPicture.string(themedIcon(assemblyMenuIcon),
+                  width: 18, height: 18),
+              const SizedBox(width: 10),
+              Text(t.galleryNewAssembly, style: ts(12.5, T.text)),
             ]),
           ),
           PopupMenuItem(
             value: 'import',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(part3dMenuIcon, width: 18, height: 18),
+              SvgPicture.string(themedIcon(part3dMenuIcon), width: 18, height: 18),
               const SizedBox(width: 10),
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),
@@ -284,9 +329,21 @@ class _HomeViewState extends State<HomeView> {
             value: kLanguageMenuId,
             height: 40,
             child: Row(children: [
-              const Icon(Icons.language, size: 18, color: T.text),
+              Icon(Icons.language, size: 18, color: T.text),
               const SizedBox(width: 10),
               Text(L.otherStrings.languageMenuItem, style: ts(12.5, T.text)),
+            ]),
+          ),
+          // M236 — the same appearance row the native sheet carries, so the
+          // switch is reachable off iOS and in the host test suite too.
+          PopupMenuItem(
+            value: kAppearanceMenuId,
+            height: 40,
+            child: Row(children: [
+              Icon(Icons.contrast, size: 18, color: T.text),
+              const SizedBox(width: 10),
+              Text(t.appearanceMenuItem(appearanceName(t, nextThemeMode())),
+                  style: ts(12.5, T.text)),
             ]),
           ),
         ],
@@ -297,12 +354,18 @@ class _HomeViewState extends State<HomeView> {
       await _promptNewSketch();
     } else if (choice == '3d') {
       await _promptNewPart();
+    } else if (choice == 'asm') {
+      await _promptNewAssembly();
     } else if (choice == 'import') {
       await _importDocument();
     } else if (choice == kLanguageMenuId) {
       // Applies on the next frame and is written to the settings file on the
       // way out; nothing is rebuilt, nothing is lost. See L.set.
       L.set(L.other);
+    } else if (choice == kAppearanceMenuId) {
+      // Same shape: the notifier repaints the tree, the choice lands in the
+      // same settings.json. See T.set.
+      T.set(nextThemeMode());
     }
   }
 
@@ -312,13 +375,15 @@ class _HomeViewState extends State<HomeView> {
   ///                                  in the gallery from now on and Ctrl+S
   ///                                  writes back to where it actually lives
   ///   a .ptp/.pts already in the app folder -> just opened
-  ///   a STEP or DXF               -> converted into a new document here
+  ///   a STEP, DXF, STL, OBJ or 3MF -> converted into a new document here
   ///   anything else               -> said so plainly
   ///
   /// [AppState.openPath] owns that decision; this only picks the file.
   Future<void> _importDocument() async {
     final app = widget.app;
-    const kinds = [kPartExt, kSketchExt, 'step', 'stp', 'dxf'];
+    // The list lives in doc_ref.dart next to openActionFor, so the picker
+    // cannot offer a kind that Open then refuses.
+    const kinds = kOpenableExtensions;
     try {
       // The NATIVE picker first, in open-in-place mode. The ordinary file
       // picker imports a COPY into tmp, which would make "save back to where
@@ -326,9 +391,30 @@ class _HomeViewState extends State<HomeView> {
       // native side is unavailable (desktop, host tests, an older iOS) the
       // copy still opens: openPath adopts it into the app folder rather than
       // remembering a path that is about to vanish.
+      //
+      // Logged on BOTH sides of the call, and that is not noise. Presenting
+      // the picker is a native call that can take the whole app down without
+      // Dart ever running again — a bad content-type list raises an
+      // Objective-C exception, and Swift cannot catch it. When that happened
+      // the app's own log ended on an unrelated line and there was no way to
+      // tell the picker from anything else the user had touched. These two
+      // lines put the crash inside a bracket.
+      // Ask what these resolve to BEFORE presenting. See
+      // NativeMenu.probeContentTypes: a `dyn.` identifier means iOS has no
+      // declaration for that extension, and that is what the picker dies on.
+      final resolved = await NativeMenu.probeContentTypes(kinds);
+      // milestone, not i: buffered logging is flushed every 400 ms, so after a
+      // hard native kill the log's last line is whatever happened to be on
+      // disk — NOT where the app died. See Log.milestone.
+      Log.milestone(
+          'doc',
+          'open: presenting picker for ${kinds.join(",")}'
+          '${resolved.isEmpty ? "" : " -> ${resolved.join(" ")}"}');
       final picked = await NativeMenu.openInPlace(
           extensions: kinds, anchor: _globalRect(_plusKey));
       var path = picked?['path'];
+      Log.milestone(
+          'doc', 'open: picker returned ${path == null ? "nothing" : path}');
       if (path == null && !NativeMenu.isSupported) {
         final res = await FilePicker.platform
             .pickFiles(type: FileType.custom, allowedExtensions: kinds);
@@ -358,6 +444,23 @@ class _HomeViewState extends State<HomeView> {
     );
     if (name == null) return;
     await app.createNamedPart(name);
+  }
+
+  Future<void> _promptNewAssembly() async {
+    final app = widget.app;
+    final t = L.of(context);
+    final name = await promptForText(
+      context,
+      title: t.dlgNewAssembly,
+      initialValue: app.suggestedAssemblyName(),
+      placeholder: t.phAssemblyName,
+      confirmLabel: t.create,
+      validate: (v) =>
+          app.validateSketchName(v) ??
+          (app.docNameExists(v.trim()) ? t.errNameTaken : null),
+    );
+    if (name == null) return;
+    await app.createNamedAssembly(name);
   }
 
   Future<void> _sendFile(String name, {required bool share}) async {
@@ -525,8 +628,12 @@ class _PlusButtonState extends State<_PlusButton> {
           decoration: BoxDecoration(
             color: _h ? T.galleryActionBgHover : T.galleryActionBg,
             shape: BoxShape.circle,
+            border: Border.all(color: T.cardBorder),
+            boxShadow: [
+              BoxShadow(color: T.cardShadow, blurRadius: 8, offset: const Offset(0, 2)),
+            ],
           ),
-          child: const Icon(Icons.add, color: T.galleryTitle, size: 26),
+          child: Icon(Icons.add, color: T.text, size: 24),
         ),
       ),
     );
@@ -586,11 +693,11 @@ class _CardState extends State<_Card> {
                 color: T.galleryThumb,
                 borderRadius: BorderRadius.circular(_kThumbRadius),
                 border: Border.all(
-                    color: _h ? T.cardHoverBorder : Colors.transparent,
-                    width: 1.5),
-                boxShadow: const [
+                    color: _h ? T.cardHoverBorder : T.cardBorder,
+                    width: _h ? 1.5 : 1),
+                boxShadow: [
                   BoxShadow(
-                      color: T.cardShadow, blurRadius: 14, offset: Offset(0, 6)),
+                      color: T.cardShadow, blurRadius: 10, offset: const Offset(0, 3)),
                 ],
               ),
               child: ClipRRect(
@@ -622,7 +729,11 @@ class _CardState extends State<_Card> {
         child: Opacity(
           opacity: 0.5,
           child: SvgPicture.string(
-              widget.kind == 'part' ? partCubeIcon : sketchCubeIcon,
+              themedIcon(switch (widget.kind) {
+                'part' => partCubeIcon,
+                kAssemblyDocKind => assemblyCubeIcon,
+                _ => sketchCubeIcon,
+              }),
               width: 30,
               height: 30),
         ),

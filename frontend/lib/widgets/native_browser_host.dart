@@ -7,9 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../assembly.dart';
 import '../menus.dart';
 import '../log.dart';
 import '../part_model.dart';
+import '../theme.dart';
 import 'model_browser.dart';
 import 'native_browser.dart';
 import 'native_prompts.dart';
@@ -204,7 +206,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
                 duration: const Duration(milliseconds: 220),
                 turns: _collapsed ? 0.5 : 0,
                 child: Icon(Icons.chevron_left,
-                    size: 18, color: Colors.white.withValues(alpha: 0.55)),
+                    size: 18, color: T.dim),
               ),
             ),
           ),
@@ -235,13 +237,28 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // M121 — tapping a FOLDER row toggles it, not just its little chevron.
     // The chevron is a 20 pt target on a 264 pt row; every file browser on
     // this platform lets you hit the row itself.
-    if (id == 'bodies' || id == 'origin') {
+    if (id == 'bodies' ||
+        id == 'origin' ||
+        id == kIdRepresentations ||
+        id == kIdRelationships) {
       setState(() {
         if (!_expanded.remove(id)) _expanded.add(id);
       });
       return;
     }
     if (id == 'root') return; // the document row is a label, not an action
+    // M240 — tapping a component SELECTS it, which is the same selection the
+    // assembly viewport highlights and drags. Tapping the selected one again
+    // clears it, so there is a way back to "nothing picked" without having to
+    // find empty space in the viewport.
+    if (id.startsWith(kIdComponent)) {
+      final o = _component(id);
+      if (o != null) {
+        app.selectOccurrence(
+            identical(app.currentAssembly?.selected, o) ? null : o);
+      }
+      return;
+    }
     if (id.startsWith(kIdBody) && app.pickingBody) {
       app.pickBody(id.substring(kIdBody.length));
       return;
@@ -298,10 +315,21 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   void _onEye(String id) {
     Log.i('browser', 'eye $id');
     final part = app.currentPart;
-    if (id.startsWith(kIdLayer)) {
+    if (id.startsWith(kIdComponent)) {
+      final o = _component(id);
+      if (o != null) app.setOccurrenceVisible(o, !o.visible);
+    } else if (id.startsWith(kIdLayer)) {
       app.toggleLayerVisible(id.substring(kIdLayer.length));
     } else if (id.startsWith(kIdOrigin)) {
-      app.togglePartOriginVis(id.substring(kIdOrigin.length));
+      // M240 — the same seven keys drive an assembly's origin as a part's, so
+      // the row id is identical and only the model behind it differs.
+      final asm = app.currentAssembly;
+      final key = id.substring(kIdOrigin.length);
+      if (asm != null) {
+        app.setAssemblyOriginVisible(key, asm.vis[key] != true);
+      } else {
+        app.togglePartOriginVis(key);
+      }
     } else if (id.startsWith(kIdBody) && part != null) {
       app.toggleBodyVisible(part, id.substring(kIdBody.length));
     } else if (id.startsWith(kIdFeature) && part != null) {
@@ -329,6 +357,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   // third character against ':' and a work point has 't' there. Checked
   // rather than assumed, because a silent prefix collision here would route
   // every work point tap into the work plane branch.
+  /// The occurrence a `cp:` row addresses. The id after the prefix is the
+  /// occurrence id WHOLE — it contains a colon of its own ("Bracket:1"), so it
+  /// must never be split on one.
+  AssemblyOccurrence? _component(String rowId) =>
+      app.currentAssembly?.byId(rowId.substring(kIdComponent.length));
+
   WorkAxis? _workAxis(PartModel? part, String rowId) {
     final seq = int.tryParse(rowId.substring(kIdWorkAxis.length));
     if (part == null || seq == null) return null;
@@ -359,6 +393,19 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   Future<void> _onMenu(String id, String item) async {
     Log.i('browser', 'menu $id -> $item');
     final part = app.currentPart;
+    if (id.startsWith(kIdComponent)) {
+      final o = _component(id);
+      if (o == null) return;
+      switch (item) {
+        case 'cpGrounded':
+          app.setOccurrenceGrounded(o, !o.grounded);
+          break;
+        case 'cpDelete':
+          app.deleteOccurrence(o);
+          break;
+      }
+      return;
+    }
     if (id == kIdEop && part != null) {
       switch (item) {
         case 'eoptop':

@@ -114,6 +114,11 @@ class FakeKernel implements PartKernel {
   // says so rather than inventing a solid.
   @override
   KernelSolid? placeSolid(KernelSolid s, List<double> mat34) => null;
+
+  @override
+  MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles) =>
+      const MeshImportOutcome(
+          null, MeshToBrepReport.empty(), 'fake kernel: no mesh converter');
   @override
   KernelSolid? mirrorSolid(KernelSolid s, Vec3 planePoint, Vec3 planeNormal) =>
       null;

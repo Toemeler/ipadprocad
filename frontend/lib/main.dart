@@ -30,6 +30,7 @@ import 'widgets/ribbon.dart';
 import 'widgets/ribbon_chrome.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
+import 'widgets/viewport_assembly.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
 import 'widgets/combine_dialog.dart';
@@ -83,10 +84,10 @@ void main() {
     ErrorWidget.builder = (FlutterErrorDetails details) {
       Log.e('widget', 'build failed: ${details.exceptionAsString()}',
           details.exception, details.stack);
-      return const SizedBox(
+      return SizedBox(
         width: 24,
         height: 24,
-        child: ColoredBox(color: Color(0x66E05A56)),
+        child: ColoredBox(color: T.err),
       );
     };
     // M147 — FULLSCREEN. The status bar is hidden at runtime as well as in
@@ -111,6 +112,12 @@ void main() {
           onError: (e, st) => Log.e('main', 'orientation failed', e, st));
     });
     final app = Log.step('main', 'AppState()', () => AppState());
+    // M236 — adopt the iPad's own light/dark setting and start listening for
+    // changes BEFORE the first frame, so the app never paints one scheme and
+    // then snaps to the other. Only a property read and a callback: the
+    // PERSISTED override is read later, from AppState.init, for the same
+    // launch-time reason the language is.
+    Log.step('main', 'T.followPlatform', T.followPlatform);
     // init() is async; log its outcome instead of silently dropping it.
     Log.i('main', '>> AppState.init (async, not awaited)');
     app
@@ -165,31 +172,29 @@ class PrototypeApp extends StatelessWidget {
     // every `L.of(context)` below it reads the other language on the very next
     // frame. Nothing is torn down, no state is lost, the open sketch stays
     // open. That is the difference between a language switch and a restart.
+    //
+    // M236 — and the appearance switch applies in the SAME place, nested
+    // inside it. Every colour on screen is read from the active palette at
+    // paint time, so one notification here rebuilds the chrome and marks
+    // every CustomPainter dirty. That is what makes a live theme switch
+    // possible without threading a BuildContext into the painters.
     return ValueListenableBuilder<Locale>(
       valueListenable: L.locale,
-      builder: (context, locale, _) => _app(locale),
+      builder: (context, locale, _) => ValueListenableBuilder<Palette>(
+        valueListenable: T.scheme,
+        builder: (context, palette, _) => _app(locale, palette),
+      ),
     );
   }
 
-  Widget _app(Locale locale) {
+  Widget _app(Locale locale, Palette palette) {
     return MaterialApp(
       title: 'Prototype',
       locale: locale,
       localizationsDelegates: AppL10n.localizationsDelegates,
       supportedLocales: AppL10n.supportedLocales,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: T.viewport,
-        tooltipTheme: TooltipThemeData(
-          waitDuration: const Duration(milliseconds: 500),
-          textStyle: ts(11.5, Colors.white),
-          decoration: BoxDecoration(
-            color: const Color(0xFF212429),
-            border: Border.all(color: T.sep),
-          ),
-        ),
-      ),
+      theme: materialTheme(palette),
       home: Scaffold(
         // M42-Fix: the CAD canvas must NOT reflow when the software keyboard
         // appears (inline dimension editor). Resizing re-centres the world
@@ -293,7 +298,16 @@ class PrototypeApp extends StatelessWidget {
                                   // then drawn by the GPU: pan and zoom only
                                   // move the camera and cost nothing, which is
                                   // what the CPU underlay could never manage.
-                                  child: app.currentPart != null
+                                  // M240 — an ASSEMBLY is the third case,
+                                  // and it is checked first because it is the
+                                  // simplest to state: an assembly document
+                                  // has no part and no sketch open inside it,
+                                  // so none of the part branch's overlays
+                                  // (extrude, hole, pattern, work plane) can
+                                  // apply to it.
+                                  child: app.currentAssembly != null
+                                      ? ViewportAssembly(app: app)
+                                      : app.currentPart != null
                                       ? Stack(children: [
                                           Positioned.fill(
                                               child: Viewport3D(app: app)),

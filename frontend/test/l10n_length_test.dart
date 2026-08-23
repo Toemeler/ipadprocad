@@ -1,25 +1,52 @@
 // M234 — the test that stops a German label from breaking the layout.
 //
 // This is the failure this session exists to prevent, and it is not
-// hypothetical: German compounds run longer than their English source, the
-// ribbon's buttons are FIXED-WIDTH boxes (`SizedBox(width: 62)` in _Big,
-// 58/70/78 in _BigWide), and their `Text` has no maxLines and no overflow. A
-// label that grows past the box does not ellipsise — it WRAPS, which makes the
+// hypothetical: German compounds run longer than their English source, and a
+// label that grows past its box does not ellipsise — it WRAPS, which makes the
 // whole ribbon taller, or it overflows and paints a yellow-and-black bar
 // across the app. On a device. In front of the user.
+//
+// M235 UPDATE — this gate no longer stands alone. It DID ship the failure it
+// was written to catch: German ribbon labels were reported wrapping onto a
+// second line on the device, and every one of them was inside its x-maxChars
+// budget. Reproduced in a rendering test, the offenders are "Rechteck",
+// "Bemaßung", "Fertig", "Extrusion" and -- worst -- "Geometrie\nprojizieren",
+// which came out on FOUR lines. A character count is too coarse a proxy for a
+// real font's advance widths: an average character cannot bound a worst case.
+//
+// (Those pixel figures come from the host test font, which is wider per
+// character than the iPad's SF Pro Text. They establish the ORDER of the
+// problem and which labels are worst; they are not device measurements, and
+// no SF Pro measurement is available on a Linux test runner.)
+//
+// The ribbon's buttons are therefore no longer fixed-width. `_Big`, `_BigWide`
+// and the Dimension button now take their old width as a MINIMUM and grow to
+// fit the label, with soft wrapping off (widgets/ribbon.dart), and
+// m235_ribbon_one_line_test.dart asserts the layout property directly by
+// measuring what the ribbon actually renders.
+//
+// This file is kept because the two gates still earn their place as a CHEAP
+// upstream check on the ARBs — they fail on a text-editor diff, without
+// pumping a widget, and Gate 2 catches ballooning in strings that never go
+// near the ribbon. Read the budgets below as "this label is getting long",
+// no longer as "this label will fit".
 //
 // Two gates, because the two failure modes are different.
 //
 // ---------------------------------------------------------------------------
-// GATE 1 — the character budget, for labels that sit in a fixed-width box.
+// GATE 1 — the character budget, for labels that sit in a narrow button.
 //
-// This one is derived from the geometry, not chosen by taste. The narrowest
-// ribbon button is `SizedBox(width: 62)`, its label renders at `ts(11.5)`, and
-// the app's font averages close to 0.52 em of advance per character at that
-// size — about 6.0 px, so 62 px holds ten characters and a little. Twelve is
-// where a label is certainly wider than its box. Each such key carries its own
-// budget in the ARB as `x-maxChars`, next to the string it constrains, because
-// the budget belongs to the widget the string goes in and nowhere else.
+// The budget was derived from the geometry: the narrowest ribbon button was
+// `SizedBox(width: 62)`, its label renders at `ts(11.5)`, and the app's font
+// averages close to 0.52 em of advance per character at that size — about
+// 6.0 px, so 62 px holds ten characters and a little. Each such key carries
+// its own budget in the ARB as `x-maxChars`, next to the string it constrains.
+//
+// M235: that arithmetic assumed an AVERAGE character, and capitals and 'm' are
+// nowhere near 0.52 em. An average cannot bound a worst case, which is why the
+// real guard is now a rendering test -- one that measures what the widget tree
+// actually lays out, in whatever font is in use -- and this one is an
+// early-warning heuristic on the ARBs.
 //
 // The budget applies PER LINE. Two-line labels keep their `\n` — that line
 // break is exactly the tool used to fit a wide command into a narrow column,

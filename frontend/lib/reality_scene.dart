@@ -425,12 +425,6 @@ Map<String, int> sceneRevs(AppState app, PartModel p) => {
       for (final (id, s) in visibleSolids(app, p)) id: identityHashCode(s.mesh),
     };
 
-Float64List _frame9(PlaneFrame f) => Float64List.fromList([
-      f.u.x, f.u.y, f.u.z, //
-      f.v.x, f.v.y, f.v.z, //
-      f.n.x, f.n.y, f.n.z, //
-    ]);
-
 List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
     {String? hover}) {
   final out = <Map<String, dynamic>>[];
@@ -443,7 +437,7 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
     final (uMin, uMax, vMin, vMax) = originPlaneRect(p, key);
     out.add({
       'key': key,
-      'frame': _frame9(f),
+      'frame': frame9(f),
       'origin': [f.origin.x, f.origin.y, f.origin.z],
       'uMin': uMin,
       'uMax': uMax,
@@ -467,7 +461,7 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
     final (uMin, uMax, vMin, vMax) = planeRectFor(p, w.frame);
     out.add({
       'key': w.id,
-      'frame': _frame9(w.frame),
+      'frame': frame9(w.frame),
       'origin': [w.frame.origin.x, w.frame.origin.y, w.frame.origin.z],
       'uMin': uMin,
       'uMax': uMax,
@@ -487,7 +481,7 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
     final (uMin, uMax, vMin, vMax) = planeRectFor(p, prev);
     out.add({
       'key': 'wp:preview',
-      'frame': _frame9(prev),
+      'frame': frame9(prev),
       'origin': [prev.origin.x, prev.origin.y, prev.origin.z],
       'uMin': uMin,
       'uMax': uMax,

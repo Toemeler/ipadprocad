@@ -13,6 +13,7 @@
 // tapping geometry while it is open. Which input a tap feeds is the ACTIVE
 // selector (blue outline) — AppState._patternClick routes it.
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -24,11 +25,13 @@ import '../theme.dart';
 import 'scrub_field.dart';
 import '../l10n/l.dart';
 
-const _fieldBg = Color(0xFF212429);
-const _fieldBorder = Color(0xFF3A3F45);
-const _disabledBg = Color(0xFF1C1F24);
-const _disabledBorder = Color(0xFF2F3238);
-const _disabledText = Color(0xFF6A6F77);
+// M236 — getters, not finals: a top-level `final` is initialised lazily on
+// first use and would freeze whichever palette was active at that moment.
+Color get _fieldBg => T.field;
+Color get _fieldBorder => T.panelSep;
+Color get _disabledBg => T.disabledFill;
+Color get _disabledBorder => T.disabled;
+Color get _disabledText => T.disabled;
 
 class PatternDialog extends StatefulWidget {
   final AppState app;
@@ -74,8 +77,8 @@ class _PatternDialogState extends State<PatternDialog> {
         color: T.panel,
         border: Border.all(color: T.sep),
         borderRadius: BorderRadius.circular(6),
-        boxShadow: const [
-          BoxShadow(color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 6)),
+        boxShadow: [
+          BoxShadow(color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
         ],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -100,7 +103,7 @@ class _PatternDialogState extends State<PatternDialog> {
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: T.fly,
         border: Border(bottom: BorderSide(color: T.panelSep)),
         borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
@@ -111,7 +114,7 @@ class _PatternDialogState extends State<PatternDialog> {
         _IconTap(
           tooltip: L.of(context).cancel,
           onTap: app.cancelTool,
-          child: const Icon(Icons.close, size: 17, color: T.dim),
+          child: Icon(Icons.close, size: 17, color: T.dim),
         ),
       ]),
     );
@@ -526,15 +529,15 @@ class _PatternDialogState extends State<PatternDialog> {
               fillColor: enabled ? _fieldBg : _disabledBg,
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(3),
-                borderSide: const BorderSide(color: _fieldBorder),
+                borderSide: BorderSide(color: _fieldBorder),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(3),
-                borderSide: const BorderSide(color: T.blue, width: 1.4),
+                borderSide: BorderSide(color: T.accent, width: 1.4),
               ),
               disabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(3),
-                borderSide: const BorderSide(color: _disabledBorder),
+                borderSide: BorderSide(color: _disabledBorder),
               ),
             ),
             onChanged: (t) {
@@ -570,7 +573,7 @@ class _PatternDialogState extends State<PatternDialog> {
 }
 
 Widget svgi(String s, double size) =>
-    SvgPicture.string(s, width: size, height: size);
+    SvgPicture.string(themedIcon(s), width: size, height: size);
 
 /// A selector button: blue outline while ARMED (the next viewport tap feeds
 /// it), a subtle blue underline once its pick exists — Inventor's language.
@@ -595,7 +598,7 @@ class _PickBtn extends StatelessWidget {
             color: enabled ? _fieldBg : _disabledBg,
             border: Border.all(
                 color: active
-                    ? T.blue
+                    ? T.accent
                     : enabled
                         ? _fieldBorder
                         : _disabledBorder,
@@ -609,7 +612,7 @@ class _PickBtn extends StatelessWidget {
                   margin: const EdgeInsets.only(top: 1),
                   width: 14,
                   height: 2,
-                  color: T.blue),
+                  color: T.accent),
           ]),
         ),
       ),
@@ -663,17 +666,17 @@ class _DlgBtn extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: primary ? T.blue : Colors.transparent,
+          color: primary ? T.accent : Colors.transparent,
           border: Border.all(
               color: primary
-                  ? T.blue
+                  ? T.accent
                   : outline
-                      ? T.blue
+                      ? T.accent
                       : _fieldBorder),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(label,
-            style: ts(12.5, primary ? Colors.white : outline ? T.blue : T.text,
+            style: ts(12.5, primary ? T.onAccent : outline ? T.accent : T.text,
                 w: primary ? FontWeight.w600 : FontWeight.normal)),
       ),
     );
@@ -697,13 +700,13 @@ class _CheckRow extends StatelessWidget {
           width: 15,
           height: 15,
           decoration: BoxDecoration(
-            color: value && enabled ? T.blue : _fieldBg,
+            color: value && enabled ? T.accent : _fieldBg,
             border: Border.all(
                 color: enabled ? _fieldBorder : _disabledBorder),
             borderRadius: BorderRadius.circular(2),
           ),
           child: value && enabled
-              ? const Icon(Icons.check, size: 12, color: Colors.white)
+              ? Icon(Icons.check, size: 12, color: T.onAccent)
               : null,
         ),
         const SizedBox(width: 5),
@@ -800,15 +803,15 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
         color: T.panel,
         border: Border.all(color: T.sep),
         borderRadius: BorderRadius.circular(6),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-              color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 6)),
+              color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
         ],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: T.fly,
             border: Border(bottom: BorderSide(color: T.panelSep)),
             borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
@@ -944,11 +947,11 @@ Widget toolNumberRow({
             fillColor: _fieldBg,
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(3),
-              borderSide: const BorderSide(color: _fieldBorder),
+              borderSide: BorderSide(color: _fieldBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(3),
-              borderSide: const BorderSide(color: T.blue, width: 1.4),
+              borderSide: BorderSide(color: T.accent, width: 1.4),
             ),
           ),
           onChanged: (t) {
@@ -1045,15 +1048,15 @@ class _PolygonDialogState extends State<PolygonDialog> {
         color: T.panel,
         border: Border.all(color: T.sep),
         borderRadius: BorderRadius.circular(6),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-              color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 6)),
+              color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
         ],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: T.fly,
             border: Border(bottom: BorderSide(color: T.panelSep)),
             borderRadius: BorderRadius.vertical(top: Radius.circular(6)),

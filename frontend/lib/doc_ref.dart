@@ -19,14 +19,22 @@
 import 'dart:convert';
 
 import 'doc_file.dart';
+import 'mesh_io.dart';
+
+export 'doc_file.dart' show kAssemblyDocKind;
 
 enum DocSource { internal, external }
+
+/// Which kind of document [path] holds, from its extension alone.
+String kindOfPath(String path) => isAssemblyPath(path)
+    ? kAssemblyDocKind
+    : (isPartPath(path) ? 'part' : 'sketch');
 
 /// A document the gallery knows about.
 class DocRef {
   final String name;
 
-  /// 'part' or 'sketch'.
+  /// 'part', 'sketch' or 'assembly'.
   final String kind;
 
   /// Absolute path. For an internal document this is inside the app folder;
@@ -51,6 +59,9 @@ class DocRef {
       [this.lastOpened, this.bookmark]);
 
   bool get isPart => kind == 'part';
+
+  /// M240 — an assembly document (.pas).
+  bool get isAssembly => kind == kAssemblyDocKind;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -116,6 +127,27 @@ enum OpenAction {
 /// will ever see again. Those are adopted into the app folder instead. This
 /// matters in practice because the standard iOS file picker imports by
 /// copying into tmp rather than opening in place.
+/// Every extension Open offers, in picker order.
+///
+/// ONE list, because the picker and [openActionFor] disagreeing is a bug the
+/// user meets as "the file is greyed out" or, worse, "I picked it and nothing
+/// happened". `openable extensions are accepted` in the M232 test walks this
+/// list through [openActionFor] and fails if any entry is refused.
+///
+/// Note that `step` and `stp` are two spellings of one format. That is fine
+/// here and is NOT fine by the time it reaches iOS: UTType resolves both to
+/// the same content type, and UIDocumentPickerViewController raises on a
+/// duplicate. DocumentOpen.swift de-duplicates, and says why.
+const List<String> kOpenableExtensions = <String>[
+  kPartExt,
+  kSketchExt,
+  kAsmExt,
+  'step',
+  'stp',
+  'dxf',
+  ...kMeshExtensions,
+];
+
 OpenAction openActionFor(String path, String appDir,
     {Iterable<String> volatileDirs = const []}) {
   final lower = path.toLowerCase();
@@ -131,6 +163,12 @@ OpenAction openActionFor(String path, String appDir,
       lower.endsWith('.step') ||
       lower.endsWith('.stp')) {
     return OpenAction.import;
+  }
+  // M232 — a mesh is a source like a STEP is: it becomes a NEW part here, it
+  // is never opened in place. The list lives in mesh_io.dart so the parser and
+  // the picker can never disagree about what Open accepts.
+  for (final e in kMeshExtensions) {
+    if (lower.endsWith('.$e')) return OpenAction.import;
   }
   return OpenAction.unsupported;
 }
@@ -158,7 +196,7 @@ String _parentOf(String path) {
 String saveTargetFor(DocRef ref, String appDir) => ref.source ==
         DocSource.external
     ? ref.path
-    : '${_stripSlash(appDir)}/${ref.name}.${ref.isPart ? kPartExt : kSketchExt}';
+    : '${_stripSlash(appDir)}/${ref.name}.${extForKind(ref.kind)}';
 
 /// The documents sitting in the app folder, from a directory listing.
 ///
@@ -171,8 +209,8 @@ List<DocRef> scanAppFolder(Iterable<String> fileNames, String appDir) {
   for (final f in fileNames) {
     final name = docNameOf(f);
     if (name == null) continue;
-    out.add(DocRef(name, isPartPath(f) ? 'part' : 'sketch',
-        '${_stripSlash(appDir)}/$f', DocSource.internal));
+    out.add(DocRef(name, kindOfPath(f), '${_stripSlash(appDir)}/$f',
+        DocSource.internal));
   }
   out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   return out;

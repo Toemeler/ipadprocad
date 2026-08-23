@@ -95,9 +95,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
             color: T.panel,
             border: Border.all(color: T.sep),
             borderRadius: BorderRadius.circular(6),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                  color: Color(0x73000000),
+                  color: T.scrim,
                   blurRadius: 24,
                   offset: Offset(0, 6)),
             ],
@@ -107,14 +107,14 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
               onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
               child: Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: T.fly,
                 border: Border(bottom: BorderSide(color: T.panelSep)),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
               ),
               child: Row(children: [
                 Text(L.of(context).dlgProperties,
-                    style: ts(13, Colors.white, w: FontWeight.w600)),
+                    style: ts(13, T.text, w: FontWeight.w600)),
                 const SizedBox(width: 6),
                 GestureDetector(
                   onTap: app.cancelEdgeFeature,
@@ -130,9 +130,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 Text(s.editing?.name ?? title,
                     style: TextStyle(
                         fontSize: 12.5,
-                        color: T.blue,
+                        color: T.accent,
                         decoration: TextDecoration.underline,
-                        decorationColor: T.blue)),
+                        decorationColor: T.accent)),
                 const Spacer(),
                 Icon(Icons.visibility_outlined, size: 14, color: T.dim),
               ]),
@@ -150,11 +150,11 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF212429),
+                        color: T.field,
                         border: Border.all(
                             color: app.pickingEdges
-                                ? T.blue
-                                : const Color(0xFF3A3F45)),
+                                ? T.accent
+                                : T.panelSep),
                         borderRadius: BorderRadius.circular(3),
                       ),
                       child: Text(
@@ -177,7 +177,7 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
                 child: Text(s.previewError!,
-                    style: ts(11.5, const Color(0xFFE0A030))),
+                    style: ts(11.5, T.warnText)),
               ),
             _footer(),
           ]),
@@ -222,12 +222,12 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                   margin: const EdgeInsets.only(right: 6),
                   decoration: BoxDecoration(
                     color: i == app.activeEdgeSet
-                        ? const Color(0xFF2E4A6B)
-                        : const Color(0xFF2A2E33),
+                        ? T.chipBg
+                        : T.bg,
                     border: Border.all(
                         color: i == app.activeEdgeSet
-                            ? T.blue
-                            : const Color(0xFF3A3F45)),
+                            ? T.accent
+                            : T.panelSep),
                     borderRadius: BorderRadius.circular(3),
                   ),
                   child: Text(L.of(context).lblEdgeCount(app.edgesInSet(i)),
@@ -269,8 +269,8 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
               height: 24,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFF2A2E33),
-                border: Border.all(color: const Color(0xFF3A3F45)),
+                color: T.bg,
+                border: Border.all(color: T.panelSep),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(L.of(context).btnAddEdgeSet, style: ts(11.5, T.dim)),
@@ -316,10 +316,10 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: s.flip
-                      ? const Color(0xFF2E4A6B)
-                      : const Color(0xFF2A2E33),
+                      ? T.chipBg
+                      : T.bg,
                   border: Border.all(
-                      color: s.flip ? T.blue : const Color(0xFF3A3F45)),
+                      color: s.flip ? T.accent : T.panelSep),
                   borderRadius: BorderRadius.circular(3),
                 ),
                 child: Text(L.of(context).lblSwapFaces, style: ts(12, T.text)),
@@ -337,8 +337,8 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
               height: 24,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFF2A2E33),
-                border: Border.all(color: const Color(0xFF3A3F45)),
+                color: T.bg,
+                border: Border.all(color: T.panelSep),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(label, style: ts(11.5, T.text)),
@@ -359,9 +359,9 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color:
-                  active ? const Color(0xFF2E4A6B) : const Color(0xFF2A2E33),
+                  active ? T.chipBg : T.bg,
               border: Border.all(
-                  color: active ? T.blue : const Color(0xFF3A3F45)),
+                  color: active ? T.accent : T.panelSep),
               borderRadius: BorderRadius.circular(3),
             ),
             child: Text(label, style: ts(11.5, T.text)),
@@ -386,11 +386,11 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
                 height: 28,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: T.blue,
+                  color: T.accent,
                   borderRadius: BorderRadius.circular(3),
                 ),
                 child: Text(L.of(context).ok,
-                    style: ts(12.5, Colors.white, w: FontWeight.w600)),
+                    style: ts(12.5, T.text, w: FontWeight.w600)),
               ),
             ),
           ),
@@ -403,8 +403,8 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
               height: 28,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xFF2A2E33),
-                border: Border.all(color: const Color(0xFF3A3F45)),
+                color: T.bg,
+                border: Border.all(color: T.panelSep),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(L.of(context).cancel, style: ts(12.5, T.text)),

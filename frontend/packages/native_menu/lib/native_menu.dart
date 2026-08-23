@@ -133,6 +133,23 @@ class NativeMenu {
   static const String kLayers = 'layers';
   static const String _sep = '\u0001';
 
+  /// M237 — push the app's appearance into UIKit.
+  ///
+  /// Every native surface (the glass ribbon, model browser, tab bar, tool bar
+  /// and the menu containers) pins its trait to this rather than resolving it
+  /// from the system, so the material and the Flutter text drawn over it never
+  /// come from two different schemes. A no-op off iOS, and a swallowed failure
+  /// everywhere: an appearance that did not arrive is a cosmetic problem, and
+  /// throwing into the widget tree over one is not.
+  static Future<void> setAppearance({required bool dark}) async {
+    if (!isSupported) return;
+    try {
+      await _ch.invokeMethod<void>('setAppearance', {'dark': dark});
+    } catch (_) {
+      // Older host build without the method, or no plugin at all.
+    }
+  }
+
   static final Map<String, List<NativeMenuTarget>> _scopes = {};
   static final Map<String, NativeMenuSelection> _handlers = {};
   static NativePencilGesture? _pencil;
@@ -343,6 +360,20 @@ class NativeMenu {
       if (anchor != null) 'anchor': NativeMenuTarget._rect(anchor),
     });
     return _stringMap(res);
+  }
+
+  /// What [openInPlace]'s extensions resolve to, as "ext=identifier" pairs.
+  ///
+  /// Purely diagnostic, and deliberately a SEPARATE call: presenting the
+  /// picker can take the whole process down, so anything we want to know about
+  /// why has to be asked — and logged — before that happens. An identifier
+  /// beginning `dyn.` means iOS has no declaration for that extension and
+  /// invented a placeholder; those are what the picker chokes on.
+  static Future<List<String>> probeContentTypes(List<String> extensions) async {
+    if (!isSupported) return const [];
+    final res =
+        await _invoke<List<Object?>>('probeContentTypes', {'extensions': extensions});
+    return [for (final e in res ?? const []) '$e'];
   }
 
   /// Re-acquires access to a document remembered from an earlier launch.

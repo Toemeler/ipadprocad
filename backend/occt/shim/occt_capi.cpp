@@ -12,6 +12,9 @@
  *     archives (unlike Qt's generated registration objects — see HANDOFF M5).
  */
 #include "occt_capi.h"
+#include "mesh_recon.h"
+
+#include <OSD.hxx>
 
 #include <cmath>
 #include <cstdio>
@@ -216,7 +219,18 @@ extern "C" const char *occt_version(void)
  * where the pre-v22 answer was wrong; nothing else in the record moves. A
  * caller that must know whether it is talking to a binary whose thin-wall
  * convexity can be trusted tests for >= 22. */
-extern "C" int occt_shim_version(void) { return 22; }
+/* v23 — AND IT HAPPENED AGAIN, exactly as the v17 note above predicted it
+ * would. Two lineages both shipped a "v21": the optimisation branch's
+ * occt_shape_edges_info, and main's occt_brep_from_mesh (M232, mesh import).
+ * Neither knew about the other, so "v21" named two different ABIs.
+ *
+ * Resolved the way the v17 collision was, and for the reason recorded there —
+ * "a version that means different things in two binaries is worse than a gap
+ * in the sequence". The merged surface is strictly larger than either side,
+ * so it takes the next free number instead of pretending one of the two v21s
+ * did not happen. A v23 binary has ALL of it: edges_info, the local convexity
+ * sign, and brep_from_mesh. */
+extern "C" int occt_shim_version(void) { return 23; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3743,4 +3757,121 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
     }
     return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile");
     OCCT_CATCH("occt_coil_profile", nullptr)
+}
+
+/* ---- v21 (M232): mesh -> B-Rep ------------------------------------------ */
+
+/* Turns OCCT's own faults into exceptions this shim can catch.
+ *
+ * Without it, a fault INSIDE OCCT — a null dereference, a bad access, a
+ * division by zero in some algorithm handed geometry it did not expect — is a
+ * raw SIGSEGV. The process dies. Not an exception, so none of the catch
+ * clauses below ever run; not a Dart error, so the app's log ends mid-line
+ * with no explanation and iOS files it as no crash at all.
+ *
+ * With it, the same fault arrives as an OSD_Signal, which derives from
+ * Standard_Failure, which every entry point here already catches. The user
+ * gets a sentence instead of a dead app.
+ *
+ * Standard_False: do NOT trap floating-point exceptions. Geometry code
+ * produces the occasional NaN or infinity in the ordinary course of
+ * converging a fit, and turning those into crashes would be trading one bad
+ * failure for a worse one.
+ *
+ * Idempotent and lazy rather than a static initialiser: the handlers are
+ * installed on the calling thread, and this shim is called from exactly one
+ * (the header says so), so installing them on first use is both correct and
+ * easier to reason about than static-init order across a static library. */
+static void ensure_signal_handlers()
+{
+    static bool done = false;
+    if (done) return;
+    done = true;
+    try {
+        OSD::SetSignal(Standard_False);
+    } catch (...) {
+        /* An old or restricted platform that will not let us install them.
+         * Nothing to do but carry on without the safety net. */
+    }
+}
+
+extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
+                                           const int *tri, int nt,
+                                           int mode, double tol_frac,
+                                           double sharp_deg, int max_faceted,
+                                           int *report_ints,
+                                           double *report_reals)
+{
+    OCCT_TRY("occt_brep_from_mesh")
+    ensure_signal_handlers();
+    meshrecon::Report rep;
+    meshrecon::ClearReport(rep);
+
+    /* Publish the report on EVERY path, including the early refusals below.
+     * A caller that has to explain a failure to a user needs the numbers most
+     * exactly when there is no shape to look at. */
+    struct Publish {
+        const meshrecon::Report &r;
+        int *ints;
+        double *reals;
+        ~Publish()
+        {
+            if (ints) {
+                ints[OCCT_MR_TRIANGLES_IN] = r.triangles_in;
+                ints[OCCT_MR_VERTICES_IN] = r.vertices_in;
+                ints[OCCT_MR_TRIANGLES_USED] = r.triangles_used;
+                ints[OCCT_MR_VERTICES_WELDED] = r.vertices_welded;
+                ints[OCCT_MR_NON_MANIFOLD_EDGES] = r.non_manifold_edges;
+                ints[OCCT_MR_BOUNDARY_EDGES] = r.boundary_edges;
+                ints[OCCT_MR_FLIPPED_TRIANGLES] = r.flipped_triangles;
+                ints[OCCT_MR_PATCHES] = r.patches;
+                ints[OCCT_MR_PLANES] = r.planes;
+                ints[OCCT_MR_CYLINDERS] = r.cylinders;
+                ints[OCCT_MR_CONES] = r.cones;
+                ints[OCCT_MR_SPHERES] = r.spheres;
+                ints[OCCT_MR_TORI] = r.tori;
+                ints[OCCT_MR_FREEFORM] = r.freeform;
+                ints[OCCT_MR_FACETED_PATCHES] = r.faceted_patches;
+                ints[OCCT_MR_FACES_BUILT] = r.faces_built;
+                ints[OCCT_MR_FACES_FAILED] = r.faces_failed;
+                ints[OCCT_MR_ANALYTIC_EDGES] = r.analytic_edges;
+                ints[OCCT_MR_APPROXIMATED_EDGES] = r.approximated_edges;
+                ints[OCCT_MR_SHELLS] = r.shells;
+                ints[OCCT_MR_SOLIDS] = r.solids;
+                ints[OCCT_MR_CLOSED] = r.closed;
+            }
+            if (reals) {
+                reals[OCCT_MR_FIT_RMS] = r.fit_rms;
+                reals[OCCT_MR_DIAGONAL] = r.diagonal;
+            }
+        }
+    } publish{rep, report_ints, report_reals};
+
+    if (!xyz || !tri || nv < 3 || nt < 1) {
+        set_err("occt_brep_from_mesh", "no mesh data");
+        return nullptr;
+    }
+    /* nv*3 and nt*3 are computed as int in the reader; refuse sizes where that
+     * would overflow rather than index past the end of the caller's arrays. */
+    if (nv > 700000000 || nt > 700000000) {
+        set_err("occt_brep_from_mesh", "mesh is too large");
+        return nullptr;
+    }
+
+    meshrecon::Params p = meshrecon::Defaults();
+    p.mode = (mode == 0) ? 0 : 1;
+    if (tol_frac > 0) p.tol_frac = tol_frac;
+    if (sharp_deg > 0) p.sharp_deg = sharp_deg;
+    if (max_faceted > 0) p.max_faceted_triangles = max_faceted;
+
+    std::string err;
+    const TopoDS_Shape out =
+        meshrecon::Reconstruct(xyz, nv, tri, nt, p, rep, err);
+    if (out.IsNull()) {
+        set_err("occt_brep_from_mesh",
+                err.empty() ? "the mesh could not be converted" : err.c_str());
+        return nullptr;
+    }
+    return wrap(out, "occt_brep_from_mesh");
+    OCCT_CATCH("occt_brep_from_mesh", nullptr)
 }

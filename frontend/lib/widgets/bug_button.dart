@@ -79,7 +79,7 @@ class _BugDialogState extends State<_BugDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: T.panel,
-      title: Text(L.of(context).dlgReportBug, style: ts(16, Colors.white)),
+      title: Text(L.of(context).dlgReportBug, style: ts(16, T.text)),
       content: SizedBox(
         width: 460,
         child: Column(
@@ -88,7 +88,7 @@ class _BugDialogState extends State<_BugDialog> {
           children: [
             Text(
               L.of(context).msgBugPrompt,
-              style: ts(12, Colors.white70),
+              style: ts(12, T.dim),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -96,12 +96,12 @@ class _BugDialogState extends State<_BugDialog> {
               autofocus: true,
               maxLines: 6,
               minLines: 4,
-              style: ts(13, Colors.white),
+              style: ts(13, T.onAccent),
               decoration: InputDecoration(
                 hintText: L.of(context).hintBugExample,
-                hintStyle: ts(12, Colors.white38),
+                hintStyle: ts(12, T.dim),
                 filled: true,
-                fillColor: const Color(0xFF191B1F),
+                fillColor: T.field,
                 border: OutlineInputBorder(
                     borderSide: BorderSide(color: T.sep)),
                 enabledBorder: OutlineInputBorder(
@@ -114,16 +114,16 @@ class _BugDialogState extends State<_BugDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(L.of(context).cancel, style: ts(13, Colors.white70)),
+          child: Text(L.of(context).cancel, style: ts(13, T.text)),
         ),
         FilledButton(
           style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFB4232A)),
+              backgroundColor: T.errFill),
           // Deliberately NOT disabled on empty text: the state dump is the
           // valuable half and it is complete either way, so a wordless report
           // still beats no report.
           onPressed: () => Navigator.of(context).pop(_c.text),
-          child: Text(L.of(context).btnSaveReport, style: ts(13, Colors.white)),
+          child: Text(L.of(context).btnSaveReport, style: ts(13, T.onAccent)),
         ),
       ],
     );
@@ -144,7 +144,7 @@ class _ResultDialog extends StatelessWidget {
     return AlertDialog(
       backgroundColor: T.panel,
       title: Text(ok ? L.of(context).msgReportSaved : L.of(context).msgReportFailed,
-          style: ts(16, Colors.white)),
+          style: ts(16, T.text)),
       content: SizedBox(
         width: 460,
         child: Column(
@@ -155,11 +155,11 @@ class _ResultDialog extends StatelessWidget {
               ok
                   ? L.of(context).msgBugSaved
                   : L.of(context).msgBugBundleFailed,
-              style: ts(12, Colors.white70),
+              style: ts(12, T.dim),
             ),
             if (ok) ...[
               const SizedBox(height: 10),
-              SelectableText(path!, style: ts(11, Colors.white54)),
+              SelectableText(path!, style: ts(11, T.dim)),
             ],
           ],
         ),
@@ -169,11 +169,11 @@ class _ResultDialog extends StatelessWidget {
           TextButton(
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: path!)),
-            child: Text(L.of(context).btnCopyPath, style: ts(13, Colors.white70)),
+            child: Text(L.of(context).btnCopyPath, style: ts(13, T.text)),
           ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(L.of(context).done, style: ts(13, Colors.white)),
+          child: Text(L.of(context).done, style: ts(13, T.onAccent)),
         ),
       ],
     );

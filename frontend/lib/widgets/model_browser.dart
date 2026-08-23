@@ -12,11 +12,13 @@ import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../assembly.dart';
 import '../menus.dart';
 import '../log.dart';
 import '../part_model.dart';
@@ -39,6 +41,12 @@ class ModelBrowser extends StatefulWidget {
 class _ModelBrowserState extends State<ModelBrowser> {
   bool originOpen = false;
   bool bodiesOpen = true; // Solid Bodies folder starts expanded (Inventor)
+
+  /// M240 — the assembly's two empty container folders. Collapsed, because
+  /// there is nothing in either of them yet and an expanded empty folder is a
+  /// row that says less than the closed one does.
+  bool reprOpen = false;
+  bool relsOpen = false;
   OverlayEntry? _ctx;
   // M53 — End-of-Sketch drag: the marker's PREVIEW slot while the finger /
   // mouse moves; committed to the app on release, discarded on Escape.
@@ -612,11 +620,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
               constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
               padding: const EdgeInsets.symmetric(vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF212429),
+                color: T.fly,
                 border: Border.all(color: T.sep),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                      color: Color(0x8C000000),
+                      color: T.shadow,
                       blurRadius: 22,
                       offset: Offset(0, 8))
                 ],
@@ -720,11 +728,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
               constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
               padding: const EdgeInsets.symmetric(vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF212429),
+                color: T.fly,
                 border: Border.all(color: T.sep),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                      color: Color(0x8C000000),
+                      color: T.shadow,
                       blurRadius: 22,
                       offset: Offset(0, 8))
                 ],
@@ -1083,6 +1091,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final app = widget.app;
     final s = app.current;
     final part = app.activeChild == null ? app.currentPart : null;
+    final asm = app.currentAssembly;
     // Layers appear, vanish and get renamed without this widget remounting.
     _schedulePush();
     return Container(
@@ -1093,7 +1102,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         // for platforms without it. A colour here would sit on top of the
         // glass and hide it.
         color: GlassPanel.isSupported ? null : T.mbBg,
-        border: const Border(right: BorderSide(color: T.mbBorder)),
+        border: Border(right: BorderSide(color: T.mbBorder)),
       ),
       child: Stack(children: [
         // The glass surface. IgnorePointer inside GlassPanel: every gesture in
@@ -1106,7 +1115,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: T.mbHead,
             border: Border(bottom: BorderSide(color: T.mbHeadBorder)),
           ),
@@ -1114,7 +1123,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
             Container(
               height: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: T.mbBg,
                 border: Border(right: BorderSide(color: T.mbHeadBorder)),
               ),
@@ -1152,9 +1161,32 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 _row(
                   indent: 0,
                   exp: ' ',
-                  icon: part != null ? partCubeIcon : sketchCubeIcon,
+                  icon: asm != null
+                      ? assemblyCubeIcon
+                      : part != null
+                          ? partCubeIcon
+                          : sketchCubeIcon,
                   label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
                 ),
+                // M240 — Inventor's assembly browser, in Inventor's order:
+                // Representations and Relationships above Origin, then the
+                // placed components in placement order.
+                if (asm != null) ...[
+                  _row(
+                    indent: 8,
+                    exp: reprOpen ? '−' : '+',
+                    icon: representationsIcon,
+                    label: L.of(context).nodeRepresentations,
+                    onTap: () => setState(() => reprOpen = !reprOpen),
+                  ),
+                  _row(
+                    indent: 8,
+                    exp: relsOpen ? '−' : '+',
+                    icon: relationshipsIcon,
+                    label: L.of(context).nodeRelationships,
+                    onTap: () => setState(() => relsOpen = !relsOpen),
+                  ),
+                ],
                 // Inventor: the Solid Bodies folder sits ABOVE Origin, with a
                 // (N) body count; expand it to list each body with its own
                 // visibility eye. Only shown for a 3D part that has bodies.
@@ -1181,10 +1213,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   onTap: () => setState(() => originOpen = !originOpen),
                 ),
                 if (originOpen) ...[
+                  // An assembly carries the same seven origin entries a part
+                  // does, and each eye drives the same painter.
+                  if (asm != null) ...[
+                    for (final o in _kOriginRows)
+                      _asmOriginRow(app, asm, L.of(context), o.$1, o.$2),
+                  ]
                   // A 3D part carries the FULL origin: 3 work planes, 3 axes
                   // and the centre point, each with its own visibility eye
                   // wired straight into the 3D scene (M56).
-                  if (part != null) ...[
+                  else if (part != null) ...[
                     for (final o in [
                       (L.of(context).nodeYzPlane, 'yz'),
                       (L.of(context).nodeXzPlane, 'xz'),
@@ -1207,6 +1245,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
                     ),
                   ],
                 ],
+                // The placed components. Inventor lists them below Origin,
+                // in the order they were placed.
+                if (asm != null)
+                  for (final o in asm.occurrences) _componentRow(app, asm, o),
                 // A part shows its child sketches and features instead of
                 // layers; the open child sketch falls through to the 2D tree.
                 if (part != null && app.activeChild == null) ...[
@@ -1243,13 +1285,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 ],
                 // layers container, with the End-of-Sketch marker at its
                 // slot (M53): everything after the marker renders rolled back
-                if (s != null && part == null) ...[
+                if (s != null && part == null && asm == null) ...[
                   for (var i = 0; i < s.layers.length; i++) ...[
                     if (i == _shownEos(s)) _eosRow(app, s),
                     _layerRow(app, s.layers[i], rolled: i >= _shownEos(s)),
                   ],
                   if (_shownEos(s) >= s.layers.length) _eosRow(app, s),
-                ] else if (part == null)
+                ] else if (part == null && asm == null)
                   _row(
                       indent: 8,
                       exp: ' ',
@@ -1262,6 +1304,66 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ]),
       ]),
     );
+  }
+
+  /// The seven origin entries, in Inventor's order. One list, so the part tree
+  /// and the assembly tree cannot drift apart on what an Origin folder holds.
+  static const List<(String, String)> _kOriginRows = [
+    ('yz', 'yz'),
+    ('xz', 'xz'),
+    ('xy', 'xy'),
+    ('x', 'x'),
+    ('y', 'y'),
+    ('z', 'z'),
+    ('cp', 'cp'),
+  ];
+
+  /// M240 — an origin entry of the ASSEMBLY. Same glyphs and same eye as
+  /// [_originRow]; only the model behind the toggle differs.
+  Widget _asmOriginRow(
+      AppState app, AssemblyModel asm, AppL10n t, String key, String _) {
+    final on = asm.vis[key] == true;
+    final row = _row(
+      indent: 30,
+      icon: switch (key) {
+        'yz' || 'xz' || 'xy' => planeIcon,
+        'x' => xAxisIcon,
+        'y' => yAxisIcon,
+        'z' => zAxisIcon,
+        _ => centerPointIcon,
+      },
+      label: switch (key) {
+        'yz' => t.nodeYzPlane,
+        'xz' => t.nodeXzPlane,
+        'xy' => t.nodeXyPlane,
+        'x' => t.nodeXAxis,
+        'y' => t.nodeYAxis,
+        'z' => t.nodeZAxis,
+        _ => t.nodeCenterPoint,
+      },
+      trailing: _EyeButton(
+          visible: on, onTap: () => app.setAssemblyOriginVisible(key, on)),
+    );
+    return on ? row : Opacity(opacity: 0.45, child: row);
+  }
+
+  /// M240 — one placed component. Tapping selects it, which is the same
+  /// selection the viewport shows and drags; the eye hides it; a grounded
+  /// component carries Inventor's pin instead of an expander.
+  Widget _componentRow(
+      AppState app, AssemblyModel asm, AssemblyOccurrence o) {
+    final row = _row(
+      indent: 8,
+      exp: ' ',
+      icon: o.grounded ? groundedPinIcon : componentCubeIcon,
+      label: o.id,
+      active: identical(asm.selected, o),
+      onTap: () => app.selectOccurrence(identical(asm.selected, o) ? null : o),
+      trailing: _EyeButton(
+          visible: o.visible,
+          onTap: () => app.setOccurrenceVisible(o, !o.visible)),
+    );
+    return o.visible ? row : Opacity(opacity: 0.45, child: row);
   }
 
   /// A solid body in the Solid Bodies folder (Inventor). The eye toggles the
@@ -1285,7 +1387,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     );
     Widget out = Container(
       key: _bodyKeyFor(bodyName),
-      color: hot ? T.blue.withValues(alpha: 0.28) : null,
+      color: hot ? T.accent.withValues(alpha: 0.28) : null,
       child: row,
     );
     if (picking) {
@@ -1549,15 +1651,15 @@ class _TreeRowState extends State<_TreeRow> {
                 width: 11,
                 child: Text(widget.exp!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10, color: T.mbDim, fontFamily: 'Menlo')),
               ),
             const SizedBox(width: 6),
-            SvgPicture.string(widget.icon, width: 15, height: 15),
+            SvgPicture.string(themedIcon(widget.icon), width: 15, height: 15),
             const SizedBox(width: 6),
             Expanded(
               child: Text(widget.label,
-                  style: ts(12.5, widget.active ? Colors.white : T.mbText),
+                  style: ts(12.5, widget.active ? T.text : T.mbText),
                   overflow: TextOverflow.ellipsis),
             ),
             if (widget.trailing != null) widget.trailing!,
@@ -1594,7 +1696,7 @@ class _CtxRowState extends State<_CtxRow> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Text(widget.label,
               style:
-                  ts(12.5, widget.danger ? const Color(0xFFE05A56) : T.mbText)),
+                  ts(12.5, widget.danger ? T.err : T.mbText)),
         ),
       ),
     );
@@ -1630,7 +1732,7 @@ class _EyeButtonState extends State<_EyeButton> {
             on ? Icons.visibility_outlined : Icons.visibility_off_outlined,
             size: 14,
             color: on
-                ? (_h ? Colors.white : T.mbDim)
+                ? (_h ? T.mbText : T.mbDim)
                 : (_h ? T.mbText : T.mbDimmed),
           ),
         ),
@@ -1653,9 +1755,9 @@ class _LockedMark extends StatelessWidget {
   const _LockedMark();
   @override
   Widget build(BuildContext context) {
-    return const Padding(
+    return Padding(
       padding: EdgeInsets.symmetric(horizontal: 4),
-      child: Icon(Icons.lock_outline, size: 14, color: Color(0xFFD65A56)),
+      child: Icon(Icons.lock_outline, size: 14, color: T.err),
     );
   }
 }

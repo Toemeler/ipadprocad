@@ -142,6 +142,14 @@ typedef _RayHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
 typedef _RayHitsD = int Function(Pointer<Void>, double, double, double, double,
     double, double, Pointer<Double>, int);
 
+// shim v21 (M232): mesh -> B-Rep. A triangle soup in, a real solid out.
+typedef _BrepFromMeshN = Pointer<Void> Function(Pointer<Double>, Int32,
+    Pointer<Int32>, Int32, Int32, Double, Double, Int32, Pointer<Int32>,
+    Pointer<Double>);
+typedef _BrepFromMeshD = Pointer<Void> Function(Pointer<Double>, int,
+    Pointer<Int32>, int, int, double, double, int, Pointer<Int32>,
+    Pointer<Double>);
+
 // shim v20 (M217): face identity + Delete Face + Direct Edit.
 typedef _FaceOpN = Pointer<Void> Function(
     Pointer<Void>, Pointer<Int32>, Int32, Int32);
@@ -860,6 +868,96 @@ class OcctShape {
   }
 }
 
+/// Field counts of the v21 mesh report — must match OCCT_MESH_REPORT_* in
+/// backend/occt/shim/occt_capi.h.
+const int _kMeshReportInts = 22;
+const int _kMeshReportReals = 2;
+
+/// What the mesh converter did, in numbers. Mirrors the OCCT_MR_* indices in
+/// occt_capi.h; keep the two in step.
+class MeshToBrepReport {
+  const MeshToBrepReport._(this._ints, this._reals);
+
+  /// All zeros — for a kernel that has no converter, and for a failure so
+  /// early that nothing was measured.
+  const MeshToBrepReport.empty()
+      : _ints = null,
+        _reals = null;
+
+  final Int32List? _ints;
+  final Float64List? _reals;
+
+  int _i(int k) {
+    final a = _ints;
+    return (a == null || k >= a.length) ? 0 : a[k];
+  }
+
+  double _d(int k) {
+    final a = _reals;
+    return (a == null || k >= a.length) ? 0 : a[k];
+  }
+
+  int get trianglesIn => _i(0);
+  int get verticesIn => _i(1);
+  int get trianglesUsed => _i(2);
+  int get verticesWelded => _i(3);
+  int get nonManifoldEdges => _i(4);
+
+  /// Edges with only one triangle — holes in the mesh. A mesh with any of
+  /// these cannot close into a solid, and saying so is more useful than
+  /// silently handing back a surface body.
+  int get boundaryEdges => _i(5);
+  int get flippedTriangles => _i(6);
+  int get patches => _i(7);
+  int get planes => _i(8);
+  int get cylinders => _i(9);
+  int get cones => _i(10);
+  int get spheres => _i(11);
+  int get tori => _i(12);
+  int get freeform => _i(13);
+
+  /// Patches that had to stay as loose triangles. The honest measure of how
+  /// well the conversion went.
+  int get facetedPatches => _i(14);
+  int get facesBuilt => _i(15);
+  int get facesFailed => _i(16);
+
+  /// Edges that are exact surface-intersection curves — a real circle at a
+  /// hole's rim rather than a spline through the mesh points.
+  int get analyticEdges => _i(17);
+  int get approximatedEdges => _i(18);
+  int get shells => _i(19);
+  int get solids => _i(20);
+  bool get closed => _i(21) == 1;
+
+  /// Area-weighted RMS distance from the mesh to the fitted surfaces, in mm.
+  double get fitRms => _d(0);
+  double get diagonal => _d(1);
+
+  /// Surfaces the converter actually recognised.
+  int get analyticFaces => planes + cylinders + cones + spheres + tori;
+
+  /// One line for the log, and the basis of what the user is told.
+  String describe() => 'mesh $trianglesIn tri / $verticesIn vtx -> '
+      '$patches patch(es): $planes plane, $cylinders cylinder, $cones cone, '
+      '$spheres sphere, $tori torus, $facetedPatches faceted; '
+      '$facesBuilt face(s) built ($facesFailed failed), '
+      '$analyticEdges exact edge(s), rms ${fitRms.toStringAsFixed(4)}, '
+      'closed=$closed';
+}
+
+/// The outcome of [OcctFfi.brepFromMesh]: a body, or a reason there is none.
+class MeshToBrepResult {
+  const MeshToBrepResult._(this.shape, this.report, this.error);
+
+  /// Null when the conversion failed; then [error] says why.
+  final OcctShape? shape;
+  final MeshToBrepReport report;
+  final String? error;
+
+  bool get ok => shape != null;
+}
+
 /// Probe-once singleton over the 31-symbol OCCT shim v5 surface (v4 + the two
 /// booleans occt_cut / occt_common).
 class OcctFfi {
@@ -914,7 +1012,8 @@ class OcctFfi {
       this._deleteFaces,
       this._moveFaces,
       this._scaleShape,
-      this._shapeEdgesInfo);
+      this._shapeEdgesInfo,
+      this._brepFromMesh);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -942,6 +1041,7 @@ class OcctFfi {
   final _MoveFacesD _moveFaces; // v20
   final _ScaleD _scaleShape; // v20
   final _EdgesInfoD _shapeEdgesInfo; // v21 (bulk edge enumeration)
+  final _BrepFromMeshD _brepFromMesh; // v21 on main's lineage — see v23
   final _ImportD _importStep;
   final _SplitD _splitSolids;
   final _FreeD _free;
@@ -1066,6 +1166,11 @@ class OcctFfi {
         // binary probes to null, i.e. "no 3D kernel", which is the documented
         // policy above.
         lib.lookupFunction<_EdgesInfoN, _EdgesInfoD>('occt_shape_edges_info'),
+        // Also "v21", on the other lineage — see occt_shim_version's v23 note.
+        // Both are present from v23 on; an older binary missing either fails
+        // this lookup and probes to null, which is the same policy.
+        lib.lookupFunction<_BrepFromMeshN, _BrepFromMeshD>(
+            'occt_brep_from_mesh'),
       );
     } catch (_) {
       _cached = null;
@@ -1467,6 +1572,72 @@ class OcctFfi {
           OcctShape s, double cx, double cy, double cz, double factor) =>
       ffiSpan('ffi.occt.scaleShape',
           () => _wrap(_scaleShape(s._handle, cx, cy, cz, factor)));
+
+  /// M232 — turn a triangle mesh into a real B-Rep body.
+  ///
+  /// The kernel half of opening an STL, OBJ or 3MF: the file is parsed in
+  /// `mesh_io.dart` and arrives here as a plain indexed mesh in millimetres.
+  /// Winding, welding and orientation are the shim's problem, not the
+  /// caller's, because a downloaded mesh is reliably wrong about all three.
+  ///
+  /// [mode] 1 fits real surfaces (a hole comes back a cylinder with a circular
+  /// rim, so it can be filleted afterwards); [mode] 0 makes one flat face per
+  /// triangle, which is exact and nearly useless downstream. Pass 0 for the
+  /// tuning values to take the shim's defaults, which is almost always right.
+  ///
+  /// Never throws and never returns null without a reason: on failure the
+  /// result carries [MeshToBrepResult.error] and the report explains it.
+  MeshToBrepResult brepFromMesh(Float64List xyz, Int32List triangles,
+      {int mode = 1,
+      double tolFraction = 0,
+      double sharpDegrees = 0,
+      int maxFacetedTriangles = 0}) {
+    // 23, not 21: "v21" was claimed independently by two lineages and only
+    // one of them was this converter (see occt_shim_version). 23 is the first
+    // version in which occt_brep_from_mesh is unambiguously present.
+    if (shimVersion < 23) {
+      return MeshToBrepResult._(null, const MeshToBrepReport.empty(),
+          'This build has no mesh converter.');
+    }
+    final nv = xyz.length ~/ 3, nt = triangles.length ~/ 3;
+    if (nv < 3 || nt < 1) {
+      return MeshToBrepResult._(
+          null, const MeshToBrepReport.empty(), 'That mesh has no triangles.');
+    }
+    final pXyz = calloc<Double>(nv * 3);
+    final pTri = calloc<Int32>(nt * 3);
+    final pInts = calloc<Int32>(_kMeshReportInts);
+    final pReals = calloc<Double>(_kMeshReportReals);
+    try {
+      // setRange, NOT setAll. The buffers are nv*3 and nt*3 long, and those
+      // are FLOORED divisions — a list whose length is not a multiple of three
+      // is one or two elements longer than the buffer made for it, and setAll
+      // copies all of it. That writes past the end of a calloc'd block, which
+      // is heap corruption at an FFI boundary: it does not fail here, it fails
+      // later, somewhere unrelated, with nothing to connect it back.
+      //
+      // mesh_io never produces a ragged list today. This does not depend on
+      // that staying true.
+      pXyz.asTypedList(nv * 3).setRange(0, nv * 3, xyz);
+      pTri.asTypedList(nt * 3).setRange(0, nt * 3, triangles);
+      final h = _brepFromMesh(pXyz, nv, pTri, nt, mode, tolFraction,
+          sharpDegrees, maxFacetedTriangles, pInts, pReals);
+      // The report is filled in even when the conversion failed — that is the
+      // point of it, so a refusal can be explained with numbers.
+      final report = MeshToBrepReport._(
+          Int32List.fromList(pInts.asTypedList(_kMeshReportInts)),
+          Float64List.fromList(pReals.asTypedList(_kMeshReportReals)));
+      if (h == nullptr) {
+        return MeshToBrepResult._(null, report, lastError());
+      }
+      return MeshToBrepResult._(OcctShape._(this, h), report, null);
+    } finally {
+      calloc.free(pXyz);
+      calloc.free(pTri);
+      calloc.free(pInts);
+      calloc.free(pReals);
+    }
+  }
 
   /// Read a STEP file (all roots, compound if several). Null on failure.
   OcctShape? importStep(String path) {

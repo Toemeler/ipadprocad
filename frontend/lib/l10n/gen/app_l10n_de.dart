@@ -15,6 +15,20 @@ class AppL10nDe extends AppL10n {
   String get languageMenuItem => 'Sprache: Deutsch';
 
   @override
+  String appearanceMenuItem(String scheme) {
+    return 'Darstellung: $scheme';
+  }
+
+  @override
+  String get appearanceSystem => 'System';
+
+  @override
+  String get appearanceLight => 'Hell';
+
+  @override
+  String get appearanceDark => 'Dunkel';
+
+  @override
   String get ok => 'OK';
 
   @override
@@ -805,6 +819,141 @@ class AppL10nDe extends AppL10n {
       one: 'Ein Körper importiert.',
     );
     return '$_temp0';
+  }
+
+  @override
+  String get msgOpenPartForMesh =>
+      'Zuerst ein Bauteil öffnen — ein Netz kommt als Volumenkörper an.';
+
+  @override
+  String get msgNoKernelMesh =>
+      'Kein 3D-Kern verbunden — ein Netz umzuwandeln braucht den Gerätebuild.';
+
+  @override
+  String get msgMeshEmpty => 'Diese Datei ist leer.';
+
+  @override
+  String get msgMeshMissing => 'Diese Datei gibt es nicht mehr.';
+
+  @override
+  String get msgMeshUnreadable => 'Diese Datei ließ sich nicht lesen.';
+
+  @override
+  String get msgMeshNoGeometry =>
+      'Diese Datei enthält keine brauchbare Geometrie.';
+
+  @override
+  String get msgMeshTruncated =>
+      'Diese Datei ist beschädigt — ein Datensatz bricht ab.';
+
+  @override
+  String msgMeshBadIndex(String index) {
+    return 'Diese Datei ist beschädigt — eine Fläche nennt Punkt $index, den es nicht gibt.';
+  }
+
+  @override
+  String get msgMeshNotAnArchive => 'Diese 3MF-Datei ist kein lesbares Archiv.';
+
+  @override
+  String get msgMeshNoModel => 'Diese 3MF-Datei enthält kein Modell.';
+
+  @override
+  String msgMeshUnknownUnit(String unit) {
+    return 'Diese 3MF-Datei nutzt die unbekannte Einheit „$unit“.';
+  }
+
+  @override
+  String msgMeshNotWatertight(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Dieses Netz ist nicht dicht ($count offene Kanten) und kann kein Volumenkörper werden.',
+      one:
+          'Dieses Netz ist nicht dicht (eine offene Kante) und kann kein Volumenkörper werden.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgMeshConvertFailed => 'Das Netz ließ sich nicht umwandeln.';
+
+  @override
+  String msgMeshConvertFailedWhy(String error) {
+    return 'Das Netz ließ sich nicht umwandeln: $error';
+  }
+
+  @override
+  String get msgMeshNotSaved =>
+      'Das Netz wurde umgewandelt, aber nicht gespeichert.';
+
+  @override
+  String msgMeshImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Importiert: $count Flächen erkannt.',
+      one: 'Importiert: eine Fläche erkannt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgMeshImportedFacetedOnly(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Als $count Flächen importiert — keine Flächenform erkannt.',
+      one: 'Als eine Fläche importiert — keine Flächenform erkannt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgMeshImportedFaceted(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Bereiche blieben als Dreiecke.',
+      one: 'Ein Bereich blieb als Dreiecke.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgMeshImportedOpen => 'Nicht geschlossen — ein Flächenkörper.';
+
+  @override
+  String msgMeshFileTooLarge(int size, int limit) {
+    final intl.NumberFormat sizeNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String sizeString = sizeNumberFormat.format(size);
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'Diese Datei hat $sizeString MB; Prototype liest Netze bis $limitString MB.';
+  }
+
+  @override
+  String msgMeshTooManyTriangles(int count, int limit) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'Dieses Netz hat $countString Dreiecke; Prototype wandelt bis $limitString um.';
+  }
+
+  @override
+  String msgMeshConverting(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    return '$countString Dreiecke werden umgewandelt …';
   }
 
   @override
@@ -3017,4 +3166,83 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get lblLineGeo => 'Linie';
+
+  @override
+  String get panelComponent => 'Komponente';
+
+  @override
+  String get panelPosition => 'Position';
+
+  @override
+  String get panelRelationships => 'Beziehungen';
+
+  @override
+  String get btnPlace => 'Platzieren';
+
+  @override
+  String get btnCreateComponent => 'Erstellen';
+
+  @override
+  String get btnFreeMove => 'Frei bewegen';
+
+  @override
+  String get btnFreeRotate => 'Frei drehen';
+
+  @override
+  String get btnJoint => 'Gelenk';
+
+  @override
+  String get btnConstrain => 'Abhängig machen';
+
+  @override
+  String get btnShowRelationships => 'Einblenden';
+
+  @override
+  String get btnShowSick => 'Fehlerhafte';
+
+  @override
+  String get btnHideAll => 'Alle ausblenden';
+
+  @override
+  String get btnPatternComponent => 'Anordnung';
+
+  @override
+  String get galleryNewAssembly => 'Neue Baugruppe';
+
+  @override
+  String get dlgNewAssembly => 'Neue Baugruppe';
+
+  @override
+  String get phAssemblyName => 'Baugruppenname';
+
+  @override
+  String get nodeRepresentations => 'Darstellungen';
+
+  @override
+  String get nodeRelationships => 'Beziehungen';
+
+  @override
+  String get dlgPlaceComponent => 'Komponente platzieren';
+
+  @override
+  String get msgAsmNoPartsToPlace =>
+      'Erstellen Sie zuerst ein 3D-Bauteil — es gibt nichts zu platzieren.';
+
+  @override
+  String msgAsmNoSuchPart(String name) {
+    return '„$name“ ist kein Bauteil.';
+  }
+
+  @override
+  String msgAsmCouldNotPlace(String name) {
+    return '„$name“ konnte nicht platziert werden.';
+  }
+
+  @override
+  String msgAsmGrounded(String name) {
+    return '„$name“ ist fixiert.';
+  }
+
+  @override
+  String get ctxGrounded => 'Fixiert';
 }

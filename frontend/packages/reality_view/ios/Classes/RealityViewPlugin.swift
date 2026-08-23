@@ -8,6 +8,10 @@
 import Flutter
 import UIKit
 
+#if canImport(RealityKit)
+import RealityKit
+#endif
+
 public class RealityViewPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let factory = RealityPartViewFactory(messenger: registrar.messenger())
@@ -15,6 +19,31 @@ public class RealityViewPlugin: NSObject, FlutterPlugin {
         // M82: plugin-level channel for off-screen stills (gallery thumbnails),
         // independent of whether a viewport platform view currently exists.
         registerThumbChannel(with: registrar)
+        // M237: the palette's viewport ground, for the same reason — it has to
+        // be settable before the first viewport is built, and it has to reach
+        // the live one when the scheme changes mid-session.
+        registerAppearanceChannel(with: registrar)
+    }
+}
+
+extension RealityViewPlugin {
+    static func registerAppearanceChannel(with registrar: FlutterPluginRegistrar) {
+        let channel = FlutterMethodChannel(
+            name: "prototype/reality_view/appearance",
+            binaryMessenger: registrar.messenger())
+        channel.setMethodCallHandler { call, result in
+            guard call.method == "setViewportColor",
+                  let a = call.arguments as? [String: Any],
+                  let argb = a["argb"] as? NSNumber
+            else { return result(FlutterMethodNotImplemented) }
+            let v = argb.uint32Value
+            RealityPartView.setViewportColor(UIColor(
+                red: CGFloat((v >> 16) & 0xFF) / 255.0,
+                green: CGFloat((v >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(v & 0xFF) / 255.0,
+                alpha: CGFloat((v >> 24) & 0xFF) / 255.0))
+            result(nil)
+        }
     }
 }
 
@@ -74,6 +103,7 @@ final class RealityThumbRenderer: NSObject {
         scene: [String: Any],
         camera: [String: Any],
         size: CGSize,
+        background: UIColor,
         completion: @escaping (Data?) -> Void
     ) {
         guard #available(iOS 15.0, *) else { return completion(nil) }
@@ -87,6 +117,16 @@ final class RealityThumbRenderer: NSObject {
         let host = renderer.view
         host.frame = px
         host.alpha = 0.0
+        // The still's own ground, independent of whatever the LIVE viewport is
+        // currently set to — a thumbnail written while the app is dark must
+        // not come out dark.
+        host.backgroundColor = background
+        host.isOpaque = background.cgColor.alpha >= 1.0
+        #if canImport(RealityKit)
+        if #available(iOS 15.0, *), let ar = host as? ARView {
+            ar.environment.background = .color(background)
+        }
+        #endif
         host.isUserInteractionEnabled = false
         window.insertSubview(host, at: 0)
 
@@ -181,8 +221,17 @@ extension RealityViewPlugin {
                     details: nil))
             }
             let size = CGSize(width: w.doubleValue, height: h.doubleValue)
+            // M237 — the still's ground. 0 (fully transparent) is what the app
+            // asks for: the card paints its own surface behind the PNG, so the
+            // cached file never carries a palette and never goes stale.
+            let bgArgb = (a["bg"] as? NSNumber)?.uint32Value ?? 0
+            let bg = UIColor(
+                red: CGFloat((bgArgb >> 16) & 0xFF) / 255.0,
+                green: CGFloat((bgArgb >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(bgArgb & 0xFF) / 255.0,
+                alpha: CGFloat((bgArgb >> 24) & 0xFF) / 255.0)
             RealityThumbRenderer.shared.render(
-                scene: scene, camera: camera, size: size
+                scene: scene, camera: camera, size: size, background: bg
             ) { data in
                 // A nil here is NOT an error: it means "no picture this time"
                 // and the Dart side falls back to the CPU painter.

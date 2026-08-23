@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../assembly.dart';
 import '../part_model.dart';
 import '../l10n/l.dart';
 
@@ -46,8 +47,55 @@ const String kIdOrigin = 'or:';
 /// a property of the pattern, so the row addresses the pattern plus a number
 /// rather than an object of its own.
 const String kIdOccurrence = 'oc:';
+
+/// M240 — one placed ASSEMBLY COMPONENT: `cp:<Part>:<n>`. The occurrence id
+/// already carries a colon, which is exactly why the prefix is matched and the
+/// rest taken whole rather than split on the separator.
+const String kIdComponent = 'cp:';
+
+/// M240 — the assembly's two container folders.
+const String kIdRepresentations = '__reprs__';
+const String kIdRelationships = '__rels__';
 const String kIdEos = '__eos__';
 const String kIdEop = '__eop__';
+
+/// The Origin folder's seven entries: key, label, SF Symbol.
+///
+/// M240 — a getter rather than a const, because the labels are localised and
+/// a const would freeze the language of whichever locale loaded first. One
+/// list, so the part tree and the assembly tree cannot disagree about what an
+/// Origin folder holds.
+List<(String, String, String)> get kOriginRows => [
+      ('yz', t.nodeYzPlane, 'square.on.square'),
+      ('xz', t.nodeXzPlane, 'square.on.square'),
+      ('xy', t.nodeXyPlane, 'square.on.square'),
+      ('x', t.nodeXAxis, 'line.diagonal'),
+      ('y', t.nodeYAxis, 'line.diagonal'),
+      ('z', t.nodeZAxis, 'line.diagonal'),
+      ('cp', t.nodeCenterPoint, 'smallcircle.filled.circle'),
+    ];
+
+/// M240 — the context menu on a placed component.
+///
+/// Grounded and Delete, and nothing else: rename would rename the OCCURRENCE
+/// and an occurrence is named after the part it is an instance of, so a free
+/// name there would be a second thing to keep in step for no gain. Visibility
+/// is the row's own eye.
+List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
+      [
+        GlassMenuItem(
+            id: 'cpGrounded',
+            title: t.ctxGrounded,
+            symbol: o.grounded ? 'pin.fill' : 'pin'),
+      ],
+      [
+        GlassMenuItem(
+            id: 'cpDelete',
+            title: t.delete,
+            symbol: 'trash',
+            destructive: true),
+      ],
+    ];
 
 /// Builds the whole tree for the current document.
 ///
@@ -78,14 +126,88 @@ List<GlassRow> _buildRows(
 }) {
   final rows = <GlassRow>[];
   final part = app.activeChild == null ? app.currentPart : null;
+  final asm = app.currentAssembly;
   final s = app.current;
 
   rows.add(GlassRow(
     id: 'root',
     label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
-    symbol: part != null ? 'cube' : 'square.on.square',
+    symbol: asm != null
+        ? 'square.stack.3d.up'
+        : part != null
+            ? 'cube'
+            : 'square.on.square',
     tint: 'blue',
   ));
+
+  // ---- M240: the ASSEMBLY tree ------------------------------------------
+  //
+  // Representations, Relationships, Origin, then the placed components — in
+  // Inventor's own order. The first two are empty containers today and are
+  // listed anyway, because they are what tells you an assembly document is
+  // open at all; the Origin folder and the components are live.
+  if (asm != null) {
+    rows.add(GlassRow(
+      id: kIdRepresentations,
+      label: t.nodeRepresentations,
+      symbol: 'folder.fill',
+      tint: 'folder',
+      depth: 1,
+      expandable: true,
+      expanded: expanded.contains(kIdRepresentations),
+    ));
+    rows.add(GlassRow(
+      id: kIdRelationships,
+      label: t.nodeRelationships,
+      symbol: 'folder.fill',
+      tint: 'folder',
+      depth: 1,
+      expandable: true,
+      expanded: expanded.contains(kIdRelationships),
+    ));
+    rows.add(GlassRow(
+      id: 'origin',
+      label: t.nodeOrigin,
+      symbol: 'folder.fill',
+      tint: 'folder',
+      depth: 1,
+      expandable: true,
+      expanded: expanded.contains('origin'),
+    ));
+    if (expanded.contains('origin')) {
+      for (final (key, label, sym) in kOriginRows) {
+        final on = asm.vis[key] == true;
+        rows.add(GlassRow(
+          id: '$kIdOrigin$key',
+          label: label,
+          symbol: sym,
+          depth: 2,
+          hasEye: true,
+          eyeOn: on,
+          dim: !on,
+        ));
+      }
+    }
+    for (final o in asm.occurrences) {
+      rows.add(GlassRow(
+        id: '$kIdComponent${o.id}',
+        label: o.id,
+        // A grounded component takes Inventor's pin, the same glyph a
+        // grounded work point already uses in this tree.
+        symbol: o.grounded ? 'pin.fill' : 'cube',
+        depth: 1,
+        hasEye: true,
+        eyeOn: o.visible,
+        // A component whose source part is gone still gets a row — that is
+        // how the user finds out and removes it — and it is dimmed, because
+        // nothing of it is on screen.
+        dim: !o.visible || !o.loaded,
+        selected: identical(asm.selected, o),
+        menu: _componentMenu(o),
+      ));
+    }
+    return rows;
+  }
 
   if (part != null) {
     // ---- solid bodies -----------------------------------------------------
@@ -131,15 +253,7 @@ List<GlassRow> _buildRows(
       expanded: expanded.contains('origin'),
     ));
     if (expanded.contains('origin')) {
-      for (final (key, label, sym) in [
-        ('yz', t.nodeYzPlane, 'square.on.square'),
-        ('xz', t.nodeXzPlane, 'square.on.square'),
-        ('xy', t.nodeXyPlane, 'square.on.square'),
-        ('x', t.nodeXAxis, 'line.diagonal'),
-        ('y', t.nodeYAxis, 'line.diagonal'),
-        ('z', t.nodeZAxis, 'line.diagonal'),
-        ('cp', t.nodeCenterPoint, 'smallcircle.filled.circle'),
-      ]) {
+      for (final (key, label, sym) in kOriginRows) {
         final on = part.vis[key] == true;
         rows.add(GlassRow(
           id: '$kIdOrigin$key',

@@ -1,5 +1,6 @@
 // Prototype — application state (tabs, layers, edit mode, active tool) and
 // persistence (DXF per sketch + preview PNG in the app Documents directory).
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -11,6 +12,8 @@ import 'package:native_menu/native_menu.dart' show NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
+import 'assembly.dart';
+import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
 import 'doc_file.dart';
@@ -26,6 +29,7 @@ import 'l10n/fmt.dart';
 import 'l10n/l.dart';
 import 'l10n/locale_store.dart';
 import 'log.dart';
+import 'mesh_io.dart';
 import 'perf.dart';
 import 'modify.dart';
 import 'params.dart';
@@ -1281,6 +1285,16 @@ class AppState extends ChangeNotifier {
     // measurable launch regression in an app whose launch time is a tracked
     // number, and one frame is the cheaper of the two.
     L.attachStore(LocaleStore(_cacheRoot));
+    // M237 — previews written before this milestone have the viewport colour
+    // BAKED IN, so every one of them stayed charcoal under the cream scheme.
+    // They are derived data, so the repair is to throw them away and draw them
+    // again; the new ones are transparent and will never need this twice.
+    _migratePreviews();
+    // M236 — the appearance choice is remembered in the same file, off the
+    // launch path for the same reason. Until this runs the app follows the
+    // iPad's own setting, which is also the default, so the worst case is one
+    // frame in the system scheme before an explicit override is adopted.
+    T.attachStore(ThemeStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
@@ -1363,11 +1377,10 @@ class AppState extends ChangeNotifier {
     final known = library[name];
     if (known != null) return known;
     if (_docsDir == null) return null;
-    for (final ext in const [kPartExt, kSketchExt]) {
+    for (final ext in kDocExtensions) {
       final path = '${_docsDir!.path}/$name.$ext';
       if (File(path).existsSync()) {
-        final ref = DocRef(
-            name, ext == kPartExt ? 'part' : 'sketch', path, DocSource.internal);
+        final ref = DocRef(name, kindOfPath(path), path, DocSource.internal);
         library[name] = ref;
         return ref;
       }
@@ -1450,10 +1463,11 @@ class AppState extends ChangeNotifier {
 
   /// The file a document is stored in. Internal by default; an external
   /// document keeps the path it was opened from, which is the whole point.
-  String docPath(String name, {bool part = false}) {
+  String docPath(String name, {bool part = false, String? kind}) {
     final known = _findDoc(name);
     if (known != null) return saveTargetFor(known, _docsDir!.path);
-    return '${_docsDir!.path}/$name.${part ? kPartExt : kSketchExt}';
+    return '${_docsDir!.path}/$name.'
+        '${extForKind(kind ?? (part ? 'part' : 'sketch'))}';
   }
 
   File _dxfFile(String name) => File('${_stage(name).path}/sketch.dxf');
@@ -1485,8 +1499,7 @@ class AppState extends ChangeNotifier {
   /// Packs [name]'s staging folder into its document file.
   bool _commitStage(String name, String kind) {
     final ref = _findDoc(name) ??
-        DocRef(name, kind, docPath(name, part: kind == 'part'),
-            DocSource.internal);
+        DocRef(name, kind, docPath(name, kind: kind), DocSource.internal);
     final target = saveTargetFor(ref, _docsDir!.path);
     final ok = writeDoc(target, packDir(_stage(name), kind));
     if (!ok) {
@@ -1537,7 +1550,7 @@ class AppState extends ChangeNotifier {
   bool _renameDocFile(String from, String to) {
     final ref = _findDoc(from);
     if (ref == null) return false;
-    final ext = ref.isPart ? kPartExt : kSketchExt;
+    final ext = extForKind(ref.kind);
     final dir = ref.source == DocSource.external
         ? (ref.path.contains('/')
             ? ref.path.substring(0, ref.path.lastIndexOf('/'))
@@ -1572,7 +1585,7 @@ class AppState extends ChangeNotifier {
   bool _duplicateDocFile(String name, String copy) {
     final ref = _findDoc(name);
     if (ref == null) return false;
-    final ext = ref.isPart ? kPartExt : kSketchExt;
+    final ext = extForKind(ref.kind);
     final target = '${_docsDir!.path}/$copy.$ext';
     try {
       final src = File(ref.path);
@@ -2114,7 +2127,9 @@ class AppState extends ChangeNotifier {
   Future<void> flushCurrentDocument() async {
     final name = curTab;
     if (name == null) return;
-    if (parts.containsKey(name)) {
+    if (assemblies.containsKey(name)) {
+      await saveAssembly(name);
+    } else if (parts.containsKey(name)) {
       await savePart(name);
     } else if (sketches.containsKey(name)) {
       await saveSketch(name);
@@ -2132,11 +2147,13 @@ class AppState extends ChangeNotifier {
     final name = curTab;
     if (name == null) return;
     final ref = _findDoc(name);
-    final ok = parts.containsKey(name)
-        ? await savePart(name)
-        : sketches.containsKey(name)
-            ? await saveSketch(name)
-            : false;
+    final ok = assemblies.containsKey(name)
+        ? await saveAssembly(name)
+        : parts.containsKey(name)
+            ? await savePart(name)
+            : sketches.containsKey(name)
+                ? await saveSketch(name)
+                : false;
     if (!ok) {
       toast(L.current.msgCouldNotSave(name));
       return;
@@ -2159,7 +2176,7 @@ class AppState extends ChangeNotifier {
     if (_docsDir == null) return null;
     final action =
         openActionFor(path, _docsDir!.path, volatileDirs: _volatileDirs);
-    Log.i('doc', 'open "$path" -> ${action.name}');
+    Log.milestone('doc', 'open "$path" -> ${action.name}');
     switch (action) {
       case OpenAction.unsupported:
         toast(L.current.msgCannotOpenKind);
@@ -2224,7 +2241,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgNotAPrototypeDoc);
       return null;
     }
-    final ext = isPartPath(path) ? kPartExt : kSketchExt;
+    final ext = extForKind(kindOfPath(path));
     final base = docNameOf(path)!;
     var name = base;
     for (var i = 2; docNameExists(name); i++) {
@@ -2251,7 +2268,7 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
-  /// Converts a STEP or DXF into a NEW document in the app folder.
+  /// Converts a STEP, DXF or mesh file into a NEW document in the app folder.
   ///
   /// The original is never touched and never referenced: a foreign file is a
   /// source, not a document, and the app folder is where the user's documents
@@ -2274,6 +2291,15 @@ class AppState extends ChangeNotifier {
         if (!await createNamedSketch(name)) return null;
         importDxf(path);
         await saveSketch(name);
+      } else if (isMeshPath(path)) {
+        if (!await createNamedPart(name)) return null;
+        if (await importMeshIntoPart(path) == 0) {
+          // The toast from importMeshIntoPart already said what was wrong.
+          // Drop the empty part rather than leaving a blank document behind.
+          await deleteDocument(name);
+          return null;
+        }
+        await savePart(name);
       } else {
         toast(L.current.msgCannotOpenKind);
         return null;
@@ -2657,7 +2683,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> closeTab(String name) async {
-    if (parts.containsKey(name)) {
+    if (assemblies.containsKey(name)) {
+      await saveAssembly(name);
+      assemblies.remove(name)?.dispose();
+    } else if (parts.containsKey(name)) {
       if (curTab == name) {
         cancel3DCommands(); // M230
         pickPlane = false;
@@ -3253,7 +3282,7 @@ class AppState extends ChangeNotifier {
   /// both kinds — a "Bracket" part next to a "Bracket" sketch would be two
   /// cards with one label.
   bool docNameExists(String name) =>
-      sketchNameExists(name) || partNameExists(name);
+      sketchNameExists(name) || partNameExists(name) || isAssemblyName(name);
 
   String suggestedPartName() {
     var n = 1;
@@ -3265,6 +3294,7 @@ class AppState extends ChangeNotifier {
 
   /// Opens whatever [name] is — part or sketch (gallery cards + tab bar).
   Future<void> openDocument(String name) async {
+    if (isAssemblyName(name)) return openAssembly(name);
     if (isPartName(name)) return openPart(name);
     return openSketch(name);
   }
@@ -3300,6 +3330,11 @@ class AppState extends ChangeNotifier {
 
   Future<void> _openPartInner(String name) async {
     if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
+    // M237 — the still inside this document may predate the transparent
+    // format, in which case its gallery card is a charcoal rectangle on a
+    // cream shelf. The model is loaded and the kernel is warm right here, so
+    // this is the cheapest honest moment to redraw it. Once per document.
+    unawaited(_repairPreview(name));
     if (!openTabs.contains(name)) openTabs.add(name);
     curTab = name;
     activeChild = null;
@@ -3483,6 +3518,96 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The preview format currently on disk. Bump when a change makes older
+  /// cached stills wrong rather than merely out of date.
+  ///
+  /// 1 — opaque, the viewport colour baked in (up to M236).
+  /// 2 — transparent; the card supplies the ground (M237).
+  static const int kPreviewFormat = 2;
+
+  /// Documents whose still has already been redrawn in the current format.
+  ///
+  /// A preview lives INSIDE the document (`readDocEntry(kPreviewEntry)`), not
+  /// only in the cache, so dropping the cache repairs nothing — the old
+  /// opaque still is simply extracted again. Redrawing it means writing the
+  /// document, and that is not something to do to every file on the launch
+  /// path. So it happens when a document is OPENED, once, and this set is how
+  /// "once" is remembered across launches.
+  final Set<String> _previewsRepaired = <String>{};
+
+  /// Drops the extracted thumbnail cache when the format on disk is older than
+  /// [kPreviewFormat]. Cheap: a handful of file deletes, no geometry.
+  void _migratePreviews() {
+    try {
+      final f = File('${_cacheRoot.path}/settings.json');
+      Map<String, Object?> data = <String, Object?>{};
+      if (f.existsSync()) {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          data = <String, Object?>{
+            for (final e in raw.entries) '${e.key}': e.value
+          };
+        }
+      }
+      _previewsRepaired
+        ..clear()
+        ..addAll(
+            (data['previewsRepaired'] as List? ?? const []).whereType<String>());
+      if (data['previewFormat'] == kPreviewFormat) return;
+      // A format bump invalidates every earlier repair.
+      _previewsRepaired.clear();
+      final thumbs = Directory('${_cacheRoot.path}/thumbs');
+      if (thumbs.existsSync()) thumbs.deleteSync(recursive: true);
+      data['previewFormat'] = kPreviewFormat;
+      data['previewsRepaired'] = <String>[];
+      f.writeAsStringSync(jsonEncode(data));
+      Log.i('preview', 'format -> $kPreviewFormat, thumbnail cache dropped');
+    } catch (e) {
+      // A migration that cannot run costs stale-looking cards, not a launch.
+      Log.w('preview', 'preview migration failed: $e');
+    }
+  }
+
+  /// Redraws [name]'s still in the current format, once, and remembers it.
+  ///
+  /// Deliberately NOT on the launch path and deliberately not a sweep over
+  /// every document: rewriting files the user did not ask about, at startup,
+  /// is how a cosmetic fix turns into a data-loss report.
+  Future<void> _repairPreview(String name) async {
+    if (_previewsRepaired.contains(name)) return;
+    final p = parts[name];
+    if (p == null) return;
+    // GUARD, and the important line in this method: repairing means SAVING,
+    // and saving a model that did not load completely would overwrite a good
+    // document with a partial one. A cosmetic fix must never be able to cost
+    // geometry, so a part with nothing in it is left alone — its card is a
+    // placeholder either way.
+    if (p.features.isEmpty) {
+      Log.i('preview', 'skipping the redraw for "$name": nothing loaded');
+      return;
+    }
+    _previewsRepaired.add(name);
+    try {
+      await savePart(name);
+      final f = File('${_cacheRoot.path}/settings.json');
+      Map<String, Object?> data = <String, Object?>{};
+      if (f.existsSync()) {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          data = <String, Object?>{
+            for (final e in raw.entries) '${e.key}': e.value
+          };
+        }
+      }
+      data['previewsRepaired'] = _previewsRepaired.toList();
+      f.writeAsStringSync(jsonEncode(data));
+      Log.i('preview', 'redrew the still for "$name"');
+    } catch (e) {
+      _previewsRepaired.remove(name); // try again next time
+      Log.w('preview', 'could not redraw the still for "$name": $e');
+    }
+  }
+
   /// Renders the part's solids to <name>.png (380x240) for the gallery card
   /// and the long-press lift preview.
   ///
@@ -3523,6 +3648,11 @@ class AppState extends ChangeNotifier {
       final cam = fitThumbCamera(solids, size);
 
       // Preferred path: the real engine.
+      //
+      // M237 — rendered on a TRANSPARENT ground (the default). The card paints
+      // its own surface behind the PNG, so the file carries the part and never
+      // a palette: a thumbnail written in Ember still looks right in Chalk,
+      // and a scheme switch does not invalidate a single cached still.
       final shot = await RealityThumbnailer.render(
         scene: buildThumbScenePayload(named),
         camera: cameraPayload(cam, size),
@@ -3537,8 +3667,8 @@ class AppState extends ChangeNotifier {
       // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      canvas.drawRect(
-          const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      // No background fill, for the reason above: the still is the part, and
+      // the card supplies the ground.
       paintPartSolids(canvas, Cam3(cam, size), solids);
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
@@ -3600,6 +3730,360 @@ class AppState extends ChangeNotifier {
   Future<String?> duplicatePart(String name) async {
     if (_docsDir == null) return null;
     if (parts.containsKey(name)) await savePart(name);
+    if (_findDoc(name) == null) return null;
+    var copy = '$name copy';
+    var n = 2;
+    while (docNameExists(copy)) {
+      copy = '$name copy $n';
+      n++;
+    }
+    if (!_duplicateDocFile(name, copy)) return null;
+    await refreshSaved();
+    notifyListeners();
+    return copy;
+  }
+
+  // =========================================================================
+  // M240 — ASSEMBLIES
+  //
+  // The third document kind. Everything below mirrors the part side one method
+  // at a time (create / open / save / load / delete / rename / duplicate) and
+  // deliberately does NOT try to share an implementation with it: a part is a
+  // feature timeline with a kernel behind it and an assembly is a list of
+  // placements, and the only thing they have in common is the document
+  // plumbing — which they DO share, through _stage / _commitStage / _findDoc.
+  // =========================================================================
+
+  /// Open assemblies, by document name.
+  final Map<String, AssemblyModel> assemblies = {};
+
+  /// The open assembly, or null when the current tab is a part or a sketch.
+  AssemblyModel? get currentAssembly =>
+      curTab == null ? null : assemblies[curTab];
+
+  bool isAssemblyName(String name) =>
+      assemblies.containsKey(name) || _findDoc(name)?.isAssembly == true;
+
+  String suggestedAssemblyName() {
+    var n = 1;
+    while (docNameExists('Assembly$n')) {
+      n++;
+    }
+    return 'Assembly$n';
+  }
+
+  /// The parts that can be PLACED into an assembly: every part document in the
+  /// gallery, most recently modified first, so the one you were just working
+  /// on is at the top of the list.
+  List<String> placeableParts() {
+    final out = [
+      for (final e in library.entries)
+        if (e.value.isPart) e.key
+    ];
+    final when = <String, DateTime>{
+      for (final s in saved) s.name: s.modified,
+    };
+    out.sort((a, b) {
+      final ma = when[a], mb = when[b];
+      if (ma == null || mb == null) {
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      }
+      return mb.compareTo(ma);
+    });
+    return out;
+  }
+
+  Future<bool> createNamedAssembly(String name) async {
+    final clean = name.trim();
+    if (validateSketchName(clean) != null) return false;
+    if (docNameExists(clean)) return false;
+    final a = AssemblyModel(clean);
+    assemblies[clean] = a;
+    if (!openTabs.contains(clean)) openTabs.add(clean);
+    curTab = clean;
+    activeChild = null;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    await saveAssembly(clean);
+    return true;
+  }
+
+  Future<void> openAssembly(String name) async {
+    if (!assemblies.containsKey(name)) {
+      assemblies[name] = await _loadAssemblyModel(name);
+    }
+    if (!openTabs.contains(name)) openTabs.add(name);
+    curTab = name;
+    activeChild = null;
+    editingLayer = null;
+    tool = Tool.none;
+    _reanalyze();
+    notifyListeners();
+  }
+
+  File _assemblyJson(String name) => File('${_stage(name).path}/$kMetaEntry');
+
+  Future<AssemblyModel> _loadAssemblyModel(String name) async {
+    final a = AssemblyModel(name);
+    _ensureStaged(name);
+    try {
+      final f = _assemblyJson(name);
+      if (f.existsSync()) {
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        a.loadJson(j);
+      }
+    } catch (e, st) {
+      Log.e('asm', 'load "$name" failed', e, st);
+    }
+    // The occurrences came back as references. Give each one its geometry.
+    //
+    // A source part that has since been DELETED leaves its occurrence in the
+    // list with no part behind it: the browser still shows the row (so the
+    // user can see what is missing and remove it) and nothing is drawn for it.
+    // Dropping the row instead would silently rewrite the user's assembly the
+    // first time a file went walkabout.
+    for (final o in List<AssemblyOccurrence>.of(a.occurrences)) {
+      o.part = await _loadOccurrencePart(o.source);
+      if (o.part == null) {
+        Log.w('asm', 'occurrence "${o.id}": part "${o.source}" is gone');
+      }
+    }
+    return a;
+  }
+
+  /// A private copy of part [source]'s geometry for one occurrence, or null
+  /// when there is no such part any more.
+  Future<PartModel?> _loadOccurrencePart(String source) async {
+    if (_findDoc(source)?.isPart != true) return null;
+    try {
+      return await _loadPartModel(source);
+    } catch (e, st) {
+      Log.e('asm', 'could not load part "$source"', e, st);
+      return null;
+    }
+  }
+
+  Future<bool> saveAssembly(String name) async {
+    final a = assemblies[name];
+    if (a == null || _docsDir == null) return false;
+    _ensureStaged(name);
+    try {
+      _assemblyJson(name).writeAsStringSync(jsonEncode(a.toJson()));
+    } catch (e, st) {
+      Log.e('asm', 'save "$name" failed', e, st);
+      return false;
+    }
+    await _writeAssemblyPreview(name, a);
+    if (!_commitStage(name, kAssemblyDocKind)) return false;
+    await refreshSaved();
+    notifyListeners();
+    return true;
+  }
+
+  /// The gallery still for an assembly.
+  ///
+  /// M241 — the SAME engine the part's still uses, and for the same reason:
+  /// one renderer means the card and the live viewport cannot disagree. The
+  /// off-screen ARView is handed each component's placement beside its mesh,
+  /// exactly as the viewport is; the CPU painter stays as the fallback for a
+  /// host run or an older iOS.
+  Future<void> _writeAssemblyPreview(String name, AssemblyModel a) async {
+    final png = _pngFile(name);
+    try {
+      final pieces = [
+        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.offset)
+      ];
+      if (pieces.isEmpty) {
+        if (png.existsSync()) png.deleteSync();
+        return;
+      }
+      const w = 380.0, h = 240.0;
+      const size = Size(w, h);
+      final placed = placedComponents(a);
+      final cam = fitAssemblyThumbCamera(placed, size);
+
+      // M237 — a TRANSPARENT ground: the card paints its own surface behind
+      // the PNG, so a still written in one scheme still looks right in the
+      // other and a palette switch invalidates no cached file.
+      final shot = await RealityThumbnailer.render(
+        scene: buildPlacedThumbScenePayload(pieces),
+        camera: cameraPayload(cam, size),
+        width: w.toInt(),
+        height: h.toInt(),
+      );
+      if (shot != null && shot.isNotEmpty) {
+        await png.writeAsBytes(shot);
+        return;
+      }
+
+      // Fallback: CPU painter, same camera.
+      final rec = ui.PictureRecorder();
+      final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
+      paintAssemblySolids(canvas, Cam3(cam, size), placed);
+      final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes != null) {
+        await png.writeAsBytes(bytes.buffer.asUint8List());
+      }
+    } catch (e) {
+      debugPrint('assembly preview write failed: $e');
+    }
+  }
+
+  // ---- placing components -------------------------------------------------
+
+  /// M240 — Place Component. The ONE assembly command that is wired.
+  ///
+  /// Loads [source]'s geometry, sets it down clear of what is already there
+  /// and selects it. The first component of an assembly is GROUNDED, exactly
+  /// as Inventor grounds the first one it places: an assembly needs something
+  /// to be built against, and a free-floating first component would drift
+  /// under the very drag this milestone adds.
+  Future<AssemblyOccurrence?> placeComponent(String source) async {
+    final a = currentAssembly;
+    if (a == null) return null;
+    if (!isPartName(source)) {
+      toast(L.current.msgAsmNoSuchPart(source));
+      return null;
+    }
+    final part = await _loadOccurrencePart(source);
+    if (part == null) {
+      toast(L.current.msgAsmCouldNotPlace(source));
+      return null;
+    }
+    final occ = AssemblyOccurrence(
+      id: a.nextOccurrenceId(source),
+      source: source,
+      part: part,
+      grounded: a.occurrences.isEmpty,
+    );
+    occ.offset = nextPlacement(a, occurrenceBounds(occ));
+    a.occurrences.add(occ);
+    a.selected = occ;
+    a.bump();
+    // Inventor runs Zoom All when a component is placed, and it has to here:
+    // a placement lands CLEAR of what is already there (see nextPlacement), so
+    // without reframing, the second component of a large assembly arrives off
+    // the edge of the screen and the command looks like it did nothing.
+    a.needsFit = true;
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+    return occ;
+  }
+
+  /// Moves [occ] by [delta] millimetres. Grounded occurrences do not move —
+  /// see [placeComponent].
+  void moveOccurrence(AssemblyOccurrence occ, Vec3 delta) {
+    if (occ.grounded) return;
+    occ.offset = occ.offset + delta;
+    notifyListeners();
+  }
+
+  void selectOccurrence(AssemblyOccurrence? occ) {
+    final a = currentAssembly;
+    if (a == null || identical(a.selected, occ)) return;
+    a.selected = occ;
+    notifyListeners();
+  }
+
+  /// Called when a component drag finishes, so the new placement is persisted
+  /// once rather than on every frame of the drag.
+  void endOccurrenceDrag() {
+    final a = currentAssembly;
+    if (a == null) return;
+    // M241 — the drag itself never bumped the generation (a placement rides
+    // the light RealityKit push). Now that it has settled, tick it once so the
+    // origin planes and axes, which are sized to the assembly's contents,
+    // catch up with where the component ended.
+    //
+    // notifyListeners is what makes that tick reach the renderer: the last
+    // frame of the drag already rebuilt the viewport, and without this nothing
+    // would ask it to again until the user touched something else — the planes
+    // would sit at the old extent for as long as the assembly was left alone.
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  void setOccurrenceVisible(AssemblyOccurrence occ, bool on) {
+    occ.visible = on;
+    currentAssembly?.bump();
+    notifyListeners();
+  }
+
+  void setOccurrenceGrounded(AssemblyOccurrence occ, bool on) {
+    occ.grounded = on;
+    currentAssembly?.bump();
+    notifyListeners();
+    final a = currentAssembly;
+    if (a != null) unawaited(saveAssembly(a.name));
+  }
+
+  void deleteOccurrence(AssemblyOccurrence occ) {
+    final a = currentAssembly;
+    if (a == null) return;
+    a.remove(occ);
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Origin plane / axis / centre-point visibility in the assembly browser.
+  void setAssemblyOriginVisible(String key, bool on) {
+    final a = currentAssembly;
+    if (a == null || !a.vis.containsKey(key)) return;
+    a.vis[key] = on;
+    a.bump();
+    notifyListeners();
+  }
+
+  // ---- assembly document operations ---------------------------------------
+
+  Future<void> deleteAssembly(String name) async {
+    if (_docsDir == null) return;
+    openTabs.remove(name);
+    if (curTab == name) {
+      curTab = openTabs.isNotEmpty ? openTabs.last : null;
+      if (curTab == null) editingLayer = null;
+      _reanalyze();
+    }
+    assemblies.remove(name)?.dispose();
+    _deleteDocFile(name);
+    await refreshSaved();
+    notifyListeners();
+  }
+
+  Future<bool> renameAssembly(String from, String to) async {
+    if (_docsDir == null) return false;
+    final target = to.trim();
+    if (target == from) return true;
+    if (validateSketchName(target) != null) return false;
+    if (docNameExists(target)) return false;
+    final wasOpen = openTabs.contains(from);
+    final tabIndex = openTabs.indexOf(from);
+    final wasCurrent = curTab == from;
+    if (assemblies.containsKey(from)) {
+      await saveAssembly(from);
+      openTabs.remove(from);
+      assemblies.remove(from)?.dispose();
+      if (wasCurrent) curTab = null;
+    }
+    if (!_renameDocFile(from, target)) return false;
+    if (wasOpen) {
+      await openAssembly(target);
+      openTabs.remove(target);
+      openTabs.insert(math.min(tabIndex, openTabs.length), target);
+      if (!wasCurrent) curTab = openTabs.isNotEmpty ? openTabs.last : null;
+    }
+    await refreshSaved();
+    notifyListeners();
+    return true;
+  }
+
+  Future<String?> duplicateAssembly(String name) async {
+    if (_docsDir == null) return null;
+    if (assemblies.containsKey(name)) await saveAssembly(name);
     if (_findDoc(name) == null) return null;
     var copy = '$name copy';
     var n = 2;
@@ -3776,12 +4260,21 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- gallery routing: one card menu, two document kinds ----
-  Future<void> deleteDocument(String name) =>
-      isPartName(name) ? deletePart(name) : deleteSketch(name);
-  Future<bool> renameDocument(String from, String to) =>
-      isPartName(from) ? renamePart(from, to) : renameSketch(from, to);
-  Future<String?> duplicateDocument(String name) =>
-      isPartName(name) ? duplicatePart(name) : duplicateSketch(name);
+  Future<void> deleteDocument(String name) => isAssemblyName(name)
+      ? deleteAssembly(name)
+      : isPartName(name)
+          ? deletePart(name)
+          : deleteSketch(name);
+  Future<bool> renameDocument(String from, String to) => isAssemblyName(from)
+      ? renameAssembly(from, to)
+      : isPartName(from)
+          ? renamePart(from, to)
+          : renameSketch(from, to);
+  Future<String?> duplicateDocument(String name) => isAssemblyName(name)
+      ? duplicateAssembly(name)
+      : isPartName(name)
+          ? duplicatePart(name)
+          : duplicateSketch(name);
 
   // ---- child-sketch flow (Start 2D Sketch -> plane pick -> 2D env) ----
   /// True while the origin planes were switched on BY the plane pick, so
@@ -7800,8 +8293,17 @@ class AppState extends ChangeNotifier {
   final List<PartSnap> _partUndo = [];
   final List<PartSnap> _partRedo = [];
 
-  bool get canUndoPart => _partUndo.isNotEmpty;
-  bool get canRedoPart => _partRedo.isNotEmpty;
+  // M240 — a PART has to be open, not just a stack that is not empty.
+  //
+  // [undoPart] has always required `currentPart != null` and toasts "nothing
+  // to undo" without one; these getters did not, so the quick-tool bar lit
+  // Undo from the stack alone. With only two document kinds that never showed:
+  // the stack is only ever filled from a part, and leaving one to a SKETCH
+  // takes the `app.current != null` branch instead. An ASSEMBLY is neither, so
+  // it read the part stack — and opening one after editing a part offered a
+  // bright Undo button whose whole behaviour was a toast.
+  bool get canUndoPart => currentPart != null && _partUndo.isNotEmpty;
+  bool get canRedoPart => currentPart != null && _partRedo.isNotEmpty;
 
   PartSnap _takePartSnap(PartModel p) => PartSnap(
         p.toJson(),
@@ -12710,6 +13212,219 @@ class AppState extends ChangeNotifier {
     return solids.length;
   }
 
+  /// M232 — opens an STL, OBJ or 3MF as a real, editable body.
+  ///
+  /// Two stages, in two languages, and the split is deliberate. The FILE is
+  /// parsed in Dart (`mesh_io.dart`), because container formats are I/O and
+  /// belong where they can be tested without a linked kernel. The GEOMETRY is
+  /// reconstructed in the shim, because turning a triangle soup into surfaces
+  /// needs a spatial index over millions of vertices and then needs OCCT to
+  /// intersect, trim and sew what it found.
+  ///
+  /// The converted body is written out as STEP beside the part and the feature
+  /// points at THAT, not at the mesh. Imported bodies are re-read from their
+  /// source on every open (see openPart), and re-running a conversion that
+  /// takes a second on a large download — and that could answer differently
+  /// after a tolerance change — every time the part is opened would be both
+  /// slow and dishonest. The conversion happens once; its result is the
+  /// document's geometry from then on.
+  ///
+  /// Returns the number of bodies added (0 on failure, having said why).
+  Future<int> importMeshIntoPart(String path) async {
+    final p = currentPart;
+    if (p == null) {
+      toast(L.current.msgOpenPartForMesh);
+      return 0;
+    }
+    if (!partKernel.available) {
+      toast(L.current.msgNoKernelMesh);
+      return 0;
+    }
+
+    // Every step from here to the kernel gets a milestone, because every one
+    // of them can end the process without an exception Dart could catch: a
+    // large file is read whole into memory, and the conversion is native. An
+    // iOS app killed for memory leaves no crash report at all, so a line that
+    // simply stops is the only evidence there will be.
+    Log.milestone('import',
+        'mesh: reading "$path" (rss ${Log.rssMb() ?? -1} MB)');
+    final MeshSoup soup;
+    try {
+      soup = loadMeshFile(path);
+    } on MeshLoadException catch (e) {
+      Log.w('import', 'mesh parse of "$path" refused: $e');
+      toast(_meshReadFailure(e));
+      return 0;
+    } catch (e, st) {
+      Log.e('import', 'mesh parse of "$path" failed', e, st);
+      toast(L.current.msgMeshUnreadable);
+      return 0;
+    }
+    Log.milestone(
+        'import',
+        'mesh ${soup.format}: ${soup.triangleCount} tri, '
+            '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
+            'diagonal ${soup.diagonal.toStringAsFixed(2)} mm'
+            '${soup.droppedTriangles > 0 ? ', '
+                '${soup.droppedTriangles} dropped' : ''}');
+
+    // The kernel is single-threaded by contract, so the conversion happens on
+    // the UI thread and the app is frozen for the duration — under a second
+    // for a typical model, several for a big one. Put the notice up and give
+    // the engine a frame's worth of the event loop to paint it, so the freeze
+    // has an explanation on screen instead of looking like a hang.
+    //
+    // One frame period rather than Duration.zero: a zero delay yields to the
+    // event loop but need not include a vsync tick, and 16 ms against seconds
+    // of work is not a cost worth optimising. Awaiting SchedulerBinding's real
+    // endOfFrame would be the precise primitive and is deliberately not used —
+    // it needs an initialised binding, which the host tests that reach this
+    // code do not have.
+    toast(L.current.msgMeshConverting(soup.triangleCount));
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+
+    Log.milestone('import',
+        'mesh: >> kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+    final res = partKernel.meshToBrep(soup.vertices, soup.triangles);
+    Log.milestone('import',
+        'mesh: << kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+    Log.milestone('import', res.report.describe());
+    final solid = res.solid;
+    if (solid == null) {
+      toast(_meshConvertFailure(res));
+      return 0;
+    }
+
+    // Persist the RESULT, and make the feature point at it.
+    String? rel;
+    try {
+      final dir = _partImportDir(curTab!);
+      var base = path.split('/').last;
+      final dot = base.lastIndexOf('.');
+      if (dot > 0) base = base.substring(0, dot);
+      final dst = File('${dir.path}/$base.step');
+      Log.milestone('import', 'mesh: >> write ${dst.path}');
+      if (partKernel.exportStep([solid], dst.path)) {
+        rel = 'imports/$base.step';
+      } else {
+        Log.w('import',
+            'could not write the converted STEP: ${partKernel.lastError}');
+      }
+    } catch (e) {
+      Log.w('import', 'could not stash the converted body: $e');
+    }
+    if (rel == null) {
+      // Without a file on disk the body would come back empty on reopen, and
+      // geometry that vanishes without explanation is the worse failure.
+      solid.dispose();
+      toast(L.current.msgMeshNotSaved);
+      return 0;
+    }
+
+    p.appendFeature(ExtrudeFeature(
+      name: 'Import${p.features.length + 1}',
+      bodyName: p.nextSolidName(),
+      sketchName: '',
+      profiles: const [],
+      output: 'new',
+    )
+      ..imported = true
+      ..importPath = rel
+      ..solid = solid
+      ..seq = p.nextSeq());
+    applyEndOfPart(p);
+    p.dirty = true;
+    if (curTab != null) await savePart(curTab!);
+    Log.milestone('import', 'mesh: done (rss ${Log.rssMb() ?? -1} MB)');
+    toast(_meshSuccessMessage(res.report));
+    notifyListeners();
+    return 1;
+  }
+
+  /// The sentence for a mesh file that could not be READ.
+  ///
+  /// mesh_io.dart throws a [MeshFailure] rather than prose, because the app is
+  /// German and a reader has no business holding UI text (M234). This is where
+  /// the code becomes a sentence, in whatever language the user is reading.
+  String _meshReadFailure(MeshLoadException e) {
+    final l = L.current;
+    switch (e.reason) {
+      case MeshFailure.empty:
+        return l.msgMeshEmpty;
+      case MeshFailure.unsupportedKind:
+        return l.msgCannotOpenKind;
+      case MeshFailure.missing:
+        return l.msgMeshMissing;
+      case MeshFailure.unreadable:
+        return l.msgMeshUnreadable;
+      case MeshFailure.noGeometry:
+        return l.msgMeshNoGeometry;
+      case MeshFailure.truncated:
+        return l.msgMeshTruncated;
+      case MeshFailure.badIndex:
+        return l.msgMeshBadIndex(e.detail ?? '?');
+      case MeshFailure.notAnArchive:
+        return l.msgMeshNotAnArchive;
+      case MeshFailure.noModel:
+        return l.msgMeshNoModel;
+      case MeshFailure.unknownUnit:
+        return l.msgMeshUnknownUnit(e.detail ?? '?');
+      case MeshFailure.fileTooLarge:
+        return l.msgMeshFileTooLarge(
+            e.count ?? 0, kMaxMeshFileBytes ~/ (1024 * 1024));
+      case MeshFailure.tooManyTriangles:
+        return l.msgMeshTooManyTriangles(e.count ?? 0, kMaxMeshTriangles);
+    }
+  }
+
+  /// The sentence for a mesh that was read but would not CONVERT.
+  ///
+  /// The report is more useful than the kernel's own message here. "the faces
+  /// would not sew" means nothing to someone who downloaded a model; "this mesh
+  /// is not watertight, 412 open edges" names something they can go and fix, in
+  /// their slicer or in the model they downloaded.
+  String _meshConvertFailure(MeshImportOutcome res) {
+    final r = res.report;
+    if (r.trianglesUsed == 0) return L.current.msgMeshNoGeometry;
+    if (r.boundaryEdges > 0) {
+      return L.current.msgMeshNotWatertight(r.boundaryEdges);
+    }
+    final why = res.error;
+    return (why != null && why.isNotEmpty)
+        ? L.current.msgMeshConvertFailedWhy(why)
+        : L.current.msgMeshConvertFailed;
+  }
+
+  /// What to tell the user when it worked.
+  ///
+  /// Three whole sentences, picked and joined — never fragments glued into one.
+  /// A localised fragment cannot be relied on to keep its shape when the
+  /// surrounding words change language, and this is the one message here with
+  /// something conditional to say.
+  ///
+  /// The number reported is the count of RECOGNISED surfaces, not of faces.
+  /// That is the figure that decides whether the next thing the user tries will
+  /// work: a hole that came back a cylinder can be filleted, and a hole that
+  /// came back forty flat strips cannot. The breakdown by kind goes to the log
+  /// (see [MeshToBrepReport.describe]), where it belongs — a toast is read in
+  /// two seconds or not at all.
+  String _meshSuccessMessage(MeshToBrepReport r) {
+    final l = L.current;
+    final surfaces = r.analyticFaces;
+    final out = <String>[
+      surfaces > 0
+          ? l.msgMeshImported(surfaces)
+          : l.msgMeshImportedFacetedOnly(r.facesBuilt),
+    ];
+    // Only worth saying alongside a real result; when nothing was recognised,
+    // msgMeshImportedFacetedOnly has already said it.
+    if (surfaces > 0 && r.facetedPatches > 0) {
+      out.add(l.msgMeshImportedFaceted(r.facetedPatches));
+    }
+    if (!r.closed) out.add(l.msgMeshImportedOpen);
+    return out.join(' ');
+  }
+
   bool importDxf(String path) {
     final s = current;
     if (s == null) return false;
@@ -13917,8 +14632,9 @@ class AppState extends ChangeNotifier {
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
       // same dark radial feel as the mock card thumb
-      canvas.drawRect(
-          const Rect.fromLTWH(0, 0, w, h), Paint()..color = T.viewport);
+      // M237 — no ground. The card paints its own surface behind the PNG, so
+      // a still written in one scheme still reads correctly in the other and a
+      // cached file never goes stale. (Same rule as _writePartPreview.)
       // M220 — the card shows the text too, because the text IS geometry now
       // (and a thumbnail that omitted half the drawing was never right).
       final geos = [...s.geometry, ...textGeometry(s)];
@@ -13958,7 +14674,7 @@ class AppState extends ChangeNotifier {
             w / 2 + (x - (minx + maxx) / 2) * scale,
             h / 2 - (y - (miny + maxy) / 2) * scale);
         final p = Paint()
-          ..color = const Color(0xFFC4C9CE)
+          ..color = T.ink
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.4;
         for (final g in geos) {

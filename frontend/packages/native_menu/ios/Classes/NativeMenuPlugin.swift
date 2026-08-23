@@ -22,6 +22,10 @@
 // required — that is unreliable under Impeller.
 import Flutter
 import UIKit
+// Swift imports are per FILE, not per module. DocumentOpen.swift importing
+// this one does not make UTType visible here, and the build says so:
+// "Cannot find 'UTType' in scope".
+import UniformTypeIdentifiers
 
 public class NativeMenuPlugin: NSObject, FlutterPlugin {
     private struct Item {
@@ -102,6 +106,12 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         // can each take a snapshot whenever they need one. See PerfProbe.
         case "perfProbe":
             result(PerfProbe.snapshot())
+        // M237 — the Flutter palette, pushed into UIKit. Every glass surface
+        // bound through AppearanceBinder switches with it, so the material and
+        // the Flutter text on top of it always come from the same scheme.
+        case "setAppearance":
+            AppearanceBinder.shared.set(dark: args["dark"] as? Bool ?? true)
+            result(nil)
 
         case "setTargets":
             let raw = args["targets"] as? [[String: Any]] ?? []
@@ -226,6 +236,33 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 extensions: args["extensions"] as? [String] ?? [],
                 anchor: NativeMenuPlugin.parseRect(args["anchor"]),
                 result: result)
+
+        // M232 — what do these extensions actually resolve to?
+        //
+        // Presenting the picker is a native call that can end the process, so
+        // when it does, the app's log stops with nothing to say WHY. This is
+        // read-only and cannot crash, and Dart logs its answer before asking
+        // for the picker — so the next time the picker takes the app down, the
+        // log already says which content types it was handed. Guessing that
+        // twice was expensive.
+        case "probeContentTypes":
+            guard #available(iOS 14.0, *) else {
+                result([String]())
+                return
+            }
+            // A plain loop rather than map: the availability established by
+            // the guard above holds in THIS scope, and relying on it reaching
+            // into a closure body is a needless thing to be clever about.
+            let exts = args["extensions"] as? [String] ?? []
+            var probed: [String] = []
+            for ext in exts {
+                if let t = UTType(filenameExtension: ext) {
+                    probed.append("\(ext)=\(t.identifier)")
+                } else {
+                    probed.append("\(ext)=nil")
+                }
+            }
+            result(probed)
 
         case "resolveBookmark":
             guard #available(iOS 14.0, *),
@@ -612,12 +649,17 @@ final class GlassPanelView: NSObject, FlutterPlatformView {
         // The glass must never take touches: Flutter's rows sit above it and
         // own every gesture in this panel.
         container.isUserInteractionEnabled = false
-        // M146 — DARK TRAITS. UIGlassEffect adapts to the trait environment,
-        // and a Flutter platform view inherits the host's, which is light.
-        // Without this the same effect that reads as smoked glass in the model
-        // browser (GlassBrowserView sets it) comes out milky white. It was the
-        // single visible difference between the two panels on the device.
-        container.overrideUserInterfaceStyle = .dark
+        // M237 — the trait is still pinned explicitly, but to the ACTIVE
+        // palette rather than to dark.
+        //
+        // M108's reason stands: left to resolve on its own, UIGlassEffect
+        // follows the host's trait environment (Flutter's is light), the
+        // material comes out milky and UIKit then picks near-black labels.
+        // Pinning it to .dark fixed that and created the next problem — the
+        // glass stayed charcoal under M236's cream chrome, so one window
+        // rendered in two schemes. AppearanceBinder does both jobs: always
+        // explicit, and it follows a scheme change.
+        AppearanceBinder.shared.bind(container)
 
         let effect: UIVisualEffect
         if #available(iOS 26.0, *) {

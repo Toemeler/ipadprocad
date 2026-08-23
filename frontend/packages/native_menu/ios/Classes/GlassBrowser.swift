@@ -87,12 +87,17 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         super.init()
         container.frame = frame
         container.backgroundColor = .clear
-        // M108 — the app is a dark tool UI. Left to its own devices the glass
-        // resolves light and UIKit then picks DARK label colours, which is the
-        // washed-out grey panel with near-black text in the device shot.
-        // Pinning the trait makes the material render dark and .label become
-        // light, which is the same decision every dark-chrome Apple app makes.
-        container.overrideUserInterfaceStyle = .dark
+        // M237 — the trait is still pinned explicitly, but to the ACTIVE
+        // palette rather than to dark.
+        //
+        // M108's reason stands: left to resolve on its own, UIGlassEffect
+        // follows the host's trait environment (Flutter's is light), the
+        // material comes out milky and UIKit then picks near-black labels.
+        // Pinning it to .dark fixed that and created the next problem — the
+        // glass stayed charcoal under M236's cream chrome, so one window
+        // rendered in two schemes. AppearanceBinder does both jobs: always
+        // explicit, and it follows a scheme change.
+        AppearanceBinder.shared.bind(container)
         buildGlass()
         buildCollection()
         channel.setMethodCallHandler { [weak self] call, result in

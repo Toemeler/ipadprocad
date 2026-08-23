@@ -39,7 +39,7 @@ final class RealityPartView: NSObject, FlutterPlatformView {
         self.channel = channel
         super.init()
         container.frame = frame
-        container.backgroundColor = RealityPartView.viewportColor
+        RealityPartView.trackBackground(container)
         container.isUserInteractionEnabled = false
         container.clipsToBounds = true
 
@@ -91,9 +91,43 @@ final class RealityPartView: NSObject, FlutterPlatformView {
         }
     }
 
-    // 0xFF212830 — the app's T.viewport.
-    static let viewportColor = UIColor(
+    // M237 — the app's T.viewport, pushed from Dart instead of frozen here.
+    //
+    // It used to be a `static let` holding 0xFF212830, which is why the 3D
+    // viewport stayed charcoal under a cream Flutter chrome. Worse, the 2D
+    // sketch painter veils this view at 55% opacity (viewport.dart) — so a
+    // near-white veil over a charcoal ground came out as the muddy mid-grey in
+    // the sketch screenshot. Both are the same wrong constant.
+    private(set) static var viewportColor = UIColor(
         red: 0x21 / 255.0, green: 0x28 / 255.0, blue: 0x30 / 255.0, alpha: 1)
+
+    /// Live views that must repaint when the palette changes. Weak, so a torn
+    /// down viewport drops out on its own.
+    private static let live = NSHashTable<UIView>.weakObjects()
+
+    static func trackBackground(_ v: UIView) {
+        v.backgroundColor = viewportColor
+        live.add(v)
+    }
+
+    /// Applies a new viewport ground to every live view, now.
+    ///
+    /// An ARView needs BOTH its `backgroundColor` and its
+    /// `environment.background` set: the first is the UIKit layer, the second
+    /// is what RealityKit clears the frame to, and a mismatch shows as a flash
+    /// of the old colour on the next redraw.
+    static func setViewportColor(_ c: UIColor) {
+        assert(Thread.isMainThread, "viewport colour must be applied on the main thread")
+        viewportColor = c
+        for v in live.allObjects {
+            v.backgroundColor = c
+            #if canImport(RealityKit)
+            if #available(iOS 15.0, *), let ar = v as? ARView {
+                ar.environment.background = .color(c)
+            }
+            #endif
+        }
+    }
 }
 
 // ===========================================================================
@@ -114,6 +148,18 @@ final class PartRenderer: NSObject {
     // app re-uploading the whole mesh.
     private var solidCache: [String: SolidGeom] = [:]
     private var solidEntities: [String: Entity] = [:]
+    /// M241 — the shaded ModelEntity inside each holder, kept so a TINT can be
+    /// applied without re-uploading the mesh. Materials used to be chosen only
+    /// while a mesh was being built, which is why a material-only payload was
+    /// silently ignored (M99) and why body hovering had to re-send geometry.
+    private var solidShaded: [String: ModelEntity] = [:]
+    /// The tint each solid currently carries (packed ARGB), so re-applying an
+    /// unchanged one costs nothing. 0 means the default steel — see
+    /// Payload.argb for why a sentinel and not an Optional.
+    private var solidTint: [String: Int] = [:]
+    /// Where each solid's holder sits. An assembly component's placement (M241);
+    /// zero for every solid of a part, which is why a part is unaffected.
+    private var solidPlacement: [String: SIMD3<Float>] = [:]
     private var planeEntities: [String: PlaneEntity] = [:]
     private var axisEntities: [String: AxisEntity] = [:]
     private var cpEntity: Entity?
@@ -175,7 +221,7 @@ final class PartRenderer: NSObject {
 
     private func commonInit() {
         arView.isUserInteractionEnabled = false
-        arView.backgroundColor = RealityPartView.viewportColor
+        RealityPartView.trackBackground(arView)
         arView.environment.background = .color(RealityPartView.viewportColor)
 
         // Crisp CAD look: kill the AR post effects that survive into .nonAR.
@@ -452,6 +498,18 @@ final class PartRenderer: NSObject {
 
     // Light-touch: hover tints + visibility + face highlight, no mesh upload.
     func setOverlays(_ a: [String: Any]) {
+        // M241 — an assembly's component placements ride the LIGHT push, so a
+        // drag never enters setScene: no mesh upload, no plane rebuild, no
+        // camera re-fit. The heavy path is reserved for the structure of the
+        // assembly changing (a component placed, deleted, hidden), which is
+        // what the scene signature tracks.
+        if let places = a["placements"] as? [[String: Any]] {
+            for p in places {
+                guard let id = p["id"] as? String else { continue }
+                applyPlacement(id, Payload.vec3(p["at"]) ?? SIMD3<Float>(0, 0, 0))
+                applyTint(id, Payload.argb(p["tint"]))
+            }
+        }
         if let planes = a["planes"] as? [[String: Any]] {
             for p in planes {
                 guard let key = p["key"] as? String, let e = planeEntities[key] else { continue }
@@ -510,6 +568,9 @@ final class PartRenderer: NSObject {
         let ids = Set(solids.compactMap { $0["id"] as? String })
         for (id, e) in solidEntities where !ids.contains(id) {
             e.removeFromParent(); solidEntities[id] = nil; solidCache[id] = nil
+            solidShaded[id] = nil
+            solidTint[id] = nil
+            solidPlacement[id] = nil
         }
         for (id, e) in solidEdges where !ids.contains(id) {
             e.removeFromParent(); solidEdges[id] = nil; solidRev[id] = nil
@@ -520,11 +581,22 @@ final class PartRenderer: NSObject {
         for s in solids {
             guard let id = s["id"] as? String else { continue }
             let rev = (s["rev"] as? NSNumber)?.intValue ?? 0
+            let at = Payload.vec3(s["at"]) ?? SIMD3<Float>(0, 0, 0)
+            let tint = Payload.argb(s["tint"])
             // Dart omits the buffers when a solid's mesh is unchanged: keep the
             // entity and the cached geometry that are already on screen.
+            //
+            // M241 — but still take the PLACEMENT and the TINT from it. Those
+            // are the two things about an assembly component that change while
+            // its mesh does not (dragging it, selecting it), and skipping the
+            // whole payload meant a drag could only be expressed by re-sending
+            // every vertex of the part being dragged.
             if s["positions"] == nil {
                 if let cached = solidCache[id] {
-                    sceneRadius = max(sceneRadius, cached.boundingRadius)
+                    applyPlacement(id, at)
+                    applyTint(id, tint)
+                    sceneRadius = max(sceneRadius,
+                                      cached.boundingRadius + simd_length(at))
                     solidRev[id] = rev
                 }
                 continue
@@ -539,13 +611,19 @@ final class PartRenderer: NSObject {
             let material: RealityKit.Material
             if (s["material"] as? NSNumber)?.intValue == 1 {
                 material = Materials.preview()
+            } else if let c = Payload.color(tint) {
+                material = Materials.tinted(c)
             } else {
                 material = Materials.steel()
             }
-            sceneRadius = max(sceneRadius, geom.boundingRadius)
+            sceneRadius = max(sceneRadius, geom.boundingRadius + simd_length(at))
             let shaded = geom.shadedEntity(material: material)
             let edges = geom.edgeEntity(radius: edgeRadius, viewDir: outlineDir)
             let holder = Entity()
+            holder.position = at
+            solidPlacement[id] = at
+            solidTint[id] = tint
+            solidShaded[id] = shaded as? ModelEntity
             holder.addChild(shaded)
             solidEdges[id]?.removeFromParent()
             solidEdges[id] = nil
@@ -557,6 +635,36 @@ final class PartRenderer: NSObject {
             solidEntities[id]?.removeFromParent()
             root.addChild(holder)
             solidEntities[id] = holder
+        }
+    }
+
+    /// M241 — move a component without touching its mesh.
+    ///
+    /// The placement lives on the holder Entity, so RealityKit transforms the
+    /// shaded mesh AND its edge tubes together and the depth buffer sorts the
+    /// result against every other component for free. This is what makes
+    /// dragging a component cost a transform write per frame instead of a
+    /// multi-megabyte buffer upload.
+    private func applyPlacement(_ id: String, _ at: SIMD3<Float>) {
+        guard let holder = solidEntities[id] else { return }
+        if let was = solidPlacement[id], simd_distance(was, at) < 1e-7 { return }
+        solidPlacement[id] = at
+        holder.position = at
+        if let g = solidCache[id] {
+            sceneRadius = max(sceneRadius, g.boundingRadius + simd_length(at))
+        }
+    }
+
+    /// M241 — recolour a solid without touching its mesh. The zero sentinel
+    /// restores steel; see Payload.argb.
+    private func applyTint(_ id: String, _ tint: Int) {
+        if (solidTint[id] ?? 0) == tint { return }
+        solidTint[id] = tint
+        guard let me = solidShaded[id] else { return }
+        if let c = Payload.color(tint) {
+            me.model?.materials = [Materials.tinted(c)]
+        } else {
+            me.model?.materials = [Materials.steel()]
         }
     }
 
@@ -755,6 +863,11 @@ final class PartRenderer: NSObject {
               let geom = solidCache[id] else { return }
         guard let e = geom.faceHighlightEntity(
             face: face, eps: highlightEps, lift: cam.dir) else { return }
+        // M241 — the submesh is built in the solid's OWN space, so a solid
+        // that carries a placement needs it applied here too. Zero for every
+        // part, which is every caller today; written down so the first
+        // assembly command that highlights a face does not have to find this.
+        e.position = solidPlacement[id] ?? SIMD3<Float>(0, 0, 0)
         highlightEntity = e
         root.addChild(e)
     }

@@ -143,9 +143,9 @@ class _PerfOverlayState extends State<PerfOverlay> {
     // Colour only when it is actually bad, so the overlay stays quiet.
     final worst = _stats.worstMs;
     final tint = worst > 33
-        ? const Color(0xFFE06C6C)
+        ? T.err
         : worst > 20
-            ? const Color(0xFFD8B45A)
+            ? T.warnText
             : T.rawGrey;
     final lines = <String>[
       '${fps.toStringAsFixed(0)} fps  '

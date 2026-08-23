@@ -2,6 +2,7 @@
 // Home on the left, one tab per open sketch with ✕, active tab lighter with
 // a 2px blue underline, burger on the far right.
 import 'package:flutter/material.dart';
+import '../icon_theme.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:native_menu/native_menu.dart';
@@ -26,9 +27,14 @@ List<GlassTab> buildTabs(AppState app) => [
           id: t,
           label: t,
           // Same glyph vocabulary as the model browser: a part is a cube, a
-          // sketch is stacked squares. Two panels naming the same thing two
-          // different ways is worse than either name.
-          symbol: app.parts.containsKey(t) ? 'cube' : 'square.on.square',
+          // sketch is stacked squares, an assembly is cubes on cubes. Two
+          // panels naming the same thing two different ways is worse than
+          // either name.
+          symbol: app.assemblies.containsKey(t)
+              ? 'square.stack.3d.up'
+              : app.parts.containsKey(t)
+                  ? 'cube'
+                  : 'square.on.square',
           selected: !app.isHome && app.curTab == t,
           closable: true,
         ),
@@ -81,7 +87,7 @@ class BottomTabBar extends StatelessWidget {
   Widget _flutterBar() {
     return Container(
       height: 30,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: T.tabbarBg,
         border: Border(top: BorderSide(color: T.tabbarBorder)),
       ),
@@ -98,7 +104,7 @@ class BottomTabBar extends StatelessWidget {
           on: app.isHome,
           onTap: app.goHome,
           // The house speaks for itself — the word next to it was redundant.
-          child: SvgPicture.string(homeTabIcon, width: 15, height: 15),
+          child: SvgPicture.string(themedIcon(homeTabIcon), width: 15, height: 15),
         ),
         for (final t in app.openTabs)
           _Tab(
@@ -138,7 +144,7 @@ class _TabState extends State<_Tab> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final color = widget.on || _h ? Colors.white : T.tabText;
+    final color = widget.on || _h ? T.text : T.tabText;
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
@@ -147,7 +153,7 @@ class _TabState extends State<_Tab> {
         child: Container(
           decoration: BoxDecoration(
             color: widget.on ? T.tabOnBg : T.tabBg,
-            border: const Border(right: BorderSide(color: T.tabbarBorder)),
+            border: Border(right: BorderSide(color: T.tabbarBorder)),
           ),
           child: Stack(children: [
             Padding(
@@ -160,7 +166,7 @@ class _TabState extends State<_Tab> {
               ),
             ),
             if (widget.on)
-              const Positioned(
+              Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
@@ -195,7 +201,7 @@ class _CloseXState extends State<_CloseX> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 1),
           child: Text('✕',
-              style: ts(11, _h ? Colors.white : const Color(0xFF8B9197))),
+              style: ts(11, _h ? T.text : T.mbDimmed)),
         ),
       ),
     );

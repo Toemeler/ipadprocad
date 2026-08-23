@@ -45,7 +45,7 @@ class _ParametersDialogState extends State<ParametersDialog> {
         color: T.fly,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: T.sep),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        boxShadow: [BoxShadow(color: T.shadow, blurRadius: 10)],
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // ---- draggable title bar ----
@@ -55,12 +55,12 @@ class _ParametersDialogState extends State<ParametersDialog> {
           child: Container(
             height: 30,
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: T.sep))),
             child: Row(children: [
-              const Text('fx',
+              Text('fx',
                   style: TextStyle(
-                      color: T.blue,
+                      color: T.accent,
                       fontSize: 13,
                       fontStyle: FontStyle.italic,
                       fontWeight: FontWeight.w600)),
@@ -70,7 +70,7 @@ class _ParametersDialogState extends State<ParametersDialog> {
                       style: TextStyle(color: T.text, fontSize: 12))),
               InkWell(
                 onTap: app.toggleParams,
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.all(4),
                   child: Icon(Icons.close, size: 14, color: T.dim),
                 ),
@@ -100,10 +100,10 @@ class _ParametersDialogState extends State<ParametersDialog> {
                 child: InkWell(
                   onTap: () => setState(() => app.addUserParam()),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.add, size: 14, color: T.blue),
+                    Icon(Icons.add, size: 14, color: T.accent),
                     SizedBox(width: 4),
                     Text(L.of(context).btnAddNumericParameter,
-                        style: TextStyle(color: T.blue, fontSize: 11)),
+                        style: TextStyle(color: T.accent, fontSize: 11)),
                   ]),
                 ),
               ),
@@ -117,7 +117,7 @@ class _ParametersDialogState extends State<ParametersDialog> {
   Widget _section(String t) => Padding(
         padding: const EdgeInsets.only(top: 2, bottom: 2),
         child: Text(t,
-            style: const TextStyle(
+            style: TextStyle(
                 color: T.dim, fontSize: 10, fontWeight: FontWeight.w600)),
       );
 
@@ -257,7 +257,7 @@ class _ParamRowState extends State<_ParamRow> {
     Widget cell(Widget child) => Container(
           height: 26,
           decoration: BoxDecoration(
-              color: const Color(0xFF262B31),
+              color: T.tabOnBg,
               borderRadius: BorderRadius.circular(3),
               border: Border.all(color: T.sep, width: 0.5)),
           alignment: Alignment.centerLeft,
@@ -274,7 +274,7 @@ class _ParamRowState extends State<_ParamRow> {
             readOnly: widget.readOnly,
             autocorrect: false,
             enableSuggestions: false,
-            style: const TextStyle(fontSize: 11, color: T.text),
+            style: TextStyle(fontSize: 11, color: T.text),
             decoration: deco(),
             onSubmitted: (_) => _commitName(),
           )),
@@ -310,7 +310,7 @@ class _ParamRowState extends State<_ParamRow> {
                     onChanged: (_) => setState(() {}),
                     style: TextStyle(
                         fontSize: 11,
-                        color: eqValid ? T.text : const Color(0xFFE05A5A)),
+                        color: eqValid ? T.text : T.err),
                     decoration: deco(),
                     onSubmitted: (_) => _commitEq(),
                   )),
@@ -320,7 +320,7 @@ class _ParamRowState extends State<_ParamRow> {
         SizedBox(
             width: 86,
             child: Text(widget.value,
-                style: const TextStyle(fontSize: 11, color: T.dim))),
+                style: TextStyle(fontSize: 11, color: T.dim))),
         SizedBox(width: 22, child: widget.trailing ?? const SizedBox()),
       ]),
     );
@@ -372,7 +372,7 @@ class _UserRow extends StatelessWidget {
       validEquation: (t) => app.userParamTextValid(u, t),
       trailing: InkWell(
         onTap: () => app.deleteUserParam(u),
-        child: const Icon(Icons.delete_outline, size: 14, color: T.dim),
+        child: Icon(Icons.delete_outline, size: 14, color: T.dim),
       ),
     );
   }

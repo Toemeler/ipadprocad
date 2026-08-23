@@ -8,6 +8,23 @@
   "@languageMenuItem": {
     "description": "Eintrag im \"+\"-Menue der Galerie. Zeigt die Sprache, in die er umschaltet — der Eintrag ist eine Aktion, keine Statuszeile."
   },
+  "appearanceMenuItem": "Darstellung: {scheme}",
+  "@appearanceMenuItem": {
+    "description": "Eintrag im \"+\"-Menue der Galerie. Nennt das Schema, auf das er umschaltet — wie die Sprachzeile eine Aktion, keine Statuszeile.",
+    "placeholders": { "scheme": { "type": "String" } }
+  },
+  "appearanceSystem": "System",
+  "@appearanceSystem": {
+    "description": "Darstellung folgt der iPad-Einstellung."
+  },
+  "appearanceLight": "Hell",
+  "@appearanceLight": {
+    "description": "Das helle Schema (Chalk): kuehles graues Cremepapier."
+  },
+  "appearanceDark": "Dunkel",
+  "@appearanceDark": {
+    "description": "Das dunkle Schema (Ember): warme braune Kohle."
+  },
   "ok": "OK",
   "@ok": {
     "description": "Bestaetigen. In beiden Sprachen OK — im Deutschen ebenso ueblich wie im Englischen.",
@@ -708,6 +725,155 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "msgOpenPartForMesh": "Zuerst ein Bauteil öffnen — ein Netz kommt als Volumenkörper an.",
+  "@msgOpenPartForMesh": {
+    "description": "Gegenstück zu msgOpenPartForStep. \"Netz\" ist der übliche deutsche CAD-Begriff für ein Dreiecksnetz (STL/OBJ/3MF)."
+  },
+  "msgNoKernelMesh": "Kein 3D-Kern verbunden — ein Netz umzuwandeln braucht den Gerätebuild.",
+  "@msgNoKernelMesh": {
+    "description": "Wie msgNoKernelStep: auf dem Host ist kein OCCT gelinkt."
+  },
+  "msgMeshEmpty": "Diese Datei ist leer.",
+  "@msgMeshEmpty": {
+    "description": "Null Bytes."
+  },
+  "msgMeshMissing": "Diese Datei gibt es nicht mehr.",
+  "@msgMeshMissing": {
+    "description": "Zwischen Auswahl und Lesen verschwunden — bei iCloud-Dateien keine Seltenheit."
+  },
+  "msgMeshUnreadable": "Diese Datei ließ sich nicht lesen.",
+  "@msgMeshUnreadable": {
+    "description": "Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung."
+  },
+  "msgMeshNoGeometry": "Diese Datei enthält keine brauchbare Geometrie.",
+  "@msgMeshNoGeometry": {
+    "description": "Formal in Ordnung, aber ohne Dreiecke: ein STL nur aus entarteten Facetten, ein OBJ ohne f-Zeilen."
+  },
+  "msgMeshTruncated": "Diese Datei ist beschädigt — ein Datensatz bricht ab.",
+  "@msgMeshTruncated": {
+    "description": "Ein Punkt mit zwei Koordinaten, ein Dreieck ohne dritte Ecke."
+  },
+  "msgMeshBadIndex": "Diese Datei ist beschädigt — eine Fläche nennt Punkt {index}, den es nicht gibt.",
+  "@msgMeshBadIndex": {
+    "description": "OBJ und 3MF verweisen per Index auf Punkte; ein Verweis ins Leere ist ein kaputtes Modell, kein leerer.",
+    "placeholders": {
+      "index": {
+        "type": "String"
+      }
+    }
+  },
+  "msgMeshNotAnArchive": "Diese 3MF-Datei ist kein lesbares Archiv.",
+  "@msgMeshNotAnArchive": {
+    "description": "3MF ist ein ZIP. Ist es keines, hilft kein Weiterlesen."
+  },
+  "msgMeshNoModel": "Diese 3MF-Datei enthält kein Modell.",
+  "@msgMeshNoModel": {
+    "description": "ZIP in Ordnung, aber ohne .model-Teil darin."
+  },
+  "msgMeshUnknownUnit": "Diese 3MF-Datei nutzt die unbekannte Einheit „{unit}“.",
+  "@msgMeshUnknownUnit": {
+    "description": "Deutsche Anführungszeichen. Abgelehnt statt geraten: eine geratene Einheit skaliert das Bauteil stillschweigend.",
+    "placeholders": {
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "msgMeshNotWatertight": "{count, plural, =1{Dieses Netz ist nicht dicht (eine offene Kante) und kann kein Volumenkörper werden.} other{Dieses Netz ist nicht dicht ({count} offene Kanten) und kann kein Volumenkörper werden.}}",
+  "@msgMeshNotWatertight": {
+    "description": "Die brauchbarste Fehlermeldung des Umwandlers: „nicht dicht“ kann man reparieren, „Vernähen fehlgeschlagen“ nicht.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgMeshConvertFailed": "Das Netz ließ sich nicht umwandeln.",
+  "@msgMeshConvertFailed": {
+    "description": "Wenn der Kern keinen Grund nennt."
+  },
+  "msgMeshConvertFailedWhy": "Das Netz ließ sich nicht umwandeln: {error}",
+  "@msgMeshConvertFailedWhy": {
+    "description": "Der Grund kommt aus dem Kern und bleibt englisch — er ist eine Diagnose, keine Oberflächenmeldung.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "msgMeshNotSaved": "Das Netz wurde umgewandelt, aber nicht gespeichert.",
+  "@msgMeshNotSaved": {
+    "description": "Der Körper wird beim Öffnen aus seiner Datei neu gelesen; ohne diese Datei wäre er nach dem Neuöffnen leer."
+  },
+  "msgMeshImported": "{count, plural, =1{Importiert: eine Fläche erkannt.} other{Importiert: {count} Flächen erkannt.}}",
+  "@msgMeshImported": {
+    "description": "Gezählt werden die als Ebene, Zylinder, Kegel, Kugel oder Torus ERKANNTEN Flächen — das ist die Zahl, die verrät, ob sich das Modell danach noch abrunden lässt. Die Aufschlüsselung nach Art steht im Log.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgMeshImportedFacetedOnly": "{count, plural, =1{Als eine Fläche importiert — keine Flächenform erkannt.} other{Als {count} Flächen importiert — keine Flächenform erkannt.}}",
+  "@msgMeshImportedFacetedOnly": {
+    "description": "Der ehrliche Fall: es kam etwas an, aber nur Dreiecke.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgMeshImportedFaceted": "{count, plural, =1{Ein Bereich blieb als Dreiecke.} other{{count} Bereiche blieben als Dreiecke.}}",
+  "@msgMeshImportedFaceted": {
+    "description": "Zusatz zu msgMeshImported. Getrennter Satz statt angehängtem Fragment, damit beide Sprachen ihre eigene Wortstellung behalten.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "msgMeshImportedOpen": "Nicht geschlossen — ein Flächenkörper.",
+  "@msgMeshImportedOpen": {
+    "description": "Das Netz hatte Löcher; daraus kann nur ein Flächenkörper werden, und das muss dastehen."
+  },
+  "msgMeshFileTooLarge": "Diese Datei hat {size} MB; Prototype liest Netze bis {limit} MB.",
+  "@msgMeshFileTooLarge": {
+    "description": "Vor dem Lesen abgefangen: eine Datei dieser Groesse einzulesen wuerde die App abschiessen, nicht bremsen.",
+    "placeholders": {
+      "size": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "limit": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "msgMeshTooManyTriangles": "Dieses Netz hat {count} Dreiecke; Prototype wandelt bis {limit} um.",
+  "@msgMeshTooManyTriangles": {
+    "description": "Die Umwandlung laeuft auf dem UI-Thread, weil der Kern einfaedig ist; die Grenze haelt die Wartezeit endlich.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "limit": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "msgMeshConverting": "{count} Dreiecke werden umgewandelt …",
+  "@msgMeshConverting": {
+    "description": "Steht waehrend der Umwandlung auf dem Schirm. Der Kern blockiert den UI-Thread, also ist dies das einzige Lebenszeichen, das der Nutzer bekommt.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
       }
     }
   },
@@ -2271,5 +2437,122 @@
   "lblMirrorPlanePlaceholder": "Spiegelebene",
   "lblCenterlineGeo": "Mittellinie",
   "lblConstructionLineGeo": "Konstruktionslinie",
-  "lblLineGeo": "Linie"
+  "lblLineGeo": "Linie",
+  "panelComponent": "Komponente",
+  "@panelComponent": {
+    "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Komponente\"."
+  },
+  "panelPosition": "Position",
+  "@panelPosition": {
+    "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Position\"."
+  },
+  "panelRelationships": "Beziehungen",
+  "@panelRelationships": {
+    "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Beziehungen\" (Gelenke und Abhaengigkeiten)."
+  },
+  "btnPlace": "Platzieren",
+  "@btnPlace": {
+    "x-maxChars": 12
+  },
+  "btnCreateComponent": "Erstellen",
+  "@btnCreateComponent": {
+    "description": "Baugruppe: neues Bauteil an Ort und Stelle erstellen. Inventor DE: \"Erstellen\".",
+    "x-maxChars": 12
+  },
+  "btnFreeMove": "Frei bewegen",
+  "@btnFreeMove": {
+    "description": "Inventor DE: \"Frei bewegen\".",
+    "x-maxChars": 16
+  },
+  "btnFreeRotate": "Frei drehen",
+  "@btnFreeRotate": {
+    "description": "Inventor DE: \"Frei drehen\".",
+    "x-maxChars": 16
+  },
+  "btnJoint": "Gelenk",
+  "@btnJoint": {
+    "description": "Inventor DE: \"Gelenk\".",
+    "x-maxChars": 16
+  },
+  "btnConstrain": "Abhängig machen",
+  "@btnConstrain": {
+    "description": "Inventor DE: \"Abhängig machen\". Steht unter einem Symbol, das mitwaechst (M235), daher das groessere Budget.",
+    "x-maxChars": 16
+  },
+  "btnShowRelationships": "Einblenden",
+  "@btnShowRelationships": {
+    "description": "Beziehungen einblenden. Inventor DE: \"Einblenden\".",
+    "x-maxChars": 16
+  },
+  "btnShowSick": "Fehlerhafte",
+  "@btnShowSick": {
+    "description": "Inventor DE: \"Fehlerhafte einblenden\" — in der schmalen Zeile auf das Adjektiv gekuerzt, wie Inventor selbst \"Show Sick\" kuerzt.",
+    "x-maxChars": 16
+  },
+  "btnHideAll": "Alle ausblenden",
+  "@btnHideAll": {
+    "description": "Inventor DE: \"Alle ausblenden\".",
+    "x-maxChars": 16
+  },
+  "btnPatternComponent": "Anordnung",
+  "@btnPatternComponent": {
+    "description": "Baugruppen-Anordnung. Inventor DE: \"Anordnung\", nicht \"Muster\".",
+    "x-maxChars": 16
+  },
+  "btnCopy": "Kopieren",
+  "@btnCopy": {
+    "description": "Inventor DE: \"Kopieren\".",
+    "x-maxChars": 16
+  },
+  "galleryNewAssembly": "Neue Baugruppe",
+  "@galleryNewAssembly": {
+    "description": "Eintrag im \"+\"-Menue der Galerie."
+  },
+  "dlgNewAssembly": "Neue Baugruppe",
+  "@dlgNewAssembly": {
+    "description": "Titel des Dialogs, der nach dem Namen fragt."
+  },
+  "phAssemblyName": "Baugruppenname",
+  "nodeRepresentations": "Darstellungen",
+  "@nodeRepresentations": {
+    "description": "Browserknoten der Baugruppe. Inventor DE: \"Darstellungen\"."
+  },
+  "nodeRelationships": "Beziehungen",
+  "@nodeRelationships": {
+    "description": "Browserknoten der Baugruppe. Inventor DE: \"Beziehungen\"."
+  },
+  "dlgPlaceComponent": "Komponente platzieren",
+  "@dlgPlaceComponent": {
+    "description": "Titel der Liste, aus der ein Bauteil gewaehlt wird."
+  },
+  "msgAsmNoPartsToPlace": "Erstellen Sie zuerst ein 3D-Bauteil — es gibt nichts zu platzieren.",
+  "msgAsmNoSuchPart": "„{name}“ ist kein Bauteil.",
+  "@msgAsmNoSuchPart": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgAsmCouldNotPlace": "„{name}“ konnte nicht platziert werden.",
+  "@msgAsmCouldNotPlace": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgAsmGrounded": "„{name}“ ist fixiert.",
+  "@msgAsmGrounded": {
+    "description": "Toast beim Ziehversuch an einer fixierten Komponente.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "ctxGrounded": "Fixiert",
+  "@ctxGrounded": {
+    "description": "Kontextmenue einer Komponente. Inventor DE: \"Fixiert\"."
+  }
 }

@@ -35,6 +35,10 @@ const Map<String, Set<String>> kAllowed = {
   // translating one is a data-format change. S12-i18n.md §5.
   'lib/app_state.dart': {
     '(preview)',
+    // M240 — the generated name of a new ASSEMBLY, on the same footing as
+    // 'Part\$n' and 'Sketch\$n' below it: it is written into the document and
+    // into its file name, so translating it would be a data change.
+    'Assembly\$n',
     'Chamfer',
     'Coil',
     'Combine',

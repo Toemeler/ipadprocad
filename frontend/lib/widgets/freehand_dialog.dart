@@ -41,8 +41,8 @@ class _FreehandDialogState extends State<FreehandDialog> {
           color: T.panel,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: T.panelSep),
-          boxShadow: const [
-            BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 6))
+          boxShadow: [
+            BoxShadow(color: T.cardShadow, blurRadius: 14, offset: Offset(0, 6))
           ],
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -136,9 +136,9 @@ class _FreehandDialogState extends State<FreehandDialog> {
                 trackHeight: 2.5,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                activeTrackColor: T.blue,
+                activeTrackColor: T.accent,
                 inactiveTrackColor: T.panelSep,
-                thumbColor: T.blue,
+                thumbColor: T.accent,
               ),
               child: Slider(
                 value: value.clamp(min, max),
@@ -195,13 +195,13 @@ class _FinishButton extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFF2E7D32),
+              color: T.ok,
               borderRadius: BorderRadius.circular(4),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.check, size: 15, color: Colors.white),
+              Icon(Icons.check, size: 15, color: T.onAccent),
               const SizedBox(width: 5),
-              Text(L.of(context).finish, style: ts(11.5, Colors.white, w: FontWeight.w600)),
+              Text(L.of(context).finish, style: ts(11.5, T.onAccent, w: FontWeight.w600)),
             ]),
           ),
         ),

@@ -112,22 +112,22 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: const Color(0xFF292D33),
+      backgroundColor: T.panel,
       title: Text(widget.title, style: ts(14, T.mbText)),
       content: TextField(
         controller: _ctrl,
         autofocus: true,
-        style: ts(13, Colors.white),
-        cursorColor: T.blue,
+        style: ts(13, T.text),
+        cursorColor: T.accent,
         decoration: InputDecoration(
           hintText: widget.placeholder,
           hintStyle: ts(13, T.mbDim),
           errorText: _error,
-          errorStyle: ts(11.5, const Color(0xFFE05A56)),
+          errorStyle: ts(11.5, T.err),
           enabledBorder:
-              const UnderlineInputBorder(borderSide: BorderSide(color: T.sep)),
+              UnderlineInputBorder(borderSide: BorderSide(color: T.sep)),
           focusedBorder:
-              const UnderlineInputBorder(borderSide: BorderSide(color: T.blue)),
+              UnderlineInputBorder(borderSide: BorderSide(color: T.accent)),
         ),
         onSubmitted: (_) => _submit(),
       ),
@@ -137,7 +137,7 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
             child: Text(L.of(context).cancel, style: ts(13, T.mbDim))),
         TextButton(
             onPressed: _submit,
-            child: Text(widget.confirmLabel, style: ts(13, T.blue))),
+            child: Text(widget.confirmLabel, style: ts(13, T.accent))),
       ],
     );
   }
@@ -163,7 +163,7 @@ Future<bool> confirmAction(
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF292D33),
+      backgroundColor: T.panel,
       title: Text(title, style: ts(14, T.mbText)),
       content: message == null ? null : Text(message, style: ts(12.5, T.mbDim)),
       actions: [
@@ -174,7 +174,7 @@ Future<bool> confirmAction(
           onPressed: () => Navigator.of(ctx).pop(true),
           child: Text(confirmLabel,
               style: ts(13,
-                  destructive ? const Color(0xFFE05A56) : T.blue)),
+                  destructive ? T.err : T.accent)),
         ),
       ],
     ),
