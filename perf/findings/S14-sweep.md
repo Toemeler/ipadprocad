@@ -651,3 +651,181 @@ Note          : CALIBRATION.txt is NOT re-recorded. Its hash is already stale
                 capture against a v22 kernel. This change makes the hash move
                 again and that is all it does.
 ```
+
+---
+
+## 4. What was built
+
+### 4.1 The shim — v24
+
+`spine_from_points_ex` splits the path into **maximal runs whose interior
+joints are all ≤ 5.625°**. Each run of three or more points becomes one edge
+carrying a C2 B-spline **interpolated through every point**; a run of two stays
+a line; a joint above the threshold stays a vertex of the wire and is still
+mitered by `BRepBuilderAPI_RightCorner`, which is left set and is simply inert
+where there are no joints left. An interpolation that will not run falls back
+to that run's straight segments, which is what v23 would have built.
+
+`occt_sweep_profile_ex(..., path_mode)` exposes it:
+
+| mode | what it does |
+| --- | --- |
+| `OCCT_SWEEP_PATH_AUTO` | the above. `occt_sweep_profile` now passes this. |
+| `OCCT_SWEEP_PATH_POLY` | **v23, bit for bit.** The reference arm of every differential test, and the escape hatch. |
+| `OCCT_SWEEP_PATH_SMOOTH` | one interpolated curve through the whole path whatever its joints. |
+
+Two things the measurements forced that the plan did not have:
+
+* **On a smoothed spine the trihedron becomes corrected Frenet.** Plain Frenet
+  carries the curve's *torsion*: on this fixture's helix that is 81° of section
+  rotation over the path, which a circular section hides completely and a
+  square one does not. Measured on a square section: polyline Frenet and
+  polyline corrected Frenet are identical at 2, 4 and 16 spans (same volume,
+  same bounding box, every printed digit), and smoothed corrected Frenet
+  reproduces the polyline's bounding box while smoothed plain Frenet does not.
+  So corrected Frenet is the choice that changes nothing where nothing was
+  smoothed, and it is applied only where something was.
+* **AUTO does not smooth a profile with holes.** `finish_pipe` sweeps each hole
+  and CUTS it out. Between two solids made of planes that boolean is cheap;
+  between two solids made of general swept surfaces it is not:
+
+  | 24-segment ring, r=3 hole, 16 spans | ms |
+  | --- | ---: |
+  | sweep the body (smoothed) | 36.5 |
+  | sweep the hole (smoothed) | 29.5 |
+  | **the cut between them** | **21 653.6** |
+  | the whole v23 operation, for comparison | 258.7 |
+
+  Smoothing a holed profile would be about **80× slower**. So a holed profile
+  keeps the v23 spine exactly — and keeps v23's failure at large segment
+  counts. §6.1.
+
+`occt_shim_version()` is **24**, taken by the session that owns
+`backend/occt/shim/**`, per the rule that survived the v17 and v21 collisions.
+The human-readable string had said `v21` since v21 while the number went 22, 23;
+it now says v24 and tracks.
+
+### 4.2 Lane C — the sweep ladders
+
+`sweep.segments` (the shipped path) and `sweep.legacy` (`OCCT_SWEEP_PATH_POLY`)
+run the same fixture in the same process, which is what makes the comparison a
+differential rather than a memory. `sweep.coil` is the control — the same
+quarter turn as an exact helix, through an entry point that already existed.
+`sweep.spans` separates corner count from total turning. `sweep.ph.*` breaks
+one v23 call into its five phases through a replica in `bench_sweep.cpp`, and
+the run prints the replica-versus-shim ratio so the phase table can be
+disbelieved when it deserves to be. `sweep.var.*` measures the levers with
+volume, face count and validity beside each cost.
+
+Three details that are not incidental:
+
+* **`Measured::ok`, and JSON schema `kernel-bench/2`.** A failing rung is
+  recorded with its time-to-failure, marked FAILED in both reports, and
+  excluded from every fit. Without it the device's broken 1200-segment rung
+  would have ranked as its fastest large one.
+* **The legacy arm is capped** (`--sweep-legacy-max`, default 128). v23 costs
+  447 s at 512 and does not finish at 1200. A job that runs on every push
+  cannot climb that.
+* **A rung is probed once before it is measured**, because `measureOp` would
+  otherwise pay for a failing rung eight times to learn what one attempt knows.
+
+### 4.3 The smoke test — scenario [37], green on real OCCT
+
+```
+[37a] L path 90 deg: AUTO vol=6000.000000000 f=8 e=18 v=12
+                   | POLY vol=6000.000000000 f=8 e=18 v=12
+[37b] 64 seg x 16 spans: AUTO f=66 vol=6774.914831 | POLY f=1026 vol=6774.944740
+                                                   | analytic 6774.942852
+[37c] joint 5.0 deg -> 6 faces (smoothed), 6.5 deg -> 8 faces (mitered)
+[37d] 1200 seg x 16 spans: f=1202 vol=6785.779141 (analytic 6785.807235)
+                           — v23 FAILED here
+[37f] tube on a STRAIGHT path: vol=3354.294825 (analytic 3354.294825) valid
+[37f] tube on a sampled arc: AUTO=4871.741766 POLY=4871.741766 (annulus
+      5031.440835 — BOTH under by 3.17 %, and it predates v24)
+[37g] taper 5 deg on a smoothed spine: 6766.447913 -> 7375.699522 valid
+[37e] 64 seg x 32 spans: f=66 vol=6774.943168 (analytic 6774.942852) valid
+[37e] 64 seg x 64 spans: f=66 vol=6774.943032 (analytic 6774.942852) valid
+OCCT SMOKE: PASS
+```
+
+Note what each arm is entitled to claim. **[37a] and [37f] are differential** —
+old against new, one run, one machine, exact equality asserted, no recorded
+constant anywhere. **[37d] and [37e] cannot be**, and the scenario says so in
+its own comment: v23 produces *nothing* at those sizes (a failure, and a
+process abort), so there is no old behaviour to be equivalent to and the check
+is against arithmetic instead. That is the exception `OPTIMIZATION_PLAN_2.md`
+§1.4 anticipated, stated explicitly rather than quietly.
+
+[37c] is the derived threshold, pinned from both sides. [37g] found a bug in
+[37f] on the way — an arm that swept along whatever path the arm above had left
+in the shared buffer — which is why every arm now fills its own fixture.
+
+---
+
+## 5. Adjudication
+
+| | prediction | outcome |
+| --- | --- | --- |
+| **P1** | Build ≥ 90 %, Unify ≤ 5 % | **HELD** — 96.0 % and 2.8 % (n=5) |
+| **P2** | ≥ 50× from removing corner treatment; ≤ 5× face-proportional | **SPLIT** — face-proportional clause held easily; "≥ 50×" **refuted at 128 segments** (17.5×) and vindicated at 512 (193×) |
+| **P3** | two-term model; 2-span rung at 0.367 of the 16-span | **HELD** — 0.251, inside the [0.15, 0.60] window, point estimate 46 % high; refit on six rungs gives 287.4 ms/corner + 82.7 ms/degree to ±5 % |
+| **P4** | the failure reproduces off-device | **HELD** — same rung, same message, 742 249 ms |
+| **P5** | 4 812 ms ± 15 %, 1 202 faces, valid | **SPLIT — refuted on time.** 1 202 faces and valid; **3 559.2 ms** (n=5, CV 1.5 %), 26 % BELOW the interval |
+| **P6** | a drawn 90° corner untouched, bit for bit | **HELD** — volume, faces, edges and vertices all identical ([37a]) |
+| **P7** | 64 × 32: 6 774.94 ± 0.5 %, valid, 66 faces | **HELD** — 6 774.943168, valid, 66 faces (was 7 490.04 and INVALID) |
+| **P8** | 64 × 64 stops aborting | **HELD** — 6 774.943032, valid, 66 faces; the process survives |
+| **P9** | fitted k in [0.85, 1.40], R² > 0.98 | **HELD** — k = **1.1496** [1.092, 1.207], R² = 0.998 over five rungs |
+| **P10** | nothing else in the shim moves | **HELD** — `LANE C: PASS`, `HARNESS: VALIDATED`, all three calibration exponents AGREE |
+
+### 5.1 Why P5 was refuted, because the reason is about method
+
+I registered `4 812 ms ± 15 %` from **one sample** of the replica, taken while
+three other jobs were running on a four-core box. Three later single samples of
+the shim on the same box read 3 447, 5 498 and 5 893 ms — a CV of 26 % — so an
+interval of ±15 % was narrower than the instrument's own noise. The benchmark's
+five-rep measurement on a quiet machine is **3 559.2 ms with a CV of 1.5 %**,
+and that is 26 % below the interval I registered.
+
+The prediction is refuted, and it is refuted in the direction of *better*. The
+mistake was not the model; it was quoting a single contended sample as a
+centre. Lane C reps and reports CV for exactly this reason and I did not use it
+before registering.
+
+### 5.2 The headline, old against new in one run on one machine
+
+`sweep.legacy` (v23) against `sweep.segments` (v24), same process, same fixture:
+
+| segments (16-span sampled arc) | v23 | v24 | |
+| ---: | ---: | ---: | ---: |
+| 32 | 350.3 ms | 49.7 ms | 7.0× |
+| 64 | 934.6 ms | 132.7 ms | 7.0× |
+| 128 | 4 666.7 ms | 271.7 ms | 17.2× |
+| 512 | **447 118 ms** | 1 223.6 ms | **365×** |
+| 1200 | **FAILED after 742 249 ms** | **3 559.2 ms, valid** | — |
+
+(The 512 and 1200 v23 figures are from the probe; the benchmark's legacy arm is
+capped at 128 so that it can run on every push.)
+
+Fitted exponents, five rungs each: **v24 k = 1.150** [1.092, 1.207] R² 0.998,
+against v23's local 2.00 at the bottom of the ladder and **2.97** from 128 to
+512. The control — `occt_coil_profile`, which has always swept along an exact
+helix — fits **k = 1.269**, so the sweep now sits in the same family as the
+operation that never had this defect.
+
+### 5.3 The threshold is visible in the ladder, and so is its limit
+
+`sweep.spans` at 128 segments, with the path's sharpest joint beside it:
+
+| spans | sharpest joint | v24 | smoothed? |
+| ---: | ---: | ---: | :-: |
+| 1 | — | 51.5 ms | no joints |
+| 2 | 18.379° | 1 046.6 ms | **no** |
+| 4 | 9.491° | 2 174.7 ms | **no** |
+| 8 | 4.783° | 250.5 ms | yes |
+| 16 | 2.396° | 262.8 ms | yes |
+
+The cost falls off a cliff exactly where the sharpest joint crosses 5.625°.
+That is the derived threshold doing what it was derived to do — and it is also
+the honest statement of what is NOT fixed: a path whose joints are 9.5° is, by
+the derivation, a path somebody drew, and mitering it is still what OCCT does
+and still costs what it costs. §6.1.
