@@ -3204,3 +3204,45 @@ and not a calibration.
 stands until a round-two capture against a v22 kernel. This change moves the
 shim hash again; that is all it does. Lane C still prints `HARNESS: VALIDATED`
 with all three §6.5 exponents agreeing.
+
+---
+
+## 2026-08-24 — S14 — correcting my own entry above, and an instrument finding for Lane C's owner
+
+My entry closes with "Lane C still prints `HARNESS: VALIDATED` with all three
+§6.5 exponents agreeing." **That describes one run, and it is not a safe thing
+to say.** The next run of the same binary printed `HARNESS: NOT VALIDATED`.
+
+`occt_shape_edge_info` is not touched by v24, so I fitted `edgeInfo1` five
+times on unchanged code:
+
+| run | k | verdict against the device's [0.970, 1.010] |
+| --- | ---: | --- |
+| 1 | 1.038 [0.987, 1.089] | AGREES |
+| 2 | 1.122 [1.080, 1.164] | DISAGREES |
+| 3 | 1.056 [1.019, 1.094] | DISAGREES |
+| 4 | 1.095 [0.963, 1.227] | AGREES |
+| 5 | 1.156 [1.109, 1.203] | DISAGREES |
+
+**Spread 0.118 on identical code, against a gate interval 0.040 wide**, and
+every run sits above the device's interval. Whether the line prints AGREES
+depends on how wide the bench's own CI came out that time, which depends on the
+noise — so the verdict is nearly a coin toss on a shared container.
+
+This does not change the S6 ruling; it quantifies its run-to-run component,
+which was not known. Two consequences worth carrying:
+
+1. **`allEdges` and `buildOnly` are stable and agree in every run** (2.08 and
+   0.99–1.03). The §6.5 finding is not in doubt. It is `edgeInfo1`, the
+   cheapest of the three and the one that needs an inner repetition loop to
+   clear the clock, whose fit is fragile.
+2. **Nobody should read a single Lane C calibration line as a pass or fail on
+   `edgeInfo1`.** If that gate is ever made to bite again — which
+   `CALIBRATION.txt` intends once a v22 capture exists — it should gate on a
+   median of several runs, or on `allEdges` alone. Otherwise it will go red on
+   an unrelated change and send the next session hunting a regression that
+   is not there.
+
+The corrected sentence for my entry above: **Lane C prints `LANE C: PASS`, and
+the two stable calibration exponents still agree with §6.5. `edgeInfo1`'s
+verdict varies between runs of identical code and should not be read from one.**

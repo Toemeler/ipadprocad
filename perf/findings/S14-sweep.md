@@ -775,7 +775,7 @@ in the shared buffer — which is why every arm now fills its own fixture.
 | **P7** | 64 × 32: 6 774.94 ± 0.5 %, valid, 66 faces | **HELD** — 6 774.943168, valid, 66 faces (was 7 490.04 and INVALID) |
 | **P8** | 64 × 64 stops aborting | **HELD** — 6 774.943032, valid, 66 faces; the process survives |
 | **P9** | fitted k in [0.85, 1.40], R² > 0.98 | **HELD** — k = **1.1496** [1.092, 1.207], R² = 0.998 over five rungs |
-| **P10** | nothing else in the shim moves | **HELD** — `LANE C: PASS`, `HARNESS: VALIDATED`, all three calibration exponents AGREE |
+| **P10** | nothing else in the shim moves | **HELD, but not the way I wrote it down** — `LANE C: PASS`; `allEdges` and `buildOnly` agree in every run; `edgeInfo1`'s verdict **flips run to run on this container, with the code unchanged**. §5.4 |
 
 ### 5.1 Why P5 was refuted, because the reason is about method
 
@@ -790,6 +790,40 @@ The prediction is refuted, and it is refuted in the direction of *better*. The
 mistake was not the model; it was quoting a single contended sample as a
 centre. Lane C reps and reports CV for exactly this reason and I did not use it
 before registering.
+
+### 5.4 P10, and an instrument finding I did not go looking for
+
+The first full run after the change printed `HARNESS: VALIDATED` with all three
+calibration exponents agreeing, and I nearly wrote that down as P10 held. The
+**second** run of the same binary printed `HARNESS: NOT VALIDATED`, because
+`edgeInfo1` fitted 1.122 instead of 1.038.
+
+`occt_shape_edge_info` is not touched by v24 — not a line — so I ran the ladder
+three more times, quietly, and fitted it each time:
+
+| run | `edgeInfo1` k | verdict against device [0.970, 1.010] |
+| --- | ---: | --- |
+| 1 (with sweeps) | 1.038 [0.987, 1.089] | AGREES |
+| 2 (with sweeps) | 1.122 [1.080, 1.164] | DISAGREES |
+| 3 | 1.056 [1.019, 1.094] | DISAGREES |
+| 4 | 1.095 [0.963, 1.227] | AGREES |
+| 5 | 1.156 [1.109, 1.203] | DISAGREES |
+
+**A spread of 0.118 in the fitted exponent, on identical code, from a gate
+whose device interval is 0.040 wide.** Every run is above the device's
+interval; whether the printed verdict says AGREES depends on how wide the
+bench's own confidence interval came out that time, which depends on the noise.
+
+So P10's *claim* — that nothing else in the shim moved — holds, and the two
+exponents that carry the §6.5 finding (`allEdges` 2.08, `buildOnly` 0.99–1.03)
+agree in every run. But the sentence I wrote for it ("all three calibration
+exponents AGREE") describes one run, not the instrument. On a shared container
+`edgeInfo1`'s verdict is a coin toss, and anyone reading a single Lane C run's
+calibration line as a pass or fail on this operation is reading noise. That is
+consistent with the integrator's 2026-08-21 ruling, which already recorded a
+real ~0.08 desktop-versus-device gap on `edgeInfo1` — this measures its
+run-to-run component for the first time. Reported to Lane C's owner in
+`CROSS-SESSION.md`.
 
 ### 5.2 The headline, old against new in one run on one machine
 
