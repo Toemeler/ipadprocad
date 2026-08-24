@@ -2320,6 +2320,28 @@ int main(void)
                 check(near_rel(occt_shape_volume(po), want, 1e-4),
                       "[37b] POLY's volume is not the analytic one");
                 check(occt_shape_valid(au), "[37b] AUTO's solid is invalid");
+                /* S14 item 3, P17: an arc's joints are sweep/64 <= 5.625 deg
+                 * by construction, so AUTO already smooths every arc and the
+                 * Dart side DECLARING it smooth can only agree. If these two
+                 * ever diverge, the threshold is wrong rather than merely
+                 * unnecessary, and that is worth a test failure. */
+                {
+                    occt_shape *sm = occt_sweep_profile_ex(
+                        prof37, lc, 1, I37, path37, spans + 1, 0, 0.0, 0.0,
+                        OCCT_SWEEP_PATH_SMOOTH);
+                    if (check(sm != NULL, "[37b] SMOOTH refused an arc path")) {
+                        int fs = 0;
+                        occt_shape_counts(sm, &fs, NULL, NULL);
+                        printf("[37b] the same arc DECLARED smooth: f=%d "
+                               "vol=%.6f (AUTO inferred the same)\n", fs,
+                               occt_shape_volume(sm));
+                        check(fs == fa && occt_shape_volume(sm)
+                                              == occt_shape_volume(au),
+                              "[37b] declaring an arc smooth differs from "
+                              "inferring it");
+                        occt_free_shape(sm);
+                    }
+                }
             }
             if (au) occt_free_shape(au);
             if (po) occt_free_shape(po);

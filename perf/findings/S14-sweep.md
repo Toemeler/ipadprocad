@@ -1548,3 +1548,84 @@ decision can then be taken on evidence about what users actually draw rather
 than on a guess about what they meant.
 
 **Not decided. Not changed.**
+
+---
+
+## 14. Round two — adjudication, and what I am unsure of now
+
+### 14.1 The predictions
+
+| | prediction | outcome |
+| --- | --- | --- |
+| **P11** | orientation 1 returns the analytic 6 000, valid, on the v23 spine | **HELD** — 6 000.000000000 and valid at 2, 4 and 16 spans |
+| **P12** | the repair is independent of v24 | **HELD** — the POLY arm of [38] is the v23 spine and gives the same 6 000.000000000. *If v24 is rejected, item 1 still works.* |
+| **P13** | a straight path is unchanged, bit for bit | **HELD** — 4 000.000000000, six faces, valid |
+| **P14** | a tube equals the difference of its parts, exactly | **HELD for orientation 0** — 5 031.442237 at both span counts, matching `outer − hole` and the analytic annulus. **Its SCOPE was too narrow**: see §14.2 |
+| **P15** | orientation 2 does not move | **HELD** — 5 560.491666 / 5 561.707625, every digit |
+| **P16** | the coil does not move | **HELD** — 5 562.133035056, 50 faces, every digit |
+| **P17** | declaring an arc smooth reproduces inferring it | **HELD** — 66 faces and 6 774.914831 both ways, asserted as exact equality in [37b] |
+| **P18** | declaring POLY for a drawn joint miters it | **HELD** — the same 5.0° joint gives 6 faces under AUTO and 8 under a declared POLY |
+| **P19** | the mode enters the rebuild key | **ARGUED, NOT PINNED** — as registered. §11.2 |
+
+### 14.2 P14's scope was wrong, and the measurement is what found it
+
+P14 predicted orientation 0 and I fixed `WithCorrection`. The measurement then
+said orientation 1 was at **+0.169 %** instead of −3.174 %: better, and still
+not right. `finish_pipe` had been throwing away the `orientation` it was handed
+— a bare `(void)` cast on its first line, since v15 — so the hole was swept
+with a Frenet trihedron while the body used the fixed one v25 had just given
+it. Two parameters of one placement; I had predicted one.
+
+**I fixed both in the same commit**, and that is a judgement the integrator
+should be able to overturn cheaply: it is one defect ("the hole is not placed
+the way its body is placed") with two parameters, in the same six lines, and
+reverting the commit restores v25 whole. Splitting it would have shipped a
+known-wrong orientation 1 for the length of one commit.
+
+### 14.3 What I am unsure of, round two
+
+1. **Whether `GeomFill_IsFixed` is right for orientation 1 in every case, or
+   only in the ones I measured.** The analytic check — sections parallel to the
+   profile plane, so `V = A × rise` — is exact for a path whose z is monotone.
+   For a path that doubles back in z, "Fixed" sweeps the section back through
+   material it already swept, and I did not test that. The old law would have
+   been wrong there too, differently.
+2. **The `gp_Ax2` cancellation.** Three unrelated axes give identical solids on
+   one fixture, and the reasoning (a constant trihedron cancels out of a
+   relative transform) is sound. It is still one fixture and an argument, and
+   if it is false somewhere the symptom would be a sweep that depends on a
+   constant nobody thinks is a parameter.
+3. **The hole assembly at scale.** §12 is costed at 24 segments and did not
+   complete at 1200. I am reasonably confident the stall is in verification
+   rather than construction, and that confidence is an inference from where a
+   timer sits.
+4. **Containment.** §12.3's risk 2 is the one I would most want someone else to
+   look at before that proposal is built: nothing checks today that a hole is
+   inside its outer boundary, the boolean did not need it to be, and an
+   assembly does.
+5. **Everything §7 already said** — the volume identity I cannot derive, the
+   spline joint-angle histogram nobody has taken, the heap corruption I
+   attributed by elimination rather than diagnosed. Item 3 narrows the second
+   of those to flattened splines only; the other two stand exactly as written.
+6. **Three defects in one operation, all invisible on a straight path.** v15's
+   sweep shipped with the wrong trihedron mode for orientation 1, a hole placed
+   against a different frame from its body, and a corner treatment that goes
+   cubic and then corrupts the heap. Every one of them is exact on a straight
+   two-point path, which is what every test and every capture used. **I do not
+   know what else in this shim is only ever exercised straight**, and that is
+   the honest generalisation of this session — bigger than the sweep.
+
+### 14.4 Definition of done, round two
+
+| | |
+| --- | --- |
+| `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | **56 issues, delta ZERO in substance.** The diff against the pre-session baseline is one line: a pre-existing `unnecessary_cast` warning in `part_model.dart` moved from line 7906 to 7977 because I inserted above it. Same finding, same file, same rule. |
+| `flutter test` | **2 368 passed, 1 skipped** — the baseline's 2 365 plus the three tests added here |
+| `python3 -m unittest discover -s ci -p 'test_*.py'` | **49 tests, OK** |
+| `occt_smoke` on real OCCT 7.9.3 | **PASS**, with a scenario per fix: [38] for item 1, [37f] rewritten for item 2, [37b]/[37c] extended for item 3 |
+| `occt_mesh_recon_test` | **86 passed, 0 failed** |
+| `occt_bench` (Lane C) | **LANE C: PASS, HARNESS: VALIDATED** — all three calibration exponents agree, `edgeInfo1` at 1.011 this run (see §5.4 on why that verdict varies) |
+| predictions before the code | `8998cd1` (P11–P13) → `702e712`; `599a437` (P14–P16) → `fa7924f`; `375f96d` (P17–P19) → `119145b` |
+| separate, revertible commits | item 1 `702e712`, item 2 `fa7924f`, item 3 `119145b`, and neither of the first two depends on v24 |
+
+`pubspec.lock` is untouched — checked again after every Dart run.
