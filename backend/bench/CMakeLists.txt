@@ -111,3 +111,18 @@ if(BENCH_TESTS)
     enable_testing()
     add_test(NAME bench_stats COMMAND bench_stats_test)
 endif()
+
+# ---------------------------------------------------------------------------
+# S15 — the holed-sweep probe. NOT a Lane C scenario, deliberately: a rung
+# here can take a quarter of an hour, and Lane C runs on every push. It answers
+# the one question S14 §12.2 could only infer an answer to — whether the 25
+# minutes it saw at 1200 segments was construction or verification — by timing
+# those stages apart. See perf/findings/S15-holes.md §1.
+# ---------------------------------------------------------------------------
+option(BENCH_HOLE_PROBE "Build the S15 holed-sweep probe" OFF)
+if(BENCH_HOLE_PROBE)
+    add_executable(hole_probe hole_probe.cpp)
+    target_link_libraries(hole_probe PRIVATE occt_capi Threads::Threads
+                          ${CMAKE_DL_LIBS})
+    target_include_directories(hole_probe PRIVATE ${OpenCASCADE_INCLUDE_DIR})
+endif()
