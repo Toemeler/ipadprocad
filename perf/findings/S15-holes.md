@@ -180,3 +180,377 @@ Derivation    : these are S14 §12.2's measured numbers. This arm exists so
                 than to the kernel.
 Falsifiable by: any disagreement, which invalidates every number below it.
 ```
+
+---
+
+## 2. What the instrument measured
+
+Machine: 4-core Linux container, OCCT 7.9.3 built Release/static from the
+pinned submodule with the `VENDOR.md` configure line, shim and probe at `-O2`.
+**It is about 2.9× slower than the machine S14 measured on** — S14's [37d]
+reports the unholed 1200-segment sweep, unified, measured and validated, at
+3 559.2 ms, and the same subset of stages here is 10 230 ms. Every absolute
+number below carries that factor; every ratio does not.
+
+### 2.1 P0 — the instrument agrees with S14, to the last bit
+
+```
+--- 24 seg, r=3 hole, 16 spans, polyline spine
+  A boolean :      457.3 ms  vol 5031.442237  faces 770  valid
+  B assembly:  CONSTRUCTION 365.0 ms   VERIFICATION 72.1 ms
+               vol 5031.442237  faces 770  valid
+  A/B volume delta: 0.000e+00 relative
+--- 24 seg, r=3 hole, 16 spans, SMOOTH spine
+  A boolean :    17698.3 ms  vol 5031.420889  faces 50  valid
+  B assembly:  CONSTRUCTION  54.4 ms   VERIFICATION 340.7 ms
+               vol 5031.420889  faces 50  valid
+  A/B volume delta: 0.000e+00 relative
+```
+
+S14 §12.2's volumes and face counts, reproduced: 5 031.442237 / 770 and
+5 031.420889 / 50. **P0 HELD**, and it held harder than it was written — the
+prediction asked for agreement to ten significant figures and the two routes
+returned the *same double*, `0.000e+00` relative. That is worth more than the
+speed table: it says the assembly is not merely close to the subtraction, it is
+the same solid.
+
+### 2.2 P1–P3 — the staged 1200-segment measurement
+
+```
+--- 1200 seg, 16-span arc, SMOOTH spine
+  UNHOLED control: sweep  1382.2  caps  102.3  sew 2294.4  unify 121.3
+                   | volume  7905.4  valid   821.8
+                   CONSTRUCTION  3900.1 ms (30.9 %)
+                   VERIFICATION  8727.3 ms (69.1 %)   total 12627.4 ms
+                   vol 6785.779141  faces 1202  valid
+  HOLED assembly : sweep  2518.6  caps  110.7  sew 5094.6  unify 228.8
+                   | volume 16778.5  valid  8817.1
+                   CONSTRUCTION  7952.7 ms (23.7 %)
+                   VERIFICATION 25595.6 ms (76.3 %)   total 33548.3 ms
+                   vol 5089.335272  faces 2402  valid
+  valid(holed)/valid(unholed) = 10.7x
+```
+
+**A 1200-segment profile with a hole, swept along the sampled arc, BUILDS, and
+is VALID.** Construction is 7 952.7 ms on a machine 2.9× slower than S14's, so
+call it ~2.8 s there. Its volume is 5 089.335272 against an analytic annulus of
+5 089.356844 — `0.5·1200·(36−9)·sin(2π/1200) × 60`, where the 60 is exact
+because `hypot(18, 120/π)·(π/2) × (120/π)/hypot(18, 120/π) = 60` — a relative
+difference of **4.24e-6**, the same order as [37d]'s 4.1e-6 on the unholed
+sweep and for the same reason (the interpolated spine is not the sampled
+polyline).
+
+| | prediction | outcome |
+| --- | --- | --- |
+| **P0** | the probe reproduces S14 §12.2 | **HELD**, bit for bit |
+| **P1** | construction under 30 000 ms | **HELD** — 7 952.7 ms, against a derived ceiling of ~15 s |
+| **P2** | `valid` is ≥ 20× the unholed one AND the largest stage | **REFUTED, both halves** — 10.7×, and `volume` (16 778.5 ms) is larger than `valid` (8 817.1 ms) |
+| **P3** | verification > 50 %, construction < 10 % | **HALF HELD** — verification is 76.3 %, but construction is 23.7 %, not under 10 % |
+| **P4** | the shipped route does not finish | see §2.4 |
+
+### 2.3 The 25 minutes does not reproduce, and that is the result
+
+S14 killed its prototype after 25 minutes and inferred, from where its timer
+sat, that the process was stuck in `vol()` / `BRepCheck_Analyzer`. **I cannot
+reproduce a stall of any kind.** The whole operation — both sweeps, both caps,
+the sew, the unify, the volume AND the validity check — is 33.5 s here, which
+is ~11.7 s scaled to S14's machine. Construction alone is ~2.8 s there.
+
+So S14's §14.3 item 3 ("I am reasonably confident the stall is in verification
+rather than construction") is **wrong in a way that is better than being
+right**: it was neither. Something else about that prototype stalled, and I
+cannot say what, because the prototype is not in the repository. What I can
+say is what my probe does differently and what I would look at first:
+
+* the cap is built with `BRepLib_MakeFace(outerWire, onlyPlane=true)` and the
+  inner wire is added to *that* face with `BRep_Builder`. A prototype that
+  instead handed BOTH wires to a plane-finding `BRepBuilderAPI_MakeFace` would
+  run `BRepLib_FindSurface` over 2 400 edges rather than 1 200, twice;
+* sewing runs at `Precision::Confusion()` over faces that **already share their
+  boundary edges** — the cap's outer wire IS `mk.FirstShape()`, the lateral
+  shell's own free boundary, the same `TShape`. A prototype that rebuilt the
+  cap wire from points instead of reusing that handle would make sewing do real
+  geometric matching on 2 402 faces rather than recognising identity;
+* a Debug OCCT is a different kernel (`OPTIMIZATION_PLAN_2.md` and
+  `backend/bench/CMakeLists.txt` §build-type both say so) and would account for
+  a large factor on its own.
+
+**I am recording this as an unreproduced measurement, not as a refutation of
+S14.** S14 labelled its own claim an inference, which is exactly why this was
+worth an hour: the label was doing its job.
+
+### 2.4 P2 refuted: what actually costs, and why it matters more than the ratio
+
+The mechanism P2 named is real and visible — `valid` goes from 821.8 ms to
+8 817.1 ms, a 10.7× jump for a solid with only 2× the faces, and
+`BRepCheck_Face::IntersectWires` running `Intersect(outer, inner)` over
+1 200 × 1 200 edge pairs per cap is the only thing in that check that a second
+wire switches on. But the *magnitude* was wrong (10.7×, not ≥ 20×) and, more
+importantly, **`volume` is the biggest stage in the whole measurement**, at
+16 778.5 ms — and it is 7 905.4 ms for the unholed control too, i.e. it scales
+with faces and has nothing to do with holes at all. `BRepGProp::VolumeProperties`
+over B-spline faces costs about 7 ms per face on this machine, and neither S14
+nor I had any reason to expect that.
+
+**Neither `volume` nor `valid` is in the shipped path.** `finish_pipe` calls
+neither. So the honest split for the product is:
+
+| | shipped | this measurement |
+| --- | ---: | ---: |
+| holed 1200-segment sweep, construction | **7 952.7 ms** | 23.7 % |
+| measuring and checking it afterwards | 0 ms | 76.3 % |
+
+**Verification does cost more than construction — 3.2× more — and it is the
+test suite that pays it, not the user.** That is the answer to the question the
+brief asked to be answered early, and it changes one thing about the design:
+the smoke test cannot afford to call `occt_shape_volume` *and*
+`occt_shape_valid` on a 2 402-face solid on every CI run without adding ~26 s
+to it. It does not change the shim.
+
+---
+
+## 3. Pre-registration, round 2 — the change
+
+The measurement clears the design: the assembly builds a 1200-segment holed
+profile in 8.0 s where the shipped route does not build it at all, its volume
+is the analytic annulus, and at 24 segments it returns *the same double* the
+boolean returns. What is left is the risk S14 named and did not take:
+**nothing checks that a hole is inside its outer boundary**, and the boolean
+did not need it to be.
+
+### 3.1 The guard, derived
+
+The assembly is only equivalent to the subtraction when each hole is a genuine
+hole: strictly inside the outer boundary, and not overlapping or containing
+another hole. The subtraction needs none of that — it removes whatever the hole
+solid occupies, inside the body or outside it.
+
+The test is done in the profile's own 2D coordinates, on `xyb`, before any wire
+exists, and that is a choice with a reason: `placed_profile_wires` maps every
+loop through **one** `mat34`, and an affine placement preserves inside and
+outside, so containment in the sketch plane is containment in 3D. Testing the
+placed wires instead would mean 3D distance queries over B-Rep edges for the
+same answer.
+
+For loops that carry bulges the polygon through the vertices is not the loop:
+an arc bulges off its chord by its sagitta. So each loop is flattened at **2°
+per sub-chord** and the largest sagitta discarded is carried with it; the
+separation test then has to beat that error rather than merely find a
+positive gap.
+
+Sufficiency, stated as an argument because it is the whole guard:
+
+> If one vertex of hole *H* is inside outer *O*, and no point of *H*'s boundary
+> is within `margin` of *O*'s boundary, then *H* is entirely inside *O* — a
+> connected closed curve that does not touch *O* cannot have points on both
+> sides of it.
+
+with `margin = sag(O) + sag(H) + 1e-7·diag`, where `diag` is the profile's
+bounding-box diagonal. The two sagittae make the polygon test conservative
+about the true arcs; the relative term keeps it scale-free.
+
+The same test between each pair of holes, plus "neither hole's first vertex is
+inside the other", rules out overlap and nesting.
+
+**When the guard says no, `finish_pipe` runs the v26 boolean, unchanged.** That
+is the fallback, and it is not a reimplementation of the boolean — it is the
+same lines.
+
+### 3.2 What changes for the caller
+
+`occt_shim_version()` goes **26 → 27**. A caller that tests for 27 learns:
+
+1. **A holed profile is assembled, not subtracted**, whenever every hole is
+   strictly inside the outer boundary and the holes are pairwise disjoint.
+   Same solid, different route, and it succeeds at sizes where the boolean
+   did not return at all.
+2. **`OCCT_SWEEP_PATH_AUTO` now smooths a holed path.** The `nloops > 1`
+   restriction that forced POLY existed because of the boolean's cost, and the
+   boolean is gone from that path. **This is a behaviour change**: a holed
+   sweep along a sampled arc comes back with a *different face count and a
+   slightly different volume* than v26's mitered one — the same change v24
+   made for unholed profiles, for the same reason and in the same direction.
+3. **A hole that is not strictly inside still works**, by the v26 boolean, and
+   AUTO still forces POLY in that case so the fallback does not land on the
+   expensive spine.
+
+Version 27 is taken here and nowhere else on this branch; `CROSS-SESSION.md`
+carries the claim.
+
+```
+## Prediction P5 — the assembly IS the subtraction, at every fixture [37f] has
+Target        : smoke [37f] arm 2, 24-segment r=6 ring with an r=3 hole, the
+                tilted arc path at 8 spans, orientations 0, 1 and 2, POLY.
+Baseline      : v26 satisfies tube == outer - hole to 1e-9 at all three.
+Predicted     : still equal to 1e-9 at all three, still valid, and on
+                orientation 0 equal to the LAST BIT.
+Derivation    : §2.1 ran exactly this comparison at 16 spans on both spines and
+                measured a relative delta of 0.000e+00 — the two routes
+                returned the same double, not merely the same ten figures.
+                Nothing about 8 spans differs in kind.
+Falsifiable by: any residual above 1e-9. A residual that appears only at one
+                orientation would mean the cap is being built against the
+                wrong frame, which is v26's defect wearing a new hat.
+
+## Prediction P6 — AUTO smooths a holed profile now, and it is visible
+Target        : smoke [37f] arm 3, which today asserts AUTO == POLY for a holed
+                profile, 24 segments, 8 spans.
+Baseline      : v26: identical volume and face count, because AUTO was forced
+                to POLY.
+Predicted     : AUTO and POLY now DIFFER. AUTO gives 2*24 + 2 = 50 faces;
+                POLY gives 8 * 24 * 2 + 2 = 386. AUTO's volume is within
+                1e-4 relative of the analytic annulus
+                (A(6) - A(3)) * 60 = 83.857371 * 60 = 5031.442237.
+Derivation    : the smoothed spine is one interpolated edge, so each profile
+                segment sweeps ONE face: 24 outer + 24 inner + 2 caps = 50,
+                which is what §2.1 measured at 16 spans. The polyline spine
+                gives one face per profile segment per span, less what
+                UnifySameDomain merges; [37f] prints the number and the test
+                asserts only that the two differ and that AUTO is 50.
+                The volume tolerance is 1e-4 and not 1e-9 because an
+                interpolated spine is not the sampled polyline — [37d]
+                measures that gap as 4.1e-6 on the unholed sweep and §2.2
+                measures it as 4.24e-6 on the holed one.
+Falsifiable by: AUTO == POLY, i.e. the restriction not actually lifted.
+Note          : THIS IS THE BEHAVIOUR CHANGE. It is the same one v24 made for
+                unholed profiles, and it is routed, not merged.
+
+## Prediction P7 — a hole that pokes out is REFUSED, and the fallback is the
+##               boolean itself
+Target        : outer 24-gon r=6, hole 24-gon r=2 centred at (5.5, 0), arc
+                path, orientation 0.
+Predicted     : occt_sweep_profile_ex returns a solid whose volume equals
+                occt_cut(sweep(outer), sweep(hole))'s to 1e-9, and is valid.
+Derivation    : the hole's farthest vertex is at 5.5 + 2 = 7.5 from the origin
+                against an outer circumradius of 6, and its nearest is at 3.5,
+                so its boundary crosses the outer's; the flattened polygons
+                intersect, the minimum separation is 0, and
+                profile_holes_are_separate returns false. finish_pipe then
+                takes the v26 branch, which is the same BRepAlgoAPI_Cut
+                between the same two swept solids that the comparison operand
+                is built from. The two are the same OCCT operation on the same
+                operands, so they agree to whatever BRepAlgoAPI_Cut is
+                deterministic to, which is exactly.
+Falsifiable by: any difference above 1e-9, or an ASSEMBLY that succeeds — the
+                second is the dangerous one, because it would mean the guard
+                let through the case it exists for and the solid would be
+                wrong rather than merely different.
+Risk registered: this is S14 §12.3 risk 2 and §14.3 item 4, the reason that
+                proposal was handed over rather than committed.
+
+## Prediction P8 — the guard costs nothing worth measuring
+Target        : profile_holes_are_separate on the 1200 + 1200 vertex fixture.
+Predicted     : under 50 ms, i.e. under 1 % of the 7 952.7 ms construction.
+Derivation    : neither loop carries a bulge, so flattening is a copy of
+                2 400 points. The separation test is a double loop over
+                1 200 x 1 200 = 1 440 000 segment pairs, each of which is
+                rejected by an axis-aligned box test (four comparisons) before
+                any distance arithmetic; at 5 ns a pair that is 7.2 ms. The
+                point-in-polygon test is one crossing count over 1 200 edges.
+                Registered at 50 ms, seven times the estimate.
+Falsifiable by: above 50 ms. Then the naive double loop needs a uniform grid
+                over the outer loop's segments, which turns it linear because
+                the query radius is the margin and the margin is tiny — and I
+                will say so rather than ship an O(n*m) guard on the hot path.
+
+## Prediction P9 — two holes, and three
+Target        : a STRAIGHT path of length 40, 24-gon outer r=6, orientation 0.
+                (a) two r=1.5 holes at (+-3, 0);  (b) three r=1.2 holes at
+                radius 3, 120 deg apart.
+Predicted     : (a) 3 913.343962   (b) 3 935.705928, both to 1e-9 relative,
+                both valid, and (a) 5 * 24 + 2 = 122 faces before
+                UnifySameDomain merges the straight run.
+Derivation    : a regular 24-gon of circumradius R has area
+                0.5 * 24 * R^2 * sin(15 deg) = 3.1058285412 * R^2.
+                A(6) = 111.809827, A(1.5) = 6.988114, A(1.2) = 4.472393.
+                A straight sweep of a constant section is area x length:
+                (111.809827 - 2*6.988114) * 40 = 3 913.343962
+                (111.809827 - 3*4.472393) * 40 = 3 935.705928
+Falsifiable by: any residual above 1e-9. This is S14 §12.3 risk 4 — "k inner
+                wires per cap, mechanical, untested" — and the arithmetic is
+                what makes it not merely "it did not crash".
+
+## Prediction P10 — a tapered holed sweep, both spines
+Target        : straight path length 40, 24-gon r=6 with an r=3 hole, taper
+                5 deg; and the same profile on the arc path, both spines.
+Predicted     : the straight one is 3 656.315818 to 1e-9 relative and valid;
+                the arc ones equal their own outer-minus-hole to 1e-9.
+Derivation    : finish_pipe gives the outer wire and every hole the SAME
+                Law_Linear(0 -> 1, 1 -> 1+k) with k = tan(5 deg) = 0.087488664,
+                and BRepFill_PipeShell applies that law about the section's own
+                location frame — one station on the spine, shared by both
+                wires. So at every station the two sections are one homothety
+                of the profile about a common centre, which preserves
+                containment and keeps the two end sections coplanar. The
+                annular area at station t is (A_out - A_in) * s(t)^2, so
+                V = (A_out - A_in) * L * integral[0,1] (1+kt)^2 dt
+                  = 83.857371 * 40 * (1 + k + k^2/3)
+                  = 3 354.294825 * 1.090040086 = 3 656.315818.
+                Cross-check on the same law from a run I did not take:
+                [37g] measures an UNHOLED 5 deg taper as
+                6 766.447913 -> 7 375.699522, a ratio of 1.0900399 against
+                the 1.0900401 above.
+Falsifiable by: any residual above 1e-9. This is S14 §12.3 risk 3 — "I believe
+                the caps still match, and I did not test it".
+
+## Prediction P11 — the coil moves by a differential, not by a constant
+Target        : occt_coil_profile, 24-segment r=6 ring with an r=3 hole,
+                quarter turn of radius 18 rising 60.
+Baseline      : S14 P16 pinned 5 562.133035056, 50 faces, valid, and pinned it
+                as EQUAL to its own outer-minus-hole.
+Predicted     : still 50 faces, still valid, and still equal to its own
+                outer-minus-hole to 1e-9. I do NOT predict the same double as
+                v26: the coil is the one caller whose holed path was already
+                exact under the boolean, so the differential is the claim and
+                S14's recorded constant is not.
+Derivation    : the coil's spine is a single helical edge, so the lateral
+                shells are 24 faces each and the caps are one wire plus one:
+                24 + 24 + 2 = 50, which is what the boolean produced too.
+                finish_pipe is shared, so the coil takes the assembly for free.
+Falsifiable by: a differential residual above 1e-9, or a face count that is
+                not 50. A face count change here WOULD be a surprise, because
+                the boolean between a helical tube and its hole already
+                produced the clean 50.
+
+## Prediction P12 — a non-coplanar hole end section is NOT constructible, and
+##                  the guard for it is a backstop nothing reaches
+Predicted     : I cannot build a fixture that makes the coplanarity check fire.
+Derivation    : placed_profile_wires builds every loop from the same 2D xyb in
+                the XY plane and maps all of them through ONE mat34, so every
+                section starts coplanar; finish_pipe then places the outer wire
+                and every hole with the same spine, the same trihedron mode,
+                the same WithCorrection and the same taper law (v26 made those
+                four agree), so the two end sections are the same rigid motion
+                and the same homothety of two coplanar wires. Coplanarity is
+                preserved by both.
+Falsifiable by: NOTHING I CAN WRITE, and that is registered rather than
+                claimed. The guard is kept anyway — it is a dozen vertex
+                distances against a plane, it costs nothing, and if any future
+                change breaks one of those four agreements it turns a wrong
+                solid into a fallback. If the check is deleted, this prediction
+                fails silently and no test notices. Same shape as S14's P19.
+                This ANSWERS S14 §12.3's fourth open item, which asked whether
+                the case is constructible before relying on it being
+                impossible: it is not constructible today, and the reliance is
+                backed by a runtime check rather than by the argument alone.
+
+## Prediction P13 — overlapping holes fall back, and match the boolean
+Target        : outer 24-gon r=6, two r=2 holes at (-1.5, 0) and (+1.5, 0),
+                which overlap; straight path, length 40.
+Predicted     : the guard refuses, the boolean runs, and the volume equals
+                occt_cut(occt_cut(sweep(outer), sweep(h1)), sweep(h2)) to
+                1e-9.
+Derivation    : the two hole polygons are 3 apart at their centres with a
+                circumradius of 2 each, so their boundaries cross and the
+                pairwise separation is 0. An assembly here would put two
+                overlapping inner wires on one cap face and produce a solid
+                that is not the difference of anything.
+Falsifiable by: the assembly succeeding.
+
+## Prediction P14 — the Dart side does not move
+Target        : flutter analyze and flutter test.
+Predicted     : delta ZERO. No file under frontend/ is touched by this
+                session.
+Falsifiable by: any change in either, which would mean I edited something I
+                do not own.
+```
