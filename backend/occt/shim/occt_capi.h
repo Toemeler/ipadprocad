@@ -607,7 +607,13 @@ occt_shape *occt_sweep_profile(const double *xyb, const int *loop_counts,
  *   SMOOTH — one interpolated curve through the whole path regardless of its
  *            joints, for a caller that KNOWS its path is a sampled curve.
  *
- * A path of two points is one straight edge in every mode.
+ * A path of two points is one straight edge in every mode. AND AUTO DOES NOT
+ * SMOOTH A PROFILE WITH HOLES: finish_pipe cuts each hole out of the body with
+ * a boolean, and between two solids made of general swept surfaces that
+ * boolean costs about 80x what it costs between two solids made of planes
+ * (measured: 21 653 ms against a 258 ms whole operation). A holed profile
+ * therefore keeps the v23 spine — and keeps v23's failure at large segment
+ * counts. SMOOTH is not restricted: it is an explicit request.
  *
  * BEHAVIOUR CHANGE, and the integrator's call, not the shim's: an AUTO sweep
  * along a sampled arc has a different FACE COUNT and different topology from

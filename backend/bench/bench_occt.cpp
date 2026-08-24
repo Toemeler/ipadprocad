@@ -224,6 +224,7 @@ struct RunOpts {
     std::vector<int> sweep_spans{1, 2, 4, 8, 16};
     int sweep_fixed_spans = 16;    /* the path for the segments ladder */
     int sweep_fixed_segments = 128; /* the profile for the spans ladder */
+    int sweep_legacy_max = 128;     /* above this the v23 arm is skipped */
 };
 
 /* Below this, one sample is mostly clock noise: steady_clock resolves to
@@ -937,15 +938,16 @@ static const double kIdentity34[12] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
 /* One sweep through the shipped entry point. Returns the shape or null, and
  * always fills `ms` — a failure has a duration too, and on the device it was
  * four minutes. */
-static occt_shape *sweepOnce(int segments, int spans, double *ms)
+static occt_shape *sweepOnce(int segments, int spans, double *ms,
+                             int path_mode = OCCT_SWEEP_PATH_AUTO)
 {
     const std::vector<double> prof = bench::arcRingXYB(segments, 6.0);
     const std::vector<double> path = bench::arcPathXYZ(spans + 1, 60.0);
     const int counts[1] = {segments};
     const auto t0 = std::chrono::steady_clock::now();
     occt_shape *s =
-        occt_sweep_profile(prof.data(), counts, 1, kIdentity34, path.data(),
-                           spans + 1, 0, 0.0, 0.0);
+        occt_sweep_profile_ex(prof.data(), counts, 1, kIdentity34, path.data(),
+                              spans + 1, 0, 0.0, 0.0, path_mode);
     const auto t1 = std::chrono::steady_clock::now();
     if (ms)
         *ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -982,10 +984,12 @@ static occt_shape *coilOnce(int segments, double *ms)
  * already knows. The probe's own duration is what a failed rung reports. */
 static void sweepRung(const RunOpts &opts, const char *op, const char *axis,
                       double x, int segments, int spans, const char *note,
-                      bool coil = false)
+                      bool coil = false,
+                      int path_mode = OCCT_SWEEP_PATH_AUTO)
 {
     const auto build = [&](double *ms) {
-        return coil ? coilOnce(segments, ms) : sweepOnce(segments, spans, ms);
+        return coil ? coilOnce(segments, ms)
+                    : sweepOnce(segments, spans, ms, path_mode);
     };
     double probe_ms = 0.0;
     occt_shape *first = build(&probe_ms);
@@ -1156,7 +1160,7 @@ static void sweepVariant(const RunOpts &opts, const char *name, int segments,
                           : 0.0;
     std::snprintf(buf, sizeof buf,
                   "%s — %d faces, spine edges %d, volume %.6f (%+.4f %% vs the "
-                  "shipped pipeline), %s",
+                  "v23 pipeline), %s",
                   note, last.faces, last.spineEdges, last.volume, dv,
                   last.valid ? "valid" : "INVALID");
     record(std::move(m), buf);
@@ -1187,6 +1191,34 @@ static void runSweepLadders(const RunOpts &opts)
                   opts.sweep_fixed_spans,
                   "occt_sweep_profile against profile segment count");
 
+    /*
+     * The LEGACY arm — old against new, one run, one machine, which is what
+     * OPTIMIZATION_PLAN_2.md §1.4 requires of an equivalence claim and what a
+     * recorded constant cannot give. OCCT_SWEEP_PATH_POLY is v23 bit for bit.
+     *
+     * It is CAPPED, and the cap is the point: at 512 segments the legacy path
+     * is 447 seconds on the machine this was written on, and at 1200 it does
+     * not finish at all — it fails after 742 seconds. A benchmark that runs on
+     * every push cannot climb that ladder, so the legacy arm stops where it is
+     * still affordable and `--sweep-legacy-max` moves the line for anyone who
+     * wants to watch it break.
+     */
+    std::printf("\n  -- sweep.legacy (OCCT_SWEEP_PATH_POLY — the v23 spine, "
+                "capped at %d segments) --\n", opts.sweep_legacy_max);
+    for (int n : opts.sweep_sizes) {
+        if (n > opts.sweep_legacy_max) {
+            std::printf("  sweep.legacy           x=%-10d skipped (above "
+                        "--sweep-legacy-max %d; v23 costs 447 s at 512 and "
+                        "FAILS at 1200)\n", n, opts.sweep_legacy_max);
+            continue;
+        }
+        sweepRung(opts, "sweep.legacy", "segments", n, n,
+                  opts.sweep_fixed_spans,
+                  "occt_sweep_profile_ex with OCCT_SWEEP_PATH_POLY — the v23 "
+                  "polyline spine, every joint mitered",
+                  false, OCCT_SWEEP_PATH_POLY);
+    }
+
     /* The control: the same geometry through a spine that is a CURVE. */
     std::printf("\n  -- sweep.coil (the same quarter turn, as an exact helix) --\n");
     for (int n : opts.sweep_sizes)
@@ -1211,16 +1243,16 @@ static void runSweepLadders(const RunOpts &opts)
                 "(%d seg x %d spans) --\n", pn, ps);
     sweepPhases(opts, "sweep.ph", "segments", pn, pn, ps,
                 bench::Corner::RightCorner, bench::Spine::Polyline, true, 1.0e-2,
-                "the shipped pipeline, phase by phase");
+                "the v23 pipeline, phase by phase");
 
     /* And the same breakdown across the segment ladder, because a phase that
      * is 1 % at one size can be 40 % at another. */
     for (int n : opts.sweep_sizes) {
-        if (n == pn)
-            continue;
+        if (n == pn || n > opts.sweep_legacy_max)
+            continue; /* the phase breakdown IS the v23 pipeline — same cap */
         sweepPhases(opts, "sweep.ph", "segments", n, n, ps,
                     bench::Corner::RightCorner, bench::Spine::Polyline, true,
-                    1.0e-2, "the shipped pipeline, phase by phase");
+                    1.0e-2, "the v23 pipeline, phase by phase");
     }
 
     /* The replica against the original, on the same fixture, in the same run.
@@ -1228,7 +1260,7 @@ static void runSweepLadders(const RunOpts &opts)
     {
         double shim_ms = -1.0, rep_ms = -1.0;
         for (const Measured &m : g_results) {
-            if (m.op == "sweep.segments" && m.axis == "segments" &&
+            if (m.op == "sweep.legacy" && m.axis == "segments" &&
                 m.x == pn && m.ok)
                 shim_ms = m.t.mean;
             if (m.op == "sweep.ph.total" && m.axis == "segments" &&
@@ -1236,7 +1268,8 @@ static void runSweepLadders(const RunOpts &opts)
                 rep_ms = m.t.mean;
         }
         if (shim_ms > 0.0 && rep_ms > 0.0)
-            std::printf("\n  replica check: shim %.2f ms vs replica %.2f ms  "
+            std::printf("\n  replica check: shim (POLY) %.2f ms vs replica "
+                        "%.2f ms  "
                         "ratio %.3f  (read the phase table only if this is "
                         "near 1)\n",
                         shim_ms, rep_ms, rep_ms / shim_ms);
@@ -1255,15 +1288,15 @@ static void runSweepLadders(const RunOpts &opts)
             1.0e-2);
         ref = r.ok ? r.volume : 0.0;
         std::printf("  reference volume %.6f (%s)\n", ref,
-                    r.ok ? "shipped pipeline" : "shipped pipeline FAILED");
+                    r.ok ? "v23 pipeline" : "v23 pipeline FAILED");
     }
-    sweepVariant(opts, "shipped", pn, ps, bench::Corner::RightCorner,
+    sweepVariant(opts, "v23poly", pn, ps, bench::Corner::RightCorner,
                  bench::Spine::Polyline, true, 1.0e-2, ref,
-                 "RightCorner, polyline spine, UnifySameDomain — what the shim "
-                 "does today");
+                 "RightCorner, polyline spine, UnifySameDomain — the v23 "
+                 "pipeline, which is what OCCT_SWEEP_PATH_POLY still selects");
     sweepVariant(opts, "noUnify", pn, ps, bench::Corner::RightCorner,
                  bench::Spine::Polyline, false, 1.0e-2, ref,
-                 "the shipped pipeline WITHOUT the closing UnifySameDomain");
+                 "the v23 pipeline WITHOUT the closing UnifySameDomain");
     sweepVariant(opts, "transformed", pn, ps, bench::Corner::Transformed,
                  bench::Spine::Polyline, true, 1.0e-2, ref,
                  "BRepBuilderAPI_Transformed — no corner trimming at all");
@@ -1664,6 +1697,9 @@ static void usage()
         "                    (default 128; the device held 512)\n"
         "  --sweep-path N     path spans the segments ladder holds fixed\n"
         "                    (default 16, which is what the device used)\n"
+        "  --sweep-legacy-max N  highest segment rung the v23 (POLY) arm is\n"
+        "                    run at (default 128). v23 costs 447 s at 512 and\n"
+        "                    FAILS at 1200 on the machine this was written on\n"
         "  --no-sweep         skip the sweep ladders entirely\n"
         "  --help\n");
 }
@@ -1742,6 +1778,8 @@ int main(int argc, char **argv)
             opts.sweep_fixed_segments = std::atoi(next("--sweep-profile"));
         else if (a == "--sweep-path")
             opts.sweep_fixed_spans = std::atoi(next("--sweep-path"));
+        else if (a == "--sweep-legacy-max")
+            opts.sweep_legacy_max = std::atoi(next("--sweep-legacy-max"));
         else if (a == "--no-sweep")
             opts.sweep = false;
         else if (a == "--quick") {
@@ -1861,8 +1899,9 @@ int main(int argc, char **argv)
      * function is not a power law, and a k drawn through a 1-span rung with no
      * corners and a 16-span rung with fifteen describes nothing. Read the
      * rungs, not the exponent. */
-    for (const char *op : {"sweep.segments", "sweep.coil", "sweep.ph.build",
-                           "sweep.ph.unify", "sweep.ph.total"}) {
+    for (const char *op : {"sweep.segments", "sweep.legacy", "sweep.coil",
+                           "sweep.ph.build", "sweep.ph.unify",
+                           "sweep.ph.total"}) {
         FitRow r;
         r.op = op;
         r.axis = "segments";

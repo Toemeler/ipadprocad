@@ -3793,9 +3793,34 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
     if (!placed_profile_wires(xyb, loop_counts, nloops, mat34,
                               "occt_sweep_profile", outer, holes))
         return nullptr;
+    /* A HOLE COSTS MORE THAN THE CORNERS SAVE, so AUTO does not smooth one.
+     *
+     * finish_pipe sweeps every hole separately and CUTS it out of the body.
+     * On a polyline spine both operands are made of planes and that boolean is
+     * cheap; on a smoothed spine both are made of general swept surfaces, and
+     * a plane/plane intersection becomes a surface/surface one. Measured on a
+     * 24-segment ring with an r=3 hole over 16 spans: the two sweeps take
+     * 36.5 ms and 29.5 ms, and the cut between them takes 21 653.6 ms — 99.7 %
+     * of the call, against 258.7 ms for the WHOLE v23 operation. Smoothing
+     * would make a holed sweep about 80x slower, which is not a trade this
+     * session gets to make on the user's behalf.
+     *
+     * So a holed profile keeps the v23 spine exactly, which also means a holed
+     * profile keeps v23's failure at 1200 segments. That is the half of this
+     * finding that is NOT fixed, it is stated as such in
+     * perf/findings/S14-sweep.md §6.1, and the way out is to stop cutting
+     * holes out of sweeps rather than to smooth less — which is a bigger
+     * change than this one and is the integrator's to schedule.
+     *
+     * OCCT_SWEEP_PATH_SMOOTH is deliberately NOT restricted: it is an explicit
+     * request from a caller who has decided for itself. */
+    const int effective_mode =
+        (path_mode == OCCT_SWEEP_PATH_AUTO && nloops > 1)
+            ? OCCT_SWEEP_PATH_POLY
+            : path_mode;
     bool smoothed = false;
-    if (!spine_from_points_ex(path_pts, npath, path_mode, "occt_sweep_profile",
-                              spine, &smoothed))
+    if (!spine_from_points_ex(path_pts, npath, effective_mode,
+                              "occt_sweep_profile", spine, &smoothed))
         return nullptr;
 
     BRepOffsetAPI_MakePipeShell mk(spine);
