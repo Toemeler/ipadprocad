@@ -1162,7 +1162,20 @@ spans is what made the question answerable.
 
 **Verdict: SMOOTH** (linear within a tight interval; boundary exonerated).
 
-### 6.5 Topology queries — the principal finding
+### 6.5 Topology queries — the principal finding, and it is now CLOSED
+
+> **STATUS, 2026-08-24 — this defect is fixed and measured fixed.** Everything
+> from here to the closure at the end of the section is the round-one evidence
+> that PROVED the defect, and it is kept because it is how the diagnosis was
+> made and because a reader has to be able to check it. **The numbers in it
+> describe code that no longer exists.** The measured after-state, on the same
+> device and the same ladder, is at the end of the section under "Closure".
+>
+> Short version: `allEdges` was quadratic and is now linear (device,
+> **k = 1.1067 [1.0508, 1.1626]**, five rungs, R² = 0.99924); the part that
+> died in the field went from a predicted **56.4 s** to a measured
+> **48.2 ms**; and the enumeration is now *cheaper than* the tessellation
+> control that was 200× faster than it. Sessions 2 and 6.
 
 Three independent lines of evidence, each capable of refuting the others.
 
@@ -1303,9 +1316,9 @@ reproduces its exponent*.
 across the whole ladder (1 MB on the reduced-clock arm). The ladder stopped
 because a rung exceeded the 4 000 ms budget, with 3.9 GB of headroom unused.
 
-**Extrapolation to the part that crashed in the field (≈ 3400 edges),** now
-based on the stress ladder's reference arm, with its interval propagated from
-the fit and no Low Power Mode correction required — this arm was uncapped:
+**Extrapolation to the part that crashed in the field (≈ 3400 edges).** As of
+round one this could only be extrapolated, because the ladder could not reach
+that size — see the closure below, where it no longer has to be:
 
 | Basis | Predicted `allEdges` at 3400 edges |
 | --- | ---: |
@@ -1313,15 +1326,81 @@ the fit and no Low Power Mode correction required — this arm was uncapped:
 | **Central (k = 2.012)** | **56.4 s** |
 | CI upper (k = 2.113) | 70.8 s |
 
-The previous estimate, derived from the ramp tier under Low Power Mode and then
-corrected by the clock scalar, was "an order of 40–55 s on an uncapped device".
-The stress tier measures it **directly on an uncapped device** at 56.4 s
-[44.9, 70.8]. Three routes — ramp plus clock correction, per-call composition,
-and direct stress ladder — now agree.
+Three routes — ramp plus clock correction, per-call composition, and direct
+stress ladder — agreed on that figure. **It was a quadratic's extrapolation and
+it is now of historical interest only.**
 
-**Verdict: PROBLEM.** The second-largest cost in the application, behind
-`analyzeSketch` (§5.5) on exponent, and the largest single consumer of measured
-span time in the suite at 29.6 %.
+**Round-one verdict: PROBLEM.** The second-largest cost in the application,
+behind `analyzeSketch` (§5.5) on exponent, and the largest single consumer of
+measured span time in the suite at 29.6 %.
+
+---
+
+#### 6.5.1 Closure — the same ladder, the same device, after Sessions 2 and 6
+
+Capture A of the round-two paired run (build `cb1d183`, 2026-08-24, Low Power
+Mode off, thermal nominal before and after — the same conditions as the arm
+above, so this is like for like and needs no clock correction).
+
+**The ladder now completes.** Round one could not pass 480 profile points; every
+rung runs, including the two that previously exceeded the budget:
+
+| Profile pts | Edges | round one | **round two** | control `buildOnly` | factor |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 120 | 360 | 616 ms | **4.0 ms** | 12.0 ms | 154× |
+| 240 | 720 | 2 508 ms | **9.0 ms** | 25.0 ms | 279× |
+| 480 | 1 440 | 10 017 ms | **18.0 ms** | 51.0 ms | **556×** |
+| 960 | 2 880 | *budget exceeded* | **39.0 ms** | 107.0 ms | — |
+| 1920 | 5 760 | *budget exceeded* | **89.0 ms** | 242.0 ms | — |
+
+**The exponent.** Five rungs over a 16× range:
+
+| | k | 95 % CI | R² |
+| --- | ---: | --- | ---: |
+| `allEdges` round one | 2.012 | [1.910, 2.113] | 1.0000 |
+| **`allEdges` round two** | **1.1067** | **[1.0508, 1.1626]** | 0.99924 |
+| `buildOnly` control, round two | 1.0765 | [1.0265, 1.1266] | 0.99936 |
+
+The intervals for round one and round two are disjoint. **The subject and its
+own control are now statistically indistinguishable in exponent** — their CIs
+overlap almost entirely — which is the strongest available statement that the
+per-call Θ(shape) term is gone rather than merely reduced.
+
+**The control relationship has inverted, and that is the result that needs no
+statistics at all.** Round one, `allEdges` cost **200.3×** the tessellating
+control at 1 440 edges. Round two it costs **0.35×** — at every rung, 0.33 to
+0.37, flat. Enumerating a solid's edges is now about a third of the price of
+tessellating it, where it used to be two hundred times more. A reader who
+distrusts every fit in this document can read that row alone.
+
+**The field part, interpolated rather than extrapolated.** ≈ 3 400 edges now
+lies *between* two measured rungs (2 880 → 39 ms and 5 760 → 89 ms) instead of
+eight-fold beyond the last one:
+
+| | at 3 400 edges |
+| --- | ---: |
+| round one, extrapolated | 56 400 ms [44 900, 70 800] |
+| **round two, interpolated** | **48.2 ms [30.6, 76.0]** |
+
+**A factor of 1 169**, and the round-two figure is the better-supported of the
+two because it sits inside the measured range rather than beyond it.
+
+**Mechanism, for the record.** §6.5's source diagnosis named four whole-shape
+operations per call. Session 2 hoisted three of them (shim v21, one traversal
+per shape instead of one per edge) and took ~20× off the constant while the
+exponent survived at 1.909 — a refuted prediction that was more useful than a
+confirmation, because it proved something else was still Θ(shape) per edge.
+Session 6 found it: `BRepClass3d_SolidClassifier::Perform`, **98.6 % of the
+enumeration**, called once per edge to decide a convexity sign that is a local
+question. Replacing it with the scalar triple product of the two into-face
+directions is what moved the exponent. That change also **repaired** the sign
+on thin features, where the shipped probe crossed the material and answered
+about the far side — a box 200 × 0.1 × 20 had eight of its twelve edges
+reported concave. Details in `perf/findings/S6-shim2.md`.
+
+**Verdict: CLOSED.** Confirmed independently on the published Lane C runner
+(k = 1.037 [1.015, 1.058], control still quadratic at 2.074 in the same run)
+before the device capture agreed.
 
 ### 6.6 Placement
 
@@ -3036,6 +3115,170 @@ would invert its meaning.
 - **The display path**: 419.67 ms first scene push, 99.95 % origin planes.
   Untouched.
 - **Memory**: still the unproxied axis, still where the app died in the field.
+
+---
+
+## 18. Round two optimisation — measured, and round three's opening
+
+Same contract as §17, and for the same reason: **sections 1–17 are not
+rewritten.** Where a figure is superseded, both are shown. §6.5 is the one
+exception, and only in that it now carries a status banner and a closure
+subsection — its round-one evidence is intact beneath them.
+
+**The capture.** Build `cb1d183`, 2026-08-24, three arms:
+
+| arm | Low Power Mode | tiers | role |
+| --- | --- | --- | --- |
+| **A** 10:14 | off | scenarios + stress + ui | the gate arm; conditions match round one's baseline exactly |
+| **B** 10:19 | off | profile + memory | the sweep and allocation ladders, taken separately so their heat cannot contaminate A |
+| **C** 10:30 | **on** | scenarios + stress + ui | the throttled arm |
+
+All three thermal nominal before the suite. Twelve sessions contributed; seven
+of them registered 31 predictions with arithmetic before writing code.
+
+### 18.1 The result that closes the document's principal finding
+
+§6.5.1 has it in full. In one line: `allEdges` went from **k = 2.012** to
+**k = 1.1067 [1.0508, 1.1626]** on the same ladder and the same device, the
+stress ladder now completes rungs it previously could not reach, and the
+enumeration is now **0.35×** the cost of the tessellation control that used to
+be 200× faster than it.
+
+### 18.2 The regression gate
+
+Arm A against the round-one baseline: **no regression.** 40 spans faster, none
+slower. The largest single movement was `stress.kernel.allEdges::ffi.occt.allEdges`
+at **1932.6 → 4.6 ms (419×)**; `ffi.occt.allEdges` overall moved
+**226.8 → 0.78 ms**.
+
+The gate did report one finding, `constraints.add.coincident` at +23.6 %, and
+**it was not a regression.** In absolute terms the whole thing was 61 µs at
+n = 1; 12 of that span's 14 siblings moved *down*, and the only two that moved
+up were the two that execute first (`coincident` is `CType.values[0]`), which
+is warm-up — p ≈ 1.1 % for that placement under a random-position null. The
+gate has since been given an absolute floor at low n so it cannot repeat this;
+see §18.5.
+
+Arm C behaved as designed: durations refused (Low Power Mode differs from the
+baseline and the clock scalar is not uniform across subsystems, §3.5), counters
+and gauges compared and clean.
+
+### 18.3 `analyzeSketch` allocation
+
+The cubic recorded in §5.5 is gone. Churn at 128 entities is **3 MB**, against
+the ≈105 MB the round-one profile measured and the 102.8 MB it predicted from
+the dof arithmetic.
+
+### 18.4 The sweep — round two found it, round three fixed most of it
+
+This is the one place round two made things *worse-looking*, because it built
+an instrument that had never existed and the instrument found something bad.
+
+Arm B's `profile.sweep.segments` ladder, 512-segment ring on a 16-span path:
+
+| segments | result |
+| ---: | --- |
+| 32 | 91 ms |
+| 128 | 1 253 ms |
+| 512 | **132 112 ms** |
+| 1200 | **231 085 ms, then FAILED** — `occt_sweep_profile: BRep_API: command not done` |
+| 2048 | never ran; the ladder's 150 s budget wall stopped it |
+
+**A 1200-segment sweep did not merely take four minutes. It took four minutes
+and then produced nothing.** The span ladder failed the same way at 512 × 64
+spans after 69 s, which is why that rung appears *faster* than 16 spans: it is
+a time-to-failure.
+
+Session 14 diagnosed and largely fixed it. The decisive measurement was that
+512 segments cost **94 ms** with no interior corner in the path and **79 306 ms**
+with three — an **844×** step for 4× the faces, and only 1.67× more for the next
+twelve corners. The cost was not proportional to corners or to faces; it was a
+step that fired the moment the spine had any corner at all. Two structural
+facts explained it: `spine_from_points` always built a `MakePolygon`, so a
+spine was *always* a polyline, and `SetTransitionMode(BRepBuilderAPI_RightCorner)`
+miters every joint. And `sampleEntity` uses a fixed `arcSamples` regardless of
+angle, so **an ordinary arc path arrived as ~64 straight segments with ~63
+corners**.
+
+What that regime actually did, measured on a desktop replica:
+
+| fixture | shipped | after |
+| --- | --- | --- |
+| 64 seg × 16 spans | 6 774.9447, valid | 6 774.9153, valid |
+| 64 seg × 32 spans | **7 490.0386, INVALID** — 10.6 % too large, in 2.4 s, no error | 6 774.9447, valid |
+| 64 seg × 64 spans | **`free(): invalid next size` — process abort** | 6 774.9510, valid |
+
+The 32-span row is the worse of the two: a solid that is 10.6 % too large,
+fails `BRepCheck_Analyzer`, and is returned with no error at all. Nothing on
+that path checked validity, so the application accepted it.
+
+Shim v24 gives a sweep along a *sampled* curve a spine that is a curve. Desktop
+before/after, one process, one machine:
+
+| segments | v23 | v24 |
+| ---: | ---: | ---: |
+| 128 | 4 666.7 ms | 271.7 ms |
+| 512 | 447 118 ms | 1 223.6 ms (365×) |
+| **1200** | **FAILED after 742 249 ms** | **3 559.2 ms, valid** |
+
+Fitted **k = 1.150 [1.092, 1.207]** against v23's 2.97 between its top two
+rungs. The control — `occt_coil_profile`, which has always swept along an exact
+helix — fits 1.269, so the sweep now sits in the same family as the operation
+that never had the defect.
+
+**None of the v24 figures are device figures.** They are desktop milliseconds
+on a shared container and §13.3 binds: exponents and ratios transfer, absolute
+durations do not. The next capture is what settles it.
+
+### 18.5 Two defects that shipped in v15, and a generalisation
+
+Session 14's follow-up found two more in the same operation, both correctness
+rather than speed, both present since v15:
+
+* **Orientation 1 ("Fixed") called the wrong OCCT entry point.** `SetMode(gp_Dir)`
+  builds a `GeomFill_ConstantBiNormal` law whose `D0` *replaces* the frame's
+  tangent with its horizontal projection; the mode the shim's own comment
+  describes is `Set(gp_Ax2)` → `GeomFill_IsFixed`. Measured volume **16 429
+  where the analytic answer is 6 000**, and invalid. Fixed in v25.
+* **`finish_pipe` discarded the orientation it was handed** — a bare `(void)`
+  cast — and forced `WithCorrection`, so on any tilted path a hole was built
+  against a different frame from its body: **3.2 % of volume**. Fixed in v26.
+
+**The generalisation is worth more than the three fixes.** Every one of these
+defects is exact on a straight two-point path, which is what every fixture and
+every capture had used. Three independent faults in one operation survived nine
+months and three device captures because nothing ever bent the path. Whether
+the rest of the shim has the same blind spot is an open audit, not a settled
+question — §19.
+
+### 18.6 Instrument changes
+
+* **The gate gained an absolute floor at low n.** A movement on a span with
+  n < 3 must clear 0.5 ms as well as the percentage floor before it can fail;
+  below that it is reported in its own `UNRESOLVED` section, labelled "NOT
+  failures and NOT clean bills of health". The threshold's size comes from
+  scheduler granularity, not from fitting the data. The first attempt at this
+  fix exempted low-n spans from failing outright and was caught by the gate's
+  own test suite, which injects a real 40 % regression into a span that has
+  n = 1 in the actual capture — that would have traded a false positive for a
+  false negative.
+* **The baseline is re-recorded** from Arm A (`cb1d183`), same three runners as
+  its predecessor, so round three is measured from "round two complete".
+* **`splineEval`'s noise floor is 100 %.** That operation sits at the
+  quantisation limit and the gate can say nothing about it. Not new; now
+  visible.
+* **The suite's skip count varies between runs** (2 367 + 1 skipped against
+  2 368 + 0), so at least one test is conditional on state that is not fixed.
+  Unexplained.
+
+### 18.7 What round three has not settled
+
+| | |
+| --- | --- |
+| A holed profile at 1200 segments | still fails exactly as before — the hole is removed with a boolean that would be ~80× slower against a curved spine. Session 15. |
+| A path with joints above 5.625° | still mitered, still cubic: 512 segments on a 3-corner path is 79 s on device. A joint that steep is geometry somebody drew, and mitering it is correct. |
+| The rest of the shim, off-axis | unaudited. Session 16. |
+| Everything in §18.4 and §18.5 | desktop-only. No device has yet run a v26 kernel. |
 
 ---
 
