@@ -579,6 +579,19 @@ holes, plus "neither hole's first vertex is inside the other". **1.52 ms at
 axis-aligned rejection is cheaper than I costed it because two concentric rings
 fail the first comparison of four.
 
+The flattening carries a **budget of 8 192 points per loop**, and it is a
+budget rather than a refusal: a loop that cannot be sampled at 2° inside it
+gets a coarser step, which makes its sagitta larger, which makes the clearance
+margin larger, which makes the guard *more* conservative. Coarsening therefore
+cannot turn a "no" into a "yes". Without it the flattening is unbounded in a
+way that matters — a full circle is 180 sub-chords at 2°, so a 1200-vertex loop
+of full-circle arcs is 216 000 points and the pairwise test 4.7e10 pairs.
+Nothing a user draws looks like that; a file a user imports might. Measured on
+exactly that input: 7 200 points, 0.4 ms, refused (its sagitta is 1.05e6, so
+nothing is clear of anything) — and the ordinary cases are untouched, a true
+circle still sampling at 180 points with a sagitta of 7.6e-4 and a plain square
+still flattening to its four vertices with a sagitta of zero.
+
 **The assembly, `assemble_holed_pipe`.** Takes `mk.Shape()` and
 `mk.FirstShape()`/`LastShape()` **before** `MakeSolid`, because
 `BRepFill_PipeShell::MakeSolid` caps the shell in place and turns those end
@@ -802,7 +815,7 @@ record. The holed sweep now sits in the same family as the unholed one.
 | | |
 | --- | --- |
 | `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | 56 issues, **delta ZERO** — and provably so rather than by comparison: `git diff origin/claude/perf-opt2 -- frontend/` is empty, no Dart file is touched |
-| `flutter test` | **2 368 passed**, three consecutive runs, full logs kept (§6.1) |
+| `flutter test` | **2 368 passed, three consecutive runs**, exit 0 each time, zero `[E]` markers in any of the three complete logs (21 MB each, kept for the length of the session). The skip count read `~1200` in all three, so S14 §14.5's "the skip count varies between runs" did not recur here. Nothing to report against its standing note |
 | `python3 -m unittest discover -s ci -p 'test_*.py'` | **52 tests, OK** |
 | `occt_smoke` on real OCCT 7.9.3 | **PASS**, 2 m 12 s, with a scenario per new claim: [39a] two and three holes, [39b] taper, [39c] a hole poking out, [39d] overlapping holes, [39e] the coil, [39f] the 1200-segment bar, [39g] the assembly against the boolean, [39h] arcs and a straddling hole; [37f] arm 3 inverted |
 | `occt_mesh_recon_test` | **86 passed, 0 failed** |

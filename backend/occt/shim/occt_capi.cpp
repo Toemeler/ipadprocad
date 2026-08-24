@@ -3551,9 +3551,31 @@ struct flat_loop {
     double sag = 0.0;
 };
 
+/* At most this many points per flattened loop. It is a BUDGET, not a refusal:
+ * 2 degrees per sub-chord is the target, and a loop that would blow the budget
+ * gets a coarser step instead — which makes its sagitta larger, which makes
+ * the clearance margin larger, which makes the guard MORE conservative. The
+ * error is carried, so coarsening cannot turn a "no" into a "yes".
+ *
+ * Without it the flattening is unbounded in a way that matters: a full circle
+ * is 180 sub-chords at 2 degrees, so a 1200-vertex loop of full-circle arcs
+ * would be 216 000 points and the pairwise test 4.7e10 pairs. Nothing a user
+ * draws looks like that; a file a user IMPORTS might. */
+static const int kFlatBudget = 8192;
+
 static void flatten_loop(const double *xyb, int npts, flat_loop &out)
 {
-    const double kStep = 2.0 * M_PI / 180.0; /* 2 degrees per sub-chord */
+    /* Pass 1: how much turning is there, and can 2 degrees pay for it? */
+    double turn = 0.0;
+    for (int i = 0; i < npts; ++i) {
+        const double b = xyb[3 * i + 2];
+        if (std::fabs(b) > 1e-12)
+            turn += std::fabs(4.0 * std::atan(b));
+    }
+    const int room = kFlatBudget > npts ? kFlatBudget - npts : 1;
+    double kStep = 2.0 * M_PI / 180.0; /* 2 degrees per sub-chord */
+    if (turn / kStep > room)
+        kStep = turn / room;
     for (int i = 0; i < npts; ++i) {
         const int j = (i + 1) % npts;
         const double x0 = xyb[3 * i], y0 = xyb[3 * i + 1];
@@ -3596,8 +3618,8 @@ static void flatten_loop(const double *xyb, int npts, flat_loop &out)
         int nsub = static_cast<int>(std::ceil(std::fabs(th) / kStep));
         if (nsub < 1)
             nsub = 1;
-        if (nsub > 4096)
-            nsub = 4096;
+        if (nsub > kFlatBudget)
+            nsub = kFlatBudget;
         const double phi = th / nsub;
         const double sag = std::fabs(r) * (1.0 - std::cos(0.5 * phi));
         if (sag > out.sag)
