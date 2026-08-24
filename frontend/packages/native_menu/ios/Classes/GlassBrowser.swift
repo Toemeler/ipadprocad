@@ -32,6 +32,7 @@ struct BrowserRow {
     let expandable: Bool
     let expanded: Bool
     let selected: Bool
+    let hovered: Bool       // M242 — pointer prehighlight
     let isEop: Bool
     let tint: String?       // "blue" | "red" | nil
     let menu: [[[String: Any]]]  // sections of items: {id,title,symbol,destructive}
@@ -49,6 +50,7 @@ struct BrowserRow {
         expandable = (m["expandable"] as? NSNumber)?.boolValue ?? false
         expanded = (m["expanded"] as? NSNumber)?.boolValue ?? false
         selected = (m["selected"] as? NSNumber)?.boolValue ?? false
+        hovered = (m["hovered"] as? NSNumber)?.boolValue ?? false
         isEop = (m["isEop"] as? NSNumber)?.boolValue ?? false
         tint = m["tint"] as? String
         menu = (m["menu"] as? [[[String: Any]]]) ?? []
@@ -321,9 +323,14 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             cell.contentConfiguration = c
 
             var bg = UIBackgroundConfiguration.listPlainCell()
+            // M242 — selection, then the pointer prehighlight at half its
+            // strength. Selected WINS on a row that is both: two washes would
+            // compound into a third colour that means nothing.
             bg.backgroundColor = r.selected
                 ? UIColor.systemBlue.withAlphaComponent(0.28)
-                : .clear
+                : (r.hovered
+                   ? UIColor.systemBlue.withAlphaComponent(0.14)
+                   : .clear)
             cell.backgroundConfiguration = bg
 
             var accessories: [UICellAccessory] = []
@@ -396,6 +403,34 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         // rejects immediately for any other row, so the scroll pan is released
         // in the same event.
         collection.panGestureRecognizer.require(toFail: pan)
+
+        // M242 — POINTER HOVER (trackpad, or Apple Pencil on a hover-capable
+        // iPad). The row under the pointer is published to Dart, which lights
+        // the matching solid in 3D as well; touch input never fires this, so a
+        // finger-only session behaves exactly as before.
+        let hover = UIHoverGestureRecognizer(
+            target: self, action: #selector(onHover(_:)))
+        collection.addGestureRecognizer(hover)
+    }
+
+    /// The row the pointer last reported, so a move WITHIN one row costs
+    /// nothing: a hover push reloads the tree's snapshot on the Dart side.
+    private var hoveredId = ""
+
+    @objc private func onHover(_ g: UIHoverGestureRecognizer) {
+        var id = ""
+        if g.state == .began || g.state == .changed {
+            let pt = g.location(in: collection)
+            if let ip = collection.indexPathForItem(at: pt),
+               ip.item < rows.count {
+                id = rows[ip.item].id
+            }
+        }
+        // "" is "the pointer is over no row", including .ended: an empty string
+        // rather than a nil keeps the argument map free of NSNull.
+        if id == hoveredId { return }
+        hoveredId = id
+        channel.invokeMethod("hover", arguments: ["id": id])
     }
 
     private func apply(_ list: [BrowserRow]) {

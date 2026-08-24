@@ -2433,14 +2433,15 @@ class _ScenePainter extends CustomPainter {
             app.hoverEdge3d!.$2 >= 0)
           app.hoverEdge3d!.$2,
       };
-      // The body selected in the model browser, drawn the way RealityKit
-      // draws it (a tinted body) so the two viewports say the same thing.
-      final selName = app.selectedBody;
-      final selected = selName == null
-          ? const <KernelSolid>[]
+      // The bodies selected and hovered in the model browser, drawn the way
+      // RealityKit draws them (a tinted body) so the two viewports say the
+      // same thing. `solids` is what is actually being DRAWN — a body hidden
+      // behind a boolean preview or an open feature edit must not light up.
+      List<KernelSolid> solidsOfBody(String? body) => body == null
+          ? const []
           : [
               for (final f in part.features)
-                if (f.bodyName == selName &&
+                if (f.bodyName == body &&
                     f.solid != null &&
                     solids.any((s) => identical(s, f.solid)))
                   f.solid!
@@ -2451,7 +2452,8 @@ class _ScenePainter extends CustomPainter {
           highlightFace: hoverFace?.$2 ?? -1,
           accentSolid: accentSolid,
           accentEdges: accent,
-          selectedSolids: selected);
+          selectedSolids: solidsOfBody(app.selectedBody),
+          hoveredSolids: solidsOfBody(app.browserHoverBody));
     }
 
     // ---- work planes (M151) ----

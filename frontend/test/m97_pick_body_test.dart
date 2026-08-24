@@ -107,6 +107,19 @@ void _selectionTests() {
     expect(sceneSignature(app, p), base);
   });
 
+  test('hovering a row lights the body without selecting it', () {
+    final app = AppState();
+    final p = PartModel('P');
+    final base = sceneSignature(app, p);
+    app.setBrowserHoverBody('Solid1');
+    expect(app.browserHoverBody, 'Solid1');
+    expect(app.selectedBody, isNull, reason: 'a hover is not a choice');
+    expect(sceneSignature(app, p), isNot(base),
+        reason: 'the hover tint must force a rebuild, like the selection');
+    app.setBrowserHoverBody(null);
+    expect(sceneSignature(app, p), base);
+  });
+
   test('Esc clears the selection once nothing else is running', () {
     final app = AppState()..toggleBodySelected('Solid1');
     app.escape3D();

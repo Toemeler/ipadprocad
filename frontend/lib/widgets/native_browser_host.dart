@@ -160,6 +160,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           rows: buildBrowserRows(app,
               expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
           onTap: _onTap,
+          onHover: _onHover,
           onEye: _onEye,
           onExpand: (id, on) => setState(() {
             Log.i('browser', 'expand $id on=$on');
@@ -219,6 +220,20 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   }
 
   // -- events ---------------------------------------------------------------
+
+  /// M242 — the row under the pointer (trackpad / Pencil hover), or '' when it
+  /// is over none. Only a BODY row means anything here: it prehighlights the
+  /// solid in 3D, the way the Flutter browser does on a desktop run.
+  ///
+  /// While the extrude dialog is picking a target body that hover belongs to
+  /// the dialog (app.hoverBody, which re-previews the boolean), so this stays
+  /// out of the way.
+  void _onHover(String id) {
+    final app = widget.app;
+    if (app.pickingBody) return;
+    app.setBrowserHoverBody(
+        id.startsWith(kIdBody) ? id.substring(kIdBody.length) : null);
+  }
 
   void _onTap(String id) {
     // M204 — every native browser event is logged from here on.

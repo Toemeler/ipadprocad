@@ -35,6 +35,10 @@ class GlassRow {
   final bool expanded;
   final bool selected;
 
+  /// M242 — the row under the POINTER (trackpad / Apple Pencil hover). Drawn
+  /// like [selected] at half the strength: a prehighlight, not a choice.
+  final bool hovered;
+
   /// The End of Part marker — the only draggable row.
   final bool isEop;
 
@@ -55,6 +59,7 @@ class GlassRow {
     this.expandable = false,
     this.expanded = false,
     this.selected = false,
+    this.hovered = false,
     this.isEop = false,
     this.tint,
     this.menu = const [],
@@ -83,6 +88,7 @@ class GlassRow {
         expandable: false,
         expanded: expanded,
         selected: selected,
+        hovered: hovered,
         isEop: isEop,
         tint: tint,
         menu: menu,
@@ -99,6 +105,7 @@ class GlassRow {
         'expandable': expandable,
         'expanded': expanded,
         'selected': selected,
+        'hovered': hovered,
         'isEop': isEop,
         if (tint != null) 'tint': tint,
         'menu': [
@@ -132,6 +139,10 @@ class GlassMenuItem {
 class GlassBrowser extends StatefulWidget {
   final List<GlassRow> rows;
   final void Function(String id) onTap;
+
+  /// M242 — the row under the pointer, or '' when it left the panel. Optional:
+  /// a surface that does not care about hover simply does not pass it.
+  final void Function(String id)? onHover;
   final void Function(String id) onEye;
   final void Function(String id, bool expanded) onExpand;
   final void Function(String id, String item) onMenu;
@@ -150,6 +161,7 @@ class GlassBrowser extends StatefulWidget {
     super.key,
     required this.rows,
     required this.onTap,
+    this.onHover,
     required this.onEye,
     required this.onExpand,
     required this.onMenu,
@@ -177,6 +189,9 @@ class _GlassBrowserState extends State<GlassBrowser> {
       switch (call.method) {
         case 'tap':
           widget.onTap(a['id'] as String? ?? '');
+          break;
+        case 'hover':
+          widget.onHover?.call(a['id'] as String? ?? '');
           break;
         case 'eye':
           widget.onEye(a['id'] as String? ?? '');

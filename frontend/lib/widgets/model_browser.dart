@@ -1392,19 +1392,40 @@ class _ModelBrowserState extends State<ModelBrowser> {
       trailing: _EyeButton(
           visible: on, onTap: () => app.toggleBodyVisible(part, bodyName)),
     );
+    // …and hovering one prehighlights it the same way, at half the strength of
+    // the selection: the row here, the body in 3D (both read
+    // app.browserHoverBody). A selected row keeps the selected look — two
+    // washes on one body would only compound into a third colour that means
+    // nothing, which is the rule the assembly tint follows too.
+    final warm = !picking && !sel && app.browserHoverBody == bodyName;
     Widget out = Container(
       key: _bodyKeyFor(bodyName),
-      color: hot ? T.accent.withValues(alpha: 0.28) : null,
+      color: hot
+          ? T.accent.withValues(alpha: 0.28)
+          : (warm ? T.accent.withValues(alpha: 0.14) : null),
       child: row,
     );
-    if (picking) {
-      out = MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => app.setHoverBody(bodyName),
-        onExit: (_) => app.setHoverBody(null),
-        child: out,
-      );
-    }
+    // The hover is published in BOTH modes — as the dialog's target pick while
+    // one is armed (it re-previews the boolean), as the plain prehighlight
+    // otherwise.
+    out = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        if (picking) {
+          app.setHoverBody(bodyName);
+        } else {
+          app.setBrowserHoverBody(bodyName);
+        }
+      },
+      onExit: (_) {
+        if (picking) {
+          app.setHoverBody(null);
+        } else {
+          app.setBrowserHoverBody(null);
+        }
+      },
+      child: out,
+    );
     return on ? out : Opacity(opacity: 0.45, child: out);
   }
 

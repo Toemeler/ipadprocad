@@ -238,6 +238,7 @@ List<GlassRow> _buildRows(
             selected: app.pickingBody
                 ? app.hoverBody == name
                 : app.selectedBody == name,
+            hovered: !app.pickingBody && app.browserHoverBody == name,
             menu: _bodyMenu(app, on),
           ));
         }
