@@ -113,10 +113,38 @@ typedef _ChamferExD = Pointer<Void> Function(
     int,
     Pointer<Int32>,
     Pointer<Double>);
-typedef _SweepN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, Int32,
-    Pointer<Double>, Pointer<Double>, Int32, Int32, Double, Double);
-typedef _SweepD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, int,
-    Pointer<Double>, Pointer<Double>, int, int, double, double);
+/// v24 — what the points of a sweep path MEAN, which only the caller knows.
+///
+/// The path always reaches the kernel as a polyline, because `sketchCurve`
+/// flattens arcs, circles and splines before the shim is called. But a
+/// polyline sampled from an arc and a polyline somebody drew want opposite
+/// treatment at every joint: the first wants a spine that is a curve, and the
+/// second wants its corners mitered exactly where they are. Getting it wrong
+/// costs either a rounded-off corner or — measured, see
+/// `perf/findings/S14-sweep.md` — a sweep that is cubic in the profile size
+/// and fails outright past about a thousand segments.
+abstract final class SweepPathMode {
+  /// Let the shim infer it from the joint angles. Right for a flattened
+  /// spline, whose joints are mostly sampling but can include a real cusp —
+  /// a gear outline has one at every tooth.
+  static const int auto = 0;
+
+  /// Every joint is a vertex somebody placed. Miter all of them.
+  static const int polyline = 1;
+
+  /// Every joint is a sampling artefact. Sweep along one interpolated curve.
+  static const int smooth = 2;
+}
+
+// v24 — occt_sweep_profile_ex. The v15 entry point occt_sweep_profile is no
+// longer bound: it is exactly this call with pathMode = auto, the shim
+// delegates one to the other, and a second binding would be an unused field.
+// See SweepPathMode.
+typedef _SweepExN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
+    Int32, Pointer<Double>, Pointer<Double>, Int32, Int32, Double, Double,
+    Int32);
+typedef _SweepExD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>, int,
+    Pointer<Double>, Pointer<Double>, int, int, double, double, int);
 typedef _LoftN = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
     Pointer<Double>, Int32, Int32, Int32, Int32);
 typedef _LoftD = Pointer<Void> Function(Pointer<Double>, Pointer<Int32>,
@@ -1003,7 +1031,7 @@ class OcctFfi {
       this._rayHits,
       this._revolveHits,
       this._revolveHitsFace,
-      this._sweepProfile,
+      this._sweepProfileEx,
       this._loftSections,
       this._coilProfile,
       this._mirror,
@@ -1071,7 +1099,7 @@ class OcctFfi {
   final _RayHitsD _rayHits;
   final _RevHitsD _revolveHits; // v13
   final _RevFaceD _revolveHitsFace; // v13
-  final _SweepD _sweepProfile; // v15
+  final _SweepExD _sweepProfileEx; // v24
   final _LoftD _loftSections; // v15
   final _CoilD _coilProfile; // v15
   final _TransformD _mirror; // v17 (occt_mirror: point + normal, 6 doubles)
@@ -1147,7 +1175,7 @@ class OcctFfi {
         lib.lookupFunction<_RayHitsN, _RayHitsD>('occt_ray_hits'),
         lib.lookupFunction<_RevHitsN, _RevHitsD>('occt_revolve_hits'),
         lib.lookupFunction<_RevFaceN, _RevFaceD>('occt_revolve_hits_face'),
-        lib.lookupFunction<_SweepN, _SweepD>('occt_sweep_profile'),
+        lib.lookupFunction<_SweepExN, _SweepExD>('occt_sweep_profile_ex'),
         lib.lookupFunction<_LoftN, _LoftD>('occt_loft_sections'),
         lib.lookupFunction<_CoilN, _CoilD>('occt_coil_profile'),
         // v17 — the mirror placement (M212's pattern/mirror features).
@@ -1291,9 +1319,20 @@ class OcctFfi {
   /// profile's sketch frame. [orientation]: 0 follow path, 1 fixed, 2 follow
   /// path and guide. [twistDeg] must be 0 — the shim refuses a non-zero twist
   /// rather than silently producing an untwisted solid.
+  ///
+  /// v24 — [pathMode] says what the points MEAN, because only the caller
+  /// knows. The path always arrives as a polyline, but a polyline sampled from
+  /// an arc and a polyline somebody drew want opposite treatment at every
+  /// joint, and getting it wrong costs either a rounded-off corner or a sweep
+  /// that is cubic in the profile size. [SweepPathMode.auto] leaves the shim
+  /// to infer it from the joint angles, which is what it did before this
+  /// existed and is still right for a flattened spline.
   OcctShape? sweepProfile(List<List<double>> loops, List<double> mat34,
       List<double> pathPts,
-      {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) {
+      {int orientation = 0,
+      double taperDeg = 0,
+      double twistDeg = 0,
+      int pathMode = SweepPathMode.auto}) {
     if (loops.isEmpty || mat34.length != 12 || pathPts.length < 6) return null;
     var total = 0;
     for (final l in loops) {
@@ -1320,8 +1359,8 @@ class OcctFfi {
       }
       return ffiSpan(
           'ffi.occt.sweepProfile',
-          () => _wrap(_sweepProfile(xyb, counts, loops.length, m, pp,
-              pathPts.length ~/ 3, orientation, taperDeg, twistDeg)));
+          () => _wrap(_sweepProfileEx(xyb, counts, loops.length, m, pp,
+              pathPts.length ~/ 3, orientation, taperDeg, twistDeg, pathMode)));
     } finally {
       calloc.free(xyb);
       calloc.free(counts);

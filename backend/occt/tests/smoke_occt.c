@@ -2365,6 +2365,24 @@ int main(void)
                 check(fu == 6, "[37c] a 5.0-degree joint was NOT smoothed");
                 check(fv == 8, "[37c] a 6.5-degree joint WAS smoothed");
             }
+            /* And the same 5.0-degree joint DECLARED as drawn: the caller
+             * saying "these are my vertices" must override the threshold, or
+             * item 3's whole point is lost. This is what a hand-drawn polyline
+             * path now gets from the Dart side. */
+            {
+                occt_shape *sd = occt_sweep_profile_ex(P, lc, 1, I37, pu, 3, 0,
+                                                       0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                if (check(sd != NULL, "[37c] POLY refused a 5.0-degree joint")) {
+                    int fd = 0;
+                    occt_shape_counts(sd, &fd, NULL, NULL);
+                    printf("[37c] the SAME 5.0-degree joint declared POLY -> "
+                           "%d faces (mitered, not smoothed)\n", fd);
+                    check(fd == 8, "[37c] a DECLARED polyline joint was "
+                                   "smoothed anyway");
+                    occt_free_shape(sd);
+                }
+            }
             if (su) occt_free_shape(su);
             if (sv) occt_free_shape(sv);
         }
