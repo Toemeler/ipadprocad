@@ -2552,8 +2552,22 @@ int main(void)
                 if (hi) occt_free_shape(hi);
             }
 
-            /* arm 3 — and v24 still does not smooth a holed profile, so AUTO
-             * and POLY must be the same object, not merely close */
+            /* arm 3 — v27: AUTO now DOES smooth a holed profile, and this
+             * arm is inverted to say so.
+             *
+             * It read "AUTO and POLY must be the same object" because v24
+             * forced a holed profile back onto the polyline spine — the hole
+             * was removed with a boolean, and that boolean costs 21 653.6 ms
+             * between two smooth-spine solids against 85.4 ms between two
+             * polyline ones (S14 §4.1). v27 assembles instead of subtracting,
+             * so the reason is gone and the restriction with it.
+             *
+             * THIS IS THE BEHAVIOUR CHANGE THIS SESSION MAKES, and it is the
+             * same one v24 made for unholed profiles: a holed sweep along a
+             * sampled arc comes back as one smooth run instead of a mitered
+             * one. The check below is what a smooth run MEANS — 2 faces per
+             * profile segment plus 2 caps — plus the analytic annulus, rather
+             * than a recorded number. */
             {
                 occt_shape *au = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
                                                        spans + 1, 0, 0.0, 0.0,
@@ -2564,11 +2578,22 @@ int main(void)
                 if (check(au != NULL && po != NULL,
                           "[37f] AUTO or POLY refused a holed profile")) {
                     int fa = 0, fp = 0;
+                    const double va = occt_shape_volume(au);
                     occt_shape_counts(au, &fa, NULL, NULL);
                     occt_shape_counts(po, &fp, NULL, NULL);
-                    check(occt_shape_volume(au) == occt_shape_volume(po)
-                          && fa == fp,
-                          "[37f] AUTO smoothed a holed profile");
+                    printf("[37f] holed AUTO f=%d vol=%.6f | POLY f=%d "
+                           "vol=%.6f (analytic %.6f) %s\n", fa, va, fp,
+                           occt_shape_volume(po), ann * kL37 * kCos37,
+                           occt_shape_valid(au) ? "valid" : "INVALID");
+                    check(fa == 2 * seg + 2,
+                          "[37f] AUTO did not smooth a holed profile");
+                    check(fp > fa,
+                          "[37f] POLY is no longer the mitered polyline path");
+                    check(near_rel(va, ann * kL37 * kCos37, 1e-4),
+                          "[37f] the smoothed tube is not the analytic "
+                          "annulus");
+                    check(occt_shape_valid(au),
+                          "[37f] the smoothed tube is invalid");
                 }
                 if (au) occt_free_shape(au);
                 if (po) occt_free_shape(po);
@@ -2746,6 +2771,662 @@ int main(void)
                 }
             }
         }
+    }
+
+
+    /* [39] v27 — A HOLED PROFILE IS ASSEMBLED, NOT SUBTRACTED.
+     *
+     * finish_pipe removed every hole with a BRepAlgoAPI_Cut from v15 to v26.
+     * That boolean is what forced a holed profile back onto the v23 polyline
+     * spine (its cost is 99.7 % of a smooth-spine holed sweep, S14 §4.1), and
+     * therefore what kept a holed profile failing at 1200 segments long after
+     * v24 fixed the unholed one. v27 sweeps each wire to its lateral shell,
+     * caps both ends with a planar face carrying the holes as inner
+     * boundaries, sews and makes a solid.
+     *
+     * The assembly is a SPECIAL operation where the boolean was a GENERAL one:
+     * it assumes each hole is strictly inside the outer boundary and that the
+     * holes are pairwise disjoint. Nothing checked that before, because
+     * nothing needed it to. profile_holes_are_separate now does, and when it
+     * says no the v26 boolean runs unchanged. Arms (c) and (d) below are that
+     * guard, and they are the reason S14 handed this over rather than
+     * committing it.
+     *
+     * Every pin here is ARITHMETIC or a DIFFERENTIAL taken in this run. A
+     * regular n-gon of circumradius R has area 0.5*n*R^2*sin(2*pi/n), and a
+     * straight sweep of a constant section is area x length; where the path
+     * bends, the claim is against occt_cut of the same two sweeps, which is
+     * the operation v26 used and is built here through a different entry
+     * point.
+     */
+    {
+        const double I39[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        const int seg = 24;
+        const double s39 = sin(2.0 * M_PI / seg);
+        const double L39 = 40.0;
+        const double sp39[6] = {0,0,0, 0,0,40};
+        double path39[3 * 17];
+        int i, k;
+        /* area of a regular 24-gon of circumradius R */
+#define A39(R) (0.5 * seg * (R) * (R) * s39)
+        for (i = 0; i <= 8; ++i) {
+            const double t = (double)i / 8.0, a = t * M_PI / 2.0;
+            path39[3*i+0] = 60.0 * sin(a) * 0.3;
+            path39[3*i+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+            path39[3*i+2] = t * 60.0;
+        }
+
+        /* ---- (a) TWO and THREE holes: k inner wires per cap ----
+         * S14 §12.3 risk 4, "mechanical, untested". */
+        {
+            double xyb[4 * 24 * 3];
+            const int lc3[] = {24, 24, 24};
+            const int lc4[] = {24, 24, 24, 24};
+            double want;
+            occt_shape *t;
+            /* two r=1.5 holes at (+-3, 0) */
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = -3.0 + 1.5 * cos(a);
+                xyb[3*(seg+i)+1] = 1.5 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+                xyb[3*(2*seg+i)+0] = 3.0 + 1.5 * cos(a);
+                xyb[3*(2*seg+i)+1] = 1.5 * sin(a);
+                xyb[3*(2*seg+i)+2] = 0.0;
+            }
+            want = (A39(6.0) - 2.0 * A39(1.5)) * L39;
+            t = occt_sweep_profile_ex(xyb, lc3, 3, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39a] two holes refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39a] 2 holes, straight: vol=%.9f (analytic %.9f) %s\n",
+                       v, want, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39a] a two-holed sweep is not analytic");
+                check(occt_shape_valid(t), "[39a] the two-holed sweep is "
+                                           "invalid");
+                occt_free_shape(t);
+            }
+            /* three r=1.2 holes at radius 3, 120 degrees apart */
+            for (k = 0; k < 3; ++k) {
+                const double cx = 3.0 * cos(2.0 * M_PI * k / 3.0);
+                const double cy = 3.0 * sin(2.0 * M_PI * k / 3.0);
+                for (i = 0; i < seg; ++i) {
+                    const double a = 2.0 * M_PI * i / seg;
+                    xyb[3*((k+1)*seg+i)+0] = cx + 1.2 * cos(a);
+                    xyb[3*((k+1)*seg+i)+1] = cy + 1.2 * sin(a);
+                    xyb[3*((k+1)*seg+i)+2] = 0.0;
+                }
+            }
+            want = (A39(6.0) - 3.0 * A39(1.2)) * L39;
+            t = occt_sweep_profile_ex(xyb, lc4, 4, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39a] three holes refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39a] 3 holes, straight: vol=%.9f (analytic %.9f) %s\n",
+                       v, want, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39a] a three-holed sweep is not analytic");
+                check(occt_shape_valid(t), "[39a] the three-holed sweep is "
+                                           "invalid");
+                occt_free_shape(t);
+            }
+            /* and on the bending path, where the pin is the differential */
+            t = occt_sweep_profile_ex(xyb, lc4, 4, I39, path39, 9, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_POLY);
+            if (check(t != NULL, "[39a] three holes refused on an arc")) {
+                const int lc1[] = {24};
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, 0, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                double w = bo ? occt_shape_volume(bo) : -1.0;
+                for (k = 0; k < 3 && bo; ++k) {
+                    occt_shape *hi = occt_sweep_profile_ex(
+                        xyb + 3 * (k + 1) * seg, lc1, 1, I39, path39, 9, 0,
+                        0.0, 0.0, OCCT_SWEEP_PATH_POLY);
+                    if (!hi) { w = -1.0; break; }
+                    w -= occt_shape_volume(hi);
+                    occt_free_shape(hi);
+                }
+                if (bo) occt_free_shape(bo);
+                if (check(w > 0.0, "[39a] a component sweep refused")) {
+                    const double v = occt_shape_volume(t);
+                    printf("[39a] 3 holes, tilted arc: vol=%.9f "
+                           "outer-holes=%.9f (%+.3e) %s\n", v, w,
+                           (v - w) / w,
+                           occt_shape_valid(t) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39a] three holes are not placed like their body");
+                    check(occt_shape_valid(t), "[39a] the arc three-holed "
+                                               "sweep is invalid");
+                }
+                occt_free_shape(t);
+            }
+        }
+
+        /* ---- (b) TAPER: both end sections scale, and the caps still match ----
+         * S14 §12.3 risk 3, "I believe the caps still match, and I did not
+         * test it".
+         *
+         * finish_pipe gives the outer wire and every hole the SAME
+         * Law_Linear(0 -> 1, 1 -> 1+k), applied about the section's own
+         * location frame — one station on the spine, shared by both wires. So
+         * at every station the two sections are ONE homothety of the profile
+         * about a common centre, which is what keeps the hole inside the body
+         * and the two end sections coplanar. The annular area at station t is
+         * (A_out - A_in) * s(t)^2, so on a straight path
+         *   V = (A_out - A_in) * L * integral[0,1] (1+kt)^2 dt
+         *     = (A_out - A_in) * L * (1 + k + k^2/3).
+         * Cross-check on the unholed law: [37g] measures 6766.447913 ->
+         * 7375.699522, a ratio of 1.0900399 against the 1.0900401 below. */
+        {
+            const double tap = 5.0;
+            const double kk = tan(tap * M_PI / 180.0);
+            const double f = 1.0 + kk + kk * kk / 3.0;
+            const double want = (A39(6.0) - A39(3.0)) * L39 * f;
+            const int lc2[] = {24, 24};
+            double xyb[2 * 24 * 3];
+            int pm;
+            occt_shape *t;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 3.0 * cos(a);
+                xyb[3*(seg+i)+1] = 3.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            t = occt_sweep_profile_ex(xyb, lc2, 2, I39, sp39, 2, 0, tap, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39b] a tapered tube refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39b] tapered tube, straight: vol=%.9f "
+                       "(analytic %.9f) %s\n", v, want,
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39b] a tapered tube is not analytic");
+                check(occt_shape_valid(t), "[39b] the tapered tube is invalid");
+                occt_free_shape(t);
+            }
+            /* Both spines on the bending path, each against the BOOLEAN the
+             * assembly replaced — occt_cut of the same two sweeps, the same
+             * OCCT operation on the same operands, reached through a different
+             * entry point in this run.
+             *
+             * NOT against vol(outer) - vol(hole), which is what [37f] uses and
+             * what the first version of this arm used. That subtraction is a
+             * valid pin only while both operands are valid solids, and ON THE
+             * POLYLINE SPINE WITH A TAPER THEY ARE NOT — see the note below.
+             *
+             * A TAPERED SWEEP ALONG A SPINE OF MORE THAN ONE EDGE PRODUCES AN
+             * INVALID SOLID, and it has nothing to do with holes. Measured
+             * against the v26 shim, in the same run, on the SINGLE-LOOP sweep:
+             * a 24-gon tapered 5 deg over the 8-span polyline arc gives
+             * 10 476.381185581, INVALID, in BOTH v26 and v27, every digit the
+             * same. A drawn 90-degree L corner does it too — 8 555.054342,
+             * INVALID, under plain AUTO, which is a shape a user can draw. A
+             * one-edge spine (straight, or a smoothed run) is valid. Recorded
+             * in perf/findings/S15-holes.md §4.3 and CROSS-SESSION; NOT fixed
+             * here, because it is a second defect and it gets its own
+             * pre-registration.
+             *
+             * So this arm asserts what it can honestly assert: the tube is the
+             * cut, exactly, and the tube is valid EXACTLY WHEN the unholed
+             * sweep it is made from is. The assembly is not allowed to be
+             * worse than its own ingredients; it is not asked to be better. */
+            for (pm = 0; pm < 2; ++pm) {
+                const int mode = pm ? OCCT_SWEEP_PATH_SMOOTH
+                                    : OCCT_SWEEP_PATH_POLY;
+                const int lc1[] = {24};
+                occt_shape *tu = occt_sweep_profile_ex(xyb, lc2, 2, I39,
+                                                       path39, 9, 0, tap, 0.0,
+                                                       mode);
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, 0, tap, 0.0,
+                                                       mode);
+                occt_shape *hi = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1,
+                                                       I39, path39, 9, 0, tap,
+                                                       0.0, mode);
+                occt_shape *ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+                if (check(tu != NULL && ref != NULL,
+                          "[39b] a tapered sweep refused on the arc path")) {
+                    const double v = occt_shape_volume(tu);
+                    const double w = occt_shape_volume(ref);
+                    printf("[39b] tapered tube, tilted arc, %s: vol=%.9f "
+                           "cut(outer,hole)=%.9f (%+.3e%s) tube %s / unholed "
+                           "%s\n", pm ? "SMOOTH" : "POLY", v, w, (v - w) / w,
+                           v == w ? ", EXACT" : "",
+                           occt_shape_valid(tu) ? "valid" : "INVALID",
+                           occt_shape_valid(bo) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39b] a tapered hole is not placed like its body");
+                    check(occt_shape_valid(tu) == occt_shape_valid(bo),
+                          "[39b] the tapered tube is worse than its own "
+                          "unholed sweep");
+                }
+                if (tu) occt_free_shape(tu);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+                if (ref) occt_free_shape(ref);
+            }
+        }
+
+        /* ---- (g) THE ASSEMBLY IS THE SUBTRACTION, on a contained hole ----
+         *
+         * [37f] already asserts that a tube equals its outer sweep MINUS its
+         * hole sweep, by volume arithmetic. That is the right pin for v26's
+         * defect and it is not quite the right pin for v27's claim: v27 says
+         * the assembled solid IS the solid the boolean produced, so the
+         * comparison should be against the boolean, not against a subtraction
+         * of two numbers.
+         *
+         * Measured on the machine this was developed on, in one run, against
+         * the v26 shim built from the parent commit: taper 0 / POLY gives
+         * 5 031.442236788 and 386 faces in BOTH; taper 0 / SMOOTH gives
+         * 5 031.037365496 and 50 faces in BOTH — the same doubles, not the
+         * same ten figures. The assertion here is 1e-9 rather than == because
+         * two different OCCT operations agreeing bit for bit is an observation
+         * about one toolchain and not a property anyone promised; whether it
+         * WAS exact is printed, so a platform where it stops being exact says
+         * so instead of going quietly red. */
+        {
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            int pm;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 3.0 * cos(a);
+                xyb[3*(seg+i)+1] = 3.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            for (pm = 0; pm < 2; ++pm) {
+                const int mode = pm ? OCCT_SWEEP_PATH_SMOOTH
+                                    : OCCT_SWEEP_PATH_POLY;
+                occt_shape *tu = occt_sweep_profile_ex(xyb, lc2, 2, I39,
+                                                       path39, 9, 0, 0.0, 0.0,
+                                                       mode);
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, 0, 0.0, 0.0,
+                                                       mode);
+                occt_shape *hi = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1,
+                                                       I39, path39, 9, 0, 0.0,
+                                                       0.0, mode);
+                occt_shape *ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+                if (check(tu != NULL && ref != NULL,
+                          "[39g] a contained hole refused")) {
+                    int fa = 0, fr = 0;
+                    const double v = occt_shape_volume(tu);
+                    const double w = occt_shape_volume(ref);
+                    occt_shape_counts(tu, &fa, NULL, NULL);
+                    occt_shape_counts(ref, &fr, NULL, NULL);
+                    printf("[39g] assembled vs boolean, %s: vol=%.9f vs "
+                           "%.9f (%+.3e%s) f=%d vs %d %s\n",
+                           pm ? "SMOOTH" : "POLY", v, w, (v - w) / w,
+                           v == w ? ", EXACT" : "", fa, fr,
+                           occt_shape_valid(tu) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39g] the assembly is not the subtraction");
+                    check(fa == fr,
+                          "[39g] the assembly has a different topology from "
+                          "the subtraction");
+                    check(occt_shape_valid(tu),
+                          "[39g] the assembled tube is invalid");
+                }
+                if (tu) occt_free_shape(tu);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+                if (ref) occt_free_shape(ref);
+            }
+        }
+
+        /* ---- (c) A HOLE THAT POKES OUT — the guard, and the fallback ----
+         *
+         * THIS IS THE ARM THE WHOLE GUARD EXISTS FOR. An r=2 hole centred at
+         * (5.5, 0) reaches 7.5 from the origin against an outer circumradius
+         * of 6, so it straddles the wall. The assembly would put an inner wire
+         * on the cap that leaves the cap; the subtraction removes material
+         * outside the body as well and is right. profile_holes_are_separate
+         * must refuse, finish_pipe must run the v26 boolean, and the answer
+         * must be the boolean's.
+         *
+         * The comparison operand is occt_cut of the same two sweeps — the same
+         * OCCT operation on the same operands, reached through a different
+         * entry point in the same run. It is a differential, not a recorded
+         * number, and it is the one that would catch a guard that let this
+         * through. */
+        {
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            int orient;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 5.5 + 2.0 * cos(a);
+                xyb[3*(seg+i)+1] = 2.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            /* POLY on all three, and the reason is worth having in writing:
+             * the TUBE is AUTO, but the guard refuses this profile, so AUTO
+             * falls back to POLY for it — deliberately, so the boolean does
+             * not land on the spine that makes it 80x slower. A single-loop
+             * reference sweep asked for AUTO would be SMOOTHED, and the arm
+             * would then compare two different spines. It did, on the first
+             * run, and orientation 0 came out 1.1 % apart while orientation 1
+             * agreed to 4e-10 — because "Fixed" gives A x rise whatever the
+             * path does in XY, so it cannot see a spine change. Naming the
+             * mode on all three is what makes this a differential. */
+            for (orient = 0; orient <= 1; ++orient) {
+                occt_shape *t = occt_sweep_profile_ex(xyb, lc2, 2, I39, path39,
+                                                      9, orient, 0.0, 0.0,
+                                                      OCCT_SWEEP_PATH_AUTO);
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, orient, 0.0,
+                                                       0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *hi = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1,
+                                                       I39, path39, 9, orient,
+                                                       0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+                if (check(t != NULL && ref != NULL,
+                          "[39c] a poking hole refused")) {
+                    const double v = occt_shape_volume(t);
+                    const double w = occt_shape_volume(ref);
+                    printf("[39c] hole poking outside, orientation %d: "
+                           "vol=%.9f  cut(outer,hole)=%.9f (%+.3e) %s\n",
+                           orient, v, w, (v - w) / w,
+                           occt_shape_valid(t) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39c] a poking hole did not fall back to the "
+                          "boolean");
+                    check(occt_shape_valid(t),
+                          "[39c] the poking-hole sweep is invalid");
+                }
+                if (t) occt_free_shape(t);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+                if (ref) occt_free_shape(ref);
+            }
+        }
+
+        /* ---- (d) TWO HOLES THAT OVERLAP — the guard's other half ----
+         *
+         * Two r=2 holes 3 apart both sit inside the outer boundary, so the
+         * containment half of the guard says yes to each of them. Their
+         * boundaries cross each other, and an assembly would put two
+         * overlapping inner wires on one cap. The pairwise half must refuse,
+         * and the answer must be the two cuts. */
+        {
+            const int lc3[] = {24, 24, 24};
+            const int lc1[] = {24};
+            double xyb[3 * 24 * 3];
+            occt_shape *t, *bo, *h1, *h2, *r1, *ref;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = -1.5 + 2.0 * cos(a);
+                xyb[3*(seg+i)+1] = 2.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+                xyb[3*(2*seg+i)+0] = 1.5 + 2.0 * cos(a);
+                xyb[3*(2*seg+i)+1] = 2.0 * sin(a);
+                xyb[3*(2*seg+i)+2] = 0.0;
+            }
+            t = occt_sweep_profile_ex(xyb, lc3, 3, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            bo = occt_sweep_profile_ex(xyb, lc1, 1, I39, sp39, 2, 0, 0.0, 0.0,
+                                       OCCT_SWEEP_PATH_AUTO);
+            h1 = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1, I39, sp39, 2, 0,
+                                       0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+            h2 = occt_sweep_profile_ex(xyb + 6 * seg, lc1, 1, I39, sp39, 2, 0,
+                                       0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+            r1 = (bo && h1) ? occt_cut(bo, h1) : NULL;
+            ref = (r1 && h2) ? occt_cut(r1, h2) : NULL;
+            if (check(t != NULL && ref != NULL,
+                      "[39d] two overlapping holes refused")) {
+                const double v = occt_shape_volume(t);
+                const double w = occt_shape_volume(ref);
+                printf("[39d] two OVERLAPPING holes: vol=%.9f "
+                       "cut(cut(outer,h1),h2)=%.9f (%+.3e) %s\n", v, w,
+                       (v - w) / w, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, w, 1e-9),
+                      "[39d] overlapping holes did not fall back to the "
+                      "boolean");
+                check(occt_shape_valid(t),
+                      "[39d] the overlapping-hole sweep is invalid");
+            }
+            if (t) occt_free_shape(t);
+            if (bo) occt_free_shape(bo);
+            if (h1) occt_free_shape(h1);
+            if (h2) occt_free_shape(h2);
+            if (r1) occt_free_shape(r1);
+            if (ref) occt_free_shape(ref);
+        }
+
+        /* ---- (e) A HOLED COIL — finish_pipe's OTHER caller ----
+         *
+         * occt_coil_profile shares finish_pipe, so it takes the assembly for
+         * free. S14's P16 pinned this at 5562.133035056 with 50 faces; that
+         * constant is NOT what is checked here, because a recorded double pins
+         * a machine. What is checked is what P16 actually claimed: the holed
+         * coil equals its own outer-minus-hole, which the boolean already
+         * satisfied exactly and the assembly must too. */
+        {
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            occt_shape *cu, *bo, *hi;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 18.0 + 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 18.0 + 3.0 * cos(a);
+                xyb[3*(seg+i)+1] = 3.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            cu = occt_coil_profile(xyb, lc2, 2, I39, 0,0,0, 0,1,0, 0.25, 60.0,
+                                   0.0, 0, 0, 0);
+            bo = occt_coil_profile(xyb, lc1, 1, I39, 0,0,0, 0,1,0, 0.25, 60.0,
+                                   0.0, 0, 0, 0);
+            hi = occt_coil_profile(xyb + 3 * seg, lc1, 1, I39, 0,0,0, 0,1,0,
+                                   0.25, 60.0, 0.0, 0, 0, 0);
+            if (check(cu != NULL && bo != NULL && hi != NULL,
+                      "[39e] a holed coil refused")) {
+                int f = 0;
+                const double v = occt_shape_volume(cu);
+                const double w = occt_shape_volume(bo) - occt_shape_volume(hi);
+                occt_shape_counts(cu, &f, NULL, NULL);
+                printf("[39e] holed coil: vol=%.9f outer-hole=%.9f (%+.3e) "
+                       "f=%d %s\n", v, w, (v - w) / w, f,
+                       occt_shape_valid(cu) ? "valid" : "INVALID");
+                check(near_rel(v, w, 1e-9),
+                      "[39e] a coil's hole is not placed like its body");
+                check(f == 2 * seg + 2, "[39e] the holed coil is not one "
+                                        "smooth run");
+                check(occt_shape_valid(cu), "[39e] the holed coil is invalid");
+            }
+            if (cu) occt_free_shape(cu);
+            if (bo) occt_free_shape(bo);
+            if (hi) occt_free_shape(hi);
+        }
+
+        /* ---- (h) A PROFILE MADE OF ARCS — the guard's flattening ----
+         *
+         * Every fixture above is a polygon, and for a polygon the containment
+         * test is exact. A bulge is not: profile_holes_are_separate flattens
+         * each loop at 2 degrees per sub-chord and carries the largest sagitta
+         * it discarded, because a polygon through points ON an arc can sit up
+         * to that sagitta on the WRONG SIDE of it. Both arms below are about
+         * the arcs and neither would notice a chord-only guard being wrong —
+         * except that a chord-only guard cannot even represent the outer loop
+         * here, which is the point of using a TWO-POINT loop.
+         *
+         * A 2-point loop with bulge 1 at both vertices is two semicircles: a
+         * TRUE circle of radius 5, whose area is exactly 25*pi. That makes the
+         * first arm analytic on a profile the flattening has to get right.
+         *
+         * THE SIGN OF THAT FLATTENING WAS WRONG WHEN FIRST WRITTEN and a
+         * fixture like this is what found it — the guard called a hole OUTSIDE
+         * the profile "safely inside", which is the exact failure the guard
+         * exists to prevent. See flatten_loop's comment for the arithmetic.
+         */
+        {
+            const int lcA[] = {2, 24};
+            const int lcB[] = {2, 4};
+            const int lc1[] = {2};
+            const int lcs[] = {4};
+            double A[2 * 3 + 24 * 3];
+            double B[2 * 3 + 4 * 3];
+            double want;
+            occt_shape *t, *bo, *hi, *ref;
+            A[0] = -5.0; A[1] = 0.0; A[2] = 1.0;
+            A[3] =  5.0; A[4] = 0.0; A[5] = 1.0;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                A[6 + 3*i] = cos(a);
+                A[7 + 3*i] = sin(a);
+                A[8 + 3*i] = 0.0;
+            }
+            want = (M_PI * 25.0 - A39(1.0)) * L39;
+            t = occt_sweep_profile_ex(A, lcA, 2, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39h] an arc profile with a hole refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39h] TRUE circle r=5 with a 24-gon r=1 hole: "
+                       "vol=%.9f (analytic %.9f, %+.2e) %s\n", v, want,
+                       (v - want) / want,
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39h] an arc profile's tube is not analytic");
+                check(occt_shape_valid(t), "[39h] the arc tube is invalid");
+                occt_free_shape(t);
+            }
+
+            /* and a hole STRADDLING that circle: 4.5 to 5.5 in x, so half of
+             * it is outside a boundary that exists only as an arc. The guard
+             * must refuse and the boolean must answer. `o - h` is printed
+             * beside it because it does NOT agree — which is what proves the
+             * hole really straddles rather than merely sitting near the wall. */
+            B[0] = -5.0; B[1] = 0.0; B[2] = 1.0;
+            B[3] =  5.0; B[4] = 0.0; B[5] = 1.0;
+            B[6]  = 4.5; B[7]  = -0.5; B[8]  = 0.0;
+            B[9]  = 5.5; B[10] = -0.5; B[11] = 0.0;
+            B[12] = 5.5; B[13] =  0.5; B[14] = 0.0;
+            B[15] = 4.5; B[16] =  0.5; B[17] = 0.0;
+            t  = occt_sweep_profile_ex(B, lcB, 2, I39, sp39, 2, 0, 0.0, 0.0,
+                                       OCCT_SWEEP_PATH_AUTO);
+            bo = occt_sweep_profile_ex(B, lc1, 1, I39, sp39, 2, 0, 0.0, 0.0,
+                                       OCCT_SWEEP_PATH_AUTO);
+            hi = occt_sweep_profile_ex(B + 6, lcs, 1, I39, sp39, 2, 0, 0.0,
+                                       0.0, OCCT_SWEEP_PATH_AUTO);
+            ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+            if (check(t != NULL && ref != NULL,
+                      "[39h] a straddling hole refused")) {
+                const double v = occt_shape_volume(t);
+                const double w = occt_shape_volume(ref);
+                const double d = occt_shape_volume(bo) - occt_shape_volume(hi);
+                printf("[39h] hole STRADDLING an arc wall: vol=%.9f "
+                       "cut(outer,hole)=%.9f (%+.3e)  outer-hole=%.9f %s\n",
+                       v, w, (v - w) / w, d,
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, w, 1e-9),
+                      "[39h] a hole straddling an ARC wall was not refused");
+                check(!near_rel(d, w, 1e-6),
+                      "[39h] the straddling fixture does not actually "
+                      "straddle");
+                check(occt_shape_valid(t),
+                      "[39h] the straddled tube is invalid");
+            }
+            if (t) occt_free_shape(t);
+            if (bo) occt_free_shape(bo);
+            if (hi) occt_free_shape(hi);
+            if (ref) occt_free_shape(ref);
+        }
+
+        /* ---- (f) THE BAR: 1200 segments, with a hole, on the sampled arc ----
+         *
+         * This is the rung the whole session exists for. The device capture of
+         * 2026-08-24 failed at 1200 segments WITHOUT a hole after 231 s; v24
+         * fixed that one and [37d] pins it. A holed profile got none of it,
+         * because AUTO was forced back to POLY. Measured on the machine this
+         * was developed on (perf/findings/S15-holes.md §2.2 and §2.4): the v26
+         * route FAILS after 490 407 ms with "BRep_API: command not done", and
+         * the v27 assembly builds in 7 952.7 ms and is valid.
+         *
+         * There is NO differential arm here and there cannot be: v26 produces
+         * nothing at this size, so there is nothing to be equivalent to. The
+         * check is arithmetic instead, exactly as [37d]'s comment says for the
+         * same reason. The tolerance is 1e-4 rather than 1e-9 because an
+         * interpolated spine is not the sampled polyline: [37d] measures that
+         * gap as 4.1e-6 unholed and §2.2 measures it as 4.24e-6 holed.
+         *
+         * IT IS THE MOST EXPENSIVE ARM IN THIS FILE, and most of that is the
+         * two lines at the bottom rather than the sweep: 8.0 s to build,
+         * 16.8 s for occt_shape_volume and 8.8 s for occt_shape_valid over
+         * 2 402 B-spline faces. §2.4 has the split. Both are kept — a solid
+         * that builds and is not valid would be the worst outcome available
+         * here, and the volume is the only thing that says it is the right
+         * solid. */
+        {
+            const int n = 1200, spans = 16;
+            const int lcb[] = {1200, 1200};
+            static double xyb[2 * 1200 * 3];
+            double pathb[3 * 17];
+            double ann, want;
+            occt_shape *t;
+            for (i = 0; i < n; ++i) {
+                const double a = 2.0 * M_PI * i / n;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(n+i)+0] = 3.0 * cos(a);
+                xyb[3*(n+i)+1] = 3.0 * sin(a);
+                xyb[3*(n+i)+2] = 0.0;
+            }
+            for (i = 0; i <= spans; ++i) {
+                const double t2 = (double)i / spans, a = t2 * M_PI / 2.0;
+                pathb[3*i+0] = 60.0 * sin(a) * 0.3;
+                pathb[3*i+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+                pathb[3*i+2] = t2 * 60.0;
+            }
+            /* (A_out - A_in) x 60: the 60 is exact, because
+             * hypot(18, 120/pi) * pi/2 * (120/pi) / hypot(18, 120/pi) = 60. */
+            ann = 0.5 * n * (36.0 - 9.0) * sin(2.0 * M_PI / n);
+            want = ann * 60.0;
+            t = occt_sweep_profile_ex(xyb, lcb, 2, I39, pathb, spans + 1, 0,
+                                      0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39f] 1200 segments WITH A HOLE still does "
+                                 "not build")) {
+                int f = 0;
+                const double v = occt_shape_volume(t);
+                occt_shape_counts(t, &f, NULL, NULL);
+                printf("[39f] 1200 seg x 16 spans, HOLED: f=%d vol=%.6f "
+                       "(analytic %.6f) %s — v26 FAILED here after 490 s\n",
+                       f, v, want, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(f == 2 * n + 2,
+                      "[39f] the 1200-segment holed sweep is not one smooth "
+                      "run");
+                check(near_rel(v, want, 1e-4),
+                      "[39f] the 1200-segment holed volume is not analytic");
+                check(occt_shape_valid(t),
+                      "[39f] the 1200-segment holed solid is invalid");
+                occt_free_shape(t);
+            }
+        }
+#undef A39
     }
 
     if (g_failures == 0) {

@@ -1,0 +1,5 @@
+/home/user/ipadprocad/build-occt-shim/CMakeFiles/occt_capi.dir
+/home/user/ipadprocad/build-occt-shim/CMakeFiles/occt_smoke.dir
+/home/user/ipadprocad/build-occt-shim/CMakeFiles/occt_mesh_recon_test.dir
+/home/user/ipadprocad/build-occt-shim/CMakeFiles/edit_cache.dir
+/home/user/ipadprocad/build-occt-shim/CMakeFiles/rebuild_cache.dir
