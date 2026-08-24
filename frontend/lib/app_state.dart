@@ -2721,6 +2721,7 @@ class AppState extends ChangeNotifier {
     if (assemblies.containsKey(name)) {
       await saveAssembly(name);
       assemblies.remove(name)?.dispose();
+      _evictUnplacedSources();
     } else if (parts.containsKey(name)) {
       if (curTab == name) {
         cancel3DCommands(); // M230
@@ -2729,7 +2730,18 @@ class AppState extends ChangeNotifier {
         finishEdit(save: false);
       }
       await savePart(name);
-      parts.remove(name)?.dispose();
+      final model = parts.remove(name);
+      // M245 — an assembly still placing this part is still drawing this
+      // model. Hand it to the shared map instead of disposing it: the
+      // occurrences already point at it, so the transfer is invisible to
+      // them, and disposing would blank every component of it.
+      if (model != null) {
+        if (_placedSources().contains(name)) {
+          _componentModels[name] = model;
+        } else {
+          model.dispose();
+        }
+      }
     } else {
       await saveSketch(name);
     }
@@ -3318,7 +3330,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> openPart(String name) async {
-    if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
+    if (!parts.containsKey(name)) {
+      // M245 — an open assembly may already hold this part's model. PROMOTE
+      // it rather than reading the file again: the editor and every component
+      // of it then share one object, which is what makes an edit here appear
+      // in the assembly with nothing to propagate.
+      final shared = _componentModels.remove(name);
+      parts[name] = shared ?? await _loadPartModel(name);
+    }
+    linkOccurrences();
     // M237 — the still inside this document may predate the transparent
     // format, in which case its gallery card is a charcoal rectangle on a
     // cream shelf. The model is loaded and the kernel is warm right here, so
@@ -3672,6 +3692,11 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     parts.remove(name)?.dispose();
+    // M245 — every component of it loses its geometry and keeps its row, so
+    // the assembly says the part is gone rather than quietly drawing a copy
+    // that no longer exists anywhere.
+    _componentModels.remove(name)?.dispose();
+    linkOccurrences();
     _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
@@ -3696,6 +3721,13 @@ class AppState extends ChangeNotifier {
       }
     }
     if (!_renameDocFile(from, target)) return false;
+    // M245 — every assembly that places this part follows it. Done AFTER the
+    // file has moved, so a failed rename leaves every reference pointing at
+    // the document that is still there.
+    final moved = _componentModels.remove(from);
+    if (moved != null) _componentModels[target] = moved;
+    await _renameSourceInAssemblies(from, target);
+    linkOccurrences();
     if (wasOpen) {
       await openPart(target);
       openTabs.remove(target);
@@ -3793,6 +3825,10 @@ class AppState extends ChangeNotifier {
     if (!assemblies.containsKey(name)) {
       assemblies[name] = await _loadAssemblyModel(name);
     }
+    // M245 — the geometry comes from the ONE model per part document, loaded
+    // now if nothing holds it yet. Awaited: a component with no geometry
+    // draws as a missing part, and one frame of that is a flicker.
+    await _loadPlacedSources();
     if (!openTabs.contains(name)) openTabs.add(name);
     if (curTab != name) {
       selectedBody = null; // a selection belongs to ONE part
@@ -3828,23 +3864,167 @@ class AppState extends ChangeNotifier {
     // Dropping the row instead would silently rewrite the user's assembly the
     // first time a file went walkabout.
     for (final o in List<AssemblyOccurrence>.of(a.occurrences)) {
-      o.part = await _loadOccurrencePart(o.source);
-      if (o.part == null) {
+      // The MODEL is not loaded here — see linkOccurrences. The assembly is
+      // not in `assemblies` yet at this point, so there is nothing for the
+      // link to walk; openAssembly does it once the model is in place.
+      if (_findDoc(o.source)?.isPart != true) {
         Log.w('asm', 'occurrence "${o.id}": part "${o.source}" is gone');
       }
     }
     return a;
   }
 
-  /// A private copy of part [source]'s geometry for one occurrence, or null
-  /// when there is no such part any more.
-  Future<PartModel?> _loadOccurrencePart(String source) async {
-    if (_findDoc(source)?.isPart != true) return null;
-    try {
-      return await _loadPartModel(source);
-    } catch (e, st) {
-      Log.e('asm', 'could not load part "$source"', e, st);
-      return null;
+  // ---- M245: a component IS its part ---------------------------------------
+  //
+  // "A part in an assembly should be linked to the part at all times. So when
+  // the part updates, it updates in assembly."
+  //
+  // M240 loaded a PRIVATE COPY of the part for every occurrence, once, when
+  // the assembly was opened. That is a snapshot, not a link: edit the part
+  // and the assembly went on drawing what it had looked like at open time.
+  //
+  // The rule now is that there is exactly ONE PartModel per part document in
+  // the whole app, and every occurrence of that part points at it:
+  //
+  //   * open in its own tab  -> `parts[name]`, the model being edited. An
+  //     extrusion added there is in the assembly the moment you switch to it,
+  //     with no reload, no second kernel build and no copy of the mesh.
+  //   * not open             -> `_componentModels[name]`, a shared load kept
+  //     for the assemblies that reference it.
+  //
+  // The two are the SAME OBJECT across a tab open or close: opening a part
+  // promotes the shared load into `parts`, closing it hands it back. So a
+  // component never notices a tab opening, and nothing is ever loaded twice.
+  //
+  // The RealityKit side needs nothing: assemblySceneSignature already hashes
+  // each piece's mesh identity, so a rebuilt part moves the signature and the
+  // heavy push fires by itself.
+
+  /// Models for parts that are PLACED but not open in a tab. One per
+  /// document, shared by every occurrence of it, owned here.
+  final Map<String, PartModel> _componentModels = {};
+
+  /// The one model for part [name], or null when there is none to be had.
+  PartModel? _sourceModel(String name) =>
+      parts[name] ?? _componentModels[name];
+
+  /// Every part document any OPEN assembly places.
+  Set<String> _placedSources() => {
+        for (final a in assemblies.values)
+          for (final o in a.occurrences) o.source
+      };
+
+  /// Points every occurrence of every open assembly at the current model for
+  /// its source.
+  ///
+  /// Cheap and idempotent — it assigns references — so it is called after
+  /// anything that can change where a model lives rather than being reasoned
+  /// about case by case. That is the whole point: there is no path by which a
+  /// component can be left holding a stale model, because nothing has to
+  /// remember to update one.
+  void linkOccurrences() {
+    for (final a in assemblies.values) {
+      for (final o in a.occurrences) {
+        o.part = _sourceModel(o.source);
+      }
+    }
+  }
+
+  /// Loads whatever the open assemblies place and is not loaded yet, then
+  /// links. Awaited, because a component with no geometry draws as a missing
+  /// part and one frame of that is a flicker.
+  Future<void> _loadPlacedSources() async {
+    for (final name in _placedSources()) {
+      if (_sourceModel(name) != null) continue;
+      if (_findDoc(name)?.isPart != true) continue;
+      try {
+        _componentModels[name] = await _loadPartModel(name);
+      } catch (e, st) {
+        Log.e('asm', 'could not load part "$name"', e, st);
+      }
+    }
+    linkOccurrences();
+  }
+
+  /// M245 — follows a part RENAME through every assembly that places it.
+  ///
+  /// An occurrence names its source by document name, so without this a
+  /// rename would orphan every component of that part — the assembly keeps
+  /// its rows and draws nothing, which is the same failure as the part having
+  /// been deleted and is not what a rename means.
+  ///
+  /// Open assemblies are re-pointed in memory. The ones on disk are rewritten
+  /// in place, because a link that only survives while the document happens
+  /// to be open is not a link. They are small JSON files and there are as
+  /// many of them as the gallery shows, so this is a handful of reads.
+  Future<void> _renameSourceInAssemblies(String from, String to) async {
+    for (final a in assemblies.values) {
+      var touched = false;
+      for (var i = 0; i < a.occurrences.length; i++) {
+        final o = a.occurrences[i];
+        if (o.source != from) continue;
+        // The id carries the source name ("Bracket:1"), so it moves too —
+        // otherwise the browser would go on calling it by the old name and
+        // the next occurrence placed would collide with it.
+        a.rename(o, '$to:${o.id.substring(from.length + 1)}', to);
+        touched = true;
+      }
+      if (touched) {
+        a.bump();
+        unawaited(saveAssembly(a.name));
+      }
+    }
+    for (final name in library.keys.toList()) {
+      if (library[name]?.isAssembly != true) continue;
+      if (assemblies.containsKey(name)) continue; // handled above, in memory
+      try {
+        _ensureStaged(name);
+        final f = _assemblyJson(name);
+        if (!f.existsSync()) continue;
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        var touched = false;
+        for (final raw in (j['occurrences'] as List? ?? const [])) {
+          if (raw is! Map) continue;
+          if (raw['src'] != from) continue;
+          raw['src'] = to;
+          final id = raw['id'];
+          if (id is String && id.startsWith('$from:')) {
+            raw['id'] = '$to:${id.substring(from.length + 1)}';
+          }
+          touched = true;
+        }
+        if (!touched) continue;
+        // The constraints name occurrences too, and a relationship pointing
+        // at an id that no longer exists is a constraint the solver reports
+        // sick for ever.
+        for (final raw in (j['constraints'] as List? ?? const [])) {
+          if (raw is! Map) continue;
+          for (final key in const ['a', 'b', 'c']) {
+            final ref = raw[key];
+            if (ref is! Map) continue;
+            final occ = ref['occ'];
+            if (occ is String && occ.startsWith('$from:')) {
+              ref['occ'] = '$to:${occ.substring(from.length + 1)}';
+            }
+          }
+        }
+        f.writeAsStringSync(jsonEncode(j));
+        _commitStage(name, kAssemblyDocKind);
+      } catch (e, st) {
+        Log.e('asm', 'could not re-point "$name" after a rename', e, st);
+      }
+    }
+  }
+
+  /// Frees the shared models nothing places any more.
+  ///
+  /// Called when an assembly closes. A model that is ALSO open in a tab is
+  /// not ours to free — it lives in `parts` and this map does not hold it.
+  void _evictUnplacedSources() {
+    final want = _placedSources();
+    for (final name in _componentModels.keys.toList()) {
+      if (want.contains(name)) continue;
+      _componentModels.remove(name)?.dispose();
     }
   }
 
@@ -3931,7 +4111,17 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgAsmNoSuchPart(source));
       return null;
     }
-    final part = await _loadOccurrencePart(source);
+    // M245 — the SHARED model, loaded once per document. Placing a part that
+    // is already open in a tab, or already placed elsewhere, costs nothing
+    // and links to the very object being edited.
+    if (_sourceModel(source) == null) {
+      try {
+        _componentModels[source] = await _loadPartModel(source);
+      } catch (e, st) {
+        Log.e('asm', 'could not load part "$source"', e, st);
+      }
+    }
+    final part = _sourceModel(source);
     if (part == null) {
       toast(L.current.msgAsmCouldNotPlace(source));
       return null;

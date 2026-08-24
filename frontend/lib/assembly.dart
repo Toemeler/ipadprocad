@@ -36,11 +36,22 @@ import 'part_render.dart' show PlacedComponent;
 
 /// One placed component: a REFERENCE to a part document plus where it sits.
 ///
-/// The geometry is not copied. [part] is the source part loaded into memory,
-/// owned by this occurrence and disposed with it — two occurrences of the same
-/// part each hold their own [PartModel], which is wasteful and is the honest
-/// shape for now: sharing one model between occurrences only pays off once
-/// occurrences can differ (representations, iParts), and neither exists yet.
+/// M245 — THE GEOMETRY IS BORROWED, NEVER OWNED.
+///
+/// M240 gave each occurrence its own [PartModel], loaded from disk when the
+/// assembly opened. That made a component a SNAPSHOT: edit the part, and the
+/// assembly went on drawing whatever the part had looked like when the
+/// document was last opened. It is not what a component is.
+///
+/// [part] is now a reference to the ONE model for that document, handed over
+/// by [AppState.linkOccurrences]. When the part is open in its own tab that
+/// is literally the model being edited, so an extrusion added there is in
+/// every assembly that places the part the moment you look — no reload, no
+/// second kernel build, no copy of the mesh. When it is not open it is the
+/// shared read-only load AppState keeps for exactly this.
+///
+/// The consequence for this class is one line long and worth stating: it must
+/// not dispose what it did not allocate. See [dispose].
 class AssemblyOccurrence {
   /// Unique within the assembly, and shown in the browser: "Bracket:1".
   final String id;
@@ -69,7 +80,11 @@ class AssemblyOccurrence {
 
   bool visible;
 
-  /// The loaded source part, or null while it is still being read.
+  /// The source part's model — BORROWED, not owned. Null while it is still
+  /// being read, and when the part has been deleted from the gallery.
+  ///
+  /// Written by [AppState.linkOccurrences], which is the only thing that
+  /// knows where a document's model lives.
   PartModel? part;
 
   AssemblyOccurrence({
@@ -157,8 +172,13 @@ class AssemblyOccurrence {
     );
   }
 
+  /// Drops the reference and NOTHING ELSE.
+  ///
+  /// The model belongs to AppState — it is very often the one open in the
+  /// part's own tab — so disposing it here would take the kernel solids out
+  /// from under the editor. Two occurrences of one part share one model, so
+  /// it would not even be safe among occurrences.
   void dispose() {
-    part?.dispose();
     part = null;
   }
 }
@@ -235,6 +255,45 @@ class AssemblyModel {
     }
     return null;
   }
+
+  /// M245 — renames an occurrence, carrying its relationships with it.
+  ///
+  /// Only a part RENAME reaches here: an occurrence is named after the
+  /// document it instantiates, so when that document is renamed the
+  /// occurrence has to move with it or the browser goes on showing the old
+  /// name and the next placement collides with it. Every constraint that
+  /// names the old id is re-pointed in the same pass — a relationship to an
+  /// occurrence that no longer exists is one the solver reports sick for
+  /// ever.
+  void rename(AssemblyOccurrence o, String newId, String newSource) {
+    if (newId == o.id && newSource == o.source) return;
+    final was = o.id;
+    final i = occurrences.indexOf(o);
+    if (i < 0) return;
+    final moved = AssemblyOccurrence(
+      id: newId,
+      source: newSource,
+      offset: o.offset,
+      rot: o.rot,
+      grounded: o.grounded,
+      visible: o.visible,
+      part: o.part,
+    );
+    occurrences[i] = moved;
+    if (identical(selected, o)) selected = moved;
+    for (final c in constraints) {
+      if (c.a.occurrence == was) c.a = _repoint(c.a, newId);
+      if (c.b.occurrence == was) c.b = _repoint(c.b, newId);
+      final third = c.c;
+      if (third != null && third.occurrence == was) {
+        c.c = _repoint(third, newId);
+      }
+    }
+  }
+
+  static AsmRef _repoint(AsmRef r, String occurrence) => AsmRef(
+      occurrence, r.geom, r.label,
+      anchor: r.anchor, extent: r.extent);
 
   void remove(AssemblyOccurrence o) {
     occurrences.remove(o);
