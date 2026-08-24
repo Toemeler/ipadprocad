@@ -1272,3 +1272,109 @@ Falsifiable by: any change. The coil shares finish_pipe with the sweep, so it
                 is the function's other caller and the one most likely to be
                 broken by a signature change.
 ```
+
+---
+
+## 11. Item 3 — the Dart side: the caller stops making the shim guess
+
+### 11.1 What the caller actually knows
+
+`sketchCurve` (`part_model.dart:8647`) is a four-way switch and every branch
+knows exactly what it produced:
+
+| the entity | what `sketchCurve` does | what the joints mean |
+| --- | --- | --- |
+| `Geo.arc`, `Geo.circle` | `sampleEntity(g, arcSamples: 64)` | **every joint is a sampling artefact**, always, by construction |
+| `Geo.polyline`, `spline == straight` | the vertices themselves | **every joint is one somebody placed** |
+| `Geo.polyline`, spline / ellipse / gear | `splineCurveFor(g)` → flatten to a tolerance | *mostly* sampling — but a flattened gear outline keeps a real cusp at every tooth |
+| `Geo.line` | two points | no joints at all |
+
+So the classification the shim has been inferring from a 5.625° threshold is
+available for free at the call site, and it is *better* than the inference in
+both directions:
+
+* an arc is smooth **whatever its joint angle**, so a coarse arc no longer
+  depends on staying under a threshold;
+* a polyline vertex is a design feature **however shallow**, so a hand-drawn
+  5° bend stops being rounded off.
+
+The middle row is the one that must stay on the heuristic, and this is the
+reason: `splineCurveFor` routes `Geo.gearTag` to `gearCurve`, and an involute
+gear outline flattened into a polyline has a **genuine sharp corner at every
+tooth**. Declaring SMOOTH there would round off the teeth of a part whose whole
+purpose is its teeth. So a flattened spline is passed as AUTO and the 5.625°
+threshold arbitrates — which is exactly the case §7.1 said it could not measure,
+now handled by not having to.
+
+### 11.2 The trap, and how far I could actually pin it
+
+`_sweepArgSig` hashes the RESOLVED arguments, and `f.sweptFrom` decides whether
+the kernel is called at all. The path mode is now one of those arguments, so it
+must enter the key — otherwise a user who changes the path's *kind* gets the
+old solid back.
+
+**I could not build the fixture that isolates this, and I want to be exact
+about why.** It needs two sketch entities that resolve to *identical* points
+under different modes, and no such pair exists: a `Geo.line` and a two-point
+straight polyline both classify POLY, and every other pair produces different
+sampled points. So the direct test — same `pts`, different mode, expect a
+rebuild — is not constructible through the app's API.
+
+What IS pinned, and what is only argued:
+
+* **Pinned:** the classification itself, because `resolvePath`'s new sibling
+  returns the mode and the test calls it directly on each entity kind.
+* **Pinned:** that the mode reaches the kernel, by a fake that folds it into
+  its result.
+* **Pinned:** the guard's existing differential — clear the key, recompute, and
+  compare — now runs with the mode among the compared arguments.
+* **Argued from the code, not pinned:** that a mode change *alone* forces a
+  rebuild. The mode is written into the key beside `orientation`, in the same
+  buffer, by the same function; if that line is deleted the argued claim fails
+  and no test I can write would notice.
+
+That last line is the honest state of it, and it is the kind of thing this
+file's §7 exists for.
+
+### 11.3 Pre-registration — item 3
+
+```
+## Prediction P17 — declaring SMOOTH for an arc reproduces AUTO exactly
+Target        : a 64-segment ring swept along a 16-span sampled arc, AUTO
+                against SMOOTH, through occt_sweep_profile_ex
+Baseline      : AUTO gives 66 faces, volume 6 774.914831 (smoke [37b])
+Mechanism     : sampleEntity splits an arc's sweep into 64 EQUAL steps, so its
+                joints are sweep/64 <= 5.625 deg by construction — which is the
+                threshold AUTO already smooths at.
+Predicted     : IDENTICAL volume and face count.
+Derivation    : a full circle is the extreme case, 360/64 = 5.625 deg, and
+                kJointEps puts it inside rather than on the line. A 90 deg arc
+                is 1.40625 deg. Every arc is therefore already smoothed by AUTO,
+                so declaring it can only agree.
+Falsifiable by: any difference at all. That would mean the heuristic and the
+                declaration disagree on the case they must agree on, and the
+                threshold is wrong rather than merely unnecessary.
+
+## Prediction P18 — declaring POLY for a DRAWN polyline changes the result
+Target        : a 3-point polyline path with a 5.0 deg joint, square section
+Baseline      : v24 AUTO smooths it: 6 faces (one spline edge + 2 caps)
+Predicted     : 8 faces — two straight spine edges, mitered, less the two side
+                faces UnifySameDomain merges across the bend
+Derivation    : smoke [37c] measured both counts already: a 5.0 deg joint under
+                AUTO gives 6, a 6.5 deg joint gives 8. Declaring POLY moves the
+                5.0 deg case to the 6.5 deg case's answer.
+Falsifiable by: 6 faces, i.e. the declaration not reaching the shim.
+Note          : this IS a behaviour change against v24, deliberately, and in
+                the direction of correctness — the vertex was drawn, so the
+                corner is real. It is also the one case where wiring the truth
+                through makes the app do something DIFFERENT rather than the
+                same thing for better reasons.
+
+## Prediction P19 — the mode enters the rebuild key
+Target        : _sweepArgSig
+Predicted     : a mode change alone produces a different key.
+Falsifiable by: nothing I can write. See 11.2 — the fixture is not
+                constructible, because no two sketch entity kinds resolve to
+                identical points under different modes. Registered as ARGUED
+                rather than pinned, and labelled as such wherever it is quoted.
+```
