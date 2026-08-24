@@ -1,0 +1,16 @@
+lane:       calibration
+run_id:     32760772854
+run_number: 3
+sha:        c11faac6c945feceaafbe824cb27b5c8d0c08991
+ref:        refs/heads/claude/perf-opt2
+published:  2026-08-24T18:09:51Z
+
+How to read what is here:
+  attribution.md      the flat profile and the phase split, with
+                      95 % intervals and the census that says how much
+                      of the elapsed time was observed at all
+  validation.md       PASS/FAIL against the registered expectation
+  trace.json.gz       gunzip, then open at ui.perfetto.dev
+  stacks.folded.txt.gz  one line per distinct stack, greppable
+  samples.json.gz     the raw normalised capture; re-read it with
+                      python3 tools/profiler/profile.py report <file>

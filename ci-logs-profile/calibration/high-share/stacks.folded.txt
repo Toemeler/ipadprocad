@@ -1,0 +1,56 @@
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped 1345
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped 397
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped;_Double.abs 250
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto 247
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;Float64List.Float64List 132
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_GrowableList._GrowableList.generate;phaseJacobianTyped.<anonymous closure>;Float64List.Float64List 44
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange;_TypedListBase._setRange 35
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.add 35
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_GrowableList._GrowableList.generate 22
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;_Double.abs 11
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange;_TypedListBase._setRange;_Float64List._fastSetRange;_TypedListBase._memMove8 6
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseEliminationTyped;_Float64List.[] 4
+dart::BaseTextBuffer::AddEscapedUTF8 4
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_Float64List.[] 3
+dart::TextBuffer::EnsureCapacity 3
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main 2
+dart::BaseTextBuffer::VPrintf 2
+dart::Function::script 2
+dart::Object::HandleImpl 2
+[Native] /lib/x86_64-linux-gnu/libc.so.6+0x188dc5 1
+[Native] /lib/x86_64-linux-gnu/libc.so.6+0x18b96d 1
+[Native] /lib/x86_64-linux-gnu/libc.so.6+0x69299 1
+[Native] /lib/x86_64-linux-gnu/libc.so.6+0x69488 1
+[Native] /lib/x86_64-linux-gnu/libc.so.6+0x69dc6 1
+[Native] /lib/x86_64-linux-gnu/libc.so.6+0x69de3 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure> 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;<unknown Dart function> 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;Duration.Duration 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_Float64List.[]= 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_GrowableList._GrowableList.generate;main.<anonymous closure> 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_GrowableList._GrowableList.generate;main.<anonymous closure>;_Double.+ 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;_tagJac;_tagJac 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;Float64List.Float64List.fromList;__Float64List&_TypedList&_DoubleListMixin.setRange 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;ListIterator.moveNext;ListIterator._current= 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;elimCopyTyped;_GrowableList.[]= 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;_Double./;_Double._div 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;_Double.+ 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;_Float64List.[] 1
+_RawReceivePort._handleMessage;_delayEntrypointInvocation.<anonymous closure>;main;phaseJacobianTyped;residualsInto;sqrt 1
+dart::BaseTextBuffer::AddChar 1
+dart::BaseTextBuffer::AddEscapedLatin1 1
+dart::DictionaryIterator::GetNext 1
+dart::FreeList::SplitElementAfterAndEnqueue 1
+dart::Library::PrintJSONImpl 1
+dart::LineStartsReader::LocationForPosition 1
+dart::Object::Allocate 1
+dart::PageSpace::TryAllocateInternal 1
+dart::String::ScrubName 1
+dart::TargetEntryInstr::tag 1
+dart::Thread::heap 1
+dart::Utf8::DecodeToUTF16 1
+dart::VMHandles::AllocateHandle 1
+dart::Zone::Segment::New 1
+dart::kernel::CollectScriptTokenPositionsFromKernel 1
+dart::kernel::KernelReaderHelper::SourceTableUriFor 1
