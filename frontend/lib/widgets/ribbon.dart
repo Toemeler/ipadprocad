@@ -1034,11 +1034,16 @@ class _RibbonState extends State<Ribbon> {
                 icon: AS['joint']!,
                 label: t.btnJoint,
                 enabled: false),
+            // M242 — Constrain is WIRED. It opens Inventor's modeless Place
+            // Constraint panel, which then collects its selections from the
+            // viewport; the button stays lit for as long as the panel is up,
+            // the way every other open command's does.
             _BigWide(
                 width: 62,
                 icon: AS['constrain']!,
                 label: t.btnConstrain,
-                enabled: false),
+                onTap: () => app.openConstraint(),
+                active: app.constraintSession != null),
             offCol([
               (AS['show']!, t.btnShowRelationships),
               (AS['showsick']!, t.btnShowSick),

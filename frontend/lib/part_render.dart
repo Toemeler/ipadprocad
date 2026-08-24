@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'part_model.dart';
 import 'perf.dart';
+import 'quat.dart';
 import 'theme.dart';
 
 // M236 — palette reads, not constants, so a solid picks up the active scheme
@@ -823,6 +824,22 @@ void paintPartSolids(
   /// COMPONENT is "all of it", and spelling that as a set at the call site
   /// would only rebuild the edge list the painter is about to walk anyway.
   bool accentAll = false,
+
+  /// M242 — the solids of the body SELECTED in the model browser. Their faces
+  /// are washed with [selectedTint] and their edges accented, which is what
+  /// RealityKit says with a tinted material (see reality_scene's
+  /// `_bodyRowTint`): the two viewports must agree about what selection looks
+  /// like. Compared by identity — a body is a handful of solids, so a linear
+  /// scan beats building a set per frame.
+  List<KernelSolid> selectedSolids = const [],
+  Color? selectedTint,
+
+  /// The solids of the body merely HOVERED in the model browser: the same wash
+  /// at half the strength and no edge accent, so the prehighlight reads as the
+  /// weaker statement it is. A solid that is in both sets is drawn SELECTED —
+  /// two washes would compound into a third colour that means nothing.
+  List<KernelSolid> hoveredSolids = const [],
+  Color? hoveredTint,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   final occ = SceneOccluders(opaque);
@@ -862,16 +879,49 @@ void paintPartSolids(
     }
   }
 
+  // 2b. the browser's selection / hover wash, over the shading and under the
+  //     edges. Same treatment paintAssemblySolids gives a selected component,
+  //     because it is the same statement: the whole body is picked.
+  bool isSelected(KernelSolid s) =>
+      selectedSolids.any((x) => identical(x, s));
+  bool isHovered(KernelSolid s) =>
+      !isSelected(s) && hoveredSolids.any((x) => identical(x, s));
+  for (final (pick, tint, alpha) in [
+    (isSelected, selectedTint ?? kFaceHighlight, 0.42),
+    (isHovered, hoveredTint ?? kFaceHighlight, 0.20),
+  ]) {
+    final tris = [
+      for (final s in opaque)
+        if (pick(s.solid))
+          for (final t in s.tris)
+            if (t.front) t
+    ];
+    if (tris.isEmpty) continue;
+    final pos = Float32List(tris.length * 6);
+    var pi = 0;
+    for (final t in tris) {
+      pos[pi++] = t.a.dx;
+      pos[pi++] = t.a.dy;
+      pos[pi++] = t.b.dx;
+      pos[pi++] = t.b.dy;
+      pos[pi++] = t.c.dx;
+      pos[pi++] = t.c.dy;
+    }
+    canvas.drawVertices(ui.Vertices.raw(ui.VertexMode.triangles, pos),
+        BlendMode.srcOver, Paint()..color = tint.withValues(alpha: alpha));
+  }
+
   // 3. edges + silhouettes over the shading
   for (final s in opaque) {
+    final on = accentAll || isSelected(s.solid);
     _paintSolidEdges(canvas, cam, s, occ, kSolidEdge,
         accent: (accentSolid != null && identical(s.solid, accentSolid))
             ? accentEdges
             : const {},
-        accentAll: accentAll,
+        accentAll: on,
         accentColor: accentColor);
-    _paintSolidSilhouettes(canvas, cam, s, occ,
-        accentAll ? (accentColor ?? kEdgeAccent) : kSolidEdge);
+    _paintSolidSilhouettes(
+        canvas, cam, s, occ, on ? (accentColor ?? kEdgeAccent) : kSolidEdge);
   }
 
   // 4. translucent live preview on top (its own sort; edges dimmed and only
@@ -906,19 +956,42 @@ void paintPartSolids(
 // frame — the drag would otherwise rebuild every vertex buffer it touches.
 // ---------------------------------------------------------------------------
 
-/// One placed component: where it sits, and the solids it is made of.
-typedef PlacedComponent = (Vec3, List<KernelSolid>);
+/// One placed component: its rigid transform, and the solids it is made of.
+class PlacedComponent {
+  const PlacedComponent(this.rot, this.at, this.solids);
+  final Quat rot;
+  final Vec3 at;
+  final List<KernelSolid> solids;
+}
 
-/// [cam] as seen by geometry translated by [t] — see the note above.
-Cam3 shiftedCam(Cam3 cam, Vec3 t) => Cam3.basis(
-      dir: cam.dir,
-      s: cam.s,
-      u: cam.u,
+/// [cam] as seen by geometry that has been moved by the rigid transform
+/// (rot, t) — the identity the note above describes, generalised from a pure
+/// translation to a full placement.
+///
+/// M242 gave a component an ORIENTATION, and the identity still holds, because
+/// the projection is affine in the world point and the world point is affine
+/// in the local one:
+///
+///     project(R·l + t)
+///       = ((R·l + t)·s - ox) / k
+///       = (l·(Rᵀ·s) - (ox - t·s)) / k
+///
+/// So a rotated component is the same camera with its BASIS turned the other
+/// way and its pan shifted — no mesh is copied, exactly as before. The view
+/// direction turns with the basis too, which is what keeps the front-face test
+/// inside buildSceneSolid correct in the component's own space.
+Cam3 placedCam(Cam3 cam, Quat rot, Vec3 t) => Cam3.basis(
+      dir: rot.unrotate(cam.dir),
+      s: rot.unrotate(cam.s),
+      u: rot.unrotate(cam.u),
       halfH: cam.halfH,
       ox: cam.ox - t.dot(cam.s),
       oy: cam.oy - t.dot(cam.u),
       size: cam.size,
     );
+
+/// [placedCam] for a component that has only been moved, not turned.
+Cam3 shiftedCam(Cam3 cam, Vec3 t) => placedCam(cam, Quat.identity, t);
 
 /// Draws every component of an assembly, and hands back the occluder it built
 /// so the caller can draw origin planes and axes THROUGH the model the way the
@@ -958,10 +1031,10 @@ SceneOccluders? paintAssemblySolids(
   // (component index, its solids projected through its own shifted camera)
   final scenes = <(int, SceneSolid)>[];
   for (var i = 0; i < placed.length; i++) {
-    final (at, solids) = placed[i];
-    final sc = shiftedCam(cam, at);
-    final bias = cam.depth(at);
-    for (final s in solids) {
+    final c = placed[i];
+    final sc = placedCam(cam, c.rot, c.at);
+    final bias = cam.depth(c.at);
+    for (final s in c.solids) {
       scenes.add((i, buildSceneSolid(s, sc, depthBias: bias)));
     }
   }
@@ -1012,10 +1085,10 @@ SceneOccluders? paintAssemblySolids(
   // 3. edges + silhouettes over the shading, against the shared occluder
   for (final (i, s) in scenes) {
     final on = i == selected;
-    // The EDGES are drawn through the component's own shifted camera: the
+    // The EDGES are drawn through the component's own placed camera: the
     // occluder is in screen space and shared, but where an edge lands is the
     // component's own business.
-    final sc = shiftedCam(cam, placed[i].$1);
+    final sc = placedCam(cam, placed[i].rot, placed[i].at);
     _paintSolidEdges(canvas, sc, s, occ, kSolidEdge,
         accentAll: on, accentColor: accentColor);
     _paintSolidSilhouettes(
@@ -1044,11 +1117,11 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
 /// Every placed vertex of [placed], in world coordinates.
 void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
     (add) {
-      for (final (at, solids) in placed) {
-        for (final sol in solids) {
+      for (final c in placed) {
+        for (final sol in c.solids) {
           final pos = sol.mesh.positions;
           for (var i = 0; i + 2 < pos.length; i += 3) {
-            add(Vec3(pos[i] + at.x, pos[i + 1] + at.y, pos[i + 2] + at.z));
+            add(c.rot.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + c.at);
           }
         }
       }

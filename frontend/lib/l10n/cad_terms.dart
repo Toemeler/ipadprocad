@@ -9,6 +9,7 @@
 // correct English and is wrong German — nouns are capitalised — so a
 // lower-casing call at the point of use is a grammar bug the moment a second
 // language exists. Both spellings live in the ARB instead, one key each.
+import '../asm_constraints.dart' show AsmKind, AsmSolution;
 import '../part_model.dart'
     show FaceEditKind, FeatureExtent, HoleType, PartFeature, PatternKind;
 import 'l.dart';
@@ -83,4 +84,39 @@ String extentName(AppL10n t, FeatureExtent e) => switch (e) {
       FeatureExtent.toFace => t.extToFace,
       FeatureExtent.throughAll => t.extThroughAll,
       FeatureExtent.distance => t.extDistance,
+    };
+
+// ---------------------------------------------------------------------------
+// M242 — assembly relationships
+// ---------------------------------------------------------------------------
+
+/// The localised name of a constraint TYPE. Top-level so the browser and the
+/// dialog cannot disagree about what to call one.
+String constraintLabel(AppL10n t, AsmKind k) => switch (k) {
+      AsmKind.mate => t.asmMate,
+      AsmKind.angle => t.asmAngle,
+      AsmKind.tangent => t.conTangent,
+      AsmKind.insert => t.asmInsert,
+      AsmKind.symmetry => t.asmSymmetry,
+      AsmKind.rotation => t.asmRotation,
+      AsmKind.rotationTranslation => t.asmRotationTranslation,
+      AsmKind.transitional => t.asmTransitional,
+    };
+
+/// The localised name of a SOLUTION.
+String solutionLabel(AppL10n t, AsmSolution s) => switch (s) {
+      AsmSolution.mate => t.solMate,
+      AsmSolution.flush => t.solFlush,
+      AsmSolution.directedAngle => t.solDirectedAngle,
+      AsmSolution.undirectedAngle => t.solUndirectedAngle,
+      AsmSolution.explicitVector => t.solExplicitVector,
+      AsmSolution.inside => t.solInside,
+      AsmSolution.outside => t.solOutside,
+      AsmSolution.opposed => t.solOpposed,
+      AsmSolution.aligned => t.solAligned,
+      AsmSolution.symmetric => t.solSymmetric,
+      AsmSolution.asymmetric => t.solAsymmetric,
+      AsmSolution.forward => t.solForward,
+      AsmSolution.reverse => t.solReverse,
+      AsmSolution.none => t.asmTransitional,
     };

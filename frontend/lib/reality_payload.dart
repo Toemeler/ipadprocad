@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'dart:ui' show Size;
 
 import 'part_model.dart';
+import 'quat.dart';
 
 /// Material tags understood by Materials.swift.
 const int kMatSteel = 0;
@@ -41,7 +42,8 @@ Map<String, dynamic> cameraPayload(PartCamera c, Size size) => {
 /// With [includeGeometry] false only the identity travels — the renderer then
 /// keeps the mesh it already holds for this id.
 ///
-/// M241 — [at] is the solid's PLACEMENT, and [tint] recolours it.
+/// M241 — [at] is the solid's PLACEMENT, [rot] its orientation (M242), and
+/// [tint] recolours it.
 ///
 /// Both are carried by the renderer on the solid's holder Entity and its
 /// material, so a payload that omits the geometry can still MOVE a solid or
@@ -56,6 +58,7 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
     {int material = kMatSteel,
     bool includeGeometry = true,
     Vec3 at = Vec3.zero,
+    Quat rot = Quat.identity,
     int tint = kNoTint}) {
   final m = s.mesh;
   // Component-wise, NOT `at != Vec3.zero`: Vec3 has no operator==, so that
@@ -63,6 +66,10 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
   final placed = at.x != 0 || at.y != 0 || at.z != 0;
   final place = <String, dynamic>{
     if (placed) 'at': [at.x, at.y, at.z],
+    // M242 — the ORIENTATION, as (x, y, z, w) because that is simd_quatf's
+    // own component order on the Swift side. Omitted when there is none, so a
+    // part's payload is byte-identical to what it has always been.
+    if (!rot.isIdentity) 'rot': [rot.x, rot.y, rot.z, rot.w],
     if (tint != kNoTint) 'tint': tint,
   };
   if (!includeGeometry) {
@@ -108,10 +115,11 @@ Map<String, dynamic> buildThumbScenePayload(List<(String, KernelSolid)> solids) 
 /// M241 — [buildThumbScenePayload] for an ASSEMBLY: the same geometry-only
 /// still, with each solid's placement travelling beside it.
 Map<String, dynamic> buildPlacedThumbScenePayload(
-        List<(String, KernelSolid, Vec3)> solids) =>
+        List<(String, KernelSolid, Quat, Vec3)> solids) =>
     {
       'solids': [
-        for (final (id, s, at) in solids) solidPayload(id, s, at: at),
+        for (final (id, s, rot, at) in solids)
+          solidPayload(id, s, at: at, rot: rot),
       ],
     };
 

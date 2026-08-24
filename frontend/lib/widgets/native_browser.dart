@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../asm_constraints.dart';
 import '../assembly.dart';
 import '../part_model.dart';
 import '../l10n/l.dart';
@@ -52,6 +53,11 @@ const String kIdOccurrence = 'oc:';
 /// already carries a colon, which is exactly why the prefix is matched and the
 /// rest taken whole rather than split on the separator.
 const String kIdComponent = 'cp:';
+
+/// M242 — one assembly RELATIONSHIP: `rel:<Mate:1>`. Same shape as
+/// [kIdComponent] and for the same reason: the constraint's own name carries a
+/// colon, so the prefix is matched and the rest taken whole.
+const String kIdConstraint = 'rel:';
 
 /// M240 — the assembly's two container folders.
 const String kIdRepresentations = '__reprs__';
@@ -97,6 +103,51 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
       ],
     ];
 
+/// M242 — one relationship row.
+///
+/// The three states it can be in are exactly Inventor's, and each is said
+/// with the GLYPH rather than with a suffix on the label: healthy, SICK (the
+/// solver could not meet it — a red badge), and SUPPRESSED (switched off — the
+/// struck-through glyph, dimmed, which is how this tree already draws a
+/// suppressed feature).
+GlassRow _constraintRow(AssemblyModel asm, AsmConstraint c,
+        {required int depth}) =>
+    GlassRow(
+      id: '$kIdConstraint${c.name}',
+      label: c.name,
+      symbol: c.suppressed
+          ? 'link.badge.plus'
+          : (c.isSick ? 'exclamationmark.triangle.fill' : 'link'),
+      tint: c.isSick && !c.suppressed ? 'red' : null,
+      depth: depth,
+      dim: c.suppressed,
+      selected: identical(asm.selectedConstraint, c),
+      menu: _constraintMenu(c),
+    );
+
+/// M242 — the context menu on a relationship.
+///
+/// Edit / Suppress / Delete, which is Inventor's own three: a constraint has
+/// no visibility of its own to toggle (the Show Relationships command works on
+/// the whole assembly), and renaming one is done in the dialog's `>>` drawer
+/// where the name is already shown.
+List<List<GlassMenuItem>> _constraintMenu(AsmConstraint c) => [
+      [
+        GlassMenuItem(id: 'relEdit', title: t.edit, symbol: 'slider.horizontal.3'),
+        GlassMenuItem(
+            id: 'relSuppress',
+            title: c.suppressed ? t.ctxUnsuppress : t.ctxSuppress,
+            symbol: c.suppressed ? 'eye' : 'eye.slash'),
+      ],
+      [
+        GlassMenuItem(
+            id: 'relDelete',
+            title: t.delete,
+            symbol: 'trash',
+            destructive: true),
+      ],
+    ];
+
 /// Builds the whole tree for the current document.
 ///
 /// M200 — RETRACTED is a view of the same tree, not a different one. It used
@@ -109,14 +160,21 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
 /// no longer fits beside a glyph on the 56 pt card. Every id, glyph, tint, dim
 /// state, selection and menu survives, so the narrow panel does everything the
 /// wide one does and expanding again cannot show something different.
+/// M243 — [hoverId] is the row under the pointer, which every row has to know
+/// about rather than only the ones that mean something in 3D: retracted, the
+/// hovered glyph is the only feedback there is.
 List<GlassRow> buildBrowserRows(
   AppState app, {
   required Set<String> expanded,
   int? dragEop,
   bool collapsed = false,
+  String? hoverId,
 }) {
   final rows = _buildRows(app, expanded: expanded, dragEop: dragEop);
-  return collapsed ? [for (final r in rows) r.compact()] : rows;
+  return [
+    for (final r in rows)
+      (collapsed ? r.compact() : r).hover(hoverId != null && r.id == hoverId)
+  ];
 }
 
 List<GlassRow> _buildRows(
@@ -165,6 +223,12 @@ List<GlassRow> _buildRows(
       expandable: true,
       expanded: expanded.contains(kIdRelationships),
     ));
+    // M242 — the constraints themselves, in the order they were placed.
+    if (expanded.contains(kIdRelationships)) {
+      for (final c in asm.constraints) {
+        rows.add(_constraintRow(asm, c, depth: 2));
+      }
+    }
     rows.add(GlassRow(
       id: 'origin',
       label: t.nodeOrigin,
@@ -203,8 +267,20 @@ List<GlassRow> _buildRows(
         // nothing of it is on screen.
         dim: !o.visible || !o.loaded,
         selected: identical(asm.selected, o),
+        // M242 — a component with relationships gains a disclosure box, so
+        // the constraints ON it can be reached from the component rather than
+        // only from the flat Relationships folder. That is Inventor's tree:
+        // every constraint appears twice, once in the folder and once under
+        // each component it touches.
+        expandable: asm.constraintsOn(o.id).isNotEmpty,
+        expanded: expanded.contains('$kIdComponent${o.id}'),
         menu: _componentMenu(o),
       ));
+      if (expanded.contains('$kIdComponent${o.id}')) {
+        for (final c in asm.constraintsOn(o.id)) {
+          rows.add(_constraintRow(asm, c, depth: 2));
+        }
+      }
     }
     return rows;
   }
@@ -235,7 +311,9 @@ List<GlassRow> _buildRows(
             hasEye: true,
             eyeOn: on,
             dim: !on,
-            selected: app.pickingBody && app.hoverBody == name,
+            selected: app.pickingBody
+                ? app.hoverBody == name
+                : app.selectedBody == name,
             menu: _bodyMenu(app, on),
           ));
         }

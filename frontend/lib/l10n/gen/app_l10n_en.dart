@@ -3200,4 +3200,185 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get ctxGrounded => 'Grounded';
+
+  @override
+  String get dlgPlaceConstraint => 'Place Constraint';
+
+  @override
+  String get tabAsmAssembly => 'Assembly';
+
+  @override
+  String get tabAsmMotion => 'Motion';
+
+  @override
+  String get tabAsmTransitional => 'Transitional';
+
+  @override
+  String get tabAsmConstraintSet => 'Constraint Set';
+
+  @override
+  String get grpAsmType => 'Type';
+
+  @override
+  String get grpAsmSelections => 'Selections';
+
+  @override
+  String get grpAsmSolution => 'Solution';
+
+  @override
+  String get lblAsmOffset => 'Offset:';
+
+  @override
+  String get lblAsmAngle => 'Angle:';
+
+  @override
+  String get lblAsmRatio => 'Ratio:';
+
+  @override
+  String get lblAsmDistance => 'Distance:';
+
+  @override
+  String get cbAsmPickPartFirst => 'Pick Part First';
+
+  @override
+  String get cbAsmShowPreview => 'Show Preview';
+
+  @override
+  String get cbAsmPredict => 'Predict Offset and Orientation';
+
+  @override
+  String get cbAsmDefaultUndirected => 'Default to Undirected';
+
+  @override
+  String get lblAsmName => 'Name';
+
+  @override
+  String get hintAsmAutoName => 'Automatic';
+
+  @override
+  String tipAsmSelection(int n) {
+    return 'Selection $n';
+  }
+
+  @override
+  String get hintAsmPickGeometry => 'Tap a face, edge or axis';
+
+  @override
+  String get asmMate => 'Mate';
+
+  @override
+  String get asmAngle => 'Angle';
+
+  @override
+  String get asmTangent => 'Tangent';
+
+  @override
+  String get asmInsert => 'Insert';
+
+  @override
+  String get asmSymmetry => 'Symmetry';
+
+  @override
+  String get asmRotation => 'Rotation';
+
+  @override
+  String get asmRotationTranslation => 'Rotation-Translation';
+
+  @override
+  String get asmTransitional => 'Transitional';
+
+  @override
+  String get solMate => 'Mate';
+
+  @override
+  String get solFlush => 'Flush';
+
+  @override
+  String get solDirectedAngle => 'Directed Angle';
+
+  @override
+  String get solUndirectedAngle => 'Undirected Angle';
+
+  @override
+  String get solExplicitVector => 'Explicit Reference Vector';
+
+  @override
+  String get solInside => 'Inside';
+
+  @override
+  String get solOutside => 'Outside';
+
+  @override
+  String get solOpposed => 'Opposed';
+
+  @override
+  String get solAligned => 'Aligned';
+
+  @override
+  String get solSymmetric => 'Symmetric';
+
+  @override
+  String get solAsymmetric => 'Asymmetric';
+
+  @override
+  String get solForward => 'Forward';
+
+  @override
+  String get solReverse => 'Reverse';
+
+  @override
+  String get ctxSuppress => 'Suppress';
+
+  @override
+  String get ctxUnsuppress => 'Unsuppress';
+
+  @override
+  String hudAsmDof(int n) {
+    return '$n degrees of freedom';
+  }
+
+  @override
+  String get hudAsmFullyConstrained => 'Fully constrained';
+
+  @override
+  String get msgAsmSameComponent =>
+      'Both selections are on the same component.';
+
+  @override
+  String get msgAsmPickTwo => 'Select two pieces of geometry first.';
+
+  @override
+  String get msgAsmTangentNeedsRound => 'Tangent needs a round face.';
+
+  @override
+  String get msgAsmInsertNeedsAxes =>
+      'Insert needs two axes or circular edges.';
+
+  @override
+  String get msgAsmAngleNeedsDirections => 'Angle needs two directions.';
+
+  @override
+  String get msgAsmMotionNeedsAxes => 'Motion needs two axes.';
+
+  @override
+  String get msgAsmBothGrounded => 'Both components are grounded.';
+
+  @override
+  String get msgAsmMissingComponent =>
+      'This relationship\'s component is missing.';
+
+  @override
+  String get msgAsmCannotSatisfy => 'This relationship cannot be satisfied.';
+
+  @override
+  String get msgAsmCannotConstrain =>
+      'These selections cannot be constrained that way.';
+
+  @override
+  String msgAsmConstraintDeleted(String name) {
+    return '“$name” deleted.';
+  }
+
+  @override
+  String get hintAsmConstraintSet => 'Not available yet';
 }
