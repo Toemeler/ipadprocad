@@ -41,6 +41,7 @@ import 'dart:ui';
 import 'asm_constraints.dart';
 import 'assembly.dart';
 import 'part_model.dart';
+import 'ffi/occt_engine.dart';
 import 'part_pick.dart';
 import 'pick_math.dart';
 import 'part_render.dart';
@@ -138,8 +139,8 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       final p1 = Vec3(c[ci + 4], c[ci + 5], c[ci + 6]);
       final d = p1 - p0;
       if (d.length > 1e-9) {
-        return _local(o, AsmGeom.axis(p0, d.normalized()), 'Edge', depth,
-            world);
+        return _local(o, AsmGeom.axis(p0, d.normalized()), 'Edge', depth, world,
+            anchor: (p0 + p1) * 0.5, extent: d.length * 0.5);
       }
     } else if (type == 2 || type == 3) {
       final centre = Vec3(c[ci + 1], c[ci + 2], c[ci + 3]);
@@ -156,13 +157,16 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
                 radius: type == 2 ? c[ci + 10] : 0),
             type == 2 ? 'Circular Edge' : 'Elliptical Edge',
             depth,
-            world);
+            world,
+            anchor: centre,
+            extent: type == 2 ? c[ci + 10] : 0);
       }
     }
   }
   // No analytic record: the arc-length midpoint is still a real Inventor
   // input, and it is exactly what a Mate between two vertices needs.
-  return _local(o, AsmGeom.point(hit.mid), 'Edge Midpoint', depth, world);
+  return _local(o, AsmGeom.point(hit.mid), 'Edge Midpoint', depth, world,
+      anchor: hit.mid, extent: hit.length * 0.5);
 }
 
 /// The frontmost face of [o] under [px], as the plane / axis / point it
@@ -174,6 +178,8 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   List<double>? bestInfo;
   var bestDepth = double.negativeInfinity;
   var bestHit = Vec3.zero;
+  OcctMeshData? bestMesh;
+  var bestFace = -1;
   for (final s in o.solids) {
     final m = s.mesh;
     if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
@@ -214,6 +220,8 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       bestDepth = d;
       bestInfo = m.faceInfos.sublist(15 * fid, 15 * fid + 15);
       bestHit = local;
+      bestMesh = m;
+      bestFace = fid;
     }
   }
   final info = bestInfo;
@@ -223,22 +231,30 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   final dir = Vec3(info[4], info[5], info[6]);
   final world = o.toWorld(bestHit);
   if (dir.length < 1e-9 && type != kFacePlane) return null;
+  // What the face itself occupies, which is what the highlight has to match.
+  final (mid, span) = _faceSpan(bestMesh!, bestFace);
   return switch (type) {
-    kFacePlane => _local(o, AsmGeom.plane(at, dir), 'Face', bestDepth, world),
+    kFacePlane => _local(o, AsmGeom.plane(at, dir), 'Face', bestDepth, world,
+        anchor: mid, extent: span),
     kFaceCylinder => _local(
         o,
         AsmGeom.axis(at, dir, radius: info[10]),
         'Cylindrical Face',
         bestDepth,
-        world),
+        world,
+        // A cylinder's ring is drawn at the anchor's station along the axis,
+        // so the middle of the BAND is what puts it half way up the face
+        // rather than at whichever end the finger was nearer.
+        anchor: mid,
+        extent: info[10]),
     // A cone has an axis and no single radius, so it constrains like an axis
     // and refuses Tangent — which is what Inventor does with one too.
-    kFaceCone =>
-      _local(o, AsmGeom.axis(at, dir), 'Conical Face', bestDepth, world),
-    kFaceSphere =>
-      _local(o, AsmGeom.point(at), 'Spherical Face', bestDepth, world),
-    kFaceTorus =>
-      _local(o, AsmGeom.axis(at, dir), 'Toroidal Face', bestDepth, world),
+    kFaceCone => _local(o, AsmGeom.axis(at, dir), 'Conical Face', bestDepth,
+        world, anchor: mid, extent: span),
+    kFaceSphere => _local(o, AsmGeom.point(at), 'Spherical Face', bestDepth,
+        world, anchor: mid, extent: span),
+    kFaceTorus => _local(o, AsmGeom.axis(at, dir), 'Toroidal Face', bestDepth,
+        world, anchor: mid, extent: span),
     // A surface with no axis and no centre offers nothing to constrain to.
     _ => null,
   };
@@ -247,14 +263,63 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
 /// Wraps geometry already in [o]'s LOCAL frame into a pick, computing the
 /// world form once.
 AsmPick _local(AssemblyOccurrence o, AsmGeom localGeom, String label,
-    double depth, Vec3 hit) {
+    double depth, Vec3 hit,
+    {Vec3? anchor, double extent = 0}) {
   final world = AsmGeom(
     localGeom.kind,
     o.toWorld(localGeom.at),
     localGeom.dir.length < 1e-12 ? Vec3.zero : o.dirToWorld(localGeom.dir),
     radius: localGeom.radius,
   );
-  return AsmPick(AsmRef(o.id, localGeom, label), world, depth, hit);
+  // The ANCHOR is the middle of what was picked, in the component's own
+  // frame. See AsmRef.anchor for why the geometry's own point will not do,
+  // and why the tapped pixel will not either.
+  return AsmPick(
+      AsmRef(o.id, localGeom, label,
+          anchor: anchor ?? o.toLocal(hit), extent: extent),
+      world,
+      depth,
+      hit);
+}
+
+/// The centre of the picked face and half its WIDTH, in the mesh's own
+/// coordinates.
+///
+/// Walked from the triangles that carry [fid], because nothing else knows: a
+/// surface record says what KIND of surface it is and where its reference
+/// frame sits, and says nothing at all about how much of that surface this
+/// face occupies. A plane is infinite; the face on it is not.
+(Vec3, double) _faceSpan(OcctMeshData m, int fid) {
+  var sum = Vec3.zero;
+  var n = 0;
+  var lo = Vec3.zero, hi = Vec3.zero;
+  for (var t = 0; t < m.triFaces.length; t++) {
+    if (m.triFaces[t] != fid) continue;
+    for (var k = 0; k < 3; k++) {
+      final i = m.indices[t * 3 + k] * 3;
+      if (i + 2 >= m.positions.length) continue;
+      final v = Vec3(m.positions[i], m.positions[i + 1], m.positions[i + 2]);
+      sum = sum + v;
+      if (n == 0) {
+        lo = v;
+        hi = v;
+      } else {
+        lo = Vec3(math.min(lo.x, v.x), math.min(lo.y, v.y), math.min(lo.z, v.z));
+        hi = Vec3(math.max(hi.x, v.x), math.max(hi.y, v.y), math.max(hi.z, v.z));
+      }
+      n++;
+    }
+  }
+  if (n == 0) return (Vec3.zero, 0);
+  // The centre of the BOX, not the mean of the vertices: a face tessellated
+  // with more points at one end (a fillet meeting it, a hole through it)
+  // would pull a mean off-centre.
+  final mid = (lo + hi) * 0.5;
+  // Half the LONGEST SIDE, not half the diagonal. The marker is drawn as a
+  // square of this half-width, so a diagonal would make it sqrt(2) too big
+  // and the highlight would hang off every face it was meant to name.
+  final d = hi - lo;
+  return (mid, math.max(d.x, math.max(d.y, d.z)) * 0.5);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +356,8 @@ AsmPick? _pickOriginOf(AssemblyModel a, Cam3 cam, Offset px) {
     if (uv.dx < uMin || uv.dx > uMax || uv.dy < vMin || uv.dy > vMax) continue;
     offer(AsmPick(
         AsmRef(kAssemblyOrigin, AsmGeom.plane(Vec3.zero, f.n),
-            '${key.toUpperCase()} Plane'),
+            '${key.toUpperCase()} Plane',
+            anchor: hit),
         AsmGeom.plane(Vec3.zero, f.n),
         cam.depth(hit),
         hit));
@@ -309,7 +375,8 @@ AsmPick? _pickOriginOf(AssemblyModel a, Cam3 cam, Offset px) {
     final hit = dir * (lo + (hi - lo) * t);
     offer(AsmPick(
         AsmRef(kAssemblyOrigin, AsmGeom.axis(Vec3.zero, dir),
-            '${key.toUpperCase()} Axis'),
+            '${key.toUpperCase()} Axis',
+            anchor: hit),
         AsmGeom.axis(Vec3.zero, dir),
         // Nearer than a plane through it, so an axis lying in a visible
         // origin plane can still be taken.
@@ -397,44 +464,67 @@ double? _separation(
   return null; // two axes: see AsmSolver._mate, an offset names nothing there
 }
 
-/// The world segment or outline to DRAW for a picked reference, so the user
-/// can see what they selected. Screen-space decoration; the viewport paints
-/// it and RealityKit is told nothing about it.
+/// A reference, ready to DRAW: its geometry and the point it was touched at,
+/// both in world coordinates, plus how big to draw the parts of it that have
+/// no size of their own.
+class AsmMark {
+  const AsmMark(this.geom, this.anchor, this.size);
+
+  final AsmGeom geom;
+
+  /// Where on the component this was picked, in WORLD coordinates.
+  final Vec3 anchor;
+
+  /// Half-width for a plane patch, half-length for an axis. Taken from the
+  /// component's own extent, not the assembly's: a 5 mm bracket in a 500 mm
+  /// machine has to get a 5 mm marker, or the highlight swallows the model.
+  final double size;
+}
+
+/// The polyline to draw for [m], in world coordinates, and whether it closes.
 ///
-/// [size] is how big to draw something that has no size of its own — an
-/// infinite plane, an axis — and comes from the assembly's extent so the
-/// marker is legible on a 5 mm part and on a 500 mm one.
-List<Vec3> refMarker(AsmGeom g, double size) {
+/// ANCHORED, which is the whole point of it. The geometry's own point is
+/// wherever the kernel put it — see [AsmRef.anchor] — so a patch drawn there
+/// lands in mid-air. Every shape below is centred on the tapped point instead,
+/// projected onto the geometry it belongs to so it sits exactly ON the
+/// surface rather than near it.
+(List<Vec3>, bool) refMarker(AsmMark m) {
+  final g = m.geom;
   switch (g.kind) {
     case AsmGeomKind.plane:
       final n = g.dir.normalized();
-      if (n.length < 0.5) return [g.at];
+      if (n.length < 0.5) return ([g.at], false);
+      // The anchor projected onto the plane: on the surface by construction,
+      // however far the plane's own reference point is from the face.
+      final c = m.anchor - n * ((m.anchor - g.at).dot(n));
       final u = _anyPerp(n), v = n.cross(u).normalized();
-      final r = size;
-      return [
-        g.at + u * r + v * r,
-        g.at - u * r + v * r,
-        g.at - u * r - v * r,
-        g.at + u * r - v * r,
-      ];
+      final r = m.size;
+      return ([
+        c + u * r + v * r,
+        c - u * r + v * r,
+        c - u * r - v * r,
+        c + u * r - v * r,
+      ], true);
     case AsmGeomKind.axis:
       final d = g.dir.normalized();
-      if (d.length < 0.5) return [g.at];
+      if (d.length < 0.5) return ([g.at], false);
+      // Along the axis to the tapped height. For a cylindrical FACE that is
+      // the band the finger was on; for a circular EDGE the anchor lies on
+      // the circle, so this lands exactly on it.
+      final c = g.at + d * ((m.anchor - g.at).dot(d));
       if (g.radius > 1e-9) {
-        // A CIRCLE, drawn as a polygon: a cylindrical face or a circular edge
-        // reads as a ring, and a bare line through the middle of a hole does
-        // not say which hole.
-        final u = _anyPerp(d) * g.radius, v = d.cross(_anyPerp(d)).normalized() * g.radius;
-        return [
-          for (var i = 0; i <= 32; i++)
-            g.at +
-                u * math.cos(i * math.pi / 16) +
-                v * math.sin(i * math.pi / 16)
-        ];
+        // A RING, not a line: a bare axis through the middle of a hole does
+        // not say which hole, and the ring is what Insert is picked by.
+        final u = _anyPerp(d) * g.radius;
+        final v = d.cross(_anyPerp(d)).normalized() * g.radius;
+        return ([
+          for (var i = 0; i < 32; i++)
+            c + u * math.cos(i * math.pi / 16) + v * math.sin(i * math.pi / 16)
+        ], true);
       }
-      return [g.at - d * size, g.at + d * size];
+      return ([c - d * m.size, c + d * m.size], false);
     case AsmGeomKind.point:
-      return [g.at];
+      return ([g.at], false);
   }
 }
 

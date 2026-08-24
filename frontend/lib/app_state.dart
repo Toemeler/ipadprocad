@@ -4046,15 +4046,37 @@ class AppState extends ChangeNotifier {
   /// to put them back exactly.
   Map<String, (Vec3, Quat)>? _asmSnapshot;
 
-  /// Highlighted in the viewport while the dialog collects: the geometry of
-  /// every filled slot, in WORLD coordinates, plus the one under the pointer.
-  List<AsmGeom> get constraintMarkers {
+  /// Highlighted in the viewport while the dialog collects: every filled
+  /// slot, in WORLD coordinates and ready to draw.
+  List<AsmMark> get constraintMarkers {
     final s = constraintSession, a = currentAssembly;
     if (s == null || a == null) return const [];
     return [
       for (var i = 0; i < s.needed; i++)
-        if (s.slot(i) != null) worldGeomOf(a, s.slot(i)!)
+        if (s.slot(i) != null) markFor(a, s.slot(i)!)
     ];
+  }
+
+  /// One stored reference, ready to draw.
+  ///
+  /// The size comes from the COMPONENT the reference is on, not from the
+  /// assembly: a marker sized to the whole document swallows a small part and
+  /// disappears on a big one. A reference to the assembly's own origin has no
+  /// component, so it takes the assembly's extent — which is the right answer
+  /// there, since the origin planes are drawn to that extent too.
+  AsmMark markFor(AssemblyModel a, AsmRef r) {
+    final geom = worldGeomOf(a, r);
+    final o = r.isAssemblyOrigin ? null : a.byId(r.occurrence);
+    final anchor = o == null ? r.anchor : o.toWorld(r.anchor);
+    // The picked FACE's own size when the pick could measure it, which is
+    // what makes the highlight mean "this face" rather than "somewhere on
+    // this part". The component's extent is the fallback: the assembly's own
+    // origin geometry has no face, and a document written before the pick
+    // recorded one carries no extent.
+    if (r.extent > 0) return AsmMark(geom, anchor, r.extent);
+    final b = o == null ? assemblyContentBounds(a) : occurrenceBounds(o);
+    final span = b == null ? 20.0 : (b.$2 - b.$1).length;
+    return AsmMark(geom, anchor, math.max(2.0, span * 0.22));
   }
 
   /// Opens Place Constraint. With [edit] it opens on that constraint, filled

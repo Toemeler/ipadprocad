@@ -115,9 +115,13 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   /// The occurrence under the pointer, for the hover cursor and the hover tint.
   AssemblyOccurrence? _hover;
 
-  /// M242 — the GEOMETRY under the pointer while Place Constraint is
-  /// collecting, in world coordinates. What the next tap would select.
-  AsmGeom? _hoverGeom;
+  /// M242 — the geometry under the pointer while Place Constraint is
+  /// collecting, ready to draw. What the next tap would select.
+  AsmMark? _hoverGeom;
+
+  /// The reference [_hoverGeom] was built from, so a repeated hover on the
+  /// same geometry does not rebuild the viewport sixty times a second.
+  AsmRef? _hoverRef;
 
   // ---- RealityKit (iOS) ----
   RealityViewController? _reality;
@@ -495,18 +499,37 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 // the next tap would select is the thing worth showing.
                 if (app.constraintPicking) {
                   final p = pickAsmRef(a, cam, e.localPosition);
-                  final g = p?.world;
-                  if (!identical(g, _hoverGeom)) setState(() => _hoverGeom = g);
+                  final g = p == null ? null : app.markFor(a, p.ref);
+                  // Compare the REFERENCE, not the mark: markFor builds a
+                  // fresh one every call, so identical() on it is never true
+                  // and the viewport would rebuild on every mouse move.
+                  if (p?.ref.label != _hoverRef?.label ||
+                      p?.ref.occurrence != _hoverRef?.occurrence ||
+                      (p != null &&
+                          _hoverRef != null &&
+                          (p.ref.anchor - _hoverRef!.anchor).length > 1e-9) ||
+                      (p == null) != (_hoverRef == null)) {
+                    setState(() {
+                      _hoverRef = p?.ref;
+                      _hoverGeom = g;
+                    });
+                  }
                   if (_hover != null) setState(() => _hover = null);
                   return;
                 }
-                if (_hoverGeom != null) setState(() => _hoverGeom = null);
+                if (_hoverGeom != null) {
+                  setState(() {
+                    _hoverGeom = null;
+                    _hoverRef = null;
+                  });
+                }
                 final h = pickOccurrence(a, cam, e.localPosition);
                 if (!identical(h, _hover)) setState(() => _hover = h);
               },
               onExit: (_) => setState(() {
                 _hover = null;
                 _hoverGeom = null;
+                _hoverRef = null;
               }),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -741,15 +764,15 @@ class _MissingPartPainter extends CustomPainter {
   /// M242 — the picked and hovered constraint geometry. HUD, so it is drawn
   /// here on iOS (where RealityKit owns the scene) and by [_AssemblyPainter]
   /// off it — the same split paintMissingComponents already lives on.
-  final List<AsmGeom> marks;
-  final AsmGeom? hoverGeom;
+  final List<AsmMark> marks;
+  final AsmMark? hoverGeom;
   _MissingPartPainter(this.asm, this.marks, this.hoverGeom);
 
   @override
   void paint(Canvas canvas, Size size) {
     final cam = Cam3(asm.camera, size);
     paintMissingComponents(canvas, cam, asm);
-    paintConstraintMarks(canvas, cam, asm, marks, hoverGeom);
+    paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 
   @override
@@ -763,41 +786,41 @@ class _MissingPartPainter extends CustomPainter {
 /// selection you cannot see because the part you are constraining it to is in
 /// front of it is a selection you cannot verify. Inventor does the same — its
 /// selection highlight reads through the model.
-void paintConstraintMarks(Canvas canvas, Cam3 cam, AssemblyModel asm,
-    List<AsmGeom> marks, AsmGeom? hover) {
+///
+/// Every mark is ANCHORED on the point that was tapped (see AsmRef.anchor),
+/// so it lands on the surface rather than at whatever reference point the
+/// kernel gave the underlying plane or axis.
+void paintConstraintMarks(
+    Canvas canvas, Cam3 cam, List<AsmMark> marks, AsmMark? hover) {
   if (marks.isEmpty && hover == null) return;
-  // Big enough to see against the assembly it belongs to, and no bigger: an
-  // infinite plane has to be drawn as SOMETHING, and Inventor draws a patch.
-  final b = assemblyContentBounds(asm);
-  final size = b == null
-      ? 20.0
-      : math.max(8.0, (b.$2 - b.$1).length * 0.18);
-  void draw(AsmGeom g, Color color, double width) {
-    final pts = refMarker(g, size);
+  void draw(AsmMark m, Color color, double width) {
+    final (pts, closed) = refMarker(m);
     if (pts.length == 1) {
       canvas.drawCircle(cam.project(pts.first), 4.5, Paint()..color = color);
       return;
     }
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = width
-      ..color = color;
     final path = Path();
-    path.moveTo(cam.project(pts.first).dx, cam.project(pts.first).dy);
+    final first = cam.project(pts.first);
+    path.moveTo(first.dx, first.dy);
     for (final p in pts.skip(1)) {
       final s = cam.project(p);
       path.lineTo(s.dx, s.dy);
     }
-    if (g.isPlane) {
+    if (closed) {
       path.close();
-      canvas.drawPath(path, Paint()..color = color.withValues(alpha: 0.16));
+      canvas.drawPath(path, Paint()..color = color.withValues(alpha: 0.18));
     }
-    canvas.drawPath(path, paint);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..color = color);
   }
 
   if (hover != null) draw(hover, kEdgeAccent, 1.6);
-  for (final g in marks) {
-    draw(g, T.accent, 2.2);
+  for (final m in marks) {
+    draw(m, T.accent, 2.2);
   }
 }
 
@@ -817,8 +840,8 @@ class _AssemblyPainter extends CustomPainter {
   final AssemblyOccurrence? hover;
 
   /// M242 — Place Constraint's collected and hovered geometry.
-  final List<AsmGeom> marks;
-  final AsmGeom? hoverGeom;
+  final List<AsmMark> marks;
+  final AsmMark? hoverGeom;
   _AssemblyPainter(this.asm, this.hover, this.marks, this.hoverGeom);
 
   @override
@@ -894,7 +917,7 @@ class _AssemblyPainter extends CustomPainter {
     }
 
     paintMissingComponents(canvas, cam, asm);
-    paintConstraintMarks(canvas, cam, asm, marks, hoverGeom);
+    paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 
   @override
