@@ -109,14 +109,21 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
 /// no longer fits beside a glyph on the 56 pt card. Every id, glyph, tint, dim
 /// state, selection and menu survives, so the narrow panel does everything the
 /// wide one does and expanding again cannot show something different.
+/// M243 — [hoverId] is the row under the pointer, which every row has to know
+/// about rather than only the ones that mean something in 3D: retracted, the
+/// hovered glyph is the only feedback there is.
 List<GlassRow> buildBrowserRows(
   AppState app, {
   required Set<String> expanded,
   int? dragEop,
   bool collapsed = false,
+  String? hoverId,
 }) {
   final rows = _buildRows(app, expanded: expanded, dragEop: dragEop);
-  return collapsed ? [for (final r in rows) r.compact()] : rows;
+  return [
+    for (final r in rows)
+      (collapsed ? r.compact() : r).hover(hoverId != null && r.id == hoverId)
+  ];
 }
 
 List<GlassRow> _buildRows(
@@ -238,7 +245,6 @@ List<GlassRow> _buildRows(
             selected: app.pickingBody
                 ? app.hoverBody == name
                 : app.selectedBody == name,
-            hovered: !app.pickingBody && app.browserHoverBody == name,
             menu: _bodyMenu(app, on),
           ));
         }
