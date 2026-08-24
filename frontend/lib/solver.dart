@@ -1093,10 +1093,16 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       j[i][k] = (r2[i] - r[i]) / h;
     }
   }
-  return (_rankAndPivots(j, r.length, total).$1, r.length, total);
+  return (rankAndPivots(j, r.length, total).$1, r.length, total);
 }
 
-(int, List<int>) _rankAndPivots(List<List<double>> m, int rows, int cols) {
+/// Row-reduces [m] in place and returns (rank, pivot columns).
+///
+/// M242 — PUBLIC. The assembly solver needs exactly this: the rank of a
+/// Jacobian is what turns "the numbers converged" into "and here is how many
+/// degrees of freedom are left", which is the whole under- / fully-constrained
+/// reporting on both sides of the app. One Gaussian elimination, not two.
+(int, List<int>) rankAndPivots(List<List<double>> m, int rows, int cols) {
   var row = 0;
   final pivots = <int>[];
   for (var col = 0; col < cols && row < rows; col++) {
@@ -1127,7 +1133,12 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
 }
 
 /// Solves A x = b in place (A is n x n, symmetric positive semi-definite).
-List<double>? _solveDense(List<List<double>> a, List<double> b, int n) {
+///
+/// M242 — PUBLIC, for the assembly solver's normal equations. Same reason as
+/// [rankAndPivots]: the two solvers do different geometry over the same linear
+/// algebra, and a second partial-pivot elimination would be a second place for
+/// a pivot tolerance to drift.
+List<double>? solveDense(List<List<double>> a, List<double> b, int n) {
   for (var i = 0; i < n; i++) {
     var best = i;
     for (var k = i + 1; k < n; k++) {
@@ -2379,7 +2390,7 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
       for (var a = 0; a < n; a++) {
         jtj[a][a] += lambda * (1 + jtj[a][a].abs());
       }
-      final dx = _solveDense(jtj, jtr, n);
+      final dx = solveDense(jtj, jtr, n);
       if (dx == null) break;
 
       final saved = List<double>.from(x);
@@ -2472,7 +2483,7 @@ SketchAnalysis analyzeSketch(List<Geo> gs, List<Constraint> cs) {
       j[i][k] = (r2[i] - r[i]) / h;
     }
   }
-  final (rank, pivots) = _rankAndPivots(j, m, total); // j is now RREF
+  final (rank, pivots) = rankAndPivots(j, m, total); // j is now RREF
   final dof = total - rank;
   if (dof <= 0) return const SketchAnalysis(0, {}, {});
 
@@ -2613,7 +2624,7 @@ bool wouldOverconstrain(
         j[i][k] = (r2[i] - r[i]) / h;
       }
     }
-    return _rankAndPivots(j, r.length, total).$1;
+    return rankAndPivots(j, r.length, total).$1;
   }
 
   final before = rankOf(cs);

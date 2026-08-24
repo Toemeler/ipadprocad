@@ -18,6 +18,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../asm_constraints.dart';
+import '../l10n/cad_terms.dart';
 import '../assembly.dart';
 import '../menus.dart';
 import '../log.dart';
@@ -1186,6 +1188,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
                     label: L.of(context).nodeRelationships,
                     onTap: () => setState(() => relsOpen = !relsOpen),
                   ),
+                  // M242 — the constraints themselves, in placement order.
+                  if (relsOpen)
+                    for (final c in asm.constraints)
+                      _constraintRow(app, asm, c, indent: 30),
                 ],
                 // Inventor: the Solid Bodies folder sits ABOVE Origin, with a
                 // (N) body count; expand it to list each body with its own
@@ -1248,7 +1254,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 // The placed components. Inventor lists them below Origin,
                 // in the order they were placed.
                 if (asm != null)
-                  for (final o in asm.occurrences) _componentRow(app, asm, o),
+                  for (final o in asm.occurrences) ...[
+                    _componentRow(app, asm, o),
+                    // Inventor nests every constraint under each component it
+                    // touches, as well as listing it in the folder above.
+                    if (_compOpen.contains(o.id))
+                      for (final c in asm.constraintsOn(o.id))
+                        _constraintRow(app, asm, c, indent: 30),
+                  ],
                 // A part shows its child sketches and features instead of
                 // layers; the open child sketch falls through to the 2D tree.
                 if (part != null && app.activeChild == null) ...[
@@ -1350,20 +1363,121 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// M240 — one placed component. Tapping selects it, which is the same
   /// selection the viewport shows and drags; the eye hides it; a grounded
   /// component carries Inventor's pin instead of an expander.
+  ///
+  /// M242 — and it discloses the relationships ON it, when it has any.
   Widget _componentRow(
       AppState app, AssemblyModel asm, AssemblyOccurrence o) {
+    final rels = asm.constraintsOn(o.id);
+    final open = _compOpen.contains(o.id);
     final row = _row(
       indent: 8,
-      exp: ' ',
+      exp: rels.isEmpty ? ' ' : (open ? '−' : '+'),
       icon: o.grounded ? groundedPinIcon : componentCubeIcon,
       label: o.id,
       active: identical(asm.selected, o),
-      onTap: () => app.selectOccurrence(identical(asm.selected, o) ? null : o),
+      onTap: () {
+        if (rels.isNotEmpty) {
+          setState(() {
+            if (!_compOpen.remove(o.id)) _compOpen.add(o.id);
+          });
+        }
+        app.selectOccurrence(identical(asm.selected, o) ? null : o);
+      },
       trailing: _EyeButton(
           visible: o.visible,
           onTap: () => app.setOccurrenceVisible(o, !o.visible)),
     );
     return o.visible ? row : Opacity(opacity: 0.45, child: row);
+  }
+
+  /// Which components have their relationships disclosed.
+  final Set<String> _compOpen = {};
+
+  /// M242 — one relationship. Tapping selects it, tapping the selected one
+  /// again opens the dialog on it (there is no double-tap in this tree); a
+  /// long press is the Edit / Suppress / Delete menu, matching the native
+  /// browser's context menu on the same row.
+  Widget _constraintRow(
+      AppState app, AssemblyModel asm, AsmConstraint c, {required double indent}) {
+    final t = L.of(context);
+    final selected = identical(asm.selectedConstraint, c);
+    final row = _row(
+      indent: indent,
+      icon: c.suppressed ? asmSuppressedIcon : asmConstraintIcon,
+      label: c.name,
+      active: selected,
+      // Tap once to select, again to open — the same stand-in for a
+      // double-click the native tree uses, since neither has one.
+      onTap: () {
+        if (selected) {
+          app.openConstraint(edit: c);
+        } else {
+          app.selectConstraint(c);
+        }
+      },
+      // A SICK constraint is marked rather than described: the badge is the
+      // signal, and the sentence is in the tooltip where it does not have to
+      // fit in a 300 pt panel.
+      // The row's own actions live behind a ⋯ button, because this tree has
+      // no long-press menu and the native one (which does) puts Edit /
+      // Suppress / Delete on exactly this row.
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (c.isSick && !c.suppressed)
+          Tooltip(
+              message: app.constraintErrorText(c),
+              child: SvgPicture.string(themedIcon(asmSickIcon),
+                  width: 13, height: 13)),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _constraintMenu(app, c),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text('⋯', style: ts(12, T.dim)),
+          ),
+        ),
+      ]),
+    );
+    final dim = c.suppressed;
+    final wrapped = dim ? Opacity(opacity: 0.45, child: row) : row;
+    return Tooltip(
+      message:
+          '${constraintLabel(t, c.kind)} · ${solutionLabel(t, c.solution)}',
+      child: wrapped,
+    );
+  }
+
+  Future<void> _constraintMenu(AppState app, AsmConstraint c) async {
+    final box = context.findRenderObject();
+    final at = box is RenderBox
+        ? box.localToGlobal(Offset.zero) & box.size
+        : Rect.zero;
+    final t = L.of(context);
+    final pick = await showMenu<String>(
+      context: context,
+      color: T.fly,
+      position: RelativeRect.fromLTRB(at.left + 40, at.top + 80, at.right, at.bottom),
+      items: [
+        PopupMenuItem(value: 'edit', height: 36, child: Text(t.edit, style: ts(12.5, T.text))),
+        PopupMenuItem(
+            value: 'suppress',
+            height: 36,
+            child: Text(c.suppressed ? t.ctxUnsuppress : t.ctxSuppress,
+                style: ts(12.5, T.text))),
+        PopupMenuItem(
+            value: 'delete',
+            height: 36,
+            child: Text(t.delete, style: ts(12.5, T.err))),
+      ],
+    );
+    if (!mounted) return;
+    switch (pick) {
+      case 'edit':
+        app.openConstraint(edit: c);
+      case 'suppress':
+        app.toggleConstraintSuppressed(c);
+      case 'delete':
+        app.deleteConstraint(c);
+    }
   }
 
   /// A solid body in the Solid Bodies folder (Inventor). The eye toggles the

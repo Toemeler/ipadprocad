@@ -339,7 +339,7 @@ void main() {
         _occ('Bracket:2', const Vec3(40, 0, 0)),
       ]);
       final pieces = [
-        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.offset)
+        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.rot, o.offset)
       ];
       final scene = buildPlacedThumbScenePayload(pieces);
       final solids = (scene['solids'] as List).cast<Map>();

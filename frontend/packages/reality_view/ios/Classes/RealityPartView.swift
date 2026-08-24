@@ -140,6 +140,10 @@ final class PartRenderer: NSObject {
     /// Where each solid's holder sits. An assembly component's placement (M241);
     /// zero for every solid of a part, which is why a part is unaffected.
     private var solidPlacement: [String: SIMD3<Float>] = [:]
+    /// How each solid's holder is turned (M242). Identity for a part and for
+    /// an unrotated component; a constraint solve is the only thing that puts
+    /// anything else here, and it does so through the LIGHT overlay push.
+    private var solidOrientation: [String: simd_quatf] = [:]
     private var planeEntities: [String: PlaneEntity] = [:]
     private var axisEntities: [String: AxisEntity] = [:]
     private var cpEntity: Entity?
@@ -458,7 +462,9 @@ final class PartRenderer: NSObject {
         if let places = a["placements"] as? [[String: Any]] {
             for p in places {
                 guard let id = p["id"] as? String else { continue }
-                applyPlacement(id, Payload.vec3(p["at"]) ?? SIMD3<Float>(0, 0, 0))
+                applyPlacement(id,
+                               Payload.vec3(p["at"]) ?? SIMD3<Float>(0, 0, 0),
+                               Payload.quat(p["rot"]) ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1))
                 applyTint(id, Payload.argb(p["tint"]))
             }
         }
@@ -523,6 +529,7 @@ final class PartRenderer: NSObject {
             solidShaded[id] = nil
             solidTint[id] = nil
             solidPlacement[id] = nil
+            solidOrientation[id] = nil
         }
         for (id, e) in solidEdges where !ids.contains(id) {
             e.removeFromParent(); solidEdges[id] = nil; solidRev[id] = nil
@@ -534,6 +541,7 @@ final class PartRenderer: NSObject {
             guard let id = s["id"] as? String else { continue }
             let rev = (s["rev"] as? NSNumber)?.intValue ?? 0
             let at = Payload.vec3(s["at"]) ?? SIMD3<Float>(0, 0, 0)
+            let rot = Payload.quat(s["rot"]) ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
             let tint = Payload.argb(s["tint"])
             // Dart omits the buffers when a solid's mesh is unchanged: keep the
             // entity and the cached geometry that are already on screen.
@@ -545,7 +553,7 @@ final class PartRenderer: NSObject {
             // every vertex of the part being dragged.
             if s["positions"] == nil {
                 if let cached = solidCache[id] {
-                    applyPlacement(id, at)
+                    applyPlacement(id, at, rot)
                     applyTint(id, tint)
                     sceneRadius = max(sceneRadius,
                                       cached.boundingRadius + simd_length(at))
@@ -573,7 +581,9 @@ final class PartRenderer: NSObject {
             let edges = geom.edgeEntity(radius: edgeRadius, viewDir: outlineDir)
             let holder = Entity()
             holder.position = at
+            holder.orientation = rot
             solidPlacement[id] = at
+            solidOrientation[id] = rot
             solidTint[id] = tint
             solidShaded[id] = shaded as? ModelEntity
             holder.addChild(shaded)
@@ -597,12 +607,24 @@ final class PartRenderer: NSObject {
     /// result against every other component for free. This is what makes
     /// dragging a component cost a transform write per frame instead of a
     /// multi-megabyte buffer upload.
-    private func applyPlacement(_ id: String, _ at: SIMD3<Float>) {
+    private func applyPlacement(_ id: String, _ at: SIMD3<Float>,
+                                _ rot: simd_quatf) {
         guard let holder = solidEntities[id] else { return }
-        if let was = solidPlacement[id], simd_distance(was, at) < 1e-7 { return }
+        // Both halves of the rigid transform have to be compared before the
+        // early-out: a component being SPUN by the constraint solver holds its
+        // position exactly, and testing the translation alone would freeze it.
+        let sameAt = solidPlacement[id].map { simd_distance($0, at) < 1e-7 } ?? false
+        let sameRot = solidOrientation[id].map {
+            abs(simd_dot($0.vector, rot.vector)) > 1 - 1e-9
+        } ?? false
+        if sameAt && sameRot { return }
         solidPlacement[id] = at
+        solidOrientation[id] = rot
         holder.position = at
+        holder.orientation = rot
         if let g = solidCache[id] {
+            // A rotation about the holder's own origin leaves the radius the
+            // mesh sweeps unchanged, so only the translation enters here.
             sceneRadius = max(sceneRadius, g.boundingRadius + simd_length(at))
         }
     }
@@ -813,13 +835,19 @@ final class PartRenderer: NSObject {
               let face = (h["face"] as? NSNumber)?.intValue,
               face >= 0,
               let geom = solidCache[id] else { return }
+        // M242 — the lift is a WORLD direction (toward the camera) but the
+        // submesh is built in the solid's own space, so a rotated component
+        // needs it brought back into that space first. Identity for a part.
+        let spin = solidOrientation[id] ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
         guard let e = geom.faceHighlightEntity(
-            face: face, eps: highlightEps, lift: cam.dir) else { return }
+            face: face, eps: highlightEps,
+            lift: spin.inverse.act(cam.dir)) else { return }
         // M241 — the submesh is built in the solid's OWN space, so a solid
         // that carries a placement needs it applied here too. Zero for every
         // part, which is every caller today; written down so the first
         // assembly command that highlights a face does not have to find this.
         e.position = solidPlacement[id] ?? SIMD3<Float>(0, 0, 0)
+        e.orientation = solidOrientation[id] ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
         highlightEntity = e
         root.addChild(e)
     }

@@ -398,6 +398,100 @@ final Map<String, String> AS = {
   'copy': S(18, '<path d="M2 5 L7 2.5 L12 5 L7 7.5 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><path d="M2 5 L7 7.5 L7 12.5 L2 10 Z" fill="#5b6167" stroke="#4d5257" stroke-width=".7"/><path d="M12 5 L7 7.5 L7 12.5 L12 10 Z" fill="#71787e" stroke="#4d5257" stroke-width=".7"/><path d="M8 9 L12.5 6.8 L17 9 L12.5 11.2 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".7"/><path d="M8 9 L12.5 11.2 L12.5 15.7 L8 13.5 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".7"/><path d="M17 9 L12.5 11.2 L12.5 15.7 L17 13.5 Z" fill="#2E8FD4" stroke="#154d7a" stroke-width=".7"/>'),
 };
 
+// ==== M242 — Place Constraint ====
+//
+// The dialog's TYPE row and SOLUTION row, in one map. Inventor draws both as
+// pictures with no text at all, and it is right to: "Mate" and "Flush" are
+// the same words for two arrangements that only a picture distinguishes, and
+// the same is true of Opposed and Aligned, Inside and Outside.
+//
+// The drawing convention across all of them, so the row reads as one family:
+//   * the MOVING part is blue, the part it is constrained TO is grey
+//   * the geometry that was picked is yellow — a face edge, an axis, a circle
+//   * green is what the constraint DOES: the arrows, the angle arc
+//
+// One map for types and solutions together, because a solution glyph is only
+// ever shown beside the type glyph it belongs to and splitting them would be
+// two things to keep in step for nothing.
+final Map<String, String> AC = {
+  // ---- types --------------------------------------------------------------
+  // Mate: two L-blocks brought face to face, the mating faces marked.
+  'mate': S(24, '<path d="M2 7 L8 4 L8 12 L2 15 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M2 15 L8 12 L8 20 L2 23 Z" fill="#1F6FAE" stroke="#154d7a" stroke-width=".8"/><path d="M16 4 L22 7 L22 15 L16 12 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M16 12 L22 15 L22 23 L16 20 Z" fill="#5b6167" stroke="#4d5257" stroke-width=".8"/><path d="M8 4 v16 M16 4 v16" stroke="$YL" stroke-width="1.3"/><path d="M9.5 12 h5 M14.5 12 l-1.8-1.4 M14.5 12 l-1.8 1.4" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // Angle: two plates and the arc between them.
+  'angle': S(24, '<path d="M3 20 L11 20 L11 6 L3 6 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M12 20 L21 20 L18 8 L12 9 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M11 6 v14 M12 9 L18 8" stroke="$YL" stroke-width="1.2"/><path d="M11 14 A 6 6 0 0 1 15.6 11.6" fill="none" stroke="#5CBF4A" stroke-width="1.3"/><path d="M15.6 11.6 l-2.2-.5 M15.6 11.6 l-.8 2.1" stroke="#5CBF4A" stroke-width="1.1"/>'),
+  // Tangent: a round face resting on a flat one.
+  'tangent': S(24, '<circle cx="12" cy="9" r="6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><path d="M2 15 L22 15 L22 20 L2 20 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 15 h20" stroke="$YL" stroke-width="1.4"/><circle cx="12" cy="15" r="1.5" fill="#5CBF4A"/>'),
+  // Insert: a shaft down the middle of a bore, with the two circular edges
+  // that Insert is actually created by picking.
+  'insert': S(24, '<ellipse cx="12" cy="13" rx="8" ry="3" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><path d="M4 13 v6 a8 3 0 0 0 16 0 V13" fill="#5b6167" stroke="#4d5257" stroke-width=".9"/><ellipse cx="12" cy="13" rx="3.4" ry="1.4" fill="#2b2f33" stroke="$YL" stroke-width="1.1"/><ellipse cx="12" cy="4" rx="3.4" ry="1.4" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M8.6 4 v5 a3.4 1.4 0 0 0 6.8 0 V4" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><ellipse cx="12" cy="9" rx="3.4" ry="1.4" fill="none" stroke="$YL" stroke-width="1.1"/>'),
+  // Symmetry: a pair either side of the plane they are symmetric about.
+  'symmetry': S(24, '<path d="M2 8 L8 5 L8 15 L2 18 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 5 L22 8 L22 18 L16 15 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M12 2 v20" stroke="$YL" stroke-width="1.3" stroke-dasharray="3.5 2.5"/><path d="M9 11 h2 M15 11 h-2" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // ---- motion -------------------------------------------------------------
+  // Rotation: a gear pair.
+  'rotation': S(24, '<circle cx="8" cy="12" r="5.5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><circle cx="8" cy="12" r="2" fill="none" stroke="#1a5f95" stroke-width=".8"/><circle cx="18" cy="12" r="3.8" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><circle cx="18" cy="12" r="1.4" fill="none" stroke="#4d5257" stroke-width=".8"/><path d="M2.5 12 h11 M14.2 12 h5" stroke="$YL" stroke-width="1"/><path d="M8 4 A 8 8 0 0 1 13.6 6.4" fill="none" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // Rotation-Translation: a pinion over a rack.
+  'rotationTranslation': S(24, '<circle cx="9" cy="8" r="5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><circle cx="9" cy="8" r="1.8" fill="none" stroke="#1a5f95" stroke-width=".8"/><path d="M2 15 L22 15 L22 19 L2 19 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M5 15 v-1.6 M9 15 v-1.6 M13 15 v-1.6 M17 15 v-1.6" stroke="#4d5257" stroke-width="1"/><path d="M15 21.5 h6 M21 21.5 l-2-1.4 M21 21.5 l-2 1.4" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // ---- transitional -------------------------------------------------------
+  // A cam and the follower riding its face.
+  'transitional': S(24, '<path d="M4 12 a7 7 0 1 1 14 0 a7 9 0 0 1 -14 0 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><circle cx="11" cy="12" r="1.6" fill="none" stroke="#4d5257" stroke-width=".8"/><circle cx="19.5" cy="9" r="3" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><path d="M17.6 6.4 A 7 8 0 0 0 12 5" fill="none" stroke="$YL" stroke-width="1.2"/><path d="M19.5 15 v5 M19.5 20 l-1.5-1.6 M19.5 20 l1.5-1.6" stroke="#5CBF4A" stroke-width="1.1"/>'),
+
+  // ---- solutions ----------------------------------------------------------
+  // Mate: the two faces point AT each other. Flush: the same way.
+  'solMate': S(24, '<path d="M1 6 L8 2 L8 17 L1 21 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 2 L23 6 L23 21 L16 17 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M8 2 v15 M16 2 v15" stroke="$YL" stroke-width="1.4"/><path d="M9 11.5 L11.6 11.5 M11.6 11.5 l-2.4-2 M11.6 11.5 l-2.4 2 M15 11.5 L12.4 11.5 M12.4 11.5 l2.4-2 M12.4 11.5 l2.4 2" stroke="#5CBF4A" stroke-width="1.7"/>'),
+  'solFlush': S(24, '<path d="M1 6 L8 2 L8 17 L1 21 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 2 L23 6 L23 21 L16 17 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M8 2 v15 M16 2 v15" stroke="$YL" stroke-width="1.4"/><path d="M9 8 L15 8 M15 8 l-2.6-2 M15 8 l-2.6 2 M9 15 L15 15 M15 15 l-2.6-2 M15 15 l-2.6 2" stroke="#5CBF4A" stroke-width="1.7"/>'),
+  // Angle: the arc with a sense, without one, and with an explicit axis.
+  'solDirectedAngle': S(24, '<path d="M4 19 h15" stroke="#8C939A" stroke-width="2"/><path d="M4 19 L18 7" stroke="#54B0E8" stroke-width="2"/><path d="M13 19 A 9 9 0 0 0 11.2 13.6" fill="none" stroke="#5CBF4A" stroke-width="1.3"/><path d="M11.2 13.6 l2.2.3 M11.2 13.6 l.1 2.2" stroke="#5CBF4A" stroke-width="1.1"/><path d="M4 19 v-13" stroke="$YL" stroke-width="1.1" stroke-dasharray="2.6 2"/>'),
+  'solUndirectedAngle': S(24, '<path d="M4 19 h15" stroke="#8C939A" stroke-width="2"/><path d="M4 19 L18 7" stroke="#54B0E8" stroke-width="2"/><path d="M13 19 A 9 9 0 0 0 11.2 13.6" fill="none" stroke="#5CBF4A" stroke-width="1.3"/>'),
+  'solExplicitVector': S(24, '<path d="M4 19 h15" stroke="#8C939A" stroke-width="2"/><path d="M4 19 L18 7" stroke="#54B0E8" stroke-width="2"/><path d="M13 19 A 9 9 0 0 0 11.2 13.6" fill="none" stroke="#5CBF4A" stroke-width="1.3"/><path d="M4 19 v-14 M4 5 l-1.5 2 M4 5 l1.5 2" stroke="$YL" stroke-width="1.4"/>'),
+  // Tangent: the round face on the inside of the other, or on the outside.
+  'solInside': S(24, '<circle cx="12" cy="12" r="9.5" fill="none" stroke="#8C939A" stroke-width="1.6"/><circle cx="12" cy="15" r="6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><circle cx="12" cy="21" r="1.4" fill="#5CBF4A"/>'),
+  'solOutside': S(24, '<circle cx="7" cy="12" r="5.5" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><circle cx="17.5" cy="12" r="5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><circle cx="12.5" cy="12" r="1.4" fill="#5CBF4A"/>'),
+  // Insert: the two parts nose to nose, or facing the same way.
+  'solOpposed': S(24, '<ellipse cx="7" cy="12" rx="2.4" ry="5" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 7 h5 v10 h-5 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><ellipse cx="17" cy="12" rx="2.4" ry="5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M17 7 h5 v10 h-5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M1 12 h22" stroke="$YL" stroke-width="1" stroke-dasharray="3 2"/><path d="M8.6 12 h1.6 M10.2 12 l-1.4-1.1 M10.2 12 l-1.4 1.1 M15.4 12 h-1.6 M13.8 12 l1.4-1.1 M13.8 12 l1.4 1.1" stroke="#5CBF4A" stroke-width="1.1"/>'),
+  'solAligned': S(24, '<ellipse cx="7" cy="12" rx="2.4" ry="5" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 7 h5 v10 h-5 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><ellipse cx="14" cy="12" rx="2.4" ry="5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M14 7 h5 v10 h-5 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M1 12 h22" stroke="$YL" stroke-width="1" stroke-dasharray="3 2"/><path d="M9.5 8.5 h3.5 M13 8.5 l-1.4-1.1 M13 8.5 l-1.4 1.1" stroke="#5CBF4A" stroke-width="1.1"/>'),
+  // Symmetry: the pair mirrored, and the pair mirrored with the sense flipped.
+  'solSymmetric': S(24, '<path d="M2 8 L8 5 L8 15 L2 18 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 5 L22 8 L22 18 L16 15 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M12 2 v20" stroke="$YL" stroke-width="1.2" stroke-dasharray="3.5 2.5"/>'),
+  'solAsymmetric': S(24, '<path d="M2 8 L8 5 L8 15 L2 18 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 15 L22 18 L22 8 L16 5 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M12 2 v20" stroke="$YL" stroke-width="1.2" stroke-dasharray="3.5 2.5"/><path d="M15 20 L21 4" stroke="$RD" stroke-width="1.2"/>'),
+  // Motion: the two turn the same way, or opposite ways.
+  'solForward': S(24, '<circle cx="7" cy="12" r="4.6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><circle cx="17" cy="12" r="4.6" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M7 5 A 7 7 0 0 1 11.9 7" fill="none" stroke="#5CBF4A" stroke-width="1.2"/><path d="M11.9 7 l-2.2-.4 M11.9 7 l-.5 2.1" stroke="#5CBF4A" stroke-width="1"/><path d="M17 5 A 7 7 0 0 1 21.9 7" fill="none" stroke="#5CBF4A" stroke-width="1.2"/><path d="M21.9 7 l-2.2-.4 M21.9 7 l-.5 2.1" stroke="#5CBF4A" stroke-width="1"/>'),
+  'solReverse': S(24, '<circle cx="7" cy="12" r="4.6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><circle cx="17" cy="12" r="4.6" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M7 5 A 7 7 0 0 1 11.9 7" fill="none" stroke="#5CBF4A" stroke-width="1.2"/><path d="M11.9 7 l-2.2-.4 M11.9 7 l-.5 2.1" stroke="#5CBF4A" stroke-width="1"/><path d="M17 5 A 7 7 0 0 0 12.1 7" fill="none" stroke="$RD" stroke-width="1.2"/><path d="M12.1 7 l2.2-.4 M12.1 7 l.5 2.1" stroke="$RD" stroke-width="1"/>'),
+  // Transitional has one behaviour and therefore one glyph, which is its own.
+  'solNone': S(24, '<path d="M4 12 a7 7 0 1 1 14 0 a7 9 0 0 1 -14 0 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><circle cx="19.5" cy="9" r="3" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/>'),
+};
+
+/// The numbered SELECTION button of the Place Constraint dialog: the pick
+/// cursor, and the number drawn beside it by the widget so one glyph serves
+/// all three.
+const asmSelectionIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 2l8.5 3.4-3.6 1.3 2.2 4-2 1-2.2-4L3 11z" fill="#5b6167" stroke="#e8eaec" stroke-width=".7"/></svg>';
+
+/// "Pick Part First", the checkbox's graphic label: the cursor over a whole
+/// component rather than over a face.
+const asmPickPartIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="none" stroke="#E05A56" stroke-width="1.1"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#E05A56" stroke-width=".9" fill="none"/><path d="M6 5l5 2-2.1.8 1.3 2.3-1.2.6-1.3-2.3L6 10z" fill="#5b6167" stroke="#e8eaec" stroke-width=".6"/></svg>';
+
+/// "Show Preview", the checkbox's graphic label: Inventor's spectacles.
+const asmPreviewIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="0.9" y="6" width="6" height="5" rx="1.4" fill="#3D9BE9" fill-opacity=".35" stroke="#C4C9CE" stroke-width="1.2"/><rect x="9.1" y="6" width="6" height="5" rx="1.4" fill="#3D9BE9" fill-opacity=".35" stroke="#C4C9CE" stroke-width="1.2"/><path d="M6.9 8.2h2.2M0.9 8.2L0.9 6.4Q0.9 4.6 3 4.6M15.1 8.2L15.1 6.4Q15.1 4.6 13 4.6" fill="none" stroke="#C4C9CE" stroke-width="1.2"/></svg>';
+
+/// "Predict Offset and Orientation": the measured gap being read off.
+const asmPredictIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.5 2.5h5v11h-5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M11 2.5h3.5v11H11z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".8"/><path d="M7 8h3.5M7 8l1.4-1.1M7 8l1.4 1.1M10.5 8L9.1 6.9M10.5 8l-1.4 1.1" stroke="#E8C63F" stroke-width=".9"/></svg>';
+
+/// The Relationships folder's sick badge, stamped on a constraint the solver
+/// could not meet. Inventor marks the row itself rather than adding a row.
+const asmSickIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="#E05A56" stroke="#a83e3b" stroke-width="1"/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" stroke="#fff" stroke-width="1.5"/></svg>';
+
+/// A relationship row in the browser: the two things it ties together.
+const asmConstraintIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.5 4L5 2.2v9L1.5 13z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".8"/><path d="M11 2.2L14.5 4v9L11 11.2z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M5 2.2v9M11 2.2v9" stroke="#E8C63F" stroke-width="1"/><path d="M6 7.5h4" stroke="#5CBF4A" stroke-width="1.3"/></svg>';
+
+/// A SUPPRESSED relationship: the same glyph, struck through, which is how
+/// this tree already draws a suppressed feature.
+const asmSuppressedIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.5 4L5 2.2v9L1.5 13z" fill="#8C939A" fill-opacity=".45" stroke="#4d5257" stroke-width=".8"/><path d="M11 2.2L14.5 4v9L11 11.2z" fill="#8C939A" fill-opacity=".45" stroke="#4d5257" stroke-width=".8"/><path d="M1.5 13.5L14.5 1.8" stroke="#E05A56" stroke-width="1.3"/></svg>';
+
 /// The gallery "+" menu glyph for a new assembly, and the assembly's own tree
 /// root. Two cubes, outlined in the same weight the sketch and part glyphs use
 /// so the three read as one family at 18 px.

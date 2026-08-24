@@ -32,6 +32,7 @@ import 'widgets/viewport_assembly.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
 import 'widgets/combine_dialog.dart';
+import 'widgets/constraint_dialog.dart';
 import 'widgets/split_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
@@ -285,7 +286,17 @@ class PrototypeApp extends StatelessWidget {
                                   // (extrude, hole, pattern, work plane) can
                                   // apply to it.
                                   child: app.currentAssembly != null
-                                      ? ViewportAssembly(app: app)
+                                      // M242 — the assembly gained a floating
+                                      // panel of its own, so the viewport is
+                                      // no longer the whole branch: Place
+                                      // Constraint is modeless and has to sit
+                                      // OVER the viewport it collects from.
+                                      ? Stack(children: [
+                                          Positioned.fill(
+                                              child: ViewportAssembly(app: app)),
+                                          if (app.constraintSession != null)
+                                            ConstraintDialog(app: app),
+                                        ])
                                       : app.currentPart != null
                                       ? Stack(children: [
                                           Positioned.fill(

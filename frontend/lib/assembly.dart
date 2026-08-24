@@ -8,23 +8,30 @@
 //   * a camera, so the view survives a tab switch and a save
 //   * origin plane / axis visibility, exactly like a part's
 //
-// What is NOT here, and why: no assembly CONSTRAINTS and no joints. An
-// occurrence therefore carries a translation and nothing else — no rotation,
-// because a rotation you cannot constrain is a placement you cannot undo by
-// mating two faces, and half a solver is worse than none. The ribbon says the
-// same thing: Joint, Constrain and the Position commands are drawn and
-// disabled (see _assemblyRibbon), rather than pretending.
+// M240 shipped with no assembly CONSTRAINTS, and therefore with no rotation:
+// a placement was a Vec3, because a rotation you cannot constrain is a
+// placement you cannot undo by mating two faces, and half a solver is worse
+// than none.
 //
-// The consequence runs all the way through this file: a placement is a Vec3,
-// so every renderer and hit-test can treat a component as "the source part's
-// geometry, shifted". That is what lets the assembly reuse the part's
-// renderers rather than fork them — on RealityKit it is a transform on the
-// solid's holder Entity (M241, see reality_assembly.dart), and on the CPU
-// painter it is a shifted camera (see shiftedCam in part_render.dart).
+// M242 built the other half. An occurrence now carries a full rigid
+// transform — a [Quat] and a Vec3 — and the assembly carries a list of
+// [AsmConstraint]s that asm_solver.dart drives to zero. The Relationships
+// folder lists them, Place Constraint creates them, and dragging a component
+// goes through the solver so a mechanism follows the finger.
+//
+// What that did NOT change is the thing that makes this file small: the
+// placement is still a TRANSFORM APPLIED TO THE SOURCE PART, never a copy of
+// its geometry. Every renderer and hit-test treats a component as "the source
+// part, placed", which is what lets the assembly reuse the part's renderers
+// rather than fork them — on RealityKit it is position + orientation on the
+// solid's holder Entity (M241/M242, see reality_assembly.dart), and on the
+// CPU painter it is a placed camera (see placedCam in part_render.dart).
 import 'dart:math' as math;
 
+import 'asm_constraints.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
 import 'part_model.dart';
+import 'quat.dart';
 import 'part_render.dart' show PlacedComponent;
 
 /// One placed component: a REFERENCE to a part document plus where it sits.
@@ -44,6 +51,18 @@ class AssemblyOccurrence {
   /// Placement, in millimetres from the assembly origin.
   Vec3 offset;
 
+  /// M242 — the component's ORIENTATION.
+  ///
+  /// M240 left this out and said why: a rotation you cannot constrain is a
+  /// placement you cannot undo by mating two faces. Constrain exists now, so
+  /// the reason is gone — Mate, Angle and Insert all turn a component, and a
+  /// solver that could only translate would satisfy almost nothing.
+  ///
+  /// The pair (rot, offset) is a rigid transform: world = rot * local + offset.
+  /// [toWorld] and [dirToWorld] are the only two ways to apply it, so nowhere
+  /// else has to remember which comes first.
+  Quat rot;
+
   /// Inventor grounds the FIRST component of an assembly, so the assembly has
   /// something to be built against. A grounded occurrence cannot be dragged.
   bool grounded;
@@ -57,10 +76,30 @@ class AssemblyOccurrence {
     required this.id,
     required this.source,
     Vec3? offset,
+    Quat? rot,
     this.grounded = false,
     this.visible = true,
     this.part,
-  }) : offset = offset ?? Vec3.zero;
+  })  : offset = offset ?? Vec3.zero,
+        rot = rot ?? Quat.identity;
+
+  /// The world position of a point given in the SOURCE PART's coordinates.
+  Vec3 toWorld(Vec3 local) => rot.rotate(local) + offset;
+
+  /// The world direction of a direction given in the source part's
+  /// coordinates. No translation — a direction has no position.
+  Vec3 dirToWorld(Vec3 local) => rot.rotate(local);
+
+  /// The inverse of [toWorld]: a world point in the source part's coordinates.
+  ///
+  /// This is what a PICK goes through. The user taps a face in world space and
+  /// the constraint has to remember it in the part's own space, or the
+  /// reference would stop pointing at that face the moment the component
+  /// moved — which is the whole difference between a constraint and a
+  /// one-off snap.
+  Vec3 toLocal(Vec3 world) => rot.unrotate(world - offset);
+
+  Vec3 dirToLocal(Vec3 world) => rot.unrotate(world);
 
   /// The solids this occurrence draws, each with the FEATURE NAME that built
   /// it, in the SOURCE part's own coordinates. Callers add [offset] themselves
@@ -96,6 +135,9 @@ class AssemblyOccurrence {
         'x': offset.x,
         'y': offset.y,
         'z': offset.z,
+        // Omitted when there is none, so a document written before M242 and
+        // one written after are byte-identical for an unrotated component.
+        if (!rot.isIdentity) 'rot': rot.toJson(),
         'grounded': grounded,
         'visible': visible,
       };
@@ -109,6 +151,7 @@ class AssemblyOccurrence {
       id: id,
       source: src,
       offset: Vec3(n('x'), n('y'), n('z')),
+      rot: Quat.fromJson(j['rot']),
       grounded: j['grounded'] == true,
       visible: j['visible'] != false,
     );
@@ -129,6 +172,15 @@ class AssemblyModel {
   final PartCamera camera = PartCamera();
 
   final List<AssemblyOccurrence> occurrences = [];
+
+  /// M242 — the RELATIONSHIPS: Inventor's assembly constraints, in the order
+  /// they were placed. This is what the Relationships folder lists and what
+  /// the solver drives to zero.
+  final List<AsmConstraint> constraints = [];
+
+  /// The last solve's verdict, for the browser and the status line. Runtime
+  /// only — a document records what the user asked for, never how it went.
+  AsmSolveSummary solveSummary = const AsmSolveSummary.empty();
 
   /// Origin plane / axis / centre-point visibility, same keys and same default
   /// as a part's: everything off until the browser's eye turns it on.
@@ -187,8 +239,31 @@ class AssemblyModel {
   void remove(AssemblyOccurrence o) {
     occurrences.remove(o);
     if (identical(selected, o)) selected = null;
+    // A constraint to a component that is gone is not a constraint, it is a
+    // dangling reference the solver would have to keep reporting as sick.
+    // Inventor deletes them with the component, and says so in its prompt.
+    constraints.removeWhere((c) => c.touches(o.id));
+    if (selectedConstraint != null &&
+        !constraints.contains(selectedConstraint)) {
+      selectedConstraint = null;
+    }
     o.dispose();
   }
+
+  /// The constraint highlighted in the browser, if any.
+  AsmConstraint? selectedConstraint;
+
+  AsmConstraint? constraintNamed(String name) {
+    for (final c in constraints) {
+      if (c.name == name) return c;
+    }
+    return null;
+  }
+
+  /// Every constraint that touches [occurrenceId] — what Inventor nests under
+  /// a component in the browser.
+  List<AsmConstraint> constraintsOn(String occurrenceId) =>
+      [for (final c in constraints) if (c.touches(occurrenceId)) c];
 
   Map<String, dynamic> toJson() => {
         'kind': kAssemblyDocKind,
@@ -203,6 +278,8 @@ class AssemblyModel {
         },
         'vis': vis,
         'occurrences': [for (final o in occurrences) o.toJson()],
+        if (constraints.isNotEmpty)
+          'constraints': [for (final c in constraints) c.toJson()],
       };
 
   /// Reads [j] into this model. Occurrences come back WITHOUT their geometry —
@@ -236,6 +313,19 @@ class AssemblyModel {
       final occ = AssemblyOccurrence.fromJson(o);
       if (occ != null) occurrences.add(occ);
     }
+    constraints.clear();
+    selectedConstraint = null;
+    for (final c in (j['constraints'] as List? ?? const [])) {
+      final con = AsmConstraint.fromJson(c);
+      // A constraint whose components are not in this document is dropped
+      // rather than kept as a permanent sick row: it can only have come from
+      // a file edited by hand or truncated, and there is nothing to repair it
+      // against. A constraint to a component that is MISSING FROM DISK is a
+      // different case and does survive — see AppState._loadAssemblyModel.
+      if (con == null) continue;
+      if (con.occurrences.any((id) => byId(id) == null)) continue;
+      constraints.add(con);
+    }
   }
 
   void dispose() {
@@ -243,8 +333,35 @@ class AssemblyModel {
       o.dispose();
     }
     occurrences.clear();
+    constraints.clear();
     selected = null;
+    selectedConstraint = null;
   }
+}
+
+/// What the last solve concluded, kept on the model so the browser and the
+/// ribbon can read it without re-solving.
+class AsmSolveSummary {
+  const AsmSolveSummary({
+    required this.dof,
+    required this.fullyConstrained,
+    required this.sickCount,
+  });
+
+  const AsmSolveSummary.empty()
+      : dof = 0,
+        fullyConstrained = const <String>{},
+        sickCount = 0;
+
+  /// Degrees of freedom left in the assembly.
+  final int dof;
+
+  /// Occurrences with none left.
+  final Set<String> fullyConstrained;
+
+  final int sickCount;
+
+  bool get allConstrained => dof == 0;
 }
 
 /// What the painters draw: every VISIBLE occurrence that has geometry, as
@@ -253,8 +370,31 @@ class AssemblyModel {
 /// occurrence order preserved so it can map a painter index back to a row.
 List<PlacedComponent> placedComponents(AssemblyModel a) => [
       for (final o in a.occurrences)
-        if (o.visible) (o.offset, o.solids.toList())
+        if (o.visible) PlacedComponent(o.rot, o.offset, o.solids.toList())
     ];
+
+/// M242 — a stored reference's geometry in WORLD coordinates, right now.
+///
+/// An [AsmRef] names geometry in its component's own frame precisely so that
+/// it keeps meaning the same thing when the component moves; everything that
+/// has to DRAW it, measure it or report it needs the world form, and this is
+/// the one place that conversion is written.
+///
+/// A reference to a component that is gone falls back to its local geometry
+/// unchanged. That is the honest answer — there is no placement to apply —
+/// and it keeps the browser and the dialog rendering a row that the solve
+/// separately reports as sick, rather than crashing on it.
+AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
+  if (r.isAssemblyOrigin) return r.geom;
+  final o = a.byId(r.occurrence);
+  if (o == null) return r.geom;
+  return AsmGeom(
+    r.geom.kind,
+    o.toWorld(r.geom.at),
+    r.geom.dir.length < 1e-12 ? Vec3.zero : o.dirToWorld(r.geom.dir),
+    radius: r.geom.radius,
+  );
+}
 
 /// World bounds of everything drawable in [a] — every visible occurrence's
 /// mesh, shifted by its placement — or null when the assembly is still empty.
@@ -268,19 +408,18 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
   var any = false;
   for (final o in a.occurrences) {
     if (!o.visible) continue;
-    final d = o.offset;
     for (final s in o.solids) {
       final pos = s.mesh.positions;
       for (var i = 0; i + 2 < pos.length; i += 3) {
-        final x = pos[i] + d.x, y = pos[i + 1] + d.y, z = pos[i + 2] + d.z;
-        if (!x.isFinite || !y.isFinite || !z.isFinite) continue;
+        final w = o.toWorld(Vec3(pos[i], pos[i + 1], pos[i + 2]));
+        if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
         any = true;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (z < minZ) minZ = z;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        if (z > maxZ) maxZ = z;
+        if (w.x < minX) minX = w.x;
+        if (w.y < minY) minY = w.y;
+        if (w.z < minZ) minZ = w.z;
+        if (w.x > maxX) maxX = w.x;
+        if (w.y > maxY) maxY = w.y;
+        if (w.z > maxZ) maxZ = w.z;
       }
     }
   }
@@ -312,19 +451,18 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
   var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
   var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
   var any = false;
-  final d = o.offset;
   for (final s in o.solids) {
     final pos = s.mesh.positions;
     for (var i = 0; i + 2 < pos.length; i += 3) {
-      final x = pos[i] + d.x, y = pos[i + 1] + d.y, z = pos[i + 2] + d.z;
-      if (!x.isFinite || !y.isFinite || !z.isFinite) continue;
+      final w = o.toWorld(Vec3(pos[i], pos[i + 1], pos[i + 2]));
+      if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
       any = true;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      if (z > maxZ) maxZ = z;
+      if (w.x < minX) minX = w.x;
+      if (w.y < minY) minY = w.y;
+      if (w.z < minZ) minZ = w.z;
+      if (w.x > maxX) maxX = w.x;
+      if (w.y > maxY) maxY = w.y;
+      if (w.z > maxZ) maxZ = w.z;
     }
   }
   if (!any) return null;
