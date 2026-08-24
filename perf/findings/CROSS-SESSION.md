@@ -3048,3 +3048,159 @@ decision, recorded here so nobody later reads its absence as an oversight.
 
 CI run 458: `Analyze Dart`, `Host tests`, `build-core-ios`, `M3 headless` and
 the IPA job all green on the merged tree. Tagged `build-458`.
+
+---
+
+## 2026-08-24 — S14 — the sweep: it was not slow, it was broken; and the shim is v24
+
+Branch `claude/perf-opt3-sweep`, from `claude/perf-opt2` at `cb1d183`. Full
+write-up in `perf/findings/S14-sweep.md`. Seven entries; two of them are
+decisions somebody else has to make.
+
+### S14-1 — the shipped sweep can ABORT THE PROCESS, and the fixture is ordinary. For everyone
+
+Through `occt_sweep_profile`, on real OCCT 7.9.3, v23:
+
+```
+64-segment ring, 64-span sampled arc  ->  free(): invalid next size (fast)
+                                          Aborted (SIGABRT)
+```
+
+Not an exception. `OCCT_CATCH` never runs, the shim's `OSD::SetSignal` handler
+never runs, glibc kills the process. In the app that is a crash with no log
+line after it.
+
+One rung below, it does not crash — it **lies**. At 64 segments × 32 spans it
+returns a solid **10.6 % too large** that fails `BRepCheck_Analyzer`, in 2.4
+seconds, with no error and no warning, and nothing on that path checks
+validity.
+
+**And 64 spans is not exotic.** `sampleEntity(arcSamples: 64)` produces exactly
+64 spans for every arc and circle in the application whatever its angle
+(S11-5), so any sweep along an arc is one profile-size away from it. If anyone
+has a field report of the app dying during a sweep with no crash log, this is a
+candidate cause.
+
+### S14-2 — the mechanism: a miter is a BOOLEAN, per joint, over the whole profile
+
+`occt_sweep_profile` sets `BRepBuilderAPI_RightCorner`, and `spine_from_points`
+always built a polyline, so every joint was mitered. Inside OCCT that reaches
+`BRepFill_Sweep::PerformCorner` → `BRepFill_TrimShellCorner::Perform`, which
+hands the two adjacent shells — **one face per profile segment each** — to a
+full `BOPAlgo_PaveFiller`.
+
+Measured: **96.0 % of the call**, and it turns a linear sweep into a **cubic**
+one (local exponent 2.00 from 32→128 segments, **2.97** from 128→512). The
+1-span rung, which has no joint at all, is 62 ms where the 16-span rung at the
+same profile is 7 250 ms.
+
+This is the same SHAPE of defect S2 and S6 found in `edge_info` — whole-shape
+work per item — in a third operation. **That is now three. It is worth someone
+asking which other shim entry points do a whole-shape operation per element.**
+
+### S14-3 — two of the obvious levers are REFUTED by measurement. For anyone tempted
+
+* **`ShapeUpgrade_UnifySameDomain` is not the problem.** It is 2.8 % of the
+  call, and on a ring it merges *nothing* — 2 050 faces with it, 2 050 without.
+  The session brief named it as a candidate; it is not one. (It still earns its
+  keep on profiles with collinear runs, so it stays.)
+* **Widening OCCT's `angmin` corner deadband produces RUBBISH.**
+  `BRepOffsetAPI_MakePipeShell::SetTransitionMode` hard-codes `angmin = 1e-2`
+  rad = 0.573°, and `PerformCorner` skips a joint shallower than that. Our
+  64-span fixture's joints are 0.599° — *just* above it, which makes widening
+  the deadband look irresistible. At 5° the result is **32 % too big and
+  invalid**. An untreated corner does not disappear; it leaves the two adjacent
+  shells passing through each other.
+* **`BRepBuilderAPI_Transformed` cannot simply be switched on.** The shim's own
+  comment was right: on a 90° joint it gives volume 3 200 where the analytic
+  answer is 6 000, and the solid is invalid. It is fine at shallow joints (0.5 %
+  from RightCorner at 5.6°) and catastrophic at sharp ones.
+
+### S14-4 — VOLUME IS NOT A DISCRIMINATING INVARIANT FOR A SWEEP. For anyone writing a sweep test
+
+Two sweeps of the same section along the same path with different corner
+treatment had volumes equal to **1.3e-14 relative** and were **different
+solids**: symmetric difference **4.6 % of the volume each way**, different
+bounding boxes. A sweep equivalence test that compares volumes is measuring
+almost nothing. Use the symmetric difference, the bounding box, and the face
+count.
+
+Related, and useful as a pin: `V = A(n)·L·cos(tilt)` holds to 8–10 significant
+figures for this fixture across three corner modes and six span counts, with
+**L the TRUE arc length** rather than the polyline's own. I could not derive
+why; it is in S14 §2.8 and §7.2 as an open question.
+
+### S14-5 — `occt_shim_version()` is now **24**, and `occt_version()`'s string was three behind
+
+v24 = `occt_sweep_profile_ex` + the `OCCT_SWEEP_PATH_*` modes, **and a change of
+behaviour in `occt_sweep_profile` itself**, which now defaults to AUTO. A
+caller that must know whether it is talking to a binary that can build a
+1200-segment sweep tests for `>= 24`.
+
+Taken by the session that owns `backend/occt/shim/**`, per the rule that
+survived the v17 and v21/v23 collisions.
+
+While there: `occt_version()` had returned the literal `"Prototype OCCT shim
+v21"` since v21, while the number went 22, 23. It now says v24 and tracks.
+`m1-core-build.yml` greps only for `"Prototype OCCT shim"`, which is unchanged,
+and smoke `[1]` checks only that substring — so nothing that reads it breaks.
+
+### S14-6 — for S11 and whoever owns `part_model.dart`: the real fix is one argument. **Needs:** integrator
+
+The shim now *infers* which joints came from a sampler, using a threshold
+derived from `sampleEntity`'s own `arcSamples: 64` (5.625° is the largest joint
+it can emit). It should not have to infer anything: `sketchCurve`
+(`part_model.dart:8647`) **knows** whether it just sampled an arc, flattened a
+spline, or read a genuine polyline.
+
+`occt_sweep_profile_ex(..., path_mode)` takes the argument today and nothing in
+Dart passes it. Wiring it would also cover the case the threshold does NOT
+cover: `splineCurveFor` flattens to a tolerance rather than to an angle, so a
+tight spline can emit joints above 5.625° that are still sampling artefacts,
+and those paths stay slow. **Nobody has measured what joint angles real spline
+paths produce** — that is the single most useful follow-up measurement for
+anyone who can run the app.
+
+### S14-7 — two defects found in the sweep path and deliberately NOT fixed. **Needs:** integrator
+
+1. **A holed sweep along a tilted path has lost 3.2 % of its volume since
+   v15.** `finish_pipe` adds each hole with `WithCorrection = Standard_True`
+   while `occt_sweep_profile` adds the outer wire with the caller's setting —
+   `Standard_False` for orientation 0 — so the hole is placed against a
+   different frame on any path the section is not perpendicular to. Straight
+   paths are exact; the arc fixture is 3.18 % under, in v23 and v24 alike.
+   Smoke `[37f]` pins the differential and prints the deficit. Not fixed here
+   because it is a second behaviour change with a different cause, and bundling
+   it would make v24 impossible to judge.
+2. **Orientation 1 ("Fixed") returns an INVALID solid on a climbing path** —
+   volume 16 429 where the answer is 6 000, at 2, 4 and 16 spans alike, in v23.
+   A smoothed spine happens to fix it, but orientation 1 does not reach the
+   smoothed path. Recorded, not chased.
+
+And one limit that is not a defect but is worth knowing: **AUTO does not smooth
+a profile with holes**, because `finish_pipe` removes a hole with a boolean and
+that boolean costs ~80× more between curved solids than between planar ones
+(measured: 21 653 ms against a 258 ms whole operation). So a **holed** profile
+at 1200 segments still fails exactly as it did. Fixing that means not cutting
+holes out of sweeps at all.
+
+### The numbers, for the next capture
+
+Old against new, one run, one machine, same fixture (`sweep.legacy` against
+`sweep.segments` in Lane C):
+
+| segments, 16-span sampled arc | v23 | v24 |
+| ---: | ---: | ---: |
+| 128 | 4 666.7 ms | 271.7 ms |
+| 512 | 447 118 ms | 1 223.6 ms |
+| 1200 | **FAILED after 742 249 ms** | **3 559.2 ms, valid** |
+
+Fitted exponent **1.150** [1.092, 1.207] R² 0.998, against v23's 2.97 at the
+top of the ladder. Desktop milliseconds, not iPad milliseconds — this container
+is about 3.4× slower than the device on this operation, which is a sanity check
+and not a calibration.
+
+`CALIBRATION.txt` is **not** re-recorded: the integrator's 2026-08-21 ruling
+stands until a round-two capture against a v22 kernel. This change moves the
+shim hash again; that is all it does. Lane C still prints `HARNESS: VALIDATED`
+with all three §6.5 exponents agreeing.
