@@ -494,3 +494,160 @@ sweep along the 66.328-long curve, exactly.
 6 783.1153. The corner corrections apparently supply the difference exactly, at
 every sampling density. It is repeatable, it is useful as an analytic pin, and
 it is in §7 as something I do not understand.
+
+### 2.9 P4 — HELD, on the device's own rung and with the device's own message
+
+```
+shim  seg=1200  spans=16   FAILED after 742 249.0 ms
+                           : occt_sweep_profile: BRep_API: command not done
+```
+
+The same rung, the same error string, on a machine the device has never
+touched. Device 231 085 ms, here 742 249 ms — a factor of 3.2, against the
+3.4 the 512 rung gives, so the failure is not a resource effect of one machine.
+P4's alternative — "it builds cleanly on the desktop, so the failure is about
+the device's memory" — is refuted.
+
+The same rung with a smooth spine: **4 811.8 ms, valid, 1 202 faces.**
+
+---
+
+## 3. Pre-registration, round 2 — the change
+
+Registered **before the shim was touched**, with §2 in hand. The change, in one
+sentence:
+
+> `spine_from_points` will keep building a polyline for the joints somebody
+> drew, and will interpolate a C2 B-spline through the runs of points that came
+> from the application's own curve sampler — so a sweep along an arc has no
+> joints for the corner treatment to spend cubic time on.
+
+**The threshold, derived and not tuned.** `sketchCurve`
+(`part_model.dart:8647`) hands every arc and circle to
+`sampleEntity(g, arcSamples: 64)` (`snap.dart:453`), which splits the entity's
+sweep into **64 equal steps regardless of its angle**. The largest joint that
+sampler can emit is therefore a full circle's, `360/64 = 5.625°`, and a 90°
+arc's is 1.406°. So:
+
+* a joint **≤ 5.625°** *can* have come from the sampler;
+* a joint **> 5.625°** *cannot*, and is a vertex somebody drew.
+
+The number is a property of the caller, not of the benchmark. §2.6's table says
+what it costs to be wrong in each direction at that angle: at 5.625° the
+mitered and un-mitered answers differ by 0.50 %, at 90° by 46.7 % — so the
+threshold sits where the two treatments still nearly agree, and the catastrophe
+is four times further out. If `arcSamples` ever stops being 64, this must move
+with it, and the code says so.
+
+### Prediction P5 — the shim reproduces the replica
+
+```
+Target        : occt_sweep_profile, 1200 segments x 16 spans, after the change
+Baseline      : FAILS after 742 249 ms today (§2.9)
+Mechanism     : the replica already ran this pipeline: smooth spine, RightCorner
+                still set (it is inert with no joints), 4 811.8 ms, valid.
+Change        : spine_from_points gains the run-splitting described above.
+Predicted     : 4 812 ms +- 15 %, VALID, exactly 1 202 faces
+Derivation    : the shim adds two things the replica lacks — the joint scan,
+                O(npath) over 17 points, and GeomAPI_Interpolate over 17 points,
+                whose whole phase measured 0.1 ms. Both are below the noise of
+                a 4.8-second operation, so the prediction is the replica's own
+                number with an interval for a contended box.
+Falsifiable by: above 6 000 ms, or a face count other than 1 202, or an invalid
+                solid. Any of the three means the shim is not doing what the
+                replica did.
+Risk          : GeomAPI_Interpolate is C2 through the points; the replica used
+                exactly that call, so the risk is in the plumbing, not the maths.
+```
+
+### Prediction P6 — a drawn corner is untouched, bit for bit
+
+```
+Target        : the L-path of smoke scenario [30] — 10x10 square, 40 up then 30
+                across, one 90-degree joint.
+Baseline      : volume 6 000.000000 exactly, 10 faces, valid (§2.6)
+Mechanism     : 90 deg > 5.625 deg, so no run is smoothed, so the spine is the
+                same BRepBuilderAPI_MakePolygon wire the shim builds today and
+                every later call sees identical arguments.
+Change        : as above.
+Predicted     : IDENTICAL. Volume 6 000.000000, 10 faces, valid, and the
+                symmetric difference against the legacy path EXACTLY zero.
+Derivation    : not arithmetic — identity. The code path is the same objects in
+                the same order.
+Falsifiable by: any difference whatsoever, in volume, face count or topology.
+                This is the strongest test in the set and the one that says the
+                fix does not round off geometry a user drew.
+Risk          : an off-by-one in the run splitter could smooth a two-point run
+                or drop the corner vertex. That is exactly what this catches.
+```
+
+### Prediction P7 — the silently invalid rung becomes correct
+
+```
+Target        : 64 segments x 32 spans, where the shipped path returns an
+                INVALID solid 10.6 % too large in 2.4 s and reports nothing.
+Baseline      : 7 490.0386, INVALID (§2.5)
+Predicted     : 6 774.94 +- 0.5 %, VALID, 66 faces
+Derivation    : analytic. A(64) . L . cos(tilt)
+                = 112.915746 x 66.328259 x 0.904592 = 6 774.9447, and the
+                replica's smooth spine measured 6 774.9447 at this rung — the
+                analytic value to eight figures.
+Falsifiable by: outside +-0.5 % of 6 774.94, invalid, or a face count != 66.
+Risk          : the analytic identity of §2.8 is empirical, not derived. If it
+                is a property of THIS fixture rather than of sweeps, the pin is
+                weaker than it looks — but it is checked against a measured
+                value as well as a computed one.
+```
+
+### Prediction P8 — the process stops aborting
+
+```
+Target        : 64 segments x 64 spans, which today corrupts the heap and kills
+                the process through occt_sweep_profile (§2.5).
+Predicted     : a valid solid, 66 faces, 6 774.94 +- 0.5 %, and the process
+                survives.
+Derivation    : the smooth spine has no joints, so BRepFill_Sweep::PerformCorner
+                and BRepFill_TrimShellCorner — the only code the corrupting rung
+                reaches that the 16-span rung does not — never run. The replica
+                already built this rung: 138.6 ms, valid, 6 774.9510.
+Falsifiable by: any abort, null, or invalid result.
+Risk          : if the corruption is NOT in the corner path the fix will not
+                touch it, and the same rung will abort again. That would refute
+                the mechanism claim of the whole session, not just this
+                prediction.
+```
+
+### Prediction P9 — the exponent falls from ~3 to ~1
+
+```
+Target        : the bench's sweep.segments fit over 32 / 128 / 512 / 1200 / 2048
+Baseline      : shipped local exponents 2.00 (32->128) and 2.97 (128->512)
+Predicted     : fitted k in [0.85, 1.40], R2 > 0.98
+Derivation    : the replica's smooth-spine rungs — 183.1 (64), 439.7 (128),
+                1 696.2 (512), 4 811.8 (1200), 9 772.6 (2048) — fit
+                k = 1.1202, R2 = 0.9974, 95 % CI [1.055, 1.186]. The registered
+                interval is wider than that CI because the shim's ladder starts
+                at 32, where fixed costs matter more, and because the box is
+                shared.
+Falsifiable by: k above 1.6 — which would mean a superlinear term survived the
+                change — or R2 below 0.98, which would mean there is a knee the
+                fit is hiding.
+```
+
+### Prediction P10 — nothing else in the shim moves
+
+```
+Target        : Lane C's calibration — edgeInfo1, allEdges, buildOnly against
+                PERFORMANCE_PROFILE.md §6.5.
+Mechanism     : the change touches spine_from_points and occt_sweep_profile and
+                nothing else. No other entry point reads either.
+Predicted     : the benchmark still prints LANE C: PASS, with the three
+                calibration exponents inside the same intervals they agree with
+                before the change, measured in the same run.
+Falsifiable by: any calibration verdict flipping to DISAGREES.
+Note          : CALIBRATION.txt is NOT re-recorded. Its hash is already stale
+                (8c46e48 recorded, f18342b in the tree) and the integrator ruled
+                on 2026-08-21 that it stays that way until a round-two device
+                capture against a v22 kernel. This change makes the hash move
+                again and that is all it does.
+```
