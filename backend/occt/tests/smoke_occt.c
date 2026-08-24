@@ -2649,6 +2649,89 @@ int main(void)
         }
     }
 
+    /* [38] v25 ORIENTATION 1 ("Fixed") ON A PATH THAT BENDS.
+     *
+     * Broken since v15 and never caught, because a STRAIGHT path is exact in
+     * both OCCT laws and nothing else was tried. `occt_sweep_profile` mapped
+     * orientation 1 to BRepFill_PipeShell::Set(const gp_Dir&) —
+     * GeomFill_ConstantBiNormal, which replaces the sweep frame's tangent with
+     * the real tangent's projection perpendicular to the binormal. On a path
+     * climbing at 25 deg from +Z that is 65 deg off, and the shell passes
+     * through itself: 16 429 where the answer is 6 000, and INVALID.
+     *
+     * "Fixed" means every section stays parallel to the profile plane, so
+     * Cavalieri gives the volume outright: section area x total rise in z,
+     * whatever the path does in XY. A 10x10 square climbing to z = 60 is
+     * 100 x 60 = 6000 EXACTLY, at every span count. That is what is asserted,
+     * and it is arithmetic rather than a recorded number.
+     *
+     * The POLY arm is the one that matters to the integrator: it runs the v23
+     * spine, so it says this fix does not depend on v24. Both are asserted
+     * here so the independence is a test result and not a claim.
+     */
+    {
+        const double S[] = {-5,-5,0,  5,-5,0,  5,5,0,  -5,5,0};
+        const int lc[] = {4};
+        const double I38[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        double p38[3 * 17];
+        int spansv[3];
+        int si, i38, mode;
+        spansv[0] = 2; spansv[1] = 4; spansv[2] = 16;
+
+        /* the straight arm first: the case that already worked must not move */
+        {
+            const double up[6] = {0,0,0, 0,0,40};
+            occt_shape *a = occt_sweep_profile_ex(S, lc, 1, I38, up, 2, 1,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(a != NULL, "[38] orientation 1 refused a straight path")) {
+                int f = 0;
+                const double v = occt_shape_volume(a);
+                occt_shape_counts(a, &f, NULL, NULL);
+                printf("[38] straight +Z, orientation 1: vol=%.9f f=%d %s "
+                       "(analytic 4000)\n", v, f,
+                       occt_shape_valid(a) ? "valid" : "INVALID");
+                check(near_rel(v, 4000.0, 1e-9),
+                      "[38] the straight Fixed sweep is not analytic");
+                check(occt_shape_valid(a), "[38] the straight Fixed sweep is "
+                                           "invalid");
+                occt_free_shape(a);
+            }
+        }
+
+        /* and the bending arm, in BOTH path modes */
+        for (mode = 0; mode < 2; ++mode) {
+            const int pm = mode ? OCCT_SWEEP_PATH_AUTO : OCCT_SWEEP_PATH_POLY;
+            for (si = 0; si < 3; ++si) {
+                const int spans = spansv[si];
+                occt_shape *a;
+                for (i38 = 0; i38 <= spans; ++i38) {
+                    const double t = (double)i38 / spans, ang = t * M_PI / 2.0;
+                    p38[3*i38+0] = 60.0 * sin(ang) * 0.3;
+                    p38[3*i38+1] = 60.0 * (1.0 - cos(ang)) * 0.3;
+                    p38[3*i38+2] = t * 60.0;
+                }
+                a = occt_sweep_profile_ex(S, lc, 1, I38, p38, spans + 1, 1,
+                                          0.0, 0.0, pm);
+                if (check(a != NULL, "[38] orientation 1 refused an arc path")) {
+                    const double v = occt_shape_volume(a);
+                    /* label from `mode`, NOT from `pm`: AUTO is 0 and POLY
+                     * is 1, so `pm ? "AUTO" : "POLY"` prints exactly the wrong
+                     * one — which it did, until this line was read. */
+                    printf("[38] arc %2d spans, orientation 1, %s: vol=%.9f %s "
+                           "(analytic 6000; v23 gave 7448 / 8981 / 16429, all "
+                           "INVALID)\n", spans, mode ? "AUTO" : "POLY", v,
+                           occt_shape_valid(a) ? "valid" : "INVALID");
+                    check(near_rel(v, 6000.0, 1e-9),
+                          "[38] Fixed did not keep the sections parallel");
+                    check(occt_shape_valid(a),
+                          "[38] the Fixed sweep is invalid");
+                    occt_free_shape(a);
+                }
+            }
+        }
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

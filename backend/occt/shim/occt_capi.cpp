@@ -26,6 +26,7 @@
 #include <Standard_Failure.hxx>
 #include <Standard_Version.hxx>
 
+#include <gp.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -201,7 +202,7 @@ extern "C" const char *occt_version(void)
         /* Kept in step with occt_shim_version() below. It had said "v21"
          * since v21 while the number went 22, 23 — a string nobody reads
          * against a number three releases ahead of it. */
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v24 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v25 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -252,7 +253,20 @@ extern "C" const char *occt_version(void)
  * Taken by the session that owns backend/occt/shim/** — the rule that kept the
  * v17 and v21/v23 collisions from being worse, and it is why 24 and not 23.1
  * or a reuse of 23. */
-extern "C" int occt_shim_version(void) { return 24; }
+/* v25 (S14, item 1): orientation 1 ("Fixed") stops calling the wrong OCCT
+ * mode. It has mapped to GeomFill_ConstantBiNormal since v15, which replaces
+ * the sweep frame's tangent with its projection perpendicular to the binormal;
+ * on any path that bends, the result was a self-intersecting shell that
+ * BRepCheck_Analyzer rejects and whose volume was up to 174 % too large — a
+ * part nearly three times too big that the app would accept and draw. It now
+ * uses GeomFill_IsFixed ("all sections will be parallel"), which is what the
+ * call site has always claimed it meant.
+ *
+ * Straight single-segment paths are UNCHANGED, bit for bit, in both laws; only
+ * bending paths move, and they move from invalid to analytic. A caller that
+ * must know whether orientation 1 can be trusted on a bending path tests for
+ * >= 25. Independent of v24: the repair works on the v23 polyline spine. */
+extern "C" int occt_shim_version(void) { return 25; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3859,9 +3873,40 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
      * corner is still a joint and is still mitered exactly as before. */
     mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
     /* 1 = Fixed keeps the section's own orientation; 0 and 2 both follow the
-     * path, 2 additionally correcting against the spine's frame. */
+     * path, 2 additionally correcting against the spine's frame.
+     *
+     * v25: "Fixed" was calling the WRONG OCCT MODE, and had been since v15.
+     * SetMode(gp_Dir) is BRepFill_PipeShell::Set(const gp_Dir&), which builds a
+     * GeomFill_ConstantBiNormal — a law that pins the binormal and then, in its
+     * D0, REPLACES the frame's tangent with `Normal ^ BiNormal`, i.e. with the
+     * real tangent's projection perpendicular to the binormal. On a path that
+     * climbs at 25 deg from +Z that projection is 65 deg away from where the
+     * spine actually goes, and on a polyline the mismatch compounds at every
+     * joint into a shell that passes through itself.
+     *
+     * SetMode(gp_Ax2) is Set(const gp_Ax2&) -> GeomFill_IsFixed, whose own
+     * documentation is "all sections will be parallel" — which is what this
+     * comment has always said orientation 1 means.
+     *
+     * Measured on a 10x10 square over the arc path (S14 §9.2), against an
+     * analytic 6000 that Cavalieri gives whatever the path does in XY:
+     *
+     *     spans   ConstantBiNormal            Fixed
+     *       2     7 448.5352  +24.1 % INVALID  6 000.0000 valid
+     *       4     8 980.7801  +49.7 % INVALID  6 000.0000 valid
+     *      16    16 429.0722 +173.8 % INVALID  6 000.0000 valid
+     *
+     * A single straight segment is 4 000.0000 / 6 000.0000 in BOTH laws, which
+     * is why nothing caught this: the mode only goes wrong once the path bends.
+     *
+     * The axis is a readable constant rather than something derived from
+     * mat34, and that is measured, not assumed: GeomFill_Fixed is a CONSTANT
+     * trihedron, so it cancels out of the location law's relative transform.
+     * Three unrelated gp_Ax2 values — (origin, +Z, +X), ((7,-3,11), +X, +Y) and
+     * (origin, (1,2,3), (3,0,-1)) — give the same solid to every printed digit
+     * (S14 §9.3). */
     if (orientation == 1)
-        mk.SetMode(gp_Dir(0, 0, 1));
+        mk.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
     else
         /* v24: on a spine carrying a real curve, plain Frenet also carries its
          * TORSION and spins the section about the tangent — 81 deg over this

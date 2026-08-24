@@ -558,6 +558,14 @@ int occt_revolve_hits_face(const occt_shape *shape, double ax_px, double ax_py,
  *   1 = Fixed       — the section keeps its original orientation.
  *   2 = Follow Path and Guide — as 0, corrected against the path's own frame.
  *
+ * v25 — orientation 1 was BROKEN on any path that bends, and had been since
+ * v15: it selected OCCT's constant-binormal law rather than its fixed-trihedron
+ * one, and the constant-binormal law replaces the sweep frame's tangent with a
+ * projection of the real one. A 10x10 square on a 16-span arc came out at
+ * 16 429 where the analytic answer is 6 000, and failed BRepCheck_Analyzer.
+ * Straight single-segment paths were and remain exact. Test for >= 25 if you
+ * need orientation 1 to be trustworthy on a bending path.
+ *
  * `taper_deg` widens or narrows the section along the path (a linear scaling
  * law); 0 keeps it constant. `twist_deg` is accepted but NOT implemented and
  * a non-zero value is REFUSED rather than silently ignored — a swept solid
