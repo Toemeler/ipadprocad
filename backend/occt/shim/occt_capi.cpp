@@ -202,7 +202,7 @@ extern "C" const char *occt_version(void)
         /* Kept in step with occt_shim_version() below. It had said "v21"
          * since v21 while the number went 22, 23 — a string nobody reads
          * against a number three releases ahead of it. */
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v25 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v26 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -266,7 +266,15 @@ extern "C" const char *occt_version(void)
  * bending paths move, and they move from invalid to analytic. A caller that
  * must know whether orientation 1 can be trusted on a bending path tests for
  * >= 25. Independent of v24: the repair works on the v23 polyline spine. */
-extern "C" int occt_shim_version(void) { return 25; }
+/* v26 (S14, item 2): a hole is placed the way its own body is placed.
+ * finish_pipe had added every hole with WithCorrection = Standard_True since
+ * v15 while occt_sweep_profile added the outer wire with the caller's setting,
+ * so on any path the section is not perpendicular to, a holed sweep lost about
+ * 3.2 % of its volume. Straight paths were exact, which is why it survived.
+ * Orientations 0 and 1 move; orientation 2 and occt_coil_profile do not, since
+ * they were already passing True. Test for >= 26 if a holed sweep's volume has
+ * to be right. */
+extern "C" int occt_shim_version(void) { return 26; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3753,9 +3761,9 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
                                const std::vector<TopoDS_Wire> &holes,
                                const TopoDS_Wire &spine, int orientation,
                                double taper_deg, const char *who,
-                               bool corrected_frenet)
+                               bool corrected_frenet,
+                               Standard_Boolean with_correction)
 {
-    (void)orientation;
     mk.Build();
     if (!mk.IsDone()) {
         set_err(who, "the sweep failed (path too tight for the section?)");
@@ -3781,14 +3789,43 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
          * rather than this function guessing from the spine: the coil's spine
          * has always been a curve and its holes have always been Frenet, and a
          * guess here would change that silently. */
-        hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
+        /* v26, and this is the half the first measurement of the fix
+         * uncovered: `orientation` has been a parameter of this function since
+         * v15 and its first line threw it away with `(void)orientation`. So a
+         * hole was swept with a Frenet trihedron even when its body was swept
+         * with a fixed one, and repairing WithCorrection alone left
+         * orientation 1 at +0.17 % instead of -3.17 %. Both are the same
+         * defect — the hole is not placed the way its body is placed — and
+         * both parameters of that placement now come from the body. */
+        if (orientation == 1)
+            hm.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+        else
+            hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
+        /* `with_correction` is the CALLER'S, not a hard-coded
+         * Standard_True. It had been True here since v15 while
+         * occt_sweep_profile added the OUTER wire with the caller's own
+         * setting — Standard_False for orientations 0 and 1 — so the two wires
+         * of one solid were placed against different frames and the hole did
+         * not sit where the body was.
+         *
+         * The measurement that pins it needs no analytic model: a tube's
+         * volume must be the difference of the two single-loop sweeps that
+         * make it. On a 24-segment r=6 ring with an r=3 hole over the arc
+         * path, outer 6 708.589649 minus hole 1 677.147412 is 5 031.442237,
+         * and the tube came out 4 871.741766 — 3.17 % short.
+         *
+         * The control is already in the code: ORIENTATION 2 passes
+         * Standard_True, which is what this line hard-coded, and its tube is
+         * exact to every digit. So is occt_coil_profile's, which also passes
+         * True. Threading the caller's value through leaves both of those
+         * untouched and repairs the two that disagreed. */
         if (taper_deg != 0.0) {
             const double k = std::tan(taper_deg * M_PI / 180.0);
             Handle(Law_Linear) law = new Law_Linear();
             law->Set(0.0, 1.0, 1.0, 1.0 + k);
-            hm.SetLaw(h, law, Standard_False, Standard_True);
+            hm.SetLaw(h, law, Standard_False, with_correction);
         } else {
-            hm.Add(h, Standard_False, Standard_True);
+            hm.Add(h, Standard_False, with_correction);
         }
         hm.Build();
         if (!hm.IsDone() || !hm.MakeSolid()) {
@@ -3927,7 +3964,7 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
         mk.Add(outer, Standard_False, correct);
     }
     return finish_pipe(mk, holes, spine, orientation, taper_deg,
-                       "occt_sweep_profile", smoothed);
+                       "occt_sweep_profile", smoothed, correct);
     OCCT_CATCH("occt_sweep_profile", nullptr)
 }
 
@@ -4094,9 +4131,12 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
         mk.Add(outer, Standard_False, Standard_True);
     }
     /* Frenet for the holes, as it has always been: the coil's own outer sweep
-     * is Frenet and the two must agree. */
+     * is Frenet and the two must agree. And Standard_True for the correction,
+     * because that is what the coil adds its OUTER wire with, twenty lines
+     * up — which is why the coil has never had the defect v26 repairs in the
+     * sweep. */
     return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile",
-                       false);
+                       false, Standard_True);
     OCCT_CATCH("occt_coil_profile", nullptr)
 }
 

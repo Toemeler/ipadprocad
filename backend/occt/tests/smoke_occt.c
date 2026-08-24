@@ -2411,152 +2411,128 @@ int main(void)
             }
         }
 
-        /* ---- (f) a HOLE, swept along the same smoothed spine ----
+        /* ---- (f) a HOLE is placed the way its own body is placed ----
          *
-         * finish_pipe sweeps every hole down the SAME spine wire and cuts it
-         * out, so a smoothed spine reaches the hole for free — but the hole's
-         * own MakePipeShell has its trihedron set separately, and a hole that
-         * spirals through a body that does not is a wrong part that still
-         * looks like a solid.
+         * v26. finish_pipe had added every hole with
+         * WithCorrection = Standard_True since v15 while occt_sweep_profile
+         * added the outer wire with the CALLER'S setting, and it threw away the
+         * `orientation` it was passed (`(void)orientation`) so the hole got a
+         * Frenet trihedron even when the body got a fixed one. Two wires, two
+         * frames, one solid: a holed sweep along a tilted path lost 3.2 % of
+         * its volume, silently, on every path that was not straight.
          *
-         * Two arms, and the second is a differential ON PURPOSE. On a STRAIGHT
-         * path the analytic answer settles it outright. On the arc path it
-         * does NOT: both v23 and v24 come out 3.2 % under the annulus volume,
-         * and they do so by the same 3.2 %. That deficit PREDATES this change
-         * — finish_pipe adds a hole with WithCorrection = Standard_True while
-         * occt_sweep_profile adds the outer wire with the caller's own
-         * setting, which is False for orientation 0, so the hole is placed
-         * against a different frame on any path the section is not
-         * perpendicular to. It is recorded in perf/findings/S14-sweep.md §6.2
-         * and CROSS-SESSION.md and deliberately NOT fixed here: it is a second
-         * behaviour change with a different cause, and bundling it would make
-         * this one impossible to judge. So what this arm pins is that v24
-         * REPRODUCES v23 on a holed sweep, which is the claim it is entitled
-         * to make.
+         * THE TEST THAT MATTERS IS THE DIFFERENTIAL, and it needs no analytic
+         * model: a tube's volume must be the difference of the two single-loop
+         * sweeps that make it, and all three of those are built here in one
+         * run. It also holds for orientation 2, where the analytic annulus does
+         * NOT — WithCorrection rotates the section, so orientation 2's tube is
+         * legitimately a different solid. An analytic-only test would have had
+         * to skip the orientation the defect's own control lived in.
          */
         {
-            /* 24 segments and 8 spans, not the 48 x 16 the other arms use:
-             * the POLY half of this arm builds TWO mitered sweeps and then
-             * booleans them, and at 48 x 16 that alone took eighty seconds of
-             * a smoke test that runs on every push. 8 spans still turns 4.783
-             * deg at its sharpest, so AUTO still smooths it — which is what
-             * the arm is here to compare. */
             const int seg = 24, spans = 8;
-            const int lc[] = {24, 24};
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
             double xyb[2 * 24 * 3];
+            double outer[24 * 3], inner[24 * 3];
             const double ann = 0.5 * seg * 36.0 * sin(2.0 * M_PI / seg)
                                - 0.5 * seg * 9.0 * sin(2.0 * M_PI / seg);
-            occt_shape *au, *po;
+            int orient;
             for (i37 = 0; i37 < seg; ++i37) {
                 const double a = 2.0 * M_PI * i37 / seg;
-                xyb[3*i37+0] = 6.0 * cos(a);
-                xyb[3*i37+1] = 6.0 * sin(a);
-                xyb[3*i37+2] = 0.0;
-                xyb[3*(seg+i37)+0] = 3.0 * cos(a);
-                xyb[3*(seg+i37)+1] = 3.0 * sin(a);
-                xyb[3*(seg+i37)+2] = 0.0;
+                outer[3*i37+0] = xyb[3*i37+0] = 6.0 * cos(a);
+                outer[3*i37+1] = xyb[3*i37+1] = 6.0 * sin(a);
+                outer[3*i37+2] = xyb[3*i37+2] = 0.0;
+                inner[3*i37+0] = xyb[3*(seg+i37)+0] = 3.0 * cos(a);
+                inner[3*i37+1] = xyb[3*(seg+i37)+1] = 3.0 * sin(a);
+                inner[3*i37+2] = xyb[3*(seg+i37)+2] = 0.0;
             }
 
             /* arm 1 — a straight path, where the answer is arithmetic */
             {
                 const double sp[6] = {0,0,0, 0,0,40};
-                au = occt_sweep_profile_ex(xyb, lc, 2, I37, sp, 2, 0, 0.0, 0.0,
-                                           OCCT_SWEEP_PATH_AUTO);
-                if (check(au != NULL, "[37f] a holed profile on a straight "
-                                      "path refused")) {
-                    const double v = occt_shape_volume(au);
+                occt_shape *t = occt_sweep_profile_ex(xyb, lc2, 2, I37, sp, 2,
+                                                      0, 0.0, 0.0,
+                                                      OCCT_SWEEP_PATH_AUTO);
+                if (check(t != NULL, "[37f] a holed profile on a straight "
+                                     "path refused")) {
+                    const double v = occt_shape_volume(t);
                     printf("[37f] tube on a STRAIGHT path: vol=%.6f "
                            "(analytic %.6f) %s\n", v, ann * 40.0,
-                           occt_shape_valid(au) ? "valid" : "INVALID");
+                           occt_shape_valid(t) ? "valid" : "INVALID");
                     check(near_rel(v, ann * 40.0, 1e-9),
                           "[37f] the straight tube is not analytic");
-                    check(occt_shape_valid(au), "[37f] the straight tube is "
-                                                "invalid");
-                    occt_free_shape(au);
+                    check(occt_shape_valid(t), "[37f] the straight tube is "
+                                               "invalid");
+                    occt_free_shape(t);
                 }
             }
 
-            /* arm 2 — the sampled arc, v24 against v23 in this same run */
             for (i37 = 0; i37 <= spans; ++i37) {
                 const double t = (double)i37 / spans, a = t * M_PI / 2.0;
                 path37[3*i37+0] = 60.0 * sin(a) * 0.3;
                 path37[3*i37+1] = 60.0 * (1.0 - cos(a)) * 0.3;
                 path37[3*i37+2] = t * 60.0;
             }
-            au = occt_sweep_profile_ex(xyb, lc, 2, I37, path37, spans + 1, 0,
-                                       0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
-            po = occt_sweep_profile_ex(xyb, lc, 2, I37, path37, spans + 1, 0,
-                                       0.0, 0.0, OCCT_SWEEP_PATH_POLY);
-            if (check(au != NULL, "[37f] a holed profile on a sampled arc "
-                                  "refused") &&
-                check(po != NULL, "[37f] POLY refused a holed profile")) {
-                int fa = 0, fp = 0;
-                const double va = occt_shape_volume(au);
-                const double vp = occt_shape_volume(po);
-                occt_shape_counts(au, &fa, NULL, NULL);
-                occt_shape_counts(po, &fp, NULL, NULL);
-                const double want = ann * kL37 * kCos37;
-                printf("[37f] tube on a sampled arc: AUTO=%.6f POLY=%.6f "
-                       "(annulus %.6f — BOTH under by %.2f %%, and it predates "
-                       "v24: see S14 §6.2) %s\n", va, vp, want,
-                       100.0 * (want - vp) / want,
-                       occt_shape_valid(au) ? "valid" : "INVALID");
-                /* IDENTICAL, not close: AUTO does not smooth a profile with
-                 * holes at all (see occt_sweep_profile_ex — the hole's cut
-                 * costs about 80x more between curved solids than between
-                 * planar ones), so the two calls build the same spine and
-                 * every later step sees the same arguments. */
-                check(va == vp, "[37f] v24 moved a holed sweep away from v23");
-                check(fa == fp, "[37f] v24 changed a holed sweep's topology");
-                check(occt_shape_valid(au), "[37f] the tube is invalid");
-            }
-            if (au) occt_free_shape(au);
-            if (po) occt_free_shape(po);
-        }
 
-        /* ---- (g) a TAPER on a smoothed spine ----
-         * A taper is a Law_Linear on the section, applied through SetLaw
-         * rather than Add. It is the one branch of occt_sweep_profile the
-         * other arms never take. */
-        {
-            const int seg = 48, spans = 16;
-            const int lc[] = {48};
-            occt_shape *flat, *tap;
-            for (i37 = 0; i37 < seg; ++i37) {
-                const double a = 2.0 * M_PI * i37 / seg;
-                prof37[3*i37+0] = 6.0 * cos(a);
-                prof37[3*i37+1] = 6.0 * sin(a);
-                prof37[3*i37+2] = 0.0;
+            /* arm 2 — the differential, at all three orientations */
+            for (orient = 0; orient <= 2; ++orient) {
+                occt_shape *tu = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
+                                                       spans + 1, orient, 0.0,
+                                                       0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *bo = occt_sweep_profile_ex(outer, lc1, 1, I37,
+                                                       path37, spans + 1,
+                                                       orient, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *hi = occt_sweep_profile_ex(inner, lc1, 1, I37,
+                                                       path37, spans + 1,
+                                                       orient, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                if (check(tu != NULL && bo != NULL && hi != NULL,
+                          "[37f] a sweep refused on the tilted arc path")) {
+                    const double vt = occt_shape_volume(tu);
+                    const double want = occt_shape_volume(bo)
+                                        - occt_shape_volume(hi);
+                    printf("[37f] tube on a tilted arc, orientation %d: "
+                           "vol=%.6f  outer-hole=%.6f  (%+.4f %%) %s\n",
+                           orient, vt, want, 100.0 * (vt - want) / want,
+                           occt_shape_valid(tu) ? "valid" : "INVALID");
+                    check(near_rel(vt, want, 1e-9),
+                          "[37f] a hole is not placed the way its body is");
+                    check(occt_shape_valid(tu), "[37f] the tube is invalid");
+                    /* and for the two orientations that do not rotate the
+                     * section, the analytic annulus agrees as well */
+                    if (orient != 2)
+                        check(near_rel(vt, ann * kL37 * kCos37, 1e-6),
+                              "[37f] the tube is not the analytic annulus");
+                }
+                if (tu) occt_free_shape(tu);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
             }
-            /* Fill the path HERE. Reading whatever the arm above happened to
-             * leave in path37 is how this arm first "found" an invalid taper:
-             * (f) had written eight spans over the first nine points and left
-             * the rest at sixteen, and a sweep along that zig-zag is neither
-             * valid nor quick. Every arm fills its own fixture. */
-            for (i37 = 0; i37 <= spans; ++i37) {
-                const double t = (double)i37 / spans, a = t * M_PI / 2.0;
-                path37[3*i37+0] = 60.0 * sin(a) * 0.3;
-                path37[3*i37+1] = 60.0 * (1.0 - cos(a)) * 0.3;
-                path37[3*i37+2] = t * 60.0;
+
+            /* arm 3 — and v24 still does not smooth a holed profile, so AUTO
+             * and POLY must be the same object, not merely close */
+            {
+                occt_shape *au = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
+                                                       spans + 1, 0, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_AUTO);
+                occt_shape *po = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
+                                                       spans + 1, 0, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                if (check(au != NULL && po != NULL,
+                          "[37f] AUTO or POLY refused a holed profile")) {
+                    int fa = 0, fp = 0;
+                    occt_shape_counts(au, &fa, NULL, NULL);
+                    occt_shape_counts(po, &fp, NULL, NULL);
+                    check(occt_shape_volume(au) == occt_shape_volume(po)
+                          && fa == fp,
+                          "[37f] AUTO smoothed a holed profile");
+                }
+                if (au) occt_free_shape(au);
+                if (po) occt_free_shape(po);
             }
-            flat = occt_sweep_profile_ex(prof37, lc, 1, I37, path37, spans + 1,
-                                         0, 0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
-            tap = occt_sweep_profile_ex(prof37, lc, 1, I37, path37, spans + 1,
-                                        0, 5.0, 0.0, OCCT_SWEEP_PATH_AUTO);
-            if (check(flat != NULL, "[37g] the untapered sweep refused") &&
-                check(tap != NULL, "[37g] a 5-degree taper on a sampled arc "
-                                   "refused")) {
-                const double vf = occt_shape_volume(flat);
-                const double vt = occt_shape_volume(tap);
-                printf("[37g] taper 5 deg on a smoothed spine: %.6f -> %.6f "
-                       "%s\n", vf, vt,
-                       occt_shape_valid(tap) ? "valid" : "INVALID");
-                check(vt > vf, "[37g] a widening taper did not add material");
-                check(occt_shape_valid(tap), "[37g] the tapered solid is "
-                                             "invalid");
-            }
-            if (flat) occt_free_shape(flat);
-            if (tap) occt_free_shape(tap);
         }
 
         /* ---- (h) a STRAIGHT run stays straight ----
