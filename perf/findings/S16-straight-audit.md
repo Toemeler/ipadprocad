@@ -346,6 +346,54 @@ not read `ChFi3d`'s own admissible range. If the mode-1 form also fails, the
 honest answer is "the guard is conservative but not demonstrably wrong", and
 that is what I will write.
 
+#### P10 restated — the claim stands, the witness was wrong
+
+*Written while building the fixture, before running it. The original text above
+is left exactly as committed at `ed46cc6`; this is what changed and why.*
+
+I worked out the admissible range instead of guessing it. In the cross-section
+triangle — apex `O` on the edge, tangent point `A` on the reference face,
+tangent point `B` on the other — the interior dihedral is the angle at `O`, and
+the chamfer angle `α` (OCCT's `AddDA`, measured from the reference face) is the
+angle at `A`. The three angles sum to 180°, so
+
+```
+    α  <  180° − θ
+```
+
+which is `α < 90°` **if and only if θ = 90°.** The guard is not merely tuned to
+a perpendicular edge; it is the *exactly correct* rule for one, and wrong in
+**both directions** away from it:
+
+* on an **obtuse** edge (θ = 135°) the legal range is `α < 45°`, so the guard is
+  too **permissive** — it accepts 60°, which is geometrically impossible, and
+  the user gets OCCT's failure instead of the guard's clear message;
+* on an **acute** edge (θ = 60°) the legal range is `α < 120°`, so the guard is
+  too **strict** — it refuses 100°, which builds perfectly well.
+
+My registered witness was a 135° edge, which demonstrates the *permissive*
+half, not the *strict* half I claimed. **The claim — "the guard assumes a
+perpendicular edge and refuses legal input away from it" — is unchanged; the
+fixture that demonstrates it is not.** [39j] now uses an **equilateral
+triangular prism** (θ = 60° at every vertical edge) and asks for α = 100°,
+with two controls: α = 80° on the same edge must build (so the refusal is the
+guard and not the geometry), and the *same chamfer* spelled as mode 1 with
+`d2 = d1·sin(100°)/sin(20°) = 5.758770` must build and remove
+`½·d1·d2·sin 60° · 20 = 99.7446`.
+
+**P10 is falsified if** the mode-1 spelling is also refused — then OCCT itself
+will not build that chamfer, the guard costs nothing, and I will say the guard
+is conservative but not demonstrably wrong.
+
+**A trap worth recording on its own**, because it is what sent me back to the
+arithmetic: `occt_shape_edge_info` field [10] is `acos(n1 · n2)`, the angle
+between the two **outward normals**, not the interior dihedral. They coincide
+at a cube edge — 90 either way — which is why every fixture in the file reads
+naturally and why the distinction has never mattered. Away from 90 they are
+supplements: `θ = 180° − info[10]`. A 135° edge reports **45**. The header says
+"90 = square corner" and is not wrong, but it is the one reading that cannot
+tell you which convention it is.
+
 ### P11 — the fillet is CORRECT away from a 90° edge. **NO DEFECT.**
 
 Nothing in `blend_edges_subset` composes a frame; edges are selected by index
