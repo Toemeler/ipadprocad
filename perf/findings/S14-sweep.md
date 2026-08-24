@@ -1028,3 +1028,156 @@ scenario, the two refuted levers — still stands.
 `pubspec.lock` was re-resolved by a local `flutter pub get` (this container's
 SDK pins older packages than CI's) and was **reverted**; `git status` is clean
 of it. Nobody should read a lockfile change into this branch.
+
+---
+
+# Round two — the wrong parts
+
+The integrator's review kept the v24 merge decision open and sent me back for
+the three defects §6.2 recorded and declined to bundle. Each is a separate
+behaviour change with its own commit, so each can be judged and reverted on its
+own. **Nothing below assumes v24 ships**, and `OCCT_SWEEP_PATH_POLY` remains
+exact v23 throughout.
+
+---
+
+## 9. Item 1 — orientation 1 ("Fixed"): the mode is wrong, and the spine is a red herring
+
+### 9.1 "Happens to fix it" was the right thing to be suspicious of
+
+§6.2 recorded that a smoothed spine appeared to fix orientation 1 and that I
+did not know why. The integrator asked for a mechanism before a fix. There is
+one, it is in OCCT's source, and **it has nothing to do with the spine.**
+
+`occt_sweep_profile` maps orientation 1 to
+`BRepOffsetAPI_MakePipeShell::SetMode(const gp_Dir&)`. That is
+`BRepFill_PipeShell::Set(const gp_Dir&)`, which builds a
+**`GeomFill_ConstantBiNormal`** law. OCCT has a *different* entry point for what
+this project's own comment says orientation 1 means — "Fixed keeps the section's
+own orientation":
+
+```cpp
+void BRepFill_PipeShell::Set(const gp_Ax2& Axe)      // BRepFill_PipeShell.cxx:278
+{
+  myTrihedron = GeomFill_IsFixed;                    // "all sections parallel"
+  ...
+  Handle(GeomFill_Fixed) TLaw = new (GeomFill_Fixed)(V1, V2);
+}
+```
+
+**The shim has been calling the wrong one since v15.** And here is what the
+wrong one does (`GeomFill_ConstantBiNormal::D0`):
+
+```cpp
+  BiNormal = BN;                                     // forced to (0,0,1)
+  if (BiNormal.Crossed(Tangent).Magnitude() > Precision::Confusion()) {
+    Normal  = BiNormal.Crossed(Tangent).Normalized();
+    Tangent = Normal.Crossed(BiNormal);              // <-- the tangent is REPLACED
+  }
+```
+
+`Normal × BiNormal` is perpendicular to the binormal, so the frame's tangent
+becomes the **horizontal projection of the real tangent, re-normalised**. On
+this fixture's path the true tangent is 25.23° off +Z, i.e. **64.77° away from
+horizontal** — so the section is swept along a direction 64.77° from where the
+spine actually goes. On a single straight segment that mismatch is a constant
+and comes out in the wash. On a polyline it compounds at every joint into a
+shell that passes through itself.
+
+### 9.2 Measured, with a square section because a circular one cannot show it
+
+"Fixed" keeps every section parallel to the XY plane, so by Cavalieri the
+volume is the section area times the **total rise in z**, whatever the path does
+in XY: `100 × 60 = 6000`, exactly, for every path below. Driving
+`BRepFill_PipeShell` directly, 10×10 square:
+
+| path | `ConstantBiNormal` (shipped) | `Fixed` via `gp_Ax2` |
+| --- | ---: | ---: |
+| straight up +Z, 2 points | 4 000.0000 valid | 4 000.0000 valid |
+| straight chord to (18,18,60) | 6 000.0000 valid | 6 000.0000 valid |
+| arc path, **2 spans** | 7 448.5352 **+24.1 % INVALID** | **6 000.0000 valid** |
+| arc path, **4 spans** | 8 980.7801 **+49.7 % INVALID** | **6 000.0000 valid** |
+| arc path, **16 spans** | 16 429.0722 **+173.8 % INVALID** | **6 000.0000 valid** |
+
+Three things follow, and the second is the one the integrator asked for:
+
+1. **A straight path is exact in both modes.** That is why five sessions and a
+   device capture never saw this: the mode only misbehaves once the path bends.
+2. **`Fixed` is exactly right on the POLYLINE spine** — 6 000.0000 and valid at
+   every span count, with a bounding box of exactly `y ∈ [−5, 23]`,
+   `z ∈ [0, 60]`, which is the analytic one. **So the repair does not need v24,
+   and the two decisions stay uncoupled.** Said loudly because the integrator
+   asked for it to be: *if v24 is rejected, this fix still works.*
+3. **The smooth spine was a coincidence of VOLUME, not a fix.** On a smoothed
+   spine `ConstantBiNormal` gives 6 000.0015 and valid — but its bounding box is
+   `y ∈ [−5.594, 23.002]` where `Fixed` gives `y ∈ [−5.001, 23.000]`. A square
+   of half-width 5 whose bounding half-extent is 5.594 has been **rotated by
+   about 6.8°**: `5(cos θ + sin θ) = 5.594`. The part is twisted. It is §2.8's
+   lesson again — the volume of a sweep is nearly blind to what the section
+   does on the way.
+
+   *(I tried to quantify that with a symmetric difference and it came back
+   nonsense — each cut returned essentially its whole first operand, 100 % both
+   ways, which is impossible for two solids whose bounding boxes coincide to
+   half a millimetre. The boolean between two smooth-spine solids is not
+   trustworthy here, which is consistent with §4.1's finding about that same
+   boolean. I am not quoting it; the bounding box is the discriminator.)*
+
+### 9.3 The `gp_Ax2`'s value does not matter, measured rather than assumed
+
+`GeomFill_Fixed` is a **constant** trihedron, so the location law's transform
+along the spine ought to be a pure translation with the frame cancelling out.
+Rather than assume that, three unrelated axes on the 16-span polyline:
+
+| `gp_Ax2` | volume | bounding box |
+| --- | ---: | --- |
+| `(origin, +Z, +X)` | 6 000.0000 | y [−5.000, 23.000] z [0, 60] |
+| `((7,−3,11), +X, +Y)` | 6 000.0000 | y [−5.000, 23.000] z [0, 60] |
+| `(origin, (1,2,3), (3,0,−1))` | 6 000.0000 | y [−5.000, 23.000] z [0, 60] |
+
+Identical to every printed digit. **So no `mat34` plumbing is needed** and the
+shim can use a readable constant, with this table as the reason it is allowed
+to. (The cancellation argument is reasoning; the table is one fixture. Both are
+stated.)
+
+### 9.4 Pre-registration — item 1
+
+Registered **before the shim was touched for this item**. §9.1–9.3 are probe
+measurements against `BRepFill_PipeShell` directly; these are about what
+`occt_sweep_profile` does after the change.
+
+```
+## Prediction P11 — orientation 1 returns the analytic volume, on the v23 spine
+Target        : occt_sweep_profile(orientation = 1), 10x10 square, arc path,
+                OCCT_SWEEP_PATH_POLY, at 2 / 4 / 16 spans
+Baseline      : 7 448.5352 / 8 980.7801 / 16 429.0722, all INVALID
+Mechanism     : GeomFill_ConstantBiNormal replaces the frame's tangent with the
+                horizontal projection of the real one (§9.1). GeomFill_Fixed
+                does not, because it is constant.
+Change        : SetMode(gp_Dir) -> SetMode(gp_Ax2) for orientation 1.
+Predicted     : 6 000.0 within 1e-9 relative, VALID, at all three span counts
+Derivation    : Cavalieri. Sections parallel to XY, so V = A x (rise in z)
+                = 100 x 60 = 6000 exactly, whatever the path does in XY.
+Falsifiable by: any deviation above 1e-9 relative, or an invalid solid.
+Risk          : none identified; the probe already produced these numbers
+                through BRepFill_PipeShell, so the risk is in the plumbing.
+
+## Prediction P12 — the repair is INDEPENDENT of v24
+Target        : the same fixture through OCCT_SWEEP_PATH_POLY, i.e. with the
+                v23 spine and none of v24's smoothing.
+Predicted     : identical to P11. If v24 is reverted, item 1 still works.
+Derivation    : the probe's Fixed column IS the polyline spine (§9.2).
+Falsifiable by: orientation 1 being correct only under AUTO/SMOOTH. That would
+                couple two decisions the integrator is keeping apart, and it
+                would be reported at the top of this section rather than here.
+
+## Prediction P13 — a straight path is unchanged, bit for bit
+Target        : orientation 1 on a 2-point path, both modes.
+Baseline      : 4 000.000000 (up +Z) and 6 000.000000 (chord), both valid
+Predicted     : IDENTICAL after the change — same volume, same face count.
+Derivation    : with one straight segment the frame is constant in both laws,
+                so both reduce to the same translation. Measured: both modes
+                give 4 000.0000 and 6 000.0000 exactly today.
+Falsifiable by: any difference at all on a 2-point path. This is the arm that
+                says the fix does not disturb the case that works.
+```
