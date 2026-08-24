@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../asm_constraints.dart';
 import '../assembly.dart';
 import '../menus.dart';
 import '../log.dart';
@@ -55,7 +56,13 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   int? _dragEop;
 
   /// M118 — retracted to icons only.
-  bool _collapsed = false;
+  ///
+  /// M242 — and RETRACTED IS THE DEFAULT, in every document kind. The panel is
+  /// 264 pt of a 1024 pt screen and the thing being drawn is the point of the
+  /// app; the retracted card keeps every id, glyph, tint and menu (that is
+  /// what [buildBrowserRows]'s `collapsed` pass is for, M200), so nothing is
+  /// unreachable — it costs one tap on the chevron to have the labels back.
+  bool _collapsed = true;
 
   static const double _kWide = 264;
   /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left
@@ -91,6 +98,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // cannot see these private metrics. Keep the two in step here rather than
     // discovering the drift as a triad sitting on the panel.
     assert(NativeModelBrowser.occupiedWidth == _kWide + _kHandle);
+    // M242 — the panel opens RETRACTED, so the triad has to be told the narrow
+    // width before the first frame rather than after the first toggle.
+    // occupiedWidth (the expanded figure) is what the notifier starts on.
+    _publishWidth();
   }
 
   /// M207 — tell the triad how much room the panel is taking. Deferred: this
@@ -254,8 +265,31 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (id.startsWith(kIdComponent)) {
       final o = _component(id);
       if (o != null) {
+        // M242 — a component with relationships under it is a folder as well
+        // as a selection. Selecting it and disclosing it are the same tap,
+        // which is what the Origin folder already does one row above.
+        if (app.currentAssembly?.constraintsOn(o.id).isNotEmpty == true) {
+          setState(() {
+            if (!_expanded.remove(id)) _expanded.add(id);
+          });
+        }
         app.selectOccurrence(
             identical(app.currentAssembly?.selected, o) ? null : o);
+      }
+      return;
+    }
+    // M242 — tapping a relationship SELECTS it; tapping the selected one
+    // again OPENS it. There is no double-click on this tree (it is a UIKit
+    // list reporting single taps), so "tap the selected one again" is the
+    // gesture that stands in for Inventor's double-click-to-edit — the same
+    // rule the component row already uses to clear its own selection.
+    if (id.startsWith(kIdConstraint)) {
+      final c = _constraint(id);
+      if (c == null) return;
+      if (identical(app.currentAssembly?.selectedConstraint, c)) {
+        app.openConstraint(edit: c);
+      } else {
+        app.selectConstraint(c);
       }
       return;
     }
@@ -363,6 +397,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   AssemblyOccurrence? _component(String rowId) =>
       app.currentAssembly?.byId(rowId.substring(kIdComponent.length));
 
+  /// The relationship a `rel:` row addresses. Same rule as [_component]: the
+  /// name after the prefix carries a colon of its own ("Mate:1").
+  AsmConstraint? _constraint(String rowId) =>
+      app.currentAssembly?.constraintNamed(
+          rowId.substring(kIdConstraint.length));
+
   WorkAxis? _workAxis(PartModel? part, String rowId) {
     final seq = int.tryParse(rowId.substring(kIdWorkAxis.length));
     if (part == null || seq == null) return null;
@@ -402,6 +442,22 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'cpDelete':
           app.deleteOccurrence(o);
+          break;
+      }
+      return;
+    }
+    if (id.startsWith(kIdConstraint)) {
+      final c = _constraint(id);
+      if (c == null) return;
+      switch (item) {
+        case 'relEdit':
+          app.openConstraint(edit: c);
+          break;
+        case 'relSuppress':
+          app.toggleConstraintSuppressed(c);
+          break;
+        case 'relDelete':
+          app.deleteConstraint(c);
           break;
       }
       return;

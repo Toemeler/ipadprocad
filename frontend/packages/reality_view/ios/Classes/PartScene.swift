@@ -102,6 +102,28 @@ enum Payload {
               let z = (d[2] as? NSNumber)?.doubleValue else { return nil }
         return SIMD3<Float>(Float(x), Float(y), Float(z))
     }
+
+    /// M242 — a component's ORIENTATION, as [x, y, z, w].
+    ///
+    /// The component order is simd_quatf's own (vector first, scalar last),
+    /// NOT Dart's Quat.toJson order (w first): the wire format is written for
+    /// whoever reads it most often, and that is this initialiser. Dart's
+    /// reality_payload.dart spells the reordering out at the send site.
+    ///
+    /// Returns nil when the key is absent, which is the common case — Dart
+    /// omits an identity rotation, so a part and an unrotated component cost
+    /// nothing here.
+    static func quat(_ any: Any?) -> simd_quatf? {
+        guard let d = any as? [Any], d.count >= 4,
+              let x = (d[0] as? NSNumber)?.doubleValue,
+              let y = (d[1] as? NSNumber)?.doubleValue,
+              let z = (d[2] as? NSNumber)?.doubleValue,
+              let w = (d[3] as? NSNumber)?.doubleValue else { return nil }
+        let q = simd_quatf(ix: Float(x), iy: Float(y), iz: Float(z), r: Float(w))
+        // A zero quaternion is not a rotation; normalising one is a divide by
+        // zero that would put NaN into a transform and blank the whole view.
+        return simd_length(q.vector) < 1e-6 ? nil : q.normalized
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,11 @@
   "appearanceMenuItem": "Darstellung: {scheme}",
   "@appearanceMenuItem": {
     "description": "Eintrag im \"+\"-Menue der Galerie. Nennt das Schema, auf das er umschaltet — wie die Sprachzeile eine Aktion, keine Statuszeile.",
-    "placeholders": { "scheme": { "type": "String" } }
+    "placeholders": {
+      "scheme": {
+        "type": "String"
+      }
+    }
   },
   "appearanceSystem": "System",
   "@appearanceSystem": {
@@ -1421,7 +1425,8 @@
   "btnConstraintSettings": "Abhängigkeitseinstellungen",
   "btnCopy": "Kopieren",
   "@btnCopy": {
-    "x-maxChars": 12
+    "description": "Inventor DE: \"Kopieren\".",
+    "x-maxChars": 16
   },
   "btnDrivenDimension": "Abhängige Bemaßung",
   "btnExtend": "Dehnen",
@@ -2499,11 +2504,6 @@
     "description": "Baugruppen-Anordnung. Inventor DE: \"Anordnung\", nicht \"Muster\".",
     "x-maxChars": 16
   },
-  "btnCopy": "Kopieren",
-  "@btnCopy": {
-    "description": "Inventor DE: \"Kopieren\".",
-    "x-maxChars": 16
-  },
   "galleryNewAssembly": "Neue Baugruppe",
   "@galleryNewAssembly": {
     "description": "Eintrag im \"+\"-Menue der Galerie."
@@ -2554,5 +2554,248 @@
   "ctxGrounded": "Fixiert",
   "@ctxGrounded": {
     "description": "Kontextmenue einer Komponente. Inventor DE: \"Fixiert\"."
+  },
+  "dlgPlaceConstraint": "Abhängigkeit platzieren",
+  "@dlgPlaceConstraint": {
+    "description": "Titel des Abhängigkeitsdialogs. Inventor DE: \"Abhängigkeit platzieren\"."
+  },
+  "tabAsmAssembly": "Baugruppe",
+  "@tabAsmAssembly": {
+    "description": "Erster Reiter des Abhängigkeitsdialogs (Passend, Winkel, Tangential, Einfügen, Symmetrie)."
+  },
+  "tabAsmMotion": "Bewegung",
+  "@tabAsmMotion": {
+    "description": "Zweiter Reiter des Abhängigkeitsdialogs (Drehung, Drehung-Translation)."
+  },
+  "tabAsmTransitional": "Übergang",
+  "@tabAsmTransitional": {
+    "description": "Dritter Reiter des Abhängigkeitsdialogs (Kurvenscheibe und Abtaster)."
+  },
+  "tabAsmConstraintSet": "Abhängigkeitssatz",
+  "@tabAsmConstraintSet": {
+    "description": "Vierter Reiter des Abhängigkeitsdialogs. Inventor DE: \"Abhängigkeitssatz\"."
+  },
+  "grpAsmType": "Typ",
+  "@grpAsmType": {
+    "description": "Gruppe der Typ-Schaltflächen im Abhängigkeitsdialog."
+  },
+  "grpAsmSelections": "Auswahlen",
+  "@grpAsmSelections": {
+    "description": "Gruppe der Auswahlschaltflächen im Abhängigkeitsdialog."
+  },
+  "grpAsmSolution": "Lösung",
+  "@grpAsmSolution": {
+    "description": "Gruppe der Lösungsschaltflächen im Abhängigkeitsdialog."
+  },
+  "lblAsmOffset": "Versatz:",
+  "@lblAsmOffset": {
+    "description": "Beschriftung des Zahlenfelds bei Passend, Tangential und Einfügen. Mit Doppelpunkt wie in Inventor."
+  },
+  "lblAsmAngle": "Winkel:",
+  "@lblAsmAngle": {
+    "description": "Beschriftung des Zahlenfelds bei einer Winkelabhängigkeit."
+  },
+  "lblAsmRatio": "Verhältnis:",
+  "@lblAsmRatio": {
+    "description": "Beschriftung des Zahlenfelds bei einer Drehungsabhängigkeit (Zahnradverhältnis)."
+  },
+  "lblAsmDistance": "Abstand:",
+  "@lblAsmDistance": {
+    "description": "Beschriftung des Zahlenfelds bei Drehung-Translation: Weg pro voller Umdrehung."
+  },
+  "cbAsmPickPartFirst": "Bauteil zuerst wählen",
+  "@cbAsmPickPartFirst": {
+    "description": "Kontrollkästchen neben den Auswahlschaltflächen. Inventor DE: \"Bauteil zuerst wählen\"."
+  },
+  "cbAsmShowPreview": "Vorschau anzeigen",
+  "@cbAsmShowPreview": {
+    "description": "Kontrollkästchen mit dem Brillensymbol: zeigt die Wirkung vor dem Übernehmen."
+  },
+  "cbAsmPredict": "Versatz und Ausrichtung vorhersagen",
+  "@cbAsmPredict": {
+    "description": "Kontrollkästchen: füllt das Zahlenfeld mit dem aktuell gemessenen Wert."
+  },
+  "cbAsmDefaultUndirected": "Standardmäßig ungerichtet",
+  "@cbAsmDefaultUndirected": {
+    "description": "Kontrollkästchen hinter dem Erweitern-Knopf: neue Winkelabhängigkeiten öffnen ungerichtet."
+  },
+  "lblAsmName": "Name",
+  "@lblAsmName": {
+    "description": "Namensfeld hinter dem Erweitern-Knopf des Abhängigkeitsdialogs."
+  },
+  "hintAsmAutoName": "Automatisch",
+  "@hintAsmAutoName": {
+    "description": "Platzhalter im Namensfeld: leer lassen heisst automatisch benennen."
+  },
+  "tipAsmSelection": "Auswahl {n}",
+  "@tipAsmSelection": {
+    "description": "Tooltip der nummerierten Auswahlschaltflächen.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "hintAsmPickGeometry": "Fläche, Kante oder Achse antippen",
+  "@hintAsmPickGeometry": {
+    "description": "Hinweis im Dialog, solange eine Auswahl fehlt."
+  },
+  "asmMate": "Passend",
+  "@asmMate": {
+    "description": "Abhängigkeitstyp. Inventor DE: \"Passend\"."
+  },
+  "asmAngle": "Winkel",
+  "@asmAngle": {
+    "description": "Abhängigkeitstyp Winkel."
+  },
+  "asmTangent": "Tangential",
+  "@asmTangent": {
+    "description": "Abhängigkeitstyp Tangential."
+  },
+  "asmInsert": "Einfügen",
+  "@asmInsert": {
+    "description": "Abhängigkeitstyp Einfügen (Schraube im Loch)."
+  },
+  "asmSymmetry": "Symmetrie",
+  "@asmSymmetry": {
+    "description": "Abhängigkeitstyp Symmetrie."
+  },
+  "asmRotation": "Drehung",
+  "@asmRotation": {
+    "description": "Bewegungsabhängigkeit: Zahnradpaar."
+  },
+  "asmRotationTranslation": "Drehung-Translation",
+  "@asmRotationTranslation": {
+    "description": "Bewegungsabhängigkeit: Zahnstange und Ritzel."
+  },
+  "asmTransitional": "Übergang",
+  "@asmTransitional": {
+    "description": "Übergangsabhängigkeit: Kurvenscheibe und Abtaster."
+  },
+  "solMate": "Passend",
+  "@solMate": {
+    "description": "Lösung einer Passend-Abhängigkeit: Flächen zeigen aufeinander zu."
+  },
+  "solFlush": "Ausgerichtet",
+  "@solFlush": {
+    "description": "Lösung einer Passend-Abhängigkeit: Flächen zeigen in dieselbe Richtung."
+  },
+  "solDirectedAngle": "Gerichteter Winkel",
+  "@solDirectedAngle": {
+    "description": "Winkellösung mit festgehaltenem Referenzvektor."
+  },
+  "solUndirectedAngle": "Ungerichteter Winkel",
+  "@solUndirectedAngle": {
+    "description": "Winkellösung ohne Vorzeichen."
+  },
+  "solExplicitVector": "Expliziter Referenzvektor",
+  "@solExplicitVector": {
+    "description": "Winkellösung mit einer dritten Auswahl als Referenzachse."
+  },
+  "solInside": "Innen",
+  "@solInside": {
+    "description": "Tangentiallösung: der Zylinder liegt innen an."
+  },
+  "solOutside": "Außen",
+  "@solOutside": {
+    "description": "Tangentiallösung: der Zylinder liegt außen an."
+  },
+  "solOpposed": "Entgegengesetzt",
+  "@solOpposed": {
+    "description": "Einfügelösung: die Teile zeigen aufeinander zu."
+  },
+  "solAligned": "Ausgerichtet",
+  "@solAligned": {
+    "description": "Einfügelösung: die Teile zeigen in dieselbe Richtung."
+  },
+  "solSymmetric": "Symmetrisch",
+  "@solSymmetric": {
+    "description": "Symmetrielösung: gespiegelt zueinander."
+  },
+  "solAsymmetric": "Asymmetrisch",
+  "@solAsymmetric": {
+    "description": "Symmetrielösung mit umgekehrtem Richtungssinn."
+  },
+  "solForward": "Vorwärts",
+  "@solForward": {
+    "description": "Bewegungslösung: gleicher Drehsinn."
+  },
+  "solReverse": "Rückwärts",
+  "@solReverse": {
+    "description": "Bewegungslösung: umgekehrter Drehsinn."
+  },
+  "ctxSuppress": "Unterdrücken",
+  "@ctxSuppress": {
+    "description": "Kontextmenü einer Abhängigkeit: vorübergehend abschalten."
+  },
+  "ctxUnsuppress": "Unterdrückung aufheben",
+  "@ctxUnsuppress": {
+    "description": "Kontextmenü einer unterdrückten Abhängigkeit."
+  },
+  "hudAsmDof": "{n} Freiheitsgrade",
+  "@hudAsmDof": {
+    "description": "Statuszeile der Baugruppe: verbleibende Freiheitsgrade.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "hudAsmFullyConstrained": "Vollständig bestimmt",
+  "@hudAsmFullyConstrained": {
+    "description": "Statuszeile der Baugruppe, wenn kein Freiheitsgrad übrig ist."
+  },
+  "msgAsmSameComponent": "Beide Auswahlen liegen auf derselben Komponente.",
+  "@msgAsmSameComponent": {
+    "description": "Meldung, wenn die zweite Auswahl dieselbe Komponente betrifft wie die erste."
+  },
+  "msgAsmPickTwo": "Zuerst zwei Geometrien auswählen.",
+  "@msgAsmPickTwo": {
+    "description": "Meldung, wenn OK oder Übernehmen ohne vollständige Auswahl gedrückt wird."
+  },
+  "msgAsmTangentNeedsRound": "Tangential braucht eine runde Fläche.",
+  "@msgAsmTangentNeedsRound": {
+    "description": "Meldung: Tangential verlangt einen Zylinder auf mindestens einer Seite."
+  },
+  "msgAsmInsertNeedsAxes": "Einfügen braucht zwei Achsen oder Kreiskanten.",
+  "@msgAsmInsertNeedsAxes": {
+    "description": "Meldung: Einfügen verlangt auf beiden Seiten eine Achse."
+  },
+  "msgAsmAngleNeedsDirections": "Winkel braucht zwei Richtungen.",
+  "@msgAsmAngleNeedsDirections": {
+    "description": "Meldung: eine Winkelabhängigkeit kann nicht auf einen Punkt wirken."
+  },
+  "msgAsmMotionNeedsAxes": "Bewegung braucht zwei Achsen.",
+  "@msgAsmMotionNeedsAxes": {
+    "description": "Meldung: eine Bewegungsabhängigkeit verlangt zwei Drehachsen."
+  },
+  "msgAsmBothGrounded": "Beide Komponenten sind fixiert.",
+  "@msgAsmBothGrounded": {
+    "description": "Meldung: nichts konnte sich bewegen, weil beide Seiten fixiert sind."
+  },
+  "msgAsmMissingComponent": "Die Komponente dieser Abhängigkeit fehlt.",
+  "@msgAsmMissingComponent": {
+    "description": "Meldung: die Abhängigkeit zeigt auf eine Komponente, die es nicht mehr gibt."
+  },
+  "msgAsmCannotSatisfy": "Diese Abhängigkeit lässt sich nicht erfüllen.",
+  "@msgAsmCannotSatisfy": {
+    "description": "Meldung: der Löser hat die Abhängigkeit nicht erfüllen können."
+  },
+  "msgAsmCannotConstrain": "Diese Auswahl lässt sich so nicht abhängig machen.",
+  "@msgAsmCannotConstrain": {
+    "description": "Meldung: das gewählte Geometriepaar passt nicht zum gewählten Typ."
+  },
+  "msgAsmConstraintDeleted": "„{name}“ gelöscht.",
+  "@msgAsmConstraintDeleted": {
+    "description": "Meldung nach dem Löschen einer Abhängigkeit.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hintAsmConstraintSet": "Noch nicht verfügbar",
+  "@hintAsmConstraintSet": {
+    "description": "Hinweis im leeren Reiter Abhängigkeitssatz: der Typ braucht ein BKS, das es noch nicht gibt."
   }
 }

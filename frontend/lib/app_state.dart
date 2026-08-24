@@ -12,7 +12,11 @@ import 'package:native_menu/native_menu.dart' show NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
+import 'asm_constraints.dart';
+import 'asm_pick.dart';
+import 'asm_solver.dart';
 import 'assembly.dart';
+import 'quat.dart';
 import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
@@ -864,6 +868,88 @@ class HoleSession {
   String exprCbDepth = '6 mm';
   String exprCsDia = '12 mm';
   String exprCsAngle = '90 deg';
+}
+
+/// M242 — the live state of Place Constraint.
+///
+/// Inventor's dialog is modeless and collects its inputs by POINTING: the
+/// numbered selection buttons arm the viewport, a tap fills the armed slot
+/// and the arming advances. Everything the dialog shows is here, and nothing
+/// here is a widget — the panel reads it, the viewport writes to it through
+/// [AppState.pickConstraintRef], and the browser's Edit command opens one
+/// pre-filled.
+class ConstraintSession {
+  ConstraintSession({this.editing});
+
+  /// The constraint being edited, or null when a new one is being placed.
+  /// Editing keeps the same name and the same row in the browser, which is
+  /// what makes Edit different from delete-and-place-again.
+  final AsmConstraint? editing;
+
+  AsmTab tab = AsmTab.assembly;
+  AsmKind kind = AsmKind.mate;
+  AsmSolution solution = AsmSolution.mate;
+
+  /// The selections, in the dialog's own numbering: 1, 2 and (for Symmetry
+  /// and an explicit reference vector) 3.
+  AsmRef? a, b, c;
+
+  /// Offset in mm, angle in degrees, ratio, or mm per turn — [valueKindOf]
+  /// says which.
+  double value = 0;
+
+  /// Empty means "name it the way Inventor would" — see [nextConstraintName].
+  String name = '';
+
+  /// Which selection button is lit: 0, 1 or 2. Advances on every pick, and
+  /// stops advancing once every slot is full so a stray tap in the viewport
+  /// cannot silently rewrite selection 1.
+  int armed = 0;
+
+  /// Inventor's three dialog checkboxes.
+  bool showPreview = true;
+  bool predict = false;
+  bool pickPartFirst = false;
+
+  /// The `>>` expander, which reveals Name and Default to Undirected.
+  bool expanded = false;
+
+  /// Inventor's "Default to Undirected": the next Angle constraint opens on
+  /// the undirected solution instead of the directed one. Kept on the session
+  /// AND mirrored onto [AppState.defaultUndirectedAngle], because it is a
+  /// preference that outlives the dialog.
+  bool defaultUndirected = false;
+
+  /// Why the current pair cannot be constrained this way, as an l10n key from
+  /// [rejectionFor]. Null when they can.
+  String? rejection;
+
+  /// How many selections this kind and solution take.
+  int get needed => selectionCountFor(kind, solution);
+
+  bool get complete => a != null && b != null && (needed < 3 || c != null);
+
+  AsmRef? slot(int i) => switch (i) { 0 => a, 1 => b, _ => c };
+
+  void setSlot(int i, AsmRef? r) {
+    switch (i) {
+      case 0:
+        a = r;
+      case 1:
+        b = r;
+      default:
+        c = r;
+    }
+  }
+
+  /// The first empty slot, or -1 when they are all full. This is what makes
+  /// the arming advance the way Inventor's does.
+  int get firstEmpty {
+    for (var i = 0; i < needed; i++) {
+      if (slot(i) == null) return i;
+    }
+    return -1;
+  }
 }
 
 /// M228 — the live state of the Split panel.
@@ -3776,7 +3862,7 @@ class AppState extends ChangeNotifier {
     final png = _pngFile(name);
     try {
       final pieces = [
-        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.offset)
+        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.rot, o.offset)
       ];
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
@@ -3856,14 +3942,6 @@ class AppState extends ChangeNotifier {
     return occ;
   }
 
-  /// Moves [occ] by [delta] millimetres. Grounded occurrences do not move —
-  /// see [placeComponent].
-  void moveOccurrence(AssemblyOccurrence occ, Vec3 delta) {
-    if (occ.grounded) return;
-    occ.offset = occ.offset + delta;
-    notifyListeners();
-  }
-
   void selectOccurrence(AssemblyOccurrence? occ) {
     final a = currentAssembly;
     if (a == null || identical(a.selected, occ)) return;
@@ -3919,6 +3997,622 @@ class AppState extends ChangeNotifier {
     if (a == null || !a.vis.containsKey(key)) return;
     a.vis[key] = on;
     a.bump();
+    notifyListeners();
+  }
+
+  // ---- M242: RELATIONSHIPS -------------------------------------------------
+  //
+  // Place Constraint, the browser's Relationships folder, and the solve that
+  // both of them stand on. The division of labour:
+  //
+  //   asm_pick.dart    a tap -> an AsmRef (geometry in the component's frame)
+  //   asm_solver.dart  the constraints -> where every component ends up
+  //   here            the COMMANDS: open, collect, preview, apply, edit,
+  //                   suppress, delete, and the drag that goes through the
+  //                   solver instead of round it
+  //
+  // The one design decision worth stating up front is the PREVIEW. Inventor
+  // shows the result of a constraint before you commit it, and undoes it if
+  // you cancel. That means the document's placements are, while the dialog is
+  // open, not the committed ones — so a snapshot is taken when the dialog
+  // opens and restored on cancel. Nothing else in the app moves geometry it
+  // has not committed, which is exactly why it is written down here.
+
+  ConstraintSession? constraintSession;
+
+  /// True while Place Constraint is collecting selections, so the viewport
+  /// picks GEOMETRY instead of components and the ribbon button stays lit.
+  bool get constraintPicking => constraintSession != null;
+
+  /// Inventor's "Default to Undirected", remembered across dialogs.
+  bool defaultUndirectedAngle = false;
+
+  /// The committed placements, taken when the dialog opens. See the note
+  /// above: a preview moves the real occurrences, and Cancel has to be able
+  /// to put them back exactly.
+  Map<String, (Vec3, Quat)>? _asmSnapshot;
+
+  /// Highlighted in the viewport while the dialog collects: the geometry of
+  /// every filled slot, in WORLD coordinates, plus the one under the pointer.
+  List<AsmGeom> get constraintMarkers {
+    final s = constraintSession, a = currentAssembly;
+    if (s == null || a == null) return const [];
+    return [
+      for (var i = 0; i < s.needed; i++)
+        if (s.slot(i) != null) worldGeomOf(a, s.slot(i)!)
+    ];
+  }
+
+  /// Opens Place Constraint. With [edit] it opens on that constraint, filled
+  /// in, which is Inventor's double-click-a-relationship behaviour.
+  void openConstraint({AsmConstraint? edit}) {
+    final a = currentAssembly;
+    if (a == null) return;
+    final s = ConstraintSession(editing: edit);
+    if (edit != null) {
+      s.kind = edit.kind;
+      s.tab = tabOf(edit.kind);
+      s.solution = edit.solution;
+      s.a = edit.a;
+      s.b = edit.b;
+      s.c = edit.c;
+      s.value = edit.value;
+      s.name = edit.name;
+      s.armed = 0;
+    } else if (defaultUndirectedAngle) {
+      s.defaultUndirected = true;
+    }
+    constraintSession = s;
+    _takeAsmSnapshot(a);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Cancel: the preview is undone and nothing is written.
+  void cancelConstraint() {
+    if (constraintSession == null) return;
+    _restoreAsmSnapshot();
+    constraintSession = null;
+    final a = currentAssembly;
+    if (a != null) {
+      a.bump();
+      _solveAssembly(a);
+    }
+    notifyListeners();
+  }
+
+  void setConstraintTab(AsmTab tab) {
+    final s = constraintSession;
+    if (s == null || s.tab == tab) return;
+    s.tab = tab;
+    // Each tab opens on its own first type, the way Inventor's does. The
+    // Constraint Set tab has no types at all yet and keeps whatever was
+    // selected, so switching to it and back does not discard the picks.
+    final kinds = switch (tab) {
+      AsmTab.assembly => kAssemblyKinds,
+      AsmTab.motion => kMotionKinds,
+      AsmTab.transitional => const [AsmKind.transitional],
+      AsmTab.constraintSet => const <AsmKind>[],
+    };
+    if (kinds.isNotEmpty && !kinds.contains(s.kind)) {
+      _applyKind(s, kinds.first);
+    }
+    notifyListeners();
+  }
+
+  void setConstraintKind(AsmKind kind) {
+    final s = constraintSession;
+    if (s == null || s.kind == kind) return;
+    _applyKind(s, kind);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void _applyKind(ConstraintSession s, AsmKind kind) {
+    s.kind = kind;
+    s.tab = tabOf(kind);
+    final sols = solutionsFor(kind);
+    // Inventor's Default to Undirected, and the only place it acts: a NEW
+    // Angle opens on Undirected rather than on the directed default.
+    s.solution = (kind == AsmKind.angle && defaultUndirectedAngle)
+        ? AsmSolution.undirectedAngle
+        : sols.first;
+    // Changing the type keeps the picks — pointing at the same two faces and
+    // trying Flush instead of Mate is the commonest thing a user does — but
+    // the third slot belongs to a solution that may no longer exist.
+    if (s.needed < 3) s.c = null;
+    s.value = 0;
+    s.armed = s.firstEmpty < 0 ? 0 : s.firstEmpty;
+    _checkConstraintPair(s);
+  }
+
+  void setConstraintSolution(AsmSolution sol) {
+    final s = constraintSession;
+    if (s == null || s.solution == sol) return;
+    if (!solutionsFor(s.kind).contains(sol)) return;
+    s.solution = sol;
+    if (s.needed < 3) s.c = null;
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void setConstraintValue(double v) {
+    final s = constraintSession;
+    if (s == null || s.value == v) return;
+    s.value = v;
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void setConstraintName(String name) {
+    final s = constraintSession;
+    if (s == null) return;
+    s.name = name;
+    notifyListeners();
+  }
+
+  /// Lights selection button [i], so the next viewport tap fills that slot.
+  /// Tapping the lit one again CLEARS it, which is how Inventor lets you
+  /// re-pick a selection you got wrong.
+  void armConstraintSelection(int i) {
+    final s = constraintSession;
+    if (s == null || i < 0 || i >= s.needed) return;
+    if (s.armed == i && s.slot(i) != null) {
+      s.setSlot(i, null);
+      _checkConstraintPair(s);
+      _refreshConstraintPreview();
+      notifyListeners();
+      return;
+    }
+    s.armed = i;
+    notifyListeners();
+  }
+
+  void toggleConstraintPreview() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.showPreview = !s.showPreview;
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's "Predict Offset and Orientation": fill the value field with
+  /// what the two selections already measure, so applying the constraint
+  /// holds the parts where they are instead of closing them up.
+  void toggleConstraintPredict() {
+    final s = constraintSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return;
+    s.predict = !s.predict;
+    if (s.predict && s.a != null && s.b != null) {
+      final v = predictedValue(s.kind, s.solution, worldGeomOf(a, s.a!),
+          worldGeomOf(a, s.b!));
+      if (v != null) s.value = v;
+    }
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void toggleConstraintPickPartFirst() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.pickPartFirst = !s.pickPartFirst;
+    notifyListeners();
+  }
+
+  void toggleConstraintExpanded() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.expanded = !s.expanded;
+    notifyListeners();
+  }
+
+  void toggleDefaultUndirected() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.defaultUndirected = !s.defaultUndirected;
+    defaultUndirectedAngle = s.defaultUndirected;
+    notifyListeners();
+  }
+
+  /// A viewport tap while the dialog is open. Returns true when it was
+  /// consumed as a selection, so the viewport knows not to also treat it as a
+  /// component pick.
+  bool pickConstraintRef(AsmPick pick) {
+    final s = constraintSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return false;
+    // Inventor refuses the SECOND selection on the component the first came
+    // from: a constraint between two faces of one part constrains nothing and
+    // is the commonest misclick there is.
+    if (s.armed > 0 &&
+        s.a != null &&
+        !pick.ref.isAssemblyOrigin &&
+        pick.ref.occurrence == s.a!.occurrence &&
+        s.armed == 1) {
+      toast(L.current.msgAsmSameComponent);
+      return true;
+    }
+    s.setSlot(s.armed, pick.ref);
+    final next = s.firstEmpty;
+    s.armed = next < 0 ? s.armed : next;
+    _checkConstraintPair(s);
+    // Predict runs on the pair, so it can only fire once the second selection
+    // has landed.
+    if (s.predict && s.a != null && s.b != null) {
+      final v = predictedValue(s.kind, s.solution, worldGeomOf(a, s.a!),
+          worldGeomOf(a, s.b!));
+      if (v != null) s.value = v;
+    }
+    _refreshConstraintPreview();
+    notifyListeners();
+    return true;
+  }
+
+  /// Records why the current pair cannot take this kind, for the dialog to
+  /// show where Inventor shows its own refusal.
+  void _checkConstraintPair(ConstraintSession s) {
+    final a = currentAssembly;
+    if (a == null || s.a == null || s.b == null) {
+      s.rejection = null;
+      return;
+    }
+    s.rejection =
+        rejectionFor(s.kind, worldGeomOf(a, s.a!), worldGeomOf(a, s.b!));
+  }
+
+  /// The constraint the session currently describes, or null when it is not
+  /// yet a constraint (a slot empty, or a pair this kind cannot act on).
+  AsmConstraint? buildSessionConstraint(AssemblyModel a) {
+    final s = constraintSession;
+    if (s == null || !s.complete) return null;
+    if (_checkedRejection(s, a) != null) return null;
+    var third = s.c;
+    // A DIRECTED angle captures its reference vector when it is created, and
+    // keeps it. That is what stops the part flipping to the other side of the
+    // pair the first time the angle passes through zero — Autodesk's own
+    // reason for offering the undirected solution at all. The reference is
+    // stored against the ASSEMBLY, not a component, because it must not turn
+    // when either part does.
+    if (s.kind == AsmKind.angle &&
+        s.solution == AsmSolution.directedAngle &&
+        third == null) {
+      final z = worldGeomOf(a, s.a!).dir.cross(worldGeomOf(a, s.b!).dir);
+      if (z.length > 1e-9) {
+        third = AsmRef(kAssemblyOrigin,
+            AsmGeom.axis(Vec3.zero, z.normalized()), 'Reference Vector');
+      }
+    }
+    final name = s.name.trim().isNotEmpty
+        ? s.name.trim()
+        : (s.editing?.name ?? nextConstraintName(a.constraints, s.kind));
+    return AsmConstraint(
+      name: name,
+      kind: s.kind,
+      solution: s.solution,
+      a: s.a!,
+      b: s.b!,
+      c: s.needed >= 3 ? s.c : third,
+      value: s.value,
+      suppressed: s.editing?.suppressed ?? false,
+    );
+  }
+
+  String? _checkedRejection(ConstraintSession s, AssemblyModel a) {
+    if (s.a == null || s.b == null) return null;
+    return rejectionFor(s.kind, worldGeomOf(a, s.a!), worldGeomOf(a, s.b!));
+  }
+
+  /// Shows what the constraint WOULD do, without committing it.
+  ///
+  /// Always from the snapshot, never from wherever the last preview left
+  /// things: solving twice from a previewed state would let a preview build
+  /// on itself and drift.
+  void _refreshConstraintPreview() {
+    final a = currentAssembly;
+    final s = constraintSession;
+    if (a == null || s == null) return;
+    _restoreAsmSnapshot();
+    if (!s.showPreview) {
+      _solveAssembly(a);
+      return;
+    }
+    final trial = buildSessionConstraint(a);
+    if (trial == null) {
+      _solveAssembly(a);
+      return;
+    }
+    // While editing, the constraint being replaced must not fight its own
+    // replacement.
+    final edited = s.editing;
+    final was = edited?.suppressed;
+    if (edited != null) edited.suppressed = true;
+    a.constraints.add(trial);
+    _solveAssembly(a);
+    a.constraints.remove(trial);
+    if (edited != null && was != null) edited.suppressed = was;
+  }
+
+  /// Apply: commit the constraint and keep the dialog open for the next one,
+  /// which is what makes placing six mates in a row bearable.
+  bool applyConstraint() {
+    final a = currentAssembly;
+    final s = constraintSession;
+    if (a == null || s == null) return false;
+    if (!s.complete) {
+      toast(L.current.msgAsmPickTwo);
+      return false;
+    }
+    final reason = _checkedRejection(s, a);
+    if (reason != null) {
+      toast(_constraintRejection(reason));
+      return false;
+    }
+    _restoreAsmSnapshot();
+    final built = buildSessionConstraint(a);
+    if (built == null) return false;
+    final edited = s.editing;
+    if (edited != null) {
+      edited
+        ..kind = built.kind
+        ..solution = built.solution
+        ..a = built.a
+        ..b = built.b
+        ..c = built.c
+        ..value = built.value;
+    } else {
+      a.constraints.add(built);
+    }
+    final report = _solveAssembly(a);
+    if (report.sick.containsKey(built.name)) {
+      toast(_constraintRejection(report.sick[built.name]!));
+    }
+    a.bump();
+    _takeAsmSnapshot(a);
+    // Ready for the next one: the picks are consumed, the settings are not.
+    // Inventor keeps the type, the solution and the offset across an Apply,
+    // and clears only what you pointed at.
+    if (edited == null) {
+      s.a = null;
+      s.b = null;
+      s.c = null;
+      s.armed = 0;
+      s.rejection = null;
+    }
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+    return true;
+  }
+
+  /// OK: apply, then close.
+  void okConstraint() {
+    final s = constraintSession;
+    if (s == null) return;
+    // OK on a dialog that has collected nothing is a Cancel — Inventor greys
+    // its OK out in that state, and reaching this from a keyboard should not
+    // be able to leave the preview applied.
+    if (!s.complete) {
+      cancelConstraint();
+      return;
+    }
+    if (!applyConstraint()) return;
+    constraintSession = null;
+    _asmSnapshot = null;
+    notifyListeners();
+  }
+
+  // ---- the Relationships folder -------------------------------------------
+
+  void selectConstraint(AsmConstraint? c) {
+    final a = currentAssembly;
+    if (a == null || identical(a.selectedConstraint, c)) return;
+    a.selectedConstraint = c;
+    notifyListeners();
+  }
+
+  void deleteConstraint(AsmConstraint c) {
+    final a = currentAssembly;
+    if (a == null) return;
+    a.constraints.remove(c);
+    if (identical(a.selectedConstraint, c)) a.selectedConstraint = null;
+    // Deleting a constraint gives freedom back; it never takes any, so the
+    // components stay exactly where the last solve left them and only the
+    // reported DOF changes.
+    _solveAssembly(a);
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  void toggleConstraintSuppressed(AsmConstraint c) {
+    final a = currentAssembly;
+    if (a == null) return;
+    c.suppressed = !c.suppressed;
+    // A suppressed constraint is switched off, not broken: clear the verdict
+    // the last solve left on it so the browser does not go on showing it sick.
+    if (c.suppressed) c.error = null;
+    _solveAssembly(a);
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Runs the solver and files its verdict on the model. Every command that
+  /// can change where a component belongs goes through here, so there is one
+  /// place the summary and the per-constraint sickness are written.
+  AsmSolveReport _solveAssembly(AssemblyModel a, {AsmDrag? drag}) {
+    final report = solveAssembly(a, drag: drag);
+    a.solveSummary = AsmSolveSummary(
+      dof: report.dof,
+      fullyConstrained: report.fullyConstrained,
+      sickCount: report.sick.length,
+    );
+    return report;
+  }
+
+  /// Re-solves the open assembly on demand — the ribbon's Update, and what a
+  /// test calls to assert where the solver put things.
+  AsmSolveReport? solveCurrentAssembly() {
+    final a = currentAssembly;
+    if (a == null) return null;
+    final r = _solveAssembly(a);
+    notifyListeners();
+    return r;
+  }
+
+  // ---- placement snapshots -------------------------------------------------
+
+  void _takeAsmSnapshot(AssemblyModel a) {
+    _asmSnapshot = {for (final o in a.occurrences) o.id: (o.offset, o.rot)};
+  }
+
+  void _restoreAsmSnapshot() {
+    final a = currentAssembly;
+    final snap = _asmSnapshot;
+    if (a == null || snap == null) return;
+    for (final o in a.occurrences) {
+      final was = snap[o.id];
+      if (was == null) continue;
+      o.offset = was.$1;
+      o.rot = was.$2;
+    }
+  }
+
+  /// The l10n sentence for a solver or dialog refusal key.
+  String _constraintRejection(String key) {
+    final t = L.current;
+    return switch (key) {
+      'tangentNeedsRound' => t.msgAsmTangentNeedsRound,
+      'insertNeedsAxes' => t.msgAsmInsertNeedsAxes,
+      'angleNeedsDirections' => t.msgAsmAngleNeedsDirections,
+      'motionNeedsAxes' => t.msgAsmMotionNeedsAxes,
+      'bothGrounded' => t.msgAsmBothGrounded,
+      'missingComponent' => t.msgAsmMissingComponent,
+      'cannotSatisfy' => t.msgAsmCannotSatisfy,
+      _ => t.msgAsmCannotConstrain,
+    };
+  }
+
+  /// The sentence for a constraint's own error, for the browser's tooltip.
+  String constraintErrorText(AsmConstraint c) =>
+      _constraintRejection(c.error ?? 'cannotConstrain');
+
+  /// The sentence for a refusal key the DIALOG is holding, so the panel can
+  /// show it without knowing the keys.
+  String constraintRejectionText(String key) => _constraintRejection(key);
+
+  // ---- dragging a component through what freedom it has left ---------------
+  //
+  // M240 dragged by adding a delta to a placement, which is right for a loose
+  // part and wrong for anything constrained: a component mated to another
+  // would simply leave, and a linkage grabbed by one link would come apart.
+  //
+  // So a drag now has two paths, chosen by whether the component is ATTACHED
+  // to anything:
+  //
+  //   loose      the delta, applied directly. Exact, allocation-free, and
+  //              identical to what M240 did — a part with no relationships
+  //              must not start feeling like a solve.
+  //   attached   a soft pull on the grip point, solved with every constraint
+  //              in the assembly (asm_solver's AsmDrag). The mechanism follows
+  //              the finger as far as its freedom allows and stops dead where
+  //              it does not, which is Inventor's behaviour exactly.
+  //
+  // The GRIP is where the finger went down, in the component's own frame. It
+  // has to be: grabbing a crank at its far end and grabbing it at its pivot
+  // are different gestures, and a drag that always pulled on the origin could
+  // never turn anything.
+
+  /// The component being dragged, its grip in local coordinates, and whether
+  /// this drag needs the solver.
+  String? _dragOccId;
+  Vec3 _dragGrip = Vec3.zero;
+  bool _dragSolved = false;
+
+  /// Called on pointer-down over a component, with the world point touched.
+  void beginOccurrenceDrag(AssemblyOccurrence occ, Vec3 worldGrip) {
+    final a = currentAssembly;
+    if (a == null) return;
+    _dragOccId = occ.id;
+    _dragGrip = occ.toLocal(worldGrip);
+    _dragSolved = _isAttached(a, occ.id);
+  }
+
+  /// True when [id] is connected, through active positional constraints, to
+  /// anything at all. Transitively: a link two joints away from the one being
+  /// dragged still has to move with it.
+  bool _isAttached(AssemblyModel a, String id) {
+    final seen = <String>{id};
+    final queue = <String>[id];
+    while (queue.isNotEmpty) {
+      final at = queue.removeLast();
+      for (final c in a.constraints) {
+        if (c.suppressed || !c.isPositional) continue;
+        if (!c.touches(at)) continue;
+        // A constraint to the assembly's own origin attaches too — it is what
+        // pins a part to the XY plane — so the constraint counts even when it
+        // names only one component.
+        if (c.occurrences.length < 2) return true;
+        for (final other in c.occurrences) {
+          if (seen.add(other)) queue.add(other);
+        }
+      }
+    }
+    return seen.length > 1;
+  }
+
+  /// Moves the dragged component so its grip lands on [worldTarget].
+  void dragOccurrenceTo(Vec3 worldTarget) {
+    final a = currentAssembly;
+    final id = _dragOccId;
+    if (a == null || id == null) return;
+    final occ = a.byId(id);
+    if (occ == null || occ.grounded) return;
+    if (!_dragSolved) {
+      occ.offset = occ.offset + (worldTarget - occ.toWorld(_dragGrip));
+      notifyListeners();
+      return;
+    }
+    _solveAssembly(a, drag: AsmDrag(id, _dragGrip, worldTarget));
+    notifyListeners();
+  }
+
+  /// Moves [occ] by [delta] millimetres. Grounded occurrences do not move —
+  /// see [placeComponent].
+  ///
+  /// The delta form, kept because it is what a caller with no grip has: it
+  /// pulls on the component's own origin, which for a loose part is the same
+  /// translation and for an attached one is the honest "drag it from the
+  /// middle".
+  void moveOccurrence(AssemblyOccurrence occ, Vec3 delta) {
+    if (occ.grounded) return;
+    final a = currentAssembly;
+    if (a == null || !_isAttached(a, occ.id)) {
+      occ.offset = occ.offset + delta;
+      notifyListeners();
+      return;
+    }
+    _solveAssembly(a,
+        drag: AsmDrag(occ.id, Vec3.zero, occ.toWorld(Vec3.zero) + delta));
+    notifyListeners();
+  }
+
+  /// Turns [occ] about the world axis [axis] through [pivot], driving any
+  /// motion constraints it is the mover of.
+  ///
+  /// This is the second half of "dynamic": a gear pair is not solved (see
+  /// asm_solver's header — motion constraints act only on open degrees of
+  /// freedom), it is DRIVEN, so turning one shaft has to propose where the
+  /// other goes and let the assembly constraints have the last word.
+  void turnOccurrence(
+      AssemblyOccurrence occ, Vec3 axis, Vec3 pivot, double radians) {
+    final a = currentAssembly;
+    if (a == null || occ.grounded || radians.abs() < 1e-12) return;
+    final q = Quat.axisAngle(axis, radians);
+    occ.rot = (q * occ.rot).normalized();
+    occ.offset = pivot + q.rotate(occ.offset - pivot);
+    driveMotion(a, occ.id, radians);
+    _solveAssembly(a);
     notifyListeners();
   }
 
