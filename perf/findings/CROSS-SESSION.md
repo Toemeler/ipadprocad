@@ -3246,3 +3246,134 @@ which was not known. Two consequences worth carrying:
 The corrected sentence for my entry above: **Lane C prints `LANE C: PASS`, and
 the two stable calibration exponents still agree with §6.5. `edgeInfo1`'s
 verdict varies between runs of identical code and should not be read from one.**
+
+---
+
+## 2026-08-24 — S14 round two — three wrong parts, two shim versions, and one proposal
+
+The integrator kept the v24 merge decision open and sent me back for the three
+defects `S14-sweep.md` §6.2 recorded and declined to bundle. Each is its own
+commit and its own behaviour change. **None of them depends on v24**, and
+`OCCT_SWEEP_PATH_POLY` is still exact v23.
+
+### S14-8 — `occt_shim_version()` is now **26**. Two more numbers, both behaviour
+
+* **v25** — orientation 1 ("Fixed") stops calling the wrong OCCT mode.
+* **v26** — a hole is placed the way its own body is placed.
+
+Test for `>= 25` if orientation 1 has to be trustworthy on a path that bends;
+for `>= 26` if a holed sweep's volume has to be right. `occt_version()`'s string
+tracks the number again — it had said "v21" since v21 while the number went 22,
+23, 24.
+
+### S14-9 — orientation 1 has produced INVALID solids since v15, and it is the MODE, not the spine
+
+`occt_sweep_profile` mapped orientation 1 to
+`BRepFill_PipeShell::Set(const gp_Dir&)` → `GeomFill_ConstantBiNormal`, whose
+`D0` **replaces the sweep frame's tangent** with the real tangent's projection
+perpendicular to the binormal. On a path climbing 25° from +Z that is 65° off,
+and on a polyline it compounds at every joint into a self-intersecting shell.
+
+A 10×10 square on the arc path, against an analytic 6 000 that Cavalieri gives
+whatever the path does in XY:
+
+| spans | before | after |
+| ---: | ---: | ---: |
+| 2 | 7 448.5352 +24.1 % **INVALID** | 6 000.000000000 valid |
+| 4 | 8 980.7801 +49.7 % **INVALID** | 6 000.000000000 valid |
+| 16 | 16 429.0722 **+173.8 % INVALID** | 6 000.000000000 valid |
+
+**Why nobody caught it:** a single straight segment is exact in BOTH laws
+(4 000.0000 / 6 000.0000), so every test and every capture that swept along a
+line saw nothing. The mode only misbehaves once the path bends.
+
+**"A smoothed spine happens to fix it" was wrong**, and worth recording as a
+near miss: on a smooth spine `ConstantBiNormal` gives 6 000.0015 and valid —
+but its bounding box shows the square **rotated about 6.8°**. Right volume,
+wrong part. That is §2.8's lesson for the third time: **the volume of a sweep
+is nearly blind to what the section does on the way.** If you are testing a
+sweep, test the bounding box or the symmetric difference, never the volume
+alone.
+
+### S14-10 — a holed sweep has lost 3.2 % of its volume since v15, and the control was already in the tree
+
+`finish_pipe` added every hole with `WithCorrection = Standard_True` while
+`occt_sweep_profile` added the outer wire with the CALLER'S setting, and it
+threw away the `orientation` it was handed (`(void)orientation`) so the hole
+also got a Frenet trihedron when the body got a fixed one. Two wires, two
+frames, one solid.
+
+The test needs no analytic model: **a tube's volume must be the difference of
+the two single-loop sweeps that make it.** Orientations 0 and 1 missed by
+3.17 %; **orientation 2 was exact** — because its `WithCorrection` is already
+`Standard_True`, the value the holes hard-coded. So was `occt_coil_profile`,
+for the same reason. Two natural controls, no fixture needed, and they isolate
+the cause rather than leaving it the most plausible of several.
+
+All three orientations and the coil now agree with their own parts exactly.
+
+**For anyone writing a sweep or loft test:** the outer-minus-holes differential
+is cheap, needs no analytic model, and works at orientations where an analytic
+annulus does not (orientation 2's tube is legitimately a *different* solid). It
+is now smoke `[37f]`.
+
+### S14-11 — the Dart side declares the path kind. **`sketchCurve` is the source of truth**
+
+`occt_sweep_profile_ex(..., path_mode)` is wired: `resolvePathWithMode` reads
+the kind off the entity that won the fingerprint match and hands it down.
+`SweepPathMode` lives in `occt_engine.dart`.
+
+| entity | mode | why |
+| --- | --- | --- |
+| arc, circle | `smooth` | `sampleEntity(arcSamples: 64)` — every joint is that sampling |
+| polyline, straight | `polyline` | every vertex is one somebody placed |
+| polyline, spline/gear | `auto` | **`gearCurve` has a real cusp at every tooth** |
+| line | `polyline` | two points; identical in every mode |
+
+This closes S14 §7.1's open question for arcs and circles **by not having to
+measure it**. The joint-angle histogram of real spline paths is still worth
+having, but only the third row now depends on it.
+
+**THE TRAP, for anyone adding a sweep argument later:** `_sweepArgSig` hashes
+the resolved arguments and `f.sweptFrom` decides whether the kernel runs at
+all. The mode is in that key. **What is NOT pinned is that a mode change alone
+forces a rebuild** — that needs two entity kinds resolving to identical points
+under different modes, and no such pair exists (a line and a two-point straight
+polyline both classify `polyline`; everything else samples differently). It is
+argued from the code, labelled as argued in the test file and in the findings,
+and if that line is deleted no test will notice.
+
+### S14-12 — holed profiles: costed, prototyped, NOT built. **Needs:** integrator
+
+**The question first, settled by source:** `BRepFill_Section` throws on
+anything but a wire or a vertex, so **`MakePipeShell` cannot take a multi-wire
+section on 7.9.3**. Sweeping an annulus as one section is not available.
+
+The other design — sweep each wire to its lateral shell, build the two end caps
+as planar faces with the hole's end sections as inner boundaries, sew, make a
+solid — was prototyped. 24-segment ring, r = 6 with an r = 3 hole, 16 spans:
+
+| spine | boolean (today) | shell assembly | volume |
+| --- | ---: | ---: | --- |
+| polyline | 85.4 ms | **17.1 ms** | 5 031.442237 both |
+| smooth | **21 208.5 ms** | **3.7 ms** | 5 031.420889 both |
+
+Same volume to ten significant figures, same face count, both valid.
+
+**The risk that makes it a proposal:** the assembly assumes every hole is
+strictly inside the outer boundary; the boolean did not, and **nothing in
+`placed_profile_wires` checks containment**. That guard is new behaviour. The
+face-count change would also couple this to the v24 decision rather than
+standing beside it.
+
+### S14-13 — a circle used as a sweep path is swept OPEN, and always has been
+
+`sampleEntity` repeats the first point, the dedupe drops it, and nothing calls
+`MakePolygon::Close()`. So a circular path produces an open 63-edge spine and a
+solid with a gap. Unchanged by v24/v25/v26.
+
+**Recommendation, not a decision:** the one-line `Close()` is written down in
+S14 §13.2, and I recommend **not** taking it first. A closed spine has no end
+caps, and `finish_pipe`'s `MakeSolid()` closes a shell with caps — that is more
+consequence than one line should carry unmeasured. Make the app SAY the path
+was swept open; decide the geometry on evidence afterwards.
