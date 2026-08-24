@@ -1425,8 +1425,21 @@ sweep's end section and whose inner boundary is the hole's (`FirstShape()` and
 **34 ms** where the boolean route costs 21.2 s — and where v23's polyline route
 costs 258 ms.
 
-*(A 1200-segment run was started to make the estimate real at the size the
-owner's goal names; §12.5 records what it said.)*
+**The 1200-segment confirmation did NOT complete**, and the honest reading of
+that matters more than the missing number. I ran the same prototype at 1200
+segments and killed it after 25 minutes. What I can say: the assembly's own
+timing region ends *before* the `vol()` and `BRepCheck_Analyzer` calls that
+follow it, so the process was almost certainly stuck verifying a 2 402-face
+B-spline solid rather than building one. **That is an inference from where the
+timer sits, not a measurement**, and it means the prototype is unconfirmed at
+the size the owner's goal actually names. The 24-segment table below is what I
+have, and a 5 730× ratio with volumes agreeing to ten figures is enough to cost
+the work — but nobody should read it as "verified at 1200".
+
+It also flags something for whoever builds this: **checking a large swept solid
+may cost more than building it.** `finish_pipe` does not call
+`BRepCheck_Analyzer` today; if the assembly route tempts anyone to add a
+validity guard, that guard is the thing to measure first.
 
 ### 12.3 What I would build, and what it would break
 
