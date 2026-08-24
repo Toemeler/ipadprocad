@@ -46,9 +46,21 @@ endif()
 add_executable(occt_bench
     bench_occt.cpp
     bench_stats.cpp
-    bench_alloc.cpp)
+    bench_alloc.cpp
+    bench_sweep.cpp)
 
 target_link_libraries(occt_bench PRIVATE occt_capi)
+
+# bench_sweep.cpp is the one file here that talks to OCCT directly instead of
+# through the C shim. It has to: the sweep's cost lives inside ONE C call, and
+# the only way to say which of that call's five internal steps is expensive —
+# or to vary the corner deadband BRepOffsetAPI_MakePipeShell hard-codes — is to
+# rebuild the pipeline out of the same classes. occt_capi keeps the OCCT
+# include path PRIVATE (it is a shim, and nothing else should need it), so this
+# target asks for it itself. The toolkits arrive transitively from occt_capi's
+# PUBLIC link line; only the headers are missing.
+find_package(OpenCASCADE CONFIG REQUIRED)
+target_include_directories(occt_bench PRIVATE ${OpenCASCADE_INCLUDE_DIR})
 
 find_package(Threads REQUIRED)
 target_link_libraries(occt_bench PRIVATE Threads::Threads ${CMAKE_DL_LIBS})

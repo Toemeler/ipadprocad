@@ -59,6 +59,7 @@
 
 #include "bench_alloc.h"
 #include "bench_stats.h"
+#include "bench_sweep.h"
 
 extern "C" {
 #include "occt_capi.h"
@@ -194,6 +195,12 @@ struct Measured {
     double live_bytes = 0.0;  /* per iteration, requested minus released */
     double rss_peak_mb = 0.0;
     double rss_delta_mb = 0.0;
+    /* False when the operation FAILED at this rung. `t` is then a
+     * time-to-failure, not a cost, and no fit may include it. The sweep
+     * ladders need this: the 1200-segment rung on the device did not run
+     * slowly, it ran for four minutes and produced nothing, and a report that
+     * cannot say so would rank a failure as the fastest large rung. */
+    bool ok = true;
     std::string note;
 };
 
@@ -207,6 +214,16 @@ struct RunOpts {
     bool no_alloc = false;
     std::string json_path;
     std::string md_path;
+
+    /* The sweep ladders (see runSweepLadders). Their default rungs are small
+     * on purpose: this benchmark runs on every push to claude/perf-opt**, and
+     * the device's own top rungs cost minutes EACH. --sweep-sizes reaches
+     * them when that is what you want; --no-sweep turns the section off. */
+    bool sweep = true;
+    std::vector<int> sweep_sizes{32, 64, 128};
+    std::vector<int> sweep_spans{1, 2, 4, 8, 16};
+    int sweep_fixed_spans = 16;    /* the path for the segments ladder */
+    int sweep_fixed_segments = 128; /* the profile for the spans ladder */
 };
 
 /* Below this, one sample is mostly clock noise: steady_clock resolves to
@@ -239,7 +256,7 @@ static Measured measureOp(const RunOpts &opts, const std::string &op,
                           const std::function<void()> &setup,
                           const std::function<void()> &body,
                           const std::function<void()> &teardown,
-                          bool repeatable = false)
+                          bool repeatable = false, int min_iters = 3)
 {
     using clock = std::chrono::steady_clock;
 
@@ -292,8 +309,16 @@ static Measured measureOp(const RunOpts &opts, const std::string &op,
         /* A rung that costs seconds does not get seven of them. Stopping on a
          * wall budget keeps the top of the ladder reachable; the report always
          * prints the n actually achieved, so a short sample cannot be mistaken
-         * for a full one. */
-        if (spent > opts.budget_ms && iters >= 3)
+         * for a full one.
+         *
+         * `min_iters` is 3 for everything the ladder and the fillet sweeps
+         * measure, and that floor is deliberate — three samples is the fewest
+         * that has a spread at all. The sweep ladders lower it to 2, because
+         * one of THEIR rungs cost the device four minutes: three of those plus
+         * a warm-up is sixteen minutes for one point, and the point is not
+         * sixteen minutes more informative than it is at two. Where it is
+         * lowered, `n` in the report says so. */
+        if (spent > opts.budget_ms && iters >= min_iters)
             break;
     }
 
@@ -878,6 +903,381 @@ static void runFilletSweeps(const RunOpts &opts)
 }
 
 /* ------------------------------------------------------------------------ */
+/* The sweep ladders — the axis no tier measured until the device did         */
+/* ------------------------------------------------------------------------ */
+
+/*
+ * WHAT THESE MEASURE, AND WHY THEY ARE HERE
+ *
+ * A device capture on 2026-08-24 (build cb1d183) ran S11's opt-in profile
+ * tier. `profile.sweep.segments` — an N-segment ring swept along a 16-span
+ * path — read 91 ms at N=32, 1 253 ms at N=128, 132 112 ms at N=512, and at
+ * N=1200 it did not produce a solid at all: 231 085 ms and then
+ * "occt_sweep_profile: BRep_API: command not done".
+ *
+ * `profile.sweep.spans` held the profile at 512 segments and varied the PATH,
+ * and that is the measurement that says where to look: 94 ms with ONE span
+ * (no interior corner at all), 79 306 ms with four. **843x for 4x the faces.**
+ * Then 3 -> 15 corners costs only another 1.67x. The cost is a STEP that fires
+ * at the first corner and is nearly flat in the corner count afterwards.
+ *
+ * Two ladders reproduce that here, plus a phase breakdown that says WHICH of
+ * the five steps inside occt_sweep_profile the time is in, plus variants that
+ * say what removes it. The variants are measured through bench_sweep.h's
+ * replica of the pipeline; the ladders go through the shipped C entry point.
+ * `sweep.replica` measures the same fixture both ways so the replica's
+ * agreement with the original is a number in the report rather than a claim.
+ *
+ * The fixture is the device fixture: perf_scenarios_profile.dart sweeps
+ * arcRing(segments, 6) along arcPath(spans + 1, 60).
+ */
+
+static const double kIdentity34[12] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+
+/* One sweep through the shipped entry point. Returns the shape or null, and
+ * always fills `ms` — a failure has a duration too, and on the device it was
+ * four minutes. */
+static occt_shape *sweepOnce(int segments, int spans, double *ms)
+{
+    const std::vector<double> prof = bench::arcRingXYB(segments, 6.0);
+    const std::vector<double> path = bench::arcPathXYZ(spans + 1, 60.0);
+    const int counts[1] = {segments};
+    const auto t0 = std::chrono::steady_clock::now();
+    occt_shape *s =
+        occt_sweep_profile(prof.data(), counts, 1, kIdentity34, path.data(),
+                           spans + 1, 0, 0.0, 0.0);
+    const auto t1 = std::chrono::steady_clock::now();
+    if (ms)
+        *ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    return s;
+}
+
+/* The CONTROL, and it needs no new entry point: occt_coil_profile sweeps the
+ * same kind of section along an EXACT HELIX — one analytic edge, no joints,
+ * and it does not set a transition mode at all. Placing its axis 18 units from
+ * the profile centroid and asking for a quarter turn rising 60 makes it the
+ * same geometry arcPath(spans+1, 60) samples: a quarter turn of radius 18
+ * climbing to z = 60. Same section, same path, same face count — the only
+ * difference is that one spine is a curve and the other is a polyline sample
+ * of that curve. If the polyline sweep is minutes and the coil is
+ * milliseconds, the segments are not what is expensive. */
+static occt_shape *coilOnce(int segments, double *ms)
+{
+    const std::vector<double> prof = bench::arcRingXYB(segments, 6.0);
+    const int counts[1] = {segments};
+    const auto t0 = std::chrono::steady_clock::now();
+    occt_shape *s = occt_coil_profile(prof.data(), counts, 1, kIdentity34,
+                                      -18.0, 0.0, 0.0, /* axis point */
+                                      0.0, 0.0, 1.0,   /* axis direction */
+                                      0.25, 60.0, 0.0, 0, 0, 0);
+    const auto t1 = std::chrono::steady_clock::now();
+    if (ms)
+        *ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    return s;
+}
+
+/* Records one rung of a sweep ladder. A rung is PROBED once before it is
+ * measured: at these sizes a failing rung costs minutes per attempt, and
+ * measureOp would pay for it eight times over to learn what one attempt
+ * already knows. The probe's own duration is what a failed rung reports. */
+static void sweepRung(const RunOpts &opts, const char *op, const char *axis,
+                      double x, int segments, int spans, const char *note,
+                      bool coil = false)
+{
+    const auto build = [&](double *ms) {
+        return coil ? coilOnce(segments, ms) : sweepOnce(segments, spans, ms);
+    };
+    double probe_ms = 0.0;
+    occt_shape *first = build(&probe_ms);
+    if (!first) {
+        Measured m;
+        m.op = op;
+        m.axis = axis;
+        m.x = x;
+        m.ok = false;
+        m.t = bench::summarise({probe_ms});
+        m.profile_pts = segments;
+        m.rss_peak_mb = peakRssMb();
+        std::printf("  %-22s x=%-10.4g  *** FAILED *** after %.1f ms : %s\n", op,
+                    x, probe_ms, occt_last_error());
+        std::fflush(stdout);
+        m.note = std::string("FAILED after ") + std::to_string(probe_ms) +
+                 " ms: " + occt_last_error() + " — the duration is a "
+                 "time-to-failure, NOT a cost; no fit includes it";
+        g_results.push_back(std::move(m));
+        return;
+    }
+    int faces = 0, edges = 0, verts = 0;
+    occt_shape_counts(first, &faces, &edges, &verts);
+    const double vol = occt_shape_volume(first);
+    occt_free_shape(first);
+
+    occt_shape *out = nullptr;
+    Measured m = measureOp(
+        opts, op, axis, x, []() {},
+        [&]() { out = build(nullptr); },
+        [&]() {
+            if (out)
+                occt_free_shape(out);
+            out = nullptr;
+        },
+        false, 2);
+    m.faces = faces;
+    m.edges = edges;
+    m.profile_pts = segments;
+    char buf[320];
+    if (coil)
+        std::snprintf(buf, sizeof buf,
+                      "%s — %d segments, %d faces, volume %.4f", note, segments,
+                      faces, vol);
+    else
+        std::snprintf(buf, sizeof buf,
+                      "%s — %d segments x %d spans, %d faces, volume %.4f",
+                      note, segments, spans, faces, vol);
+    record(std::move(m), buf);
+}
+
+/* Runs the replica `reps` times and records every phase as its own row, so
+ * the phase table carries the same sd/p95 discipline as the ladder. */
+static void sweepPhases(const RunOpts &opts, const char *prefix,
+                        const char *axis, double x, int segments, int spans,
+                        bench::Corner corner, bench::Spine spine, bool unify,
+                        double angminRad, const char *note)
+{
+    std::vector<double> wire, sp, build, solid, uni, total;
+    bench::SweepPhases last;
+    double spent = 0.0;
+    for (int i = 0; i < opts.reps; ++i) {
+        last = bench::sweepReplica(segments, spans, corner, spine, unify,
+                                   angminRad);
+        spent += last.total;
+        if (last.ok) {
+            wire.push_back(last.wire);
+            sp.push_back(last.spine);
+            build.push_back(last.build);
+            solid.push_back(last.solid);
+            uni.push_back(last.unify);
+        }
+        total.push_back(last.total);
+        if (!last.ok)
+            break;
+        if (spent > opts.budget_ms && i >= 1)
+            break;
+    }
+
+    char buf[320];
+    if (!last.ok) {
+        Measured m;
+        m.op = std::string(prefix) + ".total";
+        m.axis = axis;
+        m.x = x;
+        m.ok = false;
+        m.t = bench::summarise(total);
+        m.profile_pts = segments;
+        m.rss_peak_mb = peakRssMb();
+        std::snprintf(buf, sizeof buf,
+                      "%s — FAILED after %.1f ms in the replica: %s (a "
+                      "time-to-failure, not a cost)",
+                      note, last.total, last.err.c_str());
+        m.note = buf;
+        std::printf("  %-22s x=%-10.4g  *** FAILED *** after %.1f ms : %s\n",
+                    m.op.c_str(), x, last.total, last.err.c_str());
+        std::fflush(stdout);
+        g_results.push_back(std::move(m));
+        return;
+    }
+
+    struct { const char *suffix; std::vector<double> *v; } rows[] = {
+        {".wire", &wire}, {".spine", &sp},     {".build", &build},
+        {".solid", &solid}, {".unify", &uni},  {".total", &total},
+    };
+    for (const auto &r : rows) {
+        Measured m;
+        m.op = std::string(prefix) + r.suffix;
+        m.axis = axis;
+        m.x = x;
+        m.t = bench::summarise(*r.v);
+        m.faces = last.faces;
+        m.profile_pts = segments;
+        m.rss_peak_mb = peakRssMb();
+        std::snprintf(buf, sizeof buf,
+                      "%s — %d seg x %d spans, %d faces, spine edges %d, "
+                      "volume %.6f, %s",
+                      note, segments, spans, last.faces, last.spineEdges,
+                      last.volume, last.valid ? "valid" : "INVALID");
+        record(std::move(m), buf);
+    }
+}
+
+/* One variant, at one rung, reported next to the shipped pipeline's geometry.
+ * Cost is only half of what a variant has to answer; the other half is what
+ * it does to the SHAPE, so volume, face count and validity travel with it. */
+static void sweepVariant(const RunOpts &opts, const char *name, int segments,
+                         int spans, bench::Corner corner, bench::Spine spine,
+                         bool unify, double angminRad, double refVolume,
+                         const char *note)
+{
+    std::vector<double> total;
+    bench::SweepPhases last;
+    double spent = 0.0;
+    for (int i = 0; i < opts.reps; ++i) {
+        last = bench::sweepReplica(segments, spans, corner, spine, unify,
+                                   angminRad);
+        total.push_back(last.total);
+        spent += last.total;
+        if (!last.ok)
+            break;
+        if (spent > opts.budget_ms && i >= 1)
+            break;
+    }
+    Measured m;
+    m.op = std::string("sweep.var.") + name;
+    m.axis = "segments";
+    m.x = segments;
+    m.ok = last.ok;
+    m.t = bench::summarise(total);
+    m.faces = last.faces;
+    m.profile_pts = segments;
+    m.rss_peak_mb = peakRssMb();
+    char buf[400];
+    if (!last.ok) {
+        std::snprintf(buf, sizeof buf,
+                      "%s — FAILED after %.1f ms: %s (time-to-failure)", note,
+                      last.total, last.err.c_str());
+        std::printf("  %-22s x=%-10d  *** FAILED *** after %.1f ms : %s\n",
+                    m.op.c_str(), segments, last.total, last.err.c_str());
+        std::fflush(stdout);
+        m.note = buf;
+        g_results.push_back(std::move(m));
+        return;
+    }
+    const double dv = refVolume > 0.0
+                          ? 100.0 * (last.volume - refVolume) / refVolume
+                          : 0.0;
+    std::snprintf(buf, sizeof buf,
+                  "%s — %d faces, spine edges %d, volume %.6f (%+.4f %% vs the "
+                  "shipped pipeline), %s",
+                  note, last.faces, last.spineEdges, last.volume, dv,
+                  last.valid ? "valid" : "INVALID");
+    record(std::move(m), buf);
+}
+
+static void runSweepLadders(const RunOpts &opts)
+{
+    if (!opts.sweep)
+        return;
+
+    std::printf("\n[sweep ladders] fixture: arcRing(segments, 6) swept along "
+                "arcPath(spans+1, 60)\n");
+    std::printf("  path geometry (the axis that separates corner COUNT from "
+                "total TURNING):\n");
+    for (int spans : opts.sweep_spans) {
+        const std::vector<double> p = bench::arcPathXYZ(spans + 1, 60.0);
+        std::printf("    spans=%-4d corners=%-4d totalTurn=%7.3f deg  "
+                    "maxCorner=%6.3f deg\n",
+                    spans, spans - 1, bench::pathTurnDeg(p),
+                    bench::pathMaxCornerDeg(p));
+    }
+
+    /* Ladder 1 — the device's profile.sweep.segments. */
+    std::printf("\n  -- sweep.segments (spans fixed at %d) --\n",
+                opts.sweep_fixed_spans);
+    for (int n : opts.sweep_sizes)
+        sweepRung(opts, "sweep.segments", "segments", n, n,
+                  opts.sweep_fixed_spans,
+                  "occt_sweep_profile against profile segment count");
+
+    /* The control: the same geometry through a spine that is a CURVE. */
+    std::printf("\n  -- sweep.coil (the same quarter turn, as an exact helix) --\n");
+    for (int n : opts.sweep_sizes)
+        sweepRung(opts, "sweep.coil", "segments", n, n, opts.sweep_fixed_spans,
+                  "occt_coil_profile — same section, same quarter turn of "
+                  "radius 18 rising 60, but the spine is one analytic helix "
+                  "edge instead of a polyline sample of it",
+                  true);
+
+    /* Ladder 2 — the device's profile.sweep.spans, the one that localises the
+     * cost to the corner. */
+    std::printf("\n  -- sweep.spans (profile fixed at %d segments) --\n",
+                opts.sweep_fixed_segments);
+    for (int spans : opts.sweep_spans)
+        sweepRung(opts, "sweep.spans", "spans", spans, opts.sweep_fixed_segments,
+                  spans, "occt_sweep_profile against path span count");
+
+    /* The phase breakdown, at the rung the variants are compared on. */
+    const int pn = opts.sweep_fixed_segments;
+    const int ps = opts.sweep_fixed_spans;
+    std::printf("\n  -- sweep.ph.* : where the time goes inside one call "
+                "(%d seg x %d spans) --\n", pn, ps);
+    sweepPhases(opts, "sweep.ph", "segments", pn, pn, ps,
+                bench::Corner::RightCorner, bench::Spine::Polyline, true, 1.0e-2,
+                "the shipped pipeline, phase by phase");
+
+    /* And the same breakdown across the segment ladder, because a phase that
+     * is 1 % at one size can be 40 % at another. */
+    for (int n : opts.sweep_sizes) {
+        if (n == pn)
+            continue;
+        sweepPhases(opts, "sweep.ph", "segments", n, n, ps,
+                    bench::Corner::RightCorner, bench::Spine::Polyline, true,
+                    1.0e-2, "the shipped pipeline, phase by phase");
+    }
+
+    /* The replica against the original, on the same fixture, in the same run.
+     * Read the phase table only if this ratio is near 1. */
+    {
+        double shim_ms = -1.0, rep_ms = -1.0;
+        for (const Measured &m : g_results) {
+            if (m.op == "sweep.segments" && m.axis == "segments" &&
+                m.x == pn && m.ok)
+                shim_ms = m.t.mean;
+            if (m.op == "sweep.ph.total" && m.axis == "segments" &&
+                m.x == pn && m.ok)
+                rep_ms = m.t.mean;
+        }
+        if (shim_ms > 0.0 && rep_ms > 0.0)
+            std::printf("\n  replica check: shim %.2f ms vs replica %.2f ms  "
+                        "ratio %.3f  (read the phase table only if this is "
+                        "near 1)\n",
+                        shim_ms, rep_ms, rep_ms / shim_ms);
+        else
+            std::printf("\n  replica check: NOT AVAILABLE at %d seg x %d spans "
+                        "(one of the two did not build)\n", pn, ps);
+    }
+
+    /* The variants. What removes the cost, and what it does to the shape. */
+    std::printf("\n  -- sweep.var.* : the levers, at %d seg x %d spans --\n",
+                pn, ps);
+    double ref = 0.0;
+    {
+        const bench::SweepPhases r = bench::sweepReplica(
+            pn, ps, bench::Corner::RightCorner, bench::Spine::Polyline, true,
+            1.0e-2);
+        ref = r.ok ? r.volume : 0.0;
+        std::printf("  reference volume %.6f (%s)\n", ref,
+                    r.ok ? "shipped pipeline" : "shipped pipeline FAILED");
+    }
+    sweepVariant(opts, "shipped", pn, ps, bench::Corner::RightCorner,
+                 bench::Spine::Polyline, true, 1.0e-2, ref,
+                 "RightCorner, polyline spine, UnifySameDomain — what the shim "
+                 "does today");
+    sweepVariant(opts, "noUnify", pn, ps, bench::Corner::RightCorner,
+                 bench::Spine::Polyline, false, 1.0e-2, ref,
+                 "the shipped pipeline WITHOUT the closing UnifySameDomain");
+    sweepVariant(opts, "transformed", pn, ps, bench::Corner::Transformed,
+                 bench::Spine::Polyline, true, 1.0e-2, ref,
+                 "BRepBuilderAPI_Transformed — no corner trimming at all");
+    sweepVariant(opts, "deadband", pn, ps, bench::Corner::RightCorner,
+                 bench::Spine::Polyline, true, 5.0 * M_PI / 180.0, ref,
+                 "RightCorner with OCCT's own angmin deadband raised to 5 deg, "
+                 "so shallow joints are not treated as corners");
+    sweepVariant(opts, "smoothSpine", pn, ps, bench::Corner::RightCorner,
+                 bench::Spine::Smooth, true, 1.0e-2, ref,
+                 "a C2 B-spline interpolated through the same path points — "
+                 "one spine edge, so no joints to treat");
+}
+
+/* ------------------------------------------------------------------------ */
 /* Fits and the calibration verdict                                          */
 /* ------------------------------------------------------------------------ */
 
@@ -891,7 +1291,7 @@ static Fit fitOp(const std::string &op, const std::string &axis)
 {
     std::vector<std::pair<double, double>> pts;
     for (const auto &m : g_results)
-        if (m.op == op && m.axis == axis && m.t.n > 0)
+        if (m.op == op && m.axis == axis && m.t.n > 0 && m.ok)
             pts.emplace_back(m.x, m.t.mean);
     return bench::fitPowerLaw(pts);
 }
@@ -989,6 +1389,33 @@ static const char *hostArch()
 #endif
 }
 
+/* Notes reach the JSON now (they carry the failure reason, which is the only
+ * place a failed rung says WHY). They are written by this program, but they
+ * quote occt_last_error(), so they are escaped rather than trusted. */
+static std::string jsonEscape(const std::string &in)
+{
+    std::string out;
+    out.reserve(in.size() + 8);
+    for (const char c : in) {
+        switch (c) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20) {
+                char buf[8];
+                std::snprintf(buf, sizeof buf, "\\u%04x", c);
+                out += buf;
+            } else {
+                out += c;
+            }
+        }
+    }
+    return out;
+}
+
 static void writeJson(const RunOpts &opts, const std::vector<Check> &checks,
                       const std::vector<FitRow> &fits, bool validated)
 {
@@ -1006,7 +1433,12 @@ static void writeJson(const RunOpts &opts, const std::vector<Check> &checks,
     };
 
     std::fprintf(f, "{\n");
-    std::fprintf(f, "  \"schema\": \"kernel-bench/1\",\n");
+    /* kernel-bench/2 adds "ok" to every measurement. A row with ok=false is a
+     * FAILURE whose mean_ms is a time-to-failure; reading it as a cost would
+     * rank the sweep's broken 1200-segment rung as its fastest large one. The
+     * schema is bumped rather than extended in place so no reader can miss
+     * that distinction. */
+    std::fprintf(f, "  \"schema\": \"kernel-bench/2\",\n");
     std::fprintf(f, "  \"generated\": \"%s\",\n", isoNow().c_str());
     std::fprintf(f, "  \"disclaimer\": \"absolute milliseconds are NOT iPad "
                     "milliseconds; see PERFORMANCE_PROFILE.md 13.3\",\n");
@@ -1031,6 +1463,7 @@ static void writeJson(const RunOpts &opts, const std::vector<Check> &checks,
         const Measured &m = g_results[i];
         std::fprintf(f,
                      "    {\"op\": \"%s\", \"axis\": \"%s\", \"x\": %.6g, "
+                     "\"ok\": %s, \"note\": \"%s\", "
                      "\"profilePts\": %d, \"edges\": %d, \"faces\": %d, "
                      "\"n\": %d, \"inner\": %d, "
                      "\"mean_ms\": %.9f, \"sd_ms\": %.9f, "
@@ -1039,7 +1472,9 @@ static void writeJson(const RunOpts &opts, const std::vector<Check> &checks,
                      "\"alloc_available\": %s, \"alloc_calls\": %.1f, "
                      "\"alloc_bytes\": %.1f, \"live_bytes\": %.1f, "
                      "\"rss_peak_mb\": %.3f, \"rss_delta_mb\": %.3f}%s\n",
-                     m.op.c_str(), m.axis.c_str(), m.x, m.profile_pts, m.edges,
+                     m.op.c_str(), m.axis.c_str(), m.x,
+                     m.ok ? "true" : "false", jsonEscape(m.note).c_str(),
+                     m.profile_pts, m.edges,
                      m.faces, m.t.n, m.inner, num(m.t.mean), num(m.t.sd),
                      num(m.t.p50),
                      num(m.t.p95), num(m.t.min), num(m.t.max), num(m.t.cv),
@@ -1170,19 +1605,21 @@ static void writeMarkdown(const RunOpts &opts, const std::vector<Check> &checks,
     std::fprintf(f, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | "
                     "---: | ---: | ---: | ---: | ---: | ---: |\n");
     for (const Measured &m : g_results) {
+        const std::string op = m.ok ? "`" + m.op + "`"
+                                    : "`" + m.op + "` **FAILED**";
         if (m.alloc_ok)
             std::fprintf(f,
-                         "| `%s` | %s | %.4g | %d | %d | %d | %.5f | %.5f | "
+                         "| %s | %s | %.4g | %d | %d | %d | %.5f | %.5f | "
                          "%.5f | %.1f %% | %.0f | %.0f | %+.0f | %.1f |\n",
-                         m.op.c_str(), m.axis.c_str(), m.x, m.edges, m.t.n,
+                         op.c_str(), m.axis.c_str(), m.x, m.edges, m.t.n,
                          m.inner, m.t.mean, m.t.sd, m.t.p95, m.t.cv * 100.0,
                          m.alloc_calls, m.alloc_bytes, m.live_bytes,
                          m.rss_peak_mb);
         else
             std::fprintf(f,
-                         "| `%s` | %s | %.4g | %d | %d | %d | %.5f | %.5f | "
+                         "| %s | %s | %.4g | %d | %d | %d | %.5f | %.5f | "
                          "%.5f | %.1f %% | n/a | n/a | n/a | %.1f |\n",
-                         m.op.c_str(), m.axis.c_str(), m.x, m.edges, m.t.n,
+                         op.c_str(), m.axis.c_str(), m.x, m.edges, m.t.n,
                          m.inner, m.t.mean, m.t.sd, m.t.p95, m.t.cv * 100.0,
                          m.rss_peak_mb);
     }
@@ -1217,6 +1654,17 @@ static void usage()
         "                    RELATIVE cost of allocation-heavy against\n"
         "                    allocation-light operations\n"
         "  --quick           a fast shape-only run (sizes 60,120,240, reps 3)\n"
+        "\n"
+        "  --sweep-sizes A,B  profile-segment rungs for the sweep ladder\n"
+        "                    (default 32,64,128; the device ran 32,128,512,\n"
+        "                    1200 and the 1200 rung FAILED)\n"
+        "  --sweep-spans A,B  path-span rungs for the sweep ladder\n"
+        "                    (default 1,2,4,8,16)\n"
+        "  --sweep-profile N  profile segments the spans ladder holds fixed\n"
+        "                    (default 128; the device held 512)\n"
+        "  --sweep-path N     path spans the segments ladder holds fixed\n"
+        "                    (default 16, which is what the device used)\n"
+        "  --no-sweep         skip the sweep ladders entirely\n"
         "  --help\n");
 }
 
@@ -1230,6 +1678,28 @@ static std::vector<int> parseSizes(const char *s)
         if (end == p)
             break;
         if (v > 2)
+            out.push_back(static_cast<int>(v));
+        p = end;
+        while (*p == ',' || *p == ' ')
+            ++p;
+    }
+    return out;
+}
+
+/* parseSizes refuses anything below 3, which is right for a profile-point
+ * rung — a 2-gon is not a profile. It is exactly wrong for a span count: the
+ * ONE-span rung, the path with no interior corner at all, is the rung the
+ * whole spans ladder exists to compare against. */
+static std::vector<int> parseSpans(const char *s)
+{
+    std::vector<int> out;
+    const char *p = s;
+    while (*p) {
+        char *end = nullptr;
+        const long v = std::strtol(p, &end, 10);
+        if (end == p)
+            break;
+        if (v >= 1)
             out.push_back(static_cast<int>(v));
         p = end;
         while (*p == ',' || *p == ' ')
@@ -1264,6 +1734,16 @@ int main(int argc, char **argv)
             opts.validate = true;
         else if (a == "--no-alloc")
             opts.no_alloc = true;
+        else if (a == "--sweep-sizes")
+            opts.sweep_sizes = parseSizes(next("--sweep-sizes"));
+        else if (a == "--sweep-spans")
+            opts.sweep_spans = parseSpans(next("--sweep-spans"));
+        else if (a == "--sweep-profile")
+            opts.sweep_fixed_segments = std::atoi(next("--sweep-profile"));
+        else if (a == "--sweep-path")
+            opts.sweep_fixed_spans = std::atoi(next("--sweep-path"));
+        else if (a == "--no-sweep")
+            opts.sweep = false;
         else if (a == "--quick") {
             opts.sizes = {60, 120, 240};
             opts.reps = 3;
@@ -1319,6 +1799,7 @@ int main(int argc, char **argv)
 
     runLadder(opts);
     runFilletSweeps(opts);
+    runSweepLadders(opts);
 
     /*
      * End-to-end check on the allocation counters, and it is not the same
@@ -1375,6 +1856,27 @@ int main(int argc, char **argv)
         r2.fit = fitOp("fillet.radius", "radius");
         if (r2.fit.ok)
             fits.push_back(r2);
+    }
+    /* The sweep axes. `sweep.spans` is fitted for completeness only: a step
+     * function is not a power law, and a k drawn through a 1-span rung with no
+     * corners and a 16-span rung with fifteen describes nothing. Read the
+     * rungs, not the exponent. */
+    for (const char *op : {"sweep.segments", "sweep.coil", "sweep.ph.build",
+                           "sweep.ph.unify", "sweep.ph.total"}) {
+        FitRow r;
+        r.op = op;
+        r.axis = "segments";
+        r.fit = fitOp(op, "segments");
+        if (r.fit.ok)
+            fits.push_back(r);
+    }
+    {
+        FitRow r;
+        r.op = "sweep.spans";
+        r.axis = "spans";
+        r.fit = fitOp("sweep.spans", "spans");
+        if (r.fit.ok)
+            fits.push_back(r);
     }
 
     /* ---- calibration ---- */
