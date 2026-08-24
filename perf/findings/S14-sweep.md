@@ -829,3 +829,168 @@ That is the derived threshold doing what it was derived to do — and it is also
 the honest statement of what is NOT fixed: a path whose joints are 9.5° is, by
 the derivation, a path somebody drew, and mitering it is still what OCCT does
 and still costs what it costs. §6.1.
+
+---
+
+## 6. What I deliberately did not do, and what is therefore unfinished
+
+### 6.1 A holed profile is not fixed, and a multi-corner path is not fixed
+
+These are the two halves that are still broken, and both are quantified above
+rather than described:
+
+* **Holed profiles keep the v23 spine.** §4.1's table is why: smoothing one
+  would make it ~80× slower, because the hole is removed with a boolean and
+  that boolean is between planes today and between general swept surfaces if
+  the spine curves. So a 1200-segment profile *with a hole* swept along an arc
+  still fails exactly as it did. The way out is not to smooth less; it is to
+  stop cutting holes out of sweeps at all — a multi-wire section, or a shell
+  assembly, which is a bigger change than this one and belongs to whoever
+  schedules it. **`Needs:` integrator.**
+* **A path with joints above 5.625° is still mitered, and still cubic.** By the
+  derivation those joints are geometry somebody drew, and mitering them is
+  correct. It is also, at 512 segments and three corners, 79 s on the device.
+  §5.3's table shows it: 4 spans at 128 segments is 2 174.7 ms where 8 spans is
+  250.5 ms. **Nothing in this session makes a drawn corner cheap**, and if the
+  owner's "extremely complex parts" include a 1200-segment profile on an
+  L-shaped path, that case is untouched.
+
+### 6.2 Three defects found and not fixed, on purpose
+
+1. **A holed sweep along a tilted path loses 3.2 % of its volume, and has since
+   v15.** `finish_pipe` adds the hole with `WithCorrection = Standard_True`
+   while `occt_sweep_profile` adds the outer wire with the caller's own setting
+   — `Standard_False` for orientation 0 — so the two are placed against
+   different frames on any path the section is not perpendicular to. On a
+   straight path both are exact (3 383.238902 against an analytic
+   3 383.238902); on the arc path both v23 and v24 come out 3.18 % under the
+   annulus. Smoke [37f] pins the *differential* (v24 reproduces v23 exactly)
+   and prints the deficit. Fixing it is a second behaviour change with a
+   different cause and bundling it would make this one impossible to judge.
+2. **Orientation 1 ("Fixed") produces an INVALID solid on a climbing path.**
+   Measured on a square section along this fixture's arc: volume 16 429 where
+   the answer is 6 000, and `BRepCheck_Analyzer` says invalid — in v23, at 2, 4
+   and 16 spans alike. A smoothed spine happens to fix it (6 000.0098, valid),
+   but orientation 1 does not take the smoothed path today because nothing
+   about the mode changes which spine is built. Recorded; not chased.
+3. **A CIRCLE used as a sweep path is swept as an open 63-edge polyline.**
+   `sampleEntity` repeats the first point at the end, `spine_from_points`
+   drops it as a duplicate, and nothing calls `MakePolygon::Close()` — so the
+   loop never closes. v24 preserves this exactly (it dedupes identically before
+   splitting). Whether a closed sweep path *should* close is a product
+   question, not a shim one.
+
+### 6.3 Things I did not touch
+
+* **`ShapeUpgrade_UnifySameDomain` stays.** The brief named it as a candidate
+  and the measurement says it is 2.8 % of the call and merges nothing on a ring
+  — but "merges nothing on a ring" is not "merges nothing", and a profile with
+  collinear runs is the normal case. Removing it to save 2.8 % would be a
+  behaviour change bought with no evidence.
+* **The fillet guard (`S2-shim.md` §7.5) and the twist refusal are untouched.**
+* **No Dart.** `resolvePath`, `sketchCurve` and `sampleEntity` are where the
+  real fix lives — the caller knows whether it sampled a curve and should not
+  make the shim infer it — and they are not this session's files. §8.1.
+* **`CALIBRATION.txt` is NOT re-recorded.** Its hash was already stale and the
+  integrator ruled on 2026-08-21 that it stays that way until a round-two
+  device capture against a v22 kernel. This change moves the hash again; that
+  is all it does.
+* **`perf/baseline.json`, `PERFORMANCE_PROFILE.md` and `frontend/lib/perf*.dart`
+  are untouched.** The perf tier's `profile.sweep.*` scenarios are unchanged,
+  so the next capture's numbers are comparable to this one's by construction.
+
+---
+
+## 7. What I am unsure of
+
+This section is not a formality. In order of how much it would cost to be
+wrong:
+
+1. **Whether 5.625° is the right threshold in the field, as opposed to the
+   right threshold by derivation.** The derivation is sound — it is the ceiling
+   of `sampleEntity(arcSamples: 64)` — but it only covers arcs and circles.
+   `splineCurveFor` flattens to a *tolerance*, not to an angle, so a spline
+   with a tight local curvature can produce joints above 5.625° that are still
+   sampling artefacts, and those paths stay slow. I have not measured what
+   joint angles real spline paths actually produce, because that needs the app
+   and a real sketch. **If someone can dump the joint-angle histogram of a few
+   real sweep paths, that is the single most useful follow-up measurement.**
+2. **The volume identity of §2.8.** `V = A(n)·L·cos 25.2316°` with L the TRUE
+   arc length reproduces every non-degenerate rung to 8–10 figures, across
+   three corner modes and six span counts — and the obvious derivation
+   (prisms cut at bisector planes, so `L_polyline`) predicts 6 752.0 where the
+   measurement is 6 783.1153. Something makes the corner corrections supply
+   exactly the difference at every sampling density and I do not know what. The
+   smoke test uses it as an analytic pin, so if it is a property of this
+   fixture rather than of sweeps, that pin is weaker than it looks. It is
+   checked against a measured value as well as a computed one, which limits the
+   damage.
+3. **Whether corrected Frenet is right in general or only here.** I measured
+   that polyline Frenet and polyline corrected Frenet agree on ONE fixture at
+   three span counts. The reasoning behind it — a polyline has no torsion, so
+   the correction has nothing to correct — is sound, but it is reasoning, and
+   a spine mixing a smoothed run with a drawn corner is a case I did not
+   measure at all.
+4. **What the 4.4 % displaced volume looks like to a person.** The new solid
+   encloses the same volume as the old one with about 4.4 % of it somewhere
+   else, and its bounding box differs by up to 3 units on a 60-unit part. I
+   believe the new one is closer to what the user drew — it follows the arc
+   instead of a 16-chord approximation of it — but I have no rendering and no
+   iPad, and "closer to the intent" is an argument, not a measurement.
+5. **Everything about time on a device.** Every millisecond here is a desktop
+   millisecond on a shared four-core container, roughly 3.4× slower than the
+   iPad on this operation. The exponents and the ratios transfer; the durations
+   do not, and `backend/bench/README.md` says why in more detail than this.
+6. **The heap corruption's exact mechanism.** I established that it goes away
+   when the corner path is not taken, which is what P8 claimed. I did not run
+   it under a sanitiser and I cannot tell you which structure OCCT overruns, so
+   "the corner treatment corrupts the heap" is an attribution by elimination
+   rather than a diagnosis. It also means I cannot promise there is no other
+   route to it.
+
+---
+
+## 8. Handover
+
+### 8.1 The real fix is one line of Dart that is not mine to write
+
+The shim now *infers* which joints came from a sampler. It should not have to.
+`resolvePath` → `sketchCurve` (`part_model.dart:7382`, `:8647`) **knows**: it
+just called `sampleEntity(g, arcSamples: 64)` on an arc, or `splineCurveFor` on
+a spline, or read a genuine polyline. Passing that knowledge through — one
+extra argument to `sweepProfile`, and `OCCT_SWEEP_PATH_SMOOTH` or `_POLY`
+instead of `_AUTO` — would make the threshold unnecessary for the two cases it
+covers and would cover the spline case it does not (§7.1). `occt_sweep_profile_ex`
+exists and takes the argument today; nothing in Dart passes it.
+
+### 8.2 What the integrator has to decide
+
+**This is a behaviour change and it is not mine to merge.** A sweep along a
+sampled arc now has `segments + 2` faces where it had `segments × spans + 2`,
+the same volume to eight figures, and about 4.4 % of that volume in a different
+place. Anything that reattaches a downstream feature to a sweep's face or edge
+by index or fingerprint may reattach differently **on parts that already
+exist** — which is the same class of risk S2 and S6 carried, in a different
+operation.
+
+The escape hatch is `OCCT_SWEEP_PATH_POLY` and it is exactly v23. If the
+decision is "not yet", one line in `occt_sweep_profile` reverts the default and
+everything else here — the ladders, the failing-rung reporting, the smoke
+scenario, the two refuted levers — still stands.
+
+### 8.3 Definition of done
+
+| | |
+| --- | --- |
+| `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | **56 issues, delta ZERO** — the same 56 lines before and after, diffed. (The brief says 55; this container's Flutter is 3.35.4, one analyzer version's worth of difference. The delta is what matters and it is zero — no Dart file was touched.) |
+| `flutter test` | **2 365 passed, 1 skipped** — identical to the pre-change run on the same machine |
+| `python3 -m unittest discover -s ci -p 'test_*.py'` | **49 tests, OK** |
+| `occt_smoke` on real OCCT 7.9.3 | **OCCT SMOKE: PASS**, including new scenario [37] and its failing-regime arm |
+| `occt_mesh_recon_test` | **86 passed, 0 failed** |
+| `occt_bench` (Lane C) | **LANE C: PASS, HARNESS: VALIDATED** — all three calibration exponents still agree with §6.5 |
+| `bench_stats_test` | **BENCH STATS: PASS** |
+| Predictions committed before the code | `e525cd6` (P1–P4, before the instrument) and `3b0bfe4` (P5–P10, before the shim) |
+
+`pubspec.lock` was re-resolved by a local `flutter pub get` (this container's
+SDK pins older packages than CI's) and was **reverted**; `git status` is clean
+of it. Nobody should read a lockfile change into this branch.
