@@ -2559,6 +2559,52 @@ int main(void)
             if (tap) occt_free_shape(tap);
         }
 
+        /* ---- (h) a STRAIGHT run stays straight ----
+         *
+         * Five collinear points have joints of 0 degrees, which is well under
+         * the threshold, so a naive reading of "smooth the shallow runs" would
+         * interpolate them. It must not: a B-spline through collinear points is
+         * the same LINE, but the faces swept along it stop being PLANES — and
+         * a plane is what makes the boolean that removes a hole cheap. Nothing
+         * curved is given up by leaving it alone, so v23's edges stay.
+         *
+         * BE PRECISE ABOUT WHAT THIS PROVES. The face count does NOT
+         * discriminate: an interpolated spine would give one spline edge and
+         * 4 + 2 faces, and the polyline's 16 + 2 are merged down to the same 6
+         * by finish_pipe's UnifySameDomain. What discriminates is the EXACT
+         * equality below — a swept B-spline surface would not reproduce the
+         * planar sweep's volume bit for bit — plus the analytic 4000. So this
+         * arm is a differential with an arithmetic backstop, and it is not a
+         * check on the surface type, which the C ABI cannot see.
+         */
+        {
+            const double P[] = {0,0,0,  10,0,0,  10,10,0,  0,10,0};
+            const int lc[] = {4};
+            const double sp[15] = {0,0,0,  0,0,10,  0,0,20,  0,0,30,  0,0,40};
+            occt_shape *au = occt_sweep_profile_ex(P, lc, 1, I37, sp, 5, 0,
+                                                   0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_AUTO);
+            occt_shape *po = occt_sweep_profile_ex(P, lc, 1, I37, sp, 5, 0,
+                                                   0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_POLY);
+            if (check(au != NULL, "[37h] AUTO refused a collinear path") &&
+                check(po != NULL, "[37h] POLY refused a collinear path")) {
+                int fa = 0, ea = 0, fp = 0, ep = 0;
+                const double va = occt_shape_volume(au);
+                const double vp = occt_shape_volume(po);
+                occt_shape_counts(au, &fa, &ea, NULL);
+                occt_shape_counts(po, &fp, &ep, NULL);
+                printf("[37h] 5 collinear points: AUTO vol=%.9f f=%d e=%d | "
+                       "POLY vol=%.9f f=%d e=%d\n", va, fa, ea, vp, fp, ep);
+                check(va == vp && fa == fp && ea == ep,
+                      "[37h] a straight run was not left alone");
+                check(near_rel(va, 4000.0, 1e-9),
+                      "[37h] the straight sweep is not the analytic 4000");
+            }
+            if (au) occt_free_shape(au);
+            if (po) occt_free_shape(po);
+        }
+
         /* ---- (e) the two rungs v23 got WRONG rather than slow ---- */
         {
             const int seg = 64;

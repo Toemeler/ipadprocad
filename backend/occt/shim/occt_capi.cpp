@@ -3557,6 +3557,20 @@ static double joint_deg(const gp_Pnt &a, const gp_Pnt &b, const gp_Pnt &c)
     return u.Angle(v) * 180.0 / M_PI;
 }
 
+/* True when every interior joint of pts[i0..i1] is straight to within floating
+ * point. Such a run must NOT be interpolated: a B-spline through collinear
+ * points is geometrically the same line, but it is a B-SPLINE, so the faces
+ * swept along it stop being planes — and a plane is what makes the boolean
+ * that removes a hole cheap (§4.1 of S14's findings measured that at 80x).
+ * Nothing curved is being given up here, so v23's straight segments stay. */
+static bool run_is_straight(const std::vector<gp_Pnt> &pts, int i0, int i1)
+{
+    for (int i = i0 + 1; i < i1; ++i)
+        if (joint_deg(pts[i - 1], pts[i], pts[i + 1]) > 1.0e-9)
+            return false;
+    return true;
+}
+
 /* One edge through pts[i0..i1] inclusive. Two points give a line; more give a
  * C2 B-spline INTERPOLATED through every point, not fitted near them. */
 static bool run_edge(const std::vector<gp_Pnt> &pts, int i0, int i1,
@@ -3672,7 +3686,17 @@ static bool spine_from_points_ex(const double *pts, int n, int path_mode,
     cut.push_back(np - 1); /* the last run ends at the last point */
     for (const int end : cut) {
         TopoDS_Edge e;
-        if (!run_edge(p, start, end, e)) {
+        if (run_is_straight(p, start, end)) {
+            /* A straight run is v23's straight run, edge for edge. */
+            for (int i = start; i < end; ++i) {
+                BRepBuilderAPI_MakeEdge le(p[i], p[i + 1]);
+                if (!le.IsDone()) {
+                    set_err(who, "the path collapsed to a single point");
+                    return false;
+                }
+                mk.Add(le.Edge());
+            }
+        } else if (!run_edge(p, start, end, e)) {
             /* An interpolation that will not run is not a reason to fail the
              * sweep: fall back to the straight segments of that run, which is
              * exactly what v23 would have built for the whole path. */
