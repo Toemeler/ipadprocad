@@ -1480,3 +1480,58 @@ new behaviour that nothing currently checks, and the face-count change couples
 this to the v24 decision rather than standing beside it.
 
 **Not built. Handed over.**
+
+---
+
+## 13. Item 5 — a circle used as a sweep path: the recommendation, not the decision
+
+### 13.1 What happens today
+
+`sampleEntity` closes a circle by repeating the first point at the end.
+`spine_from_points_ex` drops it as a duplicate (a zero-length edge breaks
+sweeps), and **nothing calls `BRepBuilderAPI_MakePolygon::Close()`**. So a
+circle drawn as a sweep path is swept as an **open 63-edge polyline** — v24
+smooths it into an open spline, which is the same open curve — and the ring
+never closes. The user gets a solid that stops just short of where it started,
+with two end caps facing each other across the gap.
+
+v24 and v26 preserve this exactly. It is not a regression and it is not new;
+it has been so since v15.
+
+### 13.2 The one-line change it would need
+
+In `spine_from_points_ex`, after the dedupe:
+
+```cpp
+    /* the caller's last point coincided with its first: the path is a LOOP */
+    if (closed) poly.Close();          // polyline route
+    // and, for the smoothed route, GeomAPI_Interpolate(pts, /*periodic=*/true)
+```
+
+The "was it closed" test is already there implicitly — it is the dedupe that
+drops the repeated point — so it costs a flag, not a scan. The smoothed route
+needs `GeomAPI_Interpolate`'s periodic constructor rather than its open one,
+which is the same call with `Standard_True`.
+
+### 13.3 Why it is not mine to decide, and what I would want known
+
+**It is a product question**, exactly as I wrote in §6.2, and two things about
+it are worth having in front of whoever decides:
+
+* **Closing it is not obviously right.** Inventor's Sweep along a closed path
+  produces a closed ring, so a user coming from Inventor would expect it. But a
+  sweep along a closed path has **no end caps at all**, and `finish_pipe`'s
+  `MakeSolid()` closes a shell with caps — a closed spine changes what
+  "MakeSolid" even means there. That is more than a one-line change's worth of
+  consequence, and I have not measured it.
+* **Whatever is decided, the current behaviour is silent.** The app does not
+  say "your closed path was swept open"; the user has to notice a gap in a
+  90 000-triangle solid. If the decision is to leave it open, it should at
+  least be *said* — a `computeError`-style note, or a refusal.
+
+**Recommendation: make it say something before making it do something.** The
+cheapest correct step is not the `Close()` call, it is a warning; the geometry
+decision can then be taken on evidence about what users actually draw rather
+than on a guess about what they meant.
+
+**Not decided. Not changed.**
