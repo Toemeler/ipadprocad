@@ -932,12 +932,19 @@ void paintPartSolids(
 // frame — the drag would otherwise rebuild every vertex buffer it touches.
 // ---------------------------------------------------------------------------
 
-/// One placed component: its rigid transform, and the solids it is made of.
+/// One placed component: the world-placed pieces it is made of.
+///
+/// M246 — a LIST of transforms rather than one. A component used to be "these
+/// solids, at this placement", which is true of a part and false of a
+/// SUBASSEMBLY: its own components each sit somewhere inside it, so every
+/// piece carries its own composed transform. A part still arrives as a list
+/// of pieces all at the same placement, so nothing about the single-part case
+/// changed except where the transform is written down.
 class PlacedComponent {
-  const PlacedComponent(this.rot, this.at, this.solids);
-  final Quat rot;
-  final Vec3 at;
-  final List<KernelSolid> solids;
+  const PlacedComponent(this.pieces);
+
+  /// (rotation, translation, solid), already composed into world space.
+  final List<(Quat, Vec3, KernelSolid)> pieces;
 }
 
 /// [cam] as seen by geometry that has been moved by the rigid transform
@@ -1004,24 +1011,26 @@ SceneOccluders? paintAssemblySolids(
   Color? selectedTint,
   Color? hoveredTint,
 }) {
-  // (component index, its solids projected through its own shifted camera)
-  final scenes = <(int, SceneSolid)>[];
+  // (component index, the piece's own placed camera, the projected solid).
+  //
+  // M246 — the camera is per PIECE, not per component: a subassembly's parts
+  // each sit somewhere inside it, so one camera per component would draw them
+  // all at the subassembly's own origin, stacked.
+  final scenes = <(int, Cam3, SceneSolid)>[];
   for (var i = 0; i < placed.length; i++) {
-    final c = placed[i];
-    final sc = placedCam(cam, c.rot, c.at);
-    final bias = cam.depth(c.at);
-    for (final s in c.solids) {
-      scenes.add((i, buildSceneSolid(s, sc, depthBias: bias)));
+    for (final (r, t, s) in placed[i].pieces) {
+      final sc = placedCam(cam, r, t);
+      scenes.add((i, sc, buildSceneSolid(s, sc, depthBias: cam.depth(t))));
     }
   }
   if (scenes.isEmpty) return null;
-  final occ = SceneOccluders([for (final (_, s) in scenes) s]);
+  final occ = SceneOccluders([for (final (_, _, s) in scenes) s]);
 
   // 1. shaded faces of the WHOLE assembly, one watertight sorted buffer
   _drawShaded(
       canvas,
       [
-        for (final (_, s) in scenes)
+        for (final (_, _, s) in scenes)
           for (final t in s.tris)
             if (t.front) t
       ],
@@ -1038,7 +1047,7 @@ SceneOccluders? paintAssemblySolids(
   ]) {
     if (which < 0) continue;
     final tris = [
-      for (final (i, sol) in scenes)
+      for (final (i, _, sol) in scenes)
         if (i == which)
           for (final t in sol.tris)
             if (t.front) t
@@ -1059,12 +1068,11 @@ SceneOccluders? paintAssemblySolids(
   }
 
   // 3. edges + silhouettes over the shading, against the shared occluder
-  for (final (i, s) in scenes) {
+  for (final (i, sc, s) in scenes) {
     final on = i == selected;
-    // The EDGES are drawn through the component's own placed camera: the
-    // occluder is in screen space and shared, but where an edge lands is the
-    // component's own business.
-    final sc = placedCam(cam, placed[i].rot, placed[i].at);
+    // The EDGES are drawn through the PIECE's own placed camera, carried
+    // along from the pass above: the occluder is in screen space and shared,
+    // but where an edge lands is the piece's own business.
     _paintSolidEdges(canvas, sc, s, occ, kSolidEdge,
         accentAll: on, accentColor: accentColor);
     _paintSolidSilhouettes(
@@ -1094,10 +1102,10 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
 void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
     (add) {
       for (final c in placed) {
-        for (final sol in c.solids) {
+        for (final (r, t, sol) in c.pieces) {
           final pos = sol.mesh.positions;
           for (var i = 0; i + 2 < pos.length; i += 3) {
-            add(c.rot.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + c.at);
+            add(r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t);
           }
         }
       }

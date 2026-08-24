@@ -1093,7 +1093,15 @@ class _RibbonState extends State<Ribbon> {
         pick = await NativeMenu.menu(
           items: [
             for (final n in parts)
-              NativeMenuItem(id: 'p:$n', title: n, symbol: 'cube'),
+              NativeMenuItem(
+                  id: 'p:$n',
+                  title: n,
+                  // M246 — a SUBASSEMBLY is placed by the same command and
+                  // has to be told apart in the list, because "Gearbox" says
+                  // nothing about which kind of document it is.
+                  symbol: app.isAssemblyName(n)
+                      ? 'square.stack.3d.up'
+                      : 'cube'),
           ],
           anchor: anchor,
           cancelLabel: t.cancel,
@@ -1110,7 +1118,8 @@ class _RibbonState extends State<Ribbon> {
                 value: 'p:$n',
                 height: 40,
                 child: Row(children: [
-                  svg(part3dMenuIcon, 18),
+                  svg(app.isAssemblyName(n) ? assemblyMenuIcon : part3dMenuIcon,
+                      18),
                   const SizedBox(width: 10),
                   Text(n, style: ts(12.5, T.text)),
                 ]),

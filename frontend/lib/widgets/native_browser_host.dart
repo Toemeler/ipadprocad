@@ -381,7 +381,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // M242 — a component with relationships under it is a folder as well
         // as a selection. Selecting it and disclosing it are the same tap,
         // which is what the Origin folder already does one row above.
-        if (app.currentAssembly?.constraintsOn(o.id).isNotEmpty == true) {
+        // M246 — and a SUBASSEMBLY always discloses: its contents are there.
+        if (o.sub != null ||
+            app.currentAssembly?.constraintsOn(o.id).isNotEmpty == true) {
           setState(() {
             if (!_expanded.remove(id)) _expanded.add(id);
           });
@@ -516,7 +518,27 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// occurrence id WHOLE — it contains a colon of its own ("Bracket:1"), so it
   /// must never be split on one.
   AssemblyOccurrence? _component(String rowId) =>
-      app.currentAssembly?.byId(rowId.substring(kIdComponent.length));
+      _componentAt(rowId.substring(kIdComponent.length));
+
+  /// M246 — walks a nested component path down through subassemblies.
+  ///
+  /// A row id is `cp:Bracket:1` at the top level and
+  /// `cp:Machine:1/Bracket:1` one level down, so the path is split on '/'
+  /// and each step resolved inside the previous one's subassembly. The
+  /// occurrence id itself carries a colon ("Bracket:1"), which is exactly why
+  /// the separator is a slash and never one.
+  AssemblyOccurrence? _componentAt(String path) {
+    var model = app.currentAssembly;
+    if (model == null) return null;
+    AssemblyOccurrence? found;
+    for (final step in path.split('/')) {
+      if (model == null) return null;
+      found = model.byId(step);
+      if (found == null) return null;
+      model = found.sub;
+    }
+    return found;
+  }
 
   /// The relationship a `rel:` row addresses. Same rule as [_component]: the
   /// name after the prefix carries a colon of its own ("Mate:1").

@@ -152,11 +152,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
       final pushed = <String>[];
-      for (final (id, o, sol) in assemblyPieces(a)) {
+      for (final (id, _, _, t, sol) in assemblyPieces(a)) {
         logMeshConvention(id, sol.mesh);
-        pushed.add('$id @ ${o.offset.x.toStringAsFixed(2)},'
-            '${o.offset.y.toStringAsFixed(2)},'
-            '${o.offset.z.toStringAsFixed(2)}: '
+        pushed.add('$id @ ${t.x.toStringAsFixed(2)},'
+            '${t.y.toStringAsFixed(2)},'
+            '${t.z.toStringAsFixed(2)}: '
             'tris=${sol.mesh.indices.length ~/ 3} '
             'verts=${sol.mesh.positions.length ~/ 3} '
             'rev=${identityHashCode(sol.mesh)}');
@@ -179,18 +179,21 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   // zooming into one shows faceting the part viewport would have smoothed
   // away — "just like part mode" has to include this or it is not.
   //
-  // Every occurrence holds its OWN PartModel (see assembly.dart), so two
-  // placements of one part refine independently. Wasteful and correct; sharing
-  // one model between occurrences is the fix, and it only pays off once
-  // occurrences can differ from each other.
+  // M245 — every occurrence of one part now SHARES that part's model, so a
+  // part placed six times is refined once. The set below is deduplicated for
+  // exactly that reason: six occurrences would otherwise ask the kernel to
+  // re-tessellate the same solid six times per zoom.
   Timer? _refineTimer;
 
   Iterable<KernelSolid> _refinableSolids() sync* {
     final a = asm;
     if (a == null) return;
+    final seen = <KernelSolid>{};
     for (final o in a.occurrences) {
       if (!o.visible) continue;
-      yield* o.solids;
+      for (final (_, _, _, s) in o.localSolids) {
+        if (seen.add(s)) yield s;
+      }
     }
   }
 
@@ -675,8 +678,11 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
   var bestDepth = double.negativeInfinity;
   for (final o in a.occurrences) {
     if (!o.visible) continue;
-    final sc = placedCam(cam, o.rot, o.offset);
-    for (final s in o.solids) {
+    for (final (_, pr, pt, s) in o.worldSolids) {
+      // M246 — the camera is placed per PIECE. A subassembly's parts each sit
+      // somewhere inside it, so one camera for the whole component would
+      // hit-test them all at the subassembly's origin.
+      final sc = placedCam(cam, pr, pt);
       final m = s.mesh;
       for (var t = 0; t + 2 < m.indices.length; t += 3) {
         final i0 = m.indices[t] * 3,
@@ -695,8 +701,11 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
         // Camera-facing only, same convention as the part viewport's body
-        // pick: a back face is never the thing you pointed at.
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) >= 0) continue;
+        // pick: a back face is never the thing you pointed at. Against the
+        // PLACED camera's direction, because the normal is in the piece's own
+        // space and a turned component would otherwise be tested against the
+        // world's idea of "toward the viewer".
+        if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
         final pa = sc.project(w0), pb = sc.project(w1), pc = sc.project(w2);
         final d = (pb.dx - pa.dx) * (pc.dy - pa.dy) -
             (pc.dx - pa.dx) * (pb.dy - pa.dy);
@@ -709,12 +718,13 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
             d;
         if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
         // NEARER the camera is a LARGER depth (Cam3.depth), and the depth of
-        // the placed point is the unshifted one plus the placement — the
-        // shifted camera moves the PROJECTION, not the view axis.
-        final depth = (cam.depth(w0) * (1 - u - v) +
-                cam.depth(w1) * u +
-                cam.depth(w2) * v) +
-            cam.depth(o.offset);
+        // the placed point is the piece-local one plus the piece's own
+        // placement — the placed camera moves the PROJECTION, not the view
+        // axis.
+        final depth = (sc.depth(w0) * (1 - u - v) +
+                sc.depth(w1) * u +
+                sc.depth(w2) * v) +
+            cam.depth(pt);
         if (depth > bestDepth) {
           bestDepth = depth;
           best = o;
@@ -863,7 +873,10 @@ class _AssemblyPainter extends CustomPainter {
     final occ = paintAssemblySolids(
       canvas,
       cam,
-      [for (final o in visible) PlacedComponent(o.rot, o.offset, o.solids.toList())],
+      [
+        for (final o in visible)
+          PlacedComponent([for (final (_, r, t, s) in o.worldSolids) (r, t, s)])
+      ],
       selected: indexOf(asm.selected),
       hovered: indexOf(hover),
       accentColor: kEdgeAccent,

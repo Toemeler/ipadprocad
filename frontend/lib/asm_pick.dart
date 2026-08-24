@@ -45,6 +45,7 @@ import 'ffi/occt_engine.dart';
 import 'part_pick.dart';
 import 'pick_math.dart';
 import 'part_render.dart';
+import 'quat.dart';
 
 /// One thing the user could have meant, with everything three callers need:
 /// the reference to STORE, the geometry to draw NOW, and the depth that
@@ -106,18 +107,29 @@ AsmPick? pickAsmRef(AssemblyModel a, Cam3 cam, Offset px) {
 /// else (a spline) answers with its arc-length midpoint, which is still an
 /// honest thing to constrain to.
 AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
-  final solids = o.solids.toList();
-  if (solids.isEmpty) return null;
-  final sc = placedCam(cam, o.rot, o.offset);
-  final base = cam.depth(o.offset);
+  // M246 — one pass per PIECE rather than one per component. A subassembly's
+  // parts each sit somewhere inside it, so a single camera for the whole
+  // component would hit-test them all at the subassembly's origin.
+  AsmPick? best;
+  for (final (_, r, t, solid) in o.worldSolids) {
+    final p = _pickEdgeOnPiece(o, r, t, solid, cam, px);
+    if (p != null && (best == null || p.depth > best.depth)) best = p;
+  }
+  return best;
+}
+
+AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Quat r, Vec3 t,
+    KernelSolid solid, Cam3 cam, Offset px) {
+  final sc = placedCam(cam, r, t);
+  final base = cam.depth(t);
   final hit = pickEdge(
-    [for (final s in solids) s.mesh],
+    [solid.mesh],
     sc.project,
     // NEGATED: PickBest keeps the SMALLEST depth, and this file's convention
-    // is that the largest is nearest. sc.depth is measured from the
-    // component's own origin, so the placement's own depth is added back to
-    // put every component into one depth space (the rule buildSceneSolid's
-    // depthBias states).
+    // is that the largest is nearest. sc.depth is measured from the piece's
+    // own origin, so the placement's own depth is added back to put every
+    // piece into one depth space (the rule buildSceneSolid's depthBias
+    // states).
     (w) => -(sc.depth(w) + base),
     px,
     // A component's edges are for pointing at, not for filleting: an edge
@@ -127,9 +139,15 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
     requireTopoId: false,
   );
   if (hit == null) return null;
-  final m = solids[hit.meshIndex].mesh;
-  final world = o.toWorld(hit.point);
+  final m = solid.mesh;
+  final world = r.rotate(hit.point) + t;
   final depth = cam.depth(world) + kAsmEdgeBias;
+  // The analytic curve records are in the PIECE's mesh frame; a constraint
+  // reference lives in the COMPONENT's. Identity for a part, and for a
+  // subassembly the step that turns an inner part's circle into something the
+  // parent can insert a bolt into.
+  Vec3 up(Vec3 v) => o.toLocal(r.rotate(v) + t);
+  Vec3 upDir(Vec3 v) => o.dirToLocal(r.rotate(v));
   final ci = hit.displayEdge * 16;
   if (ci >= 0 && ci + 16 <= m.edgeCurves.length) {
     final c = m.edgeCurves;
@@ -139,8 +157,9 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       final p1 = Vec3(c[ci + 4], c[ci + 5], c[ci + 6]);
       final d = p1 - p0;
       if (d.length > 1e-9) {
-        return _local(o, AsmGeom.axis(p0, d.normalized()), 'Edge', depth, world,
-            anchor: (p0 + p1) * 0.5, extent: d.length * 0.5);
+        return _local(o, AsmGeom.axis(up(p0), upDir(d).normalized()), 'Edge',
+            depth, world,
+            anchor: up((p0 + p1) * 0.5), extent: d.length * 0.5);
       }
     } else if (type == 2 || type == 3) {
       final centre = Vec3(c[ci + 1], c[ci + 2], c[ci + 3]);
@@ -153,34 +172,42 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
             // The RADIUS travels with it: a circular edge is what Tangent and
             // Insert are usually reached through, and dropping the radius
             // here is what would make Tangent refuse a perfectly round pick.
-            AsmGeom.axis(centre, axis.normalized(),
+            AsmGeom.axis(up(centre), upDir(axis).normalized(),
                 radius: type == 2 ? c[ci + 10] : 0),
             type == 2 ? 'Circular Edge' : 'Elliptical Edge',
             depth,
             world,
-            anchor: centre,
+            anchor: up(centre),
             extent: type == 2 ? c[ci + 10] : 0);
       }
     }
   }
   // No analytic record: the arc-length midpoint is still a real Inventor
   // input, and it is exactly what a Mate between two vertices needs.
-  return _local(o, AsmGeom.point(hit.mid), 'Edge Midpoint', depth, world,
-      anchor: hit.mid, extent: hit.length * 0.5);
+  return _local(o, AsmGeom.point(up(hit.mid)), 'Edge Midpoint', depth, world,
+      anchor: up(hit.mid), extent: hit.length * 0.5);
 }
 
 /// The frontmost face of [o] under [px], as the plane / axis / point it
 /// stands for. Null when the tap missed, or when the surface offers nothing
 /// a constraint can act on.
 AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
-  final sc = placedCam(cam, o.rot, o.offset);
-  final base = cam.depth(o.offset);
   List<double>? bestInfo;
   var bestDepth = double.negativeInfinity;
   var bestHit = Vec3.zero;
   OcctMeshData? bestMesh;
   var bestFace = -1;
-  for (final s in o.solids) {
+  // The transform of the winning piece, so the answer can be brought into the
+  // COMPONENT's frame — which is where a constraint reference lives, and for
+  // a subassembly is not the piece's frame.
+  var bestRot = Quat.identity;
+  var bestAt = Vec3.zero;
+  // `pr`/`pt` rather than `r`/`t`: the triangle loop below already owns `t`,
+  // and shadowing it silently assigned a triangle INDEX as a translation.
+  for (final (_, pr, pt, s) in o.worldSolids) {
+    // M246 — per PIECE: see _pickEdgeOn.
+    final sc = placedCam(cam, pr, pt);
+    final base = cam.depth(pt);
     final m = s.mesh;
     if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
       continue; // no face identity on this mesh: nothing to report
@@ -222,17 +249,25 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       bestHit = local;
       bestMesh = m;
       bestFace = fid;
+      bestRot = pr;
+      bestAt = pt;
     }
   }
   final info = bestInfo;
   if (info == null) return null;
   final type = info[0].round();
-  final at = Vec3(info[1], info[2], info[3]);
-  final dir = Vec3(info[4], info[5], info[6]);
-  final world = o.toWorld(bestHit);
+  // Into the COMPONENT's frame. For a part the piece transform is the
+  // identity and these are no-ops; for a subassembly they are what turns a
+  // face of an inner part into geometry the parent can constrain.
+  Vec3 up(Vec3 v) => o.toLocal(bestRot.rotate(v) + bestAt);
+  Vec3 upDir(Vec3 v) => o.dirToLocal(bestRot.rotate(v));
+  final at = up(Vec3(info[1], info[2], info[3]));
+  final dir = upDir(Vec3(info[4], info[5], info[6]));
+  final world = bestRot.rotate(bestHit) + bestAt;
   if (dir.length < 1e-9 && type != kFacePlane) return null;
   // What the face itself occupies, which is what the highlight has to match.
-  final (mid, span) = _faceSpan(bestMesh!, bestFace);
+  final (rawMid, span) = _faceSpan(bestMesh!, bestFace);
+  final mid = up(rawMid);
   return switch (type) {
     kFacePlane => _local(o, AsmGeom.plane(at, dir), 'Face', bestDepth, world,
         anchor: mid, extent: span),

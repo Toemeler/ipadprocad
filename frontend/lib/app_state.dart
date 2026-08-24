@@ -3784,13 +3784,23 @@ class AppState extends ChangeNotifier {
     return 'Assembly$n';
   }
 
-  /// The parts that can be PLACED into an assembly: every part document in the
-  /// gallery, most recently modified first, so the one you were just working
+  /// What can be PLACED into the open assembly: every part in the gallery
+  /// and, M246, every OTHER assembly that would not make this one contain
+  /// itself. Most recently modified first, so the one you were just working
   /// on is at the top of the list.
+  ///
+  /// The name is historical — it offered only parts until subassemblies
+  /// existed — and is kept because the ribbon, the tests and the toast keys
+  /// all say it.
   List<String> placeableParts() {
+    final into = currentAssembly;
     final out = [
       for (final e in library.entries)
-        if (e.value.isPart) e.key
+        if (e.value.isPart ||
+            (e.value.isAssembly &&
+                into != null &&
+                !_wouldNestCycle(into, e.key)))
+          e.key
     ];
     final when = <String, DateTime>{
       for (final s in saved) s.name: s.modified,
@@ -3904,15 +3914,41 @@ class AppState extends ChangeNotifier {
   /// document, shared by every occurrence of it, owned here.
   final Map<String, PartModel> _componentModels = {};
 
+  /// M246 — the same, for SUBASSEMBLIES. An assembly placed inside another is
+  /// a document like any other: one model, shared, and the very one open in
+  /// its own tab when it is open, so editing a subassembly shows in its
+  /// parent for the same reason editing a part does.
+  final Map<String, AssemblyModel> _componentAssemblies = {};
+
   /// The one model for part [name], or null when there is none to be had.
   PartModel? _sourceModel(String name) =>
       parts[name] ?? _componentModels[name];
 
-  /// Every part document any OPEN assembly places.
-  Set<String> _placedSources() => {
-        for (final a in assemblies.values)
-          for (final o in a.occurrences) o.source
-      };
+  /// The one model for assembly [name], or null.
+  AssemblyModel? _sourceAssembly(String name) =>
+      assemblies[name] ?? _componentAssemblies[name];
+
+  /// Every document any OPEN assembly places, transitively.
+  ///
+  /// Transitive because a subassembly's own components have to stay loaded
+  /// too: the parent draws them, and nothing else references them.
+  Set<String> _placedSources() {
+    final out = <String>{};
+    void walk(AssemblyModel a, Set<String> seen) {
+      for (final o in a.occurrences) {
+        out.add(o.source);
+        if (!o.isSubAssembly) continue;
+        if (!seen.add(o.source)) continue; // a cycle cannot be created, but
+        final child = _sourceAssembly(o.source); // a hand-edited file could
+        if (child != null) walk(child, seen);
+      }
+    }
+
+    for (final a in assemblies.values) {
+      walk(a, {a.name});
+    }
+    return out;
+  }
 
   /// Points every occurrence of every open assembly at the current model for
   /// its source.
@@ -3923,25 +3959,64 @@ class AppState extends ChangeNotifier {
   /// component can be left holding a stale model, because nothing has to
   /// remember to update one.
   void linkOccurrences() {
-    for (final a in assemblies.values) {
+    void link(AssemblyModel a, Set<String> seen) {
       for (final o in a.occurrences) {
-        o.part = _sourceModel(o.source);
+        if (o.isSubAssembly) {
+          // The GUARD is against a document edited by hand into a cycle, not
+          // against anything the app can produce — placeComponent refuses to
+          // create one. Without it a cycle would recurse until the stack ran
+          // out, which is a crash on open rather than a bad drawing.
+          o.part = null;
+          o.sub = seen.contains(o.source) ? null : _sourceAssembly(o.source);
+          final child = o.sub;
+          if (child != null && seen.add(o.source)) {
+            link(child, seen);
+            seen.remove(o.source);
+          }
+        } else {
+          o.sub = null;
+          o.part = _sourceModel(o.source);
+        }
       }
+    }
+
+    for (final a in assemblies.values) {
+      link(a, {a.name});
     }
   }
 
   /// Loads whatever the open assemblies place and is not loaded yet, then
   /// links. Awaited, because a component with no geometry draws as a missing
   /// part and one frame of that is a flicker.
+  /// Loops rather than recurses: loading a subassembly can reveal documents
+  /// IT places, so the pass repeats until nothing new appears. Bounded by the
+  /// number of documents, and the tried-set makes a hand-edited cycle
+  /// terminate rather than spin.
   Future<void> _loadPlacedSources() async {
-    for (final name in _placedSources()) {
-      if (_sourceModel(name) != null) continue;
-      if (_findDoc(name)?.isPart != true) continue;
-      try {
-        _componentModels[name] = await _loadPartModel(name);
-      } catch (e, st) {
-        Log.e('asm', 'could not load part "$name"', e, st);
+    final tried = <String>{};
+    for (var pass = 0; pass < 32; pass++) {
+      final want = _placedSources().difference(tried);
+      if (want.isEmpty) break;
+      for (final name in want) {
+        tried.add(name);
+        final doc = _findDoc(name);
+        if (doc?.isAssembly == true) {
+          if (_sourceAssembly(name) != null) continue;
+          try {
+            _componentAssemblies[name] = await _loadAssemblyModel(name);
+          } catch (e, st) {
+            Log.e('asm', 'could not load subassembly "$name"', e, st);
+          }
+        } else if (doc?.isPart == true) {
+          if (_sourceModel(name) != null) continue;
+          try {
+            _componentModels[name] = await _loadPartModel(name);
+          } catch (e, st) {
+            Log.e('asm', 'could not load part "$name"', e, st);
+          }
+        }
       }
+      linkOccurrences(); // so the next pass can see into what just loaded
     }
     linkOccurrences();
   }
@@ -4019,13 +4094,73 @@ class AppState extends ChangeNotifier {
   /// Frees the shared models nothing places any more.
   ///
   /// Called when an assembly closes. A model that is ALSO open in a tab is
-  /// not ours to free — it lives in `parts` and this map does not hold it.
+  /// not ours to free — it lives in `parts` / `assemblies` and these maps do
+  /// not hold it.
   void _evictUnplacedSources() {
     final want = _placedSources();
     for (final name in _componentModels.keys.toList()) {
       if (want.contains(name)) continue;
       _componentModels.remove(name)?.dispose();
     }
+    for (final name in _componentAssemblies.keys.toList()) {
+      if (want.contains(name)) continue;
+      _componentAssemblies.remove(name)?.dispose();
+    }
+  }
+
+  /// The assemblies [name] places DIRECTLY, read from the document.
+  ///
+  /// From the loaded model when there is one, and from the file otherwise.
+  /// The file matters: the containment question is about documents, not about
+  /// what happens to be open, and an assembly two steps away in the chain is
+  /// very often closed.
+  Set<String> _directlyNests(String name) {
+    final loaded = _sourceAssembly(name);
+    if (loaded != null) {
+      return {
+        for (final o in loaded.occurrences)
+          if (o.isSubAssembly) o.source
+      };
+    }
+    try {
+      if (_findDoc(name)?.isAssembly != true) return const {};
+      _ensureStaged(name);
+      final f = _assemblyJson(name);
+      if (!f.existsSync()) return const {};
+      final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      return {
+        for (final raw in (j['occurrences'] as List? ?? const []))
+          if (raw is Map && raw['kind'] == kAssemblyDocKind)
+            if (raw['src'] is String) raw['src'] as String
+      };
+    } catch (e, st) {
+      Log.e('asm', 'could not read the nesting of "$name"', e, st);
+      return const {};
+    }
+  }
+
+  /// True when placing [source] into [into] would make an assembly contain
+  /// itself, directly or through any chain of subassemblies.
+  ///
+  /// Inventor refuses this and so does everything else that can: a cyclic
+  /// containment has no geometry — the recursion that draws it never ends —
+  /// so there is nothing to show and no error the user could act on later.
+  /// It is refused at the one moment it can be explained, which is now.
+  ///
+  /// Walks the DOCUMENTS rather than the loaded models. A chain is usually
+  /// only half open: placing B into A is fine, placing A into B is a cycle,
+  /// and at that moment A is very often just a file.
+  bool _wouldNestCycle(AssemblyModel into, String source) {
+    if (source == into.name) return true;
+    final seen = <String>{source};
+    final queue = <String>[source];
+    while (queue.isNotEmpty) {
+      for (final next in _directlyNests(queue.removeLast())) {
+        if (next == into.name) return true;
+        if (seen.add(next)) queue.add(next);
+      }
+    }
+    return false;
   }
 
   Future<bool> saveAssembly(String name) async {
@@ -4056,7 +4191,7 @@ class AppState extends ChangeNotifier {
     final png = _pngFile(name);
     try {
       final pieces = [
-        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.rot, o.offset)
+        for (final (id, _, r, t, s) in assemblyPieces(a)) (id, s, r, t)
       ];
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
@@ -4107,34 +4242,55 @@ class AppState extends ChangeNotifier {
   Future<AssemblyOccurrence?> placeComponent(String source) async {
     final a = currentAssembly;
     if (a == null) return null;
-    if (!isPartName(source)) {
+    // M246 — a subassembly is placed by the same command, which is Inventor's
+    // Place Component exactly: one button, and what you pick decides.
+    final asSub = isAssemblyName(source);
+    if (!asSub && !isPartName(source)) {
       toast(L.current.msgAsmNoSuchPart(source));
       return null;
     }
-    // M245 — the SHARED model, loaded once per document. Placing a part that
-    // is already open in a tab, or already placed elsewhere, costs nothing
-    // and links to the very object being edited.
-    if (_sourceModel(source) == null) {
+    if (asSub && _wouldNestCycle(a, source)) {
+      toast(L.current.msgAsmWouldNest(source));
+      return null;
+    }
+    // M245 — the SHARED model, loaded once per document. Placing something
+    // that is already open in a tab, or already placed elsewhere, costs
+    // nothing and links to the very object being edited.
+    if (asSub) {
+      if (_sourceAssembly(source) == null) {
+        try {
+          _componentAssemblies[source] = await _loadAssemblyModel(source);
+        } catch (e, st) {
+          Log.e('asm', 'could not load subassembly "$source"', e, st);
+        }
+      }
+    } else if (_sourceModel(source) == null) {
       try {
         _componentModels[source] = await _loadPartModel(source);
       } catch (e, st) {
         Log.e('asm', 'could not load part "$source"', e, st);
       }
     }
-    final part = _sourceModel(source);
-    if (part == null) {
+    final part = asSub ? null : _sourceModel(source);
+    final sub = asSub ? _sourceAssembly(source) : null;
+    if (part == null && sub == null) {
       toast(L.current.msgAsmCouldNotPlace(source));
       return null;
     }
     final occ = AssemblyOccurrence(
       id: a.nextOccurrenceId(source),
       source: source,
+      sourceKind: asSub ? kAssemblyDocKind : 'part',
       part: part,
+      sub: sub,
       grounded: a.occurrences.isEmpty,
     );
     occ.offset = nextPlacement(a, occurrenceBounds(occ));
     a.occurrences.add(occ);
     a.selected = occ;
+    // A subassembly's own components have to be resolved too — it may place
+    // parts nothing else in this session has loaded.
+    if (asSub) await _loadPlacedSources();
     a.bump();
     // Inventor runs Zoom All when a component is placed, and it has to here:
     // a placement lands CLEAR of what is already there (see nextPlacement), so

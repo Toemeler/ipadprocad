@@ -942,5 +942,6 @@
   "msgAsmCannotSatisfy": "This relationship cannot be satisfied.",
   "msgAsmCannotConstrain": "These selections cannot be constrained that way.",
   "msgAsmConstraintDeleted": "“{name}” deleted.",
-  "hintAsmConstraintSet": "Not available yet"
+  "hintAsmConstraintSet": "Not available yet",
+  "msgAsmWouldNest": "“{name}” already contains this assembly."
 }

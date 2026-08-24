@@ -19,13 +19,30 @@
 // folder lists them, Place Constraint creates them, and dragging a component
 // goes through the solver so a mechanism follows the finger.
 //
-// What that did NOT change is the thing that makes this file small: the
-// placement is still a TRANSFORM APPLIED TO THE SOURCE PART, never a copy of
-// its geometry. Every renderer and hit-test treats a component as "the source
-// part, placed", which is what lets the assembly reuse the part's renderers
-// rather than fork them — on RealityKit it is position + orientation on the
-// solid's holder Entity (M241/M242, see reality_assembly.dart), and on the
-// CPU painter it is a placed camera (see placedCam in part_render.dart).
+// M245 made the link to the source LIVE: an occurrence borrows the one model
+// per document rather than owning a copy, so editing the part updates every
+// assembly that places it. See AssemblyOccurrence.
+//
+// M246 let an occurrence place an ASSEMBLY. Inventor's rule is what makes
+// that small: a subassembly is ONE RIGID BODY in its parent. The solver still
+// sees one body per occurrence and the parent's constraints still act on the
+// whole thing; what changes is only the geometry, and only in one way —
+//
+//     a component used to be  "these solids, at this placement"
+//     a component is now      "these solids, EACH at its own placement"
+//
+// which is true of a part too (every feature at the identity) and is the only
+// shape that can also describe a subassembly. [AssemblyOccurrence.localSolids]
+// is where that is written down, once, and every renderer, picker and payload
+// reads it from there.
+//
+// What none of that changed is the thing that makes this file small: a
+// placement is still a TRANSFORM APPLIED TO THE SOURCE, never a copy of its
+// geometry. Every renderer and hit-test treats a component as "the source,
+// placed", which is what lets the assembly reuse the part's renderers rather
+// than fork them — on RealityKit it is position + orientation on the solid's
+// holder Entity (M241/M242, see reality_assembly.dart), and on the CPU
+// painter it is a placed camera (see placedCam in part_render.dart).
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
@@ -56,8 +73,23 @@ class AssemblyOccurrence {
   /// Unique within the assembly, and shown in the browser: "Bracket:1".
   final String id;
 
-  /// Document name of the placed part.
+  /// Document name of what is placed.
   final String source;
+
+  /// M246 — WHICH KIND of document [source] names.
+  ///
+  /// Inventor places parts and subassemblies through one command and lists
+  /// them in one tree, and so does this. The kind is recorded rather than
+  /// looked up because a component whose document has been DELETED still has
+  /// to say what it was: "the part is gone" and "the subassembly is gone" are
+  /// different sentences, and neither can be derived from a file that is not
+  /// there.
+  ///
+  /// [kAssemblyDocKind] or 'part'. Absent on a document written before this
+  /// existed, which then reads as a part — which is what all of them were.
+  final String sourceKind;
+
+  bool get isSubAssembly => sourceKind == kAssemblyDocKind;
 
   /// Placement, in millimetres from the assembly origin.
   Vec3 offset;
@@ -81,20 +113,31 @@ class AssemblyOccurrence {
   bool visible;
 
   /// The source part's model — BORROWED, not owned. Null while it is still
-  /// being read, and when the part has been deleted from the gallery.
+  /// being read, when the part has been deleted from the gallery, and always
+  /// when this occurrence places an assembly.
   ///
   /// Written by [AppState.linkOccurrences], which is the only thing that
   /// knows where a document's model lives.
   PartModel? part;
 
+  /// M246 — the SUBASSEMBLY this occurrence places, borrowed the same way.
+  ///
+  /// Exactly one of [part] and [sub] is ever set. Both are written by
+  /// [AppState.linkOccurrences] and neither is owned here — the model may be
+  /// the one open in its own tab, which is what makes a change to a
+  /// subassembly appear in its parent.
+  AssemblyModel? sub;
+
   AssemblyOccurrence({
     required this.id,
     required this.source,
+    this.sourceKind = 'part',
     Vec3? offset,
     Quat? rot,
     this.grounded = false,
     this.visible = true,
     this.part,
+    this.sub,
   })  : offset = offset ?? Vec3.zero,
         rot = rot ?? Quat.identity;
 
@@ -116,37 +159,65 @@ class AssemblyOccurrence {
 
   Vec3 dirToLocal(Vec3 world) => rot.unrotate(world);
 
-  /// The solids this occurrence draws, each with the FEATURE NAME that built
-  /// it, in the SOURCE part's own coordinates. Callers add [offset] themselves
-  /// — see the note in the file header.
+  /// Everything this occurrence draws, in ITS OWN coordinates: a path that
+  /// names the piece, the rigid transform that places it inside the
+  /// component, and the solid.
   ///
-  /// ONE definition of "what a component draws". The rule (visible, built,
-  /// not folded away by a boolean, not below End of Part) is the part
+  /// ONE definition of "what a component draws". The rule for a part (visible,
+  /// built, not folded away by a boolean, not below End of Part) is the part
   /// viewport's own, and it is stated here exactly once: the CPU painter, the
   /// RealityKit payload, the bounds walk and the picker all read it from here,
   /// so a component cannot be drawn by one and missed by another.
-  Iterable<(String, KernelSolid)> get namedSolids sync* {
+  ///
+  /// M246 — the inner transform is what a SUBASSEMBLY needs and a part never
+  /// does. A part's features are all in the part's own space, so every one of
+  /// them comes back at the identity. A subassembly's components are not: each
+  /// sits somewhere inside it, and that placement composes with this
+  /// occurrence's own. The recursion is what makes a subassembly of a
+  /// subassembly work, and it terminates because a cycle can never be created
+  /// — see AppState.placeComponent.
+  ///
+  /// The PATH is what keeps ids unique down the tree: "Extrusion1" for a part,
+  /// "Gearbox:1/Extrusion1" one level down. The renderer keys its entity cache
+  /// on it, and two occurrences of one subassembly carry the same inner names.
+  Iterable<(String, Quat, Vec3, KernelSolid)> get localSolids sync* {
     final p = part;
-    if (p == null) return;
-    for (final f in p.features) {
-      if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack) {
-        yield (f.name, f.solid!);
+    if (p != null) {
+      for (final f in p.features) {
+        if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack) {
+          yield (f.name, Quat.identity, Vec3.zero, f.solid!);
+        }
+      }
+      return;
+    }
+    final a = sub;
+    if (a == null) return;
+    for (final child in a.occurrences) {
+      if (!child.visible) continue;
+      for (final (path, r, t, solid) in child.localSolids) {
+        // world_of_this_component = child_transform * inner_transform
+        yield ('${child.id}/$path', (child.rot * r).normalized(),
+            child.toWorld(t), solid);
       }
     }
   }
 
-  /// [namedSolids] without the names, for the painters that do not need them.
-  Iterable<KernelSolid> get solids sync* {
-    for (final (_, s) in namedSolids) {
-      yield s;
+  /// [localSolids] placed in WORLD coordinates, which is what every painter,
+  /// picker and payload actually wants.
+  Iterable<(String, Quat, Vec3, KernelSolid)> get worldSolids sync* {
+    for (final (path, r, t, solid) in localSolids) {
+      yield (path, (rot * r).normalized(), toWorld(t), solid);
     }
   }
 
-  bool get loaded => part != null;
+  bool get loaded => part != null || sub != null;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'src': source,
+        // Omitted for a part, so a document holding only parts is byte-
+        // identical to one written before subassemblies existed.
+        if (isSubAssembly) 'kind': kAssemblyDocKind,
         'x': offset.x,
         'y': offset.y,
         'z': offset.z,
@@ -165,6 +236,7 @@ class AssemblyOccurrence {
     return AssemblyOccurrence(
       id: id,
       source: src,
+      sourceKind: j['kind'] == kAssemblyDocKind ? kAssemblyDocKind : 'part',
       offset: Vec3(n('x'), n('y'), n('z')),
       rot: Quat.fromJson(j['rot']),
       grounded: j['grounded'] == true,
@@ -180,6 +252,7 @@ class AssemblyOccurrence {
   /// it would not even be safe among occurrences.
   void dispose() {
     part = null;
+    sub = null;
   }
 }
 
@@ -273,11 +346,13 @@ class AssemblyModel {
     final moved = AssemblyOccurrence(
       id: newId,
       source: newSource,
+      sourceKind: o.sourceKind,
       offset: o.offset,
       rot: o.rot,
       grounded: o.grounded,
       visible: o.visible,
       part: o.part,
+      sub: o.sub,
     );
     occurrences[i] = moved;
     if (identical(selected, o)) selected = moved;
@@ -423,13 +498,18 @@ class AsmSolveSummary {
   bool get allConstrained => dof == 0;
 }
 
-/// What the painters draw: every VISIBLE occurrence that has geometry, as
-/// (placement, solids). The order is the occurrence order; the painter sorts
-/// by depth itself (see [paintAssemblySolids]), and the viewport needs the
-/// occurrence order preserved so it can map a painter index back to a row.
+/// What the painters draw: every VISIBLE occurrence, as the world-placed
+/// pieces it is made of.
+///
+/// The order is the occurrence order; the painter sorts by depth itself (see
+/// [paintAssemblySolids]), and the viewport needs the occurrence order
+/// preserved so it can map a painter index back to a row.
 List<PlacedComponent> placedComponents(AssemblyModel a) => [
       for (final o in a.occurrences)
-        if (o.visible) PlacedComponent(o.rot, o.offset, o.solids.toList())
+        if (o.visible)
+          PlacedComponent([
+            for (final (_, r, t, s) in o.worldSolids) (r, t, s),
+          ])
     ];
 
 /// M242 — a stored reference's geometry in WORLD coordinates, right now.
@@ -461,25 +541,32 @@ AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
 /// The part-side twin is [partContentBounds]; this one is not memoised because
 /// an assembly holds a handful of occurrences rather than a timeline of
 /// features, and the walk is over meshes that are already in memory.
-(Vec3, Vec3)? assemblyContentBounds(AssemblyModel a) {
+(Vec3, Vec3)? assemblyContentBounds(AssemblyModel a) => _boundsOf([
+      for (final o in a.occurrences)
+        if (o.visible) ...o.worldSolids
+    ]);
+
+/// World bounds of a list of placed solids, or null when there are none.
+///
+/// M246 — one walk, because a piece now carries its OWN transform inside its
+/// component (a subassembly's parts are not at its origin) and composing that
+/// with the component's in two separate loops is two chances to get it wrong.
+(Vec3, Vec3)? _boundsOf(List<(String, Quat, Vec3, KernelSolid)> pieces) {
   var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
   var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
   var any = false;
-  for (final o in a.occurrences) {
-    if (!o.visible) continue;
-    for (final s in o.solids) {
-      final pos = s.mesh.positions;
-      for (var i = 0; i + 2 < pos.length; i += 3) {
-        final w = o.toWorld(Vec3(pos[i], pos[i + 1], pos[i + 2]));
-        if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
-        any = true;
-        if (w.x < minX) minX = w.x;
-        if (w.y < minY) minY = w.y;
-        if (w.z < minZ) minZ = w.z;
-        if (w.x > maxX) maxX = w.x;
-        if (w.y > maxY) maxY = w.y;
-        if (w.z > maxZ) maxZ = w.z;
-      }
+  for (final (_, r, t, s) in pieces) {
+    final pos = s.mesh.positions;
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      final w = r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t;
+      if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
+      any = true;
+      if (w.x < minX) minX = w.x;
+      if (w.y < minY) minY = w.y;
+      if (w.z < minZ) minZ = w.z;
+      if (w.x > maxX) maxX = w.x;
+      if (w.y > maxY) maxY = w.y;
+      if (w.z > maxZ) maxZ = w.z;
     }
   }
   if (!any) return null;
@@ -504,29 +591,10 @@ AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
 }
 
 /// World bounds of ONE occurrence, placement included, or null when it holds
-/// no geometry. Used to frame the view on a newly placed component and as the
-/// cheap first pass of the drag hit-test.
-(Vec3, Vec3)? occurrenceBounds(AssemblyOccurrence o) {
-  var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
-  var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
-  var any = false;
-  for (final s in o.solids) {
-    final pos = s.mesh.positions;
-    for (var i = 0; i + 2 < pos.length; i += 3) {
-      final w = o.toWorld(Vec3(pos[i], pos[i + 1], pos[i + 2]));
-      if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
-      any = true;
-      if (w.x < minX) minX = w.x;
-      if (w.y < minY) minY = w.y;
-      if (w.z < minZ) minZ = w.z;
-      if (w.x > maxX) maxX = w.x;
-      if (w.y > maxY) maxY = w.y;
-      if (w.z > maxZ) maxZ = w.z;
-    }
-  }
-  if (!any) return null;
-  return (Vec3(minX, minY, minZ), Vec3(maxX, maxY, maxZ));
-}
+/// no geometry. Used to frame the view on a newly placed component, to size
+/// the constraint highlight, and as the cheap first pass of the drag hit-test.
+(Vec3, Vec3)? occurrenceBounds(AssemblyOccurrence o) =>
+    _boundsOf(o.worldSolids.toList());
 
 /// Where a NEWLY placed occurrence goes.
 ///

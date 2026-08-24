@@ -103,6 +103,64 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
       ],
     ];
 
+/// M246 — one component and, when it is a SUBASSEMBLY and disclosed, the
+/// tree beneath it.
+///
+/// Inventor nests a subassembly's own browser under its occurrence, and the
+/// rows down there are the real thing: each is selectable, has its own eye,
+/// and lists its own relationships. What they are NOT is independently
+/// draggable — a subassembly is one rigid body in its parent (see
+/// asm_solver), so the parent's solver never sees the parts inside it.
+///
+/// [path] prefixes the row id so two occurrences of one subassembly do not
+/// collide: `cp:Machine:1/Bracket:1`. The prefix is stripped by the host when
+/// it resolves the row back to an occurrence.
+void _componentRows(List<GlassRow> rows, AssemblyModel asm,
+    AssemblyOccurrence o, Set<String> expanded,
+    {required int depth, required String path}) {
+  final id = '$kIdComponent$path${o.id}';
+  final rels = asm.constraintsOn(o.id);
+  final sub = o.sub;
+  // A subassembly discloses its contents; a part discloses its relationships.
+  final expandable = sub != null || rels.isNotEmpty;
+  final open = expanded.contains(id);
+  rows.add(GlassRow(
+    id: id,
+    label: o.id,
+    // A grounded component takes Inventor's pin, the same glyph a grounded
+    // work point already uses in this tree; a subassembly takes the stacked
+    // cubes its own document root does.
+    symbol: o.grounded
+        ? 'pin.fill'
+        : (o.isSubAssembly ? 'square.stack.3d.up' : 'cube'),
+    depth: depth,
+    hasEye: true,
+    eyeOn: o.visible,
+    // A component whose source document is gone still gets a row — that is
+    // how the user finds out and removes it — and it is dimmed, because
+    // nothing of it is on screen.
+    dim: !o.visible || !o.loaded,
+    selected: identical(asm.selected, o),
+    // M242 — a component with relationships gains a disclosure box, so the
+    // constraints ON it can be reached from the component rather than only
+    // from the flat Relationships folder. That is Inventor's tree: every
+    // constraint appears twice, once in the folder and once under each
+    // component it touches.
+    expandable: expandable,
+    expanded: open,
+    menu: _componentMenu(o),
+  ));
+  if (!open) return;
+  for (final c in rels) {
+    rows.add(_constraintRow(asm, c, depth: depth + 1));
+  }
+  if (sub == null) return;
+  for (final child in sub.occurrences) {
+    _componentRows(rows, sub, child, expanded,
+        depth: depth + 1, path: '$path${o.id}/');
+  }
+}
+
 /// M242 — one relationship row.
 ///
 /// The three states it can be in are exactly Inventor's, and each is said
@@ -253,34 +311,7 @@ List<GlassRow> _buildRows(
       }
     }
     for (final o in asm.occurrences) {
-      rows.add(GlassRow(
-        id: '$kIdComponent${o.id}',
-        label: o.id,
-        // A grounded component takes Inventor's pin, the same glyph a
-        // grounded work point already uses in this tree.
-        symbol: o.grounded ? 'pin.fill' : 'cube',
-        depth: 1,
-        hasEye: true,
-        eyeOn: o.visible,
-        // A component whose source part is gone still gets a row — that is
-        // how the user finds out and removes it — and it is dimmed, because
-        // nothing of it is on screen.
-        dim: !o.visible || !o.loaded,
-        selected: identical(asm.selected, o),
-        // M242 — a component with relationships gains a disclosure box, so
-        // the constraints ON it can be reached from the component rather than
-        // only from the flat Relationships folder. That is Inventor's tree:
-        // every constraint appears twice, once in the folder and once under
-        // each component it touches.
-        expandable: asm.constraintsOn(o.id).isNotEmpty,
-        expanded: expanded.contains('$kIdComponent${o.id}'),
-        menu: _componentMenu(o),
-      ));
-      if (expanded.contains('$kIdComponent${o.id}')) {
-        for (final c in asm.constraintsOn(o.id)) {
-          rows.add(_constraintRow(asm, c, depth: 2));
-        }
-      }
+      _componentRows(rows, asm, o, expanded, depth: 1, path: '');
     }
     return rows;
   }

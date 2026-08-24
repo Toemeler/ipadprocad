@@ -1254,14 +1254,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 // The placed components. Inventor lists them below Origin,
                 // in the order they were placed.
                 if (asm != null)
-                  for (final o in asm.occurrences) ...[
-                    _componentRow(app, asm, o),
-                    // Inventor nests every constraint under each component it
-                    // touches, as well as listing it in the folder above.
-                    if (_compOpen.contains(o.id))
-                      for (final c in asm.constraintsOn(o.id))
-                        _constraintRow(app, asm, c, indent: 30),
-                  ],
+                  for (final o in asm.occurrences)
+                    ..._componentRows(app, asm, o, indent: 8, path: ''),
                 // A part shows its child sketches and features instead of
                 // layers; the open child sketch falls through to the 2D tree.
                 if (part != null && app.activeChild == null) ...[
@@ -1365,20 +1359,23 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// component carries Inventor's pin instead of an expander.
   ///
   /// M242 — and it discloses the relationships ON it, when it has any.
-  Widget _componentRow(
-      AppState app, AssemblyModel asm, AssemblyOccurrence o) {
-    final rels = asm.constraintsOn(o.id);
-    final open = _compOpen.contains(o.id);
+  Widget _componentRow(AppState app, AssemblyModel asm, AssemblyOccurrence o,
+      {required double indent, required String key}) {
+    final expandable =
+        o.sub != null || asm.constraintsOn(o.id).isNotEmpty;
+    final open = _compOpen.contains(key);
     final row = _row(
-      indent: 8,
-      exp: rels.isEmpty ? ' ' : (open ? '−' : '+'),
-      icon: o.grounded ? groundedPinIcon : componentCubeIcon,
+      indent: indent,
+      exp: !expandable ? ' ' : (open ? '−' : '+'),
+      icon: o.grounded
+          ? groundedPinIcon
+          : (o.isSubAssembly ? assemblyCubeIcon : componentCubeIcon),
       label: o.id,
       active: identical(asm.selected, o),
       onTap: () {
-        if (rels.isNotEmpty) {
+        if (expandable) {
           setState(() {
-            if (!_compOpen.remove(o.id)) _compOpen.add(o.id);
+            if (!_compOpen.remove(key)) _compOpen.add(key);
           });
         }
         app.selectOccurrence(identical(asm.selected, o) ? null : o);
@@ -1390,15 +1387,40 @@ class _ModelBrowserState extends State<ModelBrowser> {
     return o.visible ? row : Opacity(opacity: 0.45, child: row);
   }
 
-  /// Which components have their relationships disclosed.
+  /// Which components are disclosed, by their full nested path.
   final Set<String> _compOpen = {};
+
+  /// M246 — a component and, when it is a SUBASSEMBLY and disclosed, the tree
+  /// beneath it. The native tree's twin; see _componentRows there for why the
+  /// path is slash-separated and what nests under what.
+  List<Widget> _componentRows(
+      AppState app, AssemblyModel asm, AssemblyOccurrence o,
+      {required double indent, required String path}) {
+    final key = '$path${o.id}';
+    final rels = asm.constraintsOn(o.id);
+    final sub = o.sub;
+    final open = _compOpen.contains(key);
+    return [
+      _componentRow(app, asm, o, indent: indent, key: key),
+      if (open) ...[
+        // Inventor nests every constraint under each component it touches, as
+        // well as listing it in the folder above.
+        for (final c in rels)
+          _constraintRow(app, asm, c, indent: indent + 22),
+        if (sub != null)
+          for (final child in sub.occurrences)
+            ..._componentRows(app, sub, child,
+                indent: indent + 22, path: '$key/'),
+      ],
+    ];
+  }
 
   /// M242 — one relationship. Tapping selects it, tapping the selected one
   /// again opens the dialog on it (there is no double-tap in this tree); a
   /// long press is the Edit / Suppress / Delete menu, matching the native
   /// browser's context menu on the same row.
-  Widget _constraintRow(
-      AppState app, AssemblyModel asm, AsmConstraint c, {required double indent}) {
+  Widget _constraintRow(AppState app, AssemblyModel asm, AsmConstraint c,
+      {required double indent}) {
     final t = L.of(context);
     final selected = identical(asm.selectedConstraint, c);
     final row = _row(
