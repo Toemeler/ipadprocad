@@ -242,12 +242,28 @@ has new edges: 719 of 3379 edges belonged to a single face after Perform, and
 29 of 3030 without it. `ShapeFix_Edge::FixAddPCurve` adds the pcurve to the
 edge that is already there.
 
-**What is still open.** A hybrid shell — fitted faces beside triangles — comes
-out with about 1% of its seams unmatched and so is not a solid. Where that
-happens the fitted result is kept anyway (recognition is what was asked for)
-unless nothing at all was recognised, in which case the faceted build takes it
-and closes. Closing the hybrid is the next thing, and it is a bounded problem
-with a measured target: 29 edges of 3030.
+**What is still open, and exactly why.** A hybrid shell — fitted faces beside
+triangles — comes out with 29 of its 3030 edges belonging to one face only, and
+so is not a solid. The cause is now pinned rather than guessed: a hole through
+a faceted region is a CLOSED TUBE, and a closed tube has no open boundary to
+build a wire from, so it takes the parametric path — `MakeFace(surf, u1, u2,
+v1, v2)`. That face's rims are **exact circles at constant v**. The triangles
+around it have the mesh's rim POLYGON. One is inscribed in the other, and they
+differ by the sagitta — 0.07 mm on a 2 mm hole at twelve segments. Sewing
+closes most of them and not all.
+
+Two ways out, neither free:
+
+- **Split each tube at a seam** into two half-faces, so both have real open
+  boundaries built from the shared mesh edges. Closes exactly; costs "one hole
+  is one face", which is worth something to whoever edits it afterwards.
+- **Trim the tube with the rim polylines**, keeping one face per hole. Right
+  answer, more work: a periodic face wants a seam edge, and the wire has to be
+  assembled with it.
+
+Where the shell does not close the fitted result is kept anyway — recognition
+is what was asked for — unless nothing at all was recognised, in which case the
+faceted build takes over and closes.
 
 ### RANSAC, and why greedy growing could never have got there
 
